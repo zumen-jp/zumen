@@ -30,6 +30,10 @@ unused-allowed-license = "allow"
 multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
+# 権利が public でない形式を読み書きする crate（決定 0017）。formats/ledger.toml の known-crates と合わせる。
+deny = [
+    { crate = "stb-parser", reason = "ST-Bridge は、実装の公開に buildingSMART Japan の許諾が要る（決定 0017）" },
+]
 
 # 依存は crates.io のものに限る。git の依存は、crates.io に公開できない。
 [sources]
