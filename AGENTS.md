@@ -1,6 +1,6 @@
 # 開発エージェント向けの規則
 
-このリポジトリは zumen の作り直しです。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) とその子 issue に、決まったことは `docs/decisions/` にあります。旧版は [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) にあります。形式の知見（`docs/formats/`）、検証の記録、試験ファイルの作り方は旧版から移します。旧版のコードを移すときも、この規則と新しい層の構成に合わせて書き直します。
+このリポジトリは zumen の作り直しです。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) とその子 issue に、決まったことは `docs/decisions/` にあります。旧版は [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) にあります。形式の知見（`docs/formats/`）、検証の記録、試験ファイルの作り方は旧版から移します。旧版のコードを移すときも、この規則と新しい層の構成（[決定 0008](docs/decisions/0008-model-layers-and-codecs.md)）に合わせて書き直します。
 
 ## 日本語を正にする
 
@@ -25,7 +25,7 @@
 
 ## 守る約束
 
-- **どこでも同じ結果。** 同じ入力から、native・wasm・各言語の結合で同じ出力を返す。三角関数は `libm` を使い、`HashMap` の順やロケールに依存しない。
+- **どこでも同じ結果。** 同じ入力から、native・wasm・各言語の結合でビット単位で同じ出力を返す。三角関数・指数・対数・`powi`・`hypot` などは std ではなく `libm` を使い、`HashMap` の順やロケールに依存しない。規則の全体は [決定 0007](docs/decisions/0007-single-rust-implementation.md) にある。
 - **黙って捨てない。** 描かないもの・形を変えて書いたものは、診断として種類・件数・場所を返す。
 - **ID は契約。** 同じバイト列は、どの版でも同じ ID を返す。ID を変える変更には、先に決定の記録が要る。
 - **受け取ったファイルを信用しない。** パニックしない。再帰とループには上限を付ける。予算は、明示的な文脈で渡す。
