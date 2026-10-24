@@ -4,13 +4,10 @@
 
 #include "zumen.h"
 
-/* 満たさなければ、その行の番号を返す */
-#define EXPECT(condition)    \
-    do {                     \
-        if (!(condition)) {  \
-            return __LINE__; \
-        }                    \
-    } while (0)
+/* 満たさなければ、その行の番号を返す。MSVC の /W4 が do { } while (0) に警告を出すことがあるので、if だけにする */
+#define EXPECT(condition) \
+    if (!(condition))     \
+    return __LINE__
 
 /* バッファが、text を含むか */
 static int contains(const zm_buf *buf, const char *text) {
@@ -35,7 +32,7 @@ int zumen_c_smoke(void) {
     zm_buf response = {NULL, 0};
     struct ArrowArrayStream stream;
 
-    EXPECT(zm_abi_version() == ZM_ABI_VERSION);
+    EXPECT(zm_abi_version() == (uint32_t)ZM_ABI_VERSION);
     EXPECT(zm_session_new((const uint8_t *)options, sizeof options - 1, &session) == ZM_OK);
     EXPECT(session != NULL);
 
