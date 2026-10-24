@@ -1,0 +1,61 @@
+{
+  "description": "describe は、カタログのひな形に値を入れる。カタログがないか、カタログにない code は、code と値をそのまま書く（決定 0009）",
+  "steps": [
+    {
+      "call": {
+        "v": 1,
+        "op": "describe",
+        "diagnostics": [
+          { "code": "budget.records.exceeded", "severity": "error", "count": 1, "at": [], "params": { "limit": 1000, "requested": 1001 } },
+          { "code": "zip.path.unsafe", "severity": "warning", "count": 2, "at": [{ "record": 3 }], "params": { "name": "../a" } }
+        ]
+      },
+      "expect": {
+        "/result/texts": ["budget.records.exceeded (limit=1000, requested=1001)", "zip.path.unsafe (name=\"../a\", count=2)"],
+        "/diagnostics": []
+      }
+    },
+    {
+      "push": {
+        "name": "catalog/test.json",
+        "text": "{\"v\":1,\"lang\":\"test\",\"package\":\"0.0.0\",\"number\":{\"group_separator\":\",\",\"decimal_separator\":\".\"},\"codes\":{\"budget.records.exceeded\":\"{limit} 件まで（{requested} 件、{count} 回）\",\"x.y.z\":\"{ratio}・{name}・{missing}\"}}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "describe",
+        "catalog": "catalog/test.json",
+        "diagnostics": [
+          { "code": "budget.records.exceeded", "severity": "error", "count": 1, "at": [], "params": { "limit": 1000000, "requested": 18446744073709551615 } },
+          { "code": "x.y.z", "severity": "info", "count": 1, "at": [], "params": { "ratio": -1234.5, "name": "平面図" } },
+          { "code": "zip.path.unsafe", "severity": "warning", "count": 1, "at": [], "params": { "name": "a" } }
+        ]
+      },
+      "expect": {
+        "/result/texts": ["1,000,000 件まで（18,446,744,073,709,552,000 件、1 回）", "-1,234.5・平面図・{missing}", "zip.path.unsafe (name=\"a\")"]
+      }
+    },
+    {
+      "call": { "v": 1, "op": "describe", "catalog": "none.json", "diagnostics": [] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.input.missing", "/diagnostics/0/params/name": "none.json" }
+    },
+    { "push": { "name": "broken.json", "text": "{\"v\":1}" } },
+    {
+      "call": { "v": 1, "op": "describe", "catalog": "broken.json", "diagnostics": [] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "catalog.file.invalid", "/diagnostics/0/params/name": "broken.json" }
+    },
+    {
+      "call": { "v": 1, "op": "describe", "diagnostics": [{ "code": "x", "severity": "fatal", "count": 1, "at": [], "params": {} }] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/diagnostics/0/severity" }
+    },
+    {
+      "call": { "v": 1, "op": "describe", "diagnostics": [{ "code": "x", "severity": "info", "count": 1, "at": [], "params": { "a": [] } }] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/diagnostics/0/params/a" }
+    }
+  ]
+}

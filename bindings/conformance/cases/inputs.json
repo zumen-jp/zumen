@@ -1,0 +1,58 @@
+{
+  "description": "入力の名前の規則と、同じ名前で足したバイト列、close での入力の捨て方（決定 0012）",
+  "steps": [
+    { "push": { "name": "a.txt", "text": "abc" } },
+    { "push": { "name": "a.txt", "text": "def" } },
+    { "push": { "name": "DRAWING/D0PL001Z.P21" } },
+    { "push": { "name": "図面/平面図.jww", "hex": "00 ff" } },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.txt", "budget": { "input_bytes": 5 } },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "budget.input-bytes.exceeded", "/diagnostics/0/params/limit": 5, "/diagnostics/0/params/requested": 6 }
+    },
+    { "push": { "name": "../a.txt" }, "status": "invalid" },
+    { "push": { "name": "/a.txt" }, "status": "invalid" },
+    { "push": { "name": "a/" }, "status": "invalid" },
+    { "push": { "name": "a//b" }, "status": "invalid" },
+    { "push": { "name": "./a" }, "status": "invalid" },
+    { "push": { "name": "C:a.txt" }, "status": "invalid" },
+    { "push": { "name": "a\\b.txt" }, "status": "invalid" },
+    { "push": { "name": "a\u0000b" }, "status": "invalid" },
+    { "push": { "name": "" }, "status": "invalid" },
+    { "push": { "name_hex": "ff" }, "status": "invalid" },
+    {
+      "call": { "v": 1, "op": "close", "inputs": ["a.txt", "b.txt", "c.txt"] },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.input.missing",
+        "/diagnostics/0/params/name": "b.txt",
+        "/diagnostics/1/code": "call.input.missing",
+        "/diagnostics/1/params/name": "c.txt"
+      },
+      "absent": ["/result"]
+    },
+    {
+      "call": { "v": 1, "op": "close", "inputs": ["a.txt", "DRAWING/D0PL001Z.P21", "図面/平面図.jww"] },
+      "expect": { "/result": {}, "/diagnostics": [] }
+    },
+    {
+      "call": { "v": 1, "op": "close", "inputs": ["a.txt"] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.input.missing", "/diagnostics/0/params/name": "a.txt" }
+    },
+    {
+      "call": { "v": 1, "op": "close", "docs": ["a.txt"] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.document.missing", "/diagnostics/0/params/name": "a.txt" }
+    },
+    {
+      "call": { "v": 1, "op": "close", "inputs": ["ok", "../x"] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/inputs/1" }
+    },
+    {
+      "call": { "v": 1, "op": "close" },
+      "expect": { "/result": {} }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "lang": "ja",
+  "package": "0.0.0",
+  "number": { "group_separator": ",", "decimal_separator": "." },
+  "codes": {
+    "budget.decoded-bytes.exceeded": "展開・復号したバイト数が上限（{limit}）を超えたので、止めました。",
+    "budget.depth.exceeded": "入れ子の深さが上限（{limit}）を超えたので、止めました。",
+    "budget.elements.exceeded": "作った要素の数が上限（{limit}）を超えたので、止めました。",
+    "budget.input-bytes.exceeded": "受け取ったバイト数（{requested}）が上限（{limit}）を超えたので、読みませんでした。",
+    "budget.records.exceeded": "読んだレコードの数が上限（{limit}）を超えたので、止めました。",
+    "budget.segments.exceeded": "幾何の分割で作った点・線・面の数が上限（{limit}）を超えたので、止めました。",
+    "budget.time.exceeded": "時間の上限に達したので、止めました。",
+    "budget.work.exceeded": "繰り返しの回数が上限（{limit}）を超えたので、止めました。",
+    "call.document.missing": "文書「{name}」がありません。",
+    "call.field.missing": "要求に、必要な欄 {pointer} がありません。",
+    "call.field.unsupported": "要求の欄 {pointer} は、この核が知らないか、この形では使えません。",
+    "call.format.unsupported": "入力「{name}」の形式を判定できないか、この核では読めない形式です。",
+    "call.input.missing": "入力「{name}」がありません。",
+    "call.json.invalid": "要求を UTF-8 の JSON として読めませんでした（先頭から {offset} バイトの所）。",
+    "call.op.unsupported": "op「{op}」は、この核にはありません。",
+    "call.request.cancelled": "中断の合図を受けたので、止めました。",
+    "call.value.invalid": "要求の {pointer} の値の型か範囲が、正しくありません。",
+    "call.version.unsupported": "要求の版（v = {version}）を、この核は扱えません。",
+    "catalog.file.invalid": "入力「{name}」は、カタログとして読めません。",
+    "internal.panic.caught": "内部の不具合で止めました。不具合として報告してください。",
+    "zip.path.unsafe": "パスとして安全でない ZIP の項目の名前を、そのまま使いませんでした（{count} 件。最初は「{name}」）。"
+  }
+}

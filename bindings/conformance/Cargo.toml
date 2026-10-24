@@ -1,0 +1,17 @@
+[package]
+name = "zumen-conformance"
+description = "言語に依存しない適合試験を、Rust から直接と C ABI で流す。成果物には入らない"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+zumen-abi = { path = "../../crates/zumen-abi" }
+zumen-base = { path = "../../crates/zumen-base" }
+zumen-json = { path = "../../crates/zumen-json" }
+
+# C ABI の関数を呼ぶために unsafe を使う。試験の道具なので、核の lint は使わない
+[lints.rust]
+unsafe_code = "allow"

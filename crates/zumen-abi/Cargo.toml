@@ -1,0 +1,20 @@
+[package]
+name = "zumen-abi"
+description = "zumen の境界: 各言語から呼ぶ C ABI と wasm の関数と、スキーマで定めたメッセージ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# ライブラリのファイル名に ABI の大版を入れる（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib、決定 0015）
+[lib]
+name = "zumen_abi1"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+zumen-base = { path = "../zumen-base" }
+zumen-json = { path = "../zumen-json" }
+
+[lints]
+workspace = true

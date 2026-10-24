@@ -35,9 +35,12 @@
 
 - 最新の `origin/main` からブランチを作り、すべての変更を PR にする。`main` へ直接 push しない。
 - PR を出す前に、CI と同じ検査を手元で通す: `cargo fmt --all --check`・`cargo clippy --workspace --all-targets -- -D warnings`・`cargo test --workspace`・`cargo xtask codegen --check`。
+  - 境界の crate を変えたときは、wasm32 の検査も通す: `cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings` と、wasm32 の適合試験（`bindings/conformance/README.md`、Node.js 22 以降）。
 - CI が通ったら squash merge し、ブランチを消す。レビューで止めるよう頼まれた場合は、そこで止める。
 - Rust の版は `rust-toolchain.toml` で固定する。上げるときは、CI の cargo-deny の版も合わせる。
 - 診断の code を足すときは、`catalog/` の台帳と日本語・英語の文を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`catalog/README.md`）。
+- 境界の関数・op・欄を変えるときは、`schema/` を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`schema/README.md`）。メッセージの JSON は `zumen-json` で読み書きし、規則は [決定 0016](docs/decisions/0016-boundary-message-details.md) にある。
+- 応答が変わったら、適合試験のハッシュの一覧を `cargo run -p zumen-conformance -- --write` で作り直し、変わった理由を PR に書く（`bindings/conformance/README.md`）。
 - コミットと PR のタイトルは Conventional Commits にする。
 - 選択肢と理由のある設計判断は、`docs/decisions/README.md` の形で記録する。
   - 番号は 0001 から振る。番号を振る前に、開いている PR が同じ番号を使っていないか確かめる。

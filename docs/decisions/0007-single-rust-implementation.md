@@ -101,3 +101,7 @@
 - 旧版の構成の [Keeping the two implementations equal](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/architecture.en.md#keeping-the-two-implementations-equal)
 - [旧版の決定 0003](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0003-dwg-in-rust.md)・[旧版の決定 0014](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0014-verify-on-native-windows.md)・[旧版の決定 0020](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0020-pdf-drawings-in-rust.md)・[旧版の決定 0028](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0028-ifc-in-rust.md)
 - Rust の [f64 の文書](https://doc.rust-lang.org/std/primitive.f64.html)（各関数の「Precision」「Unspecified precision」の節）
+
+## 後の記録
+
+- 2026-10-24: [0016](0016-boundary-message-details.md) で、ハッシュの一覧を最後の job で比べる代わりに、コミットした一覧（`bindings/conformance/hashes.txt`）と、どの環境・どの形も比べることにした。

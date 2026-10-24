@@ -17,6 +17,7 @@ unsafe = "危ないので、そのまま使わなかった"
 exceeded = "予算の上限を超えた"
 cancelled = "中断の合図で止めた"
 caught = "境界で捕まえた"
+missing = "名指ししたものがない"
 
 # 予算（決定 0010）
 
@@ -75,7 +76,72 @@ severity = "error"
 since = "0.0.0"
 status = "active"
 
-# 呼び出しと境界（決定 0010）
+# 呼び出しと境界（決定 0010・0012）
+
+[codes."call.json.invalid"]
+description = "要求が UTF-8 の JSON として読めない（文法・重なったキー・深すぎる入れ子・UTF-8 でないバイト）"
+severity = "error"
+params = { offset = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."call.version.unsupported"]
+description = "要求の版 v を、この核が扱えない"
+severity = "error"
+params = { version = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."call.op.unsupported"]
+description = "この核（wasm ではこのモジュール）にない op"
+severity = "error"
+params = { op = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."call.field.unsupported"]
+description = "要求に、この核が知らない欄か、この形（wasm など）では使えない欄がある"
+severity = "error"
+params = { pointer = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."call.field.missing"]
+description = "要求に、必要な欄がない"
+severity = "error"
+params = { pointer = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."call.value.invalid"]
+description = "要求の値の型か範囲が、スキーマに合わない"
+severity = "error"
+params = { pointer = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."call.input.missing"]
+description = "名指しした入力がない"
+severity = "error"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."call.document.missing"]
+description = "名指しした文書がない"
+severity = "error"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."call.format.unsupported"]
+description = "入力の形式を判定できない。または、この核では読めない形式"
+severity = "error"
+params = { name = "text" }
+since = "0.0.0"
+status = "active"
 
 [codes."call.request.cancelled"]
 description = "中断の合図を受けて止めた"
@@ -86,6 +152,15 @@ status = "active"
 [codes."internal.panic.caught"]
 description = "native の境界で panic を捕まえた。不具合なので直す"
 severity = "error"
+since = "0.0.0"
+status = "active"
+
+# カタログ（決定 0009）
+
+[codes."catalog.file.invalid"]
+description = "カタログの入力が、カタログの形（schema/messages.json の catalog）に合わない"
+severity = "error"
+params = { name = "text" }
 since = "0.0.0"
 status = "active"
 

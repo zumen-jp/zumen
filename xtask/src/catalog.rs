@@ -42,7 +42,16 @@ pub struct Entry {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Messages {
+    pub number: NumberFormat,
     pub codes: BTreeMap<String, String>,
+}
+
+/// 文に差し込む数の書き方
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct NumberFormat {
+    pub group_separator: String,
+    pub decimal_separator: String,
 }
 
 /// 台帳とカタログを確かめ、見つけた問題をすべて返す。
@@ -69,6 +78,9 @@ pub fn check(registry: &Registry, catalogs: &[(&str, &Messages)]) -> Vec<String>
     }
 
     for (file, messages) in catalogs {
+        if messages.number.decimal_separator.is_empty() {
+            errors.push(format!("{file}: [number] の decimal-separator が空"));
+        }
         for (name, entry) in &registry.codes {
             let Some(text) = messages.codes.get(name) else {
                 errors.push(format!("{file}: `{name}` の文がない"));
@@ -280,6 +292,40 @@ pub fn render(registry: &Registry) -> String {
     out
 }
 
+/// JSON の文字列として書く
+fn quoted(text: &str) -> String {
+    let mut writer = zumen_json::Writer::new();
+    writer.string(text);
+    String::from_utf8_lossy(&writer.into_bytes()).into_owned()
+}
+
+/// 核に `zm_push` で渡すカタログの JSON（`catalog/<言語>.json`）を作る。
+///
+/// 形は `schema/messages.json` の `catalog`。差分を読みやすくするため、code ごとに 1 行にする。
+pub fn render_json(lang: &str, package: &str, messages: &Messages) -> String {
+    let mut out = String::new();
+    out.push_str("{\n  \"v\": 1,\n");
+    let _ = writeln!(out, "  \"lang\": {},", quoted(lang));
+    let _ = writeln!(out, "  \"package\": {},", quoted(package));
+    let _ = writeln!(
+        out,
+        "  \"number\": {{ \"group_separator\": {}, \"decimal_separator\": {} }},",
+        quoted(&messages.number.group_separator),
+        quoted(&messages.number.decimal_separator)
+    );
+    out.push_str("  \"codes\": {");
+    for (index, (name, text)) in messages.codes.iter().enumerate() {
+        let separator = if index == 0 { "\n" } else { ",\n" };
+        let _ = write!(out, "{separator}    {}: {}", quoted(name), quoted(text));
+    }
+    out.push_str(if messages.codes.is_empty() {
+        "}\n}\n"
+    } else {
+        "\n  }\n}\n"
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,7 +335,9 @@ mod tests {
     }
 
     fn messages(source: &str) -> Messages {
-        toml::from_str(source).unwrap()
+        let source =
+            format!("number = {{ group-separator = \",\", decimal-separator = \".\" }}\n{source}");
+        toml::from_str(&source).unwrap()
     }
 
     const REGISTRY: &str = r#"
@@ -367,6 +415,24 @@ mod tests {
         );
         let errors = check(&registry, &[]);
         assert_eq!(errors.len(), 3, "{errors:?}");
+    }
+
+    #[test]
+    fn renders_the_catalog_as_json_that_reads_back() {
+        let ja = messages(
+            r#"codes = { "budget.records.exceeded" = "上限（{limit}）を超えた", "zip.path.unsafe" = "「{name}」\"" }"#,
+        );
+        let text = render_json("ja", "0.0.0", &ja);
+        let value = zumen_json::parse(text.as_bytes()).unwrap();
+        assert_eq!(
+            value.pointer("/codes/zip.path.unsafe"),
+            Some(&zumen_json::Value::String("「{name}」\"".to_string()))
+        );
+        assert_eq!(
+            value.pointer("/number/group_separator"),
+            Some(&zumen_json::Value::String(",".to_string()))
+        );
+        assert!(text.ends_with("\n  }\n}\n"));
     }
 
     #[test]

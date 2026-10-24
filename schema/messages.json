@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zumen.dev/schema/messages.json",
+  "title": "zumen の境界のメッセージ",
+  "description": "zm_call で渡す要求と、返す応答（決定 0012）。版は schema/boundary.toml にある。書き方は schema/README.md にある。",
+  "$defs": {
+    "request": {
+      "description": "要求。op の値で形が決まる",
+      "oneOf": [
+        { "$ref": "#/$defs/capabilities_request" },
+        { "$ref": "#/$defs/open_request" },
+        { "$ref": "#/$defs/close_request" },
+        { "$ref": "#/$defs/describe_request" }
+      ]
+    },
+    "request_common": {
+      "description": "どの op の要求にも置ける欄",
+      "type": "object",
+      "properties": {
+        "v": {
+          "description": "メッセージのスキーマの大版。今は 1",
+          "type": "integer",
+          "minimum": 1
+        },
+        "budget": {
+          "description": "予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）",
+          "$ref": "#/$defs/budget"
+        },
+        "partial": {
+          "description": "予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）",
+          "type": "boolean"
+        },
+        "max_places": {
+          "description": "診断ごとに返す場所の数。書かなければ 16（決定 0009）",
+          "type": "integer",
+          "minimum": 0
+        },
+        "time_limit_ms": {
+          "description": "時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": ["v"]
+    },
+    "budget": {
+      "description": "予算の単位ごとの上限（決定 0010）",
+      "type": "object",
+      "properties": {
+        "input_bytes": { "description": "受け取ったバイト数", "$ref": "#/$defs/limit" },
+        "decoded_bytes": { "description": "展開・復号で作ったバイト数。入れ子の分も足す", "$ref": "#/$defs/limit" },
+        "records": { "description": "L0・L1 で読んだレコードの数", "$ref": "#/$defs/limit" },
+        "elements": { "description": "L2・L3 で作った要素の数", "$ref": "#/$defs/limit" },
+        "depth": { "description": "入れ子と再帰の深さ", "$ref": "#/$defs/limit" },
+        "segments": { "description": "幾何の分割で作った点・線・面の数", "$ref": "#/$defs/limit" },
+        "work": { "description": "ほかの単位に入らない繰り返しの回数", "$ref": "#/$defs/limit" }
+      },
+      "additionalProperties": false
+    },
+    "limit": {
+      "description": "1 つの単位の上限。上限をなくすときは unlimited と書く",
+      "oneOf": [
+        { "description": "この量までは使える", "type": "integer", "minimum": 0 },
+        { "description": "上限なし", "const": "unlimited" }
+      ]
+    },
+    "capabilities_request": {
+      "description": "核の版と、使える op・形式を尋ねる",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "capabilities" }
+      },
+      "required": ["op"],
+      "unevaluatedProperties": false
+    },
+    "capabilities_result": {
+      "description": "核の版と、使える op・形式（決定 0015）",
+      "type": "object",
+      "properties": {
+        "package": { "description": "パッケージの版（semver）", "type": "string" },
+        "abi": { "description": "ABI の大版。zm_abi_version と同じ", "type": "integer", "minimum": 1 },
+        "schema": { "description": "メッセージのスキーマの版", "$ref": "#/$defs/schema_version" },
+        "ops": {
+          "description": "この核（wasm ではこのモジュール）で使える op の名前",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "formats": {
+          "description": "読み書きできる形式",
+          "type": "array",
+          "items": { "$ref": "#/$defs/format" }
+        }
+      },
+      "required": ["package", "abi", "schema", "ops", "formats"],
+      "additionalProperties": false
+    },
+    "schema_version": {
+      "description": "メッセージのスキーマの版。大版は要求と応答の v、小版は op・欄・列挙の値を足すたびに上げる",
+      "type": "object",
+      "properties": {
+        "major": { "description": "大版", "type": "integer", "minimum": 1 },
+        "minor": { "description": "小版", "type": "integer", "minimum": 0 }
+      },
+      "required": ["major", "minor"],
+      "additionalProperties": false
+    },
+    "format": {
+      "description": "読み書きできる形式",
+      "type": "object",
+      "properties": {
+        "id": { "description": "形式の名前（dxf・sfc など）", "type": "string" },
+        "family": { "description": "形式の系統（autocad・sxf など、決定 0008）", "type": "string" },
+        "read": { "description": "読めるか", "type": "boolean" },
+        "write": { "description": "書けるか", "type": "boolean" },
+        "id_rules": { "description": "この形式の ID の規則の版（決定 0015）", "type": "integer", "minimum": 1 }
+      },
+      "required": ["id", "family", "read", "write", "id_rules"],
+      "additionalProperties": false
+    },
+    "open_request": {
+      "description": "入力を読んで、文書を作る。形式は入力から判定する",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "open" },
+        "input": { "description": "読む入力の名前。zm_push で渡したもの", "type": "string" },
+        "doc": { "description": "作る文書の名前。書かなければ入力の名前", "type": "string" }
+      },
+      "required": ["op", "input"],
+      "unevaluatedProperties": false
+    },
+    "open_result": {
+      "description": "作った文書",
+      "type": "object",
+      "properties": {
+        "doc": { "description": "文書の名前", "type": "string" },
+        "format": { "description": "判定した形式の名前", "type": "string" }
+      },
+      "required": ["doc", "format"],
+      "additionalProperties": false
+    },
+    "close_request": {
+      "description": "文書と入力を捨てる。名指ししたものが 1 つでもなければ、何も捨てない",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "close" },
+        "docs": {
+          "description": "捨てる文書の名前",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "inputs": {
+          "description": "捨てる入力の名前",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["op"],
+      "unevaluatedProperties": false
+    },
+    "close_result": {
+      "description": "捨てたこと。中身はない",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "describe_request": {
+      "description": "診断の文を、カタログから組み立てる（決定 0009）",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "describe" },
+        "catalog": {
+          "description": "カタログの入力の名前。zm_push で渡したもの。書かなければ、code と値をそのまま文にする",
+          "type": "string"
+        },
+        "diagnostics": {
+          "description": "文にする診断。応答で受け取ったもの",
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        }
+      },
+      "required": ["op", "diagnostics"],
+      "unevaluatedProperties": false
+    },
+    "describe_result": {
+      "description": "診断の文",
+      "type": "object",
+      "properties": {
+        "texts": {
+          "description": "診断ごとの文。要求の diagnostics と同じ順。カタログにない code は、code と値をそのまま書く",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["texts"],
+      "additionalProperties": false
+    },
+    "response": {
+      "description": "応答。失敗したときも同じ形で、result を持たない",
+      "type": "object",
+      "properties": {
+        "v": { "description": "メッセージのスキーマの大版", "type": "integer", "minimum": 1 },
+        "result": { "description": "op ごとの結果（<op>_result の形）。失敗したときは持たない" },
+        "diagnostics": {
+          "description": "診断。入力の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        },
+        "blobs": {
+          "description": "バイナリの結果。zm_take で取り出す。次の zm_call で捨てる",
+          "type": "array",
+          "items": { "$ref": "#/$defs/blob" }
+        }
+      },
+      "required": ["v", "diagnostics", "blobs"],
+      "additionalProperties": false
+    },
+    "diagnostic": {
+      "description": "診断。人向けの文は持たず、文は describe で組み立てる（決定 0009）",
+      "type": "object",
+      "properties": {
+        "code": { "description": "変わらない名前（budget.records.exceeded など）。catalog/codes.toml にある", "type": "string" },
+        "severity": { "description": "重さ。code ごとに決まる", "$ref": "#/$defs/severity" },
+        "fidelity": { "description": "変換の結果の段。code ごとに決まる。変換の結果を表さない code では持たない", "$ref": "#/$defs/fidelity" },
+        "count": { "description": "まとめた件数", "type": "integer", "minimum": 1 },
+        "at": {
+          "description": "場所。入力の順に先頭の数件",
+          "type": "array",
+          "items": { "$ref": "#/$defs/place" }
+        },
+        "cite": { "description": "仕様の節", "$ref": "#/$defs/cite" },
+        "params": {
+          "description": "文に差し込む値。名前と型は code ごとに台帳が決める。2^53 − 1 を超える整数は文字列にする",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/param_value" }
+        }
+      },
+      "required": ["code", "severity", "count", "at", "params"],
+      "additionalProperties": false
+    },
+    "severity": {
+      "description": "診断の重さ（決定 0009）。info は何も失っていない、warning は結果を使える、error は失敗した",
+      "type": "string",
+      "enum": ["info", "warning", "error"]
+    },
+    "fidelity": {
+      "description": "変換の結果の段のうち、native 以外のもの（決定 0009）",
+      "type": "string",
+      "enum": ["equivalent", "approximated", "drawn", "dropped"]
+    },
+    "place": {
+      "description": "診断の場所。ID と、L1 のレコード・バイト範囲（決定 0008 の出所）",
+      "type": "object",
+      "properties": {
+        "id": { "description": "ID", "type": "string" },
+        "record": { "description": "L1 のレコードの番号", "type": "integer", "minimum": 0 },
+        "bytes": { "description": "L1 のバイト範囲", "$ref": "#/$defs/byte_range" }
+      },
+      "additionalProperties": false
+    },
+    "byte_range": {
+      "description": "バイト範囲（start から end の手前まで）",
+      "type": "object",
+      "properties": {
+        "start": { "description": "先頭の位置", "type": "integer", "minimum": 0 },
+        "end": { "description": "終わりの位置（含まない）", "type": "integer", "minimum": 0 }
+      },
+      "required": ["start", "end"],
+      "additionalProperties": false
+    },
+    "cite": {
+      "description": "仕様の節。仕様の本文は写さない",
+      "type": "object",
+      "properties": {
+        "spec": { "description": "仕様の一覧での名前", "type": "string" },
+        "section": { "description": "節", "type": "string" }
+      },
+      "required": ["spec", "section"],
+      "additionalProperties": false
+    },
+    "param_value": {
+      "description": "診断の値。数か文字列",
+      "oneOf": [
+        { "description": "数", "type": "number" },
+        { "description": "文字列。図面に記録された名前、列挙の値のキー、2^53 − 1 を超える整数", "type": "string" }
+      ]
+    },
+    "blob": {
+      "description": "バイナリの結果",
+      "type": "object",
+      "properties": {
+        "id": { "description": "番号。zm_take に渡す", "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "kind": { "description": "種類", "$ref": "#/$defs/blob_kind" },
+        "size": { "description": "バイト数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "kind", "size"],
+      "additionalProperties": false
+    },
+    "blob_kind": {
+      "description": "バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene はシーン（#6 で決める配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）",
+      "type": "string",
+      "enum": ["file", "image", "scene", "arrow"]
+    },
+    "session_options": {
+      "description": "zm_session_new に渡す設定。渡さなければ既定の設定",
+      "type": "object",
+      "properties": {
+        "v": { "description": "メッセージのスキーマの大版。今は 1", "type": "integer", "minimum": 1 },
+        "engine": { "description": "実行の形。書かなければ、ネイティブのライブラリでは native、wasm のモジュールでは wasm（決定 0013）", "$ref": "#/$defs/engine" }
+      },
+      "required": ["v"],
+      "additionalProperties": false
+    },
+    "engine": {
+      "description": "実行の形（決定 0013）。native はプロセスの中で核を動かす、process は子プロセスの CLI に送る、wasm は wasm のモジュールで動かす",
+      "type": "string",
+      "enum": ["native", "process", "wasm"]
+    },
+    "catalog": {
+      "description": "describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）",
+      "type": "object",
+      "properties": {
+        "v": { "description": "カタログの形の大版。今は 1", "type": "integer", "minimum": 1 },
+        "lang": { "description": "言語（ja・en）", "type": "string" },
+        "package": { "description": "パッケージの版。核と同じ版で出す", "type": "string" },
+        "number": { "description": "数の書き方", "$ref": "#/$defs/number_format" },
+        "codes": {
+          "description": "code ごとの文のひな形。{名前} に値が、{count} にまとめた件数が入る",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["v", "lang", "package", "number", "codes"],
+      "additionalProperties": false
+    },
+    "number_format": {
+      "description": "文に差し込む数の書き方。OS のロケールは使わない（決定 0009）",
+      "type": "object",
+      "properties": {
+        "group_separator": { "description": "整数部を 3 桁ごとに区切る文字。空なら区切らない", "type": "string" },
+        "decimal_separator": { "description": "小数点の文字", "type": "string" }
+      },
+      "required": ["group_separator", "decimal_separator"],
+      "additionalProperties": false
+    }
+  }
+}

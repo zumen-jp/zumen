@@ -1,0 +1,144 @@
+# 境界の版・状態コード・関数（決定 0012・0015）。
+#
+# `cargo xtask codegen` が、ここから C のヘッダー（bindings/c/include/zumen.h）と、
+# Rust の定数と関数の形の検査（crates/zumen-abi/src/abi.rs）を作る。
+# 状態コードと関数は足すだけにし、消さず、名前・値・引数・意味を変えない（決定 0015）。
+
+[versions]
+# ABI の大版。関数の引数か意味を変えるときに上げる。上げないことを目指す
+abi = 1
+# メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
+schema-major = 1
+# メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
+schema-minor = 0
+
+# 状態コード。理由は応答の診断で返す
+
+[[status]]
+name = "ok"
+value = 0
+description = "成功した"
+
+[[status]]
+name = "failed"
+value = 1
+description = "操作が失敗した。応答に error の診断がある"
+
+[[status]]
+name = "invalid"
+value = 2
+description = "引数が使えない（NULL、長さが合わない、使えない名前など）。応答は書かない"
+
+[[status]]
+name = "busy"
+value = 3
+description = "別のスレッドが、同じセッションを使っている"
+
+[[status]]
+name = "panicked"
+value = 4
+description = "核の不具合で止まった。セッションは閉じるしかない"
+
+# 関数。targets を書かないものは、ネイティブのライブラリと wasm のモジュールの両方が出す
+
+[[functions]]
+name = "zm_abi_version"
+returns = "u32"
+description = "ABI の大版を返す。この関数の形は変えない"
+
+[[functions]]
+name = "zm_session_new"
+returns = "status"
+description = "セッションを作る。設定は JSON（schema/messages.json の session_options）で渡す"
+params = [
+    { name = "options", type = "bytes", description = "設定の JSON（UTF-8）。長さが 0 なら既定の設定" },
+    { name = "options_len", type = "size", description = "設定のバイト数" },
+    { name = "session", type = "session_out", description = "作ったセッションを書く所。zm_session_close で閉じる" },
+]
+
+[[functions]]
+name = "zm_push"
+returns = "status"
+description = "名前のついた入力に、バイト列を足す。同じ名前で何回か呼ぶと、後ろに足していく"
+params = [
+    { name = "session", type = "session", description = "セッション" },
+    { name = "name", type = "bytes", description = "入力の名前（UTF-8）。/ で区切った相対の名前で、空の部分・.・..・\\・:・NUL を含まない" },
+    { name = "name_len", type = "size", description = "名前のバイト数" },
+    { name = "data", type = "bytes", description = "足すバイト列。呼び出しの間だけ借りる" },
+    { name = "data_len", type = "size", description = "足すバイト数" },
+]
+
+[[functions]]
+name = "zm_call"
+returns = "status"
+description = "要求のメッセージを渡し、応答のメッセージを受け取る。前の呼び出しのバイナリの結果は、ここで捨てる"
+params = [
+    { name = "session", type = "session", description = "セッション" },
+    { name = "request", type = "bytes", description = "要求の JSON（UTF-8）" },
+    { name = "request_len", type = "size", description = "要求のバイト数" },
+    { name = "response", type = "buf", description = "応答の JSON を書く所。状態が ZM_OK・ZM_FAILED・ZM_PANICKED のときに書く。zm_free で返す" },
+]
+
+[[functions]]
+name = "zm_take"
+returns = "status"
+description = "直前の zm_call が作ったバイナリの結果を取り出す。取り出したものは、セッションを閉じたあとも使える"
+params = [
+    { name = "session", type = "session", description = "セッション" },
+    { name = "blob", type = "u32", description = "応答の blobs にある番号" },
+    { name = "out", type = "buf", description = "結果を書く所。zm_free で返す" },
+]
+
+[[functions]]
+name = "zm_take_arrow"
+returns = "status"
+targets = ["native"]
+description = "表の結果（種類が arrow のもの）を、Arrow の C Stream Interface で取り出す"
+params = [
+    { name = "session", type = "session", description = "セッション" },
+    { name = "blob", type = "u32", description = "応答の blobs にある番号" },
+    { name = "out", type = "arrow_stream", description = "結果を書く所。使い終わったら、その release を呼ぶ" },
+]
+
+[[functions]]
+name = "zm_cancel"
+returns = "void"
+description = "動いている呼び出しを止める。どのスレッドからも呼べる。動いている呼び出しがなければ、何もしない"
+params = [
+    { name = "session", type = "session", description = "セッション" },
+]
+
+[[functions]]
+name = "zm_session_close"
+returns = "void"
+description = "セッションを閉じる。NULL なら何もしない。別のスレッドが使っている途中なら閉じない"
+params = [
+    { name = "session", type = "session", description = "セッション" },
+]
+
+[[functions]]
+name = "zm_free"
+returns = "void"
+description = "核が返したバッファを返す。返したあとの buf は空になる。空のバッファと NULL には何もしない"
+params = [
+    { name = "buf", type = "buf", description = "zm_call・zm_take が書いたバッファ" },
+]
+
+[[functions]]
+name = "zm_alloc"
+returns = "bytes_mut"
+targets = ["wasm"]
+description = "ホストが要求や入力を書くためのメモリを確保する。長さが 0 なら NULL を返す"
+params = [
+    { name = "len", type = "size", description = "バイト数" },
+]
+
+[[functions]]
+name = "zm_dealloc"
+returns = "void"
+targets = ["wasm"]
+description = "zm_alloc で確保したメモリを返す。NULL には何もしない"
+params = [
+    { name = "ptr", type = "bytes_mut", description = "zm_alloc が返したもの" },
+    { name = "len", type = "size", description = "zm_alloc に渡したバイト数" },
+]

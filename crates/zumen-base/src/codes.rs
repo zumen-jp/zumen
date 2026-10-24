@@ -109,11 +109,121 @@ pub const BUDGET_WORK_EXCEEDED: Code = Code::new(
     &[],
 );
 
+/// 名指しした文書がない
+///
+/// `call.document.missing`（0.0.0 から）
+pub const CALL_DOCUMENT_MISSING: Code = Code::new(
+    "call.document.missing",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 要求に、必要な欄がない
+///
+/// `call.field.missing`（0.0.0 から）
+pub const CALL_FIELD_MISSING: Code = Code::new(
+    "call.field.missing",
+    Severity::Error,
+    None,
+    &[Param::new("pointer", ParamType::Text)],
+    &[],
+);
+
+/// 要求に、この核が知らない欄か、この形（wasm など）では使えない欄がある
+///
+/// `call.field.unsupported`（0.0.0 から）
+pub const CALL_FIELD_UNSUPPORTED: Code = Code::new(
+    "call.field.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("pointer", ParamType::Text)],
+    &[],
+);
+
+/// 入力の形式を判定できない。または、この核では読めない形式
+///
+/// `call.format.unsupported`（0.0.0 から）
+pub const CALL_FORMAT_UNSUPPORTED: Code = Code::new(
+    "call.format.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 名指しした入力がない
+///
+/// `call.input.missing`（0.0.0 から）
+pub const CALL_INPUT_MISSING: Code = Code::new(
+    "call.input.missing",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 要求が UTF-8 の JSON として読めない（文法・重なったキー・深すぎる入れ子・UTF-8 でないバイト）
+///
+/// `call.json.invalid`（0.0.0 から）
+pub const CALL_JSON_INVALID: Code = Code::new(
+    "call.json.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("offset", ParamType::UInt)],
+    &[],
+);
+
+/// この核（wasm ではこのモジュール）にない op
+///
+/// `call.op.unsupported`（0.0.0 から）
+pub const CALL_OP_UNSUPPORTED: Code = Code::new(
+    "call.op.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("op", ParamType::Text)],
+    &[],
+);
+
 /// 中断の合図を受けて止めた
 ///
 /// `call.request.cancelled`（0.0.0 から）
 pub const CALL_REQUEST_CANCELLED: Code =
     Code::new("call.request.cancelled", Severity::Error, None, &[], &[]);
+
+/// 要求の値の型か範囲が、スキーマに合わない
+///
+/// `call.value.invalid`（0.0.0 から）
+pub const CALL_VALUE_INVALID: Code = Code::new(
+    "call.value.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("pointer", ParamType::Text)],
+    &[],
+);
+
+/// 要求の版 v を、この核が扱えない
+///
+/// `call.version.unsupported`（0.0.0 から）
+pub const CALL_VERSION_UNSUPPORTED: Code = Code::new(
+    "call.version.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("version", ParamType::UInt)],
+    &[],
+);
+
+/// カタログの入力が、カタログの形（schema/messages.json の catalog）に合わない
+///
+/// `catalog.file.invalid`（0.0.0 から）
+pub const CATALOG_FILE_INVALID: Code = Code::new(
+    "catalog.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
 
 /// native の境界で panic を捕まえた。不具合なので直す
 ///
@@ -143,7 +253,17 @@ pub const ALL: &[Code] = &[
     BUDGET_SEGMENTS_EXCEEDED,
     BUDGET_TIME_EXCEEDED,
     BUDGET_WORK_EXCEEDED,
+    CALL_DOCUMENT_MISSING,
+    CALL_FIELD_MISSING,
+    CALL_FIELD_UNSUPPORTED,
+    CALL_FORMAT_UNSUPPORTED,
+    CALL_INPUT_MISSING,
+    CALL_JSON_INVALID,
+    CALL_OP_UNSUPPORTED,
     CALL_REQUEST_CANCELLED,
+    CALL_VALUE_INVALID,
+    CALL_VERSION_UNSUPPORTED,
+    CATALOG_FILE_INVALID,
     INTERNAL_PANIC_CAUGHT,
     ZIP_PATH_UNSAFE,
 ];

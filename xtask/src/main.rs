@@ -1,9 +1,11 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
-//! - `codegen`: 診断の code の台帳から、Rust の定数を生成する
-//! - `codegen --check`: 台帳とカタログを確かめ、生成したファイルが最新かを確かめる
+//! - `codegen`: 診断の code の台帳・カタログ・境界のスキーマから、Rust の定数と型、C のヘッダー、カタログの JSON を生成する
+//! - `codegen --check`: 台帳・カタログ・スキーマを確かめ、生成したファイルが最新かを確かめる
 
+mod boundary;
 mod catalog;
+mod schema;
 
 use std::fs;
 use std::io::Write;
@@ -12,8 +14,16 @@ use std::process::{Command, ExitCode, Stdio};
 
 const USAGE: &str = "使い方: cargo xtask codegen [--check]";
 
-/// 生成した code の定数の置き場所（リポジトリの根からの相対パス）
+/// 生成するファイルの置き場所（リポジトリの根からの相対パス）
 const CODES_RS: &str = "crates/zumen-base/src/codes.rs";
+const ABI_RS: &str = "crates/zumen-abi/src/abi.rs";
+const MESSAGES_RS: &str = "crates/zumen-abi/src/messages.rs";
+const HEADER: &str = "bindings/c/include/zumen.h";
+const CATALOG_JA: &str = "catalog/ja.json";
+const CATALOG_EN: &str = "catalog/en.json";
+
+/// パッケージの版。カタログは核と同じ版で出す（決定 0009）
+const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -47,17 +57,16 @@ fn root() -> PathBuf {
 
 fn codegen(mode: Mode) -> Result<(), String> {
     let root = root();
-    let read = |name: &str| {
-        let path = root.join("catalog").join(name);
-        fs::read_to_string(&path).map_err(|e| format!("{} を読めない: {e}", path.display()))
+    let read = |path: &str| {
+        fs::read_to_string(root.join(path)).map_err(|e| format!("{path} を読めない: {e}"))
     };
-    let registry: catalog::Registry =
-        toml::from_str(&read("codes.toml")?).map_err(|e| format!("catalog/codes.toml: {e}"))?;
-    let ja: catalog::Messages =
-        toml::from_str(&read("ja.toml")?).map_err(|e| format!("catalog/ja.toml: {e}"))?;
-    let en: catalog::Messages =
-        toml::from_str(&read("en.toml")?).map_err(|e| format!("catalog/en.toml: {e}"))?;
 
+    let registry: catalog::Registry = toml::from_str(&read("catalog/codes.toml")?)
+        .map_err(|e| format!("catalog/codes.toml: {e}"))?;
+    let ja: catalog::Messages =
+        toml::from_str(&read("catalog/ja.toml")?).map_err(|e| format!("catalog/ja.toml: {e}"))?;
+    let en: catalog::Messages =
+        toml::from_str(&read("catalog/en.toml")?).map_err(|e| format!("catalog/en.toml: {e}"))?;
     let errors = catalog::check(&registry, &[("ja.toml", &ja), ("en.toml", &en)]);
     if !errors.is_empty() {
         return Err(format!(
@@ -66,18 +75,56 @@ fn codegen(mode: Mode) -> Result<(), String> {
         ));
     }
 
-    let generated = rustfmt(&root, &catalog::render(&registry))?;
-    let path = root.join(CODES_RS);
-    let current = fs::read_to_string(&path).unwrap_or_default();
-    match mode {
-        Mode::Check if current != generated => Err(format!(
-            "{CODES_RS} が台帳と合わない。`cargo xtask codegen` を実行して、生成したファイルをコミットする"
-        )),
-        Mode::Check => Ok(()),
-        Mode::Write if current == generated => Ok(()),
-        Mode::Write => {
-            fs::write(&path, generated).map_err(|e| format!("{CODES_RS} に書けない: {e}"))
+    let boundary: boundary::Boundary = toml::from_str(&read("schema/boundary.toml")?)
+        .map_err(|e| format!("schema/boundary.toml: {e}"))?;
+    let errors = boundary::check(&boundary);
+    if !errors.is_empty() {
+        return Err(format!(
+            "schema/boundary.toml に問題がある:\n- {}",
+            errors.join("\n- ")
+        ));
+    }
+
+    let schema = schema::parse(read("schema/messages.json")?.as_bytes()).map_err(|errors| {
+        format!(
+            "schema/messages.json に問題がある:\n- {}",
+            errors.join("\n- ")
+        )
+    })?;
+
+    let outputs = [
+        (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
+        (ABI_RS, rustfmt(&root, &boundary::render_rust(&boundary))?),
+        (MESSAGES_RS, rustfmt(&root, &schema::render(&schema))?),
+        (HEADER, boundary::render_header(&boundary)),
+        (CATALOG_JA, catalog::render_json("ja", PACKAGE_VERSION, &ja)),
+        (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
+    ];
+    let mut stale = Vec::new();
+    for (path, generated) in outputs {
+        let full = root.join(path);
+        let current = fs::read_to_string(&full).unwrap_or_default();
+        if current == generated {
+            continue;
         }
+        match mode {
+            Mode::Check => stale.push(path),
+            Mode::Write => {
+                if let Some(parent) = full.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|e| format!("{path} の置き場所を作れない: {e}"))?;
+                }
+                fs::write(&full, generated).map_err(|e| format!("{path} に書けない: {e}"))?;
+            }
+        }
+    }
+    if stale.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "生成したファイルが、元と合わない: {}。`cargo xtask codegen` を実行して、生成したファイルをコミットする",
+            stale.join("、")
+        ))
     }
 }
 

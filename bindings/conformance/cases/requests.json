@@ -1,0 +1,80 @@
+{
+  "description": "読めない要求は、理由の診断を付けて失敗にし、result を持たない（決定 0012）",
+  "steps": [
+    {
+      "call_text": "{",
+      "status": "failed",
+      "expect": { "/v": 1, "/diagnostics/0/code": "call.json.invalid", "/diagnostics/0/severity": "error", "/diagnostics/0/params/offset": 1, "/blobs": [] },
+      "absent": ["/result", "/diagnostics/1"]
+    },
+    {
+      "call_hex": "7b ff 7d",
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.json.invalid", "/diagnostics/0/params/offset": 1 }
+    },
+    {
+      "call_text": "{\"v\":1,\"op\":\"capabilities\",\"v\":1}",
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.json.invalid", "/diagnostics/0/params/offset": 27 }
+    },
+    {
+      "call_text": "﻿{\"v\":1,\"op\":\"capabilities\"}",
+      "expect": { "/result/abi": 1 }
+    },
+    {
+      "call": { "v": 2, "op": "capabilities" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.version.unsupported", "/diagnostics/0/params/version": 2 }
+    },
+    {
+      "call": { "v": 1, "op": "draw" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.op.unsupported", "/diagnostics/0/params/op": "draw" }
+    },
+    {
+      "call": { "v": 1, "op": "capabilities", "colour": "red" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.field.unsupported", "/diagnostics/0/params/pointer": "/colour" }
+    },
+    {
+      "call": { "op": "capabilities" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.field.missing", "/diagnostics/0/params/pointer": "/v" }
+    },
+    {
+      "call": { "v": 1, "op": "open" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.field.missing", "/diagnostics/0/params/pointer": "/input" }
+    },
+    {
+      "call": { "v": 1, "op": "capabilities", "max_places": -1 },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/max_places" }
+    },
+    {
+      "call": { "v": 1, "op": "capabilities", "budget": { "records": "many" } },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/budget/records" }
+    },
+    {
+      "call": { "v": 1, "op": "capabilities", "budget": { "pages": 1 } },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.field.unsupported", "/diagnostics/0/params/pointer": "/budget/pages" }
+    },
+    {
+      "call": { "v": 1, "op": "capabilities", "time_limit_ms": 0 },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/time_limit_ms" }
+    },
+    {
+      "call": { "v": 1, "op": "capabilities", "max_places": 9007199254740992 },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/max_places" }
+    },
+    {
+      "call": [1, 2],
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "" }
+    }
+  ]
+}

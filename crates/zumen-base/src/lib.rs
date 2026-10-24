@@ -5,6 +5,7 @@
 //! - [`budget`]: 決まった作業量で数える予算（決定 0010）
 //! - [`cancel`]: 中断の合図（決定 0010）
 //! - [`cx`]: 予算・診断・中断の合図を運ぶ文脈（決定 0008）
+//! - [`name`]: 入力の名前の規則（決定 0010・0012）
 
 pub mod budget;
 pub mod cancel;
@@ -12,6 +13,7 @@ pub mod code;
 pub mod codes;
 pub mod cx;
 pub mod diag;
+pub mod name;
 
 pub use budget::{Budget, Exceeded, Kind, Limit, Limits};
 pub use cancel::CancelToken;
