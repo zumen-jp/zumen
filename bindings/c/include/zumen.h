@@ -5,7 +5,7 @@
  * zumen の境界（決定 0012）。
  *
  * - 文字列は UTF-8。要求と応答は JSON で、形は schema/messages.json にある
- * - 入力のバッファは呼び出しの間だけ借りる。核が返したバッファは zm_free で返す
+ * - 入力のバッファーは呼び出しの間だけ借りる。核が返したバッファーは zm_free で返す
  * - 1 つのセッションは、一度に 1 つのスレッドだけが使う。zm_cancel だけは、どのスレッドからも呼べる
  * - 関数・状態コードは足すだけにし、消さず、名前・値・引数・意味を変えない（決定 0015）
  */
@@ -49,7 +49,7 @@ typedef int32_t zm_status;
 /* セッション。中身は核だけが知る */
 typedef struct zm_session zm_session;
 
-/* 核が返すバッファ。zm_free で返す */
+/* 核が返すバッファー。zm_free で返す */
 typedef struct zm_buf {
     uint8_t *ptr;
     size_t len;
@@ -171,9 +171,9 @@ void ZM_CALL zm_cancel(zm_session *session);
 void ZM_CALL zm_session_close(zm_session *session);
 
 /*
- * 核が返したバッファを返す。返したあとの buf は空になる。空のバッファと NULL には何もしない
+ * 核が返したバッファーを返す。返したあとの buf は空になる。空のバッファーと NULL には何もしない
  *
- * buf: zm_call・zm_take が書いたバッファ
+ * buf: zm_call・zm_take が書いたバッファー
  */
 void ZM_CALL zm_free(zm_buf *buf);
 

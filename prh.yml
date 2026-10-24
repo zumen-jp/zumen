@@ -1,0 +1,202 @@
+# 表記の揺れの辞書（決定 0021）。考え方と用語集は docs/style.md にある。
+#
+# - 語を足したら、specs に例を書く。prh は読み込むときに specs を確かめ、合わなければ止まる。
+# - Markdown ではコードとリンクの URL を見ない。ソースコードと設定のファイルでは、行をそのまま見る。
+#   英語の語の規則は、前後が和文のときだけに当てて、識別子に当たらないようにする。
+version: 1
+rules:
+  # ── カタカナ語の長音 ──
+
+  # 英語の -er・-or・-ar などに当たる語末には「ー」を付ける（内閣告示「外来語の表記」の原則、Microsoft の表記）。
+  # 製品名の SXF ブラウザは原典どおりにする。
+  - expected: $1ー
+    pattern: /(?<!SXF ?)(ブラウザ|コンパイラ|コンテナ|バッファ|ポインタ|デコーダ|エンコーダ|サーバ|フォルダ|ヘッダ|ユーザ|パラメータ|コンピュータ|エディタ|ビューア|ドライバ|プロバイダ|コンバータ|パーサ|レンダラ|ハンドラ|マーカ|アダプタ|コネクタ|フィルタ|モニタ|クラスタ|イテレータ|ジェネレータ|シミュレータ|エミュレータ|プリンタ|スキャナ|ローダ|ビルダ|マネージャ|コントローラ|ラッパ|ヘルパ|メンバ|カウンタ|タイマ|トリガ|セレクタ|オペレータ|ベクタ)(?!ー|リング|ビリティ)/
+    prh: 英語の -er・-or・-ar などに当たる語末には「ー」を付けます
+    specs:
+      - from: ブラウザで読む
+        to: ブラウザーで読む
+      - from: コンテナとサーバーで動かす
+        to: コンテナーとサーバーで動かす
+      - from: SXF ブラウザで確かめる
+        to: SXF ブラウザで確かめる
+      - from: フィルタリングとモニタリングとユーザビリティ
+        to: フィルタリングとモニタリングとユーザビリティ
+
+  # CAD製図基準・SXF・Jw_cad の用語に合わせて、レイヤには「ー」を付けない
+  - expected: レイヤ
+    pattern: レイヤー
+    prh: CAD製図基準の用語に合わせて「レイヤ」と書きます
+    specs:
+      - from: レイヤーの名前とレイヤーグループ
+        to: レイヤの名前とレイヤグループ
+
+  # 英語の -y の語末（-ry・-ty・-gy・-xy）には「ー」を付けない
+  - expected: $1
+    pattern: /(メモリ|ディレクトリ|ライブラリ|リポジトリ|レジストリ|バイナリ|カテゴリ|エントリ|アセンブリ|クエリ|セキュリティ|コミュニティ|プロパティ|ユーティリティ|エンティティ|アイデンティティ|ジオメトリ|トポロジ|テクノロジ|プロキシ)ー/
+    prh: 英語の -y の語末には「ー」を付けません
+    specs:
+      - from: メモリーとライブラリー
+        to: メモリとライブラリ
+
+  # ── 漢字とかな ──
+
+  - expected: 分か
+    pattern: /わか(?=る|り|ら|れ|っ)/
+    prh: 「分かる」「分かれる」は漢字で書きます
+    specs:
+      - from: わかりやすく書く
+        to: 分かりやすく書く
+  - expected: ほかの
+    pattern: /(?<![一-龠])他の/
+    specs:
+      - from: 他の人のパッケージ
+        to: ほかの人のパッケージ
+      - from: 排他的に読む
+        to: 排他的に読む
+  - expected: よ
+    pattern: /(?<![一-龠])良(?=い|く|かっ|けれ)/
+    prh: 「よい」「よく」はかなで書きます
+    specs:
+      - from: 全体にとって良いこと
+        to: 全体にとってよいこと
+  - expected: すべて
+    pattern: 全て
+  - expected: または
+    pattern: 又は
+  - expected: および
+    pattern: 及び
+  - expected: ならびに
+    pattern: 並びに
+  - expected: ただし
+    pattern: 但し
+  - expected: なお、
+    pattern: 尚、
+  - expected: でき
+    pattern: /出来(?=る|ない|ます|ず|た|れば|て)/
+    prh: 動詞の「できる」はかなで書きます（出来形・出来高はそのまま）
+    specs:
+      - from: 出来ない
+        to: できない
+      - from: 出来形と出来高
+        to: 出来形と出来高
+  - expected: ください
+    pattern: 下さい
+  - expected: いただ
+    pattern: /(?<![一-龠])頂(?=く|き|け)/
+    specs:
+      - from: 確かめて頂き
+        to: 確かめていただき
+  - expected: など
+    pattern: /(?<=[ぁ-んァ-ヶー）」A-Za-z0-9] ?)等(?=[、。がをはにのも])/
+    prh: 「など」はかなで書きます
+    specs:
+      - from: SXF・DXF 等を読む
+        to: SXF・DXF などを読む
+      - from: 同等の意味と等しい長さ
+        to: 同等の意味と等しい長さ
+  - expected: ため
+    pattern: /(?<=[るたいなの])為(?=[にの、。])/
+    specs:
+      - from: 試験の為に作る
+        to: 試験のために作る
+      - from: 不適切な行為の例
+        to: 不適切な行為の例
+  - expected: まで
+    pattern: 迄
+  - expected: ごと
+    pattern: /毎(?=に|の|、|。)/
+    specs:
+      - from: PR 毎に試験する
+        to: PR ごとに試験する
+      - from: 毎晩に試験する
+        to: 毎晩に試験する
+
+  # ── 英語とカタカナ（どちらで書くかは docs/style.md の用語集で決める）──
+
+  # 後ろに和文が続くときだけに当てる。前が英数字・記号のもの（`Form::native`、`internal.panic.caught`）は識別子とみなす
+  - expected: ネイティブ
+    pattern: /(?<![A-Za-z0-9_.:/-]) ?native ?(?=[ぁ-んァ-ヶー一-龠々、。・）」])/
+    prh: 和文の中では「ネイティブ」と書きます（識別子はコードとして書く）
+    specs:
+      - from: 同じ入力から、native・wasm・各言語の結合で
+        to: 同じ入力から、ネイティブ・wasm・各言語の結合で
+      - from: wasm32 と native で同じ結果
+        to: wasm32 とネイティブで同じ結果
+      - from: native の境界では
+        to: ネイティブの境界では
+      - from: Form::native のとき
+        to: Form::native のとき
+  - expected: パニック
+    pattern: /(?<![A-Za-z0-9_.:/・-]) ?panic ?(?=[ぁ-んァ-ヶー一-龠々、。）」])/
+    prh: 和文の中では「パニック」と書きます（識別子と lint の名前はコードとして書く）
+    specs:
+      - from: 境界で panic を捕まえた
+        to: 境界でパニックを捕まえた
+      - from: unwrap・expect・panic・添字を許す
+        to: unwrap・expect・panic・添字を許す
+  - expected: モジュール
+    pattern: /(?<![A-Za-z0-9_.:/-]) ?module ?(?=[ぁ-んァ-ヶー一-龠々、。・）」])/
+    prh: 和文の中では「モジュール」と書きます
+    specs:
+      - from: 埋め込んだ module を配る
+        to: 埋め込んだモジュールを配る
+      - from: モジュール（module map）
+        to: モジュール（module map）
+  - expected: crate
+    pattern: クレート
+  - expected: issue
+    pattern: イシュー
+  - expected: PR
+    pattern: /プルリクエスト|プルリク/
+  # 和文の中だけに当てる（列挙子の `Engine::Wasm` などは識別子）。空白は残す
+  - expected: wasm
+    pattern: /(?<![A-Za-z0-9_.:/-])(?:WASM|Wasm)\b(?= ?[ぁ-んァ-ヶー一-龠々、。・）」])/
+    prh: WebAssembly の略は小文字で「wasm」と書きます
+    specs:
+      - from: WASM のモジュール
+        to: wasm のモジュール
+      - from: Wasmtime で動かす
+        to: Wasmtime で動かす
+      - from: Engine::Wasm => "wasm",
+        to: Engine::Wasm => "wasm",
+
+  # ── 製品と技術の名前（原典の書き方）──
+
+  - expected: GitHub
+    pattern: /\bGithub\b|\bGITHUB\b/
+  - expected: JavaScript
+    pattern: /\bJavascript\b/
+  - expected: TypeScript
+    pattern: /\bTypescript\b/
+  - expected: WebAssembly
+    pattern: /\bWebassembly\b/
+  - expected: Node.js
+    pattern: /\bNode\.JS\b|\bNodeJS\b|\bNodejs\b/
+  - expected: Jw_cad
+    pattern: /\bJW_CAD\b|\bJw_CAD\b|\bJW_cad\b|\bjw_cad\b|\bJWCAD\b|\bJw-cad\b|\bJW-CAD\b/
+  - expected: AutoCAD
+    pattern: /\bAutoCad\b|\bAutocad\b|\bAUTOCAD\b/
+  - expected: macOS
+    pattern: /\bMacOS\b|\bMacOs\b/
+  - expected: .NET
+    pattern: /\.Net\b/
+    specs:
+      - from: VB.Net と C#
+        to: VB.NET と C#
+
+  # ── 記号 ──
+
+  # コロンは半角にし、後ろに空白を入れる
+  - expected: ": "
+    pattern: /： ?/
+    specs:
+      - from: 識別子：関数名
+        to: "識別子: 関数名"
+  # 範囲の波線は U+301C（〜）にする。U+FF5E（～）とは CP932 との変換で取り違えやすい
+  - expected: 〜
+    pattern: /～|(?<=\d)~(?=\d)/
+    specs:
+      - from: 2024～2027
+        to: 2024〜2027
+      - from: 1~3
+        to: 1〜3

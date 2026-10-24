@@ -1,8 +1,8 @@
 //! C ABI と wasm で出す関数（決定 0012）。形は `schema/boundary.toml` にあり、`abi.rs` がコンパイルで確かめる。
 //!
 //! 関数は引数を確かめ、セッションの錠を取ってから [`Session`] に渡す。
-//! - ネイティブでは、どの関数も panic を `catch_unwind` で止める。そのセッションは、閉じるしかない
-//! - wasm では panic は trap になり、ホストがインスタンスを作り直す（決定 0010）
+//! - ネイティブでは、どの関数もパニックを `catch_unwind` で止める。そのセッションは、閉じるしかない
+//! - wasm ではパニックは trap になり、ホストがインスタンスを作り直す（決定 0010）
 //! - 32 bit の Windows では `extern "system"` が stdcall になる（VBA の `Declare` のため、決定 0011）
 
 // FFI のために unsafe を使う。ワークスペースで禁じた unsafe を、このモジュールでだけ許す（決定 0012）
@@ -18,7 +18,7 @@ use zumen_base::CancelToken;
 use crate::abi::{ABI_VERSION, Status};
 use crate::session::Session;
 
-/// 核が返すバッファ（C の `zm_buf`）。`zm_free` で返す
+/// 核が返すバッファー（C の `zm_buf`）。`zm_free` で返す
 #[repr(C)]
 #[derive(Debug)]
 pub struct Buf {
@@ -84,14 +84,14 @@ impl SessionHandle {
     }
 }
 
-/// panic を止めて、状態コードにする
+/// パニックを止めて、状態コードにする
 fn guard(f: impl FnOnce() -> Status) -> i32 {
     catch_unwind(AssertUnwindSafe(f))
         .unwrap_or(Status::Panicked)
         .code()
 }
 
-/// ポインタと長さを、借りるバイト列にする。長さが 0 なら、ポインタは見ない
+/// ポインターと長さを、借りるバイト列にする。長さが 0 なら、ポインターは見ない
 ///
 /// # Safety
 ///
@@ -117,7 +117,7 @@ unsafe fn handle<'a>(session: *mut SessionHandle) -> Option<&'a SessionHandle> {
     unsafe { session.as_ref() }
 }
 
-/// 核のバイト列を、ホストが `zm_free` で返すバッファにして書く
+/// 核のバイト列を、ホストが `zm_free` で返すバッファーにして書く
 ///
 /// # Safety
 ///
@@ -150,7 +150,7 @@ pub extern "system" fn zm_abi_version() -> u32 {
 ///
 /// # Safety
 ///
-/// `options` から `options_len` バイトを読めること。`session` は NULL か、ポインタを書けること。
+/// `options` から `options_len` バイトを読めること。`session` は NULL か、ポインターを書けること。
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn zm_session_new(
     options: *const u8,
@@ -347,7 +347,7 @@ pub unsafe extern "system" fn zm_session_close(session: *mut SessionHandle) {
     });
 }
 
-/// 核が返したバッファを返す
+/// 核が返したバッファーを返す
 ///
 /// # Safety
 ///
@@ -423,7 +423,7 @@ mod tests {
         session
     }
 
-    /// 応答を取り出して、バッファを返す
+    /// 応答を取り出して、バッファーを返す
     fn take_text(buf: &mut Buf) -> String {
         let text =
             String::from_utf8(unsafe { core::slice::from_raw_parts(buf.ptr, buf.len) }.to_vec())

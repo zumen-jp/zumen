@@ -7,7 +7,7 @@
 
 ## 背景
 
-- 旧版の結合は、言語ごとに手で書いた。Python の層は約 5,400 行あり（[0011](0011-bindings-through-ffi.md)）、wasm の結合は、形式の判定・シーンの読み取り・埋め込みファイルの取り出しの 3 つの関数だけだった。解析・変換・編集はブラウザから使えず（[zumen-jp/zumen-legacy#97](https://github.com/zumen-jp/zumen-legacy/issues/97)・[zumen-jp/zumen-legacy#118](https://github.com/zumen-jp/zumen-legacy/issues/118)）、AI 向けの道具は Python にしかなかった（[旧版の決定 0004](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0004-mcp-server-in-the-python-package.md)・[旧版の決定 0011](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0011-tool-functions-for-agents.md)）。
+- 旧版の結合は、言語ごとに手で書いた。Python の層は約 5,400 行あり（[0011](0011-bindings-through-ffi.md)）、wasm の結合は、形式の判定・シーンの読み取り・埋め込みファイルの取り出しの 3 つの関数だけだった。解析・変換・編集はブラウザーから使えず（[zumen-jp/zumen-legacy#97](https://github.com/zumen-jp/zumen-legacy/issues/97)・[zumen-jp/zumen-legacy#118](https://github.com/zumen-jp/zumen-legacy/issues/118)）、AI 向けの道具は Python にしかなかった（[旧版の決定 0004](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0004-mcp-server-in-the-python-package.md)・[旧版の決定 0011](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0011-tool-functions-for-agents.md)）。
 - [0011](0011-bindings-through-ffi.md) で、各言語からは C ABI のライブラリと wasm のモジュールを呼び、言語の側は、手書きの小さな包みと、スキーマから生成した型だけにすると決めた。
 - [0008](0008-model-layers-and-codecs.md) で、API の低・中・高の 3 つの水準を、どれも境界のメッセージとして出すと決めた。[0009](0009-diagnostics-and-catalog.md) は文言を組み立てる `zm_describe` の形を、[0010](0010-budget-by-work.md) は予算の設定の渡し方を、ここに残した。
 - 呼ぶ側には、次の制約がある。
@@ -70,7 +70,7 @@ void      zm_free(zm_buf *buf);
 | `zm_take_arrow` | 表の結果を、Arrow の C Stream Interface で取り出す。ネイティブだけ |
 | `zm_cancel` | 動いている呼び出しを止める。別のスレッドから呼べる |
 | `zm_session_close` | セッションを閉じる |
-| `zm_free` | 核が返したバッファを返す |
+| `zm_free` | 核が返したバッファーを返す |
 
 - 読める形式の一覧（素案の `zm_capabilities`）と、診断の文（素案の `zm_describe`）は、関数ではなく op にする。op にすれば、プロセスの外・HTTP・MCP の形（[0013](0013-boundary-in-four-forms.md)）にも、手を加えずに出る。
 - wasm のモジュールは、同じ関数を export し、メモリを確保して返す `zm_alloc`・`zm_dealloc` を足す（[0011](0011-bindings-through-ffi.md)）。`zm_take_arrow` は出さず、表は Arrow の IPC で `zm_take` から渡す。
@@ -78,7 +78,7 @@ void      zm_free(zm_buf *buf);
 
 ### 関数の約束
 
-- **構造体を値で渡さない。** 引数は、整数・ポインタ・長さだけにする。結果は、呼び出し側が用意した `zm_buf` などに、ポインタで書く。
+- **構造体を値で渡さない。** 引数は、整数・ポインター・長さだけにする。結果は、呼び出し側が用意した `zm_buf` などに、ポインターで書く。
 - **`bool` を使わない。** 真偽は整数で表す。VBA の Boolean は 2 バイトで、真が -1 になる。
 - **文字列は UTF-8。** 要求と応答の JSON、入力の名前が対象。
   - UTF-16 の入口は置かない。.NET・Java は標準の変換で、VBA は包みの中の Windows の API で UTF-8 にする。
@@ -88,8 +88,8 @@ void      zm_free(zm_buf *buf);
   - `..`・絶対パス・ドライブ名・NUL を含む名前は受け付けない（[0010](0010-budget-by-work.md) の ZIP の項目の名前と同じ規則）。
 - **コールバックを受け取らない。** 進み具合や途中の結果は、呼び出しを分けて受け取る。Arrow の C Stream の `release` のように、核が渡してホストが呼ぶ関数は、この規則に入らない。
 - **メモリ**
-  - 入力のバッファは、呼び出しの間だけ借りる。核は、要るものを写す。
-  - 核が返したバッファは、`zm_free` まで有効にする。大きな結果を、写さずにその場で読める。
+  - 入力のバッファーは、呼び出しの間だけ借りる。核は、要るものを写す。
+  - 核が返したバッファーは、`zm_free` まで有効にする。大きな結果を、写さずにその場で読める。
   - 取り出さなかったバイナリの結果は、次の `zm_call` で捨てる。
   - 取り出した結果は、セッションを閉じたあとも使える。
 - **状態コード**は少なく保ち、理由は応答の診断（[0009](0009-diagnostics-and-catalog.md)）で返す。

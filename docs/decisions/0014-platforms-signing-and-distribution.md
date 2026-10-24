@@ -11,7 +11,7 @@
 - 利用者の環境は広い。
   - Windows の x64 が多い。32 bit の Office が残り、ARM64 の PC も増えた。
   - Mac は arm64 が主で、Intel の Mac も残る。
-  - Linux のサーバーとコンテナには、glibc のものと musl のもの（Alpine）がある。
+  - Linux のサーバーとコンテナーには、glibc のものと musl のもの（Alpine）がある。
   - 現場では iPad と Android の端末を使う。Unity の IL2CPP は、iOS と Web では静的ライブラリをリンクする。
 - 会社の PC では、署名のない DLL や実行ファイルが止められることがある。
 - 2026-10-24 に確かめた事情
@@ -26,13 +26,13 @@
   - 長く有効なトークンを CI に置かずに公開する仕組み（trusted publishing）は、PyPI・npm・crates.io・NuGet・RubyGems・pub.dev にある。Maven Central にはない。npm と PyPI は、来歴の証明も付けられる。
   - vcpkg は、ビルドした成果物を配るポートを強く勧めない。Conan Center と conda-forge は、ソースから作るレシピを求める。
   - SwiftPM の `binaryTarget` は、Apple のプラットフォームの XCFramework だけを受ける。
-  - Go の module は、zip で 500 MiB まで。
+  - Go のモジュールは、zip で 500 MiB まで。
 
 ## 選択肢
 
 ### 対象
 
-1. **主要な 3 つ**（Windows x64・macOS arm64・Linux x64）だけにする。32 bit の Office、現場の端末、コンテナで使えない。
+1. **主要な 3 つ**（Windows x64・macOS arm64・Linux x64）だけにする。32 bit の Office、現場の端末、コンテナーで使えない。
 2. **利用者の環境を広く対象にし、確かめ方の重さを分ける。** PR ごとに試すもの、毎晩に試すもの、作るだけのものに分ける。
 
 ### Windows の署名
@@ -68,7 +68,7 @@
 | Android | arm64-v8a・armeabi-v7a・x86_64 | `aarch64-linux-android`・`armv7-linux-androideabi`・`x86_64-linux-android` | 毎晩に作る |
 | wasm | wasm32 | `wasm32-unknown-unknown` | PR ごとに試験 |
 
-- 32 bit の Windows は、32 bit の Office の VBA のために、PR ごとに試す。関数を stdcall で出す所（[0011](0011-bindings-through-ffi.md)）と、ポインタの幅の違いで壊れやすい。
+- 32 bit の Windows は、32 bit の Office の VBA のために、PR ごとに試す。関数を stdcall で出す所（[0011](0011-bindings-through-ffi.md)）と、ポインターの幅の違いで壊れやすい。
 - [0007](0007-single-rust-implementation.md) のハッシュの一致は、PR ごとに試験する対象と wasm32 で確かめる。
 - リリースでは、表のすべての対象を作る。
 
@@ -105,7 +105,7 @@
 | 1 | Python | PyPI（`zumen`） | ctypes の包みと、ネイティブのライブラリ。言語の版によらない、プラットフォームごとの wheel |
 | 1 | .NET | NuGet（`Zumen`） | netstandard2.0 の包みと、プラットフォームごとのネイティブのライブラリ |
 | 1 | C・C++ | GitHub Releases | ヘッダー、ライブラリ、CMake の設定 |
-| 1 | CLI・MCP | GitHub Releases、winget、Homebrew（`zumen-jp/tap/zumen`）、コンテナのイメージ（GHCR） | `zumen` |
+| 1 | CLI・MCP | GitHub Releases、winget、Homebrew（`zumen-jp/tap/zumen`）、コンテナーのイメージ（GHCR） | `zumen` |
 | 2 | Java・Kotlin | Maven Central（`dev.zumen`） | JAR と、ネイティブのライブラリ。Android には AAR |
 | 2 | Swift | SwiftPM（鏡の `zumen-swift`） | XCFramework |
 | 2 | Go | `zumen.dev/go`（鏡の `zumen-go`） | wasm を埋め込んだ module |

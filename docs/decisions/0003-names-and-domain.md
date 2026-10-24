@@ -11,7 +11,7 @@
 - 2026-10-24 に、各レジストリの名前の空きを確かめた。
   - 空いていた: crates.io の `zumen`・`zumen-*`、NuGet の `Zumen`、pub.dev・RubyGems の `zumen`、Packagist の `zumen-jp/zumen`
   - 旧版が公開済み: PyPI の `zumen`
-  - 他人が使用中: npm の素の `zumen`（他の人の CLI）
+  - 他人が使用中: npm の素の `zumen`（ほかの人の CLI）
 - ドメイン `zumen.dev` を取得した（Cloudflare）。npm の org `zumen-jp` も作った。
 
 ## 選択肢
@@ -39,7 +39,7 @@
 
 - crates.io の名前は、中身のある最初の版で取る。名前だけの予約は、crates.io の規約で禁じられている。
 - 旧版の `@zumenjs/*`（0.1.1）は、新しい名前で公開したあとに非推奨にし、移った先を案内する。
-- 利用者に `npx zumen` を案内しない。他の人のパッケージが動いてしまうため。
+- 利用者に `npx zumen` を案内しない。ほかの人のパッケージが動いてしまうため。
 
 ## 影響
 

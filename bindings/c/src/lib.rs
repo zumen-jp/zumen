@@ -1,4 +1,4 @@
-//! C のヘッダー（`include/zumen.h`）を、C と C++ のコンパイラで確かめる試験（`tests/smoke.rs`）。成果物には入らない。
+//! C のヘッダー（`include/zumen.h`）を、C と C++ のコンパイラーで確かめる試験（`tests/smoke.rs`）。成果物には入らない。
 
 // 試験の C と C++ が呼ぶ zm_* の関数を、試験のプログラムにリンクする
 extern crate zumen_abi1;

@@ -19,7 +19,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | Linux | x64・arm64（musl、静的） | `x86_64-unknown-linux-musl`・`aarch64-unknown-linux-musl` | glibc に依らない | 毎晩に試験 |
 | iOS・iPadOS | arm64（実機・シミュレーター） | `aarch64-apple-ios`・`aarch64-apple-ios-sim` | iOS 15 | 毎晩に作る |
 | Android | arm64-v8a・armeabi-v7a・x86_64 | `aarch64-linux-android`・`armv7-linux-androideabi`・`x86_64-linux-android` | Android 7.0（API 24） | 毎晩に作る |
-| wasm | wasm32 | `wasm32-unknown-unknown` | 下の「ブラウザ」 | PR ごとに試験 |
+| wasm | wasm32 | `wasm32-unknown-unknown` | 下の「ブラウザー」 | PR ごとに試験 |
 
 - OS の下限は、Rust の対象の下限（Windows 10、macOS 11・10.12、glibc 2.17）と、配り方の下限（`manylinux_2_28`、Flutter の iOS 15・Android 7.0）の高いほうです。
 - glibc 2.28 より古い Linux では、musl で静的にリンクした CLI を、プロセスの外か HTTP の形（[決定 0013](decisions/0013-boundary-in-four-forms.md)）で使います。glibc のプロセスには、musl のライブラリを読み込めません。
@@ -30,7 +30,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | 段 | 言語 | 下限 | 理由 | 確かめ方 |
 | --- | --- | --- | --- | --- |
 | 1 | Rust | 1.99（crate の `rust-version`） | 固定したツールチェーン | PR ごと |
-| 1 | TS・JS（ブラウザ） | Chrome・Edge 96、Firefox 79、Safari 15 | Rust の wasm32 が既定で使う wasm の機能（multivalue・mutable-globals・reference-types・sign-ext・bulk-memory・nontrapping-fptoint） | PR ごと（Chromium）、毎晩（Firefox・WebKit） |
+| 1 | TS・JS（ブラウザー） | Chrome・Edge 96、Firefox 79、Safari 15 | Rust の wasm32 が既定で使う wasm の機能（multivalue・mutable-globals・reference-types・sign-ext・bulk-memory・nontrapping-fptoint） | PR ごと（Chromium）、毎晩（Firefox・WebKit） |
 | 1 | Node.js | 22 | 20 のサポートは 2026-04-30 に終わった | PR ごと |
 | 1 | Python | 3.9 | Rhino 8 と Dynamo 3.x の CPython3（どちらも 3.9） | PR ごと（3.9 と最新） |
 | 1 | .NET | .NET Framework 4.8、.NET 8 以降 | Revit・AutoCAD 2024 は .NET Framework 4.8。netstandard2.0 の 1 つのアセンブリで両方に出す | PR ごと（.NET Framework 4.8 と .NET 10） |

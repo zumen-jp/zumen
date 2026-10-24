@@ -16,7 +16,7 @@
   - 表示用のシーンは曲線を折れ線で持った。DXF の円弧は、用紙の 0.02 mm（半径の 1/10000 のほうが大きければそれ）を弦の誤差にして分けた。
   - 閉領域・罫線の表・版の比較は、シーンの折れ線の上で、用紙の 0.01 mm を許容差にして求めた（[旧版の決定 0015](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0015-analysis-in-zumen-core.md)）。丸い部屋や柱の面積は、折れ線の分だけ厳密な値と違った（試験の図面の円で 0.1 % 未満）。
   - 許容差は、操作ごとの定数か引数だった。文書の精度は持たなかった。
-- [0007](0007-single-rust-implementation.md) は、どこでも同じ結果を求め、std の三角関数などを使わないと決めた。幾何カーネルは、wasm32 と native で同じ結果になることを選ぶ条件にした。
+- [0007](0007-single-rust-implementation.md) は、どこでも同じ結果を求め、std の三角関数などを使わないと決めた。幾何カーネルは、wasm32 とネイティブで同じ結果になることを選ぶ条件にした。
 - [0009](0009-diagnostics-and-catalog.md) の忠実度 `approximated` は、許容差を値に持つ。[0010](0010-budget-by-work.md) の予算の単位 `segments` は、幾何の分割で作った点・線・面の数を数える。
 - IFC は、表現の文脈（`IfcGeometricRepresentationContext`）に、精度（`Precision`）を書ける。
 - 部品の状況（2026-10-24 に、crates.io とソースで確かめた）
@@ -24,10 +24,10 @@
 | crate | 版 | ライセンス | 用途 | 決定性に関わること |
 | --- | --- | --- | --- | --- |
 | robust | 1.2.0 | MIT OR Apache-2.0 | 向き・円の内外の厳密な判定（Shewchuk の適応精度の述語） | 四則演算だけで計算する |
-| i_overlay | 9.1.0 | MIT OR Apache-2.0（依存の i_float・i_shape は MIT） | 多角形のブーリアン・オフセット・線の切り取り。入力の辺の出所を結果に残せる | 浮動小数の座標を整数の格子に写して計算する。浮動小数の三角関数は、i_float が libm で計算する。rayon は feature を入れたときだけ使う。範囲を外れると panic する API と、失敗を返す API がある |
+| i_overlay | 9.1.0 | MIT OR Apache-2.0（依存の i_float・i_shape は MIT） | 多角形のブーリアン・オフセット・線の切り取り。入力の辺の出所を結果に残せる | 浮動小数の座標を整数の格子に写して計算する。浮動小数の三角関数は、i_float が libm で計算する。rayon は feature を入れたときだけ使う。範囲を外れるとパニックする API と、失敗を返す API がある |
 | cavalier_contours | 0.9.0 | MIT OR Apache-2.0 | 円弧を含む折れ線のオフセット | std の三角関数を使う |
 | manifold-rust | 0.18.0 | Apache-2.0 | 3D のブーリアン（Manifold の Rust への移植、2026-07 から） | std の三角関数と HashMap（rustc-hash）を使う。rayon は feature を入れたときだけ使う |
-| manifold-csg | 0.4.1 | Apache-2.0 OR MIT | 3D のブーリアン（C++ の Manifold を呼ぶ） | 作るのに cmake と C++ のコンパイラが要る |
+| manifold-csg | 0.4.1 | Apache-2.0 OR MIT | 3D のブーリアン（C++ の Manifold を呼ぶ） | 作るのに cmake と C++ のコンパイラーが要る |
 | csgrs | 0.20.1 | MIT | 3D のブーリアン（BSP） | std の三角関数と HashMap（hashbrown）を使う。rayon は feature を入れたときだけ使う |
 | boolmesh | 0.2.1 | MPL-2.0 | 3D のブーリアン | 寛容でないので使えない |
 
@@ -92,9 +92,9 @@
 - 形状表現は、L2 では評価せずに持つ。表示・切断・数量で要るときに評価する。
 - 評価は、geom3d のカーネルの trait を通して呼ぶ。押し出し・掃引・回転、面の集合、インスタンス、半空間での切断、開口のブーリアン、平面での切断（→ 2D）。
 - カーネルは、[zumen-jp/zumen-legacy#129](https://github.com/zumen-jp/zumen-legacy/issues/129) で、日本の BIM ソフトの書き出しで測って選ぶ。選ぶ条件は次のとおり。
-  - wasm32 と native で同じ結果になる（[0007](0007-single-rust-implementation.md)）
+  - wasm32 とネイティブで同じ結果になる（[0007](0007-single-rust-implementation.md)）
   - 寛容なライセンス（[0011](0011-bindings-through-ffi.md)）で、作るのに C・C++ の道具が要らない。wasm32-unknown-unknown と、すべての対象（[0014](0014-platforms-signing-and-distribution.md)）で同じように作るため
-  - 失敗しても panic しない（[0010](0010-budget-by-work.md)）
+  - 失敗してもパニックしない（[0010](0010-budget-by-work.md)）
   - 失敗の割合・時間・メモリ・BIM の wasm のモジュールの大きさ（[0013](0013-boundary-in-four-forms.md)）
 - 今の候補は、どれもそのままでは条件に合わない（背景の表）。feature で外せるか、上流が直すか、写して直すかも測る。
 - 開口のブーリアンなどに失敗した要素は、失敗する前の形を返し、診断を付ける。黙って落とさない。
@@ -126,7 +126,7 @@
 
 - 幾何の部品と依存は、[0007](0007-single-rust-implementation.md) の規則に従う。浮動小数は四則演算・`sqrt` と libm だけを使い、HashMap の順を使わず、並列の結果は入力の順に集める。
 - 判定は厳密な述語で、位相は整数の格子で求める。浮動小数の丸めの違いが、位相の違いにならない。
-- 幾何の試験の出力も、native と wasm32 で同じハッシュになることを確かめる。
+- 幾何の試験の出力も、ネイティブと wasm32 で同じハッシュになることを確かめる。
 - 依存を足すときは、std の三角関数・HashMap・rayon の使い方を確かめ、記録に書く。
 
 ## 影響

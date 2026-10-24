@@ -8,12 +8,12 @@
 ## 背景
 
 - 日本の建設で使われる言語は多い。
-  - Web：TS・JS、Ruby、PHP、Java、Go、Python
-  - CAD・BIM のアドイン：C#、C++、AutoLISP、Python、Ruby
-  - Excel・社内の Windows アプリ：VBA、VB.NET、Delphi、PowerShell
-  - Jw_cad の外部変形：BAT・VBScript
-  - 現場の端末：Swift、Kotlin、Dart
-  - 解析・研究：Python、MATLAB、R、Julia、Fortran
+  - Web: TS・JS、Ruby、PHP、Java、Go、Python
+  - CAD・BIM のアドイン: C#、C++、AutoLISP、Python、Ruby
+  - Excel・社内の Windows アプリ: VBA、VB.NET、Delphi、PowerShell
+  - Jw_cad の外部変形: BAT・VBScript
+  - 現場の端末: Swift、Kotlin、Dart
+  - 解析・研究: Python、MATLAB、R、Julia、Fortran
 - 各言語へは、1 本の細い境界（[#13](https://github.com/zumen-jp/zumen/issues/13)）を通して届ける。新しい言語も、C の FFI、wasm のランタイム、プロセスの起動、HTTP のどれかがあれば使える（[#14](https://github.com/zumen-jp/zumen/issues/14)）。
 - それでも、すべての言語に同じ手間をかけることはできない。
 

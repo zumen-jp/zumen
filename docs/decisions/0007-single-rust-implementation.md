@@ -19,7 +19,7 @@
 ## 選択肢
 
 1. **TypeScript の参照実装と Rust の移植を続ける。** 2 つの実装が互いを確かめられる。ただし再現の費用が形式ごとに増え、許容差なしには一致しない。DWG・PDF・IFC には、すでに参照実装がない。
-2. **ほかの言語（C++ など）の 1 つの実装にする。** C ABI で各言語に出せる。ただし、受け取ったファイルを読む部分のメモリ安全を、言語が保証しない。旧版の Rust の資産（DWG のデコーダ、PDF・IFC の読み取り）も書き直しになる。
+2. **ほかの言語（C++ など）の 1 つの実装にする。** C ABI で各言語に出せる。ただし、受け取ったファイルを読む部分のメモリ安全を、言語が保証しない。旧版の Rust の資産（DWG のデコーダー、PDF・IFC の読み取り）も書き直しになる。
 3. **Rust の 1 つの実装にし、同じコードを各環境に結合する。** メモリ安全で、WebAssembly と C ABI に出しやすく、旧版の資産を移せる。同じ結果は、決定性の規則と、環境の間での出力の比較で保つ。
 
 ## 決定
@@ -54,8 +54,8 @@
   - 表示エンジンが画面に描いたピクセル。核が描く PNG・SVG・PDF は含む
   - 版をまたいだ一致。版をまたいで約束するのは ID だけで、ID は浮動小数の計算から作らない
 - **確かめ方**
-  - CI で、native の各対象（[#16](https://github.com/zumen-jp/zumen/issues/16) で決める）と wasm32 が同じ入力の組を処理し、出力ごとのハッシュの一覧を作る。最後の job で、すべての一覧が一致することを確かめる。
-  - wasm32 では、ブラウザに配るのと同じモジュールを使う。
+  - CI で、ネイティブの各対象（[#16](https://github.com/zumen-jp/zumen/issues/16) で決める）と wasm32 が同じ入力の組を処理し、出力ごとのハッシュの一覧を作る。最後の job で、すべての一覧が一致することを確かめる。
+  - wasm32 では、ブラウザーに配るのと同じモジュールを使う。
   - 各言語の結合は、同じ入力の組を境界（[#13](https://github.com/zumen-jp/zumen/issues/13)）を通して処理し、同じ一覧になることを確かめる。段 1 は PR ごと、段 2 は毎晩（[0006](0006-language-tiers.md)）。
 
 ### 決定性の規則
@@ -86,13 +86,13 @@
 ## 影響
 
 - 旧版の TypeScript の読み取り器、`zumen_core::js`・`zumen_core::sort`、TypeScript で正解を書く仕組みは移さない。形式の知見と、合成の試験ファイルの作り方は移す（[0001](0001-rebuild-in-zumen-jp.md)）。
-- ブラウザでは、どの形式も WebAssembly で読む。モジュールの分け方と大きさは [#14](https://github.com/zumen-jp/zumen/issues/14) で決める。
+- ブラウザーでは、どの形式も WebAssembly で読む。モジュールの分け方と大きさは [#14](https://github.com/zumen-jp/zumen/issues/14) で決める。
 - 参照実装がない分、外部のソフトとの照合が、正しさの大きな根拠になる。Windows の実機での検証は、[0004](0004-repositories.md) の案の `verify` で行う。
 - 決定性の規則は、依存の選び方を狭める。
-  - 幾何カーネル（[#11](https://github.com/zumen-jp/zumen/issues/11)、[zumen-jp/zumen-legacy#129](https://github.com/zumen-jp/zumen-legacy/issues/129)）は、wasm32 と native で同じ結果になることを、選ぶ条件にする。
+  - 幾何カーネル（[#11](https://github.com/zumen-jp/zumen/issues/11)、[zumen-jp/zumen-legacy#129](https://github.com/zumen-jp/zumen-legacy/issues/129)）は、wasm32 とネイティブで同じ結果になることを、選ぶ条件にする。
   - 旧版が PDF の読み取りに使った hayro の依存の kurbo は、std があると std の関数を使う。PDF を移すときに、結果に効くかを確かめる。
 - `libm` の関数は、プラットフォームのものより遅いことがある。速さより、同じ結果を優先する。
-- [#2](https://github.com/zumen-jp/zumen/issues/2) の完了の条件のうち、native と wasm32 の出力のハッシュの一致の検査は、最初のコーデックと一緒に入れる。ハッシュをかける符号化は [#6](https://github.com/zumen-jp/zumen/issues/6)・[#13](https://github.com/zumen-jp/zumen/issues/13) で決める。それまでは、書き出したバイト列と、試験用の決まった符号化にかける。
+- [#2](https://github.com/zumen-jp/zumen/issues/2) の完了の条件のうち、ネイティブと wasm32 の出力のハッシュの一致の検査は、最初のコーデックと一緒に入れる。ハッシュをかける符号化は [#6](https://github.com/zumen-jp/zumen/issues/6)・[#13](https://github.com/zumen-jp/zumen/issues/13) で決める。それまでは、書き出したバイト列と、試験用の決まった符号化にかける。
 - AGENTS.md の「どこでも同じ結果」から、この記録を参照する。
 
 ## 参照
