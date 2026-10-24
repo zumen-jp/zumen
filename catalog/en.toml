@@ -1,0 +1,15 @@
+# 診断の文（英語）。ja.toml の訳にする（決定 0005・0009）。
+# {名前} には台帳の値が、{count} にはまとめた件数が入る。
+
+[codes]
+"budget.input-bytes.exceeded" = "Not read: the input ({requested} bytes) exceeds the limit ({limit} bytes)."
+"budget.decoded-bytes.exceeded" = "Stopped: the decoded data exceeds the limit ({limit} bytes)."
+"budget.records.exceeded" = "Stopped: the number of records read exceeds the limit ({limit})."
+"budget.elements.exceeded" = "Stopped: the number of elements created exceeds the limit ({limit})."
+"budget.depth.exceeded" = "Stopped: the nesting depth exceeds the limit ({limit})."
+"budget.segments.exceeded" = "Stopped: subdividing geometry made more points, segments and faces than the limit ({limit})."
+"budget.work.exceeded" = "Stopped: the work exceeds the limit ({limit} steps)."
+"budget.time.exceeded" = "Stopped: the time limit was reached."
+"call.request.cancelled" = "Stopped: the call was cancelled."
+"internal.panic.caught" = "Stopped by an internal error. Please report it as a bug."
+"zip.path.unsafe" = "Did not use {count} ZIP entry names that are unsafe as paths (the first is \"{name}\")."

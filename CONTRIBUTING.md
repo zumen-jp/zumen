@@ -23,6 +23,21 @@ zumen は作り直しを始めたところです。設計は [#1](https://github
 - GPL の実装を読んで書いたもの
 - 権利のはっきりしないもの
 
+## 開発の準備
+
+Rust は [rustup](https://rustup.rs/) で入れます。版は `rust-toolchain.toml` で決めてあり、リポジトリの中で `rustup toolchain install` を実行すると入ります。
+
+PR を出す前に、CI と同じ検査を手元で通してください。
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo xtask codegen --check
+```
+
+診断の code を足すときは、[catalog/README.md](catalog/README.md) の手順に従ってください。
+
 ## 手順
 
 - 最新の `main` からブランチを作り、PR を出してください。

@@ -1,0 +1,11 @@
+[package]
+name = "zumen-base"
+description = "zumen の横断の部品: 診断・予算・中断の合図と、それらを運ぶ文脈"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

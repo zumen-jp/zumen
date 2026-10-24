@@ -58,7 +58,7 @@
 - 時間の上限は、native での補助にする。
   - 作業量を数えるのと同じ所で時計を見て、超えたら `budget.time.exceeded` を返す。
   - 止まる所は環境で変わるので、[0007](0007-single-rust-implementation.md) の約束の外になる。
-- 中断の合図（`CancelToken`）は `Cx` で渡し、同じ所で確かめる。中断したら `call.cancelled` を返す。
+- 中断の合図（`CancelToken`）は `Cx` で渡し、同じ所で確かめる。中断したら `call.request.cancelled` を返す。
 - wasm では、モジュールの中に時計がなく、呼び出しの途中に合図を書き込めない。ホストの手段で止める。
   - ブラウザ: Worker を止める
   - wasm のランタイム: wasmtime の fuel や epoch、wazero の context など
@@ -70,7 +70,7 @@
 - 核の crate では、試験を除き、clippy で次を禁じる。どうしても要る所は、理由をコメントに書いて許す。
   - `unwrap_used`・`expect_used`・`panic`・`todo`・`unimplemented`・`unreachable`
   - `indexing_slicing`・`string_slice`
-- native の境界では、`catch_unwind` で止め、`internal.panic` の診断を返す。panic は不具合なので、直す。
+- native の境界では、`catch_unwind` で止め、`internal.panic.caught` の診断を返す。panic は不具合なので、直す。
 - wasm では `catch_unwind` が効かない。パニックしないことを lint と fuzz で守り、trap したらホストがインスタンスを作り直す。
 - スタックのあふれは、どの環境でも捕まえられない。入力で深さが決まる処理は、`depth` で制限するか、明示的なスタックを使うループにする。
 
@@ -107,3 +107,7 @@
 - 旧版の構成の [Limits for untrusted drawings](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/architecture.en.md#limits-for-untrusted-drawings)
 - [旧版の決定 0020](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0020-pdf-drawings-in-rust.md)
 - [0007](0007-single-rust-implementation.md)、[0008](0008-model-layers-and-codecs.md)、[0009](0009-diagnostics-and-catalog.md)
+
+## 訂正
+
+- 2026-10-24: 中断と panic の code の名前を、[0009](0009-diagnostics-and-catalog.md) の `<範囲>.<対象>.<出来事>` の規則に合わせた（`call.cancelled` → `call.request.cancelled`、`internal.panic` → `internal.panic.caught`）。判断は変えていない。

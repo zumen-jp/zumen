@@ -33,7 +33,10 @@
 ## 開発の手順
 
 - 最新の `origin/main` からブランチを作り、すべての変更を PR にする。`main` へ直接 push しない。
+- PR を出す前に、CI と同じ検査を手元で通す: `cargo fmt --all --check`・`cargo clippy --workspace --all-targets -- -D warnings`・`cargo test --workspace`・`cargo xtask codegen --check`。
 - CI が通ったら squash merge し、ブランチを消す。レビューで止めるよう頼まれた場合は、そこで止める。
+- Rust の版は `rust-toolchain.toml` で固定する。上げるときは、CI の cargo-deny の版も合わせる。
+- 診断の code を足すときは、`catalog/` の台帳と日本語・英語の文を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`catalog/README.md`）。
 - コミットと PR のタイトルは Conventional Commits にする。
 - 選択肢と理由のある設計判断は、`docs/decisions/README.md` の形で記録する。
   - 番号は 0001 から振る。番号を振る前に、開いている PR が同じ番号を使っていないか確かめる。

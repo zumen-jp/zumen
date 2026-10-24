@@ -1,0 +1,76 @@
+# 決定 0007・0010 の規則のうち、機械で検査できるもの。
+
+# 試験の中では、unwrap・expect・panic・添字を許す。
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+
+# 精度が決まっていない std の関数は、環境や Rust の版で結果が変わる。libm を使う。
+disallowed-methods = [
+    { path = "f64::sin", reason = "libm::sin を使う（決定 0007）" },
+    { path = "f64::cos", reason = "libm::cos を使う（決定 0007）" },
+    { path = "f64::tan", reason = "libm::tan を使う（決定 0007）" },
+    { path = "f64::sin_cos", reason = "libm::sin と libm::cos を使う（決定 0007）" },
+    { path = "f64::asin", reason = "libm::asin を使う（決定 0007）" },
+    { path = "f64::acos", reason = "libm::acos を使う（決定 0007）" },
+    { path = "f64::atan", reason = "libm::atan を使う（決定 0007）" },
+    { path = "f64::atan2", reason = "libm::atan2 を使う（決定 0007）" },
+    { path = "f64::sinh", reason = "libm::sinh を使う（決定 0007）" },
+    { path = "f64::cosh", reason = "libm::cosh を使う（決定 0007）" },
+    { path = "f64::tanh", reason = "libm::tanh を使う（決定 0007）" },
+    { path = "f64::asinh", reason = "libm::asinh を使う（決定 0007）" },
+    { path = "f64::acosh", reason = "libm::acosh を使う（決定 0007）" },
+    { path = "f64::atanh", reason = "libm::atanh を使う（決定 0007）" },
+    { path = "f64::exp", reason = "libm::exp を使う（決定 0007）" },
+    { path = "f64::exp2", reason = "libm::exp2 を使う（決定 0007）" },
+    { path = "f64::exp_m1", reason = "libm::expm1 を使う（決定 0007）" },
+    { path = "f64::ln", reason = "libm::log を使う（決定 0007）" },
+    { path = "f64::log", reason = "libm::log を使って割る（決定 0007）" },
+    { path = "f64::log2", reason = "libm::log2 を使う（決定 0007）" },
+    { path = "f64::log10", reason = "libm::log10 を使う（決定 0007）" },
+    { path = "f64::ln_1p", reason = "libm::log1p を使う（決定 0007）" },
+    { path = "f64::powf", reason = "libm::pow を使う（決定 0007）" },
+    { path = "f64::powi", reason = "掛け算か libm::pow を使う（決定 0007）" },
+    { path = "f64::hypot", reason = "libm::hypot を使う（決定 0007）" },
+    { path = "f64::cbrt", reason = "libm::cbrt を使う（決定 0007）" },
+    { path = "f32::sin", reason = "libm::sinf を使う（決定 0007）" },
+    { path = "f32::cos", reason = "libm::cosf を使う（決定 0007）" },
+    { path = "f32::tan", reason = "libm::tanf を使う（決定 0007）" },
+    { path = "f32::sin_cos", reason = "libm::sinf と libm::cosf を使う（決定 0007）" },
+    { path = "f32::asin", reason = "libm::asinf を使う（決定 0007）" },
+    { path = "f32::acos", reason = "libm::acosf を使う（決定 0007）" },
+    { path = "f32::atan", reason = "libm::atanf を使う（決定 0007）" },
+    { path = "f32::atan2", reason = "libm::atan2f を使う（決定 0007）" },
+    { path = "f32::sinh", reason = "libm::sinhf を使う（決定 0007）" },
+    { path = "f32::cosh", reason = "libm::coshf を使う（決定 0007）" },
+    { path = "f32::tanh", reason = "libm::tanhf を使う（決定 0007）" },
+    { path = "f32::asinh", reason = "libm::asinhf を使う（決定 0007）" },
+    { path = "f32::acosh", reason = "libm::acoshf を使う（決定 0007）" },
+    { path = "f32::atanh", reason = "libm::atanhf を使う（決定 0007）" },
+    { path = "f32::exp", reason = "libm::expf を使う（決定 0007）" },
+    { path = "f32::exp2", reason = "libm::exp2f を使う（決定 0007）" },
+    { path = "f32::exp_m1", reason = "libm::expm1f を使う（決定 0007）" },
+    { path = "f32::ln", reason = "libm::logf を使う（決定 0007）" },
+    { path = "f32::log", reason = "libm::logf を使って割る（決定 0007）" },
+    { path = "f32::log2", reason = "libm::log2f を使う（決定 0007）" },
+    { path = "f32::log10", reason = "libm::log10f を使う（決定 0007）" },
+    { path = "f32::ln_1p", reason = "libm::log1pf を使う（決定 0007）" },
+    { path = "f32::powf", reason = "libm::powf を使う（決定 0007）" },
+    { path = "f32::powi", reason = "掛け算か libm::powf を使う（決定 0007）" },
+    { path = "f32::hypot", reason = "libm::hypotf を使う（決定 0007）" },
+    { path = "f32::cbrt", reason = "libm::cbrtf を使う（決定 0007）" },
+    # 時計と環境変数は、結果に効く所で読まない（決定 0007）。時間の上限は、境界の側が伝える（決定 0010）。
+    { path = "std::time::Instant::now", reason = "核は時計を読まない（決定 0007・0010）" },
+    { path = "std::time::SystemTime::now", reason = "核は時計を読まない。日時は呼び出し側から受け取る（決定 0007）" },
+    { path = "std::env::var", reason = "核は環境変数を読まない（決定 0007）" },
+    { path = "std::env::var_os", reason = "核は環境変数を読まない（決定 0007）" },
+    { path = "std::env::vars", reason = "核は環境変数を読まない（決定 0007）" },
+    { path = "std::env::vars_os", reason = "核は環境変数を読まない（決定 0007）" },
+]
+
+# 反復の順が実行ごとに変わる表は使わない。BTreeMap か、挿入の順を保つ表を使う（決定 0007）。
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "BTreeMap か、挿入の順を保つ表を使う（決定 0007）" },
+    { path = "std::collections::HashSet", reason = "BTreeSet か、挿入の順を保つ集合を使う（決定 0007）" },
+]
