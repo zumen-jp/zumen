@@ -16,6 +16,7 @@
 
 - 設計: [#1](https://github.com/zumen-jp/zumen/issues/1)
 - 決定の記録: [docs/decisions](docs/decisions/README.md)
+- 対応する環境と下限: [docs/support.md](docs/support.md)
 - 開発への参加: [CONTRIBUTING.md](CONTRIBUTING.md)（エージェント向けの規則は [AGENTS.md](AGENTS.md)）
 - 旧版: [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy)
 - サイト: https://zumen.dev （準備中）
