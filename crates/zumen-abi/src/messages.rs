@@ -837,7 +837,7 @@ impl ToJson for Severity {
     }
 }
 
-/// 変換の結果の段のうち、native 以外のもの（決定 0009）
+/// 変換の結果の段のうち、`native` 以外のもの（決定 0009）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Fidelity {
     /// `equivalent`
@@ -1157,7 +1157,7 @@ impl ToJson for BlobKind {
 pub struct SessionOptions {
     /// メッセージのスキーマの大版。今は 1
     pub v: u64,
-    /// 実行の形。書かなければ、ネイティブのライブラリでは native、wasm のモジュールでは wasm（決定 0013）
+    /// 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
     pub engine: Option<Engine>,
 }
 
@@ -1195,7 +1195,7 @@ impl ToJson for SessionOptions {
     }
 }
 
-/// 実行の形（決定 0013）。native はプロセスの中で核を動かす、process は子プロセスの CLI に送る、wasm は wasm のモジュールで動かす
+/// 実行の形（決定 0013）。`native` はプロセスの中で核を動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Engine {
     /// `native`

@@ -44,6 +44,13 @@ cargo build -p zumen-abi --target wasm32-unknown-unknown --release
 node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
+文書・コメント・診断の文を変えたときは、表記の検査も通してください。Node.js 22 以降が要ります。表記と用語の規則は [docs/style.md](docs/style.md) にあります。
+
+```bash
+npm ci
+npm run lint:text
+```
+
 診断の code を足すときは [catalog/README.md](catalog/README.md)、境界の関数・op・欄を変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
 
 ## 手順

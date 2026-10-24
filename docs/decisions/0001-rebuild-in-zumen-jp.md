@@ -7,7 +7,7 @@
 
 ## 背景
 
-- 旧版（`zumenjs/zumen`）は、SXF・JWW・DXF・DWG・PDF の読み書き・編集・作図と、ブラウザ・Rust・Python の結合を持つ。
+- 旧版（`zumenjs/zumen`）は、SXF・JWW・DXF・DWG・PDF の読み書き・編集・作図と、ブラウザー・Rust・Python の結合を持つ。
 - BIM（IFC）・土木・点群・納品のデータと、多くの言語への対応を足すには、次のことが壁になっていた（詳しくは [#1](https://github.com/zumen-jp/zumen/issues/1) の「捨てるもの」）。
   - TypeScript の参照実装と Rust を、値の単位で一致させていること
   - 表示用のモデルと AutoCAD のモデルを、形式に依存しないモデルの代わりに使っていること
@@ -33,7 +33,7 @@
   - 合成の試験ファイルの作り方
   - `ids.json`
   - 検証の記録
-  - DWG のデコーダ
+  - DWG のデコーダー
 - 設計は #1 とその子 issue で進める。
 
 ## 影響

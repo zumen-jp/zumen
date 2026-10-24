@@ -119,9 +119,9 @@ params = [
 [[functions]]
 name = "zm_free"
 returns = "void"
-description = "核が返したバッファを返す。返したあとの buf は空になる。空のバッファと NULL には何もしない"
+description = "核が返したバッファーを返す。返したあとの buf は空になる。空のバッファーと NULL には何もしない"
 params = [
-    { name = "buf", type = "buf", description = "zm_call・zm_take が書いたバッファ" },
+    { name = "buf", type = "buf", description = "zm_call・zm_take が書いたバッファー" },
 ]
 
 [[functions]]

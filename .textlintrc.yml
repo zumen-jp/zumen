@@ -1,0 +1,43 @@
+# 文書（Markdown）の表記の検査（決定 0021）。規則の中身は docs/style.md にある。
+# 今の文書の書き方に合わせて選ぶ。文の長さのように、今の文書の書き直しが要る規則は入れない。
+rules:
+  preset-ja-spacing:
+    # 半角の英数字と全角の文字の間に、半角の空白を入れる
+    ja-space-between-half-and-full-width:
+      space: always
+    # インラインのコードの前後にも空白を入れる
+    ja-space-around-code:
+      before: true
+      after: true
+    # リンクの前後の空白は、リンクの文字が半角か全角かで決まるので、上の規則に任せる
+    ja-space-around-link: false
+  preset-ja-technical-writing:
+    # 文の長さ・読点の数・漢字の連続・助詞の重なり・弱い表現は見ない。今の文書の書き直しが大きいため
+    sentence-length: false
+    max-ten: false
+    max-kanji-continuous-len: false
+    no-doubled-joshi: false
+    ja-no-weak-phrase: false
+    # 半角のカンマの数は見ない。数の桁区切り（65,536 など）も数えてしまうため
+    max-comma: false
+    # 「です・ます」と「である」の混在は、見出し・本文・箇条書きのそれぞれで、多いほうに合わせる
+    no-mix-dearu-desumasu:
+      preferInHeader: ""
+      preferInBody: ""
+      preferInList: ""
+      strict: false
+  # 形式名詞・副詞・補助動詞をかなで書く
+  ja-hiragana-keishikimeishi: true
+  ja-hiragana-fukushi: true
+  ja-hiragana-hojodoushi: true
+  # 揺れの辞書
+  prh:
+    rulePaths:
+      - ./prh.yml
+filters:
+  # <!-- textlint-disable 規則の名前 --> と <!-- textlint-enable --> で、その間だけ外せる
+  comments: true
+  # 誤りとしない語。理由と一緒に .textlint-allow.yml に置く
+  allowlist:
+    allowlistConfigPaths:
+      - ./.textlint-allow.yml

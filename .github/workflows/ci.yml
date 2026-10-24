@@ -30,6 +30,20 @@ jobs:
       - name: 台帳・カタログ・スキーマを確かめ、生成したファイルが最新かを確かめる
         run: cargo xtask codegen --check
 
+  text:
+    name: 表記の検査
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # docs/support.md の Node.js の下限
+          node-version: 22
+      - name: 版を固定した道具を、インストールのスクリプトを走らせずに入れる
+        run: npm ci --ignore-scripts
+      - name: 文書・コメント・カタログが表記の基準（docs/style.md）に合うかを確かめる（決定 0021）
+        run: npm run lint:text
+
   test:
     name: 試験（${{ matrix.name }}）
     strategy:
@@ -96,7 +110,7 @@ jobs:
         with:
           # docs/support.md の Node.js の下限
           node-version: 22
-      - name: ブラウザに配るのと同じ形で作る（決定 0007）
+      - name: ブラウザーに配るのと同じ形で作る（決定 0007）
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm

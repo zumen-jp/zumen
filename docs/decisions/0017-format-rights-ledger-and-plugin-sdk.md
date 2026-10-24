@@ -109,7 +109,7 @@
   | --- | --- |
   | trait | `Codec`・`FileModel`・`Lift`・`Lower`、文脈 `Cx`・予算・診断・中断の合図、形式の判定の規則（[0008](0008-model-layers-and-codecs.md)・[0009](0009-diagnostics-and-catalog.md)・[0010](0010-budget-by-work.md)） |
   | 登録 | プラグインの形式・コーデック・lift・lower を、窓口に知らせる記述。台帳と同じキーと権利を持つ |
-  | テストキット | 合成のファイルを作る道具と、試験の枠組み。往復（L1 は読んで書くとバイト列が一致、L2 は lift → lower → lift で等価）、決定性（2 回読んで同じハッシュ、native と wasm32 で同じハッシュの一覧）、予算（同じ所で止まる） |
+  | テストキット | 合成のファイルを作る道具と、試験の枠組み。往復（L1 は読んで書くとバイト列が一致、L2 は lift → lower → lift で等価）、決定性（2 回読んで同じハッシュ、ネイティブと wasm32 で同じハッシュの一覧）、予算（同じ所で止まる） |
   | ID の契約試験 | 同じバイト列から、記録した一覧と同じ ID が出ることを確かめる。ID を変えるには、先に決定の記録が要る（AGENTS.md） |
   | fuzz | バイト列を受けて、パニックしない・予算の中で止まる・2 回読んで同じ結果になる、を確かめる関数。cargo-fuzz の target から呼ぶ（[0010](0010-budget-by-work.md)） |
 
@@ -123,7 +123,7 @@
 | 使う所 | 束ね方 |
 | --- | --- |
 | Rust | プラグインの crate を依存に足し、窓口に登録する（ビルドの時に束ねる） |
-| wasm（ブラウザ・Node.js・Go） | プラグインの形式を持つ、別のモジュールにする。同じ境界の関数を出し（[0012](0012-boundary-functions-and-messages.md)）、公式のモジュールとは L2 のバイナリ（[#6](https://github.com/zumen-jp/zumen/issues/6)）でやり取りする |
+| wasm（ブラウザー・Node.js・Go） | プラグインの形式を持つ、別のモジュールにする。同じ境界の関数を出し（[0012](0012-boundary-functions-and-messages.md)）、公式のモジュールとは L2 のバイナリ（[#6](https://github.com/zumen-jp/zumen/issues/6)）でやり取りする |
 | ネイティブで呼ぶ言語 | プラグインのリポジトリが、核とプラグインを束ねた CLI を作る。各言語からは、その CLI を `process` の形（[0013](0013-boundary-in-four-forms.md)）で使う |
 
 - 公式の成果物（crates.io の `zumen`、C ABI のライブラリ、npm の wasm のモジュール、CLI）は、核のワークスペースの形式だけを持つ。プラグインを実行時に読み込む仕組みは持たない。

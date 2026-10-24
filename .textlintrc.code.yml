@@ -1,0 +1,17 @@
+# ソースコードのコメント・カタログの文・設定のファイルの表記の検査（決定 0021）。
+# 文法を持つファイルなので、行をそのまま読み、揺れの辞書（prh）だけを当てる。
+plugins:
+  "@textlint/text":
+    extensions:
+      - .rs
+      - .toml
+      - .yml
+rules:
+  prh:
+    rulePaths:
+      - ./prh.yml
+filters:
+  # 誤りとしない語。理由と一緒に .textlint-allow.yml に置く
+  allowlist:
+    allowlistConfigPaths:
+      - ./.textlint-allow.yml

@@ -71,7 +71,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."budget.time.exceeded"]
-description = "時間の上限に達した。native での補助で、止まる所は環境で変わる"
+description = "時間の上限に達した。ネイティブでの補助で、止まる所は環境で変わる"
 severity = "error"
 since = "0.0.0"
 status = "active"
@@ -150,7 +150,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."internal.panic.caught"]
-description = "native の境界で panic を捕まえた。不具合なので直す"
+description = "ネイティブの境界でパニックを捕まえた。不具合なので直す"
 severity = "error"
 since = "0.0.0"
 status = "active"

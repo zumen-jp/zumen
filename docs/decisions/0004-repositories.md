@@ -10,7 +10,7 @@
 - 核、各言語への境界、全言語の結合は、新しいメッセージを足すたびに一緒に変わる。
 - 配る仕組みの側に制約がある。
   - SwiftPM・Packagist・Homebrew は、リポジトリの直下にある定義を読む。
-  - Go module はソースで配る。
+  - Go のモジュールはソースで配る。
 - 公開できないものがある。実図面の目録や、Windows の実機での検証がそれにあたる。
 - 公開リポジトリに self-hosted runner をつなぐと、fork からの PR が手元の機械でコードを動かせてしまう。
 
@@ -28,7 +28,7 @@
 | --- | --- | --- |
 | `zumen` | 公開 | 核、境界、全言語の結合と適合試験、表示エンジン、試用画面、文書と決定の記録、プロファイル（当面） |
 | `.github` | 公開 | org の紹介、既定の寄稿の案内・行動規範・セキュリティの方針、issue のフォーム |
-| `zumen-swift`・`zumen-go`・`zumen-php`・`homebrew-tap` | 公開・鏡 | `Package.swift`、wasm を埋め込んだ Go module、`composer.json`、CLI の Formula |
+| `zumen-swift`・`zumen-go`・`zumen-php`・`homebrew-tap` | 公開・鏡 | `Package.swift`、wasm を埋め込んだ Go のモジュール、`composer.json`、CLI の Formula |
 | `examples` | 公開 | 公開されたパッケージだけで書いた連携例（Revit・AutoCAD・Rhino・Excel・Jw_cad・SketchUp・Unity・Web・Python） |
 | `zumen-legacy` | 公開 | 旧版 |
 | `stbridge` など | 非公開 | 許諾を待つ形式のプラグイン |

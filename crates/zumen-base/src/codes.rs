@@ -89,7 +89,7 @@ pub const BUDGET_SEGMENTS_EXCEEDED: Code = Code::new(
     &[],
 );
 
-/// 時間の上限に達した。native での補助で、止まる所は環境で変わる
+/// 時間の上限に達した。ネイティブでの補助で、止まる所は環境で変わる
 ///
 /// `budget.time.exceeded`（0.0.0 から）
 pub const BUDGET_TIME_EXCEEDED: Code =
@@ -225,7 +225,7 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
-/// native の境界で panic を捕まえた。不具合なので直す
+/// ネイティブの境界でパニックを捕まえた。不具合なので直す
 ///
 /// `internal.panic.caught`（0.0.0 から）
 pub const INTERNAL_PANIC_CAUGHT: Code =

@@ -111,7 +111,7 @@ impl Drop for CAbi {
     }
 }
 
-/// 核が書いたバッファを写して返す。状態が成功でなければ、何も書かれていない
+/// 核が書いたバッファーを写して返す。状態が成功でなければ、何も書かれていない
 fn take_buf(status: i32, buf: &mut ffi::Buf) -> Option<Vec<u8>> {
     if buf.ptr.is_null() {
         return (status == Status::Ok.code()).then(Vec::new);

@@ -13,7 +13,7 @@
   - WebAssembly には時計がないので、時間の上限を Rust に渡さず、`ReaderWorker` が Worker ごと止めた。
   - P2Z・SFZ は、上限のバイト数（なければ 2 GiB）まで展開した。
 - 時間で止めると、止まる所が機械の速さで変わる。[0007](0007-single-rust-implementation.md) は、どの環境でも同じ所で止まることを求める。
-- wasm32 では、`catch_unwind` で panic を捕まえられない。Rust 1.99 の wasm32-unknown-unknown で試すと、panic は `unreachable` の trap になった（2026-10-24）。
+- wasm32 では、`catch_unwind` でパニックを捕まえられない。Rust 1.99 の wasm32-unknown-unknown で試すと、パニックは `unreachable` の trap になった（2026-10-24）。
 - [0008](0008-model-layers-and-codecs.md) で、予算・診断・中断の合図を、文脈 `Cx` で明示的に渡すと決めた。
 
 ## 選択肢
@@ -55,12 +55,12 @@
 
 ### 時計と中断
 
-- 時間の上限は、native での補助にする。
+- 時間の上限は、ネイティブでの補助にする。
   - 作業量を数えるのと同じ所で時計を見て、超えたら `budget.time.exceeded` を返す。
   - 止まる所は環境で変わるので、[0007](0007-single-rust-implementation.md) の約束の外になる。
 - 中断の合図（`CancelToken`）は `Cx` で渡し、同じ所で確かめる。中断したら `call.request.cancelled` を返す。
 - wasm では、モジュールの中に時計がなく、呼び出しの途中に合図を書き込めない。ホストの手段で止める。
-  - ブラウザ: Worker を止める
+  - ブラウザー: Worker を止める
   - wasm のランタイム: wasmtime の fuel や epoch、wazero の context など
 - wasm のインスタンスを止めたときと、trap したときは、ホストがインスタンスを捨てて作り直す。メモリの中の状態が壊れているかもしれないため。
 - 依存の中の処理で、呼び出しの間に数えられないもの（PDF のストリームの解読など）は、入力の大きさで先に制限する。fuzz で見つけた問題は、上流に報告する（[旧版の決定 0020](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0020-pdf-drawings-in-rust.md)）。
@@ -70,7 +70,7 @@
 - 核の crate では、試験を除き、clippy で次を禁じる。どうしても要る所は、理由をコメントに書いて許す。
   - `unwrap_used`・`expect_used`・`panic`・`todo`・`unimplemented`・`unreachable`
   - `indexing_slicing`・`string_slice`
-- native の境界では、`catch_unwind` で止め、`internal.panic.caught` の診断を返す。panic は不具合なので、直す。
+- ネイティブの境界では、`catch_unwind` で止め、`internal.panic.caught` の診断を返す。パニックは不具合なので、直す。
 - wasm では `catch_unwind` が効かない。パニックしないことを lint と fuzz で守り、trap したらホストがインスタンスを作り直す。
 - スタックのあふれは、どの環境でも捕まえられない。入力で深さが決まる処理は、`depth` で制限するか、明示的なスタックを使うループにする。
 
@@ -98,7 +98,7 @@
 - 既定値を決めるには、実図面の目録（[0004](0004-repositories.md) の案の `corpus`）での計測が要る。
 - 旧版の `zumen_core::limits` は移さない。
 - 予算の設定を受け渡す形は、[#13](https://github.com/zumen-jp/zumen/issues/13) で決める。
-- [#8](https://github.com/zumen-jp/zumen/issues/8) の完了の条件のうち、試作と、native と wasm32 で同じ所で止まることの試験は、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）と一緒に入れる。
+- [#8](https://github.com/zumen-jp/zumen/issues/8) の完了の条件のうち、試作と、ネイティブと wasm32 で同じ所で止まることの試験は、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）と一緒に入れる。
 - AGENTS.md の「受け取ったファイルを信用しない」から、この記録を参照する。
 
 ## 参照
@@ -110,4 +110,4 @@
 
 ## 訂正
 
-- 2026-10-24: 中断と panic の code の名前を、[0009](0009-diagnostics-and-catalog.md) の `<範囲>.<対象>.<出来事>` の規則に合わせた（`call.cancelled` → `call.request.cancelled`、`internal.panic` → `internal.panic.caught`）。判断は変えていない。
+- 2026-10-24: 中断とパニックの code の名前を、[0009](0009-diagnostics-and-catalog.md) の `<範囲>.<対象>.<出来事>` の規則に合わせた（`call.cancelled` → `call.request.cancelled`、`internal.panic` → `internal.panic.caught`）。判断は変えていない。

@@ -1,6 +1,6 @@
 [package]
 name = "zumen-c"
-description = "C のヘッダー（include/zumen.h）を、C と C++ のコンパイラで確かめる試験。成果物には入らない"
+description = "C のヘッダー（include/zumen.h）を、C と C++ のコンパイラーで確かめる試験。成果物には入らない"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
