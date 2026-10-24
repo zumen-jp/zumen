@@ -1,0 +1,290 @@
+# 形式の権利の台帳（決定 0017）。
+#
+# - 形式を足すときは、実装の前に、ここに項目を足す。書き方は formats/README.md にある。
+# - rights が "public" でない形式は、核のワークスペースに入れない（place を "core" にしない）。
+# - 事実（仕様の版・入手先・権利の根拠）は、公式の文書で確かめ、確かめた日を書く。仕様の本文は写さない。
+
+# 仕様。診断の cite（決定 0009）は、ここの ID で仕様を指す。
+
+[specs.sxf_3_1]
+title = "SXF Ver.3.1 仕様書"
+publisher = "国土交通省"
+version = "Ver.3.1 第 2 版（2009-06）"
+access = "public"
+url = "https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/"
+checked = "2026-10-24"
+note = "2026-10-24 はサイトにつながらず、Internet Archive の 2026-02-04 の写しで確かめた"
+
+[specs.sxf_display_r7_12]
+title = "SXF 表示機能及び確認機能要件書（案）"
+publisher = "国土交通省"
+version = "令和 7 年 12 月版"
+access = "public"
+url = "https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/"
+checked = "2026-10-24"
+note = "2026-10-24 はサイトにつながらず、Internet Archive の 2026-02-04 の写しで確かめた"
+
+[specs.jww_7_02]
+title = "Jw_cad のデータ形式（jwdatafmt.txt）"
+publisher = "Jw_cad"
+version = "Jw_cad 7.02（データの版 700）"
+access = "public"
+url = "https://www.jwcad.net/jwdatafmt.txt"
+checked = "2026-10-24"
+
+[specs.dxf_2026]
+title = "DXF Reference"
+publisher = "Autodesk"
+version = "AutoCAD 2026"
+access = "public"
+url = "https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm"
+checked = "2026-10-24"
+
+[specs.ods_dwg_5_4_1]
+title = "Open Design Specification for .dwg files"
+publisher = "Open Design Alliance"
+version = "5.4.1"
+access = "public"
+url = "https://opendesign.com/files/guestdownloads/OpenDesign_Specification_for_.dwg_files.pdf"
+checked = "2026-10-24"
+
+[specs.iso_32000_2_2020]
+title = "ISO 32000-2:2020（PDF 2.0）"
+publisher = "ISO"
+version = "2020"
+access = "public"
+url = "https://pdfa.org/sponsored-standards/"
+checked = "2026-10-24"
+note = "PDF Association が、後援の企業の費用で無償で配っている。ISO からは買う"
+
+[specs.ifc_4_3_2]
+title = "IFC 4.3.2 Documentation"
+publisher = "buildingSMART International"
+version = "IFC 4.3.2.0（ISO 16739-1:2024 と同じ構造と意味）"
+access = "public"
+url = "https://ifc43-docs.standards.buildingsmart.org/"
+checked = "2026-10-24"
+
+[specs.stbridge_2_1_1]
+title = "ST-Bridge XML ファイル仕様書"
+publisher = "buildingSMART Japan"
+version = "ver.2.1.1（2026-04-15。公開は 2026-07-29）"
+access = "public"
+url = "https://www.building-smart.or.jp/meeting/buildall/structural-design/"
+checked = "2026-10-24"
+
+[specs.cedxm]
+title = "CEDXM ファイルフォーマット"
+publisher = "特定非営利活動法人シーデクセマ評議会"
+access = "members"
+url = "https://www.cedxm.com/"
+checked = "2026-10-24"
+note = "会員にだけ配る。版は確かめられない"
+
+[specs.bebridge_6_1]
+title = "設備 CAD データ交換仕様 BE-Bridge"
+publisher = "C-CADEC（一般財団法人 建設業振興基金）"
+version = "Ver.6.1（2014-04）"
+access = "public"
+url = "https://www.kensetsu-kikin.or.jp/assets/img/database/database27.pdf"
+checked = "2026-10-24"
+note = "最新の版ではない。2015-04 に建築保全センターが承継したあとの版の入手先は見つからなかった"
+
+# 形式。キーは英小文字と数字だけにする。
+
+[formats.sxf]
+name = "SXF"
+family = "sxf"
+domains = ["drawing"]
+specs = ["sxf_3_1", "sxf_display_r7_12"]
+rights = "public"
+rights-note = "国土交通省が、開発者向けに仕様書を公開している。実装を制限する記述はない。頁の転載と改変は禁じているので、仕様の本文は写さない"
+place = "core"
+basis = ["spec", "inferred", "reference"]
+references = [{ name = "ezsxf", license = "MIT", url = "https://github.com/monozukuri-ai/ezsxf" }]
+verify = ["Jw_cad", "SXF ブラウザ"]
+samples = ["ezsxf のリポジトリにある公開の図面"]
+decisions = ["0008"]
+
+[[formats.sxf.evidence]]
+title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"
+url = "https://www.cals-ed.go.jp/copyright/"
+checked = "2026-10-24"
+note = "サイトにつながらず、Internet Archive の 2026-05-13 の写しで確かめた"
+
+[formats.jww]
+name = "JWW（Jw_cad for Windows の図面）"
+family = "jwcad"
+domains = ["drawing"]
+specs = ["jww_7_02"]
+rights = "public"
+rights-note = "Jw_cad が、データ形式の説明を公開している。実装を制限する記述はない"
+place = "core"
+basis = ["spec", "reference"]
+references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
+verify = ["Jw_cad"]
+samples = ["Jw_cad に付くサンプル", "ezjww のリポジトリにある図面"]
+decisions = ["0008"]
+
+[formats.jwc]
+name = "JWC（Jw_cad for DOS の図面）"
+family = "jwcad"
+domains = ["drawing"]
+specs = []
+rights = "public"
+rights-note = "公式の説明は見つからない。今の Jw_cad も開いて保存できる形式を、保存したファイルどうしを比べて読む。実装を制限する記述はない"
+place = "core"
+basis = ["inferred", "reference"]
+references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
+verify = ["Jw_cad"]
+samples = ["Jw_cad 10 で保存したファイル"]
+decisions = ["0008"]
+
+[formats.jws]
+name = "JWS（Jw_cad の図形）"
+family = "jwcad"
+domains = ["drawing"]
+specs = []
+rights = "public"
+rights-note = "公式の説明は見つからない。Jw_cad の掲示板に投稿された説明（版 2.30）と、登録した図形と元の図面を比べた結果で読む。実装を制限する記述はない"
+place = "core"
+basis = ["inferred", "reference"]
+references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
+verify = ["Jw_cad"]
+samples = ["Jw_cad 10 で登録した図形"]
+decisions = ["0008"]
+notes = "掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm"
+
+[formats.dxf]
+name = "DXF"
+family = "acad"
+domains = ["drawing"]
+specs = ["dxf_2026"]
+rights = "public"
+rights-note = "Autodesk が DXF Reference を公開している。実装を制限する記述はない。DXF と AutoCAD は Autodesk の商標"
+place = "core"
+basis = ["spec", "inferred", "reference"]
+references = [{ name = "ezdxf", license = "MIT", url = "https://ezdxf.mozman.at/" }]
+verify = ["ezdxf", "ODA File Converter", "DWG TrueView"]
+samples = ["ACadSharp の試験の図面（MIT）", "ezdwg の試験の図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
+decisions = ["0008"]
+
+[formats.dwg]
+name = "DWG"
+family = "acad"
+domains = ["drawing"]
+specs = ["ods_dwg_5_4_1"]
+rights = "public"
+rights-note = "Autodesk は仕様を出していない。Open Design Alliance が公開する仕様書は、自分の責任で使うものとし、実装を制限する記述はない。DWG は Autodesk の商標。GPL の実装（LibreDWG）のソースは読まない"
+place = "core"
+basis = ["spec", "inferred", "reference"]
+references = [
+  { name = "ACadSharp", license = "MIT", url = "https://github.com/DomCR/ACadSharp" },
+  { name = "ezdwg", license = "MIT", url = "https://github.com/monozukuri-ai/ezdwg" },
+]
+verify = ["ODA File Converter", "DWG TrueView"]
+samples = ["ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg の試験の図面（MIT）"]
+decisions = ["0008"]
+legacy-decisions = ["0003"]
+
+[formats.pdf]
+name = "PDF"
+family = "pdf"
+domains = ["drawing"]
+specs = ["iso_32000_2_2020"]
+rights = "public"
+rights-note = "ISO の規格で、PDF Association が無償で配っている。実装を制限する記述はない"
+place = "core"
+basis = ["spec"]
+verify = ["pdf.js"]
+samples = ["CAD が出力した図面の PDF（手元で作る）"]
+decisions = ["0013"]
+legacy-decisions = ["0020", "0030"]
+notes = "ページの解釈は hayro-interpret（Apache-2.0 OR MIT）を使う予定（旧版の決定 0020）"
+
+[formats.ifc]
+name = "IFC"
+family = "ifc"
+domains = ["building", "civil"]
+specs = ["ifc_4_3_2"]
+rights = "public"
+rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC は buildingSMART International の商標"
+place = "core"
+basis = ["spec"]
+verify = ["IfcOpenShell（手元でだけ使う）"]
+samples = ["日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）"]
+legacy-decisions = ["0028"]
+
+[[formats.ifc.evidence]]
+title = "IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）"
+url = "https://github.com/buildingSMART/IFC4.x-development/blob/master/content/cover.md"
+checked = "2026-10-24"
+
+[[formats.ifc.evidence]]
+title = "buildingSMART International の検証の道具（validate）"
+url = "https://github.com/buildingSMART/validate"
+checked = "2026-10-24"
+
+[formats.stbridge]
+name = "ST-Bridge"
+family = "stbridge"
+domains = ["building"]
+specs = ["stbridge_2_1_1"]
+rights = "permission"
+rights-note = "仕様書と XML Schema は公開されているが、実装の公開の条件は書かれていない。公開された実装の STB-KIT（MPL-2.0）は、ST-Bridge の権利は buildingSMART Japan にあり、同会との利用許諾契約に基づいて実装を公開している、と書く。zumen は契約を持たない"
+place = "plugin"
+repository = "zumen-jp/stbridge（非公開）"
+basis = ["spec"]
+known-crates = ["stb-parser"]
+legacy-decisions = ["0001", "0013", "0028"]
+issues = ["zumen-jp/zumen-legacy#140"]
+
+[[formats.stbridge.evidence]]
+title = "STB-KIT の README「ST-Bridge および IFC との関係」"
+url = "https://github.com/taisei-oss/stb-kit"
+checked = "2026-10-24"
+
+[formats.cedxm]
+name = "CEDXM"
+family = "cedxm"
+domains = ["building"]
+specs = ["cedxm"]
+rights = "permission"
+rights-note = "評議会の Q&A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる"
+place = "none"
+issues = ["zumen-jp/zumen-legacy#141"]
+
+[[formats.cedxm.evidence]]
+title = "シーデクセマ評議会の Q&A"
+url = "https://www.cedxm.com/about/faq/"
+checked = "2026-10-24"
+
+[formats.bebridge]
+name = "BE-Bridge"
+family = "bebridge"
+domains = ["building"]
+specs = ["bebridge_6_1"]
+rights = "unknown"
+rights-note = "Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった"
+place = "none"
+issues = ["zumen-jp/zumen-legacy#141"]
+
+[[formats.bebridge.evidence]]
+title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
+url = "https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf"
+checked = "2026-10-24"
+
+[formats.stem]
+name = "Stem（設備機器ライブラリデータ交換仕様）"
+family = "stem"
+domains = ["building"]
+specs = []
+rights = "unknown"
+rights-note = "C-CADEC が作り、2015-04 に建築保全センターが承継した。仕様書の入手先と条件は見つからなかった"
+place = "none"
+issues = ["zumen-jp/zumen-legacy#141"]
+
+[[formats.stem.evidence]]
+title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
+url = "https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf"
+checked = "2026-10-24"
