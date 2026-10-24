@@ -201,3 +201,7 @@ op は、[0008](0008-model-layers-and-codecs.md) の 3 つの水準ごとに、�
 - [旧版の決定 0004](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0004-mcp-server-in-the-python-package.md)・[旧版の決定 0011](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0011-tool-functions-for-agents.md)
 - [zumen-jp/zumen-legacy#97](https://github.com/zumen-jp/zumen-legacy/issues/97)・[zumen-jp/zumen-legacy#118](https://github.com/zumen-jp/zumen-legacy/issues/118)
 - [Arrow の C Stream Interface](https://arrow.apache.org/docs/format/CStreamInterface.html)、[JSON Schema 2020-12](https://json-schema.org/draft/2020-12)
+
+## 後の記録
+
+- 2026-10-24: [0016](0016-boundary-message-details.md) で、メッセージの JSON の読み書きの細部を決め、スキーマに 3 つの書き方（`allOf` による共通の欄の取り込み、名前から値への表、スカラーの共用体）を足した。読めない要求は、`ZM_INVALID` ではなく、`ZM_FAILED` と理由の診断で返す。

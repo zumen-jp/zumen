@@ -1,0 +1,21 @@
+{
+  "description": "capabilities は、ABI とスキーマの版と、使える op・形式を返す（決定 0012・0015）",
+  "steps": [
+    {
+      "call": { "v": 1, "op": "capabilities" },
+      "expect": {
+        "/v": 1,
+        "/result/abi": 1,
+        "/result/schema/major": 1,
+        "/result/ops": ["capabilities", "open", "close", "describe"],
+        "/result/formats": [],
+        "/diagnostics": [],
+        "/blobs": []
+      }
+    },
+    {
+      "call": { "v": 1, "op": "capabilities", "budget": { "records": 10, "work": "unlimited" }, "partial": true, "max_places": 0 },
+      "expect": { "/result/abi": 1, "/diagnostics": [] }
+    }
+  ]
+}

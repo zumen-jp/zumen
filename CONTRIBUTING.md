@@ -36,7 +36,15 @@ cargo test --workspace
 cargo xtask codegen --check
 ```
 
-診断の code を足すときは、[catalog/README.md](catalog/README.md) の手順に従ってください。
+境界の crate を変えたときは、wasm32 でも確かめてください。適合試験には Node.js 22 以降が要ります（[bindings/conformance/README.md](bindings/conformance/README.md)）。
+
+```bash
+cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings
+cargo build -p zumen-abi --target wasm32-unknown-unknown --release
+node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```
+
+診断の code を足すときは [catalog/README.md](catalog/README.md)、境界の関数・op・欄を変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
 
 ## 手順
 

@@ -1,0 +1,37 @@
+{
+  "description": "open は、入力と予算を確かめてから形式を判定する。この版には、読める形式がない（決定 0008・0010）",
+  "steps": [
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.input.missing", "/diagnostics/0/params/name": "a.dxf" }
+    },
+    { "push": { "name": "a.dxf", "text": "0\nSECTION\n" } },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 9 } },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.input-bytes.exceeded",
+        "/diagnostics/0/severity": "error",
+        "/diagnostics/0/count": 1,
+        "/diagnostics/0/params/limit": 9,
+        "/diagnostics/0/params/requested": 10
+      }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 10 } },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.format.unsupported", "/diagnostics/0/params/name": "a.dxf" }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "doc": "../b" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/doc" }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "a/../a.dxf" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.value.invalid", "/diagnostics/0/params/pointer": "/input" }
+    }
+  ]
+}

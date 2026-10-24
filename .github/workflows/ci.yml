@@ -25,30 +25,81 @@ jobs:
         run: rustup toolchain install
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: 台帳とカタログを確かめ、生成したファイルが最新かを確かめる
+      - name: wasm32 でだけ使うコードも lint する
+        run: cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: 台帳・カタログ・スキーマを確かめ、生成したファイルが最新かを確かめる
         run: cargo xtask codegen --check
 
   test:
-    name: 試験（${{ matrix.os }}）
+    name: 試験（${{ matrix.name }}）
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - name: Linux x64
+            os: ubuntu-latest
+          - name: macOS arm64
+            os: macos-latest
+          - name: Windows x64
+            os: windows-latest
+          # 32 bit の Office の VBA のため、関数を stdcall で出す（決定 0011・0014）
+          - name: Windows x86
+            os: windows-latest
+            target: i686-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml の版の Rust を入れる
         run: rustup toolchain install
-      - run: cargo test --workspace --locked
+      - name: 試験する target を入れる
+        if: matrix.target
+        run: rustup target add ${{ matrix.target }}
+      - run: cargo test --workspace --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      - name: DLL が、飾りのない名前で境界の関数を出すことを確かめる（VBA の Declare のため）
+        if: matrix.target == 'i686-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          cargo build --package zumen-abi --target ${{ matrix.target }} --locked
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $exports = & $dumpbin /nologo /exports "target\${{ matrix.target }}\debug\zumen_abi1.dll"
+          $exports
+          # 行の形は「ordinal hint RVA 出す名前 = 中の名前」。出す名前を集める
+          $exported = $exports | ForEach-Object { if ($_ -match '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)') { $Matches[1] } }
+          $header = Get-Content bindings/c/include/zumen.h -Raw -Encoding utf8
+          $names = [regex]::Matches($header, 'ZM_CALL (zm_\w+)\(') | ForEach-Object { $_.Groups[1].Value }
+          if ($names.Count -eq 0) {
+            Write-Error "ヘッダーから関数の名前を読めない"
+            exit 1
+          }
+          foreach ($name in $names) {
+            if ($exported -notcontains $name) {
+              Write-Error "$name を、飾りのない名前で出していない"
+              exit 1
+            }
+          }
+          foreach ($name in $exported) {
+            if ($names -notcontains $name) {
+              Write-Error "ヘッダーにない $name を出している"
+              exit 1
+            }
+          }
 
   wasm:
-    name: wasm32 で作る
+    name: wasm32 で適合試験
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml の版の Rust を入れる
         run: rustup toolchain install
-      - run: cargo build --package zumen-base --target wasm32-unknown-unknown --locked
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # docs/support.md の Node.js の下限
+          node-version: 22
+      - name: ブラウザに配るのと同じ形で作る（決定 0007）
+        run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
+      - name: ネイティブと同じハッシュの一覧になることを確かめる
+        run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 
   deny:
     name: 依存の検査
