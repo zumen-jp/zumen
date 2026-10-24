@@ -1,0 +1,6 @@
+# CI と手元で同じ版を使う。上げるときは、.github/workflows/ci.yml の cargo-deny の版も合わせる。
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

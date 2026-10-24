@@ -1,0 +1,15 @@
+# 診断の文（日本語）。日本語を正にし、英語はその訳にする（決定 0005・0009）。
+# {名前} には台帳の値が、{count} にはまとめた件数が入る。
+
+[codes]
+"budget.input-bytes.exceeded" = "受け取ったバイト数（{requested}）が上限（{limit}）を超えたので、読みませんでした。"
+"budget.decoded-bytes.exceeded" = "展開・復号したバイト数が上限（{limit}）を超えたので、止めました。"
+"budget.records.exceeded" = "読んだレコードの数が上限（{limit}）を超えたので、止めました。"
+"budget.elements.exceeded" = "作った要素の数が上限（{limit}）を超えたので、止めました。"
+"budget.depth.exceeded" = "入れ子の深さが上限（{limit}）を超えたので、止めました。"
+"budget.segments.exceeded" = "幾何の分割で作った点・線・面の数が上限（{limit}）を超えたので、止めました。"
+"budget.work.exceeded" = "繰り返しの回数が上限（{limit}）を超えたので、止めました。"
+"budget.time.exceeded" = "時間の上限に達したので、止めました。"
+"call.request.cancelled" = "中断の合図を受けたので、止めました。"
+"internal.panic.caught" = "内部の不具合で止めました。不具合として報告してください。"
+"zip.path.unsafe" = "パスとして安全でない ZIP の項目の名前を、そのまま使いませんでした（{count} 件。最初は「{name}」）。"
