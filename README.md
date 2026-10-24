@@ -14,6 +14,7 @@
 
 ## 文書
 
+- 次の作業と進め方: [docs/work.md](docs/work.md)
 - 設計: [#1](https://github.com/zumen-jp/zumen/issues/1)
 - 決定の記録: [docs/decisions](docs/decisions/README.md)
 - 各言語への境界のスキーマ: [schema](schema/README.md)（C のヘッダーは [bindings/c](bindings/c/README.md)、適合試験は [bindings/conformance](bindings/conformance/README.md)）
