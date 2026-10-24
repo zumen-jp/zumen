@@ -64,11 +64,23 @@ jobs:
           $dumpbin = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
           $exports = & $dumpbin /nologo /exports "target\${{ matrix.target }}\debug\zumen_abi1.dll"
           $exports
+          # 行の形は「ordinal hint RVA 出す名前 = 中の名前」。出す名前を集める
+          $exported = $exports | ForEach-Object { if ($_ -match '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)') { $Matches[1] } }
           $header = Get-Content bindings/c/include/zumen.h -Raw -Encoding utf8
           $names = [regex]::Matches($header, 'ZM_CALL (zm_\w+)\(') | ForEach-Object { $_.Groups[1].Value }
+          if ($names.Count -eq 0) {
+            Write-Error "ヘッダーから関数の名前を読めない"
+            exit 1
+          }
           foreach ($name in $names) {
-            if (-not ($exports | Select-String -Pattern "\s$name$" -Quiet)) {
+            if ($exported -notcontains $name) {
               Write-Error "$name を、飾りのない名前で出していない"
+              exit 1
+            }
+          }
+          foreach ($name in $exported) {
+            if ($names -notcontains $name) {
+              Write-Error "ヘッダーにない $name を出している"
               exit 1
             }
           }
