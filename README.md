@@ -17,6 +17,7 @@
 - 次の作業と進め方: [docs/work.md](docs/work.md)
 - 設計: [#1](https://github.com/zumen-jp/zumen/issues/1)
 - 決定の記録: [docs/decisions](docs/decisions/README.md)
+- 形式と権利の一覧: [docs/formats](docs/formats/README.md)（台帳から生成）
 - 各言語への境界のスキーマ: [schema](schema/README.md)（C のヘッダーは [bindings/c](bindings/c/README.md)、適合試験は [bindings/conformance](bindings/conformance/README.md)）
 - 対応する環境と下限: [docs/support.md](docs/support.md)
 - 表記と用語の基準: [docs/style.md](docs/style.md)
