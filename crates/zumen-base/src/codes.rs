@@ -231,6 +231,17 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
 pub const DXF_BINARY_UNSUPPORTED: Code =
     Code::new("dxf.binary.unsupported", Severity::Error, None, &[], &[]);
 
+/// コード・ページの版の ASCII でない文字を、まだ読めないので、その文字の図形を図面モデルに移さなかった
+///
+/// `dxf.code-page.unsupported`（0.0.0 から）
+pub const DXF_CODE_PAGE_UNSUPPORTED: Code = Code::new(
+    "dxf.code-page.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// 出力先の DXF の版にない種類の図形を、書かなかった
 ///
 /// `dxf.entity.dropped`（0.0.0 から）
@@ -279,6 +290,53 @@ pub const DXF_HEADER_VARIABLE_DROPPED: Code = Code::new(
     Some(Fidelity::Dropped),
     &[Param::new("name", ParamType::Text)],
     &["name"],
+);
+
+/// 図面モデルにまだ移せない種類の図形を、移さなかった
+///
+/// `dxf.lift.dropped`（0.0.0 から）
+pub const DXF_LIFT_DROPPED: Code = Code::new(
+    "dxf.lift.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 値がないか読めないか範囲の外なので、その図形を図面モデルに移さなかった
+///
+/// `dxf.lift.invalid`（0.0.0 から）
+pub const DXF_LIFT_INVALID: Code = Code::new(
+    "dxf.lift.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["kind", "code"],
+);
+
+/// Z が 0 でないか、押し出しの向きが Z でない図形を、平面の図面モデルに移さなかった
+///
+/// `dxf.non-planar.dropped`（0.0.0 から）
+pub const DXF_NON_PLANAR_DROPPED: Code = Code::new(
+    "dxf.non-planar.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 長さの単位が分からず用紙の mm に直せないので、ペーパー空間の図形を図面モデルに移さなかった
+///
+/// `dxf.paper-space.dropped`（0.0.0 から）
+pub const DXF_PAPER_SPACE_DROPPED: Code = Code::new(
+    "dxf.paper-space.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
 );
 
 /// 有限でない実数は、DXF の値に書けない
@@ -369,6 +427,11 @@ pub const DXF_TEXT_EQUIVALENT: Code = Code::new(
 /// `dxf.text.invalid`（0.0.0 から）
 pub const DXF_TEXT_INVALID: Code = Code::new("dxf.text.invalid", Severity::Warning, None, &[], &[]);
 
+/// 見出しの $INSUNITS がないか長さの単位でないので、実寸の単位を不明とした
+///
+/// `dxf.units.missing`（0.0.0 から）
+pub const DXF_UNITS_MISSING: Code = Code::new("dxf.units.missing", Severity::Info, None, &[], &[]);
+
 /// 書くとタグやレコードの区切りが変わる値（改行を含む値と、グループ・コード 0 の値の変更）を、DXF に書かなかった
 ///
 /// `dxf.value.unsafe`（0.0.0 から）
@@ -395,6 +458,17 @@ pub const DXF_VERSION_UNSUPPORTED: Code = Code::new(
         Param::new("to", ParamType::Text),
     ],
     &[],
+);
+
+/// まだ扱えない設定を持つビューポートを、図面モデルに移さなかった
+///
+/// `dxf.viewport.unsupported`（0.0.0 から）
+pub const DXF_VIEWPORT_UNSUPPORTED: Code = Code::new(
+    "dxf.viewport.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("code", ParamType::Int)],
+    &["code"],
 );
 
 /// ネイティブの境界でパニックを捕まえた。不具合なので直す
@@ -437,10 +511,15 @@ pub const ALL: &[Code] = &[
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
     DXF_BINARY_UNSUPPORTED,
+    DXF_CODE_PAGE_UNSUPPORTED,
     DXF_ENTITY_DROPPED,
     DXF_GROUP_CODE_DROPPED,
     DXF_GROUP_CODE_MISSING,
     DXF_HEADER_VARIABLE_DROPPED,
+    DXF_LIFT_DROPPED,
+    DXF_LIFT_INVALID,
+    DXF_NON_PLANAR_DROPPED,
+    DXF_PAPER_SPACE_DROPPED,
     DXF_REAL_UNSUPPORTED,
     DXF_RECORD_MISSING,
     DXF_SECTION_DROPPED,
@@ -449,8 +528,10 @@ pub const ALL: &[Code] = &[
     DXF_TAG_MISSING,
     DXF_TEXT_EQUIVALENT,
     DXF_TEXT_INVALID,
+    DXF_UNITS_MISSING,
     DXF_VALUE_UNSAFE,
     DXF_VERSION_UNSUPPORTED,
+    DXF_VIEWPORT_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
     ZIP_PATH_UNSAFE,
 ];
