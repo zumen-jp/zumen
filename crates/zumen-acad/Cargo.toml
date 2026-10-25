@@ -1,0 +1,18 @@
+[package]
+name = "zumen-acad"
+description = "zumen の AutoCAD の系統のファイルモデル（L1）と、そのコーデック"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.zumen]
+formats = ["dxf"]
+
+[dependencies]
+zumen-base = { path = "../zumen-base" }
+zumen-sdk = { path = "../zumen-sdk" }
+
+[lints]
+workspace = true

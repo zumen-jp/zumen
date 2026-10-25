@@ -225,6 +225,23 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
+/// バイナリの DXF は、まだ読めない
+///
+/// `dxf.binary.unsupported`（0.0.0 から）
+pub const DXF_BINARY_UNSUPPORTED: Code =
+    Code::new("dxf.binary.unsupported", Severity::Error, None, &[], &[]);
+
+/// DXF のグループ・コードの行が整数でないか、値の行がない
+///
+/// `dxf.tag.invalid`（0.0.0 から）
+pub const DXF_TAG_INVALID: Code = Code::new(
+    "dxf.tag.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("line", ParamType::UInt)],
+    &[],
+);
+
 /// ネイティブの境界でパニックを捕まえた。不具合なので直す
 ///
 /// `internal.panic.caught`（0.0.0 から）
@@ -264,6 +281,8 @@ pub const ALL: &[Code] = &[
     CALL_VALUE_INVALID,
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
+    DXF_BINARY_UNSUPPORTED,
+    DXF_TAG_INVALID,
     INTERNAL_PANIC_CAUGHT,
     ZIP_PATH_UNSAFE,
 ];

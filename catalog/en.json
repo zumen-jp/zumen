@@ -23,6 +23,8 @@
     "call.value.invalid": "The type or range of the request value {pointer} is invalid.",
     "call.version.unsupported": "This core cannot handle the request version (v = {version}).",
     "catalog.file.invalid": "Could not read the input \"{name}\" as a catalog.",
+    "dxf.binary.unsupported": "Binary DXF cannot be read yet.",
+    "dxf.tag.invalid": "Could not read the DXF tag at line {line}: the group code is not an integer, or the value line is missing.",
     "internal.panic.caught": "Stopped by an internal error. Please report it as a bug.",
     "zip.path.unsafe": "Did not use {count} ZIP entry names that are unsafe as paths (the first is \"{name}\")."
   }

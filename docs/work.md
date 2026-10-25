@@ -32,7 +32,7 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 
 | 順 | 作業 | 開始条件 | 次の一手 |
 | --- | --- | --- | --- |
-| 1 | [#3 ファイルモデルとコーデックの試作](https://github.com/zumen-jp/zumen/issues/3) | 決定 0008・0017・0022 と [形式の対応表](formats/drawing2d-mapping.md) が main にある | 台帳と crate の形式の名乗りを合わせ、小さな DXF から L1・SDK・合成の試験を作る。部分編集・版の変更と、用紙・実寸・ビュー・線分・文字の最小の Drawing2D への変換を試す |
+| 1 | [#3 ファイルモデルとコーデックの試作](https://github.com/zumen-jp/zumen/issues/3) | 決定 0008・0017・0022 と [形式の対応表](formats/drawing2d-mapping.md) が main にある | ASCII の DXF の L1・コーデック・SDK の最小の経路は main にある（`zumen-acad`・`zumen-sdk`）。次は型付きの見方と生の値による部分編集と、失敗したら何も残さないトランザクションを足す。その後、版の変更と、用紙・実寸・ビュー・線分・文字の最小の Drawing2D への変換を試す |
 | 2 | [#2 出力の一致](https://github.com/zumen-jp/zumen/issues/2)・[#8 上限で止まる位置の一致](https://github.com/zumen-jp/zumen/issues/8) | #3 の最初のコーデックを境界から呼べる | 既存の適合試験に形式の入力を足す。ネイティブと wasm の出力・停止位置を比べる。設計は決定 0007・0010、比較の仕組みは PR #23 にある |
 | 3 | [#28 図面モデルの要素と試験](https://github.com/zumen-jp/zumen/issues/28) | 決定 0022 と対応表が main にあり、対象部分の共通の型を #3 から使える | 最小のモデルを寸法・記号・ハッチング・下敷きなどへ広げる。対応表の E1〜E10 を対象ごとに試験にする。SXF・JWW のコーデック全体は別 issue に分ける |
 | 4 | [#6 バイナリの受け渡し](https://github.com/zumen-jp/zumen/issues/6) | 試作は合成データで開始できる。最終判断には issue が指定する測定用データが必要 | 転送時間・ページ側の時間・メモリ・wasm の増分を測る。図面モデル全体の完成を待たずに試す |
