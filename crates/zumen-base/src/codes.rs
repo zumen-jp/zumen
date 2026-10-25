@@ -231,6 +231,45 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
 pub const DXF_BINARY_UNSUPPORTED: Code =
     Code::new("dxf.binary.unsupported", Severity::Error, None, &[], &[]);
 
+/// DXF の変更で名指ししたグループ・コードのタグが、レコードにない
+///
+/// `dxf.group-code.missing`（0.0.0 から）
+pub const DXF_GROUP_CODE_MISSING: Code = Code::new(
+    "dxf.group-code.missing",
+    Severity::Error,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("record", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 有限でない実数は、DXF の値に書けない
+///
+/// `dxf.real.unsupported`（0.0.0 から）
+pub const DXF_REAL_UNSUPPORTED: Code = Code::new(
+    "dxf.real.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("record", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// DXF の変更で名指ししたレコードがない
+///
+/// `dxf.record.missing`（0.0.0 から）
+pub const DXF_RECORD_MISSING: Code = Code::new(
+    "dxf.record.missing",
+    Severity::Error,
+    None,
+    &[Param::new("record", ParamType::UInt)],
+    &[],
+);
+
 /// DXF のグループ・コードの行が整数でないか、値の行がない
 ///
 /// `dxf.tag.invalid`（0.0.0 から）
@@ -239,6 +278,34 @@ pub const DXF_TAG_INVALID: Code = Code::new(
     Severity::Error,
     None,
     &[Param::new("line", ParamType::UInt)],
+    &[],
+);
+
+/// DXF の変更で名指ししたタグが、レコードにない
+///
+/// `dxf.tag.missing`（0.0.0 から）
+pub const DXF_TAG_MISSING: Code = Code::new(
+    "dxf.tag.missing",
+    Severity::Error,
+    None,
+    &[
+        Param::new("record", ParamType::UInt),
+        Param::new("tag", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 書くとタグやレコードの区切りが変わる値（改行を含む値と、グループ・コード 0 の値の変更）を、DXF に書かなかった
+///
+/// `dxf.value.unsafe`（0.0.0 から）
+pub const DXF_VALUE_UNSAFE: Code = Code::new(
+    "dxf.value.unsafe",
+    Severity::Error,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("record", ParamType::UInt),
+    ],
     &[],
 );
 
@@ -282,7 +349,12 @@ pub const ALL: &[Code] = &[
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
     DXF_BINARY_UNSUPPORTED,
+    DXF_GROUP_CODE_MISSING,
+    DXF_REAL_UNSUPPORTED,
+    DXF_RECORD_MISSING,
     DXF_TAG_INVALID,
+    DXF_TAG_MISSING,
+    DXF_VALUE_UNSAFE,
     INTERNAL_PANIC_CAUGHT,
     ZIP_PATH_UNSAFE,
 ];

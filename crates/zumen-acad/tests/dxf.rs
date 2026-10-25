@@ -1,8 +1,8 @@
 //! 試験の中で作った小さな ASCII の DXF で、L1 とコーデックの経路を確かめる。
 
-use zumen_acad::{Dxf, DxfFile};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, codes};
-use zumen_sdk::{Codec, Error, FileModel, testkit};
+use zumen_acad::{Dxf, DxfFile, Line, ViewError};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
+use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction, testkit};
 
 /// 見出し・未知の図形・線分・文字を持つ最小の図面。グループ・コードは仕様の例のように右寄せにする
 fn sample(newline: &str) -> Vec<u8> {
@@ -186,4 +186,120 @@ fn the_signature_finds_ascii_dxf() {
     assert!(found(&src[b"999\r\nzumen test\r\n".len()..]));
     assert!(!found(b"PK\x03\x04"));
     assert_eq!(Dxf::FORMAT, "dxf");
+}
+
+/// 見本の LINE と TEXT のレコードの位置
+const LINE: usize = 4;
+const TEXT: usize = 6;
+
+#[test]
+fn lines_have_a_typed_view() {
+    let file = read(&sample("\n"));
+    let records = file.records();
+    assert_eq!(
+        file.line(&records[LINE]),
+        Some(Ok(Line {
+            layer: b"0",
+            start: [0.0, 0.0, 0.0],
+            end: [100.0, 50.0, 0.0],
+        }))
+    );
+    assert_eq!(file.line(&records[TEXT]), None);
+    assert_eq!(file.real(&records[TEXT], 40), Ok(2.5));
+    assert_eq!(file.real(&records[TEXT], 50), Err(ViewError::Missing(50)));
+
+    let broken = read(b"  0\nLINE\n  8\n0\n 10\nx\n 20\n0\n 11\n1\n 21\n1\n  0\nEOF\n");
+    assert_eq!(
+        broken.line(&broken.records()[0]),
+        Some(Err(ViewError::NotReal(10)))
+    );
+}
+
+#[test]
+fn edits_rewrite_only_the_touched_records() {
+    let src = sample("\r\n");
+    testkit::edit_keeps_untouched_records::<Dxf>(&src, |file, cx| {
+        let mut txn = file.transaction();
+        txn.set_real(LINE, 11, 200.0)?;
+        txn.set_value(TEXT, 5, "変更".as_bytes())?;
+        txn.commit(cx)
+    })
+    .unwrap();
+
+    let mut file = read(&src);
+    let mut txn = file.transaction();
+    txn.set_real(LINE, 11, 200.0).unwrap();
+    txn.commit(&mut Cx::new(
+        &mut Budget::default(),
+        &mut Diagnostics::new(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    assert_eq!(file.record(LINE).unwrap().bytes, None);
+    assert!(file.record(TEXT).unwrap().bytes.is_some());
+    assert_eq!(
+        file.line(&file.records()[LINE]).unwrap().unwrap().end[0],
+        200.0
+    );
+
+    // 書き直したレコードも、グループ・コードの右寄せと CR LF を保つ
+    let out = testkit::write::<Dxf>(&file).unwrap();
+    let line =
+        b"  0\r\nLINE\r\n  8\r\n0\r\n 10\r\n0.0\r\n 20\r\n0.0\r\n 11\r\n200.0\r\n 21\r\n50.0\r\n";
+    assert!(out.windows(line.len()).any(|w| w == line));
+    assert_eq!(out.len(), src.len());
+}
+
+#[test]
+fn failed_edits_change_nothing() {
+    type Edit = fn(&mut zumen_acad::DxfTxn<'_>) -> Result<(), Error>;
+    let cases: [(Edit, Code); 6] = [
+        (
+            |t| t.set_value(TEXT, 5, b"two\nlines"),
+            codes::DXF_VALUE_UNSAFE,
+        ),
+        (|t| t.set_value(LINE, 0, b"CIRCLE"), codes::DXF_VALUE_UNSAFE),
+        (|t| t.set_value(99, 0, b"x"), codes::DXF_RECORD_MISSING),
+        (|t| t.set_value(LINE, 99, b"x"), codes::DXF_TAG_MISSING),
+        (|t| t.set_real(LINE, 40, 1.0), codes::DXF_GROUP_CODE_MISSING),
+        (
+            |t| t.set_real(LINE, 10, f64::NAN),
+            codes::DXF_REAL_UNSUPPORTED,
+        ),
+    ];
+    for (edit, code) in cases {
+        let diag = testkit::failed_edit_changes_nothing::<Dxf>(&sample("\n"), |file, cx| {
+            let mut txn = file.transaction();
+            // 先に成功した変更も、確定できなければ残らない
+            txn.set_real(LINE, 10, 5.0)?;
+            assert_eq!(edit(&mut txn), Err(Error::Rejected));
+            // 一度失敗したら、ほかの変更も受け付けない
+            assert_eq!(txn.set_real(LINE, 20, 5.0), Err(Error::Rejected));
+            txn.commit(cx)
+        })
+        .unwrap();
+        assert_eq!(diag.iter().map(|d| d.code()).collect::<Vec<_>>(), [code]);
+    }
+}
+
+#[test]
+fn uncommitted_or_stopped_edits_change_nothing() {
+    let src = sample("\n");
+    let mut file = read(&src);
+    file.transaction().set_real(LINE, 10, 5.0).unwrap();
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut txn = file.transaction();
+    txn.set_real(LINE, 10, 5.0).unwrap();
+    txn.set_value(TEXT, 5, b"x").unwrap();
+    let result = txn.commit(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(
+        diag.iter().next().map(|d| d.code()),
+        Some(codes::BUDGET_WORK_EXCEEDED)
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }

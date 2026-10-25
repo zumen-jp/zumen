@@ -4,4 +4,4 @@
 
 pub mod dxf;
 
-pub use dxf::{Dxf, DxfFile, Record, Tag};
+pub use dxf::{Dxf, DxfFile, DxfTxn, Line, Record, Tag, ViewError};

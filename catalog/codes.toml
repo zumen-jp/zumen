@@ -187,3 +187,40 @@ severity = "error"
 params = { line = "uint" }
 since = "0.0.0"
 status = "active"
+
+# DXF の L1 の編集（決定 0008 のトランザクション）。どれも、変更を何も反映しない
+
+[codes."dxf.group-code.missing"]
+description = "DXF の変更で名指ししたグループ・コードのタグが、レコードにない"
+severity = "error"
+params = { record = "uint", code = "int" }
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.real.unsupported"]
+description = "有限でない実数は、DXF の値に書けない"
+severity = "error"
+params = { record = "uint", code = "int" }
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.record.missing"]
+description = "DXF の変更で名指ししたレコードがない"
+severity = "error"
+params = { record = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.tag.missing"]
+description = "DXF の変更で名指ししたタグが、レコードにない"
+severity = "error"
+params = { record = "uint", tag = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.value.unsafe"]
+description = "書くとタグやレコードの区切りが変わる値（改行を含む値と、グループ・コード 0 の値の変更）を、DXF に書かなかった"
+severity = "error"
+params = { record = "uint", code = "int" }
+since = "0.0.0"
+status = "active"
