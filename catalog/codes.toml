@@ -172,3 +172,18 @@ severity = "warning"
 params = { name = "text" }
 since = "0.0.0"
 status = "active"
+
+# AutoCAD の系統（決定 0008）
+
+[codes."dxf.binary.unsupported"]
+description = "バイナリの DXF は、まだ読めない"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.tag.invalid"]
+description = "DXF のグループ・コードの行が整数でないか、値の行がない"
+severity = "error"
+params = { line = "uint" }
+since = "0.0.0"
+status = "active"

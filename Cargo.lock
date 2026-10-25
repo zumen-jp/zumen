@@ -183,6 +183,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-acad"
+version = "0.0.0"
+dependencies = [
+ "zumen-base",
+ "zumen-sdk",
+]
+
+[[package]]
 name = "zumen-base"
 version = "0.0.0"
 
@@ -206,3 +214,10 @@ dependencies = [
 [[package]]
 name = "zumen-json"
 version = "0.0.0"
+
+[[package]]
+name = "zumen-sdk"
+version = "0.0.0"
+dependencies = [
+ "zumen-base",
+]

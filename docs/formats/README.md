@@ -162,6 +162,7 @@
 - 照合するソフト: ezdxf・ODA File Converter・DWG TrueView
 - サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）・ezdwg の試験の図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
+- 形式の文書: [docs/formats/dxf.md](../../docs/formats/dxf.md)
 
 ### format-ifc
 

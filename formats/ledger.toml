@@ -168,6 +168,7 @@ references = [{ name = "ezdxf", license = "MIT", url = "https://ezdxf.mozman.at/
 verify = ["ezdxf", "ODA File Converter", "DWG TrueView"]
 samples = ["ACadSharp の試験の図面（MIT）", "ezdwg の試験の図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
 decisions = ["0008"]
+docs = ["docs/formats/dxf.md"]
 
 [formats.dwg]
 name = "DWG"

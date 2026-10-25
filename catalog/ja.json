@@ -23,6 +23,8 @@
     "call.value.invalid": "要求の {pointer} の値の型か範囲が、正しくありません。",
     "call.version.unsupported": "要求の版（v = {version}）を、この核は扱えません。",
     "catalog.file.invalid": "入力「{name}」は、カタログとして読めません。",
+    "dxf.binary.unsupported": "バイナリの DXF は、まだ読めません。",
+    "dxf.tag.invalid": "DXF の {line} 行目のタグを読めませんでした。グループ・コードが整数でないか、値の行がありません。",
     "internal.panic.caught": "内部の不具合で止めました。不具合として報告してください。",
     "zip.path.unsafe": "パスとして安全でない ZIP の項目の名前を、そのまま使いませんでした（{count} 件。最初は「{name}」）。"
   }
