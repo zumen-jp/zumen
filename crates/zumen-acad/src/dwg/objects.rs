@@ -1,8 +1,11 @@
 //! DWG のオブジェクトから、系統で共有するオブジェクトの表を作る（決定 0023）。
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
-//! 先頭から読む。図形は、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、今は LINE だけを読む。
+//! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
+//! 今は LINE・ARC・CIRCLE・POINT を読む。表のレコードは、今は LAYER の名前（2）だけを読む。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
+
+use std::collections::BTreeMap;
 
 use super::bits::Bits;
 use super::{COMMON_OBJECT, DwgFile, Entry, stopped};
@@ -15,8 +18,16 @@ const COMMON_ENTITY: SpecRef = SpecRef {
     section: "20.4.1 Common entity data",
 };
 
-/// LINE の型
+const COMMON_ENTITY_HANDLES: SpecRef = SpecRef {
+    spec: "ods_dwg_5_4_1",
+    section: "20.4.2 Common entity handle data",
+};
+
+const ARC: u16 = 0x11;
+const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
+const POINT: u16 = 0x1B;
+const LAYER: u16 = 0x33;
 
 /// DIMSTYLE の表のレコードの型。ハンドルのグループ・コードが 105
 const DIMSTYLE: u16 = 0x45;
@@ -36,11 +47,11 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x07 | 0x08 => entity(b"INSERT"),
         0x0A..=0x0E => entity(b"VERTEX"),
         0x0F | 0x10 | 0x1D | 0x1E => entity(b"POLYLINE"),
-        0x11 => entity(b"ARC"),
-        0x12 => entity(b"CIRCLE"),
+        ARC => entity(b"ARC"),
+        CIRCLE => entity(b"CIRCLE"),
         LINE => entity(b"LINE"),
         0x14..=0x1A => entity(b"DIMENSION"),
-        0x1B => entity(b"POINT"),
+        POINT => entity(b"POINT"),
         0x1C => entity(b"3DFACE"),
         0x1F => entity(b"SOLID"),
         0x20 => entity(b"TRACE"),
@@ -61,7 +72,7 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x2F => entity(b"MLINE"),
         0x30 | 0x32 | 0x34 | 0x38 | 0x3C | 0x3E | 0x40 | 0x42 | 0x44 => table(b"TABLE"),
         0x31 => table(b"BLOCK_RECORD"),
-        0x33 => table(b"LAYER"),
+        LAYER => table(b"LAYER"),
         0x35 => table(b"STYLE"),
         0x39 => table(b"LTYPE"),
         0x3D => table(b"VIEW"),
@@ -92,21 +103,44 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
 impl DwgFile {
     /// オブジェクトの表を作る。予算の上限か中断の合図で止めたときだけ失敗する
     pub fn objects(&self, cx: &mut Cx) -> Result<AcadDb, Error> {
-        let mut db = AcadDb::default();
+        let mut found = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let kind = kind(entry.type_code);
+            let fields = kind.as_ref().and_then(|(_, section)| {
+                // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
+                let entity = matches!(section, Section::Entities | Section::Blocks);
+                read(self.data(entry), entry, entity)
+            });
+            found.push((kind, fields));
+        }
+        // 図形は画層をハンドルで指すので、先に LAYER の名前を集める
+        let layers: BTreeMap<u64, Vec<u8>> = self
+            .entries
+            .iter()
+            .zip(&found)
+            .filter(|(entry, _)| entry.type_code == LAYER)
+            .filter_map(|(entry, (_, fields))| {
+                let name = fields.as_ref()?.values.iter().find(|v| v.code == 2)?;
+                match &name.data {
+                    Data::Text(name) => Some((entry.handle, name.clone())),
+                    _ => None,
+                }
+            })
+            .collect();
+        let mut db = AcadDb::default();
+        for (entry, (kind, fields)) in self.entries.iter().zip(found) {
             let at = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
             let handle_code = if entry.type_code == DIMSTYLE { 105 } else { 5 };
             let mut values = vec![Value {
                 code: handle_code,
                 data: Data::Handle(entry.handle),
             }];
-            let (kind, section) = match kind(entry.type_code) {
+            let (kind, section) = match kind {
                 Some((kind, section)) => {
-                    // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
                     let entity = matches!(section, Section::Entities | Section::Blocks);
-                    match read(self.data(entry), entry, entity) {
-                        Some(read) => values.extend(read),
+                    match fields {
+                        Some(fields) => values.extend(fields.place(&layers, entry, cx, &at)),
                         None => cx.report(
                             Diagnostic::new(codes::DWG_OBJECT_INVALID)
                                 .with("type", i64::from(entry.type_code))
@@ -138,47 +172,125 @@ impl DwgFile {
     }
 }
 
+/// オブジェクトから読んだ欄
+struct Fields {
+    /// 所有者（330）
+    owner: Option<u64>,
+    /// 図形の画層のハンドル
+    layer: Option<u64>,
+    /// 所有者と画層より後の値
+    values: Vec<Value>,
+}
+
+impl Fields {
+    /// ハンドル（5）より後の値を並べる。画層は名前（8）に直し、見つからなければ診断を返す
+    fn place(
+        self,
+        layers: &BTreeMap<u64, Vec<u8>>,
+        entry: &Entry,
+        cx: &mut Cx,
+        at: &Ref,
+    ) -> Vec<Value> {
+        let mut values = Vec::new();
+        if let Some(owner) = self.owner {
+            values.push(Value {
+                code: 330,
+                data: Data::Handle(owner),
+            });
+        }
+        if let Some(layer) = self.layer {
+            match layers.get(&layer) {
+                Some(name) => values.push(Value {
+                    code: 8,
+                    data: Data::Text(name.clone()),
+                }),
+                None => cx.report(
+                    Diagnostic::new(codes::DWG_LAYER_MISSING)
+                        .with("type", i64::from(entry.type_code))
+                        .at(at.clone())
+                        .cite(COMMON_ENTITY_HANDLES),
+                ),
+            }
+        }
+        values.extend(self.values);
+        values
+    }
+}
+
 /// 図形の共通の欄のうち、型ごとの欄とハンドルの並びを読むのに要るもの
 struct Common {
     /// 所有者のハンドルを持つか（entmode が 0）
     has_owner: bool,
+    /// 反応子の数
+    reactors: u32,
+    /// 前後の図形のハンドルを持たないか
+    no_links: bool,
     values: Vec<Value>,
 }
 
-/// オブジェクトのデータを読み、ハンドル（5）より後の値を返す。読めなければ `None`
-fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Vec<Value>> {
+/// オブジェクトのデータを読む。読めなければ `None`
+fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
     let mut bits = Bits::new(data);
     bits.bs()?;
     let handles_at = usize::try_from(bits.rl()?).ok()?;
     bits.handle()?;
     skip_extended_data(&mut bits)?;
-    let common = if entity {
+    if entity {
         let common = entity_data(&mut bits)?;
-        if entry.type_code == LINE && bits.pos() <= handles_at {
-            Some((common, line(&mut bits)?))
+        let own = if bits.pos() <= handles_at {
+            match entry.type_code {
+                LINE => line(&mut bits)?,
+                ARC => arc(&mut bits)?,
+                CIRCLE => circle(&mut bits)?,
+                POINT => point(&mut bits)?,
+                _ => Vec::new(),
+            }
         } else {
-            Some((common, Vec::new()))
+            Vec::new()
+        };
+        // 図形のハンドルの並び: 所有者（entmode が 0 のとき）・反応子・拡張辞書・前後の図形
+        // （nolinks が 0 のとき）・画層
+        bits.seek(handles_at);
+        let owner = if common.has_owner {
+            Some(bits.handle()?.resolve(entry.handle)?)
+        } else {
+            None
+        };
+        for _ in 0..common.reactors {
+            bits.handle()?;
         }
+        bits.handle()?;
+        if !common.no_links {
+            bits.handle()?;
+            bits.handle()?;
+        }
+        let layer = bits.handle()?.resolve(entry.handle)?;
+        let mut values = common.values;
+        values.extend(own);
+        Some(Fields {
+            owner,
+            layer: Some(layer),
+            values,
+        })
     } else {
         bits.bl()?;
-        None
-    };
-    // ハンドルの並びの先頭は、図形なら entmode が 0 のときだけ、オブジェクトならいつも所有者
-    bits.seek(handles_at);
-    let mut values = Vec::new();
-    let has_owner = common.as_ref().is_none_or(|(c, _)| c.has_owner);
-    if has_owner {
-        let owner = bits.handle()?;
-        values.push(Value {
-            code: 330,
-            data: Data::Handle(owner.resolve(entry.handle)?),
-        });
+        let values = if entry.type_code == LAYER {
+            vec![Value {
+                code: 2,
+                data: Data::Text(bits.text()?),
+            }]
+        } else {
+            Vec::new()
+        };
+        // オブジェクトのハンドルの並びの先頭は、いつも所有者
+        bits.seek(handles_at);
+        let owner = bits.handle()?.resolve(entry.handle)?;
+        Some(Fields {
+            owner: Some(owner),
+            layer: None,
+            values,
+        })
     }
-    if let Some((common, own_values)) = common {
-        values.extend(common.values);
-        values.extend(own_values);
-    }
-    Some(values)
 }
 
 /// 拡張データ（EED）を読み飛ばす（ODS 5.4.1 の 28）
@@ -201,8 +313,8 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         bits.skip_bytes(usize::try_from(size).ok()?)?;
     }
     let entmode = bits.bb()?;
-    bits.bl()?;
-    bits.bit()?;
+    let reactors = u32::try_from(bits.bl()?).ok()?;
+    let no_links = bits.bit()?;
     let color = bits.bs()?;
     let ltype_scale = bits.bd()?;
     bits.bb()?;
@@ -221,6 +333,8 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     }
     Some(Common {
         has_owner: entmode == 0,
+        reactors,
+        no_links,
         values,
     })
 }
@@ -246,16 +360,58 @@ fn line(bits: &mut Bits) -> Option<Vec<Value>> {
         real(21, end_y),
         real(31, end_z),
     ];
+    thickness_and_extrusion(bits, &mut values)?;
+    Some(values)
+}
+
+/// CIRCLE の欄（ODS 5.4.1 の 20.4.20）。中心と半径
+fn circle(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    values.push(real(40, bits.bd()?));
+    thickness_and_extrusion(bits, &mut values)?;
+    Some(values)
+}
+
+/// ARC の欄（ODS 5.4.1 の 20.4.18）。CIRCLE の欄と、始まりと終わりの角度。DWG はラジアン、
+/// DXF は度で書くので、度に直す
+fn arc(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = circle(bits)?;
+    values.push(real(50, bits.bd()?.to_degrees()));
+    values.push(real(51, bits.bd()?.to_degrees()));
+    Some(values)
+}
+
+/// POINT の欄（ODS 5.4.1 の 20.4.31）。X 軸の角度（50）は 0 でなければ度に直して置く
+fn point(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    thickness_and_extrusion(bits, &mut values)?;
+    let angle = bits.bd()?;
+    if angle != 0.0 {
+        values.push(real(50, angle.to_degrees()));
+    }
+    Some(values)
+}
+
+/// 3BD の点を、`code`・`code + 10`・`code + 20` に置く
+fn point3(bits: &mut Bits, code: i16) -> Option<Vec<Value>> {
+    Some(vec![
+        real(code, bits.bd()?),
+        real(code + 10, bits.bd()?),
+        real(code + 20, bits.bd()?),
+    ])
+}
+
+/// BT の厚さ（39）と BE の押し出しの向き（210・220・230）を、既定の値でなければ置く
+fn thickness_and_extrusion(bits: &mut Bits, values: &mut Vec<Value>) -> Option<()> {
     // BT: 1 なら厚さは 0
     if !bits.bit()? {
         values.push(real(39, bits.bd()?));
     }
     // BE: 1 なら押し出しの向きは (0, 0, 1)
     if !bits.bit()? {
-        let (x, y, z) = (bits.bd()?, bits.bd()?, bits.bd()?);
-        values.extend([real(210, x), real(220, y), real(230, z)]);
+        values.extend(point3(bits, 210)?);
     }
-    Some(values)
+    Some(())
 }
 
 fn int(code: i16, value: i64) -> Value {

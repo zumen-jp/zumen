@@ -138,6 +138,17 @@ impl<'a> Bits<'a> {
         Some(HandleRef { code, value })
     }
 
+    /// T（R2000 まで）。BS の長さと、コード・ページのバイト。長さは終わりの NUL を含むので、
+    /// 末尾の NUL を 1 つ除く
+    pub(super) fn text(&mut self) -> Option<Vec<u8>> {
+        let len = usize::try_from(self.bs()?).ok()?;
+        let mut text: Vec<u8> = (0..len).map(|_| self.rc()).collect::<Option<_>>()?;
+        if text.last() == Some(&0) {
+            text.pop();
+        }
+        Some(text)
+    }
+
     /// `n` バイトを読み飛ばす
     pub(super) fn skip_bytes(&mut self, n: usize) -> Option<()> {
         let end = self.pos.checked_add(n.checked_mul(8)?)?;

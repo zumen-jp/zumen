@@ -9,9 +9,21 @@ use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_sdk::Codec;
 
-/// 比べる LINE の欄
+/// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
 #[cfg(test)]
-const LINE_CODES: [i16; 13] = [10, 20, 30, 11, 21, 31, 39, 48, 60, 62, 210, 220, 230];
+const SHAPE_CODES: [i16; 18] = [
+    10, 20, 30, 11, 21, 31, 39, 40, 48, 50, 51, 60, 62, 210, 220, 230, 8, 2,
+];
+
+/// DXF が書き、DWG の表が省く既定の値か
+#[cfg(test)]
+fn is_default(code: i16, data: &Data) -> bool {
+    matches!(
+        (code, data),
+        (62, Data::Int(256)) | (60, Data::Int(0)) | (48, Data::Real(1.0))
+    ) || matches!((code, data), (39 | 210 | 220, Data::Real(r)) if *r == 0.0)
+        || matches!((code, data), (230, Data::Real(r)) if *r == 1.0)
+}
 
 /// フォルダーの中の、R2000 の DWG と同じ名前の DXF の組
 #[cfg(test)]
@@ -88,15 +100,23 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             if object.owner().is_some() {
                 assert_eq!(object.owner(), other.owner(), "{at}");
             }
-            if object.kind == b"LINE" {
-                for code in LINE_CODES {
-                    let (a, b) = (object.first(code), other.first(code));
-                    match (a, b) {
-                        (Some(a), Some(b)) => assert!(same(a, b), "{at} {code}: {a:?} {b:?}"),
-                        // DXF だけにある既定の値（色 256 など）は、DWG の表に置かない
-                        (None, Some(Data::Int(256))) if code == 62 => {}
-                        (None, None) => {}
-                        _ => panic!("{at} {code}: {a:?} {b:?}"),
+            // DWG が置いた値は、DXF の同じグループ・コードの最初の値と同じ
+            for value in &object.values {
+                if matches!(value.code, 5 | 105 | 330) {
+                    continue;
+                }
+                let theirs = other.first(value.code);
+                assert!(
+                    theirs.is_some_and(|theirs| same(&value.data, theirs)),
+                    "{at} {}: {:?} {theirs:?}",
+                    value.code,
+                    value.data
+                );
+            }
+            if [&b"LINE"[..], b"ARC", b"CIRCLE", b"POINT"].contains(&object.kind.as_slice()) {
+                for code in SHAPE_CODES {
+                    if let (None, Some(theirs)) = (object.first(code), other.first(code)) {
+                        assert!(is_default(code, theirs), "{at} {code}: {theirs:?}");
                     }
                 }
             }
