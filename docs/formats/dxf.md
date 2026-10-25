@@ -36,6 +36,12 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 - 残すタグは、グループ・コードの行と改行を元のバイトのまま書く。
 - まだ扱わないもの: LWPOLYLINE・MTEXT などの R12 の図形への変換、`*Model_Space` などのレイアウトのブロックの扱い、ほかの版の組、ezdxf や ODA の変換結果との比較。
 
+## 境界から読む
+
+- 境界の `open`（[決定 0016](../decisions/0016-boundary-message-details.md)）は、入力の先頭が判定の規則に合えば DXF として読み、文書の名前と `dxf` を返す。`capabilities` では、系統 `acad` の読める形式として示す。
+- 予算は、コーデックが確かめる。入力の大きさは読む前に、作業はタグごとに、レコードはレコードごとに数える。
+- 開いた文書は、L1 のファイルモデルとして `close` まで持つ。中身を返す op と、図面モデルへの変換は、まだ境界から呼べない。
+
 ## 図面モデルへの変換
 
 - `DxfFile` の `Lift<Drawing2D>` で、図面モデル（L2、`crates/zumen-drawing`）を作る（[決定 0022](../decisions/0022-drawing2d-semantics-and-format-mapping.md)）。`zumen-acad` の feature `drawing` にあり、外せば L1 だけを使える。
