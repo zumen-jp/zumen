@@ -1,10 +1,11 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
-//! - `codegen`: 診断の code の台帳・カタログ・境界のスキーマから、Rust の定数と型、C のヘッダー、カタログの JSON を生成する
-//! - `codegen --check`: 台帳・カタログ・スキーマを確かめ、生成したファイルが最新かを確かめる
+//! - `codegen`: 形式の一覧、Rust の定数と型、C のヘッダー、カタログの JSON を生成する
+//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマを確かめ、生成したファイルが最新かを確かめる
 
 mod boundary;
 mod catalog;
+mod formats;
 mod schema;
 
 use std::fs;
@@ -21,6 +22,7 @@ const MESSAGES_RS: &str = "crates/zumen-abi/src/messages.rs";
 const HEADER: &str = "bindings/c/include/zumen.h";
 const CATALOG_JA: &str = "catalog/ja.json";
 const CATALOG_EN: &str = "catalog/en.json";
+const FORMATS_MD: &str = "docs/formats/README.md";
 
 /// パッケージの版。カタログは核と同じ版で出す（決定 0009）
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -57,6 +59,7 @@ fn root() -> PathBuf {
 
 fn codegen(mode: Mode) -> Result<(), String> {
     let root = root();
+    let formats = formats::generate(&root)?;
     let read = |path: &str| {
         fs::read_to_string(root.join(path)).map_err(|e| format!("{path} を読めない: {e}"))
     };
@@ -99,16 +102,21 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (HEADER, boundary::render_header(&boundary)),
         (CATALOG_JA, catalog::render_json("ja", PACKAGE_VERSION, &ja)),
         (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
+        (FORMATS_MD, formats),
     ];
+    update_outputs(&root, &outputs, mode)
+}
+
+fn update_outputs(root: &Path, outputs: &[(&str, String)], mode: Mode) -> Result<(), String> {
     let mut stale = Vec::new();
     for (path, generated) in outputs {
         let full = root.join(path);
         let current = fs::read_to_string(&full).unwrap_or_default();
-        if current == generated {
+        if current == *generated {
             continue;
         }
         match mode {
-            Mode::Check => stale.push(path),
+            Mode::Check => stale.push(*path),
             Mode::Write => {
                 if let Some(parent) = full.parent() {
                     fs::create_dir_all(parent)
@@ -154,4 +162,28 @@ fn rustfmt(root: &Path, source: &str) -> Result<String, String> {
         ));
     }
     String::from_utf8(output.stdout).map_err(|e| format!("rustfmt の出力が UTF-8 でない: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_missing_and_stale_outputs_without_writing() {
+        let dir = formats::tests::TempDir::new();
+        let outputs = [(FORMATS_MD, "形式の一覧\n".to_string())];
+        assert!(update_outputs(&dir.0, &outputs, Mode::Check).is_err());
+        assert!(!dir.0.join(FORMATS_MD).exists());
+        update_outputs(&dir.0, &outputs, Mode::Write).unwrap();
+        assert!(update_outputs(&dir.0, &outputs, Mode::Check).is_ok());
+        fs::write(dir.0.join(FORMATS_MD), "古い一覧\n").unwrap();
+        let error = update_outputs(&dir.0, &outputs, Mode::Check).unwrap_err();
+        assert!(error.contains(FORMATS_MD));
+        assert_eq!(
+            fs::read_to_string(dir.0.join(FORMATS_MD)).unwrap(),
+            "古い一覧\n"
+        );
+        update_outputs(&dir.0, &outputs, Mode::Write).unwrap();
+        assert!(update_outputs(&dir.0, &outputs, Mode::Check).is_ok());
+    }
 }

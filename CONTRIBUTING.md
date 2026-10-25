@@ -53,6 +53,8 @@ npm run lint:text
 
 診断の code を足すときは [catalog/README.md](catalog/README.md)、境界の関数・op・欄を変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
 
+形式を足すときは、実装する前に [権利の台帳](formats/README.md)を更新してください。`cargo xtask codegen` は台帳と依存を検査し、形式の一覧も生成します。台帳と生成した文書を同じ PR に入れてください。
+
 ## 手順
 
 - 作業を選ぶときは、[次の作業と進め方](docs/work.md)で優先順と開始条件を確認してください。issue に範囲と完了条件を書き、PR で残る作業と一覧も更新してください。

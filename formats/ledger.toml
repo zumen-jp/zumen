@@ -83,7 +83,7 @@ note = "会員にだけ配る。版は確かめられない"
 
 [specs.bebridge_6_1]
 title = "設備 CAD データ交換仕様 BE-Bridge"
-publisher = "C-CADEC（一般財団法人 建設業振興基金）"
+publisher = "C-CADEC（一般財団法人建設業振興基金）"
 version = "Ver.6.1（2014-04）"
 access = "public"
 url = "https://www.kensetsu-kikin.or.jp/assets/img/database/database27.pdf"

@@ -27,7 +27,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: wasm32 でだけ使うコードも lint する
         run: cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked -- -D warnings
-      - name: 台帳・カタログ・スキーマを確かめ、生成したファイルが最新かを確かめる
+      - name: 形式の権利と依存・診断・スキーマを確かめ、生成した文書とコードの更新漏れを調べる
         run: cargo xtask codegen --check
 
   text:
