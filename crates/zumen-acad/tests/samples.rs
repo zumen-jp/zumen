@@ -82,6 +82,20 @@ fn same(a: &Data, b: &Data) -> bool {
     }
 }
 
+/// DXF は、名前のないブロック（`*` で始まる名前）に番号を付ける（DWG の `*Paper_Space` が
+/// `*Paper_Space0`、`*D` が `*D3` など）
+#[cfg(test)]
+fn numbered(dwg: &Data, dxf: &Data) -> bool {
+    match (dwg, dxf) {
+        (Data::Text(a), Data::Text(b)) => {
+            a.starts_with(b"*")
+                && b.strip_prefix(a.as_slice())
+                    .is_some_and(|n| !n.is_empty() && n.iter().all(u8::is_ascii_digit))
+        }
+        _ => false,
+    }
+}
+
 #[test]
 fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
     for (dwg, dxf) in pairs() {
@@ -100,21 +114,39 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             if object.owner().is_some() {
                 assert_eq!(object.owner(), other.owner(), "{at}");
             }
-            // DWG が置いた値は、DXF の同じグループ・コードの最初の値と同じ
+            // DWG が置いた値は、DXF の同じグループ・コードの同じ順番の値と同じ
+            let mut seen: BTreeMap<i16, usize> = BTreeMap::new();
             for value in &object.values {
                 if matches!(value.code, 5 | 105 | 330) {
                     continue;
                 }
-                let theirs = other.first(value.code);
+                let nth = seen.entry(value.code).or_default();
+                let theirs = other
+                    .values
+                    .iter()
+                    .filter(|v| v.code == value.code)
+                    .nth(*nth)
+                    .map(|v| &v.data);
+                *nth += 1;
                 assert!(
-                    theirs.is_some_and(|theirs| same(&value.data, theirs)),
+                    theirs.is_some_and(
+                        |theirs| same(&value.data, theirs) || numbered(&value.data, theirs)
+                    ),
                     "{at} {}: {:?} {theirs:?}",
                     value.code,
                     value.data
                 );
             }
-            if [&b"LINE"[..], b"ARC", b"CIRCLE", b"POINT", b"TEXT"]
-                .contains(&object.kind.as_slice())
+            if [
+                &b"LINE"[..],
+                b"ARC",
+                b"CIRCLE",
+                b"POINT",
+                b"TEXT",
+                b"INSERT",
+                b"MTEXT",
+            ]
+            .contains(&object.kind.as_slice())
             {
                 for code in SHAPE_CODES {
                     if let (None, Some(theirs)) = (object.first(code), other.first(code)) {

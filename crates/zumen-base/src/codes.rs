@@ -280,6 +280,20 @@ pub const DWG_OBJECT_INVALID: Code = Code::new(
     &["type"],
 );
 
+/// DWG の図形が指す文字の体裁・ブロックなどのハンドルに、その型の表のレコードがないので、名前を置かなかった
+///
+/// `dwg.record.missing`（0.0.0 から）
+pub const DWG_RECORD_MISSING: Code = Code::new(
+    "dwg.record.missing",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("type", ParamType::Int),
+    ],
+    &["type", "code"],
+);
+
 /// まだ扱えない型の DWG のオブジェクトを、種類を空にして表に置いた
 ///
 /// `dwg.type.unsupported`（0.0.0 から）
@@ -606,6 +620,7 @@ pub const ALL: &[Code] = &[
     DWG_FILE_INVALID,
     DWG_LAYER_MISSING,
     DWG_OBJECT_INVALID,
+    DWG_RECORD_MISSING,
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,
     DXF_BINARY_UNSUPPORTED,
