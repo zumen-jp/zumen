@@ -81,12 +81,25 @@ impl Object {
         })
     }
 
-    /// 所有者のハンドル（330）。なければ `None`
+    /// 所有者のハンドル（330）。102 の組（`{ACAD_REACTORS` など）の中の 330 は除く。なければ `None`
     pub fn owner(&self) -> Option<u64> {
-        self.first(330).and_then(|data| match data {
-            Data::Handle(handle) => Some(*handle),
-            _ => None,
-        })
+        let mut depth = 0usize;
+        for value in &self.values {
+            match (value.code, &value.data) {
+                (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
+                (102, Data::Text(text)) if text.starts_with(b"}") => {
+                    depth = depth.saturating_sub(1);
+                }
+                (330, data) if depth == 0 => {
+                    return match data {
+                        Data::Handle(handle) => Some(*handle),
+                        _ => None,
+                    };
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
     /// 最初の `code` の値
@@ -236,5 +249,23 @@ mod tests {
         db.push(object(0x2A, b"TEXT"));
         assert_eq!(db.get(0x2A).map(|o| o.kind.as_slice()), Some(&b"LINE"[..]));
         assert_eq!(db.get(1), None);
+    }
+
+    #[test]
+    fn the_owner_skips_reactors_in_groups() {
+        let value = |code: i16, data: Data| Value { code, data };
+        let object = Object {
+            kind: b"DIMSTYLE".to_vec(),
+            section: Section::Tables,
+            values: vec![
+                value(105, Data::Handle(0x39A)),
+                value(102, Data::Text(b"{ACAD_REACTORS".to_vec())),
+                value(330, Data::Handle(0x514)),
+                value(102, Data::Text(b"}".to_vec())),
+                value(330, Data::Handle(0x0A)),
+            ],
+            origin: Origin::Dxf { record: 0 },
+        };
+        assert_eq!(object.owner(), Some(0x0A));
     }
 }
