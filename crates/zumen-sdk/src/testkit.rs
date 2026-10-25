@@ -4,7 +4,7 @@
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
 
-use crate::{Codec, Error, FileModel};
+use crate::{ByteRange, Codec, Error, FileModel};
 
 /// 既定の予算で読む。結果と、足された診断を返す
 pub fn read<C: Codec>(src: &[u8]) -> (Result<C::File, Error>, Vec<Diagnostic>) {
@@ -97,4 +97,73 @@ pub fn deterministic<C: Codec>(src: &[u8]) -> Result<(), String> {
         (Err(a), Err(b)) if a == b => Ok(()),
         _ => Err("2 回の読み込みで、成否が違う".to_string()),
     }
+}
+
+/// `edit` が成功し、書いたものを読み直すと、変えていないレコードが元のバイトのまま、同じ順に残る
+pub fn edit_keeps_untouched_records<C: Codec>(
+    src: &[u8],
+    edit: impl FnOnce(&mut C::File, &mut Cx) -> Result<(), Error>,
+) -> Result<(), String> {
+    let mut file = read_ok::<C>(src)?;
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    edit(&mut file, &mut Cx::new(&mut budget, &mut diag, &cancel))
+        .map_err(|e| format!("変更できない: {e:?}（診断: {:?}）", diag.into_vec()))?;
+    let out = write::<C>(&file)?;
+    let reread = read_ok::<C>(&out)?;
+    if reread.record_count() != file.record_count() {
+        return Err(format!(
+            "書いたものを読み直すと、レコードの数が {} から {} に変わる",
+            file.record_count(),
+            reread.record_count()
+        ));
+    }
+    let mut touched = 0;
+    for index in 0..file.record_count() {
+        let before = file.record(index).and_then(|r| r.bytes);
+        let after = reread.record(index).and_then(|r| r.bytes);
+        let Some(before) = before else {
+            touched += 1;
+            continue;
+        };
+        if slice(src, before) != after.and_then(|a| slice(&out, a)) {
+            return Err(format!(
+                "変えていない {index} 番目のレコードのバイトが変わる"
+            ));
+        }
+    }
+    if touched == 0 {
+        return Err("変更したレコードがない".to_string());
+    }
+    Ok(())
+}
+
+/// `edit` が失敗し、ファイルモデルを書くと元のバイト列のままで、元のバイト範囲を持たないレコードもない
+pub fn failed_edit_changes_nothing<C: Codec>(
+    src: &[u8],
+    edit: impl FnOnce(&mut C::File, &mut Cx) -> Result<(), Error>,
+) -> Result<Vec<Diagnostic>, String> {
+    let mut file = read_ok::<C>(src)?;
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    if edit(&mut file, &mut Cx::new(&mut budget, &mut diag, &cancel)).is_ok() {
+        return Err("失敗するはずの変更が成功した".to_string());
+    }
+    if let Some(index) =
+        (0..file.record_count()).find(|&i| file.record(i).is_some_and(|r| r.bytes.is_none()))
+    {
+        return Err(format!(
+            "失敗した変更の後に、{index} 番目のレコードが変わっている"
+        ));
+    }
+    if write::<C>(&file)? != src {
+        return Err("失敗した変更の後に書くと、元のバイト列と違う".to_string());
+    }
+    Ok(diag.into_vec())
+}
+
+fn slice(src: &[u8], range: ByteRange) -> Option<&[u8]> {
+    src.get(usize::try_from(range.start).ok()?..usize::try_from(range.end).ok()?)
 }

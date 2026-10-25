@@ -1,11 +1,11 @@
 //! zumen の形式を書くための部品（決定 0008・0017）。核の形式も、外部のプラグインも、これで書く。
 //!
 //! - [`Codec`]・[`FileModel`] は、L1 のファイルモデルと、その符号化の 1 つ
+//! - [`Transact`]・[`Transaction`] は、L1 の変更を確かめてからまとめて反映する仕組み
 //! - [`Signature`] は、形式の判定の規則。コーデックがデータとして持つ
 //! - [`testkit`] は、往復・決定性・レコードの範囲を確かめる試験の道具
 //!
-//! trait の形は、AutoCAD の系統の試作（#3）で育てている。トランザクション・`Lift`・`Lower` は、
-//! 試作の次の段階で足す。
+//! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lift`・`Lower` は、試作の次の段階で足す。
 
 pub mod testkit;
 
@@ -20,6 +20,8 @@ pub enum Error {
     Invalid,
     /// 形式は分かったが、このコーデックでは扱えない
     Unsupported,
+    /// 変更が形式の規則に合わないので、何も反映しなかった
+    Rejected,
 }
 
 impl From<Stop> for Error {
@@ -55,12 +57,30 @@ pub trait FileModel {
     fn record(&self, index: usize) -> Option<RecordInfo<'_>>;
 }
 
+/// トランザクションで変更できる L1 のファイルモデル（決定 0008）
+pub trait Transact: FileModel {
+    /// 変更をためるトランザクション。変更の操作は、形式ごとに持つ
+    type Txn<'a>: Transaction
+    where
+        Self: 'a;
+
+    /// トランザクションを始める。確定せずに捨てると、何も反映しない
+    fn transaction(&mut self) -> Self::Txn<'_>;
+}
+
+/// ためた変更を、まとめて確かめてから反映する
+pub trait Transaction {
+    /// すべての変更を確かめてから反映する。失敗したら、何も反映しない。
+    /// 反映したレコードは、元のバイト範囲を持たなくなり、書くときに書き直す
+    fn commit(self, cx: &mut Cx) -> Result<(), Error>;
+}
+
 /// 形式に依存しない、レコードの見出し
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RecordInfo<'a> {
     /// 形式が決めるレコードの種類（DXF なら `LINE` など）。生のバイト列
     pub kind: &'a [u8],
-    /// 元のバイト範囲。読んだ後に作ったレコードにはない
+    /// 元のバイト範囲。読んだ後に作ったレコードと、変更したレコードにはない
     pub bytes: Option<ByteRange>,
 }
 
