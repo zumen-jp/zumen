@@ -103,7 +103,8 @@ impl DwgFile {
             }];
             let (kind, section) = match kind(entry.type_code) {
                 Some((kind, section)) => {
-                    let entity = section == Section::Entities;
+                    // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
+                    let entity = matches!(section, Section::Entities | Section::Blocks);
                     match read(self.data(entry), entry, entity) {
                         Some(read) => values.extend(read),
                         None => cx.report(

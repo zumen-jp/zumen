@@ -249,23 +249,35 @@ fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
 /// 見出し・オブジェクト・オブジェクトの地図を並べた R2000 の DWG
 #[cfg(test)]
 fn dwg(objects: &[(u64, Vec<u8>)]) -> Vec<u8> {
+    dwg_in_sections(objects, usize::MAX)
+}
+
+/// 地図の区切りごとに、`per_section` 個までのオブジェクトを置く DWG
+#[cfg(test)]
+fn dwg_in_sections(objects: &[(u64, Vec<u8>)], per_section: usize) -> Vec<u8> {
     const SENTINEL: [u8; 16] = [
         0x95, 0xA0, 0x4E, 0x28, 0x99, 0x82, 0x1A, 0xE5, 0x5E, 0x41, 0xE0, 0x5F, 0x9D, 0x3A, 0x4D,
         0x00,
     ];
     let header_size = 0x19 + 3 * 9 + 2 + 16;
     let mut body: Vec<u8> = Vec::new();
-    let mut map = Vec::new();
-    let (mut last_handle, mut last_location) = (0u64, 0i64);
-    for (handle, bytes) in objects {
-        let location = (header_size + body.len()) as i64;
-        map.extend(modular_char((handle - last_handle) as i64, false));
-        map.extend(modular_char(location - last_location, true));
-        (last_handle, last_location) = (*handle, location);
-        body.extend(bytes);
+    let mut maps = Vec::new();
+    for chunk in objects.chunks(per_section) {
+        // 差分は、区切りごとに 0 から数える
+        let mut map = Vec::new();
+        let (mut last_handle, mut last_location) = (0u64, 0i64);
+        for (handle, bytes) in chunk {
+            let location = (header_size + body.len()) as i64;
+            map.extend(modular_char((handle - last_handle) as i64, false));
+            map.extend(modular_char(location - last_location, true));
+            (last_handle, last_location) = (*handle, location);
+            body.extend(bytes);
+        }
+        maps.push(map);
     }
+    maps.push(Vec::new());
     let mut sections = Vec::new();
-    for data in [map, Vec::new()] {
+    for data in maps {
         let mut section = ((data.len() + 2) as u16).to_be_bytes().to_vec();
         section.extend(data);
         let crc = crc16(0xC0C1, &section);
@@ -351,6 +363,19 @@ fn the_header_and_the_object_map_are_read() {
     let second = file.record(1).unwrap().bytes.unwrap();
     assert_eq!(first.start, 0x19 + 27 + 18);
     assert_eq!(first.end, second.start);
+}
+
+#[test]
+fn each_map_section_counts_its_offsets_from_zero() {
+    let one = read(&sample(), Limits::default()).0.unwrap();
+    let (split, diag) = read(&dwg_in_sections(&objects_in_sample(), 2), Limits::default());
+    let split = split.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(split.record_count(), one.record_count());
+    for i in 0..one.record_count() {
+        let (a, b) = (one.record(i).unwrap(), split.record(i).unwrap());
+        assert_eq!((a.kind, a.bytes), (b.kind, b.bytes));
+    }
 }
 
 #[test]

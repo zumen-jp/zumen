@@ -245,8 +245,6 @@ fn object_map(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Entry
     let start = map.seeker as usize;
     let end = start.saturating_add(map.size as usize).min(src.len());
     let mut entries = Vec::new();
-    let mut handle: u64 = 0;
-    let mut location: i64 = 0;
     let mut pos = start;
     loop {
         // 区切りの大きさは上位のバイトから並び、大きさの 2 バイトを含む（推定）
@@ -265,6 +263,9 @@ fn object_map(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Entry
             break;
         }
         let section = src.get(body.clone()).unwrap_or_default();
+        // ハンドルと位置の差分は、区切りごとに 0 から数える
+        let mut handle: u64 = 0;
+        let mut location: i64 = 0;
         let mut at = 0;
         while at < section.len() {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
