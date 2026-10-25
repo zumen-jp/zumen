@@ -42,6 +42,7 @@ DWG のコーデックを書く前に、何を系統で共有し、何を符号�
 
 - `zumen-acad` に `db`（表）と、DXF から表を作る経路が加わる。新しい診断の符号 `dxf.value.invalid` を足す。
 - 次の試作で、DWG（R2000）の一部を読んで同じ表に置き、2 つの符号化で同じ表になることを確かめる。DWG の読み手は、公開の仕様だけから書き、GPL の実装は読まない。
+- DWG（R2000）の試作で、見出し・オブジェクトの地図・LINE を読み、同じ表に置いた（[DWG の扱い](../formats/dwg.md)）。DWG にしかない表の名前と、既定の値の欄を置かない扱いは、その文書に推定として記した。
 - 型付きの見方（`Line` など）と `lift` を表の上に移すとき、DXF からの変換の結果が変わらないことを試験で確かめる。
 
 ## 参照
@@ -49,4 +50,5 @@ DWG のコーデックを書く前に、何を系統で共有し、何を符号�
 - [0008: モデルの層とコーデック](0008-model-layers-and-codecs.md)
 - [0022: 図面のモデル](0022-drawing2d-semantics-and-format-mapping.md)
 - [DXF の扱い](../formats/dxf.md)
+- [DWG の扱い](../formats/dwg.md)
 - DXF Reference「Group Code Value Types」

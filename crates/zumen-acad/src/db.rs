@@ -4,7 +4,7 @@
 //! DXF のグループ・コードで名付けた値を持つ。値の型は、グループ・コードの範囲で決める
 //! （DXF Reference「Group Code Value Types」）。DWG のコーデックも、読んだ欄を同じ名前で表に置く。
 //!
-//! 元のバイトは、符号化ごとのファイルモデル（[`crate::DxfFile`] など）が持つ。表のオブジェクトは、
+//! 元のバイトは、符号化ごとのファイルモデル（[`crate::DxfFile`]・[`crate::DwgFile`]）が持つ。表のオブジェクトは、
 //! [`Origin`] で元のレコードを指す。
 
 use std::collections::BTreeMap;
@@ -179,6 +179,11 @@ pub enum Origin {
     Dxf {
         /// レコードの番号
         record: usize,
+    },
+    /// DWG の、`offset` バイト目から始まるオブジェクト
+    Dwg {
+        /// ファイルの先頭からの位置
+        offset: usize,
     },
 }
 

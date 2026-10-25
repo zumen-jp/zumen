@@ -151,6 +151,7 @@
 - サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる・ezdwg の試験の図面（MIT）
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 旧版の記録: 旧版の決定 0003（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
+- 形式の文書: [docs/formats/dwg.md](../../docs/formats/dwg.md)
 
 ### format-dxf
 
