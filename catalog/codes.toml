@@ -18,6 +18,7 @@ exceeded = "予算の上限を超えた"
 cancelled = "中断の合図で止めた"
 caught = "境界で捕まえた"
 missing = "名指ししたものがない"
+exists = "名指しした名前が、もう使われている"
 
 # 予算（決定 0010）
 
@@ -122,6 +123,14 @@ status = "active"
 
 [codes."call.input.missing"]
 description = "名指しした入力がない"
+severity = "error"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."call.document.exists"]
+description = "開く文書の名前が、もう使われている"
 severity = "error"
 params = { name = "text" }
 group-by = ["name"]

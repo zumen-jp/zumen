@@ -178,8 +178,10 @@ dependencies = [
 name = "zumen-abi"
 version = "0.0.0"
 dependencies = [
+ "zumen-acad",
  "zumen-base",
  "zumen-json",
+ "zumen-sdk",
 ]
 
 [[package]]

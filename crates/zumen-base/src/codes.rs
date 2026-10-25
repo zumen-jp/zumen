@@ -109,6 +109,17 @@ pub const BUDGET_WORK_EXCEEDED: Code = Code::new(
     &[],
 );
 
+/// 開く文書の名前が、もう使われている
+///
+/// `call.document.exists`（0.0.0 から）
+pub const CALL_DOCUMENT_EXISTS: Code = Code::new(
+    "call.document.exists",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
 /// 名指しした文書がない
 ///
 /// `call.document.missing`（0.0.0 から）
@@ -499,6 +510,7 @@ pub const ALL: &[Code] = &[
     BUDGET_SEGMENTS_EXCEEDED,
     BUDGET_TIME_EXCEEDED,
     BUDGET_WORK_EXCEEDED,
+    CALL_DOCUMENT_EXISTS,
     CALL_DOCUMENT_MISSING,
     CALL_FIELD_MISSING,
     CALL_FIELD_UNSUPPORTED,

@@ -2,15 +2,17 @@
 
 use std::collections::BTreeMap;
 
+use zumen_acad::{Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_base::{codes, name};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
+use zumen_sdk::Codec;
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::describe;
 use crate::messages::{
-    self, BlobKind, CapabilitiesResult, CloseRequest, CloseResult, Engine, OpenRequest, OpenResult,
-    Request, RequestCommon, SchemaVersion, SessionOptions,
+    self, BlobKind, CapabilitiesResult, CloseRequest, CloseResult, Engine, Format, OpenRequest,
+    OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions,
 };
 
 /// このライブラリの実行の形（決定 0013）
@@ -28,8 +30,26 @@ const BUILT: Engine = if cfg!(target_family = "wasm") {
 pub struct Session {
     engine: Engine,
     inputs: BTreeMap<String, Vec<u8>>,
+    /// `open` で作った文書
+    docs: BTreeMap<String, Doc>,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
     blobs: Vec<Option<Blob>>,
+}
+
+/// 開いた文書。形式ごとのファイルモデル（L1）を持つ
+#[derive(Debug)]
+enum Doc {
+    #[expect(dead_code, reason = "文書を読む op（決定 0016）を足すまで、持つだけ")]
+    Dxf(DxfFile),
+}
+
+impl Doc {
+    /// 形式の台帳のキー
+    fn format(&self) -> &'static str {
+        match self {
+            Doc::Dxf(_) => Dxf::FORMAT,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -97,6 +117,7 @@ impl Session {
         Ok(Self {
             engine,
             inputs: BTreeMap::new(),
+            docs: BTreeMap::new(),
             blobs: Vec::new(),
         })
     }
@@ -223,13 +244,32 @@ impl Session {
         let Some(bytes) = self.inputs.get(&request.input) else {
             return Err(fail(cx, input_missing(&request.input)));
         };
-        cx.check(Kind::InputBytes, bytes.len() as u64)
-            .map_err(|stop| stopped(cx, stop))?;
-        // 形式は、コーデックが持つ判定の規則で決める（決定 0007・0008）。この版には、読める形式がまだない
-        Err(fail(
-            cx,
-            Diagnostic::new(codes::CALL_FORMAT_UNSUPPORTED).with("name", request.input.as_str()),
-        ))
+        let name = request.doc.as_ref().unwrap_or(&request.input);
+        if self.docs.contains_key(name) {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", name.as_str()),
+            ));
+        }
+        // 形式は、コーデックが持つ判定の規則で決める（決定 0007・0008）。入力の大きさは、コーデックが確かめる
+        let doc = if Dxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+            // 失敗の理由は、コーデックが診断として足してある
+            Doc::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
+        } else {
+            cx.check(Kind::InputBytes, bytes.len() as u64)
+                .map_err(|stop| stopped(cx, stop))?;
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_FORMAT_UNSUPPORTED)
+                    .with("name", request.input.as_str()),
+            ));
+        };
+        let result = OpenResult {
+            doc: name.clone(),
+            format: doc.format().to_string(),
+        };
+        self.docs.insert(name.clone(), doc);
+        Ok(result)
     }
 
     fn close(&mut self, request: &CloseRequest, cx: &mut Cx<'_>) -> Result<CloseResult, Failed> {
@@ -246,9 +286,10 @@ impl Session {
         }
         let mut missing = false;
         for doc in docs {
-            // この版には、開ける形式がないので、文書もない
-            cx.report(Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.as_str()));
-            missing = true;
+            if !self.docs.contains_key(doc) {
+                cx.report(Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.as_str()));
+                missing = true;
+            }
         }
         for input in inputs {
             if !self.inputs.contains_key(input) {
@@ -259,6 +300,9 @@ impl Session {
         // 1 つでもなければ、何も捨てない
         if missing {
             return Err(Failed);
+        }
+        for doc in docs {
+            self.docs.remove(doc);
         }
         for input in inputs {
             self.inputs.remove(input);
@@ -281,7 +325,13 @@ fn capabilities() -> CapabilitiesResult {
             minor: SCHEMA_MINOR,
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
-        formats: Vec::new(),
+        formats: vec![Format {
+            id: Dxf::FORMAT.to_string(),
+            family: "acad".to_string(),
+            read: true,
+            write: false,
+            id_rules: 1,
+        }],
     }
 }
 
@@ -521,7 +571,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":0}},"ops":["capabilities","open","close","describe"],"formats":[]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":0}},"ops":["capabilities","open","close","describe"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -612,17 +662,12 @@ mod tests {
     }
 
     #[test]
-    fn opens_nothing_yet_but_checks_the_input_and_the_budget() {
+    fn opens_dxf_after_checking_the_input_and_the_budget() {
         let mut session = Session::new(b"").unwrap();
         let (status, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
         assert_eq!(status, Status::Failed);
         assert_eq!(text(&response, "/diagnostics/0/code"), "call.input.missing");
         session.push(b"a.dxf", b"0\nSECTION\n").unwrap();
-        let (_, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
-        assert_eq!(
-            text(&response, "/diagnostics/0/code"),
-            "call.format.unsupported"
-        );
         let (_, response) = call(
             &mut session,
             r#"{"v":1,"op":"open","input":"a.dxf","budget":{"input_bytes":4}}"#,
@@ -633,6 +678,36 @@ mod tests {
         );
         assert_eq!(number(&response, "/diagnostics/0/params/limit"), "4");
         assert_eq!(number(&response, "/diagnostics/0/params/requested"), "10");
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"open","input":"a.dxf","budget":{"records":0}}"#,
+        );
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "budget.records.exceeded"
+        );
+        assert!(session.docs.is_empty());
+        let (status, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/doc"), "a.dxf");
+        assert_eq!(text(&response, "/result/format"), "dxf");
+        let (_, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "call.document.exists"
+        );
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"open","input":"a.dxf","doc":"b"}"#,
+        );
+        assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/doc"), "b");
+        session.push(b"c.txt", b"0\n").unwrap();
+        let (_, response) = call(&mut session, r#"{"v":1,"op":"open","input":"c.txt"}"#);
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "call.format.unsupported"
+        );
         let (_, response) = call(
             &mut session,
             r#"{"v":1,"op":"open","input":"a.dxf","doc":"/x"}"#,
@@ -665,6 +740,17 @@ mod tests {
             text(&response, "/diagnostics/0/code"),
             "call.document.missing"
         );
+        session.push(b"a.dxf", b"0\nSECTION\n").unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, _) = call(
+            &mut session,
+            r#"{"v":1,"op":"close","docs":["a.dxf","b.dxf"]}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(session.docs.len(), 1);
+        let (status, _) = call(&mut session, r#"{"v":1,"op":"close","docs":["a.dxf"]}"#);
+        assert_eq!(status, Status::Ok);
+        assert!(session.docs.is_empty());
     }
 
     #[test]

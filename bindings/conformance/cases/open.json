@@ -1,27 +1,62 @@
 {
-  "description": "open は、入力と予算を確かめてから形式を判定する。この版には、読める形式がない（決定 0008・0010）",
+  "description": "open は、入力と予算を確かめ、判定の規則で形式を決めて読む。読んだら、文書の名前と形式を返す（決定 0008・0010・0016）",
   "steps": [
     {
       "call": { "v": 1, "op": "open", "input": "a.dxf" },
       "status": "failed",
       "expect": { "/diagnostics/0/code": "call.input.missing", "/diagnostics/0/params/name": "a.dxf" }
     },
-    { "push": { "name": "a.dxf", "text": "0\nSECTION\n" } },
+    { "push": { "name": "a.dxf", "text": "0\nSECTION\n2\nENTITIES\n0\nEOF\n" } },
     {
-      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 9 } },
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 26 } },
       "status": "failed",
       "expect": {
         "/diagnostics/0/code": "budget.input-bytes.exceeded",
         "/diagnostics/0/severity": "error",
         "/diagnostics/0/count": 1,
-        "/diagnostics/0/params/limit": 9,
-        "/diagnostics/0/params/requested": 10
+        "/diagnostics/0/params/limit": 26,
+        "/diagnostics/0/params/requested": 27
       }
     },
     {
-      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 10 } },
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "records": 1 } },
       "status": "failed",
-      "expect": { "/diagnostics/0/code": "call.format.unsupported", "/diagnostics/0/params/name": "a.dxf" }
+      "expect": { "/diagnostics/0/code": "budget.records.exceeded", "/diagnostics/0/params/limit": 1 }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "work": 2 } },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "budget.work.exceeded", "/diagnostics/0/params/limit": 2 }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 27, "records": 2, "work": 3 } },
+      "expect": { "/result": { "doc": "a.dxf", "format": "dxf" }, "/diagnostics": [] }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.document.exists", "/diagnostics/0/params/name": "a.dxf" }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "doc": "b" },
+      "expect": { "/result": { "doc": "b", "format": "dxf" } }
+    },
+    {
+      "call": { "v": 1, "op": "close", "docs": ["a.dxf", "c"] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.document.missing", "/diagnostics/0/params/name": "c" }
+    },
+    { "call": { "v": 1, "op": "close", "docs": ["a.dxf", "b"] }, "expect": { "/result": {} } },
+    {
+      "call": { "v": 1, "op": "close", "docs": ["b"] },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.document.missing" }
+    },
+    { "push": { "name": "c.txt", "text": "0\n" } },
+    {
+      "call": { "v": 1, "op": "open", "input": "c.txt" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.format.unsupported", "/diagnostics/0/params/name": "c.txt" }
     },
     {
       "call": { "v": 1, "op": "open", "input": "a.dxf", "doc": "../b" },

@@ -113,7 +113,8 @@ JSON の読み書きは 2、浮動小数の表記は 3、スキーマは 2、状
 - `capabilities` の応答はパッケージの版を含むので、版を上げるたびに `hashes.txt` を作り直す。
 - [0007](0007-single-rust-implementation.md) の「最後の job で、すべての一覧が一致することを確かめる」は、コミットした一覧との比較に置き換えた。
 - この版の境界には、まだ次のものがない。それぞれ、要るものと一緒に足す。
-  - 読める形式。`open` は、入力と予算を確かめてから `call.format.unsupported` を返す
+  - DXF のほかの読める形式。DXF は、`open` で L1 のファイルモデルとして読んで文書にする（[#3](https://github.com/zumen-jp/zumen/issues/3)）。ほかの入力は、入力と予算を確かめてから `call.format.unsupported` を返す
+  - 文書を読む op。開いた文書は、`close` で捨てるまで持つだけ
   - 表を返す op。`zm_take_arrow` は、どの番号にも `ZM_INVALID` を返す
   - 実行の形の `process`。CLI と一緒に作る
 - [#13](https://github.com/zumen-jp/zumen/issues/13) は、この記録と、境界のヘッダーとスキーマの最初の版で完了する。
