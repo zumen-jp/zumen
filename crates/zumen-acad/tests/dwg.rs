@@ -569,6 +569,86 @@ fn arcs_circles_and_points_have_their_fields() {
 }
 
 #[test]
+fn text_fields_are_read_by_their_flags() {
+    let layer = object(0x33, 0x10, layer_named(b"0"), |w| w.handle(4, 2));
+    // DataFlags が 0xFF: 標高・合わせの点・角度・幅・生成・合わせの欄を持たない
+    let plain = object(
+        0x01,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bytes(&[0xFF]);
+            w.rd(1.0);
+            w.rd(2.0);
+            w.bit(true);
+            w.bit(true);
+            w.rd(2.5);
+            w.bs(6);
+            w.bytes(b"Hello\0");
+        },
+        entity_handles(0x10),
+    );
+    // DataFlags が 0: どの欄も持つ
+    let full = object(
+        0x01,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bytes(&[0]);
+            w.rd(3.0); // 標高
+            w.rd(1.0);
+            w.rd(2.0);
+            w.dd(5.0, 1.0);
+            w.dd(2.0, 2.0);
+            w.bit(true);
+            w.bit(false);
+            w.bd(0.5); // 厚さ
+            w.rd(std::f64::consts::FRAC_PI_6); // 斜めの角度
+            w.rd(std::f64::consts::FRAC_PI_2); // 回転
+            w.rd(2.5);
+            w.rd(0.8);
+            w.bs(2);
+            w.bytes(b"A\0");
+            w.bs(2);
+            w.bs(1);
+            w.bs(3);
+        },
+        entity_handles(0x10),
+    );
+    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, plain), (0x21, full)]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+
+    let plain = db.get(0x20).unwrap();
+    assert_eq!(plain.kind, b"TEXT");
+    assert_eq!(plain.first(1), Some(&Data::Text(b"Hello".to_vec())));
+    for (code, value) in [(10, 1.0), (20, 2.0), (30, 0.0), (40, 2.5)] {
+        assert!(close(plain.real(code), value), "{code}");
+    }
+    for code in [11, 39, 41, 50, 51, 71, 72, 73, 210] {
+        assert_eq!(plain.first(code), None, "{code}");
+    }
+
+    let full = db.get(0x21).unwrap();
+    assert_eq!(full.first(1), Some(&Data::Text(b"A".to_vec())));
+    let reals = [
+        (30, 3.0),
+        (11, 5.0),
+        (21, 2.0),
+        (31, 3.0),
+        (39, 0.5),
+        (51, 30.0),
+        (50, 90.0),
+        (41, 0.8),
+    ];
+    for (code, value) in reals {
+        assert!(close(full.real(code), value), "{code}");
+    }
+    for (code, value) in [(71, 2), (72, 1), (73, 3)] {
+        assert_eq!(full.first(code), Some(&Data::Int(value)), "{code}");
+    }
+}
+
+#[test]
 fn a_missing_layer_is_reported() {
     let line = object(
         0x13,

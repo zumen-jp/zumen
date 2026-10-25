@@ -113,7 +113,9 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     value.data
                 );
             }
-            if [&b"LINE"[..], b"ARC", b"CIRCLE", b"POINT"].contains(&object.kind.as_slice()) {
+            if [&b"LINE"[..], b"ARC", b"CIRCLE", b"POINT", b"TEXT"]
+                .contains(&object.kind.as_slice())
+            {
                 for code in SHAPE_CODES {
                     if let (None, Some(theirs)) = (object.first(code), other.first(code)) {
                         assert!(is_default(code, theirs), "{at} {code}: {theirs:?}");
