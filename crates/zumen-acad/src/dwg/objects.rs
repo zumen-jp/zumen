@@ -2,7 +2,7 @@
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
-//! 今は LINE・ARC・CIRCLE・POINT を読む。表のレコードは、今は LAYER の名前（2）だけを読む。
+//! 今は TEXT・LINE・ARC・CIRCLE・POINT を読む。表のレコードは、今は LAYER の名前（2）だけを読む。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
 use std::collections::BTreeMap;
@@ -23,6 +23,7 @@ const COMMON_ENTITY_HANDLES: SpecRef = SpecRef {
     section: "20.4.2 Common entity handle data",
 };
 
+const TEXT: u16 = 0x01;
 const ARC: u16 = 0x11;
 const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
@@ -38,7 +39,7 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
     let table = |name: &'static [u8]| Some((name, Section::Tables));
     let object = |name: &'static [u8]| Some((name, Section::Objects));
     match type_code {
-        0x01 => entity(b"TEXT"),
+        TEXT => entity(b"TEXT"),
         0x02 => entity(b"ATTRIB"),
         0x03 => entity(b"ATTDEF"),
         0x04 => Some((b"BLOCK", Section::Blocks)),
@@ -239,6 +240,7 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
         let common = entity_data(&mut bits)?;
         let own = if bits.pos() <= handles_at {
             match entry.type_code {
+                TEXT => text(&mut bits)?,
                 LINE => line(&mut bits)?,
                 ARC => arc(&mut bits)?,
                 CIRCLE => circle(&mut bits)?,
@@ -337,6 +339,54 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         no_links,
         values,
     })
+}
+
+/// TEXT の欄（ODS 5.4.1 の 20.4.3、R2000）。DataFlags のビットが立つ欄は記録されず、既定の値なので
+/// 置かない。高さ（40）は DD で書かれないのでいつも置く
+fn text(bits: &mut Bits) -> Option<Vec<Value>> {
+    let flags = bits.rc()?;
+    let absent = |bit: u8| flags & bit != 0;
+    let elevation = if absent(0x01) { 0.0 } else { bits.rd()? };
+    let (x, y) = (bits.rd()?, bits.rd()?);
+    let mut values = vec![real(10, x), real(20, y), real(30, elevation)];
+    let alignment = if absent(0x02) {
+        None
+    } else {
+        Some((bits.dd(x)?, bits.dd(y)?))
+    };
+    // BE の押し出しの向きと、BT の厚さ。LINE などとは並びが逆
+    let extrusion = if bits.bit()? {
+        None
+    } else {
+        Some(point3(bits, 210)?)
+    };
+    if !bits.bit()? {
+        values.push(real(39, bits.bd()?));
+    }
+    if !absent(0x04) {
+        values.push(real(51, bits.rd()?.to_degrees()));
+    }
+    if !absent(0x08) {
+        values.push(real(50, bits.rd()?.to_degrees()));
+    }
+    values.push(real(40, bits.rd()?));
+    if !absent(0x10) {
+        values.push(real(41, bits.rd()?));
+    }
+    values.push(Value {
+        code: 1,
+        data: Data::Text(bits.text()?),
+    });
+    for (bit, code) in [(0x20, 71), (0x40, 72), (0x80, 73)] {
+        if !absent(bit) {
+            values.push(int(code, i64::from(bits.bs()?)));
+        }
+    }
+    if let Some((x, y)) = alignment {
+        values.extend([real(11, x), real(21, y), real(31, elevation)]);
+    }
+    values.extend(extrusion.into_iter().flatten());
+    Some(values)
 }
 
 /// LINE の欄（ODS 5.4.1 の 20.4.17）。端点はいつも置き、厚さと押し出しの向きは既定でなければ置く
