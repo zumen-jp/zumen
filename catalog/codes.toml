@@ -184,6 +184,44 @@ status = "active"
 
 # AutoCAD の系統（決定 0008）
 
+[codes."dwg.version.unsupported"]
+description = "R2000（AC1015）でない版の DWG は、まだ読めない"
+severity = "error"
+params = { version = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."dwg.file.invalid"]
+description = "DWG の見出し・オブジェクトの地図・オブジェクトの区切りを読めない"
+severity = "error"
+params = { part = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."dwg.crc.invalid"]
+description = "DWG の CRC が、記録された値と合わない。読むのは続ける"
+severity = "warning"
+params = { part = "text" }
+group-by = ["part"]
+since = "0.0.0"
+status = "active"
+
+[codes."dwg.object.invalid"]
+description = "DWG のオブジェクトの欄を読めないので、ハンドルだけを表に置いた"
+severity = "warning"
+params = { type = "int" }
+group-by = ["type"]
+since = "0.0.0"
+status = "active"
+
+[codes."dwg.type.unsupported"]
+description = "まだ扱えない型の DWG のオブジェクトを、種類を空にして表に置いた"
+severity = "warning"
+params = { type = "int" }
+group-by = ["type"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.binary.unsupported"]
 description = "バイナリの DXF は、まだ読めない"
 severity = "error"

@@ -187,6 +187,7 @@ verify = ["ODA File Converter", "DWG TrueView"]
 samples = ["ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg の試験の図面（MIT）"]
 decisions = ["0008"]
 legacy-decisions = ["0003"]
+docs = ["docs/formats/dwg.md"]
 
 [formats.pdf]
 name = "PDF"

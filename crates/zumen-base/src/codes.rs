@@ -236,6 +236,61 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
+/// DWG の CRC が、記録された値と合わない。読むのは続ける
+///
+/// `dwg.crc.invalid`（0.0.0 から）
+pub const DWG_CRC_INVALID: Code = Code::new(
+    "dwg.crc.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("part", ParamType::Text)],
+    &["part"],
+);
+
+/// DWG の見出し・オブジェクトの地図・オブジェクトの区切りを読めない
+///
+/// `dwg.file.invalid`（0.0.0 から）
+pub const DWG_FILE_INVALID: Code = Code::new(
+    "dwg.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("part", ParamType::Text)],
+    &[],
+);
+
+/// DWG のオブジェクトの欄を読めないので、ハンドルだけを表に置いた
+///
+/// `dwg.object.invalid`（0.0.0 から）
+pub const DWG_OBJECT_INVALID: Code = Code::new(
+    "dwg.object.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("type", ParamType::Int)],
+    &["type"],
+);
+
+/// まだ扱えない型の DWG のオブジェクトを、種類を空にして表に置いた
+///
+/// `dwg.type.unsupported`（0.0.0 から）
+pub const DWG_TYPE_UNSUPPORTED: Code = Code::new(
+    "dwg.type.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("type", ParamType::Int)],
+    &["type"],
+);
+
+/// R2000（AC1015）でない版の DWG は、まだ読めない
+///
+/// `dwg.version.unsupported`（0.0.0 から）
+pub const DWG_VERSION_UNSUPPORTED: Code = Code::new(
+    "dwg.version.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("version", ParamType::Text)],
+    &[],
+);
+
 /// バイナリの DXF は、まだ読めない
 ///
 /// `dxf.binary.unsupported`（0.0.0 から）
@@ -536,6 +591,11 @@ pub const ALL: &[Code] = &[
     CALL_VALUE_INVALID,
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
+    DWG_CRC_INVALID,
+    DWG_FILE_INVALID,
+    DWG_OBJECT_INVALID,
+    DWG_TYPE_UNSUPPORTED,
+    DWG_VERSION_UNSUPPORTED,
     DXF_BINARY_UNSUPPORTED,
     DXF_CODE_PAGE_UNSUPPORTED,
     DXF_ENTITY_DROPPED,
