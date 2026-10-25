@@ -43,6 +43,7 @@
     "dxf.text.equivalent": "Wrote characters outside ASCII as \\U+XXXX for a code page version ({count} values).",
     "dxf.text.invalid": "Wrote {count} values that are not valid UTF-8 as their bytes.",
     "dxf.units.missing": "Treated the model unit as unknown, because the header has no $INSUNITS or it is not a length unit.",
+    "dxf.value.invalid": "Kept {count} values of group code {code} in \"{kind}\" as text, because they cannot be read as the type of that group code.",
     "dxf.value.unsafe": "A value that would change the DXF tag structure cannot be written (record {record}, group code {code}). Values with line breaks and group code 0 values cannot be changed. The changes were not applied.",
     "dxf.version.unsupported": "Changing the DXF version from {from} to {to} is not supported yet.",
     "dxf.viewport.unsupported": "Did not lift {count} viewports whose group code {code} has a setting that is not supported yet.",

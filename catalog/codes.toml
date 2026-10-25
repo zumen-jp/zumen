@@ -281,6 +281,14 @@ group-by = ["name"]
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.value.invalid"]
+description = "グループ・コードの型どおりに読めない値を、オブジェクトの表に文字列のまま置いた"
+severity = "warning"
+params = { kind = "text", code = "int" }
+group-by = ["kind", "code"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.text.equivalent"]
 description = "コード・ページの版に書くため、ASCII でない文字を `\\U+XXXX` の表記にした"
 severity = "info"

@@ -443,6 +443,20 @@ pub const DXF_TEXT_INVALID: Code = Code::new("dxf.text.invalid", Severity::Warni
 /// `dxf.units.missing`（0.0.0 から）
 pub const DXF_UNITS_MISSING: Code = Code::new("dxf.units.missing", Severity::Info, None, &[], &[]);
 
+/// グループ・コードの型どおりに読めない値を、オブジェクトの表に文字列のまま置いた
+///
+/// `dxf.value.invalid`（0.0.0 から）
+pub const DXF_VALUE_INVALID: Code = Code::new(
+    "dxf.value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["kind", "code"],
+);
+
 /// 書くとタグやレコードの区切りが変わる値（改行を含む値と、グループ・コード 0 の値の変更）を、DXF に書かなかった
 ///
 /// `dxf.value.unsafe`（0.0.0 から）
@@ -541,6 +555,7 @@ pub const ALL: &[Code] = &[
     DXF_TEXT_EQUIVALENT,
     DXF_TEXT_INVALID,
     DXF_UNITS_MISSING,
+    DXF_VALUE_INVALID,
     DXF_VALUE_UNSAFE,
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,

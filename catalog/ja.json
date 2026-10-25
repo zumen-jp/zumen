@@ -43,6 +43,7 @@
     "dxf.text.equivalent": "コード・ページの版に書くため、ASCII でない文字を \\U+XXXX の表記にしました（{count} 件の値）。",
     "dxf.text.invalid": "UTF-8 として読めない値を、バイト列のまま書きました（{count} 件）。",
     "dxf.units.missing": "見出しの $INSUNITS がないか長さの単位でないので、実寸の単位を不明としました。",
+    "dxf.value.invalid": "「{kind}」のグループ・コード {code} の値を型どおりに読めないので、文字列のまま置きました（{count} 件）。",
     "dxf.value.unsafe": "DXF のタグの区切りが変わる値は書けません（{record} 番目のレコード、グループ・コード {code}）。改行を含む値と、グループ・コード 0 の値は変えられません。変更を反映しませんでした。",
     "dxf.version.unsupported": "DXF の版を {from} から {to} に変えることは、まだできません。",
     "dxf.viewport.unsupported": "グループ・コード {code} にまだ扱えない設定を持つビューポートを、図面モデルに移しませんでした（{count} 件）。",

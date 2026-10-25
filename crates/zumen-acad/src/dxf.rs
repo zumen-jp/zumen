@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 #[cfg(feature = "drawing")]
 mod drawing;
+mod objects;
 mod version;
 
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature, Transact, Transaction};
