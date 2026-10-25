@@ -224,3 +224,70 @@ severity = "error"
 params = { record = "uint", code = "int" }
 since = "0.0.0"
 status = "active"
+
+# DXF の版の変更（決定 0008）。出力先の版が持てないもの
+
+[codes."dxf.entity.dropped"]
+description = "出力先の DXF の版にない種類の図形を、書かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.group-code.dropped"]
+description = "出力先の DXF の版にないグループ・コードのタグを、書かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text", code = "int" }
+group-by = ["kind", "code"]
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.header-variable.dropped"]
+description = "出力先の DXF の版で書けない値を持つ見出しの変数を、書かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.section.dropped"]
+description = "出力先の DXF の版にないセクションを、書かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.table.dropped"]
+description = "出力先の DXF の版にない表を、書かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.text.equivalent"]
+description = "コード・ページの版に書くため、ASCII でない文字を `\\U+XXXX` の表記にした"
+severity = "info"
+fidelity = "equivalent"
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.text.invalid"]
+description = "UTF-8 の版の値が UTF-8 として読めないので、バイト列のまま書いた"
+severity = "warning"
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.version.unsupported"]
+description = "この組の DXF の版の変更は、まだ扱えない"
+severity = "error"
+params = { from = "text", to = "text" }
+since = "0.0.0"
+status = "active"

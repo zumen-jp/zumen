@@ -303,3 +303,142 @@ fn uncommitted_or_stopped_edits_change_nothing() {
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+/// 2018 の版の構造を持つ図面
+const MODERN: &str = concat!(
+    "  0\nSECTION\n  2\nHEADER\n",
+    "  9\n$ACADVER\n  1\nAC1032\n",
+    "  9\n$HANDSEED\n  5\n2A\n",
+    "  9\n$ZUMEN_WIDE\n 90\n7\n",
+    "  0\nENDSEC\n",
+    "  0\nSECTION\n  2\nCLASSES\n  0\nCLASS\n  1\nX\n  0\nENDSEC\n",
+    "  0\nSECTION\n  2\nTABLES\n",
+    "  0\nTABLE\n  2\nBLOCK_RECORD\n  0\nBLOCK_RECORD\n  2\n*Model_Space\n  0\nENDTAB\n",
+    "  0\nTABLE\n  2\nLAYER\n  5\n2\n330\n0\n100\nAcDbSymbolTable\n 70\n1\n",
+    "  0\nLAYER\n  5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n",
+    "  2\n0\n 70\n0\n 62\n7\n  6\nCONTINUOUS\n370\n-3\n",
+    "  0\nENDTAB\n  0\nENDSEC\n",
+    "  0\nSECTION\n  2\nENTITIES\n",
+    "  0\nLINE\n  5\n20\n102\n{ACAD_REACTORS\n330\n1F\n102\n}\n330\n1F\n100\nAcDbEntity\n  8\n0\n",
+    "370\n25\n100\nAcDbLine\n 10\n0.0\n 20\n0.0\n 11\n1.0\n 21\n1.0\n",
+    "  0\nMTEXT\n  5\n21\n  1\nX\n",
+    "  0\nTEXT\n  5\n22\n  8\n0\n  1\n図面\n",
+    "  0\nENDSEC\n",
+    "  0\nSECTION\n  2\nOBJECTS\n  0\nDICTIONARY\n  5\nC\n  0\nENDSEC\n",
+    "  0\nEOF\n",
+);
+
+/// [`MODERN`] を R12 に変えたもの
+const MODERN_R12: &str = concat!(
+    "  0\nSECTION\n  2\nHEADER\n",
+    "  9\n$ACADVER\n  1\nAC1009\n",
+    "  9\n$HANDSEED\n  5\n2A\n",
+    "  9\n$HANDLING\n 70\n1\n",
+    "  0\nENDSEC\n",
+    "  0\nSECTION\n  2\nTABLES\n",
+    "  0\nTABLE\n  2\nLAYER\n 70\n1\n",
+    "  0\nLAYER\n  2\n0\n 70\n0\n 62\n7\n  6\nCONTINUOUS\n",
+    "  0\nENDTAB\n  0\nENDSEC\n",
+    "  0\nSECTION\n  2\nENTITIES\n",
+    "  0\nLINE\n  5\n20\n  8\n0\n 10\n0.0\n 20\n0.0\n 11\n1.0\n 21\n1.0\n",
+    "  0\nTEXT\n  5\n22\n  8\n0\n  1\n\\U+56F3\\U+9762\n",
+    "  0\nENDSEC\n",
+    "  0\nEOF\n",
+);
+
+fn write_as(src: &[u8], version: &[u8]) -> (Result<Vec<u8>, Error>, Diagnostics) {
+    let file = read(src);
+    let mut out = Vec::new();
+    let mut diag = Diagnostics::new();
+    let result = Dxf::write_as(
+        &file,
+        version,
+        &mut out,
+        &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+    );
+    (result.map(|()| out), diag)
+}
+
+#[test]
+fn r12_keeps_what_it_can_hold_and_reports_the_rest() {
+    for newline in ["\n", "\r\n"] {
+        let src = MODERN.replace('\n', newline);
+        assert_eq!(read(src.as_bytes()).version(), Some(&b"AC1032"[..]));
+        let (out, diag) = write_as(src.as_bytes(), b"AC1009");
+        assert_eq!(
+            String::from_utf8(out.unwrap()).unwrap(),
+            MODERN_R12.replace('\n', newline)
+        );
+        let found: Vec<_> = diag
+            .iter()
+            .map(|d| {
+                let params: Vec<String> =
+                    d.params().iter().map(|(_, v)| format!("{v:?}")).collect();
+                (d.code(), params.join(" "), d.count())
+            })
+            .collect();
+        let expected: Vec<(Code, &str, u64)> = vec![
+            (
+                codes::DXF_HEADER_VARIABLE_DROPPED,
+                r#"Text("$ZUMEN_WIDE")"#,
+                1,
+            ),
+            (codes::DXF_SECTION_DROPPED, r#"Text("CLASSES")"#, 1),
+            (codes::DXF_TABLE_DROPPED, r#"Text("BLOCK_RECORD")"#, 1),
+            (
+                codes::DXF_GROUP_CODE_DROPPED,
+                r#"Text("LAYER") Int(370)"#,
+                1,
+            ),
+            (codes::DXF_GROUP_CODE_DROPPED, r#"Text("LINE") Int(370)"#, 1),
+            (codes::DXF_ENTITY_DROPPED, r#"Text("MTEXT")"#, 1),
+            (codes::DXF_TEXT_EQUIVALENT, "", 1),
+            (codes::DXF_SECTION_DROPPED, r#"Text("OBJECTS")"#, 1),
+        ];
+        let expected: Vec<_> = expected
+            .into_iter()
+            .map(|(c, p, n)| (c, p.to_string(), n))
+            .collect();
+        assert_eq!(found, expected);
+    }
+}
+
+#[test]
+fn the_same_version_is_written_unchanged() {
+    let src = sample("\r\n");
+    let (out, diag) = write_as(&src, b"AC1032");
+    assert_eq!(out.unwrap(), src);
+    assert!(diag.is_empty());
+}
+
+#[test]
+fn other_version_changes_are_not_supported_yet() {
+    let src = sample("\n");
+    for (src, version) in [
+        (&src[..], &b"AC1027"[..]),
+        (&src[..], b"AC1009X"),
+        (
+            b"  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1006\n  0\nENDSEC\n  0\nEOF\n",
+            b"AC1009",
+        ),
+    ] {
+        let (out, diag) = write_as(src, version);
+        assert_eq!(out.unwrap_err(), Error::Unsupported);
+        assert_eq!(diag.len(), 1);
+        assert_eq!(
+            diag.iter().next().unwrap().code(),
+            codes::DXF_VERSION_UNSUPPORTED
+        );
+    }
+}
+
+#[test]
+fn invalid_utf8_is_kept_as_bytes() {
+    let src = b"  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1021\n  9\n$HANDLING\n 70\n1\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n  0\nTEXT\n  1\n\xff\n  0\nENDSEC\n  0\nEOF\n";
+    let (out, diag) = write_as(src, b"AC1009");
+    let out = out.unwrap();
+    assert!(out.windows(3).any(|w| w == b"\n\xff\n"));
+    assert!(out.windows(6).any(|w| w == b"AC1009"));
+    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+    assert_eq!(codes, [codes::DXF_TEXT_INVALID]);
+}
