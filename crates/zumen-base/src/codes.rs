@@ -258,6 +258,17 @@ pub const DWG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
+/// DWG の図形が指す画層のハンドルに LAYER がないので、画層の名前（8）を置かなかった
+///
+/// `dwg.layer.missing`（0.0.0 から）
+pub const DWG_LAYER_MISSING: Code = Code::new(
+    "dwg.layer.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("type", ParamType::Int)],
+    &["type"],
+);
+
 /// DWG のオブジェクトの欄を読めないので、ハンドルだけを表に置いた
 ///
 /// `dwg.object.invalid`（0.0.0 から）
@@ -593,6 +604,7 @@ pub const ALL: &[Code] = &[
     CATALOG_FILE_INVALID,
     DWG_CRC_INVALID,
     DWG_FILE_INVALID,
+    DWG_LAYER_MISSING,
     DWG_OBJECT_INVALID,
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,

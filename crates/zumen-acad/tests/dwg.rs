@@ -193,11 +193,31 @@ fn line_data(w: &mut BitWriter, start: [f64; 3], end: [f64; 3], thickness: f64) 
     w.bit(true); // 押し出しの向きは (0, 0, 1)
 }
 
+/// 名前を持つ LAYER の欄。反応子の数と、終わりの NUL を含む長さの名前
+#[cfg(test)]
+fn layer_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
+    move |w| {
+        w.bl_zero();
+        w.bs(name.len() as u16 + 1);
+        w.bytes(name);
+        w.bytes(&[0]);
+    }
+}
+
+/// 所有者を持たない図形の、拡張辞書と画層のハンドル
+#[cfg(test)]
+fn entity_handles(layer: u64) -> impl Fn(&mut BitWriter) {
+    move |w| {
+        w.handle(3, 0);
+        w.handle(5, layer);
+    }
+}
+
 #[cfg(test)]
 fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
     // 画層の表と、画層
     let control = object(0x32, 2, |w| w.bl_zero(), |w| w.handle(4, 0));
-    let layer = object(0x33, 0x10, |w| w.bl_zero(), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, layer_named(b"0"), |w| w.handle(4, 2));
     // 所有者を持つ LINE（entmode 0）
     let line = object(
         0x13,
@@ -422,6 +442,8 @@ fn a_line_has_the_same_values_as_in_dxf() {
         assert_eq!(dwg_line.real(code), dxf_line.real(code), "{code}");
     }
     assert_eq!(dwg_line.owner(), dxf_line.owner());
+    assert_eq!(dwg_line.first(8), dxf_line.first(8));
+    assert_eq!(dwg_line.first(8), Some(&Data::Text(b"0".to_vec())));
     // 既定の値の欄は置かない
     for code in [39, 48, 60, 62, 210] {
         assert_eq!(dwg_line.first(code), None, "{code}");
@@ -441,6 +463,127 @@ fn fields_that_differ_from_their_defaults_are_kept() {
     assert_eq!(line.real(21), Some(Some(4.0)));
     assert_eq!(line.real(39), Some(Some(0.5)));
     assert_eq!(line.real(210), None);
+}
+
+#[test]
+fn layers_keep_their_names() {
+    let (db, _) = objects(&sample());
+    assert_eq!(
+        db.get(0x10).unwrap().first(2),
+        Some(&Data::Text(b"0".to_vec()))
+    );
+    // 所有者がなくても、画層の名前は置く
+    assert_eq!(
+        db.get(0x2B).unwrap().first(8),
+        Some(&Data::Text(b"0".to_vec()))
+    );
+}
+
+#[cfg(test)]
+fn close(found: Option<Option<f64>>, expected: f64) -> bool {
+    found
+        .flatten()
+        .is_some_and(|f| (f - expected).abs() < 1e-12)
+}
+
+#[test]
+fn arcs_circles_and_points_have_their_fields() {
+    let layer = object(0x33, 0x10, layer_named(b"WALL"), |w| w.handle(4, 2));
+    let circle = object(
+        0x12,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 2.0, 0.0, 5.0] {
+                w.bd(v);
+            }
+            w.bit(false);
+            w.bd(0.25); // 厚さ
+            w.bit(true);
+        },
+        entity_handles(0x10),
+    );
+    let arc = object(
+        0x11,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [0.0, 0.0, 0.0, 3.0] {
+                w.bd(v);
+            }
+            w.bit(true);
+            w.bit(false); // 押し出しの向きを書く
+            for v in [0.0, 0.0, -1.0] {
+                w.bd(v);
+            }
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bd(std::f64::consts::PI);
+        },
+        entity_handles(0x10),
+    );
+    let point = object(
+        0x1B,
+        0x22,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [7.0, 8.0, 9.0] {
+                w.bd(v);
+            }
+            w.bit(true);
+            w.bit(true);
+            w.bd(std::f64::consts::FRAC_PI_4);
+        },
+        entity_handles(0x10),
+    );
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x20, circle),
+        (0x21, arc),
+        (0x22, point),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let wall = Some(&Data::Text(b"WALL".to_vec()));
+
+    let circle = db.get(0x20).unwrap();
+    assert_eq!(circle.kind, b"CIRCLE");
+    assert_eq!(circle.first(8), wall);
+    for (code, value) in [(10, 1.0), (20, 2.0), (30, 0.0), (40, 5.0), (39, 0.25)] {
+        assert!(close(circle.real(code), value), "{code}");
+    }
+    assert_eq!(circle.first(210), None);
+
+    let arc = db.get(0x21).unwrap();
+    assert_eq!(arc.kind, b"ARC");
+    assert_eq!(arc.first(8), wall);
+    // 角度は度に直す
+    for (code, value) in [(40, 3.0), (230, -1.0), (50, 90.0), (51, 180.0)] {
+        assert!(close(arc.real(code), value), "{code}");
+    }
+    assert_eq!(arc.first(39), None);
+
+    let point = db.get(0x22).unwrap();
+    assert_eq!(point.kind, b"POINT");
+    for (code, value) in [(10, 7.0), (20, 8.0), (30, 9.0), (50, 45.0)] {
+        assert!(close(point.real(code), value), "{code}");
+    }
+}
+
+#[test]
+fn a_missing_layer_is_reported() {
+    let line = object(
+        0x13,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            line_data(w, [0.0; 3], [1.0, 0.0, 0.0], 0.0);
+        },
+        entity_handles(0x99),
+    );
+    let (db, diag) = objects(&dwg(&[(0x20, line)]));
+    assert_eq!(codes_of(&diag), [codes::DWG_LAYER_MISSING]);
+    let line = db.get(0x20).unwrap();
+    assert_eq!(line.first(8), None);
+    assert!(close(line.real(11), 1.0));
 }
 
 #[test]

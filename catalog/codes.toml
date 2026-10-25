@@ -206,6 +206,14 @@ group-by = ["part"]
 since = "0.0.0"
 status = "active"
 
+[codes."dwg.layer.missing"]
+description = "DWG の図形が指す画層のハンドルに LAYER がないので、画層の名前（8）を置かなかった"
+severity = "warning"
+params = { type = "int" }
+group-by = ["type"]
+since = "0.0.0"
+status = "active"
+
 [codes."dwg.object.invalid"]
 description = "DWG のオブジェクトの欄を読めないので、ハンドルだけを表に置いた"
 severity = "warning"
