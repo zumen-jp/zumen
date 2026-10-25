@@ -1,0 +1,14 @@
+[package]
+name = "zumen-drawing"
+description = "zumen の図面の領域モデル（L2）。形式に依存しない"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+zumen-base = { path = "../zumen-base" }
+
+[lints]
+workspace = true

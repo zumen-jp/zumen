@@ -287,7 +287,7 @@ fn r12_code(code: i16) -> bool {
 }
 
 /// 最初のグループ・コード 2 の値（前後の空白を除く）
-fn name<'a>(file: &'a DxfFile, record: &'a Record) -> &'a [u8] {
+pub(super) fn name<'a>(file: &'a DxfFile, record: &'a Record) -> &'a [u8] {
     record
         .tags
         .iter()
@@ -296,7 +296,7 @@ fn name<'a>(file: &'a DxfFile, record: &'a Record) -> &'a [u8] {
         .unwrap_or_default()
 }
 
-fn text(bytes: &[u8]) -> String {
+pub(super) fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 

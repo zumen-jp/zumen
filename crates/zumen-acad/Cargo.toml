@@ -13,6 +13,15 @@ formats = ["dxf"]
 [dependencies]
 zumen-base = { path = "../zumen-base" }
 zumen-sdk = { path = "../zumen-sdk" }
+zumen-drawing = { path = "../zumen-drawing", optional = true }
+
+[features]
+default = ["drawing"]
+# DXF から図面モデル（L2）への変換。L1 だけを使うなら外せる
+drawing = ["dep:zumen-drawing"]
+
+[dev-dependencies]
+zumen-drawing = { path = "../zumen-drawing" }
 
 [lints]
 workspace = true
