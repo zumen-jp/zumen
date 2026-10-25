@@ -2,7 +2,8 @@
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
-//! 今は TEXT・LINE・ARC・CIRCLE・POINT を読む。表のレコードは、今は LAYER の名前（2）だけを読む。
+//! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT を読む。表のレコードは、今は名前（2）だけを読む。
+//! 図形が表のレコードをハンドルで指す欄（画層・文字の体裁・ブロック）は、レコードの名前に直して置く。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
 use std::collections::BTreeMap;
@@ -27,8 +28,12 @@ const TEXT: u16 = 0x01;
 const ARC: u16 = 0x11;
 const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
+const INSERT: u16 = 0x07;
 const POINT: u16 = 0x1B;
+const MTEXT: u16 = 0x2C;
+const BLOCK_RECORD: u16 = 0x31;
 const LAYER: u16 = 0x33;
+const STYLE: u16 = 0x35;
 
 /// DIMSTYLE の表のレコードの型。ハンドルのグループ・コードが 105
 const DIMSTYLE: u16 = 0x45;
@@ -45,7 +50,7 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x04 => Some((b"BLOCK", Section::Blocks)),
         0x05 => Some((b"ENDBLK", Section::Blocks)),
         0x06 => entity(b"SEQEND"),
-        0x07 | 0x08 => entity(b"INSERT"),
+        INSERT | 0x08 => entity(b"INSERT"),
         0x0A..=0x0E => entity(b"VERTEX"),
         0x0F | 0x10 | 0x1D | 0x1E => entity(b"POLYLINE"),
         ARC => entity(b"ARC"),
@@ -67,14 +72,14 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x29 => entity(b"XLINE"),
         0x2A => object(b"DICTIONARY"),
         0x2B => entity(b"OLEFRAME"),
-        0x2C => entity(b"MTEXT"),
+        MTEXT => entity(b"MTEXT"),
         0x2D => entity(b"LEADER"),
         0x2E => entity(b"TOLERANCE"),
         0x2F => entity(b"MLINE"),
         0x30 | 0x32 | 0x34 | 0x38 | 0x3C | 0x3E | 0x40 | 0x42 | 0x44 => table(b"TABLE"),
-        0x31 => table(b"BLOCK_RECORD"),
+        BLOCK_RECORD => table(b"BLOCK_RECORD"),
         LAYER => table(b"LAYER"),
-        0x35 => table(b"STYLE"),
+        STYLE => table(b"STYLE"),
         0x39 => table(b"LTYPE"),
         0x3D => table(b"VIEW"),
         0x3F => table(b"UCS"),
@@ -115,16 +120,16 @@ impl DwgFile {
             });
             found.push((kind, fields));
         }
-        // 図形は画層をハンドルで指すので、先に LAYER の名前を集める
-        let layers: BTreeMap<u64, Vec<u8>> = self
+        // 図形は表のレコードをハンドルで指すので、先にレコードの型と名前を集める
+        let names: BTreeMap<u64, (u16, Vec<u8>)> = self
             .entries
             .iter()
             .zip(&found)
-            .filter(|(entry, _)| entry.type_code == LAYER)
+            .filter(|(entry, _)| is_table_record(entry.type_code))
             .filter_map(|(entry, (_, fields))| {
                 let name = fields.as_ref()?.values.iter().find(|v| v.code == 2)?;
                 match &name.data {
-                    Data::Text(name) => Some((entry.handle, name.clone())),
+                    Data::Text(name) => Some((entry.handle, (entry.type_code, name.clone()))),
                     _ => None,
                 }
             })
@@ -141,7 +146,7 @@ impl DwgFile {
                 Some((kind, section)) => {
                     let entity = matches!(section, Section::Entities | Section::Blocks);
                     match fields {
-                        Some(fields) => values.extend(fields.place(&layers, entry, cx, &at)),
+                        Some(fields) => values.extend(fields.place(&names, entry, cx, &at)),
                         None => cx.report(
                             Diagnostic::new(codes::DWG_OBJECT_INVALID)
                                 .with("type", i64::from(entry.type_code))
@@ -181,13 +186,30 @@ struct Fields {
     layer: Option<u64>,
     /// 所有者と画層より後の値
     values: Vec<Value>,
+    /// 値の後に、名前に直して置く表のレコード
+    records: Vec<RecordRef>,
+}
+
+/// 表のレコードを指すハンドル。`code` の値として、`record` の型のレコードの名前を置く
+struct RecordRef {
+    code: i16,
+    record: u16,
+    handle: u64,
+}
+
+/// 名前（2）を持つ表のレコードの型か
+fn is_table_record(type_code: u16) -> bool {
+    matches!(
+        type_code,
+        BLOCK_RECORD | LAYER | STYLE | 0x39 | 0x3D | 0x3F | 0x41 | 0x43 | DIMSTYLE | 0x47
+    )
 }
 
 impl Fields {
-    /// ハンドル（5）より後の値を並べる。画層は名前（8）に直し、見つからなければ診断を返す
+    /// ハンドル（5）より後の値を並べる。画層などは名前に直し、見つからなければ診断を返す
     fn place(
         self,
-        layers: &BTreeMap<u64, Vec<u8>>,
+        names: &BTreeMap<u64, (u16, Vec<u8>)>,
         entry: &Entry,
         cx: &mut Cx,
         at: &Ref,
@@ -200,8 +222,8 @@ impl Fields {
             });
         }
         if let Some(layer) = self.layer {
-            match layers.get(&layer) {
-                Some(name) => values.push(Value {
+            match names.get(&layer).filter(|(record, _)| *record == LAYER) {
+                Some((_, name)) => values.push(Value {
                     code: 8,
                     data: Data::Text(name.clone()),
                 }),
@@ -214,6 +236,26 @@ impl Fields {
             }
         }
         values.extend(self.values);
+        for r in self.records {
+            match names
+                .get(&r.handle)
+                .filter(|(record, _)| *record == r.record)
+            {
+                // 文字の体裁が既定の Standard なら、DXF と同じく置かない
+                Some((_, name)) if r.code == 7 && name.eq_ignore_ascii_case(b"Standard") => {}
+                Some((_, name)) => values.push(Value {
+                    code: r.code,
+                    data: Data::Text(name.clone()),
+                }),
+                None => cx.report(
+                    Diagnostic::new(codes::DWG_RECORD_MISSING)
+                        .with("type", i64::from(entry.type_code))
+                        .with("code", i64::from(r.code))
+                        .at(at.clone())
+                        .cite(COMMON_ENTITY_HANDLES),
+                ),
+            }
+        }
         values
     }
 }
@@ -226,6 +268,10 @@ struct Common {
     reactors: u32,
     /// 前後の図形のハンドルを持たないか
     no_links: bool,
+    /// 線種のハンドルを持つか（線種の印が 3）
+    ltype_handle: bool,
+    /// 印刷スタイルのハンドルを持つか（印刷スタイルの印が 3）
+    plotstyle_handle: bool,
     values: Vec<Value>,
 }
 
@@ -241,6 +287,8 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
         let own = if bits.pos() <= handles_at {
             match entry.type_code {
                 TEXT => text(&mut bits)?,
+                INSERT => insert(&mut bits)?,
+                MTEXT => mtext(&mut bits)?,
                 LINE => line(&mut bits)?,
                 ARC => arc(&mut bits)?,
                 CIRCLE => circle(&mut bits)?,
@@ -251,7 +299,7 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
             Vec::new()
         };
         // 図形のハンドルの並び: 所有者（entmode が 0 のとき）・反応子・拡張辞書・前後の図形
-        // （nolinks が 0 のとき）・画層
+        // （nolinks が 0 のとき）・画層・線種と印刷スタイル（印が 3 のとき）・型ごとのハンドル
         bits.seek(handles_at);
         let owner = if common.has_owner {
             Some(bits.handle()?.resolve(entry.handle)?)
@@ -267,16 +315,37 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
             bits.handle()?;
         }
         let layer = bits.handle()?.resolve(entry.handle)?;
+        if common.ltype_handle {
+            bits.handle()?;
+        }
+        if common.plotstyle_handle {
+            bits.handle()?;
+        }
+        let record = match entry.type_code {
+            TEXT | MTEXT => Some((7, STYLE)),
+            INSERT => Some((2, BLOCK_RECORD)),
+            _ => None,
+        };
+        let mut records = Vec::new();
+        if let Some((code, record)) = record {
+            let handle = bits.handle()?.resolve(entry.handle)?;
+            records.push(RecordRef {
+                code,
+                record,
+                handle,
+            });
+        }
         let mut values = common.values;
         values.extend(own);
         Some(Fields {
             owner,
             layer: Some(layer),
             values,
+            records,
         })
     } else {
         bits.bl()?;
-        let values = if entry.type_code == LAYER {
+        let values = if is_table_record(entry.type_code) {
             vec![Value {
                 code: 2,
                 data: Data::Text(bits.text()?),
@@ -291,6 +360,7 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
             owner: Some(owner),
             layer: None,
             values,
+            records: Vec::new(),
         })
     }
 }
@@ -319,8 +389,8 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     let no_links = bits.bit()?;
     let color = bits.bs()?;
     let ltype_scale = bits.bd()?;
-    bits.bb()?;
-    bits.bb()?;
+    let ltype_flags = bits.bb()?;
+    let plotstyle_flags = bits.bb()?;
     let invisible = bits.bs()?;
     bits.rc()?;
     let mut values = Vec::new();
@@ -337,6 +407,8 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         has_owner: entmode == 0,
         reactors,
         no_links,
+        ltype_handle: ltype_flags == 3,
+        plotstyle_handle: plotstyle_flags == 3,
         values,
     })
 }
@@ -387,6 +459,96 @@ fn text(bits: &mut Bits) -> Option<Vec<Value>> {
     }
     values.extend(extrusion.into_iter().flatten());
     Some(values)
+}
+
+/// INSERT の欄（ODS 5.4.1 の 20.4.9、R2000）。挿入点はいつも置き、尺度（41・42・43）・回転（50）・
+/// 押し出しの向き（210・220・230）は既定の値でなければ、属性が続くこと（66）は続くときだけ置く
+fn insert(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    let (x, y, z) = match bits.bb()? {
+        3 => (1.0, 1.0, 1.0),
+        1 => (1.0, bits.dd(1.0)?, bits.dd(1.0)?),
+        2 => {
+            let x = bits.rd()?;
+            (x, x, x)
+        }
+        _ => {
+            let x = bits.rd()?;
+            (x, bits.dd(x)?, bits.dd(x)?)
+        }
+    };
+    for (code, scale) in [(41, x), (42, y), (43, z)] {
+        if scale != 1.0 {
+            values.push(real(code, scale));
+        }
+    }
+    let rotation = bits.bd()?;
+    if rotation != 0.0 {
+        values.push(real(50, rotation.to_degrees()));
+    }
+    let extrusion = point3(bits, 210)?;
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
+    }
+    if bits.bit()? {
+        values.push(int(66, 1));
+    }
+    Some(values)
+}
+
+/// MTEXT の欄（ODS 5.4.1 の 20.4.46、R2000）。文字列は DXF と同じく、250 バイトずつの 3 と、残りの 1 に
+/// 分けて置く。X 軸の向き（11・21・31）と押し出しの向きは既定の値でなければ置く。文字の範囲の大きさは
+/// DXF にないので置かない
+fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    let extrusion = point3(bits, 210)?;
+    let x_axis = point3(bits, 11)?;
+    values.push(real(41, bits.bd()?));
+    values.push(real(40, bits.bd()?));
+    values.push(int(71, i64::from(bits.bs()?)));
+    values.push(int(72, i64::from(bits.bs()?)));
+    bits.bd()?;
+    bits.bd()?;
+    let text = bits.text()?;
+    let mut rest = text.as_slice();
+    while rest.len() > 250 {
+        let (chunk, tail) = rest.split_at(250);
+        values.push(Value {
+            code: 3,
+            data: Data::Text(chunk.to_vec()),
+        });
+        rest = tail;
+    }
+    values.push(Value {
+        code: 1,
+        data: Data::Text(rest.to_vec()),
+    });
+    values.push(int(73, i64::from(bits.bs()?)));
+    values.push(real(44, bits.bd()?));
+    bits.bit()?;
+    if reals(&x_axis) != [Some(1.0), Some(0.0), Some(0.0)] {
+        values.extend(x_axis);
+    }
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
+    }
+    Some(values)
+}
+
+/// 押し出しの向きが既定の (0, 0, 1) か
+fn is_up(extrusion: &[Value]) -> bool {
+    reals(extrusion) == [Some(0.0), Some(0.0), Some(1.0)]
+}
+
+/// 値の実数の並び
+fn reals(values: &[Value]) -> Vec<Option<f64>> {
+    values
+        .iter()
+        .map(|v| match v.data {
+            Data::Real(r) => Some(r),
+            _ => None,
+        })
+        .collect()
 }
 
 /// LINE の欄（ODS 5.4.1 の 20.4.17）。端点はいつも置き、厚さと押し出しの向きは既定でなければ置く

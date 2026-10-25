@@ -214,6 +214,14 @@ group-by = ["type"]
 since = "0.0.0"
 status = "active"
 
+[codes."dwg.record.missing"]
+description = "DWG の図形が指す文字の体裁・ブロックなどのハンドルに、その型の表のレコードがないので、名前を置かなかった"
+severity = "warning"
+params = { type = "int", code = "int" }
+group-by = ["type", "code"]
+since = "0.0.0"
+status = "active"
+
 [codes."dwg.object.invalid"]
 description = "DWG のオブジェクトの欄を読めないので、ハンドルだけを表に置いた"
 severity = "warning"

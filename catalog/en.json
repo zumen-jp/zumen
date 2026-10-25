@@ -28,6 +28,7 @@
     "dwg.file.invalid": "Cannot read the DWG {part}.",
     "dwg.layer.missing": "Left out the layer name of {count} DWG entities of type {type}, because the layer they point to is missing.",
     "dwg.object.invalid": "Kept only the handle of {count} DWG objects of type {type}, because their fields cannot be read.",
+    "dwg.record.missing": "Left out group code {code} of {count} DWG entities of type {type}, because the table record they point to is missing.",
     "dwg.type.unsupported": "Kept {count} DWG objects of type {type}, which is not supported yet, with an empty kind.",
     "dwg.version.unsupported": "DWG version {version} cannot be read yet.",
     "dxf.binary.unsupported": "Binary DXF cannot be read yet.",

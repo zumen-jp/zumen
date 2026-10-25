@@ -193,9 +193,9 @@ fn line_data(w: &mut BitWriter, start: [f64; 3], end: [f64; 3], thickness: f64) 
     w.bit(true); // 押し出しの向きは (0, 0, 1)
 }
 
-/// 名前を持つ LAYER の欄。反応子の数と、終わりの NUL を含む長さの名前
+/// 名前を持つ表のレコードの欄。反応子の数と、終わりの NUL を含む長さの名前
 #[cfg(test)]
-fn layer_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
+fn record_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
     move |w| {
         w.bl_zero();
         w.bs(name.len() as u16 + 1);
@@ -213,11 +213,20 @@ fn entity_handles(layer: u64) -> impl Fn(&mut BitWriter) {
     }
 }
 
+/// 所有者を持たない図形の、拡張辞書・画層・型ごとに指す表のレコードのハンドル
+#[cfg(test)]
+fn entity_handles_to(layer: u64, record: u64) -> impl Fn(&mut BitWriter) {
+    move |w| {
+        entity_handles(layer)(w);
+        w.handle(5, record);
+    }
+}
+
 #[cfg(test)]
 fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
     // 画層の表と、画層
     let control = object(0x32, 2, |w| w.bl_zero(), |w| w.handle(4, 0));
-    let layer = object(0x33, 0x10, layer_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     // 所有者を持つ LINE（entmode 0）
     let line = object(
         0x13,
@@ -488,7 +497,7 @@ fn close(found: Option<Option<f64>>, expected: f64) -> bool {
 
 #[test]
 fn arcs_circles_and_points_have_their_fields() {
-    let layer = object(0x33, 0x10, layer_named(b"WALL"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"WALL"), |w| w.handle(4, 2));
     let circle = object(
         0x12,
         0x20,
@@ -570,7 +579,9 @@ fn arcs_circles_and_points_have_their_fields() {
 
 #[test]
 fn text_fields_are_read_by_their_flags() {
-    let layer = object(0x33, 0x10, layer_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let standard = object(0x35, 0x11, record_named(b"Standard"), |w| w.handle(4, 3));
+    let mono = object(0x35, 0x12, record_named(b"Mono"), |w| w.handle(4, 3));
     // DataFlags が 0xFF: 標高・合わせの点・角度・幅・生成・合わせの欄を持たない
     let plain = object(
         0x01,
@@ -586,7 +597,7 @@ fn text_fields_are_read_by_their_flags() {
             w.bs(6);
             w.bytes(b"Hello\0");
         },
-        entity_handles(0x10),
+        entity_handles_to(0x10, 0x11),
     );
     // DataFlags が 0: どの欄も持つ
     let full = object(
@@ -613,9 +624,15 @@ fn text_fields_are_read_by_their_flags() {
             w.bs(1);
             w.bs(3);
         },
-        entity_handles(0x10),
+        entity_handles_to(0x10, 0x12),
     );
-    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, plain), (0x21, full)]));
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x11, standard),
+        (0x12, mono),
+        (0x20, plain),
+        (0x21, full),
+    ]));
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
 
     let plain = db.get(0x20).unwrap();
@@ -624,12 +641,14 @@ fn text_fields_are_read_by_their_flags() {
     for (code, value) in [(10, 1.0), (20, 2.0), (30, 0.0), (40, 2.5)] {
         assert!(close(plain.real(code), value), "{code}");
     }
-    for code in [11, 39, 41, 50, 51, 71, 72, 73, 210] {
+    // 文字の体裁が Standard なら、7 は置かない
+    for code in [7, 11, 39, 41, 50, 51, 71, 72, 73, 210] {
         assert_eq!(plain.first(code), None, "{code}");
     }
 
     let full = db.get(0x21).unwrap();
     assert_eq!(full.first(1), Some(&Data::Text(b"A".to_vec())));
+    assert_eq!(full.first(7), Some(&Data::Text(b"Mono".to_vec())));
     let reals = [
         (30, 3.0),
         (11, 5.0),
@@ -646,6 +665,169 @@ fn text_fields_are_read_by_their_flags() {
     for (code, value) in [(71, 2), (72, 1), (73, 3)] {
         assert_eq!(full.first(code), Some(&Data::Int(value)), "{code}");
     }
+}
+
+#[test]
+fn inserts_and_mtexts_have_their_fields() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let block = object(0x31, 0x11, record_named(b"DOOR"), |w| w.handle(4, 1));
+    let style = object(0x35, 0x12, record_named(b"Mono"), |w| w.handle(4, 3));
+    // 尺度の印 00: 41 は RD、42・43 は 41 を既定の値とする DD
+    let insert = object(
+        0x07,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [4.0, 5.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(0, 2);
+            w.rd(2.0);
+            w.dd(3.0, 2.0);
+            w.dd(2.0, 2.0);
+            w.bd(std::f64::consts::PI);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bit(false); // 属性は続かない
+        },
+        entity_handles_to(0x10, 0x11),
+    );
+    // 尺度の印 11: 尺度は (1, 1, 1)
+    let plain = object(
+        0x07,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(3, 2);
+            w.bd(0.0);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bit(true);
+        },
+        entity_handles_to(0x10, 0x11),
+    );
+    let long: Vec<u8> = (0..600).map(|i| b'a' + (i % 26) as u8).collect();
+    let mtext = object(
+        0x2C,
+        0x22,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(10.0); // 幅
+            w.bd(2.5); // 高さ
+            w.bs(1);
+            w.bs(5);
+            w.bd(3.0); // 文字の範囲（DXF にない）
+            w.bd(9.0);
+            w.bs(601);
+            w.bytes(&long);
+            w.bytes(&[0]);
+            w.bs(1);
+            w.bd(1.0);
+            w.bit(false);
+        },
+        entity_handles_to(0x10, 0x12),
+    );
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x11, block),
+        (0x12, style),
+        (0x20, insert),
+        (0x21, plain),
+        (0x22, mtext),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(
+        db.get(0x11).unwrap().first(2),
+        Some(&Data::Text(b"DOOR".to_vec()))
+    );
+
+    let insert = db.get(0x20).unwrap();
+    assert_eq!(insert.kind, b"INSERT");
+    assert_eq!(insert.first(2), Some(&Data::Text(b"DOOR".to_vec())));
+    let reals = [
+        (10, 4.0),
+        (20, 5.0),
+        (41, 2.0),
+        (42, 3.0),
+        (43, 2.0),
+        (50, 180.0),
+    ];
+    for (code, value) in reals {
+        assert!(close(insert.real(code), value), "{code}");
+    }
+    for code in [66, 210] {
+        assert_eq!(insert.first(code), None, "{code}");
+    }
+    let plain = db.get(0x21).unwrap();
+    assert_eq!(plain.first(66), Some(&Data::Int(1)));
+    for code in [41, 42, 43, 50] {
+        assert_eq!(plain.first(code), None, "{code}");
+    }
+
+    let mtext = db.get(0x22).unwrap();
+    assert_eq!(mtext.kind, b"MTEXT");
+    assert_eq!(mtext.first(7), Some(&Data::Text(b"Mono".to_vec())));
+    // 文字列は、250 バイトずつの 3 と残りの 1 に分ける
+    let parts: Vec<_> = mtext
+        .values
+        .iter()
+        .filter(|v| matches!(v.code, 1 | 3))
+        .map(|v| match &v.data {
+            Data::Text(t) => (v.code, t.len()),
+            _ => (v.code, 0),
+        })
+        .collect();
+    assert_eq!(parts, [(3, 250), (3, 250), (1, 100)]);
+    for (code, value) in [
+        (10, 1.0),
+        (20, 2.0),
+        (11, 0.0),
+        (21, 1.0),
+        (40, 2.5),
+        (41, 10.0),
+    ] {
+        assert!(close(mtext.real(code), value), "{code}");
+    }
+    for (code, value) in [(71, 1), (72, 5), (73, 1)] {
+        assert_eq!(mtext.first(code), Some(&Data::Int(value)), "{code}");
+    }
+    for code in [42, 43, 210] {
+        assert_eq!(mtext.first(code), None, "{code}");
+    }
+}
+
+#[test]
+fn a_missing_record_is_reported() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    // ブロックのハンドルが、LAYER を指している
+    let insert = object(
+        0x07,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(3, 2);
+            w.bd(0.0);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bit(false);
+        },
+        entity_handles_to(0x10, 0x10),
+    );
+    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, insert)]));
+    assert_eq!(codes_of(&diag), [codes::DWG_RECORD_MISSING]);
+    assert_eq!(db.get(0x20).unwrap().first(2), None);
 }
 
 #[test]
