@@ -967,6 +967,62 @@ fn solids_faces_ellipses_and_rays_have_their_fields() {
 }
 
 #[test]
+fn lwpolylines_have_their_vertices() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let lwpolyline = object(
+        0x4D,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bs(0x200 | 16 | 8); // 閉じている・膨らみと標高がある
+            w.bd(2.0);
+            w.bits(1, 2); // 頂点の数（BL の RC）
+            w.bytes(&[3]);
+            w.bits(1, 2); // 膨らみの数
+            w.bytes(&[3]);
+            w.rd(0.0);
+            w.rd(0.0);
+            w.dd(4.0, 0.0);
+            w.dd(0.0, 0.0);
+            w.dd(4.0, 4.0);
+            w.dd(3.0, 0.0);
+            for v in [0.0, 0.5, 0.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles(0x10),
+    );
+    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, lwpolyline)]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let lwpolyline = db.get(0x20).unwrap();
+    assert_eq!(lwpolyline.kind, b"LWPOLYLINE");
+    // DWG の閉じている印は、DXF の 70 の 1
+    assert_eq!(lwpolyline.first(70), Some(&Data::Int(1)));
+    assert_eq!(lwpolyline.first(90), Some(&Data::Int(3)));
+    for (code, value) in [(43, 0.0), (38, 2.0)] {
+        assert!(close(lwpolyline.real(code), value), "{code}");
+    }
+    let all = |code| -> Vec<&Data> {
+        lwpolyline
+            .values
+            .iter()
+            .filter(|v| v.code == code)
+            .map(|v| &v.data)
+            .collect()
+    };
+    assert_eq!(
+        all(10),
+        [&Data::Real(0.0), &Data::Real(4.0), &Data::Real(4.0)]
+    );
+    assert_eq!(
+        all(20),
+        [&Data::Real(0.0), &Data::Real(0.0), &Data::Real(3.0)]
+    );
+    // 膨らみは 0 でないものだけ
+    assert_eq!(all(42), [&Data::Real(0.5)]);
+}
+
+#[test]
 fn a_missing_record_is_reported() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     // ブロックのハンドルが、LAYER を指している

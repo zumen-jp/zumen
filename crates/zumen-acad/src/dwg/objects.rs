@@ -3,7 +3,7 @@
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! ELLIPSE・RAY・XLINE を読む。表のレコードは、今は名前（2）だけを読む。
+//! ELLIPSE・RAY・XLINE・LWPOLYLINE を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック）は、レコードの名前に直して置く。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
@@ -38,6 +38,7 @@ const ELLIPSE: u16 = 0x23;
 const RAY: u16 = 0x28;
 const XLINE: u16 = 0x29;
 const MTEXT: u16 = 0x2C;
+const LWPOLYLINE: u16 = 0x4D;
 const BLOCK_RECORD: u16 = 0x31;
 const LAYER: u16 = 0x33;
 const STYLE: u16 = 0x35;
@@ -102,7 +103,7 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x4A => entity(b"OLE2FRAME"),
         0x4B => object(b"DUMMY"),
         0x4C => object(b"LONG_TRANSACTION"),
-        0x4D => entity(b"LWPOLYLINE"),
+        LWPOLYLINE => entity(b"LWPOLYLINE"),
         0x4E => entity(b"HATCH"),
         0x4F => object(b"XRECORD"),
         0x50 => object(b"ACDBPLACEHOLDER"),
@@ -307,6 +308,7 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
                 FACE3D => face3d(&mut bits)?,
                 ELLIPSE => ellipse(&mut bits)?,
                 RAY | XLINE => ray(&mut bits)?,
+                LWPOLYLINE => lwpolyline(&mut bits)?,
                 _ => Vec::new(),
             }
         } else {
@@ -691,6 +693,76 @@ fn ellipse(bits: &mut Bits) -> Option<Vec<Value>> {
 fn ray(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     values.extend(point3(bits, 11)?);
+    Some(values)
+}
+
+/// LWPOLYLINE の欄（ODS 5.4.1 の 20.4.85、R2000）。DWG の印のうち、閉じていること（0x200）だけを
+/// DXF の 70 の 1 に直す。ほかの印は、続く欄があるかを表す。DXF と同じく、頂点ごとの幅がなければ
+/// 一定の幅（43）を置き、膨らみ（42）は 0 でなければ置く
+fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
+    let flags = bits.bs()?;
+    let has = |bit: i16| flags & bit != 0;
+    let width = if has(4) { bits.bd()? } else { 0.0 };
+    let elevation = if has(8) { Some(bits.bd()?) } else { None };
+    let thickness = if has(2) { Some(bits.bd()?) } else { None };
+    let extrusion = if has(1) {
+        Some(point3(bits, 210)?)
+    } else {
+        None
+    };
+    let count = usize::try_from(bits.bl()?).ok()?;
+    let bulges = if has(16) {
+        usize::try_from(bits.bl()?).ok()?
+    } else {
+        0
+    };
+    let widths = if has(32) {
+        usize::try_from(bits.bl()?).ok()?
+    } else {
+        0
+    };
+    let mut points = Vec::new();
+    if count > 0 {
+        let mut x = bits.rd()?;
+        let mut y = bits.rd()?;
+        points.push((x, y));
+        for _ in 1..count {
+            x = bits.dd(x)?;
+            y = bits.dd(y)?;
+            points.push((x, y));
+        }
+    }
+    let bulges: Vec<f64> = (0..bulges).map(|_| bits.bd()).collect::<Option<_>>()?;
+    let widths: Vec<(f64, f64)> = (0..widths)
+        .map(|_| Some((bits.bd()?, bits.bd()?)))
+        .collect::<Option<_>>()?;
+    let mut values = vec![
+        int(90, i64::try_from(count).ok()?),
+        int(70, i64::from(has(0x200))),
+    ];
+    if widths.is_empty() {
+        values.push(real(43, width));
+    }
+    if let Some(elevation) = elevation {
+        values.push(real(38, elevation));
+    }
+    if let Some(thickness) = thickness {
+        values.push(real(39, thickness));
+    }
+    for (i, (x, y)) in points.into_iter().enumerate() {
+        values.push(real(10, x));
+        values.push(real(20, y));
+        if let Some((start, end)) = widths.get(i) {
+            values.push(real(40, *start));
+            values.push(real(41, *end));
+        }
+        if let Some(bulge) = bulges.get(i).filter(|b| **b != 0.0) {
+            values.push(real(42, *bulge));
+        }
+    }
+    if let Some(extrusion) = extrusion {
+        values.extend(extrusion);
+    }
     Some(values)
 }
 

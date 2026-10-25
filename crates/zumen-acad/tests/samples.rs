@@ -11,9 +11,9 @@ use zumen_sdk::Codec;
 
 /// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
 #[cfg(test)]
-const SHAPE_CODES: [i16; 26] = [
+const SHAPE_CODES: [i16; 29] = [
     10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 39, 40, 42, 48, 50, 51, 60, 62, 210, 220, 230,
-    8, 2, 6,
+    8, 2, 6, 43, 70, 90,
 ];
 
 /// DXF が書き、DWG の表が省く既定の値か
@@ -21,7 +21,7 @@ const SHAPE_CODES: [i16; 26] = [
 fn is_default(code: i16, data: &Data) -> bool {
     matches!(
         (code, data),
-        (62, Data::Int(256)) | (60, Data::Int(0)) | (48, Data::Real(1.0))
+        (62, Data::Int(256)) | (60 | 70, Data::Int(0)) | (48, Data::Real(1.0))
     ) || matches!((code, data), (39 | 210 | 220, Data::Real(r)) if *r == 0.0)
         || matches!((code, data), (230, Data::Real(r)) if *r == 1.0)
 }
@@ -152,6 +152,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"ELLIPSE",
                 b"RAY",
                 b"XLINE",
+                b"LWPOLYLINE",
             ]
             .contains(&object.kind.as_slice())
             {
