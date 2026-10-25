@@ -14,6 +14,8 @@ use core::ops::Range;
 use std::collections::BTreeMap;
 
 use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
+mod version;
+
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature, Transact, Transaction};
 
 /// バイナリの DXF の先頭（DXF Reference「Binary DXF Files」）
