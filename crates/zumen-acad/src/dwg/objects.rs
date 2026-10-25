@@ -2,8 +2,9 @@
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
-//! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT を読む。表のレコードは、今は名前（2）だけを読む。
-//! 図形が表のレコードをハンドルで指す欄（画層・文字の体裁・ブロック）は、レコードの名前に直して置く。
+//! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
+//! ELLIPSE・RAY・XLINE を読む。表のレコードは、今は名前（2）だけを読む。
+//! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック）は、レコードの名前に直して置く。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
 use std::collections::BTreeMap;
@@ -30,10 +31,17 @@ const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
 const INSERT: u16 = 0x07;
 const POINT: u16 = 0x1B;
+const FACE3D: u16 = 0x1C;
+const SOLID: u16 = 0x1F;
+const TRACE: u16 = 0x20;
+const ELLIPSE: u16 = 0x23;
+const RAY: u16 = 0x28;
+const XLINE: u16 = 0x29;
 const MTEXT: u16 = 0x2C;
 const BLOCK_RECORD: u16 = 0x31;
 const LAYER: u16 = 0x33;
 const STYLE: u16 = 0x35;
+const LTYPE: u16 = 0x39;
 
 /// DIMSTYLE の表のレコードの型。ハンドルのグループ・コードが 105
 const DIMSTYLE: u16 = 0x45;
@@ -58,18 +66,18 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         LINE => entity(b"LINE"),
         0x14..=0x1A => entity(b"DIMENSION"),
         POINT => entity(b"POINT"),
-        0x1C => entity(b"3DFACE"),
-        0x1F => entity(b"SOLID"),
-        0x20 => entity(b"TRACE"),
+        FACE3D => entity(b"3DFACE"),
+        SOLID => entity(b"SOLID"),
+        TRACE => entity(b"TRACE"),
         0x21 => entity(b"SHAPE"),
         0x22 => entity(b"VIEWPORT"),
-        0x23 => entity(b"ELLIPSE"),
+        ELLIPSE => entity(b"ELLIPSE"),
         0x24 => entity(b"SPLINE"),
         0x25 => entity(b"REGION"),
         0x26 => entity(b"3DSOLID"),
         0x27 => entity(b"BODY"),
-        0x28 => entity(b"RAY"),
-        0x29 => entity(b"XLINE"),
+        RAY => entity(b"RAY"),
+        XLINE => entity(b"XLINE"),
         0x2A => object(b"DICTIONARY"),
         0x2B => entity(b"OLEFRAME"),
         MTEXT => entity(b"MTEXT"),
@@ -80,7 +88,7 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         BLOCK_RECORD => table(b"BLOCK_RECORD"),
         LAYER => table(b"LAYER"),
         STYLE => table(b"STYLE"),
-        0x39 => table(b"LTYPE"),
+        LTYPE => table(b"LTYPE"),
         0x3D => table(b"VIEW"),
         0x3F => table(b"UCS"),
         0x41 => table(b"VPORT"),
@@ -201,7 +209,7 @@ struct RecordRef {
 fn is_table_record(type_code: u16) -> bool {
     matches!(
         type_code,
-        BLOCK_RECORD | LAYER | STYLE | 0x39 | 0x3D | 0x3F | 0x41 | 0x43 | DIMSTYLE | 0x47
+        BLOCK_RECORD | LAYER | STYLE | LTYPE | 0x3D | 0x3F | 0x41 | 0x43 | DIMSTYLE | 0x47
     )
 }
 
@@ -241,8 +249,10 @@ impl Fields {
                 .get(&r.handle)
                 .filter(|(record, _)| *record == r.record)
             {
-                // 文字の体裁が既定の Standard なら、DXF と同じく置かない
-                Some((_, name)) if r.code == 7 && name.eq_ignore_ascii_case(b"Standard") => {}
+                // 線種が ByLayer、文字の体裁が Standard の既定の値なら、DXF と同じく置かない
+                Some((_, name))
+                    if (r.code == 6 && name.eq_ignore_ascii_case(b"ByLayer"))
+                        || (r.code == 7 && name.eq_ignore_ascii_case(b"Standard")) => {}
                 Some((_, name)) => values.push(Value {
                     code: r.code,
                     data: Data::Text(name.clone()),
@@ -268,8 +278,8 @@ struct Common {
     reactors: u32,
     /// 前後の図形のハンドルを持たないか
     no_links: bool,
-    /// 線種のハンドルを持つか（線種の印が 3）
-    ltype_handle: bool,
+    /// 線種の印。0 は ByLayer、1 は ByBlock、2 は Continuous、3 はハンドルで指す
+    ltype_flags: u8,
     /// 印刷スタイルのハンドルを持つか（印刷スタイルの印が 3）
     plotstyle_handle: bool,
     values: Vec<Value>,
@@ -293,6 +303,10 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
                 ARC => arc(&mut bits)?,
                 CIRCLE => circle(&mut bits)?,
                 POINT => point(&mut bits)?,
+                SOLID | TRACE => solid(&mut bits)?,
+                FACE3D => face3d(&mut bits)?,
+                ELLIPSE => ellipse(&mut bits)?,
+                RAY | XLINE => ray(&mut bits)?,
                 _ => Vec::new(),
             }
         } else {
@@ -315,8 +329,18 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
             bits.handle()?;
         }
         let layer = bits.handle()?.resolve(entry.handle)?;
-        if common.ltype_handle {
-            bits.handle()?;
+        let mut records = Vec::new();
+        let mut values = common.values;
+        values.extend(own);
+        match common.ltype_flags {
+            1 => values.push(text_value(6, b"ByBlock")),
+            2 => values.push(text_value(6, b"Continuous")),
+            3 => records.push(RecordRef {
+                code: 6,
+                record: LTYPE,
+                handle: bits.handle()?.resolve(entry.handle)?,
+            }),
+            _ => {}
         }
         if common.plotstyle_handle {
             bits.handle()?;
@@ -326,7 +350,6 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
             INSERT => Some((2, BLOCK_RECORD)),
             _ => None,
         };
-        let mut records = Vec::new();
         if let Some((code, record)) = record {
             let handle = bits.handle()?.resolve(entry.handle)?;
             records.push(RecordRef {
@@ -335,8 +358,6 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
                 handle,
             });
         }
-        let mut values = common.values;
-        values.extend(own);
         Some(Fields {
             owner,
             layer: Some(layer),
@@ -407,7 +428,7 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         has_owner: entmode == 0,
         reactors,
         no_links,
-        ltype_handle: ltype_flags == 3,
+        ltype_flags,
         plotstyle_handle: plotstyle_flags == 3,
         values,
     })
@@ -604,6 +625,75 @@ fn point(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
+/// SOLID・TRACE の欄（ODS 5.4.1 の 20.4.35・20.4.36）。4 つの角の Z（30〜33）は標高とする
+fn solid(bits: &mut Bits) -> Option<Vec<Value>> {
+    let thickness = if bits.bit()? { None } else { Some(bits.bd()?) };
+    let elevation = bits.bd()?;
+    let mut values = Vec::new();
+    for code in 10..14 {
+        values.push(real(code, bits.rd()?));
+        values.push(real(code + 10, bits.rd()?));
+        values.push(real(code + 20, elevation));
+    }
+    if let Some(thickness) = thickness {
+        values.push(real(39, thickness));
+    }
+    if !bits.bit()? {
+        values.extend(point3(bits, 210)?);
+    }
+    Some(values)
+}
+
+/// 3DFACE の欄（ODS 5.4.1 の 20.4.32、R2000）。2 つ目からの角は、前の角を既定の値とする DD。
+/// 見えない辺の印（70）は、記録されていて 0 でなければ置く
+fn face3d(bits: &mut Bits) -> Option<Vec<Value>> {
+    let no_flags = bits.bit()?;
+    let z_is_zero = bits.bit()?;
+    let x = bits.rd()?;
+    let y = bits.rd()?;
+    let z = if z_is_zero { 0.0 } else { bits.rd()? };
+    let mut corner = [x, y, z];
+    let mut values = Vec::new();
+    for code in 10..14 {
+        if code > 10 {
+            for c in &mut corner {
+                *c = bits.dd(*c)?;
+            }
+        }
+        let [x, y, z] = corner;
+        values.extend([real(code, x), real(code + 10, y), real(code + 20, z)]);
+    }
+    if !no_flags {
+        let invisible = bits.bs()?;
+        if invisible != 0 {
+            values.push(int(70, i64::from(invisible)));
+        }
+    }
+    Some(values)
+}
+
+/// ELLIPSE の欄（ODS 5.4.1 の 20.4.39）。始まりと終わりの角度（41・42）は、DXF も
+/// ラジアンで書くのでそのまま置く。押し出しの向きは既定の値でなければ置く
+fn ellipse(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    values.extend(point3(bits, 11)?);
+    let extrusion = point3(bits, 210)?;
+    values.push(real(40, bits.bd()?));
+    values.push(real(41, bits.bd()?));
+    values.push(real(42, bits.bd()?));
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
+    }
+    Some(values)
+}
+
+/// RAY・XLINE の欄（ODS 5.4.1 の 20.4.42・20.4.43）。始まりの点と向き
+fn ray(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    values.extend(point3(bits, 11)?);
+    Some(values)
+}
+
 /// 3BD の点を、`code`・`code + 10`・`code + 20` に置く
 fn point3(bits: &mut Bits, code: i16) -> Option<Vec<Value>> {
     Some(vec![
@@ -630,6 +720,13 @@ fn int(code: i16, value: i64) -> Value {
     Value {
         code,
         data: Data::Int(value),
+    }
+}
+
+fn text_value(code: i16, text: &[u8]) -> Value {
+    Value {
+        code,
+        data: Data::Text(text.to_vec()),
     }
 }
 

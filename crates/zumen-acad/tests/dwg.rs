@@ -171,6 +171,21 @@ fn entity_common(w: &mut BitWriter, entmode: u8, color: u16, ltype_scale: f64, i
     w.bytes(&[0x1D]); // 線の太さ
 }
 
+/// 所有者を持たず、線種の印を選んだ図形の共通の欄
+#[cfg(test)]
+fn entity_common_with_ltype(w: &mut BitWriter, ltype_flags: u8) {
+    w.bit(false);
+    w.bits(2, 2);
+    w.bl_zero();
+    w.bit(true);
+    w.bs(256);
+    w.bd(1.0);
+    w.bits(u64::from(ltype_flags), 2);
+    w.bits(0, 2);
+    w.bs(0);
+    w.bytes(&[0x1D]);
+}
+
 /// LINE の欄
 #[cfg(test)]
 fn line_data(w: &mut BitWriter, start: [f64; 3], end: [f64; 3], thickness: f64) {
@@ -801,6 +816,153 @@ fn inserts_and_mtexts_have_their_fields() {
     }
     for code in [42, 43, 210] {
         assert_eq!(mtext.first(code), None, "{code}");
+    }
+}
+
+#[test]
+fn linetypes_are_named_by_their_flags() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let dashed = object(0x39, 0x11, record_named(b"DASHED"), |w| w.handle(4, 2));
+    let by_layer = object(0x39, 0x12, record_named(b"ByLayer"), |w| w.handle(4, 2));
+    let line = |handle: u64, flags: u8, ltype: Option<u64>| {
+        object(
+            0x13,
+            handle,
+            move |w| {
+                entity_common_with_ltype(w, flags);
+                line_data(w, [0.0; 3], [1.0, 0.0, 0.0], 0.0);
+            },
+            move |w| {
+                entity_handles(0x10)(w);
+                if let Some(ltype) = ltype {
+                    w.handle(5, ltype);
+                }
+            },
+        )
+    };
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x11, dashed),
+        (0x12, by_layer),
+        (0x20, line(0x20, 0, None)),
+        (0x21, line(0x21, 1, None)),
+        (0x22, line(0x22, 2, None)),
+        (0x23, line(0x23, 3, Some(0x11))),
+        (0x24, line(0x24, 3, Some(0x12))),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let ltype = |handle| db.get(handle).unwrap().first(6).cloned();
+    let text = |t: &[u8]| Some(Data::Text(t.to_vec()));
+    // 画層による線種（印が 0 か、ByLayer のレコード）は、DXF と同じく置かない
+    assert_eq!(ltype(0x20), None);
+    assert_eq!(ltype(0x21), text(b"ByBlock"));
+    assert_eq!(ltype(0x22), text(b"Continuous"));
+    assert_eq!(ltype(0x23), text(b"DASHED"));
+    assert_eq!(ltype(0x24), None);
+}
+
+#[test]
+fn solids_faces_ellipses_and_rays_have_their_fields() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let solid = object(
+        0x1F,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bit(true); // 厚さは 0
+            w.bd(2.0); // 標高
+            for v in [0.0, 0.0, 4.0, 0.0, 0.0, 3.0, 4.0, 3.0] {
+                w.rd(v);
+            }
+            w.bit(true);
+        },
+        entity_handles(0x10),
+    );
+    let face = object(
+        0x1C,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bit(false); // 見えない辺の印がある
+            w.bit(false); // Z が 0 でない
+            for v in [1.0, 2.0, 3.0] {
+                w.rd(v);
+            }
+            // 2 つ目の角は X だけ変わる。3 つ目・4 つ目は前の角と同じ
+            w.dd(5.0, 1.0);
+            w.dd(2.0, 2.0);
+            w.dd(3.0, 3.0);
+            for _ in 0..6 {
+                w.dd(0.0, 0.0);
+            }
+            w.bs(5);
+        },
+        entity_handles(0x10),
+    );
+    let ellipse = object(
+        0x23,
+        0x22,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 1.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.5, 0.0, 3.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles(0x10),
+    );
+    let xline = object(
+        0x29,
+        0x23,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [0.0, 5.0, 0.0, 0.6, 0.8, 0.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles(0x10),
+    );
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x20, solid),
+        (0x21, face),
+        (0x22, ellipse),
+        (0x23, xline),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+
+    let solid = db.get(0x20).unwrap();
+    assert_eq!(solid.kind, b"SOLID");
+    for (code, value) in [(12, 0.0), (22, 3.0), (13, 4.0), (23, 3.0), (33, 2.0)] {
+        assert!(close(solid.real(code), value), "{code}");
+    }
+    assert_eq!(solid.first(39), None);
+
+    let face = db.get(0x21).unwrap();
+    assert_eq!(face.kind, b"3DFACE");
+    for (code, value) in [
+        (10, 1.0),
+        (11, 5.0),
+        (21, 2.0),
+        (31, 3.0),
+        (13, 5.0),
+        (33, 3.0),
+    ] {
+        assert!(close(face.real(code), value), "{code}");
+    }
+    assert_eq!(face.first(70), Some(&Data::Int(5)));
+
+    let ellipse = db.get(0x22).unwrap();
+    assert_eq!(ellipse.kind, b"ELLIPSE");
+    // 角度は DXF と同じくラジアンのまま
+    for (code, value) in [(10, 1.0), (11, 4.0), (40, 0.5), (41, 0.0), (42, 3.0)] {
+        assert!(close(ellipse.real(code), value), "{code}");
+    }
+    assert_eq!(ellipse.first(210), None);
+
+    let xline = db.get(0x23).unwrap();
+    assert_eq!(xline.kind, b"XLINE");
+    for (code, value) in [(20, 5.0), (11, 0.6), (21, 0.8)] {
+        assert!(close(xline.real(code), value), "{code}");
     }
 }
 
