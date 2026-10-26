@@ -1,6 +1,6 @@
 //! 試験の中で作った小さな ASCII の DXF で、L1 とコーデックの経路を確かめる。
 
-use zumen_acad::{Dxf, DxfFile, Line, ViewError};
+use zumen_acad::{AcadDb, Dxf, DxfFile, Line, ViewError};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction, testkit};
 
@@ -192,26 +192,52 @@ fn the_signature_finds_ascii_dxf() {
 const LINE: usize = 4;
 const TEXT: usize = 6;
 
+/// 1 つの LINE だけを ENTITIES に持つ DXF。`tags` は LINE の 0 の後のタグ
+#[cfg(test)]
+fn entities(tags: &[u8]) -> DxfFile {
+    let head = b"  0\nSECTION\n  2\nENTITIES\n  0\nLINE\n";
+    read(&[head.as_slice(), tags, b"  0\nENDSEC\n  0\nEOF\n"].concat())
+}
+
+/// 表を作る
+#[cfg(test)]
+fn table(file: &DxfFile) -> AcadDb {
+    file.objects(&mut Cx::new(
+        &mut Budget::default(),
+        &mut Diagnostics::new(),
+        &CancelToken::new(),
+    ))
+    .unwrap()
+}
+
 #[test]
-fn lines_have_a_typed_view() {
+fn lines_have_a_typed_view_on_the_table() {
     let file = read(&sample("\n"));
-    let records = file.records();
+    let db = table(&file);
+    let views: Vec<_> = db.objects().iter().filter_map(|o| o.line()).collect();
     assert_eq!(
-        file.line(&records[LINE]),
-        Some(Ok(Line {
+        views,
+        [Ok(Line {
             layer: b"0",
             start: [0.0, 0.0, 0.0],
             end: [100.0, 50.0, 0.0],
-        }))
+        })]
     );
-    assert_eq!(file.line(&records[TEXT]), None);
+    let records = file.records();
     assert_eq!(file.real(&records[TEXT], 40), Ok(2.5));
     assert_eq!(file.real(&records[TEXT], 50), Err(ViewError::Missing(50)));
 
-    let broken = read(b"  0\nLINE\n  8\n0\n 10\nx\n 20\n0\n 11\n1\n 21\n1\n  0\nEOF\n");
+    let broken = entities(b"  8\n0\n 10\nx\n 20\n0\n 11\n1\n 21\n1\n");
+    let db = table(&broken);
     assert_eq!(
-        broken.line(&broken.records()[0]),
+        db.objects().iter().find_map(|o| o.line()),
         Some(Err(ViewError::NotReal(10)))
+    );
+    let no_layer = entities(b" 10\n0\n 20\n0\n 11\n1\n 21\n1\n");
+    let db = table(&no_layer);
+    assert_eq!(
+        db.objects().iter().find_map(|o| o.line()),
+        Some(Err(ViewError::Missing(8)))
     );
 }
 
@@ -237,10 +263,7 @@ fn edits_rewrite_only_the_touched_records() {
     .unwrap();
     assert_eq!(file.record(LINE).unwrap().bytes, None);
     assert!(file.record(TEXT).unwrap().bytes.is_some());
-    assert_eq!(
-        file.line(&file.records()[LINE]).unwrap().unwrap().end[0],
-        200.0
-    );
+    assert_eq!(file.real(&file.records()[LINE], 11), Ok(200.0));
 
     // 書き直したレコードも、グループ・コードの右寄せと CR LF を保つ
     let out = testkit::write::<Dxf>(&file).unwrap();

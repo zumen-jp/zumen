@@ -6,6 +6,8 @@
 //!
 //! 見出しの変数も、変数の名前（`$INSUNITS` など）ごとに同じ形の値で持つ。DWG のコーデックは、読んだ変数だけを置く。
 //!
+//! 型付きの見方（[`Object::line`] など）も表の上にあり、どちらの符号化にも同じように使える。
+//!
 //! 元のバイトは、符号化ごとのファイルモデル（[`crate::DxfFile`]・[`crate::DwgFile`]）が持つ。表のオブジェクトは、
 //! [`Origin`] で元のレコードを指す。
 
@@ -131,6 +133,58 @@ impl Object {
             _ => None,
         })
     }
+
+    /// LINE の型付きの見方（DXF Reference「LINE」）。LINE でなければ `None`
+    pub fn line(&self) -> Option<Result<Line<'_>, ViewError>> {
+        (self.kind == b"LINE").then(|| {
+            let Some(Data::Text(layer)) = self.first(8) else {
+                return Err(ViewError::Missing(8));
+            };
+            let point = |x: i16| -> Result<[f64; 3], ViewError> {
+                // Z のないものは 0 とみなす（推定。docs/formats/dxf.md）
+                let z = match self.finite(x + 20) {
+                    Err(ViewError::Missing(_)) => 0.0,
+                    z => z?,
+                };
+                Ok([self.finite(x)?, self.finite(x + 10)?, z])
+            };
+            Ok(Line {
+                layer,
+                start: point(10)?,
+                end: point(11)?,
+            })
+        })
+    }
+
+    /// 最初の `code` の値を、有限の実数として読む
+    fn finite(&self, code: i16) -> Result<f64, ViewError> {
+        match self.real(code) {
+            None => Err(ViewError::Missing(code)),
+            Some(value) => value
+                .filter(|v| v.is_finite())
+                .ok_or(ViewError::NotReal(code)),
+        }
+    }
+}
+
+/// LINE の型付きの見方
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Line<'a> {
+    /// 画層の名前（グループ・コード 8）。生のバイト列
+    pub layer: &'a [u8],
+    /// 始点（10・20・30）
+    pub start: [f64; 3],
+    /// 終点（11・21・31）
+    pub end: [f64; 3],
+}
+
+/// 型付きの見方で値を読めなかった理由
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewError {
+    /// このグループ・コードの値がない
+    Missing(i16),
+    /// このグループ・コードの値が、有限の実数として読めない
+    NotReal(i16),
 }
 
 /// グループ・コードで名付けた値
