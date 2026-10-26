@@ -32,14 +32,14 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 
 | 順 | 作業 | 開始条件 | 次の一手 |
 | --- | --- | --- | --- |
-| 1 | [#3 ファイルモデルとコーデックの試作](https://github.com/zumen-jp/zumen/issues/3) | 決定 0008・0017・0022 と [形式の対応表](formats/drawing2d-mapping.md) が main にある | ASCII の DXF の L1・コーデック・SDK の最小の経路と、型付きの見方・生の値の部分編集・失敗したら何も残さないトランザクション、R13〜2018 から R12 への版の変更、用紙・実寸・ビュー・線分・文字の最小の Drawing2D（`zumen-drawing`）と DXF からの `lift` は main にあり（`zumen-acad`・`zumen-sdk`）、境界の `open` で DXF を読める（`zumen-abi`）。#2・#8 に渡す入力と呼び出し方と制限は、[適合試験の README](../bindings/conformance/README.md) にある。DXF と DWG が共有するオブジェクトの表は [決定 0023](decisions/0023-acad-shared-object-table.md) で決め、DXF をその表として見る試作と、DWG（R2000）の見出し・オブジェクトの地図を読み、LINE などを同じ表に置く試作がある（[DWG の扱い](formats/dwg.md)）。実際の DWG と同じ図面の DXF で表を比べ、地図の差分の数え方などを確かめた（`ZUMEN_SAMPLES` を指定したときの試験）。DWG の LINE・ARC・CIRCLE・POINT の欄と画層の名前を置き、同じ図面の DXF と合うことを確かめた。DWG の TEXT・INSERT・MTEXT の欄と、表のレコードの名前・文字の体裁・ブロックの名前も置いた。SOLID・TRACE・3DFACE・ELLIPSE・RAY・XLINE の欄と線種の名前も置いた。LWPOLYLINE・SPLINE の欄も置いた。クラスの区切りを読み、型が 500 以上のオブジェクト（HATCH など）に種類を付けた。HATCH・POLYLINE・VERTEX・DIMENSION・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT の欄も置いた。MLINESTYLE・SHAPE・MINSERT・DICTIONARY・XRECORD の欄も置いた。LAYOUT・GROUP・DICTIONARYVAR・SCALE などの欄も置いた。LAYER・STYLE・LTYPE・APPID の表のレコードの欄も置いた。VIEW・UCS・VPORT・DIMSTYLE の欄も置いた。見出しの変数を読み、モデル空間・用紙空間の図形の所有者も置いた。`lift` を共有の表の上に移し、DWG からも図面モデルを作れるようにした（同じ図面の DXF と同じ結果になる）。型付きの見方も表の上に移した。レコードの追加・削除と、変更に伴って直すレコードは、必要になった所で足す |
-| 2 | [#2 出力の一致](https://github.com/zumen-jp/zumen/issues/2)・[#8 上限で止まる位置の一致](https://github.com/zumen-jp/zumen/issues/8) | #3 の最初のコーデックを境界から呼べる | 適合試験の `open` の組に、DXF の入力と、入力の大きさ・レコード・作業の予算で止まる場合がある。読んだ文書の中身を返す op と、実際の図面に近い入力を足し、ネイティブと wasm の出力・停止位置を比べる。設計は決定 0007・0010、比較の仕組みは PR #23 にある |
+| 1 | [#2 出力の一致](https://github.com/zumen-jp/zumen/issues/2)・[#8 上限で止まる位置の一致](https://github.com/zumen-jp/zumen/issues/8) | #3 の最初のコーデックを境界から呼べる | 適合試験の `open` の組に、DXF の入力と、入力の大きさ・レコード・作業の予算で止まる場合がある。読んだ文書の中身を返す op と、実際の図面に近い入力を足し、ネイティブと wasm の出力・停止位置を比べる。設計は決定 0007・0010、比較の仕組みは PR #23 にある |
+| 2 | [#64 DXF・DWG の編集と書き戻し](https://github.com/zumen-jp/zumen/issues/64) | #3 の共有のオブジェクトの表と、DXF・DWG（R2000）のコーデックが main にある | #3 で、DXF と DWG（R2000）を [決定 0023](decisions/0023-acad-shared-object-table.md) の共有の表に読み、型付きの見方と `lift` が同じ結果になることを確かめた（[DXF の扱い](formats/dxf.md)・[DWG の扱い](formats/dwg.md)）。次は、DXF のレコードの追加・削除と変更に伴って直すレコード、表からの書き戻し、境界の `open` から DWG を読むことを、必要になる順に PR に分ける |
 | 3 | [#28 図面モデルの要素と試験](https://github.com/zumen-jp/zumen/issues/28) | 決定 0022 と対応表が main にあり、対象部分の共通の型を #3 から使える | 最小のモデルを寸法・記号・ハッチング・下敷きなどへ広げる。対応表の E1〜E10 を対象ごとに試験にする。SXF・JWW のコーデック全体は別 issue に分ける |
 | 4 | [#6 バイナリの受け渡し](https://github.com/zumen-jp/zumen/issues/6) | 試作は合成データで開始できる。最終判断には issue が指定する測定用データが必要 | 転送時間・ページ側の時間・メモリ・wasm の増分を測る。図面モデル全体の完成を待たずに試す |
 | 5 | [#9 プロファイル](https://github.com/zumen-jp/zumen/issues/9) | 旧版の `mlit-cad-2025` の項目と出典を確認できる | データの形式と版を決め、移行例を作る。図面要素の対応は決定 0022 と照らす |
 | 6 | [#5 建物モデル](https://github.com/zumen-jp/zumen/issues/5) | 成分の整理と開口処理の試作は開始できる。平面図への変換には決定 0022 に沿った #3・#28 のモデルと切断処理が必要 | IFC の成分を整理し、開口の処理を小さく試す。成分への読み込みと階の平面図の試作へ進む |
 
-#2・#3・#8 は設計の記録があっても、試作と検証が残っています。#6 の測定用の図面は Git の外の `ZUMEN_SAMPLES` で扱い、入手できない測定結果を推測で埋めません。
+#2・#8 は設計の記録があっても、試作と検証が残っています。#6 の測定用の図面は Git の外の `ZUMEN_SAMPLES` で扱い、入手できない測定結果を推測で埋めません。
 
 #4 の設計後の実装は #3 と #28 に分けました。#28 は最初の読み書きと環境間の一致を確かめる作業の後に置き、モデル全体を作り終える前に経路を検証します。#3 と独立した部分を進める場合は、担当する型と要素を両方の issue に記します。
 
