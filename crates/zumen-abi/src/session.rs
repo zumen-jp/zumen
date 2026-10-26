@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use zumen_acad::{Dxf, DxfFile};
+use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_base::{codes, name};
 use zumen_drawing::{Drawing2D, Element, Placement, Shape, Unit};
@@ -42,6 +42,7 @@ pub struct Session {
 #[derive(Debug)]
 enum Doc {
     Dxf(DxfFile),
+    Dwg(DwgFile),
 }
 
 impl Doc {
@@ -49,6 +50,7 @@ impl Doc {
     fn format(&self) -> &'static str {
         match self {
             Doc::Dxf(_) => Dxf::FORMAT,
+            Doc::Dwg(_) => Dwg::FORMAT,
         }
     }
 
@@ -56,6 +58,7 @@ impl Doc {
     fn lift(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, zumen_sdk::Error> {
         match self {
             Doc::Dxf(file) => file.lift(cx),
+            Doc::Dwg(file) => file.lift(cx),
         }
     }
 }
@@ -264,6 +267,9 @@ impl Session {
         let doc = if Dxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
             // 失敗の理由は、コーデックが診断として足してある
             Doc::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
+        } else if Dwg::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+            // 読めるのは R2000（AC1015）だけ。ほかの版は、コーデックが診断を足して失敗する
+            Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
         } else {
             cx.check(Kind::InputBytes, bytes.len() as u64)
                 .map_err(|stop| stopped(cx, stop))?;
@@ -349,13 +355,16 @@ fn capabilities() -> CapabilitiesResult {
             minor: SCHEMA_MINOR,
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
-        formats: vec![Format {
-            id: Dxf::FORMAT.to_string(),
-            family: "acad".to_string(),
-            read: true,
-            write: false,
-            id_rules: 1,
-        }],
+        formats: [Dxf::FORMAT, Dwg::FORMAT]
+            .into_iter()
+            .map(|id| Format {
+                id: id.to_string(),
+                family: "acad".to_string(),
+                read: true,
+                write: false,
+                id_rules: 1,
+            })
+            .collect(),
     }
 }
 
@@ -678,7 +687,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":1}},"ops":["capabilities","open","close","describe","drawing"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":1}},"ops":["capabilities","open","close","describe","drawing"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
