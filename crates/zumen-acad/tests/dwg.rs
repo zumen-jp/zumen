@@ -3593,6 +3593,59 @@ fn sample_with_more_kinds() -> Vec<u8> {
         },
         entity_handles_to(0x10, 0),
     );
+    // DataFlags が 0: どの欄も持つ TEXT
+    let text = object(
+        0x01,
+        0x3A,
+        |w| {
+            common(w);
+            w.bytes(&[0]);
+            w.rd(3.0);
+            w.rd(1.0);
+            w.rd(2.0);
+            w.dd(5.0, 1.0);
+            w.dd(2.0, 2.0);
+            w.bit(true);
+            w.bit(false);
+            w.bd(0.5);
+            w.rd(std::f64::consts::FRAC_PI_6);
+            w.rd(std::f64::consts::FRAC_PI_2);
+            w.rd(2.5);
+            w.rd(0.8);
+            w.bs(2);
+            w.bytes(b"A\0");
+            w.bs(2);
+            w.bs(1);
+            w.bs(3);
+        },
+        entity_handles_to(0x10, 0),
+    );
+    // 尺度が (1, 1, 1) の INSERT と MINSERT
+    let insert = |type_code, handle| {
+        object(
+            type_code,
+            handle,
+            move |w: &mut BitWriter| {
+                common(w);
+                for v in [4.0, 5.0, 0.0] {
+                    w.bd(v);
+                }
+                w.bits(3, 2);
+                w.bd(0.0);
+                for v in [0.0, 0.0, 1.0] {
+                    w.bd(v);
+                }
+                w.bit(false);
+                if type_code == 0x08 {
+                    w.bs(3);
+                    w.bs(1);
+                    w.bd(2.5);
+                    w.bd(0.0);
+                }
+            },
+            entity_handles_to(0x10, 0),
+        )
+    };
     let mut objects = objects_in_sample();
     objects.extend([
         (0x32, point),
@@ -3603,6 +3656,10 @@ fn sample_with_more_kinds() -> Vec<u8> {
         (0x37, solid(0x20, 0x37)),
         (0x38, face),
         (0x39, shape),
+        (0x3A, text),
+        (0x3B, insert(0x07, 0x3B)),
+        (0x3C, insert(0x07, 0x3C)),
+        (0x3D, insert(0x08, 0x3D)),
     ]);
     dwg(&objects)
 }
@@ -3717,7 +3774,8 @@ fn changed_points_ellipses_rays_solids_and_faces_are_written_back() {
         |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
     let mut expected = values(&db);
     // 角度は、ラジアンに直して書き、度に直して読む
-    for value in expected.iter_mut().flatten().filter(|v| v.code == 50) {
+    let changed = |v: &&mut Value| v.code == 50 && v.data == Data::Real(30.0);
+    for value in expected.iter_mut().flatten().filter(changed) {
         value.data = Data::Real(30.0f64.to_radians().to_degrees());
     }
     assert_eq!(values(&after), expected);
@@ -3734,6 +3792,90 @@ fn changed_points_ellipses_rays_solids_and_faces_are_written_back() {
         let (out, diag) = written_back(&mut file, &changed);
         assert_eq!(out, Err(Error::Rejected), "{kind}");
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{kind}");
+    }
+}
+
+#[test]
+fn changed_texts_and_inserts_are_written_back() {
+    let src = sample_with_more_kinds();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let edits: [(u64, i16, Data); 13] = [
+        // TEXT を標高 0 に下ろし、文字列と高さと回転と合わせを変える
+        (0x3A, 30, Data::Real(0.0)),
+        (0x3A, 31, Data::Real(0.0)),
+        (0x3A, 1, Data::Text(b"B^J^ x".to_vec())),
+        (0x3A, 40, Data::Real(1.25)),
+        (0x3A, 50, Data::Real(30.0)),
+        (0x3A, 72, Data::Int(4)),
+        // 尺度の印 00 になる INSERT
+        (0x3B, 41, Data::Real(2.0)),
+        (0x3B, 42, Data::Real(3.0)),
+        (0x3B, 50, Data::Real(90.0)),
+        // 尺度の印 01 になる INSERT
+        (0x3C, 43, Data::Real(0.5)),
+        // 尺度の印 10 になる MINSERT
+        (0x3D, 41, Data::Real(2.0)),
+        (0x3D, 42, Data::Real(2.0)),
+        (0x3D, 43, Data::Real(2.0)),
+    ];
+    for (handle, code, data) in edits {
+        set_value(&mut db, handle, code, data);
+    }
+    set_value(&mut db, 0x3D, 71, Data::Int(4));
+    set_value(&mut db, 0x3D, 45, Data::Real(1.5));
+    // TEXT の幅の比を除く
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x3A))
+        .unwrap();
+    db.object_mut(index)
+        .unwrap()
+        .values
+        .retain(|v| v.code != 41);
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    // 足した値は表の終わりに置いたので、グループ・コードの順に並べて比べる
+    let values = |db: &AcadDb| -> Vec<_> {
+        db.objects()
+            .iter()
+            .map(|o| {
+                let mut values = o.values.clone();
+                values.sort_by_key(|v| v.code);
+                values
+            })
+            .collect()
+    };
+    let mut expected = values(&db);
+    // 角度は、ラジアンに直して書き、度に直して読む
+    for (object, values) in db.objects().iter().zip(&mut expected) {
+        if matches!(object.handle(), Some(0x3A..=0x3D)) {
+            for value in values.iter_mut().filter(|v| matches!(v.code, 50 | 51)) {
+                if let Data::Real(v) = value.data {
+                    value.data = Data::Real(v.to_radians().to_degrees());
+                }
+            }
+        }
+    }
+    assert_eq!(values(&after), expected);
+    // 標高と違う合わせの点の Z と、読みが作らない `^` の並びと、属性が続くかの変更は符号化できない
+    let (db, _) = objects(&src);
+    let edits: [(&str, Edit); 3] = [
+        ("31", |db| set_value(db, 0x3A, 31, Data::Real(1.0))),
+        ("1", |db| set_value(db, 0x3A, 1, Data::Text(b"^1".to_vec()))),
+        ("66", |db| set_value(db, 0x3B, 66, Data::Int(1))),
+    ];
+    for (code, edit) in edits {
+        let mut changed = db.clone();
+        edit(&mut changed);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{code}");
     }
 }
 

@@ -1,8 +1,8 @@
 //! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 だけを扱う。
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
-//! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。今は、LINE・
-//! CIRCLE・ARC の型ごとの欄（点・半径・角度・厚さ・押し出しの向き）だけを符号化する。型ごとの欄を書き直して
+//! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
+//! いくつかの種類の型ごとの欄（決定 0030〜0032）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -31,6 +31,14 @@ const SOLID: &[i16] = &[
     10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 39, 210, 220, 230,
 ];
 const FACE3D: &[i16] = &[10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 70];
+const TEXT: &[i16] = &[
+    10, 20, 30, 11, 21, 31, 39, 51, 50, 40, 41, 1, 71, 72, 73, 210, 220, 230,
+];
+/// MINSERT の型の番号
+const MINSERT_TYPE: i16 = 0x08;
+
+const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
+const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
 
 impl DwgFile {
     /// 表 `db` のオブジェクトの値の変更を、このファイルに書き戻す。`db` は、このファイルから作った表を
@@ -156,6 +164,8 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
 /// `old` から `new` に値を変えた図形のデータ `data` を、符号化し直す。共通の欄と型ごとの欄のほかの値が
 /// 変わったか、符号化できない値なら `None`
 fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+    // MINSERT も、表では INSERT とする
+    let grid = Bits::with_release(data, Release::R2000).bs()? == MINSERT_TYPE;
     let own: &[i16] = match new.kind.as_slice() {
         b"LINE" => LINE,
         b"CIRCLE" => CIRCLE,
@@ -165,6 +175,9 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"RAY" | b"XLINE" => RAY,
         b"SOLID" | b"TRACE" => SOLID,
         b"3DFACE" => FACE3D,
+        b"TEXT" => TEXT,
+        b"INSERT" if grid => MINSERT,
+        b"INSERT" => INSERT,
         _ => &[],
     };
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
@@ -192,7 +205,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         fields.copy(data, start..handles_at)?;
         fields
     } else {
-        own_fields(new)?
+        own_fields(new, grid)?
     };
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
@@ -227,8 +240,8 @@ fn common_fields(data: &[u8], color_at: usize, start: usize, object: &Object) ->
     Some(fields)
 }
 
-/// 型ごとの欄。符号化できない種類なら `None`
-fn own_fields(new: &Object) -> Option<BitWriter> {
+/// 型ごとの欄。`grid` は MINSERT か。符号化できない種類なら `None`
+fn own_fields(new: &Object, grid: bool) -> Option<BitWriter> {
     let mut fields = BitWriter::default();
     match new.kind.as_slice() {
         b"LINE" => line(&mut fields, new)?,
@@ -269,6 +282,8 @@ fn own_fields(new: &Object) -> Option<BitWriter> {
         }
         b"SOLID" | b"TRACE" => solid(&mut fields, new)?,
         b"3DFACE" => face3d(&mut fields, new)?,
+        b"TEXT" => text(&mut fields, new)?,
+        b"INSERT" => insert(&mut fields, new, grid)?,
         _ => return None,
     }
     Some(fields)
@@ -339,6 +354,135 @@ fn face3d(fields: &mut BitWriter, object: &Object) -> Option<()> {
         fields.bs(flags);
     }
     Some(())
+}
+
+/// TEXT の欄（R2000）。初めの印（RC）は、標高・合わせの点・斜めの角度・回転・幅の比・合わせの向きの、
+/// ない欄を表す。標高（30）が 0 なら書かない。合わせの点の Z（31）は、標高と同じでなければならない
+fn text(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    let [x, y, elevation, height] = [10, 20, 30, 40].map(|code| real(object, code));
+    let (x, y, elevation, height) = (x??, y??, elevation??, height??);
+    let alignment = match [11, 21, 31].map(|code| real(object, code)) {
+        [Some(None), Some(None), Some(None)] => None,
+        [Some(Some(x)), Some(Some(y)), Some(Some(z))] if z.to_bits() == elevation.to_bits() => {
+            Some((x, y))
+        }
+        _ => return None,
+    };
+    let [oblique, rotation, width] = [51, 50, 41].map(|code| real(object, code));
+    let (oblique, rotation, width) = (oblique?, rotation?, width?);
+    let [generation, horizontal, vertical] = [71, 72, 73].map(|code| small(object, code));
+    let justification = [generation?, horizontal?, vertical?];
+    let mut flags = 0;
+    for (absent, bit) in [
+        (elevation.to_bits() == 0, 0x01),
+        (alignment.is_none(), 0x02),
+        (oblique.is_none(), 0x04),
+        (rotation.is_none(), 0x08),
+        (width.is_none(), 0x10),
+        (justification[0].is_none(), 0x20),
+        (justification[1].is_none(), 0x40),
+        (justification[2].is_none(), 0x80),
+    ] {
+        if absent {
+            flags |= bit;
+        }
+    }
+    fields.rc(flags);
+    if elevation.to_bits() != 0 {
+        fields.rd(elevation);
+    }
+    fields.rd(x);
+    fields.rd(y);
+    if let Some((ax, ay)) = alignment {
+        fields.dd(ax, x);
+        fields.dd(ay, y);
+    }
+    // TEXT は、押し出しの向きが厚さの前にある
+    extrusion(fields, object)?;
+    thickness(fields, object)?;
+    // DXF は度、DWG はラジアンで書く
+    for angle in [oblique, rotation].into_iter().flatten() {
+        fields.rd(angle.to_radians());
+    }
+    fields.rd(height);
+    if let Some(width) = width {
+        fields.rd(width);
+    }
+    let mut bytes = uncaret(text_of(object, 1)?)?;
+    bytes.push(0);
+    fields.text(&bytes)?;
+    for value in justification.into_iter().flatten() {
+        fields.bs(value);
+    }
+    Some(())
+}
+
+/// INSERT・MINSERT の欄（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
+/// なければ (0, 0, 1) を書く。尺度の印（BB）は、尺度の値から選ぶ。属性が続くかの印は、66 から書く
+fn insert(fields: &mut BitWriter, object: &Object, grid: bool) -> Option<()> {
+    point3(fields, object, 10)?;
+    let [x, y, z] = [41, 42, 43].map(|code| real(object, code));
+    let [x, y, z] = [x?, y?, z?].map(|scale| scale.unwrap_or(1.0));
+    let one = 1.0f64.to_bits();
+    if [x, y, z].iter().all(|scale| scale.to_bits() == one) {
+        fields.bb(3);
+    } else if x.to_bits() == one {
+        fields.bb(1);
+        fields.dd(y, 1.0);
+        fields.dd(z, 1.0);
+    } else if y.to_bits() == x.to_bits() && z.to_bits() == x.to_bits() {
+        fields.bb(2);
+        fields.rd(x);
+    } else {
+        fields.bb(0);
+        fields.rd(x);
+        fields.dd(y, x);
+        fields.dd(z, x);
+    }
+    fields.bd(real(object, 50)?.unwrap_or(0.0).to_radians());
+    match [210, 220, 230].map(|code| real(object, code)) {
+        [Some(None), Some(None), Some(None)] => [0.0, 0.0, 1.0].map(|v| fields.bd(v)),
+        [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
+        _ => return None,
+    };
+    fields.bit(small(object, 66)?.is_some());
+    if grid {
+        for code in [70, 71] {
+            fields.bs(small(object, code)?.unwrap_or(1));
+        }
+        for code in [44, 45] {
+            fields.bd(real(object, code)?.unwrap_or(0.0));
+        }
+    }
+    Some(())
+}
+
+/// DXF の書き方の文字列を、元のバイト列に戻す。`^` と文字は制御文字に、`^ ` は `^` にする。ほかの `^` の
+/// 並びは、読みが作らないので受け付けない
+fn uncaret(text: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len());
+    let mut bytes = text.iter();
+    while let Some(&byte) = bytes.next() {
+        if byte != b'^' {
+            out.push(byte);
+            continue;
+        }
+        match bytes.next()? {
+            b' ' => out.push(b'^'),
+            &next @ 0x40..0x60 => out.push(next - 0x40),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// `code` の文字列の値。ちょうど 1 度なければ `None`
+fn text_of(object: &Object, code: i16) -> Option<&[u8]> {
+    let mut found = object.values.iter().filter(|value| value.code == code);
+    match (found.next().map(|value| &value.data), found.next()) {
+        (Some(Data::Text(text)), None) => Some(text),
+        _ => None,
+    }
 }
 
 /// 3BD の点（`code`・`code + 10`・`code + 20`）

@@ -456,6 +456,8 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"SOLID"
                     | b"TRACE"
                     | b"3DFACE"
+                    | b"TEXT"
+                    | b"INSERT"
             ) {
                 continue;
             }
