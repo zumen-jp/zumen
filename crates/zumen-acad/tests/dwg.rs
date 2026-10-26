@@ -1734,7 +1734,16 @@ fn types_of_classes_are_named_by_the_classes() {
         |w| entity_common(w, 2, 1, 1.0, 0),
         entity_handles(0x10),
     );
-    let var = object(501, 0x21, |w| w.bl_zero(), |w| w.handle(4, 0));
+    let var = object(
+        501,
+        0x21,
+        |w| {
+            w.bl_zero();
+            w.bytes(&[0]);
+            w.bs(0);
+        },
+        |w| w.handle(4, 0),
+    );
     let src = with_classes(
         dwg(&[(0x10, layer), (0x20, table), (0x21, var)]),
         &[(500, b"ACAD_TABLE", true), (501, b"DICTIONARYVAR", false)],
@@ -1868,6 +1877,210 @@ fn dictionaries_and_xrecords_have_their_entries_and_data() {
             (340, &Data::Handle(0x20)),
         ]
     );
+}
+
+#[test]
+fn groups_layouts_and_scales_have_their_fields() {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let group = object(
+        0x48,
+        0x20,
+        |w| {
+            w.bl_zero();
+            text(w, b"two lines");
+            w.bs(0); // 名前を持つ
+            w.bs(1); // 選べる
+            w.bits(1, 2); // 図形の数（BL の RC）
+            w.bytes(&[2]);
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+            w.handle(5, 0x30);
+            w.handle(5, 0x31);
+        },
+    );
+    // 既定の項目を持つ辞書
+    let defaulted = object(
+        500,
+        0x21,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2);
+            w.bytes(&[1]);
+            w.bs(1);
+            w.bytes(&[0]);
+            text(w, b"Normal");
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+            w.handle(2, 0x22);
+            w.handle(5, 0x22);
+        },
+    );
+    let scale = object(
+        501,
+        0x22,
+        |w| {
+            w.bl_zero();
+            w.bs(0);
+            text(w, b"1:2");
+            w.bd(1.0);
+            w.bd(2.0);
+            w.bit(false);
+        },
+        |w| {
+            w.handle(4, 0x21);
+            w.handle(3, 0);
+        },
+    );
+    let layout = object(
+        502,
+        0x23,
+        |w| {
+            w.bl_zero();
+            text(w, b"");
+            text(w, b"none_device");
+            w.bs(688);
+            for v in [6.35, 6.35, 6.35, 6.35, 215.9, 279.4] {
+                w.bd(v);
+            }
+            text(w, b"Letter");
+            w.bd(1.0);
+            w.bd(2.0);
+            for v in [0, 1, 5] {
+                w.bs(v);
+            }
+            for v in [3.0, 4.0, 5.0, 6.0] {
+                w.bd(v);
+            }
+            text(w, b"");
+            w.bd(1.0);
+            w.bd(1.0);
+            text(w, b"mono.ctb");
+            w.bs(16);
+            w.bd(1.0);
+            w.bd(0.0);
+            w.bd(0.0);
+            // レイアウトの欄
+            text(w, b"Layout1");
+            w.bs(1); // タブの順
+            w.bs(1);
+            for v in [0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for v in [-0.25, -0.25, 10.75, 8.25] {
+                w.rd(v);
+            }
+            for v in [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bs(0);
+            for v in [1.0, 0.5, 0.0, 9.5, 7.0, 0.0] {
+                w.bd(v);
+            }
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+            w.handle(4, 0x40); // 紙空間のブロックのレコード
+            w.handle(4, 0x41); // 最後に使ったビューポート
+            w.handle(5, 0); // 基準の UCS
+            w.handle(5, 0); // 名前の UCS
+        },
+    );
+    let src = with_classes(
+        dwg(&[
+            (0x20, group),
+            (0x21, defaulted),
+            (0x22, scale),
+            (0x23, layout),
+        ]),
+        &[
+            (500, b"ACDBDICTIONARYWDFLT", false),
+            (501, b"SCALE", false),
+            (502, b"LAYOUT", false),
+        ],
+    );
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let values = |handle: u64| -> Vec<(i16, Data)> {
+        let object = db.get(handle).unwrap();
+        object.values[2..]
+            .iter()
+            .map(|v| (v.code, v.data.clone()))
+            .collect()
+    };
+    let text = |text: &[u8]| Data::Text(text.to_vec());
+
+    assert_eq!(db.get(0x20).unwrap().kind, b"GROUP");
+    assert_eq!(
+        values(0x20),
+        [
+            (300, text(b"two lines")),
+            (70, Data::Int(0)),
+            (71, Data::Int(1)),
+            (340, Data::Handle(0x30)),
+            (340, Data::Handle(0x31)),
+        ]
+    );
+    assert_eq!(
+        values(0x21),
+        [
+            (281, Data::Int(1)),
+            (3, text(b"Normal")),
+            (350, Data::Handle(0x22)),
+            (340, Data::Handle(0x22)),
+        ]
+    );
+    assert_eq!(
+        values(0x22),
+        [
+            (70, Data::Int(0)),
+            (300, text(b"1:2")),
+            (140, Data::Real(1.0)),
+            (141, Data::Real(2.0)),
+            (290, Data::Bool(false)),
+        ]
+    );
+    let layout = db.get(0x23).unwrap();
+    assert_eq!(layout.kind, b"LAYOUT");
+    let firsts: Vec<_> = [2, 4, 7, 48, 141, 75]
+        .map(|code| layout.first(code).cloned())
+        .into_iter()
+        .collect();
+    assert_eq!(
+        firsts,
+        [
+            Some(text(b"none_device")),
+            Some(text(b"Letter")),
+            Some(text(b"mono.ctb")),
+            Some(Data::Real(3.0)),
+            Some(Data::Real(6.0)),
+            Some(Data::Int(16)),
+        ]
+    );
+    // 印刷の設定とレイアウトは、名前（1）と印（70）を順に持つ
+    let all = |code: i16| -> Vec<&Data> {
+        layout
+            .values
+            .iter()
+            .filter(|v| v.code == code)
+            .map(|v| &v.data)
+            .collect()
+    };
+    assert_eq!(all(1), [&text(b""), &text(b"Layout1")]);
+    assert_eq!(all(70), [&Data::Int(688), &Data::Int(1)]);
+    assert_eq!(all(11), [&Data::Real(10.75)]);
+    assert_eq!(all(15), [&Data::Real(9.5)]);
+    assert_eq!(all(330), [&Data::Handle(0xC), &Data::Handle(0x40)]);
+    assert_eq!(all(331), [&Data::Handle(0x41)]);
+    assert!(all(345).is_empty() && all(346).is_empty());
 }
 
 #[test]
