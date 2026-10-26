@@ -7,7 +7,8 @@
 //!
 //! 表から除いたオブジェクトのレコードは除く。表に足したオブジェクト（[`Origin::New`]）は、同じ所の後ろで
 //! 最初の残したオブジェクトの前に、なければその所の ENDSEC の前に、新しいレコードとして足す（決定 0025）。
-//! 表のハンドルのどれかが `$HANDSEED` 以上なら、`$HANDSEED` を最大のハンドルの次に進める。
+//! 表のハンドルのどれかが `$HANDSEED` 以上なら、`$HANDSEED` を最大のハンドルの次に進める。値を変えたか
+//! 足した図形が `$EXTMIN`・`$EXTMAX` の外にあれば、範囲を広げる。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -102,6 +103,8 @@ fn stage(
         .collect();
     // 表のオブジェクトごとに、直すレコード。足したものは `None`
     let mut records = Vec::with_capacity(db.objects().len());
+    // 値を変えたか足したオブジェクト。図面の範囲を広げるのに使う
+    let mut touched = Vec::new();
     let mut kept = BTreeSet::new();
     for object in db.objects() {
         let record = match object.origin {
@@ -129,6 +132,9 @@ fn stage(
                 let Some(old) = before.get(record) else {
                     return Err(unsupported(txn, object));
                 };
+                if old.values != object.values {
+                    touched.push(object);
+                }
                 // 値の並びはグループ・コード 0 のタグの次から
                 replace(txn, *record, 1, &old.values, &object.values)?;
             }
@@ -155,16 +161,20 @@ fn stage(
                     .chain(values.iter().map(|(code, bytes)| (*code, bytes.as_slice())))
                     .collect();
                 txn.insert_record(at, &tags)?;
+                touched.push(object);
             }
         }
     }
-    let seed = handle_seed(db);
+    let mut fixed = extents(db, &touched);
+    fixed.extend(handle_seed(db).map(|seed| (HANDSEED, seed)));
     let changed: Vec<_> = db
         .variables()
-        .map(|(name, values)| match &seed {
-            Some(seed) if name == HANDSEED => (name, seed.as_slice()),
-            _ => (name, values),
-        })
+        .map(
+            |(name, values)| match fixed.iter().find(|(fixed, _)| *fixed == name) {
+                Some((_, fixed)) => (name, fixed.as_slice()),
+                None => (name, values),
+            },
+        )
         .filter(|&(name, values)| base.variable(name) != Some(values))
         .collect();
     if changed.is_empty() {
@@ -200,6 +210,105 @@ fn stage(
 }
 
 const HANDSEED: &[u8] = b"$HANDSEED";
+const EXTMIN: &[u8] = b"$EXTMIN";
+const EXTMAX: &[u8] = b"$EXTMAX";
+
+/// 値を変えたか足したモデル空間の図形が `$EXTMIN`・`$EXTMAX` の外にあれば、図形を含むように広げた
+/// 変数の値（DXF Reference「HEADER Section Group Codes」の $EXTMIN・$EXTMAX）。範囲は狭めない。
+/// 囲む箱を値から決められる図形（LINE・POINT と、押し出しの向きが既定の CIRCLE）だけを見る。
+/// 表に変数がないか、10・20・30 の実数を持たなければ、直さない
+fn extents(db: &AcadDb, touched: &[&Object]) -> Vec<(&'static [u8], Vec<Value>)> {
+    let Some(found) = touched
+        .iter()
+        .filter_map(|o| bounds(o))
+        .reduce(|[a0, a1], [b0, b1]| [min3(a0, b0), max3(a1, b1)])
+    else {
+        return Vec::new();
+    };
+    let mut fixed = Vec::new();
+    for (name, corner, pick) in [
+        (EXTMIN, found[0], min3 as fn([f64; 3], [f64; 3]) -> [f64; 3]),
+        (EXTMAX, found[1], max3),
+    ] {
+        let Some(values) = db.variable(name) else {
+            continue;
+        };
+        let Some(old) = point(values, 10) else {
+            continue;
+        };
+        let new = pick(old, corner);
+        if new != old {
+            let mut values = values.to_vec();
+            for value in &mut values {
+                if let Some(axis) = [10, 20, 30].iter().position(|&code| code == value.code)
+                    && let Some(&v) = new.get(axis)
+                {
+                    value.data = Data::Real(v);
+                }
+            }
+            fixed.push((name, values));
+        }
+    }
+    fixed
+}
+
+/// モデル空間の図形を囲む箱の、最小と最大の角（WCS）
+fn bounds(object: &Object) -> Option<[[f64; 3]; 2]> {
+    let paper = matches!(object.first(67), Some(Data::Int(1)));
+    if object.section != Section::Entities || paper {
+        return None;
+    }
+    let corners = |a: [f64; 3], b: [f64; 3]| Some([min3(a, b), max3(a, b)]);
+    match object.kind.as_slice() {
+        b"LINE" => corners(point(&object.values, 10)?, point(&object.values, 11)?),
+        b"POINT" => {
+            let at = point(&object.values, 10)?;
+            corners(at, at)
+        }
+        // 中心は OCS なので、押し出しの向きが既定（0,0,1）のときだけ WCS と同じになる
+        b"CIRCLE" if extrusion(object)? == [0.0, 0.0, 1.0] => {
+            let [x, y, z] = point(&object.values, 10)?;
+            let r = object.real(40)??.abs();
+            corners([x - r, y - r, z], [x + r, y + r, z])
+        }
+        _ => None,
+    }
+}
+
+/// 押し出しの向き（210・220・230）。なければ既定の（0,0,1）
+fn extrusion(object: &Object) -> Option<[f64; 3]> {
+    if object.first(210).is_none() {
+        return Some([0.0, 0.0, 1.0]);
+    }
+    point(&object.values, 210)
+}
+
+/// `code`・`code + 10`・`code + 20` の最初の実数を点として読む。Z がなければ 0 とする。
+/// 有限の実数でなければ `None`
+fn point(values: &[Value], code: i16) -> Option<[f64; 3]> {
+    let real = |code: i16| {
+        values
+            .iter()
+            .find(|v| v.code == code)
+            .map(|v| match v.data {
+                Data::Real(r) if r.is_finite() => Some(r),
+                _ => None,
+            })
+    };
+    Some([
+        real(code)??,
+        real(code + 10)??,
+        real(code + 20).unwrap_or(Some(0.0))?,
+    ])
+}
+
+fn min3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])]
+}
+
+fn max3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])]
+}
 
 /// 表のハンドルのどれかが `$HANDSEED` 以上なら、最大のハンドルの次にした `$HANDSEED` の値。
 /// `$HANDSEED` は、次に払い出すハンドルで、どのハンドルよりも大きい（DXF Reference「HEADER Section

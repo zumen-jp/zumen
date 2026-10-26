@@ -740,6 +740,79 @@ fn written_back_handles_advance_the_handle_seed() {
     }
 }
 
+/// 10・20・30 の実数の点
+#[cfg(test)]
+fn xyz(x: f64, y: f64, z: f64) -> Vec<Value> {
+    [(10, x), (20, y), (30, z)]
+        .map(|(code, v)| Value {
+            code,
+            data: Data::Real(v),
+        })
+        .to_vec()
+}
+
+#[test]
+fn written_back_entities_widen_the_extents() {
+    type Edit = fn(&mut AcadDb);
+    let cases: [(Edit, [f64; 3], [f64; 3]); 3] = [
+        // 線分の終点を外に出し、外に円を足す
+        (
+            |db| {
+                edit_line(db, |v| v[3].data = Data::Real(200.0));
+                let mut circle = Object {
+                    kind: b"CIRCLE".to_vec(),
+                    ..new_point(Section::Entities, 0.0)
+                };
+                circle.values = xyz(-10.0, 10.0, 0.0);
+                circle.values.push(Value {
+                    code: 40,
+                    data: Data::Real(5.0),
+                });
+                db.push(circle);
+            },
+            [-15.0, 0.0, 0.0],
+            [200.0, 50.0, 0.0],
+        ),
+        // 範囲の中の変更では、範囲は変わらない
+        (
+            |db| edit_line(db, |v| v[3].data = Data::Real(10.0)),
+            [0.0, 0.0, 0.0],
+            [100.0, 50.0, 0.0],
+        ),
+        // 用紙空間の図形は見ない
+        (
+            |db| {
+                let mut point = new_point(Section::Entities, 0.0);
+                point.values = xyz(500.0, 500.0, 0.0);
+                point.values.push(Value {
+                    code: 67,
+                    data: Data::Int(1),
+                });
+                db.push(point);
+            },
+            [0.0, 0.0, 0.0],
+            [100.0, 50.0, 0.0],
+        ),
+    ];
+    for (edit, min, max) in cases {
+        let src = sample("\n");
+        let mut db = table(&read(&src));
+        db.set_variable(b"$EXTMIN", xyz(0.0, 0.0, 0.0));
+        db.set_variable(b"$EXTMAX", xyz(100.0, 50.0, 0.0));
+        edit(&mut db);
+        let mut file = read(&src);
+        let (mut budget, mut diag, cancel) =
+            (Budget::default(), Diagnostics::new(), CancelToken::new());
+        file.write_back(&db, &mut cx_for(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        let reread = table(&read(&testkit::write::<Dxf>(&file).unwrap()));
+        let [x, y, z] = min;
+        assert_eq!(reread.variable(b"$EXTMIN"), Some(&xyz(x, y, z)[..]));
+        let [x, y, z] = max;
+        assert_eq!(reread.variable(b"$EXTMAX"), Some(&xyz(x, y, z)[..]));
+    }
+}
+
 #[test]
 fn an_unchanged_table_writes_the_same_bytes() {
     let src = sample("\n");
