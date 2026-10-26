@@ -1449,6 +1449,28 @@ fn attributes_and_tolerances_have_their_fields() {
 fn leaders_and_mlines_have_their_fields() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), |w| w.handle(4, 3));
+    // 2 本の線を持つ多重線の体裁。DWG の印 1 と 32 は、DXF の 2 と 64
+    let style = object(
+        0x49,
+        0x31,
+        |w| {
+            w.bl_zero();
+            w.bs(9);
+            w.bytes(b"STANDARD\0");
+            w.bs(0);
+            w.bs(33);
+            w.bs(256);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bytes(&[2]);
+            for offset in [0.5, -0.5] {
+                w.bd(offset);
+                w.bs(1);
+                w.bs(0);
+            }
+        },
+        |w| w.handle(4, 0x30),
+    );
     // 注釈が MTEXT（0）で、2 つの点を持つ引出線
     let leader = object(
         0x2D,
@@ -1513,6 +1535,7 @@ fn leaders_and_mlines_have_their_fields() {
         (0x11, dimstyle),
         (0x20, leader),
         (0x21, mline),
+        (0x31, style),
     ]));
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
     let leader = db.get(0x20).unwrap();
@@ -1531,6 +1554,7 @@ fn leaders_and_mlines_have_their_fields() {
     let mline = db.get(0x21).unwrap();
     assert_eq!(mline.kind, b"MLINE");
     assert_eq!(mline.first(340), Some(&Data::Handle(0x31)));
+    assert_eq!(mline.first(2), Some(&Data::Text(b"STANDARD".to_vec())));
     for (code, value) in [(70, 1), (71, 1), (72, 2), (73, 1)] {
         assert_eq!(mline.first(code), Some(&Data::Int(value)), "{code}");
     }
@@ -1540,6 +1564,17 @@ fn leaders_and_mlines_have_their_fields() {
     let params: Vec<_> = mline.values.iter().filter(|v| v.code == 41).collect();
     assert_eq!(params.len(), 4);
     assert!(close(mline.real(40), 1.5));
+    let style = db.get(0x31).unwrap();
+    assert_eq!(style.kind, b"MLINESTYLE");
+    assert_eq!(style.first(2), Some(&Data::Text(b"STANDARD".to_vec())));
+    assert_eq!(style.first(70), Some(&Data::Int(66)));
+    assert_eq!(style.first(71), Some(&Data::Int(2)));
+    assert!(close(style.real(51), 90.0));
+    let colors: Vec<_> = style.values.iter().filter(|v| v.code == 62).collect();
+    assert_eq!(colors.len(), 3);
+    assert_eq!(colors[1].data, Data::Int(1));
+    let offsets: Vec<_> = style.values.iter().filter(|v| v.code == 49).collect();
+    assert_eq!(offsets[1].data, Data::Real(-0.5));
 }
 
 #[test]

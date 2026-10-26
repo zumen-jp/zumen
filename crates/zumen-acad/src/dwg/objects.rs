@@ -4,6 +4,7 @@
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
+//! オブジェクトは、今は MLINESTYLE の欄を読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
@@ -70,6 +71,7 @@ const LTYPE: u16 = 0x39;
 
 /// DIMSTYLE の表のレコードの型。ハンドルのグループ・コードが 105
 const DIMSTYLE: u16 = 0x45;
+const MLINESTYLE: u16 = 0x49;
 
 /// 型から、DXF の名前と属する所。クラスで決まる型（500 以上）と、知らない型は `None`
 fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
@@ -123,7 +125,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x46 => table(b"VP_ENT_HDR_CONTROL"),
         0x47 => table(b"VP_ENT_HDR"),
         0x48 => object(b"GROUP"),
-        0x49 => object(b"MLINESTYLE"),
+        MLINESTYLE => object(b"MLINESTYLE"),
         0x4A => entity(b"OLE2FRAME"),
         0x4B => object(b"DUMMY"),
         0x4C => object(b"LONG_TRANSACTION"),
@@ -167,12 +169,12 @@ impl DwgFile {
             });
             found.push((kind, fields));
         }
-        // 図形は表のレコードをハンドルで指すので、先にレコードの型と名前を集める
+        // 図形は表のレコードと多重線の体裁をハンドルで指すので、先にその型と名前を集める
         let names: BTreeMap<u64, (u16, Vec<u8>)> = self
             .entries
             .iter()
             .zip(&found)
-            .filter(|(entry, _)| is_table_record(entry.type_code))
+            .filter(|(entry, _)| is_table_record(entry.type_code) || entry.type_code == MLINESTYLE)
             .filter_map(|(entry, (_, fields))| {
                 let name = fields.as_ref()?.values.iter().find(|v| v.code == 2)?;
                 match &name.data {
@@ -419,6 +421,14 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                     data: Data::Handle(annotation),
                 });
             }
+            // MLINE は、体裁の名前も 2 に置く
+            if entry.type_code == MLINE {
+                records.push(RecordRef {
+                    code: 2,
+                    record: MLINESTYLE,
+                    handle: annotation,
+                });
+            }
         }
         for &(code, record) in pointed {
             let handle = bits.handle()?.resolve(entry.handle)?;
@@ -441,6 +451,8 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                 code: 2,
                 data: Data::Text(bits.text()?),
             }]
+        } else if entry.type_code == MLINESTYLE {
+            mlinestyle(&mut bits)?
         } else {
             Vec::new()
         };
@@ -702,6 +714,49 @@ fn viewport(bits: &mut Bits) -> Option<Vec<Value>> {
     let elevation = bits.bd()?;
     values.push(int(79, i64::from(bits.bs()?)));
     values.push(real(146, elevation));
+    Some(values)
+}
+
+/// MLINESTYLE の欄（ODS 5.4.1 の 20.4.73、R2000）。名前（2）・印（70）・説明（3）・塗りの色（62）・
+/// 始めと終わりの角度（51・52、度に直す）・線の数（71）と、線ごとの位置（49）と色（62）を置く。印は、
+/// DWG と DXF でビットの並びが違うので並べ直す。線種は番号で記録されているので、まだ置かない
+fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
+    let name = bits.text()?;
+    let description = bits.text()?;
+    let flags = bits.bs()?;
+    // DWG のビットと、DXF のビット
+    let moved = [
+        (1, 2),
+        (2, 1),
+        (16, 16),
+        (32, 64),
+        (64, 32),
+        (256, 256),
+        (512, 1024),
+        (1024, 512),
+    ];
+    let flags = moved
+        .iter()
+        .filter(|(dwg, _)| flags & dwg != 0)
+        .fold(0, |sum, (_, dxf)| sum | dxf);
+    let mut values = vec![
+        Value {
+            code: 2,
+            data: Data::Text(name),
+        },
+        int(70, i64::from(flags)),
+        text_value(3, &description),
+        int(62, i64::from(bits.bs()?)),
+        real(51, bits.bd()?.to_degrees()),
+        real(52, bits.bd()?.to_degrees()),
+    ];
+    let lines = bits.rc()?;
+    values.push(int(71, i64::from(lines)));
+    for _ in 0..lines {
+        values.push(real(49, bits.bd()?));
+        values.push(int(62, i64::from(bits.bs()?)));
+        bits.bs()?;
+    }
     Some(values)
 }
 
