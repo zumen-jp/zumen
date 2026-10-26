@@ -431,7 +431,7 @@ fn r2000_drawings_take_back_changed_entities() {
         let mut file = Dwg::read(&src, &mut cx).unwrap();
         let mut db = file.objects(&mut cx).unwrap();
         let reported = diag.len();
-        // 図形の色と線種の尺度を変え、書き戻せる種類の図形の点を動かす
+        // 図形の色と線種の尺度を変え、書き戻せる種類の図形の点を動かす。画層と文字スタイルの欄も変える
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
             if object.section == Section::Entities {
@@ -439,6 +439,17 @@ fn r2000_drawings_take_back_changed_entities() {
                     match (value.code, &mut value.data) {
                         (62, Data::Int(v)) => *v = *v % 255 + 1,
                         (48, Data::Real(v)) => *v *= 2.0,
+                        _ => continue,
+                    }
+                    changed += 1;
+                }
+            }
+            // 画層の色（表示しない印の負の符号は保つ）と、文字スタイルの幅の係数を変える
+            if object.section == Section::Tables {
+                for value in object.values.iter_mut() {
+                    match (object.kind.as_slice(), value.code, &mut value.data) {
+                        (b"LAYER", 62, Data::Int(v)) => *v = v.signum() * (v.abs() % 255 + 1),
+                        (b"STYLE", 41, Data::Real(v)) => *v *= 2.0,
                         _ => continue,
                     }
                     changed += 1;

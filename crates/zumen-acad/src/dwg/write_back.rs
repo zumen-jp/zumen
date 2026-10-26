@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0042）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0043）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -13,7 +13,7 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits};
-use super::objects::entity_fields;
+use super::objects::{entity_fields, object_fields};
 use super::{DwgFile, Release};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 
@@ -90,6 +90,8 @@ const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
 const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
 const LEADER: &[i16] = &[73, 72, 40, 41, 74, 210, 220, 230, 211, 221, 231];
+const LAYER: &[i16] = &[70, 62, 290, 370];
+const STYLE: &[i16] = &[70, 40, 41, 50, 71, 42, 3, 4];
 const SHAPE: &[i16] = &[10, 20, 30, 40, 50, 41, 51, 39, 210, 220, 230];
 const VIEWPORT: &[i16] = &[
     10, 20, 30, 40, 41, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 36, 17, 27, 37, 42, 43, 44, 45, 50,
@@ -171,13 +173,15 @@ impl DwgFile {
                 let data = self
                     .entries
                     .get(record)
-                    .filter(|entry| {
+                    .and_then(|entry| {
+                        let data = self.data(entry);
                         // BLOCK と ENDBLK も、DWG では図形として書かれる
-                        self.kind(entry.type_code).is_some_and(|(_, section)| {
-                            matches!(section, Section::Entities | Section::Blocks)
-                        })
+                        match self.kind(entry.type_code)?.1 {
+                            Section::Entities | Section::Blocks => encode(data, old, object),
+                            Section::Tables => encode_record(data, old, object),
+                            _ => None,
+                        }
                     })
-                    .and_then(|entry| encode(self.data(entry), old, object))
                     .ok_or_else(|| unsupported(&object.kind))?;
                 changes.push((record, data));
             }
@@ -304,6 +308,180 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     // ハンドルの流れの後ろの、バイトの終わりまでの埋めのビットも写す
     out.copy(data, handles_at..data.len() * 8)?;
     Some(out.into_bytes())
+}
+
+/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043）。LAYER と STYLE だけを扱う。名前（2）などの
+/// ほかの値が変わったものは `None`
+fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+    let own: &[i16] = match new.kind.as_slice() {
+        b"LAYER" => LAYER,
+        b"STYLE" => STYLE,
+        _ => return None,
+    };
+    let rest = |object: &Object| -> Vec<_> {
+        object
+            .values
+            .iter()
+            .filter(|value| !own.contains(&value.code))
+            .cloned()
+            .collect()
+    };
+    if rest(old) != rest(new) {
+        return None;
+    }
+    let [size_at, start, handles_at] = object_fields(data)?;
+    // 名前・参照される印・外部参照の番号・外部参照に依る印
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    bits.text()?;
+    bits.bit()?;
+    bits.bs()?;
+    let xdep = bits.bit()?;
+    let own_at = bits.pos();
+    let mut fields = BitWriter::default();
+    fields.copy(data, start..own_at)?;
+    match new.kind.as_slice() {
+        b"LAYER" => layer(&mut fields, new, xdep, data, own_at)?,
+        _ => style(&mut fields, old, new, xdep, data, own_at)?,
+    }
+    fields.copy(
+        data,
+        own_at + fields_end(&new.kind, data, own_at)?..handles_at,
+    )?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(start + fields.len()).ok()?);
+    out.copy(data, size_at + 32..start)?;
+    let len = fields.len();
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, handles_at..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// `own_at` から始まる LAYER・STYLE の欄の長さ（ビット）
+fn fields_end(kind: &[u8], data: &[u8], own_at: usize) -> Option<usize> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    if kind == b"LAYER" {
+        bits.bs()?;
+        bits.bs()?;
+    } else {
+        bits.bit()?;
+        bits.bit()?;
+        for _ in 0..3 {
+            bits.bd()?;
+        }
+        bits.rc()?;
+        bits.bd()?;
+        bits.text()?;
+        bits.text()?;
+    }
+    Some(bits.pos() - own_at)
+}
+
+/// LAYER の欄（決定 0043）。DXF の 70 の凍結 1・新しいビューポートで凍結 2・ロック 4 と、負の色（62）の
+/// 表示しない印、印刷しない印（290）、線の太さ（370）から、DWG の印（BS）を作る。印のほかのビットは元のまま
+/// 写す。外部参照に依る印（70 の 16）は、元のものと同じでなければ受け付けない
+fn layer(
+    fields: &mut BitWriter,
+    object: &Object,
+    xdep: bool,
+    data: &[u8],
+    own_at: usize,
+) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    let old = bits.bs()?;
+    let dxf = small(object, 70)??;
+    (dxf & !(1 | 2 | 4 | 16) == 0 && (dxf & 16 != 0) == xdep).then_some(())?;
+    let color = small(object, 62)??;
+    let mut flags = old & !0x03FF;
+    for (dxf_bit, dwg_bit) in [(1, 1), (2, 4), (4, 8)] {
+        if dxf & dxf_bit != 0 {
+            flags |= dwg_bit;
+        }
+    }
+    if color < 0 {
+        flags |= 2;
+    }
+    if new_plot(object)? {
+        flags |= 16;
+    }
+    flags |= lineweight_index(integer(object, 370)??)? << 5;
+    fields.bs(flags);
+    fields.bs(color.checked_abs()?);
+    Some(())
+}
+
+/// 印刷する画層か。290 がなければ印刷し、偽なら印刷しない
+fn new_plot(object: &Object) -> Option<bool> {
+    let mut found = object.values.iter().filter(|value| value.code == 290);
+    match (found.next().map(|value| &value.data), found.next()) {
+        (None, _) => Some(true),
+        (Some(Data::Bool(plot)), None) => Some(*plot),
+        _ => None,
+    }
+}
+
+/// DXF の線の太さ（370）の、DWG の番号
+fn lineweight_index(width: i64) -> Option<i16> {
+    const WIDTHS: [i64; 24] = [
+        0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158,
+        200, 211,
+    ];
+    match width {
+        -1 => Some(29),
+        -2 => Some(30),
+        -3 => Some(31),
+        _ => WIDTHS
+            .iter()
+            .position(|&w| w == width)
+            .and_then(|index| i16::try_from(index).ok()),
+    }
+}
+
+/// STYLE の欄（決定 0043）。70 の形のファイル 1 と縦書き 4 を印に書き、角度（50）は度からラジアンに直す。
+/// 外部参照に依る印（70 の 16）は、元のものと同じでなければ受け付けない。文字列（3・4）が変わらなければ、
+/// 元のビットを写す
+fn style(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    xdep: bool,
+    data: &[u8],
+    own_at: usize,
+) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    bits.bit()?;
+    bits.bit()?;
+    for _ in 0..3 {
+        bits.bd()?;
+    }
+    bits.rc()?;
+    bits.bd()?;
+    let font_at = bits.pos();
+    bits.text()?;
+    let big_font_at = bits.pos();
+    bits.text()?;
+    let texts = [(3, font_at..big_font_at), (4, big_font_at..bits.pos())];
+    let flags = small(new, 70)??;
+    (flags & !(1 | 4 | 16) == 0 && (flags & 16 != 0) == xdep).then_some(())?;
+    fields.bit(flags & 1 != 0);
+    fields.bit(flags & 4 != 0);
+    fields.bd(real(new, 40)??);
+    fields.bd(real(new, 41)??);
+    fields.bd(real(new, 50)??.to_radians());
+    fields.rc(u8::try_from(small(new, 71)??).ok()?);
+    fields.bd(real(new, 42)??);
+    for (code, range) in texts {
+        if text_of(old, code) == text_of(new, code) {
+            fields.copy(data, range)?;
+        } else {
+            string(fields, new, code)?;
+        }
+    }
+    Some(())
 }
 
 /// 共通の欄の、色から型ごとの欄の前まで（R2000）。色（62）がなければ ByLayer、線種の尺度（48）がなければ 1、

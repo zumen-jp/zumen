@@ -5238,3 +5238,124 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
 }
+
+/// 印と色を持つ画層と、縦書きかどうかと高さとフォントを持つ文字スタイル
+#[cfg(test)]
+fn records_with(
+    flags: u16,
+    color: u16,
+    vertical: bool,
+    height: f64,
+    font: &'static [u8],
+) -> Vec<(u64, Vec<u8>)> {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let common = move |w: &mut BitWriter, name: &[u8]| {
+        w.bl_zero();
+        text(w, name);
+        w.bit(false);
+        w.bs(0);
+        w.bit(false);
+    };
+    let layer = object(
+        0x33,
+        0x10,
+        move |w| {
+            common(w, b"WALL");
+            w.bs(flags);
+            w.bs(color);
+        },
+        |w| {
+            w.handle(4, 2);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            w.handle(5, 0);
+            w.handle(5, 0);
+        },
+    );
+    let style = object(
+        0x35,
+        0x11,
+        move |w| {
+            common(w, b"NOTE");
+            w.bit(false);
+            w.bit(vertical);
+            w.bd(height);
+            w.bd(0.8);
+            w.bd(0.0);
+            w.bytes(&[0]);
+            w.bd(0.2);
+            text(w, font);
+            text(w, b"");
+        },
+        |w| {
+            w.handle(4, 3);
+            w.handle(3, 0);
+            w.handle(5, 0);
+        },
+    );
+    vec![(0x10, layer), (0x11, style)]
+}
+
+#[test]
+fn changed_layers_and_styles_are_written_back() {
+    // 印刷する画層で、線の太さは既定（番号 31）
+    let src = dwg(&records_with(16 | (31 << 5), 7, false, 0.0, b"txt"));
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 凍結してロックし、表示しないで印刷しない。線の太さは 0.50 mm
+    set_value(&mut db, 0x10, 70, Data::Int(1 | 4));
+    set_value(&mut db, 0x10, 62, Data::Int(-3));
+    set_value(&mut db, 0x10, 290, Data::Bool(false));
+    set_value(&mut db, 0x10, 370, Data::Int(50));
+    // 縦書きにし、高さとフォントを変える
+    set_value(&mut db, 0x11, 70, Data::Int(4));
+    set_value(&mut db, 0x11, 40, Data::Real(2.5));
+    set_value(&mut db, 0x11, 3, Data::Text(b"romans".to_vec()));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    // 足した 290 は表の終わりに置いたので、番号の順に並べて比べる
+    let sorted = |db: &AcadDb, handle: u64| {
+        let mut values = db.get(handle).unwrap().values.clone();
+        values.sort_by_key(|v| v.code);
+        values
+    };
+    for handle in [0x10, 0x11] {
+        assert_eq!(sorted(&after, handle), sorted(&db, handle), "{handle:#x}");
+    }
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (handle, expected) in records_with(1 | 2 | 8 | (11 << 5), 3, true, 2.5, b"romans") {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data, "{handle:#x}");
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // 名前・外部参照に依る印・表にない線の太さ・形のファイルでも縦書きでもない STYLE の印は受け付けない
+    for (handle, code, data) in [
+        (0x10, 2, Data::Text(b"DOOR".to_vec())),
+        (0x10, 70, Data::Int(16)),
+        (0x10, 370, Data::Int(7)),
+        (0x11, 70, Data::Int(2)),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, handle, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{handle:#x} {code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
