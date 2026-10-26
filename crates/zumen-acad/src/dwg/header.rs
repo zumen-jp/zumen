@@ -3,7 +3,8 @@
 //! どちらの空間の図形も、所有者のハンドルを持たない（entmode が 1・2）ので、所有者はこのハンドルで決まる。
 
 use super::bits::{Bits, crc16};
-use super::{Locator, OBJECT_CRC_SEED, crc_invalid, le16, le32};
+use super::{OBJECT_CRC_SEED, Release, crc_invalid, le16, le32};
+use core::ops::Range;
 use zumen_base::{Cx, Diagnostic, Ref, SpecRef, codes};
 
 const HEADER_VARIABLES: SpecRef = SpecRef {
@@ -12,7 +13,7 @@ const HEADER_VARIABLES: SpecRef = SpecRef {
 };
 
 /// 区切りの記録の番号
-const NUMBER: u8 = 0;
+pub(super) const NUMBER: u8 = 0;
 
 /// 区切りの始まりの印
 const START: [u8; 16] = [
@@ -49,9 +50,12 @@ enum Field {
     Rd,
     Tv,
     H,
+    /// 色。R2000 は BS
+    Cmc,
+    Rc,
 }
 
-use Field::{B, Bd, Bl, Bs, H, Rd, Tv};
+use Field::{B, Bd, Bl, Bs, Cmc, H, Rc, Rd, Tv};
 
 /// 空間ごとの変数: INSBASE・EXTMIN・EXTMAX、LIMMIN・LIMMAX、ELEVATION・UCSORG・UCSXDIR・UCSYDIR、
 /// UCSNAME・UCSORTHOREF、UCSORTHOVIEW、UCSBASE、6 つの向きの UCS の原点
@@ -84,15 +88,45 @@ const FIRST: [(Field, usize); 12] = [
     // TDCREATE・TDUPDATE・TDINDWG・TDUSRTIMER（日とミリ秒）
     (Bl, 8),
     // CECOLOR
-    (Bs, 1),
+    (Cmc, 1),
     // HANDSEED・CLAYER・TEXTSTYLE・CELTYPE・DIMSTYLE・CMLSTYLE
     (H, 6),
     // PSVPSCALE
     (Bd, 1),
 ];
 
-/// 空間ごとの変数より後、CEPSNTYPE より前の変数の並び
-const LAST: [(Field, usize); 22] = [
+/// R2004 の、空間ごとの変数より前の変数の並び。R2000 と比べて、今のビューポートの図形の見出しが
+/// なく、LIMCHECK と USRTIMER の間に B が 1 つ、PDMODE と USERI1 の間と TDUPDATE と TDINDWG の間に
+/// BL が 3 つずつある（どれも使い道は分からない。試料の DWG と DXF の比較で確かめた）
+const FIRST_R2004: [(Field, usize); 15] = [
+    (Bd, 4),
+    (Tv, 4),
+    (Bl, 2),
+    // DIMASO から PELLIPSE まで
+    (B, 21),
+    // PROXYGRAPHICS から PDMODE まで
+    (Bs, 8),
+    (Bl, 3),
+    // USERI1 から TEXTQLTY まで
+    (Bs, 19),
+    // LTSCALE から CELTSCALE まで
+    (Bd, 21),
+    // MENUNAME
+    (Tv, 1),
+    // TDCREATE・TDUPDATE（日とミリ秒）、不明な 3 つ、TDINDWG・TDUSRTIMER
+    (Bl, 4),
+    (Bl, 3),
+    (Bl, 4),
+    // CECOLOR
+    (Cmc, 1),
+    // HANDSEED・CLAYER・TEXTSTYLE・CELTYPE・DIMSTYLE・CMLSTYLE
+    (H, 6),
+    // PSVPSCALE
+    (Bd, 1),
+];
+
+/// 空間ごとの変数より後の、寸法の変数の並び
+const LAST: [(Field, usize); 16] = [
     // DIMPOST・DIMAPOST
     (Tv, 2),
     // DIMSCALE から DIMTM まで
@@ -108,7 +142,7 @@ const LAST: [(Field, usize); 22] = [
     (Bs, 1),
     (B, 4),
     // DIMCLRD・DIMCLRE・DIMCLRT
-    (Bs, 3),
+    (Cmc, 3),
     // DIMADEC から DIMJUST まで
     (Bs, 11),
     // DIMSD1・DIMSD2・DIMTOLJ・DIMTZIN・DIMALTZ・DIMALTTZ・DIMUPT・DIMATFIT
@@ -120,6 +154,10 @@ const LAST: [(Field, usize); 22] = [
     (H, 5),
     // DIMLWD・DIMLWE
     (Bs, 2),
+];
+
+/// R2000 の、寸法の変数より後、CEPSNTYPE より前の変数の並び
+const TAIL: [(Field, usize); 6] = [
     // 9 つの表とビューポートの図形の見出しの管理オブジェクト、ACAD_GROUP・ACAD_MLINESTYLE・
     // 名前付きオブジェクトの辞書
     (H, 13),
@@ -133,12 +171,25 @@ const LAST: [(Field, usize); 22] = [
     (Bs, 1),
 ];
 
+/// R2004 の、寸法の変数より後、CEPSNTYPE より前の変数の並び。R2000 と比べて、ビューポートの図形の
+/// 見出しの管理オブジェクトがなく、PLOTSTYLES の辞書の後にハンドルが 2 つある（使い道は分からない。
+/// 試料の DWG と DXF の比較で確かめた）
+const TAIL_R2004: [(Field, usize); 6] = [(H, 12), (Bs, 2), (Tv, 2), (H, 5), (Bl, 1), (Bs, 1)];
+
+/// R2004 の、VERSIONGUID の後、空間のブロックのレコードより前の変数の並び: SORTENTS・INDEXCTL・
+/// HIDETEXT・XCLIPFRAME・DIMASSOC・HALOGAP、OBSCOLOR・INTERSECTIONCOLOR、OBSLTYPE・
+/// INTERSECTIONDISPLAY、PROJECTNAME
+const GUIDS_R2004: [(Field, usize); 4] = [(Rc, 6), (Bs, 2), (Rc, 2), (Tv, 1)];
+
 /// 見出しの変数の区切りを読み、取り出した変数を返す。区切りがないか大きさが 0 なら、
 /// 何も返さない。壊れていれば、診断を返して何も返さない
-pub(super) fn header(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Option<Header> {
-    let locator = locators.iter().find(|l| l.number == NUMBER && l.size > 0)?;
-    let start = locator.seeker as usize;
-    let span = start..start.saturating_add(locator.size as usize);
+pub(super) fn header(
+    src: &[u8],
+    span: Range<usize>,
+    release: Release,
+    cx: &mut Cx,
+) -> Option<Header> {
+    let start = span.start;
     let found = section(src, start).and_then(|(data, crc_at)| {
         // CRC は、大きさの RL からデータの終わりまでを 0xC0C1 から計算する（クラスの区切りと同じ）
         let crc = crc16(
@@ -148,7 +199,7 @@ pub(super) fn header(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Option<He
         if le16(src, crc_at) != Some(crc) {
             cx.report(crc_invalid(PART, start..crc_at + 18, HEADER_VARIABLES));
         }
-        variables(&mut Bits::new(data))
+        variables(&mut Bits::with_release(data, release))
     });
     if found.is_none() {
         cx.report(
@@ -178,14 +229,23 @@ fn section(src: &[u8], start: usize) -> Option<(&[u8], usize)> {
 
 /// 変数を順に読み、取り出した変数を返す。見出しのハンドルは絶対の値
 fn variables(bits: &mut Bits) -> Option<Header> {
-    skip_all(bits, &FIRST)?;
+    let first: &[(Field, usize)] = match bits.release() {
+        Release::R2000 => &FIRST,
+        Release::R2004 => &FIRST_R2004,
+    };
+    skip_all(bits, first)?;
     // 用紙空間、続いてモデル空間。用紙空間の LIMMIN・LIMMAX が PLIMMIN・PLIMMAX
     skip_all(bits, &SPACE[..1])?;
     let limits = [bits.rd()?, bits.rd()?, bits.rd()?, bits.rd()?];
     skip_all(bits, &SPACE[2..])?;
     skip_all(bits, &SPACE)?;
-    // LAST の最後の BS が INSUNITS
-    skip_all(bits, LAST.split_last()?.1)?;
+    skip_all(bits, &LAST)?;
+    let tail: &[(Field, usize)] = match bits.release() {
+        Release::R2000 => &TAIL,
+        Release::R2004 => &TAIL_R2004,
+    };
+    // 最後の BS が INSUNITS
+    skip_all(bits, tail.split_last()?.1)?;
     let units = bits.bs()?;
     // CEPSNTYPE が 3 なら、CPSNID のハンドルが続く
     if bits.bs()? == 3 {
@@ -194,6 +254,9 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     // FINGERPRINTGUID・VERSIONGUID
     bits.text()?;
     bits.text()?;
+    if bits.release() == Release::R2004 {
+        skip_all(bits, &GUIDS_R2004)?;
+    }
     let paper = bits.handle()?.value;
     let model = bits.handle()?.value;
     Some(Header {
@@ -222,5 +285,7 @@ fn skip(bits: &mut Bits, field: Field) -> Option<()> {
         Rd => bits.rd().map(drop),
         Tv => bits.text().map(drop),
         H => bits.handle().map(drop),
+        Cmc => bits.cmc().map(drop),
+        Rc => bits.rc().map(drop),
     }
 }

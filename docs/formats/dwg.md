@@ -4,9 +4,9 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 
 ## 対象
 
-- R2000（AC1015）だけを読む。ほかの版（AC1012〜AC1032）は形式の判定には使い、読むときは `dwg.version.unsupported` を返す。R2004（AC1018）は、入れ物を確かめてから返す（決定 0026）。
+- R2000（AC1015）と R2004（AC1018）を読む。R2004 は、入れ物の区切りを展開してから読む（決定 0026）。ほかの版（AC1012〜AC1032）は形式の判定には使い、読むときは `dwg.version.unsupported` を返す。
 - 書くときは、元のバイトをそのまま並べる。変更はまだできない。
-- 境界（`zumen-abi`）の `open` は、DWG の判定の規則に合う入力をこのコーデックで読む。`drawing` の op で図面モデルの要約を返し、適合試験（`bindings/conformance/cases/open_dwg.json`）でネイティブと wasm の出力を比べる。`capabilities` の `formats` は版を持たないので、R2000 だけを読めることは、ほかの版を開いたときの `dwg.version.unsupported` で分かる。
+- 境界（`zumen-abi`）の `open` は、DWG の判定の規則に合う入力をこのコーデックで読む。`drawing` の op で図面モデルの要約を返し、適合試験（`bindings/conformance/cases/open_dwg.json`）でネイティブと wasm の出力を比べる。`capabilities` の `formats` は版を持たないので、R2000 と R2004 だけを読めることは、ほかの版を開いたときの `dwg.version.unsupported` で分かる。
 
 ## ファイルの区切り
 
@@ -21,9 +21,14 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 - 暗号化した見出し（ODS の 4）を戻し、初めの印と CRC を確かめる。CRC が合わないときは `dwg.crc.invalid` を返して読み続ける。初めの印が合わないときは `dwg.file.invalid` で止める。
 - ページの地図と区切りの地図のページの型と検査の値を確かめ、展開する。検査の値が合わないときは `dwg.crc.invalid` を返して読み続ける。型と展開が合わないときは `dwg.file.invalid` で止める。
 - 区切りの名前ごとに、データのページの見出しを戻し、展開してつなげる。データのページの検査の値は、まだ確かめない。暗号化した区切りは読まない。
-- `AcDb:Header`・`AcDb:Classes`・`AcDb:Handles`・`AcDb:AcDbObjects` のどれかがないか空なら、`dwg.file.invalid` で止める。あれば `dwg.version.unsupported` を返す。
+- `AcDb:Header`・`AcDb:Classes`・`AcDb:Handles`・`AcDb:AcDbObjects` のどれかがないか空なら、`dwg.file.invalid` で止める。あれば、見出しの変数・クラス・オブジェクトの地図をそれぞれの区切りから、R2000 と同じ形で読む。地図が指す位置とレコードの位置は、`AcDb:AcDbObjects` の展開したバイト列の中の位置とする。
 - 予算は、区切りとページの数（レコード）と、展開した大きさ（展開・復号のバイト数）で数える。
-- `ZUMEN_SAMPLES` のフォルダーにある R2004 の DWG は、`dwg.version.unsupported` のほかの診断を出さずに入れ物を読めることを確かめる。
+- 区切りの中の並びは、次が R2000 と違う（ODS の 2.11・2.12 と、各オブジェクトの R2004 の欄）。
+  - 色（CMC）は、番号の後に RGB の値と印が続く。図形の色（ENC）は、印のビットで RGB の値と透明度が続くか、DBCOLOR のハンドルで指すかを表す。
+  - オブジェクトと図形の共通の欄に、拡張辞書がないことを表す B がある。図形は前後の図形のハンドルを持たない。
+  - クラスの区切りは、クラスの前に前置きを持ち、クラスごとに 5 つの BL が増える。
+  - 見出しの変数は、いくつかの変数が増えて減る。HATCH はグラデーションの欄を、MTEXT は背景の欄を持つ。
+- `ZUMEN_SAMPLES` のフォルダーにある R2004 の DWG は、診断を出さずに読めることを確かめる。
 
 ## オブジェクトの表
 
@@ -87,7 +92,7 @@ ZUMEN_SAMPLES=/path/to/samples cargo test -q -p zumen-acad --test samples
 
 ## 実際の図面で確かめた扱い
 
-仕様の文からは決まらず、R2000 の 6 つの図面（同じ図面の DXF との組を 1 つ含む）で確かめたものです。
+仕様の文からは決まらず、R2000 の 6 つの図面（同じ図面の DXF との組を 1 つ含む）と R2004 の 2 つの図面（DXF との組を 2 つ含む）で確かめたものです。
 
 | 所 | 扱い | 確かめ方 |
 | --- | --- | --- |
@@ -146,3 +151,8 @@ ZUMEN_SAMPLES=/path/to/samples cargo test -q -p zumen-acad --test samples
 | LAYOUT の UCS のハンドル | 基準の UCS（346）と名前の UCS（345）を、ビューポートの後のハンドルとして読む | 比べた図面では、どちらも 0 だった |
 | POINT の X 軸の角度 | ラジアンで持つとして、0 でなければ度に直して置く | 比べた図面の POINT が、どれも 0 だった |
 | DXF にない表 | 型 0x46・0x47 の種類を `VP_ENT_HDR_CONTROL`・`VP_ENT_HDR` とする | DXF に対応する名前がない |
+| R2004 の見出しの変数 | 仕様の順の変数に加えて、LIMCHECK と USRTIMER の間の B、PDMODE の後の 3 つの BL、TDUPDATE の後の 3 つの BL を読む。ビューポートの図形の見出しの表のハンドルはない | `sample_AC1018` と `insert_2004` の変数を最後まで読み、CRC と、範囲・単位・2 つの空間のハンドルが DXF と合う |
+| R2004 の色の種類 | CMC の RGB の値の最上位のバイトの 0xC0 を ByLayer、0xC1 を ByBlock、0xC2 を真の色、0xC3 を下位のバイトが色の番号とする | 画層・図形の色が DXF の 62・420 と合う |
+| 真の色 | RGB を 420（MTEXT の背景は 421）に置き、色の番号（62・63）は置かない。DXF は近い番号を置くが、近さの決まりが分からない | 420 が DXF と合う。比べるときは、420 を持つオブジェクトの 62 を比べない |
+| ENC の 0x4000 | 0x8000 も立っていても、RGB の値はデータの側になく、拡張辞書と画層のハンドルの間に DBCOLOR のハンドルが来る | 色見本帳の色を持つ図形の欄と画層が DXF と合う。DBCOLOR の色はまだ置かない |
+| MTEXT の文字列の分け方 | 制御文字を ^ の形に直す前の文字列を 250 バイトずつに分ける | 改行を含む長い MTEXT の 3 が DXF と合う |
