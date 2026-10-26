@@ -3500,7 +3500,7 @@ fn sample_with_curves() -> Vec<u8> {
     dwg(&objects)
 }
 
-/// 見本の DWG に、CIRCLE と ARC と、POINT・ELLIPSE・RAY・XLINE・SOLID・TRACE・3DFACE を足したもの
+/// 見本の DWG に、POINT・ELLIPSE・RAY・XLINE・SOLID・TRACE・3DFACE・SHAPE を足したもの
 #[cfg(test)]
 fn sample_with_more_kinds() -> Vec<u8> {
     let common = |w: &mut BitWriter| entity_common(w, 2, 256, 1.0, 0);
@@ -3578,6 +3578,21 @@ fn sample_with_more_kinds() -> Vec<u8> {
         },
         entity_handles(0x10),
     );
+    let shape = object(
+        0x21,
+        0x39,
+        |w| {
+            entity_common(w, 2, 3, 2.0, 0);
+            for v in [1.0, 2.0, 0.0, 2.5, 0.0, 1.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bs(7);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles_to(0x10, 0),
+    );
     let mut objects = objects_in_sample();
     objects.extend([
         (0x32, point),
@@ -3587,6 +3602,7 @@ fn sample_with_more_kinds() -> Vec<u8> {
         (0x36, solid(0x1F, 0x36)),
         (0x37, solid(0x20, 0x37)),
         (0x38, face),
+        (0x39, shape),
     ]);
     dwg(&objects)
 }
@@ -3721,6 +3737,68 @@ fn changed_points_ellipses_rays_solids_and_faces_are_written_back() {
     }
 }
 
+/// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
+#[cfg(test)]
+fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(handle))
+        .unwrap();
+    let values = &mut db.object_mut(index).unwrap().values;
+    let at = values.iter().position(|v| v.code == 8).unwrap() + 1;
+    values.insert(at, Value { code, data });
+}
+
+#[test]
+fn changed_colors_ltype_scales_and_visibility_are_written_back() {
+    let src = sample_with_more_kinds();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // LINE の色と線種の尺度と非表示を変え、終わりの点も変える
+    set_value(&mut db, 0x2B, 62, Data::Int(256));
+    set_value(&mut db, 0x2B, 48, Data::Real(0.5));
+    set_value(&mut db, 0x2B, 60, Data::Int(0));
+    set_value(&mut db, 0x2B, 11, Data::Real(7.0));
+    // 型ごとの欄を符号化できない SHAPE も、共通の欄は書き戻せる
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x39))
+        .unwrap();
+    db.object_mut(index)
+        .unwrap()
+        .values
+        .retain(|v| !matches!(v.code, 62 | 48));
+    insert_after_layer(&mut db, 0x39, 60, Data::Int(1));
+    insert_after_layer(&mut db, 0x2A, 62, Data::Int(200));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    let mut expected = values(&db);
+    // 既定の値（ByLayer の 256、非表示でない 0）は、読み直すと表に置かない
+    for (object, values) in db.objects().iter().zip(&mut expected) {
+        if object.handle() == Some(0x2B) {
+            values.retain(|v| {
+                !matches!((v.code, &v.data), (62, Data::Int(256)) | (60, Data::Int(0)))
+            });
+        }
+    }
+    assert_eq!(values(&after), expected);
+    // SHAPE の型ごとの欄の変更は、まだ符号化できない
+    let (db, _) = objects(&src);
+    let mut changed = db.clone();
+    set_value(&mut changed, 0x39, 40, Data::Real(3.0));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+}
+
 #[test]
 fn unchanged_tables_leave_the_file_as_it_was() {
     let src = sample_with_curves();
@@ -3753,11 +3831,12 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
     let src = sample_with_curves();
     let (db, _) = objects(&src);
     let mut file = read(&src, Limits::default()).0.unwrap();
-    let edits: [(&str, Edit); 7] = [
+    let edits: [(&str, Edit); 8] = [
         ("LAYER", |db| {
             set_value(db, 0x10, 2, Data::Text(b"WALL".to_vec()))
         }),
-        ("LINE", |db| set_value(db, 0x2A, 62, Data::Int(1))),
+        ("LINE", |db| set_value(db, 0x2A, 420, Data::Int(0xFF0000))),
+        ("LINE", |db| set_value(db, 0x2A, 62, Data::Int(1 << 20))),
         ("LINE", |db| set_value(db, 0x2A, 10, Data::Int(1))),
         ("CIRCLE", |db| {
             db.remove(6);
