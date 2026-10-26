@@ -176,10 +176,6 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     if object.kind == b"SPLINE" && code == 70 {
                         continue;
                     }
-                    // MLINE の 2 は多重線の体裁の名前で、体裁のオブジェクトの中にあるので、まだ置かない
-                    if object.kind == b"MLINE" && code == 2 {
-                        continue;
-                    }
                     if let (None, Some(theirs)) = (object.first(code), other.first(code)) {
                         assert!(is_default(code, theirs), "{at} {code}: {theirs:?}");
                     }
