@@ -4564,6 +4564,163 @@ fn changed_polylines_and_vertices_are_written_back() {
     }
 }
 
+/// 長さ・直径・座標の DIMENSION と、その画層・寸法の様式・ブロック。`x` は文字の中点の x、`text` は
+/// 長さの寸法の利用者の文字、`rotation` はその回転、`radius` は直径の寸法の 40、`flags` は直径の
+/// 寸法の印、`ordinate` は座標の寸法の印
+#[cfg(test)]
+fn dimensions_with(
+    x: f64,
+    text: &[u8],
+    rotation: f64,
+    radius: f64,
+    flags: u8,
+    ordinate: u8,
+) -> Vec<(u64, Vec<u8>)> {
+    let common = |w: &mut BitWriter, flags: u8, text: &[u8]| {
+        for v in [0.0, 0.0, 1.0] {
+            w.bd(v);
+        }
+        w.rd(x);
+        w.rd(6.0);
+        w.bd(1.5);
+        w.bytes(&[flags]);
+        if text.is_empty() {
+            w.bs(0);
+        } else {
+            w.bs(text.len() as u16 + 1);
+            w.bytes(text);
+            w.bytes(&[0]);
+        }
+        // 挿入の尺度と回転は 2・3・4 と 0.5。表にはない
+        for v in [0.0, 0.0, 2.0, 3.0, 4.0, 0.5] {
+            w.bd(v);
+        }
+        w.bs(5);
+        w.bs(1);
+        w.bd(1.0);
+        w.bd(10.0);
+        w.rd(0.0);
+        w.rd(0.0);
+    };
+    let handles = |w: &mut BitWriter| {
+        entity_handles(0x10)(w);
+        w.handle(5, 0x11);
+        w.handle(5, 0x12);
+    };
+    let dimension = |type_code, handle, data: &dyn Fn(&mut BitWriter)| {
+        let bytes = object(
+            type_code,
+            handle,
+            |w| {
+                entity_common(w, 2, 256, 1.0, 0);
+                data(w);
+            },
+            handles,
+        );
+        (handle, bytes)
+    };
+    vec![
+        (
+            0x10,
+            object(0x33, 0x10, record_named(b"0"), record_handles(2)),
+        ),
+        (
+            0x11,
+            object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3)),
+        ),
+        (
+            0x12,
+            object(0x31, 0x12, record_named(b"*D1"), record_handles(1)),
+        ),
+        dimension(0x15, 0x20, &|w| {
+            common(w, 3, text);
+            for v in [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 4.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(0.0);
+            w.bd(rotation);
+        }),
+        dimension(0x1A, 0x21, &|w| {
+            common(w, flags, b"");
+            for v in [-5.0, 0.0, 0.0, 5.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(radius);
+        }),
+        dimension(0x14, 0x22, &|w| {
+            common(w, 1, b"");
+            for v in [0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 3.0, 4.0, 0.0] {
+                w.bd(v);
+            }
+            w.bytes(&[ordinate]);
+        }),
+    ]
+}
+
+#[test]
+fn changed_dimensions_are_written_back() {
+    let src = dwg(&dimensions_with(
+        5.0,
+        b"<> mm",
+        std::f64::consts::FRAC_PI_4,
+        0.0,
+        2,
+        1,
+    ));
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 文字の中点・利用者の文字・回転と、直径・印を変える
+    for (handle, code, data) in [
+        (0x20, 11, Data::Real(7.0)),
+        (0x21, 11, Data::Real(7.0)),
+        (0x22, 11, Data::Real(7.0)),
+        (0x20, 1, Data::Text(b"<> cm".to_vec())),
+        (0x20, 50, Data::Real(90.0)),
+        (0x21, 40, Data::Real(2.0)),
+        (0x21, 70, Data::Int(35)),
+        (0x22, 70, Data::Int(6)),
+    ] {
+        set_value(&mut db, handle, code, data);
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    assert_eq!(values(&after), values(&db));
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (handle, expected) in dimensions_with(7.0, b"<> cm", std::f64::consts::FRAC_PI_2, 2.0, 3, 0)
+    {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data, "{handle:#x}");
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // 直径の寸法の回転、型と合わない種類、標高と違う 12 の点の Z は符号化できない
+    for (handle, code, data) in [
+        (0x21, 50, Data::Real(30.0)),
+        (0x20, 70, Data::Int(33)),
+        (0x20, 32, Data::Real(2.0)),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, handle, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
+
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
 #[cfg(test)]
 fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
