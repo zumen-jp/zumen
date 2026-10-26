@@ -1,4 +1,5 @@
 //! DWG（Open Design Specification for .dwg files 5.4.1）。今は R2000（AC1015）だけを読む。
+//! R2004（AC1018）は、入れ物（4「R2004 DWG FILE FORMAT ORGANIZATION」）を確かめてから、読めないことを返す。
 //!
 //! 読むのは、ファイルの見出し（3「R13-R15 DWG FILE FORMAT ORGANIZATION」）と、オブジェクトの地図
 //! （23「OBJECT MAP」）と、地図が指すオブジェクトの区切りと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
@@ -14,6 +15,7 @@ use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature};
 mod bits;
 mod header;
 mod objects;
+mod r2004;
 
 use bits::{Bits, crc16, modular_char, modular_short};
 
@@ -66,6 +68,14 @@ const OBJECT_MAP_NUMBER: u8 = 2;
 
 /// オブジェクトの CRC の初めの値
 const OBJECT_CRC_SEED: u16 = 0xC0C1;
+
+/// R2004 の入れ物に要る区切り
+const R2004_SECTIONS: [&[u8]; 4] = [
+    b"AcDb:Header",
+    b"AcDb:Classes",
+    b"AcDb:Handles",
+    b"AcDb:AcDbObjects",
+];
 
 /// DWG のコーデック
 #[derive(Clone, Copy, Debug)]
@@ -195,6 +205,14 @@ impl Codec for Dwg {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
         let version = src.get(..6).unwrap_or(src);
+        if version == b"AC1018" {
+            let container = r2004::read(src, cx)?;
+            for name in R2004_SECTIONS {
+                if container.section(name).is_none_or(<[u8]>::is_empty) {
+                    return Err(r2004::invalid(cx, "section", 0..version.len()));
+                }
+            }
+        }
         if version != b"AC1015" {
             let known = Self::SIGNATURES
                 .iter()
