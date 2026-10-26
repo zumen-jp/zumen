@@ -208,7 +208,8 @@ fn line_data(w: &mut BitWriter, start: [f64; 3], end: [f64; 3], thickness: f64) 
     w.bit(true); // 押し出しの向きは (0, 0, 1)
 }
 
-/// 名前を持つ表のレコードの欄。反応子の数と、終わりの NUL を含む長さの名前
+/// 名前を持つ表のレコードの欄。反応子の数と、終わりの NUL を含む長さの名前と、表のレコードの
+/// 共通の欄。型ごとの欄は、どの型でも 0 と空の文字列として読める 0 のビットで埋める
 #[cfg(test)]
 fn record_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
     move |w| {
@@ -216,6 +217,24 @@ fn record_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
         w.bs(name.len() as u16 + 1);
         w.bytes(name);
         w.bytes(&[0]);
+        w.bit(false); // 参照される印
+        w.bs(0); // 外部参照の番号
+        w.bit(false); // 外部参照に依る印
+        for _ in 0..40 {
+            w.bits(0, 64);
+        }
+    }
+}
+
+/// 表のレコードのハンドル。所有者・拡張辞書・外部参照のブロックと、型ごとの 0 のハンドル
+#[cfg(test)]
+fn record_handles(owner: u64) -> impl Fn(&mut BitWriter) {
+    move |w| {
+        w.handle(4, owner);
+        w.handle(3, 0);
+        for _ in 0..3 {
+            w.handle(5, 0);
+        }
     }
 }
 
@@ -241,7 +260,7 @@ fn entity_handles_to(layer: u64, record: u64) -> impl Fn(&mut BitWriter) {
 fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
     // 画層の表と、画層
     let control = object(0x32, 2, |w| w.bl_zero(), |w| w.handle(4, 0));
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     // 所有者を持つ LINE（entmode 0）
     let line = object(
         0x13,
@@ -553,7 +572,7 @@ fn close(found: Option<Option<f64>>, expected: f64) -> bool {
 
 #[test]
 fn arcs_circles_and_points_have_their_fields() {
-    let layer = object(0x33, 0x10, record_named(b"WALL"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"WALL"), record_handles(2));
     let circle = object(
         0x12,
         0x20,
@@ -635,9 +654,9 @@ fn arcs_circles_and_points_have_their_fields() {
 
 #[test]
 fn text_fields_are_read_by_their_flags() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let standard = object(0x35, 0x11, record_named(b"Standard"), |w| w.handle(4, 3));
-    let mono = object(0x35, 0x12, record_named(b"Mono"), |w| w.handle(4, 3));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let standard = object(0x35, 0x11, record_named(b"Standard"), record_handles(3));
+    let mono = object(0x35, 0x12, record_named(b"Mono"), record_handles(3));
     // DataFlags が 0xFF: 標高・合わせの点・角度・幅・生成・合わせの欄を持たない
     let plain = object(
         0x01,
@@ -725,9 +744,9 @@ fn text_fields_are_read_by_their_flags() {
 
 #[test]
 fn inserts_and_mtexts_have_their_fields() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let block = object(0x31, 0x11, record_named(b"DOOR"), |w| w.handle(4, 1));
-    let style = object(0x35, 0x12, record_named(b"Mono"), |w| w.handle(4, 3));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let block = object(0x31, 0x11, record_named(b"DOOR"), record_handles(1));
+    let style = object(0x35, 0x12, record_named(b"Mono"), record_handles(3));
     // 尺度の印 00: 41 は RD、42・43 は 41 を既定の値とする DD
     let insert = object(
         0x07,
@@ -862,8 +881,8 @@ fn inserts_and_mtexts_have_their_fields() {
 
 #[test]
 fn minserts_have_their_grid() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let block = object(0x31, 0x11, record_named(b"DOOR"), |w| w.handle(4, 1));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let block = object(0x31, 0x11, record_named(b"DOOR"), record_handles(1));
     let minsert = |columns: u16, spacing: f64| {
         move |w: &mut BitWriter| {
             entity_common(w, 2, 256, 1.0, 0);
@@ -908,9 +927,9 @@ fn minserts_have_their_grid() {
 
 #[test]
 fn linetypes_are_named_by_their_flags() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let dashed = object(0x39, 0x11, record_named(b"DASHED"), |w| w.handle(4, 2));
-    let by_layer = object(0x39, 0x12, record_named(b"ByLayer"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let dashed = object(0x39, 0x11, record_named(b"DASHED"), record_handles(2));
+    let by_layer = object(0x39, 0x12, record_named(b"ByLayer"), record_handles(2));
     let line = |handle: u64, flags: u8, ltype: Option<u64>| {
         object(
             0x13,
@@ -950,7 +969,7 @@ fn linetypes_are_named_by_their_flags() {
 
 #[test]
 fn solids_faces_ellipses_and_rays_have_their_fields() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let solid = object(
         0x1F,
         0x20,
@@ -1055,7 +1074,7 @@ fn solids_faces_ellipses_and_rays_have_their_fields() {
 
 #[test]
 fn shapes_keep_fields_that_differ_from_their_defaults() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let shape = |rotation: f64, width: f64| {
         move |w: &mut BitWriter| {
             entity_common(w, 2, 256, 1.0, 0);
@@ -1091,7 +1110,7 @@ fn shapes_keep_fields_that_differ_from_their_defaults() {
 
 #[test]
 fn lwpolylines_have_their_vertices() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let lwpolyline = object(
         0x4D,
         0x20,
@@ -1147,7 +1166,7 @@ fn lwpolylines_have_their_vertices() {
 
 #[test]
 fn splines_have_their_knots_or_fit_points() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let by_knots = object(
         0x24,
         0x20,
@@ -1229,7 +1248,7 @@ fn splines_have_their_knots_or_fit_points() {
 
 #[test]
 fn polylines_and_vertices_have_their_fields() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let entity = |type_code, handle, data: &dyn Fn(&mut BitWriter)| {
         object(
             type_code,
@@ -1328,9 +1347,9 @@ fn polylines_and_vertices_have_their_fields() {
 
 #[test]
 fn dimensions_have_their_points_and_records() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let style = object(0x45, 0x11, record_named(b"ISO-25"), |w| w.handle(4, 3));
-    let block = object(0x31, 0x12, record_named(b"*D1"), |w| w.handle(4, 1));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let style = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
+    let block = object(0x31, 0x12, record_named(b"*D1"), record_handles(1));
     // 寸法の共通の欄。標高は 1.5、文字の中点は (5, 6)、測った値は 10
     let common = |w: &mut BitWriter, flags: u8, text: &[u8]| {
         for v in [0.0, 0.0, 1.0] {
@@ -1433,9 +1452,9 @@ fn dimensions_have_their_points_and_records() {
 
 #[test]
 fn attributes_and_tolerances_have_their_fields() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let standard = object(0x35, 0x11, record_named(b"Standard"), |w| w.handle(4, 3));
-    let dimstyle = object(0x45, 0x12, record_named(b"ISO-25"), |w| w.handle(4, 3));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let standard = object(0x35, 0x11, record_named(b"Standard"), record_handles(3));
+    let dimstyle = object(0x45, 0x12, record_named(b"ISO-25"), record_handles(3));
     // TEXT の欄。DataFlags が 0x7F で、縦の合わせ（DXF の 74）だけを持つ
     let text = |w: &mut BitWriter, value: &[u8]| {
         entity_common(w, 2, 256, 1.0, 0);
@@ -1529,8 +1548,8 @@ fn attributes_and_tolerances_have_their_fields() {
 
 #[test]
 fn leaders_and_mlines_have_their_fields() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), |w| w.handle(4, 3));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
     // 2 本の線を持つ多重線の体裁。DWG の印 1 と 32 は、DXF の 2 と 64
     let style = object(
         0x49,
@@ -1661,7 +1680,7 @@ fn leaders_and_mlines_have_their_fields() {
 
 #[test]
 fn viewports_have_their_view_and_ucs() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let viewport = object(
         0x22,
         0x20,
@@ -1727,7 +1746,7 @@ fn viewports_have_their_view_and_ucs() {
 
 #[test]
 fn types_of_classes_are_named_by_the_classes() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let table = object(
         500,
         0x20,
@@ -2141,7 +2160,7 @@ fn hatches_have_their_paths_and_pattern() {
         w.bytes(text);
         w.bytes(&[0]);
     };
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let pattern = object(
         500,
         0x20,
@@ -2282,7 +2301,7 @@ fn hatches_have_their_paths_and_pattern() {
 
 #[test]
 fn a_missing_record_is_reported() {
-    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     // ブロックのハンドルが、LAYER を指している
     let insert = object(
         0x07,
@@ -2400,4 +2419,148 @@ fn writing_keeps_the_bytes() {
     )
     .unwrap();
     assert_eq!(out, src);
+}
+
+#[test]
+fn layers_styles_and_linetypes_have_their_fields() {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let common = |w: &mut BitWriter, name: &[u8]| {
+        w.bl_zero();
+        text(w, name);
+        w.bit(false);
+        w.bs(0);
+        w.bit(false);
+    };
+    // 凍結・表示しない・ロックで、印刷しない。線の太さの番号 11 は 0.50 mm
+    let layer = object(
+        0x33,
+        0x10,
+        |w| {
+            common(w, b"WALL");
+            w.bs(1 | 2 | 8 | (11 << 5));
+            w.bs(3);
+        },
+        |w| {
+            w.handle(4, 2);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            w.handle(5, 0x50); // 印刷スタイル
+            w.handle(5, 0x12); // 線種
+        },
+    );
+    let style = object(
+        0x35,
+        0x11,
+        |w| {
+            common(w, b"VERT");
+            w.bit(false);
+            w.bit(true);
+            w.bd(2.5);
+            w.bd(0.8);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bytes(&[2]);
+            w.bd(3.0);
+            text(w, b"txt");
+            text(w, b"");
+        },
+        |w| {
+            w.handle(4, 3);
+            w.handle(3, 0);
+            w.handle(5, 0);
+        },
+    );
+    // 線の要素と、文字 AB の要素
+    let ltype = object(
+        0x39,
+        0x12,
+        |w| {
+            common(w, b"DASHED");
+            text(w, b"__ AB");
+            w.bd(1.5);
+            w.bytes(&[65, 2]);
+            for (dash, x, y, scale, flags) in [(1.0, 0.0, 0.0, 1.0, 0), (-0.5, 0.1, -0.2, 0.5, 2)] {
+                w.bd(dash);
+                w.bs(0);
+                w.rd(x);
+                w.rd(y);
+                w.bd(scale);
+                w.bd(0.0);
+                w.bs(flags);
+            }
+            let mut area = [0; 256];
+            area[..2].copy_from_slice(b"AB");
+            w.bytes(&area);
+        },
+        |w| {
+            w.handle(4, 5);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            w.handle(5, 0);
+            w.handle(5, 0x11);
+        },
+    );
+    let src = dwg(&[(0x10, layer), (0x11, style), (0x12, ltype)]);
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let values = |handle: u64| -> Vec<(i16, Data)> {
+        let object = db.get(handle).unwrap();
+        object.values[2..]
+            .iter()
+            .map(|v| (v.code, v.data.clone()))
+            .collect()
+    };
+    let text = |text: &[u8]| Data::Text(text.to_vec());
+
+    assert_eq!(
+        values(0x10),
+        [
+            (2, text(b"WALL")),
+            (70, Data::Int(5)),
+            (62, Data::Int(-3)),
+            (290, Data::Bool(false)),
+            (370, Data::Int(50)),
+            (390, Data::Handle(0x50)),
+            (6, text(b"DASHED")),
+        ]
+    );
+    assert_eq!(
+        values(0x11),
+        [
+            (2, text(b"VERT")),
+            (70, Data::Int(4)),
+            (40, Data::Real(2.5)),
+            (41, Data::Real(0.8)),
+            (50, Data::Real(90.0)),
+            (71, Data::Int(2)),
+            (42, Data::Real(3.0)),
+            (3, text(b"txt")),
+            (4, text(b"")),
+        ]
+    );
+    assert_eq!(
+        values(0x12),
+        [
+            (2, text(b"DASHED")),
+            (70, Data::Int(0)),
+            (3, text(b"__ AB")),
+            (72, Data::Int(65)),
+            (73, Data::Int(2)),
+            (40, Data::Real(1.5)),
+            (49, Data::Real(1.0)),
+            (74, Data::Int(0)),
+            (49, Data::Real(-0.5)),
+            (74, Data::Int(2)),
+            (75, Data::Int(0)),
+            (46, Data::Real(0.5)),
+            (50, Data::Real(0.0)),
+            (44, Data::Real(0.1)),
+            (45, Data::Real(-0.2)),
+            (9, text(b"AB")),
+            (340, Data::Handle(0x11)),
+        ]
+    );
 }
