@@ -1023,6 +1023,88 @@ fn lwpolylines_have_their_vertices() {
 }
 
 #[test]
+fn splines_have_their_knots_or_fit_points() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let by_knots = object(
+        0x24,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bits(1, 2); // 場合 1（BL の RC）
+            w.bytes(&[1]);
+            w.bits(1, 2); // 次数 1
+            w.bytes(&[1]);
+            w.bit(false);
+            w.bit(false);
+            w.bit(false);
+            w.bd(1e-9);
+            w.bd(1e-10);
+            w.bits(1, 2); // 節点 4 つ
+            w.bytes(&[4]);
+            w.bits(1, 2); // 制御点 2 つ
+            w.bytes(&[2]);
+            w.bit(true); // 重みがある
+            for v in [0.0, 0.0, 1.0, 1.0] {
+                w.bd(v);
+            }
+            for v in [0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 0.0, 0.5] {
+                w.bd(v);
+            }
+        },
+        entity_handles(0x10),
+    );
+    let by_fit = object(
+        0x24,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bits(1, 2); // 場合 2
+            w.bytes(&[2]);
+            w.bits(1, 2); // 次数 3
+            w.bytes(&[3]);
+            w.bd(0.25);
+            for v in [1.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(1, 2); // 当てはめる点 2 つ
+            w.bytes(&[2]);
+            for v in [0.0, 0.0, 0.0, 5.0, 6.0, 0.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles(0x10),
+    );
+    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, by_knots), (0x21, by_fit)]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+
+    let spline = db.get(0x20).unwrap();
+    assert_eq!(spline.kind, b"SPLINE");
+    for (code, value) in [(71, 1), (72, 4), (73, 2), (74, 0)] {
+        assert_eq!(spline.first(code), Some(&Data::Int(value)), "{code}");
+    }
+    let count =
+        |object: &zumen_acad::Object, code| object.values.iter().filter(|v| v.code == code).count();
+    assert_eq!(count(spline, 40), 4);
+    assert_eq!(count(spline, 10), 2);
+    // 重みは制御点ごと
+    let weights: Vec<_> = spline.values.iter().filter(|v| v.code == 41).collect();
+    assert_eq!(weights.len(), 2);
+    assert_eq!(weights[1].data, Data::Real(0.5));
+    // DXF を書くときに決まる印と法線は置かない
+    assert_eq!(spline.first(70), None);
+    assert_eq!(spline.first(210), None);
+
+    let spline = db.get(0x21).unwrap();
+    assert_eq!(spline.first(74), Some(&Data::Int(2)));
+    assert!(close(spline.real(44), 0.25));
+    // 始まりの接線は 0 でないので置き、終わりの接線は 0 なので置かない
+    assert!(close(spline.real(12), 1.0));
+    assert_eq!(spline.first(13), None);
+    assert_eq!(count(spline, 11), 2);
+    assert!(close(spline.real(11), 0.0));
+}
+
+#[test]
 fn a_missing_record_is_reported() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     // ブロックのハンドルが、LAYER を指している

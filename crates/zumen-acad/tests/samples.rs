@@ -11,9 +11,9 @@ use zumen_sdk::Codec;
 
 /// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
 #[cfg(test)]
-const SHAPE_CODES: [i16; 29] = [
+const SHAPE_CODES: [i16; 33] = [
     10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 39, 40, 42, 48, 50, 51, 60, 62, 210, 220, 230,
-    8, 2, 6, 43, 70, 90,
+    8, 2, 6, 43, 70, 90, 71, 72, 73, 74,
 ];
 
 /// DXF が書き、DWG の表が省く既定の値か
@@ -153,10 +153,15 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"RAY",
                 b"XLINE",
                 b"LWPOLYLINE",
+                b"SPLINE",
             ]
             .contains(&object.kind.as_slice())
             {
                 for code in SHAPE_CODES {
+                    // SPLINE の 70 は、DXF を書くときに平らかどうかから決まるので比べない
+                    if object.kind == b"SPLINE" && code == 70 {
+                        continue;
+                    }
                     if let (None, Some(theirs)) = (object.first(code), other.first(code)) {
                         assert!(is_default(code, theirs), "{at} {code}: {theirs:?}");
                     }

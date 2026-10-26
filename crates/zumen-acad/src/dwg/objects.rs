@@ -3,7 +3,7 @@
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! ELLIPSE・RAY・XLINE・LWPOLYLINE を読む。表のレコードは、今は名前（2）だけを読む。
+//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック）は、レコードの名前に直して置く。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
@@ -35,6 +35,7 @@ const FACE3D: u16 = 0x1C;
 const SOLID: u16 = 0x1F;
 const TRACE: u16 = 0x20;
 const ELLIPSE: u16 = 0x23;
+const SPLINE: u16 = 0x24;
 const RAY: u16 = 0x28;
 const XLINE: u16 = 0x29;
 const MTEXT: u16 = 0x2C;
@@ -73,7 +74,7 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x21 => entity(b"SHAPE"),
         0x22 => entity(b"VIEWPORT"),
         ELLIPSE => entity(b"ELLIPSE"),
-        0x24 => entity(b"SPLINE"),
+        SPLINE => entity(b"SPLINE"),
         0x25 => entity(b"REGION"),
         0x26 => entity(b"3DSOLID"),
         0x27 => entity(b"BODY"),
@@ -309,6 +310,7 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
                 ELLIPSE => ellipse(&mut bits)?,
                 RAY | XLINE => ray(&mut bits)?,
                 LWPOLYLINE => lwpolyline(&mut bits)?,
+                SPLINE => spline(&mut bits)?,
                 _ => Vec::new(),
             }
         } else {
@@ -762,6 +764,61 @@ fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
     }
     if let Some(extrusion) = extrusion {
         values.extend(extrusion);
+    }
+    Some(values)
+}
+
+/// SPLINE の欄（ODS 5.4.1 の 20.4.40、R2000）。場合（scenario）が 1 なら節点と制御点、2 なら
+/// 当てはめる点を読む。DXF の印（70）と法線（210）は、DXF を書くときに平らかどうかから決まるので
+/// 置かない。始まりと終わりの接線（12・13）は、0 でなければ置く
+fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
+    let scenario = bits.bl()?;
+    let mut values = vec![int(71, i64::from(bits.bl()?))];
+    let mut fit = 0;
+    let mut knots = 0;
+    let mut controls = 0;
+    let mut weighted = false;
+    let mut tail = Vec::new();
+    match scenario {
+        2 => {
+            let tolerance = bits.bd()?;
+            let start = point3(bits, 12)?;
+            let end = point3(bits, 13)?;
+            fit = bits.bl()?;
+            tail.push(real(44, tolerance));
+            for tangent in [start, end] {
+                if reals(&tangent).iter().any(|r| *r != Some(0.0)) {
+                    tail.extend(tangent);
+                }
+            }
+        }
+        1 => {
+            bits.bit()?; // 有理
+            bits.bit()?; // 閉じている
+            bits.bit()?; // 周期的
+            tail.push(real(42, bits.bd()?));
+            tail.push(real(43, bits.bd()?));
+            knots = bits.bl()?;
+            controls = bits.bl()?;
+            weighted = bits.bit()?;
+        }
+        _ => return None,
+    }
+    values.push(int(72, i64::from(knots)));
+    values.push(int(73, i64::from(controls)));
+    values.push(int(74, i64::from(fit)));
+    values.extend(tail);
+    for _ in 0..knots {
+        values.push(real(40, bits.bd()?));
+    }
+    for _ in 0..controls {
+        values.extend(point3(bits, 10)?);
+        if weighted {
+            values.push(real(41, bits.bd()?));
+        }
+    }
+    for _ in 0..fit {
+        values.extend(point3(bits, 11)?);
     }
     Some(values)
 }
