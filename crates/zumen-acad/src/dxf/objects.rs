@@ -55,7 +55,7 @@ impl DxfFile {
     }
 
     /// SECTION のレコードの名前（2）から、属する所を決める
-    fn section(&self, record: &Record) -> Section {
+    pub(super) fn section(&self, record: &Record) -> Section {
         let name = record
             .tags
             .iter()

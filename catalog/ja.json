@@ -41,6 +41,7 @@
     "dxf.lift.dropped": "図面モデルにまだ移せない種類の図形「{kind}」を、移しませんでした（{count} 件）。",
     "dxf.lift.invalid": "「{kind}」のグループ・コード {code} の値がないか、読めないか、範囲の外なので、図面モデルに移しませんでした（{count} 件）。",
     "dxf.non-planar.dropped": "Z が 0 でないか、押し出しの向きが Z でない「{kind}」を、平面の図面モデルに移しませんでした（{count} 件）。",
+    "dxf.object.unsupported": "「{kind}」の変更は、この DXF の同じ種類のレコードから読んだものでないので、書き戻せません。変更を反映しませんでした。",
     "dxf.paper-space.dropped": "長さの単位が分からず用紙の mm に直せないので、ペーパー空間の「{kind}」を図面モデルに移しませんでした（{count} 件）。",
     "dxf.real.unsupported": "有限でない実数は、DXF に書けません（{record} 番目のレコード、グループ・コード {code}）。変更を反映しませんでした。",
     "dxf.record.missing": "DXF に {record} 番目のレコードがありません。変更を反映しませんでした。",

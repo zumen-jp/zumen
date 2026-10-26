@@ -425,6 +425,17 @@ pub const DXF_NON_PLANAR_DROPPED: Code = Code::new(
     &["kind"],
 );
 
+/// この DXF の同じ種類のレコードから読んでいないオブジェクトの変更は、DXF に書き戻せない
+///
+/// `dxf.object.unsupported`（0.0.0 から）
+pub const DXF_OBJECT_UNSUPPORTED: Code = Code::new(
+    "dxf.object.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &[],
+);
+
 /// 長さの単位が分からず用紙の mm に直せないので、ペーパー空間の図形を図面モデルに移さなかった
 ///
 /// `dxf.paper-space.dropped`（0.0.0 から）
@@ -650,6 +661,7 @@ pub const ALL: &[Code] = &[
     DXF_LIFT_DROPPED,
     DXF_LIFT_INVALID,
     DXF_NON_PLANAR_DROPPED,
+    DXF_OBJECT_UNSUPPORTED,
     DXF_PAPER_SPACE_DROPPED,
     DXF_REAL_UNSUPPORTED,
     DXF_RECORD_MISSING,

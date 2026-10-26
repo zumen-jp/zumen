@@ -53,3 +53,4 @@
 - [0021: 表記と用語の基準を決め、textlint と prh で確かめる](0021-notation-and-terms.md)（2026-10-24、提案）
 - [0022: 図面を空間・配置・意味のある要素で持ち、形式ごとの違いを長さの型と拡張に残す](0022-drawing2d-semantics-and-format-mapping.md)（2026-10-25、採用）
 - [0023: AutoCAD の系統は、DXF と DWG が共有するオブジェクトの表を持ち、元のバイトは符号化ごとに持つ](0023-acad-shared-object-table.md)（2026-10-26、採用）
+- [0024: AutoCAD の系統の表の変更は、元の表と比べて違うレコードだけを符号化に書き戻す](0024-acad-table-write-back.md)（2026-10-26、採用）
