@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0046）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0047）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -190,6 +190,7 @@ impl DwgFile {
                         match self.kind(entry.type_code)?.1 {
                             Section::Entities | Section::Blocks => encode(data, old, object),
                             Section::Tables => encode_record(data, old, object),
+                            Section::Objects => encode_object(data, old, object),
                             _ => None,
                         }
                     })
@@ -369,6 +370,57 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"VPORT" => vport_record(&mut fields, old, new, xdep, data, own_at)?,
         _ => dimstyle(&mut fields, old, new, xdep, data, own_at)?,
     };
+    fields.copy(data, end..handles_at)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(start + fields.len()).ok()?);
+    out.copy(data, size_at + 32..start)?;
+    let len = fields.len();
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, handles_at..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047）。GROUP・DICTIONARYVAR だけを扱う。
+/// ハンドルの並びから作る値などのほかの値が変わったものは `None`
+fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+    let own: &[i16] = match new.kind.as_slice() {
+        b"GROUP" => &[300, 70, 71],
+        b"DICTIONARYVAR" => &[280, 1],
+        _ => return None,
+    };
+    let rest = |object: &Object| -> Vec<_> {
+        object
+            .values
+            .iter()
+            .filter(|value| !own.contains(&value.code))
+            .cloned()
+            .collect()
+    };
+    if rest(old) != rest(new) {
+        return None;
+    }
+    let [size_at, start, handles_at] = object_fields(data)?;
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    let mut fields = BitWriter::default();
+    if new.kind == b"GROUP" {
+        // 説明・名前のない印・選べる印。図形の数は元のまま写す
+        bits.text()?;
+        bits.bs()?;
+        bits.bs()?;
+        string(&mut fields, new, 300)?;
+        for code in [70, 71] {
+            fields.bs(i16::from(flag(new, code)?));
+        }
+    } else {
+        // 型と値
+        bits.rc()?;
+        bits.text()?;
+        fields.rc(u8::try_from(small(new, 280)??).ok()?);
+        string(&mut fields, new, 1)?;
+    }
+    let end = bits.pos();
     fields.copy(data, end..handles_at)?;
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
