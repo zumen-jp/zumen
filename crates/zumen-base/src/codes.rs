@@ -372,6 +372,12 @@ pub const DXF_GROUP_CODE_MISSING: Code = Code::new(
     &[],
 );
 
+/// DXF の見出しに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない
+///
+/// `dxf.handle-seed.missing`（0.0.0 から）
+pub const DXF_HANDLE_SEED_MISSING: Code =
+    Code::new("dxf.handle-seed.missing", Severity::Error, None, &[], &[]);
+
 /// 出力先の DXF の版で書けない値を持つ見出しの変数を、書かなかった
 ///
 /// `dxf.header-variable.dropped`（0.0.0 から）
@@ -449,6 +455,17 @@ pub const DXF_REAL_UNSUPPORTED: Code = Code::new(
 /// `dxf.record.missing`（0.0.0 から）
 pub const DXF_RECORD_MISSING: Code = Code::new(
     "dxf.record.missing",
+    Severity::Error,
+    None,
+    &[Param::new("record", ParamType::UInt)],
+    &[],
+);
+
+/// DXF の構造を区切るレコード（SECTION・ENDSEC・EOF）は、追加・削除できない
+///
+/// `dxf.record.unsafe`（0.0.0 から）
+pub const DXF_RECORD_UNSAFE: Code = Code::new(
+    "dxf.record.unsafe",
     Severity::Error,
     None,
     &[Param::new("record", ParamType::UInt)],
@@ -628,6 +645,7 @@ pub const ALL: &[Code] = &[
     DXF_ENTITY_DROPPED,
     DXF_GROUP_CODE_DROPPED,
     DXF_GROUP_CODE_MISSING,
+    DXF_HANDLE_SEED_MISSING,
     DXF_HEADER_VARIABLE_DROPPED,
     DXF_LIFT_DROPPED,
     DXF_LIFT_INVALID,
@@ -635,6 +653,7 @@ pub const ALL: &[Code] = &[
     DXF_PAPER_SPACE_DROPPED,
     DXF_REAL_UNSUPPORTED,
     DXF_RECORD_MISSING,
+    DXF_RECORD_UNSAFE,
     DXF_SECTION_DROPPED,
     DXF_TABLE_DROPPED,
     DXF_TAG_INVALID,

@@ -260,6 +260,13 @@ params = { record = "uint", code = "int" }
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.handle-seed.missing"]
+description = "DXF の見出しに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない"
+severity = "error"
+params = {}
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.real.unsupported"]
 description = "有限でない実数は、DXF の値に書けない"
 severity = "error"
@@ -269,6 +276,13 @@ status = "active"
 
 [codes."dxf.record.missing"]
 description = "DXF の変更で名指ししたレコードがない"
+severity = "error"
+params = { record = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.record.unsafe"]
+description = "DXF の構造を区切るレコード（SECTION・ENDSEC・EOF）は、追加・削除できない"
 severity = "error"
 params = { record = "uint" }
 since = "0.0.0"

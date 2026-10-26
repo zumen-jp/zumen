@@ -276,7 +276,7 @@ fn edits_rewrite_only_the_touched_records() {
 #[test]
 fn failed_edits_change_nothing() {
     type Edit = fn(&mut zumen_acad::DxfTxn<'_>) -> Result<(), Error>;
-    let cases: [(Edit, Code); 6] = [
+    let cases: [(Edit, Code); 15] = [
         (
             |t| t.set_value(TEXT, 5, b"two\nlines"),
             codes::DXF_VALUE_UNSAFE,
@@ -289,6 +289,33 @@ fn failed_edits_change_nothing() {
             |t| t.set_real(LINE, 10, f64::NAN),
             codes::DXF_REAL_UNSUPPORTED,
         ),
+        (
+            |t| t.insert_record(LINE, &[(8, b"0")]),
+            codes::DXF_VALUE_UNSAFE,
+        ),
+        (
+            |t| t.insert_record(LINE, &[(0, b"POINT"), (0, b"POINT")]),
+            codes::DXF_VALUE_UNSAFE,
+        ),
+        (
+            |t| t.insert_record(LINE, &[(0, b"ENDSEC")]),
+            codes::DXF_RECORD_UNSAFE,
+        ),
+        (
+            |t| t.insert_record(99, &[(0, b"POINT")]),
+            codes::DXF_RECORD_MISSING,
+        ),
+        (|t| t.remove_record(1), codes::DXF_RECORD_UNSAFE),
+        (
+            |t| {
+                t.remove_record(TEXT)?;
+                t.set_value(TEXT, 5, b"x")
+            },
+            codes::DXF_RECORD_MISSING,
+        ),
+        (|t| t.insert_tag(LINE, 0, 8, b"0"), codes::DXF_TAG_MISSING),
+        (|t| t.insert_tag(LINE, 1, 0, b"X"), codes::DXF_VALUE_UNSAFE),
+        (|t| t.remove_tag(LINE, 0), codes::DXF_VALUE_UNSAFE),
     ];
     for (edit, code) in cases {
         let diag = testkit::failed_edit_changes_nothing::<Dxf>(&sample("\n"), |file, cx| {
@@ -303,6 +330,81 @@ fn failed_edits_change_nothing() {
         .unwrap();
         assert_eq!(diag.iter().map(|d| d.code()).collect::<Vec<_>>(), [code]);
     }
+}
+
+#[test]
+fn records_and_tags_can_be_inserted_and_removed() {
+    const UNKNOWN: usize = 5;
+    let src = sample("\r\n");
+    let edit = |file: &mut DxfFile, cx: &mut Cx| {
+        let mut txn = file.transaction();
+        txn.insert_record(
+            TEXT,
+            &[(0, b"POINT"), (8, b"0"), (10, b"1.0"), (20, b"2.0")],
+        )?;
+        txn.remove_record(UNKNOWN)?;
+        txn.insert_tag(LINE, 2, 62, b"1")?;
+        txn.remove_tag(TEXT, 1)?;
+        txn.commit(cx)
+    };
+    testkit::edit_keeps_untouched_records::<Dxf>(&src, edit).unwrap();
+
+    let mut file = read(&src);
+    edit(
+        &mut file,
+        &mut Cx::new(
+            &mut Budget::default(),
+            &mut Diagnostics::new(),
+            &CancelToken::new(),
+        ),
+    )
+    .unwrap();
+    let kinds: Vec<_> = file.records().iter().map(|r| file.kind(r)).collect();
+    assert_eq!(kinds[LINE..=TEXT], [&b"LINE"[..], b"POINT", b"TEXT"]);
+    assert_eq!(file.record(LINE + 1).unwrap().bytes, None);
+
+    // 足したタグは、グループ・コードを右寄せし、元のファイルの改行で書く
+    let out = testkit::write::<Dxf>(&file).unwrap();
+    let expected: &[&[u8]] = &[
+        b"  0\r\nLINE\r\n  8\r\n0\r\n 62\r\n1\r\n 10\r\n",
+        b"  0\r\nPOINT\r\n  8\r\n0\r\n 10\r\n1.0\r\n 20\r\n2.0\r\n  0\r\nTEXT\r\n 10\r\n",
+    ];
+    for part in expected {
+        assert!(out.windows(part.len()).any(|w| w == *part));
+    }
+    assert!(!out.windows(20).any(|w| w == b"ZUMEN_UNKNOWN_ENTITY"));
+}
+
+#[test]
+fn new_handles_advance_the_handle_seed() {
+    let src = String::from_utf8(sample("\n"))
+        .unwrap()
+        .replace("$ACADVER", "$HANDSEED\n  5\n2A\n  9\n$ACADVER")
+        .into_bytes();
+    let mut file = read(&src);
+    let mut txn = file.transaction();
+    assert_eq!(txn.new_handle(), Ok(0x2A));
+    assert_eq!(txn.new_handle(), Ok(0x2B));
+    txn.commit(&mut Cx::new(
+        &mut Budget::default(),
+        &mut Diagnostics::new(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    let out = testkit::write::<Dxf>(&file).unwrap();
+    let seed = b"  9\n$HANDSEED\n  5\n2C\n";
+    assert!(out.windows(seed.len()).any(|w| w == seed));
+
+    let diag = testkit::failed_edit_changes_nothing::<Dxf>(&sample("\n"), |file, cx| {
+        let mut txn = file.transaction();
+        assert_eq!(txn.new_handle(), Err(Error::Rejected));
+        txn.commit(cx)
+    })
+    .unwrap();
+    assert_eq!(
+        diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+        [codes::DXF_HANDLE_SEED_MISSING]
+    );
 }
 
 #[test]
