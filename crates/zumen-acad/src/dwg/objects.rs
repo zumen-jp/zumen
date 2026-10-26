@@ -1425,7 +1425,7 @@ pub(super) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
 
 /// DIMSTYLE の欄の読み方
 #[derive(Clone, Copy)]
-enum Dim {
+pub(super) enum Dim {
     Text,
     Real(f64),
     Bit(bool),
@@ -1436,7 +1436,7 @@ enum Dim {
 
 /// DIMSTYLE の欄（ODS 5.4.1 の DIMSTYLE の節、R2000）の、DWG での並びと、グループ・コードと、
 /// DXF が書かない既定の値
-const DIM_FIELDS: [(i16, Dim); 59] = {
+pub(super) const DIM_FIELDS: [(i16, Dim); 59] = {
     use Dim::{Bit, Color, Real, Short, Text};
     [
         (3, Text),
