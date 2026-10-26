@@ -21,6 +21,13 @@ use crate::db::{AcadDb, Data, Object, Origin};
 const LINE: &[i16] = &[10, 20, 30, 11, 21, 31, 39, 210, 220, 230];
 const CIRCLE: &[i16] = &[10, 20, 30, 40, 39, 210, 220, 230];
 const ARC: &[i16] = &[10, 20, 30, 40, 39, 210, 220, 230, 50, 51];
+const POINT: &[i16] = &[10, 20, 30, 39, 210, 220, 230, 50];
+const ELLIPSE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 40, 41, 42];
+const RAY: &[i16] = &[10, 20, 30, 11, 21, 31];
+const SOLID: &[i16] = &[
+    10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 39, 210, 220, 230,
+];
+const FACE3D: &[i16] = &[10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 70];
 
 impl DwgFile {
     /// 表 `db` のオブジェクトの値の変更を、このファイルに書き戻す。`db` は、このファイルから作った表を
@@ -144,6 +151,11 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"LINE" => LINE,
         b"CIRCLE" => CIRCLE,
         b"ARC" => ARC,
+        b"POINT" => POINT,
+        b"ELLIPSE" => ELLIPSE,
+        b"RAY" | b"XLINE" => RAY,
+        b"SOLID" | b"TRACE" => SOLID,
+        b"3DFACE" => FACE3D,
         _ => return None,
     };
     let rest = |object: &Object| -> Vec<_> {
@@ -158,38 +170,144 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         return None;
     }
     let mut fields = BitWriter::default();
-    if new.kind == b"LINE" {
-        let [x0, y0, z0, x1, y1, z1] = [10, 20, 30, 11, 21, 31].map(|code| real(new, code));
-        let (x0, y0, z0, x1, y1, z1) = (x0??, y0??, z0??, x1??, y1??, z1??);
-        // 両方の Z が 0 なら、Z を書かない
-        let flat = z0.to_bits() == 0 && z1.to_bits() == 0;
-        fields.bit(flat);
-        fields.rd(x0);
-        fields.dd(x1, x0);
-        fields.rd(y0);
-        fields.dd(y1, y0);
-        if !flat {
-            fields.rd(z0);
-            fields.dd(z1, z0);
-        }
-        thickness_and_extrusion(&mut fields, new)?;
-    } else {
-        for code in [10, 20, 30, 40] {
-            fields.bd(real(new, code)??);
-        }
-        thickness_and_extrusion(&mut fields, new)?;
-        if new.kind == b"ARC" {
-            // DXF は度、DWG はラジアンで書く
-            for code in [50, 51] {
-                fields.bd(real(new, code)??.to_radians());
+    match new.kind.as_slice() {
+        b"LINE" => line(&mut fields, new)?,
+        b"CIRCLE" | b"ARC" => {
+            for code in [10, 20, 30, 40] {
+                fields.bd(real(new, code)??);
+            }
+            thickness_and_extrusion(&mut fields, new)?;
+            if new.kind == b"ARC" {
+                // DXF は度、DWG はラジアンで書く
+                for code in [50, 51] {
+                    fields.bd(real(new, code)??.to_radians());
+                }
             }
         }
+        b"POINT" => {
+            point3(&mut fields, new, 10)?;
+            thickness_and_extrusion(&mut fields, new)?;
+            // X 軸の角度は、なければ 0
+            fields.bd(real(new, 50)?.unwrap_or(0.0).to_radians());
+        }
+        b"ELLIPSE" => {
+            point3(&mut fields, new, 10)?;
+            point3(&mut fields, new, 11)?;
+            // 押し出しの向きは、なければ (0, 0, 1)
+            match [210, 220, 230].map(|code| real(new, code)) {
+                [Some(None), Some(None), Some(None)] => [0.0, 0.0, 1.0].map(|v| fields.bd(v)),
+                [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
+                _ => return None,
+            };
+            for code in [40, 41, 42] {
+                fields.bd(real(new, code)??);
+            }
+        }
+        b"RAY" | b"XLINE" => {
+            point3(&mut fields, new, 10)?;
+            point3(&mut fields, new, 11)?;
+        }
+        b"SOLID" | b"TRACE" => solid(&mut fields, new)?,
+        _ => face3d(&mut fields, new)?,
     }
     splice(data, fields)
 }
 
+/// LINE の欄。両方の Z が 0 なら、Z を書かない
+fn line(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    let [x0, y0, z0, x1, y1, z1] = [10, 20, 30, 11, 21, 31].map(|code| real(object, code));
+    let (x0, y0, z0, x1, y1, z1) = (x0??, y0??, z0??, x1??, y1??, z1??);
+    let flat = z0.to_bits() == 0 && z1.to_bits() == 0;
+    fields.bit(flat);
+    fields.rd(x0);
+    fields.dd(x1, x0);
+    fields.rd(y0);
+    fields.dd(y1, y0);
+    if !flat {
+        fields.rd(z0);
+        fields.dd(z1, z0);
+    }
+    thickness_and_extrusion(fields, object)
+}
+
+/// SOLID・TRACE の欄。4 つの角の Z（30〜33）は、どれも同じ標高でなければならない
+fn solid(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    let elevation = real(object, 30)??;
+    let mut corners = Vec::new();
+    for code in 10..14 {
+        let z = real(object, code + 20)??;
+        if z.to_bits() != elevation.to_bits() {
+            return None;
+        }
+        corners.extend([real(object, code)??, real(object, code + 10)??]);
+    }
+    thickness(fields, object)?;
+    fields.bd(elevation);
+    for value in corners {
+        fields.rd(value);
+    }
+    extrusion(fields, object)
+}
+
+/// 3DFACE の欄。見えない辺の印（70）がなければ、印を書かない
+fn face3d(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    let mut corners = [[0.0; 3]; 4];
+    for (corner, code) in corners.iter_mut().zip(10..) {
+        *corner = [
+            real(object, code)??,
+            real(object, code + 10)??,
+            real(object, code + 20)??,
+        ];
+    }
+    let invisible = match object
+        .values
+        .iter()
+        .filter(|v| v.code == 70)
+        .collect::<Vec<_>>()[..]
+    {
+        [] => None,
+        [value] => match value.data {
+            Data::Int(flags) => Some(i16::try_from(flags).ok()?),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let [first, ..] = corners;
+    let z_is_zero = first[2].to_bits() == 0;
+    fields.bit(invisible.is_none());
+    fields.bit(z_is_zero);
+    fields.rd(first[0]);
+    fields.rd(first[1]);
+    if !z_is_zero {
+        fields.rd(first[2]);
+    }
+    for (previous, corner) in corners.iter().zip(&corners[1..]) {
+        for (value, default) in corner.iter().zip(previous) {
+            fields.dd(*value, *default);
+        }
+    }
+    if let Some(flags) = invisible {
+        fields.bs(flags);
+    }
+    Some(())
+}
+
+/// 3BD の点（`code`・`code + 10`・`code + 20`）
+fn point3(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
+    for code in [code, code + 10, code + 20] {
+        fields.bd(real(object, code)??);
+    }
+    Some(())
+}
+
 /// BT の厚さ（39）と BE の押し出しの向き（210・220・230）。値がなければ既定の値の印を書く
 fn thickness_and_extrusion(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    thickness(fields, object)?;
+    extrusion(fields, object)
+}
+
+/// BT の厚さ（39）
+fn thickness(fields: &mut BitWriter, object: &Object) -> Option<()> {
     match real(object, 39)? {
         None => fields.bit(true),
         Some(thickness) => {
@@ -197,6 +315,11 @@ fn thickness_and_extrusion(fields: &mut BitWriter, object: &Object) -> Option<()
             fields.bd(thickness);
         }
     }
+    Some(())
+}
+
+/// BE の押し出しの向き（210・220・230）
+fn extrusion(fields: &mut BitWriter, object: &Object) -> Option<()> {
     match [210, 220, 230].map(|code| real(object, code)) {
         [Some(None), Some(None), Some(None)] => fields.bit(true),
         [Some(Some(x)), Some(Some(y)), Some(Some(z))] => {
