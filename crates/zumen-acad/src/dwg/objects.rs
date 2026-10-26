@@ -38,6 +38,7 @@ const ARC: u16 = 0x11;
 const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
 const INSERT: u16 = 0x07;
+const MINSERT: u16 = 0x08;
 const POINT: u16 = 0x1B;
 const FACE3D: u16 = 0x1C;
 const SOLID: u16 = 0x1F;
@@ -86,7 +87,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x04 => Some((b"BLOCK", Section::Blocks)),
         0x05 => Some((b"ENDBLK", Section::Blocks)),
         0x06 => entity(b"SEQEND"),
-        INSERT | 0x08 => entity(b"INSERT"),
+        INSERT | MINSERT => entity(b"INSERT"),
         VERTEX_2D..=VERTEX_PFACE_FACE => entity(b"VERTEX"),
         POLYLINE_2D | POLYLINE_3D | POLYLINE_PFACE | POLYLINE_MESH => entity(b"POLYLINE"),
         ARC => entity(b"ARC"),
@@ -344,7 +345,8 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                 LEADER => leader(&mut bits)?,
                 MLINE => mline(&mut bits)?,
                 VIEWPORT => viewport(&mut bits)?,
-                INSERT => insert(&mut bits)?,
+                INSERT => insert(&mut bits, false)?,
+                MINSERT => insert(&mut bits, true)?,
                 MTEXT => mtext(&mut bits)?,
                 LINE => line(&mut bits)?,
                 ARC => arc(&mut bits)?,
@@ -408,7 +410,7 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
         // 寸法は、寸法の体裁（3）とブロック（2）の順に指す
         let pointed: &[(i16, u16)] = match entry.type_code {
             TEXT | MTEXT | ATTRIB | ATTDEF => &[(7, STYLE)],
-            INSERT => &[(2, BLOCK_RECORD)],
+            INSERT | MINSERT => &[(2, BLOCK_RECORD)],
             DIMENSION_ORDINATE..=DIMENSION_DIAMETER => &[(3, DIMSTYLE), (2, BLOCK_RECORD)],
             TOLERANCE => &[(3, DIMSTYLE)],
             LEADER => &[(3, DIMSTYLE)],
@@ -763,8 +765,9 @@ fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
 }
 
 /// INSERT の欄（ODS 5.4.1 の 20.4.9、R2000）。挿入点はいつも置き、尺度（41・42・43）・回転（50）・
-/// 押し出しの向き（210・220・230）は既定の値でなければ、属性が続くこと（66）は続くときだけ置く
-fn insert(bits: &mut Bits) -> Option<Vec<Value>> {
+/// 押し出しの向き（210・220・230）は既定の値でなければ、属性が続くこと（66）は続くときだけ置く。
+/// MINSERT（`grid`）は、列と行の数（70・71）と間隔（44・45）も、既定の値（1・1・0・0）でなければ置く
+fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     let (x, y, z) = match bits.bb()? {
         3 => (1.0, 1.0, 1.0),
@@ -793,6 +796,20 @@ fn insert(bits: &mut Bits) -> Option<Vec<Value>> {
     }
     if bits.bit()? {
         values.push(int(66, 1));
+    }
+    if grid {
+        for code in [70, 71] {
+            let count = bits.bs()?;
+            if count != 1 {
+                values.push(int(code, i64::from(count)));
+            }
+        }
+        for code in [44, 45] {
+            let spacing = bits.bd()?;
+            if spacing != 0.0 {
+                values.push(real(code, spacing));
+            }
+        }
     }
     Some(values)
 }

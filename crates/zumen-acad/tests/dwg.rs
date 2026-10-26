@@ -861,6 +861,52 @@ fn inserts_and_mtexts_have_their_fields() {
 }
 
 #[test]
+fn minserts_have_their_grid() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let block = object(0x31, 0x11, record_named(b"DOOR"), |w| w.handle(4, 1));
+    let minsert = |columns: u16, spacing: f64| {
+        move |w: &mut BitWriter| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [4.0, 5.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(3, 2);
+            w.bd(0.0);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bit(false);
+            w.bs(columns);
+            w.bs(1);
+            w.bd(spacing);
+            w.bd(0.0);
+        }
+    };
+    let grid = object(0x08, 0x20, minsert(3, 2.5), entity_handles_to(0x10, 0x11));
+    let single = object(0x08, 0x21, minsert(1, 0.0), entity_handles_to(0x10, 0x11));
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x11, block),
+        (0x20, grid),
+        (0x21, single),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+
+    let grid = db.get(0x20).unwrap();
+    assert_eq!(grid.kind, b"INSERT");
+    assert_eq!(grid.first(2), Some(&Data::Text(b"DOOR".to_vec())));
+    assert_eq!(grid.first(70), Some(&Data::Int(3)));
+    assert!(close(grid.real(44), 2.5));
+    for code in [71, 45] {
+        assert_eq!(grid.first(code), None, "{code}");
+    }
+    let single = db.get(0x21).unwrap();
+    for code in [70, 71, 44, 45] {
+        assert_eq!(single.first(code), None, "{code}");
+    }
+}
+
+#[test]
 fn linetypes_are_named_by_their_flags() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let dashed = object(0x39, 0x11, record_named(b"DASHED"), |w| w.handle(4, 2));
