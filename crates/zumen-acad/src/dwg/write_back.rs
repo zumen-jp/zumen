@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0039）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0040）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -88,6 +88,12 @@ const DIMENSION_KIND: [i16; 7] = [6, 0, 1, 5, 2, 4, 3];
 
 const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
+const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
+const LEADER: &[i16] = &[73, 72, 40, 41, 74, 210, 220, 230, 211, 221, 231];
+const MLINE: &[i16] = &[
+    40, 70, 71, 72, 73, 10, 20, 30, 210, 220, 230, 11, 21, 31, 12, 22, 32, 13, 23, 33, 74, 41, 75,
+    42,
+];
 
 impl DwgFile {
     /// 表 `db` のオブジェクトの値の変更を、このファイルに書き戻す。`db` は、このファイルから作った表を
@@ -248,6 +254,9 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"DIMENSION" => DIMENSION_ALL,
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
+        b"TOLERANCE" => TOLERANCE,
+        b"LEADER" => LEADER,
+        b"MLINE" => MLINE,
         _ => &[],
     };
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
@@ -369,6 +378,9 @@ fn own_fields(
         b"POLYLINE" => polyline(&mut fields, new, type_code, data, start)?,
         b"DIMENSION" => dimension(&mut fields, old, new, type_code, data, start)?,
         b"INSERT" => insert(&mut fields, new, type_code == MINSERT_TYPE)?,
+        b"TOLERANCE" => tolerance(&mut fields, old, new, data, start)?,
+        b"LEADER" => leader(&mut fields, new, data, start)?,
+        b"MLINE" => mline(&mut fields, new)?,
         _ => return None,
     }
     Some(fields)
@@ -1278,6 +1290,138 @@ fn insert(fields: &mut BitWriter, object: &Object, grid: bool) -> Option<()> {
             fields.bd(real(object, code)?.unwrap_or(0.0));
         }
     }
+    Some(())
+}
+
+/// TOLERANCE の欄（決定 0040）。X 軸の向き（11）がなければ (1, 0, 0)、押し出しの向きがなければ (0, 0, 1) を
+/// 書く。文字（1）が変わっていなければ、元のビットを写す
+fn tolerance(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    data: &[u8],
+    start: usize,
+) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    for _ in 0..9 {
+        bits.bd()?;
+    }
+    let text_at = bits.pos();
+    bits.text()?;
+    let text_end = bits.pos();
+    point3(fields, new, 10)?;
+    point3_or(fields, new, 11, [1.0, 0.0, 0.0])?;
+    point3_or(fields, new, 210, [0.0, 0.0, 1.0])?;
+    if text_of(old, 1) == text_of(new, 1) {
+        fields.copy(data, text_at..text_end)?;
+    } else {
+        string(fields, new, 1)?;
+    }
+    fields.copy(data, text_end..entity_fields(data)?[3])
+}
+
+/// LEADER の欄（決定 0040）。注釈の種類（73）・経路の種類（72、なければ 0）・押し出しの向き（なければ
+/// (0, 0, 1)）・X 軸の向き（211、なければ (1, 0, 0)）・注釈の高さと幅（40・41）・鉤の線の向き（74）を
+/// 書く。表にない鉤の線の点と差の欄と、後ろの欄は、元のビットを写す
+fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    bits.bit()?;
+    let kinds_at = bits.pos();
+    bits.bs()?;
+    bits.bs()?;
+    let points_at = bits.pos();
+    let count = bits.bl()?;
+    for _ in 0..=count {
+        for _ in 0..3 {
+            bits.bd()?;
+        }
+    }
+    let points_end = bits.pos();
+    for _ in 0..6 {
+        bits.bd()?;
+    }
+    let offsets_at = bits.pos();
+    for _ in 0..6 {
+        bits.bd()?;
+    }
+    let offsets_end = bits.pos();
+    bits.bd()?;
+    bits.bd()?;
+    bits.bit()?;
+    let rest_at = bits.pos();
+    fields.copy(data, start..kinds_at)?;
+    fields.bs(small(object, 73)??);
+    fields.bs(small(object, 72)?.unwrap_or(0));
+    fields.copy(data, points_at..points_end)?;
+    point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
+    point3_or(fields, object, 211, [1.0, 0.0, 0.0])?;
+    fields.copy(data, offsets_at..offsets_end)?;
+    fields.bd(real(object, 40)??);
+    fields.bd(real(object, 41)??);
+    fields.bit(match small(object, 74)?? {
+        0 => false,
+        1 => true,
+        _ => return None,
+    });
+    fields.copy(data, rest_at..entity_fields(data)?[3])
+}
+
+/// MLINE の欄（決定 0040）。値を表の並びで読み、DWG の並びで書く。頂点と線と区切りの数は、表の値の数に
+/// 合わなければ受け付けない
+fn mline(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    let mut values = Cursor(
+        object
+            .values
+            .iter()
+            .filter(|value| MLINE.contains(&value.code))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .peekable(),
+    );
+    let scale = values.real(40)?;
+    let justification = u8::try_from(values.int(70)?).ok()?;
+    let flags = i16::try_from(values.int(71)?).ok()?;
+    let count = i16::try_from(values.int(72)?).ok()?;
+    let lines = u8::try_from(values.int(73)?).ok()?;
+    let point = |fields: &mut BitWriter, values: &mut Cursor<'_>, code| {
+        for code in [code, code + 10, code + 20] {
+            fields.bd(values.real(code)?);
+        }
+        Some(())
+    };
+    fields.bd(scale);
+    fields.rc(justification);
+    point(fields, &mut values, 10)?;
+    point(fields, &mut values, 210)?;
+    fields.bs(flags);
+    fields.rc(lines);
+    fields.bs(count);
+    for _ in 0..count {
+        for code in [11, 12, 13] {
+            point(fields, &mut values, code)?;
+        }
+        for _ in 0..lines {
+            for code in [74, 75] {
+                let params = values.int(code)?;
+                fields.bs(i16::try_from(params).ok()?);
+                for _ in 0..params {
+                    fields.bd(values.real(code - 33)?);
+                }
+            }
+        }
+    }
+    values.0.next().is_none().then_some(())
+}
+
+/// 3BD の点（`code`・`code + 10`・`code + 20`）。どれもなければ `default` を書く
+fn point3_or(fields: &mut BitWriter, object: &Object, code: i16, default: [f64; 3]) -> Option<()> {
+    match [code, code + 10, code + 20].map(|code| real(object, code)) {
+        [Some(None), Some(None), Some(None)] => default.map(|v| fields.bd(v)),
+        [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
+        _ => return None,
+    };
     Some(())
 }
 
