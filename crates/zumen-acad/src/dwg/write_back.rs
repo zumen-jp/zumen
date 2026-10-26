@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0044）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0045）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -93,6 +93,16 @@ const LEADER: &[i16] = &[73, 72, 40, 41, 74, 210, 220, 230, 211, 221, 231];
 const LAYER: &[i16] = &[70, 62, 290, 370];
 const STYLE: &[i16] = &[70, 40, 41, 50, 71, 42, 3, 4];
 const LTYPE: &[i16] = &[70, 3, 72, 73, 40, 49, 74, 75, 46, 50, 44, 45, 9];
+const VIEW: &[i16] = &[
+    70, 40, 10, 20, 41, 11, 21, 31, 12, 22, 32, 42, 43, 44, 50, 71, 281, 72, 110, 120, 130, 111,
+    121, 131, 112, 122, 132, 79, 146,
+];
+const UCS: &[i16] = &[70, 10, 20, 30, 11, 21, 31, 12, 22, 32, 79, 146];
+const VPORT: &[i16] = &[
+    70, 10, 20, 11, 21, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 36, 17, 27, 37, 40, 41, 42, 43, 44,
+    50, 51, 71, 72, 73, 74, 75, 76, 77, 78, 281, 65, 110, 120, 130, 111, 121, 131, 112, 122, 132,
+    79, 146,
+];
 const SHAPE: &[i16] = &[10, 20, 30, 40, 50, 41, 51, 39, 210, 220, 230];
 const VIEWPORT: &[i16] = &[
     10, 20, 30, 40, 41, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 36, 17, 27, 37, 42, 43, 44, 45, 50,
@@ -311,13 +321,16 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043・0044）。LAYER・STYLE・LTYPE だけを扱う。名前（2）などの
+/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0045）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT だけを扱う。名前（2）などの
 /// ほかの値が変わったものは `None`
 fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let own: &[i16] = match new.kind.as_slice() {
         b"LAYER" => LAYER,
         b"STYLE" => STYLE,
         b"LTYPE" => LTYPE,
+        b"VIEW" => VIEW,
+        b"UCS" => UCS,
+        b"VPORT" => VPORT,
         _ => return None,
     };
     let rest = |object: &Object| -> Vec<_> {
@@ -345,7 +358,10 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let end = match new.kind.as_slice() {
         b"LAYER" => layer(&mut fields, new, xdep, data, own_at)?,
         b"STYLE" => style(&mut fields, old, new, xdep, data, own_at)?,
-        _ => ltype(&mut fields, old, new, xdep, data, own_at)?,
+        b"LTYPE" => ltype(&mut fields, old, new, xdep, data, own_at)?,
+        b"VIEW" => view_record(&mut fields, new, xdep, data, own_at)?,
+        b"UCS" => ucs_record(&mut fields, new, xdep, data, own_at)?,
+        _ => vport_record(&mut fields, old, new, xdep, data, own_at)?,
     };
     fields.copy(data, end..handles_at)?;
     let mut out = BitWriter::default();
@@ -573,6 +589,198 @@ fn ltype(
             fields.rc(byte);
         }
     }
+    Some(bits.pos())
+}
+
+/// 外部参照に依る印（70 の 16）が元のものと同じで、ほかに `allowed` のビットだけを持つ 70
+fn record_flags(object: &Object, xdep: bool, allowed: i16) -> Option<i16> {
+    let flags = small(object, 70)??;
+    (flags & !(allowed | 16) == 0 && (flags & 16 != 0) == xdep).then_some(flags)
+}
+
+/// 0 か 1 の整数の値
+fn flag(object: &Object, code: i16) -> Option<bool> {
+    match small(object, code)?? {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+/// 2RD の点（`code`・`code + 10`）
+fn point2(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
+    for code in [code, code + 10] {
+        fields.rd(real(object, code)??);
+    }
+    Some(())
+}
+
+/// VIEW・VPORT の見え方の印（71）の、透視・前の切り取り・後ろの切り取りと、前の切り取りが目の位置にあること
+/// （DXF の 16 の逆）の 4 つのビット
+fn view_mode(fields: &mut BitWriter, mode: i16) {
+    for flag in [1, 2, 4] {
+        fields.bit(mode & flag != 0);
+    }
+    fields.bit(mode & 16 == 0);
+}
+
+/// UCS の原点と軸（110〜112）と、高さ（146）・正投影の種類（79）
+fn ucs_axes(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    for code in [110, 111, 112] {
+        point3(fields, object, code)?;
+    }
+    fields.bd(real(object, 146)??);
+    fields.bs(small(object, 79)??);
+    Some(())
+}
+
+/// VIEW の欄（決定 0045）。ねじれ（50）は度からラジアンに直し、紙空間の印は 70 の 1 から書く。UCS を伴う印
+/// （72）は、ハンドルの流れの数が変わるので、元のものと同じでなければ受け付けない。元の欄の終わりの位置を返す
+fn view_record(
+    fields: &mut BitWriter,
+    new: &Object,
+    xdep: bool,
+    data: &[u8],
+    own_at: usize,
+) -> Option<usize> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    let old = super::objects::view(&mut bits, 0, &mut Vec::new())?;
+    let associated = flag(new, 72)?;
+    let was = old.iter().find(|value| value.code == 72)?;
+    (was.data == Data::Int(i64::from(associated))).then_some(())?;
+    let paper = record_flags(new, xdep, 1)? & 1 != 0;
+    let mode = small(new, 71)??;
+    (mode & !(1 | 2 | 4 | 16) == 0).then_some(())?;
+    fields.bd(real(new, 40)??);
+    fields.bd(real(new, 41)??);
+    point2(fields, new, 10)?;
+    point3(fields, new, 12)?;
+    point3(fields, new, 11)?;
+    fields.bd(real(new, 50)??.to_radians());
+    for code in [42, 43, 44] {
+        fields.bd(real(new, code)??);
+    }
+    view_mode(fields, mode);
+    fields.rc(u8::try_from(small(new, 281)??).ok()?);
+    fields.bit(paper);
+    fields.bit(associated);
+    if associated {
+        ucs_axes(fields, new)?;
+    }
+    Some(bits.pos())
+}
+
+/// UCS の欄（決定 0045）。後に続く正投影の型は、表にないので元のまま写す。元の欄の終わりの位置を返す
+fn ucs_record(
+    fields: &mut BitWriter,
+    new: &Object,
+    xdep: bool,
+    data: &[u8],
+    own_at: usize,
+) -> Option<usize> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    for _ in 0..10 {
+        bits.bd()?;
+    }
+    bits.bs()?;
+    record_flags(new, xdep, 0)?;
+    for code in [10, 11, 12] {
+        point3(fields, new, code)?;
+    }
+    fields.bd(real(new, 146)??);
+    fields.bs(small(new, 79)??);
+    Some(bits.pos())
+}
+
+/// VPORT の欄（決定 0045）。幅は、高さ（40）と比（41）の積で書く。高さと比が変わらなければ、元の幅を写す。
+/// 角度（50・51）は度からラジアンに直し、UCS に従う印は 71 の 8 から書く。使い道の分からないビットは、元のまま
+/// 写す。元の欄の終わりの位置を返す
+fn vport_record(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    xdep: bool,
+    data: &[u8],
+    own_at: usize,
+) -> Option<usize> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    bits.bd()?;
+    let width = bits.bd()?;
+    // 中心・注視点・向き・ねじれ・レンズ・切り取りから、スナップの基点と間隔まで
+    bits.rd()?;
+    bits.rd()?;
+    for _ in 0..10 {
+        bits.bd()?;
+    }
+    for _ in 0..4 {
+        bits.bit()?;
+    }
+    bits.rc()?;
+    for _ in 0..4 {
+        bits.rd()?;
+    }
+    bits.bit()?;
+    bits.bs()?;
+    bits.bit()?;
+    bits.bb()?;
+    bits.bit()?;
+    bits.rd()?;
+    bits.rd()?;
+    bits.bit()?;
+    bits.bit()?;
+    bits.bs()?;
+    bits.bd()?;
+    for _ in 0..4 {
+        bits.rd()?;
+    }
+    let unknown = bits.bit()?;
+    bits.seek(own_at);
+    super::objects::vport(&mut bits)?;
+    record_flags(new, xdep, 0)?;
+    let mode = small(new, 71)??;
+    (mode & !(1 | 2 | 4 | 8 | 16) == 0).then_some(())?;
+    let height = real(new, 40)??;
+    let ratio = real(new, 41)??;
+    let width = if real(old, 40)?? == height && real(old, 41)?? == ratio {
+        width
+    } else if height == 0.0 {
+        ratio
+    } else {
+        ratio * height
+    };
+    fields.bd(height);
+    fields.bd(width);
+    point2(fields, new, 12)?;
+    point3(fields, new, 17)?;
+    point3(fields, new, 16)?;
+    fields.bd(real(new, 51)??.to_radians());
+    for code in [42, 43, 44] {
+        fields.bd(real(new, code)??);
+    }
+    view_mode(fields, mode);
+    fields.rc(u8::try_from(small(new, 281)??).ok()?);
+    point2(fields, new, 10)?;
+    point2(fields, new, 11)?;
+    fields.bit(mode & 8 != 0);
+    fields.bs(small(new, 72)??);
+    fields.bit(flag(new, 73)?);
+    let icon = u8::try_from(small(new, 74)??).ok()?;
+    (icon < 4).then_some(())?;
+    fields.bb(icon);
+    fields.bit(flag(new, 76)?);
+    point2(fields, new, 15)?;
+    fields.bit(flag(new, 75)?);
+    fields.bit(flag(new, 77)?);
+    fields.bs(small(new, 78)??);
+    fields.bd(real(new, 50)??.to_radians());
+    point2(fields, new, 13)?;
+    point2(fields, new, 14)?;
+    fields.bit(unknown);
+    fields.bit(flag(new, 65)?);
+    ucs_axes(fields, new)?;
     Some(bits.pos())
 }
 

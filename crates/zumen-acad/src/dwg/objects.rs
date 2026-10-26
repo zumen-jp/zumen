@@ -1299,7 +1299,7 @@ fn view_mode(bits: &mut Bits) -> Option<i64> {
 /// 描き方（281）と、UCS を伴う印（72）を置く。UCS を伴うときは、UCS の原点と軸（110〜112）・
 /// 正投影の種類（79）・高さ（146）も置き、ハンドルの並びでは基準の UCS（346）と名前の UCS（345）が続く。
 /// 紙空間の印は、70 の 1 とする
-fn view(bits: &mut Bits, xdep: i64, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+pub(super) fn view(bits: &mut Bits, xdep: i64, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     let height = bits.bd()?;
     let width = bits.bd()?;
     let center = point2(bits, 10)?;
@@ -1365,7 +1365,7 @@ fn ucs(bits: &mut Bits) -> Option<Vec<Value>> {
 
 /// VPORT の欄（ODS 5.4.1 の VPORT の節、R2000）。DWG は幅を高さとの積で持つので、DXF と同じく
 /// 高さとの比（41）に直す。UCS に従う印は、見え方の印（71）の 8 とする
-fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
+pub(super) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
     let height = bits.bd()?;
     let width = bits.bd()?;
     let center = point2(bits, 12)?;
