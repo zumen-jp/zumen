@@ -5359,3 +5359,130 @@ fn changed_layers_and_styles_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
 }
+
+/// 線の要素と、文字の要素を 1 つずつ持つ線種
+#[cfg(test)]
+fn ltypes_with(
+    description: &'static [u8],
+    length: f64,
+    first: f64,
+    scale: f64,
+    rotation: f64,
+    text: &'static [u8],
+) -> Vec<(u64, Vec<u8>)> {
+    let ltype = object(
+        0x39,
+        0x12,
+        move |w| {
+            w.bl_zero();
+            for name in [b"DASHED".as_slice(), description] {
+                w.bs(name.len() as u16 + 1);
+                w.bytes(name);
+                w.bytes(&[0]);
+                if name == b"DASHED" {
+                    w.bit(false);
+                    w.bs(0);
+                    w.bit(false);
+                }
+            }
+            w.bd(length);
+            w.bytes(&[65, 2]);
+            for (dash, x, y, scale, rotation, flags) in [
+                (first, 0.0, 0.0, 1.0, 0.0, 0),
+                (-0.5, 0.1, -0.2, scale, rotation, 2),
+            ] {
+                w.bd(dash);
+                w.bs(0);
+                w.rd(x);
+                w.rd(y);
+                w.bd(scale);
+                w.bd(rotation);
+                w.bs(flags);
+            }
+            let mut area = [0; 256];
+            area[..text.len()].copy_from_slice(text);
+            w.bytes(&area);
+        },
+        |w| {
+            w.handle(4, 5);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            w.handle(5, 0);
+            w.handle(5, 0x11);
+        },
+    );
+    vec![(0x12, ltype)]
+}
+
+#[test]
+fn changed_ltypes_are_written_back() {
+    let src = dwg(&ltypes_with(b"__ AB", 1.5, 1.0, 0.5, 0.0, b"AB"));
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 説明と長さと線の要素の長さを変え、文字の要素の尺度・回転・文字列を変える
+    set_value(&mut db, 0x12, 3, Data::Text(b"-- XYZ".to_vec()));
+    set_value(&mut db, 0x12, 40, Data::Real(2.0));
+    set_value(&mut db, 0x12, 49, Data::Real(1.25));
+    set_value(&mut db, 0x12, 46, Data::Real(0.75));
+    set_value(&mut db, 0x12, 50, Data::Real(90.0));
+    set_value(&mut db, 0x12, 9, Data::Text(b"XYZ".to_vec()));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let (got, want) = (after.get(0x12).unwrap(), db.get(0x12).unwrap());
+    assert_eq!(got.values.len(), want.values.len());
+    for (a, b) in got.values.iter().zip(&want.values) {
+        assert_eq!(a.code, b.code);
+        match (&a.data, &b.data) {
+            (Data::Real(x), Data::Real(y)) => assert!(close(Some(Some(*x)), *y), "{}", a.code),
+            (x, y) => assert_eq!(x, y, "{}", a.code),
+        }
+    }
+    let file = read(&out, Limits::default()).0.unwrap();
+    let expected = &ltypes_with(
+        b"-- XYZ",
+        2.0,
+        1.25,
+        0.75,
+        std::f64::consts::FRAC_PI_2,
+        b"XYZ",
+    )[0]
+    .1;
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x12))
+        .unwrap();
+    let range = file.record(index).unwrap().bytes.unwrap();
+    let got = &out[range.start as usize..range.end as usize];
+    // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+    let data = &expected[1..expected.len() - 2];
+    assert_eq!(&got[1..=data.len()], data);
+    assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+    assert!(got.len() <= expected.len() + 1);
+    // 要素の数・形と文字の印・文字の要素の 0 でない 75・領域に収まらない文字列・外部参照に依る印は受け付けない
+    for (code, data) in [
+        (73, Data::Int(3)),
+        (74, Data::Int(4)),
+        (75, Data::Int(1)),
+        (9, Data::Text(vec![b'A'; 256])),
+        (70, Data::Int(16)),
+    ] {
+        let mut changed = objects(&src).0;
+        let index = changed
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(0x12))
+            .unwrap();
+        let values = &mut changed.object_mut(index).unwrap().values;
+        // 74 と 75 は、文字の要素のものを変える
+        let value = values.iter_mut().filter(|v| v.code == code).last().unwrap();
+        value.data = data;
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
