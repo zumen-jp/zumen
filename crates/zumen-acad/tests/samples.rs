@@ -462,6 +462,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"ATTDEF"
                     | b"MTEXT"
                     | b"LWPOLYLINE"
+                    | b"SPLINE"
             ) {
                 continue;
             }

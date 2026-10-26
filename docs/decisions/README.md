@@ -57,6 +57,7 @@
 - [0033: DWG（R2000）への書き戻しは、ATTRIB・ATTDEF の型ごとの欄を、TEXT と同じ欄に続けて符号化する](0033-dwg-write-back-attributes.md)（2026-10-26、採用）
 - [0034: DWG（R2000）への書き戻しは、MTEXT の表にない欄を元のビットから写して符号化する](0034-dwg-write-back-mtext.md)（2026-10-26、採用）
 - [0035: DWG（R2000）への書き戻しは、LWPOLYLINE の続く欄の印を、値があるかから選んで符号化する](0035-dwg-write-back-lwpolyline.md)（2026-10-26、採用）
+- [0036: DWG（R2000）への書き戻しは、SPLINE の場合を元のまま保ち、それに合う欄を符号化する](0036-dwg-write-back-spline.md)（2026-10-26、採用）
 - [0024: AutoCAD の系統の表の変更は、元の表と比べて違うレコードだけを符号化に書き戻す](0024-acad-table-write-back.md)（2026-10-26、採用）
 - [0025: AutoCAD の系統の表に足したオブジェクトは、同じ所の次の残したオブジェクトの前に書き戻す](0025-acad-object-add-remove-write-back.md)（2026-10-26、採用）
 - [0026: DWG の R2004 以降は、入れ物の区切りを展開したバイト列にしてから読む](0026-dwg-r2004-container.md)（2026-10-26、採用）

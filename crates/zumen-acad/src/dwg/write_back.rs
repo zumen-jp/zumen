@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0035）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0036）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -48,6 +48,9 @@ const MTEXT: &[i16] = &[
 
 /// MINSERT の型の番号
 const LWPOLYLINE: &[i16] = &[90, 70, 43, 38, 39, 10, 20, 40, 41, 42, 210, 220, 230];
+const SPLINE: &[i16] = &[
+    71, 72, 73, 74, 44, 12, 22, 32, 13, 23, 33, 42, 43, 40, 10, 20, 30, 41, 11, 21, 31,
+];
 const MINSERT_TYPE: i16 = 0x08;
 
 const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
@@ -193,6 +196,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"ATTDEF" => ATTDEF,
         b"MTEXT" => MTEXT,
         b"LWPOLYLINE" => LWPOLYLINE,
+        b"SPLINE" => SPLINE,
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
         _ => &[],
@@ -304,6 +308,7 @@ fn own_fields(new: &Object, grid: bool, data: &[u8], start: usize) -> Option<Bit
         b"ATTRIB" | b"ATTDEF" => attribute(&mut fields, new)?,
         b"MTEXT" => mtext(&mut fields, new, data, start)?,
         b"LWPOLYLINE" => lwpolyline(&mut fields, new, data, start)?,
+        b"SPLINE" => spline(&mut fields, new, data, start)?,
         b"INSERT" => insert(&mut fields, new, grid)?,
         _ => return None,
     }
@@ -619,6 +624,118 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
     Some(())
 }
 
+/// SPLINE の欄（R2000）。場合（scenario）は元のままとし、1 なら節点と制御点、2 なら当てはめる点を書く。
+/// 場合に合わない値があれば `None`。有理・閉じている・周期的の印は表にないので元のビットを写し、重みが
+/// あるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く
+fn spline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    let scenario = bits.bl()?;
+    bits.bl()?;
+    let flags_at = bits.pos();
+    // 制御点（x・y・z・重み）と、当てはめる点（x・y・z）
+    let mut controls: Vec<[Option<f64>; 4]> = Vec::new();
+    let mut fit: Vec<[Option<f64>; 4]> = Vec::new();
+    let mut knots = Vec::new();
+    for value in &object.values {
+        let (list, slot) = match value.code {
+            10 => {
+                controls.push([None; 4]);
+                (&mut controls, 0)
+            }
+            20 => (&mut controls, 1),
+            30 => (&mut controls, 2),
+            41 => (&mut controls, 3),
+            11 => {
+                fit.push([None; 4]);
+                (&mut fit, 0)
+            }
+            21 => (&mut fit, 1),
+            31 => (&mut fit, 2),
+            40 => {
+                let Data::Real(knot) = value.data else {
+                    return None;
+                };
+                knots.push(knot);
+                continue;
+            }
+            _ => continue,
+        };
+        let Data::Real(v) = value.data else {
+            return None;
+        };
+        let slot = list.last_mut()?.get_mut(slot)?;
+        if slot.is_some() {
+            return None;
+        }
+        *slot = Some(v);
+    }
+    for (code, len) in [(72, knots.len()), (73, controls.len()), (74, fit.len())] {
+        if integer(object, code)?.unwrap_or(0) != i64::try_from(len).ok()? {
+            return None;
+        }
+    }
+    let present = |codes: &[i16]| {
+        codes
+            .iter()
+            .any(|code| object.values.iter().any(|v| v.code == *code))
+    };
+    fields.bl(scenario);
+    fields.bl(i32::try_from(integer(object, 71)??).ok()?);
+    match scenario {
+        1 => {
+            if !fit.is_empty() || present(&[44, 12, 22, 32, 13, 23, 33]) {
+                return None;
+            }
+            let weighted = controls.first().is_some_and(|c| c[3].is_some());
+            if controls.iter().any(|c| c[3].is_some() != weighted) {
+                return None;
+            }
+            fields.copy(data, flags_at..flags_at + 3)?;
+            for code in [42, 43] {
+                fields.bd(real(object, code)??);
+            }
+            fields.bl(i32::try_from(knots.len()).ok()?);
+            fields.bl(i32::try_from(controls.len()).ok()?);
+            fields.bit(weighted);
+            for knot in knots {
+                fields.bd(knot);
+            }
+            for control in &controls {
+                for v in &control[..3] {
+                    fields.bd((*v)?);
+                }
+                if weighted {
+                    fields.bd(control[3]?);
+                }
+            }
+        }
+        2 => {
+            if !controls.is_empty() || !knots.is_empty() || present(&[42, 43]) {
+                return None;
+            }
+            fields.bd(real(object, 44)??);
+            for code in [12, 13] {
+                match [code, code + 10, code + 20].map(|code| real(object, code)) {
+                    [Some(None), Some(None), Some(None)] => [0.0; 3].map(|v| fields.bd(v)),
+                    [Some(Some(x)), Some(Some(y)), Some(Some(z))] => {
+                        [x, y, z].map(|v| fields.bd(v))
+                    }
+                    _ => return None,
+                };
+            }
+            fields.bl(i32::try_from(fit.len()).ok()?);
+            for point in &fit {
+                for v in &point[..3] {
+                    fields.bd((*v)?);
+                }
+            }
+        }
+        _ => return None,
+    }
+    Some(())
+}
+
 /// `code` の文字列を、DXF の `^` の書き方を戻し、終わりの NUL を付けて T で書く
 fn string(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
     let mut bytes = uncaret(text_of(object, code)?)?;
@@ -757,6 +874,19 @@ fn small(object: &Object, code: i16) -> Option<Option<i16>> {
     };
     match (&value.data, found.next()) {
         (Data::Int(value), None) => i16::try_from(*value).ok().map(Some),
+        _ => None,
+    }
+}
+
+/// `code` の整数の値。ないなら `Some(None)`、2 度あるか整数でなければ `None`
+fn integer(object: &Object, code: i16) -> Option<Option<i64>> {
+    let mut found = object.values.iter().filter(|value| value.code == code);
+    let value = match found.next() {
+        None => return Some(None),
+        Some(value) => value,
+    };
+    match (&value.data, found.next()) {
+        (Data::Int(value), None) => Some(Some(*value)),
         _ => None,
     }
 }
