@@ -444,13 +444,15 @@ fn r2000_drawings_take_back_changed_entities() {
                     changed += 1;
                 }
             }
-            // 画層の色（表示しない印の負の符号は保つ）と、文字スタイルの幅の係数と、線種の要素の長さを変える
+            // 画層の色（表示しない印の負の符号は保つ）と、文字スタイルの幅の係数と、線種の要素の長さと、ビューとビューポートの高さと、UCS の原点を変える
             if object.section == Section::Tables {
                 for value in object.values.iter_mut() {
                     match (object.kind.as_slice(), value.code, &mut value.data) {
                         (b"LAYER", 62, Data::Int(v)) => *v = v.signum() * (v.abs() % 255 + 1),
                         (b"STYLE", 41, Data::Real(v)) => *v *= 2.0,
                         (b"LTYPE", 49, Data::Real(v)) => *v *= 2.0,
+                        (b"VIEW" | b"VPORT", 40, Data::Real(v)) => *v *= 2.0,
+                        (b"UCS", 10, Data::Real(v)) => *v += 1.5,
                         _ => continue,
                     }
                     changed += 1;

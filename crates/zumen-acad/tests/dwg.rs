@@ -5486,3 +5486,172 @@ fn changed_ltypes_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
 }
+
+/// UCS を伴う VIEW と、UCS と、VPORT。`height` は VIEW と VPORT の高さ、`twist` は VIEW のねじれ（ラジアン）、
+/// `origin` は UCS の原点の X、`icon` は VPORT の UCS のアイコンの印
+#[cfg(test)]
+fn views_with(height: f64, twist: f64, origin: f64, icon: u8) -> Vec<(u64, Vec<u8>)> {
+    fn common(w: &mut BitWriter, name: &[u8]) {
+        w.bl_zero();
+        w.bs(name.len() as u16 + 1);
+        w.bytes(name);
+        w.bytes(&[0]);
+        w.bit(false);
+        w.bs(0);
+        w.bit(false);
+    }
+    fn handles(count: usize) -> impl Fn(&mut BitWriter) {
+        move |w| {
+            w.handle(4, 2);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            for _ in 0..count {
+                w.handle(5, 0);
+            }
+        }
+    }
+    let axes = |w: &mut BitWriter| {
+        for v in [1.0, 2.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+            w.bd(v);
+        }
+        w.bd(0.5); // 高さ
+        w.bs(1); // 正投影の種類
+    };
+    let view = object(
+        0x3D,
+        0x10,
+        move |w| {
+            common(w, b"FRONT");
+            w.bd(height);
+            w.bd(6.0);
+            w.rd(3.0);
+            w.rd(4.0);
+            for v in [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, twist, 50.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for bit in [false, false, false, true] {
+                w.bit(bit);
+            }
+            w.bytes(&[0]);
+            w.bit(false); // 紙空間の印
+            w.bit(true); // UCS を伴う
+            axes(w);
+        },
+        handles(2),
+    );
+    let ucs = object(
+        0x3F,
+        0x11,
+        move |w| {
+            common(w, b"TILT");
+            for v in [origin, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0] {
+                w.bd(v);
+            }
+            w.bs(0);
+            w.bs(0); // 正投影の型
+        },
+        handles(2),
+    );
+    let vport = object(
+        0x41,
+        0x12,
+        move |w| {
+            common(w, b"*ACTIVE");
+            w.bd(height);
+            w.bd(height * 2.0);
+            w.rd(5.0);
+            w.rd(6.0);
+            for v in [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 50.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for bit in [false, false, false, true] {
+                w.bit(bit);
+            }
+            w.bytes(&[0]);
+            for v in [0.0, 0.0, 1.0, 1.0] {
+                w.rd(v);
+            }
+            w.bit(false); // UCS に従う
+            w.bs(100);
+            w.bit(true);
+            w.bits(u64::from(icon), 2);
+            w.bit(false);
+            w.rd(0.5);
+            w.rd(0.5);
+            w.bit(false);
+            w.bit(false);
+            w.bs(0);
+            w.bd(0.0);
+            for v in [0.0, 0.0, 0.5, 0.5] {
+                w.rd(v);
+            }
+            w.bit(true); // 使い道の分からない B
+            w.bit(true); // ビューポートごとの UCS
+            axes(w);
+        },
+        handles(2),
+    );
+    vec![(0x10, view), (0x11, ucs), (0x12, vport)]
+}
+
+#[test]
+fn changed_views_ucss_and_vports_are_written_back() {
+    let src = dwg(&views_with(4.0, 0.0, 1.0, 3));
+    let (mut db, before) = objects(&src);
+    assert!(before.is_empty(), "{:?}", codes_of(&before));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // VIEW と VPORT の高さを変え（VPORT は比を保つ）、VIEW のねじれと、UCS の原点と、VPORT のアイコンを変える
+    set_value(&mut db, 0x10, 40, Data::Real(5.0));
+    set_value(&mut db, 0x10, 50, Data::Real(90.0));
+    set_value(&mut db, 0x11, 10, Data::Real(-2.0));
+    set_value(&mut db, 0x12, 40, Data::Real(5.0));
+    set_value(&mut db, 0x12, 74, Data::Int(1));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    for handle in [0x10, 0x11, 0x12] {
+        let (got, want) = (after.get(handle).unwrap(), db.get(handle).unwrap());
+        assert_eq!(got.values.len(), want.values.len());
+        for (a, b) in got.values.iter().zip(&want.values) {
+            assert_eq!(a.code, b.code);
+            match (&a.data, &b.data) {
+                (Data::Real(x), Data::Real(y)) => {
+                    assert!(close(Some(Some(*x)), *y), "{handle:#x} {}", a.code)
+                }
+                (x, y) => assert_eq!(x, y, "{handle:#x} {}", a.code),
+            }
+        }
+    }
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (handle, expected) in views_with(5.0, std::f64::consts::FRAC_PI_2, -2.0, 1) {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data, "{handle:#x}");
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // UCS を伴う印・紙空間でない 70 のビット・4 からのアイコン・知らない見え方の印・UCS の 70 は受け付けない
+    for (handle, code, data) in [
+        (0x10, 72, Data::Int(0)),
+        (0x10, 70, Data::Int(2)),
+        (0x12, 74, Data::Int(4)),
+        (0x12, 71, Data::Int(32)),
+        (0x11, 70, Data::Int(1)),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, handle, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{handle:#x} {code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
