@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use super::bits::Bits;
 use super::header::{self, Header};
-use super::{COMMON_OBJECT, DwgFile, Entry, stopped};
+use super::{COMMON_OBJECT, DwgFile, Entry, Release, stopped};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use zumen_sdk::Error;
@@ -166,7 +166,9 @@ impl DwgFile {
 
     /// オブジェクトの表を作る。予算の上限か中断の合図で止めたときだけ失敗する
     pub fn objects(&self, cx: &mut Cx) -> Result<AcadDb, Error> {
-        let header = header::header(&self.src, &self.locators, cx);
+        let header = self
+            .header_section()
+            .and_then(|(src, span)| header::header(src, span, self.release, cx));
         let mut found = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
@@ -174,7 +176,7 @@ impl DwgFile {
             let fields = kind.as_ref().and_then(|(name, section)| {
                 // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
                 let entity = matches!(section, Section::Entities | Section::Blocks);
-                read(self.data(entry), entry, name, entity, header)
+                read(self.data(entry), self.release, entry, name, entity, header)
             });
             found.push((kind, fields));
         }
@@ -384,8 +386,12 @@ struct Common {
     entmode: u8,
     /// 反応子の数
     reactors: u32,
+    /// 拡張辞書のハンドルを持つか
+    xdic: bool,
     /// 前後の図形のハンドルを持たないか
     no_links: bool,
+    /// 色を DBCOLOR のハンドルで指すか（R2004 から）
+    color_handle: bool,
     /// 線種の印。0 は ByLayer、1 は ByBlock、2 は Continuous、3 はハンドルで指す
     ltype_flags: u8,
     /// 印刷スタイルのハンドルを持つか（印刷スタイルの印が 3）
@@ -396,12 +402,13 @@ struct Common {
 /// オブジェクトのデータを読む。読めなければ `None`
 fn read(
     data: &[u8],
+    release: Release,
     entry: &Entry,
     kind: &[u8],
     entity: bool,
     header: Option<Header>,
 ) -> Option<Fields> {
-    let mut bits = Bits::new(data);
+    let mut bits = Bits::with_release(data, release);
     bits.bs()?;
     let handles_at = usize::try_from(bits.rl()?).ok()?;
     bits.handle()?;
@@ -446,7 +453,7 @@ fn read(
             Vec::new()
         };
         // 図形のハンドルの並び: 所有者（entmode が 0 のとき。1・2 のときは見出しの変数が指す空間）・反応子・拡張辞書・前後の図形
-        // （nolinks が 0 のとき）・画層・線種と印刷スタイル（印が 3 のとき）・型ごとのハンドル
+        // （nolinks が 0 のとき）・色（R2004 で、ENC の 0x4000 が立つとき）・画層・線種と印刷スタイル（印が 3 のとき）・型ごとのハンドル
         bits.seek(handles_at);
         let owner = match common.entmode {
             0 => Some(bits.handle()?.resolve(entry.handle)?),
@@ -457,9 +464,14 @@ fn read(
         for _ in 0..common.reactors {
             bits.handle()?;
         }
-        bits.handle()?;
+        if common.xdic {
+            bits.handle()?;
+        }
         if !common.no_links {
             bits.handle()?;
+            bits.handle()?;
+        }
+        if common.color_handle {
             bits.handle()?;
         }
         let layer = bits.handle()?.resolve(entry.handle)?;
@@ -526,6 +538,8 @@ fn read(
         })
     } else {
         let reactors = bits.bl()?;
+        // R2004 からは、拡張辞書のハンドルがないことを表す B が続く
+        let xdic = release == Release::R2000 || !bits.bit()?;
         let mut entries = Vec::new();
         // 型ごとのハンドルを置くコード。0 のハンドルは置かない。コードが 0 のハンドルは読み飛ばし、
         // 6 のハンドルは線種の名前に直す
@@ -566,7 +580,9 @@ fn read(
             for _ in 0..reactors {
                 bits.handle()?;
             }
-            bits.handle()?;
+            if xdic {
+                bits.handle()?;
+            }
             // 辞書の項目は、名前（3）と指すオブジェクトの組。所有するなら 360、しないなら 350
             let code = if values.iter().any(|v| v.code == 280) {
                 360
@@ -619,8 +635,9 @@ fn skip_extended_data(bits: &mut Bits) -> Option<()> {
     }
 }
 
-/// R2000 の図形の共通の欄（ODS 5.4.1 の 20.4.1）。既定の値でない色（62）・線種の尺度（48）・
-/// 非表示（60）を値にする
+/// 図形の共通の欄（ODS 5.4.1 の 20.4.1）。既定の値でない色（62）・線種の尺度（48）・
+/// 非表示（60）を値にする。R2004 からは、反応子の数の後に拡張辞書がないことを表す B があり、
+/// 前後の図形のハンドルはない
 fn entity_data(bits: &mut Bits) -> Option<Common> {
     if bits.bit()? {
         let size = bits.rl()?;
@@ -628,16 +645,21 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     }
     let entmode = bits.bb()?;
     let reactors = u32::try_from(bits.bl()?).ok()?;
-    let no_links = bits.bit()?;
-    let color = bits.bs()?;
+    let r2004 = bits.release() == Release::R2004;
+    let xdic = !r2004 || !bits.bit()?;
+    let no_links = r2004 || bits.bit()?;
+    let color = bits.enc()?;
     let ltype_scale = bits.bd()?;
     let ltype_flags = bits.bb()?;
     let plotstyle_flags = bits.bb()?;
     let invisible = bits.bs()?;
     bits.rc()?;
     let mut values = Vec::new();
-    if color != 256 {
-        values.push(int(62, i64::from(color)));
+    // 真の色は、DXF が近い番号を 62 に置くが、近さの決まりが分からないので 420 だけを置く
+    match color.rgb {
+        Some(rgb) => values.push(int(420, i64::from(rgb))),
+        None if color.index != 256 => values.push(int(62, i64::from(color.index))),
+        None => {}
     }
     if ltype_scale != 1.0 {
         values.push(real(48, ltype_scale));
@@ -648,7 +670,9 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     Some(Common {
         entmode,
         reactors,
+        xdic,
         no_links,
+        color_handle: color.book,
         ltype_flags,
         plotstyle_handle: plotstyle_flags == 3,
         values,
@@ -885,7 +909,7 @@ fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
         },
         int(70, i64::from(flags)),
         text_value(3, &description),
-        int(62, i64::from(bits.bs()?)),
+        int(62, i64::from(bits.cmc()?.index)),
         real(51, bits.bd()?.to_degrees()),
         real(52, bits.bd()?.to_degrees()),
     ];
@@ -893,7 +917,7 @@ fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
     values.push(int(71, i64::from(lines)));
     for _ in 0..lines {
         values.push(real(49, bits.bd()?));
-        values.push(int(62, i64::from(bits.bs()?)));
+        values.push(int(62, i64::from(bits.cmc()?.index)));
         bits.bs()?;
     }
     Some(values)
@@ -999,8 +1023,15 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 .fold(xdep, |sum, (_, dxf)| sum | dxf);
             values.push(int(70, dxf));
             // 表示しない画層は、DXF と同じく色を負にする
-            let color = i64::from(bits.bs()?);
-            values.push(int(62, if flags & 2 != 0 { -color } else { color }));
+            // 真の色は、図形と同じく 420 だけを置く
+            let color = bits.cmc()?;
+            match color.rgb {
+                Some(rgb) => values.push(int(420, i64::from(rgb))),
+                None => {
+                    let index = i64::from(color.index);
+                    values.push(int(62, if flags & 2 != 0 { -index } else { index }));
+                }
+            }
             if flags & 16 == 0 {
                 values.push(Value {
                     code: 290,
@@ -1240,12 +1271,14 @@ enum Dim {
     Real(f64),
     Bit(bool),
     Short(i16),
+    /// CMC の色
+    Color(i16),
 }
 
 /// DIMSTYLE の欄（ODS 5.4.1 の DIMSTYLE の節、R2000）の、DWG での並びと、グループ・コードと、
 /// DXF が書かない既定の値
 const DIM_FIELDS: [(i16, Dim); 59] = {
-    use Dim::{Bit, Real, Short, Text};
+    use Dim::{Bit, Color, Real, Short, Text};
     [
         (3, Text),
         (4, Text),
@@ -1282,9 +1315,9 @@ const DIM_FIELDS: [(i16, Dim); 59] = {
         (173, Bit(false)),
         (174, Bit(false)),
         (175, Bit(false)),
-        (176, Short(0)),
-        (177, Short(0)),
-        (178, Short(0)),
+        (176, Color(0)),
+        (177, Color(0)),
+        (178, Color(0)),
         (179, Short(0)),
         (271, Short(4)),
         (272, Short(4)),
@@ -1334,6 +1367,12 @@ fn dimstyle(bits: &mut Bits) -> Option<Vec<Value>> {
             }
             Dim::Short(default) => {
                 let value = bits.bs()?;
+                if value != default {
+                    values.push(int(code, i64::from(value)));
+                }
+            }
+            Dim::Color(default) => {
+                let value = bits.cmc()?.index;
                 if value != default {
                     values.push(int(code, i64::from(value)));
                 }
@@ -1496,23 +1535,42 @@ fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     values.push(int(72, i64::from(bits.bs()?)));
     bits.bd()?;
     bits.bd()?;
-    let text = caret(&bits.text()?);
+    // DXF は、制御文字を ^ の形に直す前の文字列を 250 バイトずつに分ける
+    let text = bits.text()?;
     let mut rest = text.as_slice();
     while rest.len() > 250 {
         let (chunk, tail) = rest.split_at(250);
         values.push(Value {
             code: 3,
-            data: Data::Text(chunk.to_vec()),
+            data: Data::Text(caret(chunk)),
         });
         rest = tail;
     }
     values.push(Value {
         code: 1,
-        data: Data::Text(rest.to_vec()),
+        data: Data::Text(caret(rest)),
     });
     values.push(int(73, i64::from(bits.bs()?)));
     values.push(real(44, bits.bd()?));
     bits.bit()?;
+    // R2004 からは背景の欄が続く。印（90）の 1 は、背景の大きさの倍率（45）・色（63）・透明度（441）が
+    // 続くことを表す。DXF と同じく、印が 0 でなければ置く
+    if bits.release() == Release::R2004 {
+        let background = bits.bl()?;
+        if background != 0 {
+            values.push(int(90, i64::from(background)));
+        }
+        if background & 1 != 0 {
+            values.push(real(45, bits.bd()?));
+            // 真の色は、図形と同じく 421 だけを置く
+            let color = bits.cmc()?;
+            match color.rgb {
+                Some(rgb) => values.push(int(421, i64::from(rgb))),
+                None => values.push(int(63, i64::from(color.index))),
+            }
+            values.push(int(441, i64::from(bits.bl()?)));
+        }
+    }
     if reals(&x_axis) != [Some(1.0), Some(0.0), Some(0.0)] {
         values.extend(x_axis);
     }
@@ -2047,6 +2105,12 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
 /// HATCH の欄（ODS 5.4.1 の 20.4.75、R2000）。DXF と同じく、標高を 30 に置き、10・20 は 0 とする。
 /// 角度は度に直す。境界の図形のハンドル（330）は、所有者と見分けられないので、まだ置かない
 fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
+    // R2004 からは、先頭にグラデーションの欄が来る。DXF と同じく、グラデーションのときだけ置く
+    let gradient = if bits.release() == Release::R2004 {
+        hatch_gradient(bits)?
+    } else {
+        Vec::new()
+    };
     let elevation = bits.bd()?;
     let mut values = vec![real(10, 0.0), real(20, 0.0), real(30, elevation)];
     let extrusion = point3(bits, 210)?;
@@ -2115,6 +2179,43 @@ fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
     for _ in 0..seeds {
         values.extend(point2(bits, 10)?);
     }
+    values.extend(gradient);
+    Some(values)
+}
+
+/// HATCH のグラデーションの欄（ODS 5.4.1 の 20.4.75、R2004 から）。グラデーションでなければ空
+fn hatch_gradient(bits: &mut Bits) -> Option<Vec<Value>> {
+    let kind = bits.bl()?;
+    let reserved = bits.bl()?;
+    let angle = bits.bd()?;
+    let shift = bits.bd()?;
+    let single = bits.bl()?;
+    let tint = bits.bd()?;
+    let count = bits.bl()?;
+    let mut colors = Vec::new();
+    for _ in 0..count {
+        colors.push(real(463, bits.bd()?));
+        bits.bs()?;
+        colors.push(int(421, i64::from(bits.bl()? as u32 & 0x00FF_FFFF)));
+        bits.rc()?;
+    }
+    let name = bits.text()?;
+    if kind == 0 {
+        return Some(Vec::new());
+    }
+    let mut values = vec![
+        int(450, i64::from(kind)),
+        int(451, i64::from(reserved)),
+        int(452, i64::from(single)),
+        int(453, i64::from(count)),
+    ];
+    values.extend(colors);
+    values.extend([
+        real(460, angle),
+        real(461, shift),
+        real(462, tint),
+        text_value(470, &name),
+    ]);
     Some(values)
 }
 

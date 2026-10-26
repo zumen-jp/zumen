@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Section, Value};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_sdk::Codec;
 
 /// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
@@ -40,7 +40,10 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().is_some_and(|e| e == "dwg"))
-        .filter(|path| std::fs::read(path).unwrap().starts_with(b"AC1015"))
+        .filter(|path| {
+            let src = std::fs::read(path).unwrap();
+            src.starts_with(b"AC1015") || src.starts_with(b"AC1018")
+        })
         .filter_map(|dwg| {
             let stem = dwg.file_stem()?.to_str()?;
             let dxf = dwg.with_file_name(format!("{stem}_ascii.dxf"));
@@ -248,6 +251,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     if object.kind == b"SHAPE" && code == 2 {
                         continue;
                     }
+                    // 真の色の 62 は、DXF が近い番号を置くが、近さの決まりが分からないので置かない
+                    if code == 62 && object.first(420).is_some() {
+                        continue;
+                    }
                     if let (None, Some(theirs)) = (object.first(code), other.first(code)) {
                         assert!(is_default(code, theirs), "{at} {code}: {theirs:?}");
                     }
@@ -341,24 +348,15 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
 }
 
 #[test]
-fn r2004_containers_are_read_before_the_version_is_reported() {
+fn r2004_drawings_are_read_without_diagnostics() {
     for path in dwgs(b"AC1018") {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
         let cancel = CancelToken::new();
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-        assert!(
-            matches!(Dwg::read(&src, &mut cx), Err(zumen_sdk::Error::Unsupported)),
-            "{}",
-            path.display()
-        );
+        assert!(Dwg::read(&src, &mut cx).is_ok(), "{}", path.display());
         let found: Vec<_> = diag.iter().map(|d| d.code()).collect();
-        assert_eq!(
-            found,
-            [codes::DWG_VERSION_UNSUPPORTED],
-            "{}",
-            path.display()
-        );
+        assert_eq!(found, [], "{}", path.display());
     }
 }

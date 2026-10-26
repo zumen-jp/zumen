@@ -3,16 +3,120 @@
 //! バイトの中のビットは、上位から読む。複数のバイトにわたる生の値は、下位のバイトから並ぶ。
 //! どの読み方も、データが尽きたら `None` を返す。
 
+use super::Release;
+
+/// 色
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Color {
+    /// 色の番号。256 は ByLayer、0 は ByBlock
+    pub(super) index: i16,
+    /// 真の色（下位の 3 バイトが RGB）。DXF の 420 に置く
+    pub(super) rgb: Option<u32>,
+    /// 図形の色を DBCOLOR のハンドルで指すか。そのときは RGB の値がデータの側にない
+    pub(super) book: bool,
+}
+
+impl Color {
+    /// R2004 の RGB の値を読む。最上位のバイトが色の種類で、0xC0 は ByLayer、0xC1 は ByBlock、
+    /// 0xC2 は真の色、0xC3 は下位のバイトが色の番号（試料の DWG と DXF の比較で確かめた）。
+    /// それ以外は `index` のまま
+    fn r2004(index: i16, value: u32) -> Self {
+        let (index, rgb) = match value >> 24 {
+            0xC0 => (256, None),
+            0xC1 => (0, None),
+            0xC2 => (index, Some(value & 0x00FF_FFFF)),
+            0xC3 => (i16::from(value as u8), None),
+            _ => (index, None),
+        };
+        Color {
+            index,
+            rgb,
+            book: false,
+        }
+    }
+}
+
 /// ビット列を先頭から読む
 pub(super) struct Bits<'a> {
     src: &'a [u8],
     /// 次に読むビットの位置
     pos: usize,
+    /// 色の欄の形を決める版
+    release: Release,
 }
 
 impl<'a> Bits<'a> {
     pub(super) fn new(src: &'a [u8]) -> Self {
-        Bits { src, pos: 0 }
+        Bits {
+            src,
+            pos: 0,
+            release: Release::R2000,
+        }
+    }
+
+    /// 版 `release` の欄の形で読む
+    pub(super) fn with_release(src: &'a [u8], release: Release) -> Self {
+        Bits {
+            src,
+            pos: 0,
+            release,
+        }
+    }
+
+    /// 読む版
+    pub(super) fn release(&self) -> Release {
+        self.release
+    }
+
+    /// CMC（2.11「CmColor value」）。色を返す。R2004 からは、番号（BS）の後に RGB の値（BL）と
+    /// 印（RC）が続き、印の 1 は色の名前（TV）、2 は色見本帳の名前（TV）が続くことを表す
+    pub(super) fn cmc(&mut self) -> Option<Color> {
+        let mut color = Color {
+            index: self.bs()?,
+            rgb: None,
+            book: false,
+        };
+        if self.release == Release::R2004 {
+            color = Color::r2004(color.index, self.bl()? as u32);
+            let flags = self.rc()?;
+            if flags & 1 != 0 {
+                self.text()?;
+            }
+            if flags & 2 != 0 {
+                self.text()?;
+            }
+        }
+        Some(color)
+    }
+
+    /// 図形の色（2.12「Entity color encoding」）。色を返す。R2004 からは BS の下位のビットが
+    /// 番号で、0x8000 は RGB の値（BL）、0x2000 は透明度（BL）が続くことを表し、0x4000 は色を
+    /// DBCOLOR のハンドルで指すことを表す
+    pub(super) fn enc(&mut self) -> Option<Color> {
+        let value = self.bs()?;
+        let index = value & 0x0FFF;
+        if self.release == Release::R2000 {
+            return Some(Color {
+                index: value,
+                rgb: None,
+                book: false,
+            });
+        }
+        let flags = value as u16;
+        let mut color = Color {
+            index,
+            rgb: None,
+            book: flags & 0x4000 != 0,
+        };
+        // 0x4000 が立つと、0x8000 が立っていても RGB の値はなく、拡張辞書と画層の間に DBCOLOR を指す
+        // ハンドルが来る（試料の DWG で確かめた）
+        if flags & 0xC000 == 0x8000 {
+            color = Color::r2004(index, self.bl()? as u32);
+        }
+        if flags & 0x2000 != 0 {
+            self.bl()?;
+        }
+        Some(color)
     }
 
     /// 次に読むビットの位置

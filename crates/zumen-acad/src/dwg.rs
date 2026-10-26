@@ -85,10 +85,23 @@ pub struct Dwg;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DwgFile {
     src: Vec<u8>,
+    release: Release,
     code_page: u16,
     locators: Vec<Locator>,
+    /// R2004 の入れ物の区切り。R2000 は `None`
+    container: Option<r2004::Container>,
     classes: Vec<Class>,
+    /// R2000 は `src` の中、R2004 は `AcDb:AcDbObjects` の区切りの中の位置
     entries: Vec<Entry>,
+}
+
+/// 読める版。ビット列の欄の違いを決める
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Release {
+    /// AC1015
+    R2000,
+    /// AC1018
+    R2004,
 }
 
 /// クラスの区切りの 1 つのクラス。型が 500 以上のオブジェクトは、番号が型と同じクラスで決まる
@@ -140,7 +153,36 @@ impl DwgFile {
     }
 
     fn data(&self, entry: &Entry) -> &[u8] {
-        self.src.get(entry.data.clone()).unwrap_or_default()
+        self.body().get(entry.data.clone()).unwrap_or_default()
+    }
+
+    /// オブジェクトが並ぶバイト列
+    fn body(&self) -> &[u8] {
+        match &self.container {
+            Some(container) => container.section(R2004_SECTIONS[3]).unwrap_or_default(),
+            None => &self.src,
+        }
+    }
+
+    /// 見出しの変数の区切りを含むバイト列と、区切りの範囲
+    fn header_section(&self) -> Option<(&[u8], Range<usize>)> {
+        match &self.container {
+            Some(container) => {
+                let section = container.section(R2004_SECTIONS[0])?;
+                Some((section, 0..section.len()))
+            }
+            None => {
+                let locator = self
+                    .locators
+                    .iter()
+                    .find(|l| l.number == header::NUMBER && l.size > 0)?;
+                let start = locator.seeker as usize;
+                Some((
+                    &self.src,
+                    start..start.saturating_add(locator.size as usize),
+                ))
+            }
+        }
     }
 }
 
@@ -206,12 +248,7 @@ impl Codec for Dwg {
             .map_err(|stop| stopped(cx, stop))?;
         let version = src.get(..6).unwrap_or(src);
         if version == b"AC1018" {
-            let container = r2004::read(src, cx)?;
-            for name in R2004_SECTIONS {
-                if container.section(name).is_none_or(<[u8]>::is_empty) {
-                    return Err(r2004::invalid(cx, "section", 0..version.len()));
-                }
-            }
+            return read_r2004(src, cx);
         }
         if version != b"AC1015" {
             let known = Self::SIGNATURES
@@ -227,12 +264,26 @@ impl Codec for Dwg {
             return Err(Error::Unsupported);
         }
         let (code_page, locators) = header(src, cx)?;
-        let classes = classes(src, &locators, cx)?;
-        let entries = object_map(src, &locators, cx)?;
+        let classes = match locators
+            .iter()
+            .find(|l| l.number == CLASSES_NUMBER && l.size > 0)
+        {
+            Some(locator) => classes(src, locator.seeker as usize, Release::R2000, cx)?,
+            None => Vec::new(),
+        };
+        let map = locators
+            .iter()
+            .find(|l| l.number == OBJECT_MAP_NUMBER)
+            .ok_or_else(|| invalid(cx, "object-map", 0..src.len()))?;
+        let start = map.seeker as usize;
+        let end = start.saturating_add(map.size as usize).min(src.len());
+        let entries = object_map(src, start..end, src, cx)?;
         Ok(DwgFile {
             src: src.to_vec(),
+            release: Release::R2000,
             code_page,
             locators,
+            container: None,
             classes,
             entries,
         })
@@ -243,6 +294,31 @@ impl Codec for Dwg {
         out.extend_from_slice(&file.src);
         Ok(())
     }
+}
+
+/// R2004 の入れ物を読み、展開した区切りからクラスとオブジェクトの地図を読む（決定 0026）
+fn read_r2004(src: &[u8], cx: &mut Cx) -> Result<DwgFile, Error> {
+    let container = r2004::read(src, cx)?;
+    let mut sections = [&[][..]; 4];
+    for (found, name) in sections.iter_mut().zip(R2004_SECTIONS) {
+        *found = container
+            .section(name)
+            .filter(|section| !section.is_empty())
+            .ok_or_else(|| r2004::invalid(cx, "section", 0..6))?;
+    }
+    let [_, class_section, map, body] = sections;
+    let classes = classes(class_section, 0, Release::R2004, cx)?;
+    let entries = object_map(map, 0..map.len(), body, cx)?;
+    let code_page = le16(src, 0x13).ok_or_else(|| invalid(cx, "header", 0..src.len()))?;
+    Ok(DwgFile {
+        src: src.to_vec(),
+        release: Release::R2004,
+        code_page,
+        locators: Vec::new(),
+        container: Some(container),
+        classes,
+        entries,
+    })
 }
 
 /// 見出しのコード・ページと区切りの記録を読み、CRC と終わりの印を確かめる
@@ -286,17 +362,9 @@ fn header(src: &[u8], cx: &mut Cx) -> Result<(u16, Vec<Locator>), Error> {
     Ok((code_page, locators))
 }
 
-/// クラスの区切りを読む。区切りがないか大きさが 0 なら、クラスはない
-fn classes(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Class>, Error> {
-    let Some(locator) = locators
-        .iter()
-        .find(|l| l.number == CLASSES_NUMBER && l.size > 0)
-    else {
-        return Ok(Vec::new());
-    };
-    let start = locator.seeker as usize;
-    let end = start.saturating_add(locator.size as usize);
-    let span = start..end;
+/// `start` から始まるクラスの区切りを読む
+fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Vec<Class>, Error> {
+    let span = start..src.len();
     if src.get(start..start.saturating_add(16)) != Some(&CLASSES_START[..]) {
         return Err(invalid(cx, "classes", span));
     }
@@ -320,12 +388,18 @@ fn classes(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Class>, 
         cx.report(crc_invalid("classes", start..crc_at + 18, CLASSES));
     }
     let mut bits = Bits::new(data);
+    // R2004 からは、クラスの前に、最大のクラスの番号（BS）・0 の RC・0 の RC・真の B がある
+    if release == Release::R2004 {
+        let preface = bits.bs().and(bits.rc()).and(bits.rc()).and(bits.bit());
+        preface.ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;
+    }
     let mut classes = Vec::new();
     // 大きさはバイトで数えるので、終わりの 8 ビットより短い余りは埋め草
     while bits.pos().saturating_add(8) <= size.saturating_mul(8) {
         cx.check(Kind::Records, 1)
             .map_err(|stop| stopped(cx, stop))?;
-        let class = class(&mut bits).ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;
+        let class =
+            class(&mut bits, release).ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;
         classes.push(class);
     }
     Ok(classes)
@@ -333,7 +407,7 @@ fn classes(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Class>, 
 
 /// 1 つのクラス: 番号・版・アプリケーションの名前・C++ の名前・DXF の名前・ゾンビだったか・
 /// itemclassid
-fn class(bits: &mut Bits) -> Option<Class> {
+fn class(bits: &mut Bits, release: Release) -> Option<Class> {
     let number = u16::try_from(bits.bs()?).ok()?;
     bits.bs()?;
     bits.text()?;
@@ -341,6 +415,12 @@ fn class(bits: &mut Bits) -> Option<Class> {
     let name = bits.text()?;
     bits.bit()?;
     let entity = bits.bs()? == 0x1F2;
+    // R2004 からは、オブジェクトの数（BL）・版（BL）・保守の版（BL）・不明な 2 つの BL が続く
+    if release == Release::R2004 {
+        for _ in 0..5 {
+            bits.bl()?;
+        }
+    }
     Some(Class {
         number,
         name,
@@ -348,14 +428,14 @@ fn class(bits: &mut Bits) -> Option<Class> {
     })
 }
 
-/// オブジェクトの地図を読み、地図が指すオブジェクトの区切りを並べる
-fn object_map(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Entry>, Error> {
-    let map = locators
-        .iter()
-        .find(|l| l.number == OBJECT_MAP_NUMBER)
-        .ok_or_else(|| invalid(cx, "object-map", 0..src.len()))?;
-    let start = map.seeker as usize;
-    let end = start.saturating_add(map.size as usize).min(src.len());
+/// `src` の `range` にあるオブジェクトの地図を読み、地図が指す `objects` の中のオブジェクトの区切りを並べる
+fn object_map(
+    src: &[u8],
+    range: Range<usize>,
+    objects: &[u8],
+    cx: &mut Cx,
+) -> Result<Vec<Entry>, Error> {
+    let Range { start, end } = range;
     let mut entries = Vec::new();
     let mut pos = start;
     loop {
@@ -391,7 +471,7 @@ fn object_map(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Entry
             cx.check(Kind::Records, 1)
                 .map_err(|stop| stopped(cx, stop))?;
             let offset = usize::try_from(location).unwrap_or(usize::MAX);
-            entries.push(entry(src, handle, offset, cx)?);
+            entries.push(entry(objects, handle, offset, cx)?);
         }
         pos = crc_at + 2;
     }

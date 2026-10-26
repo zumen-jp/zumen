@@ -3209,36 +3209,52 @@ fn r2004(sections: &[(&[u8], Vec<u8>, u64)]) -> Vec<u8> {
 
 #[cfg(test)]
 fn r2004_sections() -> Vec<(&'static [u8], Vec<u8>, u64)> {
+    // クラスの区切りは、R2004 の前置き（最大のクラスの番号・0 の RC・0 の RC・真の B）だけを持つ
+    let mut w = BitWriter::default();
+    w.bs(499);
+    w.bytes(&[0, 0]);
+    w.bit(true);
+    let data = w.finish();
+    let mut classes = vec![
+        0x8D, 0xA1, 0xC4, 0xB8, 0xC4, 0xA9, 0xF8, 0xC5, 0xC0, 0xDC, 0xF4, 0x5F, 0xE7, 0xCF, 0xB6,
+        0x8A,
+    ];
+    let mut sized = (data.len() as u32).to_le_bytes().to_vec();
+    sized.extend(&data);
+    classes.extend(&sized);
+    classes.extend(crc16(0xC0C1, &sized).to_le_bytes());
+    classes.extend([
+        0x72, 0x5E, 0x3B, 0x47, 0x3B, 0x56, 0x07, 0x3A, 0x3F, 0x23, 0x0B, 0xA0, 0x18, 0x30, 0x49,
+        0x75,
+    ]);
+    // オブジェクトの地図は、空の区切り（大きさ 2 と CRC）だけを持つ
+    let mut map = vec![0x00, 0x02];
+    map.extend(crc16(0xC0C1, &map).to_be_bytes());
+    let filler: Vec<u8> = (0..40).map(|i| i as u8).collect();
     [
-        &b"AcDb:Header"[..],
-        b"AcDb:Classes",
-        b"AcDb:Handles",
-        b"AcDb:AcDbObjects",
+        (&b"AcDb:Header"[..], filler.clone()),
+        (b"AcDb:Classes", classes),
+        (b"AcDb:Handles", map),
+        (b"AcDb:AcDbObjects", filler),
     ]
     .into_iter()
-    .map(|name| {
-        let data: Vec<u8> = (0..40).map(|i| i as u8).collect();
-        (name, literal_stream(&data), data.len() as u64)
-    })
+    .map(|(name, data)| (name, literal_stream(&data), data.len() as u64))
     .collect()
 }
 
 #[test]
-fn r2004_containers_are_checked_before_the_version_is_reported() {
+fn r2004_containers_are_checked_and_read() {
     let src = r2004(&r2004_sections());
     let (result, diag) = read(&src, Limits::default());
-    assert!(matches!(result, Err(Error::Unsupported)));
-    assert_eq!(codes_of(&diag), [codes::DWG_VERSION_UNSUPPORTED]);
+    assert!(result.is_ok());
+    assert_eq!(codes_of(&diag), []);
 
     // 暗号化した見出しの使わない欄を変えると、見出しの CRC が合わなくなる
     let mut broken = src.clone();
     broken[0x80 + 0x24] ^= 0x01;
     let (result, diag) = read(&broken, Limits::default());
-    assert!(matches!(result, Err(Error::Unsupported)));
-    assert_eq!(
-        codes_of(&diag),
-        [codes::DWG_CRC_INVALID, codes::DWG_VERSION_UNSUPPORTED]
-    );
+    assert!(result.is_ok());
+    assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
 
     // 初めの印が合わなければ止める
     let mut broken = src.clone();
@@ -3253,11 +3269,8 @@ fn r2004_containers_are_checked_before_the_version_is_reported() {
     assert_eq!(broken[last], 0x11);
     broken[last - 1] ^= 0x01;
     let (result, diag) = read(&broken, Limits::default());
-    assert!(matches!(result, Err(Error::Unsupported)));
-    assert_eq!(
-        codes_of(&diag),
-        [codes::DWG_CRC_INVALID, codes::DWG_VERSION_UNSUPPORTED]
-    );
+    assert!(result.is_ok());
+    assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
 }
 
 #[test]
@@ -3279,6 +3292,6 @@ fn r2004_containers_need_their_sections_and_valid_pages() {
     let mut sections = r2004_sections();
     sections[0] = (b"AcDb:Header", vec![0x01, 1, 2, 3, 4, 0x40, 0x00, 0x11], 7);
     let (result, diag) = read(&r2004(&sections), Limits::default());
-    assert!(matches!(result, Err(Error::Unsupported)));
-    assert_eq!(codes_of(&diag), [codes::DWG_VERSION_UNSUPPORTED]);
+    assert!(result.is_ok());
+    assert_eq!(codes_of(&diag), []);
 }
