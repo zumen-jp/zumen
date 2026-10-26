@@ -12,6 +12,7 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature};
 
 mod bits;
+mod header;
 mod objects;
 
 use bits::{Bits, crc16, modular_char, modular_short};

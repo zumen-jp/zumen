@@ -1,9 +1,9 @@
 //! DWG のオブジェクトから、系統で共有するオブジェクトの表を作る（決定 0023）。
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
-//! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
+//! 先頭から読む（空間の図形は、見出しの変数が指す空間のブロックのレコード）。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
+//! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、名前（2）と LAYER・STYLE・LTYPE・APPID・VIEW・UCS・VPORT・DIMSTYLE の欄を読む。
 //! オブジェクトは、今は MLINESTYLE・DICTIONARY・ACDBDICTIONARYWDFLT・XRECORD・GROUP・DICTIONARYVAR・SCALE・LAYOUT の欄を読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 
 use super::bits::Bits;
+use super::header::{self, Spaces};
 use super::{COMMON_OBJECT, DwgFile, Entry, stopped};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
@@ -165,6 +166,7 @@ impl DwgFile {
 
     /// オブジェクトの表を作る。予算の上限か中断の合図で止めたときだけ失敗する
     pub fn objects(&self, cx: &mut Cx) -> Result<AcadDb, Error> {
+        let spaces = header::spaces(&self.src, &self.locators, cx);
         let mut found = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
@@ -172,7 +174,7 @@ impl DwgFile {
             let fields = kind.as_ref().and_then(|(name, section)| {
                 // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
                 let entity = matches!(section, Section::Entities | Section::Blocks);
-                read(self.data(entry), entry, name, entity)
+                read(self.data(entry), entry, name, entity, spaces)
             });
             found.push((kind, fields));
         }
@@ -320,8 +322,8 @@ impl Fields {
 
 /// 図形の共通の欄のうち、型ごとの欄とハンドルの並びを読むのに要るもの
 struct Common {
-    /// 所有者のハンドルを持つか（entmode が 0）
-    has_owner: bool,
+    /// 所有者の決まり方。0 は所有者のハンドルを持ち、1 は用紙空間、2 はモデル空間の図形
+    entmode: u8,
     /// 反応子の数
     reactors: u32,
     /// 前後の図形のハンドルを持たないか
@@ -334,7 +336,13 @@ struct Common {
 }
 
 /// オブジェクトのデータを読む。読めなければ `None`
-fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields> {
+fn read(
+    data: &[u8],
+    entry: &Entry,
+    kind: &[u8],
+    entity: bool,
+    spaces: Option<Spaces>,
+) -> Option<Fields> {
     let mut bits = Bits::new(data);
     bits.bs()?;
     let handles_at = usize::try_from(bits.rl()?).ok()?;
@@ -379,13 +387,14 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
         } else {
             Vec::new()
         };
-        // 図形のハンドルの並び: 所有者（entmode が 0 のとき）・反応子・拡張辞書・前後の図形
+        // 図形のハンドルの並び: 所有者（entmode が 0 のとき。1・2 のときは見出しの変数が指す空間）・反応子・拡張辞書・前後の図形
         // （nolinks が 0 のとき）・画層・線種と印刷スタイル（印が 3 のとき）・型ごとのハンドル
         bits.seek(handles_at);
-        let owner = if common.has_owner {
-            Some(bits.handle()?.resolve(entry.handle)?)
-        } else {
-            None
+        let owner = match common.entmode {
+            0 => Some(bits.handle()?.resolve(entry.handle)?),
+            1 => spaces.map(|s| s.paper),
+            2 => spaces.map(|s| s.model),
+            _ => None,
         };
         for _ in 0..common.reactors {
             bits.handle()?;
@@ -575,7 +584,7 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         values.push(int(60, i64::from(invisible)));
     }
     Some(Common {
-        has_owner: entmode == 0,
+        entmode,
         reactors,
         no_links,
         ltype_flags,
