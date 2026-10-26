@@ -4448,6 +4448,122 @@ fn changed_hatches_are_written_back() {
     }
 }
 
+/// 2D・3D・多面・網の POLYLINE と VERTEX。`v` は 2D の幅と頂点の x、`closed` は 3D の閉じている印
+#[cfg(test)]
+fn polylines_with(v: f64, closed: u8) -> Vec<(u64, Vec<u8>)> {
+    let entity = |type_code, handle, data: &dyn Fn(&mut BitWriter)| {
+        let bytes = object(
+            type_code,
+            handle,
+            |w| {
+                entity_common(w, 2, 256, 1.0, 0);
+                data(w);
+            },
+            entity_handles_to(0x10, 0),
+        );
+        (handle, bytes)
+    };
+    vec![
+        entity(0x0F, 0x50, &|w| {
+            w.bs(1);
+            w.bs(0);
+            w.bd(v);
+            w.bd(v);
+            w.bit(true);
+            w.bd(2.0);
+            w.bit(true);
+        }),
+        entity(0x0A, 0x51, &|w| {
+            w.bytes(&[0]);
+            for x in [v, 2.0, 0.0] {
+                w.bd(x);
+            }
+            w.bd(-v);
+            w.bd(0.5);
+            w.bd(std::f64::consts::FRAC_PI_2);
+        }),
+        entity(0x10, 0x52, &|w| w.bytes(&[1, closed])),
+        entity(0x0B, 0x53, &|w| {
+            w.bytes(&[32]);
+            for x in [v, 1.0, 2.0] {
+                w.bd(x);
+            }
+        }),
+        entity(0x1D, 0x54, &|w| {
+            w.bs(4);
+            w.bs(2);
+        }),
+        entity(0x0E, 0x55, &|w| {
+            for index in [1, 2, -3, 0_i16] {
+                w.bs(index as u16);
+            }
+        }),
+        entity(0x1E, 0x56, &|w| {
+            for x in [16, 0, 3, 2, 0, 0] {
+                w.bs(x);
+            }
+        }),
+    ]
+}
+
+#[test]
+fn changed_polylines_and_vertices_are_written_back() {
+    let mut list = objects_in_sample();
+    list.extend(polylines_with(1.0, 1));
+    let src = dwg(&list);
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 2D の幅と頂点を動かし、3D の POLYLINE を開き、多面の面の番号と網の数を変える
+    for (handle, code, data) in [
+        (0x50, 40, Data::Real(2.0)),
+        (0x50, 41, Data::Real(2.0)),
+        (0x51, 10, Data::Real(2.0)),
+        (0x51, 40, Data::Real(2.0)),
+        (0x51, 41, Data::Real(2.0)),
+        (0x52, 70, Data::Int(12)),
+        (0x53, 10, Data::Real(2.0)),
+    ] {
+        set_value(&mut db, handle, code, data);
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    assert_eq!(values(&after), values(&db));
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (handle, expected) in polylines_with(2.0, 0) {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data, "{handle:#x}");
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // 頂点が続く印、2D の 0 でない 10、多面の面の印、3D の 3D でない印の変更は符号化できない
+    for (handle, code, data) in [
+        (0x50, 66, Data::Int(0)),
+        (0x50, 10, Data::Real(1.0)),
+        (0x55, 70, Data::Int(0)),
+        (0x52, 70, Data::Int(1)),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, handle, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
+
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
 #[cfg(test)]
 fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {

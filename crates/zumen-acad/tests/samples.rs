@@ -464,7 +464,12 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"LWPOLYLINE"
                     | b"SPLINE"
                     | b"HATCH"
+                    | b"VERTEX"
             ) {
+                continue;
+            }
+            // 多面の面の VERTEX（70 が 128）の点は 0 と決まっているので動かさない
+            if object.kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128)) {
                 continue;
             }
             // HATCH の初めの 10・20 は 0 と決まっているので動かさない

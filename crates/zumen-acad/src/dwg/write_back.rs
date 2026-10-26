@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0037）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0038）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -56,6 +56,13 @@ const HATCH: &[i16] = &[
     96, 97, 75, 76, 52, 41, 77, 78, 53, 43, 44, 45, 46, 79, 49, 47, 98,
 ];
 const MINSERT_TYPE: i16 = 0x08;
+const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
+const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
+const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
+const POLYLINE_2D: &[i16] = &[66, 70, 75, 40, 41, 39, 10, 20, 30, 210, 220, 230];
+const POLYLINE_3D: &[i16] = &[66, 10, 20, 30, 70, 75];
+const POLYFACE: &[i16] = &[66, 10, 20, 30, 70, 71, 72];
+const MESH: &[i16] = &[66, 10, 20, 30, 70, 75, 71, 72, 73, 74];
 
 const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
@@ -184,8 +191,9 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
 /// `old` から `new` に値を変えた図形のデータ `data` を、符号化し直す。共通の欄と型ごとの欄のほかの値が
 /// 変わったか、符号化できない値なら `None`
 fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
-    // MINSERT も、表では INSERT とする
-    let grid = Bits::with_release(data, Release::R2000).bs()? == MINSERT_TYPE;
+    // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型で欄が分かれる
+    let type_code = Bits::with_release(data, Release::R2000).bs()?;
+    let grid = type_code == MINSERT_TYPE;
     let own: &[i16] = match new.kind.as_slice() {
         b"LINE" => LINE,
         b"CIRCLE" => CIRCLE,
@@ -202,6 +210,19 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"LWPOLYLINE" => LWPOLYLINE,
         b"SPLINE" => SPLINE,
         b"HATCH" => HATCH,
+        b"VERTEX" => match type_code {
+            0x0A => VERTEX_2D,
+            0x0B..=0x0D => VERTEX_3D,
+            0x0E => FACE_RECORD,
+            _ => &[],
+        },
+        b"POLYLINE" => match type_code {
+            0x0F => POLYLINE_2D,
+            0x10 => POLYLINE_3D,
+            0x1D => POLYFACE,
+            0x1E => MESH,
+            _ => &[],
+        },
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
         _ => &[],
@@ -231,7 +252,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         fields.copy(data, start..handles_at)?;
         fields
     } else {
-        own_fields(old, new, grid, data, start)?
+        own_fields(old, new, type_code, data, start)?
     };
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
@@ -271,7 +292,7 @@ fn common_fields(data: &[u8], color_at: usize, start: usize, object: &Object) ->
 fn own_fields(
     old: &Object,
     new: &Object,
-    grid: bool,
+    type_code: i16,
     data: &[u8],
     start: usize,
 ) -> Option<BitWriter> {
@@ -321,7 +342,9 @@ fn own_fields(
         b"LWPOLYLINE" => lwpolyline(&mut fields, new, data, start)?,
         b"SPLINE" => spline(&mut fields, new, data, start)?,
         b"HATCH" => hatch(&mut fields, old, new)?,
-        b"INSERT" => insert(&mut fields, new, grid)?,
+        b"VERTEX" => vertex(&mut fields, new, type_code)?,
+        b"POLYLINE" => polyline(&mut fields, new, type_code, data, start)?,
+        b"INSERT" => insert(&mut fields, new, type_code == MINSERT_TYPE)?,
         _ => return None,
     }
     Some(fields)
@@ -952,6 +975,125 @@ fn string(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
 
 /// INSERT・MINSERT の欄（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
 /// なければ (0, 0, 1) を書く。尺度の印（BB）は、尺度の値から選ぶ。属性が続くかの印は、66 から書く
+/// VERTEX の欄（決定 0038）。2D の頂点は、始まりと終わりの幅が同じで 0 でなければ、負の始まりの幅だけを
+/// 書く。角度は度からラジアンに直す。多面の面は、点が 0 で印が 128 のものだけを受け付ける
+fn vertex(fields: &mut BitWriter, object: &Object, type_code: i16) -> Option<()> {
+    let flags = |object| small(object, 70).map(|flags| flags.unwrap_or(0));
+    match type_code {
+        0x0A..=0x0D => {
+            fields.rc(u8::try_from(flags(object)?).ok()?);
+            point3(fields, object, 10)?;
+            if type_code != 0x0A {
+                return Some(());
+            }
+            let [start, end, bulge, tangent] =
+                [40, 41, 42, 50].map(|code| real(object, code).map(|v| v.unwrap_or(0.0)));
+            let (start, end) = (start?, end?);
+            if start.to_bits() == end.to_bits() && start > 0.0 {
+                fields.bd(-start);
+            } else if start < 0.0 || end < 0.0 {
+                return None;
+            } else {
+                fields.bd(start);
+                fields.bd(end);
+            }
+            fields.bd(bulge?);
+            fields.bd(tangent?.to_radians());
+        }
+        0x0E => {
+            zero_point(object)?;
+            (flags(object)? == 128).then_some(())?;
+            for code in 71..75 {
+                fields.bs(small(object, code)?.unwrap_or(0));
+            }
+        }
+        _ => return None,
+    }
+    Some(())
+}
+
+/// POLYLINE の欄（決定 0038）。頂点が続く印（66）は 1、点（10・20）は 0 だけを受け付ける。3D の
+/// POLYLINE の 2 つの印は、70・75 から読む値が変わらなければ元のバイトを写し、変われば読まれる
+/// ビットだけを書き換える
+fn polyline(
+    fields: &mut BitWriter,
+    object: &Object,
+    type_code: i16,
+    data: &[u8],
+    start: usize,
+) -> Option<()> {
+    (small(object, 66)? == Some(1)).then_some(())?;
+    let flags = small(object, 70)?;
+    let surface = small(object, 75)?.unwrap_or(0);
+    match type_code {
+        0x0F => {
+            for code in [10, 20] {
+                (real(object, code)? == Some(0.0)).then_some(())?;
+            }
+            fields.bs(flags.unwrap_or(0));
+            fields.bs(surface);
+            for code in [40, 41] {
+                fields.bd(real(object, code)?.unwrap_or(0.0));
+            }
+            thickness(fields, object)?;
+            fields.bd(real(object, 30)??);
+            extrusion(fields, object)?;
+        }
+        0x10 => {
+            zero_point(object)?;
+            let flags = flags?;
+            let curve = match surface {
+                0 => 0,
+                5 => 1,
+                6 => 2,
+                _ => return None,
+            };
+            // 8 は 3D、4 は曲線の印。読む側が作るのは 8・4・1 だけ
+            let splined = if curve != 0 { 4 } else { 0 };
+            (flags & !1 == 8 | splined).then_some(())?;
+            let mut bits = Bits::with_release(data, Release::R2000);
+            bits.seek(start);
+            let (old_curve, old_closed) = (bits.rc()?, bits.rc()?);
+            let read = |curve: u8| match curve {
+                c if c & 1 != 0 => 1,
+                c if c & 2 != 0 => 2,
+                _ => 0,
+            };
+            fields.rc(if read(old_curve) == curve {
+                old_curve
+            } else {
+                old_curve & !3 | curve
+            });
+            fields.rc(old_closed & !1 | u8::try_from(flags & 1).ok()?);
+        }
+        0x1D => {
+            zero_point(object)?;
+            (flags == Some(64)).then_some(())?;
+            for code in [71, 72] {
+                fields.bs(small(object, code)??);
+            }
+        }
+        0x1E => {
+            zero_point(object)?;
+            fields.bs(flags?);
+            fields.bs(surface);
+            for code in 71..75 {
+                fields.bs(small(object, code)??);
+            }
+        }
+        _ => return None,
+    }
+    Some(())
+}
+
+/// 点（10・20・30）がどれも 0 なら `Some`
+fn zero_point(object: &Object) -> Option<()> {
+    [10, 20, 30]
+        .iter()
+        .all(|&code| real(object, code) == Some(Some(0.0)))
+        .then_some(())
+}
+
 fn insert(fields: &mut BitWriter, object: &Object, grid: bool) -> Option<()> {
     point3(fields, object, 10)?;
     let [x, y, z] = [41, 42, 43].map(|code| real(object, code));
