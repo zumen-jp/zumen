@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Section, Value};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
 use zumen_sdk::Codec;
 
 /// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
@@ -46,6 +46,26 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
             let dxf = dwg.with_file_name(format!("{stem}_ascii.dxf"));
             dxf.exists().then_some((dwg, dxf))
         })
+        .collect();
+    found.sort();
+    found
+}
+
+/// フォルダーの中の、版が `version` の DWG
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、核は読まない（AGENTS.md の図面と秘密）"
+)]
+fn dwgs(version: &[u8]) -> Vec<PathBuf> {
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return Vec::new();
+    };
+    let mut found: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "dwg"))
+        .filter(|path| std::fs::read(path).unwrap().starts_with(version))
         .collect();
     found.sort();
     found
@@ -317,5 +337,28 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
             dwg.display()
         );
         assert_eq!(our_codes, their_codes, "{}", dwg.display());
+    }
+}
+
+#[test]
+fn r2004_containers_are_read_before_the_version_is_reported() {
+    for path in dwgs(b"AC1018") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        assert!(
+            matches!(Dwg::read(&src, &mut cx), Err(zumen_sdk::Error::Unsupported)),
+            "{}",
+            path.display()
+        );
+        let found: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(
+            found,
+            [codes::DWG_VERSION_UNSUPPORTED],
+            "{}",
+            path.display()
+        );
     }
 }

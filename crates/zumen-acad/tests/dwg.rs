@@ -2414,7 +2414,7 @@ fn a_missing_layer_is_reported() {
 #[test]
 fn other_versions_are_not_read_yet() {
     let mut src = sample();
-    src[..6].copy_from_slice(b"AC1018");
+    src[..6].copy_from_slice(b"AC1021");
     let (result, diag) = read(&src, Limits::default());
     assert!(matches!(result, Err(Error::Unsupported)));
     assert_eq!(codes_of(&diag), [codes::DWG_VERSION_UNSUPPORTED]);
@@ -3070,4 +3070,215 @@ fn dwg_lines_have_the_same_typed_view_as_dxf() {
         }))
     );
     assert_eq!(line(0x10), None);
+}
+
+#[cfg(test)]
+/// R2004 の地図のページの検査の値（ODS の 4）
+fn adler(seed: u32, data: &[u8]) -> u32 {
+    let (mut low, mut high) = (seed & 0xFFFF, seed >> 16);
+    for chunk in data.chunks(0x15B0) {
+        for &byte in chunk {
+            low += u32::from(byte);
+            high += low;
+        }
+        low %= 0xFFF1;
+        high %= 0xFFF1;
+    }
+    (high << 16) | low
+}
+
+#[cfg(test)]
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+#[cfg(test)]
+/// リテラルだけの圧縮のデータ（4 バイト以上）
+fn literal_stream(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let len = data.len();
+    assert!(len >= 4);
+    if len <= 0x12 {
+        out.push((len - 3) as u8);
+    } else {
+        out.push(0);
+        let mut rest = len - 0x12;
+        while rest > 0xFF {
+            out.push(0);
+            rest -= 0xFF;
+        }
+        out.push(rest as u8);
+    }
+    out.extend_from_slice(data);
+    out.push(0x11);
+    out
+}
+
+#[cfg(test)]
+fn system_page(kind: u32, data: &[u8]) -> Vec<u8> {
+    let stream = literal_stream(data);
+    let mut head = Vec::new();
+    for value in [kind, data.len() as u32, stream.len() as u32, 2, 0] {
+        head.extend_from_slice(&value.to_le_bytes());
+    }
+    let checksum = adler(adler(0, &head), &stream);
+    head[16..].copy_from_slice(&checksum.to_le_bytes());
+    head.extend_from_slice(&stream);
+    head
+}
+
+#[cfg(test)]
+/// 区切りの名前と圧縮したデータと展開した大きさから、R2004 の入れ物を作る
+fn r2004(sections: &[(&[u8], Vec<u8>, u64)]) -> Vec<u8> {
+    let mut src = vec![0; 0x100];
+    src[..6].copy_from_slice(b"AC1018");
+    src[0x13] = 30;
+    let mut page_map = Vec::new();
+    let mut map = Vec::new();
+    let count = sections.len() as i32;
+    for value in [count, 2, 0x7400, 0, count] {
+        map.extend_from_slice(&value.to_le_bytes());
+    }
+    for (i, (name, stream, size)) in sections.iter().enumerate() {
+        let number = i as i32 + 1;
+        let address = src.len() as u32;
+        let mask = 0x4164_536B ^ address;
+        for value in [
+            0x4163_043B,
+            number as u32,
+            stream.len() as u32,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ] {
+            src.extend_from_slice(&(value ^ mask).to_le_bytes());
+        }
+        src.extend_from_slice(stream);
+        page_map.extend_from_slice(&number.to_le_bytes());
+        page_map.extend_from_slice(&(0x20 + stream.len() as i32).to_le_bytes());
+        map.extend_from_slice(&size.to_le_bytes());
+        for value in [1, 0x7400, 1, 2, number, 0] {
+            map.extend_from_slice(&value.to_le_bytes());
+        }
+        let mut field = [0; 64];
+        field[..name.len()].copy_from_slice(name);
+        map.extend_from_slice(&field);
+        map.extend_from_slice(&number.to_le_bytes());
+        map.extend_from_slice(&(stream.len() as i32).to_le_bytes());
+        map.extend_from_slice(&0u64.to_le_bytes());
+    }
+    let section_map_id = count + 1;
+    let page = system_page(0x4163_003B, &map);
+    page_map.extend_from_slice(&section_map_id.to_le_bytes());
+    page_map.extend_from_slice(&(page.len() as i32).to_le_bytes());
+    src.extend_from_slice(&page);
+    let page_map_id = count + 2;
+    page_map.extend_from_slice(&page_map_id.to_le_bytes());
+    page_map.extend_from_slice(&0x400i32.to_le_bytes());
+    let page_map_at = src.len() as u64 - 0x100;
+    src.extend_from_slice(&system_page(0x4163_0E3B, &page_map));
+
+    let mut header = vec![0; 0x6C];
+    header[..12].copy_from_slice(b"AcFssFcAJMB\0");
+    header[0x10..0x14].copy_from_slice(&0x6Cu32.to_le_bytes());
+    header[0x50..0x54].copy_from_slice(&page_map_id.to_le_bytes());
+    header[0x54..0x5C].copy_from_slice(&page_map_at.to_le_bytes());
+    header[0x5C..0x60].copy_from_slice(&section_map_id.to_le_bytes());
+    let crc = crc32(&header);
+    header[0x68..].copy_from_slice(&crc.to_le_bytes());
+    let mut seed: u32 = 1;
+    for (i, byte) in header.iter().enumerate() {
+        seed = seed.wrapping_mul(0x343FD).wrapping_add(0x0026_9EC3);
+        src[0x80 + i] = byte ^ (seed >> 16) as u8;
+    }
+    src
+}
+
+#[cfg(test)]
+fn r2004_sections() -> Vec<(&'static [u8], Vec<u8>, u64)> {
+    [
+        &b"AcDb:Header"[..],
+        b"AcDb:Classes",
+        b"AcDb:Handles",
+        b"AcDb:AcDbObjects",
+    ]
+    .into_iter()
+    .map(|name| {
+        let data: Vec<u8> = (0..40).map(|i| i as u8).collect();
+        (name, literal_stream(&data), data.len() as u64)
+    })
+    .collect()
+}
+
+#[test]
+fn r2004_containers_are_checked_before_the_version_is_reported() {
+    let src = r2004(&r2004_sections());
+    let (result, diag) = read(&src, Limits::default());
+    assert!(matches!(result, Err(Error::Unsupported)));
+    assert_eq!(codes_of(&diag), [codes::DWG_VERSION_UNSUPPORTED]);
+
+    // 暗号化した見出しの使わない欄を変えると、見出しの CRC が合わなくなる
+    let mut broken = src.clone();
+    broken[0x80 + 0x24] ^= 0x01;
+    let (result, diag) = read(&broken, Limits::default());
+    assert!(matches!(result, Err(Error::Unsupported)));
+    assert_eq!(
+        codes_of(&diag),
+        [codes::DWG_CRC_INVALID, codes::DWG_VERSION_UNSUPPORTED]
+    );
+
+    // 初めの印が合わなければ止める
+    let mut broken = src.clone();
+    broken[0x80] ^= 0x01;
+    let (result, diag) = read(&broken, Limits::default());
+    assert!(matches!(result, Err(Error::Invalid)));
+    assert_eq!(codes_of(&diag), [codes::DWG_FILE_INVALID]);
+
+    // ページの地図の最後のページの大きさ（使わない）を変えると、検査の値が合わなくなる
+    let mut broken = src;
+    let last = broken.len() - 1;
+    assert_eq!(broken[last], 0x11);
+    broken[last - 1] ^= 0x01;
+    let (result, diag) = read(&broken, Limits::default());
+    assert!(matches!(result, Err(Error::Unsupported)));
+    assert_eq!(
+        codes_of(&diag),
+        [codes::DWG_CRC_INVALID, codes::DWG_VERSION_UNSUPPORTED]
+    );
+}
+
+#[test]
+fn r2004_containers_need_their_sections_and_valid_pages() {
+    let mut sections = r2004_sections();
+    sections.pop();
+    let (result, diag) = read(&r2004(&sections), Limits::default());
+    assert!(matches!(result, Err(Error::Invalid)));
+    assert_eq!(codes_of(&diag), [codes::DWG_FILE_INVALID]);
+
+    // 展開した所より前を指す距離
+    let mut sections = r2004_sections();
+    sections[0].1 = vec![0x01, 1, 2, 3, 4, 0x40, 0xFF, 0x11];
+    let (result, diag) = read(&r2004(&sections), Limits::default());
+    assert!(matches!(result, Err(Error::Invalid)));
+    assert_eq!(codes_of(&diag), [codes::DWG_FILE_INVALID]);
+
+    // 前のバイトを写す圧縮も展開する
+    let mut sections = r2004_sections();
+    sections[0] = (b"AcDb:Header", vec![0x01, 1, 2, 3, 4, 0x40, 0x00, 0x11], 7);
+    let (result, diag) = read(&r2004(&sections), Limits::default());
+    assert!(matches!(result, Err(Error::Unsupported)));
+    assert_eq!(codes_of(&diag), [codes::DWG_VERSION_UNSUPPORTED]);
 }
