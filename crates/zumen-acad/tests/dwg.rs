@@ -5913,3 +5913,154 @@ fn changed_groups_and_vars_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
 }
+
+/// 2 つの項目を持つ辞書（0x20）と、2 本の線を持つ多重線の体裁（0x21）。辞書の所有する印は 1、多重線の
+/// 体裁の DWG の印は、DXF にない 4 を持つ
+#[cfg(test)]
+fn dictionaries_and_mlinestyles_with(
+    cloning: u16,
+    names: [&'static [u8]; 2],
+    about: &'static [u8],
+    flags: u16,
+    angle: f64,
+    offsets: [f64; 2],
+) -> Vec<u8> {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let dictionary = object(
+        0x2A,
+        0x20,
+        move |w| {
+            w.bl_zero();
+            w.bits(1, 2); // 項目の数（BL の RC）
+            w.bytes(&[2]);
+            w.bs(cloning);
+            w.bytes(&[1]); // 所有する
+            for name in names {
+                text(w, name);
+            }
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+            w.handle(2, 0x30);
+            w.handle(2, 0x31);
+        },
+    );
+    let style = object(
+        0x49,
+        0x21,
+        move |w| {
+            w.bl_zero();
+            text(w, b"STANDARD");
+            text(w, about);
+            w.bs(flags | 4);
+            w.bs(256);
+            w.bd(angle);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bytes(&[2]);
+            for (offset, ltype) in offsets.into_iter().zip([3, 5]) {
+                w.bd(offset);
+                w.bs(1);
+                w.bs(ltype);
+            }
+        },
+        |w| w.handle(4, 0xC),
+    );
+    dwg(&[(0x20, dictionary), (0x21, style)])
+}
+
+#[test]
+fn changed_dictionaries_and_mlinestyles_are_written_back() {
+    let right = std::f64::consts::FRAC_PI_2;
+    let src = dictionaries_and_mlinestyles_with(1, [b"A", b"B"], b"", 1, right, [0.5, -0.5]);
+    let (mut db, before) = objects(&src);
+    assert!(before.is_empty(), "{:?}", codes_of(&before));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let index = |db: &AcadDb, handle| {
+        db.objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap()
+    };
+    set_value(&mut db, 0x20, 281, Data::Int(3));
+    // 2 つめの項目の名前を変える
+    let at = index(&db, 0x20);
+    let values = &mut db.object_mut(at).unwrap().values;
+    let second = values.iter().rposition(|v| v.code == 3).unwrap();
+    values[second].data = Data::Text(b"LONGER_NAME".to_vec());
+    set_value(&mut db, 0x21, 3, Data::Text(b"two lines".to_vec()));
+    // DWG の 1 と 32 にあたる、DXF の 2 と 64
+    set_value(&mut db, 0x21, 70, Data::Int(66));
+    set_value(&mut db, 0x21, 51, Data::Real(45.0));
+    let at = index(&db, 0x21);
+    let values = &mut db.object_mut(at).unwrap().values;
+    let first = values.iter().position(|v| v.code == 49).unwrap();
+    values[first].data = Data::Real(1.25);
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let built = dictionaries_and_mlinestyles_with(
+        3,
+        [b"A", b"LONGER_NAME"],
+        b"two lines",
+        33,
+        right / 2.0,
+        [1.25, -0.5],
+    );
+    let expected = objects(&built).0;
+    for handle in [0x20, 0x21] {
+        assert_eq!(
+            after.get(handle).unwrap().values,
+            db.get(handle).unwrap().values
+        );
+        assert_eq!(
+            after.get(handle).unwrap().values,
+            expected.get(handle).unwrap().values
+        );
+    }
+    // DXF にない印のビットと、線の線種の番号は元のまま写すので、データも組んだものと同じになる
+    let file = read(&out, Limits::default()).0.unwrap();
+    let range = file.record(index(&db, 0x21)).unwrap().bytes.unwrap();
+    let got = &out[range.start as usize..range.end as usize];
+    let range = read(&built, Limits::default())
+        .0
+        .unwrap()
+        .record(index(&db, 0x21))
+        .unwrap()
+        .bytes
+        .unwrap();
+    assert_eq!(got, &built[range.start as usize..range.end as usize]);
+    // 所有しない印・項目の追加・多重線の体裁の名前・DXF にない印は受け付けない
+    for (handle, code, data) in [
+        (0x20, 280, Data::Int(0)),
+        (0x21, 2, Data::Text(b"OTHER".to_vec())),
+        (0x21, 70, Data::Int(4)),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, handle, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+    let mut changed = objects(&src).0;
+    let at = index(&changed, 0x20);
+    let values = &mut changed.object_mut(at).unwrap().values;
+    values.push(Value {
+        code: 3,
+        data: Data::Text(b"C".to_vec()),
+    });
+    values.push(Value {
+        code: 360,
+        data: Data::Handle(0x32),
+    });
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, _) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+}
