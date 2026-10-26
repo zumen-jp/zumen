@@ -3,7 +3,7 @@
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
+//! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
 //! オブジェクトは、今は MLINESTYLE の欄を読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
@@ -42,6 +42,7 @@ const POINT: u16 = 0x1B;
 const FACE3D: u16 = 0x1C;
 const SOLID: u16 = 0x1F;
 const TRACE: u16 = 0x20;
+const SHAPE: u16 = 0x21;
 const ELLIPSE: u16 = 0x23;
 const SPLINE: u16 = 0x24;
 const RAY: u16 = 0x28;
@@ -96,7 +97,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         FACE3D => entity(b"3DFACE"),
         SOLID => entity(b"SOLID"),
         TRACE => entity(b"TRACE"),
-        0x21 => entity(b"SHAPE"),
+        SHAPE => entity(b"SHAPE"),
         VIEWPORT => entity(b"VIEWPORT"),
         ELLIPSE => entity(b"ELLIPSE"),
         SPLINE => entity(b"SPLINE"),
@@ -351,6 +352,7 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                 POINT => point(&mut bits)?,
                 SOLID | TRACE => solid(&mut bits)?,
                 FACE3D => face3d(&mut bits)?,
+                SHAPE => shape(&mut bits)?,
                 ELLIPSE => ellipse(&mut bits)?,
                 RAY | XLINE => ray(&mut bits)?,
                 LWPOLYLINE => lwpolyline(&mut bits)?,
@@ -946,6 +948,31 @@ fn face3d(bits: &mut Bits) -> Option<Vec<Value>> {
         if invisible != 0 {
             values.push(int(70, i64::from(invisible)));
         }
+    }
+    Some(values)
+}
+
+/// SHAPE の欄（ODS 5.4.1 の 20.4.33）。挿入点（10）と大きさ（40）を置き、回転（50）・幅の係数（41）・
+/// 傾き（51）・厚さ（39）・押し出しの向きは既定の値でなければ置く。角度は度に直す。DXF の形の名前（2）は、
+/// DWG では形の番号と形のファイル（文字の体裁）で記録され、名前はファイルの中にあるので、まだ置かない
+fn shape(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    values.push(real(40, bits.bd()?));
+    for (code, default, angle) in [(50, 0.0, true), (41, 1.0, false), (51, 0.0, true)] {
+        let value = bits.bd()?;
+        if value != default {
+            values.push(real(code, if angle { value.to_degrees() } else { value }));
+        }
+    }
+    let thickness = bits.bd()?;
+    if thickness != 0.0 {
+        values.push(real(39, thickness));
+    }
+    // 形の番号
+    bits.bs()?;
+    let extrusion = point3(bits, 210)?;
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
     }
     Some(values)
 }
