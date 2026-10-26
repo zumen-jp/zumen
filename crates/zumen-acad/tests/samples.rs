@@ -420,7 +420,7 @@ fn r2000_drawings_keep_their_table_when_every_object_is_rewritten() {
 }
 
 #[test]
-fn r2000_drawings_take_back_changed_lines_circles_and_arcs() {
+fn r2000_drawings_take_back_changed_points_of_entities() {
     let mut changed = 0;
     for path in dwgs(b"AC1015") {
         let src = std::fs::read(&path).unwrap();
@@ -431,10 +431,22 @@ fn r2000_drawings_take_back_changed_lines_circles_and_arcs() {
         let mut file = Dwg::read(&src, &mut cx).unwrap();
         let mut db = file.objects(&mut cx).unwrap();
         let reported = diag.len();
-        // LINE・CIRCLE・ARC の点を動かす
+        // 書き戻せる種類の図形の点を動かす
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
-            if !matches!(object.kind.as_slice(), b"LINE" | b"CIRCLE" | b"ARC") {
+            if !matches!(
+                object.kind.as_slice(),
+                b"LINE"
+                    | b"CIRCLE"
+                    | b"ARC"
+                    | b"POINT"
+                    | b"ELLIPSE"
+                    | b"RAY"
+                    | b"XLINE"
+                    | b"SOLID"
+                    | b"TRACE"
+                    | b"3DFACE"
+            ) {
                 continue;
             }
             for value in object.values.iter_mut() {

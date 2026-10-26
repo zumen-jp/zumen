@@ -3500,6 +3500,97 @@ fn sample_with_curves() -> Vec<u8> {
     dwg(&objects)
 }
 
+/// 見本の DWG に、CIRCLE と ARC と、POINT・ELLIPSE・RAY・XLINE・SOLID・TRACE・3DFACE を足したもの
+#[cfg(test)]
+fn sample_with_more_kinds() -> Vec<u8> {
+    let common = |w: &mut BitWriter| entity_common(w, 2, 256, 1.0, 0);
+    let point = object(
+        0x1B,
+        0x32,
+        |w| {
+            common(w);
+            for v in [1.0, 2.0, 3.0] {
+                w.bd(v);
+            }
+            w.bit(true);
+            w.bit(true);
+            w.bd(0.0);
+        },
+        entity_handles(0x10),
+    );
+    let ellipse = object(
+        0x23,
+        0x33,
+        |w| {
+            common(w);
+            for v in [0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.5, 0.0] {
+                w.bd(v);
+            }
+            w.bd(std::f64::consts::TAU);
+        },
+        entity_handles(0x10),
+    );
+    let ray = |type_code, handle| {
+        object(
+            type_code,
+            handle,
+            |w| {
+                common(w);
+                for v in [1.0, 1.0, 0.0, 1.0, 0.0, 0.0] {
+                    w.bd(v);
+                }
+            },
+            entity_handles(0x10),
+        )
+    };
+    let solid = |type_code, handle| {
+        object(
+            type_code,
+            handle,
+            |w| {
+                common(w);
+                w.bit(true);
+                w.bd(0.0);
+                for v in [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0] {
+                    w.rd(v);
+                }
+                w.bit(true);
+            },
+            entity_handles(0x10),
+        )
+    };
+    let face = object(
+        0x1C,
+        0x38,
+        |w| {
+            common(w);
+            w.bit(false);
+            w.bit(true);
+            w.rd(0.0);
+            w.rd(0.0);
+            for corner in [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]] {
+                for v in corner {
+                    w.bits(3, 2);
+                    w.rd(v);
+                }
+            }
+            w.bs(2);
+        },
+        entity_handles(0x10),
+    );
+    let mut objects = objects_in_sample();
+    objects.extend([
+        (0x32, point),
+        (0x33, ellipse),
+        (0x34, ray(0x28, 0x34)),
+        (0x35, ray(0x29, 0x35)),
+        (0x36, solid(0x1F, 0x36)),
+        (0x37, solid(0x20, 0x37)),
+        (0x38, face),
+    ]);
+    dwg(&objects)
+}
+
 /// `handle` のオブジェクトの `code` の値を `data` にする。なければ足す
 #[cfg(test)]
 fn set_value(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
@@ -3556,6 +3647,77 @@ fn changed_lines_circles_and_arcs_are_written_back() {
             again.record(i).unwrap().bytes,
             file.record(i).unwrap().bytes
         );
+    }
+}
+
+#[test]
+fn changed_points_ellipses_rays_solids_and_faces_are_written_back() {
+    let src = sample_with_more_kinds();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let edits: [(u64, i16, f64); 18] = [
+        // POINT の位置を変え、X 軸の角度と厚さを足す
+        (0x32, 20, -7.5),
+        (0x32, 39, 2.0),
+        (0x32, 50, 30.0),
+        // ELLIPSE の比と終わりの角度を変え、押し出しの向きを足す
+        (0x33, 40, 0.25),
+        (0x33, 42, 1.5),
+        (0x33, 210, 0.0),
+        (0x33, 220, 0.0),
+        (0x33, 230, -1.0),
+        (0x34, 11, 0.0),
+        (0x34, 21, 1.0),
+        (0x35, 10, 1.0e-300),
+        // SOLID を持ち上げ、厚さを足す
+        (0x36, 30, 5.0),
+        (0x36, 31, 5.0),
+        (0x36, 32, 5.0),
+        (0x36, 33, 5.0),
+        (0x36, 39, 1.0),
+        (0x37, 23, 9.0),
+        // 3DFACE の角を持ち上げる
+        (0x38, 32, 0.125),
+    ];
+    for (handle, code, v) in edits {
+        set_value(&mut db, handle, code, Data::Real(v));
+    }
+    // 3DFACE の見えない辺の印を除く
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x38))
+        .unwrap();
+    db.object_mut(index)
+        .unwrap()
+        .values
+        .retain(|v| v.code != 70);
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    let mut expected = values(&db);
+    // 角度は、ラジアンに直して書き、度に直して読む
+    for value in expected.iter_mut().flatten().filter(|v| v.code == 50) {
+        value.data = Data::Real(30.0f64.to_radians().to_degrees());
+    }
+    assert_eq!(values(&after), expected);
+    // 角の Z が揃わない SOLID と、実数の見えない辺の印は符号化できない
+    let (db, _) = objects(&src);
+    let edits: [(&str, Edit); 2] = [
+        ("SOLID", |db| set_value(db, 0x36, 31, Data::Real(1.0))),
+        ("3DFACE", |db| set_value(db, 0x38, 70, Data::Real(2.0))),
+    ];
+    for (kind, edit) in edits {
+        let mut changed = db.clone();
+        edit(&mut changed);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{kind}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{kind}");
     }
 }
 

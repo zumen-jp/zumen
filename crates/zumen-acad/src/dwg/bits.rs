@@ -510,6 +510,24 @@ impl BitWriter {
         self.raw(&value.to_le_bytes());
     }
 
+    /// BS。0 と 256 は 2 ビットで、0〜255 は RC で書く
+    pub(super) fn bs(&mut self, value: i16) {
+        match value {
+            0 => self.small(2, 2),
+            256 => self.small(3, 2),
+            _ => match u8::try_from(value) {
+                Ok(byte) => {
+                    self.small(1, 2);
+                    self.small(byte, 8);
+                }
+                Err(_) => {
+                    self.small(0, 2);
+                    self.raw(&value.to_le_bytes());
+                }
+            },
+        }
+    }
+
     /// RD
     pub(super) fn rd(&mut self, value: f64) {
         self.raw(&value.to_le_bytes());
@@ -668,6 +686,10 @@ mod tests {
         let mut out = BitWriter::default();
         out.bit(true);
         out.rl(-2);
+        let shorts = [0, 1, 255, 256, -1, 0x7FFF];
+        for value in shorts {
+            out.bs(value);
+        }
         let reals = [0.0, -0.0, 1.0, 2.5, 1.0e-300, f64::MAX];
         for value in reals {
             out.rd(value);
@@ -686,6 +708,9 @@ mod tests {
         let mut bits = Bits::new(&copied);
         assert_eq!(bits.bit(), Some(true));
         assert_eq!(bits.rl(), Some(-2));
+        for value in shorts {
+            assert_eq!(bits.bs(), Some(value));
+        }
         for value in reals {
             assert_eq!(bits.rd().map(f64::to_bits), Some(value.to_bits()));
             assert_eq!(bits.bd().map(f64::to_bits), Some(value.to_bits()));
