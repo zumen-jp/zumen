@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0040）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0041）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -90,6 +90,10 @@ const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
 const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
 const LEADER: &[i16] = &[73, 72, 40, 41, 74, 210, 220, 230, 211, 221, 231];
+const VIEWPORT: &[i16] = &[
+    10, 20, 30, 40, 41, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 36, 17, 27, 37, 42, 43, 44, 45, 50,
+    51, 72, 90, 1, 281, 71, 74, 110, 120, 130, 111, 121, 131, 112, 122, 132, 146, 79,
+];
 const MLINE: &[i16] = &[
     40, 70, 71, 72, 73, 10, 20, 30, 210, 220, 230, 11, 21, 31, 12, 22, 32, 13, 23, 33, 74, 41, 75,
     42,
@@ -257,6 +261,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"TOLERANCE" => TOLERANCE,
         b"LEADER" => LEADER,
         b"MLINE" => MLINE,
+        b"VIEWPORT" => VIEWPORT,
         _ => &[],
     };
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
@@ -381,6 +386,7 @@ fn own_fields(
         b"TOLERANCE" => tolerance(&mut fields, old, new, data, start)?,
         b"LEADER" => leader(&mut fields, new, data, start)?,
         b"MLINE" => mline(&mut fields, new)?,
+        b"VIEWPORT" => viewport(&mut fields, old, new, data, start)?,
         _ => return None,
     }
     Some(fields)
@@ -1413,6 +1419,78 @@ fn mline(fields: &mut BitWriter, object: &Object) -> Option<()> {
         }
     }
     values.0.next().is_none().then_some(())
+}
+
+/// VIEWPORT の欄（決定 0041）。表の値を DWG の並びで書き、角度（50・51）は度からラジアンに直す。表にない
+/// 凍結した画層の数と後ろの欄は元のビットを写し、印刷スタイルの名前（1）が変わらなければ元のビットを写す
+fn viewport(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    data: &[u8],
+    start: usize,
+) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    for _ in 0..17 {
+        bits.bd()?;
+    }
+    for _ in 0..8 {
+        bits.rd()?;
+    }
+    bits.bs()?;
+    let frozen_at = bits.pos();
+    bits.bl()?;
+    let frozen_end = bits.pos();
+    bits.bl()?;
+    let text_at = bits.pos();
+    bits.text()?;
+    let text_end = bits.pos();
+    bits.rc()?;
+    bits.bit()?;
+    bits.bit()?;
+    for _ in 0..10 {
+        bits.bd()?;
+    }
+    bits.bs()?;
+    let rest_at = bits.pos();
+    point3(fields, new, 10)?;
+    for code in [40, 41] {
+        fields.bd(real(new, code)??);
+    }
+    point3(fields, new, 17)?;
+    point3(fields, new, 16)?;
+    fields.bd(real(new, 51)??.to_radians());
+    for code in [45, 42, 43, 44] {
+        fields.bd(real(new, code)??);
+    }
+    fields.bd(real(new, 50)??.to_radians());
+    for code in [12, 13, 14, 15] {
+        fields.rd(real(new, code)??);
+        fields.rd(real(new, code + 10)??);
+    }
+    fields.bs(small(new, 72)??);
+    fields.copy(data, frozen_at..frozen_end)?;
+    fields.bl(i32::try_from(integer(new, 90)??).ok()?);
+    if text_of(old, 1) == text_of(new, 1) {
+        fields.copy(data, text_at..text_end)?;
+    } else {
+        string(fields, new, 1)?;
+    }
+    fields.rc(u8::try_from(small(new, 281)??).ok()?);
+    for code in [74, 71] {
+        fields.bit(match small(new, code)?? {
+            0 => false,
+            1 => true,
+            _ => return None,
+        });
+    }
+    for code in [110, 111, 112] {
+        point3(fields, new, code)?;
+    }
+    fields.bd(real(new, 146)??);
+    fields.bs(small(new, 79)??);
+    fields.copy(data, rest_at..entity_fields(data)?[3])
 }
 
 /// 3BD の点（`code`・`code + 10`・`code + 20`）。どれもなければ `default` を書く
