@@ -538,6 +538,21 @@ impl BitWriter {
         }
     }
 
+    /// BL。0 は 2 ビットで、0〜255 は RC で書く
+    pub(super) fn bl(&mut self, value: i32) {
+        match u8::try_from(value) {
+            Ok(0) => self.bb(2),
+            Ok(byte) => {
+                self.bb(1);
+                self.rc(byte);
+            }
+            Err(_) => {
+                self.bb(0);
+                self.rl(value);
+            }
+        }
+    }
+
     /// RD
     pub(super) fn rd(&mut self, value: f64) {
         self.raw(&value.to_le_bytes());

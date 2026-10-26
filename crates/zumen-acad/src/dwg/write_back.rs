@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0034）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0035）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -47,6 +47,7 @@ const MTEXT: &[i16] = &[
 ];
 
 /// MINSERT の型の番号
+const LWPOLYLINE: &[i16] = &[90, 70, 43, 38, 39, 10, 20, 40, 41, 42, 210, 220, 230];
 const MINSERT_TYPE: i16 = 0x08;
 
 const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
@@ -191,6 +192,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"ATTRIB" => ATTRIB,
         b"ATTDEF" => ATTDEF,
         b"MTEXT" => MTEXT,
+        b"LWPOLYLINE" => LWPOLYLINE,
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
         _ => &[],
@@ -301,6 +303,7 @@ fn own_fields(new: &Object, grid: bool, data: &[u8], start: usize) -> Option<Bit
         b"TEXT" => text(&mut fields, new, 73)?,
         b"ATTRIB" | b"ATTDEF" => attribute(&mut fields, new)?,
         b"MTEXT" => mtext(&mut fields, new, data, start)?,
+        b"LWPOLYLINE" => lwpolyline(&mut fields, new, data, start)?,
         b"INSERT" => insert(&mut fields, new, grid)?,
         _ => return None,
     }
@@ -494,6 +497,126 @@ fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
     fields.bs(small(object, 73)??);
     fields.bd(real(object, 44)??);
     fields.copy(data, flag_at..flag_at + 1)
+}
+
+/// LWPOLYLINE の欄（R2000）。続く欄があるかの印は、値があるかから選ぶ。膨らみ（42）が 1 つでもあれば、
+/// すべての頂点の膨らみを書く（ないものは 0）。頂点ごとの幅（40・41）は、初めの頂点から続けて置く。
+/// 頂点ごとの幅があるときは、表にない一定の幅を元のまま残す。ほかの印のビットも元のまま写す
+fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    let old = bits.bs()?;
+    let old_width = if old & 4 != 0 { bits.bd()? } else { 0.0 };
+    // 頂点ごとの x・y・始まりの幅・終わりの幅・膨らみ
+    let mut vertices: Vec<[Option<f64>; 5]> = Vec::new();
+    for value in &object.values {
+        let slot = match value.code {
+            10 => {
+                vertices.push([None; 5]);
+                0
+            }
+            20 => 1,
+            40 => 2,
+            41 => 3,
+            42 => 4,
+            _ => continue,
+        };
+        let Data::Real(v) = value.data else {
+            return None;
+        };
+        let slot = vertices.last_mut()?.get_mut(slot)?;
+        if slot.is_some() {
+            return None;
+        }
+        *slot = Some(v);
+    }
+    let count = object.values.iter().filter(|value| value.code == 90);
+    match count.map(|value| &value.data).collect::<Vec<_>>()[..] {
+        [Data::Int(count)] if usize::try_from(*count).ok()? == vertices.len() => {}
+        _ => return None,
+    }
+    let closed = match small(object, 70)? {
+        None | Some(0) => false,
+        Some(1) => true,
+        _ => return None,
+    };
+    let widths = vertices.iter().take_while(|v| v[2].is_some()).count();
+    let (with, without) = vertices.split_at_checked(widths)?;
+    if without.iter().any(|v| v[2].is_some() || v[3].is_some())
+        || with.iter().any(|v| v[3].is_none())
+    {
+        return None;
+    }
+    let width = match (real(object, 43)?, widths) {
+        (Some(_), 1..) => return None,
+        (width, 0) => width.unwrap_or(0.0),
+        (None, _) => old_width,
+    };
+    let elevation = real(object, 38)?;
+    let thickness = real(object, 39)?;
+    let extrusion = match [210, 220, 230].map(|code| real(object, code)) {
+        [Some(None), Some(None), Some(None)] => None,
+        [Some(Some(x)), Some(Some(y)), Some(Some(z))] => Some([x, y, z]),
+        _ => return None,
+    };
+    let bulges = vertices.iter().any(|v| v[4].is_some());
+    let mut flags = old & !(0x3F | 0x200);
+    for (on, bit) in [
+        (extrusion.is_some(), 1),
+        (thickness.is_some(), 2),
+        (width.to_bits() != 0, 4),
+        (elevation.is_some(), 8),
+        (bulges, 16),
+        (widths > 0, 32),
+        (closed, 0x200),
+    ] {
+        if on {
+            flags |= bit;
+        }
+    }
+    fields.bs(flags);
+    if flags & 4 != 0 {
+        fields.bd(width);
+    }
+    for value in [elevation, thickness].into_iter().flatten() {
+        fields.bd(value);
+    }
+    for value in extrusion.into_iter().flatten() {
+        fields.bd(value);
+    }
+    let count = i32::try_from(vertices.len()).ok()?;
+    fields.bl(count);
+    if bulges {
+        fields.bl(count);
+    }
+    if widths > 0 {
+        fields.bl(i32::try_from(widths).ok()?);
+    }
+    let mut last: Option<(f64, f64)> = None;
+    for vertex in &vertices {
+        let (x, y) = (vertex[0]?, vertex[1]?);
+        match last {
+            None => {
+                fields.rd(x);
+                fields.rd(y);
+            }
+            Some((last_x, last_y)) => {
+                fields.dd(x, last_x);
+                fields.dd(y, last_y);
+            }
+        }
+        last = Some((x, y));
+    }
+    if bulges {
+        for vertex in &vertices {
+            fields.bd(vertex[4].unwrap_or(0.0));
+        }
+    }
+    for vertex in with {
+        fields.bd(vertex[2]?);
+        fields.bd(vertex[3]?);
+    }
+    Some(())
 }
 
 /// `code` の文字列を、DXF の `^` の書き方を戻し、終わりの NUL を付けて T で書く

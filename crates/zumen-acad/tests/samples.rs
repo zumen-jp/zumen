@@ -461,6 +461,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"ATTRIB"
                     | b"ATTDEF"
                     | b"MTEXT"
+                    | b"LWPOLYLINE"
             ) {
                 continue;
             }
