@@ -185,9 +185,30 @@ status = "active"
 # AutoCAD の系統（決定 0008）
 
 [codes."dwg.version.unsupported"]
-description = "R2000（AC1015）でない版の DWG は、まだ読めない"
+description = "R2000・R2004・R2010・R2013・R2018 でない版の DWG は、まだ読めない"
 severity = "error"
 params = { version = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."dwg.edit.unsupported"]
+description = "R2000（AC1015）でない版の DWG は、まだ変えられない"
+severity = "error"
+params = { version = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."dwg.object.missing"]
+description = "DWG の変更で名指ししたオブジェクトがない"
+severity = "error"
+params = { record = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."dwg.data.invalid"]
+description = "DWG のオブジェクトに置くデータの、型を読めない"
+severity = "error"
+params = { record = "uint" }
 since = "0.0.0"
 status = "active"
 

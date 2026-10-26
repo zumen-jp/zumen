@@ -6,7 +6,7 @@
 //! （23「OBJECT MAP」）と、地図が指すオブジェクトの区切りと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
 //! 系統で共有するオブジェクトの表に置く（決定 0023）。
 //!
-//! 書くときは、元のバイトをそのまま並べる。変更はまだできない。
+//! 書くときは、元のバイトをそのまま並べる。R2000 は、[`DwgTxn`] でオブジェクトのデータを置き換えられる（決定 0028）。
 
 use core::ops::Range;
 
@@ -14,11 +14,13 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature};
 
 mod bits;
+mod edit;
 mod header;
 mod objects;
 mod r2004;
 
 use bits::{Bits, crc16, modular_char, modular_short};
+pub use edit::DwgTxn;
 
 const FILE_HEADER: SpecRef = SpecRef {
     spec: "ods_dwg_5_4_1",
@@ -360,15 +362,8 @@ fn header(src: &[u8], cx: &mut Cx) -> Result<(u16, Vec<Locator>), Error> {
             })
         })
         .collect();
-    let mask = match count {
-        3 => 0xA598,
-        4 => 0x8101,
-        5 => 0x3CC4,
-        6 => 0x8461,
-        _ => 0,
-    };
     let stored = le16(src, crc_at);
-    let found = crc16(0, src.get(..crc_at).unwrap_or_default()) ^ mask;
+    let found = crc16(0, src.get(..crc_at).unwrap_or_default()) ^ header_crc_mask(count);
     if stored != Some(found) {
         cx.report(crc_invalid("header", 0..crc_at + 2, FILE_HEADER));
     }
@@ -464,6 +459,17 @@ fn class(bits: &mut Bits, release: Release) -> Option<Class> {
         name,
         entity,
     })
+}
+
+/// 見出しの CRC に重ねる値。区切りの記録の数で決まる
+fn header_crc_mask(count: usize) -> u16 {
+    match count {
+        3 => 0xA598,
+        4 => 0x8101,
+        5 => 0x3CC4,
+        6 => 0x8461,
+        _ => 0,
+    }
 }
 
 /// `src` の `range` にあるオブジェクトの地図を読み、地図が指す `objects` の中のオブジェクトの区切りを並べる
