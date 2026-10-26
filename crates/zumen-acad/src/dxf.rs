@@ -8,10 +8,11 @@
 //! 改行（CR LF か LF）、グループ・コードの前の空白、値の文字コードは、元のバイトに残る。
 //!
 //! 変更は [`DxfTxn`] で行う。確定すると、変えたレコードだけを書き直す。書き直すときも、
-//! タグのグループ・コードの行と改行は元のバイトを使い、値だけを差し替える。
+//! タグのグループ・コードの行と改行は元のバイトを使い、値だけを差し替える。足したタグは、
+//! グループ・コードを 3 桁に右寄せし、ファイルの最初の行と同じ改行で書く。
 
 use core::ops::Range;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 
@@ -54,7 +55,7 @@ pub struct Record {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tag {
     code: i16,
-    /// グループ・コードの行の先頭から、値の行の改行の終わりまで
+    /// グループ・コードの行の先頭から、値の行の改行の終わりまで。足したタグは空
     span: Range<usize>,
     value: Range<usize>,
     /// 変更した値。改行は含まない
@@ -100,14 +101,10 @@ impl DxfFile {
     }
 
     /// レコードの種類（グループ・コード 0 の値。前後の空白を除く）。先頭がグループ・コード 0 でなければ空
-    pub fn kind(&self, record: &Record) -> &[u8] {
+    pub fn kind<'a>(&'a self, record: &'a Record) -> &'a [u8] {
         match record.tags.first() {
-            // グループ・コード 0 の値は変えられないので、元のバイトから読む
-            Some(tag) if tag.code == 0 => self
-                .src
-                .get(tag.value.clone())
-                .unwrap_or_default()
-                .trim_ascii(),
+            // グループ・コード 0 の値は変えられない。足したレコードでは、足した値を読む
+            Some(tag) if tag.code == 0 => self.value(tag).trim_ascii(),
             _ => &[],
         }
     }
@@ -115,6 +112,14 @@ impl DxfFile {
     /// `EOF` の後に続くバイト列
     pub fn trailer(&self) -> &[u8] {
         self.src.get(self.trailer.clone()).unwrap_or_default()
+    }
+
+    /// 足したタグに使う改行。最初の行が CR LF なら CR LF、ほかは LF（推定。docs/formats/dxf.md）
+    fn newline(&self) -> &'static [u8] {
+        match self.src.iter().position(|&b| b == b'\n') {
+            Some(n) if n > 0 && self.src.get(n - 1) == Some(&b'\r') => b"\r\n",
+            _ => b"\n",
+        }
     }
 }
 
@@ -203,6 +208,14 @@ impl Codec for Dxf {
                 continue;
             }
             for tag in &record.tags {
+                if tag.span.is_empty() {
+                    let newline = file.newline();
+                    out.extend_from_slice(format!("{:>3}", tag.code).as_bytes());
+                    out.extend_from_slice(newline);
+                    out.extend_from_slice(file.value(tag));
+                    out.extend_from_slice(newline);
+                    continue;
+                }
                 let src = |range: Range<usize>| file.src.get(range).unwrap_or_default();
                 out.extend_from_slice(src(tag.span.start..tag.value.start));
                 out.extend_from_slice(file.value(tag));
@@ -215,11 +228,15 @@ impl Codec for Dxf {
 }
 
 /// DXF の変更をためるトランザクション。[`Transaction::commit`] で、まとめて確かめてから反映する。
-/// 変更の操作が失敗したら、そのトランザクションは確定できない
+/// 変更の操作が失敗したら、そのトランザクションは確定できない。レコードの位置は、
+/// 確定するまで元のファイルの位置で名指しする
 #[derive(Debug)]
 pub struct DxfTxn<'a> {
     file: &'a mut DxfFile,
     staged: BTreeMap<usize, Record>,
+    /// 元の位置の前に足すレコード
+    inserted: BTreeMap<usize, Vec<Record>>,
+    removed: BTreeSet<usize>,
     rejected: Option<Diagnostic>,
 }
 
@@ -229,14 +246,10 @@ impl DxfTxn<'_> {
     pub fn set_value(&mut self, record: usize, tag: usize, value: &[u8]) -> Result<(), Error> {
         let staged = self.stage(record)?;
         let Some(found) = staged.tags.get_mut(tag) else {
-            return Err(self.reject(
-                Diagnostic::new(codes::DXF_TAG_MISSING)
-                    .with("record", record as u64)
-                    .with("tag", tag as u64),
-            ));
+            return Err(self.reject(missing_tag(record, tag)));
         };
         let code = found.code;
-        if code == 0 || value.iter().any(|&b| b == b'\r' || b == b'\n') {
+        if code == 0 || has_newline(value) {
             return Err(self.reject(on_tag(codes::DXF_VALUE_UNSAFE, record, code)));
         }
         found.edited = Some(value.into());
@@ -256,16 +269,143 @@ impl DxfTxn<'_> {
         self.set_value(record, tag, &format_real(value))
     }
 
+    /// `record` 番目のレコードの `before` 番目のタグの前に、タグを足す。`before` がタグの数なら最後に足す。
+    /// グループ・コード 0 のタグと改行を含む値は、タグとレコードの区切りが変わるので受け付けない
+    pub fn insert_tag(
+        &mut self,
+        record: usize,
+        before: usize,
+        code: i16,
+        value: &[u8],
+    ) -> Result<(), Error> {
+        let staged = self.stage(record)?;
+        if before == 0 || before > staged.tags.len() {
+            return Err(self.reject(missing_tag(record, before)));
+        }
+        if code == 0 || has_newline(value) {
+            return Err(self.reject(on_tag(codes::DXF_VALUE_UNSAFE, record, code)));
+        }
+        staged.tags.insert(before, fresh_tag(code, value));
+        Ok(())
+    }
+
+    /// `record` 番目のレコードの、`tag` 番目のタグを除く。グループ・コード 0 のタグは除けない
+    pub fn remove_tag(&mut self, record: usize, tag: usize) -> Result<(), Error> {
+        let staged = self.stage(record)?;
+        let Some(found) = staged.tags.get(tag) else {
+            return Err(self.reject(missing_tag(record, tag)));
+        };
+        if tag == 0 {
+            let code = found.code;
+            return Err(self.reject(on_tag(codes::DXF_VALUE_UNSAFE, record, code)));
+        }
+        staged.tags.remove(tag);
+        Ok(())
+    }
+
+    /// 元の `before` 番目のレコードの前に、タグの並び `tags` のレコードを足す。
+    /// 最初のタグはグループ・コード 0、ほかは 0 以外でなければならない。構造を区切る
+    /// `SECTION`・`ENDSEC`・`EOF` のレコードは足せない。ハンドル（5）は呼び出し側が決める（[`Self::new_handle`]）
+    pub fn insert_record(&mut self, before: usize, tags: &[(i16, &[u8])]) -> Result<(), Error> {
+        self.check_open()?;
+        if before >= self.file.records.len() {
+            return Err(self.reject(missing_record(before)));
+        }
+        let unsafe_tag = tags
+            .iter()
+            .enumerate()
+            .find(|(i, (code, value))| (*i == 0) != (*code == 0) || has_newline(value));
+        match (tags.first(), unsafe_tag) {
+            (_, Some((_, &(code, _)))) => {
+                return Err(self.reject(on_tag(codes::DXF_VALUE_UNSAFE, before, code)));
+            }
+            (None, None) => {
+                return Err(self.reject(on_tag(codes::DXF_VALUE_UNSAFE, before, 0)));
+            }
+            (Some((_, kind)), None) if structural(kind.trim_ascii()) => {
+                return Err(self.reject(unsafe_record(before)));
+            }
+            _ => {}
+        }
+        let record = Record {
+            span: 0..0,
+            tags: tags
+                .iter()
+                .map(|&(code, value)| fresh_tag(code, value))
+                .collect(),
+            edited: true,
+        };
+        self.inserted.entry(before).or_default().push(record);
+        Ok(())
+    }
+
+    /// 元の `record` 番目のレコードを除く。構造を区切る `SECTION`・`ENDSEC`・`EOF` のレコードは除けない
+    pub fn remove_record(&mut self, record: usize) -> Result<(), Error> {
+        self.check_open()?;
+        let Some(found) = self.file.records.get(record) else {
+            return Err(self.reject(missing_record(record)));
+        };
+        if self.removed.contains(&record) {
+            return Err(self.reject(missing_record(record)));
+        }
+        if structural(self.file.kind(found)) {
+            return Err(self.reject(unsafe_record(record)));
+        }
+        self.staged.remove(&record);
+        self.removed.insert(record);
+        Ok(())
+    }
+
+    /// 見出しの `$HANDSEED` の値を新しいハンドルとして返し、`$HANDSEED` を 1 つ進める
+    /// （DXF Reference「HEADER Section Group Codes」の $HANDSEED）。値は 16 進の文字列で、大文字で書く
+    pub fn new_handle(&mut self) -> Result<u64, Error> {
+        self.check_open()?;
+        let header = self.file.records.iter().position(|r| {
+            self.file.kind(r) == b"SECTION"
+                && r.tags
+                    .get(1)
+                    .is_some_and(|t| t.code == 2 && self.file.value(t).trim_ascii() == b"HEADER")
+        });
+        let Some(header) = header else {
+            return Err(self.reject(Diagnostic::new(codes::DXF_HANDLE_SEED_MISSING)));
+        };
+        let file = &*self.file;
+        let Some(found) = self.staged.get(&header).or(file.records.get(header)) else {
+            return Err(Error::Rejected);
+        };
+        // `9 $HANDSEED` の次の、グループ・コード 5 のタグ
+        let seed = found.tags.windows(2).position(|pair| {
+            matches!(pair, [name, value] if name.code == 9 && value.code == 5
+                && file.value(name).trim_ascii() == b"$HANDSEED")
+        });
+        let read = |tag: usize| {
+            let text = core::str::from_utf8(file.value(found.tags.get(tag)?).trim_ascii()).ok()?;
+            u64::from_str_radix(text, 16).ok().filter(|&h| h < u64::MAX)
+        };
+        let Some((tag, handle)) = seed.and_then(|i| Some((i + 1, read(i + 1)?))) else {
+            return Err(self.reject(Diagnostic::new(codes::DXF_HANDLE_SEED_MISSING)));
+        };
+        self.set_value(header, tag, format!("{:X}", handle + 1).as_bytes())?;
+        Ok(handle)
+    }
+
+    /// 失敗したトランザクションは、ほかの変更も受け付けない
+    fn check_open(&self) -> Result<(), Error> {
+        match self.rejected {
+            Some(_) => Err(Error::Rejected),
+            None => Ok(()),
+        }
+    }
+
     /// 変更する前のレコードを写して、ためる
     fn stage(&mut self, record: usize) -> Result<&mut Record, Error> {
-        if self.rejected.is_some() {
-            return Err(Error::Rejected);
+        self.check_open()?;
+        if self.removed.contains(&record) {
+            return Err(self.reject(missing_record(record)));
         }
         if !self.staged.contains_key(&record) {
             let Some(found) = self.file.records.get(record) else {
-                return Err(self.reject(
-                    Diagnostic::new(codes::DXF_RECORD_MISSING).with("record", record as u64),
-                ));
+                return Err(self.reject(missing_record(record)));
             };
             self.staged.insert(record, found.clone());
         }
@@ -286,13 +426,26 @@ impl Transaction for DxfTxn<'_> {
             return Err(Error::Rejected);
         }
         // 予算を先にすべて確かめ、反映の途中では止めない
-        cx.check(Kind::Work, self.staged.len() as u64)
+        let inserted: usize = self.inserted.values().map(Vec::len).sum();
+        let work = self.staged.len() + inserted + self.removed.len();
+        cx.check(Kind::Work, work as u64)
             .map_err(|stop| stopped(cx, stop))?;
-        for (index, mut record) in self.staged {
-            if let Some(target) = self.file.records.get_mut(index) {
-                record.edited = true;
-                *target = record;
+        let (mut staged, mut added) = (self.staged, self.inserted);
+        let old = core::mem::take(&mut self.file.records);
+        for (index, record) in old.into_iter().enumerate() {
+            self.file
+                .records
+                .extend(added.remove(&index).unwrap_or_default());
+            if self.removed.contains(&index) {
+                continue;
             }
+            self.file.records.push(match staged.remove(&index) {
+                Some(edited) => Record {
+                    edited: true,
+                    ..edited
+                },
+                None => record,
+            });
         }
         Ok(())
     }
@@ -305,8 +458,45 @@ impl Transact for DxfFile {
         DxfTxn {
             file: self,
             staged: BTreeMap::new(),
+            inserted: BTreeMap::new(),
+            removed: BTreeSet::new(),
             rejected: None,
         }
+    }
+}
+
+fn missing_record(record: usize) -> Diagnostic {
+    Diagnostic::new(codes::DXF_RECORD_MISSING).with("record", record as u64)
+}
+
+fn missing_tag(record: usize, tag: usize) -> Diagnostic {
+    Diagnostic::new(codes::DXF_TAG_MISSING)
+        .with("record", record as u64)
+        .with("tag", tag as u64)
+}
+
+fn unsafe_record(record: usize) -> Diagnostic {
+    Diagnostic::new(codes::DXF_RECORD_UNSAFE)
+        .with("record", record as u64)
+        .at(Ref::at_record(record as u64))
+}
+
+/// 足したり除いたりすると、セクションの区切りが変わるレコードの種類
+fn structural(kind: &[u8]) -> bool {
+    matches!(kind, b"SECTION" | b"ENDSEC" | b"EOF")
+}
+
+fn has_newline(value: &[u8]) -> bool {
+    value.iter().any(|&b| b == b'\r' || b == b'\n')
+}
+
+/// 足すタグ。元のバイトを持たないので、範囲は空にする
+fn fresh_tag(code: i16, value: &[u8]) -> Tag {
+    Tag {
+        code,
+        span: 0..0,
+        value: 0..0,
+        edited: Some(value.into()),
     }
 }
 
