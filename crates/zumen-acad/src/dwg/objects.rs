@@ -392,6 +392,9 @@ struct Common {
     no_links: bool,
     /// 色を DBCOLOR のハンドルで指すか（R2004 から）
     color_handle: bool,
+    /// 印刷スタイルの後のハンドルの数。材質（R2007 から、印が 3 のとき）と、表示スタイル
+    /// （R2010 から、3 つの B のそれぞれが立つとき）
+    styles: usize,
     /// 線種の印。0 は ByLayer、1 は ByBlock、2 は Continuous、3 はハンドルで指す
     ltype_flags: u8,
     /// 印刷スタイルのハンドルを持つか（印刷スタイルの印が 3）
@@ -409,8 +412,19 @@ fn read(
     header: Option<Header>,
 ) -> Option<Fields> {
     let mut bits = Bits::with_release(data, release);
-    bits.bs()?;
-    let handles_at = usize::try_from(bits.rl()?).ok()?;
+    // R2010 からは、型は BOT で、ハンドルの流れの位置は区切りの大きさで決まる。文字列の流れは
+    // ハンドルの流れの前にある
+    let handles_at = match entry.handles {
+        Some(at) => {
+            bits.bot()?;
+            bits.split_strings(at)?;
+            at
+        }
+        None => {
+            bits.bs()?;
+            usize::try_from(bits.rl()?).ok()?
+        }
+    };
     bits.handle()?;
     skip_extended_data(&mut bits)?;
     if entity {
@@ -495,6 +509,9 @@ fn read(
         if common.plotstyle_handle {
             bits.handle()?;
         }
+        for _ in 0..common.styles {
+            bits.handle()?;
+        }
         // 寸法は、寸法の体裁（3）とブロック（2）の順に指す
         let pointed: &[(i16, u16)] = match entry.type_code {
             TEXT | MTEXT | ATTRIB | ATTDEF => &[(7, STYLE)],
@@ -538,8 +555,12 @@ fn read(
         })
     } else {
         let reactors = bits.bl()?;
-        // R2004 からは、拡張辞書のハンドルがないことを表す B が続く
+        // R2004 からは、拡張辞書のハンドルがないことを表す B が続く。R2013 からは、さらに
+        // DS のデータを持つかの B が続く
         let xdic = release == Release::R2000 || !bits.bit()?;
+        if release >= Release::R2013 {
+            bits.bit()?;
+        }
         let mut entries = Vec::new();
         // 型ごとのハンドルを置くコード。0 のハンドルは置かない。コードが 0 のハンドルは読み飛ばし、
         // 6 のハンドルは線種の名前に直す
@@ -639,19 +660,41 @@ fn skip_extended_data(bits: &mut Bits) -> Option<()> {
 /// 非表示（60）を値にする。R2004 からは、反応子の数の後に拡張辞書がないことを表す B があり、
 /// 前後の図形のハンドルはない
 fn entity_data(bits: &mut Bits) -> Option<Common> {
+    // 図形の絵の大きさは、R2010 からは BLL
     if bits.bit()? {
-        let size = bits.rl()?;
+        let size = if bits.release() >= Release::R2010 {
+            bits.bll()?
+        } else {
+            u64::try_from(bits.rl()?).ok()?
+        };
         bits.skip_bytes(usize::try_from(size).ok()?)?;
     }
     let entmode = bits.bb()?;
     let reactors = u32::try_from(bits.bl()?).ok()?;
-    let r2004 = bits.release() == Release::R2004;
+    let release = bits.release();
+    let r2004 = release >= Release::R2004;
     let xdic = !r2004 || !bits.bit()?;
+    if release >= Release::R2013 {
+        bits.bit()?;
+    }
     let no_links = r2004 || bits.bit()?;
     let color = bits.enc()?;
     let ltype_scale = bits.bd()?;
     let ltype_flags = bits.bb()?;
     let plotstyle_flags = bits.bb()?;
+    // R2007 からは、材質の印（BB）と影の印（RC）、R2010 からは、表示スタイルを持つかの 3 つの B が続く（図面で確かめた）
+    let mut styles = 0;
+    if release >= Release::R2010 {
+        if bits.bb()? == 3 {
+            styles += 1;
+        }
+        bits.rc()?;
+        for _ in 0..3 {
+            if bits.bit()? {
+                styles += 1;
+            }
+        }
+    }
     let invisible = bits.bs()?;
     bits.rc()?;
     let mut values = Vec::new();
@@ -673,6 +716,7 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         xdic,
         no_links,
         color_handle: color.book,
+        styles,
         ltype_flags,
         plotstyle_handle: plotstyle_flags == 3,
         values,
@@ -734,13 +778,39 @@ fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
             value.code = 74;
         }
     }
+    // R2010 からは、名前の前に属性の版（RC、DXF の 280）が、印の後に位置を固定するか（B、DXF の
+    // 2 つ目の 280）が、定義の問いの前にもう 1 つの版（RC）がある
+    let r2010 = bits.release() >= Release::R2010;
+    if r2010 {
+        values.push(int(280, i64::from(bits.rc()?)));
+    }
+    // R2018 からは、版の後に属性の種類（RC、DXF の 71）が続く。1 は 1 行の属性で、2（ATTRIB）と
+    // 4（ATTDEF）は複数行の属性。複数行の属性は、意味の分からない 37 ビット（図面の 2 つの属性で
+    // 同じ値）の後に、埋め込みの MTEXT の欄と、DXF の 72 にあたる BS を持つ（図面で確かめた）。
+    // 埋め込みの MTEXT の値は、まだ置かない
+    if bits.release() >= Release::R2018 {
+        let kind = bits.rc()?;
+        if kind != 1 {
+            bits.seek(bits.pos() + 37);
+            mtext(bits)?;
+            mtext_columns(bits)?;
+            values.push(int(71, i64::from(kind)));
+            values.push(int(72, i64::from(bits.bs()?)));
+        }
+    }
     values.push(text_value(2, &bits.text()?));
     let length = bits.bs()?;
     if length != 0 {
         values.push(int(73, i64::from(length)));
     }
     values.push(int(70, i64::from(bits.rc()?)));
+    if r2010 {
+        values.push(int(280, i64::from(bits.bit()?)));
+    }
     if definition {
+        if r2010 {
+            bits.rc()?;
+        }
         values.push(text_value(3, &bits.text()?));
     }
     Some(values)
@@ -783,8 +853,13 @@ fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     // 鉤の線の点の差と、注釈への差。どちらも DXF で確かめていない
     point3(bits, 212)?;
     point3(bits, 213)?;
-    values.push(real(40, bits.bd()?));
-    values.push(real(41, bits.bd()?));
+    // 注釈の枠の高さと幅。R2010 からは、DXF は注釈から求めた値を書き、DWG の値（図面では 1 と 0）とは
+    // 違うので置かない
+    let (height, width) = (bits.bd()?, bits.bd()?);
+    if bits.release() < Release::R2010 {
+        values.push(real(40, height));
+        values.push(real(41, width));
+    }
     values.push(int(74, i64::from(bits.bit()?)));
     if reals(&direction) != [Some(1.0), Some(0.0), Some(0.0)] {
         values.extend(direction);
@@ -861,6 +936,10 @@ fn viewport(bits: &mut Bits) -> Option<Vec<Value>> {
         real(51, twist.to_degrees()),
         int(72, i64::from(bits.bs()?)),
     ]);
+    // R2010 からは、主なグリッドの線の間隔（BS、DXF の 61）が続く
+    if bits.release() >= Release::R2010 {
+        values.push(int(61, i64::from(bits.bs()?)));
+    }
     bits.bl()?;
     values.push(int(90, i64::from(bits.bl()?)));
     values.push(text_value(1, &bits.text()?));
@@ -918,7 +997,10 @@ fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
     for _ in 0..lines {
         values.push(real(49, bits.bd()?));
         values.push(int(62, i64::from(bits.cmc()?.index)));
-        bits.bs()?;
+        // R2018 からは、線種を番号でなくハンドルで指す
+        if bits.release() < Release::R2018 {
+            bits.bs()?;
+        }
     }
     Some(values)
 }
@@ -1004,9 +1086,12 @@ fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
 /// ハンドルの並びは、外部参照のブロックの後に型ごとのハンドルが続く
 fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     let name = bits.text()?;
-    // 参照される印（64）は、DXF に書かれないので置かない
+    // 参照される印（64）は、DXF に書かれないので置かない。外部参照の番号は、R2010 の図面には
+    // ない（図面で確かめた）
     bits.bit()?;
-    bits.bs()?;
+    if bits.release() < Release::R2010 {
+        bits.bs()?;
+    }
     let xdep = if bits.bit()? { 16 } else { 0 };
     handles.push(0);
     let mut values = vec![Value {
@@ -1076,12 +1161,25 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 let flags = bits.bs()?;
                 dashes.push((dash, shape, x, y, scale, rotation, flags));
             }
-            // 文字の要素の文字列は、256 バイトの領域に、形の番号の位置から 0 で終わる
-            let area = raw_bytes(bits, 256)?;
+            // 文字の要素の文字列は、256 バイトの領域に、形の番号の位置から 0 で終わる。R2010 からは、
+            // 文字の要素があるときだけ 512 バイトの領域があり、文字列は UTF-16LE
+            let unicode = bits.release() >= Release::R2010;
+            let area = if !unicode {
+                raw_bytes(bits, 256)?
+            } else if dashes.iter().any(|dash| dash.6 & 2 != 0) {
+                raw_bytes(bits, 512)?
+            } else {
+                Vec::new()
+            };
+            // DWG の 8 は文字の要素に付く印で、R2013 より前の DXF には書かれない
+            let mask = if bits.release() >= Release::R2013 {
+                15
+            } else {
+                7
+            };
             for (dash, shape, x, y, scale, rotation, flags) in dashes {
                 values.push(real(49, dash));
-                // DWG の 8 は文字の要素に付く印で、DXF に書かれない
-                values.push(int(74, i64::from(flags & 7)));
+                values.push(int(74, i64::from(flags & mask)));
                 // 要素ごとに、形のファイルの文字の体裁のハンドル（340）を持つ。形も文字もない要素の
                 // ハンドルは置かない
                 if flags & 6 == 0 {
@@ -1099,8 +1197,20 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 ]);
                 if text {
                     let rest = area.get(usize::try_from(shape).ok()?..)?;
-                    let end = rest.iter().position(|&b| b == 0)?;
-                    values.push(text_value(9, rest.get(..end)?));
+                    let text = if unicode {
+                        let units: Vec<u16> = rest
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|&pair| u16::from_le_bytes(pair))
+                            .take_while(|&unit| unit != 0)
+                            .collect();
+                        String::from_utf16_lossy(&units).into_bytes()
+                    } else {
+                        let end = rest.iter().position(|&b| b == 0)?;
+                        rest.get(..end)?.to_vec()
+                    };
+                    values.push(text_value(9, &text));
                 }
             }
         }
@@ -1119,6 +1229,10 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             values.push(int(70, xdep));
             values.extend(dimstyle(bits)?);
             handles.extend([340, 341, 342, 343, 344]);
+            // R2010 からは、寸法線と 2 つの補助線の線種のハンドルが続く
+            if bits.release() >= Release::R2010 {
+                handles.extend([345, 346, 347]);
+            }
         }
         // BLOCK_RECORD の印は、DXF では BLOCK の 70 に書かれる
         BLOCK_RECORD => {}
@@ -1163,6 +1277,15 @@ fn view(bits: &mut Bits, xdep: i64, handles: &mut Vec<i16>) -> Option<Vec<Value>
     let (lens, front, back) = (bits.bd()?, bits.bd()?, bits.bd()?);
     let mode = view_mode(bits)?;
     let render = bits.rc()?;
+    // R2010 からは、既定の照明を使うか（B）・照明の種類（RC）・明るさと対比（BD）・環境の色（CMC）が
+    // 続く（図面で確かめた）
+    if bits.release() >= Release::R2010 {
+        bits.bit()?;
+        bits.rc()?;
+        bits.bd()?;
+        bits.bd()?;
+        bits.cmc()?;
+    }
     let paper = bits.bit()?;
     let mut values = vec![int(70, xdep | i64::from(paper)), real(40, height)];
     values.extend(center);
@@ -1179,6 +1302,10 @@ fn view(bits: &mut Bits, xdep: i64, handles: &mut Vec<i16>) -> Option<Vec<Value>
     ]);
     let associated = bits.bit()?;
     values.push(int(72, i64::from(associated)));
+    // R2010 からは、外部参照のブロックの後に、背景・表示スタイル・太陽のハンドルが続く
+    if bits.release() >= Release::R2010 {
+        handles.extend([0, 0, 0]);
+    }
     if associated {
         for code in [110, 111, 112] {
             values.extend(point3(bits, code)?);
@@ -1345,7 +1472,52 @@ const DIM_FIELDS: [(i16, Dim); 59] = {
 /// DIMSTYLE の欄。DXF と同じく、既定の値と同じ欄は置かない
 fn dimstyle(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = Vec::new();
-    for (code, field) in DIM_FIELDS {
+    // R2010 からは、見出しの変数と同じく、DIMTM（48）の後に DIMFXL・DIMJOGANG・DIMTFILL・
+    // DIMTFILLCLR、DIMAZIN（79）の後に DIMARCSYM、DIMATFIT（289）の後に DIMFXLON・
+    // DIMTXTDIRECTION・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が入る（図面で確かめた）
+    let added: &[(i16, &[(i16, Dim)])] = if bits.release() >= Release::R2010 {
+        &[
+            (
+                48,
+                &[
+                    (49, Dim::Real(1.0)),
+                    (50, Dim::Real(std::f64::consts::FRAC_PI_4)),
+                    (69, Dim::Short(0)),
+                    (70, Dim::Color(0)),
+                ],
+            ),
+            (79, &[(90, Dim::Short(0))]),
+            (
+                289,
+                &[
+                    (290, Dim::Bit(false)),
+                    (294, Dim::Bit(false)),
+                    (0, Dim::Real(0.0)),
+                    (0, Dim::Text),
+                    (0, Dim::Real(0.0)),
+                    (0, Dim::Text),
+                ],
+            ),
+        ]
+    } else {
+        &[]
+    };
+    let fields = DIM_FIELDS.iter().flat_map(|field| {
+        let extra = added
+            .iter()
+            .find(|(after, _)| *after == field.0)
+            .map_or(&[][..], |(_, extra)| *extra);
+        std::iter::once(field).chain(extra)
+    });
+    for &(code, field) in fields {
+        // コードが 0 の欄は、DXF に書かれないので読み飛ばす
+        if code == 0 {
+            match field {
+                Dim::Text => bits.text().map(drop)?,
+                _ => bits.bd().map(drop)?,
+            }
+            continue;
+        }
         match field {
             Dim::Text => {
                 let text = bits.text()?;
@@ -1530,6 +1702,10 @@ fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     let extrusion = point3(bits, 210)?;
     let x_axis = point3(bits, 11)?;
     values.push(real(41, bits.bd()?));
+    // R2010 からは、枠の高さ（46）が続く
+    if bits.release() >= Release::R2010 {
+        values.push(real(46, bits.bd()?));
+    }
     values.push(real(40, bits.bd()?));
     values.push(int(71, i64::from(bits.bs()?)));
     values.push(int(72, i64::from(bits.bs()?)));
@@ -1555,7 +1731,7 @@ fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     bits.bit()?;
     // R2004 からは背景の欄が続く。印（90）の 1 は、背景の大きさの倍率（45）・色（63）・透明度（441）が
     // 続くことを表す。DXF と同じく、印が 0 でなければ置く
-    if bits.release() == Release::R2004 {
+    if bits.release() >= Release::R2004 {
         let background = bits.bl()?;
         if background != 0 {
             values.push(int(90, i64::from(background)));
@@ -1578,6 +1754,22 @@ fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
         values.extend(extrusion);
     }
     Some(values)
+}
+
+/// R2018 からの MTEXT の、背景の欄の後の欄を読み飛ばす。注釈でないか（B）・版（BS）・既定か（B）・
+/// 寄せ方（BL）・X 軸の向き・挿入点・幅と高さと範囲の幅と高さ（BD）・段組みの種類（BL）の順（図面で
+/// 確かめた）。段組みのある欄は、まだ確かめていないので読まない
+fn mtext_columns(bits: &mut Bits) -> Option<()> {
+    bits.bit()?;
+    bits.bs()?;
+    bits.bit()?;
+    bits.bl()?;
+    point3(bits, 10)?;
+    point3(bits, 11)?;
+    for _ in 0..4 {
+        bits.bd()?;
+    }
+    (bits.bl()? == 0).then_some(())
 }
 
 /// 押し出しの向きが既定の (0, 0, 1) か
@@ -1818,36 +2010,49 @@ fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
 /// 置かない。始まりと終わりの接線（12・13）は、0 でなければ置く
 fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
     let scenario = bits.bl()?;
-    let mut values = vec![int(71, i64::from(bits.bl()?))];
+    // R2013 からは、スプラインの印と、節点の取り方（どちらも BL）が続く。印の 1 が立つときは、
+    // 場合が 1 でも、当てはめる点の欄だけがあり、制御点の欄はない（図面で確かめた）
+    let mut fitted = scenario == 2;
+    let mut fit_only = false;
+    if bits.release() >= Release::R2013 {
+        fit_only = bits.bl()? & 1 != 0;
+        fitted |= fit_only;
+        bits.bl()?;
+    }
+    let degree = bits.bl()?;
+    let mut values = vec![int(71, i64::from(degree))];
     let mut fit = 0;
     let mut knots = 0;
     let mut controls = 0;
     let mut weighted = false;
     let mut tail = Vec::new();
-    match scenario {
-        2 => {
-            let tolerance = bits.bd()?;
-            let start = point3(bits, 12)?;
-            let end = point3(bits, 13)?;
-            fit = bits.bl()?;
-            tail.push(real(44, tolerance));
-            for tangent in [start, end] {
-                if reals(&tangent).iter().any(|r| *r != Some(0.0)) {
-                    tail.extend(tangent);
-                }
+    if !matches!(scenario, 1 | 2) {
+        return None;
+    }
+    if fitted {
+        let tolerance = bits.bd()?;
+        let start = point3(bits, 12)?;
+        let end = point3(bits, 13)?;
+        fit = bits.bl()?;
+        if fit_only && scenario == 1 {
+            return spline_from_fit(bits, degree, fit, &start, &end);
+        }
+        tail.push(real(44, tolerance));
+        for tangent in [start, end] {
+            if reals(&tangent).iter().any(|r| *r != Some(0.0)) {
+                tail.extend(tangent);
             }
         }
-        1 => {
-            bits.bit()?; // 有理
-            bits.bit()?; // 閉じている
-            bits.bit()?; // 周期的
-            tail.push(real(42, bits.bd()?));
-            tail.push(real(43, bits.bd()?));
-            knots = bits.bl()?;
-            controls = bits.bl()?;
-            weighted = bits.bit()?;
-        }
-        _ => return None,
+    }
+    if scenario == 1 && !fit_only {
+        bits.bit()?; // 有理
+        bits.bit()?; // 閉じている
+        bits.bit()?; // 周期的
+        tail.push(real(42, bits.bd()?));
+        tail.push(real(43, bits.bd()?));
+        knots = bits.bl()?;
+        controls = bits.bl()?;
+        weighted = bits.bit()?;
     }
     values.push(int(72, i64::from(knots)));
     values.push(int(73, i64::from(controls)));
@@ -1865,6 +2070,61 @@ fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
     for _ in 0..fit {
         values.extend(point3(bits, 11)?);
     }
+    Some(values)
+}
+
+/// R2013 からの、制御点を書かないスプライン（場合が 1 で、当てはめる点だけを持つ）。DXF は制御点で
+/// 書くので、3 次で当てはめる点が 2 つのときは、両端の点と接線から Bézier の制御点を求める（接線の
+/// 3 分の 1 だけ両端から離す。図面で確かめた）。節点と制御点の許容差は書かれないので、DXF が置く
+/// 値（1e-9 と 1e-10）を置く。それ以外は、当てはめる点の欄として置く
+fn spline_from_fit(
+    bits: &mut Bits,
+    degree: i32,
+    fit: i32,
+    start: &[Value],
+    end: &[Value],
+) -> Option<Vec<Value>> {
+    let mut points = Vec::new();
+    for _ in 0..fit {
+        points.push(point3(bits, 11)?);
+    }
+    let xyz = |values: &[Value]| -> Option<[f64; 3]> {
+        let r = reals(values);
+        Some([
+            r.first().copied()??,
+            r.get(1).copied()??,
+            r.get(2).copied()??,
+        ])
+    };
+    let mut values = vec![int(71, i64::from(degree))];
+    if degree == 3 && fit == 2 {
+        let (p0, p3) = (xyz(points.first()?)?, xyz(points.get(1)?)?);
+        let ([x0, y0, z0], [x3, y3, z3]) = (p0, p3);
+        let ([a, b, c], [d, e, f]) = (xyz(start)?, xyz(end)?);
+        let p1 = [x0 + a / 3.0, y0 + b / 3.0, z0 + c / 3.0];
+        let p2 = [x3 - d / 3.0, y3 - e / 3.0, z3 - f / 3.0];
+        values.extend([
+            int(72, 8),
+            int(73, 4),
+            int(74, 0),
+            real(42, 1e-9),
+            real(43, 1e-10),
+        ]);
+        for knot in [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0] {
+            values.push(real(40, knot));
+        }
+        for [x, y, z] in [p0, p1, p2, p3] {
+            values.extend([real(10, x), real(20, y), real(30, z)]);
+        }
+        return Some(values);
+    }
+    values.extend([int(72, 0), int(73, 0), int(74, i64::from(fit))]);
+    for tangent in [start, end] {
+        if reals(tangent).iter().any(|r| *r != Some(0.0)) {
+            values.extend(tangent.iter().cloned());
+        }
+    }
+    values.extend(points.into_iter().flatten());
     Some(values)
 }
 
@@ -1995,6 +2255,9 @@ fn mesh(bits: &mut Bits) -> Option<Vec<Value>> {
 /// 12 の点の Z は標高とし、12 の点は 0 でなければ置く。ブロックの挿入の尺度と回転は、DXF の 41・42 が
 /// 別の欄に使われるので置かない
 fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
+    // R2010 からは、寸法の版（RC、DXF の 280）が先にある
+    let r2010 = bits.release() >= Release::R2010;
+    let version = if r2010 { Some(bits.rc()?) } else { None };
     let extrusion = point3(bits, 210)?;
     let text_x = bits.rd()?;
     let text_y = bits.rd()?;
@@ -2010,6 +2273,12 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
     let spacing_style = bits.bs()?;
     let spacing = bits.bd()?;
     let measurement = bits.bd()?;
+    // R2010 からは、3 つの B（DXF の 73 と、矢印を裏返すかの 74・75）が続く
+    let arrows = if r2010 {
+        Some([bits.bit()?, bits.bit()?, bits.bit()?])
+    } else {
+        None
+    };
     let point12 = (bits.rd()?, bits.rd()?);
     let (kind, mut values) = match type_code {
         DIMENSION_ORDINATE => {
@@ -2075,6 +2344,14 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
         int(71, i64::from(attachment)),
         real(42, measurement),
     ]);
+    if let Some(version) = version {
+        values.push(int(280, i64::from(version)));
+    }
+    if let Some(arrows) = arrows {
+        for (code, flag) in [73, 74, 75].into_iter().zip(arrows) {
+            values.push(int(code, i64::from(flag)));
+        }
+    }
     if point12 != (0.0, 0.0) {
         values.extend([
             real(12, point12.0),
@@ -2106,7 +2383,7 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
 /// 角度は度に直す。境界の図形のハンドル（330）は、所有者と見分けられないので、まだ置かない
 fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
     // R2004 からは、先頭にグラデーションの欄が来る。DXF と同じく、グラデーションのときだけ置く
-    let gradient = if bits.release() == Release::R2004 {
+    let gradient = if bits.release() >= Release::R2004 {
         hatch_gradient(bits)?
     } else {
         Vec::new()

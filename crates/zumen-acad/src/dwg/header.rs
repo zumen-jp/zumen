@@ -50,12 +50,14 @@ enum Field {
     Rd,
     Tv,
     H,
+    /// R2007 からも主のデータにあるハンドル（HANDSEED）
+    Seed,
     /// 色。R2000 は BS
     Cmc,
     Rc,
 }
 
-use Field::{B, Bd, Bl, Bs, Cmc, H, Rc, Rd, Tv};
+use Field::{B, Bd, Bl, Bs, Cmc, H, Rc, Rd, Seed, Tv};
 
 /// 空間ごとの変数: INSBASE・EXTMIN・EXTMAX、LIMMIN・LIMMAX、ELEVATION・UCSORG・UCSXDIR・UCSYDIR、
 /// UCSNAME・UCSORTHOREF、UCSORTHOVIEW、UCSBASE、6 つの向きの UCS の原点
@@ -70,7 +72,7 @@ const SPACE: [(Field, usize); 7] = [
 ];
 
 /// 空間ごとの変数より前の変数の並び（型と数）
-const FIRST: [(Field, usize); 12] = [
+const FIRST: [(Field, usize); 13] = [
     // 不明な値
     (Bd, 4),
     (Tv, 4),
@@ -89,8 +91,9 @@ const FIRST: [(Field, usize); 12] = [
     (Bl, 8),
     // CECOLOR
     (Cmc, 1),
-    // HANDSEED・CLAYER・TEXTSTYLE・CELTYPE・DIMSTYLE・CMLSTYLE
-    (H, 6),
+    // HANDSEED、CLAYER・TEXTSTYLE・CELTYPE・DIMSTYLE・CMLSTYLE
+    (Seed, 1),
+    (H, 5),
     // PSVPSCALE
     (Bd, 1),
 ];
@@ -98,7 +101,7 @@ const FIRST: [(Field, usize); 12] = [
 /// R2004 の、空間ごとの変数より前の変数の並び。R2000 と比べて、今のビューポートの図形の見出しが
 /// なく、LIMCHECK と USRTIMER の間に B が 1 つ、PDMODE と USERI1 の間と TDUPDATE と TDINDWG の間に
 /// BL が 3 つずつある（どれも使い道は分からない。試料の DWG と DXF の比較で確かめた）
-const FIRST_R2004: [(Field, usize); 15] = [
+const FIRST_R2004: [(Field, usize); 16] = [
     (Bd, 4),
     (Tv, 4),
     (Bl, 2),
@@ -119,8 +122,9 @@ const FIRST_R2004: [(Field, usize); 15] = [
     (Bl, 4),
     // CECOLOR
     (Cmc, 1),
-    // HANDSEED・CLAYER・TEXTSTYLE・CELTYPE・DIMSTYLE・CMLSTYLE
-    (H, 6),
+    // HANDSEED、CLAYER・TEXTSTYLE・CELTYPE・DIMSTYLE・CMLSTYLE
+    (Seed, 1),
+    (H, 5),
     // PSVPSCALE
     (Bd, 1),
 ];
@@ -156,6 +160,39 @@ const LAST: [(Field, usize); 16] = [
     (Bs, 2),
 ];
 
+/// R2010 からの、空間ごとの変数より後の、寸法の変数の並び。R2004 と比べて、DIMTM の後に
+/// DIMFXL・DIMJOGANG・DIMTFILL・DIMTFILLCLR が、DIMAZIN の後に DIMARCSYM が、DIMATFIT の後に
+/// 2 つの B（DIMFXLON・DIMTXTDIRECTION と見る）・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が、
+/// DIMBLK2 の後に DIMLTYPE・DIMLTEX1・DIMLTEX2 がある（試料の DWG と DXF の比較で確かめた）
+const LAST_R2010: [(Field, usize); 26] = [
+    (Tv, 2),
+    (Bd, 9),
+    (Bd, 2),
+    (Bs, 1),
+    (Cmc, 1),
+    (B, 6),
+    (Bs, 3),
+    (Bs, 1),
+    (Bd, 9),
+    (B, 1),
+    (Bs, 1),
+    (B, 4),
+    (Cmc, 3),
+    (Bs, 11),
+    (B, 2),
+    (Bs, 4),
+    (B, 1),
+    (Bs, 1),
+    (B, 2),
+    (Bd, 1),
+    (Tv, 1),
+    (Bd, 1),
+    (Tv, 1),
+    (H, 5),
+    (H, 3),
+    (Bs, 2),
+];
+
 /// R2000 の、寸法の変数より後、CEPSNTYPE より前の変数の並び
 const TAIL: [(Field, usize); 6] = [
     // 9 つの表とビューポートの図形の見出しの管理オブジェクト、ACAD_GROUP・ACAD_MLINESTYLE・
@@ -176,6 +213,11 @@ const TAIL: [(Field, usize); 6] = [
 /// 試料の DWG と DXF の比較で確かめた）
 const TAIL_R2004: [(Field, usize); 6] = [(H, 12), (Bs, 2), (Tv, 2), (H, 5), (Bl, 1), (Bs, 1)];
 
+/// R2010 の、寸法の変数より後、CEPSNTYPE より前の変数の並び。R2004 と比べて、PLOTSTYLES の
+/// 辞書の後のハンドルが 2 つ多い（VISUALSTYLE の辞書などと見る）。R2013 からは、さらに 1 つ多い
+const TAIL_R2010: [(Field, usize); 6] = [(H, 12), (Bs, 2), (Tv, 2), (H, 7), (Bl, 1), (Bs, 1)];
+const TAIL_R2013: [(Field, usize); 6] = [(H, 12), (Bs, 2), (Tv, 2), (H, 8), (Bl, 1), (Bs, 1)];
+
 /// R2004 の、VERSIONGUID の後、空間のブロックのレコードより前の変数の並び: SORTENTS・INDEXCTL・
 /// HIDETEXT・XCLIPFRAME・DIMASSOC・HALOGAP、OBSCOLOR・INTERSECTIONCOLOR、OBSLTYPE・
 /// INTERSECTIONDISPLAY、PROJECTNAME
@@ -190,7 +232,7 @@ pub(super) fn header(
     cx: &mut Cx,
 ) -> Option<Header> {
     let start = span.start;
-    let found = section(src, start).and_then(|(data, crc_at)| {
+    let found = section(src, start, release).and_then(|(data, crc_at)| {
         // CRC は、大きさの RL からデータの終わりまでを 0xC0C1 から計算する（クラスの区切りと同じ）
         let crc = crc16(
             OBJECT_CRC_SEED,
@@ -199,7 +241,7 @@ pub(super) fn header(
         if le16(src, crc_at) != Some(crc) {
             cx.report(crc_invalid(PART, start..crc_at + 18, HEADER_VARIABLES));
         }
-        variables(&mut Bits::with_release(data, release))
+        variables(&mut streams(data, release)?)
     });
     if found.is_none() {
         cx.report(
@@ -212,26 +254,50 @@ pub(super) fn header(
     found
 }
 
-/// 始まりと終わりの印を確かめ、データと CRC の位置を返す
-fn section(src: &[u8], start: usize) -> Option<(&[u8], usize)> {
+/// 始まりと終わりの印を確かめ、データと CRC の位置を返す。R2010 からは、大きさの RL の後に
+/// 上位の RL があることがある（同じ版でも、ない図面がある）。終わりの印が、データと CRC の後に
+/// ある方をとる
+fn section(src: &[u8], start: usize, release: Release) -> Option<(&[u8], usize)> {
     if src.get(start..start.saturating_add(16))? != START {
         return None;
     }
     let size = usize::try_from(le32(src, start + 16)?).ok()?;
-    let data_at = start + 20;
-    let crc_at = data_at.checked_add(size)?;
-    let data = src.get(data_at..crc_at)?;
-    if src.get(crc_at + 2..crc_at + 18)? != END {
-        return None;
+    let ends_at = |data_at: usize| {
+        let crc_at = data_at.checked_add(size)?;
+        (src.get(crc_at + 2..crc_at + 18)? == END).then_some(crc_at)
+    };
+    let data_at = if release >= Release::R2010 && ends_at(start + 24).is_some() {
+        start + 24
+    } else {
+        start + 20
+    };
+    let crc_at = ends_at(data_at)?;
+    Some((src.get(data_at..crc_at)?, crc_at))
+}
+
+/// データを読むビット列を作る。R2010 からは、データの初めに文字列の流れの終わりまでのビットの数
+/// （RL）があり、その位置からハンドルの流れが始まる。HANDSEED のほかのハンドルと文字列は、主の
+/// データにない。R2013 からは、変数の前に REQUIREDVERSIONS（BLL）がある（試料の DWG と DXF の
+/// 比較で確かめた）
+fn streams(data: &[u8], release: Release) -> Option<Bits<'_>> {
+    let mut bits = Bits::with_release(data, release);
+    if release >= Release::R2010 {
+        let end = usize::try_from(le32(data, 0)?).ok()?;
+        bits.split_strings(end)?;
+        bits.split_handles(end);
+        bits.seek(32);
+        if release >= Release::R2013 {
+            bits.bll()?;
+        }
     }
-    Some((data, crc_at))
+    Some(bits)
 }
 
 /// 変数を順に読み、取り出した変数を返す。見出しのハンドルは絶対の値
 fn variables(bits: &mut Bits) -> Option<Header> {
     let first: &[(Field, usize)] = match bits.release() {
         Release::R2000 => &FIRST,
-        Release::R2004 => &FIRST_R2004,
+        _ => &FIRST_R2004,
     };
     skip_all(bits, first)?;
     // 用紙空間、続いてモデル空間。用紙空間の LIMMIN・LIMMAX が PLIMMIN・PLIMMAX
@@ -239,10 +305,19 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     let limits = [bits.rd()?, bits.rd()?, bits.rd()?, bits.rd()?];
     skip_all(bits, &SPACE[2..])?;
     skip_all(bits, &SPACE)?;
-    skip_all(bits, &LAST)?;
+    skip_all(
+        bits,
+        if bits.release() >= Release::R2010 {
+            &LAST_R2010
+        } else {
+            &LAST
+        },
+    )?;
     let tail: &[(Field, usize)] = match bits.release() {
         Release::R2000 => &TAIL,
         Release::R2004 => &TAIL_R2004,
+        Release::R2010 => &TAIL_R2010,
+        Release::R2013 | Release::R2018 => &TAIL_R2013,
     };
     // 最後の BS が INSUNITS
     skip_all(bits, tail.split_last()?.1)?;
@@ -254,7 +329,7 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     // FINGERPRINTGUID・VERSIONGUID
     bits.text()?;
     bits.text()?;
-    if bits.release() == Release::R2004 {
+    if bits.release() >= Release::R2004 {
         skip_all(bits, &GUIDS_R2004)?;
     }
     let paper = bits.handle()?.value;
@@ -285,6 +360,7 @@ fn skip(bits: &mut Bits, field: Field) -> Option<()> {
         Rd => bits.rd().map(drop),
         Tv => bits.text().map(drop),
         H => bits.handle().map(drop),
+        Seed => bits.main_handle().map(drop),
         Cmc => bits.cmc().map(drop),
         Rc => bits.rc().map(drop),
     }

@@ -43,6 +43,10 @@ pub(super) struct Bits<'a> {
     pos: usize,
     /// 色の欄の形を決める版
     release: Release,
+    /// R2007 からの、文字列の流れの次に読むビットの位置。`None` なら文字列の流れがない
+    strings: Option<usize>,
+    /// 見出しの変数の、ハンドルの流れの次に読むビットの位置。`None` ならハンドルを `pos` から読む
+    handles: Option<usize>,
 }
 
 impl<'a> Bits<'a> {
@@ -51,6 +55,8 @@ impl<'a> Bits<'a> {
             src,
             pos: 0,
             release: Release::R2000,
+            strings: None,
+            handles: None,
         }
     }
 
@@ -60,6 +66,8 @@ impl<'a> Bits<'a> {
             src,
             pos: 0,
             release,
+            strings: None,
+            handles: None,
         }
     }
 
@@ -76,7 +84,7 @@ impl<'a> Bits<'a> {
             rgb: None,
             book: false,
         };
-        if self.release == Release::R2004 {
+        if self.release >= Release::R2004 {
             color = Color::r2004(color.index, self.bl()? as u32);
             let flags = self.rc()?;
             if flags & 1 != 0 {
@@ -129,6 +137,43 @@ impl<'a> Bits<'a> {
         self.pos = pos;
     }
 
+    /// R2007 からの文字列の流れを、ビット `end` の前に置く。`end` の 1 つ前のビットが流れの有無を
+    /// 表し、その前の RS（0x8000 が立てば、さらに前の RS を上位とする）が流れのビットの数を表す。
+    /// 主のデータが終わるビット（流れがなければ印の位置）を返す。読む位置は変えない
+    pub(super) fn split_strings(&mut self, end: usize) -> Option<usize> {
+        let pos = self.pos;
+        let start = self.find_strings(end);
+        self.pos = pos;
+        start
+    }
+
+    fn find_strings(&mut self, end: usize) -> Option<usize> {
+        let mut at = end.checked_sub(1)?;
+        self.pos = at;
+        if !self.bit()? {
+            self.strings = None;
+            return Some(at);
+        }
+        at = at.checked_sub(16)?;
+        self.pos = at;
+        let low = self.rs()? as u16;
+        let mut size = usize::from(low);
+        if low & 0x8000 != 0 {
+            at = at.checked_sub(16)?;
+            self.pos = at;
+            let high = self.rs()? as u16;
+            size = usize::from(low & 0x7FFF) | (usize::from(high) << 15);
+        }
+        let start = at.checked_sub(size)?;
+        self.strings = Some(start);
+        Some(start)
+    }
+
+    /// ハンドルを、ビット `at` から始まるハンドルの流れから読む（見出しの変数、R2007 から）
+    pub(super) fn split_handles(&mut self, at: usize) {
+        self.handles = Some(at);
+    }
+
     /// B
     pub(super) fn bit(&mut self) -> Option<bool> {
         let byte = self.src.get(self.pos / 8)?;
@@ -142,6 +187,25 @@ impl<'a> Bits<'a> {
         let mut value = 0;
         for _ in 0..n {
             value = (value << 1) | u8::from(self.bit()?);
+        }
+        Some(value)
+    }
+
+    /// BOT（R2010 から）。上位の 2 ビットが 0 なら RC、1 なら RC と 0x1F0 の和、それ以外は RS
+    pub(super) fn bot(&mut self) -> Option<i16> {
+        match self.bb()? {
+            0 => self.rc().map(i16::from),
+            1 => self.rc().map(|code| i16::from(code) + 0x1F0),
+            _ => self.rs(),
+        }
+    }
+
+    /// BLL（R2010 から）。3 ビットのバイトの数と、下位から並ぶバイト
+    pub(super) fn bll(&mut self) -> Option<u64> {
+        let len = self.small(3)?;
+        let mut value = 0u64;
+        for shift in 0..len {
+            value |= u64::from(self.rc()?) << (8 * shift);
         }
         Some(value)
     }
@@ -228,8 +292,20 @@ impl<'a> Bits<'a> {
         Some(f64::from_le_bytes(bytes))
     }
 
-    /// H。符号（4 ビット）と、上位のバイトから並ぶ値
+    /// H。ハンドルの流れが分かれていれば、そこから読む
     pub(super) fn handle(&mut self) -> Option<HandleRef> {
+        let Some(at) = self.handles else {
+            return self.main_handle();
+        };
+        let pos = core::mem::replace(&mut self.pos, at);
+        let handle = self.main_handle();
+        self.handles = Some(self.pos);
+        self.pos = pos;
+        handle
+    }
+
+    /// 主のデータの H。符号（4 ビット）と、上位のバイトから並ぶ値
+    pub(super) fn main_handle(&mut self) -> Option<HandleRef> {
         let code = self.small(4)?;
         let counter = self.small(4)?;
         if counter > 8 {
@@ -242,9 +318,36 @@ impl<'a> Bits<'a> {
         Some(HandleRef { code, value })
     }
 
-    /// T（R2000 まで）。BS の長さと、コード・ページのバイト。長さは終わりの NUL を含むので、
-    /// 末尾の NUL を 1 つ除く
+    /// T。R2007 からは、文字列の流れの TU（BS の文字の数と UTF-16LE）を UTF-8 に直して返す。
+    /// 流れがなければ空
     pub(super) fn text(&mut self) -> Option<Vec<u8>> {
+        if self.release < Release::R2010 {
+            return self.code_page_text();
+        }
+        let Some(at) = self.strings else {
+            return Some(Vec::new());
+        };
+        let pos = core::mem::replace(&mut self.pos, at);
+        let text = self.unicode_text();
+        self.strings = Some(self.pos);
+        self.pos = pos;
+        text
+    }
+
+    fn unicode_text(&mut self) -> Option<Vec<u8>> {
+        let len = usize::try_from(self.bs()?).ok()?;
+        let mut units: Vec<u16> = (0..len)
+            .map(|_| self.rs().map(|unit| unit as u16))
+            .collect::<Option<_>>()?;
+        if units.last() == Some(&0) {
+            units.pop();
+        }
+        Some(String::from_utf16_lossy(&units).into_bytes())
+    }
+
+    /// T（R2004 まで）。BS の長さと、コード・ページのバイト。長さは終わりの NUL を含むので、
+    /// 末尾の NUL を 1 つ除く
+    fn code_page_text(&mut self) -> Option<Vec<u8>> {
         let len = usize::try_from(self.bs()?).ok()?;
         let mut text: Vec<u8> = (0..len).map(|_| self.rc()).collect::<Option<_>>()?;
         if text.last() == Some(&0) {
