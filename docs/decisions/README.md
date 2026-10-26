@@ -54,6 +54,7 @@
 - [0022: 図面を空間・配置・意味のある要素で持ち、形式ごとの違いを長さの型と拡張に残す](0022-drawing2d-semantics-and-format-mapping.md)（2026-10-25、採用）
 - [0023: AutoCAD の系統は、DXF と DWG が共有するオブジェクトの表を持ち、元のバイトは符号化ごとに持つ](0023-acad-shared-object-table.md)（2026-10-26、採用）
 - [0032: DWG（R2000）への書き戻しは、TEXT・INSERT・MINSERT の型ごとの欄を、印を値から選んで符号化する](0032-dwg-write-back-text-insert.md)（2026-10-26、採用）
+- [0033: DWG（R2000）への書き戻しは、ATTRIB・ATTDEF の型ごとの欄を、TEXT と同じ欄に続けて符号化する](0033-dwg-write-back-attributes.md)（2026-10-26、採用）
 - [0024: AutoCAD の系統の表の変更は、元の表と比べて違うレコードだけを符号化に書き戻す](0024-acad-table-write-back.md)（2026-10-26、採用）
 - [0025: AutoCAD の系統の表に足したオブジェクトは、同じ所の次の残したオブジェクトの前に書き戻す](0025-acad-object-add-remove-write-back.md)（2026-10-26、採用）
 - [0026: DWG の R2004 以降は、入れ物の区切りを展開したバイト列にしてから読む](0026-dwg-r2004-container.md)（2026-10-26、採用）

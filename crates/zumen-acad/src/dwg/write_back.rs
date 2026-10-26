@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0032）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0033）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -34,6 +34,15 @@ const FACE3D: &[i16] = &[10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 70];
 const TEXT: &[i16] = &[
     10, 20, 30, 11, 21, 31, 39, 51, 50, 40, 41, 1, 71, 72, 73, 210, 220, 230,
 ];
+/// ATTRIB は、TEXT の欄の縦の合わせを 74 に置き、タグ（2）・欄の長さ（73）・印（70）を足す。ATTDEF は
+/// 問い（3）も足す
+const ATTRIB: &[i16] = &[
+    10, 20, 30, 11, 21, 31, 39, 51, 50, 40, 41, 1, 71, 72, 74, 210, 220, 230, 2, 73, 70,
+];
+const ATTDEF: &[i16] = &[
+    10, 20, 30, 11, 21, 31, 39, 51, 50, 40, 41, 1, 71, 72, 74, 210, 220, 230, 2, 73, 70, 3,
+];
+
 /// MINSERT の型の番号
 const MINSERT_TYPE: i16 = 0x08;
 
@@ -176,6 +185,8 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"SOLID" | b"TRACE" => SOLID,
         b"3DFACE" => FACE3D,
         b"TEXT" => TEXT,
+        b"ATTRIB" => ATTRIB,
+        b"ATTDEF" => ATTDEF,
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
         _ => &[],
@@ -282,7 +293,8 @@ fn own_fields(new: &Object, grid: bool) -> Option<BitWriter> {
         }
         b"SOLID" | b"TRACE" => solid(&mut fields, new)?,
         b"3DFACE" => face3d(&mut fields, new)?,
-        b"TEXT" => text(&mut fields, new)?,
+        b"TEXT" => text(&mut fields, new, 73)?,
+        b"ATTRIB" | b"ATTDEF" => attribute(&mut fields, new)?,
         b"INSERT" => insert(&mut fields, new, grid)?,
         _ => return None,
     }
@@ -357,8 +369,9 @@ fn face3d(fields: &mut BitWriter, object: &Object) -> Option<()> {
 }
 
 /// TEXT の欄（R2000）。初めの印（RC）は、標高・合わせの点・斜めの角度・回転・幅の比・合わせの向きの、
-/// ない欄を表す。標高（30）が 0 なら書かない。合わせの点の Z（31）は、標高と同じでなければならない
-fn text(fields: &mut BitWriter, object: &Object) -> Option<()> {
+/// ない欄を表す。標高（30）が 0 なら書かない。合わせの点の Z（31）は、標高と同じでなければならない。
+/// `vertical` は縦の合わせのグループ・コード
+fn text(fields: &mut BitWriter, object: &Object, vertical: i16) -> Option<()> {
     let [x, y, elevation, height] = [10, 20, 30, 40].map(|code| real(object, code));
     let (x, y, elevation, height) = (x??, y??, elevation??, height??);
     let alignment = match [11, 21, 31].map(|code| real(object, code)) {
@@ -370,7 +383,7 @@ fn text(fields: &mut BitWriter, object: &Object) -> Option<()> {
     };
     let [oblique, rotation, width] = [51, 50, 41].map(|code| real(object, code));
     let (oblique, rotation, width) = (oblique?, rotation?, width?);
-    let [generation, horizontal, vertical] = [71, 72, 73].map(|code| small(object, code));
+    let [generation, horizontal, vertical] = [71, 72, vertical].map(|code| small(object, code));
     let justification = [generation?, horizontal?, vertical?];
     let mut flags = 0;
     for (absent, bit) in [
@@ -408,13 +421,31 @@ fn text(fields: &mut BitWriter, object: &Object) -> Option<()> {
     if let Some(width) = width {
         fields.rd(width);
     }
-    let mut bytes = uncaret(text_of(object, 1)?)?;
-    bytes.push(0);
-    fields.text(&bytes)?;
+    string(fields, object, 1)?;
     for value in justification.into_iter().flatten() {
         fields.bs(value);
     }
     Some(())
+}
+
+/// ATTRIB・ATTDEF の欄（R2000）。TEXT の欄に続けて、タグ・欄の長さ（なければ 0）・印を書き、ATTDEF は
+/// 問いも書く
+fn attribute(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    text(fields, object, 74)?;
+    string(fields, object, 2)?;
+    fields.bs(small(object, 73)?.unwrap_or(0));
+    fields.rc(u8::try_from(small(object, 70)??).ok()?);
+    if object.kind == b"ATTDEF" {
+        string(fields, object, 3)?;
+    }
+    Some(())
+}
+
+/// `code` の文字列を、DXF の `^` の書き方を戻し、終わりの NUL を付けて T で書く
+fn string(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
+    let mut bytes = uncaret(text_of(object, code)?)?;
+    bytes.push(0);
+    fields.text(&bytes)
 }
 
 /// INSERT・MINSERT の欄（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
