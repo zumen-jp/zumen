@@ -1,6 +1,6 @@
 //! 試験の中で作った小さな ASCII の DXF で、L1 とコーデックの経路を確かめる。
 
-use zumen_acad::{AcadDb, Data, Dxf, DxfFile, Line, Value, ViewError};
+use zumen_acad::{AcadDb, Data, Dxf, DxfFile, Line, Object, Origin, Section, Value, ViewError};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction, testkit};
 
@@ -577,6 +577,26 @@ fn cx_for<'a>(
     Cx::new(budget, diag, cancel)
 }
 
+/// 表に足す点
+#[cfg(test)]
+fn new_point(section: Section, x: f64) -> Object {
+    Object {
+        kind: b"POINT".to_vec(),
+        section,
+        values: vec![
+            Value {
+                code: 8,
+                data: Data::Text(b"0".to_vec()),
+            },
+            Value {
+                code: 10,
+                data: Data::Real(x),
+            },
+        ],
+        origin: Origin::New,
+    }
+}
+
 /// 表の LINE（最初のオブジェクト）を変える
 #[cfg(test)]
 fn edit_line(db: &mut AcadDb, edit: impl FnOnce(&mut Vec<Value>)) {
@@ -646,6 +666,46 @@ fn table_changes_are_written_back_to_the_touched_records() {
 }
 
 #[test]
+fn table_additions_and_removals_are_written_back() {
+    let src = sample("\n");
+    let mut db = table(&read(&src));
+    // 未知の図形を除き、線分の前と最後に点を足す
+    db.remove(1).unwrap();
+    db.insert(0, new_point(Section::Entities, 1.0));
+    db.push(new_point(Section::Entities, 2.0));
+    let written = db.clone();
+    testkit::edit_keeps_untouched_records::<Dxf>(&src, |file, cx| file.write_back(&written, cx))
+        .unwrap();
+
+    let mut file = read(&src);
+    let (mut budget, mut diag, cancel) =
+        (Budget::default(), Diagnostics::new(), CancelToken::new());
+    file.write_back(&db, &mut cx_for(&mut budget, &mut diag, &cancel))
+        .unwrap();
+    let out = testkit::write::<Dxf>(&file).unwrap();
+    for part in [
+        &b"ENTITIES\n  0\nPOINT\n  8\n0\n 10\n1.0\n  0\nLINE\n"[..],
+        b"\n  0\nPOINT\n  8\n0\n 10\n2.0\n  0\nENDSEC\n",
+    ] {
+        assert!(
+            out.windows(part.len()).any(|w| w == part),
+            "{}",
+            String::from_utf8_lossy(part)
+        );
+    }
+    assert!(!out.windows(20).any(|w| w == b"ZUMEN_UNKNOWN_ENTITY"));
+    // 読み直した表は、元の場所のほかは書き戻した表と同じになる
+    let reread = table(&read(&out));
+    let strip = |db: &AcadDb| {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.section.clone(), o.values.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(strip(&reread), strip(&db));
+}
+
+#[test]
 fn an_unchanged_table_writes_the_same_bytes() {
     let src = sample("\n");
     let mut file = read(&src);
@@ -661,7 +721,20 @@ fn an_unchanged_table_writes_the_same_bytes() {
 #[test]
 fn table_changes_that_cannot_be_written_back_change_nothing() {
     type Edit = fn(&mut AcadDb);
-    let cases: [(Edit, Code); 4] = [
+    let cases: [(Edit, Code); 6] = [
+        // 同じレコードから読んだオブジェクトが 2 つある
+        (
+            |db| {
+                let line = db.objects()[0].clone();
+                db.push(line);
+            },
+            codes::DXF_OBJECT_UNSUPPORTED,
+        ),
+        // 足す所が、このファイルにない
+        (
+            |db| db.push(new_point(Section::Objects, 1.0)),
+            codes::DXF_OBJECT_UNSUPPORTED,
+        ),
         (
             |db| db.object_mut(0).unwrap().kind = b"CIRCLE".to_vec(),
             codes::DXF_OBJECT_UNSUPPORTED,

@@ -2989,7 +2989,7 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
     let (db, _) = objects(&src);
     let source = |handle: u64| match db.get(handle).unwrap().origin {
         Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
-        Origin::Dxf { .. } => panic!("DWG のオブジェクトではない"),
+        Origin::Dxf { .. } | Origin::New => panic!("DWG のオブジェクトではない"),
     };
     let (file, mut diag) = read(&src, Limits::default());
     let drawing = file

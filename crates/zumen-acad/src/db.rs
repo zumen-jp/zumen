@@ -32,6 +32,33 @@ impl AcadDb {
         self.objects.push(object);
     }
 
+    /// オブジェクトを `index` 番目に足す。`index` が数より大きければ最後に足す
+    pub fn insert(&mut self, index: usize, object: Object) {
+        let index = index.min(self.objects.len());
+        self.objects.insert(index, object);
+        self.reindex();
+    }
+
+    /// `index` 番目のオブジェクトを除いて返す。なければ `None`
+    pub fn remove(&mut self, index: usize) -> Option<Object> {
+        if index >= self.objects.len() {
+            return None;
+        }
+        let removed = self.objects.remove(index);
+        self.reindex();
+        Some(removed)
+    }
+
+    /// ハンドルの索引を作り直す
+    fn reindex(&mut self) {
+        self.handles.clear();
+        for (index, object) in self.objects.iter().enumerate() {
+            if let Some(handle) = object.handle() {
+                self.handles.entry(handle).or_insert(index);
+            }
+        }
+    }
+
     /// オブジェクト。符号化の中の順に並ぶ
     pub fn objects(&self) -> &[Object] {
         &self.objects
@@ -283,6 +310,8 @@ pub enum Origin {
         /// 終わりの位置
         end: usize,
     },
+    /// 表に足したもので、元のレコードがない
+    New,
 }
 
 #[cfg(test)]
