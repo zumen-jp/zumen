@@ -453,13 +453,12 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
     } else {
         let reactors = bits.bl()?;
         let mut entries = Vec::new();
-        // 型ごとのハンドルを置くコード。0 のハンドルは置かない
+        // 型ごとのハンドルを置くコード。0 のハンドルは置かない。コードが 0 のハンドルは読み飛ばし、
+        // 6 のハンドルは線種の名前に直す
         let mut handles = Vec::new();
+        let mut records = Vec::new();
         let mut values = if is_table_record(entry.type_code) {
-            vec![Value {
-                code: 2,
-                data: Data::Text(bits.text()?),
-            }]
+            table_record(&mut bits, entry.type_code, &mut handles)?
         } else if entry.type_code == MLINESTYLE {
             mlinestyle(&mut bits)?
         } else if entry.type_code == DICTIONARY || kind == b"ACDBDICTIONARYWDFLT" {
@@ -510,11 +509,18 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
             }
             for code in handles {
                 let handle = bits.handle()?.resolve(entry.handle)?;
-                if handle != 0 {
-                    values.push(Value {
+                match code {
+                    0 => {}
+                    6 if handle != 0 => records.push(RecordRef {
+                        code,
+                        record: LTYPE,
+                        handle,
+                    }),
+                    _ if handle != 0 => values.push(Value {
                         code,
                         data: Data::Handle(handle),
-                    });
+                    }),
+                    _ => {}
                 }
             }
         }
@@ -522,7 +528,7 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
             owner: Some(owner),
             layer: None,
             values,
-            records: Vec::new(),
+            records,
         })
     }
 }
@@ -893,6 +899,131 @@ fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = vec![int(280, i64::from(bits.bs()?))];
     values.extend(data);
     Some(values)
+}
+
+/// 表のレコードの共通の欄（名前 2・参照される印・外部参照の番号・外部参照に依る印）と、
+/// LAYER・STYLE・LTYPE の欄（ODS 5.4.1、R2000）。外部参照に依る印は、DXF と同じく 70 の 16 とする。
+/// ハンドルの並びは、外部参照のブロックの後に型ごとのハンドルが続く
+fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    let name = bits.text()?;
+    // 参照される印（64）は、DXF に書かれないので置かない
+    bits.bit()?;
+    bits.bs()?;
+    let xdep = if bits.bit()? { 16 } else { 0 };
+    handles.push(0);
+    let mut values = vec![Value {
+        code: 2,
+        data: Data::Text(name),
+    }];
+    match type_code {
+        LAYER => {
+            // 凍結 1・表示しない 2・新しいビューポートで凍結 4・ロック 8・印刷 16 と、線の太さの番号
+            let flags = bits.bs()?;
+            let dxf = [(1, 1), (4, 2), (8, 4)]
+                .iter()
+                .filter(|(dwg, _)| flags & dwg != 0)
+                .fold(xdep, |sum, (_, dxf)| sum | dxf);
+            values.push(int(70, dxf));
+            // 表示しない画層は、DXF と同じく色を負にする
+            let color = i64::from(bits.bs()?);
+            values.push(int(62, if flags & 2 != 0 { -color } else { color }));
+            if flags & 16 == 0 {
+                values.push(Value {
+                    code: 290,
+                    data: Data::Bool(false),
+                });
+            }
+            values.push(int(
+                370,
+                lineweight(u16::try_from((flags & 0x03E0) >> 5).ok()?)?,
+            ));
+            // 印刷スタイル（390）と線種（6）
+            handles.extend([390, 6]);
+        }
+        STYLE => {
+            // 形のファイルの印（70 の 1）と、縦書きの印（70 の 4）
+            let shape = bits.bit()?;
+            let vertical = bits.bit()?;
+            let flags = xdep | if shape { 1 } else { 0 } | if vertical { 4 } else { 0 };
+            values.push(int(70, flags));
+            values.push(real(40, bits.bd()?));
+            values.push(real(41, bits.bd()?));
+            values.push(real(50, bits.bd()?.to_degrees()));
+            values.push(int(71, i64::from(bits.rc()?)));
+            values.push(real(42, bits.bd()?));
+            values.push(text_value(3, &bits.text()?));
+            values.push(text_value(4, &bits.text()?));
+        }
+        LTYPE => {
+            values.push(int(70, xdep));
+            values.push(text_value(3, &bits.text()?));
+            let length = bits.bd()?;
+            values.push(int(72, i64::from(bits.rc()?)));
+            let count = bits.rc()?;
+            values.push(int(73, i64::from(count)));
+            values.push(real(40, length));
+            let mut dashes = Vec::new();
+            for _ in 0..count {
+                let dash = bits.bd()?;
+                let shape = bits.bs()?;
+                let (x, y) = (bits.rd()?, bits.rd()?);
+                let (scale, rotation) = (bits.bd()?, bits.bd()?);
+                let flags = bits.bs()?;
+                dashes.push((dash, shape, x, y, scale, rotation, flags));
+            }
+            // 文字の要素の文字列は、256 バイトの領域に、形の番号の位置から 0 で終わる
+            let area = raw_bytes(bits, 256)?;
+            for (dash, shape, x, y, scale, rotation, flags) in dashes {
+                values.push(real(49, dash));
+                // DWG の 8 は文字の要素に付く印で、DXF に書かれない
+                values.push(int(74, i64::from(flags & 7)));
+                // 要素ごとに、形のファイルの文字の体裁のハンドル（340）を持つ。形も文字もない要素の
+                // ハンドルは置かない
+                if flags & 6 == 0 {
+                    handles.push(0);
+                    continue;
+                }
+                handles.push(340);
+                let text = flags & 2 != 0;
+                values.push(int(75, if text { 0 } else { i64::from(shape) }));
+                values.extend([
+                    real(46, scale),
+                    real(50, rotation.to_degrees()),
+                    real(44, x),
+                    real(45, y),
+                ]);
+                if text {
+                    let rest = area.get(usize::try_from(shape).ok()?..)?;
+                    let end = rest.iter().position(|&b| b == 0)?;
+                    values.push(text_value(9, rest.get(..end)?));
+                }
+            }
+        }
+        // BLOCK_RECORD の印は、DXF では BLOCK の 70 に書かれる
+        BLOCK_RECORD => {}
+        _ => {
+            values.push(int(70, xdep));
+            // APPID は、使い道の分からない RC を持つ
+            if type_code == 0x43 {
+                bits.rc()?;
+            }
+        }
+    }
+    Some(values)
+}
+
+/// DWG の線の太さの番号を、DXF の値（1/100 mm。-1 は ByLayer、-2 は ByBlock、-3 は既定）に直す
+fn lineweight(index: u16) -> Option<i64> {
+    const WIDTHS: [i64; 24] = [
+        0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158,
+        200, 211,
+    ];
+    match index {
+        29 => Some(-1),
+        30 => Some(-2),
+        31 => Some(-3),
+        _ => WIDTHS.get(usize::from(index)).copied(),
+    }
 }
 
 /// GROUP の欄（ODS 5.4.1 の GROUP の節、R2000）。説明（300）・名前のない印（70）・選べる印（71）を置く。
