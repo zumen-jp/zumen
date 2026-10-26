@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0038）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0039）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -63,6 +63,28 @@ const POLYLINE_2D: &[i16] = &[66, 70, 75, 40, 41, 39, 10, 20, 30, 210, 220, 230]
 const POLYLINE_3D: &[i16] = &[66, 10, 20, 30, 70, 75];
 const POLYFACE: &[i16] = &[66, 10, 20, 30, 70, 71, 72];
 const MESH: &[i16] = &[66, 10, 20, 30, 70, 75, 71, 72, 73, 74];
+/// DIMENSION のどの型にもある欄
+const DIMENSION: &[i16] = &[
+    11, 21, 31, 70, 71, 42, 12, 22, 32, 72, 41, 1, 53, 51, 210, 220, 230,
+];
+/// DIMENSION の型ごとの点など。DIMENSION の型の順（座標・長さ・平行・3 点の角度・2 線の角度・半径・直径）
+const DIMENSION_KINDS: [&[i16]; 7] = [
+    &[10, 20, 30, 13, 23, 33, 14, 24, 34],
+    &[13, 23, 33, 14, 24, 34, 10, 20, 30, 52, 50],
+    &[13, 23, 33, 14, 24, 34, 10, 20, 30, 52],
+    &[10, 20, 30, 13, 23, 33, 14, 24, 34, 15, 25, 35],
+    &[16, 26, 36, 13, 23, 33, 14, 24, 34, 15, 25, 35, 10, 20, 30],
+    &[10, 20, 30, 15, 25, 35, 40],
+    &[15, 25, 35, 10, 20, 30, 40],
+];
+/// DIMENSION の、どれかの型の欄
+const DIMENSION_ALL: &[i16] = &[
+    11, 21, 31, 70, 71, 42, 12, 22, 32, 72, 41, 1, 53, 51, 210, 220, 230, 10, 20, 30, 13, 23, 33,
+    14, 24, 34, 15, 25, 35, 16, 26, 36, 40, 50, 52,
+];
+const DIMENSION_TYPE: i16 = 0x14;
+/// DIMENSION の型ごとの、DXF の寸法の種類（70 の下の 3 ビット）
+const DIMENSION_KIND: [i16; 7] = [6, 0, 1, 5, 2, 4, 3];
 
 const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
@@ -223,6 +245,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
             0x1E => MESH,
             _ => &[],
         },
+        b"DIMENSION" => DIMENSION_ALL,
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
         _ => &[],
@@ -344,6 +367,7 @@ fn own_fields(
         b"HATCH" => hatch(&mut fields, old, new)?,
         b"VERTEX" => vertex(&mut fields, new, type_code)?,
         b"POLYLINE" => polyline(&mut fields, new, type_code, data, start)?,
+        b"DIMENSION" => dimension(&mut fields, old, new, type_code, data, start)?,
         b"INSERT" => insert(&mut fields, new, type_code == MINSERT_TYPE)?,
         _ => return None,
     }
@@ -973,8 +997,6 @@ fn string(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
     fields.text(&bytes)
 }
 
-/// INSERT・MINSERT の欄（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
-/// なければ (0, 0, 1) を書く。尺度の印（BB）は、尺度の値から選ぶ。属性が続くかの印は、66 から書く
 /// VERTEX の欄（決定 0038）。2D の頂点は、始まりと終わりの幅が同じで 0 でなければ、負の始まりの幅だけを
 /// 書く。角度は度からラジアンに直す。多面の面は、点が 0 で印が 128 のものだけを受け付ける
 fn vertex(fields: &mut BitWriter, object: &Object, type_code: i16) -> Option<()> {
@@ -1086,6 +1108,131 @@ fn polyline(
     Some(())
 }
 
+/// DIMENSION の欄（決定 0039）。表にないブロックの挿入の尺度と回転は、元のビットを写す。印は、70 から
+/// 読まれるビットだけを書き換える。利用者の文字（1）が変わらなければ、元のビットを写す。角度は度から
+/// ラジアンに直す。標高（31）と、12 の点の Z・2 線の角度の 36 は同じ値だけを受け付ける
+fn dimension(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    type_code: i16,
+    data: &[u8],
+    start: usize,
+) -> Option<()> {
+    let at = usize::try_from(type_code.checked_sub(DIMENSION_TYPE)?).ok()?;
+    let (kind, own) = (*DIMENSION_KIND.get(at)?, *DIMENSION_KINDS.get(at)?);
+    // ほかの型の欄があるものは受け付けない
+    let allowed = |code| DIMENSION.contains(&code) || own.contains(&code);
+    if new
+        .values
+        .iter()
+        .any(|value| DIMENSION_ALL.contains(&value.code) && !allowed(value.code))
+    {
+        return None;
+    }
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    for _ in 0..3 {
+        bits.bd()?;
+    }
+    bits.rd()?;
+    bits.rd()?;
+    bits.bd()?;
+    let old_flags = bits.rc()?;
+    let text_at = bits.pos();
+    bits.text()?;
+    let text_end = bits.pos();
+    bits.bd()?;
+    bits.bd()?;
+    let scale_at = bits.pos();
+    for _ in 0..4 {
+        bits.bd()?;
+    }
+    let scale_end = bits.pos();
+    bits.bs()?;
+    bits.bs()?;
+    bits.bd()?;
+    bits.bd()?;
+    bits.rd()?;
+    bits.rd()?;
+    let old_ordinate = if type_code == DIMENSION_TYPE {
+        for _ in 0..9 {
+            bits.bd()?;
+        }
+        bits.rc()?
+    } else {
+        0
+    };
+    let flags = small(new, 70)??;
+    let ordinate = if type_code == DIMENSION_TYPE { 64 } else { 0 };
+    (flags & !(32 | ordinate | 128) == kind).then_some(())?;
+    let elevation = real(new, 31)??;
+    let same = |code| real(new, code).map(|z| z.is_none_or(|z| z.to_bits() == elevation.to_bits()));
+    (same(32)? && same(36)?).then_some(())?;
+    match [210, 220, 230].map(|code| real(new, code)) {
+        [Some(None), Some(None), Some(None)] => [0.0, 0.0, 1.0].map(|v| fields.bd(v)),
+        [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
+        _ => return None,
+    };
+    fields.rd(real(new, 11)??);
+    fields.rd(real(new, 21)??);
+    fields.bd(elevation);
+    let user_location = if flags & 128 == 0 { 1 } else { 0 };
+    let block_only = if flags & 32 != 0 { 2 } else { 0 };
+    fields.rc(old_flags & !3 | user_location | block_only);
+    let texts = |object: &Object| -> Vec<Value> {
+        object
+            .values
+            .iter()
+            .filter(|v| v.code == 1)
+            .cloned()
+            .collect()
+    };
+    if texts(old) == texts(new) {
+        fields.copy(data, text_at..text_end)?;
+    } else if texts(new).is_empty() {
+        fields.text(&[])?;
+    } else {
+        string(fields, new, 1)?;
+    }
+    for code in [53, 51] {
+        fields.bd(real(new, code)?.unwrap_or(0.0).to_radians());
+    }
+    fields.copy(data, scale_at..scale_end)?;
+    fields.bs(small(new, 71)??);
+    fields.bs(small(new, 72)?.unwrap_or(1));
+    fields.bd(real(new, 41)?.unwrap_or(1.0));
+    fields.bd(real(new, 42)??);
+    let [x, y, z] = [12, 22, 32].map(|code| real(new, code));
+    match [x?, y?, z?] {
+        [Some(x), Some(y), Some(_)] => {
+            fields.rd(x);
+            fields.rd(y);
+        }
+        [None, None, None] => {
+            fields.rd(0.0);
+            fields.rd(0.0);
+        }
+        _ => return None,
+    }
+    for &code in own {
+        match code {
+            10 | 13 | 14 | 15 => point3(fields, new, code)?,
+            16 => {
+                fields.rd(real(new, 16)??);
+                fields.rd(real(new, 26)??);
+            }
+            40 => fields.bd(real(new, 40)??),
+            50 | 52 => fields.bd(real(new, code)?.unwrap_or(0.0).to_radians()),
+            _ => {}
+        }
+    }
+    if type_code == DIMENSION_TYPE {
+        fields.rc(old_ordinate & !1 | u8::from(flags & 64 != 0));
+    }
+    Some(())
+}
+
 /// 点（10・20・30）がどれも 0 なら `Some`
 fn zero_point(object: &Object) -> Option<()> {
     [10, 20, 30]
@@ -1094,6 +1241,8 @@ fn zero_point(object: &Object) -> Option<()> {
         .then_some(())
 }
 
+/// INSERT・MINSERT の欄（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
+/// なければ (0, 0, 1) を書く。尺度の印（BB）は、尺度の値から選ぶ。属性が続くかの印は、66 から書く
 fn insert(fields: &mut BitWriter, object: &Object, grid: bool) -> Option<()> {
     point3(fields, object, 10)?;
     let [x, y, z] = [41, 42, 43].map(|code| real(object, code));

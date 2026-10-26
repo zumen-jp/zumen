@@ -465,6 +465,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"SPLINE"
                     | b"HATCH"
                     | b"VERTEX"
+                    | b"DIMENSION"
             ) {
                 continue;
             }
