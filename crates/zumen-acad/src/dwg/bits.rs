@@ -429,6 +429,28 @@ pub(super) fn modular_short(src: &[u8], pos: &mut usize) -> Option<u64> {
     }
 }
 
+/// 剰余の文字（MC）を書く。[`modular_char`] の逆
+pub(super) fn push_modular_char(out: &mut Vec<u8>, value: i64, signed: bool) {
+    let sign = if signed && value < 0 { 0x40 } else { 0 };
+    let last = if signed { 0x40 } else { 0x80 };
+    let mut rest = value.unsigned_abs();
+    while rest >= last {
+        out.push((rest & 0x7F) as u8 | 0x80);
+        rest >>= 7;
+    }
+    out.push(rest as u8 | sign);
+}
+
+/// 剰余の short（MS）を書く。[`modular_short`] の逆
+pub(super) fn push_modular_short(out: &mut Vec<u8>, value: u64) {
+    let mut rest = value;
+    while rest > 0x7FFF {
+        out.extend_from_slice(&((rest & 0x7FFF) as u16 | 0x8000).to_le_bytes());
+        rest >>= 15;
+    }
+    out.extend_from_slice(&(rest as u16).to_le_bytes());
+}
+
 /// CRC の表の `index` 番目の値。多項式 0xA001 の、下位のビットから送る CRC
 fn crc_entry(index: u8) -> u16 {
     (0..8).fold(u16::from(index), |crc, _| {
@@ -544,6 +566,30 @@ mod tests {
         let src = [0b0011_0001, 0b1111_0100, 0b1000_1101, 0];
         assert_eq!(modular_short(&src, &mut 0), Some(4_650_033));
         assert_eq!(modular_char(&[0x80], &mut 0, false), None);
+    }
+
+    #[test]
+    fn modular_values_are_written_back() {
+        for value in [0, 1, 63, 64, 127, 128, 4610, 112_823_273, -1, -64, -1413] {
+            for signed in [false, true] {
+                if !signed && value < 0 {
+                    continue;
+                }
+                let mut out = Vec::new();
+                push_modular_char(&mut out, value, signed);
+                let mut pos = 0;
+                assert_eq!(modular_char(&out, &mut pos, signed), Some(value));
+                assert_eq!(pos, out.len());
+            }
+        }
+        let mut out = Vec::new();
+        push_modular_char(&mut out, -1413, true);
+        assert_eq!(out, [0b1000_0101, 0b0100_1011]);
+        for value in [0, 0x7FFF, 0x8000, 4_650_033] {
+            let mut out = Vec::new();
+            push_modular_short(&mut out, value);
+            assert_eq!(modular_short(&out, &mut 0), Some(value));
+        }
     }
 
     #[test]

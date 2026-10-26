@@ -247,6 +247,28 @@ pub const DWG_CRC_INVALID: Code = Code::new(
     &["part"],
 );
 
+/// DWG のオブジェクトに置くデータの、型を読めない
+///
+/// `dwg.data.invalid`（0.0.0 から）
+pub const DWG_DATA_INVALID: Code = Code::new(
+    "dwg.data.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("record", ParamType::UInt)],
+    &[],
+);
+
+/// R2000（AC1015）でない版の DWG は、まだ変えられない
+///
+/// `dwg.edit.unsupported`（0.0.0 から）
+pub const DWG_EDIT_UNSUPPORTED: Code = Code::new(
+    "dwg.edit.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("version", ParamType::Text)],
+    &[],
+);
+
 /// DWG の見出し・オブジェクトの地図・オブジェクトの区切りを読めない
 ///
 /// `dwg.file.invalid`（0.0.0 から）
@@ -280,6 +302,17 @@ pub const DWG_OBJECT_INVALID: Code = Code::new(
     &["type"],
 );
 
+/// DWG の変更で名指ししたオブジェクトがない
+///
+/// `dwg.object.missing`（0.0.0 から）
+pub const DWG_OBJECT_MISSING: Code = Code::new(
+    "dwg.object.missing",
+    Severity::Error,
+    None,
+    &[Param::new("record", ParamType::UInt)],
+    &[],
+);
+
 /// DWG の図形が指す文字の体裁・ブロックなどのハンドルに、その型の表のレコードがないので、名前を置かなかった
 ///
 /// `dwg.record.missing`（0.0.0 から）
@@ -305,7 +338,7 @@ pub const DWG_TYPE_UNSUPPORTED: Code = Code::new(
     &["type"],
 );
 
-/// R2000（AC1015）でない版の DWG は、まだ読めない
+/// R2000・R2004・R2010・R2013・R2018 でない版の DWG は、まだ読めない
 ///
 /// `dwg.version.unsupported`（0.0.0 から）
 pub const DWG_VERSION_UNSUPPORTED: Code = Code::new(
@@ -645,9 +678,12 @@ pub const ALL: &[Code] = &[
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
     DWG_CRC_INVALID,
+    DWG_DATA_INVALID,
+    DWG_EDIT_UNSUPPORTED,
     DWG_FILE_INVALID,
     DWG_LAYER_MISSING,
     DWG_OBJECT_INVALID,
+    DWG_OBJECT_MISSING,
     DWG_RECORD_MISSING,
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,

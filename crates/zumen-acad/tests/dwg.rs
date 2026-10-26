@@ -2,7 +2,7 @@
 
 use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Line, Origin, Section};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
-use zumen_sdk::{Codec, Error, FileModel};
+use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction};
 
 /// ビットを上位から詰める
 #[cfg(test)]
@@ -3341,4 +3341,107 @@ fn r2004_containers_need_their_sections_and_valid_pages() {
     let (result, diag) = read(&r2004(&sections), Limits::default());
     assert!(result.is_ok());
     assert_eq!(codes_of(&diag), []);
+}
+
+/// 大きさ（MS）と CRC を除いた、オブジェクトのデータ
+#[cfg(test)]
+fn data_of(object: &[u8]) -> Vec<u8> {
+    object[2..object.len() - 2].to_vec()
+}
+
+/// `changes` のデータの置き換えを確定し、書いたバイト列と診断を返す
+#[cfg(test)]
+fn edited(
+    file: &mut DwgFile,
+    changes: &[(usize, Vec<u8>)],
+) -> (Result<Vec<u8>, Error>, Diagnostics) {
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let mut txn = file.transaction();
+    let staged: Result<(), Error> = changes
+        .iter()
+        .try_for_each(|(record, data)| txn.set_data(*record, data));
+    let committed = txn.commit(&mut cx);
+    let result = staged.and(committed).and_then(|()| {
+        let mut out = Vec::new();
+        Dwg::write(file, &mut out, &mut cx).map(|()| out)
+    });
+    (result, diag)
+}
+
+#[test]
+fn replaced_object_data_is_appended_with_a_new_object_map() {
+    let src = dwg_in_sections(&objects_in_sample(), 2);
+    let (file, before) = read(&src, Limits::default());
+    let mut file = file.unwrap();
+    // 厚さを足して、データを長くする
+    let line = object(
+        0x13,
+        0x2A,
+        |w| {
+            entity_common(w, 0, 256, 1.0, 0);
+            line_data(w, [7.0, 2.0, 0.0], [100.0, 50.0, 0.0], 0.25);
+        },
+        |w| {
+            w.handle(4, 0x1F);
+            w.handle(3, 0);
+            w.handle(5, 0x10);
+        },
+    );
+    let (out, diag) = edited(&mut file, &[(2, data_of(&line))]);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    // 元のバイトは残り、変えたオブジェクトと地図が後ろに足される
+    assert_eq!(&out[..0x19], &src[..0x19]);
+    assert_eq!(&out[0x19 + 27 + 2..src.len()], &src[0x19 + 27 + 2..]);
+    let (again, after) = read(&out, Limits::default());
+    let mut again = again.unwrap();
+    assert_eq!(codes_of(&after), codes_of(&before));
+    assert_eq!(again.record_count(), 6);
+    for i in [0, 1, 3, 4, 5] {
+        assert_eq!(
+            again.record(i).unwrap().bytes,
+            file.record(i).unwrap().bytes
+        );
+    }
+    assert_eq!(
+        again.record(2).unwrap().bytes,
+        file.record(2).unwrap().bytes
+    );
+    assert!(again.record(2).unwrap().bytes.unwrap().start as usize >= src.len());
+    let (db, _) = objects(&out);
+    let line = db.get(0x2A).unwrap();
+    assert_eq!(line.real(10), Some(Some(7.0)));
+    assert_eq!(line.real(39), Some(Some(0.25)));
+    // もう一度変えても読める
+    let (twice, diag) = edited(&mut again, &[(5, data_of(&objects_in_sample()[5].1))]);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (result, diag) = read(&twice.unwrap(), Limits::default());
+    assert_eq!(result.unwrap().record_count(), 6);
+    assert_eq!(codes_of(&diag), codes_of(&before));
+}
+
+#[test]
+fn invalid_object_changes_are_rejected_without_changing_the_file() {
+    let src = sample();
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let first = data_of(&objects_in_sample()[0].1);
+    for (record, data, code) in [
+        (6, vec![0u8; 4], codes::DWG_OBJECT_MISSING),
+        (2, Vec::new(), codes::DWG_DATA_INVALID),
+    ] {
+        let (result, diag) = edited(&mut file, &[(0, first.clone()), (record, data)]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [code]);
+        let (out, _) = edited(&mut file, &[]);
+        assert_eq!(out.unwrap(), src);
+    }
+    let mut r2004 = read(&r2004(&r2004_sections()), Limits::default())
+        .0
+        .unwrap();
+    let (result, diag) = edited(&mut r2004, &[(0, first)]);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
 }

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Section, Value};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
-use zumen_sdk::Codec;
+use zumen_sdk::{Codec, FileModel, Transact, Transaction};
 
 /// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
 #[cfg(test)]
@@ -369,5 +369,52 @@ fn r2004_and_later_drawings_are_read_without_diagnostics() {
         assert!(Dwg::read(&src, &mut cx).is_ok(), "{}", path.display());
         let found: Vec<_> = diag.iter().map(|d| d.code()).collect();
         assert_eq!(found, [], "{}", path.display());
+    }
+}
+
+#[test]
+fn r2000_drawings_keep_their_table_when_every_object_is_rewritten() {
+    for path in dwgs(b"AC1015") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut file = Dwg::read(&src, &mut cx).unwrap();
+        let before = file.objects(&mut cx).unwrap();
+        // すべてのオブジェクトを同じデータで置き換え、後ろに並べ直す
+        let changes: Vec<_> = (0..file.record_count())
+            .map(|i| {
+                let span = file.record(i).unwrap().bytes.unwrap();
+                let object = &src[span.start as usize..span.end as usize - 2];
+                let mut at = 0;
+                while object[at + 1] & 0x80 != 0 {
+                    at += 2;
+                }
+                object[at + 2..].to_vec()
+            })
+            .collect();
+        let mut txn = file.transaction();
+        for (i, data) in changes.iter().enumerate() {
+            txn.set_data(i, data).unwrap();
+        }
+        txn.commit(&mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        let reported = diag.len();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let after = Dwg::read(&out, &mut cx).unwrap().objects(&mut cx).unwrap();
+        assert_eq!(after.objects().len(), before.objects().len());
+        for (a, b) in before.objects().iter().zip(after.objects()) {
+            assert_eq!(
+                (&a.kind, &a.values),
+                (&b.kind, &b.values),
+                "{}",
+                path.display()
+            );
+        }
+        let found: Vec<_> = diag.iter().skip(reported).map(|d| d.code()).collect();
+        let first: Vec<_> = diag.iter().take(reported).map(|d| d.code()).collect();
+        assert_eq!(found, first, "{}", path.display());
     }
 }
