@@ -1446,6 +1446,103 @@ fn attributes_and_tolerances_have_their_fields() {
 }
 
 #[test]
+fn leaders_and_mlines_have_their_fields() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), |w| w.handle(4, 3));
+    // 注釈が MTEXT（0）で、2 つの点を持つ引出線
+    let leader = object(
+        0x2D,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bit(false);
+            w.bs(0);
+            w.bs(0);
+            w.bs(2); // 点の数（BL の短い形は BS と同じ）
+            for v in [0.0, 0.0, 0.0, 5.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            for v in [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(2.5);
+            w.bd(10.0);
+            w.bit(true);
+            w.bit(true);
+            w.bs(0);
+            w.bit(false);
+            w.bit(false);
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x30);
+            w.handle(5, 0x11);
+        },
+    );
+    // 2 つの頂点と 1 本の線を持つ多重線
+    let mline = object(
+        0x2F,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bd(1.5);
+            w.bytes(&[1]);
+            for v in [0.0, 0.0, 0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bs(1);
+            w.bytes(&[1]);
+            w.bs(2);
+            for x in [0.0, 10.0] {
+                for v in [x, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+                    w.bd(v);
+                }
+                w.bs(2);
+                w.bd(0.5);
+                w.bd(0.0);
+                w.bs(0);
+            }
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x31);
+        },
+    );
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x11, dimstyle),
+        (0x20, leader),
+        (0x21, mline),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let leader = db.get(0x20).unwrap();
+    assert_eq!(leader.kind, b"LEADER");
+    assert_eq!(leader.first(73), Some(&Data::Int(0)));
+    assert_eq!(leader.first(74), Some(&Data::Int(1)));
+    assert_eq!(leader.first(340), Some(&Data::Handle(0x30)));
+    assert_eq!(leader.first(3), Some(&Data::Text(b"ISO-25".to_vec())));
+    for (code, value) in [(40, 2.5), (41, 10.0)] {
+        assert!(close(leader.real(code), value), "{code}");
+    }
+    // 点は DXF が鉤の線の点を足すので置かない。既定の値の欄も置かない
+    for code in [10, 76, 72, 210, 211] {
+        assert!(leader.first(code).is_none(), "{code}");
+    }
+    let mline = db.get(0x21).unwrap();
+    assert_eq!(mline.kind, b"MLINE");
+    assert_eq!(mline.first(340), Some(&Data::Handle(0x31)));
+    for (code, value) in [(70, 1), (71, 1), (72, 2), (73, 1)] {
+        assert_eq!(mline.first(code), Some(&Data::Int(value)), "{code}");
+    }
+    let xs: Vec<_> = mline.values.iter().filter(|v| v.code == 11).collect();
+    assert_eq!(xs.len(), 2);
+    assert_eq!(xs[1].data, Data::Real(10.0));
+    let params: Vec<_> = mline.values.iter().filter(|v| v.code == 41).collect();
+    assert_eq!(params.len(), 4);
+    assert!(close(mline.real(40), 1.5));
+}
+
+#[test]
 fn types_of_classes_are_named_by_the_classes() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let table = object(

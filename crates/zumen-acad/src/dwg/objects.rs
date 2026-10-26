@@ -2,7 +2,7 @@
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
-//! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
+//! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
@@ -30,6 +30,8 @@ const TEXT: u16 = 0x01;
 const ATTRIB: u16 = 0x02;
 const ATTDEF: u16 = 0x03;
 const TOLERANCE: u16 = 0x2E;
+const LEADER: u16 = 0x2D;
+const MLINE: u16 = 0x2F;
 const ARC: u16 = 0x11;
 const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
@@ -103,9 +105,9 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x2A => object(b"DICTIONARY"),
         0x2B => entity(b"OLEFRAME"),
         MTEXT => entity(b"MTEXT"),
-        0x2D => entity(b"LEADER"),
         TOLERANCE => entity(b"TOLERANCE"),
-        0x2F => entity(b"MLINE"),
+        LEADER => entity(b"LEADER"),
+        MLINE => entity(b"MLINE"),
         0x30 | 0x32 | 0x34 | 0x38 | 0x3C | 0x3E | 0x40 | 0x42 | 0x44 => table(b"TABLE"),
         BLOCK_RECORD => table(b"BLOCK_RECORD"),
         LAYER => table(b"LAYER"),
@@ -335,6 +337,8 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                 TEXT => text(&mut bits)?,
                 ATTRIB | ATTDEF => attribute(&mut bits, entry.type_code == ATTDEF)?,
                 TOLERANCE => tolerance(&mut bits)?,
+                LEADER => leader(&mut bits)?,
+                MLINE => mline(&mut bits)?,
                 INSERT => insert(&mut bits)?,
                 MTEXT => mtext(&mut bits)?,
                 LINE => line(&mut bits)?,
@@ -401,8 +405,19 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
             INSERT => &[(2, BLOCK_RECORD)],
             DIMENSION_ORDINATE..=DIMENSION_DIAMETER => &[(3, DIMSTYLE), (2, BLOCK_RECORD)],
             TOLERANCE => &[(3, DIMSTYLE)],
+            LEADER => &[(3, DIMSTYLE)],
             _ => &[],
         };
+        // LEADER は寸法の体裁の前に注釈のハンドルを、MLINE は多重線の体裁のハンドルを持つ（340）
+        if matches!(entry.type_code, LEADER | MLINE) {
+            let annotation = bits.handle()?.resolve(entry.handle)?;
+            if annotation != 0 {
+                values.push(Value {
+                    code: 340,
+                    data: Data::Handle(annotation),
+                });
+            }
+        }
         for &(code, record) in pointed {
             let handle = bits.handle()?.resolve(entry.handle)?;
             records.push(RecordRef {
@@ -566,6 +581,75 @@ fn tolerance(bits: &mut Bits) -> Option<Vec<Value>> {
     }
     if !is_up(&extrusion) {
         values.extend(extrusion);
+    }
+    Some(values)
+}
+
+/// LEADER の欄（ODS 5.4.1 の 20.4.47、R2000）。注釈の種類（73）・注釈の高さと幅（40・41）・鉤の線の
+/// 向き（74）を置き、押し出しの向き（210）と X 軸の向き（211）は既定の値でなければ置く。DXF は寸法の
+/// 体裁から鉤の線の点を足して書くので、点（10）とその数（76）はまだ置かない
+fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
+    bits.bit()?;
+    let annotation = bits.bs()?;
+    let path = bits.bs()?;
+    let count = bits.bl()?;
+    for _ in 0..count {
+        point3(bits, 10)?;
+    }
+    point3(bits, 10)?;
+    let extrusion = point3(bits, 210)?;
+    let direction = point3(bits, 211)?;
+    let mut values = vec![int(73, i64::from(annotation))];
+    if path != 0 {
+        values.push(int(72, i64::from(path)));
+    }
+    // 鉤の線の点の差と、注釈への差。どちらも DXF で確かめていない
+    point3(bits, 212)?;
+    point3(bits, 213)?;
+    values.push(real(40, bits.bd()?));
+    values.push(real(41, bits.bd()?));
+    values.push(int(74, i64::from(bits.bit()?)));
+    if reals(&direction) != [Some(1.0), Some(0.0), Some(0.0)] {
+        values.extend(direction);
+    }
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
+    }
+    Some(values)
+}
+
+/// MLINE の欄（ODS 5.4.1 の 20.4.50、R2000）。尺度（40）・合わせ（70）・開閉の印（71）・頂点の数（72）・
+/// 線の数（73）・基点（10）・押し出しの向き（210）を置き、頂点ごとに点（11）・向き（12）・留めの向き
+/// （13）と、線ごとの区切り（74・41）と塗りの区切り（75・42）を置く
+fn mline(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![real(40, bits.bd()?)];
+    let justification = bits.rc()?;
+    let base = point3(bits, 10)?;
+    let extrusion = point3(bits, 210)?;
+    let flags = bits.bs()?;
+    let lines = bits.rc()?;
+    let count = bits.bs()?;
+    values.extend([
+        int(70, i64::from(justification)),
+        int(71, i64::from(flags)),
+        int(72, i64::from(count)),
+        int(73, i64::from(lines)),
+    ]);
+    values.extend(base);
+    values.extend(extrusion);
+    for _ in 0..count {
+        values.extend(point3(bits, 11)?);
+        values.extend(point3(bits, 12)?);
+        values.extend(point3(bits, 13)?);
+        for _ in 0..lines {
+            for code in [74, 75] {
+                let params = bits.bs()?;
+                values.push(int(code, i64::from(params)));
+                for _ in 0..params {
+                    values.push(real(code - 33, bits.bd()?));
+                }
+            }
+        }
     }
     Some(values)
 }

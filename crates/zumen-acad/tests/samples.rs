@@ -166,12 +166,17 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"ATTRIB",
                 b"ATTDEF",
                 b"TOLERANCE",
+                b"MLINE",
             ]
             .contains(&object.kind.as_slice())
             {
                 for code in SHAPE_CODES {
                     // SPLINE の 70 は、DXF を書くときに平らかどうかから決まるので比べない
                     if object.kind == b"SPLINE" && code == 70 {
+                        continue;
+                    }
+                    // MLINE の 2 は多重線の体裁の名前で、体裁のオブジェクトの中にあるので、まだ置かない
+                    if object.kind == b"MLINE" && code == 2 {
                         continue;
                     }
                     if let (None, Some(theirs)) = (object.first(code), other.first(code)) {
