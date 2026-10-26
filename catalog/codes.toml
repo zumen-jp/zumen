@@ -260,6 +260,13 @@ params = { record = "uint", code = "int" }
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.object.unsupported"]
+description = "この DXF の同じ種類のレコードから読んでいないオブジェクトの変更は、DXF に書き戻せない"
+severity = "error"
+params = { kind = "text" }
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.handle-seed.missing"]
 description = "DXF の見出しに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない"
 severity = "error"

@@ -1,6 +1,6 @@
 //! 試験の中で作った小さな ASCII の DXF で、L1 とコーデックの経路を確かめる。
 
-use zumen_acad::{AcadDb, Dxf, DxfFile, Line, ViewError};
+use zumen_acad::{AcadDb, Data, Dxf, DxfFile, Line, Value, ViewError};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction, testkit};
 
@@ -566,4 +566,141 @@ fn invalid_utf8_is_kept_as_bytes() {
     assert!(out.windows(6).any(|w| w == b"AC1009"));
     let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
     assert_eq!(codes, [codes::DXF_TEXT_INVALID]);
+}
+
+#[cfg(test)]
+fn cx_for<'a>(
+    budget: &'a mut Budget,
+    diag: &'a mut Diagnostics,
+    cancel: &'a CancelToken,
+) -> Cx<'a> {
+    Cx::new(budget, diag, cancel)
+}
+
+/// 表の LINE（最初のオブジェクト）を変える
+#[cfg(test)]
+fn edit_line(db: &mut AcadDb, edit: impl FnOnce(&mut Vec<Value>)) {
+    edit(&mut db.object_mut(0).unwrap().values);
+}
+
+#[test]
+fn table_changes_are_written_back_to_the_touched_records() {
+    let src = sample("\r\n");
+    let file = read(&src);
+    let mut db = table(&file);
+    // 終点の X を変え、色（62）を足す。見出しの変数を 1 つ変え、1 つ足す
+    edit_line(&mut db, |values| {
+        values[3].data = Data::Real(200.0);
+        values.insert(
+            1,
+            Value {
+                code: 62,
+                data: Data::Int(1),
+            },
+        );
+    });
+    db.set_variable(
+        b"$ZUMEN_UNKNOWN_VAR",
+        vec![Value {
+            code: 70,
+            data: Data::Int(8),
+        }],
+    );
+    db.set_variable(
+        b"$INSUNITS",
+        vec![Value {
+            code: 70,
+            data: Data::Int(4),
+        }],
+    );
+    let written = db.clone();
+    testkit::edit_keeps_untouched_records::<Dxf>(&src, |file, cx| file.write_back(&written, cx))
+        .unwrap();
+
+    let mut file = read(&src);
+    let (mut budget, mut diag, cancel) =
+        (Budget::default(), Diagnostics::new(), CancelToken::new());
+    file.write_back(&db, &mut cx_for(&mut budget, &mut diag, &cancel))
+        .unwrap();
+    let out = testkit::write::<Dxf>(&file).unwrap();
+    let line = b"  0\r\nLINE\r\n  8\r\n0\r\n 62\r\n1\r\n 10\r\n0.0\r\n 20\r\n0.0\r\n 11\r\n200.0\r\n 21\r\n50.0\r\n";
+    let header = b"  9\r\n$ZUMEN_UNKNOWN_VAR\r\n 70\r\n8\r\n  9\r\n$INSUNITS\r\n";
+    for part in [
+        &line[..],
+        b"  9\r\n$INSUNITS\r\n 70\r\n4\r\n  0\r\nENDSEC",
+        header,
+    ] {
+        assert!(
+            out.windows(part.len()).any(|w| w == part),
+            "{}",
+            String::from_utf8_lossy(part)
+        );
+    }
+    // 読み直した表は、書き戻した表と同じになる
+    assert_eq!(table(&read(&out)), table(&file));
+    assert_eq!(table(&file).objects(), db.objects());
+    assert_eq!(
+        table(&file).variable(b"$INSUNITS"),
+        db.variable(b"$INSUNITS")
+    );
+}
+
+#[test]
+fn an_unchanged_table_writes_the_same_bytes() {
+    let src = sample("\n");
+    let mut file = read(&src);
+    let db = table(&file);
+    let (mut budget, mut diag, cancel) =
+        (Budget::default(), Diagnostics::new(), CancelToken::new());
+    file.write_back(&db, &mut cx_for(&mut budget, &mut diag, &cancel))
+        .unwrap();
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    assert!(diag.is_empty());
+}
+
+#[test]
+fn table_changes_that_cannot_be_written_back_change_nothing() {
+    type Edit = fn(&mut AcadDb);
+    let cases: [(Edit, Code); 4] = [
+        (
+            |db| db.object_mut(0).unwrap().kind = b"CIRCLE".to_vec(),
+            codes::DXF_OBJECT_UNSUPPORTED,
+        ),
+        (
+            |db| edit_line(db, |v| v[1].data = Data::Real(f64::INFINITY)),
+            codes::DXF_REAL_UNSUPPORTED,
+        ),
+        (
+            |db| edit_line(db, |v| v[0].data = Data::Text(b"a\nb".to_vec())),
+            codes::DXF_VALUE_UNSAFE,
+        ),
+        (
+            |db| {
+                edit_line(db, |v| {
+                    v.push(Value {
+                        code: 0,
+                        data: Data::Text(b"X".to_vec()),
+                    })
+                })
+            },
+            codes::DXF_VALUE_UNSAFE,
+        ),
+    ];
+    for (edit, code) in cases {
+        let src = sample("\n");
+        let mut db = table(&read(&src));
+        // 先に書き戻せる変更も、残らない
+        db.set_variable(
+            b"$INSUNITS",
+            vec![Value {
+                code: 70,
+                data: Data::Int(4),
+            }],
+        );
+        edit(&mut db);
+        let diag =
+            testkit::failed_edit_changes_nothing::<Dxf>(&src, |file, cx| file.write_back(&db, cx))
+                .unwrap();
+        assert_eq!(diag.iter().map(|d| d.code()).collect::<Vec<_>>(), [code]);
+    }
 }

@@ -19,6 +19,7 @@ use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use crate::db::ViewError;
 mod objects;
 mod version;
+mod write_back;
 
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature, Transact, Transaction};
 

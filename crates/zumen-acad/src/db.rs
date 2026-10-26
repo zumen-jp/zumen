@@ -37,11 +37,19 @@ impl AcadDb {
         &self.objects
     }
 
+    /// 変えるためのオブジェクト。DXF に書き戻すときは、種類と元の場所を変えない（決定 0024）
+    pub fn object_mut(&mut self, index: usize) -> Option<&mut Object> {
+        self.objects.get_mut(index)
+    }
+
     /// ハンドルで引く。同じハンドルが 2 つ以上あれば、最初のもの
     pub fn get(&self, handle: u64) -> Option<&Object> {
+        // 足した後にハンドルを変えたオブジェクトもあるので、索引が外れたら順に探す
         self.handles
             .get(&handle)
             .and_then(|&index| self.objects.get(index))
+            .filter(|o| o.handle() == Some(handle))
+            .or_else(|| self.objects.iter().find(|o| o.handle() == Some(handle)))
     }
 
     /// 見出しの変数を置く。同じ名前がすでにあれば置き換える
@@ -52,6 +60,13 @@ impl AcadDb {
     /// 見出しの変数の値。なければ `None`
     pub fn variable(&self, name: &[u8]) -> Option<&[Value]> {
         self.variables.get(name).map(Vec::as_slice)
+    }
+
+    /// 見出しの変数の名前と値。名前のバイト列の順に並ぶ
+    pub fn variables(&self) -> impl Iterator<Item = (&[u8], &[Value])> {
+        self.variables
+            .iter()
+            .map(|(name, values)| (name.as_slice(), values.as_slice()))
     }
 }
 
