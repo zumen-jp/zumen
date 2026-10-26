@@ -2,7 +2,7 @@
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
-//! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
+//! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
@@ -27,6 +27,9 @@ const COMMON_ENTITY_HANDLES: SpecRef = SpecRef {
 };
 
 const TEXT: u16 = 0x01;
+const ATTRIB: u16 = 0x02;
+const ATTDEF: u16 = 0x03;
+const TOLERANCE: u16 = 0x2E;
 const ARC: u16 = 0x11;
 const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
@@ -72,8 +75,8 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
     let object = |name: &'static [u8]| Some((name, Section::Objects));
     match type_code {
         TEXT => entity(b"TEXT"),
-        0x02 => entity(b"ATTRIB"),
-        0x03 => entity(b"ATTDEF"),
+        ATTRIB => entity(b"ATTRIB"),
+        ATTDEF => entity(b"ATTDEF"),
         0x04 => Some((b"BLOCK", Section::Blocks)),
         0x05 => Some((b"ENDBLK", Section::Blocks)),
         0x06 => entity(b"SEQEND"),
@@ -101,7 +104,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x2B => entity(b"OLEFRAME"),
         MTEXT => entity(b"MTEXT"),
         0x2D => entity(b"LEADER"),
-        0x2E => entity(b"TOLERANCE"),
+        TOLERANCE => entity(b"TOLERANCE"),
         0x2F => entity(b"MLINE"),
         0x30 | 0x32 | 0x34 | 0x38 | 0x3C | 0x3E | 0x40 | 0x42 | 0x44 => table(b"TABLE"),
         BLOCK_RECORD => table(b"BLOCK_RECORD"),
@@ -330,6 +333,8 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
         let own = if bits.pos() <= handles_at {
             match entry.type_code {
                 TEXT => text(&mut bits)?,
+                ATTRIB | ATTDEF => attribute(&mut bits, entry.type_code == ATTDEF)?,
+                TOLERANCE => tolerance(&mut bits)?,
                 INSERT => insert(&mut bits)?,
                 MTEXT => mtext(&mut bits)?,
                 LINE => line(&mut bits)?,
@@ -392,9 +397,10 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
         }
         // 寸法は、寸法の体裁（3）とブロック（2）の順に指す
         let pointed: &[(i16, u16)] = match entry.type_code {
-            TEXT | MTEXT => &[(7, STYLE)],
+            TEXT | MTEXT | ATTRIB | ATTDEF => &[(7, STYLE)],
             INSERT => &[(2, BLOCK_RECORD)],
             DIMENSION_ORDINATE..=DIMENSION_DIAMETER => &[(3, DIMSTYLE), (2, BLOCK_RECORD)],
+            TOLERANCE => &[(3, DIMSTYLE)],
             _ => &[],
         };
         for &(code, record) in pointed {
@@ -513,10 +519,7 @@ fn text(bits: &mut Bits) -> Option<Vec<Value>> {
     if !absent(0x10) {
         values.push(real(41, bits.rd()?));
     }
-    values.push(Value {
-        code: 1,
-        data: Data::Text(bits.text()?),
-    });
+    values.push(text_value(1, &bits.text()?));
     for (bit, code) in [(0x20, 71), (0x40, 72), (0x80, 73)] {
         if !absent(bit) {
             values.push(int(code, i64::from(bits.bs()?)));
@@ -526,6 +529,44 @@ fn text(bits: &mut Bits) -> Option<Vec<Value>> {
         values.extend([real(11, x), real(21, y), real(31, elevation)]);
     }
     values.extend(extrusion.into_iter().flatten());
+    Some(values)
+}
+
+/// ATTRIB・ATTDEF の欄（ODS 5.4.1 の 20.4.4・20.4.5、R2000）。TEXT の欄に続けて、タグ（2）・欄の長さ
+/// （73）・印（70）を、ATTDEF は問い（3）も置く。DXF は縦の合わせを 74 に書くので、TEXT の 73 を 74 に
+/// 移す。欄の長さは 0 でなければ置く
+fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
+    let mut values = text(bits)?;
+    for value in &mut values {
+        if value.code == 73 {
+            value.code = 74;
+        }
+    }
+    values.push(text_value(2, &bits.text()?));
+    let length = bits.bs()?;
+    if length != 0 {
+        values.push(int(73, i64::from(length)));
+    }
+    values.push(int(70, i64::from(bits.rc()?)));
+    if definition {
+        values.push(text_value(3, &bits.text()?));
+    }
+    Some(values)
+}
+
+/// TOLERANCE の欄（ODS 5.4.1 の 20.4.49、R2000）。挿入点（10）と文字（1）を置き、X 軸の向き（11）と
+/// 押し出しの向きは既定の値でなければ置く
+fn tolerance(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    let direction = point3(bits, 11)?;
+    let extrusion = point3(bits, 210)?;
+    values.push(text_value(1, &bits.text()?));
+    if reals(&direction) != [Some(1.0), Some(0.0), Some(0.0)] {
+        values.extend(direction);
+    }
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
+    }
     Some(values)
 }
 
@@ -577,7 +618,7 @@ fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     values.push(int(72, i64::from(bits.bs()?)));
     bits.bd()?;
     bits.bd()?;
-    let text = bits.text()?;
+    let text = caret(&bits.text()?);
     let mut rest = text.as_slice();
     while rest.len() > 250 {
         let (chunk, tail) = rest.split_at(250);
@@ -1257,11 +1298,25 @@ fn int(code: i16, value: i64) -> Value {
     }
 }
 
+/// 図形の文字列の値。DXF と同じく、制御文字を `^` と文字で、`^` を `^ ` で書く
 fn text_value(code: i16, text: &[u8]) -> Value {
     Value {
         code,
-        data: Data::Text(text.to_vec()),
+        data: Data::Text(caret(text)),
     }
+}
+
+/// 制御文字を DXF の書き方（0x0A なら `^J`）に直す。`^` は、後に空白を付けて `^ ` とする
+fn caret(text: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
+    for &byte in text {
+        match byte {
+            0..0x20 => out.extend([b'^', byte + 0x40]),
+            b'^' => out.extend(*b"^ "),
+            _ => out.push(byte),
+        }
+    }
+    out
 }
 
 fn real(code: i16, value: f64) -> Value {

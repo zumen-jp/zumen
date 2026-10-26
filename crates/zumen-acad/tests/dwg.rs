@@ -1350,6 +1350,102 @@ fn dimensions_have_their_points_and_records() {
 }
 
 #[test]
+fn attributes_and_tolerances_have_their_fields() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let standard = object(0x35, 0x11, record_named(b"Standard"), |w| w.handle(4, 3));
+    let dimstyle = object(0x45, 0x12, record_named(b"ISO-25"), |w| w.handle(4, 3));
+    // TEXT の欄。DataFlags が 0x7F で、縦の合わせ（DXF の 74）だけを持つ
+    let text = |w: &mut BitWriter, value: &[u8]| {
+        entity_common(w, 2, 256, 1.0, 0);
+        w.bytes(&[0x7F]);
+        w.rd(1.0);
+        w.rd(2.0);
+        w.bit(true);
+        w.bit(true);
+        w.rd(2.5);
+        w.bs(value.len() as u16 + 1);
+        w.bytes(value);
+        w.bytes(&[0]);
+        w.bs(2);
+    };
+    let attrib = object(
+        0x02,
+        0x20,
+        |w| {
+            text(w, b"A^B");
+            w.bs(4);
+            w.bytes(b"TAG\0");
+            w.bs(0);
+            w.bytes(&[1]);
+        },
+        entity_handles_to(0x10, 0x11),
+    );
+    let attdef = object(
+        0x03,
+        0x21,
+        |w| {
+            text(w, b"");
+            w.bs(4);
+            w.bytes(b"TAG\0");
+            w.bs(8);
+            w.bytes(&[2]);
+            w.bs(5);
+            w.bytes(b"Name\0");
+        },
+        entity_handles_to(0x10, 0x11),
+    );
+    let tolerance = object(
+        0x2E,
+        0x22,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [3.0, 4.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bs(7);
+            w.bytes(b"{\\Fgd\n\0");
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x12);
+        },
+    );
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x11, standard),
+        (0x12, dimstyle),
+        (0x20, attrib),
+        (0x21, attdef),
+        (0x22, tolerance),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let attrib = db.get(0x20).unwrap();
+    assert_eq!(attrib.kind, b"ATTRIB");
+    // `^` は DXF と同じく `^ ` と書く
+    assert_eq!(attrib.first(1), Some(&Data::Text(b"A^ B".to_vec())));
+    assert_eq!(attrib.first(2), Some(&Data::Text(b"TAG".to_vec())));
+    assert_eq!(attrib.first(70), Some(&Data::Int(1)));
+    assert_eq!(attrib.first(74), Some(&Data::Int(2)));
+    assert!(attrib.first(73).is_none());
+    let attdef = db.get(0x21).unwrap();
+    assert_eq!(attdef.kind, b"ATTDEF");
+    assert_eq!(attdef.first(3), Some(&Data::Text(b"Name".to_vec())));
+    assert_eq!(attdef.first(73), Some(&Data::Int(8)));
+    assert_eq!(attdef.first(70), Some(&Data::Int(2)));
+    let tolerance = db.get(0x22).unwrap();
+    assert_eq!(tolerance.kind, b"TOLERANCE");
+    // 改行は DXF と同じく `^J` と書く
+    assert_eq!(tolerance.first(1), Some(&Data::Text(b"{\\Fgd^J".to_vec())));
+    assert_eq!(tolerance.first(3), Some(&Data::Text(b"ISO-25".to_vec())));
+    for (code, value) in [(10, 3.0), (20, 4.0), (30, 0.0)] {
+        assert!(close(tolerance.real(code), value), "{code}");
+    }
+    for code in [11, 210] {
+        assert!(tolerance.first(code).is_none(), "{code}");
+    }
+}
+
+#[test]
 fn types_of_classes_are_named_by_the_classes() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let table = object(
