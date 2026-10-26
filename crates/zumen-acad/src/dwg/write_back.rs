@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0041）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0042）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -90,6 +90,7 @@ const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
 const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
 const LEADER: &[i16] = &[73, 72, 40, 41, 74, 210, 220, 230, 211, 221, 231];
+const SHAPE: &[i16] = &[10, 20, 30, 40, 50, 41, 51, 39, 210, 220, 230];
 const VIEWPORT: &[i16] = &[
     10, 20, 30, 40, 41, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 36, 17, 27, 37, 42, 43, 44, 45, 50,
     51, 72, 90, 1, 281, 71, 74, 110, 120, 130, 111, 121, 131, 112, 122, 132, 146, 79,
@@ -262,6 +263,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"LEADER" => LEADER,
         b"MLINE" => MLINE,
         b"VIEWPORT" => VIEWPORT,
+        b"SHAPE" => SHAPE,
         _ => &[],
     };
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
@@ -387,6 +389,7 @@ fn own_fields(
         b"LEADER" => leader(&mut fields, new, data, start)?,
         b"MLINE" => mline(&mut fields, new)?,
         b"VIEWPORT" => viewport(&mut fields, old, new, data, start)?,
+        b"SHAPE" => shape(&mut fields, new, data, start)?,
         _ => return None,
     }
     Some(fields)
@@ -1490,6 +1493,33 @@ fn viewport(
     }
     fields.bd(real(new, 146)??);
     fields.bs(small(new, 79)??);
+    fields.copy(data, rest_at..entity_fields(data)?[3])
+}
+
+/// SHAPE の欄（決定 0042）。角度（50・51）がなければ 0、幅の尺度（41）がなければ 1、厚さ（39）がなければ 0、
+/// 押し出しの向きがなければ (0, 0, 1) を書く。角度は度からラジアンに直す。表にない形の番号と後ろの欄は、
+/// 元のビットを写す
+fn shape(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    for _ in 0..8 {
+        bits.bd()?;
+    }
+    let number_at = bits.pos();
+    bits.bs()?;
+    let number_end = bits.pos();
+    for _ in 0..3 {
+        bits.bd()?;
+    }
+    let rest_at = bits.pos();
+    point3(fields, object, 10)?;
+    fields.bd(real(object, 40)??);
+    fields.bd(real(object, 50)?.unwrap_or(0.0).to_radians());
+    fields.bd(real(object, 41)?.unwrap_or(1.0));
+    fields.bd(real(object, 51)?.unwrap_or(0.0).to_radians());
+    fields.bd(real(object, 39)?.unwrap_or(0.0));
+    fields.copy(data, number_at..number_end)?;
+    point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
     fields.copy(data, rest_at..entity_fields(data)?[3])
 }
 

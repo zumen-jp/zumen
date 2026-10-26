@@ -5001,6 +5001,80 @@ fn changed_viewports_are_written_back() {
     }
 }
 
+/// 形を持つ図面。`height` は高さ、`rotation` は回転（ラジアン）、`width` は幅の尺度、`thickness` は厚さ
+#[cfg(test)]
+fn shapes_with(height: f64, rotation: f64, width: f64, thickness: f64) -> Vec<(u64, Vec<u8>)> {
+    let shape = object(
+        0x21,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 2.0, 0.0, height, rotation, width, 0.0, thickness] {
+                w.bd(v);
+            }
+            w.bs(3); // 形の番号
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles(0x10),
+    );
+    vec![
+        (
+            0x10,
+            object(0x33, 0x10, record_named(b"0"), record_handles(2)),
+        ),
+        (0x20, shape),
+    ]
+}
+
+#[test]
+fn changed_shapes_are_written_back() {
+    let src = dwg(&shapes_with(0.5, 0.0, 1.0, 0.0));
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 高さを変え、既定の値で表になかった回転・幅の尺度・厚さを足す
+    for (code, data) in [
+        (40, Data::Real(2.0)),
+        (50, Data::Real(90.0)),
+        (41, Data::Real(3.0)),
+        (39, Data::Real(0.25)),
+    ] {
+        set_value(&mut db, 0x20, code, data);
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let shape = after.get(0x20).unwrap();
+    for (code, value) in [(40, 2.0), (50, 90.0), (41, 3.0), (39, 0.25)] {
+        assert!(close(shape.real(code), value), "{code}");
+    }
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (handle, expected) in shapes_with(2.0, std::f64::consts::FRAC_PI_2, 3.0, 0.25) {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data, "{handle:#x}");
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // 3 つそろわない押し出しの向きは符号化できない
+    let mut changed = objects(&src).0;
+    set_value(&mut changed, 0x20, 210, Data::Real(1.0));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+}
+
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
 #[cfg(test)]
 fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
@@ -5024,7 +5098,7 @@ fn changed_colors_ltype_scales_and_visibility_are_written_back() {
     set_value(&mut db, 0x2B, 48, Data::Real(0.5));
     set_value(&mut db, 0x2B, 60, Data::Int(0));
     set_value(&mut db, 0x2B, 11, Data::Real(7.0));
-    // 型ごとの欄を符号化できない SHAPE も、共通の欄は書き戻せる
+    // SHAPE の共通の欄も書き戻せる
     let index = db
         .objects()
         .iter()
@@ -5053,10 +5127,18 @@ fn changed_colors_ltype_scales_and_visibility_are_written_back() {
         }
     }
     assert_eq!(values(&after), expected);
-    // SHAPE の型ごとの欄の変更は、まだ符号化できない
+    // 2 度ある SHAPE の高さ（40）は符号化できない
     let (db, _) = objects(&src);
     let mut changed = db.clone();
-    set_value(&mut changed, 0x39, 40, Data::Real(3.0));
+    let index = changed
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x39))
+        .unwrap();
+    changed.object_mut(index).unwrap().values.push(Value {
+        code: 40,
+        data: Data::Real(3.0),
+    });
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &changed);
     assert_eq!(out, Err(Error::Rejected));
