@@ -1146,6 +1146,105 @@ fn splines_have_their_knots_or_fit_points() {
 }
 
 #[test]
+fn polylines_and_vertices_have_their_fields() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let entity = |type_code, handle, data: &dyn Fn(&mut BitWriter)| {
+        object(
+            type_code,
+            handle,
+            |w| {
+                entity_common(w, 2, 256, 1.0, 0);
+                data(w);
+            },
+            entity_handles(0x10),
+        )
+    };
+    let polyline2d = entity(0x0F, 0x20, &|w| {
+        w.bs(1); // 閉じている
+        w.bs(0);
+        w.bd(0.5);
+        w.bd(0.5);
+        w.bit(true); // 厚さは 0
+        w.bd(2.0); // 標高
+        w.bit(true); // 押し出しの向きは既定
+    });
+    let vertex2d = entity(0x0A, 0x21, &|w| {
+        w.bytes(&[0]);
+        for v in [1.0, 2.0, 0.0] {
+            w.bd(v);
+        }
+        w.bd(-0.25); // 負なので、終わりの幅は書かれない
+        w.bd(0.5);
+        w.bd(std::f64::consts::FRAC_PI_2);
+    });
+    let polyline3d = entity(0x10, 0x22, &|w| w.bytes(&[1, 1]));
+    let polyface = entity(0x1D, 0x23, &|w| {
+        w.bs(4);
+        w.bs(2);
+    });
+    let face = entity(0x0E, 0x24, &|w| {
+        for index in [1, 2, -3, 0_i16] {
+            w.bs(index as u16);
+        }
+    });
+    let mesh = entity(0x1E, 0x25, &|w| {
+        for v in [16, 0, 3, 2, 0, 0] {
+            w.bs(v);
+        }
+    });
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x20, polyline2d),
+        (0x21, vertex2d),
+        (0x22, polyline3d),
+        (0x23, polyface),
+        (0x24, face),
+        (0x25, mesh),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let ints = |handle, codes: &[i16]| -> Vec<Option<i64>> {
+        let object = db.get(handle).unwrap();
+        codes
+            .iter()
+            .map(|&code| match object.first(code) {
+                Some(Data::Int(i)) => Some(*i),
+                _ => None,
+            })
+            .collect()
+    };
+    let polyline = db.get(0x20).unwrap();
+    assert_eq!(polyline.kind, b"POLYLINE");
+    assert_eq!(ints(0x20, &[66, 70, 75]), [Some(1), Some(1), None]);
+    for (code, value) in [(40, 0.5), (41, 0.5), (10, 0.0), (30, 2.0)] {
+        assert!(close(polyline.real(code), value), "{code}");
+    }
+    let vertex = db.get(0x21).unwrap();
+    assert_eq!(vertex.kind, b"VERTEX");
+    for (code, value) in [
+        (10, 1.0),
+        (20, 2.0),
+        (40, 0.25),
+        (41, 0.25),
+        (42, 0.5),
+        (50, 90.0),
+    ] {
+        assert!(close(vertex.real(code), value), "{code}");
+    }
+    // 3D の印 8・閉じている 1・曲線の 4 と、曲線の種類 5
+    assert_eq!(ints(0x22, &[70, 75]), [Some(13), Some(5)]);
+    assert_eq!(ints(0x23, &[70, 71, 72]), [Some(64), Some(4), Some(2)]);
+    // 負の番号は見えない辺。0 の番号は置かない
+    assert_eq!(
+        ints(0x24, &[70, 71, 72, 73, 74]),
+        [Some(128), Some(1), Some(2), Some(-3), None]
+    );
+    assert_eq!(
+        ints(0x25, &[70, 75, 71, 72, 73]),
+        [Some(16), None, Some(3), Some(2), Some(0)]
+    );
+}
+
+#[test]
 fn types_of_classes_are_named_by_the_classes() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let table = object(
