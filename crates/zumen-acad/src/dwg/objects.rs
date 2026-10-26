@@ -644,6 +644,20 @@ fn read(
     }
 }
 
+/// R2000 の図形のデータの、ハンドルの流れの位置（RL）を書く所と、型ごとの欄の始まりと、ハンドルの流れの
+/// 始まりの、ビットの位置
+pub(super) fn entity_fields(data: &[u8]) -> Option<[usize; 3]> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.bs()?;
+    let size_at = bits.pos();
+    let handles_at = usize::try_from(bits.rl()?).ok()?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    entity_data(&mut bits)?;
+    let start = bits.pos();
+    (start <= handles_at).then_some([size_at, start, handles_at])
+}
+
 /// 拡張データ（EED）を読み飛ばす（ODS 5.4.1 の 28）
 fn skip_extended_data(bits: &mut Bits) -> Option<()> {
     loop {

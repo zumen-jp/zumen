@@ -418,3 +418,55 @@ fn r2000_drawings_keep_their_table_when_every_object_is_rewritten() {
         assert_eq!(found, first, "{}", path.display());
     }
 }
+
+#[test]
+fn r2000_drawings_take_back_changed_lines_circles_and_arcs() {
+    let mut changed = 0;
+    for path in dwgs(b"AC1015") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut file = Dwg::read(&src, &mut cx).unwrap();
+        let mut db = file.objects(&mut cx).unwrap();
+        let reported = diag.len();
+        // LINE・CIRCLE・ARC の点を動かす
+        for index in 0..db.objects().len() {
+            let object = db.object_mut(index).unwrap();
+            if !matches!(object.kind.as_slice(), b"LINE" | b"CIRCLE" | b"ARC") {
+                continue;
+            }
+            for value in object.values.iter_mut() {
+                if let (10 | 20 | 11 | 21, Data::Real(v)) = (value.code, &mut value.data) {
+                    *v += 1.5;
+                    changed += 1;
+                }
+            }
+        }
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        file.write_back(&db, &mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        let after = Dwg::read(&out, &mut cx).unwrap().objects(&mut cx).unwrap();
+        assert_eq!(after.objects().len(), db.objects().len());
+        for (a, b) in db.objects().iter().zip(after.objects()) {
+            assert_eq!(a.kind, b.kind, "{}", path.display());
+            assert_eq!(a.values.len(), b.values.len(), "{}", path.display());
+            for (x, y) in a.values.iter().zip(&b.values) {
+                assert!(
+                    x.code == y.code && same(&x.data, &y.data),
+                    "{}",
+                    path.display()
+                );
+            }
+        }
+        // 書き戻しは診断を足さず、読み直しは同じ診断を出す
+        let found: Vec<_> = diag.iter().skip(reported).map(|d| d.code()).collect();
+        let first: Vec<_> = diag.iter().take(reported).map(|d| d.code()).collect();
+        assert_eq!(found, first, "{}", path.display());
+    }
+    if !dwgs(b"AC1015").is_empty() {
+        assert!(changed > 0);
+    }
+}

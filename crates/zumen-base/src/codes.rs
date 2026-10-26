@@ -236,6 +236,17 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
+/// この DWG から読んでいないオブジェクトの変更や、まだ符号化できない値の変更は、DWG に書き戻せない
+///
+/// `dwg.change.unsupported`（0.0.0 から）
+pub const DWG_CHANGE_UNSUPPORTED: Code = Code::new(
+    "dwg.change.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &[],
+);
+
 /// DWG の CRC が、記録された値と合わない。読むのは続ける
 ///
 /// `dwg.crc.invalid`（0.0.0 から）
@@ -677,6 +688,7 @@ pub const ALL: &[Code] = &[
     CALL_VALUE_INVALID,
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
+    DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,
     DWG_DATA_INVALID,
     DWG_EDIT_UNSUPPORTED,

@@ -32,11 +32,8 @@ impl DwgTxn<'_> {
     /// `record` 番目のオブジェクトのデータ（大きさ（MS）の後から CRC の前まで）を置き換える。
     /// 型（BS）を読めないデータは受け付けない
     pub fn set_data(&mut self, record: usize, data: &[u8]) -> Result<(), Error> {
-        if self.file.release != Release::R2000 {
-            let version = String::from_utf8_lossy(self.file.version()).into_owned();
-            return Err(
-                self.reject(Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", version))
-            );
+        if let Some(diagnostic) = self.file.edit_unsupported() {
+            return Err(self.reject(diagnostic));
         }
         if record >= self.file.entries.len() {
             return Err(self
@@ -52,7 +49,7 @@ impl DwgTxn<'_> {
     }
 
     /// 最初の失敗を、確定のときに診断として返すために覚える
-    fn reject(&mut self, diagnostic: Diagnostic) -> Error {
+    pub(super) fn reject(&mut self, diagnostic: Diagnostic) -> Error {
         self.rejected.get_or_insert(diagnostic);
         Error::Rejected
     }
@@ -114,6 +111,16 @@ impl Transaction for DwgTxn<'_> {
         file.entries = entries;
         file.locators = locators;
         Ok(())
+    }
+}
+
+impl DwgFile {
+    /// この版の DWG を変えられなければ、その診断
+    pub(super) fn edit_unsupported(&self) -> Option<Diagnostic> {
+        (self.release != Release::R2000).then(|| {
+            let version = String::from_utf8_lossy(self.version()).into_owned();
+            Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", version)
+        })
     }
 }
 

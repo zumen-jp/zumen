@@ -6,7 +6,7 @@
 //! （23「OBJECT MAP」）と、地図が指すオブジェクトの区切りと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
 //! 系統で共有するオブジェクトの表に置く（決定 0023）。
 //!
-//! 書くときは、元のバイトをそのまま並べる。R2000 は、[`DwgTxn`] でオブジェクトのデータを置き換えられる（決定 0028）。
+//! 書くときは、元のバイトをそのまま並べる。R2000 は、[`DwgTxn`] でオブジェクトのデータを置き換えられ（決定 0028）、[`DwgFile::write_back`] で共有の表の変更を書き戻せる（決定 0029）。
 
 use core::ops::Range;
 
@@ -18,6 +18,7 @@ mod edit;
 mod header;
 mod objects;
 mod r2004;
+mod write_back;
 
 use bits::{Bits, crc16, modular_char, modular_short};
 pub use edit::DwgTxn;
