@@ -12,10 +12,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
-use super::DwgFile;
-use super::bits::BitWriter;
+use super::bits::{BitWriter, Bits};
 use super::objects::entity_fields;
-use crate::db::{AcadDb, Data, Object, Origin};
+use super::{DwgFile, Release};
+use crate::db::{AcadDb, Data, Object, Origin, Section};
+
+/// 図形の共通の欄のうち、表に置くもののグループ・コード
+const COMMON: &[i16] = &[62, 48, 60];
 
 /// 型ごとの欄のグループ・コード
 const LINE: &[i16] = &[10, 20, 30, 11, 21, 31, 39, 210, 220, 230];
@@ -100,6 +103,12 @@ impl DwgFile {
                 let data = self
                     .entries
                     .get(record)
+                    .filter(|entry| {
+                        // BLOCK と ENDBLK も、DWG では図形として書かれる
+                        self.kind(entry.type_code).is_some_and(|(_, section)| {
+                            matches!(section, Section::Entities | Section::Blocks)
+                        })
+                    })
                     .and_then(|entry| encode(self.data(entry), old, object))
                     .ok_or_else(|| unsupported(&object.kind))?;
                 changes.push((record, data));
@@ -144,10 +153,10 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
     Box::new(Diagnostic::new(codes::DWG_CHANGE_UNSUPPORTED).with("kind", kind))
 }
 
-/// `old` から `new` に値を変えたオブジェクトのデータ `data` を、符号化し直す。型ごとの欄のほかの値が
+/// `old` から `new` に値を変えた図形のデータ `data` を、符号化し直す。共通の欄と型ごとの欄のほかの値が
 /// 変わったか、符号化できない値なら `None`
 fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
-    let own = match new.kind.as_slice() {
+    let own: &[i16] = match new.kind.as_slice() {
         b"LINE" => LINE,
         b"CIRCLE" => CIRCLE,
         b"ARC" => ARC,
@@ -156,19 +165,70 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"RAY" | b"XLINE" => RAY,
         b"SOLID" | b"TRACE" => SOLID,
         b"3DFACE" => FACE3D,
-        _ => return None,
+        _ => &[],
     };
-    let rest = |object: &Object| -> Vec<_> {
+    let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
             .iter()
-            .filter(|value| !own.contains(&value.code))
+            .filter(|value| codes.contains(&value.code) == keep)
             .cloned()
             .collect()
     };
+    let rest = |object| only(&[COMMON, own].concat(), object, false);
     if rest(old) != rest(new) {
         return None;
     }
+    let [size_at, color_at, start, handles_at] = entity_fields(data)?;
+    let common = if only(COMMON, old, true) == only(COMMON, new, true) {
+        let mut common = BitWriter::default();
+        common.copy(data, color_at..start)?;
+        common
+    } else {
+        common_fields(data, color_at, start, new)?
+    };
+    let fields = if only(own, old, true) == only(own, new, true) {
+        let mut fields = BitWriter::default();
+        fields.copy(data, start..handles_at)?;
+        fields
+    } else {
+        own_fields(new)?
+    };
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(color_at + common.len() + fields.len()).ok()?);
+    out.copy(data, size_at + 32..color_at)?;
+    for part in [common, fields] {
+        let len = part.len();
+        out.copy(&part.into_bytes(), 0..len)?;
+    }
+    // ハンドルの流れの後ろの、バイトの終わりまでの埋めのビットも写す
+    out.copy(data, handles_at..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// 共通の欄の、色から型ごとの欄の前まで（R2000）。色（62）がなければ ByLayer、線種の尺度（48）がなければ 1、
+/// 非表示（60）がなければ 0 を書く。線種と印刷スタイルの印と、線の太さは元のまま写す
+fn common_fields(data: &[u8], color_at: usize, start: usize, object: &Object) -> Option<BitWriter> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(color_at);
+    bits.bs()?;
+    bits.bd()?;
+    let flags_at = bits.pos();
+    bits.seek(flags_at + 4);
+    bits.bs()?;
+    let lineweight_at = bits.pos();
+    let mut fields = BitWriter::default();
+    fields.bs(small(object, 62)?.unwrap_or(256));
+    fields.bd(real(object, 48)?.unwrap_or(1.0));
+    fields.copy(data, flags_at..flags_at + 4)?;
+    fields.bs(small(object, 60)?.unwrap_or(0));
+    fields.copy(data, lineweight_at..start)?;
+    Some(fields)
+}
+
+/// 型ごとの欄。符号化できない種類なら `None`
+fn own_fields(new: &Object) -> Option<BitWriter> {
     let mut fields = BitWriter::default();
     match new.kind.as_slice() {
         b"LINE" => line(&mut fields, new)?,
@@ -208,9 +268,10 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
             point3(&mut fields, new, 11)?;
         }
         b"SOLID" | b"TRACE" => solid(&mut fields, new)?,
-        _ => face3d(&mut fields, new)?,
+        b"3DFACE" => face3d(&mut fields, new)?,
+        _ => return None,
     }
-    splice(data, fields)
+    Some(fields)
 }
 
 /// LINE の欄。両方の Z が 0 なら、Z を書かない
@@ -259,19 +320,7 @@ fn face3d(fields: &mut BitWriter, object: &Object) -> Option<()> {
             real(object, code + 20)??,
         ];
     }
-    let invisible = match object
-        .values
-        .iter()
-        .filter(|v| v.code == 70)
-        .collect::<Vec<_>>()[..]
-    {
-        [] => None,
-        [value] => match value.data {
-            Data::Int(flags) => Some(i16::try_from(flags).ok()?),
-            _ => return None,
-        },
-        _ => return None,
-    };
+    let invisible = small(object, 70)?;
     let [first, ..] = corners;
     let z_is_zero = first[2].to_bits() == 0;
     fields.bit(invisible.is_none());
@@ -346,16 +395,15 @@ fn real(object: &Object, code: i16) -> Option<Option<f64>> {
     }
 }
 
-/// `data` の型ごとの欄を `fields` に置き換え、ハンドルの流れの位置を直す
-fn splice(data: &[u8], fields: BitWriter) -> Option<Vec<u8>> {
-    let [size_at, start, handles_at] = entity_fields(data)?;
-    let mut out = BitWriter::default();
-    out.copy(data, 0..size_at)?;
-    out.rl(i32::try_from(start + fields.len()).ok()?);
-    out.copy(data, size_at + 32..start)?;
-    let len = fields.len();
-    out.copy(&fields.into_bytes(), 0..len)?;
-    // ハンドルの流れの後ろの、バイトの終わりまでの埋めのビットも写す
-    out.copy(data, handles_at..data.len() * 8)?;
-    Some(out.into_bytes())
+/// `code` の整数の値。ないなら `Some(None)`、2 度あるか BS に収まる整数でなければ `None`
+fn small(object: &Object, code: i16) -> Option<Option<i16>> {
+    let mut found = object.values.iter().filter(|value| value.code == code);
+    let value = match found.next() {
+        None => return Some(None),
+        Some(value) => value,
+    };
+    match (&value.data, found.next()) {
+        (Data::Int(value), None) => i16::try_from(*value).ok().map(Some),
+        _ => None,
+    }
 }

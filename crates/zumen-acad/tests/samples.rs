@@ -420,7 +420,7 @@ fn r2000_drawings_keep_their_table_when_every_object_is_rewritten() {
 }
 
 #[test]
-fn r2000_drawings_take_back_changed_points_of_entities() {
+fn r2000_drawings_take_back_changed_entities() {
     let mut changed = 0;
     for path in dwgs(b"AC1015") {
         let src = std::fs::read(&path).unwrap();
@@ -431,9 +431,19 @@ fn r2000_drawings_take_back_changed_points_of_entities() {
         let mut file = Dwg::read(&src, &mut cx).unwrap();
         let mut db = file.objects(&mut cx).unwrap();
         let reported = diag.len();
-        // 書き戻せる種類の図形の点を動かす
+        // 図形の色と線種の尺度を変え、書き戻せる種類の図形の点を動かす
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
+            if object.section == Section::Entities {
+                for value in object.values.iter_mut() {
+                    match (value.code, &mut value.data) {
+                        (62, Data::Int(v)) => *v = *v % 255 + 1,
+                        (48, Data::Real(v)) => *v *= 2.0,
+                        _ => continue,
+                    }
+                    changed += 1;
+                }
+            }
             if !matches!(
                 object.kind.as_slice(),
                 b"LINE"
