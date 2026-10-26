@@ -5,6 +5,7 @@
 //! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック）は、レコードの名前に直して置く。
+//! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
 use std::collections::BTreeMap;
@@ -49,7 +50,7 @@ const LTYPE: u16 = 0x39;
 const DIMSTYLE: u16 = 0x45;
 
 /// 型から、DXF の名前と属する所。クラスで決まる型（500 以上）と、知らない型は `None`
-pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
+fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
     let entity = |name: &'static [u8]| Some((name, Section::Entities));
     let table = |name: &'static [u8]| Some((name, Section::Tables));
     let object = |name: &'static [u8]| Some((name, Section::Objects));
@@ -117,12 +118,26 @@ pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
 }
 
 impl DwgFile {
+    /// 型から、DXF の名前と属する所。500 以上の型は、番号が同じクラスで決める。知らない型は `None`
+    pub(super) fn kind(&self, type_code: u16) -> Option<(&[u8], Section)> {
+        if let Some(found) = kind(type_code) {
+            return Some(found);
+        }
+        let class = self.classes.iter().find(|c| c.number == type_code)?;
+        let section = if class.entity {
+            Section::Entities
+        } else {
+            Section::Objects
+        };
+        Some((class.name.as_slice(), section))
+    }
+
     /// オブジェクトの表を作る。予算の上限か中断の合図で止めたときだけ失敗する
     pub fn objects(&self, cx: &mut Cx) -> Result<AcadDb, Error> {
         let mut found = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            let kind = kind(entry.type_code);
+            let kind = self.kind(entry.type_code);
             let fields = kind.as_ref().and_then(|(_, section)| {
                 // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
                 let entity = matches!(section, Section::Entities | Section::Blocks);
