@@ -814,6 +814,111 @@ fn written_back_entities_widen_the_extents() {
 }
 
 #[test]
+fn removing_an_object_removes_its_dictionary_entries_and_reactors() {
+    let lines = [
+        "  0",
+        "SECTION",
+        "  2",
+        "OBJECTS", //
+        "  0",
+        "DICTIONARY",
+        "  5",
+        "C",
+        "330",
+        "0",
+        "  3",
+        "A",
+        "350",
+        "D",
+        "  3",
+        "B",
+        "350",
+        "E", //
+        "  0",
+        "XRECORD",
+        "  5",
+        "D",
+        "102",
+        "{ACAD_REACTORS",
+        "330",
+        "C",
+        "102",
+        "}",
+        "330",
+        "C", //
+        "  0",
+        "XRECORD",
+        "  5",
+        "E",
+        "102",
+        "{ACAD_REACTORS",
+        "330",
+        "C",
+        "330",
+        "D",
+        "102",
+        "}", //
+        "102",
+        "{ACAD_XDICTIONARY",
+        "360",
+        "D",
+        "102",
+        "}",
+        "330",
+        "C", //
+        "  0",
+        "ENDSEC",
+        "  0",
+        "EOF",
+    ];
+    let src = format!("{}\n", lines.join("\n")).into_bytes();
+    let mut file = read(&src);
+    let mut db = table(&file);
+    db.remove(1).unwrap();
+    // 辞書の項目 A と、E の中の D への参照が除かれる。空になった組は組ごと除く。組の外の所有者は残る
+    let (mut budget, mut diag, cancel) =
+        (Budget::default(), Diagnostics::new(), CancelToken::new());
+    file.write_back(&db, &mut cx_for(&mut budget, &mut diag, &cancel))
+        .unwrap();
+    let expected = [
+        "  0",
+        "SECTION",
+        "  2",
+        "OBJECTS", //
+        "  0",
+        "DICTIONARY",
+        "  5",
+        "C",
+        "330",
+        "0",
+        "  3",
+        "B",
+        "350",
+        "E", //
+        "  0",
+        "XRECORD",
+        "  5",
+        "E",
+        "102",
+        "{ACAD_REACTORS",
+        "330",
+        "C",
+        "102",
+        "}", //
+        "330",
+        "C", //
+        "  0",
+        "ENDSEC",
+        "  0",
+        "EOF",
+    ];
+    assert_eq!(
+        String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap(),
+        format!("{}\n", expected.join("\n"))
+    );
+}
+
+#[test]
 fn an_unchanged_table_writes_the_same_bytes() {
     let src = sample("\n");
     let mut file = read(&src);
