@@ -154,6 +154,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"SOLID",
                 b"TRACE",
                 b"3DFACE",
+                b"SHAPE",
                 b"ELLIPSE",
                 b"RAY",
                 b"XLINE",
@@ -174,6 +175,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 for code in SHAPE_CODES {
                     // SPLINE の 70 は、DXF を書くときに平らかどうかから決まるので比べない
                     if object.kind == b"SPLINE" && code == 70 {
+                        continue;
+                    }
+                    // SHAPE の 2 は形の名前で、形のファイルの中にあるので、まだ置かない
+                    if object.kind == b"SHAPE" && code == 2 {
                         continue;
                     }
                     if let (None, Some(theirs)) = (object.first(code), other.first(code)) {

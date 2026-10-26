@@ -1008,6 +1008,42 @@ fn solids_faces_ellipses_and_rays_have_their_fields() {
 }
 
 #[test]
+fn shapes_keep_fields_that_differ_from_their_defaults() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let shape = |rotation: f64, width: f64| {
+        move |w: &mut BitWriter| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 2.0, 0.0, 0.5, rotation, width, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bs(3); // 形の番号
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+        }
+    };
+    let turned = object(
+        0x21,
+        0x20,
+        shape(std::f64::consts::FRAC_PI_2, 2.0),
+        entity_handles(0x10),
+    );
+    let plain = object(0x21, 0x21, shape(0.0, 1.0), entity_handles(0x10));
+    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, turned), (0x21, plain)]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+
+    let turned = db.get(0x20).unwrap();
+    assert_eq!(turned.kind, b"SHAPE");
+    for (code, value) in [(10, 1.0), (20, 2.0), (40, 0.5), (50, 90.0), (41, 2.0)] {
+        assert!(close(turned.real(code), value), "{code}");
+    }
+    let plain = db.get(0x21).unwrap();
+    for code in [50, 41, 51, 39, 210, 2] {
+        assert_eq!(plain.first(code), None, "{code}");
+    }
+}
+
+#[test]
 fn lwpolylines_have_their_vertices() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let lwpolyline = object(
