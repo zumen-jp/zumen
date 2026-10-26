@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 
 use super::bits::Bits;
-use super::header::{self, Spaces};
+use super::header::{self, Header};
 use super::{COMMON_OBJECT, DwgFile, Entry, stopped};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
@@ -166,7 +166,7 @@ impl DwgFile {
 
     /// オブジェクトの表を作る。予算の上限か中断の合図で止めたときだけ失敗する
     pub fn objects(&self, cx: &mut Cx) -> Result<AcadDb, Error> {
-        let spaces = header::spaces(&self.src, &self.locators, cx);
+        let header = header::header(&self.src, &self.locators, cx);
         let mut found = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
@@ -174,7 +174,7 @@ impl DwgFile {
             let fields = kind.as_ref().and_then(|(name, section)| {
                 // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
                 let entity = matches!(section, Section::Entities | Section::Blocks);
-                read(self.data(entry), entry, name, entity, spaces)
+                read(self.data(entry), entry, name, entity, header)
             });
             found.push((kind, fields));
         }
@@ -192,7 +192,9 @@ impl DwgFile {
                 }
             })
             .collect();
-        let mut db = AcadDb::default();
+        let mut objects = Vec::with_capacity(self.entries.len());
+        // 所有者ごとの、これまでのビューポートの数
+        let mut viewports: BTreeMap<u64, i64> = BTreeMap::new();
         for (entry, (kind, fields)) in self.entries.iter().zip(found) {
             let at = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
             let handle_code = if entry.type_code == DIMSTYLE { 105 } else { 5 };
@@ -223,16 +225,72 @@ impl DwgFile {
                     (Vec::new(), Section::Other(Vec::new()))
                 }
             };
-            db.push(Object {
+            let mut object = Object {
                 kind,
                 section,
                 values,
                 origin: Origin::Dwg {
                     offset: entry.span.start,
+                    end: entry.span.end,
                 },
-            });
+            };
+            // ビューポートの番号（69）は DWG に書かれない。所有者ごとにオブジェクトの地図の順（ハンドルの順）で
+            // 1 から振る。1 は用紙そのものを表すビューポート（推定。docs/formats/dwg.md）
+            if let (b"VIEWPORT", Some(owner)) = (object.kind.as_slice(), object.owner()) {
+                let number = viewports.entry(owner).or_default();
+                *number += 1;
+                object.values.push(int(69, *number));
+            }
+            objects.push(object);
+        }
+        if let Some(header) = header {
+            in_blocks(&mut objects, header);
+        }
+        let mut db = AcadDb::default();
+        for object in objects {
+            db.push(object);
+        }
+        db.set_variable(b"$ACADVER", vec![text_value(1, self.version())]);
+        if let Some(header) = header {
+            let [x0, y0, x1, y1] = header.limits;
+            db.set_variable(b"$INSUNITS", vec![int(70, i64::from(header.units))]);
+            db.set_variable(b"$PLIMMIN", vec![real(10, x0), real(20, y0)]);
+            db.set_variable(b"$PLIMMAX", vec![real(10, x1), real(20, y1)]);
         }
         Ok(db)
+    }
+}
+
+/// DWG は図形の所属を書かないので、DXF の ENTITIES と同じく、所有者をたどってモデル空間か用紙空間の
+/// ブロックのレコードに着く図形だけを図形の所に置き、ほかのブロックのレコードに着く図形はブロックの所に移す。
+/// 所有者が分からない図形は、図形の所に残す
+fn in_blocks(objects: &mut [Object], header: Header) {
+    let owners: BTreeMap<u64, Option<u64>> = objects
+        .iter()
+        .filter(|object| object.section == Section::Entities)
+        .filter_map(|object| Some((object.handle()?, object.owner())))
+        .collect();
+    let moved: Vec<bool> = objects
+        .iter()
+        .map(|object| {
+            if object.section != Section::Entities {
+                return false;
+            }
+            let mut owner = object.owner();
+            // 図形の所有者が図形（VERTEX の POLYLINE、ATTRIB の INSERT など）なら、その所有者へ。輪は数えて止める
+            for _ in 0..owners.len() {
+                match owner.and_then(|o| owners.get(&o)) {
+                    Some(next) => owner = *next,
+                    None => break,
+                }
+            }
+            owner.is_some_and(|o| o != header.model && o != header.paper)
+        })
+        .collect();
+    for (object, moved) in objects.iter_mut().zip(moved) {
+        if moved {
+            object.section = Section::Blocks;
+        }
     }
 }
 
@@ -341,7 +399,7 @@ fn read(
     entry: &Entry,
     kind: &[u8],
     entity: bool,
-    spaces: Option<Spaces>,
+    header: Option<Header>,
 ) -> Option<Fields> {
     let mut bits = Bits::new(data);
     bits.bs()?;
@@ -392,8 +450,8 @@ fn read(
         bits.seek(handles_at);
         let owner = match common.entmode {
             0 => Some(bits.handle()?.resolve(entry.handle)?),
-            1 => spaces.map(|s| s.paper),
-            2 => spaces.map(|s| s.model),
+            1 => header.map(|h| h.paper),
+            2 => header.map(|h| h.model),
             _ => None,
         };
         for _ in 0..common.reactors {
@@ -408,6 +466,10 @@ fn read(
         let mut records = Vec::new();
         let mut values = common.values;
         values.extend(own);
+        // 用紙空間の図形は、DXF と同じく 67 = 1 を置く
+        if common.entmode == 1 {
+            values.push(int(67, 1));
+        }
         match common.ltype_flags {
             1 => values.push(text_value(6, b"ByBlock")),
             2 => values.push(text_value(6, b"Continuous")),

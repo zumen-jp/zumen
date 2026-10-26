@@ -415,14 +415,22 @@ fn with_classes(mut src: Vec<u8>, classes: &[(u16, &[u8], bool)]) -> Vec<u8> {
 /// DWG の終わりに見出しの変数の区切りを足し、区切りの記録の 0 番をそれに向ける。変数は
 /// 2 つの空間のハンドルのほかは 0 か空で、CEPSNTYPE は 3（CPSNID のハンドルが続く）
 #[cfg(test)]
-fn with_header_variables(mut src: Vec<u8>, paper: u64, model: u64) -> Vec<u8> {
-    // 型（b・s・l・d・r・t・h は B・BS・BL・BD・RD・TV・H）と数を、R2000 の順に並べる
+fn with_header_variables(
+    mut src: Vec<u8>,
+    paper: u64,
+    model: u64,
+    units: u16,
+    limits: [f64; 4],
+) -> Vec<u8> {
+    // 型（b・s・l・d・r・t・h は B・BS・BL・BD・RD・TV・H）と数を、R2000 の順に並べる。
+    // 用紙空間の LIMMIN・LIMMAX（P）と INSUNITS（U）には値を書く
     let space = "d9 r4 d10 h2 s1 h1 d18";
     let layout = format!(
-        "d4 t4 l2 h1 b20 s27 d21 t1 l8 s1 h6 d1 {space} {space} \
-         t2 d9 b6 s3 d9 b1 s1 b4 s3 s11 b2 s4 b1 s1 h5 s2 h13 s2 t2 h3 l1 s1"
+        "d4 t4 l2 h1 b20 s27 d21 t1 l8 s1 h6 d1 d9 P4 d10 h2 s1 h1 d18 {space} \
+         t2 d9 b6 s3 d9 b1 s1 b4 s3 s11 b2 s4 b1 s1 h5 s2 h13 s2 t2 h3 l1 U1"
     );
     let mut w = BitWriter::default();
+    let mut limits = limits.into_iter();
     for item in layout.split_whitespace() {
         let (kind, count) = item.split_at_checked(1).unwrap();
         let count: usize = count.parse().unwrap();
@@ -433,6 +441,8 @@ fn with_header_variables(mut src: Vec<u8>, paper: u64, model: u64) -> Vec<u8> {
                 "l" => w.bl_zero(),
                 "d" => w.bd(0.0),
                 "r" => w.rd(0.0),
+                "P" => w.rd(limits.next().unwrap()),
+                "U" => w.bs(units),
                 _ => w.handle(5, 0),
             }
         }
@@ -561,7 +571,9 @@ fn objects_go_into_the_shared_table() {
             (b"CIRCLE", Section::Entities, Some(0x2D), None),
         ]
     );
-    assert!(matches!(db.objects()[0].origin, Origin::Dwg { offset } if offset == 0x19 + 27 + 18));
+    assert!(
+        matches!(db.objects()[0].origin, Origin::Dwg { offset, .. } if offset == 0x19 + 27 + 18)
+    );
 }
 
 #[test]
@@ -2879,7 +2891,7 @@ fn objects_with_paper_space() -> Vec<(u64, Vec<u8>)> {
 
 #[test]
 fn entities_in_model_and_paper_space_are_owned_by_their_blocks() {
-    let src = with_header_variables(dwg(&objects_with_paper_space()), 0x58, 0x1F);
+    let src = with_header_variables(dwg(&objects_with_paper_space()), 0x58, 0x1F, 0, [0.0; 4]);
     let (db, diag) = objects(&src);
     assert_eq!(
         codes_of(&diag),
@@ -2893,11 +2905,146 @@ fn entities_in_model_and_paper_space_are_owned_by_their_blocks() {
 
 #[test]
 fn broken_header_variables_leave_the_spaces_without_owners() {
-    let mut src = with_header_variables(dwg(&objects_with_paper_space()), 0x58, 0x1F);
+    let mut src = with_header_variables(dwg(&objects_with_paper_space()), 0x58, 0x1F, 0, [0.0; 4]);
     let last = src.len() - 1;
     src[last] ^= 0xFF; // 終わりの印を壊す
     let (db, diag) = objects(&src);
     assert!(codes_of(&diag).contains(&codes::DWG_FILE_INVALID));
     assert_eq!(db.get(0x2B).unwrap().owner(), None);
     assert_eq!(db.get(0x2E).unwrap().owner(), None);
+}
+
+/// 用紙空間の LINE と、ほかのブロックの LINE を足したオブジェクト
+#[cfg(test)]
+fn objects_with_a_block() -> Vec<(u64, Vec<u8>)> {
+    let mut objects = objects_with_paper_space();
+    let line = object(
+        0x13,
+        0x2F,
+        |w| {
+            entity_common(w, 0, 256, 1.0, 0);
+            line_data(w, [0.0, 0.0, 0.0], [2.0, 2.0, 0.0], 0.0);
+        },
+        |w| {
+            w.handle(4, 0x60); // ほかのブロックのレコード
+            w.handle(3, 0);
+            w.handle(5, 0x10);
+        },
+    );
+    objects.push((0x2F, line));
+    objects
+}
+
+#[test]
+fn header_variables_and_paper_space_flags_are_in_the_table() {
+    let src = with_header_variables(
+        dwg(&objects_with_a_block()),
+        0x58,
+        0x1F,
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+    );
+    let (db, _) = objects(&src);
+    let variable = |name: &[u8]| -> Vec<(i16, Data)> {
+        db.variable(name)
+            .unwrap()
+            .iter()
+            .map(|v| (v.code, v.data.clone()))
+            .collect()
+    };
+    assert_eq!(variable(b"$ACADVER"), [(1, Data::Text(b"AC1015".to_vec()))]);
+    assert_eq!(variable(b"$INSUNITS"), [(70, Data::Int(4))]);
+    assert_eq!(
+        variable(b"$PLIMMIN"),
+        [(10, Data::Real(10.0)), (20, Data::Real(10.0))]
+    );
+    assert_eq!(
+        variable(b"$PLIMMAX"),
+        [(10, Data::Real(307.0)), (20, Data::Real(220.0))]
+    );
+    // 用紙空間の図形だけが 67 = 1 を持つ
+    assert_eq!(db.get(0x2E).unwrap().first(67), Some(&Data::Int(1)));
+    assert_eq!(db.get(0x2B).unwrap().first(67), None);
+    // ほかのブロックの図形は、DXF と同じくブロックの所に属する
+    assert_eq!(db.get(0x2A).unwrap().section, Section::Entities);
+    assert_eq!(db.get(0x2E).unwrap().section, Section::Entities);
+    assert_eq!(db.get(0x2F).unwrap().section, Section::Blocks);
+}
+
+#[cfg(feature = "drawing")]
+#[test]
+fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
+    use zumen_base::Ref;
+    use zumen_drawing::{
+        Element, ModelPoint, PaperLength, PaperPoint, Shape, SheetId, SpaceId, Unit,
+    };
+    use zumen_sdk::Lift;
+    let src = with_header_variables(
+        dwg(&objects_with_a_block()),
+        0x58,
+        0x1F,
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+    );
+    let (db, _) = objects(&src);
+    let source = |handle: u64| match db.get(handle).unwrap().origin {
+        Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
+        Origin::Dxf { .. } => panic!("DWG のオブジェクトではない"),
+    };
+    let (file, mut diag) = read(&src, Limits::default());
+    let drawing = file
+        .unwrap()
+        .lift(&mut Cx::new(
+            &mut Budget::default(),
+            &mut diag,
+            &CancelToken::new(),
+        ))
+        .unwrap();
+    // 表を作るときの診断に続けて、Z のある線分と、欄の途中で尽きた CIRCLE を移さない
+    assert_eq!(
+        codes_of(&diag),
+        [
+            codes::DWG_TYPE_UNSUPPORTED,
+            codes::DWG_OBJECT_INVALID,
+            codes::DXF_NON_PLANAR_DROPPED,
+            codes::DXF_LIFT_DROPPED,
+        ]
+    );
+    let model = |x: f64, y: f64| ModelPoint {
+        space: SpaceId(0),
+        x,
+        y,
+    };
+    let space = &drawing.spaces[0];
+    assert_eq!(space.unit, Unit::Millimeter);
+    assert_eq!(
+        space.elements,
+        [Element {
+            source: source(0x2A),
+            layer: "0".to_owned(),
+            shape: Shape::Line {
+                start: model(1.5, 2.0),
+                end: model(100.0, 50.0),
+            },
+        }]
+    );
+    // 用紙の点は PLIMMIN を原点にした mm。ほかのブロックの線分は移さない
+    let paper = |x: f64, y: f64| PaperPoint {
+        sheet: SheetId(0),
+        x,
+        y,
+    };
+    let sheet = &drawing.sheets[0];
+    assert_eq!(sheet.size, Some([PaperLength(297.0), PaperLength(210.0)]));
+    assert_eq!(
+        sheet.elements,
+        [Element {
+            source: source(0x2E),
+            layer: "0".to_owned(),
+            shape: Shape::Line {
+                start: paper(-10.0, -10.0),
+                end: paper(-9.0, -9.0),
+            },
+        }]
+    );
 }

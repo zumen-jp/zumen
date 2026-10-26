@@ -236,3 +236,86 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
         }
     }
 }
+
+/// 図面モデルの値を、実数の誤差を許して比べるための文字列。図形とビューの元のレコードは、
+/// DWG（バイトの範囲）と DXF（レコードの番号）で違うので消す
+#[cfg(test)]
+#[cfg(feature = "drawing")]
+fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
+    use zumen_base::Ref;
+    use zumen_sdk::Lift;
+    let src = std::fs::read(path).unwrap();
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let mut drawing = if path.extension().is_some_and(|e| e == "dwg") {
+        Dwg::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
+    } else {
+        Dxf::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
+    };
+    let nowhere = Ref::at_record(0);
+    for space in &mut drawing.spaces {
+        space
+            .elements
+            .iter_mut()
+            .for_each(|e| e.source = nowhere.clone());
+    }
+    for sheet in &mut drawing.sheets {
+        sheet
+            .elements
+            .iter_mut()
+            .for_each(|e| e.source = nowhere.clone());
+        sheet
+            .views
+            .iter_mut()
+            .for_each(|v| v.source = nowhere.clone());
+    }
+    let codes = diag
+        .iter()
+        .map(|d| d.code())
+        .filter(|c| c.name().starts_with("dxf."))
+        .collect();
+    (format!("{drawing:?}"), codes)
+}
+
+/// 数を除いた部分が同じで、数が相対の誤差の中で同じか
+#[cfg(test)]
+fn nearly(a: &str, b: &str) -> bool {
+    let split = |s: &str| -> Vec<String> {
+        let mut parts: Vec<String> = Vec::new();
+        let mut number = false;
+        for c in s.chars() {
+            let digit = c.is_ascii_digit() || matches!(c, '.' | '-' | 'e');
+            if parts.is_empty() || digit != number {
+                parts.push(String::new());
+                number = digit;
+            }
+            parts.last_mut().unwrap().push(c);
+        }
+        parts
+    };
+    let (a, b) = (split(a), split(b));
+    a.len() == b.len()
+        && a.iter()
+            .zip(&b)
+            .all(|(a, b)| match (a.parse::<f64>(), b.parse::<f64>()) {
+                (Ok(x), Ok(y)) => (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0),
+                _ => a == b,
+            })
+}
+
+#[cfg(feature = "drawing")]
+#[test]
+fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
+    for (dwg, dxf) in pairs() {
+        let (ours, our_codes) = lifted(&dwg);
+        let (theirs, their_codes) = lifted(&dxf);
+        assert!(
+            nearly(&ours, &theirs),
+            "{}\n{ours}\n{theirs}",
+            dwg.display()
+        );
+        assert_eq!(our_codes, their_codes, "{}", dwg.display());
+    }
+}

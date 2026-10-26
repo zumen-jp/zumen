@@ -4,6 +4,8 @@
 //! DXF のグループ・コードで名付けた値を持つ。値の型は、グループ・コードの範囲で決める
 //! （DXF Reference「Group Code Value Types」）。DWG のコーデックも、読んだ欄を同じ名前で表に置く。
 //!
+//! 見出しの変数も、変数の名前（`$INSUNITS` など）ごとに同じ形の値で持つ。DWG のコーデックは、読んだ変数だけを置く。
+//!
 //! 元のバイトは、符号化ごとのファイルモデル（[`crate::DxfFile`]・[`crate::DwgFile`]）が持つ。表のオブジェクトは、
 //! [`Origin`] で元のレコードを指す。
 
@@ -15,6 +17,8 @@ pub struct AcadDb {
     objects: Vec<Object>,
     /// ハンドルから、最初にそのハンドルを持つオブジェクトの番号
     handles: BTreeMap<u64, usize>,
+    /// 見出しの変数の名前から、その値
+    variables: BTreeMap<Vec<u8>, Vec<Value>>,
 }
 
 impl AcadDb {
@@ -36,6 +40,16 @@ impl AcadDb {
         self.handles
             .get(&handle)
             .and_then(|&index| self.objects.get(index))
+    }
+
+    /// 見出しの変数を置く。同じ名前がすでにあれば置き換える
+    pub fn set_variable(&mut self, name: &[u8], values: Vec<Value>) {
+        self.variables.insert(name.to_vec(), values);
+    }
+
+    /// 見出しの変数の値。なければ `None`
+    pub fn variable(&self, name: &[u8]) -> Option<&[Value]> {
+        self.variables.get(name).map(Vec::as_slice)
     }
 }
 
@@ -193,10 +207,12 @@ pub enum Origin {
         /// レコードの番号
         record: usize,
     },
-    /// DWG の、`offset` バイト目から始まるオブジェクト
+    /// DWG の、`offset` バイト目から `end` バイト目の前までのオブジェクト
     Dwg {
         /// ファイルの先頭からの位置
         offset: usize,
+        /// 終わりの位置
+        end: usize,
     },
 }
 
