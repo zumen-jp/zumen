@@ -4324,6 +4324,130 @@ fn changed_splines_are_written_back() {
     }
 }
 
+/// 線分と円弧の辺の境界と、多角形の境界を持つ、模様の HATCH（R2000）。`line_end` は線分の終わりの x、
+/// `bulge` は多角形の 2 つめの頂点の膨らみ、`scale` は模様の尺度
+#[cfg(test)]
+fn hatch_with(line_end: f64, bulge: f64, scale: f64) -> Vec<u8> {
+    let bl = |w: &mut BitWriter, n: u8| {
+        w.bits(1, 2);
+        w.bytes(&[n]);
+    };
+    object(
+        500,
+        0x44,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bd(2.0);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bs(7);
+            w.bytes(b"ANSI31\0");
+            w.bit(false);
+            w.bit(false);
+            bl(w, 2);
+            bl(w, 1);
+            bl(w, 2);
+            w.bytes(&[1]); // 線分
+            for v in [0.0, 0.0, line_end, 0.0] {
+                w.rd(v);
+            }
+            w.bytes(&[2]); // 円弧
+            w.rd(1.0);
+            w.rd(2.0);
+            w.bd(3.0);
+            w.bd(0.0);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bit(true);
+            w.bl_zero();
+            bl(w, 2); // 多角形の境界
+            w.bit(true);
+            w.bit(true);
+            bl(w, 2);
+            w.rd(0.0);
+            w.rd(0.0);
+            w.bd(0.25);
+            w.rd(1.0);
+            w.rd(0.0);
+            w.bd(bulge);
+            w.bl_zero();
+            w.bs(1);
+            w.bs(1);
+            w.bd(std::f64::consts::FRAC_PI_4);
+            w.bd(scale);
+            w.bit(false);
+            w.bs(1);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            for v in [0.1, 0.2, 0.3, 0.4] {
+                w.bd(v);
+            }
+            w.bs(2);
+            w.bd(1.0);
+            w.bd(-0.5);
+            bl(w, 1);
+            w.rd(7.0);
+            w.rd(8.0);
+        },
+        entity_handles_to(0x10, 0),
+    )
+}
+
+#[test]
+fn changed_hatches_are_written_back() {
+    let mut list = objects_in_sample();
+    list.push((0x44, hatch_with(4.0, 0.0, 2.0)));
+    let src = with_classes(dwg(&list), &[(500, b"HATCH", true)]);
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x44))
+        .unwrap();
+    // 線分の終わりを動かし、多角形の 2 つめの頂点に膨らみを付け、模様の尺度を変える
+    let values = &mut db.object_mut(index).unwrap().values;
+    let mut bulges = 0;
+    for value in values.iter_mut() {
+        match (value.code, &mut value.data) {
+            (11, Data::Real(v)) if *v == 4.0 => *v = 5.0,
+            (42, Data::Real(v)) => {
+                bulges += 1;
+                if bulges == 2 {
+                    *v = 0.5;
+                }
+            }
+            (41, Data::Real(v)) => *v = 3.0,
+            _ => {}
+        }
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    assert_eq!(values(&after), values(&db));
+    let expected = hatch_with(5.0, 0.5, 3.0);
+    let file = read(&out, Limits::default()).0.unwrap();
+    let range = file.record(index).unwrap().bytes.unwrap();
+    let got = &out[range.start as usize..range.end as usize];
+    // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+    let data = &expected[1..expected.len() - 2];
+    assert_eq!(&got[1..=data.len()], data);
+    assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+    assert!(got.len() <= expected.len() + 1);
+    // 0 でない 10 と、境界の図形の数（97）の変更は符号化できない
+    for (code, data) in [(10, Data::Real(1.0)), (97, Data::Int(1))] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, 0x44, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
+
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
 #[cfg(test)]
 fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
