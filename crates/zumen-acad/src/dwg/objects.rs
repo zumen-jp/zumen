@@ -3,8 +3,8 @@
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX を読む。表のレコードは、今は名前（2）だけを読む。
-//! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック）は、レコードの名前に直して置く。
+//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
+//! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
@@ -50,6 +50,13 @@ const POLYLINE_2D: u16 = 0x0F;
 const POLYLINE_3D: u16 = 0x10;
 const POLYLINE_PFACE: u16 = 0x1D;
 const POLYLINE_MESH: u16 = 0x1E;
+const DIMENSION_ORDINATE: u16 = 0x14;
+const DIMENSION_LINEAR: u16 = 0x15;
+const DIMENSION_ALIGNED: u16 = 0x16;
+const DIMENSION_ANGULAR_3PT: u16 = 0x17;
+const DIMENSION_ANGULAR_2LINE: u16 = 0x18;
+const DIMENSION_RADIUS: u16 = 0x19;
+const DIMENSION_DIAMETER: u16 = 0x1A;
 const BLOCK_RECORD: u16 = 0x31;
 const LAYER: u16 = 0x33;
 const STYLE: u16 = 0x35;
@@ -76,7 +83,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         ARC => entity(b"ARC"),
         CIRCLE => entity(b"CIRCLE"),
         LINE => entity(b"LINE"),
-        0x14..=0x1A => entity(b"DIMENSION"),
+        DIMENSION_ORDINATE..=DIMENSION_DIAMETER => entity(b"DIMENSION"),
         POINT => entity(b"POINT"),
         FACE3D => entity(b"3DFACE"),
         SOLID => entity(b"SOLID"),
@@ -342,6 +349,7 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                 POLYLINE_3D => polyline3d(&mut bits)?,
                 POLYLINE_PFACE => polyface(&mut bits)?,
                 POLYLINE_MESH => mesh(&mut bits)?,
+                DIMENSION_ORDINATE..=DIMENSION_DIAMETER => dimension(&mut bits, entry.type_code)?,
                 // HATCH は型が固定でなく、クラスで決まる
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ => Vec::new(),
@@ -382,12 +390,14 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
         if common.plotstyle_handle {
             bits.handle()?;
         }
-        let record = match entry.type_code {
-            TEXT | MTEXT => Some((7, STYLE)),
-            INSERT => Some((2, BLOCK_RECORD)),
-            _ => None,
+        // 寸法は、寸法の体裁（3）とブロック（2）の順に指す
+        let pointed: &[(i16, u16)] = match entry.type_code {
+            TEXT | MTEXT => &[(7, STYLE)],
+            INSERT => &[(2, BLOCK_RECORD)],
+            DIMENSION_ORDINATE..=DIMENSION_DIAMETER => &[(3, DIMSTYLE), (2, BLOCK_RECORD)],
+            _ => &[],
         };
-        if let Some((code, record)) = record {
+        for &(code, record) in pointed {
             let handle = bits.handle()?.resolve(entry.handle)?;
             records.push(RecordRef {
                 code,
@@ -974,6 +984,118 @@ fn mesh(bits: &mut Bits) -> Option<Vec<Value>> {
     }
     for code in 71..75 {
         values.push(int(code, i64::from(bits.bs()?)));
+    }
+    Some(values)
+}
+
+/// DIMENSION の欄（ODS 5.4.1 の 20.4.22〜20.4.29、R2000）。DXF の 70 は、型で決まる寸法の種類に、
+/// 共通の印の 1 が 0 なら 128、2 なら 32、座標寸法の印の 1 なら 64 を足す。文字の中点（11）と
+/// 12 の点の Z は標高とし、12 の点は 0 でなければ置く。ブロックの挿入の尺度と回転は、DXF の 41・42 が
+/// 別の欄に使われるので置かない
+fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
+    let extrusion = point3(bits, 210)?;
+    let text_x = bits.rd()?;
+    let text_y = bits.rd()?;
+    let elevation = bits.bd()?;
+    let flags = bits.rc()?;
+    let user_text = bits.text()?;
+    let text_rotation = bits.bd()?;
+    let horizontal = bits.bd()?;
+    for _ in 0..4 {
+        bits.bd()?;
+    }
+    let attachment = bits.bs()?;
+    let spacing_style = bits.bs()?;
+    let spacing = bits.bd()?;
+    let measurement = bits.bd()?;
+    let point12 = (bits.rd()?, bits.rd()?);
+    let (kind, mut values) = match type_code {
+        DIMENSION_ORDINATE => {
+            let mut values = point3(bits, 10)?;
+            values.extend(point3(bits, 13)?);
+            values.extend(point3(bits, 14)?);
+            let kind = if bits.rc()? & 1 != 0 { 6 | 64 } else { 6 };
+            (kind, values)
+        }
+        DIMENSION_LINEAR | DIMENSION_ALIGNED => {
+            let mut values = point3(bits, 13)?;
+            values.extend(point3(bits, 14)?);
+            values.extend(point3(bits, 10)?);
+            let oblique = bits.bd()?.to_degrees();
+            if oblique != 0.0 {
+                values.push(real(52, oblique));
+            }
+            if type_code == DIMENSION_LINEAR {
+                let rotation = bits.bd()?.to_degrees();
+                if rotation != 0.0 {
+                    values.push(real(50, rotation));
+                }
+                (0, values)
+            } else {
+                (1, values)
+            }
+        }
+        DIMENSION_ANGULAR_3PT => {
+            let mut values = point3(bits, 10)?;
+            for code in [13, 14, 15] {
+                values.extend(point3(bits, code)?);
+            }
+            (5, values)
+        }
+        DIMENSION_ANGULAR_2LINE => {
+            let mut values = point2(bits, 16)?;
+            values.push(real(36, elevation));
+            for code in [13, 14, 15, 10] {
+                values.extend(point3(bits, code)?);
+            }
+            (2, values)
+        }
+        DIMENSION_RADIUS => {
+            let mut values = point3(bits, 10)?;
+            values.extend(point3(bits, 15)?);
+            values.push(real(40, bits.bd()?));
+            (4, values)
+        }
+        _ => {
+            let mut values = point3(bits, 15)?;
+            values.extend(point3(bits, 10)?);
+            values.push(real(40, bits.bd()?));
+            (3, values)
+        }
+    };
+    let user_location = if flags & 1 == 0 { 128 } else { 0 };
+    let block_only = if flags & 2 != 0 { 32 } else { 0 };
+    values.extend([
+        real(11, text_x),
+        real(21, text_y),
+        real(31, elevation),
+        int(70, kind | user_location | block_only),
+        int(71, i64::from(attachment)),
+        real(42, measurement),
+    ]);
+    if point12 != (0.0, 0.0) {
+        values.extend([
+            real(12, point12.0),
+            real(22, point12.1),
+            real(32, elevation),
+        ]);
+    }
+    if spacing_style != 1 {
+        values.push(int(72, i64::from(spacing_style)));
+    }
+    if spacing != 1.0 {
+        values.push(real(41, spacing));
+    }
+    if !user_text.is_empty() {
+        values.push(text_value(1, &user_text));
+    }
+    for (code, angle) in [(53, text_rotation), (51, horizontal)] {
+        if angle != 0.0 {
+            values.push(real(code, angle.to_degrees()));
+        }
+    }
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
     }
     Some(values)
 }

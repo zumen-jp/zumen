@@ -1245,6 +1245,111 @@ fn polylines_and_vertices_have_their_fields() {
 }
 
 #[test]
+fn dimensions_have_their_points_and_records() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let style = object(0x45, 0x11, record_named(b"ISO-25"), |w| w.handle(4, 3));
+    let block = object(0x31, 0x12, record_named(b"*D1"), |w| w.handle(4, 1));
+    // 寸法の共通の欄。標高は 1.5、文字の中点は (5, 6)、測った値は 10
+    let common = |w: &mut BitWriter, flags: u8, text: &[u8]| {
+        for v in [0.0, 0.0, 1.0] {
+            w.bd(v);
+        }
+        w.rd(5.0);
+        w.rd(6.0);
+        w.bd(1.5);
+        w.bytes(&[flags]);
+        if text.is_empty() {
+            w.bs(0);
+        } else {
+            w.bs(text.len() as u16 + 1);
+            w.bytes(text);
+            w.bytes(&[0]);
+        }
+        for v in [0.0, 0.0, 1.0, 1.0, 1.0, 0.0] {
+            w.bd(v);
+        }
+        w.bs(5);
+        w.bs(1);
+        w.bd(1.0);
+        w.bd(10.0);
+        w.rd(0.0);
+        w.rd(0.0);
+    };
+    let handles = |w: &mut BitWriter| {
+        entity_handles(0x10)(w);
+        w.handle(5, 0x11);
+        w.handle(5, 0x12);
+    };
+    let linear = object(
+        0x15,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            common(w, 3, b"<> mm");
+            for v in [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 4.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(0.0);
+            w.bd(std::f64::consts::FRAC_PI_6);
+        },
+        handles,
+    );
+    let diameter = object(
+        0x1A,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            common(w, 2, b"");
+            for v in [-5.0, 0.0, 0.0, 5.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(0.0);
+        },
+        handles,
+    );
+    let (db, diag) = objects(&dwg(&[
+        (0x10, layer),
+        (0x11, style),
+        (0x12, block),
+        (0x20, linear),
+        (0x21, diameter),
+    ]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let linear = db.get(0x20).unwrap();
+    assert_eq!(linear.kind, b"DIMENSION");
+    // 線形の寸法は種類 0 で、ブロックだけを使う印の 32
+    assert_eq!(linear.first(70), Some(&Data::Int(32)));
+    assert_eq!(linear.first(71), Some(&Data::Int(5)));
+    assert_eq!(linear.first(3), Some(&Data::Text(b"ISO-25".to_vec())));
+    assert_eq!(linear.first(2), Some(&Data::Text(b"*D1".to_vec())));
+    assert_eq!(linear.first(1), Some(&Data::Text(b"<> mm".to_vec())));
+    for (code, value) in [
+        (10, 10.0),
+        (20, 4.0),
+        (11, 5.0),
+        (21, 6.0),
+        (31, 1.5),
+        (13, 0.0),
+        (14, 10.0),
+        (42, 10.0),
+        (50, 30.0),
+    ] {
+        assert!(close(linear.real(code), value), "{code}");
+    }
+    // 既定の値の欄と、0 の 12 の点は置かない
+    for code in [12, 41, 72, 52, 53, 51, 210] {
+        assert!(linear.first(code).is_none(), "{code}");
+    }
+    let diameter = db.get(0x21).unwrap();
+    // 直径の種類 3 に、文字の位置を利用者が決めた 128 とブロックだけを使う 32 を足す
+    assert_eq!(diameter.first(70), Some(&Data::Int(163)));
+    assert!(diameter.first(1).is_none());
+    for (code, value) in [(15, -5.0), (10, 5.0), (40, 0.0)] {
+        assert!(close(diameter.real(code), value), "{code}");
+    }
+}
+
+#[test]
 fn types_of_classes_are_named_by_the_classes() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let table = object(

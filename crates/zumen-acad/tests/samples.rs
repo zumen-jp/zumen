@@ -162,6 +162,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"HATCH",
                 b"POLYLINE",
                 b"VERTEX",
+                b"DIMENSION",
             ]
             .contains(&object.kind.as_slice())
             {
