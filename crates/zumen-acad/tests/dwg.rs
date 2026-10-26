@@ -226,13 +226,13 @@ fn record_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
     }
 }
 
-/// 表のレコードのハンドル。所有者・拡張辞書・外部参照のブロックと、型ごとの 0 のハンドル
+/// 表のレコードのハンドル。所有者・拡張辞書・外部参照のブロックと、型ごとの 0 のハンドル（DIMSTYLE の 5 つまで）
 #[cfg(test)]
 fn record_handles(owner: u64) -> impl Fn(&mut BitWriter) {
     move |w| {
         w.handle(4, owner);
         w.handle(3, 0);
-        for _ in 0..3 {
+        for _ in 0..6 {
             w.handle(5, 0);
         }
     }
@@ -2561,6 +2561,245 @@ fn layers_styles_and_linetypes_have_their_fields() {
             (45, Data::Real(-0.2)),
             (9, text(b"AB")),
             (340, Data::Handle(0x11)),
+        ]
+    );
+}
+
+#[test]
+fn views_ucss_vports_and_dimstyles_have_their_fields() {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let common = |w: &mut BitWriter, name: &[u8]| {
+        w.bl_zero();
+        text(w, name);
+        w.bit(false);
+        w.bs(0);
+        w.bit(false);
+    };
+    let bd3 = |w: &mut BitWriter, point: [f64; 3]| point.iter().for_each(|&v| w.bd(v));
+    let rd2 = |w: &mut BitWriter, x: f64, y: f64| {
+        w.rd(x);
+        w.rd(y);
+    };
+    let handles = |owner: u64, rest: &'static [u64]| {
+        move |w: &mut BitWriter| {
+            w.handle(4, owner);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            for &h in rest {
+                w.handle(5, h);
+            }
+        }
+    };
+    // 紙空間の、UCS を伴う透視のビュー。後ろで切り取り、前の切り取りは目の位置にない
+    let view = object(
+        0x3D,
+        0x10,
+        |w| {
+            common(w, b"V1");
+            w.bd(10.0);
+            w.bd(20.0);
+            rd2(w, 1.0, 2.0);
+            bd3(w, [3.0, 4.0, 5.0]);
+            bd3(w, [0.0, 0.0, 1.0]);
+            w.bd(std::f64::consts::PI);
+            for v in [50.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for b in [true, false, true, false] {
+                w.bit(b);
+            }
+            w.bytes(&[1]);
+            w.bit(true);
+            w.bit(true);
+            bd3(w, [1.0, 1.0, 0.0]);
+            bd3(w, [1.0, 0.0, 0.0]);
+            bd3(w, [0.0, 1.0, 0.0]);
+            w.bd(2.0);
+            w.bs(3);
+        },
+        handles(6, &[0x60, 0x61]),
+    );
+    let ucs = object(
+        0x3F,
+        0x11,
+        |w| {
+            common(w, b"U1");
+            bd3(w, [1.0, 2.0, 3.0]);
+            bd3(w, [1.0, 0.0, 0.0]);
+            bd3(w, [0.0, 1.0, 0.0]);
+            w.bd(5.0);
+            w.bs(1);
+            w.bs(0);
+        },
+        handles(7, &[0x62, 0x63]),
+    );
+    let vport = object(
+        0x41,
+        0x12,
+        |w| {
+            common(w, b"*Active");
+            w.bd(100.0);
+            w.bd(250.0);
+            rd2(w, 5.0, 6.0);
+            bd3(w, [0.0, 0.0, 0.0]);
+            bd3(w, [0.0, 0.0, 1.0]);
+            for v in [0.0, 50.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for b in [false, false, false, true] {
+                w.bit(b);
+            }
+            w.bytes(&[0]);
+            rd2(w, 0.0, 0.0);
+            rd2(w, 1.0, 1.0);
+            w.bit(true); // UCS に従う
+            w.bs(1000);
+            w.bit(true);
+            w.bits(3, 2);
+            w.bit(true);
+            rd2(w, 10.0, 10.0);
+            w.bit(false);
+            w.bit(false);
+            w.bs(0);
+            w.bd(0.0);
+            rd2(w, 0.0, 0.0);
+            rd2(w, 10.0, 10.0);
+            w.bit(false);
+            w.bit(true);
+            bd3(w, [0.0, 0.0, 0.0]);
+            bd3(w, [1.0, 0.0, 0.0]);
+            bd3(w, [0.0, 1.0, 0.0]);
+            w.bd(0.0);
+            w.bs(0);
+        },
+        handles(8, &[0x64, 0]),
+    );
+    // 既定の値から変えた欄は、DIMPOST・DIMSCALE・DIMTIH・DIMDEC・DIMLWD だけ
+    let dimstyle = object(
+        0x45,
+        0x13,
+        |w| {
+            common(w, b"D1");
+            text(w, b"<> mm");
+            text(w, b"");
+            for v in [2.0, 0.18, 0.0625, 0.38, 0.18, 0.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for b in [false, false, false, true, false, false] {
+                w.bit(b);
+            }
+            for v in [0, 0, 0] {
+                w.bs(v);
+            }
+            for v in [0.18, 0.09, 0.0, 25.4, 1.0, 0.0, 1.0, 0.09, 0.0] {
+                w.bd(v);
+            }
+            w.bit(false);
+            w.bs(2);
+            for _ in 0..4 {
+                w.bit(false);
+            }
+            for v in [0, 0, 0, 0, 2, 4, 2, 2, 0, 0, 2, 46, 0, 0] {
+                w.bs(v);
+            }
+            w.bit(false);
+            w.bit(false);
+            for v in [1, 0, 0, 0] {
+                w.bs(v);
+            }
+            w.bit(false);
+            for v in [3, 15, 0xFFFE] {
+                w.bs(v);
+            }
+        },
+        handles(9, &[0x11, 0, 0x70, 0, 0]),
+    );
+    let src = dwg(&[(0x10, view), (0x11, ucs), (0x12, vport), (0x13, dimstyle)]);
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let values = |handle: u64| -> Vec<(i16, Data)> {
+        let object = db.get(handle).unwrap();
+        object.values[2..]
+            .iter()
+            .map(|v| (v.code, v.data.clone()))
+            .collect()
+    };
+    let text = |text: &[u8]| Data::Text(text.to_vec());
+    let reals = |codes: [i16; 3], point: [f64; 3]| codes.into_iter().zip(point.map(Data::Real));
+
+    let mut view = vec![
+        (2, text(b"V1")),
+        (70, Data::Int(1)),
+        (40, Data::Real(10.0)),
+        (10, Data::Real(1.0)),
+        (20, Data::Real(2.0)),
+        (41, Data::Real(20.0)),
+    ];
+    view.extend(reals([11, 21, 31], [0.0, 0.0, 1.0]));
+    view.extend(reals([12, 22, 32], [3.0, 4.0, 5.0]));
+    view.extend([
+        (42, Data::Real(50.0)),
+        (43, Data::Real(0.0)),
+        (44, Data::Real(0.0)),
+        (50, Data::Real(180.0)),
+        (71, Data::Int(1 | 4 | 16)),
+        (281, Data::Int(1)),
+        (72, Data::Int(1)),
+    ]);
+    view.extend(reals([110, 120, 130], [1.0, 1.0, 0.0]));
+    view.extend(reals([111, 121, 131], [1.0, 0.0, 0.0]));
+    view.extend(reals([112, 122, 132], [0.0, 1.0, 0.0]));
+    view.extend([
+        (79, Data::Int(3)),
+        (146, Data::Real(2.0)),
+        (346, Data::Handle(0x60)),
+        (345, Data::Handle(0x61)),
+    ]);
+    assert_eq!(values(0x10), view);
+
+    let mut ucs = vec![(2, text(b"U1")), (70, Data::Int(0))];
+    ucs.extend(reals([10, 20, 30], [1.0, 2.0, 3.0]));
+    ucs.extend(reals([11, 21, 31], [1.0, 0.0, 0.0]));
+    ucs.extend(reals([12, 22, 32], [0.0, 1.0, 0.0]));
+    ucs.extend([
+        (79, Data::Int(1)),
+        (146, Data::Real(5.0)),
+        (346, Data::Handle(0x62)),
+    ]);
+    assert_eq!(values(0x11), ucs);
+
+    let vport = db.get(0x12).unwrap();
+    for (code, data) in [
+        (12, Data::Real(5.0)),
+        (41, Data::Real(2.5)),
+        (71, Data::Int(8)),
+        (72, Data::Int(1000)),
+        (73, Data::Int(1)),
+        (74, Data::Int(3)),
+        (76, Data::Int(1)),
+        (65, Data::Int(1)),
+        (345, Data::Handle(0x64)),
+    ] {
+        assert_eq!(vport.first(code), Some(&data), "{code}");
+    }
+    assert_eq!(vport.first(346), None);
+
+    assert_eq!(
+        values(0x13),
+        [
+            (2, text(b"D1")),
+            (70, Data::Int(0)),
+            (3, text(b"<> mm")),
+            (40, Data::Real(2.0)),
+            (73, Data::Int(0)),
+            (271, Data::Int(2)),
+            (371, Data::Int(15)),
+            (340, Data::Handle(0x11)),
+            (342, Data::Handle(0x70)),
         ]
     );
 }
