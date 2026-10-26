@@ -4,7 +4,7 @@
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
-//! オブジェクトは、今は MLINESTYLE・DICTIONARY・XRECORD の欄を読む。
+//! オブジェクトは、今は MLINESTYLE・DICTIONARY・ACDBDICTIONARYWDFLT・XRECORD・GROUP・DICTIONARYVAR・SCALE・LAYOUT の欄を読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
@@ -75,6 +75,7 @@ const LTYPE: u16 = 0x39;
 const DIMSTYLE: u16 = 0x45;
 const MLINESTYLE: u16 = 0x49;
 const DICTIONARY: u16 = 0x2A;
+const GROUP: u16 = 0x48;
 
 /// 型から、DXF の名前と属する所。クラスで決まる型（500 以上）と、知らない型は `None`
 fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
@@ -127,7 +128,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         // DXF にない表。名前は DWG のもの
         0x46 => table(b"VP_ENT_HDR_CONTROL"),
         0x47 => table(b"VP_ENT_HDR"),
-        0x48 => object(b"GROUP"),
+        GROUP => object(b"GROUP"),
         MLINESTYLE => object(b"MLINESTYLE"),
         0x4A => entity(b"OLE2FRAME"),
         0x4B => object(b"DUMMY"),
@@ -452,6 +453,8 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
     } else {
         let reactors = bits.bl()?;
         let mut entries = Vec::new();
+        // 型ごとのハンドルを置くコード。0 のハンドルは置かない
+        let mut handles = Vec::new();
         let mut values = if is_table_record(entry.type_code) {
             vec![Value {
                 code: 2,
@@ -459,17 +462,34 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
             }]
         } else if entry.type_code == MLINESTYLE {
             mlinestyle(&mut bits)?
-        } else if entry.type_code == DICTIONARY {
+        } else if entry.type_code == DICTIONARY || kind == b"ACDBDICTIONARYWDFLT" {
+            // 既定の項目を持つ辞書は、項目の後に既定の項目のハンドル（340）を持つ
+            if kind == b"ACDBDICTIONARYWDFLT" {
+                handles.push(340);
+            }
             dictionary(&mut bits, &mut entries)?
         } else if kind == b"XRECORD" {
             xrecord(&mut bits)?
+        } else if entry.type_code == GROUP {
+            group(&mut bits, &mut handles)?
+        } else if kind == b"DICTIONARYVAR" {
+            vec![
+                int(280, i64::from(bits.rc()?)),
+                text_value(1, &bits.text()?),
+            ]
+        } else if kind == b"SCALE" {
+            scale(&mut bits)?
+        } else if kind == b"LAYOUT" {
+            // 紙空間のブロックのレコード・最後に使ったビューポート・基準の UCS・名前の UCS
+            handles.extend([330, 331, 346, 345]);
+            layout(&mut bits)?
         } else {
             Vec::new()
         };
         // オブジェクトのハンドルの並び: 所有者・反応子・拡張辞書・型ごとのハンドル
         bits.seek(handles_at);
         let owner = bits.handle()?.resolve(entry.handle)?;
-        if !entries.is_empty() {
+        if !entries.is_empty() || !handles.is_empty() {
             for _ in 0..reactors {
                 bits.handle()?;
             }
@@ -487,6 +507,15 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                     code,
                     data: Data::Handle(item),
                 });
+            }
+            for code in handles {
+                let handle = bits.handle()?.resolve(entry.handle)?;
+                if handle != 0 {
+                    values.push(Value {
+                        code,
+                        data: Data::Handle(handle),
+                    });
+                }
             }
         }
         Some(Fields {
@@ -863,6 +892,77 @@ fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
     }
     let mut values = vec![int(280, i64::from(bits.bs()?))];
     values.extend(data);
+    Some(values)
+}
+
+/// GROUP の欄（ODS 5.4.1 の GROUP の節、R2000）。説明（300）・名前のない印（70）・選べる印（71）を置く。
+/// 図形の数だけ、ハンドルの並びの図形（340）を後で置く
+fn group(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    let values = vec![
+        text_value(300, &bits.text()?),
+        int(70, i64::from(bits.bs()?)),
+        int(71, i64::from(bits.bs()?)),
+    ];
+    let count = bits.bl()?;
+    for _ in 0..count {
+        handles.push(340);
+    }
+    Some(values)
+}
+
+/// SCALE の欄（クラスで決まる型）。名前（300）・紙の単位（140）・図面の単位（141）・単位の尺度の印（290）
+fn scale(bits: &mut Bits) -> Option<Vec<Value>> {
+    Some(vec![
+        int(70, i64::from(bits.bs()?)),
+        text_value(300, &bits.text()?),
+        real(140, bits.bd()?),
+        real(141, bits.bd()?),
+        Value {
+            code: 290,
+            data: Data::Bool(bits.bit()?),
+        },
+    ])
+}
+
+/// LAYOUT の欄（ODS 5.4.1 の LAYOUT の節、R2000）。印刷の設定の欄に続けて、レイアウトの欄を置く
+fn layout(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![
+        text_value(1, &bits.text()?),
+        text_value(2, &bits.text()?),
+        int(70, i64::from(bits.bs()?)),
+    ];
+    // 余白（左・下・右・上）と紙の幅・高さ
+    for code in 40..=45 {
+        values.push(real(code, bits.bd()?));
+    }
+    values.push(text_value(4, &bits.text()?));
+    values.extend([real(46, bits.bd()?), real(47, bits.bd()?)]);
+    for code in [72, 73, 74] {
+        values.push(int(code, i64::from(bits.bs()?)));
+    }
+    // 印刷する窓の隅
+    values.extend([real(48, bits.bd()?), real(49, bits.bd()?)]);
+    values.extend([real(140, bits.bd()?), real(141, bits.bd()?)]);
+    values.push(text_value(6, &bits.text()?));
+    values.extend([real(142, bits.bd()?), real(143, bits.bd()?)]);
+    values.push(text_value(7, &bits.text()?));
+    values.push(int(75, i64::from(bits.bs()?)));
+    values.push(real(147, bits.bd()?));
+    values.extend([real(148, bits.bd()?), real(149, bits.bd()?)]);
+    // レイアウトの欄
+    values.push(text_value(1, &bits.text()?));
+    values.push(int(71, i64::from(bits.bs()?)));
+    values.push(int(70, i64::from(bits.bs()?)));
+    values.extend(point3(bits, 13)?);
+    values.extend(point2(bits, 10)?);
+    values.extend(point2(bits, 11)?);
+    values.extend(point3(bits, 12)?);
+    values.extend(point3(bits, 16)?);
+    values.extend(point3(bits, 17)?);
+    values.push(real(146, bits.bd()?));
+    values.push(int(76, i64::from(bits.bs()?)));
+    values.extend(point3(bits, 14)?);
+    values.extend(point3(bits, 15)?);
     Some(values)
 }
 

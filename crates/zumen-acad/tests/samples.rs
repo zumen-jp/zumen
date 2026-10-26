@@ -146,7 +146,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             // （R2000 の DXF は、新しい版の見出しの変数の辞書を別のハンドルで書き、版の往復のための
             // XRECORD を書かない）
             let mut values: Vec<&Value> = object.values.iter().collect();
-            if object.kind == b"DICTIONARY" {
+            if matches!(
+                object.kind.as_slice(),
+                b"DICTIONARY" | b"ACDBDICTIONARYWDFLT"
+            ) {
                 let entries = |values: &[Value]| -> Vec<(Data, Data)> {
                     values
                         .windows(2)
