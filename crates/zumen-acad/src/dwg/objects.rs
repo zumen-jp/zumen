@@ -3,7 +3,7 @@
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE を読む。表のレコードは、今は名前（2）だけを読む。
+//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
@@ -138,10 +138,10 @@ impl DwgFile {
         for entry in &self.entries {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
             let kind = self.kind(entry.type_code);
-            let fields = kind.as_ref().and_then(|(_, section)| {
+            let fields = kind.as_ref().and_then(|(name, section)| {
                 // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
                 let entity = matches!(section, Section::Entities | Section::Blocks);
-                read(self.data(entry), entry, entity)
+                read(self.data(entry), entry, name, entity)
             });
             found.push((kind, fields));
         }
@@ -303,7 +303,7 @@ struct Common {
 }
 
 /// オブジェクトのデータを読む。読めなければ `None`
-fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
+fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields> {
     let mut bits = Bits::new(data);
     bits.bs()?;
     let handles_at = usize::try_from(bits.rl()?).ok()?;
@@ -326,6 +326,8 @@ fn read(data: &[u8], entry: &Entry, entity: bool) -> Option<Fields> {
                 RAY | XLINE => ray(&mut bits)?,
                 LWPOLYLINE => lwpolyline(&mut bits)?,
                 SPLINE => spline(&mut bits)?,
+                // HATCH は型が固定でなく、クラスで決まる
+                _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ => Vec::new(),
             }
         } else {
@@ -836,6 +838,134 @@ fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
         values.extend(point3(bits, 11)?);
     }
     Some(values)
+}
+
+/// HATCH の欄（ODS 5.4.1 の 20.4.75、R2000）。DXF と同じく、標高を 30 に置き、10・20 は 0 とする。
+/// 角度は度に直す。境界の図形のハンドル（330）は、所有者と見分けられないので、まだ置かない
+fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
+    let elevation = bits.bd()?;
+    let mut values = vec![real(10, 0.0), real(20, 0.0), real(30, elevation)];
+    let extrusion = point3(bits, 210)?;
+    if !is_up(&extrusion) {
+        values.extend(extrusion);
+    }
+    values.push(text_value(2, &bits.text()?));
+    let solid = bits.bit()?;
+    values.push(int(70, i64::from(solid)));
+    values.push(int(71, i64::from(bits.bit()?)));
+    let paths = bits.bl()?;
+    values.push(int(91, i64::from(paths)));
+    let mut pixel_size = false;
+    for _ in 0..paths {
+        let flags = bits.bl()?;
+        values.push(int(92, i64::from(flags)));
+        pixel_size |= flags & 4 != 0;
+        if flags & 2 == 0 {
+            let edges = bits.bl()?;
+            values.push(int(93, i64::from(edges)));
+            for _ in 0..edges {
+                hatch_edge(bits, &mut values)?;
+            }
+        } else {
+            // 多角形の境界。DXF は頂点の数を 93 に書く
+            let bulges = bits.bit()?;
+            values.push(int(72, i64::from(bulges)));
+            values.push(int(73, i64::from(bits.bit()?)));
+            let count = bits.bl()?;
+            values.push(int(93, i64::from(count)));
+            for _ in 0..count {
+                values.extend(point2(bits, 10)?);
+                if bulges {
+                    values.push(real(42, bits.bd()?));
+                }
+            }
+        }
+        values.push(int(97, i64::from(bits.bl()?)));
+    }
+    values.push(int(75, i64::from(bits.bs()?)));
+    values.push(int(76, i64::from(bits.bs()?)));
+    if !solid {
+        values.push(real(52, bits.bd()?.to_degrees()));
+        values.push(real(41, bits.bd()?));
+        values.push(int(77, i64::from(bits.bit()?)));
+        let lines = bits.bs()?;
+        values.push(int(78, i64::from(lines)));
+        for _ in 0..lines {
+            values.push(real(53, bits.bd()?.to_degrees()));
+            values.push(real(43, bits.bd()?));
+            values.push(real(44, bits.bd()?));
+            values.push(real(45, bits.bd()?));
+            values.push(real(46, bits.bd()?));
+            let dashes = bits.bs()?;
+            values.push(int(79, i64::from(dashes)));
+            for _ in 0..dashes {
+                values.push(real(49, bits.bd()?));
+            }
+        }
+    }
+    if pixel_size {
+        values.push(real(47, bits.bd()?));
+    }
+    let seeds = bits.bl()?;
+    values.push(int(98, i64::from(seeds)));
+    for _ in 0..seeds {
+        values.extend(point2(bits, 10)?);
+    }
+    Some(values)
+}
+
+/// HATCH の境界の 1 つの辺。種類（72）が 1 なら線分、2 なら円弧、3 なら楕円弧、4 なら SPLINE
+fn hatch_edge(bits: &mut Bits, values: &mut Vec<Value>) -> Option<()> {
+    let kind = bits.rc()?;
+    values.push(int(72, i64::from(kind)));
+    match kind {
+        1 => {
+            values.extend(point2(bits, 10)?);
+            values.extend(point2(bits, 11)?);
+        }
+        2 => {
+            values.extend(point2(bits, 10)?);
+            values.push(real(40, bits.bd()?));
+            values.push(real(50, bits.bd()?.to_degrees()));
+            values.push(real(51, bits.bd()?.to_degrees()));
+            values.push(int(73, i64::from(bits.bit()?)));
+        }
+        3 => {
+            values.extend(point2(bits, 10)?);
+            values.extend(point2(bits, 11)?);
+            values.push(real(40, bits.bd()?));
+            values.push(real(50, bits.bd()?.to_degrees()));
+            values.push(real(51, bits.bd()?.to_degrees()));
+            values.push(int(73, i64::from(bits.bit()?)));
+        }
+        4 => {
+            values.push(int(94, i64::from(bits.bl()?)));
+            let rational = bits.bit()?;
+            values.push(int(73, i64::from(rational)));
+            values.push(int(74, i64::from(bits.bit()?)));
+            let knots = bits.bl()?;
+            let controls = bits.bl()?;
+            values.push(int(95, i64::from(knots)));
+            values.push(int(96, i64::from(controls)));
+            for _ in 0..knots {
+                values.push(real(40, bits.bd()?));
+            }
+            for _ in 0..controls {
+                values.extend(point2(bits, 10)?);
+                // DXF は重みを 42 に書く
+                if rational {
+                    values.push(real(42, bits.bd()?));
+                }
+            }
+        }
+        _ => return None,
+    }
+    Some(())
+}
+
+/// 2RD の点を、`code`・`code + 10` に置く
+fn point2(bits: &mut Bits, code: i16) -> Option<Vec<Value>> {
+    Some(vec![real(code, bits.rd()?), real(code + 10, bits.rd()?)])
 }
 
 /// 3BD の点を、`code`・`code + 10`・`code + 20` に置く

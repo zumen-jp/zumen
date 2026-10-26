@@ -159,6 +159,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"XLINE",
                 b"LWPOLYLINE",
                 b"SPLINE",
+                b"HATCH",
             ]
             .contains(&object.kind.as_slice())
             {

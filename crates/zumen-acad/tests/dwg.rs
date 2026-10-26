@@ -1148,7 +1148,7 @@ fn splines_have_their_knots_or_fit_points() {
 #[test]
 fn types_of_classes_are_named_by_the_classes() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
-    let hatch = object(
+    let table = object(
         500,
         0x20,
         |w| entity_common(w, 2, 1, 1.0, 0),
@@ -1156,21 +1156,21 @@ fn types_of_classes_are_named_by_the_classes() {
     );
     let var = object(501, 0x21, |w| w.bl_zero(), |w| w.handle(4, 0));
     let src = with_classes(
-        dwg(&[(0x10, layer), (0x20, hatch), (0x21, var)]),
-        &[(500, b"HATCH", true), (501, b"DICTIONARYVAR", false)],
+        dwg(&[(0x10, layer), (0x20, table), (0x21, var)]),
+        &[(500, b"ACAD_TABLE", true), (501, b"DICTIONARYVAR", false)],
     );
     let (file, diag) = read(&src, Limits::default());
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
-    assert_eq!(file.unwrap().record(1).unwrap().kind, b"HATCH");
+    assert_eq!(file.unwrap().record(1).unwrap().kind, b"ACAD_TABLE");
 
     let (db, diag) = objects(&src);
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
-    let hatch = db.get(0x20).unwrap();
-    assert_eq!(hatch.kind, b"HATCH");
-    assert_eq!(hatch.section, Section::Entities);
+    let table = db.get(0x20).unwrap();
+    assert_eq!(table.kind, b"ACAD_TABLE");
+    assert_eq!(table.section, Section::Entities);
     // 図形を作るクラスなので、図形の共通の欄を読む
-    assert_eq!(hatch.first(8), Some(&Data::Text(b"0".to_vec())));
-    assert_eq!(hatch.first(62), Some(&Data::Int(1)));
+    assert_eq!(table.first(8), Some(&Data::Text(b"0".to_vec())));
+    assert_eq!(table.first(62), Some(&Data::Int(1)));
     let var = db.get(0x21).unwrap();
     assert_eq!(var.kind, b"DICTIONARYVAR");
     assert_eq!(var.section, Section::Objects);
@@ -1197,6 +1197,156 @@ fn a_wrong_class_section_is_reported() {
         let (result, _) = read(&src[..len], Limits::default());
         assert!(result.is_err(), "{len}");
     }
+}
+
+#[test]
+fn hatches_have_their_paths_and_pattern() {
+    let bl = |w: &mut BitWriter, n: u8| {
+        w.bits(1, 2);
+        w.bytes(&[n]);
+    };
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let pattern = object(
+        500,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bd(2.0); // 標高
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            text(w, b"ANSI31");
+            w.bit(false); // 塗りつぶしでない
+            w.bit(true);
+            bl(w, 2);
+            // 辺で囲む境界。印 4 は画素の大きさを持たせる
+            bl(w, 4);
+            bl(w, 2);
+            w.bytes(&[2]); // 円弧
+            w.rd(1.0);
+            w.rd(2.0);
+            w.bd(3.0);
+            w.bd(0.0);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bit(true);
+            w.bytes(&[4]); // SPLINE
+            bl(w, 3);
+            w.bit(true); // 重みがある
+            w.bit(false);
+            bl(w, 2);
+            bl(w, 1);
+            w.bd(0.0);
+            w.bd(1.0);
+            w.rd(5.0);
+            w.rd(6.0);
+            w.bd(0.5);
+            w.bl_zero();
+            // 多角形の境界
+            bl(w, 2);
+            w.bit(true); // 膨らみがある
+            w.bit(true);
+            bl(w, 2);
+            w.rd(0.0);
+            w.rd(0.0);
+            w.bd(0.25);
+            w.rd(1.0);
+            w.rd(0.0);
+            w.bd(0.0);
+            w.bl_zero();
+            w.bs(1);
+            w.bs(1);
+            w.bd(std::f64::consts::FRAC_PI_4);
+            w.bd(2.0);
+            w.bit(false);
+            w.bs(1);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            for v in [0.1, 0.2, 0.3, 0.4] {
+                w.bd(v);
+            }
+            w.bs(2);
+            w.bd(1.0);
+            w.bd(-0.5);
+            w.bd(0.01); // 画素の大きさ
+            bl(w, 1);
+            w.rd(7.0);
+            w.rd(8.0);
+        },
+        entity_handles(0x10),
+    );
+    let solid = object(
+        500,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bd(0.0);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            text(w, b"SOLID");
+            w.bit(true);
+            w.bit(false);
+            bl(w, 1);
+            bl(w, 1);
+            bl(w, 1);
+            w.bytes(&[1]); // 線分
+            for v in [0.0, 0.0, 1.0, 1.0] {
+                w.rd(v);
+            }
+            w.bl_zero();
+            w.bs(0);
+            w.bs(1);
+            w.bl_zero();
+        },
+        entity_handles(0x10),
+    );
+    let src = with_classes(
+        dwg(&[(0x10, layer), (0x20, pattern), (0x21, solid)]),
+        &[(500, b"HATCH", true)],
+    );
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let all = |object: &zumen_acad::Object, code| -> Vec<Data> {
+        object
+            .values
+            .iter()
+            .filter(|v| v.code == code)
+            .map(|v| v.data.clone())
+            .collect()
+    };
+
+    let hatch = db.get(0x20).unwrap();
+    assert!(close(hatch.real(30), 2.0));
+    assert_eq!(hatch.first(210), None);
+    assert_eq!(hatch.first(2), Some(&Data::Text(b"ANSI31".to_vec())));
+    assert_eq!(all(hatch, 92), [Data::Int(4), Data::Int(2)]);
+    assert_eq!(all(hatch, 93), [Data::Int(2), Data::Int(2)]);
+    assert_eq!(all(hatch, 72), [Data::Int(2), Data::Int(4), Data::Int(1)]);
+    // 角度は度に直す
+    assert!(close(hatch.real(51), 90.0));
+    assert!(close(hatch.real(52), 45.0));
+    assert!(close(hatch.real(53), 90.0));
+    assert_eq!(hatch.first(94), Some(&Data::Int(3)));
+    // SPLINE の辺の重みと、多角形の膨らみは、どちらも 42
+    assert_eq!(
+        all(hatch, 42),
+        [Data::Real(0.5), Data::Real(0.25), Data::Real(0.0)]
+    );
+    assert_eq!(all(hatch, 49), [Data::Real(1.0), Data::Real(-0.5)]);
+    assert!(close(hatch.real(47), 0.01));
+    assert_eq!(hatch.first(98), Some(&Data::Int(1)));
+
+    let hatch = db.get(0x21).unwrap();
+    assert_eq!(hatch.first(70), Some(&Data::Int(1)));
+    assert!(close(hatch.real(11), 1.0));
+    // 塗りつぶしは、模様の欄と画素の大きさを持たない
+    assert_eq!(hatch.first(52), None);
+    assert_eq!(hatch.first(47), None);
+    assert_eq!(hatch.first(98), Some(&Data::Int(0)));
 }
 
 #[test]
