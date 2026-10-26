@@ -3,7 +3,7 @@
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH を読む。表のレコードは、今は名前（2）だけを読む。
+//! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
@@ -41,6 +41,15 @@ const RAY: u16 = 0x28;
 const XLINE: u16 = 0x29;
 const MTEXT: u16 = 0x2C;
 const LWPOLYLINE: u16 = 0x4D;
+const VERTEX_2D: u16 = 0x0A;
+const VERTEX_3D: u16 = 0x0B;
+const VERTEX_MESH: u16 = 0x0C;
+const VERTEX_PFACE: u16 = 0x0D;
+const VERTEX_PFACE_FACE: u16 = 0x0E;
+const POLYLINE_2D: u16 = 0x0F;
+const POLYLINE_3D: u16 = 0x10;
+const POLYLINE_PFACE: u16 = 0x1D;
+const POLYLINE_MESH: u16 = 0x1E;
 const BLOCK_RECORD: u16 = 0x31;
 const LAYER: u16 = 0x33;
 const STYLE: u16 = 0x35;
@@ -62,8 +71,8 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x05 => Some((b"ENDBLK", Section::Blocks)),
         0x06 => entity(b"SEQEND"),
         INSERT | 0x08 => entity(b"INSERT"),
-        0x0A..=0x0E => entity(b"VERTEX"),
-        0x0F | 0x10 | 0x1D | 0x1E => entity(b"POLYLINE"),
+        VERTEX_2D..=VERTEX_PFACE_FACE => entity(b"VERTEX"),
+        POLYLINE_2D | POLYLINE_3D | POLYLINE_PFACE | POLYLINE_MESH => entity(b"POLYLINE"),
         ARC => entity(b"ARC"),
         CIRCLE => entity(b"CIRCLE"),
         LINE => entity(b"LINE"),
@@ -326,6 +335,13 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                 RAY | XLINE => ray(&mut bits)?,
                 LWPOLYLINE => lwpolyline(&mut bits)?,
                 SPLINE => spline(&mut bits)?,
+                VERTEX_2D => vertex2d(&mut bits)?,
+                VERTEX_3D | VERTEX_MESH | VERTEX_PFACE => vertex3d(&mut bits)?,
+                VERTEX_PFACE_FACE => face_record(&mut bits)?,
+                POLYLINE_2D => polyline2d(&mut bits)?,
+                POLYLINE_3D => polyline3d(&mut bits)?,
+                POLYLINE_PFACE => polyface(&mut bits)?,
+                POLYLINE_MESH => mesh(&mut bits)?,
                 // HATCH は型が固定でなく、クラスで決まる
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ => Vec::new(),
@@ -836,6 +852,128 @@ fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
     }
     for _ in 0..fit {
         values.extend(point3(bits, 11)?);
+    }
+    Some(values)
+}
+
+/// 2D の VERTEX の欄（ODS 5.4.1 の 20.4.11、R2000）。始まりの幅が負なら、終わりの幅は書かれず、
+/// 始まりと同じ絶対値とする。幅・膨らみ・接線の向きは 0 でなければ置き、接線の向きは度に直す
+fn vertex2d(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![int(70, i64::from(bits.rc()?))];
+    values.extend(point3(bits, 10)?);
+    let start = bits.bd()?;
+    let (start, end) = if start < 0.0 {
+        (start.abs(), start.abs())
+    } else {
+        (start, bits.bd()?)
+    };
+    let bulge = bits.bd()?;
+    let tangent = bits.bd()?.to_degrees();
+    for (code, value) in [(40, start), (41, end), (42, bulge), (50, tangent)] {
+        if value != 0.0 {
+            values.push(real(code, value));
+        }
+    }
+    Some(values)
+}
+
+/// 3D・網・多面の頂点の VERTEX の欄（ODS 5.4.1 の 20.4.12〜20.4.14）。印（70）と点
+fn vertex3d(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![int(70, i64::from(bits.rc()?))];
+    values.extend(point3(bits, 10)?);
+    Some(values)
+}
+
+/// 多面の面の VERTEX の欄（ODS 5.4.1 の 20.4.15）。DXF と同じく、点を 0、印（70）を 128 とする。
+/// 頂点の番号（71〜74）は 0 でなければ置く。負の番号は、その辺が見えないこと
+fn face_record(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![real(10, 0.0), real(20, 0.0), real(30, 0.0), int(70, 128)];
+    for code in 71..75 {
+        let index = bits.bs()?;
+        if index != 0 {
+            values.push(int(code, i64::from(index)));
+        }
+    }
+    Some(values)
+}
+
+/// 2D の POLYLINE の欄（ODS 5.4.1 の 20.4.16、R2000）。POLYLINE には、DXF と同じく、頂点が続く印（66）を置く。DXF と同じく、標高を 30 に置き、10・20 は
+/// 0 とする。曲線の種類（75）と既定の幅（40・41）は 0 でなければ置く
+fn polyline2d(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![int(66, 1), int(70, i64::from(bits.bs()?))];
+    let curve = bits.bs()?;
+    if curve != 0 {
+        values.push(int(75, i64::from(curve)));
+    }
+    for code in [40, 41] {
+        let width = bits.bd()?;
+        if width != 0.0 {
+            values.push(real(code, width));
+        }
+    }
+    // BT: 1 なら厚さは 0
+    if !bits.bit()? {
+        values.push(real(39, bits.bd()?));
+    }
+    values.extend([real(10, 0.0), real(20, 0.0), real(30, bits.bd()?)]);
+    // BE: 1 なら押し出しの向きは (0, 0, 1)
+    if !bits.bit()? {
+        values.extend(point3(bits, 210)?);
+    }
+    Some(values)
+}
+
+/// 3D の POLYLINE の欄（ODS 5.4.1 の 20.4.17）。2 つの印から、DXF の 70（3D の 8、閉じていれば
+/// 1、曲線なら 4）と曲線の種類（75）を作る。点（10）は 0
+fn polyline3d(bits: &mut Bits) -> Option<Vec<Value>> {
+    let curve = bits.rc()?;
+    let closed = bits.rc()? & 1;
+    let splined = if curve & 3 != 0 { 4 } else { 0 };
+    let mut values = vec![
+        int(66, 1),
+        real(10, 0.0),
+        real(20, 0.0),
+        real(30, 0.0),
+        int(70, i64::from(8 | splined | closed)),
+    ];
+    if curve & 1 != 0 {
+        values.push(int(75, 5));
+    } else if curve & 2 != 0 {
+        values.push(int(75, 6));
+    }
+    Some(values)
+}
+
+/// 多面の POLYLINE の欄（ODS 5.4.1 の 20.4.33）。DXF と同じく、点（10）を 0、印（70）を 64 とし、
+/// 頂点の数（71）と面の数（72）を置く
+fn polyface(bits: &mut Bits) -> Option<Vec<Value>> {
+    Some(vec![
+        int(66, 1),
+        real(10, 0.0),
+        real(20, 0.0),
+        real(30, 0.0),
+        int(70, 64),
+        int(71, i64::from(bits.bs()?)),
+        int(72, i64::from(bits.bs()?)),
+    ])
+}
+
+/// 網の POLYLINE の欄（ODS 5.4.1 の 20.4.34）。点（10）は 0。印（70）・曲面の種類（75）・頂点の数
+/// （71・72）・密度（73・74）を置き、曲面の種類は 0 でなければ置く
+fn mesh(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![
+        int(66, 1),
+        real(10, 0.0),
+        real(20, 0.0),
+        real(30, 0.0),
+        int(70, i64::from(bits.bs()?)),
+    ];
+    let surface = bits.bs()?;
+    if surface != 0 {
+        values.push(int(75, i64::from(surface)));
+    }
+    for code in 71..75 {
+        values.push(int(code, i64::from(bits.bs()?)));
     }
     Some(values)
 }
