@@ -4,7 +4,7 @@
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
-//! オブジェクトは、今は MLINESTYLE の欄を読む。
+//! オブジェクトは、今は MLINESTYLE・DICTIONARY・XRECORD の欄を読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use super::bits::Bits;
 use super::{COMMON_OBJECT, DwgFile, Entry, stopped};
-use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
+use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use zumen_sdk::Error;
 
@@ -74,6 +74,7 @@ const LTYPE: u16 = 0x39;
 /// DIMSTYLE の表のレコードの型。ハンドルのグループ・コードが 105
 const DIMSTYLE: u16 = 0x45;
 const MLINESTYLE: u16 = 0x49;
+const DICTIONARY: u16 = 0x2A;
 
 /// 型から、DXF の名前と属する所。クラスで決まる型（500 以上）と、知らない型は `None`
 fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
@@ -107,7 +108,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x27 => entity(b"BODY"),
         RAY => entity(b"RAY"),
         XLINE => entity(b"XLINE"),
-        0x2A => object(b"DICTIONARY"),
+        DICTIONARY => object(b"DICTIONARY"),
         0x2B => entity(b"OLEFRAME"),
         MTEXT => entity(b"MTEXT"),
         TOLERANCE => entity(b"TOLERANCE"),
@@ -449,20 +450,45 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
             records,
         })
     } else {
-        bits.bl()?;
-        let values = if is_table_record(entry.type_code) {
+        let reactors = bits.bl()?;
+        let mut entries = Vec::new();
+        let mut values = if is_table_record(entry.type_code) {
             vec![Value {
                 code: 2,
                 data: Data::Text(bits.text()?),
             }]
         } else if entry.type_code == MLINESTYLE {
             mlinestyle(&mut bits)?
+        } else if entry.type_code == DICTIONARY {
+            dictionary(&mut bits, &mut entries)?
+        } else if kind == b"XRECORD" {
+            xrecord(&mut bits)?
         } else {
             Vec::new()
         };
-        // オブジェクトのハンドルの並びの先頭は、いつも所有者
+        // オブジェクトのハンドルの並び: 所有者・反応子・拡張辞書・型ごとのハンドル
         bits.seek(handles_at);
         let owner = bits.handle()?.resolve(entry.handle)?;
+        if !entries.is_empty() {
+            for _ in 0..reactors {
+                bits.handle()?;
+            }
+            bits.handle()?;
+            // 辞書の項目は、名前（3）と指すオブジェクトの組。所有するなら 360、しないなら 350
+            let code = if values.iter().any(|v| v.code == 280) {
+                360
+            } else {
+                350
+            };
+            for name in entries {
+                let item = bits.handle()?.resolve(entry.handle)?;
+                values.push(text_value(3, &name));
+                values.push(Value {
+                    code,
+                    data: Data::Handle(item),
+                });
+            }
+        }
         Some(Fields {
             owner: Some(owner),
             layer: None,
@@ -762,6 +788,87 @@ fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
         bits.bs()?;
     }
     Some(values)
+}
+
+/// DICTIONARY の欄（ODS 5.4.1 の 20.4.44、R2000）。所有する印（280）は 1 なら、複製の扱い（281）は
+/// いつも置く。項目の名前は `entries` に集め、ハンドルの並びの項目と組にして後で置く
+fn dictionary(bits: &mut Bits, entries: &mut Vec<Vec<u8>>) -> Option<Vec<Value>> {
+    let count = bits.bl()?;
+    let cloning = bits.bs()?;
+    let hard_owner = bits.rc()?;
+    let mut values = Vec::new();
+    if hard_owner != 0 {
+        values.push(int(280, i64::from(hard_owner)));
+    }
+    values.push(int(281, i64::from(cloning)));
+    for _ in 0..count {
+        entries.push(bits.text()?);
+    }
+    Some(values)
+}
+
+/// XRECORD の欄（ODS 5.4.1 の 20.4.89、R2000）。複製の扱い（280）を DXF と同じく先に置き、
+/// 続けてデータの値を置く。データは、グループ・コード（RS）と、コードの型で決まる値の並びで、
+/// 記録されたバイト数をちょうど読み切らなければ読めないとする
+fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
+    let len = usize::try_from(bits.bl()?).ok()?;
+    let end = bits.pos().checked_add(len.checked_mul(8)?)?;
+    let mut data = Vec::new();
+    while bits.pos() < end {
+        let code = bits.rs()?;
+        match DataType::of(code) {
+            // 点は、X のコードに 3RD で記録され、DXF では Y と Z が別のコードになる
+            DataType::Real if matches!(code, 10..=19 | 1010..=1019) => {
+                data.extend([
+                    real(code, bits.rd()?),
+                    real(code + 10, bits.rd()?),
+                    real(code + 20, bits.rd()?),
+                ]);
+            }
+            DataType::Real => data.push(real(code, bits.rd()?)),
+            DataType::Int => {
+                let value = match code {
+                    280..=289 => i64::from(bits.rc()?),
+                    90..=99 | 420..=429 | 440..=459 | 1071 => i64::from(bits.rl()?),
+                    160..=169 => i64::from_le_bytes(raw_bytes(bits, 8)?.try_into().ok()?),
+                    _ => i64::from(bits.rs()?),
+                };
+                data.push(int(code, value));
+            }
+            DataType::Bool => data.push(Value {
+                code,
+                data: Data::Bool(bits.rc()? != 0),
+            }),
+            DataType::Handle => data.push(Value {
+                code,
+                data: Data::Handle(u64::from_le_bytes(raw_bytes(bits, 8)?.try_into().ok()?)),
+            }),
+            DataType::Binary => {
+                let len = usize::from(bits.rc()?);
+                data.push(Value {
+                    code,
+                    data: Data::Binary(raw_bytes(bits, len)?),
+                });
+            }
+            DataType::Text => {
+                let len = usize::try_from(bits.rs()?).ok()?;
+                // コード・ページ
+                bits.rc()?;
+                data.push(text_value(code, &raw_bytes(bits, len)?));
+            }
+        }
+    }
+    if bits.pos() != end {
+        return None;
+    }
+    let mut values = vec![int(280, i64::from(bits.bs()?))];
+    values.extend(data);
+    Some(values)
+}
+
+/// RC を `n` 個読む
+fn raw_bytes(bits: &mut Bits, n: usize) -> Option<Vec<u8>> {
+    (0..n).map(|_| bits.rc()).collect()
 }
 
 /// INSERT の欄（ODS 5.4.1 の 20.4.9、R2000）。挿入点はいつも置き、尺度（41・42・43）・回転（50）・

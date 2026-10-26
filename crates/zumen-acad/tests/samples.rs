@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object};
+use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Value};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_sdk::Codec;
 
@@ -74,6 +74,20 @@ fn by_handle(db: &AcadDb) -> BTreeMap<u64, &Object> {
         .collect()
 }
 
+/// 辞書の項目のうち、名前が `name` のものが指すハンドル
+#[cfg(test)]
+fn named(db: &AcadDb, name: &[u8]) -> Vec<u64> {
+    db.objects()
+        .iter()
+        .filter(|object| object.kind == b"DICTIONARY")
+        .flat_map(|object| object.values.windows(2))
+        .filter_map(|pair| match (&pair[0].data, &pair[1].data) {
+            (Data::Text(text), Data::Handle(h)) if pair[0].code == 3 && text == name => Some(*h),
+            _ => None,
+        })
+        .collect()
+}
+
 /// 同じ値か。DXF は実数を 16 桁で書くので、実数は相対の誤差を許す
 #[cfg(test)]
 fn same(a: &Data, b: &Data) -> bool {
@@ -102,6 +116,8 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
     for (dwg, dxf) in pairs() {
         let (dwg_db, dxf_db) = (table(&dwg), table(&dxf));
         let dxf_objects = by_handle(&dxf_db);
+        // 最後に保存したときの情報（GUID とファイルのパス）は、DWG と DXF で違うので比べない
+        let saved_info = named(&dwg_db, b"ACAD_LAST_SAVED_VERSION_INFO");
         for (handle, object) in by_handle(&dwg_db) {
             // 型を知らないオブジェクトと、DXF に書かれないオブジェクトは比べない
             let Some(other) = dxf_objects.get(&handle) else {
@@ -121,8 +137,32 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 assert_eq!(object.owner(), other.owner(), "{at}");
             }
             // DWG が置いた値は、DXF の同じグループ・コードの同じ順番の値と同じ
+            if saved_info.contains(&handle) {
+                continue;
+            }
             let mut seen: BTreeMap<i16, usize> = BTreeMap::new();
-            for value in &object.values {
+            // 辞書の項目（名前 3 と指すオブジェクト 350・360 の組）は、組で比べる。DXF にない
+            // オブジェクトを指す項目は、DXF を書くときに落とされたか作り直されたものなので比べない
+            // （R2000 の DXF は、新しい版の見出しの変数の辞書を別のハンドルで書き、版の往復のための
+            // XRECORD を書かない）
+            let mut values: Vec<&Value> = object.values.iter().collect();
+            if object.kind == b"DICTIONARY" {
+                let entries = |values: &[Value]| -> Vec<(Data, Data)> {
+                    values
+                        .windows(2)
+                        .filter(|pair| pair[0].code == 3 && matches!(pair[1].code, 350 | 360))
+                        .map(|pair| (pair[0].data.clone(), pair[1].data.clone()))
+                        .collect()
+                };
+                let theirs = entries(&other.values);
+                for entry in entries(&object.values) {
+                    if matches!(entry.1, Data::Handle(h) if dxf_objects.contains_key(&h)) {
+                        assert!(theirs.contains(&entry), "{at} {entry:?}");
+                    }
+                }
+                values.retain(|v| !matches!(v.code, 3 | 350 | 360));
+            }
+            for value in values {
                 if matches!(value.code, 5 | 105 | 330) {
                     continue;
                 }
