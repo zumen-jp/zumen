@@ -8,7 +8,10 @@
         "/result/abi": 1,
         "/result/schema/major": 1,
         "/result/ops": ["capabilities", "open", "close", "describe", "drawing"],
-        "/result/formats": [{ "id": "dxf", "family": "acad", "read": true, "write": false, "id_rules": 1 }],
+        "/result/formats": [
+          { "id": "dxf", "family": "acad", "read": true, "write": false, "id_rules": 1 },
+          { "id": "dwg", "family": "acad", "read": true, "write": false, "id_rules": 1 }
+        ],
         "/diagnostics": [],
         "/blobs": []
       }

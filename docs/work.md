@@ -32,7 +32,7 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 
 | 順 | 作業 | 開始条件 | 次の一手 |
 | --- | --- | --- | --- |
-| 1 | [#64 DXF・DWG の編集と書き戻し](https://github.com/zumen-jp/zumen/issues/64) | #3 の共有のオブジェクトの表と、DXF・DWG（R2000）のコーデックが main にある | #3 で、DXF と DWG（R2000）を [決定 0023](decisions/0023-acad-shared-object-table.md) の共有の表に読み、型付きの見方と `lift` が同じ結果になることを確かめた（[DXF の扱い](formats/dxf.md)・[DWG の扱い](formats/dwg.md)）。次は、DXF のレコードの追加・削除と変更に伴って直すレコード、表からの書き戻し、境界の `open` から DWG を読むことを、必要になる順に PR に分ける |
+| 1 | [#64 DXF・DWG の編集と書き戻し](https://github.com/zumen-jp/zumen/issues/64) | #3 の共有のオブジェクトの表と、DXF・DWG（R2000）のコーデックが main にある | #3 で、DXF と DWG（R2000）を [決定 0023](decisions/0023-acad-shared-object-table.md) の共有の表に読み、型付きの見方と `lift` が同じ結果になることを確かめた（[DXF の扱い](formats/dxf.md)・[DWG の扱い](formats/dwg.md)）。境界の `open` から DWG（R2000）を読めるようにした。次は、DXF のレコードの追加・削除と変更に伴って直すレコード、表からの書き戻しを、必要になる順に PR に分ける |
 | 2 | [#28 図面モデルの要素と試験](https://github.com/zumen-jp/zumen/issues/28) | 決定 0022 と対応表が main にあり、対象部分の共通の型を #3 から使える | 最小のモデルを寸法・記号・ハッチング・下敷きなどへ広げる。対応表の E1〜E10 を対象ごとに試験にする。SXF・JWW のコーデック全体は別 issue に分ける |
 | 3 | [#66 適合試験で比べる出力と入力](https://github.com/zumen-jp/zumen/issues/66) | `drawing` の op と DXF の組が main にある。要素の一覧の op は #28 の要素と合わせる | 要素の一覧を返す `entities` の op（決定 0012）を足して比べ、再配布できる実際の図面に近い入力を確かめて足す。停止の診断に位置を持たせるかを決める |
 | 4 | [#6 バイナリの受け渡し](https://github.com/zumen-jp/zumen/issues/6) | 試作は合成データで開始できる。最終判断には issue が指定する測定用データが必要 | 転送時間・ページ側の時間・メモリ・wasm の増分を測る。図面モデル全体の完成を待たずに試す |

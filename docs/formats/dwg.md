@@ -6,7 +6,7 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 
 - R2000（AC1015）だけを読む。ほかの版（AC1012〜AC1032）は形式の判定には使い、読むときは `dwg.version.unsupported` を返す。
 - 書くときは、元のバイトをそのまま並べる。変更はまだできない。
-- 境界（`zumen-abi`）の `open` からは、まだ呼べない。
+- 境界（`zumen-abi`）の `open` は、DWG の判定の規則に合う入力をこのコーデックで読む。`drawing` の op で図面モデルの要約を返し、適合試験（`bindings/conformance/cases/open_dwg.json`）でネイティブと wasm の出力を比べる。`capabilities` の `formats` は版を持たないので、R2000 だけを読めることは、ほかの版を開いたときの `dwg.version.unsupported` で分かる。
 
 ## ファイルの区切り
 
