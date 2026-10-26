@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0036）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0037）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -15,7 +15,7 @@ use zumen_sdk::{Error, Transact, Transaction};
 use super::bits::{BitWriter, Bits};
 use super::objects::entity_fields;
 use super::{DwgFile, Release};
-use crate::db::{AcadDb, Data, Object, Origin, Section};
+use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 
 /// 図形の共通の欄のうち、表に置くもののグループ・コード
 const COMMON: &[i16] = &[62, 48, 60];
@@ -50,6 +50,10 @@ const MTEXT: &[i16] = &[
 const LWPOLYLINE: &[i16] = &[90, 70, 43, 38, 39, 10, 20, 40, 41, 42, 210, 220, 230];
 const SPLINE: &[i16] = &[
     71, 72, 73, 74, 44, 12, 22, 32, 13, 23, 33, 42, 43, 40, 10, 20, 30, 41, 11, 21, 31,
+];
+const HATCH: &[i16] = &[
+    10, 20, 30, 210, 220, 230, 2, 70, 71, 91, 92, 93, 72, 73, 74, 11, 21, 40, 42, 50, 51, 94, 95,
+    96, 97, 75, 76, 52, 41, 77, 78, 53, 43, 44, 45, 46, 79, 49, 47, 98,
 ];
 const MINSERT_TYPE: i16 = 0x08;
 
@@ -197,6 +201,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"MTEXT" => MTEXT,
         b"LWPOLYLINE" => LWPOLYLINE,
         b"SPLINE" => SPLINE,
+        b"HATCH" => HATCH,
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
         _ => &[],
@@ -226,7 +231,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         fields.copy(data, start..handles_at)?;
         fields
     } else {
-        own_fields(new, grid, data, start)?
+        own_fields(old, new, grid, data, start)?
     };
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
@@ -263,7 +268,13 @@ fn common_fields(data: &[u8], color_at: usize, start: usize, object: &Object) ->
 
 /// 型ごとの欄。`grid` は MINSERT か。表にない欄は、元のデータ `data` の `start` からの型ごとの欄から写す。
 /// 符号化できない種類なら `None`
-fn own_fields(new: &Object, grid: bool, data: &[u8], start: usize) -> Option<BitWriter> {
+fn own_fields(
+    old: &Object,
+    new: &Object,
+    grid: bool,
+    data: &[u8],
+    start: usize,
+) -> Option<BitWriter> {
     let mut fields = BitWriter::default();
     match new.kind.as_slice() {
         b"LINE" => line(&mut fields, new)?,
@@ -309,6 +320,7 @@ fn own_fields(new: &Object, grid: bool, data: &[u8], start: usize) -> Option<Bit
         b"MTEXT" => mtext(&mut fields, new, data, start)?,
         b"LWPOLYLINE" => lwpolyline(&mut fields, new, data, start)?,
         b"SPLINE" => spline(&mut fields, new, data, start)?,
+        b"HATCH" => hatch(&mut fields, old, new)?,
         b"INSERT" => insert(&mut fields, new, grid)?,
         _ => return None,
     }
@@ -734,6 +746,201 @@ fn spline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
         _ => return None,
     }
     Some(())
+}
+
+/// HATCH の欄（R2000）。境界の辺では同じグループ・コードが何度も出るので、表の値を読む側が置く順に
+/// 先頭から読み進めて書く。順が合わないか、境界の図形の数（97）が変わったら `None`。10・20 は 0 で
+/// なければならず、押し出しの向きがなければ (0, 0, 1) を書く。角度は度からラジアンに直す
+fn hatch(fields: &mut BitWriter, old: &Object, new: &Object) -> Option<()> {
+    let sources = |object: &Object| -> Vec<_> {
+        object
+            .values
+            .iter()
+            .filter(|value| value.code == 97)
+            .cloned()
+            .collect()
+    };
+    if sources(old) != sources(new) {
+        return None;
+    }
+    let mut values = Cursor(
+        new.values
+            .iter()
+            .filter(|value| HATCH.contains(&value.code))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .peekable(),
+    );
+    if values.real(10)?.to_bits() != 0 || values.real(20)?.to_bits() != 0 {
+        return None;
+    }
+    fields.bd(values.real(30)?);
+    let extrusion = if values.next_is(210) {
+        [values.real(210)?, values.real(220)?, values.real(230)?]
+    } else {
+        [0.0, 0.0, 1.0]
+    };
+    for v in extrusion {
+        fields.bd(v);
+    }
+    let Data::Text(name) = values.next(2)? else {
+        return None;
+    };
+    let mut name = uncaret(name)?;
+    name.push(0);
+    fields.text(&name)?;
+    let solid = values.bit(70)?;
+    fields.bit(solid);
+    fields.bit(values.bit(71)?);
+    let paths = values.int(91)?;
+    fields.bl(paths);
+    let mut pixel_size = false;
+    for _ in 0..paths {
+        let flags = values.int(92)?;
+        fields.bl(flags);
+        pixel_size |= flags & 4 != 0;
+        if flags & 2 == 0 {
+            let edges = values.int(93)?;
+            fields.bl(edges);
+            for _ in 0..edges {
+                hatch_edge(fields, &mut values)?;
+            }
+        } else {
+            let bulges = values.bit(72)?;
+            fields.bit(bulges);
+            fields.bit(values.bit(73)?);
+            let count = values.int(93)?;
+            fields.bl(count);
+            for _ in 0..count {
+                fields.rd(values.real(10)?);
+                fields.rd(values.real(20)?);
+                if bulges {
+                    fields.bd(values.real(42)?);
+                }
+            }
+        }
+        fields.bl(values.int(97)?);
+    }
+    for code in [75, 76] {
+        fields.bs(i16::try_from(values.int(code)?).ok()?);
+    }
+    if !solid {
+        fields.bd(values.real(52)?.to_radians());
+        fields.bd(values.real(41)?);
+        fields.bit(values.bit(77)?);
+        let lines = i16::try_from(values.int(78)?).ok()?;
+        fields.bs(lines);
+        for _ in 0..lines {
+            fields.bd(values.real(53)?.to_radians());
+            for code in [43, 44, 45, 46] {
+                fields.bd(values.real(code)?);
+            }
+            let dashes = i16::try_from(values.int(79)?).ok()?;
+            fields.bs(dashes);
+            for _ in 0..dashes {
+                fields.bd(values.real(49)?);
+            }
+        }
+    }
+    if pixel_size {
+        fields.bd(values.real(47)?);
+    }
+    let seeds = values.int(98)?;
+    fields.bl(seeds);
+    for _ in 0..seeds {
+        fields.rd(values.real(10)?);
+        fields.rd(values.real(20)?);
+    }
+    values.0.next().is_none().then_some(())
+}
+
+/// HATCH の境界の 1 つの辺。種類（72）が 1 なら線分、2 なら円弧、3 なら楕円弧、4 なら SPLINE
+fn hatch_edge(fields: &mut BitWriter, values: &mut Cursor<'_>) -> Option<()> {
+    let kind = u8::try_from(values.int(72)?).ok()?;
+    fields.rc(kind);
+    let point = |fields: &mut BitWriter, values: &mut Cursor<'_>, code| -> Option<()> {
+        fields.rd(values.real(code)?);
+        fields.rd(values.real(code + 10)?);
+        Some(())
+    };
+    match kind {
+        1 => {
+            point(fields, values, 10)?;
+            point(fields, values, 11)?;
+        }
+        2 | 3 => {
+            point(fields, values, 10)?;
+            if kind == 3 {
+                point(fields, values, 11)?;
+            }
+            fields.bd(values.real(40)?);
+            for code in [50, 51] {
+                fields.bd(values.real(code)?.to_radians());
+            }
+            fields.bit(values.bit(73)?);
+        }
+        4 => {
+            fields.bl(values.int(94)?);
+            let rational = values.bit(73)?;
+            fields.bit(rational);
+            fields.bit(values.bit(74)?);
+            let knots = values.int(95)?;
+            let controls = values.int(96)?;
+            fields.bl(knots);
+            fields.bl(controls);
+            for _ in 0..knots {
+                fields.bd(values.real(40)?);
+            }
+            for _ in 0..controls {
+                point(fields, values, 10)?;
+                if rational {
+                    fields.bd(values.real(42)?);
+                }
+            }
+        }
+        _ => return None,
+    }
+    Some(())
+}
+
+/// 表の値を、先頭から 1 つずつ読む
+struct Cursor<'a>(std::iter::Peekable<std::vec::IntoIter<&'a Value>>);
+
+impl<'a> Cursor<'a> {
+    /// 次の値が `code` なら、その値
+    fn next(&mut self, code: i16) -> Option<&'a Data> {
+        self.0
+            .next_if(|value| value.code == code)
+            .map(|value| &value.data)
+    }
+
+    fn next_is(&mut self, code: i16) -> bool {
+        self.0.peek().is_some_and(|value| value.code == code)
+    }
+
+    fn real(&mut self, code: i16) -> Option<f64> {
+        match self.next(code)? {
+            Data::Real(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// BL に収まる整数
+    fn int(&mut self, code: i16) -> Option<i32> {
+        match self.next(code)? {
+            Data::Int(value) => i32::try_from(*value).ok(),
+            _ => None,
+        }
+    }
+
+    /// 0 か 1 の整数
+    fn bit(&mut self, code: i16) -> Option<bool> {
+        match self.int(code)? {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
 }
 
 /// `code` の文字列を、DXF の `^` の書き方を戻し、終わりの NUL を付けて T で書く

@@ -463,11 +463,18 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"MTEXT"
                     | b"LWPOLYLINE"
                     | b"SPLINE"
+                    | b"HATCH"
             ) {
                 continue;
             }
-            for value in object.values.iter_mut() {
-                if let (10 | 20 | 11 | 21, Data::Real(v)) = (value.code, &mut value.data) {
+            // HATCH の初めの 10・20 は 0 と決まっているので動かさない
+            let skip = if object.kind == b"HATCH" { 2 } else { 0 };
+            let points = object
+                .values
+                .iter_mut()
+                .filter(|value| matches!(value.code, 10 | 20 | 11 | 21));
+            for value in points.skip(skip) {
+                if let Data::Real(v) = &mut value.data {
                     *v += 1.5;
                     changed += 1;
                 }
