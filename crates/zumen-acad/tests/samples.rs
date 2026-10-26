@@ -468,6 +468,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"DIMENSION"
                     | b"TOLERANCE"
                     | b"MLINE"
+                    | b"VIEWPORT"
             ) {
                 continue;
             }

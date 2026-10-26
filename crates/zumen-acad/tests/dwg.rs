@@ -4896,6 +4896,111 @@ fn changed_annotations_are_written_back() {
     }
 }
 
+/// ビューポートを持つ図面。`width` は幅、`twist` はねじれ（ラジアン）、`x` は 12 の X、`circle` は円の
+/// 細かさ（72）、`at_origin` は UCS が原点にあるか（74）
+#[cfg(test)]
+fn viewports_with(
+    width: f64,
+    twist: f64,
+    x: f64,
+    circle: u16,
+    at_origin: bool,
+) -> Vec<(u64, Vec<u8>)> {
+    let viewport = object(
+        0x22,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [5.0, 4.0, 0.0, width, 6.0] {
+                w.bd(v);
+            }
+            for v in [1.0, 2.0, 3.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            for v in [twist, 9.0, 50.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for v in [x, 4.5, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5] {
+                w.rd(v);
+            }
+            w.bs(circle);
+            w.bl_zero();
+            w.bl_zero();
+            w.bs(0);
+            w.bytes(&[0]);
+            w.bit(at_origin);
+            w.bit(true);
+            for v in [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bs(0);
+        },
+        entity_handles(0x10),
+    );
+    vec![
+        (
+            0x10,
+            object(0x33, 0x10, record_named(b"0"), record_handles(2)),
+        ),
+        (0x20, viewport),
+    ]
+}
+
+#[test]
+fn changed_viewports_are_written_back() {
+    let src = dwg(&viewports_with(
+        8.0,
+        std::f64::consts::FRAC_PI_2,
+        6.0,
+        1000,
+        false,
+    ));
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 幅・ねじれ・左下の角の X・円の細かさ・UCS が原点にあるかを変える
+    for (code, data) in [
+        (40, Data::Real(10.0)),
+        (51, Data::Real(0.0)),
+        (12, Data::Real(7.0)),
+        (72, Data::Int(500)),
+        (74, Data::Int(1)),
+    ] {
+        set_value(&mut db, 0x20, code, data);
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    assert_eq!(values(&after), values(&db));
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (handle, expected) in viewports_with(10.0, 0.0, 7.0, 500, true) {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data, "{handle:#x}");
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // 0 か 1 でない 74、RC に収まらない描き方（281）は符号化できない
+    for (code, data) in [(74, Data::Int(2)), (281, Data::Int(300))] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, 0x20, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
+
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
 #[cfg(test)]
 fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
