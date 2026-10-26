@@ -3721,6 +3721,56 @@ fn sample_with_more_kinds() -> Vec<u8> {
         },
         entity_handles_to(0x10, 0),
     );
+    // 節点と制御点の SPLINE（閉じている印が立つ）と、当てはめる点の SPLINE
+    let by_knots = object(
+        0x24,
+        0x42,
+        move |w| {
+            common(w);
+            for v in [1, 1] {
+                w.bits(1, 2);
+                w.bytes(&[v]);
+            }
+            w.bit(false);
+            w.bit(true);
+            w.bit(false);
+            w.bd(1e-9);
+            w.bd(1e-10);
+            for v in [4, 2] {
+                w.bits(1, 2);
+                w.bytes(&[v]);
+            }
+            w.bit(true);
+            for v in [0.0, 0.0, 1.0, 1.0] {
+                w.bd(v);
+            }
+            for v in [0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 0.0, 0.5] {
+                w.bd(v);
+            }
+        },
+        entity_handles_to(0x10, 0),
+    );
+    let by_fit = object(
+        0x24,
+        0x43,
+        move |w| {
+            common(w);
+            for v in [2, 3] {
+                w.bits(1, 2);
+                w.bytes(&[v]);
+            }
+            w.bd(0.25);
+            for v in [1.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(1, 2);
+            w.bytes(&[2]);
+            for v in [0.0, 0.0, 0.0, 5.0, 6.0, 0.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles_to(0x10, 0),
+    );
     let mut objects = objects_in_sample();
     objects.extend([
         (0x32, point),
@@ -3739,6 +3789,8 @@ fn sample_with_more_kinds() -> Vec<u8> {
         (0x3F, attribute(0x03, 0x3F)),
         (0x40, mtext),
         (0x41, lwpolyline),
+        (0x42, by_knots),
+        (0x43, by_fit),
     ]);
     dwg(&objects)
 }
@@ -4153,6 +4205,123 @@ fn changed_lwpolylines_are_written_back() {
     let (out, diag) = written_back(&mut file, &changed);
     assert_eq!(out, Err(Error::Rejected));
     assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+}
+
+#[test]
+fn changed_splines_are_written_back() {
+    let src = sample_with_more_kinds();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let index = |db: &AcadDb, handle| {
+        db.objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap()
+    };
+    // 節点の SPLINE は、制御点を動かして重みを外す。当てはめる点の SPLINE は、点を動かして
+    // 終わりの接線を足す
+    let knots = index(&db, 0x42);
+    let values = &mut db.object_mut(knots).unwrap().values;
+    values.retain(|v| v.code != 41);
+    for value in values.iter_mut() {
+        if let (10 | 20, Data::Real(v)) = (value.code, &mut value.data) {
+            *v += 1.0;
+        }
+    }
+    let fit = index(&db, 0x43);
+    for value in db.object_mut(fit).unwrap().values.iter_mut() {
+        if let (11, Data::Real(v)) = (value.code, &mut value.data) {
+            *v -= 1.0;
+        }
+    }
+    for (code, v) in [(13, 0.0), (23, 1.0), (33, 0.0)] {
+        set_value(&mut db, 0x43, code, Data::Real(v));
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let sorted = |db: &AcadDb| -> Vec<_> {
+        db.objects()
+            .iter()
+            .map(|o| {
+                let mut values = o.values.clone();
+                values.sort_by_key(|v| v.code);
+                values
+            })
+            .collect()
+    };
+    assert_eq!(sorted(&after), sorted(&db));
+    // 閉じている印は元のまま残り、重みの印は外れる
+    let by_knots = object(
+        0x24,
+        0x42,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1, 1] {
+                w.bits(1, 2);
+                w.bytes(&[v]);
+            }
+            w.bit(false);
+            w.bit(true);
+            w.bit(false);
+            w.bd(1e-9);
+            w.bd(1e-10);
+            for v in [4, 2] {
+                w.bits(1, 2);
+                w.bytes(&[v]);
+            }
+            w.bit(false);
+            for v in [0.0, 0.0, 1.0, 1.0] {
+                w.bd(v);
+            }
+            for v in [1.0, 1.0, 0.0, 3.0, 4.0, 0.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles_to(0x10, 0),
+    );
+    let by_fit = object(
+        0x24,
+        0x43,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [2, 3] {
+                w.bits(1, 2);
+                w.bytes(&[v]);
+            }
+            w.bd(0.25);
+            for v in [1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(1, 2);
+            w.bytes(&[2]);
+            for v in [-1.0, 0.0, 0.0, 4.0, 6.0, 0.0] {
+                w.bd(v);
+            }
+        },
+        entity_handles_to(0x10, 0),
+    );
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (index, expected) in [(knots, by_knots), (fit, by_fit)] {
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data);
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // 制御点の数と合わない 73 と、場合 1 の当てはめる点は符号化できない
+    for (code, data) in [(73, Data::Int(5)), (44, Data::Real(0.5))] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, 0x42, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
 }
 
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
