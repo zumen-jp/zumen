@@ -1757,6 +1757,144 @@ fn types_of_classes_are_named_by_the_classes() {
 }
 
 #[test]
+fn dictionaries_and_xrecords_have_their_entries_and_data() {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    // 所有する辞書。項目は XRECORD を指す
+    let dictionary = object(
+        0x2A,
+        0x20,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2); // 項目の数（BL の RC）
+            w.bytes(&[1]);
+            w.bs(1); // 複製の扱い
+            w.bytes(&[1]); // 所有する
+            text(w, b"MY_DATA");
+        },
+        |w| {
+            w.handle(4, 0xC); // 所有者
+            w.handle(3, 0); // 拡張辞書
+            w.handle(2, 0x21);
+        },
+    );
+    let mut data = BitWriter::default();
+    let rs = |w: &mut BitWriter, v: i16| w.bytes(&v.to_le_bytes());
+    rs(&mut data, 1);
+    rs(&mut data, 3);
+    data.bytes(&[30]); // コード・ページ
+    data.bytes(b"a\nb");
+    rs(&mut data, 10);
+    for v in [1.0, 2.0, 3.0] {
+        data.rd(v);
+    }
+    rs(&mut data, 40);
+    data.rd(0.5);
+    rs(&mut data, 70);
+    rs(&mut data, -2);
+    rs(&mut data, 90);
+    data.rl(70000);
+    rs(&mut data, 160);
+    data.bytes(&(1i64 << 40).to_le_bytes());
+    rs(&mut data, 280);
+    data.bytes(&[7]);
+    rs(&mut data, 290);
+    data.bytes(&[1]);
+    rs(&mut data, 310);
+    data.bytes(&[2, 0xAB, 0xCD]);
+    rs(&mut data, 340);
+    data.bytes(&0x20u64.to_le_bytes());
+    let xrecord = object(
+        500,
+        0x21,
+        move |w| {
+            w.bl_zero();
+            w.bits(0, 2); // データのバイト数（BL の RL）
+            w.rl((data.bits.len() / 8) as u32);
+            w.bits.extend(&data.bits);
+            w.bs(1); // 複製の扱い
+        },
+        |w| {
+            w.handle(4, 0x20);
+            w.handle(3, 0);
+        },
+    );
+    let src = with_classes(
+        dwg(&[(0x20, dictionary), (0x21, xrecord)]),
+        &[(500, b"XRECORD", false)],
+    );
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+
+    let dictionary = db.get(0x20).unwrap();
+    assert_eq!(dictionary.kind, b"DICTIONARY");
+    let values: Vec<_> = dictionary
+        .values
+        .iter()
+        .map(|v| (v.code, &v.data))
+        .collect();
+    assert_eq!(
+        values[2..],
+        [
+            (280, &Data::Int(1)),
+            (281, &Data::Int(1)),
+            (3, &Data::Text(b"MY_DATA".to_vec())),
+            (360, &Data::Handle(0x21)),
+        ]
+    );
+
+    let xrecord = db.get(0x21).unwrap();
+    assert_eq!(xrecord.kind, b"XRECORD");
+    assert_eq!(xrecord.first(330), Some(&Data::Handle(0x20)));
+    let values: Vec<_> = xrecord.values.iter().map(|v| (v.code, &v.data)).collect();
+    assert_eq!(
+        values[2..],
+        [
+            (280, &Data::Int(1)),
+            (1, &Data::Text(b"a^Jb".to_vec())),
+            (10, &Data::Real(1.0)),
+            (20, &Data::Real(2.0)),
+            (30, &Data::Real(3.0)),
+            (40, &Data::Real(0.5)),
+            (70, &Data::Int(-2)),
+            (90, &Data::Int(70000)),
+            (160, &Data::Int(1 << 40)),
+            (280, &Data::Int(7)),
+            (290, &Data::Bool(true)),
+            (310, &Data::Binary(vec![0xAB, 0xCD])),
+            (340, &Data::Handle(0x20)),
+        ]
+    );
+}
+
+#[test]
+fn xrecord_data_that_overruns_its_length_is_not_read() {
+    let xrecord = object(
+        500,
+        0x21,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2);
+            w.bytes(&[3]); // 3 バイトと記録するが、値は 10 バイト
+            w.bytes(&40i16.to_le_bytes());
+            w.rd(0.5);
+            w.bs(1);
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+        },
+    );
+    let src = with_classes(dwg(&[(0x21, xrecord)]), &[(500, b"XRECORD", false)]);
+    let (db, diag) = objects(&src);
+    assert!(!diag.is_empty());
+    assert_eq!(db.get(0x21).unwrap().first(40), None);
+}
+
+#[test]
 fn a_wrong_class_section_is_reported() {
     let src = with_classes(dwg(&objects_in_sample()), &[(500, b"HATCH", true)]);
     let end = src.len();
