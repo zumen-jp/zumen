@@ -39,13 +39,22 @@ impl AcadDb {
         self.reindex();
     }
 
-    /// `index` 番目のオブジェクトを除いて返す。なければ `None`
+    /// `index` 番目のオブジェクトを除いて返す。なければ `None`。除いたオブジェクトのハンドルを持つものが
+    /// ほかになければ、ほかのオブジェクトからの参照のうち、辞書の項目と 102 の組の中の参照も除く
+    /// （[`Object::forget`]）
     pub fn remove(&mut self, index: usize) -> Option<Object> {
         if index >= self.objects.len() {
             return None;
         }
         let removed = self.objects.remove(index);
         self.reindex();
+        if let Some(handle) = removed.handle()
+            && self.get(handle).is_none()
+        {
+            for object in &mut self.objects {
+                object.forget(handle);
+            }
+        }
         Some(removed)
     }
 
@@ -137,6 +146,51 @@ impl Object {
             } => Some(*handle),
             _ => None,
         })
+    }
+
+    /// `handle` への参照のうち、除いたオブジェクトに残すと壊れるものを除く（DXF Reference「Common Group
+    /// Codes for Objects」と「DICTIONARY」）。
+    ///
+    /// - DICTIONARY の項目（名前の 3 と、次の 350・360）
+    /// - 102 の組（`{ACAD_REACTORS`・`{ACAD_XDICTIONARY` など）の中の 330・360。参照を除いて空になった組は、
+    ///   組ごと除く
+    ///
+    /// 組の外の所有者（330）などは残す
+    pub fn forget(&mut self, handle: u64) {
+        let refers = |value: &Value| matches!(value.data, Data::Handle(h) if h == handle);
+        let dictionary = self.kind == b"DICTIONARY";
+        let mut out = Vec::with_capacity(self.values.len());
+        // 開いている組の、`out` の中の始まりと、参照を除いたか
+        let mut groups: Vec<(usize, bool)> = Vec::new();
+        let mut values = core::mem::take(&mut self.values).into_iter().peekable();
+        while let Some(value) = values.next() {
+            match (value.code, &value.data) {
+                (102, Data::Text(text)) if text.starts_with(b"{") => {
+                    groups.push((out.len(), false));
+                    out.push(value);
+                }
+                (102, Data::Text(text)) if text.starts_with(b"}") => match groups.pop() {
+                    Some((start, true)) if out.len() == start + 1 => out.truncate(start),
+                    _ => out.push(value),
+                },
+                (330 | 360, _) if refers(&value) && !groups.is_empty() => {
+                    if let Some(group) = groups.last_mut() {
+                        group.1 = true;
+                    }
+                }
+                (3, _)
+                    if dictionary
+                        && groups.is_empty()
+                        && values
+                            .peek()
+                            .is_some_and(|next| matches!(next.code, 350 | 360) && refers(next)) =>
+                {
+                    values.next();
+                }
+                _ => out.push(value),
+            }
+        }
+        self.values = out;
     }
 
     /// 所有者のハンドル（330）。102 の組（`{ACAD_REACTORS` など）の中の 330 は除く。なければ `None`
