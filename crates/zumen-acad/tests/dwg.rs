@@ -5806,3 +5806,110 @@ fn changed_dimstyles_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
 }
+
+/// 説明・名前のない印・選べる印を持つ GROUP（0x20）と、型と値を持つ DICTIONARYVAR（0x21）
+#[cfg(test)]
+fn groups_and_vars_with(
+    about: &'static [u8],
+    unnamed: u16,
+    selectable: u16,
+    kind: u8,
+    var: &'static [u8],
+) -> Vec<u8> {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let group = object(
+        0x48,
+        0x20,
+        move |w| {
+            w.bl_zero();
+            text(w, about);
+            w.bs(unnamed);
+            w.bs(selectable);
+            w.bits(1, 2); // 図形の数（BL の RC）
+            w.bytes(&[1]);
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+            w.handle(5, 0x30);
+        },
+    );
+    let var = object(
+        500,
+        0x21,
+        move |w| {
+            w.bl_zero();
+            w.bytes(&[kind]);
+            text(w, var);
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+        },
+    );
+    with_classes(
+        dwg(&[(0x20, group), (0x21, var)]),
+        &[(500, b"DICTIONARYVAR", false)],
+    )
+}
+
+#[test]
+fn changed_groups_and_vars_are_written_back() {
+    let src = groups_and_vars_with(b"two lines", 0, 1, 0, b"1");
+    let (mut db, before) = objects(&src);
+    assert!(before.is_empty(), "{:?}", codes_of(&before));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    set_value(
+        &mut db,
+        0x20,
+        300,
+        Data::Text(b"a longer description".to_vec()),
+    );
+    set_value(&mut db, 0x20, 70, Data::Int(1));
+    set_value(&mut db, 0x20, 71, Data::Int(0));
+    set_value(&mut db, 0x21, 280, Data::Int(1));
+    set_value(&mut db, 0x21, 1, Data::Text(b"2.5".to_vec()));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    for handle in [0x20, 0x21] {
+        assert_eq!(
+            after.get(handle).unwrap().values,
+            db.get(handle).unwrap().values
+        );
+    }
+    // 変えた欄のほかは、データが組んだものと同じになる
+    let expected = objects(&groups_and_vars_with(
+        b"a longer description",
+        1,
+        0,
+        1,
+        b"2.5",
+    ))
+    .0;
+    for handle in [0x20, 0x21] {
+        assert_eq!(
+            after.get(handle).unwrap().values,
+            expected.get(handle).unwrap().values
+        );
+    }
+    // 0 でも 1 でもない印・ハンドルの並びの図形の変更・RC に収まらない型は受け付けない
+    for (handle, code, data) in [
+        (0x20, 70, Data::Int(2)),
+        (0x20, 340, Data::Handle(0x31)),
+        (0x21, 280, Data::Int(256)),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, handle, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}

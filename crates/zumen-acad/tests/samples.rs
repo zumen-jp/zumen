@@ -459,6 +459,15 @@ fn r2000_drawings_take_back_changed_entities() {
                     changed += 1;
                 }
             }
+            // 図面の変数の値の後ろに文字を足す
+            if object.kind == b"DICTIONARYVAR" {
+                for value in object.values.iter_mut() {
+                    if let (1, Data::Text(text)) = (value.code, &mut value.data) {
+                        text.extend(b"0");
+                        changed += 1;
+                    }
+                }
+            }
             if !matches!(
                 object.kind.as_slice(),
                 b"LINE"
