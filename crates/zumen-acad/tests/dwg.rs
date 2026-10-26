@@ -4721,6 +4721,181 @@ fn changed_dimensions_are_written_back() {
     }
 }
 
+/// 公差・引出線・多重線を持つ図面。`x` と `text` は公差の挿入点と文字、`height` と `hook` は引出線の注釈の
+/// 高さと鉤の線の向き、`scale` と `start` は多重線の尺度と初めの頂点の X
+#[cfg(test)]
+fn annotations_with(
+    x: f64,
+    text: &[u8],
+    height: f64,
+    hook: bool,
+    scale: f64,
+    start: f64,
+) -> Vec<(u64, Vec<u8>)> {
+    let style = object(
+        0x49,
+        0x31,
+        |w| {
+            w.bl_zero();
+            w.bs(9);
+            w.bytes(b"STANDARD\0");
+            w.bs(0);
+            w.bs(33);
+            w.bs(256);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bytes(&[1]);
+            w.bd(0.5);
+            w.bs(1);
+            w.bs(0);
+        },
+        |w| w.handle(4, 0x30),
+    );
+    let tolerance = object(
+        0x2E,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [x, 4.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bs(text.len() as u16 + 1);
+            w.bytes(text);
+            w.bytes(&[0]);
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x11);
+        },
+    );
+    let leader = object(
+        0x2D,
+        0x21,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bit(false);
+            w.bs(0);
+            w.bs(0);
+            w.bs(2);
+            for v in [0.0, 0.0, 0.0, 5.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            for v in [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(height);
+            w.bd(10.0);
+            w.bit(hook);
+            // 表にない後ろの欄
+            w.bit(true);
+            w.bs(0);
+            w.bit(false);
+            w.bit(false);
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x30);
+            w.handle(5, 0x11);
+        },
+    );
+    let mline = object(
+        0x2F,
+        0x22,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bd(scale);
+            w.bytes(&[1]);
+            for v in [0.0, 0.0, 0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bs(1);
+            w.bytes(&[1]);
+            w.bs(2);
+            for x in [start, 10.0] {
+                for v in [x, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+                    w.bd(v);
+                }
+                w.bs(2);
+                w.bd(0.5);
+                w.bd(0.0);
+                w.bs(0);
+            }
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x31);
+        },
+    );
+    vec![
+        (
+            0x10,
+            object(0x33, 0x10, record_named(b"0"), record_handles(2)),
+        ),
+        (
+            0x11,
+            object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3)),
+        ),
+        (0x20, tolerance),
+        (0x21, leader),
+        (0x22, mline),
+        (0x31, style),
+    ]
+}
+
+#[test]
+fn changed_annotations_are_written_back() {
+    let src = dwg(&annotations_with(3.0, b"{\\Fgd\n", 2.5, true, 1.5, 0.0));
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 公差の挿入点と文字、引出線の高さと鉤の線の向き、多重線の尺度と初めの頂点を変える
+    for (handle, code, data) in [
+        (0x20, 10, Data::Real(7.0)),
+        (0x20, 1, Data::Text(b"{\\Fgdt;n}^J0.1".to_vec())),
+        (0x21, 40, Data::Real(3.0)),
+        (0x21, 74, Data::Int(0)),
+        (0x22, 40, Data::Real(2.0)),
+        (0x22, 11, Data::Real(-4.0)),
+    ] {
+        set_value(&mut db, handle, code, data);
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    assert_eq!(values(&after), values(&db));
+    let file = read(&out, Limits::default()).0.unwrap();
+    for (handle, expected) in annotations_with(7.0, b"{\\Fgdt;n}\n0.1", 3.0, false, 2.0, -4.0) {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        let range = file.record(index).unwrap().bytes.unwrap();
+        let got = &out[range.start as usize..range.end as usize];
+        // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+        let data = &expected[1..expected.len() - 2];
+        assert_eq!(&got[1..=data.len()], data, "{handle:#x}");
+        assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+        assert!(got.len() <= expected.len() + 1);
+    }
+    // 0 か 1 でない鉤の線の向き、線の数と合わない区切り、表の頂点の数と合わない頂点の数は符号化できない
+    for (handle, code, data) in [
+        (0x21, 74, Data::Int(2)),
+        (0x22, 73, Data::Int(2)),
+        (0x22, 72, Data::Int(3)),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, handle, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
+
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
 #[cfg(test)]
 fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
