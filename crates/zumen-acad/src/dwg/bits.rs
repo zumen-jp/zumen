@@ -3,6 +3,8 @@
 //! バイトの中のビットは、上位から読む。複数のバイトにわたる生の値は、下位のバイトから並ぶ。
 //! どの読み方も、データが尽きたら `None` を返す。
 
+use core::ops::Range;
+
 use super::Release;
 
 /// 色
@@ -451,6 +453,99 @@ pub(super) fn push_modular_short(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&(rest as u16).to_le_bytes());
 }
 
+/// ビットの並びを、上位のビットから書く。[`Bits`] の逆
+#[derive(Debug, Default)]
+pub(super) struct BitWriter {
+    out: Vec<u8>,
+    /// 書いたビットの数
+    len: usize,
+}
+
+impl BitWriter {
+    /// 書いたビットの数
+    pub(super) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// 書いたバイト列。最後のバイトの残りのビットは 0
+    pub(super) fn into_bytes(self) -> Vec<u8> {
+        self.out
+    }
+
+    pub(super) fn bit(&mut self, bit: bool) {
+        let shift = self.len % 8;
+        if shift == 0 {
+            self.out.push(0);
+        }
+        if bit && let Some(last) = self.out.last_mut() {
+            *last |= 0x80 >> shift;
+        }
+        self.len += 1;
+    }
+
+    /// `value` の下位の `n` ビットを、上位から
+    fn small(&mut self, value: u8, n: u8) {
+        for shift in (0..n).rev() {
+            self.bit((value >> shift) & 1 == 1);
+        }
+    }
+
+    fn raw(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.small(byte, 8);
+        }
+    }
+
+    /// `src` の `bits` のビットを写す。`src` の外を指せば `None`
+    pub(super) fn copy(&mut self, src: &[u8], bits: Range<usize>) -> Option<()> {
+        for pos in bits {
+            let byte = src.get(pos / 8)?;
+            self.bit((byte >> (7 - pos % 8)) & 1 == 1);
+        }
+        Some(())
+    }
+
+    /// RL
+    pub(super) fn rl(&mut self, value: i32) {
+        self.raw(&value.to_le_bytes());
+    }
+
+    /// RD
+    pub(super) fn rd(&mut self, value: f64) {
+        self.raw(&value.to_le_bytes());
+    }
+
+    /// BD。1 と 0 は 2 ビットで書く。-0 は RD で書く
+    pub(super) fn bd(&mut self, value: f64) {
+        if value.to_bits() == 1.0f64.to_bits() {
+            self.small(1, 2);
+        } else if value.to_bits() == 0 {
+            self.small(2, 2);
+        } else {
+            self.small(0, 2);
+            self.rd(value);
+        }
+    }
+
+    /// DD。`default` と同じ上位のバイトは書かない
+    pub(super) fn dd(&mut self, value: f64, default: f64) {
+        let [v0, v1, v2, v3, v4, v5, v6, v7] = value.to_le_bytes();
+        let [_, _, _, _, d4, d5, d6, d7] = default.to_le_bytes();
+        if value.to_bits() == default.to_bits() {
+            self.small(0, 2);
+        } else if [v4, v5, v6, v7] == [d4, d5, d6, d7] {
+            self.small(1, 2);
+            self.raw(&[v0, v1, v2, v3]);
+        } else if [v6, v7] == [d6, d7] {
+            self.small(2, 2);
+            self.raw(&[v4, v5, v0, v1, v2, v3]);
+        } else {
+            self.small(3, 2);
+            self.rd(value);
+        }
+    }
+}
+
 /// CRC の表の `index` 番目の値。多項式 0xA001 の、下位のビットから送る CRC
 fn crc_entry(index: u8) -> u16 {
     (0..8).fold(u16::from(index), |crc, _| {
@@ -566,6 +661,39 @@ mod tests {
         let src = [0b0011_0001, 0b1111_0100, 0b1000_1101, 0];
         assert_eq!(modular_short(&src, &mut 0), Some(4_650_033));
         assert_eq!(modular_char(&[0x80], &mut 0, false), None);
+    }
+
+    #[test]
+    fn bit_values_are_written_back() {
+        let mut out = BitWriter::default();
+        out.bit(true);
+        out.rl(-2);
+        let reals = [0.0, -0.0, 1.0, 2.5, 1.0e-300, f64::MAX];
+        for value in reals {
+            out.rd(value);
+            out.bd(value);
+            for default in [0.0, 2.5, 2.5000001, 1.0e-300] {
+                out.dd(value, default);
+            }
+        }
+        let mut copied = BitWriter::default();
+        let len = out.len();
+        let bytes = out.into_bytes();
+        copied.copy(&bytes, 0..len);
+        assert_eq!(copied.len(), len);
+        let copied = copied.into_bytes();
+        assert_eq!(copied, bytes);
+        let mut bits = Bits::new(&copied);
+        assert_eq!(bits.bit(), Some(true));
+        assert_eq!(bits.rl(), Some(-2));
+        for value in reals {
+            assert_eq!(bits.rd().map(f64::to_bits), Some(value.to_bits()));
+            assert_eq!(bits.bd().map(f64::to_bits), Some(value.to_bits()));
+            for default in [0.0, 2.5, 2.5000001, 1.0e-300] {
+                assert_eq!(bits.dd(default).map(f64::to_bits), Some(value.to_bits()));
+            }
+        }
+        assert_eq!(bits.pos(), len);
     }
 
     #[test]

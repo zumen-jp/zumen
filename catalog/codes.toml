@@ -212,6 +212,13 @@ params = { record = "uint" }
 since = "0.0.0"
 status = "active"
 
+[codes."dwg.change.unsupported"]
+description = "この DWG から読んでいないオブジェクトの変更や、まだ符号化できない値の変更は、DWG に書き戻せない"
+severity = "error"
+params = { kind = "text" }
+since = "0.0.0"
+status = "active"
+
 [codes."dwg.file.invalid"]
 description = "DWG の見出し・オブジェクトの地図・オブジェクトの区切りを読めない"
 severity = "error"

@@ -1,6 +1,6 @@
 //! DWG（R2000）の試作を、試験の中で組み立てた DWG で確かめる。受け取った図面は使わない。
 
-use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Line, Origin, Section};
+use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Line, Origin, Section, Value};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction};
 
@@ -3442,6 +3442,212 @@ fn invalid_object_changes_are_rejected_without_changing_the_file() {
         .0
         .unwrap();
     let (result, diag) = edited(&mut r2004, &[(0, first)]);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
+}
+
+/// 表 `db` の変更を書き戻し、書いたバイト列と診断を返す
+#[cfg(test)]
+fn written_back(file: &mut DwgFile, db: &AcadDb) -> (Result<Vec<u8>, Error>, Diagnostics) {
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let result = file.write_back(db, &mut cx).and_then(|()| {
+        let mut out = Vec::new();
+        Dwg::write(file, &mut out, &mut cx).map(|()| out)
+    });
+    (result, diag)
+}
+
+/// 見本の DWG に、CIRCLE と ARC を足したもの
+#[cfg(test)]
+fn sample_with_curves() -> Vec<u8> {
+    let circle = object(
+        0x12,
+        0x30,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 2.0, 0.0, 5.0] {
+                w.bd(v);
+            }
+            w.bit(false);
+            w.bd(0.25);
+            w.bit(true);
+        },
+        entity_handles(0x10),
+    );
+    let arc = object(
+        0x11,
+        0x31,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [0.0, 0.0, 0.0, 3.0] {
+                w.bd(v);
+            }
+            w.bit(true);
+            w.bit(false);
+            for v in [0.0, 0.0, -1.0] {
+                w.bd(v);
+            }
+            w.bd(std::f64::consts::FRAC_PI_2);
+            w.bd(std::f64::consts::PI);
+        },
+        entity_handles(0x10),
+    );
+    let mut objects = objects_in_sample();
+    objects.extend([(0x30, circle), (0x31, arc)]);
+    dwg(&objects)
+}
+
+/// `handle` のオブジェクトの `code` の値を `data` にする。なければ足す
+#[cfg(test)]
+fn set_value(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(handle))
+        .unwrap();
+    let values = &mut db.object_mut(index).unwrap().values;
+    match values.iter_mut().find(|v| v.code == code) {
+        Some(value) => value.data = data,
+        None => values.push(Value { code, data }),
+    }
+}
+
+#[test]
+fn changed_lines_circles_and_arcs_are_written_back() {
+    let src = sample_with_curves();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 平らな LINE の終わりの点を変え、厚さと押し出しの向きを足す
+    set_value(&mut db, 0x2A, 11, Data::Real(123.25));
+    set_value(&mut db, 0x2A, 21, Data::Real(-0.5));
+    set_value(&mut db, 0x2A, 39, Data::Real(0.75));
+    for (code, v) in [(210, 0.0), (220, 0.0), (230, -1.0)] {
+        set_value(&mut db, 0x2A, code, Data::Real(v));
+    }
+    // Z のある LINE を平らにする
+    set_value(&mut db, 0x2B, 30, Data::Real(0.0));
+    set_value(&mut db, 0x2B, 31, Data::Real(0.0));
+    set_value(&mut db, 0x30, 40, Data::Real(1.0));
+    set_value(&mut db, 0x30, 39, Data::Real(0.0));
+    set_value(&mut db, 0x31, 50, Data::Real(45.0));
+    set_value(&mut db, 0x31, 10, Data::Real(-2.0e10));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(&out[0x19 + 27 + 2..src.len()], &src[0x19 + 27 + 2..]);
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values =
+        |db: &AcadDb| -> Vec<_> { db.objects().iter().map(|o| o.values.clone()).collect() };
+    let mut expected = values(&db);
+    // 角度は、ラジアンに直して書き、度に直して読む
+    let arc = &mut expected[7];
+    for value in arc.iter_mut().filter(|v| v.code == 50) {
+        value.data = Data::Real(45.0f64.to_radians().to_degrees());
+    }
+    assert_eq!(values(&after), expected);
+    // 変えていないオブジェクトは、元の位置のまま
+    let again = read(&out, Limits::default()).0.unwrap();
+    for i in [0, 1, 4, 5] {
+        assert_eq!(
+            again.record(i).unwrap().bytes,
+            file.record(i).unwrap().bytes
+        );
+    }
+}
+
+#[test]
+fn unchanged_tables_leave_the_file_as_it_was() {
+    let src = sample_with_curves();
+    let (db, _) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(out.unwrap(), src);
+    let r2004_src = r2004(&r2004_sections());
+    let mut r2004 = read(&r2004_src, Limits::default()).0.unwrap();
+    let mut diag = Diagnostics::new();
+    let db = r2004
+        .objects(&mut Cx::new(
+            &mut Budget::default(),
+            &mut diag,
+            &CancelToken::new(),
+        ))
+        .unwrap();
+    let (out, diag) = written_back(&mut r2004, &db);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(out.unwrap(), r2004_src);
+}
+
+/// 表の変え方
+#[cfg(test)]
+type Edit = fn(&mut AcadDb);
+
+#[test]
+fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
+    let src = sample_with_curves();
+    let (db, _) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let edits: [(&str, Edit); 7] = [
+        ("LAYER", |db| {
+            set_value(db, 0x10, 2, Data::Text(b"WALL".to_vec()))
+        }),
+        ("LINE", |db| set_value(db, 0x2A, 62, Data::Int(1))),
+        ("LINE", |db| set_value(db, 0x2A, 10, Data::Int(1))),
+        ("CIRCLE", |db| {
+            db.remove(6);
+        }),
+        ("LINE", |db| {
+            let mut line = db.objects()[2].clone();
+            line.origin = Origin::New;
+            db.push(line);
+        }),
+        ("ENTITIES", |db| {
+            let line = db.remove(2).unwrap();
+            db.push(line);
+        }),
+        ("$INSUNITS", |db| {
+            db.set_variable(
+                b"$INSUNITS",
+                vec![Value {
+                    code: 70,
+                    data: Data::Int(4),
+                }],
+            );
+        }),
+    ];
+    for (kind, edit) in edits {
+        let mut changed = db.clone();
+        edit(&mut changed);
+        let (result, diag) = written_back(&mut file, &changed);
+        assert_eq!(result, Err(Error::Rejected), "{kind}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{kind}");
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&kind.to_string().into()));
+        let (out, _) = edited(&mut file, &[]);
+        assert_eq!(out.unwrap(), src);
+    }
+    let r2004_src = r2004(&r2004_sections());
+    let mut r2004 = read(&r2004_src, Limits::default()).0.unwrap();
+    let mut diag = Diagnostics::new();
+    let mut db = r2004
+        .objects(&mut Cx::new(
+            &mut Budget::default(),
+            &mut diag,
+            &CancelToken::new(),
+        ))
+        .unwrap();
+    db.set_variable(
+        b"$INSUNITS",
+        vec![Value {
+            code: 70,
+            data: Data::Int(4),
+        }],
+    );
+    let (result, diag) = written_back(&mut r2004, &db);
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
 }
