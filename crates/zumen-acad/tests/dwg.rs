@@ -3699,6 +3699,28 @@ fn sample_with_more_kinds() -> Vec<u8> {
         },
         entity_handles_to(0x10, 0),
     );
+    // 閉じていて、頂点ごとの幅と膨らみがある LWPOLYLINE。一定の幅（0.5）は表にない
+    let lwpolyline = object(
+        0x4D,
+        0x41,
+        move |w| {
+            common(w);
+            w.bs(0x200 | 32 | 16 | 4);
+            w.bd(0.5);
+            for _ in 0..3 {
+                w.bits(1, 2);
+                w.bytes(&[2]);
+            }
+            w.rd(1.0);
+            w.rd(2.0);
+            w.dd(5.0, 1.0);
+            w.dd(2.0, 2.0);
+            for v in [0.0, 0.25, 0.1, 0.2, 0.3, 0.4] {
+                w.bd(v);
+            }
+        },
+        entity_handles_to(0x10, 0),
+    );
     let mut objects = objects_in_sample();
     objects.extend([
         (0x32, point),
@@ -3716,6 +3738,7 @@ fn sample_with_more_kinds() -> Vec<u8> {
         (0x3E, attribute(0x02, 0x3E)),
         (0x3F, attribute(0x03, 0x3F)),
         (0x40, mtext),
+        (0x41, lwpolyline),
     ]);
     dwg(&objects)
 }
@@ -4050,6 +4073,82 @@ fn changed_mtexts_are_written_back() {
     // 文字列でない 3 は符号化できない
     let mut changed = objects(&src).0;
     set_value(&mut changed, 0x40, 3, Data::Real(1.0));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+}
+
+#[test]
+fn changed_lwpolylines_are_written_back() {
+    let src = sample_with_more_kinds();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x41))
+        .unwrap();
+    // 頂点を動かし、2 つめの頂点の終わりの幅を変え、標高を足す
+    for value in db.object_mut(index).unwrap().values.iter_mut() {
+        match (value.code, &mut value.data) {
+            (10, Data::Real(v)) => *v += 1.0,
+            (41, Data::Real(v)) if *v == 0.4 => *v = 0.75,
+            _ => {}
+        }
+    }
+    set_value(&mut db, 0x41, 38, Data::Real(3.0));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    let values = |db: &AcadDb| -> Vec<_> {
+        db.objects()
+            .iter()
+            .map(|o| {
+                let mut values = o.values.clone();
+                values.sort_by_key(|v| v.code);
+                values
+            })
+            .collect()
+    };
+    assert_eq!(values(&after), values(&db));
+    // 一定の幅（0.5）は元のまま残り、標高の印が立つ
+    let expected = object(
+        0x4D,
+        0x41,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bs(0x200 | 32 | 16 | 8 | 4);
+            w.bd(0.5);
+            w.bd(3.0);
+            for _ in 0..3 {
+                w.bits(1, 2);
+                w.bytes(&[2]);
+            }
+            w.rd(2.0);
+            w.rd(2.0);
+            w.dd(6.0, 2.0);
+            w.dd(2.0, 2.0);
+            for v in [0.0, 0.25, 0.1, 0.2, 0.3, 0.75] {
+                w.bd(v);
+            }
+        },
+        entity_handles_to(0x10, 0),
+    );
+    let file = read(&out, Limits::default()).0.unwrap();
+    let range = file.record(index).unwrap().bytes.unwrap();
+    let got = &out[range.start as usize..range.end as usize];
+    // ハンドルの流れの後ろの埋めのビットも写すので、データが 1 バイト延びることがある。大きさ（MS）と
+    // CRC を除いて、組んだデータに 0 のバイトが続くことを確かめる
+    let data = &expected[1..expected.len() - 2];
+    assert_eq!(&got[1..=data.len()], data);
+    assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+    assert!(got.len() <= expected.len() + 1);
+    // 0 と 1 でない 70 は符号化できない
+    let mut changed = objects(&src).0;
+    set_value(&mut changed, 0x41, 70, Data::Int(2));
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &changed);
     assert_eq!(out, Err(Error::Rejected));
