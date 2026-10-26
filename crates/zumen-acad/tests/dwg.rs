@@ -3646,6 +3646,34 @@ fn sample_with_more_kinds() -> Vec<u8> {
             entity_handles_to(0x10, 0),
         )
     };
+    // DataFlags が 0x7F で、縦の合わせだけを持つ ATTRIB と ATTDEF
+    let attribute = |type_code, handle| {
+        object(
+            type_code,
+            handle,
+            move |w: &mut BitWriter| {
+                common(w);
+                w.bytes(&[0x7F]);
+                w.rd(1.0);
+                w.rd(2.0);
+                w.bit(true);
+                w.bit(true);
+                w.rd(2.5);
+                w.bs(4);
+                w.bytes(b"A^B\0");
+                w.bs(2);
+                w.bs(4);
+                w.bytes(b"TAG\0");
+                w.bs(0);
+                w.bytes(&[1]);
+                if type_code == 0x03 {
+                    w.bs(5);
+                    w.bytes(b"Name\0");
+                }
+            },
+            entity_handles_to(0x10, 0),
+        )
+    };
     let mut objects = objects_in_sample();
     objects.extend([
         (0x32, point),
@@ -3660,6 +3688,8 @@ fn sample_with_more_kinds() -> Vec<u8> {
         (0x3B, insert(0x07, 0x3B)),
         (0x3C, insert(0x07, 0x3C)),
         (0x3D, insert(0x08, 0x3D)),
+        (0x3E, attribute(0x02, 0x3E)),
+        (0x3F, attribute(0x03, 0x3F)),
     ]);
     dwg(&objects)
 }
@@ -3877,6 +3907,50 @@ fn changed_texts_and_inserts_are_written_back() {
         assert_eq!(out, Err(Error::Rejected), "{code}");
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{code}");
     }
+}
+
+#[test]
+fn changed_attributes_are_written_back() {
+    let src = sample_with_more_kinds();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let edits: [(u64, i16, Data); 8] = [
+        (0x3E, 1, Data::Text(b"X^ Y^I".to_vec())),
+        (0x3E, 2, Data::Text(b"T2".to_vec())),
+        (0x3E, 70, Data::Int(8)),
+        (0x3E, 74, Data::Int(3)),
+        (0x3E, 73, Data::Int(5)),
+        (0x3F, 1, Data::Text(Vec::new())),
+        (0x3F, 3, Data::Text(b"Q".to_vec())),
+        (0x3F, 41, Data::Real(0.9)),
+    ];
+    for (handle, code, data) in edits {
+        set_value(&mut db, handle, code, data);
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    // 足した値は表の終わりに置いたので、グループ・コードの順に並べて比べる
+    let values = |db: &AcadDb| -> Vec<_> {
+        db.objects()
+            .iter()
+            .map(|o| {
+                let mut values = o.values.clone();
+                values.sort_by_key(|v| v.code);
+                values
+            })
+            .collect()
+    };
+    assert_eq!(values(&after), values(&db));
+    // RC に収まらない印は符号化できない
+    let mut changed = objects(&src).0;
+    set_value(&mut changed, 0x3E, 70, Data::Int(300));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
 }
 
 /// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
