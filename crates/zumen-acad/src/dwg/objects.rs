@@ -72,6 +72,9 @@ const STYLE: u16 = 0x35;
 const LTYPE: u16 = 0x39;
 
 /// DIMSTYLE の表のレコードの型。ハンドルのグループ・コードが 105
+const VIEW: u16 = 0x3D;
+const UCS: u16 = 0x3F;
+const VPORT: u16 = 0x41;
 const DIMSTYLE: u16 = 0x45;
 const MLINESTYLE: u16 = 0x49;
 const DICTIONARY: u16 = 0x2A;
@@ -254,7 +257,7 @@ struct RecordRef {
 fn is_table_record(type_code: u16) -> bool {
     matches!(
         type_code,
-        BLOCK_RECORD | LAYER | STYLE | LTYPE | 0x3D | 0x3F | 0x41 | 0x43 | DIMSTYLE | 0x47
+        BLOCK_RECORD | LAYER | STYLE | LTYPE | VIEW | UCS | VPORT | 0x43 | DIMSTYLE | 0x47
     )
 }
 
@@ -999,6 +1002,22 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 }
             }
         }
+        VIEW => values.extend(view(bits, xdep, handles)?),
+        UCS => {
+            values.push(int(70, xdep));
+            values.extend(ucs(bits)?);
+            handles.extend([346, 0]);
+        }
+        VPORT => {
+            values.push(int(70, xdep));
+            values.extend(vport(bits)?);
+            handles.extend([345, 346]);
+        }
+        DIMSTYLE => {
+            values.push(int(70, xdep));
+            values.extend(dimstyle(bits)?);
+            handles.extend([340, 341, 342, 343, 344]);
+        }
         // BLOCK_RECORD の印は、DXF では BLOCK の 70 に書かれる
         BLOCK_RECORD => {}
         _ => {
@@ -1006,6 +1025,247 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             // APPID は、使い道の分からない RC を持つ
             if type_code == 0x43 {
                 bits.rc()?;
+            }
+        }
+    }
+    Some(values)
+}
+
+/// VIEW・VPORT の見え方の印（71）。4 つのビットは、透視（1）・前の切り取り（2）・後ろの切り取り（4）・
+/// 前の切り取りが目の位置にあること（DXF の 16 の逆）の順
+fn view_mode(bits: &mut Bits) -> Option<i64> {
+    let mut mode = 0;
+    for flag in [1, 2, 4] {
+        if bits.bit()? {
+            mode |= flag;
+        }
+    }
+    if !bits.bit()? {
+        mode |= 16;
+    }
+    Some(mode)
+}
+
+/// VIEW の欄（ODS 5.4.1 の VIEW の節、R2000）。高さ（40）・中心（10）・幅（41）・向き（11）・
+/// 注視点（12）・レンズ（42）・切り取り（43・44）・ねじれ（50、度に直す）・見え方の印（71）・
+/// 描き方（281）と、UCS を伴う印（72）を置く。UCS を伴うときは、UCS の原点と軸（110〜112）・
+/// 正投影の種類（79）・高さ（146）も置き、ハンドルの並びでは基準の UCS（346）と名前の UCS（345）が続く。
+/// 紙空間の印は、70 の 1 とする
+fn view(bits: &mut Bits, xdep: i64, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    let height = bits.bd()?;
+    let width = bits.bd()?;
+    let center = point2(bits, 10)?;
+    let target = point3(bits, 12)?;
+    let direction = point3(bits, 11)?;
+    let twist = bits.bd()?;
+    let (lens, front, back) = (bits.bd()?, bits.bd()?, bits.bd()?);
+    let mode = view_mode(bits)?;
+    let render = bits.rc()?;
+    let paper = bits.bit()?;
+    let mut values = vec![int(70, xdep | i64::from(paper)), real(40, height)];
+    values.extend(center);
+    values.push(real(41, width));
+    values.extend(direction);
+    values.extend(target);
+    values.extend([
+        real(42, lens),
+        real(43, front),
+        real(44, back),
+        real(50, twist.to_degrees()),
+        int(71, mode),
+        int(281, i64::from(render)),
+    ]);
+    let associated = bits.bit()?;
+    values.push(int(72, i64::from(associated)));
+    if associated {
+        for code in [110, 111, 112] {
+            values.extend(point3(bits, code)?);
+        }
+        let elevation = bits.bd()?;
+        values.push(int(79, i64::from(bits.bs()?)));
+        values.push(real(146, elevation));
+        handles.extend([346, 345]);
+    }
+    Some(values)
+}
+
+/// UCS の欄（ODS 5.4.1 の UCS の節、R2000）。原点（10）・X 軸（11）・Y 軸（12）・正投影の種類（79）・
+/// 高さ（146）を置く。後に続く正投影の型（BS）は、DXF の 71 と 13 の組と並びが合わないので置かない
+fn ucs(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    values.extend(point3(bits, 11)?);
+    values.extend(point3(bits, 12)?);
+    let elevation = bits.bd()?;
+    values.push(int(79, i64::from(bits.bs()?)));
+    values.push(real(146, elevation));
+    bits.bs()?;
+    Some(values)
+}
+
+/// VPORT の欄（ODS 5.4.1 の VPORT の節、R2000）。DWG は幅を高さとの積で持つので、DXF と同じく
+/// 高さとの比（41）に直す。UCS に従う印は、見え方の印（71）の 8 とする
+fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
+    let height = bits.bd()?;
+    let width = bits.bd()?;
+    let center = point2(bits, 12)?;
+    let target = point3(bits, 17)?;
+    let direction = point3(bits, 16)?;
+    let twist = bits.bd()?;
+    let (lens, front, back) = (bits.bd()?, bits.bd()?, bits.bd()?);
+    let mode = view_mode(bits)?;
+    let render = bits.rc()?;
+    let mut values = point2(bits, 10)?;
+    values.extend(point2(bits, 11)?);
+    values.extend(center);
+    let follow = if bits.bit()? { 8 } else { 0 };
+    let zoom = bits.bs()?;
+    let fast = bits.bit()?;
+    let icon = bits.bb()?;
+    let grid = bits.bit()?;
+    let grid_spacing = point2(bits, 15)?;
+    let snap = bits.bit()?;
+    let snap_style = bits.bit()?;
+    let isopair = bits.bs()?;
+    let snap_rotation = bits.bd()?;
+    values.extend(point2(bits, 13)?);
+    values.extend(point2(bits, 14)?);
+    values.extend(grid_spacing);
+    values.extend(direction);
+    values.extend(target);
+    values.extend([
+        real(40, height),
+        real(41, if height == 0.0 { width } else { width / height }),
+        real(42, lens),
+        real(43, front),
+        real(44, back),
+        real(50, snap_rotation.to_degrees()),
+        real(51, twist.to_degrees()),
+        int(71, mode | follow),
+        int(72, i64::from(zoom)),
+        int(73, i64::from(fast)),
+        int(74, i64::from(icon)),
+        int(75, i64::from(snap)),
+        int(76, i64::from(grid)),
+        int(77, i64::from(snap_style)),
+        int(78, i64::from(isopair)),
+        int(281, i64::from(render)),
+    ]);
+    // 使い道の分からない B の後に、ビューポートごとの UCS の印が続く
+    bits.bit()?;
+    values.push(int(65, i64::from(bits.bit()?)));
+    for code in [110, 111, 112] {
+        values.extend(point3(bits, code)?);
+    }
+    let elevation = bits.bd()?;
+    values.push(int(79, i64::from(bits.bs()?)));
+    values.push(real(146, elevation));
+    Some(values)
+}
+
+/// DIMSTYLE の欄の読み方
+#[derive(Clone, Copy)]
+enum Dim {
+    Text,
+    Real(f64),
+    Bit(bool),
+    Short(i16),
+}
+
+/// DIMSTYLE の欄（ODS 5.4.1 の DIMSTYLE の節、R2000）の、DWG での並びと、グループ・コードと、
+/// DXF が書かない既定の値
+const DIM_FIELDS: [(i16, Dim); 59] = {
+    use Dim::{Bit, Real, Short, Text};
+    [
+        (3, Text),
+        (4, Text),
+        (40, Real(1.0)),
+        (41, Real(0.18)),
+        (42, Real(0.0625)),
+        (43, Real(0.38)),
+        (44, Real(0.18)),
+        (45, Real(0.0)),
+        (46, Real(0.0)),
+        (47, Real(0.0)),
+        (48, Real(0.0)),
+        (71, Bit(false)),
+        (72, Bit(false)),
+        (73, Bit(true)),
+        (74, Bit(true)),
+        (75, Bit(false)),
+        (76, Bit(false)),
+        (77, Short(0)),
+        (78, Short(0)),
+        (79, Short(0)),
+        (140, Real(0.18)),
+        (141, Real(0.09)),
+        (142, Real(0.0)),
+        (143, Real(25.4)),
+        (144, Real(1.0)),
+        (145, Real(0.0)),
+        (146, Real(1.0)),
+        (147, Real(0.09)),
+        (148, Real(0.0)),
+        (170, Bit(false)),
+        (171, Short(2)),
+        (172, Bit(false)),
+        (173, Bit(false)),
+        (174, Bit(false)),
+        (175, Bit(false)),
+        (176, Short(0)),
+        (177, Short(0)),
+        (178, Short(0)),
+        (179, Short(0)),
+        (271, Short(4)),
+        (272, Short(4)),
+        (273, Short(2)),
+        (274, Short(2)),
+        (275, Short(0)),
+        (276, Short(0)),
+        (277, Short(2)),
+        (278, Short(46)),
+        (279, Short(0)),
+        (280, Short(0)),
+        (281, Bit(false)),
+        (282, Bit(false)),
+        (283, Short(1)),
+        (284, Short(0)),
+        (285, Short(0)),
+        (286, Short(0)),
+        (288, Bit(false)),
+        (289, Short(3)),
+        (371, Short(-2)),
+        (372, Short(-2)),
+    ]
+};
+
+/// DIMSTYLE の欄。DXF と同じく、既定の値と同じ欄は置かない
+fn dimstyle(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = Vec::new();
+    for (code, field) in DIM_FIELDS {
+        match field {
+            Dim::Text => {
+                let text = bits.text()?;
+                if !text.is_empty() {
+                    values.push(text_value(code, &text));
+                }
+            }
+            Dim::Real(default) => {
+                let value = bits.bd()?;
+                if value != default {
+                    values.push(real(code, value));
+                }
+            }
+            Dim::Bit(default) => {
+                let value = bits.bit()?;
+                if value != default {
+                    values.push(int(code, i64::from(value)));
+                }
+            }
+            Dim::Short(default) => {
+                let value = bits.bs()?;
+                if value != default {
+                    values.push(int(code, i64::from(value)));
+                }
             }
         }
     }
