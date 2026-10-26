@@ -69,6 +69,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         let source = match object.origin {
             Origin::Dxf { record } => Ref::at_record(record as u64),
             Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
+            Origin::New => Ref::default(),
         };
         if let Err(diagnostic) = lifter.entity(object, source.clone(), &mut out) {
             cx.report((*diagnostic).at(source));
