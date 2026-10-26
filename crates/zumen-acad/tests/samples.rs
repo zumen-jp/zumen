@@ -167,6 +167,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"ATTDEF",
                 b"TOLERANCE",
                 b"MLINE",
+                b"VIEWPORT",
             ]
             .contains(&object.kind.as_slice())
             {
