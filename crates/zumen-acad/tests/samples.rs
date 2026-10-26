@@ -459,14 +459,15 @@ fn r2000_drawings_take_back_changed_entities() {
                     changed += 1;
                 }
             }
-            // 図面の変数の値の後ろに文字を足す
-            if object.kind == b"DICTIONARYVAR" {
-                for value in object.values.iter_mut() {
-                    if let (1, Data::Text(text)) = (value.code, &mut value.data) {
-                        text.extend(b"0");
-                        changed += 1;
-                    }
+            // 図面の変数の値の後ろに文字を足し、辞書の複製の扱いと、多重線の体裁の線の位置を変える
+            for value in object.values.iter_mut() {
+                match (object.kind.as_slice(), value.code, &mut value.data) {
+                    (b"DICTIONARYVAR", 1, Data::Text(text)) => text.extend(b"0"),
+                    (b"DICTIONARY" | b"ACDBDICTIONARYWDFLT", 281, Data::Int(v)) => *v = *v % 5 + 1,
+                    (b"MLINESTYLE", 49, Data::Real(v)) => *v *= 2.0,
+                    _ => continue,
                 }
+                changed += 1;
             }
             if !matches!(
                 object.kind.as_slice(),

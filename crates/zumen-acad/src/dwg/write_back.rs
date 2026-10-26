@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0047）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0048）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -381,14 +381,25 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047）。GROUP・DICTIONARYVAR だけを扱う。
-/// ハンドルの並びから作る値などのほかの値が変わったものは `None`
+/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047・0048）。GROUP・DICTIONARYVAR・
+/// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE だけを扱う。ハンドルの並びから作る値などのほかの値が
+/// 変わったものは `None`
 fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let own: &[i16] = match new.kind.as_slice() {
         b"GROUP" => &[300, 70, 71],
         b"DICTIONARYVAR" => &[280, 1],
+        b"DICTIONARY" | b"ACDBDICTIONARYWDFLT" => &[280, 281, 3],
+        b"MLINESTYLE" => &[2, 70, 3, 62, 51, 52, 71, 49],
         _ => return None,
     };
+    // 辞書の項目の数と、多重線の体裁の線の数と名前は変えない
+    let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
+    if new.kind != b"GROUP" && new.kind != b"DICTIONARYVAR" && codes(old) != codes(new) {
+        return None;
+    }
+    if new.kind == b"MLINESTYLE" && text_of(old, 2) != text_of(new, 2) {
+        return None;
+    }
     let rest = |object: &Object| -> Vec<_> {
         object
             .values
@@ -413,12 +424,16 @@ fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         for code in [70, 71] {
             fields.bs(i16::from(flag(new, code)?));
         }
-    } else {
+    } else if new.kind == b"DICTIONARYVAR" {
         // 型と値
         bits.rc()?;
         bits.text()?;
         fields.rc(u8::try_from(small(new, 280)??).ok()?);
         string(&mut fields, new, 1)?;
+    } else if new.kind == b"MLINESTYLE" {
+        mlinestyle(&mut fields, &mut bits, new, data)?;
+    } else {
+        dictionary(&mut fields, &mut bits, new, data)?;
     }
     let end = bits.pos();
     fields.copy(data, end..handles_at)?;
@@ -702,6 +717,109 @@ fn dimstyle(
         }
     }
     Some(bits.pos())
+}
+
+/// DICTIONARY の欄（決定 0048）。項目の数は元のまま写し、複製の扱い（281）・所有する印（280）・項目の
+/// 名前（3）を書く。読む側は 0 の所有する印を置かないので、置いた印は 1〜255 だけを受け付ける
+fn dictionary(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]) -> Option<()> {
+    let start = bits.pos();
+    bits.bl()?;
+    fields.copy(data, start..bits.pos())?;
+    bits.bs()?;
+    bits.rc()?;
+    fields.bs(small(new, 281)??);
+    let owner = small(new, 280)?.map_or(Some(0), |owner| {
+        u8::try_from(owner).ok().filter(|o| *o != 0)
+    })?;
+    fields.rc(owner);
+    for value in new.values.iter().filter(|value| value.code == 3) {
+        bits.text()?;
+        let Data::Text(name) = &value.data else {
+            return None;
+        };
+        let mut name = uncaret(name)?;
+        name.push(0);
+        fields.text(&name)?;
+    }
+    Some(())
+}
+
+/// MLINESTYLE の欄（決定 0048）。名前は元のまま写す。印（70）は DXF のビットを DWG のビットに並べ直し、
+/// DXF にない DWG のビットは元のまま写す。角度は度からラジアンに直す。線の線種の番号は元のまま写す
+fn mlinestyle(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]) -> Option<()> {
+    // DWG のビットと、DXF のビット（読む側と同じ）
+    const MOVED: [(i16, i16); 8] = [
+        (1, 2),
+        (2, 1),
+        (16, 16),
+        (32, 64),
+        (64, 32),
+        (256, 256),
+        (512, 1024),
+        (1024, 512),
+    ];
+    let start = bits.pos();
+    bits.text()?;
+    fields.copy(data, start..bits.pos())?;
+    bits.text()?;
+    let flags = bits.bs()?;
+    bits.bs()?;
+    for _ in 0..2 {
+        bits.bd()?;
+    }
+    let lines = bits.rc()?;
+    // 名前の後の、型ごとの値の並び（印・説明・色・2 つの角度・線の数・線ごとの位置と色）
+    let at = new.values.iter().position(|value| value.code == 2)?;
+    let own = new.values.get(at + 1..)?;
+    let int = |value: &Value| match value.data {
+        Data::Int(value) => i16::try_from(value).ok(),
+        _ => None,
+    };
+    let float = |value: &Value| match value.data {
+        Data::Real(value) => Some(value),
+        _ => None,
+    };
+    let [dxf, about, color, begin, end, count, rest @ ..] = own else {
+        return None;
+    };
+    let dxf = int(dxf)?;
+    if dxf & !MOVED.iter().fold(0, |sum, (_, bit)| sum | bit) != 0
+        || int(count)? != i16::from(lines)
+    {
+        return None;
+    }
+    let mut dwg = MOVED.iter().fold(flags, |sum, (bit, _)| sum & !bit);
+    for (bit, dxf_bit) in MOVED {
+        if dxf & dxf_bit != 0 {
+            dwg |= bit;
+        }
+    }
+    fields.text(&{
+        let Data::Text(about) = &about.data else {
+            return None;
+        };
+        let mut about = uncaret(about)?;
+        about.push(0);
+        about
+    })?;
+    fields.bs(dwg);
+    fields.bs(int(color)?);
+    fields.bd(float(begin)?.to_radians());
+    fields.bd(float(end)?.to_radians());
+    fields.rc(lines);
+    for line in rest.chunks(2) {
+        let [offset, color] = line else {
+            return None;
+        };
+        bits.bd()?;
+        bits.bs()?;
+        let ltype = bits.pos();
+        bits.bs()?;
+        fields.bd(float(offset)?);
+        fields.bs(int(color)?);
+        fields.copy(data, ltype..bits.pos())?;
+    }
+    Some(())
 }
 
 /// 外部参照に依る印（70 の 16）が元のものと同じで、ほかに `allowed` のビットだけを持つ 70
