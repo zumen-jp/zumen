@@ -505,6 +505,16 @@ impl BitWriter {
         Some(())
     }
 
+    /// BB
+    pub(super) fn bb(&mut self, value: u8) {
+        self.small(value, 2);
+    }
+
+    /// RC
+    pub(super) fn rc(&mut self, value: u8) {
+        self.small(value, 8);
+    }
+
     /// RL
     pub(super) fn rl(&mut self, value: i32) {
         self.raw(&value.to_le_bytes());
@@ -543,6 +553,13 @@ impl BitWriter {
             self.small(0, 2);
             self.rd(value);
         }
+    }
+
+    /// R2000 の T（BS のバイトの数と、バイト列）。BS に収まらない長さなら `None`
+    pub(super) fn text(&mut self, text: &[u8]) -> Option<()> {
+        self.bs(i16::try_from(text.len()).ok()?);
+        self.raw(text);
+        Some(())
     }
 
     /// DD。`default` と同じ上位のバイトは書かない
