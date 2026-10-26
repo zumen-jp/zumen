@@ -8,6 +8,6 @@ mod drawing;
 pub mod dwg;
 pub mod dxf;
 
-pub use db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
+pub use db::{AcadDb, Data, DataType, Line, Object, Origin, Section, Value, ViewError};
 pub use dwg::{Dwg, DwgFile, Locator};
-pub use dxf::{Dxf, DxfFile, DxfTxn, Line, Record, Tag, ViewError};
+pub use dxf::{Dxf, DxfFile, DxfTxn, Record, Tag};

@@ -14,6 +14,8 @@ use core::ops::Range;
 use std::collections::BTreeMap;
 
 use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
+
+use crate::db::ViewError;
 mod objects;
 mod version;
 
@@ -95,30 +97,6 @@ impl DxfFile {
             .find(|t| t.code == code)
             .ok_or(ViewError::Missing(code))?;
         parse_real(self.value(tag)).ok_or(ViewError::NotReal(code))
-    }
-
-    /// LINE の型付きの見方（DXF Reference「LINE」）。LINE でなければ `None`
-    pub fn line<'a>(&'a self, record: &'a Record) -> Option<Result<Line<'a>, ViewError>> {
-        (self.kind(record) == b"LINE").then(|| {
-            let layer = record
-                .tags
-                .iter()
-                .find(|t| t.code == 8)
-                .ok_or(ViewError::Missing(8))?;
-            let point = |x: i16| -> Result<[f64; 3], ViewError> {
-                // Z のないものは 0 とみなす（推定。docs/formats/dxf.md）
-                let z = match self.real(record, x + 20) {
-                    Err(ViewError::Missing(_)) => 0.0,
-                    z => z?,
-                };
-                Ok([self.real(record, x)?, self.real(record, x + 10)?, z])
-            };
-            Ok(Line {
-                layer: self.value(layer),
-                start: point(10)?,
-                end: point(11)?,
-            })
-        })
     }
 
     /// レコードの種類（グループ・コード 0 の値。前後の空白を除く）。先頭がグループ・コード 0 でなければ空
@@ -234,26 +212,6 @@ impl Codec for Dxf {
         out.extend_from_slice(file.trailer());
         Ok(())
     }
-}
-
-/// LINE の型付きの見方
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Line<'a> {
-    /// 画層の名前（グループ・コード 8）。生のバイト列
-    pub layer: &'a [u8],
-    /// 始点（10・20・30）
-    pub start: [f64; 3],
-    /// 終点（11・21・31）
-    pub end: [f64; 3],
-}
-
-/// 型付きの見方で値を読めなかった理由
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ViewError {
-    /// このグループ・コードのタグがない
-    Missing(i16),
-    /// このグループ・コードの値が、有限の実数として読めない
-    NotReal(i16),
 }
 
 /// DXF の変更をためるトランザクション。[`Transaction::commit`] で、まとめて確かめてから反映する。

@@ -1,6 +1,6 @@
 //! DWG（R2000）の試作を、試験の中で組み立てた DWG で確かめる。受け取った図面は使わない。
 
-use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Origin, Section};
+use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Line, Origin, Section};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_sdk::{Codec, Error, FileModel};
 
@@ -3047,4 +3047,27 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
             },
         }]
     );
+}
+
+#[test]
+fn dwg_lines_have_the_same_typed_view_as_dxf() {
+    let (db, _) = objects(&dwg(&objects_in_sample()));
+    let line = |handle: u64| db.get(handle).unwrap().line();
+    assert_eq!(
+        line(0x2A),
+        Some(Ok(Line {
+            layer: b"0",
+            start: [1.5, 2.0, 0.0],
+            end: [100.0, 50.0, 0.0],
+        }))
+    );
+    assert_eq!(
+        line(0x2B),
+        Some(Ok(Line {
+            layer: b"0",
+            start: [0.0, 0.0, 3.0],
+            end: [0.0, 4.0, 3.0],
+        }))
+    );
+    assert_eq!(line(0x10), None);
 }
