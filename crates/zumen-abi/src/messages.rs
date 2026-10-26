@@ -18,11 +18,13 @@ pub enum Request {
     Close(CloseRequest),
     /// 診断の文を、カタログから組み立てる（決定 0009）
     Describe(DescribeRequest),
+    /// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007）
+    Drawing(DrawingRequest),
 }
 
 impl Request {
     /// 目印の欄（`op`）の値（スキーマの順）
-    pub const TAGS: &[&str] = &["capabilities", "open", "close", "describe"];
+    pub const TAGS: &[&str] = &["capabilities", "open", "close", "describe", "drawing"];
 
     /// 目印の欄（`op`）の値
     pub const fn tag(&self) -> &'static str {
@@ -31,6 +33,7 @@ impl Request {
             Self::Open(_) => "open",
             Self::Close(_) => "close",
             Self::Describe(_) => "describe",
+            Self::Drawing(_) => "drawing",
         }
     }
 }
@@ -43,6 +46,7 @@ impl FromJson for Request {
             "open" => Self::Open(OpenRequest::read_fields(&mut object)?),
             "close" => Self::Close(CloseRequest::read_fields(&mut object)?),
             "describe" => Self::Describe(DescribeRequest::read_fields(&mut object)?),
+            "drawing" => Self::Drawing(DrawingRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -57,6 +61,7 @@ impl ToJson for Request {
             Self::Open(value) => value.to_json(out),
             Self::Close(value) => value.to_json(out),
             Self::Describe(value) => value.to_json(out),
+            Self::Drawing(value) => value.to_json(out),
         }
     }
 }
@@ -705,6 +710,372 @@ impl FromJson for DescribeResult {
 }
 
 impl ToJson for DescribeResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007）
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrawingRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+}
+
+impl DrawingRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "drawing")?;
+        let doc = object.required("doc", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("drawing");
+        out.key("doc");
+        out.string(&self.doc);
+    }
+}
+
+impl FromJson for DrawingRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DrawingRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面モデルの要約。移さなかった図形と値は、診断で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrawingResult {
+    /// 実寸の空間。モデルの順
+    pub spaces: Vec<SpaceSummary>,
+    /// 用紙。モデルの順
+    pub sheets: Vec<SheetSummary>,
+}
+
+impl DrawingResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let spaces = object.required("spaces", |value| {
+            json::array(value, SpaceSummary::from_json)
+        })?;
+        let sheets = object.required("sheets", |value| {
+            json::array(value, SheetSummary::from_json)
+        })?;
+        Ok(Self { spaces, sheets })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("spaces");
+        out.array(&self.spaces, |out, item| item.to_json(out));
+        out.key("sheets");
+        out.array(&self.sheets, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for DrawingResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 実寸の空間の要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpaceSummary {
+    /// 文書の単位
+    pub unit: Unit,
+    /// 要素の数
+    pub elements: ElementCounts,
+    /// 線分の端点と文字の基点を囲む範囲。文書の単位。要素がなければ持たない
+    pub extent: Option<Extent>,
+}
+
+impl SpaceSummary {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let unit = object.required("unit", Unit::from_json)?;
+        let elements = object.required("elements", ElementCounts::from_json)?;
+        let extent = object.optional("extent", Extent::from_json)?;
+        Ok(Self {
+            unit,
+            elements,
+            extent,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("elements");
+        self.elements.to_json(out);
+        if let Some(value) = &self.extent {
+            out.key("extent");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for SpaceSummary {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SpaceSummary {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 用紙の要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct SheetSummary {
+    /// 用紙の幅と高さ（mm）。分からなければ持たない
+    pub size: Option<Vec<f64>>,
+    /// 要素の数
+    pub elements: ElementCounts,
+    /// ビューの数
+    pub views: u64,
+    /// 線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない
+    pub extent: Option<Extent>,
+}
+
+impl SheetSummary {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let size = object.optional("size", |value| json::array(value, json::number))?;
+        let elements = object.required("elements", ElementCounts::from_json)?;
+        let views = object.required("views", |value| json::uint(value, 0, 9007199254740991))?;
+        let extent = object.optional("extent", Extent::from_json)?;
+        Ok(Self {
+            size,
+            elements,
+            views,
+            extent,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.size {
+            out.key("size");
+            out.array(value, |out, item| out.float(*item));
+        }
+        out.key("elements");
+        self.elements.to_json(out);
+        out.key("views");
+        out.uint(self.views);
+        if let Some(value) = &self.extent {
+            out.key("extent");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for SheetSummary {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SheetSummary {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 実寸の単位
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Unit {
+    /// `millimeter`
+    Millimeter,
+    /// `centimeter`
+    Centimeter,
+    /// `meter`
+    Meter,
+    /// `inch`
+    Inch,
+    /// `foot`
+    Foot,
+    /// `unknown`
+    Unknown,
+}
+
+impl Unit {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Millimeter,
+        Self::Centimeter,
+        Self::Meter,
+        Self::Inch,
+        Self::Foot,
+        Self::Unknown,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Millimeter => "millimeter",
+            Self::Centimeter => "centimeter",
+            Self::Meter => "meter",
+            Self::Inch => "inch",
+            Self::Foot => "foot",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "millimeter" => Some(Self::Millimeter),
+            "centimeter" => Some(Self::Centimeter),
+            "meter" => Some(Self::Meter),
+            "inch" => Some(Self::Inch),
+            "foot" => Some(Self::Foot),
+            "unknown" => Some(Self::Unknown),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for Unit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for Unit {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 種類ごとの要素の数
+#[derive(Clone, Debug, PartialEq)]
+pub struct ElementCounts {
+    /// 線分
+    pub lines: u64,
+    /// 文字
+    pub texts: u64,
+}
+
+impl ElementCounts {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let lines = object.required("lines", |value| json::uint(value, 0, 9007199254740991))?;
+        let texts = object.required("texts", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { lines, texts })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("lines");
+        out.uint(self.lines);
+        out.key("texts");
+        out.uint(self.texts);
+    }
+}
+
+impl FromJson for ElementCounts {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ElementCounts {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 点を囲む、軸に沿った長方形
+#[derive(Clone, Debug, PartialEq)]
+pub struct Extent {
+    /// X の最小
+    pub min_x: f64,
+    /// Y の最小
+    pub min_y: f64,
+    /// X の最大
+    pub max_x: f64,
+    /// Y の最大
+    pub max_y: f64,
+}
+
+impl Extent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let min_x = object.required("min_x", json::number)?;
+        let min_y = object.required("min_y", json::number)?;
+        let max_x = object.required("max_x", json::number)?;
+        let max_y = object.required("max_y", json::number)?;
+        Ok(Self {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("min_x");
+        out.float(self.min_x);
+        out.key("min_y");
+        out.float(self.min_y);
+        out.key("max_x");
+        out.float(self.max_x);
+        out.key("max_y");
+        out.float(self.max_y);
+    }
+}
+
+impl FromJson for Extent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Extent {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

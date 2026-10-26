@@ -13,8 +13,9 @@ name = "zumen_abi1"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-zumen-acad = { path = "../zumen-acad", default-features = false }
+zumen-acad = { path = "../zumen-acad" }
 zumen-base = { path = "../zumen-base" }
+zumen-drawing = { path = "../zumen-drawing" }
 zumen-json = { path = "../zumen-json" }
 zumen-sdk = { path = "../zumen-sdk" }
 
