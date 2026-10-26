@@ -2,7 +2,7 @@
 //!
 //! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
 //! 先頭から読む。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
-//! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
+//! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、今は名前（2）だけを読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
@@ -32,6 +32,7 @@ const ATTDEF: u16 = 0x03;
 const TOLERANCE: u16 = 0x2E;
 const LEADER: u16 = 0x2D;
 const MLINE: u16 = 0x2F;
+const VIEWPORT: u16 = 0x22;
 const ARC: u16 = 0x11;
 const CIRCLE: u16 = 0x12;
 const LINE: u16 = 0x13;
@@ -94,7 +95,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         SOLID => entity(b"SOLID"),
         TRACE => entity(b"TRACE"),
         0x21 => entity(b"SHAPE"),
-        0x22 => entity(b"VIEWPORT"),
+        VIEWPORT => entity(b"VIEWPORT"),
         ELLIPSE => entity(b"ELLIPSE"),
         SPLINE => entity(b"SPLINE"),
         0x25 => entity(b"REGION"),
@@ -339,6 +340,7 @@ fn read(data: &[u8], entry: &Entry, kind: &[u8], entity: bool) -> Option<Fields>
                 TOLERANCE => tolerance(&mut bits)?,
                 LEADER => leader(&mut bits)?,
                 MLINE => mline(&mut bits)?,
+                VIEWPORT => viewport(&mut bits)?,
                 INSERT => insert(&mut bits)?,
                 MTEXT => mtext(&mut bits)?,
                 LINE => line(&mut bits)?,
@@ -651,6 +653,55 @@ fn mline(bits: &mut Bits) -> Option<Vec<Value>> {
             }
         }
     }
+    Some(values)
+}
+
+/// VIEWPORT の欄（ODS 5.4.1 の 20.4.38、R2000）。仕様の欄を、DXF の並び（中心・大きさ・ビューの中心・
+/// スナップ・グリッド・ビューの向きと目標・ビュー・状態・UCS）で置く。角度は度に直す。ビューポートの
+/// 番号（69）と状態（68）は DWG に記録されていないので置かない
+fn viewport(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = point3(bits, 10)?;
+    values.push(real(40, bits.bd()?));
+    values.push(real(41, bits.bd()?));
+    let target = point3(bits, 17)?;
+    let direction = point3(bits, 16)?;
+    let twist = bits.bd()?;
+    let height = bits.bd()?;
+    let lens = bits.bd()?;
+    let front = bits.bd()?;
+    let back = bits.bd()?;
+    let snap = bits.bd()?;
+    for code in [12, 13, 14, 15] {
+        values.push(real(code, bits.rd()?));
+        values.push(real(code + 10, bits.rd()?));
+    }
+    values.extend(direction);
+    values.extend(target);
+    values.extend([
+        real(42, lens),
+        real(43, front),
+        real(44, back),
+        real(45, height),
+        real(50, snap.to_degrees()),
+        real(51, twist.to_degrees()),
+        int(72, i64::from(bits.bs()?)),
+    ]);
+    bits.bl()?;
+    values.push(int(90, i64::from(bits.bl()?)));
+    values.push(text_value(1, &bits.text()?));
+    values.push(int(281, i64::from(bits.rc()?)));
+    let at_origin = bits.bit()?;
+    let per_viewport = bits.bit()?;
+    values.extend([
+        int(71, i64::from(per_viewport)),
+        int(74, i64::from(at_origin)),
+    ]);
+    for code in [110, 111, 112] {
+        values.extend(point3(bits, code)?);
+    }
+    let elevation = bits.bd()?;
+    values.push(int(79, i64::from(bits.bs()?)));
+    values.push(real(146, elevation));
     Some(values)
 }
 

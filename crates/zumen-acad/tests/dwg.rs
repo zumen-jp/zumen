@@ -1543,6 +1543,72 @@ fn leaders_and_mlines_have_their_fields() {
 }
 
 #[test]
+fn viewports_have_their_view_and_ucs() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let viewport = object(
+        0x22,
+        0x20,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [5.0, 4.0, 0.0, 8.0, 6.0] {
+                w.bd(v); // 中心・幅・高さ
+            }
+            for v in [1.0, 2.0, 3.0, 0.0, 0.0, 1.0] {
+                w.bd(v); // ビューの目標と向き
+            }
+            for v in [std::f64::consts::FRAC_PI_2, 9.0, 50.0, 0.0, 0.0, 0.0] {
+                w.bd(v); // ねじれ・ビューの高さ・レンズ・前後の切り取り・スナップの角度
+            }
+            for v in [6.0, 4.5, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5] {
+                w.rd(v);
+            }
+            w.bs(1000);
+            w.bl_zero(); // 凍結した画層の数
+            w.bl_zero(); // 状態
+            w.bs(0);
+            w.bytes(&[0]);
+            w.bit(false);
+            w.bit(true);
+            for v in [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bs(0);
+        },
+        entity_handles(0x10),
+    );
+    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, viewport)]));
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let viewport = db.get(0x20).unwrap();
+    assert_eq!(viewport.kind, b"VIEWPORT");
+    for (code, value) in [
+        (10, 5.0),
+        (40, 8.0),
+        (41, 6.0),
+        (12, 6.0),
+        (22, 4.5),
+        (17, 1.0),
+        (37, 3.0),
+        (16, 0.0),
+        (36, 1.0),
+        (42, 50.0),
+        (45, 9.0),
+        (51, 90.0),
+        (111, 1.0),
+        (122, 1.0),
+    ] {
+        assert!(close(viewport.real(code), value), "{code}");
+    }
+    assert_eq!(viewport.first(72), Some(&Data::Int(1000)));
+    assert_eq!(viewport.first(71), Some(&Data::Int(1)));
+    assert_eq!(viewport.first(74), Some(&Data::Int(0)));
+    assert_eq!(viewport.first(1), Some(&Data::Text(Vec::new())));
+    // 番号と状態は DWG に記録されていない
+    for code in [68, 69] {
+        assert!(viewport.first(code).is_none(), "{code}");
+    }
+}
+
+#[test]
 fn types_of_classes_are_named_by_the_classes() {
     let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
     let table = object(
