@@ -10,7 +10,8 @@
         { "$ref": "#/$defs/capabilities_request" },
         { "$ref": "#/$defs/open_request" },
         { "$ref": "#/$defs/close_request" },
-        { "$ref": "#/$defs/describe_request" }
+        { "$ref": "#/$defs/describe_request" },
+        { "$ref": "#/$defs/drawing_request" }
       ]
     },
     "request_common": {
@@ -196,6 +197,95 @@
         }
       },
       "required": ["texts"],
+      "additionalProperties": false
+    },
+    "drawing_request": {
+      "description": "開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007）",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "drawing" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "drawing_result": {
+      "description": "図面モデルの要約。移さなかった図形と値は、診断で返す",
+      "type": "object",
+      "properties": {
+        "spaces": {
+          "description": "実寸の空間。モデルの順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/space_summary" }
+        },
+        "sheets": {
+          "description": "用紙。モデルの順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/sheet_summary" }
+        }
+      },
+      "required": ["spaces", "sheets"],
+      "additionalProperties": false
+    },
+    "space_summary": {
+      "description": "実寸の空間の要約",
+      "type": "object",
+      "properties": {
+        "unit": { "description": "文書の単位", "$ref": "#/$defs/unit" },
+        "elements": { "description": "要素の数", "$ref": "#/$defs/element_counts" },
+        "extent": {
+          "description": "線分の端点と文字の基点を囲む範囲。文書の単位。要素がなければ持たない",
+          "$ref": "#/$defs/extent"
+        }
+      },
+      "required": ["unit", "elements"],
+      "additionalProperties": false
+    },
+    "sheet_summary": {
+      "description": "用紙の要約",
+      "type": "object",
+      "properties": {
+        "size": {
+          "description": "用紙の幅と高さ（mm）。分からなければ持たない",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "elements": { "description": "要素の数", "$ref": "#/$defs/element_counts" },
+        "views": { "description": "ビューの数", "type": "integer", "minimum": 0 },
+        "extent": {
+          "description": "線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない",
+          "$ref": "#/$defs/extent"
+        }
+      },
+      "required": ["elements", "views"],
+      "additionalProperties": false
+    },
+    "unit": {
+      "description": "実寸の単位",
+      "type": "string",
+      "enum": ["millimeter", "centimeter", "meter", "inch", "foot", "unknown"]
+    },
+    "element_counts": {
+      "description": "種類ごとの要素の数",
+      "type": "object",
+      "properties": {
+        "lines": { "description": "線分", "type": "integer", "minimum": 0 },
+        "texts": { "description": "文字", "type": "integer", "minimum": 0 }
+      },
+      "required": ["lines", "texts"],
+      "additionalProperties": false
+    },
+    "extent": {
+      "description": "点を囲む、軸に沿った長方形",
+      "type": "object",
+      "properties": {
+        "min_x": { "description": "X の最小", "type": "number" },
+        "min_y": { "description": "Y の最小", "type": "number" },
+        "max_x": { "description": "X の最大", "type": "number" },
+        "max_y": { "description": "Y の最大", "type": "number" }
+      },
+      "required": ["min_x", "min_y", "max_x", "max_y"],
       "additionalProperties": false
     },
     "response": {

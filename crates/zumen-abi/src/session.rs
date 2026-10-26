@@ -5,14 +5,16 @@ use std::collections::BTreeMap;
 use zumen_acad::{Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_base::{codes, name};
+use zumen_drawing::{Drawing2D, Element, Placement, Shape, Unit};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
-use zumen_sdk::Codec;
+use zumen_sdk::{Codec, Lift};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::describe;
 use crate::messages::{
-    self, BlobKind, CapabilitiesResult, CloseRequest, CloseResult, Engine, Format, OpenRequest,
-    OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions,
+    self, BlobKind, CapabilitiesResult, CloseRequest, CloseResult, DrawingRequest, DrawingResult,
+    ElementCounts, Engine, Extent, Format, OpenRequest, OpenResult, Request, RequestCommon,
+    SchemaVersion, SessionOptions, SheetSummary, SpaceSummary,
 };
 
 /// このライブラリの実行の形（決定 0013）
@@ -39,7 +41,6 @@ pub struct Session {
 /// 開いた文書。形式ごとのファイルモデル（L1）を持つ
 #[derive(Debug)]
 enum Doc {
-    #[expect(dead_code, reason = "文書を読む op（決定 0016）を足すまで、持つだけ")]
     Dxf(DxfFile),
 }
 
@@ -48,6 +49,13 @@ impl Doc {
     fn format(&self) -> &'static str {
         match self {
             Doc::Dxf(_) => Dxf::FORMAT,
+        }
+    }
+
+    /// 図面モデル（L2）に変換する
+    fn lift(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, zumen_sdk::Error> {
+        match self {
+            Doc::Dxf(file) => file.lift(cx),
         }
     }
 }
@@ -226,6 +234,7 @@ impl Session {
             Request::Describe(request) => {
                 describe::describe(&self.inputs, request, &mut cx).map(|r| Box::new(r) as _)
             }
+            Request::Drawing(request) => self.drawing(request, &mut cx).map(|r| Box::new(r) as _),
         };
         result.ok()
     }
@@ -310,6 +319,21 @@ impl Session {
         Ok(CloseResult {})
     }
 
+    fn drawing(&self, request: &DrawingRequest, cx: &mut Cx<'_>) -> Result<DrawingResult, Failed> {
+        if !name::is_safe(&request.doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        let Some(doc) = self.docs.get(&request.doc) else {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", request.doc.as_str()),
+            ));
+        };
+        // 止めた理由は、変換が診断として足してある
+        let drawing = doc.lift(cx).map_err(|_| Failed)?;
+        Ok(summary(&drawing))
+    }
+
     #[cfg(test)]
     fn add_blob(&mut self, kind: BlobKind, bytes: Vec<u8>) {
         self.blobs.push(Some(Blob { kind, bytes }));
@@ -335,12 +359,87 @@ fn capabilities() -> CapabilitiesResult {
     }
 }
 
+/// 図面モデルの要約。空間と用紙は、モデルの順に並べる
+fn summary(drawing: &Drawing2D) -> DrawingResult {
+    DrawingResult {
+        spaces: drawing
+            .spaces
+            .iter()
+            .map(|space| SpaceSummary {
+                unit: unit_of(space.unit),
+                elements: counts(&space.elements),
+                extent: extent(&space.elements, |p| (p.x, p.y)),
+            })
+            .collect(),
+        sheets: drawing
+            .sheets
+            .iter()
+            .map(|sheet| SheetSummary {
+                size: sheet.size.map(|size| size.iter().map(|l| l.0).collect()),
+                elements: counts(&sheet.elements),
+                views: sheet.views.len() as u64,
+                extent: extent(&sheet.elements, |p| (p.x, p.y)),
+            })
+            .collect(),
+    }
+}
+
+fn unit_of(unit: Unit) -> messages::Unit {
+    match unit {
+        Unit::Millimeter => messages::Unit::Millimeter,
+        Unit::Centimeter => messages::Unit::Centimeter,
+        Unit::Meter => messages::Unit::Meter,
+        Unit::Inch => messages::Unit::Inch,
+        Unit::Foot => messages::Unit::Foot,
+        Unit::Unknown => messages::Unit::Unknown,
+    }
+}
+
+fn counts<P>(elements: &[Element<P>]) -> ElementCounts {
+    let lines = elements
+        .iter()
+        .filter(|e| matches!(e.shape, Shape::Line { .. }))
+        .count() as u64;
+    ElementCounts {
+        lines,
+        texts: elements.len() as u64 - lines,
+    }
+}
+
+/// 線分の端点と文字の基点（2 点の間に置く文字は 2 点とも）を囲む範囲。要素がなければ `None`
+fn extent<P: Copy>(elements: &[Element<P>], xy: impl Fn(P) -> (f64, f64)) -> Option<Extent> {
+    let points = elements.iter().flat_map(|e| match &e.shape {
+        Shape::Line { start, end } => [Some(*start), Some(*end)],
+        Shape::Text(text) => match text.placement {
+            Placement::Anchor { point, .. } => [Some(point), None],
+            Placement::Between { first, second, .. } => [Some(first), Some(second)],
+        },
+    });
+    points.flatten().map(xy).fold(None, |extent, (x, y)| {
+        Some(match extent {
+            None => Extent {
+                min_x: x,
+                min_y: y,
+                max_x: x,
+                max_y: y,
+            },
+            Some(e) => Extent {
+                min_x: e.min_x.min(x),
+                min_y: e.min_y.min(y),
+                max_x: e.max_x.max(x),
+                max_y: e.max_y.max(y),
+            },
+        })
+    })
+}
+
 fn common(request: &Request) -> &RequestCommon {
     match request {
         Request::Capabilities(request) => &request.request_common,
         Request::Open(request) => &request.request_common,
         Request::Close(request) => &request.request_common,
         Request::Describe(request) => &request.request_common,
+        Request::Drawing(request) => &request.request_common,
     }
 }
 
@@ -545,6 +644,14 @@ mod tests {
     use super::*;
     use zumen_json::Value;
 
+    /// 見出しの単位と用紙の範囲、モデル空間の線分と文字、ペーパー空間の線分、移さない円を持つ DXF
+    const DRAWING: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n\
+        9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n420.0\n20\n297.0\n0\nENDSEC\n\
+        0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n\
+        0\nTEXT\n8\nTEXT\n10\n-3.0\n20\n4.0\n40\n2.5\n1\nABC\n\
+        0\nLINE\n8\n0\n67\n1\n10\n10.0\n20\n10.0\n11\n410.0\n21\n287.0\n\
+        0\nCIRCLE\n8\n0\n10\n0.0\n20\n0.0\n40\n1.0\n0\nENDSEC\n0\nEOF\n";
+
     fn call(session: &mut Session, request: &str) -> (Status, Value) {
         let reply = session.call(request.as_bytes(), &CancelToken::new());
         let value = zumen_json::parse(&reply.response).unwrap();
@@ -571,7 +678,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":0}},"ops":["capabilities","open","close","describe"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":1}},"ops":["capabilities","open","close","describe","drawing"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -659,6 +766,45 @@ mod tests {
         );
         assert_eq!(session.push(b"../x", b""), Err(Status::Invalid));
         assert_eq!(session.push(b"\xff", b""), Err(Status::Invalid));
+    }
+
+    #[test]
+    fn summarizes_the_drawing_model_of_an_open_document() {
+        let mut session = Session::new(b"").unwrap();
+        let (_, response) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "call.document.missing"
+        );
+        session.push(b"a.dxf", DRAWING).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/spaces/0/unit"), "millimeter");
+        assert_eq!(number(&response, "/result/spaces/0/elements/lines"), "1");
+        assert_eq!(number(&response, "/result/spaces/0/elements/texts"), "1");
+        assert_eq!(number(&response, "/result/spaces/0/extent/min_x"), "-3");
+        assert_eq!(number(&response, "/result/spaces/0/extent/max_y"), "50");
+        assert_eq!(number(&response, "/result/sheets/0/size/0"), "420");
+        assert_eq!(number(&response, "/result/sheets/0/elements/lines"), "1");
+        assert_eq!(number(&response, "/result/sheets/0/extent/max_x"), "410");
+        assert_eq!(text(&response, "/diagnostics/0/code"), "dxf.lift.dropped");
+        // 表を作るときに 9 つのレコードごと、変換で 4 つの図形ごとに、作業を 1 つ使う
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":12}}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "budget.work.exceeded"
+        );
+        assert_eq!(number(&response, "/diagnostics/0/params/requested"), "13");
+        let (status, _) = call(
+            &mut session,
+            r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":13}}"#,
+        );
+        assert_eq!(status, Status::Ok);
     }
 
     #[test]
