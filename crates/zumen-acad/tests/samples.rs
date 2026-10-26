@@ -460,6 +460,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     | b"INSERT"
                     | b"ATTRIB"
                     | b"ATTDEF"
+                    | b"MTEXT"
             ) {
                 continue;
             }
