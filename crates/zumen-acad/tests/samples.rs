@@ -163,6 +163,9 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 b"POLYLINE",
                 b"VERTEX",
                 b"DIMENSION",
+                b"ATTRIB",
+                b"ATTDEF",
+                b"TOLERANCE",
             ]
             .contains(&object.kind.as_slice())
             {
