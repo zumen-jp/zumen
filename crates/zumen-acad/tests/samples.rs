@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Value};
+use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Section, Value};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_sdk::Codec;
 
@@ -130,6 +130,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             assert_eq!(object.kind, other.kind, "{at}");
             // 所有者が DXF に書かれないとき（R2000 の DXF は、新しい版の表の中身を XRECORD の下に
             // 移す）は比べない
+            // 図形の所有者は、空間の図形（見出しの変数で決まる）も含めて、DXF と同じ
+            if object.section == Section::Entities {
+                assert_eq!(object.owner(), other.owner(), "{at}");
+            }
             if object
                 .owner()
                 .is_some_and(|owner| dxf_objects.contains_key(&owner))

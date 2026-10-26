@@ -412,6 +412,62 @@ fn with_classes(mut src: Vec<u8>, classes: &[(u16, &[u8], bool)]) -> Vec<u8> {
     src
 }
 
+/// DWG の終わりに見出しの変数の区切りを足し、区切りの記録の 0 番をそれに向ける。変数は
+/// 2 つの空間のハンドルのほかは 0 か空で、CEPSNTYPE は 3（CPSNID のハンドルが続く）
+#[cfg(test)]
+fn with_header_variables(mut src: Vec<u8>, paper: u64, model: u64) -> Vec<u8> {
+    // 型（b・s・l・d・r・t・h は B・BS・BL・BD・RD・TV・H）と数を、R2000 の順に並べる
+    let space = "d9 r4 d10 h2 s1 h1 d18";
+    let layout = format!(
+        "d4 t4 l2 h1 b20 s27 d21 t1 l8 s1 h6 d1 {space} {space} \
+         t2 d9 b6 s3 d9 b1 s1 b4 s3 s11 b2 s4 b1 s1 h5 s2 h13 s2 t2 h3 l1 s1"
+    );
+    let mut w = BitWriter::default();
+    for item in layout.split_whitespace() {
+        let (kind, count) = item.split_at_checked(1).unwrap();
+        let count: usize = count.parse().unwrap();
+        for _ in 0..count {
+            match kind {
+                "b" => w.bit(false),
+                "s" | "t" => w.bs(0),
+                "l" => w.bl_zero(),
+                "d" => w.bd(0.0),
+                "r" => w.rd(0.0),
+                _ => w.handle(5, 0),
+            }
+        }
+    }
+    w.bs(3);
+    w.handle(5, 0);
+    w.bs(0);
+    w.bs(0);
+    w.handle(5, paper);
+    w.handle(5, model);
+    let data = w.finish();
+    let mut section = vec![
+        0xCF, 0x7B, 0x1F, 0x23, 0xFD, 0xDE, 0x38, 0xA9, 0x5F, 0x7C, 0x68, 0xB8, 0x4E, 0x6D, 0x33,
+        0x5F,
+    ];
+    let mut sized = (data.len() as u32).to_le_bytes().to_vec();
+    sized.extend(&data);
+    section.extend(&sized);
+    section.extend(crc16(0xC0C1, &sized).to_le_bytes());
+    section.extend([
+        0x30, 0x84, 0xE0, 0xDC, 0x02, 0x21, 0xC7, 0x56, 0xA0, 0x83, 0x97, 0x47, 0xB1, 0x92, 0xCC,
+        0xA0,
+    ]);
+    let at = 0x19;
+    assert_eq!(src[at], 0);
+    let seeker = src.len() as u32;
+    src[at + 1..at + 5].copy_from_slice(&seeker.to_le_bytes());
+    src[at + 5..at + 9].copy_from_slice(&(section.len() as u32).to_le_bytes());
+    let crc_at = 0x19 + 27;
+    let crc = crc16(0, &src[..crc_at]) ^ 0xA598;
+    src[crc_at..crc_at + 2].copy_from_slice(&crc.to_le_bytes());
+    src.extend(section);
+    src
+}
+
 #[cfg(test)]
 fn sample() -> Vec<u8> {
     dwg(&objects_in_sample())
@@ -2802,4 +2858,46 @@ fn views_ucss_vports_and_dimstyles_have_their_fields() {
             (342, Data::Handle(0x70)),
         ]
     );
+}
+
+/// 用紙空間の LINE（entmode 1）を足したオブジェクト
+#[cfg(test)]
+fn objects_with_paper_space() -> Vec<(u64, Vec<u8>)> {
+    let mut objects = objects_in_sample();
+    let line = object(
+        0x13,
+        0x2E,
+        |w| {
+            entity_common(w, 1, 256, 1.0, 0);
+            line_data(w, [0.0, 0.0, 0.0], [1.0, 1.0, 0.0], 0.0);
+        },
+        entity_handles(0x10),
+    );
+    objects.push((0x2E, line));
+    objects
+}
+
+#[test]
+fn entities_in_model_and_paper_space_are_owned_by_their_blocks() {
+    let src = with_header_variables(dwg(&objects_with_paper_space()), 0x58, 0x1F);
+    let (db, diag) = objects(&src);
+    assert_eq!(
+        codes_of(&diag),
+        [codes::DWG_TYPE_UNSUPPORTED, codes::DWG_OBJECT_INVALID]
+    );
+    // 所有者のハンドルを持つ図形は、そのハンドルのまま
+    assert_eq!(db.get(0x2A).unwrap().owner(), Some(0x1F));
+    assert_eq!(db.get(0x2B).unwrap().owner(), Some(0x1F));
+    assert_eq!(db.get(0x2E).unwrap().owner(), Some(0x58));
+}
+
+#[test]
+fn broken_header_variables_leave_the_spaces_without_owners() {
+    let mut src = with_header_variables(dwg(&objects_with_paper_space()), 0x58, 0x1F);
+    let last = src.len() - 1;
+    src[last] ^= 0xFF; // 終わりの印を壊す
+    let (db, diag) = objects(&src);
+    assert!(codes_of(&diag).contains(&codes::DWG_FILE_INVALID));
+    assert_eq!(db.get(0x2B).unwrap().owner(), None);
+    assert_eq!(db.get(0x2E).unwrap().owner(), None);
 }
