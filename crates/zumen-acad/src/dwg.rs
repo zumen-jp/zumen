@@ -1,7 +1,7 @@
 //! DWG（Open Design Specification for .dwg files 5.4.1）。今は R2000（AC1015）だけを読む。
 //!
 //! 読むのは、ファイルの見出し（3「R13-R15 DWG FILE FORMAT ORGANIZATION」）と、オブジェクトの地図
-//! （23「OBJECT MAP」）と、地図が指すオブジェクトの区切り。オブジェクトの中身は、[`DwgFile::objects`] で
+//! （23「OBJECT MAP」）と、地図が指すオブジェクトの区切りと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
 //! 系統で共有するオブジェクトの表に置く（決定 0023）。
 //!
 //! 書くときは、元のバイトをそのまま並べる。変更はまだできない。
@@ -26,6 +26,11 @@ const OBJECT_MAP: SpecRef = SpecRef {
     section: "23 Data section AcDb:Handles (OBJECT MAP)",
 };
 
+const CLASSES: SpecRef = SpecRef {
+    spec: "ods_dwg_5_4_1",
+    section: "10 Data section AcDb:Classes",
+};
+
 const COMMON_OBJECT: SpecRef = SpecRef {
     spec: "ods_dwg_5_4_1",
     section: "20.1 Common non-entity object format",
@@ -35,6 +40,19 @@ const COMMON_OBJECT: SpecRef = SpecRef {
 const HEADER_SENTINEL: [u8; 16] = [
     0x95, 0xA0, 0x4E, 0x28, 0x99, 0x82, 0x1A, 0xE5, 0x5E, 0x41, 0xE0, 0x5F, 0x9D, 0x3A, 0x4D, 0x00,
 ];
+
+/// クラスの区切りの始まりの印
+const CLASSES_START: [u8; 16] = [
+    0x8D, 0xA1, 0xC4, 0xB8, 0xC4, 0xA9, 0xF8, 0xC5, 0xC0, 0xDC, 0xF4, 0x5F, 0xE7, 0xCF, 0xB6, 0x8A,
+];
+
+/// クラスの区切りの終わりの印
+const CLASSES_END: [u8; 16] = [
+    0x72, 0x5E, 0x3B, 0x47, 0x3B, 0x56, 0x07, 0x3A, 0x3F, 0x23, 0x0B, 0xA0, 0x18, 0x30, 0x49, 0x75,
+];
+
+/// クラスの区切りの番号
+const CLASSES_NUMBER: u8 = 1;
 
 /// 区切りの記録が始まる位置
 const LOCATORS_START: usize = 0x19;
@@ -58,7 +76,18 @@ pub struct DwgFile {
     src: Vec<u8>,
     code_page: u16,
     locators: Vec<Locator>,
+    classes: Vec<Class>,
     entries: Vec<Entry>,
+}
+
+/// クラスの区切りの 1 つのクラス。型が 500 以上のオブジェクトは、番号が型と同じクラスで決まる
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Class {
+    number: u16,
+    /// DXF の名前
+    name: Vec<u8>,
+    /// 図形を作るクラスか（itemclassid が 0x1F2）
+    entity: bool,
 }
 
 /// 見出しの区切りの記録（ODS 5.4.1 の 3.2.6）
@@ -112,7 +141,7 @@ impl FileModel for DwgFile {
     fn record(&self, index: usize) -> Option<RecordInfo<'_>> {
         let entry = self.entries.get(index)?;
         Some(RecordInfo {
-            kind: objects::kind(entry.type_code).map_or(b"", |(kind, _)| kind),
+            kind: self.kind(entry.type_code).map_or(b"", |(kind, _)| kind),
             bytes: Some(ByteRange {
                 start: entry.span.start as u64,
                 end: entry.span.end as u64,
@@ -179,11 +208,13 @@ impl Codec for Dwg {
             return Err(Error::Unsupported);
         }
         let (code_page, locators) = header(src, cx)?;
+        let classes = classes(src, &locators, cx)?;
         let entries = object_map(src, &locators, cx)?;
         Ok(DwgFile {
             src: src.to_vec(),
             code_page,
             locators,
+            classes,
             entries,
         })
     }
@@ -234,6 +265,68 @@ fn header(src: &[u8], cx: &mut Cx) -> Result<(u16, Vec<Locator>), Error> {
         return Err(invalid(cx, "sentinel", sentinel));
     }
     Ok((code_page, locators))
+}
+
+/// クラスの区切りを読む。区切りがないか大きさが 0 なら、クラスはない
+fn classes(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Result<Vec<Class>, Error> {
+    let Some(locator) = locators
+        .iter()
+        .find(|l| l.number == CLASSES_NUMBER && l.size > 0)
+    else {
+        return Ok(Vec::new());
+    };
+    let start = locator.seeker as usize;
+    let end = start.saturating_add(locator.size as usize);
+    let span = start..end;
+    if src.get(start..start.saturating_add(16)) != Some(&CLASSES_START[..]) {
+        return Err(invalid(cx, "classes", span));
+    }
+    let size = le32(src, start + 16)
+        .and_then(|size| usize::try_from(size).ok())
+        .ok_or_else(|| invalid(cx, "classes", span.clone()))?;
+    let data_at = start + 20;
+    let crc_at = data_at.saturating_add(size);
+    let Some(data) = src.get(data_at..crc_at) else {
+        return Err(invalid(cx, "classes", span));
+    };
+    if src.get(crc_at + 2..crc_at + 18) != Some(&CLASSES_END[..]) {
+        return Err(invalid(cx, "classes", span));
+    }
+    // CRC は、大きさの RL からデータの終わりまでを 0xC0C1 から計算する（推定）
+    let found = crc16(
+        OBJECT_CRC_SEED,
+        src.get(start + 16..crc_at).unwrap_or_default(),
+    );
+    if le16(src, crc_at) != Some(found) {
+        cx.report(crc_invalid("classes", start..crc_at + 18, CLASSES));
+    }
+    let mut bits = Bits::new(data);
+    let mut classes = Vec::new();
+    // 大きさはバイトで数えるので、終わりの 8 ビットより短い余りは埋め草
+    while bits.pos().saturating_add(8) <= size.saturating_mul(8) {
+        cx.check(Kind::Records, 1)
+            .map_err(|stop| stopped(cx, stop))?;
+        let class = class(&mut bits).ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;
+        classes.push(class);
+    }
+    Ok(classes)
+}
+
+/// 1 つのクラス: 番号・版・アプリケーションの名前・C++ の名前・DXF の名前・ゾンビだったか・
+/// itemclassid
+fn class(bits: &mut Bits) -> Option<Class> {
+    let number = u16::try_from(bits.bs()?).ok()?;
+    bits.bs()?;
+    bits.text()?;
+    bits.text()?;
+    let name = bits.text()?;
+    bits.bit()?;
+    let entity = bits.bs()? == 0x1F2;
+    Some(Class {
+        number,
+        name,
+        entity,
+    })
 }
 
 /// オブジェクトの地図を読み、地図が指すオブジェクトの区切りを並べる

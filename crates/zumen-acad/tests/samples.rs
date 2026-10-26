@@ -112,7 +112,12 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             }
             let at = format!("{} {handle:#X}", dwg.display());
             assert_eq!(object.kind, other.kind, "{at}");
-            if object.owner().is_some() {
+            // 所有者が DXF に書かれないとき（R2000 の DXF は、新しい版の表の中身を XRECORD の下に
+            // 移す）は比べない
+            if object
+                .owner()
+                .is_some_and(|owner| dxf_objects.contains_key(&owner))
+            {
                 assert_eq!(object.owner(), other.owner(), "{at}");
             }
             // DWG が置いた値は、DXF の同じグループ・コードの同じ順番の値と同じ

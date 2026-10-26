@@ -352,6 +352,47 @@ fn dwg_in_sections(objects: &[(u64, Vec<u8>)], per_section: usize) -> Vec<u8> {
     out
 }
 
+/// DWG の終わりにクラスの区切りを足し、区切りの記録の 1 番をそれに向ける。クラスは番号・DXF の名前・
+/// 図形を作るか
+#[cfg(test)]
+fn with_classes(mut src: Vec<u8>, classes: &[(u16, &[u8], bool)]) -> Vec<u8> {
+    let mut w = BitWriter::default();
+    for (number, name, entity) in classes {
+        w.bs(*number);
+        w.bs(0);
+        for text in [&b"ZumenTest"[..], b"AcDbTest", name] {
+            w.bs(text.len() as u16 + 1);
+            w.bytes(text);
+            w.bytes(&[0]);
+        }
+        w.bit(false);
+        w.bs(if *entity { 0x1F2 } else { 0x1F3 });
+    }
+    let data = w.finish();
+    let mut section = vec![
+        0x8D, 0xA1, 0xC4, 0xB8, 0xC4, 0xA9, 0xF8, 0xC5, 0xC0, 0xDC, 0xF4, 0x5F, 0xE7, 0xCF, 0xB6,
+        0x8A,
+    ];
+    let mut sized = (data.len() as u32).to_le_bytes().to_vec();
+    sized.extend(&data);
+    section.extend(&sized);
+    section.extend(crc16(0xC0C1, &sized).to_le_bytes());
+    section.extend([
+        0x72, 0x5E, 0x3B, 0x47, 0x3B, 0x56, 0x07, 0x3A, 0x3F, 0x23, 0x0B, 0xA0, 0x18, 0x30, 0x49,
+        0x75,
+    ]);
+    let at = 0x19 + 9;
+    assert_eq!(src[at], 1);
+    let seeker = src.len() as u32;
+    src[at + 1..at + 5].copy_from_slice(&seeker.to_le_bytes());
+    src[at + 5..at + 9].copy_from_slice(&(section.len() as u32).to_le_bytes());
+    let crc_at = 0x19 + 27;
+    let crc = crc16(0, &src[..crc_at]) ^ 0xA598;
+    src[crc_at..crc_at + 2].copy_from_slice(&crc.to_le_bytes());
+    src.extend(section);
+    src
+}
+
 #[cfg(test)]
 fn sample() -> Vec<u8> {
     dwg(&objects_in_sample())
@@ -1102,6 +1143,60 @@ fn splines_have_their_knots_or_fit_points() {
     assert_eq!(spline.first(13), None);
     assert_eq!(count(spline, 11), 2);
     assert!(close(spline.real(11), 0.0));
+}
+
+#[test]
+fn types_of_classes_are_named_by_the_classes() {
+    let layer = object(0x33, 0x10, record_named(b"0"), |w| w.handle(4, 2));
+    let hatch = object(
+        500,
+        0x20,
+        |w| entity_common(w, 2, 1, 1.0, 0),
+        entity_handles(0x10),
+    );
+    let var = object(501, 0x21, |w| w.bl_zero(), |w| w.handle(4, 0));
+    let src = with_classes(
+        dwg(&[(0x10, layer), (0x20, hatch), (0x21, var)]),
+        &[(500, b"HATCH", true), (501, b"DICTIONARYVAR", false)],
+    );
+    let (file, diag) = read(&src, Limits::default());
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(file.unwrap().record(1).unwrap().kind, b"HATCH");
+
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let hatch = db.get(0x20).unwrap();
+    assert_eq!(hatch.kind, b"HATCH");
+    assert_eq!(hatch.section, Section::Entities);
+    // 図形を作るクラスなので、図形の共通の欄を読む
+    assert_eq!(hatch.first(8), Some(&Data::Text(b"0".to_vec())));
+    assert_eq!(hatch.first(62), Some(&Data::Int(1)));
+    let var = db.get(0x21).unwrap();
+    assert_eq!(var.kind, b"DICTIONARYVAR");
+    assert_eq!(var.section, Section::Objects);
+}
+
+#[test]
+fn a_wrong_class_section_is_reported() {
+    let src = with_classes(dwg(&objects_in_sample()), &[(500, b"HATCH", true)]);
+    let end = src.len();
+    // CRC が合わないときは、知らせて読み続ける
+    let mut wrong_crc = src.clone();
+    wrong_crc[end - 17] ^= 0xFF;
+    let (result, diag) = read(&wrong_crc, Limits::default());
+    assert!(result.is_ok());
+    assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
+    // 終わりの印が合わないときは止める
+    let mut wrong_sentinel = src.clone();
+    wrong_sentinel[end - 1] ^= 0xFF;
+    let (result, diag) = read(&wrong_sentinel, Limits::default());
+    assert!(matches!(result, Err(Error::Invalid)));
+    assert!(codes_of(&diag).contains(&codes::DWG_FILE_INVALID));
+    // 途中で尽きるファイルも、パニックせずに失敗する
+    for len in end - 60..end {
+        let (result, _) = read(&src[..len], Limits::default());
+        assert!(result.is_err(), "{len}");
+    }
 }
 
 #[test]
