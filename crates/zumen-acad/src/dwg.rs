@@ -1,5 +1,6 @@
-//! DWG（Open Design Specification for .dwg files 5.4.1）。今は R2000（AC1015）だけを読む。
-//! R2004（AC1018）は、入れ物（4「R2004 DWG FILE FORMAT ORGANIZATION」）を確かめてから、読めないことを返す。
+//! DWG（Open Design Specification for .dwg files 5.4.1）。R2000（AC1015）、R2004（AC1018）、
+//! R2010（AC1024）、R2013（AC1027）、R2018（AC1032）を読む。R2004 から後は、入れ物
+//! （4「R2004 DWG FILE FORMAT ORGANIZATION」）を展開してから読む。R2007（AC1021）は読めない。
 //!
 //! 読むのは、ファイルの見出し（3「R13-R15 DWG FILE FORMAT ORGANIZATION」）と、オブジェクトの地図
 //! （23「OBJECT MAP」）と、地図が指すオブジェクトの区切りと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
@@ -95,13 +96,19 @@ pub struct DwgFile {
     entries: Vec<Entry>,
 }
 
-/// 読める版。ビット列の欄の違いを決める
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// 読める版。ビット列の欄の違いを決める。後の版ほど大きい
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Release {
     /// AC1015
     R2000,
     /// AC1018
     R2004,
+    /// AC1024
+    R2010,
+    /// AC1027
+    R2013,
+    /// AC1032
+    R2018,
 }
 
 /// クラスの区切りの 1 つのクラス。型が 500 以上のオブジェクトは、番号が型と同じクラスで決まる
@@ -131,8 +138,10 @@ struct Entry {
     handle: u64,
     /// 大きさ（MS）から CRC の終わりまで
     span: Range<usize>,
-    /// 大きさ（MS）の後の、オブジェクトのデータ
+    /// 大きさ（MS）の後の、オブジェクトのデータ。R2010 からは、ハンドルの流れの大きさ（MC）の後
     data: Range<usize>,
+    /// R2010 からの、データの中のハンドルの流れが始まるビット
+    handles: Option<usize>,
     type_code: u16,
 }
 
@@ -247,8 +256,15 @@ impl Codec for Dwg {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
         let version = src.get(..6).unwrap_or(src);
-        if version == b"AC1018" {
-            return read_r2004(src, cx);
+        let release = match version {
+            b"AC1018" => Some(Release::R2004),
+            b"AC1024" => Some(Release::R2010),
+            b"AC1027" => Some(Release::R2013),
+            b"AC1032" => Some(Release::R2018),
+            _ => None,
+        };
+        if let Some(release) = release {
+            return read_r2004(src, release, cx);
         }
         if version != b"AC1015" {
             let known = Self::SIGNATURES
@@ -277,7 +293,7 @@ impl Codec for Dwg {
             .ok_or_else(|| invalid(cx, "object-map", 0..src.len()))?;
         let start = map.seeker as usize;
         let end = start.saturating_add(map.size as usize).min(src.len());
-        let entries = object_map(src, start..end, src, cx)?;
+        let entries = object_map(src, start..end, src, Release::R2000, cx)?;
         Ok(DwgFile {
             src: src.to_vec(),
             release: Release::R2000,
@@ -296,8 +312,9 @@ impl Codec for Dwg {
     }
 }
 
-/// R2004 の入れ物を読み、展開した区切りからクラスとオブジェクトの地図を読む（決定 0026）
-fn read_r2004(src: &[u8], cx: &mut Cx) -> Result<DwgFile, Error> {
+/// R2004 の入れ物を読み、展開した区切りからクラスとオブジェクトの地図を読む（決定 0026）。
+/// R2010 からも同じ入れ物を使う（決定 0027）
+fn read_r2004(src: &[u8], release: Release, cx: &mut Cx) -> Result<DwgFile, Error> {
     let container = r2004::read(src, cx)?;
     let mut sections = [&[][..]; 4];
     for (found, name) in sections.iter_mut().zip(R2004_SECTIONS) {
@@ -307,12 +324,12 @@ fn read_r2004(src: &[u8], cx: &mut Cx) -> Result<DwgFile, Error> {
             .ok_or_else(|| r2004::invalid(cx, "section", 0..6))?;
     }
     let [_, class_section, map, body] = sections;
-    let classes = classes(class_section, 0, Release::R2004, cx)?;
-    let entries = object_map(map, 0..map.len(), body, cx)?;
+    let classes = classes(class_section, 0, release, cx)?;
+    let entries = object_map(map, 0..map.len(), body, release, cx)?;
     let code_page = le16(src, 0x13).ok_or_else(|| invalid(cx, "header", 0..src.len()))?;
     Ok(DwgFile {
         src: src.to_vec(),
-        release: Release::R2004,
+        release,
         code_page,
         locators: Vec::new(),
         container: Some(container),
@@ -371,12 +388,22 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
     let size = le32(src, start + 16)
         .and_then(|size| usize::try_from(size).ok())
         .ok_or_else(|| invalid(cx, "classes", span.clone()))?;
-    let data_at = start + 20;
+    // R2010 からは、大きさの RL の後に上位の RL があることがある（同じ版でも、ない図面がある）。
+    // 終わりの印が、データと CRC の後にある方をとる
+    let ends_at = |data_at: usize| {
+        let crc_at = data_at.saturating_add(size);
+        src.get(crc_at + 2..crc_at + 18) == Some(&CLASSES_END[..])
+    };
+    let data_at = if release >= Release::R2010 && ends_at(start + 24) {
+        start + 24
+    } else {
+        start + 20
+    };
     let crc_at = data_at.saturating_add(size);
     let Some(data) = src.get(data_at..crc_at) else {
         return Err(invalid(cx, "classes", span));
     };
-    if src.get(crc_at + 2..crc_at + 18) != Some(&CLASSES_END[..]) {
+    if !ends_at(data_at) {
         return Err(invalid(cx, "classes", span));
     }
     // CRC は、大きさの RL からデータの終わりまでを 0xC0C1 から計算する（推定）
@@ -387,15 +414,26 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
     if le16(src, crc_at) != Some(found) {
         cx.report(crc_invalid("classes", start..crc_at + 18, CLASSES));
     }
-    let mut bits = Bits::new(data);
+    let mut bits = Bits::with_release(data, release);
+    // 大きさはバイトで数えるので、終わりの 8 ビットより短い余りは埋め草
+    let mut end = size.saturating_mul(8);
+    // R2010 からは、データの初めに、文字列の流れの終わりまでのビットの数（RL）がある
+    if release >= Release::R2010 {
+        let strings_end = le32(data, 0)
+            .and_then(|bits| usize::try_from(bits).ok())
+            .ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;
+        bits.seek(32);
+        end = bits
+            .split_strings(strings_end)
+            .ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;
+    }
     // R2004 からは、クラスの前に、最大のクラスの番号（BS）・0 の RC・0 の RC・真の B がある
-    if release == Release::R2004 {
+    if release >= Release::R2004 {
         let preface = bits.bs().and(bits.rc()).and(bits.rc()).and(bits.bit());
         preface.ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;
     }
     let mut classes = Vec::new();
-    // 大きさはバイトで数えるので、終わりの 8 ビットより短い余りは埋め草
-    while bits.pos().saturating_add(8) <= size.saturating_mul(8) {
+    while bits.pos().saturating_add(8) <= end {
         cx.check(Kind::Records, 1)
             .map_err(|stop| stopped(cx, stop))?;
         let class =
@@ -416,7 +454,7 @@ fn class(bits: &mut Bits, release: Release) -> Option<Class> {
     bits.bit()?;
     let entity = bits.bs()? == 0x1F2;
     // R2004 からは、オブジェクトの数（BL）・版（BL）・保守の版（BL）・不明な 2 つの BL が続く
-    if release == Release::R2004 {
+    if release >= Release::R2004 {
         for _ in 0..5 {
             bits.bl()?;
         }
@@ -433,6 +471,7 @@ fn object_map(
     src: &[u8],
     range: Range<usize>,
     objects: &[u8],
+    release: Release,
     cx: &mut Cx,
 ) -> Result<Vec<Entry>, Error> {
     let Range { start, end } = range;
@@ -471,7 +510,7 @@ fn object_map(
             cx.check(Kind::Records, 1)
                 .map_err(|stop| stopped(cx, stop))?;
             let offset = usize::try_from(location).unwrap_or(usize::MAX);
-            entries.push(entry(objects, handle, offset, cx)?);
+            entries.push(entry(objects, handle, offset, release, cx)?);
         }
         pos = crc_at + 2;
     }
@@ -479,18 +518,40 @@ fn object_map(
 }
 
 /// `offset` から始まるオブジェクトの区切りと型を読み、CRC を確かめる
-fn entry(src: &[u8], handle: u64, offset: usize, cx: &mut Cx) -> Result<Entry, Error> {
+fn entry(
+    src: &[u8],
+    handle: u64,
+    offset: usize,
+    release: Release,
+    cx: &mut Cx,
+) -> Result<Entry, Error> {
     let mut pos = offset;
     let size = modular_short(src, &mut pos)
         .and_then(|size| usize::try_from(size).ok())
         .ok_or_else(|| invalid(cx, "object", offset..src.len()))?;
+    // R2010 からは、大きさの後に、ハンドルの流れのビットの数（MC）がある。ハンドルの流れは
+    // データの終わりにある（試料の DWG と DXF の比較で確かめた）
+    let handles = if release >= Release::R2010 {
+        let bits = modular_char(src, &mut pos, false)
+            .and_then(|bits| usize::try_from(bits).ok())
+            .ok_or_else(|| invalid(cx, "object", offset..src.len()))?;
+        let at = size.checked_mul(8).and_then(|all| all.checked_sub(bits));
+        Some(at.ok_or_else(|| invalid(cx, "object", offset..src.len()))?)
+    } else {
+        None
+    };
     let data = pos..pos.saturating_add(size);
     let span = offset..data.end.saturating_add(2);
     if span.end > src.len() {
         return Err(invalid(cx, "object", offset..src.len()));
     }
-    let type_code = Bits::new(src.get(data.clone()).unwrap_or_default())
-        .bs()
+    let mut bits = Bits::new(src.get(data.clone()).unwrap_or_default());
+    let type_code = if release >= Release::R2010 {
+        bits.bot()
+    } else {
+        bits.bs()
+    };
+    let type_code = type_code
         .and_then(|code| u16::try_from(code).ok())
         .ok_or_else(|| invalid(cx, "object", span.clone()))?;
     let found = crc16(
@@ -504,6 +565,7 @@ fn entry(src: &[u8], handle: u64, offset: usize, cx: &mut Cx) -> Result<Entry, E
         handle,
         span,
         data,
+        handles,
         type_code,
     })
 }

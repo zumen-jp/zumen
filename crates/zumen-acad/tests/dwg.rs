@@ -3273,6 +3273,53 @@ fn r2004_containers_are_checked_and_read() {
     assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
 }
 
+/// R2010 のクラスの区切り。データの初めに文字列の流れの終わりまでのビットの数（RL）を持ち、
+/// 終わりのビットが 0 なので文字列の流れはない。`high` なら、大きさの後に上位の RL を置く
+#[cfg(test)]
+fn r2010_classes(high: bool) -> Vec<u8> {
+    let mut w = BitWriter::default();
+    w.bytes(&68u32.to_le_bytes());
+    w.bs(499);
+    w.bytes(&[0, 0]);
+    w.bit(true);
+    w.bit(false);
+    let data = w.finish();
+    let mut classes = vec![
+        0x8D, 0xA1, 0xC4, 0xB8, 0xC4, 0xA9, 0xF8, 0xC5, 0xC0, 0xDC, 0xF4, 0x5F, 0xE7, 0xCF, 0xB6,
+        0x8A,
+    ];
+    let mut sized = (data.len() as u32).to_le_bytes().to_vec();
+    if high {
+        sized.extend(0u32.to_le_bytes());
+    }
+    sized.extend(&data);
+    classes.extend(&sized);
+    classes.extend(crc16(0xC0C1, &sized).to_le_bytes());
+    classes.extend([
+        0x72, 0x5E, 0x3B, 0x47, 0x3B, 0x56, 0x07, 0x3A, 0x3F, 0x23, 0x0B, 0xA0, 0x18, 0x30, 0x49,
+        0x75,
+    ]);
+    classes
+}
+
+#[test]
+fn r2010_containers_are_read_with_or_without_the_high_size() {
+    for high in [true, false] {
+        let mut sections = r2004_sections();
+        let classes = r2010_classes(high);
+        sections[1] = (
+            b"AcDb:Classes",
+            literal_stream(&classes),
+            classes.len() as u64,
+        );
+        let mut src = r2004(&sections);
+        src[..6].copy_from_slice(b"AC1024");
+        let (result, diag) = read(&src, Limits::default());
+        assert!(result.is_ok(), "{high}");
+        assert_eq!(codes_of(&diag), [], "{high}");
+    }
+}
+
 #[test]
 fn r2004_containers_need_their_sections_and_valid_pages() {
     let mut sections = r2004_sections();

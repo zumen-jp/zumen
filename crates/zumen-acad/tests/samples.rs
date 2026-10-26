@@ -1,4 +1,4 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある、同じ図面の DWG（R2000）と DXF を読み、表を比べる。
+//! `ZUMEN_SAMPLES` のフォルダーにある、同じ図面の DWG（R2000・R2004・R2010 以降）と DXF を読み、表を比べる。
 //! フォルダーを指定しないときは何も確かめない。図面は Git に入れない。
 //!
 //! `名前.dwg` と `名前_ascii.dxf` の組を探す。
@@ -26,7 +26,7 @@ fn is_default(code: i16, data: &Data) -> bool {
         || matches!((code, data), (230, Data::Real(r)) if *r == 1.0)
 }
 
-/// フォルダーの中の、R2000 の DWG と同じ名前の DXF の組
+/// フォルダーの中の、読める版の DWG と同じ名前の DXF の組
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
@@ -42,7 +42,9 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
         .filter(|path| path.extension().is_some_and(|e| e == "dwg"))
         .filter(|path| {
             let src = std::fs::read(path).unwrap();
-            src.starts_with(b"AC1015") || src.starts_with(b"AC1018")
+            [b"AC1015", b"AC1018", b"AC1024", b"AC1027", b"AC1032"]
+                .iter()
+                .any(|version| src.starts_with(*version))
         })
         .filter_map(|dwg| {
             let stem = dwg.file_stem()?.to_str()?;
@@ -255,7 +257,15 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     if code == 62 && object.first(420).is_some() {
                         continue;
                     }
-                    if let (None, Some(theirs)) = (object.first(code), other.first(code)) {
+                    // R2018 の DXF は、MTEXT の後に埋め込みのオブジェクト（101 から）を書く。その中の
+                    // 値は、まだ読まないので比べない
+                    let theirs = other
+                        .values
+                        .iter()
+                        .take_while(|v| v.code != 101)
+                        .find(|v| v.code == code)
+                        .map(|v| &v.data);
+                    if let (None, Some(theirs)) = (object.first(code), theirs) {
                         assert!(is_default(code, theirs), "{at} {code}: {theirs:?}");
                     }
                 }
@@ -348,8 +358,9 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
 }
 
 #[test]
-fn r2004_drawings_are_read_without_diagnostics() {
-    for path in dwgs(b"AC1018") {
+fn r2004_and_later_drawings_are_read_without_diagnostics() {
+    let found = [b"AC1018", b"AC1024", b"AC1027", b"AC1032"];
+    for path in found.iter().flat_map(|version| dwgs(*version)) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
