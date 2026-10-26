@@ -53,7 +53,7 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 
 ## 図面モデルへの変換
 
-- `DxfFile` の `Lift<Drawing2D>` で、図面モデル（L2、`crates/zumen-drawing`）を作る（[決定 0022](../decisions/0022-drawing2d-semantics-and-format-mapping.md)）。`zumen-acad` の feature `drawing` にあり、外せば L1 だけを使える。
+- `DxfFile` の `Lift<Drawing2D>` で、図面モデル（L2、`crates/zumen-drawing`）を作る（[決定 0022](../decisions/0022-drawing2d-semantics-and-format-mapping.md)）。変換は共有のオブジェクトの表（[決定 0023](../decisions/0023-acad-shared-object-table.md)）の上で行い、DWG も同じ変換を使う（[DWG の扱い](dwg.md)）。`zumen-acad` の feature `drawing` にあり、外せば L1 だけを使える。
 - いまは ENTITIES の LINE・TEXT と、ペーパー空間の VIEWPORT だけを移す。BLOCKS の中身と、ほかの種類は移さず、種類ごとに `dxf.lift.dropped` を返す。
 - モデル空間の図形は 1 つの実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。用紙は、ペーパー空間に何かあるときだけ作る。
 - 実寸の単位は `$INSUNITS` で決める。ないか長さの単位でなければ不明とし、`dxf.units.missing` を返す。mm とみなさない。

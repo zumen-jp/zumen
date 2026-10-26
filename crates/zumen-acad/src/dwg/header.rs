@@ -1,6 +1,6 @@
 //! 見出しの変数の区切り（ODS 5.4.1 の 9）。今は、用紙空間とモデル空間のブロックのレコードの
-//! ハンドルだけを取り出す。どちらの空間の図形も、所有者のハンドルを持たない（entmode が 1・2）ので、
-//! 所有者はこのハンドルで決まる。
+//! ハンドルと、図面モデルへの変換に使う変数（INSUNITS・PLIMMIN・PLIMMAX）だけを取り出す。
+//! どちらの空間の図形も、所有者のハンドルを持たない（entmode が 1・2）ので、所有者はこのハンドルで決まる。
 
 use super::bits::{Bits, crc16};
 use super::{Locator, OBJECT_CRC_SEED, crc_invalid, le16, le32};
@@ -26,11 +26,17 @@ const END: [u8; 16] = [
 
 const PART: &str = "header variables";
 
-/// 用紙空間（`*Paper_Space`）とモデル空間（`*Model_Space`）のブロックのレコードのハンドル
+/// 取り出した見出しの変数
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Spaces {
+pub(super) struct Header {
+    /// 用紙空間（`*Paper_Space`）のブロックのレコードのハンドル
     pub(super) paper: u64,
+    /// モデル空間（`*Model_Space`）のブロックのレコードのハンドル
     pub(super) model: u64,
+    /// INSUNITS
+    pub(super) units: i16,
+    /// 用紙空間の PLIMMIN（X・Y）と PLIMMAX（X・Y）
+    pub(super) limits: [f64; 4],
 }
 
 /// 読み飛ばす変数の型
@@ -127,9 +133,9 @@ const LAST: [(Field, usize); 22] = [
     (Bs, 1),
 ];
 
-/// 見出しの変数の区切りを読み、2 つの空間のハンドルを返す。区切りがないか大きさが 0 なら、
+/// 見出しの変数の区切りを読み、取り出した変数を返す。区切りがないか大きさが 0 なら、
 /// 何も返さない。壊れていれば、診断を返して何も返さない
-pub(super) fn spaces(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Option<Spaces> {
+pub(super) fn header(src: &[u8], locators: &[Locator], cx: &mut Cx) -> Option<Header> {
     let locator = locators.iter().find(|l| l.number == NUMBER && l.size > 0)?;
     let start = locator.seeker as usize;
     let span = start..start.saturating_add(locator.size as usize);
@@ -170,16 +176,17 @@ fn section(src: &[u8], start: usize) -> Option<(&[u8], usize)> {
     Some((data, crc_at))
 }
 
-/// 変数を順に読み、空間のハンドルを返す。見出しのハンドルは絶対の値
-fn variables(bits: &mut Bits) -> Option<Spaces> {
-    // 用紙空間、続いてモデル空間
-    for fields in [&FIRST[..], &SPACE, &SPACE, &LAST] {
-        for &(field, count) in fields {
-            for _ in 0..count {
-                skip(bits, field)?;
-            }
-        }
-    }
+/// 変数を順に読み、取り出した変数を返す。見出しのハンドルは絶対の値
+fn variables(bits: &mut Bits) -> Option<Header> {
+    skip_all(bits, &FIRST)?;
+    // 用紙空間、続いてモデル空間。用紙空間の LIMMIN・LIMMAX が PLIMMIN・PLIMMAX
+    skip_all(bits, &SPACE[..1])?;
+    let limits = [bits.rd()?, bits.rd()?, bits.rd()?, bits.rd()?];
+    skip_all(bits, &SPACE[2..])?;
+    skip_all(bits, &SPACE)?;
+    // LAST の最後の BS が INSUNITS
+    skip_all(bits, LAST.split_last()?.1)?;
+    let units = bits.bs()?;
     // CEPSNTYPE が 3 なら、CPSNID のハンドルが続く
     if bits.bs()? == 3 {
         bits.handle()?;
@@ -189,7 +196,21 @@ fn variables(bits: &mut Bits) -> Option<Spaces> {
     bits.text()?;
     let paper = bits.handle()?.value;
     let model = bits.handle()?.value;
-    Some(Spaces { paper, model })
+    Some(Header {
+        paper,
+        model,
+        units,
+        limits,
+    })
+}
+
+fn skip_all(bits: &mut Bits, fields: &[(Field, usize)]) -> Option<()> {
+    for &(field, count) in fields {
+        for _ in 0..count {
+            skip(bits, field)?;
+        }
+    }
+    Some(())
 }
 
 fn skip(bits: &mut Bits, field: Field) -> Option<()> {

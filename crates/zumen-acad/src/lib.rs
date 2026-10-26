@@ -3,6 +3,8 @@
 //! ASCII の DXF を読み書きする（[`dxf`]）。DWG は R2000 だけを読む試作（[`dwg`]）。DXF と DWG が共有するオブジェクトの表は [`db`]（決定 0023）。
 
 pub mod db;
+#[cfg(feature = "drawing")]
+mod drawing;
 pub mod dwg;
 pub mod dxf;
 
