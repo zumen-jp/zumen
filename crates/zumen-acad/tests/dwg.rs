@@ -3674,6 +3674,31 @@ fn sample_with_more_kinds() -> Vec<u8> {
             entity_handles_to(0x10, 0),
         )
     };
+    // 600 バイトの文字列の MTEXT。文字の範囲の大きさは表にない
+    let long: Vec<u8> = (0..600).map(|i| b'a' + (i % 26) as u8).collect();
+    let mtext = object(
+        0x2C,
+        0x40,
+        move |w| {
+            common(w);
+            for v in [1.0, 2.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(10.0);
+            w.bd(2.5);
+            w.bs(1);
+            w.bs(5);
+            w.bd(3.0);
+            w.bd(9.0);
+            w.bs(601);
+            w.bytes(&long);
+            w.bytes(&[0]);
+            w.bs(1);
+            w.bd(1.0);
+            w.bit(true);
+        },
+        entity_handles_to(0x10, 0),
+    );
     let mut objects = objects_in_sample();
     objects.extend([
         (0x32, point),
@@ -3690,6 +3715,7 @@ fn sample_with_more_kinds() -> Vec<u8> {
         (0x3D, insert(0x08, 0x3D)),
         (0x3E, attribute(0x02, 0x3E)),
         (0x3F, attribute(0x03, 0x3F)),
+        (0x40, mtext),
     ]);
     dwg(&objects)
 }
@@ -3947,6 +3973,83 @@ fn changed_attributes_are_written_back() {
     // RC に収まらない印は符号化できない
     let mut changed = objects(&src).0;
     set_value(&mut changed, 0x3E, 70, Data::Int(300));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+}
+
+#[test]
+fn changed_mtexts_are_written_back() {
+    let src = sample_with_more_kinds();
+    let (mut db, before) = objects(&src);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let edits: [(i16, Data); 8] = [
+        (1, Data::Text(b"x^Jy^ ".to_vec())),
+        (40, Data::Real(1.25)),
+        (71, Data::Int(7)),
+        (11, Data::Real(0.0)),
+        (21, Data::Real(1.0)),
+        (31, Data::Real(0.0)),
+        (73, Data::Int(2)),
+        (44, Data::Real(1.5)),
+    ];
+    for (code, data) in edits {
+        set_value(&mut db, 0x40, code, data);
+    }
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    // 足した値は表の終わりに置いたので、同じグループ・コードの値の順を保って並べて比べる
+    let values = |db: &AcadDb| -> Vec<_> {
+        db.objects()
+            .iter()
+            .map(|o| {
+                let mut values = o.values.clone();
+                values.sort_by_key(|v| v.code);
+                values
+            })
+            .collect()
+    };
+    assert_eq!(values(&after), values(&db));
+    // 文字の範囲の大きさ（3.0・9.0）と、行の間隔の後の B は元のまま残る
+    let mut text: Vec<u8> = (0..500).map(|i| b'a' + (i % 26) as u8).collect();
+    text.extend(b"x\ny^\0");
+    let expected = object(
+        0x2C,
+        0x40,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(10.0);
+            w.bd(1.25);
+            w.bs(7);
+            w.bs(5);
+            w.bd(3.0);
+            w.bd(9.0);
+            w.bs(text.len() as u16);
+            w.bytes(&text);
+            w.bs(2);
+            w.bd(1.5);
+            w.bit(true);
+        },
+        entity_handles_to(0x10, 0),
+    );
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x40))
+        .unwrap();
+    let file = read(&out, Limits::default()).0.unwrap();
+    let range = file.record(index).unwrap().bytes.unwrap();
+    assert_eq!(&out[range.start as usize..range.end as usize], expected);
+    // 文字列でない 3 は符号化できない
+    let mut changed = objects(&src).0;
+    set_value(&mut changed, 0x40, 3, Data::Real(1.0));
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &changed);
     assert_eq!(out, Err(Error::Rejected));

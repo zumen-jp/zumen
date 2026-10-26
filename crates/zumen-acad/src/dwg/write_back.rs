@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0033）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0034）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -41,6 +41,9 @@ const ATTRIB: &[i16] = &[
 ];
 const ATTDEF: &[i16] = &[
     10, 20, 30, 11, 21, 31, 39, 51, 50, 40, 41, 1, 71, 72, 74, 210, 220, 230, 2, 73, 70, 3,
+];
+const MTEXT: &[i16] = &[
+    10, 20, 30, 210, 220, 230, 11, 21, 31, 41, 40, 71, 72, 3, 1, 73, 44,
 ];
 
 /// MINSERT の型の番号
@@ -187,6 +190,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"TEXT" => TEXT,
         b"ATTRIB" => ATTRIB,
         b"ATTDEF" => ATTDEF,
+        b"MTEXT" => MTEXT,
         b"INSERT" if grid => MINSERT,
         b"INSERT" => INSERT,
         _ => &[],
@@ -216,7 +220,7 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         fields.copy(data, start..handles_at)?;
         fields
     } else {
-        own_fields(new, grid)?
+        own_fields(new, grid, data, start)?
     };
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
@@ -251,8 +255,9 @@ fn common_fields(data: &[u8], color_at: usize, start: usize, object: &Object) ->
     Some(fields)
 }
 
-/// 型ごとの欄。`grid` は MINSERT か。符号化できない種類なら `None`
-fn own_fields(new: &Object, grid: bool) -> Option<BitWriter> {
+/// 型ごとの欄。`grid` は MINSERT か。表にない欄は、元のデータ `data` の `start` からの型ごとの欄から写す。
+/// 符号化できない種類なら `None`
+fn own_fields(new: &Object, grid: bool, data: &[u8], start: usize) -> Option<BitWriter> {
     let mut fields = BitWriter::default();
     match new.kind.as_slice() {
         b"LINE" => line(&mut fields, new)?,
@@ -295,6 +300,7 @@ fn own_fields(new: &Object, grid: bool) -> Option<BitWriter> {
         b"3DFACE" => face3d(&mut fields, new)?,
         b"TEXT" => text(&mut fields, new, 73)?,
         b"ATTRIB" | b"ATTDEF" => attribute(&mut fields, new)?,
+        b"MTEXT" => mtext(&mut fields, new, data, start)?,
         b"INSERT" => insert(&mut fields, new, grid)?,
         _ => return None,
     }
@@ -439,6 +445,55 @@ fn attribute(fields: &mut BitWriter, object: &Object) -> Option<()> {
         string(fields, object, 3)?;
     }
     Some(())
+}
+
+/// MTEXT の欄（R2000）。押し出しの向きと X 軸の向きは、なければ (0, 0, 1)・(1, 0, 0) を書く。文字列は、
+/// 250 バイトずつの 3 と、残りの 1 をつないで書く。表にない文字の範囲の大きさ（2 つの BD）と、行の間隔の後の
+/// B は、元のデータから写す
+fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    for _ in 0..11 {
+        bits.bd()?;
+    }
+    bits.bs()?;
+    bits.bs()?;
+    let extents_at = bits.pos();
+    bits.bd()?;
+    bits.bd()?;
+    let extents_end = bits.pos();
+    bits.text()?;
+    bits.bs()?;
+    bits.bd()?;
+    let flag_at = bits.pos();
+    point3(fields, object, 10)?;
+    for (code, default) in [(210, [0.0, 0.0, 1.0]), (11, [1.0, 0.0, 0.0])] {
+        match [code, code + 10, code + 20].map(|code| real(object, code)) {
+            [Some(None), Some(None), Some(None)] => default.map(|v| fields.bd(v)),
+            [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
+            _ => return None,
+        };
+    }
+    for code in [41, 40] {
+        fields.bd(real(object, code)??);
+    }
+    for code in [71, 72] {
+        fields.bs(small(object, code)??);
+    }
+    fields.copy(data, extents_at..extents_end)?;
+    let mut text = Vec::new();
+    for value in object.values.iter().filter(|value| value.code == 3) {
+        let Data::Text(chunk) = &value.data else {
+            return None;
+        };
+        text.extend(uncaret(chunk)?);
+    }
+    text.extend(uncaret(text_of(object, 1)?)?);
+    text.push(0);
+    fields.text(&text)?;
+    fields.bs(small(object, 73)??);
+    fields.bd(real(object, 44)??);
+    fields.copy(data, flag_at..flag_at + 1)
 }
 
 /// `code` の文字列を、DXF の `^` の書き方を戻し、終わりの NUL を付けて T で書く
