@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0043）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0044）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -92,6 +92,7 @@ const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
 const LEADER: &[i16] = &[73, 72, 40, 41, 74, 210, 220, 230, 211, 221, 231];
 const LAYER: &[i16] = &[70, 62, 290, 370];
 const STYLE: &[i16] = &[70, 40, 41, 50, 71, 42, 3, 4];
+const LTYPE: &[i16] = &[70, 3, 72, 73, 40, 49, 74, 75, 46, 50, 44, 45, 9];
 const SHAPE: &[i16] = &[10, 20, 30, 40, 50, 41, 51, 39, 210, 220, 230];
 const VIEWPORT: &[i16] = &[
     10, 20, 30, 40, 41, 12, 22, 13, 23, 14, 24, 15, 25, 16, 26, 36, 17, 27, 37, 42, 43, 44, 45, 50,
@@ -310,12 +311,13 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043）。LAYER と STYLE だけを扱う。名前（2）などの
+/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043・0044）。LAYER・STYLE・LTYPE だけを扱う。名前（2）などの
 /// ほかの値が変わったものは `None`
 fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let own: &[i16] = match new.kind.as_slice() {
         b"LAYER" => LAYER,
         b"STYLE" => STYLE,
+        b"LTYPE" => LTYPE,
         _ => return None,
     };
     let rest = |object: &Object| -> Vec<_> {
@@ -340,14 +342,12 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let own_at = bits.pos();
     let mut fields = BitWriter::default();
     fields.copy(data, start..own_at)?;
-    match new.kind.as_slice() {
+    let end = match new.kind.as_slice() {
         b"LAYER" => layer(&mut fields, new, xdep, data, own_at)?,
-        _ => style(&mut fields, old, new, xdep, data, own_at)?,
-    }
-    fields.copy(
-        data,
-        own_at + fields_end(&new.kind, data, own_at)?..handles_at,
-    )?;
+        b"STYLE" => style(&mut fields, old, new, xdep, data, own_at)?,
+        _ => ltype(&mut fields, old, new, xdep, data, own_at)?,
+    };
+    fields.copy(data, end..handles_at)?;
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
     out.rl(i32::try_from(start + fields.len()).ok()?);
@@ -358,40 +358,20 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// `own_at` から始まる LAYER・STYLE の欄の長さ（ビット）
-fn fields_end(kind: &[u8], data: &[u8], own_at: usize) -> Option<usize> {
-    let mut bits = Bits::with_release(data, Release::R2000);
-    bits.seek(own_at);
-    if kind == b"LAYER" {
-        bits.bs()?;
-        bits.bs()?;
-    } else {
-        bits.bit()?;
-        bits.bit()?;
-        for _ in 0..3 {
-            bits.bd()?;
-        }
-        bits.rc()?;
-        bits.bd()?;
-        bits.text()?;
-        bits.text()?;
-    }
-    Some(bits.pos() - own_at)
-}
-
 /// LAYER の欄（決定 0043）。DXF の 70 の凍結 1・新しいビューポートで凍結 2・ロック 4 と、負の色（62）の
 /// 表示しない印、印刷しない印（290）、線の太さ（370）から、DWG の印（BS）を作る。印のほかのビットは元のまま
-/// 写す。外部参照に依る印（70 の 16）は、元のものと同じでなければ受け付けない
+/// 写す。外部参照に依る印（70 の 16）は、元のものと同じでなければ受け付けない。元の欄の終わりの位置を返す
 fn layer(
     fields: &mut BitWriter,
     object: &Object,
     xdep: bool,
     data: &[u8],
     own_at: usize,
-) -> Option<()> {
+) -> Option<usize> {
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(own_at);
     let old = bits.bs()?;
+    bits.bs()?;
     let dxf = small(object, 70)??;
     (dxf & !(1 | 2 | 4 | 16) == 0 && (dxf & 16 != 0) == xdep).then_some(())?;
     let color = small(object, 62)??;
@@ -410,7 +390,7 @@ fn layer(
     flags |= lineweight_index(integer(object, 370)??)? << 5;
     fields.bs(flags);
     fields.bs(color.checked_abs()?);
-    Some(())
+    Some(bits.pos())
 }
 
 /// 印刷する画層か。290 がなければ印刷し、偽なら印刷しない
@@ -442,7 +422,7 @@ fn lineweight_index(width: i64) -> Option<i16> {
 
 /// STYLE の欄（決定 0043）。70 の形のファイル 1 と縦書き 4 を印に書き、角度（50）は度からラジアンに直す。
 /// 外部参照に依る印（70 の 16）は、元のものと同じでなければ受け付けない。文字列（3・4）が変わらなければ、
-/// 元のビットを写す
+/// 元のビットを写す。元の欄の終わりの位置を返す
 fn style(
     fields: &mut BitWriter,
     old: &Object,
@@ -450,7 +430,7 @@ fn style(
     xdep: bool,
     data: &[u8],
     own_at: usize,
-) -> Option<()> {
+) -> Option<usize> {
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(own_at);
     bits.bit()?;
@@ -481,7 +461,119 @@ fn style(
             string(fields, new, code)?;
         }
     }
-    Some(())
+    Some(bits.pos())
+}
+
+/// LTYPE の欄（決定 0044）。要素の数（73）と、要素ごとの形と文字の印（74 の 2・4）は、元のものと同じでなければ
+/// 受け付けない。要素の印の 7 より上のビットと、形も文字もない要素の形の番号・ずれ・尺度・回転は、元のまま写す。
+/// 説明（3）と文字の要素の文字列（9）が変わらなければ元のビットを写し、文字列が変われば、256 バイトの領域に
+/// 初めから順に詰め直す。元の欄の終わりの位置を返す
+fn ltype(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    xdep: bool,
+    data: &[u8],
+    own_at: usize,
+) -> Option<usize> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    bits.text()?;
+    let description = own_at..bits.pos();
+    bits.bd()?;
+    bits.rc()?;
+    let count = bits.rc()?;
+    let mut dashes = Vec::new();
+    for _ in 0..count {
+        bits.bd()?;
+        let shape = bits.bs()?;
+        let (x, y) = (bits.rd()?, bits.rd()?);
+        let (scale, rotation) = (bits.bd()?, bits.bd()?);
+        dashes.push((shape, x, y, scale, rotation, bits.bs()?));
+    }
+    let area_at = bits.pos();
+    bits.skip_bytes(256)?;
+    let texts = |object: &Object| -> Vec<_> {
+        object
+            .values
+            .iter()
+            .filter(|value| value.code == 9)
+            .cloned()
+            .collect()
+    };
+    let same_texts = texts(old) == texts(new);
+    let mut values = Cursor(
+        new.values
+            .iter()
+            .filter(|value| LTYPE.contains(&value.code))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .peekable(),
+    );
+    (values.int(70)? == if xdep { 16 } else { 0 }).then_some(())?;
+    match values.next(3)? {
+        Data::Text(_) if text_of(old, 3) == text_of(new, 3) => {
+            fields.copy(data, description)?;
+        }
+        Data::Text(_) => string(fields, new, 3)?,
+        _ => return None,
+    }
+    let align = u8::try_from(values.int(72)?).ok()?;
+    (values.int(73)? == i32::from(count)).then_some(())?;
+    fields.bd(values.real(40)?);
+    fields.rc(align);
+    fields.rc(count);
+    let mut area = Vec::new();
+    for (shape, x, y, scale, rotation, flags) in dashes {
+        fields.bd(values.real(49)?);
+        let dxf = i16::try_from(values.int(74)?).ok()?;
+        (dxf & !7 == 0 && dxf & 6 == flags & 6).then_some(())?;
+        if flags & 6 == 0 {
+            fields.bs(shape);
+            fields.rd(x);
+            fields.rd(y);
+            fields.bd(scale);
+            fields.bd(rotation);
+        } else {
+            let number = i16::try_from(values.int(75)?).ok()?;
+            let (scale, rotation) = (values.real(46)?, values.real(50)?.to_radians());
+            let (x, y) = (values.real(44)?, values.real(45)?);
+            // 文字の要素の 75 は 0 と決まっている
+            let shape = if flags & 2 == 0 {
+                number
+            } else if number != 0 {
+                return None;
+            } else if same_texts {
+                values.next(9)?;
+                shape
+            } else {
+                let Data::Text(text) = values.next(9)? else {
+                    return None;
+                };
+                let at = i16::try_from(area.len()).ok()?;
+                area.extend(uncaret(text)?);
+                area.push(0);
+                at
+            };
+            fields.bs(shape);
+            fields.rd(x);
+            fields.rd(y);
+            fields.bd(scale);
+            fields.bd(rotation);
+        }
+        fields.bs(flags & !7 | dxf);
+    }
+    values.0.next().is_none().then_some(())?;
+    if same_texts {
+        fields.copy(data, area_at..bits.pos())?;
+    } else {
+        (area.len() <= 256).then_some(())?;
+        area.resize(256, 0);
+        for byte in area {
+            fields.rc(byte);
+        }
+    }
+    Some(bits.pos())
 }
 
 /// 共通の欄の、色から型ごとの欄の前まで（R2000）。色（62）がなければ ByLayer、線種の尺度（48）がなければ 1、
