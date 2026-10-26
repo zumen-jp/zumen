@@ -5655,3 +5655,154 @@ fn changed_views_ucss_and_vports_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
 }
+
+/// 寸法の後ろに付く文字（3）・尺度（40）・文字を内側で水平に書く印（73）・文字の縦の位置（77）・寸法線の色
+/// （176）のほかは、既定の値の DIMSTYLE
+#[cfg(test)]
+fn dimstyles_with(
+    post: &'static [u8],
+    scale: f64,
+    inside: bool,
+    tad: u16,
+    color: u16,
+) -> Vec<(u64, Vec<u8>)> {
+    let dimstyle = object(
+        0x45,
+        0x10,
+        move |w| {
+            w.bl_zero();
+            w.bs(9);
+            w.bytes(b"STANDARD\0");
+            w.bit(false);
+            w.bs(0);
+            w.bit(false);
+            for text in [post, b""] {
+                w.bs(text.len() as u16 + 1);
+                w.bytes(text);
+                w.bytes(&[0]);
+            }
+            for v in [scale, 0.18, 0.0625, 0.38, 0.18, 0.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for bit in [false, false, inside, true, false, false] {
+                w.bit(bit);
+            }
+            for v in [tad, 0, 0] {
+                w.bs(v);
+            }
+            for v in [0.18, 0.09, 0.0, 25.4, 1.0, 0.0, 1.0, 0.09, 0.0] {
+                w.bd(v);
+            }
+            w.bit(false);
+            w.bs(2);
+            for _ in 0..4 {
+                w.bit(false);
+            }
+            for v in [color, 0, 0, 0, 4, 4, 2, 2, 0, 0, 2, 46, 0, 0] {
+                w.bs(v);
+            }
+            w.bit(false);
+            w.bit(false);
+            for v in [1, 0, 0, 0] {
+                w.bs(v);
+            }
+            w.bit(false);
+            for v in [3, 0xFFFE, 0xFFFE] {
+                w.bs(v);
+            }
+        },
+        |w| {
+            w.handle(4, 2);
+            w.handle(3, 0);
+            for _ in 0..6 {
+                w.handle(5, 0);
+            }
+        },
+    );
+    vec![(0x10, dimstyle)]
+}
+
+#[test]
+fn changed_dimstyles_are_written_back() {
+    let src = dwg(&dimstyles_with(b"", 1.0, true, 0, 0));
+    let (mut db, before) = objects(&src);
+    assert!(before.is_empty(), "{:?}", codes_of(&before));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    // 既定の値で表になかった欄を足す
+    set_value(&mut db, 0x10, 3, Data::Text(b"<> mm".to_vec()));
+    set_value(&mut db, 0x10, 40, Data::Real(2.0));
+    set_value(&mut db, 0x10, 73, Data::Int(0));
+    set_value(&mut db, 0x10, 77, Data::Int(1));
+    set_value(&mut db, 0x10, 176, Data::Int(3));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    // 足した欄は表の終わりに置いたので、番号の順に並べて比べる
+    let sorted = |db: &AcadDb| {
+        let mut values = db.get(0x10).unwrap().values.clone();
+        values.sort_by_key(|v| v.code);
+        values
+    };
+    assert_eq!(sorted(&after), sorted(&db));
+    let file = read(&out, Limits::default()).0.unwrap();
+    let expected = &dimstyles_with(b"<> mm", 2.0, false, 1, 3)[0].1;
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x10))
+        .unwrap();
+    let range = file.record(index).unwrap().bytes.unwrap();
+    let got = &out[range.start as usize..range.end as usize];
+    // 埋めのビットを写すので、データが 1 バイト延びることがある（決定 0035）
+    let data = &expected[1..expected.len() - 2];
+    assert_eq!(&got[1..=data.len()], data);
+    assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
+    assert!(got.len() <= expected.len() + 1);
+    // 欄を除けば既定の値に戻る
+    let mut back = after.clone();
+    let index = back
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x10))
+        .unwrap();
+    back.object_mut(index)
+        .unwrap()
+        .values
+        .retain(|v| !matches!(v.code, 3 | 40 | 73 | 77 | 176));
+    let mut file = read(&out, Limits::default()).0.unwrap();
+    let (again, diag) = written_back(&mut file, &back);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(
+        objects(&again.unwrap()).0.get(0x10).unwrap().values,
+        objects(&src).0.get(0x10).unwrap().values
+    );
+    // 0 でも 1 でもない印・2 つの同じ欄・外部参照に依る印は受け付けない
+    for (code, data, twice) in [
+        (73, Data::Int(2), false),
+        (40, Data::Real(3.0), true),
+        (70, Data::Int(16), false),
+    ] {
+        let mut changed = objects(&src).0;
+        if twice {
+            set_value(&mut changed, 0x10, code, data.clone());
+            let index = changed
+                .objects()
+                .iter()
+                .position(|o| o.handle() == Some(0x10))
+                .unwrap();
+            changed
+                .object_mut(index)
+                .unwrap()
+                .values
+                .push(Value { code, data });
+        } else {
+            set_value(&mut changed, 0x10, code, data);
+        }
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}

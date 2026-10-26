@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0045）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0046）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -13,7 +13,7 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits};
-use super::objects::{entity_fields, object_fields};
+use super::objects::{DIM_FIELDS, Dim, entity_fields, object_fields};
 use super::{DwgFile, Release};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 
@@ -321,9 +321,13 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0045）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT だけを扱う。名前（2）などの
+/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
 /// ほかの値が変わったものは `None`
 fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+    // DIMSTYLE は、70 と DWG の並びの欄
+    let dimstyle_codes: Vec<i16> = std::iter::once(70)
+        .chain(DIM_FIELDS.iter().map(|field| field.0))
+        .collect();
     let own: &[i16] = match new.kind.as_slice() {
         b"LAYER" => LAYER,
         b"STYLE" => STYLE,
@@ -331,6 +335,7 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"VIEW" => VIEW,
         b"UCS" => UCS,
         b"VPORT" => VPORT,
+        b"DIMSTYLE" => &dimstyle_codes,
         _ => return None,
     };
     let rest = |object: &Object| -> Vec<_> {
@@ -361,7 +366,8 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"LTYPE" => ltype(&mut fields, old, new, xdep, data, own_at)?,
         b"VIEW" => view_record(&mut fields, new, xdep, data, own_at)?,
         b"UCS" => ucs_record(&mut fields, new, xdep, data, own_at)?,
-        _ => vport_record(&mut fields, old, new, xdep, data, own_at)?,
+        b"VPORT" => vport_record(&mut fields, old, new, xdep, data, own_at)?,
+        _ => dimstyle(&mut fields, old, new, xdep, data, own_at)?,
     };
     fields.copy(data, end..handles_at)?;
     let mut out = BitWriter::default();
@@ -587,6 +593,60 @@ fn ltype(
         area.resize(256, 0);
         for byte in area {
             fields.rc(byte);
+        }
+    }
+    Some(bits.pos())
+}
+
+/// DIMSTYLE の欄（決定 0046）。値が変わらない欄は元のビットを写し、変わった欄は書き直す。表にない欄は、
+/// 読む側と同じ既定の値で書く。色は R2000 の CMC の番号（BS）で書く。元の欄の終わりの位置を返す
+fn dimstyle(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    xdep: bool,
+    data: &[u8],
+    own_at: usize,
+) -> Option<usize> {
+    record_flags(new, xdep, 0)?;
+    let of = |object: &Object, code: i16| -> Vec<_> {
+        object
+            .values
+            .iter()
+            .filter(|value| value.code == code)
+            .cloned()
+            .collect()
+    };
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(own_at);
+    for &(code, field) in &DIM_FIELDS {
+        let at = bits.pos();
+        match field {
+            Dim::Text => bits.text().map(drop)?,
+            Dim::Real(_) => bits.bd().map(drop)?,
+            Dim::Bit(_) => bits.bit().map(drop)?,
+            Dim::Short(_) | Dim::Color(_) => bits.bs().map(drop)?,
+        }
+        if of(old, code) == of(new, code) {
+            fields.copy(data, at..bits.pos())?;
+            continue;
+        }
+        match field {
+            Dim::Text if text_of(new, code).is_some() => string(fields, new, code)?,
+            Dim::Text => {
+                of(new, code).is_empty().then_some(())?;
+                fields.text(&[0])?;
+            }
+            Dim::Real(default) => fields.bd(real(new, code)?.unwrap_or(default)),
+            Dim::Bit(default) => match small(new, code)? {
+                None => fields.bit(default),
+                Some(0) => fields.bit(false),
+                Some(1) => fields.bit(true),
+                Some(_) => return None,
+            },
+            Dim::Short(default) | Dim::Color(default) => {
+                fields.bs(small(new, code)?.unwrap_or(default));
+            }
         }
     }
     Some(bits.pos())
