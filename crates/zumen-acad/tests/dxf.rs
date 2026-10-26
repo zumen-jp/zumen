@@ -706,6 +706,41 @@ fn table_additions_and_removals_are_written_back() {
 }
 
 #[test]
+fn written_back_handles_advance_the_handle_seed() {
+    for (handle, seed) in [(0x2A, "2B"), (0x0F, "10")] {
+        let src = sample("\n");
+        let mut db = table(&read(&src));
+        db.set_variable(
+            b"$HANDSEED",
+            vec![Value {
+                code: 5,
+                data: Data::Handle(0x10),
+            }],
+        );
+        let mut point = new_point(Section::Entities, 1.0);
+        point.values.insert(
+            0,
+            Value {
+                code: 5,
+                data: Data::Handle(handle),
+            },
+        );
+        db.push(point);
+        let mut file = read(&src);
+        let (mut budget, mut diag, cancel) =
+            (Budget::default(), Diagnostics::new(), CancelToken::new());
+        file.write_back(&db, &mut cx_for(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        let out = testkit::write::<Dxf>(&file).unwrap();
+        let part = format!("  9\n$HANDSEED\n  5\n{seed}\n  0\nENDSEC\n");
+        assert!(
+            out.windows(part.len()).any(|w| w == part.as_bytes()),
+            "{part}"
+        );
+    }
+}
+
+#[test]
 fn an_unchanged_table_writes_the_same_bytes() {
     let src = sample("\n");
     let mut file = read(&src);

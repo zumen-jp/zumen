@@ -7,6 +7,7 @@
 //!
 //! 表から除いたオブジェクトのレコードは除く。表に足したオブジェクト（[`Origin::New`]）は、同じ所の後ろで
 //! 最初の残したオブジェクトの前に、なければその所の ENDSEC の前に、新しいレコードとして足す（決定 0025）。
+//! 表のハンドルのどれかが `$HANDSEED` 以上なら、`$HANDSEED` を最大のハンドルの次に進める。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -157,8 +158,13 @@ fn stage(
             }
         }
     }
+    let seed = handle_seed(db);
     let changed: Vec<_> = db
         .variables()
+        .map(|(name, values)| match &seed {
+            Some(seed) if name == HANDSEED => (name, seed.as_slice()),
+            _ => (name, values),
+        })
         .filter(|&(name, values)| base.variable(name) != Some(values))
         .collect();
     if changed.is_empty() {
@@ -191,6 +197,27 @@ fn stage(
         replace(txn, header.record, start, old, new)?;
     }
     Ok(())
+}
+
+const HANDSEED: &[u8] = b"$HANDSEED";
+
+/// 表のハンドルのどれかが `$HANDSEED` 以上なら、最大のハンドルの次にした `$HANDSEED` の値。
+/// `$HANDSEED` は、次に払い出すハンドルで、どのハンドルよりも大きい（DXF Reference「HEADER Section
+/// Group Codes」の $HANDSEED）。表に `$HANDSEED` がなければ、足さない
+fn handle_seed(db: &AcadDb) -> Option<Vec<Value>> {
+    let values = db.variable(HANDSEED)?;
+    let (at, seed) = values.iter().enumerate().find_map(|(i, v)| match v.data {
+        Data::Handle(seed) if v.code == 5 => Some((i, seed)),
+        _ => None,
+    })?;
+    let max = db.objects().iter().filter_map(Object::handle).max()?;
+    if max < seed {
+        return None;
+    }
+    let mut fixed = values.to_vec();
+    let value = fixed.get_mut(at)?;
+    value.data = Data::Handle(max.checked_add(1)?);
+    Some(fixed)
 }
 
 /// 書き戻せないオブジェクトを診断にする
