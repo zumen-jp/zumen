@@ -1,6 +1,7 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0114）。いまは ENTITIES の
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0115）。いまは ENTITIES の
 //! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・ACAD_TABLE・IMAGE・PDFUNDERLAY など・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! BLOCKS の BLOCK（と、その中身と ATTDEF）を記号の定義にし、図形の色・線種・線幅と、空間の描く順を移す。
+//! 図形の XDATA は、読んだときの図形の値とともに形式固有の情報にする。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
@@ -20,15 +21,16 @@ use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
-    BackgroundFill, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, Clip, Color,
-    ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
-    Drawing2D, Edge, Element, Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop,
-    Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState,
-    LayerStyle, Leader, Length, LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight,
-    Measured, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern,
-    PatternBasis, PatternLine, PatternOrigin, Placement, Polyline, Resource, Rotation, Shape,
-    Sheet, SheetId, SheetItem, SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table,
-    Text, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
+    BackgroundFill, Basis, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, Clip,
+    Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
+    Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow, FormattedText,
+    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
+    Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
+    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, ModelSpace,
+    PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin,
+    Placement, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Spline,
+    Style, Symbol, SymbolDefinition, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame,
+    UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -46,6 +48,10 @@ const SHEET: SheetId = SheetId(0);
 
 /// ブロックの定義を指す記号のキーの名前空間
 const BLOCK: &str = "dxf.block";
+
+/// XDATA の形式固有の情報の名前空間と、値の型の契約の版（決定 0115）
+const XDATA: &str = "dxf.xdata";
+const XDATA_SCHEMA: u32 = 1;
 
 impl Lift<Drawing2D> for DxfFile {
     /// 表を作ってから変換する。型どおりに読めない値は、変換がその値を使うときに診断を返す
@@ -76,6 +82,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     let lifter = Lifter {
         unicode: version.is_some_and(|v| v >= UTF8),
         fit_data: version.is_some_and(|v| v >= FIT_DATA),
+        version: version.map(|v| String::from_utf8_lossy(v).into_owned()),
         mm: unit.millimeters(),
         unit,
         origin: limits(b"$PLIMMIN").unwrap_or_default(),
@@ -143,6 +150,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         default_line_weight,
         dimension_styles: out.dimension_styles,
         symbols,
+        extensions: out.extensions,
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -191,7 +199,11 @@ fn amount(object: &Object) -> u64 {
         b"LWPOLYLINE" | b"SPLINE" => count(&[10, 11, 40]),
         b"ACAD_TABLE" => count(&[141, 142, 171]),
         _ => 0,
-    }
+    } + object
+        .values
+        .iter()
+        .filter(|value| value.code >= 1000)
+        .count() as u64
 }
 
 /// 用紙とモデルの空間のブロック。中身は空間の図形として移すので、記号の定義にしない
@@ -331,6 +343,7 @@ struct Out {
     /// 線種の表のレコードのハンドル
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
+    extensions: Vec<Extension>,
 }
 
 struct Lifter {
@@ -338,6 +351,8 @@ struct Lifter {
     unicode: bool,
     /// 2010 以降の版なら、DXF の HATCH の SPLINE の辺は当てはめる点（97）を持つ
     fit_data: bool,
+    /// 見出しの `$ACADVER`。形式固有の情報の版にする
+    version: Option<String>,
     /// 文書の長さの単位。記号の定義の空間も、この単位とする
     unit: Unit,
     /// 1 単位の mm の数。不明なら `None`
@@ -394,6 +409,11 @@ impl Lifter {
                 let length = |value: f64| Length::Paper(PaperLength(value * mm));
                 let element =
                     self.element(db, object, source, attributes, point, length, out, cx)?;
+                let target = Target::Paper {
+                    sheet: SHEET,
+                    index: out.paper.len(),
+                };
+                self.extend(object, target, || Basis::Paper(element.clone()), out, cx);
                 out.sheet
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(element);
@@ -410,6 +430,11 @@ impl Lifter {
                 };
                 let element =
                     self.element(db, object, source, attributes, point, length, out, cx)?;
+                let target = Target::Model {
+                    space: MODEL,
+                    index: out.model.len(),
+                };
+                self.extend(object, target, || Basis::Model(element.clone()), out, cx);
                 out.model_handles.push(object.handle());
                 out.model.push(element);
             }
@@ -420,6 +445,97 @@ impl Lifter {
             }
         }
         Ok(())
+    }
+
+    /// 図形の XDATA（DXF Reference「Extended Data」、決定 0115）を、登録アプリケーション名（1001）ごとの
+    /// 形式固有の情報にして、図形の値とともに控える。最初の 1001 より前の XDATA の値と、読めない値を持つ
+    /// 名前の分は移さず、診断する
+    fn extend(
+        &self,
+        object: &Object,
+        target: Target,
+        basis: impl Fn() -> Basis,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) {
+        let start = object
+            .values
+            .iter()
+            .position(|value| value.code == 1001)
+            .unwrap_or(object.values.len());
+        let (head, xdata) = object.values.split_at(start);
+        if let Some(stray) = head.iter().find(|value| value.code >= 1000) {
+            cx.report((*invalid(&object.kind, stray.code)).at(source(object)));
+        }
+        for group in xdata.chunk_by(|_, next| next.code != 1001) {
+            let Some((name, values)) = group.split_first() else {
+                continue;
+            };
+            match self.xdata(&object.kind, name, values) {
+                Ok((name, fields)) => out.extensions.push(Extension {
+                    namespace: XDATA,
+                    name,
+                    version: self.version.clone(),
+                    schema: XDATA_SCHEMA,
+                    target,
+                    basis: basis(),
+                    fields,
+                    source: source(object),
+                }),
+                Err(diagnostic) => cx.report((*diagnostic).at(source(object))),
+            }
+        }
+    }
+
+    /// 1 つの登録アプリケーション名の XDATA。点（1010〜1013）は、続く Y（+10）と Z（+20）と合わせる
+    fn xdata(&self, kind: &[u8], name: &Value, values: &[Value]) -> Lifted<(String, Vec<Field>)> {
+        let name = self.decode(kind, 1001, &name.data)?;
+        let mut fields = Vec::new();
+        let mut values = values.iter();
+        while let Some(Value { code, data }) = values.next() {
+            let code = *code;
+            let key = match code {
+                1000 => "string",
+                1002 => "control",
+                1003 => "layer",
+                1004 => "binary",
+                1005 => "handle",
+                1010 => "point",
+                1011 => "position",
+                1012 => "displacement",
+                1013 => "direction",
+                1040 => "real",
+                1041 => "distance",
+                1042 => "scale",
+                1070 => "integer",
+                1071 => "long",
+                _ => return Err(invalid(kind, code)),
+            };
+            let value = match (code, data) {
+                (1002, data) => match self.decode(kind, code, data)?.as_str() {
+                    text @ ("{" | "}") => FieldValue::Text(text.to_owned()),
+                    _ => return Err(invalid(kind, code)),
+                },
+                (1000 | 1003, data) => FieldValue::Text(self.decode(kind, code, data)?),
+                (1004, Data::Binary(bytes)) => FieldValue::Bytes(bytes.clone()),
+                (1005, Data::Handle(handle)) => FieldValue::Handle(*handle),
+                (1010..=1013, Data::Real(x)) => {
+                    let mut axis = |offset: i16| match values.next() {
+                        Some(Value {
+                            code: next,
+                            data: Data::Real(value),
+                        }) if *next == code + offset => Ok(*value),
+                        _ => Err(invalid(kind, code + offset)),
+                    };
+                    FieldValue::Point([*x, axis(10)?, axis(20)?])
+                }
+                (1040..=1042, Data::Real(value)) => FieldValue::Real(*value),
+                (1070 | 1071, Data::Int(value)) => FieldValue::Integer(*value),
+                _ => return Err(invalid(kind, code)),
+            };
+            fields.push(Field { key, value });
+        }
+        Ok((name, fields))
     }
 
     /// BLOCKS の節の BLOCK を、記号の定義にする（決定 0112）。中身は、所有者（330）をたどって着くブロックの
@@ -586,7 +702,14 @@ impl Lifter {
                         out,
                         cx,
                     )
-                    .map(|element| elements.push(element))
+                    .map(|element| {
+                        let target = Target::Model {
+                            space,
+                            index: elements.len(),
+                        };
+                        self.extend(object, target, || Basis::Model(element.clone()), out, cx);
+                        elements.push(element);
+                    })
                 }
                 kind => Err(Box::new(
                     Diagnostic::new(codes::DXF_LIFT_DROPPED).with("kind", text(kind)),
