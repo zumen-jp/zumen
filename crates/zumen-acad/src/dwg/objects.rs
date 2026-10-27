@@ -577,6 +577,7 @@ fn read(
                 DIMENSION_ORDINATE..=DIMENSION_DIAMETER => dimension(&mut bits, entry.type_code)?,
                 // HATCH は型が固定でなく、クラスで決まる
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
+                _ if kind == b"IMAGE" => image(&mut bits, release)?,
                 _ => Vec::new(),
             }
         } else {
@@ -627,6 +628,21 @@ fn read(
         }
         for _ in 0..common.styles {
             bits.handle()?;
+        }
+        // IMAGE は、画像の定義（340）と、その反応子（360）のハンドルを持つ。DXF と同じく、表示の印（70）と
+        // 切り抜きの境界の種類（71）の前に置く
+        if kind == b"IMAGE" {
+            for (code, before) in [(340, 70), (360, 71)] {
+                let handle = Value {
+                    code,
+                    data: Data::Handle(bits.handle()?.resolve(entry.handle)?),
+                };
+                let at = values
+                    .iter()
+                    .position(|v| v.code == before)
+                    .unwrap_or(values.len());
+                values.insert(at, handle);
+            }
         }
         // HATCH は、輪ごとの境界の図形の数（97）だけ、境界の図形のハンドル（330）を持つ。数の後に置く
         if kind == b"HATCH" {
@@ -732,6 +748,10 @@ fn read(
             ]
         } else if kind == b"SCALE" {
             scale(&mut bits)?
+        } else if kind == b"IMAGEDEF" {
+            imagedef(&mut bits)?
+        } else if kind == b"IMAGEDEF_REACTOR" {
+            vec![int(90, i64::from(bits.bl()?))]
         } else if kind == b"LAYOUT" {
             layout(&mut bits, release, &mut handles)?
         } else if sortents {
@@ -2155,6 +2175,51 @@ fn scale(bits: &mut Bits) -> Option<Vec<Value>> {
             data: Data::Bool(bits.bit()?),
         },
     ])
+}
+
+/// IMAGE の欄（ODS 5.4.1 の 20.4.80。クラスで決まる型）。DXF と同じく、切り抜きの境界が矩形（71 = 1）でも、
+/// 頂点の数（91 = 2）を置く。画像の定義と反応子のハンドルは、ハンドルの流れで読む
+fn image(bits: &mut Bits, release: Release) -> Option<Vec<Value>> {
+    let mut values = vec![int(90, i64::from(bits.bl()?))];
+    values.extend(point3(bits, 10)?);
+    values.extend(point3(bits, 11)?);
+    values.extend(point3(bits, 12)?);
+    values.extend(point2(bits, 13)?);
+    values.push(int(70, i64::from(bits.bs()?)));
+    values.push(int(280, i64::from(bits.bit()?)));
+    for code in [281, 282, 283] {
+        values.push(int(code, i64::from(bits.rc()?)));
+    }
+    if release >= Release::R2010 {
+        values.push(Value {
+            code: 290,
+            data: Data::Bool(bits.bit()?),
+        });
+    }
+    let kind = bits.bs()?;
+    values.push(int(71, i64::from(kind)));
+    let count = if kind == 1 { 2 } else { bits.bl()? };
+    values.push(int(91, i64::from(count)));
+    for _ in 0..count {
+        values.extend(point2(bits, 14)?);
+    }
+    Some(values)
+}
+
+/// IMAGEDEF の欄（ODS 5.4.1 の 20.4.81。クラスで決まる型）。DXF の順に、版（90）・ファイルの場所（1）・
+/// 画素の数（10）・1 画素の大きさ（11）・読み込んだ印（280）・解像度の単位（281）を置く
+fn imagedef(bits: &mut Bits) -> Option<Vec<Value>> {
+    let version = int(90, i64::from(bits.bl()?));
+    let size = point2(bits, 10)?;
+    let path = text_value(1, &bits.text()?);
+    let loaded = int(280, i64::from(bits.bit()?));
+    let units = int(281, i64::from(bits.rc()?));
+    let pixel = point2(bits, 11)?;
+    let mut values = vec![version, path];
+    values.extend(size);
+    values.extend(pixel);
+    values.extend([loaded, units]);
+    Some(values)
 }
 
 /// LAYOUT の欄（ODS 5.4.1 の LAYOUT の節）。印刷の設定の欄に続けて、レイアウトの欄を置く。R2004 からは、
