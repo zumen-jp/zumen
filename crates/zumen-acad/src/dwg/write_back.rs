@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0096）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0097）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -1588,6 +1588,7 @@ impl NewEntity<'_> {
         match object.kind.as_slice() {
             b"ATTRIB" => r2010_attribute(&mut fields, object, &[], 0)?,
             b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
+            b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
             _ => fields = own_fields(fields, object, object, self.type_code, &[], 0)?,
         }
         // 属性を持つ INSERT は、R2004 と同じく型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0093）
@@ -1814,7 +1815,8 @@ fn adopt_r2010(
 }
 
 /// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092〜0096）。型ごとの欄と文字列の流れが R2000 と同じ形に
-/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、R2010 の SPLINE と、
+/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
+/// 制御点のものだけ）と、
 /// UCS のほかの表のレコードと、足したブロックを足せる。MINSERT と、回した INSERT（変更でも
 /// 確かめられていない）は、まだ足せない
 fn r2010_addable(object: &Object, release: Release) -> bool {
@@ -1858,9 +1860,8 @@ fn r2010_addable(object: &Object, release: Release) -> bool {
         b"SEQEND",
     ];
     let attributed = kind == b"INSERT" && object.values.iter().any(|value| value.code == 66);
-    // R2018 からの MTEXT と属性は欄が増え、R2013 からの SPLINE も欄の形が異なる
+    // R2018 からの MTEXT と属性は欄が増える
     if (matches!(kind, b"MTEXT" | b"ATTRIB" | b"SEQEND") || attributed) && release >= Release::R2018
-        || kind == b"SPLINE" && release >= Release::R2013
     {
         return false;
     }
@@ -2193,6 +2194,10 @@ fn r2010_own_fields(
         let units = usize::try_from(bits.bs()?).ok()?;
         fields.copy_strings(data, end..bits.pos() + units * 16)?;
         hatch(&mut fields, old, new)?;
+        Some(fields)
+    } else if new.kind == b"SPLINE" {
+        let mut fields = BitWriter::with_strings();
+        spline(&mut fields, new, data, start, release)?;
         Some(fields)
     } else if new.kind == b"INSERT" {
         (type_code != MINSERT_TYPE).then_some(())?;
@@ -3741,7 +3746,7 @@ fn own_fields(
         b"ATTRIB" | b"ATTDEF" => attribute(&mut fields, new)?,
         b"MTEXT" => mtext(&mut fields, new, data, start)?,
         b"LWPOLYLINE" => lwpolyline(&mut fields, new, data, start)?,
-        b"SPLINE" => spline(&mut fields, new, data, start)?,
+        b"SPLINE" => spline(&mut fields, new, data, start, Release::R2000)?,
         b"HATCH" => hatch(&mut fields, old, new)?,
         b"VERTEX" => vertex(&mut fields, new, type_code)?,
         b"POLYLINE" => polyline(&mut fields, new, type_code, data, start)?,
@@ -4138,17 +4143,35 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
 /// あるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
 /// 当てはめる点（11）を持てば場合を 2、持たなければ 1 とし、閉じている・周期的の印を 0、有理の印を
 /// 重みがあるかにする（決定 0057・0059）
-fn spline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
+fn spline(
+    fields: &mut BitWriter,
+    object: &Object,
+    data: &[u8],
+    start: usize,
+    release: Release,
+) -> Option<()> {
     let added = data.is_empty();
-    let (scenario, flags_at) = if added {
+    let r2013 = release >= Release::R2013;
+    let (scenario, flags_at, method) = if added {
         let fitted = object.values.iter().any(|value| value.code == 11);
-        (if fitted { 2 } else { 1 }, 0)
+        (if fitted { 2 } else { 1 }, 0, None)
     } else {
-        let mut bits = Bits::with_release(data, Release::R2000);
+        let mut bits = Bits::with_release(data, release);
         bits.seek(start);
         let scenario = bits.bl()?;
+        // R2013 からは、場合の後にスプラインの印と節点の取り方（BL）が続く。印の 1 が立つ制御点の
+        // スプラインは、読む側が当てはめる点から制御点を求めて置くので、書き戻さない（決定 0097）
+        let method = if r2013 {
+            let at = bits.pos();
+            let flags = bits.bl()?;
+            bits.bl()?;
+            (scenario != 1 || flags & 1 == 0).then_some(())?;
+            Some(at..bits.pos())
+        } else {
+            None
+        };
         bits.bl()?;
-        (scenario, bits.pos())
+        (scenario, bits.pos(), method)
     };
     // 制御点（x・y・z・重み）と、当てはめる点（x・y・z）
     let mut controls: Vec<[Option<f64>; 4]> = Vec::new();
@@ -4198,6 +4221,16 @@ fn spline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
             .any(|code| object.values.iter().any(|v| v.code == *code))
     };
     fields.bl(scenario);
+    match method {
+        Some(range) => fields.copy(data, range)?,
+        // 足すのは制御点のスプラインだけとし、試料の図面と同じく印を 0、節点の取り方を 15 とする
+        None if r2013 => {
+            (scenario == 1).then_some(())?;
+            fields.bl(0);
+            fields.bl(15);
+        }
+        None => {}
+    }
     fields.bl(i32::try_from(integer(object, 71)??).ok()?);
     match scenario {
         1 => {

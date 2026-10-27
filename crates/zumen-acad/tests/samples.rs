@@ -615,12 +615,11 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
         b"LINE", b"CIRCLE", b"ARC", b"POINT", b"ELLIPSE", b"RAY", b"XLINE", b"SOLID", b"TRACE",
         b"3DFACE",
     ];
-    // 文字列を持つ図形と、R2004 と同じに書き戻せる種類（決定 0086）。R2018 の属性と R2013 からの SPLINE は除く
+    // 文字列を持つ図形と、R2004 と同じに書き戻せる種類（決定 0086・0097）。R2018 の属性は除く
     let more = |version: &[u8; 6], kind: &[u8]| match kind {
         b"TEXT" | b"LWPOLYLINE" | b"INSERT" | b"MLINE" | b"MTEXT" | b"VERTEX" | b"HATCH"
-        | b"DIMENSION" | b"TOLERANCE" | b"VIEWPORT" | b"SHAPE" => true,
+        | b"DIMENSION" | b"TOLERANCE" | b"VIEWPORT" | b"SHAPE" | b"SPLINE" => true,
         b"ATTRIB" | b"ATTDEF" => version != b"AC1032",
-        b"SPLINE" => version == b"AC1024",
         _ => false,
     };
     let mut texts = 0;
@@ -641,10 +640,12 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                 let kind = object.kind.clone();
                 // MINSERT（列の数の 70 を持つ INSERT）と、回転（50）を持つ INSERT は除く。回転は度から直すので、
                 // 元のビットと同じに符号化できるとは限らない
-                // 多面の面の VERTEX（70 が 128）の点は 0 と決まっているので動かさない
+                // 多面の面の VERTEX（70 が 128）の点は 0 と決まっているので動かさない。R2013 からの、当てはめる
+                // 点から制御点を求めた SPLINE（節点の許容差が 1e-9）は書き戻さない（決定 0097）
                 let skipped = kind == b"INSERT"
                     && object.values.iter().any(|v| [70, 50].contains(&v.code))
-                    || kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128));
+                    || kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128))
+                    || kind == b"SPLINE" && object.first(42) == Some(&Data::Real(1e-9));
                 if !SIMPLE.contains(&kind.as_slice()) && !more(version, &kind) || skipped {
                     continue;
                 }
@@ -1355,14 +1356,15 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             ));
             added.push((b"SEQEND", Vec::new()));
         }
-        // R2010 から後は、R2018 からの MTEXT と属性と、R2013 からの SPLINE をまだ足せない（決定 0092・0093）。
+        // R2010 から後は、R2018 からの MTEXT と属性と、R2013 からの当てはめる点の SPLINE をまだ足せない
+        // （決定 0092・0093・0097）。
         // MTEXT は枠の高さ（46）を、ATTRIB は属性の版と位置を固定するか（280）を持つ
         if !matches!(version, b"AC1015" | b"AC1018") {
             let r2018 = version == b"AC1032";
             added.retain(|(kind, own)| match *kind {
                 b"MTEXT" | b"ATTRIB" | b"SEQEND" => !r2018,
                 b"INSERT" => !r2018 || own.iter().all(|value| value.code != 66),
-                b"SPLINE" => version == b"AC1024",
+                b"SPLINE" => version == b"AC1024" || own.iter().all(|value| value.code != 11),
                 _ => true,
             });
             for (kind, own) in &mut added {
