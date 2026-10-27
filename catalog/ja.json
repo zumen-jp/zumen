@@ -41,6 +41,7 @@
     "dxf.group-code.dropped": "出力先の DXF の版にない、「{kind}」のグループ・コード {code} のタグを、書きませんでした（{count} 件）。",
     "dxf.group-code.missing": "DXF の {record} 番目のレコードに、グループ・コード {code} のタグがありません。変更を反映しませんでした。",
     "dxf.handle-seed.missing": "DXF の見出しに読める $HANDSEED がないので、新しいハンドルを決められません。変更を反映しませんでした。",
+    "dxf.hatch-spline.unsupported": "境界に SPLINE の辺を持つ HATCH は、まだ扱えないので、図面モデルに移しませんでした（{count} 件）。",
     "dxf.header-variable.dropped": "出力先の DXF の版で書けない値を持つ見出しの変数 {name} を、書きませんでした。",
     "dxf.lift.dropped": "図面モデルにまだ移せない種類の図形「{kind}」を、移しませんでした（{count} 件）。",
     "dxf.lift.invalid": "「{kind}」のグループ・コード {code} の値がないか、読めないか、範囲の外なので、図面モデルに移しませんでした（{count} 件）。",

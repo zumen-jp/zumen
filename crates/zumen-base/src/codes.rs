@@ -422,6 +422,17 @@ pub const DXF_GROUP_CODE_MISSING: Code = Code::new(
 pub const DXF_HANDLE_SEED_MISSING: Code =
     Code::new("dxf.handle-seed.missing", Severity::Error, None, &[], &[]);
 
+/// SPLINE の辺を持つ HATCH を、図面モデルに移さなかった
+///
+/// `dxf.hatch-spline.unsupported`（0.0.0 から）
+pub const DXF_HATCH_SPLINE_UNSUPPORTED: Code = Code::new(
+    "dxf.hatch-spline.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// 出力先の DXF の版で書けない値を持つ見出しの変数を、書かなかった
 ///
 /// `dxf.header-variable.dropped`（0.0.0 から）
@@ -716,6 +727,7 @@ pub const ALL: &[Code] = &[
     DXF_GROUP_CODE_DROPPED,
     DXF_GROUP_CODE_MISSING,
     DXF_HANDLE_SEED_MISSING,
+    DXF_HATCH_SPLINE_UNSUPPORTED,
     DXF_HEADER_VARIABLE_DROPPED,
     DXF_LIFT_DROPPED,
     DXF_LIFT_INVALID,

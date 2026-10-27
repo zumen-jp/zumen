@@ -1,5 +1,6 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105・0106・0107）。いまは ENTITIES の
-//! LINE・TEXT・DIMENSION・LEADER・VIEWPORT と、画層と線種の表と、図形の色・線種・線幅と、空間の描く順だけを移す。
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105・0106・0107・0108）。いまは ENTITIES の
+//! LINE・TEXT・DIMENSION・LEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
+//! 図形の色・線種・線幅と、空間の描く順だけを移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
@@ -10,17 +11,19 @@
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
 //! DWG でも `dxf.` で始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Axis, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionText,
-    Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Inherit, Label, Layer, LayerId,
-    LayerState, LayerStyle, Leader, Length, LineType, LineTypeDefinition, LineTypeId, LineWeight,
-    Measured, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PatternBasis,
-    Placement, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Text, Unit, Vertical, View,
+    Affine, Arrowhead, Attribute, Axis, Boundary, Color, ColorCode, ColorSystem, Dimension,
+    DimensionKind, DimensionStyle, DimensionText, Drawing2D, Edge, Element, Fill, Fit, Gradient,
+    Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer,
+    LayerId, LayerState, LayerStyle, Leader, Length, LineType, LineTypeDefinition, LineTypeId,
+    LineWeight, Measured, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Pattern,
+    PatternBasis, PatternLine, PatternOrigin, Placement, Shape, Sheet, SheetId, SheetItem, SpaceId,
+    Style, Symbol, SymbolKey, Text, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -32,6 +35,9 @@ type Lifted<T> = Result<T, Box<Diagnostic>>;
 
 const MODEL: SpaceId = SpaceId(0);
 const SHEET: SheetId = SheetId(0);
+
+/// ブロックの定義を指す記号のキーの名前空間
+const BLOCK: &str = "dxf.block";
 
 impl Lift<Drawing2D> for DxfFile {
     /// 表を作ってから変換する。型どおりに読めない値は、変換がその値を使うときに診断を返す
@@ -66,30 +72,44 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     };
     let mut out = Out::default();
     // 画層が線種を指すので、線種の表を先に移す
-    for kind in [&b"LTYPE"[..], b"LAYER"] {
+    for kind in [&b"LTYPE"[..], b"LAYER", b"DIMSTYLE"] {
         for object in db.objects() {
             if object.section != Section::Tables || object.kind != kind {
                 continue;
             }
             work(cx, 1)?;
             let source = source(object);
-            let lifted = if kind == b"LTYPE" {
-                lifter.line_type_record(object, source.clone(), &mut out, cx)
-            } else {
-                lifter.layer_record(object, source.clone(), &mut out)
+            let lifted = match kind {
+                b"LTYPE" => lifter.line_type_record(object, source.clone(), &mut out, cx),
+                b"LAYER" => lifter.layer_record(object, source.clone(), &mut out),
+                _ => lifter.dimension_style_record(db, object, source.clone(), &mut out),
             };
             if let Err(diagnostic) = lifted {
                 cx.report((*diagnostic).at(source));
             }
         }
     }
-    for object in db.objects() {
-        if object.section != Section::Entities {
+    let entities: Vec<&Object> = db
+        .objects()
+        .iter()
+        .filter(|object| object.section == Section::Entities)
+        .collect();
+    let (attributes, owned) = attached(&entities);
+    for (index, object) in entities.iter().enumerate() {
+        work(cx, 1)?;
+        if owned.contains(&index) {
             continue;
         }
-        work(cx, 1)?;
         let source = source(object);
-        if let Err(diagnostic) = lifter.entity(db, object, source.clone(), &mut out, cx) {
+        let attributes: Vec<&Object> = attributes
+            .get(&index)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .filter_map(|at| entities.get(*at).copied())
+            .collect();
+        if let Err(diagnostic) =
+            lifter.entity(db, object, source.clone(), &attributes, &mut out, cx)
+        {
             cx.report((*diagnostic).at(source));
         }
     }
@@ -110,6 +130,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         line_types: out.line_types,
         line_type_scale,
         default_line_weight,
+        dimension_styles: out.dimension_styles,
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -184,6 +205,46 @@ fn arrange<T>(keys: Option<&SortKeys>, items: Vec<(T, Option<u64>)>, cx: &mut Cx
     keyed.into_iter().map(|(_, item)| item).collect()
 }
 
+/// INSERT の属性（ATTRIB）と終わりの印（SEQEND）。所有者（330）が INSERT を指すもの、所有者がないか図形でない
+/// ものは、属性が続く（66 = 1）INSERT の後に並ぶものを、その INSERT のものとする（DXF Reference「INSERT」）。
+/// INSERT の添字から ATTRIB の添字への対応と、INSERT のものとした添字を返す
+fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
+    let by_handle: BTreeMap<u64, usize> = entities
+        .iter()
+        .enumerate()
+        .filter_map(|(index, object)| Some((object.handle()?, index)))
+        .collect();
+    let mut attributes: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let mut owned = BTreeSet::new();
+    let mut open = None;
+    for (index, object) in entities.iter().enumerate() {
+        match object.kind.as_slice() {
+            b"INSERT" => {
+                open = matches!(object.first(66), Some(Data::Int(1) | Data::Bool(true)))
+                    .then_some(index);
+            }
+            kind @ (b"ATTRIB" | b"SEQEND") => {
+                let parent = object
+                    .owner()
+                    .and_then(|owner| by_handle.get(&owner).copied())
+                    .or(open)
+                    .filter(|parent| entities.get(*parent).is_some_and(|o| o.kind == b"INSERT"));
+                if let Some(parent) = parent {
+                    owned.insert(index);
+                    if kind == b"ATTRIB" {
+                        attributes.entry(parent).or_default().push(index);
+                    }
+                }
+                if kind == b"SEQEND" {
+                    open = None;
+                }
+            }
+            _ => open = None,
+        }
+    }
+    (attributes, owned)
+}
+
 /// 見出しの `$INSUNITS`（DXF Reference「HEADER Section Group Codes」）。長さの単位でなければ不明
 fn unit(db: &AcadDb, cx: &mut Cx) -> Unit {
     let code = db
@@ -233,6 +294,7 @@ struct Out {
     line_type_names: BTreeMap<String, LineTypeId>,
     /// 線種の表のレコードのハンドル
     line_type_handles: BTreeMap<u64, LineTypeId>,
+    dimension_styles: Vec<DimensionStyle>,
 }
 
 struct Lifter {
@@ -250,6 +312,7 @@ impl Lifter {
         db: &AcadDb,
         object: &Object,
         source: Ref,
+        attributes: &[&Object],
         out: &mut Out,
         cx: &mut Cx,
     ) -> Lifted<()> {
@@ -276,7 +339,7 @@ impl Lifter {
                     .push((SheetItem::View(out.views.len()), object.handle()));
                 out.views.push(view);
             }
-            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" if paper => {
+            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" if paper => {
                 let mm = self.paper_mm(kind)?;
                 let [ox, oy] = self.origin;
                 let point = |x: f64, y: f64| PaperPoint {
@@ -285,19 +348,13 @@ impl Lifter {
                     y: (y - oy) * mm,
                 };
                 let length = |value: f64| Length::Paper(PaperLength(value * mm));
-                let shape = self.shape(db, object, point, length)?;
-                let style = self.style(object, out)?;
-                let layer = self.layer(object, out)?;
+                let element =
+                    self.element(db, object, source, attributes, point, length, out, cx)?;
                 out.sheet
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
-                out.paper.push(Element {
-                    source,
-                    layer,
-                    style,
-                    shape,
-                });
+                out.paper.push(element);
             }
-            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" => {
+            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -305,16 +362,10 @@ impl Lifter {
                         value,
                     })
                 };
-                let shape = self.shape(db, object, point, length)?;
-                let style = self.style(object, out)?;
-                let layer = self.layer(object, out)?;
+                let element =
+                    self.element(db, object, source, attributes, point, length, out, cx)?;
                 out.model_handles.push(object.handle());
-                out.model.push(Element {
-                    source,
-                    layer,
-                    style,
-                    shape,
-                });
+                out.model.push(element);
             }
             _ => {
                 return Err(Box::new(
@@ -325,40 +376,97 @@ impl Lifter {
         Ok(())
     }
 
+    /// 図形を要素にする。INSERT の属性のうち移せないものは、属性の出所を指す診断を返し、INSERT は移す
+    #[allow(clippy::too_many_arguments)]
+    fn element<P: Copy>(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        source: Ref,
+        attributes: &[&Object],
+        point: impl Fn(f64, f64) -> P,
+        length: impl Fn(f64) -> Length,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Lifted<Element<P>> {
+        let mut shape = self.shape(db, object, &point, &length)?;
+        let style = self.style(object, out)?;
+        let layer = self.layer(object, out)?;
+        if let Shape::Symbol(symbol) = &mut shape {
+            for attribute in attributes {
+                match self.attribute(attribute, &point, &length, out) {
+                    Ok(lifted) => symbol.attributes.push(lifted),
+                    Err(diagnostic) => {
+                        cx.report((*diagnostic).at(crate::drawing::source(attribute)))
+                    }
+                }
+            }
+        }
+        Ok(Element {
+            source,
+            layer,
+            style,
+            shape,
+        })
+    }
+
     fn shape<P: Copy>(
         &self,
         db: &AcadDb,
         object: &Object,
-        point: impl Fn(f64, f64) -> P,
-        length: impl Fn(f64) -> Length,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
     ) -> Lifted<Shape<P>> {
         let kind = object.kind.as_slice();
         self.planar(object)?;
         match kind {
-            b"DIMENSION" => return Ok(Shape::Dimension(self.dimension(object, &point, &length)?)),
-            b"LEADER" => return Ok(Shape::Leader(self.leader(db, object, &point)?)),
-            _ => {}
+            b"DIMENSION" => Ok(Shape::Dimension(self.dimension(object, point, length)?)),
+            b"LEADER" => Ok(Shape::Leader(self.leader(db, object, point)?)),
+            b"INSERT" => Ok(Shape::Symbol(self.symbol(object, point, length)?)),
+            b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
+            b"LINE" => self.line(object, point),
+            // TEXT（DXF Reference「TEXT」）
+            _ => Ok(Shape::Text(self.text(
+                object,
+                point,
+                length,
+                73,
+                "dxf.TEXT.40",
+            )?)),
         }
-        if kind == b"LINE" {
-            // LINE（DXF Reference「LINE」）。Z のないものは 0 とみなす（推定。docs/formats/dxf.md）
-            let end = |x: i16| -> Lifted<[f64; 3]> {
-                let z = self.real(object, x + 20, Some(0.0))?;
-                Ok([
-                    self.real(object, x, None)?,
-                    self.real(object, x + 10, None)?,
-                    z,
-                ])
-            };
-            let (start, end) = (end(10)?, end(11)?);
-            if start[2] != 0.0 || end[2] != 0.0 {
-                return Err(non_planar(kind));
-            }
-            return Ok(Shape::Line {
-                start: point(start[0], start[1]),
-                end: point(end[0], end[1]),
-            });
+    }
+
+    /// LINE（DXF Reference「LINE」）。Z のないものは 0 とみなす（推定。docs/formats/dxf.md）
+    fn line<P>(&self, object: &Object, point: &impl Fn(f64, f64) -> P) -> Lifted<Shape<P>> {
+        let end = |x: i16| -> Lifted<[f64; 3]> {
+            let z = self.real(object, x + 20, Some(0.0))?;
+            Ok([
+                self.real(object, x, None)?,
+                self.real(object, x + 10, None)?,
+                z,
+            ])
+        };
+        let (start, end) = (end(10)?, end(11)?);
+        if start[2] != 0.0 || end[2] != 0.0 {
+            return Err(non_planar(&object.kind));
         }
-        // TEXT（DXF Reference「TEXT」）
+        Ok(Shape::Line {
+            start: point(start[0], start[1]),
+            end: point(end[0], end[1]),
+        })
+    }
+
+    /// TEXT と ATTRIB の文字。縦の位置合わせは、TEXT では 73、ATTRIB では 74 にある。`key` は高さの欄
+    fn text<P: Copy>(
+        &self,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+        vertical: i16,
+        key: &'static str,
+    ) -> Lifted<Text<P>> {
+        let kind = object.kind.as_slice();
+        let vertical_code = vertical;
         let at = |x: i16| -> Lifted<P> {
             if self.real(object, x + 20, Some(0.0))? != 0.0 {
                 return Err(non_planar(kind));
@@ -370,7 +478,7 @@ impl Lifter {
         };
         let first = at(10)?;
         let horizontal = self.int(object, 72, 0)?;
-        let vertical = self.int(object, 73, 0)?;
+        let vertical = self.int(object, vertical_code, 0)?;
         let placement = match (horizontal, vertical) {
             (0, 0) => Placement::Anchor {
                 point: first,
@@ -400,16 +508,16 @@ impl Lifter {
                     1 => Vertical::Bottom,
                     2 => Vertical::Middle,
                     3 => Vertical::Top,
-                    _ => return Err(invalid(kind, 73)),
+                    _ => return Err(invalid(kind, vertical_code)),
                 },
             },
         };
         let flags = self.int(object, 71, 0)?;
-        Ok(Shape::Text(Text {
+        Ok(Text {
             content: self.string(object, 1)?.ok_or_else(|| invalid(kind, 1))?,
             height: Height {
                 value: length(self.real(object, 40, None)?),
-                meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+                meaning: HeightMeaning::Declared(key),
             },
             placement,
             rotation: self.real(object, 50, Some(0.0))?,
@@ -420,7 +528,315 @@ impl Lifter {
             style: self
                 .string(object, 7)?
                 .unwrap_or_else(|| "STANDARD".to_owned()),
-        }))
+        })
+    }
+
+    /// INSERT（DXF Reference「INSERT」）。尺度（41・42）が 0 なら読めないとする。Z の尺度（43）は平面の形を
+    /// 変えないので移さない。列と行（70・71）が 1 より多ければ、格子に並べる（MINSERT）。属性は後で足す
+    fn symbol<P: Copy>(
+        &self,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Symbol<P>> {
+        let kind = object.kind.as_slice();
+        let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
+        let mut scale = [1.0; 2];
+        for (code, slot) in [41, 42].into_iter().zip(&mut scale) {
+            *slot = self.real(object, code, Some(1.0))?;
+            if *slot == 0.0 {
+                return Err(invalid(kind, code));
+            }
+        }
+        let count = |code: i16| -> Lifted<u32> {
+            u32::try_from(self.int(object, code, 1)?)
+                .ok()
+                .filter(|count| *count > 0)
+                .ok_or_else(|| invalid(kind, code))
+        };
+        let (columns, rows) = (count(70)?, count(71)?);
+        let grid = if (columns, rows) == (1, 1) {
+            None
+        } else {
+            Some(Grid {
+                columns,
+                rows,
+                column_spacing: length(self.real(object, 44, Some(0.0))?),
+                row_spacing: length(self.real(object, 45, Some(0.0))?),
+            })
+        };
+        Ok(Symbol {
+            key: SymbolKey {
+                namespace: BLOCK,
+                name,
+            },
+            position: self.planar_point(object, 10, point)?,
+            scale,
+            rotation: self.real(object, 50, Some(0.0))?,
+            grid,
+            attributes: Vec::new(),
+        })
+    }
+
+    /// ATTRIB（DXF Reference「ATTRIB」）。タグ（2）と、TEXT と同じ欄の値を移し、70 の 1 なら表示しないとする。
+    /// 複数行の属性（埋め込みの MTEXT を持つ。101）は、MTEXT をまだ移さないので移さない
+    fn attribute<P: Copy>(
+        &self,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+        out: &mut Out,
+    ) -> Lifted<Attribute<P>> {
+        let kind = object.kind.as_slice();
+        self.planar(object)?;
+        if object.first(101).is_some() {
+            return Err(invalid(kind, 101));
+        }
+        let text = self.text(object, point, length, 74, "dxf.ATTRIB.40")?;
+        let tag = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
+        let hidden = self.int(object, 70, 0)? & 1 != 0;
+        let style = self.style(object, out)?;
+        let layer = self.layer(object, out)?;
+        Ok(Attribute {
+            tag,
+            text,
+            hidden,
+            layer,
+            style,
+            source: source(object),
+        })
+    }
+
+    /// HATCH（DXF Reference「HATCH」「Boundary Path Data」「Pattern Data」）。境界の輪の数（91）からは、値を
+    /// 並びの順に読む。標高（30）が 0 でなければ平面に移さない。SPLINE の辺を持つものは、まだ移さない。
+    /// 境界を作った図形（330）は、輪ごとの数（97）と合わなければ読めないとする。DWG の読み手は 330 を置かない
+    /// ので、DWG では空にする。密度の画素の大きさ（47）は表示のための値なので移さない。グラデーション（450 が
+    /// 1）は、色の RGB（421）だけを移し、色の番号（63）は移さない（推定。docs/formats/dxf.md）
+    fn hatch<P: Copy>(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Hatch<P>> {
+        let kind = object.kind.as_slice();
+        if self.real(object, 30, Some(0.0))? != 0.0 {
+            return Err(non_planar(kind));
+        }
+        let solid = match self.int(object, 70, 0)? {
+            0 => false,
+            1 => true,
+            _ => return Err(invalid(kind, 70)),
+        };
+        let associative = self.int(object, 71, 0)? != 0;
+        let start = object
+            .values
+            .iter()
+            .position(|value| value.code == 91)
+            .ok_or_else(|| invalid(kind, 91))?;
+        let mut values = Values {
+            kind,
+            values: object.values.get(start..).unwrap_or_default(),
+        };
+        let mut loops = Vec::new();
+        for _ in 0..values.count(91)? {
+            let flags = values.int(92)?;
+            let boundary = if flags & 2 != 0 {
+                let bulges = values.int(72)? != 0;
+                let closed = values.int(73)? != 0;
+                let mut vertices = Vec::new();
+                for _ in 0..values.count(93)? {
+                    let at = point(values.real(10)?, values.real(20)?);
+                    let bulge = if bulges && values.next() == Some(42) {
+                        values.real(42)?
+                    } else {
+                        0.0
+                    };
+                    vertices.push(Vertex { point: at, bulge });
+                }
+                Boundary::Polyline { vertices, closed }
+            } else {
+                let mut edges = Vec::new();
+                for _ in 0..values.count(93)? {
+                    edges.push(self.hatch_edge(&mut values, point, length)?);
+                }
+                Boundary::Edges(edges)
+            };
+            let count = values.count(97)?;
+            let mut sources = Vec::new();
+            while sources.len() < count && values.next() == Some(330) {
+                let Data::Handle(handle) = values.take(330)? else {
+                    return Err(invalid(kind, 330));
+                };
+                let found = db.get(*handle).ok_or_else(|| invalid(kind, 330))?;
+                sources.push(source(found));
+            }
+            if sources.len() != count && !matches!(object.origin, Origin::Dwg { .. }) {
+                return Err(invalid(kind, 97));
+            }
+            loops.push(HatchLoop {
+                boundary,
+                external: flags & 1 != 0,
+                outermost: flags & 16 != 0,
+                derived: flags & 4 != 0,
+                text_box: flags & 8 != 0,
+                sources,
+            });
+        }
+        let islands = match values.int(75)? {
+            0 => Islands::Nested,
+            1 => Islands::Outer,
+            2 => Islands::Ignore,
+            _ => return Err(invalid(kind, 75)),
+        };
+        let origin = match values.int(76)? {
+            0 => PatternOrigin::UserDefined,
+            1 => PatternOrigin::Predefined,
+            2 => PatternOrigin::Custom,
+            _ => return Err(invalid(kind, 76)),
+        };
+        // 塗りでも、パターンの欄を書く形式がある。塗りなら読むだけにする
+        let pattern = if values.next() == Some(52) {
+            let angle = values.real(52)?;
+            let scale = values.real(41)?;
+            let double = values.int(77)? != 0;
+            let mut lines = Vec::new();
+            for _ in 0..values.count(78)? {
+                let angle = values.real(53)?;
+                let base = [values.real(43)?, values.real(44)?];
+                let offset = [values.real(45)?, values.real(46)?];
+                let mut dashes = Vec::new();
+                for _ in 0..values.count(79)? {
+                    dashes.push(values.real(49)?);
+                }
+                lines.push(PatternLine {
+                    angle,
+                    base,
+                    offset,
+                    dashes,
+                });
+            }
+            Some(Pattern {
+                name: self.string(object, 2)?.unwrap_or_default(),
+                origin,
+                angle,
+                scale,
+                double,
+                lines,
+            })
+        } else {
+            None
+        };
+        if values.next() == Some(47) {
+            values.real(47)?;
+        }
+        let mut seeds = Vec::new();
+        if values.next() == Some(98) {
+            for _ in 0..values.count(98)? {
+                seeds.push(point(values.real(10)?, values.real(20)?));
+            }
+        }
+        let fill = match (self.int(object, 450, 0)?, solid, pattern) {
+            (0, true, _) => Fill::Solid,
+            (0, false, Some(pattern)) => Fill::Pattern(pattern),
+            (0, false, None) => return Err(invalid(kind, 52)),
+            (1, _, _) => Fill::Gradient(self.gradient(object)?),
+            _ => return Err(invalid(kind, 450)),
+        };
+        Ok(Hatch {
+            loops,
+            islands,
+            fill,
+            associative,
+            seeds,
+        })
+    }
+
+    /// HATCH の境界の辺。種類（72）が 1 なら線分、2 なら円弧、3 なら楕円弧（長軸の端は中心からの向き）、4 なら
+    /// SPLINE
+    fn hatch_edge<P: Copy>(
+        &self,
+        values: &mut Values,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Edge<P>> {
+        let kind = values.kind;
+        let edge = match values.int(72)? {
+            1 => Edge::Line {
+                start: point(values.real(10)?, values.real(20)?),
+                end: point(values.real(11)?, values.real(21)?),
+            },
+            2 => {
+                let center = point(values.real(10)?, values.real(20)?);
+                let radius = values.real(40)?;
+                if radius <= 0.0 {
+                    return Err(invalid(kind, 40));
+                }
+                Edge::Arc {
+                    center,
+                    radius: length(radius),
+                    start: values.real(50)?,
+                    end: values.real(51)?,
+                    counterclockwise: values.int(73)? != 0,
+                }
+            }
+            3 => {
+                let [x, y] = [values.real(10)?, values.real(20)?];
+                let [dx, dy] = [values.real(11)?, values.real(21)?];
+                let ratio = values.real(40)?;
+                if !(ratio > 0.0 && ratio <= 1.0) {
+                    return Err(invalid(kind, 40));
+                }
+                Edge::Elliptic {
+                    center: point(x, y),
+                    major: point(x + dx, y + dy),
+                    ratio,
+                    start: values.real(50)?,
+                    end: values.real(51)?,
+                    counterclockwise: values.int(73)? != 0,
+                }
+            }
+            4 => {
+                return Err(Box::new(Diagnostic::new(
+                    codes::DXF_HATCH_SPLINE_UNSUPPORTED,
+                )));
+            }
+            _ => return Err(invalid(kind, 72)),
+        };
+        Ok(edge)
+    }
+
+    /// HATCH のグラデーション（450〜470）。回転（460）はラジアンなので度に直す。1 色（452 が 1）なら、色の
+    /// 濃さ（462）を持つ
+    fn gradient(&self, object: &Object) -> Lifted<Gradient> {
+        let kind = object.kind.as_slice();
+        let start = object
+            .values
+            .iter()
+            .position(|value| value.code == 450)
+            .unwrap_or_default();
+        let mut colors = Vec::new();
+        for value in object.values.iter().skip(start) {
+            match (value.code, &value.data) {
+                (421, Data::Int(rgb @ 0..=0xFF_FFFF)) => {
+                    let [_, r, g, b] = (*rgb as u32).to_be_bytes();
+                    colors.push([r, g, b]);
+                }
+                (421, _) => return Err(invalid(kind, 421)),
+                _ => {}
+            }
+        }
+        let tint = match self.int(object, 452, 0)? {
+            0 => None,
+            _ => Some(self.real(object, 462, None)?),
+        };
+        Ok(Gradient {
+            name: self.string(object, 470)?.unwrap_or_default(),
+            angle: self.real(object, 460, Some(0.0))?.to_degrees(),
+            shift: self.real(object, 461, Some(0.0))?,
+            colors,
+            tint,
+        })
     }
 
     /// DIMENSION（DXF Reference「DIMENSION」「Common Dimension Group Codes」）。70 の下の 5 ビットが種類で、
@@ -919,6 +1335,66 @@ impl Lifter {
         Ok(())
     }
 
+    /// 寸法スタイルの表のレコード（DXF Reference「DIMSTYLE」）。端部記号は、ブロックのレコードのハンドル
+    /// （DIMBLK の 342、DIMBLK1・DIMBLK2 の 343・344、DIMLDRBLK の 341）を名前にし、0 かなければ既定の矢印と
+    /// する。両端を別にする（DIMSAH の 173）のでなければ、両端とも 342 にする。値がなければ DXF の既定の値
+    /// （DIMSCALE の 40 は 1、DIMASZ の 41 は 0.18、DIMTSZ の 142 は 0）とする（推定。docs/formats/dxf.md）
+    fn dimension_style_record(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        source: Ref,
+        out: &mut Out,
+    ) -> Lifted<()> {
+        let kind = object.kind.as_slice();
+        let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
+        let arrow = |code: i16| -> Lifted<Arrowhead> {
+            match object.first(code) {
+                None | Some(Data::Handle(0)) => Ok(Arrowhead::Default),
+                Some(Data::Handle(handle)) => {
+                    let record = db
+                        .get(*handle)
+                        .filter(|record| record.kind == b"BLOCK_RECORD")
+                        .ok_or_else(|| invalid(kind, code))?;
+                    let name = self.string(record, 2)?.ok_or_else(|| invalid(kind, code))?;
+                    Ok(Arrowhead::Symbol(SymbolKey {
+                        namespace: BLOCK,
+                        name,
+                    }))
+                }
+                Some(_) => Err(invalid(kind, code)),
+            }
+        };
+        let separate = match object.first(173) {
+            None => false,
+            Some(Data::Int(flag)) => *flag != 0,
+            Some(Data::Bool(flag)) => *flag,
+            Some(_) => return Err(invalid(kind, 173)),
+        };
+        let ends = if separate {
+            [arrow(343)?, arrow(344)?]
+        } else {
+            let both = arrow(342)?;
+            [both.clone(), both]
+        };
+        let non_negative = |code: i16, default: f64| -> Lifted<f64> {
+            Some(self.real(object, code, Some(default))?)
+                .filter(|value| *value >= 0.0)
+                .ok_or_else(|| invalid(kind, code))
+        };
+        let tick = non_negative(142, 0.0)?;
+        out.dimension_styles.push(DimensionStyle {
+            name,
+            ends,
+            leader: arrow(341)?,
+            size: non_negative(41, 0.18)?,
+            tick: (tick > 0.0).then_some(tick),
+            scale: non_negative(40, 1.0)?,
+            source,
+        });
+        Ok(())
+    }
+
     /// 画層を足す。同じ名前がすでにあれば、名前で引くのは先のものにする
     fn add_layer(
         &self,
@@ -1047,6 +1523,53 @@ impl Lifter {
                 Diagnostic::new(codes::DXF_CODE_PAGE_UNSUPPORTED).with("kind", text(kind)),
             ))
         }
+    }
+}
+
+/// 図形の値の並びを、先頭から順に読む
+struct Values<'a> {
+    /// 図形の種類
+    kind: &'a [u8],
+    /// まだ読んでいない値
+    values: &'a [Value],
+}
+
+impl<'a> Values<'a> {
+    /// 次の値のグループ・コード
+    fn next(&self) -> Option<i16> {
+        self.values.first().map(|value| value.code)
+    }
+
+    /// 次の値。グループ・コードが `code` でなければ読めないとする
+    fn take(&mut self, code: i16) -> Lifted<&'a Data> {
+        match self.values.split_first() {
+            Some((value, rest)) if value.code == code => {
+                self.values = rest;
+                Ok(&value.data)
+            }
+            _ => Err(invalid(self.kind, code)),
+        }
+    }
+
+    /// 次の有限の実数
+    fn real(&mut self, code: i16) -> Lifted<f64> {
+        match self.take(code)? {
+            Data::Real(value) if value.is_finite() => Ok(*value),
+            _ => Err(invalid(self.kind, code)),
+        }
+    }
+
+    /// 次の整数
+    fn int(&mut self, code: i16) -> Lifted<i64> {
+        match self.take(code)? {
+            Data::Int(value) => Ok(*value),
+            _ => Err(invalid(self.kind, code)),
+        }
+    }
+
+    /// 次の 0 以上の数
+    fn count(&mut self, code: i16) -> Lifted<usize> {
+        usize::try_from(self.int(code)?).map_err(|_| invalid(self.kind, code))
     }
 }
 
