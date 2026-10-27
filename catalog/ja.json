@@ -72,6 +72,8 @@
     "sxf.lift.dropped": "図面モデルにまだ移せない種類のフィーチャ「{kind}」を、移しませんでした（{count} 件）。",
     "sxf.lift.invalid": "引数が足りないか、読めないか、範囲の外の「{kind}」を、図面モデルに移しませんでした（{count} 件）。",
     "sxf.member.assumed": "用紙のフィーチャより後に書いた要素を、用紙の要素にしました（{count} 件）。",
+    "sxf.p21-reference.missing": "P21 の実体が、ない実体 #{id} を参照しています。",
+    "sxf.p21-sheet.missing": "P21 に用紙（DRAWING_SHEET_REVISION）がないので、要素を図面モデルに移しませんでした。",
     "sxf.p21.unsupported": "P21 は、まだ図面モデルに変換できないので、空の図面にしました。",
     "sxf.raster-frame.missing": "画像の作図グループ「{name}」に、範囲を示す折れ線がないので、画像を図面モデルに移しませんでした（{count} 件）。",
     "sxf.record.invalid": "形の読めない文かフィーチャのコメントを、レコードにせずに飛ばしました（{count} 件）。",

@@ -757,9 +757,32 @@ pub const SXF_LIFT_INVALID: Code = Code::new(
 pub const SXF_MEMBER_ASSUMED: Code =
     Code::new("sxf.member.assumed", Severity::Info, None, &[], &[]);
 
+/// P21 の実体が、ない実体を参照している
+///
+/// `sxf.p21-reference.missing`（0.0.0 から）
+pub const SXF_P21_REFERENCE_MISSING: Code = Code::new(
+    "sxf.p21-reference.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("id", ParamType::UInt)],
+    &[],
+);
+
+/// P21 に用紙（DRAWING_SHEET_REVISION）がないので、要素を図面モデルに移さなかった
+///
+/// `sxf.p21-sheet.missing`（0.0.0 から）
+pub const SXF_P21_SHEET_MISSING: Code = Code::new(
+    "sxf.p21-sheet.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// P21 の図面モデルへの変換はまだないので、空の図面にした
 ///
 /// `sxf.p21.unsupported`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const SXF_P21_UNSUPPORTED: Code = Code::new(
     "sxf.p21.unsupported",
     Severity::Warning,
@@ -900,6 +923,8 @@ pub const ALL: &[Code] = &[
     SXF_LIFT_DROPPED,
     SXF_LIFT_INVALID,
     SXF_MEMBER_ASSUMED,
+    SXF_P21_REFERENCE_MISSING,
+    SXF_P21_SHEET_MISSING,
     SXF_P21_UNSUPPORTED,
     SXF_RASTER_FRAME_MISSING,
     SXF_RECORD_INVALID,

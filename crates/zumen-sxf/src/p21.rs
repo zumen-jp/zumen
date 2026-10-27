@@ -1,0 +1,826 @@
+//! P21 の実体を、SFC と同じ形のフィーチャのレコードに組み直す（決定 0132）。
+//!
+//! 表（色・線種・線幅・文字フォント・レイヤ）を番号の順に、用紙の要素を並びの順に組み直し、用紙を最後に置く。
+//! 組み直したフィーチャの出どころは、元の実体のレコードにする。まだ組み直さない要素は、実体の名前を種類にして、
+//! 変換に「まだ移さないもの」として渡す。
+
+use std::collections::BTreeMap;
+
+use zumen_base::{Diagnostic, Ref, codes};
+use zumen_sdk::{Cx, Error};
+
+use crate::drawing::{Arg, FeatureRecord, LINE_TYPES, WIDTHS, work};
+use crate::{Part, SxfFile, Value};
+
+/// 既定義色のコード 1〜16 の名前（SXF の共通既定義要素の表）
+const COLORS: [&str; 16] = [
+    "black",
+    "red",
+    "green",
+    "blue",
+    "yellow",
+    "magenta",
+    "cyan",
+    "white",
+    "deeppink",
+    "brown",
+    "orange",
+    "lightgreen",
+    "lightblue",
+    "lavender",
+    "lightgray",
+    "darkgray",
+];
+
+/// 曲線の見え方がないときの色・線種・線幅のコード
+const DEFAULT_STYLE: [i64; 3] = [8, 1, 1];
+
+/// 用紙の要素のうち、まだ組み直さない表記の種類。どれでもなければ、実体の最初の部分の名前を種類にする
+const NOT_YET: [&str; 5] = [
+    "draughting_callout",
+    "annotation_subfigure_occurrence",
+    "annotation_fill_area_occurrence",
+    "annotation_text_occurrence",
+    "annotation_symbol_occurrence",
+];
+
+/// P21 の実体を、フィーチャのレコードに組み直す
+pub(crate) fn records(file: &SxfFile, cx: &mut Cx) -> Result<Vec<FeatureRecord>, Error> {
+    let mut builder = Builder::new(file);
+    builder.check_references(cx)?;
+    builder.tables(cx)?;
+    builder.sheet(cx)?;
+    Ok(builder.out)
+}
+
+/// 番号で引く実体
+#[derive(Clone, Copy)]
+struct Instance<'f> {
+    record: usize,
+    parts: &'f [Part],
+}
+
+/// 軸の置き方（AXIS2_PLACEMENT_2D）。角度は度
+struct Placement {
+    x: f64,
+    y: f64,
+    angle: f64,
+}
+
+/// トリムの値。媒介変数（PARAMETER_VALUE）か点
+#[derive(Default)]
+struct Trim {
+    parameter: Option<f64>,
+    point: Option<[f64; 2]>,
+}
+
+struct Builder<'f> {
+    file: &'f SxfFile,
+    instances: BTreeMap<u64, Instance<'f>>,
+    out: Vec<FeatureRecord>,
+    colors: BTreeMap<u64, i64>,
+    line_types: BTreeMap<u64, i64>,
+    /// 利用者定義線幅（mm）。コードは 11 から
+    widths: Vec<f64>,
+    /// 要素（表記の実体）からレイヤのコードへ
+    layer_of: BTreeMap<u64, i64>,
+}
+
+impl<'f> Builder<'f> {
+    fn new(file: &'f SxfFile) -> Self {
+        let mut instances = BTreeMap::new();
+        for (record, entry) in file.records().iter().enumerate() {
+            if let Some(id) = entry.id() {
+                // 同じ番号の 2 つ目は使わない
+                instances.entry(id).or_insert(Instance {
+                    record,
+                    parts: entry.parts(),
+                });
+            }
+        }
+        Self {
+            file,
+            instances,
+            out: Vec::new(),
+            colors: BTreeMap::new(),
+            line_types: BTreeMap::new(),
+            widths: Vec::new(),
+            layer_of: BTreeMap::new(),
+        }
+    }
+
+    /// 参照の先がない実体を報告する
+    fn check_references(&self, cx: &mut Cx) -> Result<(), Error> {
+        for instance in self.instances.values() {
+            let source = Ref::at_record(instance.record as u64);
+            work(cx, 1, &source)?;
+            let mut missing = Vec::new();
+            for part in instance.parts {
+                self.dangling(part.args(), &mut missing);
+            }
+            for id in missing {
+                cx.report(
+                    Diagnostic::new(codes::SXF_P21_REFERENCE_MISSING)
+                        .with("id", id)
+                        .at(source.clone()),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn dangling(&self, values: &[Value], missing: &mut Vec<u64>) {
+        for value in values {
+            match value {
+                Value::Ref(id) if !self.instances.contains_key(id) => {
+                    if !missing.contains(id) {
+                        missing.push(*id);
+                    }
+                }
+                Value::List(items) => self.dangling(items, missing),
+                Value::Typed(part) => self.dangling(part.args(), missing),
+                _ => {}
+            }
+        }
+    }
+
+    /// 番号の順に並べた、名前の部分を持つ実体の番号とその引数
+    fn all(&self, name: &str) -> Vec<(u64, Instance<'f>, &'f [Value])> {
+        self.instances
+            .iter()
+            .filter_map(|(id, instance)| Some((*id, *instance, self.part(*instance, name)?)))
+            .collect()
+    }
+
+    fn part(&self, instance: Instance<'f>, name: &str) -> Option<&'f [Value]> {
+        instance
+            .parts
+            .iter()
+            .find(|part| {
+                self.file
+                    .bytes(part.name())
+                    .eq_ignore_ascii_case(name.as_bytes())
+            })
+            .map(Part::args)
+    }
+
+    fn args(&self, id: Option<u64>, name: &str) -> Option<&'f [Value]> {
+        self.part(*self.instances.get(&id?)?, name)
+    }
+
+    fn has(&self, id: Option<u64>, name: &str) -> bool {
+        self.args(id, name).is_some()
+    }
+
+    fn push(&mut self, record: usize, name: &str, kind: &str, args: Vec<Arg>) {
+        self.out.push(FeatureRecord {
+            record,
+            name: name.to_owned(),
+            kind: kind.to_owned(),
+            args,
+        });
+    }
+
+    fn text(&self, value: Option<&Value>) -> Option<String> {
+        match value? {
+            Value::Text { raw, .. } => Some(decode(self.file.bytes(raw.clone()))),
+            Value::Typed(part) => self.text(part.args().first()),
+            _ => None,
+        }
+    }
+
+    fn number(&self, value: Option<&Value>) -> Option<f64> {
+        match value? {
+            Value::Number(raw) => core::str::from_utf8(self.file.bytes(raw.clone()))
+                .ok()?
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite()),
+            Value::Typed(part) => self.number(part.args().first()),
+            _ => None,
+        }
+    }
+
+    fn enumeration(&self, value: Option<&Value>) -> Option<&'f [u8]> {
+        match value? {
+            Value::Enum(raw) => Some(self.file.bytes(raw.clone())),
+            _ => None,
+        }
+    }
+
+    fn point(&self, id: Option<u64>) -> Option<[f64; 2]> {
+        match self.args(id, "CARTESIAN_POINT")?.get(1)? {
+            Value::List(values) => {
+                Some([self.number(values.first())?, self.number(values.get(1))?])
+            }
+            _ => None,
+        }
+    }
+
+    fn direction(&self, id: Option<u64>) -> Option<[f64; 2]> {
+        match self.args(id, "DIRECTION")?.get(1)? {
+            Value::List(values) => {
+                Some([self.number(values.first())?, self.number(values.get(1))?])
+            }
+            _ => None,
+        }
+    }
+
+    /// 原点と X 軸の向き。向きを省けば X 軸のまま
+    fn placement(&self, id: Option<u64>) -> Option<Placement> {
+        let args = self.args(id, "AXIS2_PLACEMENT_2D")?;
+        let [x, y] = self.point(reference(args.get(1)))?;
+        let angle = match reference(args.get(2)) {
+            None => 0.0,
+            Some(direction) => {
+                let [dx, dy] = self.direction(Some(direction))?;
+                degrees(libm::atan2(dy, dx))
+            }
+        };
+        Some(Placement { x, y, angle })
+    }
+
+    /// 色・線種・文字フォント・レイヤを、番号の順にフィーチャにする。コードは SFC と同じに、書いた順で決まる
+    fn tables(&mut self, cx: &mut Cx) -> Result<(), Error> {
+        let mut users = 0;
+        for (id, instance, args) in self.all("COLOUR_RGB") {
+            work(cx, 1, &Ref::at_record(instance.record as u64))?;
+            let name = self.text(args.first()).unwrap_or_default();
+            // 既定義色の RGB を、名前に $$SXF_ を付けて書くことがある
+            if let Some(code) = name.trim().strip_prefix("$$SXF_").and_then(color_code) {
+                self.colors.insert(id, code);
+                continue;
+            }
+            let channel = |at: usize| {
+                self.number(args.get(at))
+                    .map(|value| Arg::Text(format!("{}", libm::round(value * 255.0))))
+                    .unwrap_or(Arg::Other)
+            };
+            let rgb = vec![channel(1), channel(2), channel(3)];
+            self.push(instance.record, "user_defined_colour", "colour_rgb", rgb);
+            users += 1;
+            self.colors.insert(id, 16 + users);
+        }
+        for (id, _, args) in self.all("DRAUGHTING_PRE_DEFINED_COLOUR") {
+            let name = self.text(args.first()).unwrap_or_default();
+            self.colors
+                .insert(id, color_code(&name).unwrap_or_default());
+        }
+        for (id, _, args) in self.all("DRAUGHTING_PRE_DEFINED_CURVE_FONT") {
+            let name = self.text(args.first()).unwrap_or_default();
+            let code = LINE_TYPES
+                .iter()
+                .position(|known| known.eq_ignore_ascii_case(name.trim()))
+                .map_or(1, |at| at as i64 + 1);
+            self.line_types.insert(id, code);
+        }
+        let mut users = 0;
+        for (id, instance, args) in self.all("CURVE_STYLE_FONT") {
+            let mut pitch = Vec::new();
+            for pattern in references(args.get(1)) {
+                let pattern = self
+                    .args(Some(pattern), "CURVE_STYLE_FONT_PATTERN")
+                    .unwrap_or_default();
+                pitch.push(num(self.number(pattern.first())));
+                pitch.push(num(self.number(pattern.get(1))));
+            }
+            let name = self.text(args.first()).map_or(Arg::Other, Arg::Text);
+            let segments = Arg::Text(pitch.len().to_string());
+            let font = vec![name, segments, Arg::List(pitch)];
+            self.push(
+                instance.record,
+                "user_defined_font",
+                "curve_style_font",
+                font,
+            );
+            users += 1;
+            self.line_types.insert(id, 16 + users);
+        }
+        for (_, instance, args) in self.all("EXTERNALLY_DEFINED_TEXT_FONT") {
+            let name = self.text(args.first()).map_or(Arg::Other, Arg::Text);
+            self.push(
+                instance.record,
+                "text_font",
+                "externally_defined_text_font",
+                vec![name],
+            );
+        }
+        let invisible: Vec<u64> = self
+            .all("INVISIBILITY")
+            .into_iter()
+            .flat_map(|(_, _, args)| references(args.first()))
+            .collect();
+        let mut code = 0;
+        for (id, instance, args) in self.all("PRESENTATION_LAYER_ASSIGNMENT") {
+            let name = self.text(args.first()).unwrap_or_default();
+            // 複合図形を入れるための仮のレイヤは、レイヤにしない（推定）
+            if name.starts_with("$$SXF_dummy") {
+                continue;
+            }
+            let visible = if invisible.contains(&id) { "0" } else { "1" };
+            let layer = vec![Arg::Text(name), Arg::Text(visible.to_owned())];
+            self.push(
+                instance.record,
+                "layer",
+                "presentation_layer_assignment",
+                layer,
+            );
+            code += 1;
+            for item in references(args.get(2)) {
+                self.layer_of.entry(item).or_insert(code);
+            }
+        }
+        Ok(())
+    }
+
+    /// 用紙の要素を並びの順にフィーチャにし、用紙を最後に置く
+    fn sheet(&mut self, cx: &mut Cx) -> Result<(), Error> {
+        let Some((id, instance, args)) = self.all("DRAWING_SHEET_REVISION").into_iter().next()
+        else {
+            cx.report(Diagnostic::new(codes::SXF_P21_SHEET_MISSING));
+            return Ok(());
+        };
+        for item in references(args.get(1)) {
+            let Some(occurrence) = self.instances.get(&item).copied() else {
+                continue;
+            };
+            work(cx, 1, &Ref::at_record(occurrence.record as u64))?;
+            self.item(item, occurrence);
+        }
+        let size = self.text(args.first()).unwrap_or_default();
+        let (kind, orientation) = sheet_kind(size.trim()).unwrap_or((9, 1));
+        let mut extent = [Arg::Other, Arg::Other];
+        for (_, _, size) in self.all("PRESENTATION_SIZE") {
+            if reference(size.first()) == Some(id)
+                && let Some(planar) = self.args(reference(size.get(1)), "PLANAR_BOX")
+            {
+                extent = [
+                    num(self.number(planar.get(1))),
+                    num(self.number(planar.get(2))),
+                ];
+            }
+        }
+        let name = self
+            .all("DRAUGHTING_TITLE")
+            .into_iter()
+            .find_map(|(_, _, title)| self.text(title.get(2)))
+            .unwrap_or_default();
+        let [width, height] = extent;
+        let sheet = vec![
+            Arg::Text(name.trim().to_owned()),
+            Arg::Text(kind.to_string()),
+            Arg::Text(orientation.to_string()),
+            width,
+            height,
+        ];
+        self.push(
+            instance.record,
+            "drawing_sheet",
+            "drawing_sheet_revision",
+            sheet,
+        );
+        Ok(())
+    }
+
+    /// 用紙の要素の 1 つ
+    fn item(&mut self, id: u64, occurrence: Instance<'f>) {
+        let curve = self
+            .part(occurrence, "ANNOTATION_CURVE_OCCURRENCE")
+            .is_some();
+        let (style, geometry) = self.styled(occurrence);
+        let composite = self.has(geometry, "COMPOSITE_CURVE");
+        if !curve || composite {
+            let kind = if composite {
+                Some("composite_curve".to_owned())
+            } else {
+                NOT_YET
+                    .iter()
+                    .find(|name| self.part(occurrence, name).is_some())
+                    .map(|name| (*name).to_owned())
+                    .or_else(|| {
+                        // 見え方を持つほかの要素も、まだ移さない
+                        self.styled_args(occurrence)?;
+                        let first = occurrence.parts.first().map(Part::name)?;
+                        Some(String::from_utf8_lossy(self.file.bytes(first)).to_ascii_lowercase())
+                    })
+            };
+            // 見え方を持たない要素（用紙の枠の PLANAR_BOX など）は、図形にしない
+            if let Some(kind) = kind {
+                self.push(occurrence.record, "", &kind, Vec::new());
+            }
+            return;
+        }
+        let mut args = vec![Arg::Text(
+            self.layer_of
+                .get(&id)
+                .copied()
+                .unwrap_or_default()
+                .to_string(),
+        )];
+        args.extend(
+            self.curve_style(style)
+                .map(|code| Arg::Text(code.to_string())),
+        );
+        match self.curve(geometry, &mut args) {
+            Some((name, kind)) => self.push(occurrence.record, name, &kind, args),
+            None => {
+                let kind = geometry
+                    .and_then(|geometry| self.instances.get(&geometry))
+                    .and_then(|instance| instance.parts.first())
+                    .map(|part| {
+                        String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_lowercase()
+                    })
+                    .unwrap_or_else(|| "annotation_curve_occurrence".to_owned());
+                self.push(occurrence.record, "", &kind, Vec::new());
+            }
+        }
+    }
+
+    /// STYLED_ITEM の見え方と対象。複合の実体では、名前を REPRESENTATION_ITEM が持つ
+    fn styled(&self, instance: Instance<'f>) -> (Option<u64>, Option<u64>) {
+        let args = self.styled_args(instance).unwrap_or_default();
+        let offset = usize::from(args.len() >= 3);
+        (
+            references(args.get(offset)).first().copied(),
+            reference(args.get(offset + 1)),
+        )
+    }
+
+    /// STYLED_ITEM の引数。単純な実体では、表記の実体（`…_OCCURRENCE`）の引数
+    fn styled_args(&self, instance: Instance<'f>) -> Option<&'f [Value]> {
+        self.part(instance, "STYLED_ITEM")
+            .or_else(|| match instance.parts {
+                [part] if self.file.bytes(part.name()).ends_with(b"_OCCURRENCE") => {
+                    Some(part.args())
+                }
+                _ => None,
+            })
+    }
+
+    /// PRESENTATION_STYLE_ASSIGNMENT の中の CURVE_STYLE の、色・線種・線幅のコード
+    fn curve_style(&mut self, assignment: Option<u64>) -> [i64; 3] {
+        let styles = references(
+            self.args(assignment, "PRESENTATION_STYLE_ASSIGNMENT")
+                .and_then(<[Value]>::first),
+        );
+        for style in styles {
+            let Some(args) = self.args(Some(style), "CURVE_STYLE") else {
+                continue;
+            };
+            let line_type = reference(args.get(1)).map_or(1, |id| {
+                self.line_types.get(&id).copied().unwrap_or_default()
+            });
+            let width = self.width(args.get(2));
+            let color = reference(args.get(3))
+                .map_or(0, |id| self.colors.get(&id).copied().unwrap_or_default());
+            return [color, line_type, width];
+        }
+        DEFAULT_STYLE
+    }
+
+    /// 線幅（LENGTH_MEASURE_WITH_UNIT か数）のコード。既定義なら 1〜9、ほかは 11 から
+    fn width(&mut self, value: Option<&Value>) -> i64 {
+        let measure = reference(value);
+        let width = match measure {
+            None => self.number(value),
+            Some(_) => self.number(
+                self.args(measure, "LENGTH_MEASURE_WITH_UNIT")
+                    .and_then(<[Value]>::first),
+            ),
+        };
+        let Some(width) = width else {
+            return 1;
+        };
+        if let Some(at) = WIDTHS.iter().position(|known| (known - width).abs() < 1e-6) {
+            return at as i64 + 1;
+        }
+        if let Some(at) = self.widths.iter().position(|known| *known == width) {
+            return at as i64 + 11;
+        }
+        let record = measure
+            .and_then(|id| self.instances.get(&id))
+            .map_or(0, |instance| instance.record);
+        self.widths.push(width);
+        self.push(
+            record,
+            "width",
+            "length_measure_with_unit",
+            vec![Arg::Text(format!("{width}"))],
+        );
+        self.widths.len() as i64 + 10
+    }
+
+    /// 曲線の幾何を、フィーチャの名前と図形の値にする。値は args に足す。種類は幾何の実体の名前
+    fn curve(&self, id: Option<u64>, args: &mut Vec<Arg>) -> Option<(&'static str, String)> {
+        if let Some(trimmed) = self.args(id, "TRIMMED_CURVE") {
+            return self.trimmed(trimmed, args);
+        }
+        if let Some(polyline) = self.args(id, "POLYLINE") {
+            let points = self.points(polyline.get(1));
+            args.push(Arg::Text(points.len().to_string()));
+            args.extend(split(&points));
+            return Some(("polyline", "polyline".to_owned()));
+        }
+        if let Some(circle) = self.args(id, "CIRCLE") {
+            let placement = self.placement(reference(circle.get(1)));
+            args.extend(center(placement.as_ref()));
+            args.push(num(self.number(circle.get(2))));
+            return Some(("circle", "circle".to_owned()));
+        }
+        if let Some(ellipse) = self.args(id, "ELLIPSE") {
+            let placement = self.placement(reference(ellipse.get(1)));
+            args.extend(center(placement.as_ref()));
+            args.push(num(self.number(ellipse.get(2))));
+            args.push(num(self.number(ellipse.get(3))));
+            args.push(num(placement.map(|p| p.angle)));
+            return Some(("ellipse", "ellipse".to_owned()));
+        }
+        if let Some(bezier) = self.args(id, "BEZIER_CURVE") {
+            let points = self.points(bezier.get(2));
+            // SFC の開閉のフラグは 0 が閉じている
+            let closed = self.enumeration(bezier.get(4)) == Some(b"T".as_slice());
+            args.push(Arg::Text(if closed { "0" } else { "1" }.to_owned()));
+            args.push(Arg::Text(points.len().to_string()));
+            args.extend(split(&points));
+            return Some(("spline", "bezier_curve".to_owned()));
+        }
+        None
+    }
+
+    fn points(&self, value: Option<&Value>) -> Vec<Option<[f64; 2]>> {
+        references(value)
+            .into_iter()
+            .map(|point| self.point(Some(point)))
+            .collect()
+    }
+
+    fn trim(&self, value: Option<&Value>) -> Trim {
+        let items = match value {
+            Some(Value::List(items)) => items.iter().collect(),
+            Some(other) => vec![other],
+            None => Vec::new(),
+        };
+        let mut trim = Trim::default();
+        for item in items {
+            match item {
+                Value::Typed(part)
+                    if self
+                        .file
+                        .bytes(part.name())
+                        .eq_ignore_ascii_case(b"PARAMETER_VALUE") =>
+                {
+                    trim.parameter = self.number(part.args().first());
+                }
+                Value::Ref(id) => {
+                    if let Some(point) = self.point(Some(*id)) {
+                        trim.point = Some(point);
+                    }
+                }
+                _ => {}
+            }
+        }
+        trim
+    }
+
+    /// トリムした線・円・楕円・クロソイド。媒介変数か点で端を決める
+    fn trimmed(&self, trimmed: &[Value], args: &mut Vec<Arg>) -> Option<(&'static str, String)> {
+        let basis = reference(trimmed.get(1));
+        let first = self.trim(trimmed.get(2));
+        let second = self.trim(trimmed.get(3));
+        // 向きが合っていれば反時計回り。SFC の向きのフラグは 0 が反時計回り
+        let sense = self.enumeration(trimmed.get(4)) != Some(b"F".as_slice());
+        let flag = Arg::Text(if sense { "0" } else { "1" }.to_owned());
+        let kind = "trimmed_curve".to_owned();
+        if let Some(line) = self.args(basis, "LINE") {
+            let origin = self.point(reference(line.get(1)));
+            let vector = self.args(reference(line.get(2)), "VECTOR");
+            let direction = vector
+                .and_then(|vector| self.direction(reference(vector.get(1))))
+                .unwrap_or([1.0, 0.0]);
+            let magnitude = vector
+                .and_then(|vector| self.number(vector.get(2)))
+                .unwrap_or(1.0);
+            let length = libm::hypot(direction[0], direction[1]);
+            let at = |trim: &Trim| match (trim.point, trim.parameter, origin) {
+                (Some(point), _, _) => Some(point),
+                (None, Some(t), Some([x, y])) if length > 0.0 => Some([
+                    x + direction[0] / length * magnitude * t,
+                    y + direction[1] / length * magnitude * t,
+                ]),
+                _ => None,
+            };
+            for end in [at(&first), at(&second)] {
+                args.extend([num(end.map(|[x, _]| x)), num(end.map(|[_, y]| y))]);
+            }
+            return Some(("line", kind));
+        }
+        let circle = self.args(basis, "CIRCLE");
+        let ellipse = self.args(basis, "ELLIPSE");
+        if let Some(conic) = circle.or(ellipse) {
+            let placement = self.placement(reference(conic.get(1)));
+            let angle = |trim: &Trim| match (trim.parameter, trim.point, placement.as_ref()) {
+                (Some(t), _, _) => Some(degrees(t)),
+                (None, Some([x, y]), Some(p)) => {
+                    Some(degrees(libm::atan2(y - p.y, x - p.x)) - p.angle)
+                }
+                _ => None,
+            };
+            let (start, end) = (angle(&first), angle(&second));
+            args.extend(center(placement.as_ref()));
+            let rotation = placement.as_ref().map(|p| p.angle);
+            if let Some(circle) = circle {
+                args.push(num(self.number(circle.get(2))));
+                args.push(flag);
+                let turn = |value: Option<f64>| Some(value? + rotation?);
+                args.extend([num(turn(start)), num(turn(end))]);
+                return Some(("arc", kind));
+            }
+            let ellipse = ellipse.unwrap_or_default();
+            args.push(num(self.number(ellipse.get(2))));
+            args.push(num(self.number(ellipse.get(3))));
+            args.extend([flag, num(rotation), num(start), num(end)]);
+            return Some(("ellipse_arc", kind));
+        }
+        if let Some(clothoid) = self.args(basis, "CLOTHOID") {
+            let placement = self.placement(reference(clothoid.get(1)));
+            args.extend(center(placement.as_ref()));
+            args.push(num(self.number(clothoid.get(2))));
+            // 曲がる向きのフラグは名前に書く（0 が反時計回り）
+            let name = self.text(clothoid.first()).unwrap_or_default();
+            args.push(Arg::Text(
+                if name.trim() == "1" { "1" } else { "0" }.to_owned(),
+            ));
+            args.push(num(placement.map(|p| p.angle)));
+            args.push(num(Some(first.parameter.unwrap_or_default())));
+            args.push(num(Some(second.parameter.unwrap_or_default())));
+            return Some(("clothoid", kind));
+        }
+        None
+    }
+}
+
+fn reference(value: Option<&Value>) -> Option<u64> {
+    match value? {
+        Value::Ref(id) => Some(*id),
+        _ => None,
+    }
+}
+
+fn references(value: Option<&Value>) -> Vec<u64> {
+    match value {
+        Some(Value::List(items)) => items
+            .iter()
+            .filter_map(|item| reference(Some(item)))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn degrees(radians: f64) -> f64 {
+    radians * 180.0 / core::f64::consts::PI
+}
+
+fn num(value: Option<f64>) -> Arg {
+    value.map_or(Arg::Other, |value| Arg::Text(format!("{value}")))
+}
+
+fn center(placement: Option<&Placement>) -> [Arg; 2] {
+    [num(placement.map(|p| p.x)), num(placement.map(|p| p.y))]
+}
+
+/// 点の並びを、X の値の並びと Y の値の並びにする
+fn split(points: &[Option<[f64; 2]>]) -> impl Iterator<Item = Arg> {
+    let axis = |at: usize| {
+        Arg::List(
+            points
+                .iter()
+                .map(|point| num(point.and_then(|point| point.get(at).copied())))
+                .collect(),
+        )
+    };
+    [axis(0), axis(1)].into_iter()
+}
+
+fn color_code(name: &str) -> Option<i64> {
+    COLORS
+        .iter()
+        .position(|known| known.eq_ignore_ascii_case(name.trim()))
+        .map(|at| at as i64 + 1)
+}
+
+/// 用紙の名前（`A3_horizontal` など）の、用紙サイズ種別と向き（1 が横）
+fn sheet_kind(name: &str) -> Option<(i64, i64)> {
+    let (size, orientation) = name.split_once('_')?;
+    let kind = size
+        .strip_prefix(['A', 'a'])?
+        .parse::<i64>()
+        .ok()
+        .filter(|kind| (0..=4).contains(kind))?;
+    let orientation = if orientation.eq_ignore_ascii_case("horizontal") {
+        1
+    } else if orientation.eq_ignore_ascii_case("vertical") {
+        0
+    } else {
+        return None;
+    };
+    Some((kind, orientation))
+}
+
+/// ISO 10303-21 の文字列のエスケープ（`''`・`\X2\…\X0\`・`\X4\…\X0\`・`\X\hh`・`\S\c`・`\P?\`・`\\`）を戻す。
+/// 規格の外の 8 ビットのバイトは、Shift_JIS として読む（推定。旧版の扱いを引き継ぐ）
+fn decode(raw: &[u8]) -> String {
+    let mut out: Vec<u16> = Vec::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some((&byte, tail)) = rest.split_first() {
+        if byte == b'\'' && tail.first() == Some(&b'\'') {
+            out.push(u16::from(b'\''));
+            rest = tail.get(1..).unwrap_or_default();
+            continue;
+        }
+        if byte == b'\\' {
+            if let Some((units, after)) = hex_run(rest, b"\\X2\\", 4) {
+                out.extend(units.iter().map(|unit| *unit as u16));
+                rest = after;
+                continue;
+            }
+            if let Some((units, after)) = hex_run(rest, b"\\X4\\", 8) {
+                for unit in units {
+                    let c = char::from_u32(unit).unwrap_or(char::REPLACEMENT_CHARACTER);
+                    out.extend(c.encode_utf16(&mut [0; 2]).iter());
+                }
+                rest = after;
+                continue;
+            }
+            if let Some(after) = rest.strip_prefix(b"\\X\\")
+                && let Some(hex) = after
+                    .get(..2)
+                    .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))
+            {
+                out.push(hex_value(hex) as u16);
+                rest = after.get(2..).unwrap_or_default();
+                continue;
+            }
+            if let Some(after) = rest.strip_prefix(b"\\S\\")
+                && let Some((&c, after)) = after.split_first()
+            {
+                out.push(u16::from(c.wrapping_add(128)));
+                rest = after;
+                continue;
+            }
+            if let [b'\\', b'P', page, b'\\', after @ ..] = rest
+                && (b'A'..=b'I').contains(page)
+            {
+                rest = after;
+                continue;
+            }
+            if tail.first() == Some(&b'\\') {
+                out.push(u16::from(b'\\'));
+                rest = tail.get(1..).unwrap_or_default();
+                continue;
+            }
+        }
+        if byte >= 0x80 {
+            // 2 バイトの文字の 2 バイト目は 0x40〜0x7E（\ を含む）のこともあるので、1 バイト目の次も含める
+            let mut len = 0;
+            while let Some(&b) = rest.get(len) {
+                if b < 0x80 {
+                    break;
+                }
+                len += if matches!(b, 0x81..=0x9f | 0xe0..=0xfc) {
+                    2
+                } else {
+                    1
+                };
+            }
+            let (run, after) = rest.split_at(len.min(rest.len()));
+            let (text, _) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(run);
+            out.extend(text.encode_utf16());
+            rest = after;
+            continue;
+        }
+        out.push(u16::from(byte));
+        rest = tail;
+    }
+    String::from_utf16_lossy(&out)
+}
+
+/// `\X2\` などで始まり、`\X0\` で閉じる 16 進の並び。width 桁ずつの値と、閉じの後
+fn hex_run<'a>(rest: &'a [u8], open: &[u8], width: usize) -> Option<(Vec<u32>, &'a [u8])> {
+    let after = rest.strip_prefix(open)?;
+    let run = after
+        .iter()
+        .take_while(|byte| byte.is_ascii_hexdigit())
+        .count();
+    if !run.is_multiple_of(width) {
+        return None;
+    }
+    let (hex, close) = after.split_at(run);
+    let close = close.strip_prefix(b"\\X0\\")?;
+    Some((hex.chunks(width).map(hex_value).collect(), close))
+}
+
+fn hex_value(hex: &[u8]) -> u32 {
+    hex.iter().fold(0, |value, byte| {
+        value * 16 + char::from(*byte).to_digit(16).unwrap_or_default()
+    })
+}

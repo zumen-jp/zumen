@@ -267,4 +267,5 @@
 - 記録: [決定 0129](../decisions/0129-sxf-hatches-and-composite-curves.md)
 - 記録: [決定 0130](../decisions/0130-sxf-parts-symbols-and-nested-views.md)
 - 記録: [決定 0131](../decisions/0131-sxf-attribute-mechanism.md)
+- 記録: [決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
