@@ -652,11 +652,9 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                 let object = db.object_mut(index).unwrap();
                 let kind = object.kind.clone();
                 // MINSERT（列の数の 70 を持つ INSERT）は除く
-                // 多面の面の VERTEX（70 が 128）の点は 0 と決まっているので動かさない。R2013 からの、当てはめる
-                // 点から制御点を求めた SPLINE（節点の許容差が 1e-9）は書き戻さない（決定 0097）
+                // 多面の面の VERTEX（70 が 128）の点は 0 と決まっているので動かさない
                 let skipped = kind == b"INSERT" && object.values.iter().any(|v| v.code == 70)
-                    || kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128))
-                    || kind == b"SPLINE" && object.first(42) == Some(&Data::Real(1e-9));
+                    || kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128));
                 if !SIMPLE.contains(&kind.as_slice()) && !more(&kind) || skipped {
                     continue;
                 }
