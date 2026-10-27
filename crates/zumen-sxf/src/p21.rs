@@ -36,11 +36,28 @@ const COLORS: [&str; 16] = [
 const DEFAULT_STYLE: [i64; 3] = [8, 1, 1];
 
 /// 用紙の要素のうち、まだ組み直さない表記の種類。どれでもなければ、実体の最初の部分の名前を種類にする
-const NOT_YET: [&str; 3] = [
-    "draughting_callout",
+const NOT_YET: [&str; 2] = [
     "annotation_subfigure_occurrence",
     "annotation_fill_area_occurrence",
 ];
+
+/// 矢印（端末記号）のコード 1〜11 の名前
+const ARROWS: [&str; 11] = [
+    "blanked arrow",
+    "blanked box",
+    "blanked dot",
+    "dimension origin",
+    "filled box",
+    "filled arrow",
+    "filled dot",
+    "integral symbol",
+    "open arrow",
+    "slash",
+    "unfilled arrow",
+];
+
+/// 名前のない端末記号の矢印のコード（open arrow）
+const DEFAULT_ARROW: usize = 9;
 
 /// 点マーカーのコード 1〜7 の名前
 const MARKERS: [&str; 7] = [
@@ -74,6 +91,15 @@ struct Placement {
     angle: f64,
     /// X 軸の向きの単位の値
     axis: [f64; 2],
+}
+
+/// 端末記号。X 軸は矢印の指す向き
+struct Terminator {
+    code: usize,
+    x: f64,
+    y: f64,
+    axis: [f64; 2],
+    scale: f64,
 }
 
 /// トリムの値。媒介変数（PARAMETER_VALUE）か点
@@ -407,6 +433,17 @@ impl<'f> Builder<'f> {
             .part(occurrence, "ANNOTATION_CURVE_OCCURRENCE")
             .is_some();
         let (style, geometry) = self.styled(occurrence);
+        if self.part(occurrence, "DRAUGHTING_CALLOUT").is_some() {
+            self.callout(occurrence);
+            return;
+        }
+        if let Some(callout) = geometry
+            .and_then(|target| self.instances.get(&target).copied())
+            .filter(|target| self.part(*target, "DRAUGHTING_CALLOUT").is_some())
+        {
+            self.callout(callout);
+            return;
+        }
         let nested = ["ANNOTATION_SUBFIGURE_OCCURRENCE", "DRAUGHTING_CALLOUT"]
             .iter()
             .any(|name| self.part(occurrence, name).is_some());
@@ -486,6 +523,287 @@ impl<'f> Builder<'f> {
         }
     }
 
+    /// 寸法・引出線・バルーン（DRAUGHTING_CALLOUT）。レイヤと線の見え方は、寸法線か引出線の要素から読む
+    fn callout(&mut self, callout: Instance<'f>) {
+        // 寸法値だけをまとめた callout は、寸法の callout が同じ文字を持つので、要素にしない
+        if self.part(callout, "STRUCTURED_DIMENSION_CALLOUT").is_some() {
+            return;
+        }
+        let contents: Vec<(u64, Instance<'f>)> = references(
+            self.part(callout, "DRAUGHTING_CALLOUT")
+                .and_then(<[Value]>::first),
+        )
+        .into_iter()
+        .filter_map(|id| Some((id, *self.instances.get(&id)?)))
+        .collect();
+        let text = contents
+            .iter()
+            .find(|(_, item)| self.part(*item, "ANNOTATION_TEXT_OCCURRENCE").is_some())
+            .and_then(|(_, item)| {
+                let (style, literal) = self.styled(*item);
+                self.annotation(style, literal)
+            })
+            .map(|(_, annotation)| annotation);
+        let mut text_args = vec![Arg::Text(if text.is_some() { "1" } else { "0" }.to_owned())];
+        text_args.extend(text.into_iter().flatten());
+        let kind = [
+            "LINEAR_DIMENSION",
+            "CURVE_DIMENSION",
+            "ANGULAR_DIMENSION",
+            "RADIUS_DIMENSION",
+            "DIAMETER_DIMENSION",
+            "LEADER_DIRECTED_CALLOUT",
+        ]
+        .into_iter()
+        .find(|name| self.part(callout, name).is_some());
+        let read = match kind {
+            Some("LEADER_DIRECTED_CALLOUT") => self.leader(&contents, text_args),
+            Some(kind) => self.dimension(kind, &contents, text_args),
+            None => None,
+        };
+        let kind = kind.map_or_else(|| "draughting_callout".to_owned(), str::to_ascii_lowercase);
+        match read {
+            Some((name, args)) => self.push(callout.record, name, &kind, args),
+            None => self.push(callout.record, "", &kind, Vec::new()),
+        }
+    }
+
+    /// 寸法線か引出線の要素の、レイヤと線の見え方の引数と、線の幾何
+    fn callout_curve(
+        &mut self,
+        contents: &[(u64, Instance<'f>)],
+        role: &str,
+    ) -> Option<(Vec<Arg>, Option<u64>)> {
+        let (id, curve) = contents
+            .iter()
+            .find(|(_, item)| self.part(*item, role).is_some())
+            .copied()?;
+        let (style, geometry) = self.styled(curve);
+        let mut args = vec![self.layer(id)];
+        args.extend(
+            self.curve_style(style)
+                .map(|code| Arg::Text(code.to_string())),
+        );
+        Some((args, geometry))
+    }
+
+    /// 曲線の幾何の、フィーチャの名前と数の値
+    fn curve_values(&self, geometry: Option<u64>) -> Option<(&'static str, Vec<f64>)> {
+        let mut args = Vec::new();
+        let (name, _) = self.curve(geometry, &mut args)?;
+        let values = args
+            .iter()
+            .map(|arg| match arg {
+                Arg::Text(text) => text.parse::<f64>().ok(),
+                _ => None,
+            })
+            .collect::<Option<Vec<f64>>>()?;
+        Some((name, values))
+    }
+
+    /// 寸法の、フィーチャの名前と引数（SFC と同じ順）
+    fn dimension(
+        &mut self,
+        kind: &str,
+        contents: &[(u64, Instance<'f>)],
+        text: Vec<Arg>,
+    ) -> Option<(&'static str, Vec<Arg>)> {
+        let (mut args, geometry) = self.callout_curve(contents, "DIMENSION_CURVE")?;
+        let (shape, values) = self.curve_values(geometry)?;
+        // 寸法補助線は、名前（$$SXF_prj_1・$$SXF_prj_2）の順
+        let mut projections: Vec<(String, Instance<'f>)> = contents
+            .iter()
+            .filter(|(_, item)| self.part(*item, "PROJECTION_CURVE").is_some())
+            .map(|(_, item)| {
+                let name = self
+                    .part(*item, "REPRESENTATION_ITEM")
+                    .and_then(|args| self.text(args.first()))
+                    .unwrap_or_default();
+                (name, *item)
+            })
+            .collect();
+        projections.sort_by(|a, b| a.0.cmp(&b.0));
+        let extensions: Vec<Arg> = [0, 1]
+            .into_iter()
+            .flat_map(|at| self.extension(projections.get(at).map(|(_, item)| *item)))
+            .collect();
+        let terminators: Vec<(&'f [u8], Instance<'f>)> = contents
+            .iter()
+            .filter_map(|(_, item)| {
+                let role = self.part(*item, "DIMENSION_CURVE_TERMINATOR")?;
+                Some((self.enumeration(role.first()).unwrap_or_default(), *item))
+            })
+            .collect();
+        let arrow = |role: &[u8]| -> Vec<Arg> {
+            let terminator = terminators
+                .iter()
+                .find(|(candidate, _)| candidate.eq_ignore_ascii_case(role))
+                .and_then(|(_, item)| self.terminator(*item));
+            let Some(terminator) = terminator else {
+                return ["0", "0", "0", "0", "1"]
+                    .map(|v| Arg::Text(v.to_owned()))
+                    .to_vec();
+            };
+            // 端末記号の X 軸は矢印の指す向き。SFC の向きは、1 が寸法線の外向き、2 が内向き
+            let [x, y] = [terminator.x, terminator.y];
+            let outward = match (shape, values.as_slice()) {
+                ("line", &[x1, y1, x2, y2]) => {
+                    let near = libm::hypot(x - x1, y - y1) <= libm::hypot(x - x2, y - y2);
+                    if near {
+                        [x1 - x2, y1 - y2]
+                    } else {
+                        [x2 - x1, y2 - y1]
+                    }
+                }
+                ("arc", &[cx, cy, ..]) => {
+                    let angle = libm::atan2(y - cy, x - cx);
+                    let (sin, cos) = (libm::sin(angle), libm::cos(angle));
+                    if role.eq_ignore_ascii_case(b"ORIGIN") {
+                        [sin, -cos]
+                    } else {
+                        [-sin, cos]
+                    }
+                }
+                _ => terminator.axis,
+            };
+            let dot = outward[0] * terminator.axis[0] + outward[1] * terminator.axis[1];
+            vec![
+                Arg::Text(terminator.code.to_string()),
+                Arg::Text(if dot >= 0.0 { "1" } else { "2" }.to_owned()),
+                num(Some(x)),
+                num(Some(y)),
+                num(Some(terminator.scale)),
+            ]
+        };
+        let (origin, target) = (arrow(b"ORIGIN"), arrow(b"TARGET"));
+        let name = match (kind, shape, values.as_slice()) {
+            ("LINEAR_DIMENSION", "line", line) => {
+                args.extend(line.iter().map(|v| num(Some(*v))));
+                args.extend(extensions);
+                args.extend(origin);
+                args.extend(target);
+                "linear_dim"
+            }
+            ("CURVE_DIMENSION" | "ANGULAR_DIMENSION", "arc", &[cx, cy, r, _, start, end]) => {
+                args.extend([cx, cy, r, start, end].map(|v| num(Some(v))));
+                args.extend(extensions);
+                args.extend(origin);
+                args.extend(target);
+                if kind == "CURVE_DIMENSION" {
+                    "curve_dim"
+                } else {
+                    "angular_dim"
+                }
+            }
+            ("RADIUS_DIMENSION", "line", line) => {
+                args.extend(line.iter().map(|v| num(Some(*v))));
+                let present = |arrow: &[Arg]| arrow.get(1) != Some(&Arg::Text("0".to_owned()));
+                args.extend(if present(&origin) { origin } else { target });
+                "radius_dim"
+            }
+            ("DIAMETER_DIMENSION", "line", line) => {
+                args.extend(line.iter().map(|v| num(Some(*v))));
+                args.extend(origin);
+                args.extend(target);
+                "diameter_dim"
+            }
+            _ => return None,
+        };
+        args.extend(text);
+        Some((name, args))
+    }
+
+    /// 寸法補助線の引数。有無・基点（線の点）・始点・終点
+    fn extension(&self, occurrence: Option<Instance<'f>>) -> Vec<Arg> {
+        let read = occurrence.and_then(|occurrence| {
+            let (_, geometry) = self.styled(occurrence);
+            let trimmed = self.args(geometry, "TRIMMED_CURVE")?;
+            let line = self.args(reference(trimmed.get(1)), "LINE")?;
+            let base = self.point(reference(line.get(1)))?;
+            let ("line", ends) = self.curve_values(geometry)? else {
+                return None;
+            };
+            let mut values = base.to_vec();
+            values.extend(ends);
+            Some(values)
+        });
+        match read {
+            Some(values) => {
+                let mut args = vec![Arg::Text("1".to_owned())];
+                args.extend(values.into_iter().map(|v| num(Some(v))));
+                args
+            }
+            None => (0..7).map(|_| Arg::Text("0".to_owned())).collect(),
+        }
+    }
+
+    /// 端末記号（矢印）。コードは、名前のないものを open arrow とする（推定）
+    fn terminator(&self, occurrence: Instance<'f>) -> Option<Terminator> {
+        let (_, target) = self.styled(occurrence);
+        let symbol = self.args(target, "DEFINED_SYMBOL")?;
+        let name = self
+            .args(reference(symbol.get(1)), "PRE_DEFINED_TERMINATOR_SYMBOL")
+            .and_then(|args| self.text(args.first()))
+            .unwrap_or_default();
+        let code = ARROWS
+            .iter()
+            .position(|known| known.eq_ignore_ascii_case(name.trim()))
+            .map_or(DEFAULT_ARROW, |at| at + 1);
+        let target = self.args(reference(symbol.get(2)), "SYMBOL_TARGET")?;
+        let placement = self.placement(reference(target.get(1)))?;
+        Some(Terminator {
+            code,
+            x: placement.x,
+            y: placement.y,
+            axis: placement.axis,
+            scale: self
+                .number(target.get(2))
+                .filter(|scale| *scale != 0.0)
+                .unwrap_or(1.0),
+        })
+    }
+
+    /// 引出線かバルーンの、フィーチャの名前と引数（SFC と同じ順）。バルーンの円は、引出線でない曲線の要素の円
+    fn leader(
+        &mut self,
+        contents: &[(u64, Instance<'f>)],
+        text: Vec<Arg>,
+    ) -> Option<(&'static str, Vec<Arg>)> {
+        let (mut args, geometry) = self.callout_curve(contents, "LEADER_CURVE")?;
+        let mut polyline = Vec::new();
+        if self.curve(geometry, &mut polyline)?.0 != "polyline" {
+            return None;
+        }
+        args.extend(polyline);
+        let terminator = contents
+            .iter()
+            .find(|(_, item)| self.part(*item, "LEADER_TERMINATOR").is_some())
+            .and_then(|(_, item)| self.terminator(*item));
+        let balloon = contents
+            .iter()
+            .filter(|(_, item)| {
+                self.part(*item, "ANNOTATION_CURVE_OCCURRENCE").is_some()
+                    && self.part(*item, "LEADER_CURVE").is_none()
+            })
+            .find_map(|(_, item)| match self.curve_values(self.styled(*item).1)? {
+                ("circle", circle) => Some(circle),
+                _ => None,
+            });
+        let name = match balloon {
+            Some(circle) => {
+                args.extend(circle.into_iter().map(|v| num(Some(v))));
+                "balloon"
+            }
+            None => "label",
+        };
+        args.push(Arg::Text(
+            terminator.as_ref().map_or(0, |t| t.code).to_string(),
+        ));
+        args.push(num(Some(terminator.map_or(1.0, |t| t.scale))));
+        args.extend(text);
+        Some((name, args))
+    }
+
     fn layer(&self, id: u64) -> Arg {
         Arg::Text(
             self.layer_of
@@ -500,8 +818,17 @@ impl<'f> Builder<'f> {
         id.map_or(0, |id| self.colors.get(&id).copied().unwrap_or_default())
     }
 
-    /// 文字の引数（SFC の text_string と同じ順）。配置基点は、行ごとにずらして書いた点を戻す
+    /// 文字の引数（SFC の text_string と同じ順）
     fn text_string(&self, id: u64, style: Option<u64>, literal: Option<u64>) -> Option<Vec<Arg>> {
+        let (color, annotation) = self.annotation(style, literal)?;
+        let mut args = vec![self.layer(id), Arg::Text(color.to_string())];
+        args.extend(annotation);
+        Some(args)
+    }
+
+    /// 文字の色のコードと、フォントのコードから書く向きまでの引数（SFC の文字の値と同じ順）。配置基点は、
+    /// 行ごとにずらして書いた点を戻す
+    fn annotation(&self, style: Option<u64>, literal: Option<u64>) -> Option<(i64, Vec<Arg>)> {
         let args = self
             .args(literal, "TEXT_LITERAL_WITH_EXTENT")
             .or_else(|| self.args(literal, "TEXT_LITERAL"))?;
@@ -578,9 +905,7 @@ impl<'f> Builder<'f> {
         let font = reference(args.get(5))
             .map_or(0, |font| self.fonts.get(&font).copied().unwrap_or_default());
         let down = self.enumeration(args.get(4)) == Some(b"DOWN".as_slice());
-        Some(vec![
-            self.layer(id),
-            Arg::Text(color.to_string()),
+        let annotation = vec![
             Arg::Text(font.to_string()),
             self.text(args.get(1)).map_or(Arg::Other, Arg::Text),
             num(point.map(|[x, _]| x)),
@@ -592,7 +917,8 @@ impl<'f> Builder<'f> {
             num(Some(slant)),
             Arg::Text((row * 3 + column + 1).to_string()),
             Arg::Text(if down { "2" } else { "1" }.to_owned()),
-        ])
+        ];
+        Some((color, annotation))
     }
 
     /// 点マーカーか既定義シンボルの、フィーチャの名前と引数（SFC と同じ順）
