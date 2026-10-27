@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0093）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0094）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -807,7 +807,11 @@ impl DwgFile {
         let vport_codes = [VPORT, &[345, 346]].concat();
         // レコードと表のオブジェクトの型と、型ごとの欄のグループ・コード
         let (type_code, control_type, own): (i16, u16, &[i16]) = match object.kind.as_slice() {
-            b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE, &[70, 62, 290, 370, 390, 6]),
+            b"LAYER" => (
+                LAYER_TYPE,
+                LAYER_CONTROL_TYPE,
+                &[70, 62, 290, 370, 390, 347, 6],
+            ),
             b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE, STYLE),
             b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE, &[70, 3, 72, 73, 40, 49, 74]),
             b"APPID" => (APPID_TYPE, APPID_CONTROL_TYPE, &[70]),
@@ -838,19 +842,30 @@ impl DwgFile {
         (!name.is_empty() && same == 1).then_some(())?;
         // 名前のないブロックと空間のブロック（* で始まる）は足せない
         (type_code != BLOCK_RECORD_TYPE || !name.starts_with(b"*")).then_some(())?;
-        let r2004 = self.release == Release::R2004;
-        let mut fields = BitWriter::default();
+        let r2004 = self.release >= Release::R2004;
+        // R2010 からは、文字列を文字列の流れに書き、外部参照の番号を持たない（決定 0094）
+        let r2010 = self.release >= Release::R2010;
+        let mut fields = match r2010 {
+            true => BitWriter::with_strings(),
+            false => BitWriter::default(),
+        };
         fields.handle(0, handle);
-        // 拡張データと反応子がない。R2004 からは、拡張辞書を持たない印を立てる
+        // 拡張データと反応子がない。R2004 からは、拡張辞書を持たない印を立てる。R2013 からは、DS のデータを
+        // 持たない印が続く
         fields.bs(0);
         fields.bl(0);
         if r2004 {
             fields.bit(true);
         }
+        if self.release >= Release::R2013 {
+            fields.bit(false);
+        }
         string(&mut fields, object, 2)?;
         // 参照される印・外部参照の番号・外部参照に依る印
         fields.bit(true);
-        fields.bs(0);
+        if !r2010 {
+            fields.bs(0);
+        }
         fields.bit(false);
         let control = object.owner()?;
         let mut handles = BitWriter::default();
@@ -882,6 +897,21 @@ impl DwgFile {
             };
             db.get(plot_style)?;
             handles.handle(5, plot_style);
+            if r2010 {
+                // 材質は、指定がなければ画層 0 と同じにする
+                let material = |layer: &Object| {
+                    layer.values.iter().find_map(|value| match value.data {
+                        Data::Handle(h) if value.code == 347 => Some(h),
+                        _ => None,
+                    })
+                };
+                let material = match material(object) {
+                    Some(h) => h,
+                    None => material(db.get(record_handle(db, b"LAYER", b"0")?)?)?,
+                };
+                db.get(material)?;
+                handles.handle(5, material);
+            }
             handles.handle(5, record_handle(db, b"LTYPE", text_of(object, 6)?)?);
         } else if type_code == STYLE_TYPE {
             // 形のファイル 1 と縦書き 4 の印、高さ・幅の係数・斜めの角度・生成の印・前の高さ・字体の名前
@@ -931,8 +961,11 @@ impl DwgFile {
                 handles.handle(5, 0);
             }
             values.0.next().is_none().then_some(())?;
-            for _ in 0..256 {
-                fields.rc(0);
+            // R2010 からは、文字の要素がなければ文字の領域を持たない（決定 0089）
+            if !r2010 {
+                for _ in 0..256 {
+                    fields.rc(0);
+                }
             }
         } else if type_code == APPID_TYPE {
             // 使い道の分からない RC は、試料の図面と同じく 0 とする
@@ -1020,15 +1053,24 @@ impl DwgFile {
         }
         let record = *records.get(&control)?;
         (self.entries.get(record)?.type_code == control_type).then_some(())?;
-        changes.insert(
-            record,
-            add_entry(
+        let entry = match r2010 {
+            true => {
+                let (data, handles_at) = self.current_r2010(changes, record)?;
+                add_entry_r2010(&data, handles_at, handle, type_code, self.release)?
+            }
+            false => add_entry(
                 &self.current(changes, record)?,
                 handle,
                 type_code,
                 self.release,
             )?,
-        );
+        };
+        changes.insert(record, entry);
+        if r2010 {
+            let mut out = BitWriter::default();
+            out.bot(type_code);
+            return Some((handle, r2010_assemble(out, fields, handles)?));
+        }
         let mut out = BitWriter::default();
         out.bs(type_code);
         out.rl(i32::try_from(out.len() + 32 + fields.len()).ok()?);
@@ -1711,10 +1753,17 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092・0093）。型ごとの欄と文字列の流れが R2000 と同じ形に
-/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、R2010 の SPLINE を足せる。
-/// 表のレコードと MINSERT と、回した INSERT（変更でも確かめられていない）は、まだ足せない
+/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092〜0094）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、R2010 の SPLINE と、一部の
+/// 表のレコードを足せる。MINSERT と、回した INSERT（変更でも確かめられていない）は、まだ足せない
 fn r2010_addable(object: &Object, release: Release) -> bool {
+    // 表のレコードは、LAYER・STYLE・LTYPE・APPID を足せる（決定 0094）
+    if object.section == Section::Tables {
+        return matches!(
+            object.kind.as_slice(),
+            b"LAYER" | b"STYLE" | b"LTYPE" | b"APPID"
+        );
+    }
     const KINDS: [&[u8]; 17] = [
         b"LINE",
         b"CIRCLE",
@@ -2528,6 +2577,54 @@ fn add_entry(data: &[u8], entry: u64, type_code: i16, release: Release) -> Optio
         out.copy(&part.into_bytes(), 0..len)?;
     }
     Some(out.into_bytes())
+}
+
+/// 型 `type_code` のレコードの、R2010 から後の表のオブジェクトのデータ `data`（ハンドルの流れの大きさ（MC）の
+/// 後）の、項目の数（BL）を 1 増やし、項目のハンドルの終わりに `entry` を足したもの（決定 0094）。`handles_at` は
+/// ハンドルの流れの始まり。ハンドルの流れの後の埋めるビットは写さない
+fn add_entry_r2010(
+    data: &[u8],
+    handles_at: usize,
+    entry: u64,
+    type_code: i16,
+    release: Release,
+) -> Option<Vec<u8>> {
+    let mut bits = Bits::with_release(data, release);
+    bits.bot()?;
+    let end = bits.split_strings(handles_at)?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let reactors = bits.bl()?;
+    let xdic = !bits.bit()?;
+    if release >= Release::R2013 {
+        bits.bit()?;
+    }
+    let count_at = bits.pos();
+    let count = bits.bl()?;
+    let count_end = bits.pos();
+    let extra = match type_code {
+        DIMSTYLE_TYPE => bits.rc()?,
+        BLOCK_RECORD_TYPE => 2,
+        _ => 0,
+    };
+    (bits.pos() == end).then_some(())?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..count_at)?;
+    out.bl(count.checked_add(1)?);
+    out.copy(data, count_end..handles_at)?;
+    let at = out.len();
+    bits.seek(handles_at);
+    // 所有者・反応子・拡張辞書・項目
+    for _ in 0..(1 + i64::from(reactors) + i64::from(xdic) + i64::from(count)) {
+        let found = bits.handle()?;
+        out.handle(found.code, found.value);
+    }
+    out.handle(2, entry);
+    for _ in 0..extra {
+        let found = bits.handle()?;
+        out.handle(found.code, found.value);
+    }
+    with_modular_size(out, at)
 }
 
 /// 印刷する画層か。290 がなければ印刷し、偽なら印刷しない

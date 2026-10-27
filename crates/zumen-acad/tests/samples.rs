@@ -1442,17 +1442,27 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
 /// もう一度足しても合う（決定 0061〜0067）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
-    added_table_records_are_taken_back(b"AC1015");
+    added_table_records_are_taken_back(b"AC1015", true);
 }
 
 #[test]
 fn r2004_drawings_take_back_added_table_records() {
-    added_table_records_are_taken_back(b"AC1018");
+    added_table_records_are_taken_back(b"AC1018", true);
 }
 
-/// 版 `version` の図面に表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと合う
+/// R2010 以降の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT と、アプリケーションの名前を足して
+/// 書き戻すと、読み直したものが足したものと合う（決定 0094）
+#[test]
+fn r2010_and_later_drawings_take_back_added_table_records() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        added_table_records_are_taken_back(version, false);
+    }
+}
+
+/// 版 `version` の図面に表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと合う。
+/// `all` でなければ、寸法の体裁・ビュー・ビューポートの設定・ブロックを足さない
 #[cfg(test)]
-fn added_table_records_are_taken_back(version: &[u8]) {
+fn added_table_records_are_taken_back(version: &[u8], all: bool) {
     for path in dwgs(version) {
         let mut src = std::fs::read(&path).unwrap();
         for name in [b"zumen-1".as_slice(), b"zumen-2"] {
@@ -1483,6 +1493,13 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                 match value.code {
                     5 => value.data = Data::Handle(seed),
                     2 | 6 => value.data = Data::Text(name.to_vec()),
+                    // 真の色は足せないので、番号の色にする
+                    420 => {
+                        *value = Value {
+                            code: 62,
+                            data: Data::Int(7),
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1624,142 +1641,152 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                 origin: Origin::New,
             });
             db.push(appid);
-            db.push(Object {
-                kind: b"DIMSTYLE".to_vec(),
-                section: Section::Tables,
-                values: dimstyle
-                    .into_iter()
-                    .map(|(code, data)| Value { code, data })
-                    .collect(),
-                origin: Origin::New,
-            });
-            // UCS を伴うビュー。ビューの表は、見出しの並びと同じく線種の表の次にある
-            let mut tables: Vec<u64> = db
-                .objects()
-                .iter()
-                .filter(|o| o.kind == b"TABLE")
-                .filter_map(Object::handle)
-                .collect();
-            tables.sort_unstable();
-            let views = *tables.iter().find(|&&h| h > ltypes).unwrap();
-            let mut view = vec![
-                (5, Data::Handle(seed + 7)),
-                (330, Data::Handle(views)),
-                (2, Data::Text(name.to_vec())),
-                (70, Data::Int(0)),
-            ];
-            for (code, v) in [
-                (40, 100.0),
-                (10, 50.0),
-                (20, 40.0),
-                (41, 150.0),
-                (11, 0.0),
-                (21, 0.0),
-                (31, 1.0),
-                (12, 0.0),
-                (22, 0.0),
-                (32, 0.0),
-                (42, 50.0),
-                (43, 0.0),
-                (44, 0.0),
-                (50, 0.0),
-            ] {
-                view.push((code, Data::Real(v)));
-            }
-            view.extend([(71, Data::Int(0)), (281, Data::Int(0)), (72, Data::Int(1))]);
-            for (code, v) in [
-                (110, 0.0),
-                (120, 0.0),
-                (130, 0.0),
-                (111, 1.0),
-                (121, 0.0),
-                (131, 0.0),
-                (112, 0.0),
-                (122, 1.0),
-                (132, 0.0),
-            ] {
-                view.push((code, Data::Real(v)));
-            }
-            view.extend([(79, Data::Int(0)), (146, Data::Real(0.0))]);
-            db.push(Object {
-                kind: b"VIEW".to_vec(),
-                section: Section::Tables,
-                values: view
-                    .into_iter()
-                    .map(|(code, data)| Value { code, data })
-                    .collect(),
-                origin: Origin::New,
-            });
-            db.push(vport);
-            // 線を 1 本持つブロックと、それをモデル空間に挿す INSERT
-            let record = seed + 9;
-            let block = |kind: &[u8], handle: u64, values: Vec<(i16, Data)>| {
-                let owner = if kind == b"INSERT" { model } else { record };
-                let mut all = vec![
-                    (5, Data::Handle(handle)),
-                    (330, Data::Handle(owner)),
-                    (8, Data::Text(name.to_vec())),
-                ];
-                all.extend(values);
-                Object {
-                    kind: kind.to_vec(),
-                    section: if kind == b"INSERT" {
-                        Section::Entities
-                    } else {
-                        Section::Blocks
-                    },
-                    values: all
+            let added = if all { 14 } else { 6 };
+            if all {
+                db.push(Object {
+                    kind: b"DIMSTYLE".to_vec(),
+                    section: Section::Tables,
+                    values: dimstyle
                         .into_iter()
                         .map(|(code, data)| Value { code, data })
                         .collect(),
                     origin: Origin::New,
-                }
-            };
-            db.push(Object {
-                kind: b"BLOCK_RECORD".to_vec(),
-                section: Section::Tables,
-                values: [
-                    (5, Data::Handle(record)),
-                    (330, Data::Handle(blocks)),
+                });
+                // UCS を伴うビュー。ビューの表は、見出しの並びと同じく線種の表の次にある
+                let mut tables: Vec<u64> = db
+                    .objects()
+                    .iter()
+                    .filter(|o| o.kind == b"TABLE")
+                    .filter_map(Object::handle)
+                    .collect();
+                tables.sort_unstable();
+                let views = *tables.iter().find(|&&h| h > ltypes).unwrap();
+                let mut view = vec![
+                    (5, Data::Handle(seed + 7)),
+                    (330, Data::Handle(views)),
                     (2, Data::Text(name.to_vec())),
-                ]
-                .into_iter()
-                .map(|(code, data)| Value { code, data })
-                .collect(),
-                origin: Origin::New,
-            });
-            let point = [
-                (10, Data::Real(1.0)),
-                (20, Data::Real(2.0)),
-                (30, Data::Real(0.0)),
-            ];
-            let mut begin = vec![(2, Data::Text(name.to_vec()))];
-            begin.extend(point.clone());
-            db.push(block(b"BLOCK", seed + 10, begin));
-            let mut line = point.to_vec();
-            line.extend([
-                (11, Data::Real(3.0)),
-                (21, Data::Real(4.0)),
-                (31, Data::Real(0.0)),
-            ]);
-            db.push(block(b"LINE", seed + 11, line));
-            db.push(block(b"ENDBLK", seed + 12, Vec::new()));
-            let mut insert = point.to_vec();
-            insert.push((2, Data::Text(name.to_vec())));
-            db.push(block(b"INSERT", seed + 13, insert));
+                    (70, Data::Int(0)),
+                ];
+                for (code, v) in [
+                    (40, 100.0),
+                    (10, 50.0),
+                    (20, 40.0),
+                    (41, 150.0),
+                    (11, 0.0),
+                    (21, 0.0),
+                    (31, 1.0),
+                    (12, 0.0),
+                    (22, 0.0),
+                    (32, 0.0),
+                    (42, 50.0),
+                    (43, 0.0),
+                    (44, 0.0),
+                    (50, 0.0),
+                ] {
+                    view.push((code, Data::Real(v)));
+                }
+                view.extend([(71, Data::Int(0)), (281, Data::Int(0)), (72, Data::Int(1))]);
+                for (code, v) in [
+                    (110, 0.0),
+                    (120, 0.0),
+                    (130, 0.0),
+                    (111, 1.0),
+                    (121, 0.0),
+                    (131, 0.0),
+                    (112, 0.0),
+                    (122, 1.0),
+                    (132, 0.0),
+                ] {
+                    view.push((code, Data::Real(v)));
+                }
+                view.extend([(79, Data::Int(0)), (146, Data::Real(0.0))]);
+                db.push(Object {
+                    kind: b"VIEW".to_vec(),
+                    section: Section::Tables,
+                    values: view
+                        .into_iter()
+                        .map(|(code, data)| Value { code, data })
+                        .collect(),
+                    origin: Origin::New,
+                });
+                db.push(vport);
+                // 線を 1 本持つブロックと、それをモデル空間に挿す INSERT
+                let record = seed + 9;
+                let block = |kind: &[u8], handle: u64, values: Vec<(i16, Data)>| {
+                    let owner = if kind == b"INSERT" { model } else { record };
+                    let mut all = vec![
+                        (5, Data::Handle(handle)),
+                        (330, Data::Handle(owner)),
+                        (8, Data::Text(name.to_vec())),
+                    ];
+                    all.extend(values);
+                    Object {
+                        kind: kind.to_vec(),
+                        section: if kind == b"INSERT" {
+                            Section::Entities
+                        } else {
+                            Section::Blocks
+                        },
+                        values: all
+                            .into_iter()
+                            .map(|(code, data)| Value { code, data })
+                            .collect(),
+                        origin: Origin::New,
+                    }
+                };
+                db.push(Object {
+                    kind: b"BLOCK_RECORD".to_vec(),
+                    section: Section::Tables,
+                    values: [
+                        (5, Data::Handle(record)),
+                        (330, Data::Handle(blocks)),
+                        (2, Data::Text(name.to_vec())),
+                    ]
+                    .into_iter()
+                    .map(|(code, data)| Value { code, data })
+                    .collect(),
+                    origin: Origin::New,
+                });
+                let point = [
+                    (10, Data::Real(1.0)),
+                    (20, Data::Real(2.0)),
+                    (30, Data::Real(0.0)),
+                ];
+                let mut begin = vec![(2, Data::Text(name.to_vec()))];
+                begin.extend(point.clone());
+                db.push(block(b"BLOCK", seed + 10, begin));
+                let mut line = point.to_vec();
+                line.extend([
+                    (11, Data::Real(3.0)),
+                    (21, Data::Real(4.0)),
+                    (31, Data::Real(0.0)),
+                ]);
+                db.push(block(b"LINE", seed + 11, line));
+                db.push(block(b"ENDBLK", seed + 12, Vec::new()));
+                let mut insert = point.to_vec();
+                insert.push((2, Data::Text(name.to_vec())));
+                db.push(block(b"INSERT", seed + 13, insert));
+            }
             file.write_back(&db, &mut cx).unwrap();
             // DWG の BLOCK は、名前と基点を値に持たない
-            let at = db.objects().len() - 4;
-            db.object_mut(at)
-                .unwrap()
-                .values
-                .retain(|v| !matches!(v.code, 2 | 10 | 20 | 30));
+            if all {
+                let at = db.objects().len() - 4;
+                db.object_mut(at)
+                    .unwrap()
+                    .values
+                    .retain(|v| !matches!(v.code, 2 | 10 | 20 | 30));
+            }
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 14), "{}", path.display());
+            assert_eq!(
+                again.handle_seed(),
+                Some(seed + added),
+                "{}",
+                path.display()
+            );
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
