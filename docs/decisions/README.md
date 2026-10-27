@@ -148,3 +148,4 @@
 - [0116: 図面モデルの記号の配置は展開せず、定義のない配置と輪になる定義を診断する](0116-drawing-symbol-references.md)（2026-10-27、採用）
 - [0117: 要素の一覧を返す entities の op は、空間と出所で作る ID と、offset と limit で続きを読む](0117-entities-op.md)（2026-10-28、採用）
 - [0118: entities の範囲は形の定義から求め、欄は fields で選び、region で範囲の重なる要素に絞る](0118-entities-bbox-fields-region.md)（2026-10-28、採用）
+- [0119: 予算で止めた診断は、止めたときに扱っていたレコードかバイト範囲を場所に持つ](0119-budget-stop-place.md)（2026-10-28、採用）

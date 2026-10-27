@@ -167,7 +167,10 @@ impl Codec for Dxf {
             else {
                 return Err(invalid(cx, &code_line));
             };
-            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            // 止めたら、そのタグのバイト範囲を場所に入れる（決定 0119）
+            let place = Ref::at_bytes(code_line.start as u64, value_line.next as u64);
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped_at(cx, stop, place.clone()))?;
             let tag = Tag {
                 code,
                 span: code_line.start..value_line.next,
@@ -181,7 +184,7 @@ impl Codec for Dxf {
                 }
                 _ => {
                     cx.check(Kind::Records, 1)
-                        .map_err(|stop| stopped(cx, stop))?;
+                        .map_err(|stop| stopped_at(cx, stop, place))?;
                     records.push(Record {
                         span: code_line.start..value_line.next,
                         tags: vec![tag],
@@ -528,6 +531,12 @@ fn format_real(value: f64) -> Vec<u8> {
 
 fn stopped(cx: &mut Cx, stop: zumen_base::Stop) -> Error {
     cx.report(stop.to_diagnostic());
+    Error::Stopped(stop)
+}
+
+/// 止めた理由を、扱っていた場所と一緒に報告する（決定 0119）
+fn stopped_at(cx: &mut Cx, stop: zumen_base::Stop, place: Ref) -> Error {
+    cx.report(stop.to_diagnostic().at(place));
     Error::Stopped(stop)
 }
 

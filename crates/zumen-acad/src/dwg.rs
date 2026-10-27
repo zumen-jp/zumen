@@ -629,3 +629,9 @@ fn stopped(cx: &mut Cx, stop: zumen_base::Stop) -> Error {
     cx.report(stop.to_diagnostic());
     Error::Stopped(stop)
 }
+
+/// 止めた理由を、扱っていた場所と一緒に報告する（決定 0119）
+fn stopped_at(cx: &mut Cx, stop: zumen_base::Stop, place: Ref) -> Error {
+    cx.report(stop.to_diagnostic().at(place));
+    Error::Stopped(stop)
+}

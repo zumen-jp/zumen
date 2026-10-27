@@ -4,7 +4,7 @@
 //! 印は、オブジェクトにしない。見出しの変数は、オブジェクトでなく変数として置く。値は、グループ・コードの
 //! 範囲で決めた型で読む。型どおりに読めない値は、元のバイト列のまま文字列として置き、診断を返す。
 
-use super::{DxfFile, Record, Tag, parse_real, stopped};
+use super::{DxfFile, Record, Tag, parse_real, stopped_at};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_sdk::Error;
@@ -21,7 +21,8 @@ impl DxfFile {
         let mut db = AcadDb::default();
         let mut section: Option<Section> = None;
         for (index, record) in self.records.iter().enumerate() {
-            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped_at(cx, stop, Ref::at_record(index as u64)))?;
             match self.kind(record) {
                 b"SECTION" => {
                     let found = self.section(record);

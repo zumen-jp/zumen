@@ -500,8 +500,16 @@ impl Page {
                 *count - 1
             };
             let mut bbox = None;
+            // 止めたら、扱っていた要素の出所を場所に入れる（決定 0119）
+            let stop_at = |cx: &mut Cx<'_>, stop: Stop| {
+                let mut diagnostic = stop.to_diagnostic();
+                if element.source != Ref::default() {
+                    diagnostic = diagnostic.at(element.source.clone());
+                }
+                fail(cx, diagnostic)
+            };
             if let Some(region) = &self.region {
-                cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+                cx.check(Kind::Work, 1).map_err(|stop| stop_at(cx, stop))?;
                 bbox = bounds::bbox(&element.shape);
                 if !bbox
                     .as_ref()
@@ -515,7 +523,7 @@ impl Page {
             if position < self.start || position >= self.end {
                 continue;
             }
-            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            cx.check(Kind::Work, 1).map_err(|stop| stop_at(cx, stop))?;
             let id = match repeat {
                 0 => format!("{place}/{origin}"),
                 n => format!("{place}/{origin}/{n}"),
@@ -1039,6 +1047,8 @@ mod tests {
         );
         assert_eq!(status, Status::Failed);
         assert_eq!(number(&response, "/diagnostics/1/params/requested"), "16");
+        // 止めた診断は、返そうとしていた要素の出所を場所に持つ（決定 0119）
+        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "5");
         let (status, _) = call(
             &mut session,
             r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":16}}"#,

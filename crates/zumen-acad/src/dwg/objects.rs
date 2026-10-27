@@ -14,7 +14,7 @@ use std::ops::Range;
 
 use super::bits::Bits;
 use super::header::{self, Header};
-use super::{COMMON_OBJECT, DwgFile, Entry, Release, stopped};
+use super::{COMMON_OBJECT, DwgFile, Entry, Release, stopped_at};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use zumen_sdk::Error;
@@ -172,7 +172,9 @@ impl DwgFile {
             .and_then(|(src, span)| header::header(src, span, self.release, cx));
         let mut found = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
-            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let place = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped_at(cx, stop, place))?;
             let kind = self.kind(entry.type_code);
             let fields = kind.as_ref().and_then(|(name, section)| {
                 // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる

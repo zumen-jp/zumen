@@ -175,6 +175,11 @@ fn reading_stops_at_the_record_limit() {
         diag.iter().next().map(|d| d.code()),
         Some(codes::BUDGET_RECORDS_EXCEEDED)
     );
+    // 止めた診断は、4 つ目のレコードを始めるタグのバイト範囲を場所に持つ（決定 0119）
+    let places = diag.iter().next().map(|d| d.places().to_vec()).unwrap();
+    let bytes = places[0].bytes().unwrap();
+    let tag = std::str::from_utf8(&src[bytes.start as usize..bytes.end as usize]).unwrap();
+    assert_eq!(tag.lines().next().map(str::trim), Some("0"), "{tag:?}");
 }
 
 #[test]
