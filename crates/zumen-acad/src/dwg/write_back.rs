@@ -17,8 +17,8 @@
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
-//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前は、一から符号化してオブジェクトの
-//! 地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0064）。
+//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁は、一から符号化して
+//! オブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0065）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -81,6 +81,8 @@ const LTYPE_TYPE: i16 = 0x39;
 const LTYPE_CONTROL_TYPE: u16 = 0x38;
 const APPID_TYPE: i16 = 0x43;
 const APPID_CONTROL_TYPE: u16 = 0x42;
+const DIMSTYLE_TYPE: i16 = 0x45;
+const DIMSTYLE_CONTROL_TYPE: u16 = 0x44;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -298,7 +300,7 @@ impl DwgFile {
     /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
     /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
     /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
-    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0064）
+    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0065）
     fn append(
         &self,
         db: &AcadDb,
@@ -547,13 +549,15 @@ impl DwgFile {
         })
     }
 
-    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0064）。所有者（330）の
+    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0065）。所有者（330）の
     /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
-    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）だけを扱い、名前（2）が表にないことが要る。
+    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁だけを扱い、名前（2）が表にない
+    /// ことが要る。
     /// 画層は、印（70）・色（62）・線の太さ（370）を持ち、印刷スタイル（390）と線種（6）が表になければ
     /// ならない。印刷スタイルがなければ、画層 0 と同じものにする。文字の体裁は、型ごとの欄をみな持たなければ
     /// ならない。線種は、要素がみな形も文字も持たないことが要る。アプリケーションの名前は、印（70）が 0 で
-    /// なければならない。ハンドルが `seed` より小さいか、足せないレコードなら `None`
+    /// なければならない。寸法の体裁は、表にない欄を既定の値で書き、文字の体裁とブロックのハンドル（340〜344）
+    /// が図面になければならない。ハンドルが `seed` より小さいか、足せないレコードなら `None`
     fn add_record(
         &self,
         db: &AcadDb,
@@ -562,16 +566,23 @@ impl DwgFile {
         seed: u64,
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Option<(u64, Vec<u8>)> {
+        let dimstyle_codes: Vec<i16> = std::iter::once(70)
+            .chain(DIM_FIELDS.iter().map(|field| field.0))
+            .chain(340..=344)
+            .collect();
         // レコードと表のオブジェクトの型と、型ごとの欄のグループ・コード
         let (type_code, control_type, own): (i16, u16, &[i16]) = match object.kind.as_slice() {
             b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE, &[70, 62, 290, 370, 390, 6]),
             b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE, STYLE),
             b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE, &[70, 3, 72, 73, 40, 49, 74]),
             b"APPID" => (APPID_TYPE, APPID_CONTROL_TYPE, &[70]),
+            b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE, &dimstyle_codes),
             _ => return None,
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
-        let codes = [&[5, 330, 2], own].concat();
+        // DIMSTYLE のハンドルは、DXF と同じく 105 に置く
+        let at = if type_code == DIMSTYLE_TYPE { 105 } else { 5 };
+        let codes = [&[at, 330, 2], own].concat();
         if object
             .values
             .iter()
@@ -677,14 +688,37 @@ impl DwgFile {
             for _ in 0..256 {
                 fields.rc(0);
             }
-        } else {
+        } else if type_code == APPID_TYPE {
             // 使い道の分からない RC は、試料の図面と同じく 0 とする
             (small(object, 70)?? == 0).then_some(())?;
             fields.rc(0);
+        } else {
+            (small(object, 70)?? == 0).then_some(())?;
+            for &(code, field) in &DIM_FIELDS {
+                dim_field(&mut fields, object, code, field)?;
+            }
+            // 文字の体裁と、引出線・矢印・1 つめと 2 つめの矢印のブロック。試料の図面と同じく、参照の型は 5
+            for code in 340..=344 {
+                let handle = match object.values.iter().find(|value| value.code == code) {
+                    Some(value) => match value.data {
+                        Data::Handle(h) => db.get(h).map(|_| h)?,
+                        _ => return None,
+                    },
+                    None => 0,
+                };
+                handles.handle(5, handle);
+            }
         }
         let record = *records.get(&control)?;
         (self.entries.get(record)?.type_code == control_type).then_some(())?;
-        changes.insert(record, add_entry(&self.current(changes, record)?, handle)?);
+        changes.insert(
+            record,
+            add_entry(
+                &self.current(changes, record)?,
+                handle,
+                type_code == DIMSTYLE_TYPE,
+            )?,
+        );
         let mut out = BitWriter::default();
         out.bs(type_code);
         out.rl(i32::try_from(out.len() + 32 + fields.len()).ok()?);
@@ -1288,7 +1322,7 @@ fn layer_flags(object: &Object, xdep: bool, old: i16) -> Option<(i16, i16)> {
 
 /// 表のオブジェクトのデータ `data` の、項目の数（BL）を 1 増やし、項目のハンドルの終わりに `entry` を
 /// 足したもの（決定 0061）。ハンドルの流れの後の埋めるビットは写さない
-fn add_entry(data: &[u8], entry: u64) -> Option<Vec<u8>> {
+fn add_entry(data: &[u8], entry: u64, more: bool) -> Option<Vec<u8>> {
     let [size_at, start, handles_at] = object_fields(data)?;
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(size_at + 32);
@@ -1296,9 +1330,14 @@ fn add_entry(data: &[u8], entry: u64) -> Option<Vec<u8>> {
     skip_extended_data(&mut bits)?;
     let reactors = bits.bl()?;
     let count = bits.bl()?;
-    (bits.pos() == handles_at).then_some(())?;
     let mut fields = BitWriter::default();
     fields.bl(count.checked_add(1)?);
+    // 寸法の体裁の表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く
+    let extra = if more { bits.rc()? } else { 0 };
+    if more {
+        fields.rc(extra);
+    }
+    (bits.pos() == handles_at).then_some(())?;
     let mut handles = BitWriter::default();
     // 所有者・反応子・拡張辞書・項目
     for _ in 0..(1 + i64::from(reactors) + 1 + i64::from(count)) {
@@ -1306,6 +1345,10 @@ fn add_entry(data: &[u8], entry: u64) -> Option<Vec<u8>> {
         handles.handle(found.code, found.value);
     }
     handles.handle(2, entry);
+    for _ in 0..extra {
+        let found = bits.handle()?;
+        handles.handle(found.code, found.value);
+    }
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
     out.rl(i32::try_from(start + fields.len()).ok()?);
@@ -1533,25 +1576,34 @@ fn dimstyle(
             fields.copy(data, at..bits.pos())?;
             continue;
         }
-        match field {
-            Dim::Text if text_of(new, code).is_some() => string(fields, new, code)?,
-            Dim::Text => {
-                of(new, code).is_empty().then_some(())?;
-                fields.text(&[0])?;
-            }
-            Dim::Real(default) => fields.bd(real(new, code)?.unwrap_or(default)),
-            Dim::Bit(default) => match small(new, code)? {
-                None => fields.bit(default),
-                Some(0) => fields.bit(false),
-                Some(1) => fields.bit(true),
-                Some(_) => return None,
-            },
-            Dim::Short(default) | Dim::Color(default) => {
-                fields.bs(small(new, code)?.unwrap_or(default));
-            }
-        }
+        dim_field(fields, new, code, field)?;
     }
     Some(bits.pos())
+}
+
+/// DIMSTYLE の `code` の欄を、`new` の値で書く。値がなければ、読む側と同じ既定の値で書く
+fn dim_field(fields: &mut BitWriter, new: &Object, code: i16, field: Dim) -> Option<()> {
+    match field {
+        Dim::Text if text_of(new, code).is_some() => string(fields, new, code)?,
+        Dim::Text => {
+            new.values
+                .iter()
+                .all(|value| value.code != code)
+                .then_some(())?;
+            fields.text(&[0])?;
+        }
+        Dim::Real(default) => fields.bd(real(new, code)?.unwrap_or(default)),
+        Dim::Bit(default) => match small(new, code)? {
+            None => fields.bit(default),
+            Some(0) => fields.bit(false),
+            Some(1) => fields.bit(true),
+            Some(_) => return None,
+        },
+        Dim::Short(default) | Dim::Color(default) => {
+            fields.bs(small(new, code)?.unwrap_or(default));
+        }
+    }
+    Some(())
 }
 
 /// LAYOUT の欄の形。読む側は、すべての欄を DWG の並びで置く
