@@ -11,8 +11,9 @@ use zumen_drawing::{
     FieldValue, Flow, Font, FontKind, Format, FormattedText, Height, HeightMeaning, Horizontal,
     Inherit, Layer, LayerId, LayerState, Length, LineSpacing, LineType, LineTypeDefinition,
     LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint,
-    PatternBasis, Piece, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Span,
-    Style, Target, TitleBlock, TitleItem, Unit, Vertex, Vertical, View,
+    PatternBasis, Piece, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId,
+    Span, Style, Target, TitleBlock, TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit,
+    Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -123,6 +124,19 @@ struct Definition {
     members: Vec<usize>,
     /// 部分図なら、その空間
     space: Option<SpaceId>,
+    /// 定義のフィーチャ
+    source: Ref,
+}
+
+/// 展開している画像の作図グループ。範囲を示す折れ線を、画像の下敷きにする
+#[derive(Clone)]
+struct Raster {
+    /// 範囲を示す折れ線のフィーチャの添字
+    outline: usize,
+    /// 画像のファイルの名前
+    path: String,
+    /// 作図グループの定義
+    definition: Ref,
 }
 
 /// 置く先の空間。点と長さを作る
@@ -230,6 +244,8 @@ struct Lifter<'f> {
     widths: Vec<Option<f64>>,
     /// 文字フォントの名前。コードは 1 から
     fonts: Vec<String>,
+    /// 展開している画像の作図グループ
+    raster: Option<Raster>,
     definitions: BTreeMap<String, Definition>,
 }
 
@@ -267,6 +283,7 @@ impl<'f> Lifter<'f> {
             colors: Vec::new(),
             widths: Vec::new(),
             fonts: Vec::new(),
+            raster: None,
             definitions: BTreeMap::new(),
         }
     }
@@ -556,6 +573,7 @@ impl<'f> Lifter<'f> {
                 flag,
                 members,
                 space,
+                source: feature.source(),
             },
         );
         order.push(name);
@@ -593,7 +611,16 @@ impl<'f> Lifter<'f> {
                 }
                 continue;
             }
-            match self.shape(feature, at) {
+            let outline = self
+                .raster
+                .as_ref()
+                .filter(|r| r.outline == *index)
+                .cloned();
+            let shape = match outline {
+                Some(raster) => self.underlay(feature, raster, at),
+                None => self.shape(feature, at),
+            };
+            match shape {
                 Shaped::Element(shape) => {
                     let element = self.element(feature, *shape, cx);
                     at.element(element, out);
@@ -638,9 +665,12 @@ impl<'f> Lifter<'f> {
                     return Ok(());
                 }
                 let members = definition.members.clone();
+                let raster = self.raster(&name, definition, cx);
                 cx.enter().map_err(|stop| stopped(cx, stop, feature))?;
                 stack.push(name);
+                let outer = core::mem::replace(&mut self.raster, raster);
                 let result = self.members(&members, at, out, stack, cx);
+                self.raster = outer;
                 stack.pop();
                 cx.leave();
                 result
@@ -677,6 +707,68 @@ impl<'f> Lifter<'f> {
                 Ok(())
             }
         }
+    }
+
+    /// 画像の作図グループなら、その画像。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$` の後が
+    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）
+    fn raster(&self, name: &str, definition: &Definition, cx: &mut Cx) -> Option<Raster> {
+        let path = raster_path(name)?;
+        let outline = definition.members.iter().copied().find(|index| {
+            self.features.get(*index).is_some_and(|feature| {
+                let args = self.args(*feature);
+                feature.is(b"polyline")
+                    && args.nums(5).is_some_and(|xs| xs.len() >= 4)
+                    && args.nums(6).is_some_and(|ys| ys.len() >= 4)
+            })
+        });
+        let Some(outline) = outline else {
+            cx.report(
+                Diagnostic::new(codes::SXF_RASTER_FRAME_MISSING)
+                    .with("name", name.to_owned())
+                    .at(definition.source.clone()),
+            );
+            return None;
+        };
+        Some(Raster {
+            outline,
+            path,
+            definition: definition.source.clone(),
+        })
+    }
+
+    /// 範囲を示す折れ線の 1・2・4 番目の点を角にした画像。2 番目の点が 1 番目から時計回りの側（上）にあれば、
+    /// 4 番目の点を右下の角とする
+    fn underlay<C: Place>(&self, feature: Feature<'f>, raster: Raster, at: &C) -> Shaped<C::P> {
+        let args = self.args(feature);
+        let corners = (|| {
+            let xs = args.nums(5)?;
+            let ys = args.nums(6)?;
+            let corner = |i: usize| Some([*xs.get(i)?, *ys.get(i)?]);
+            Some([corner(0)?, corner(1)?, corner(3)?])
+        })();
+        let Some([o, p, q]) = corners else {
+            return Shaped::Invalid;
+        };
+        let cross = (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+        if cross == 0.0 {
+            return Shaped::Invalid;
+        }
+        let (right, top) = if cross < 0.0 { (q, p) } else { (p, q) };
+        Shaped::Element(Box::new(Shape::Underlay(Underlay {
+            kind: UnderlayKind::Image,
+            resource: Resource {
+                path: raster.path,
+                definition: raster.definition,
+            },
+            page: None,
+            frame: UnderlayFrame::Corners {
+                origin: at.point(o[0], o[1]),
+                right: at.point(right[0], right[1]),
+                top: at.point(top[0], top[1]),
+            },
+            clip: None,
+            visible: true,
+        })))
     }
 
     fn shape<C: Place>(&self, feature: Feature<'f>, at: &C) -> Shaped<C::P> {
@@ -1105,6 +1197,21 @@ impl Args<'_> {
             }
         }
     }
+}
+
+/// 作図グループの名前が示す画像のファイルの名前
+fn raster_path(name: &str) -> Option<String> {
+    let parts: Vec<&str> = name.split("$$").collect();
+    let path = match parts.iter().position(|part| *part == "ATRU") {
+        // $$ATRU$$番号$$名称$$属性名$$値
+        Some(at) => (parts.get(at + 3) == Some(&"画像")).then(|| parts.get(at + 4..))??,
+        None => {
+            let at = parts.iter().position(|part| *part == "RASTER")?;
+            parts.get(at + 1..)?
+        }
+    };
+    let path = path.join("$$");
+    (!path.is_empty()).then_some(path)
 }
 
 fn number(text: &str) -> Option<f64> {

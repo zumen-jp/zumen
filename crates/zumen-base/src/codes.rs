@@ -768,6 +768,17 @@ pub const SXF_P21_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 画像の作図グループに、範囲を示す折れ線がないので、画像を移さなかった
+///
+/// `sxf.raster-frame.missing`（0.0.0 から）
+pub const SXF_RASTER_FRAME_MISSING: Code = Code::new(
+    "sxf.raster-frame.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
 /// 文かフィーチャのコメントの形が読めないので、レコードにせずに、次の文から読んだ
 ///
 /// `sxf.record.invalid`（0.0.0 から）
@@ -890,6 +901,7 @@ pub const ALL: &[Code] = &[
     SXF_LIFT_INVALID,
     SXF_MEMBER_ASSUMED,
     SXF_P21_UNSUPPORTED,
+    SXF_RASTER_FRAME_MISSING,
     SXF_RECORD_INVALID,
     SXF_SCHEMA_UNSUPPORTED,
     SXF_SFIG_CYCLE_INVALID,

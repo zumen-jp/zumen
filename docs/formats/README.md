@@ -260,4 +260,5 @@
 - 記録: [決定 0122](../decisions/0122-sxf-text-to-formatted-text.md)
 - 記録: [決定 0123](../decisions/0123-drawing-clothoid-edge.md)
 - 記録: [決定 0124](../decisions/0124-drawing-title-blocks.md)
+- 記録: [決定 0125](../decisions/0125-sxf-raster-underlays.md)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
