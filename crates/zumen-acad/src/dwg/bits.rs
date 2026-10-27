@@ -472,6 +472,11 @@ impl BitWriter {
         }
     }
 
+    /// `src` の `bits` のビットを、文字列の流れに写す。流れがないか、`src` の外を指せば `None`
+    pub(super) fn copy_strings(&mut self, src: &[u8], bits: Range<usize>) -> Option<()> {
+        self.strings.as_mut()?.copy(src, bits)
+    }
+
     /// 文字列の流れを取り出す。なければ空
     pub(super) fn take_strings(&mut self) -> BitWriter {
         self.strings
