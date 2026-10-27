@@ -242,7 +242,7 @@ impl Transact for DwgFile {
 }
 
 /// `at` から `bytes` を書き込む
-fn put(src: &mut [u8], at: usize, bytes: &[u8]) -> Option<()> {
+pub(super) fn put(src: &mut [u8], at: usize, bytes: &[u8]) -> Option<()> {
     src.get_mut(at..at.checked_add(bytes.len())?)?
         .copy_from_slice(bytes);
     Some(())
