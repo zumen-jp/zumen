@@ -7045,13 +7045,30 @@ fn layer_table_with_seed() -> Vec<u8> {
         },
     );
     let style = object(0x35, 0x11, record_named(b"Standard"), record_handles(3));
+    let appid_control = object(
+        0x42,
+        6,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2);
+            w.bytes(&[1]);
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+            w.handle(2, 0x13);
+        },
+    );
+    let appid = object(0x43, 0x13, record_named(b"ACAD"), record_handles(6));
     let mut objects = vec![
         (2, control),
         (3, style_control),
         (5, ltype_control),
+        (6, appid_control),
         (0x10, layer),
         (0x11, style),
         (0x12, ltype),
+        (0x13, appid),
     ];
     objects.extend(objects_with_linked_lines(true).into_iter().skip(2));
     with_header(dwg(&objects), 0, 0, 0, [0.0; 4], 0x80)
@@ -7325,5 +7342,52 @@ fn added_ltypes_are_written_back() {
         assert_eq!(out, Err(Error::Rejected));
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&"LTYPE".to_string().into()));
+    }
+}
+
+#[test]
+fn added_appids_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // ACAD を写し、ハンドルと名前と印を変えたもの
+    let appid = |db: &AcadDb, handle: u64, name: &[u8], flags: i64| {
+        let mut db = db.clone();
+        let mut object = db.get(0x13).unwrap().clone();
+        object.origin = Origin::New;
+        for value in &mut object.values {
+            match value.code {
+                5 => value.data = Data::Handle(handle),
+                2 => value.data = Data::Text(name.to_vec()),
+                70 => value.data = Data::Int(flags),
+                _ => {}
+            }
+        }
+        db.push(object);
+        db
+    };
+    let db = appid(&appid(&base, 0x80, b"ZUMEN", 0), 0x81, b"OTHER", 0);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(summary(&again), summary(&db));
+    // 表にある名前・外部参照に依る印を持つアプリケーションの名前は、書き戻せない
+    for db in [
+        appid(&base, 0x80, b"acad", 0),
+        appid(&base, 0x80, b"ZUMEN", 16),
+    ] {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"APPID".to_string().into()));
     }
 }
