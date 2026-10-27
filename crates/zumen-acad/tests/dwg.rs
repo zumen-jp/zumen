@@ -6613,6 +6613,14 @@ fn added_texts_mtexts_and_inserts_with_attribs_are_written_back() {
     let db = owned(&db, 0x87, b"ATTRIB", 0x86, attrib(b"1"));
     let db = owned(&db, 0x88, b"ATTRIB", 0x86, attrib(b"2"));
     let db = owned(&db, 0x89, b"SEQEND", 0x86, Vec::new());
+    // 列と行の数と間隔を持つものは MINSERT として書き、属性も同じく続ける
+    let grid = [int(70, 2), int(71, 3), real(44, 5.0), real(45, 6.0)];
+    let gridded = [&attributed[..4], &grid, &attributed[4..]].concat();
+    let db = with_added_values(&db, 0x8A, b"INSERT", gridded);
+    let db = owned(&db, 0x8B, b"ATTRIB", 0x8A, attrib(b"3"));
+    let db = owned(&db, 0x8C, b"SEQEND", 0x8A, Vec::new());
+    let plain = [&attributed[..3], &grid[..2], &attributed[4..]].concat();
+    let db = with_added_values(&db, 0x8D, b"INSERT", plain);
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &db);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));

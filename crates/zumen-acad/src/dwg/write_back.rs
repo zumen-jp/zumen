@@ -14,7 +14,8 @@
 //! 属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を持たせ、そのハンドルを書く（決定 0055）。足した LWPOLYLINE は、
 //! 表にない印のビットと一定の幅を 0 にする（決定 0056）。足した SPLINE は、閉じている・周期的の印を 0 に
 //! して書く（決定 0057）。重みを持つものは有理の印を立て、当てはめる点を持つものは場合を 2 にする（決定 0059）。SHAPE は、形の番号と形のファイルを表で示せないので、
-//! 足せない（決定 0058）。
+//! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
+//! 続ける（決定 0060）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -403,6 +404,17 @@ impl DwgFile {
         parent: Option<(u64, Section)>,
     ) -> Option<NewEntity<'a>> {
         let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
+        // 列と行の数（70・71）か間隔（44・45）を持つ INSERT は、MINSERT として書く（決定 0060）
+        let grid = object.kind == b"INSERT"
+            && object
+                .values
+                .iter()
+                .any(|value| matches!(value.code, 70 | 71 | 44 | 45));
+        let (type_code, own) = if grid {
+            (MINSERT_TYPE, MINSERT)
+        } else {
+            (type_code, own)
+        };
         let handle = object.handle().filter(|&h| h >= seed)?;
         // TEXT と ATTDEF は文字の体裁（7）を、INSERT はブロック（2）を指す
         let pointing: &[i16] = match object.kind.as_slice() {
@@ -697,7 +709,7 @@ const REMOVABLE: &[&[u8]] = &[
     b"SHAPE",
 ];
 
-/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0059）。型ごとの欄を元のデータ
+/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0060）。型ごとの欄を元のデータ
 /// なしで符号化でき、型ごとのハンドルが表のレコードか、足した図形を指すものだけか、ないもの
 const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"LINE", 0x13, LINE),
