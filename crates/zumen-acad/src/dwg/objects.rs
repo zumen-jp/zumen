@@ -663,6 +663,24 @@ pub(super) fn object_fields(data: &[u8], release: Release) -> Option<[usize; 3]>
     (start <= handles_at).then_some([size_at, start, handles_at])
 }
 
+/// 版 `release`（R2010 から）の図形のデータ（ハンドルの流れの大きさ（MC）の後）の、共通の欄の色の始まりと、
+/// 型ごとの欄の始まりと、主のデータの終わり（文字列の流れの始まりか、その有無の印）の、ビットの位置。
+/// `handles_at` は、ハンドルの流れの始まり（決定 0085）
+pub(super) fn r2010_entity_fields(
+    data: &[u8],
+    handles_at: usize,
+    release: Release,
+) -> Option<[usize; 3]> {
+    let mut bits = Bits::with_release(data, release);
+    bits.bot()?;
+    let end = bits.split_strings(handles_at)?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let common = entity_data(&mut bits)?;
+    let start = bits.pos();
+    (start <= end).then_some([common.color_at, start, end])
+}
+
 /// 版 `release`（R2004 まで）の図形のデータの、ハンドルの流れの位置（RL）を書く所と、共通の欄の色の
 /// 始まりと、型ごとの欄の始まりと、ハンドルの流れの始まりの、ビットの位置
 pub(super) fn entity_fields(data: &[u8], release: Release) -> Option<[usize; 4]> {

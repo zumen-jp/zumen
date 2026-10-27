@@ -252,15 +252,7 @@ impl Transaction for DwgTxn<'_> {
     }
 }
 
-impl DwgFile {
-    /// この版の DWG に共有の表から書き戻せなければ、その診断。R2000 と R2004 を扱う（決定 0072・0084）
-    pub(super) fn write_back_unsupported(&self) -> Option<Diagnostic> {
-        (self.release > Release::R2004).then(|| {
-            let version = String::from_utf8_lossy(self.version()).into_owned();
-            Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", version)
-        })
-    }
-}
+impl DwgFile {}
 
 impl Transact for DwgFile {
     type Txn<'a> = DwgTxn<'a>;

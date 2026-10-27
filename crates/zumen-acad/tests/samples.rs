@@ -607,6 +607,103 @@ fn r2004_drawings_take_back_changed_entities() {
     }
 }
 
+/// R2010 から後の図面の、文字列を持たない単純な図形の線種の尺度と点と色を変えて書き戻すと、読み直した表が
+/// 変えた表と同じになる。文字列を持つ図形と、図形でないオブジェクトの変更は、まだ書き戻さない（決定 0085）
+#[test]
+fn r2010_and_later_drawings_take_back_changed_entities() {
+    const SIMPLE: [&[u8]; 10] = [
+        b"LINE", b"CIRCLE", b"ARC", b"POINT", b"ELLIPSE", b"RAY", b"XLINE", b"SOLID", b"TRACE",
+        b"3DFACE",
+    ];
+    let (mut changed, mut colored, mut found) = (0, 0, false);
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        for path in dwgs(version) {
+            found = true;
+            let src = std::fs::read(&path).unwrap();
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let file = Dwg::read(&src, &mut cx).unwrap();
+            let base = file.objects(&mut cx).unwrap();
+            let mut db = base.clone();
+            for index in 0..db.objects().len() {
+                let object = db.object_mut(index).unwrap();
+                if !SIMPLE.contains(&object.kind.as_slice()) {
+                    continue;
+                }
+                for value in object.values.iter_mut() {
+                    match (value.code, &mut value.data) {
+                        // 2 倍で既定の 1 になる尺度は、読み直すと値に置かれないので変えない
+                        (48, Data::Real(v)) if *v != 0.5 => *v *= 2.0,
+                        (10 | 20 | 11 | 21, Data::Real(v)) => *v += 1.5,
+                        _ => continue,
+                    }
+                    changed += 1;
+                }
+            }
+            let first: Vec<_> = diag.iter().map(|d| d.code()).collect();
+            assert_eq!(
+                taken_back(&file, &db),
+                Ok(first.clone()),
+                "{}",
+                path.display()
+            );
+            // 色は 1 つずつ、図面ごとに 10 個まで変える
+            let mut tried = 0;
+            for index in 0..base.objects().len() {
+                if tried == 10 {
+                    break;
+                }
+                let mut db = base.clone();
+                let object = db.object_mut(index).unwrap();
+                if !SIMPLE.contains(&object.kind.as_slice()) {
+                    continue;
+                }
+                let Some(value) = object.values.iter_mut().find(|v| v.code == 62) else {
+                    continue;
+                };
+                if let Data::Int(v) = &mut value.data {
+                    *v = *v % 255 + 1;
+                }
+                tried += 1;
+                match taken_back(&file, &db) {
+                    Ok(found) => {
+                        assert_eq!(found, first, "{}", path.display());
+                        colored += 1;
+                    }
+                    Err(found) => {
+                        assert_eq!(found, [codes::DWG_CHANGE_UNSUPPORTED], "{}", path.display())
+                    }
+                }
+            }
+            // 文字列を持つ図形と、図形でないオブジェクトの変更は書き戻さない
+            for kind in [&b"TEXT"[..], b"LAYER"] {
+                let mut db = base.clone();
+                let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
+                    continue;
+                };
+                db.object_mut(index)
+                    .unwrap()
+                    .values
+                    .push(zumen_acad::Value {
+                        code: 48,
+                        data: Data::Real(3.0),
+                    });
+                assert_eq!(
+                    taken_back(&file, &db),
+                    Err(vec![codes::DWG_CHANGE_UNSUPPORTED]),
+                    "{}",
+                    path.display()
+                );
+            }
+        }
+    }
+    if found {
+        assert!(changed > 0 && colored > 0);
+    }
+}
+
 #[test]
 fn r2004_drawings_take_back_changed_table_records() {
     let mut changed = 0;

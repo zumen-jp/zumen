@@ -34,10 +34,10 @@ use std::ops::Range;
 use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
-use super::bits::{BitWriter, Bits, Color};
+use super::bits::{BitWriter, Bits, Color, push_modular_char};
 use super::objects::{
     DIM_FIELDS, Dim, block_links, entity_fields, entity_links, entity_refs, hatch_gradient,
-    object_fields, owned, skip_extended_data,
+    object_fields, owned, r2010_entity_fields, skip_extended_data,
 };
 use super::{DwgFile, Release, header};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
@@ -256,12 +256,8 @@ impl DwgFile {
 
     /// 表 `db` を書き戻す変更
     fn changes(&self, db: &AcadDb, base: &AcadDb) -> Result<Changes, Box<Diagnostic>> {
-        if db != base
-            && let Some(diagnostic) = self.write_back_unsupported()
-        {
-            return Err(Box::new(diagnostic));
-        }
         let r2004 = self.release == Release::R2004;
+        let r2010 = self.release >= Release::R2010;
         let records: BTreeMap<usize, usize> = self
             .entries
             .iter()
@@ -302,8 +298,12 @@ impl DwgFile {
                     .get(record)
                     .and_then(|entry| {
                         let data = self.data(entry);
-                        // BLOCK と ENDBLK も、DWG では図形として書かれる
+                        // BLOCK と ENDBLK も、DWG では図形として書かれる。R2010 から後は、図形だけを扱う
                         match self.kind(entry.type_code)?.1 {
+                            Section::Entities | Section::Blocks if r2010 => {
+                                encode_r2010(data, entry.handles?, old, object, self.release)
+                            }
+                            _ if r2010 => None,
                             Section::Entities | Section::Blocks => {
                                 encode(data, old, object, self.release)
                             }
@@ -360,6 +360,10 @@ impl DwgFile {
         }
         // R2004 は、図形と表のレコードの、R2000 と同じく書けるものの追加だけを書き戻す（決定 0079〜0081）
         if r2004 && let Some(object) = added.iter().find(|object| !r2004_addable(object)) {
+            return Err(unsupported(&object.kind));
+        }
+        // R2010 から後は、除きと足しをまだ書き戻さない（決定 0085）
+        if r2010 && let Some(object) = removed.first().map(|&(_, o)| o).or(added.first().copied()) {
             return Err(unsupported(&object.kind));
         }
         self.unlink(base, &removed, &mut changes)?;
@@ -1621,6 +1625,82 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
     Some(out.into_bytes())
 }
 
+/// R2010 から後の図形を符号化し直したデータ（決定 0085）。`data` はハンドルの流れの大きさ（MC）の後のデータ、
+/// `handles_at` はハンドルの流れの始まり。文字列を持たない図形（LINE・CIRCLE・ARC・POINT・ELLIPSE・RAY・
+/// XLINE・SOLID・TRACE・3DFACE）の、共通の欄と型ごとの欄だけを扱う。主のデータの後の、文字列の流れの
+/// 有無の印とハンドルの流れは写し、MC を付けて返す
+fn encode_r2010(
+    data: &[u8],
+    handles_at: usize,
+    old: &Object,
+    new: &Object,
+    release: Release,
+) -> Option<Vec<u8>> {
+    let own: &[i16] = match new.kind.as_slice() {
+        b"LINE" => LINE,
+        b"CIRCLE" => CIRCLE,
+        b"ARC" => ARC,
+        b"POINT" => POINT,
+        b"ELLIPSE" => ELLIPSE,
+        b"RAY" | b"XLINE" => RAY,
+        b"SOLID" | b"TRACE" => SOLID,
+        b"3DFACE" => FACE3D,
+        _ => return None,
+    };
+    let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
+        object
+            .values
+            .iter()
+            .filter(|value| codes.contains(&value.code) == keep)
+            .cloned()
+            .collect()
+    };
+    let rest = |object| only(&[COMMON, own].concat(), object, false);
+    if rest(old) != rest(new) {
+        return None;
+    }
+    let [color_at, start, end] = r2010_entity_fields(data, handles_at, release)?;
+    let common = if only(COMMON, old, true) == only(COMMON, new, true) {
+        let mut common = BitWriter::default();
+        common.copy(data, color_at..start)?;
+        common
+    } else {
+        let color = only(&[62], old, true) != only(&[62], new, true);
+        common_fields(data, color_at, start, new, release, color)?
+    };
+    let fields = if only(own, old, true) == only(own, new, true) {
+        let mut fields = BitWriter::default();
+        fields.copy(data, start..end)?;
+        fields
+    } else {
+        // 元の値を符号化した欄が、主のデータの終わりまでの長さを持つことを確かめる。角度は度から直すので、
+        // ビットが元と同じとは限らない
+        let type_code = Bits::with_release(data, release).bot()?;
+        let same = own_fields(old, old, type_code, data, start)?;
+        (start + same.len() == end).then_some(())?;
+        own_fields(old, new, type_code, data, start)?
+    };
+    let mut out = BitWriter::default();
+    out.copy(data, 0..color_at)?;
+    for part in [common, fields] {
+        let len = part.len();
+        out.copy(&part.into_bytes(), 0..len)?;
+    }
+    let moved = out.len();
+    out.copy(data, end..data.len() * 8)?;
+    let out = out.into_bytes();
+    // ハンドルの流れは、主のデータの終わりと同じだけずれる。MC は、そこからバイトの終わりまでのビットの数
+    let handles = (moved + handles_at).checked_sub(end)?;
+    let mut bytes = Vec::new();
+    push_modular_char(
+        &mut bytes,
+        i64::try_from((out.len() * 8).checked_sub(handles)?).ok()?,
+        false,
+    );
+    bytes.extend(out);
+    Some(bytes)
+}
+
 /// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
 /// ほかの値が変わったものは `None`
 fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
@@ -2719,7 +2799,16 @@ fn common_fields(
     let scale_at = bits.pos();
     bits.bd()?;
     let flags_at = bits.pos();
+    // 線種と印刷スタイルの印。R2010 からは、材質と影の印と、表示スタイルを持つかの 3 つの B が続く
     bits.seek(flags_at + 4);
+    if release >= Release::R2010 {
+        bits.bb()?;
+        bits.rc()?;
+        for _ in 0..3 {
+            bits.bit()?;
+        }
+    }
+    let invisible_at = bits.pos();
     bits.bs()?;
     let lineweight_at = bits.pos();
     let mut fields = BitWriter::default();
@@ -2738,7 +2827,7 @@ fn common_fields(
         fields.copy(data, index_end..scale_at)?;
     }
     fields.bd(real(object, 48)?.unwrap_or(1.0));
-    fields.copy(data, flags_at..flags_at + 4)?;
+    fields.copy(data, flags_at..invisible_at)?;
     fields.bs(small(object, 60)?.unwrap_or(0));
     fields.copy(data, lineweight_at..start)?;
     Some(fields)
