@@ -239,6 +239,7 @@ dependencies = [
  "zumen-base",
  "zumen-drawing",
  "zumen-json",
+ "zumen-jww",
  "zumen-sdk",
  "zumen-sxf",
 ]

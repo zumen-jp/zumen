@@ -5,7 +5,7 @@ Jw_cad の図面（JWW）を、ファイルモデル（L1）として読み書�
 ## 対象
 
 - JWW の版 230 から 700 台まで（[決定 0133](../decisions/0133-jww-l1-records.md)）。数は little endian で読む。
-- 図面モデルへ移す（[決定 0134](../decisions/0134-jww-lift-to-drawing.md)）。規則は、下の「図面モデルへの変換」に記録する。境界の `open`・`drawing` には、まだつながない。
+- 図面モデルへ移す（[決定 0134](../decisions/0134-jww-lift-to-drawing.md)）。規則は、下の「図面モデルへの変換」に記録する。境界の `open`・`drawing` につなぎ、`bindings/conformance/cases/open_jww.json` で確かめる。
 
 ## 判定
 
