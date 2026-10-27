@@ -1,0 +1,219 @@
+# CAD製図基準（土木、令和 7 年 12 月）のプロファイル（決定 0138）。
+# 旧版の組み込みの規則集 `mlit-cad-2025` を移した。値の出典は各項の source に書く。
+# この元から、`cargo xtask codegen` が profile.json を作る。
+
+format = "0.1"
+id = "mlit-cad"
+edition = "2025-12"
+revision = 1
+title = "CAD製図基準（土木）"
+# 図面管理項目の「適用要領基準」に書く値（本編の改定履歴）。
+standard-code = "土木 202512-01"
+license = "CC-BY-4.0"
+
+[sources.main]
+title = "CAD製図基準"
+publisher = "国土交通省"
+version = "令和 7 年 12 月"
+url = "https://www.cals-ed.go.jp/mg/wp-content/uploads/cad8.pdf"
+checked = "2026-10-28"
+
+[sources.manual]
+title = "CAD製図基準 解説"
+publisher = "国土交通省"
+version = "令和 7 年 12 月"
+url = "https://www.cals-ed.go.jp/mg/wp-content/uploads/cad8_manu.pdf"
+checked = "2026-10-28"
+
+# 既定義の色・線種の名前は、形式の権利の台帳の仕様を指す。
+[sources.sxf]
+spec = "sxf_3_1"
+
+[vocabularies.responsibility]
+source = { document = "main", section = "1-5-7", item = "図 1-10" }
+values = [
+  { code = "S", name = "測量" },
+  { code = "D", name = "設計" },
+  { code = "C", name = "施工" },
+  { code = "M", name = "維持管理" },
+]
+
+[vocabularies.layer-object]
+source = { document = "main", section = "1-5-7", item = "表 1-4" }
+values = [
+  { code = "TTL", name = "図枠" },
+  { code = "BGD", name = "背景" },
+  { code = "BMK", name = "基準" },
+  { code = "STR", name = "主構造物" },
+  { code = "BYP", name = "副構造物" },
+  { code = "MTR", name = "材料表" },
+  { code = "DCR", name = "説明、着色" },
+  { code = "DOC", name = "文章" },
+  { code = "SUV", name = "測量" },
+  # 発注用レイヤ。責任主体は C に限る（図 1-10）。
+  { code = "ORD", name = "発注用", responsibility = ["C"] },
+]
+
+# 色の名前は本編、RGB は解説表 1-4（参考値）、SXF の既定義色のコードは SXF の表による。
+[vocabularies.color]
+source = { document = "manual", section = "1-5-9", item = "解説表 1-4" }
+values = [
+  { name = "黒", rgb = "#000000", sxf = 1 },
+  { name = "赤", rgb = "#ff0000", sxf = 2 },
+  { name = "緑", rgb = "#00ff00", sxf = 3 },
+  { name = "青", rgb = "#0000ff", sxf = 4 },
+  { name = "黄", rgb = "#ffff00", sxf = 5 },
+  { name = "マジェンタ", rgb = "#ff00ff", sxf = 6 },
+  { name = "シアン", rgb = "#00ffff", sxf = 7 },
+  { name = "白", rgb = "#ffffff", sxf = 8 },
+  { name = "牡丹", rgb = "#c00080", sxf = 9 },
+  { name = "茶", rgb = "#c08040", sxf = 10 },
+  { name = "橙", rgb = "#ff8000", sxf = 11 },
+  { name = "薄緑", rgb = "#80c080", sxf = 12 },
+  { name = "明青", rgb = "#0080ff", sxf = 13 },
+  { name = "青紫", rgb = "#8040ff", sxf = 14 },
+  { name = "明灰", rgb = "#c0c0c0", sxf = 15 },
+  { name = "暗灰", rgb = "#808080", sxf = 16 },
+]
+
+# 呼び方は本編の表 1-6（JIS Z 8312:1999）、`sxf` は SXF の既定義線種の名前。
+[vocabularies.line-type]
+source = { document = "main", section = "1-5-10", item = "表 1-6" }
+values = [
+  { code = 1, name = "実線", sxf = "continuous" },
+  { code = 2, name = "破線", sxf = "dashed" },
+  { code = 3, name = "跳び破線", sxf = "dashed spaced" },
+  { code = 4, name = "一点長鎖線", sxf = "long dashed dotted" },
+  { code = 5, name = "二点長鎖線", sxf = "long dashed double-dotted" },
+  { code = 6, name = "三点長鎖線", sxf = "long dashed triplicate-dotted" },
+  { code = 7, name = "点線", sxf = "dotted" },
+  { code = 8, name = "一点鎖線", sxf = "chain" },
+  { code = 9, name = "二点鎖線", sxf = "chain double dash" },
+  { code = 10, name = "一点短鎖線", sxf = "dashed dotted" },
+  { code = 11, name = "一点二短鎖線", sxf = "double-dashed dotted" },
+  { code = 12, name = "二点短鎖線", sxf = "dashed double-dotted" },
+  { code = 13, name = "二点二短鎖線", sxf = "double-dashed double-dotted" },
+  { code = 14, name = "三点短鎖線", sxf = "dashed triplicate-dotted" },
+  { code = 15, name = "三点二短鎖線", sxf = "double-dashed triplicate-dotted" },
+]
+
+[vocabularies.line-width]
+source = { document = "main", section = "1-5-10", item = "3" }
+unit = "mm"
+values = [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1, 1.4, 2]
+
+[vocabularies.text-height]
+source = { document = "main", section = "1-5-11", item = "2" }
+unit = "mm"
+values = [1.8, 2.5, 3.5, 5, 7, 10, 14, 20]
+
+# A 列サイズ（第 1 類）。延長サイズ（解説表 1-1）はまだ持たない。
+[vocabularies.sheet]
+source = { document = "main", section = "1-4-1" }
+unit = "mm"
+values = [
+  { name = "A0", width = 1189, height = 841 },
+  { name = "A1", width = 841, height = 594 },
+  { name = "A2", width = 594, height = 420 },
+  { name = "A3", width = 420, height = 297 },
+  { name = "A4", width = 297, height = 210 },
+]
+
+# 1:A の A の仮数。優先するものと次善のもの。
+[vocabularies.scale]
+source = { document = "manual", section = "1-4-5" }
+values = [
+  { mantissa = 1, rank = "preferred" },
+  { mantissa = 2, rank = "preferred" },
+  { mantissa = 5, rank = "preferred" },
+  { mantissa = 1.5, rank = "secondary" },
+  { mantissa = 2.5, rank = "secondary" },
+  { mantissa = 3, rank = "secondary" },
+  { mantissa = 4, rank = "secondary" },
+  { mantissa = 6, rank = "secondary" },
+]
+
+# 解説は機種依存文字を使わないとだけ書き、文字を列挙しない。範囲は旧版で選んだもの。
+[vocabularies.dependent-characters]
+source = { document = "manual", section = "1-5-11", item = "(2)", basis = "chosen" }
+values = [
+  "FF61-FF9F",
+  "2460-2473",
+  "2160-217F",
+  "3220-3243",
+  "3280-32B0",
+  "3300-33FF",
+  "301D-301F",
+  "2116",
+  "2121",
+  "2211",
+  "221F",
+  "222E",
+  "22BF",
+]
+
+[[rules]]
+id = "layer-name"
+check = "layer-name"
+level = "error"
+source = { document = "main", section = "1-5-7" }
+parts = ["responsibility", "layer-object"]
+user-part = true
+separator = "-"
+max-width = 256
+
+[[rules]]
+id = "color"
+check = "color"
+level = "warning"
+source = { document = "main", section = "1-5-9" }
+vocabulary = "color"
+
+[[rules]]
+id = "line-type"
+check = "line-type"
+level = "warning"
+source = { document = "main", section = "1-5-10", item = "1" }
+vocabulary = "line-type"
+
+[[rules]]
+id = "line-width"
+check = "line-width"
+level = "warning"
+source = { document = "main", section = "1-5-10", item = "3" }
+vocabulary = "line-width"
+
+[[rules]]
+id = "text-height"
+check = "text-height"
+level = "warning"
+source = { document = "main", section = "1-5-11", item = "2" }
+vocabulary = "text-height"
+
+[[rules]]
+id = "characters"
+check = "characters"
+level = "warning"
+source = { document = "manual", section = "1-5-11", item = "(2)" }
+vocabulary = "dependent-characters"
+
+[[rules]]
+id = "sheet-size"
+check = "sheet-size"
+level = "warning"
+source = { document = "main", section = "1-4-1" }
+vocabulary = "sheet"
+
+[[rules]]
+id = "orientation"
+check = "orientation"
+level = "info"
+source = { document = "main", section = "1-4-2" }
+orientation = "landscape"
+
+[[rules]]
+id = "scale"
+check = "scale"
+level = "info"
+source = { document = "manual", section = "1-4-5" }
+vocabulary = "scale"
