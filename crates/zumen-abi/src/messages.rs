@@ -20,11 +20,20 @@ pub enum Request {
     Describe(DescribeRequest),
     /// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007）
     Drawing(DrawingRequest),
+    /// 開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）
+    Entities(EntitiesRequest),
 }
 
 impl Request {
     /// 目印の欄（`op`）の値（スキーマの順）
-    pub const TAGS: &[&str] = &["capabilities", "open", "close", "describe", "drawing"];
+    pub const TAGS: &[&str] = &[
+        "capabilities",
+        "open",
+        "close",
+        "describe",
+        "drawing",
+        "entities",
+    ];
 
     /// 目印の欄（`op`）の値
     pub const fn tag(&self) -> &'static str {
@@ -34,6 +43,7 @@ impl Request {
             Self::Close(_) => "close",
             Self::Describe(_) => "describe",
             Self::Drawing(_) => "drawing",
+            Self::Entities(_) => "entities",
         }
     }
 }
@@ -47,6 +57,7 @@ impl FromJson for Request {
             "close" => Self::Close(CloseRequest::read_fields(&mut object)?),
             "describe" => Self::Describe(DescribeRequest::read_fields(&mut object)?),
             "drawing" => Self::Drawing(DrawingRequest::read_fields(&mut object)?),
+            "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -62,6 +73,7 @@ impl ToJson for Request {
             Self::Close(value) => value.to_json(out),
             Self::Describe(value) => value.to_json(out),
             Self::Drawing(value) => value.to_json(out),
+            Self::Entities(value) => value.to_json(out),
         }
     }
 }
@@ -1076,6 +1088,326 @@ impl FromJson for Extent {
 }
 
 impl ToJson for Extent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntitiesRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す要素の数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+}
+
+impl EntitiesRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "entities")?;
+        let doc = object.required("doc", json::string)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        Ok(Self {
+            request_common,
+            doc,
+            offset,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("entities");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for EntitiesRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntitiesRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素の一覧の一部。移さなかった図形と値は、診断で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntitiesResult {
+    /// offset から limit 個までの要素
+    pub items: Vec<Entity>,
+    /// 全体の要素の数
+    pub total: u64,
+    /// 続きの最初の要素の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl EntitiesResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let items = object.required("items", |value| json::array(value, Entity::from_json))?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            items,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("items");
+        out.array(&self.items, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for EntitiesResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntitiesResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面モデルの要素
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entity {
+    /// 空間か用紙と、出所で作る ID（space/0/r12、sheet/1/b4096 など）。同じバイト列には、どの版でも同じ ID を返す（決定 0117）
+    pub id: String,
+    /// 形の種類
+    pub kind: EntityKind,
+    /// レイヤの元の名前。翻訳しない。図面モデルにレイヤがなければ持たない
+    pub layer: Option<String>,
+    /// 元の形式のレコード
+    pub source: Source,
+}
+
+impl Entity {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let kind = object.required("kind", EntityKind::from_json)?;
+        let layer = object.optional("layer", json::string)?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            id,
+            kind,
+            layer,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.layer {
+            out.key("layer");
+            out.string(value);
+        }
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for Entity {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Entity {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素の形の種類（決定 0022）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EntityKind {
+    /// `line`
+    Line,
+    /// `circle`
+    Circle,
+    /// `curve`
+    Curve,
+    /// `polyline`
+    Polyline,
+    /// `text`
+    Text,
+    /// `formatted_text`
+    FormattedText,
+    /// `dimension`
+    Dimension,
+    /// `leader`
+    Leader,
+    /// `callout`
+    Callout,
+    /// `table`
+    Table,
+    /// `underlay`
+    Underlay,
+    /// `symbol`
+    Symbol,
+    /// `hatch`
+    Hatch,
+}
+
+impl EntityKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Line,
+        Self::Circle,
+        Self::Curve,
+        Self::Polyline,
+        Self::Text,
+        Self::FormattedText,
+        Self::Dimension,
+        Self::Leader,
+        Self::Callout,
+        Self::Table,
+        Self::Underlay,
+        Self::Symbol,
+        Self::Hatch,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Line => "line",
+            Self::Circle => "circle",
+            Self::Curve => "curve",
+            Self::Polyline => "polyline",
+            Self::Text => "text",
+            Self::FormattedText => "formatted_text",
+            Self::Dimension => "dimension",
+            Self::Leader => "leader",
+            Self::Callout => "callout",
+            Self::Table => "table",
+            Self::Underlay => "underlay",
+            Self::Symbol => "symbol",
+            Self::Hatch => "hatch",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "line" => Some(Self::Line),
+            "circle" => Some(Self::Circle),
+            "curve" => Some(Self::Curve),
+            "polyline" => Some(Self::Polyline),
+            "text" => Some(Self::Text),
+            "formatted_text" => Some(Self::FormattedText),
+            "dimension" => Some(Self::Dimension),
+            "leader" => Some(Self::Leader),
+            "callout" => Some(Self::Callout),
+            "table" => Some(Self::Table),
+            "underlay" => Some(Self::Underlay),
+            "symbol" => Some(Self::Symbol),
+            "hatch" => Some(Self::Hatch),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for EntityKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for EntityKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）。ファイルから読んでいない要素は、どちらも持たない
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Source {
+    /// L1 のレコードの番号
+    pub record: Option<u64>,
+    /// L1 のバイト範囲
+    pub bytes: Option<ByteRange>,
+}
+
+impl Source {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let record = object.optional("record", |value| json::uint(value, 0, 9007199254740991))?;
+        let bytes = object.optional("bytes", ByteRange::from_json)?;
+        Ok(Self { record, bytes })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.record {
+            out.key("record");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.bytes {
+            out.key("bytes");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for Source {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Source {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

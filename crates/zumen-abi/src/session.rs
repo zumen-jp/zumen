@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
-use zumen_base::{codes, name};
+use zumen_base::{Ref, codes, name};
 use zumen_drawing::{Drawing2D, Element, Placement, Shape, Unit};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_sdk::{Codec, Lift};
@@ -12,10 +12,14 @@ use zumen_sdk::{Codec, Lift};
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::describe;
 use crate::messages::{
-    self, BlobKind, CapabilitiesResult, CloseRequest, CloseResult, DrawingRequest, DrawingResult,
-    ElementCounts, Engine, Extent, Format, OpenRequest, OpenResult, Request, RequestCommon,
-    SchemaVersion, SessionOptions, SheetSummary, SpaceSummary,
+    self, BlobKind, ByteRange, CapabilitiesResult, CloseRequest, CloseResult, DrawingRequest,
+    DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityKind,
+    Extent, Format, OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions,
+    SheetSummary, Source, SpaceSummary,
 };
+
+/// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
+const ENTITIES_LIMIT: u64 = 1000;
 
 /// このライブラリの実行の形（決定 0013）
 const BUILT: Engine = if cfg!(target_family = "wasm") {
@@ -238,6 +242,7 @@ impl Session {
                 describe::describe(&self.inputs, request, &mut cx).map(|r| Box::new(r) as _)
             }
             Request::Drawing(request) => self.drawing(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
         };
         result.ok()
     }
@@ -326,18 +331,53 @@ impl Session {
     }
 
     fn drawing(&self, request: &DrawingRequest, cx: &mut Cx<'_>) -> Result<DrawingResult, Failed> {
-        if !name::is_safe(&request.doc) {
+        let drawing = self.lift(&request.doc, cx)?;
+        Ok(summary(&drawing))
+    }
+
+    fn entities(
+        &self,
+        request: &EntitiesRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<EntitiesResult, Failed> {
+        let drawing = self.lift(&request.doc, cx)?;
+        let offset = request.offset.unwrap_or(0);
+        let limit = request.limit.unwrap_or(ENTITIES_LIMIT);
+        let mut page = Page {
+            start: offset,
+            end: offset.saturating_add(limit),
+            position: 0,
+            items: Vec::new(),
+        };
+        for space in &drawing.spaces {
+            let place = format!("space/{}", space.id.0);
+            page.collect(&drawing, &place, &space.elements, cx)?;
+        }
+        for sheet in &drawing.sheets {
+            let place = format!("sheet/{}", sheet.id.0);
+            page.collect(&drawing, &place, &sheet.elements, cx)?;
+        }
+        let total = page.position;
+        Ok(EntitiesResult {
+            items: page.items,
+            total,
+            next_offset: (page.end < total).then_some(page.end),
+        })
+    }
+
+    /// 名前の文書を、図面モデルに変換する
+    fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
+        if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
-        let Some(doc) = self.docs.get(&request.doc) else {
+        let Some(found) = self.docs.get(doc) else {
             return Err(fail(
                 cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", request.doc.as_str()),
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc),
             ));
         };
         // 止めた理由は、変換が診断として足してある
-        let drawing = doc.lift(cx).map_err(|_| Failed)?;
-        Ok(summary(&drawing))
+        found.lift(cx).map_err(|_| Failed)
     }
 
     #[cfg(test)]
@@ -390,6 +430,86 @@ fn summary(drawing: &Drawing2D) -> DrawingResult {
                 extent: extent(&sheet.elements, |p| (p.x, p.y)),
             })
             .collect(),
+    }
+}
+
+/// entities の op で返す範囲と、そこまでに数えた要素
+struct Page {
+    /// 返す最初の要素の位置
+    start: u64,
+    /// 返す範囲の終わり（含まない）
+    end: u64,
+    /// 次に数える要素の位置
+    position: u64,
+    items: Vec<Entity>,
+}
+
+impl Page {
+    /// 空間か用紙の要素を数え、返す範囲にあるものを足す
+    fn collect<P>(
+        &mut self,
+        drawing: &Drawing2D,
+        place: &str,
+        elements: &[Element<P>],
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Failed> {
+        // 出所ごとの、これまでに出てきた要素の数
+        let mut seen = BTreeMap::<Ref, u64>::new();
+        for (index, element) in elements.iter().enumerate() {
+            let position = self.position;
+            self.position += 1;
+            let origin = match (element.source.record(), element.source.bytes()) {
+                (Some(record), _) => format!("r{record}"),
+                (None, Some(bytes)) => format!("b{}", bytes.start),
+                (None, None) => format!("e{index}"),
+            };
+            let repeat = if element.source == Ref::default() {
+                0
+            } else {
+                let count = seen.entry(element.source.clone()).or_insert(0);
+                *count += 1;
+                *count - 1
+            };
+            if position < self.start || position >= self.end {
+                continue;
+            }
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let id = match repeat {
+                0 => format!("{place}/{origin}"),
+                n => format!("{place}/{origin}/{n}"),
+            };
+            self.items.push(Entity {
+                id,
+                kind: kind_of(&element.shape),
+                layer: drawing.layer(element.layer).map(|layer| layer.name.clone()),
+                source: Source {
+                    record: element.source.record(),
+                    bytes: element.source.bytes().map(|bytes| ByteRange {
+                        start: bytes.start,
+                        end: bytes.end,
+                    }),
+                },
+            });
+        }
+        Ok(())
+    }
+}
+
+fn kind_of<P>(shape: &Shape<P>) -> EntityKind {
+    match shape {
+        Shape::Line { .. } => EntityKind::Line,
+        Shape::Circle { .. } => EntityKind::Circle,
+        Shape::Curve(_) => EntityKind::Curve,
+        Shape::Polyline(_) => EntityKind::Polyline,
+        Shape::Text(_) => EntityKind::Text,
+        Shape::Formatted(_) => EntityKind::FormattedText,
+        Shape::Dimension(_) => EntityKind::Dimension,
+        Shape::Leader(_) => EntityKind::Leader,
+        Shape::Callout(_) => EntityKind::Callout,
+        Shape::Table(_) => EntityKind::Table,
+        Shape::Underlay(_) => EntityKind::Underlay,
+        Shape::Symbol(_) => EntityKind::Symbol,
+        Shape::Hatch(_) => EntityKind::Hatch,
     }
 }
 
@@ -458,6 +578,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Close(request) => &request.request_common,
         Request::Describe(request) => &request.request_common,
         Request::Drawing(request) => &request.request_common,
+        Request::Entities(request) => &request.request_common,
     }
 }
 
@@ -696,7 +817,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":1}},"ops":["capabilities","open","close","describe","drawing"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":2}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -823,6 +944,104 @@ mod tests {
             r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":13}}"#,
         );
         assert_eq!(status, Status::Ok);
+    }
+
+    #[test]
+    fn lists_the_elements_of_an_open_document_page_by_page() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", DRAWING).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(&mut session, r#"{"v":1,"op":"entities","doc":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(number(&response, "/result/total"), "3");
+        assert_eq!(text(&response, "/result/items/0/id"), "space/0/r3");
+        assert_eq!(text(&response, "/result/items/0/kind"), "line");
+        assert_eq!(text(&response, "/result/items/0/layer"), "0");
+        assert_eq!(number(&response, "/result/items/0/source/record"), "3");
+        assert_eq!(text(&response, "/result/items/1/kind"), "text");
+        assert_eq!(text(&response, "/result/items/1/layer"), "TEXT");
+        assert_eq!(text(&response, "/result/items/2/id"), "sheet/0/r5");
+        assert!(response.pointer("/result/next_offset").is_none());
+        // 続きは next_offset から読む
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","limit":2}"#,
+        );
+        assert_eq!(number(&response, "/result/next_offset"), "2");
+        assert!(response.pointer("/result/items/2").is_none());
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","offset":2,"limit":2}"#,
+        );
+        assert_eq!(text(&response, "/result/items/0/kind"), "line");
+        assert!(response.pointer("/result/items/1").is_none());
+        assert!(response.pointer("/result/next_offset").is_none());
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","offset":9}"#,
+        );
+        assert!(response.pointer("/result/items/0").is_none());
+        assert_eq!(number(&response, "/result/total"), "3");
+        // 返す要素 1 つごとに、作業を 1 つ使う
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":15}}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(number(&response, "/diagnostics/1/params/requested"), "16");
+        let (status, _) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":16}}"#,
+        );
+        assert_eq!(status, Status::Ok);
+        for request in [
+            r#"{"v":1,"op":"entities","doc":"a.dxf","limit":0}"#,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","limit":10001}"#,
+        ] {
+            let (status, _) = call(&mut session, request);
+            assert_eq!(status, Status::Failed, "{request}");
+        }
+    }
+
+    #[test]
+    fn numbers_elements_that_share_a_source() {
+        let mut page = Page {
+            start: 0,
+            end: 10,
+            position: 0,
+            items: Vec::new(),
+        };
+        let line = |source: Ref| Element {
+            source,
+            layer: zumen_drawing::LayerId(9),
+            style: zumen_drawing::Style {
+                color: zumen_drawing::Inherit::Layer,
+                line_type: zumen_drawing::Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
+            shape: Shape::Line {
+                start: (0.0, 0.0),
+                end: (1.0, 1.0),
+            },
+        };
+        let elements = [
+            line(Ref::at_bytes(40, 80)),
+            line(Ref::at_bytes(40, 80)),
+            line(Ref::default()),
+        ];
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(
+            page.collect(&Drawing2D::default(), "sheet/3", &elements, &mut cx)
+                .is_ok()
+        );
+        let ids: Vec<_> = page.items.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, ["sheet/3/b40", "sheet/3/b40/1", "sheet/3/e2"]);
+        assert_eq!(page.items[0].layer, None);
+        assert_eq!(page.items[0].source.bytes.as_ref().map(|b| b.end), Some(80));
     }
 
     #[test]
