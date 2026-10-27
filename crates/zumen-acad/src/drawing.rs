@@ -810,11 +810,16 @@ impl Lifter {
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<Table<P>> {
         let kind = object.kind.as_slice();
+        // DWG は AcDbTable（100）を持たないので、表の欄の初め（342・11・90）で分ける。表を描いたブロック（2）は、
+        // DWG では値の終わりにある（docs/formats/dwg.md）
+        let dwg = matches!(object.origin, Origin::Dwg { .. });
         let marker = object
             .values
             .iter()
-            .position(|value| {
-                matches!((value.code, &value.data), (100, Data::Text(text)) if text == b"AcDbTable")
+            .position(|value| match (value.code, &value.data) {
+                (342 | 11 | 90, _) => dwg,
+                (100, Data::Text(text)) => !dwg && text == b"AcDbTable",
+                _ => false,
             })
             .ok_or_else(|| invalid(kind, 100))?;
         let (reference, rest) = object
@@ -825,7 +830,12 @@ impl Lifter {
             values: values.to_vec(),
             ..object.clone()
         };
-        let reference = part(reference);
+        let mut reference = part(reference);
+        let mut rest = rest.to_vec();
+        if dwg && let Some(at) = rest.iter().rposition(|value| value.code == 2) {
+            reference.values.push(rest.remove(at));
+        }
+        let rest = rest.as_slice();
         let first = rest
             .iter()
             .position(|value| value.code == 171)

@@ -87,14 +87,27 @@ impl<'a> Bits<'a> {
             book: false,
         };
         if self.release >= Release::R2004 {
-            color = Color::r2004(color.index, self.bl()? as u32);
-            let flags = self.rc()?;
-            if flags & 1 != 0 {
-                self.text()?;
-            }
-            if flags & 2 != 0 {
-                self.text()?;
-            }
+            color = self.rgb_and_names(color.index)?;
+        }
+        Some(color)
+    }
+
+    /// CMC を、版に依らず R2004 からの形（番号・RGB の値・印）で読む。R2000 の ACAD_TABLE も、この形で
+    /// 持つ（試料の DWG で確かめた）
+    pub(super) fn cmc_r2004(&mut self) -> Option<Color> {
+        let index = self.bs()?;
+        self.rgb_and_names(index)
+    }
+
+    /// CMC の番号 `index` に続く、RGB の値と、色の名前と色見本帳の名前
+    fn rgb_and_names(&mut self, index: i16) -> Option<Color> {
+        let color = Color::r2004(index, self.bl()? as u32);
+        let flags = self.rc()?;
+        if flags & 1 != 0 {
+            self.text()?;
+        }
+        if flags & 2 != 0 {
+            self.text()?;
         }
         Some(color)
     }
