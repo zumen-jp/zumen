@@ -32,7 +32,7 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 
 | 順 | 作業 | 開始条件 | 次の一手 |
 | --- | --- | --- | --- |
-| 1 | [#66 適合試験で比べる出力と入力](https://github.com/zumen-jp/zumen/issues/66) | `entities` の op（決定 0117）と DXF・DWG の組が main にある | 再配布できる実際の図面に近い入力を確かめて足す。`entities` に範囲（`bbox`）と `fields`・`region` を足す。停止の診断に位置を持たせるかを決める。図面の E9 の停止位置も、この op でネイティブと wasm を比べる |
+| 1 | [#66 適合試験で比べる出力と入力](https://github.com/zumen-jp/zumen/issues/66) | `entities` の op（決定 0117）と DXF・DWG の組が main にある | 再配布できる実際の図面に近い入力を確かめて足す（公開サンプルを Git に入れない規則との両立に、利用者の判断が要る）。停止の診断に位置を持たせるかを決める。図面の E9 の停止位置も、この op でネイティブと wasm を比べる。`entities` の `bbox`・`fields`・`region` は決定 0118 で足した |
 | 2 | [#170 図面モデルの書き戻し](https://github.com/zumen-jp/zumen/issues/170) | 図面モデルの型と DXF の lift・形式固有の情報（決定 0105〜0116）と、L1 の書き戻し（決定 0024・0025）が main にある | 決定を残し、DXF への lower・apply を作る。E1・E4・E5・E10 の書く向きを試す |
 | 3 | [#171 SXF のコーデック](https://github.com/zumen-jp/zumen/issues/171) | 図面モデルの型が main にある。入力は試験の中で作るか、再配布できる公開の図面を使う | SFC・P21 の L1 を作り、用紙・クロソイド・表題欄・画像を図面モデルへ移す |
 | 4 | [#172 JWW のコーデック](https://github.com/zumen-jp/zumen/issues/172) | 図面モデルの型が main にある。入力は試験の中で作る | JWW の L1 を作り、要素と画像と編集状態の拡張を図面モデルへ移す |

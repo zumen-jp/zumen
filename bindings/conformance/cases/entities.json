@@ -1,5 +1,5 @@
 {
-  "description": "entities は、開いた文書を図面モデル（L2）に変換し、実寸の空間、用紙の順に要素の一覧を返す。ID は空間か用紙と出所で作り、続きは offset と limit で読む。作業は変換の分に加えて、返す要素ごとに 1 つ使い、止まる所はネイティブと wasm で同じになる（決定 0007・0010・0117）",
+  "description": "entities は、開いた文書を図面モデル（L2）に変換し、実寸の空間、用紙の順に要素の一覧を返す。ID は空間か用紙と出所で作り、続きは offset と limit で読む。作業は変換の分に加えて、返す要素ごとに 1 つ使い、止まる所はネイティブと wasm で同じになる。fields で返す欄を選び、region で範囲の重なる要素に絞る。範囲は形の定義から求め、文字は基点だけを囲む。region を書くと、比べる要素ごとにも作業を 1 つ使う（決定 0007・0010・0117・0118）",
   "steps": [
     {
       "call": {
@@ -168,6 +168,203 @@
         "limit": 10001
       },
       "status": "failed",
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "fields": [
+          "bbox"
+        ]
+      },
+      "expect": {
+        "/result/items/0": {
+          "id": "space/0/r3",
+          "bbox": {
+            "min_x": 1.5,
+            "min_y": 2,
+            "max_x": 100,
+            "max_y": 50
+          }
+        },
+        "/result/items/1": {
+          "id": "space/0/r4",
+          "bbox": {
+            "min_x": -3,
+            "min_y": 4,
+            "max_x": -3,
+            "max_y": 4
+          }
+        },
+        "/result/items/2/bbox/max_x": 410
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "region": [
+          0,
+          0,
+          50,
+          50
+        ],
+        "fields": [
+          "kind"
+        ],
+        "limit": 1
+      },
+      "expect": {
+        "/result": {
+          "items": [
+            {
+              "id": "space/0/r3",
+              "kind": "line"
+            }
+          ],
+          "total": 2,
+          "next_offset": 1
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "region": [
+          0,
+          0,
+          50,
+          50
+        ],
+        "offset": 1
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/r5",
+        "/result/total": 2
+      },
+      "absent": [
+        "/result/next_offset",
+        "/result/items/0/bbox"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "region": [
+          0,
+          0,
+          50,
+          50
+        ],
+        "budget": {
+          "work": 17
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/1/code": "budget.work.exceeded"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "region": [
+          0,
+          0,
+          50,
+          50
+        ],
+        "budget": {
+          "work": 18
+        }
+      },
+      "expect": {
+        "/result/total": 2
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "fields": []
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/fields"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "fields": [
+          "kind",
+          "kind"
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/fields"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "region": [
+          1,
+          0,
+          0,
+          1
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/region"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "region": [
+          0,
+          0,
+          1
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/region"
+      },
       "absent": [
         "/result"
       ]

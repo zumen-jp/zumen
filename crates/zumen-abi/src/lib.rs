@@ -10,6 +10,7 @@
 //! ライブラリのファイル名には、ABI の大版を入れる（`zumen_abi1.dll` など、決定 0015）。
 
 pub mod abi;
+mod bounds;
 mod describe;
 pub mod ffi;
 pub mod messages;

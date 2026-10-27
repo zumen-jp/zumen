@@ -1106,6 +1106,10 @@ pub struct EntitiesRequest {
     pub offset: Option<u64>,
     /// 返す要素の数の上限。書かなければ 1000
     pub limit: Option<u64>,
+    /// 返す欄の名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
+    pub fields: Option<Vec<EntityField>>,
+    /// [最小の X, 最小の Y, 最大の X, 最大の Y]。範囲がこの長方形と重なるか接する要素だけを返す。空間か用紙それぞれの座標で比べる（決定 0118）
+    pub region: Option<Vec<f64>>,
 }
 
 impl EntitiesRequest {
@@ -1115,11 +1119,16 @@ impl EntitiesRequest {
         let doc = object.required("doc", json::string)?;
         let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
         let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        let fields =
+            object.optional("fields", |value| json::array(value, EntityField::from_json))?;
+        let region = object.optional("region", |value| json::array(value, json::number))?;
         Ok(Self {
             request_common,
             doc,
             offset,
             limit,
+            fields,
+            region,
         })
     }
 
@@ -1136,6 +1145,14 @@ impl EntitiesRequest {
         if let Some(value) = &self.limit {
             out.key("limit");
             out.uint(*value);
+        }
+        if let Some(value) = &self.fields {
+            out.key("fields");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.region {
+            out.key("region");
+            out.array(value, |out, item| out.float(*item));
         }
     }
 }
@@ -1217,38 +1234,50 @@ pub struct Entity {
     /// 空間か用紙と、出所で作る ID（space/0/r12、sheet/1/b4096 など）。同じバイト列には、どの版でも同じ ID を返す（決定 0117）
     pub id: String,
     /// 形の種類
-    pub kind: EntityKind,
+    pub kind: Option<EntityKind>,
     /// レイヤの元の名前。翻訳しない。図面モデルにレイヤがなければ持たない
     pub layer: Option<String>,
     /// 元の形式のレコード
-    pub source: Source,
+    pub source: Option<Source>,
+    /// 形の定義から求めた範囲。文字の字形・線の太さ・記号の中身は含めない。囲む点がなければ持たない（決定 0118）
+    pub bbox: Option<Extent>,
 }
 
 impl Entity {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let id = object.required("id", json::string)?;
-        let kind = object.required("kind", EntityKind::from_json)?;
+        let kind = object.optional("kind", EntityKind::from_json)?;
         let layer = object.optional("layer", json::string)?;
-        let source = object.required("source", Source::from_json)?;
+        let source = object.optional("source", Source::from_json)?;
+        let bbox = object.optional("bbox", Extent::from_json)?;
         Ok(Self {
             id,
             kind,
             layer,
             source,
+            bbox,
         })
     }
 
     fn write_fields(&self, out: &mut Writer) {
         out.key("id");
         out.string(&self.id);
-        out.key("kind");
-        self.kind.to_json(out);
+        if let Some(value) = &self.kind {
+            out.key("kind");
+            value.to_json(out);
+        }
         if let Some(value) = &self.layer {
             out.key("layer");
             out.string(value);
         }
-        out.key("source");
-        self.source.to_json(out);
+        if let Some(value) = &self.source {
+            out.key("source");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.bbox {
+            out.key("bbox");
+            value.to_json(out);
+        }
     }
 }
 
@@ -1266,6 +1295,61 @@ impl ToJson for Entity {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// entities で返す要素の欄（決定 0118）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EntityField {
+    /// `id`
+    Id,
+    /// `kind`
+    Kind,
+    /// `layer`
+    Layer,
+    /// `source`
+    Source,
+    /// `bbox`
+    Bbox,
+}
+
+impl EntityField {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Id, Self::Kind, Self::Layer, Self::Source, Self::Bbox];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Id => "id",
+            Self::Kind => "kind",
+            Self::Layer => "layer",
+            Self::Source => "source",
+            Self::Bbox => "bbox",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "id" => Some(Self::Id),
+            "kind" => Some(Self::Kind),
+            "layer" => Some(Self::Layer),
+            "source" => Some(Self::Source),
+            "bbox" => Some(Self::Bbox),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for EntityField {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for EntityField {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 
