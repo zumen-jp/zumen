@@ -1,12 +1,13 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
-//! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲を試す。
+//! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順を試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Length, ModelLength, ModelPoint,
-    PaperLength, PaperPoint, Placement, Shape, SheetId, SpaceId, Text, Unit, Vertical,
+    Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Layer, LayerId, LayerState, Length,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Shape, SheetId, SheetItem,
+    SpaceId, Text, Unit, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -15,11 +16,18 @@ const SHEET: SheetId = SheetId(0);
 
 /// 見出しの変数と図形を、タグの組から作る。図形は `(0, 種類)` で区切る
 fn dxf(header: &[(i16, &str)], entities: &[(i16, &str)]) -> Vec<u8> {
-    let mut tags = vec![(0, "SECTION"), (2, "HEADER")];
-    tags.extend_from_slice(header);
-    tags.extend_from_slice(&[(0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES")]);
-    tags.extend_from_slice(entities);
-    tags.extend_from_slice(&[(0, "ENDSEC"), (0, "EOF")]);
+    sections(&[("HEADER", header), ("ENTITIES", entities)])
+}
+
+/// 名前とタグの組から、区切りを並べた DXF を作る
+fn sections(sections: &[(&str, &[(i16, &str)])]) -> Vec<u8> {
+    let mut tags = Vec::new();
+    for (name, body) in sections {
+        tags.extend_from_slice(&[(0, "SECTION"), (2, *name)]);
+        tags.extend_from_slice(body);
+        tags.push((0, "ENDSEC"));
+    }
+    tags.push((0, "EOF"));
     tags.iter()
         .map(|(code, value)| format!("{code:>3}\n{value}\n"))
         .collect::<String>()
@@ -108,7 +116,7 @@ fn e1_an_isotropic_view_places_the_model_on_the_sheet() {
         space.elements,
         [Element {
             source: Ref::at_record(3),
-            layer: "0".to_owned(),
+            layer: LayerId(0),
             shape: Shape::Line {
                 start: at(0.0, 0.0),
                 end: at(1000.0, 500.0),
@@ -496,8 +504,14 @@ fn text_after_2007_is_read_as_utf8() {
     ];
     let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
     assert_eq!(found(&diag), []);
-    let element = &drawing.unwrap().spaces[0].elements[0];
-    assert_eq!(element.layer, "\u{5916}\u{5f62}");
+    let drawing = drawing.unwrap();
+    let element = &drawing.spaces[0].elements[0];
+    assert_eq!(
+        drawing
+            .layer(element.layer)
+            .map(|layer| layer.name.as_str()),
+        Some("\u{5916}\u{5f62}")
+    );
     let Shape::Text(text) = &element.shape else {
         panic!()
     };
@@ -511,4 +525,287 @@ fn e9_lifting_stops_at_the_work_limit() {
     let (result, diag) = lift(&src, &mut budget);
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(diag.iter().count(), 1);
+}
+
+/// 用紙の線分。ハンドルを持つ
+fn paper_line(handle: &'static str) -> Vec<(i16, &'static str)> {
+    vec![
+        (0, "LINE"),
+        (5, handle),
+        (8, "0"),
+        (67, "1"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+    ]
+}
+
+/// 実寸の線分。ハンドルを持つ
+fn model_line(handle: &'static str, layer: &'static str) -> Vec<(i16, &'static str)> {
+    vec![
+        (0, "LINE"),
+        (5, handle),
+        (8, layer),
+        (10, "0.0"),
+        (20, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+    ]
+}
+
+/// 用紙の、ビューになるビューポート。ハンドルと、ほかのタグを持つ
+fn paper_view(handle: &'static str, extra: &[(i16, &'static str)]) -> Vec<(i16, &'static str)> {
+    let mut tags = vec![
+        (0, "VIEWPORT"),
+        (5, handle),
+        (8, "0"),
+        (67, "1"),
+        (69, "2"),
+        (10, "5.0"),
+        (20, "5.0"),
+        (40, "10.0"),
+        (41, "10.0"),
+        (45, "100.0"),
+    ];
+    tags.extend_from_slice(extra);
+    tags
+}
+
+#[test]
+fn layers_keep_their_table_and_views_hide_layers() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        // 凍結
+        (0, "LAYER"),
+        (5, "11"),
+        (2, "Hidden"),
+        (70, "1"),
+        (62, "1"),
+        // 表示せず、印刷しない
+        (0, "LAYER"),
+        (5, "12"),
+        (2, "Off"),
+        (70, "0"),
+        (62, "-3"),
+        (290, "0"),
+        // ロック
+        (0, "LAYER"),
+        (5, "13"),
+        (2, "Locked"),
+        (70, "4"),
+        (62, "7"),
+        (0, "ENDTAB"),
+    ];
+    let mut entities = model_line("20", "hidden");
+    entities.extend(model_line("21", "Extra"));
+    // 凍結した画層の 1 つ目は表にあり、2 つ目は表にない
+    entities.extend(paper_view("22", &[(341, "12"), (341, "99")]));
+    let (drawing, diag) = lift(
+        &sections(&[("HEADER", MM), ("TABLES", &tables), ("ENTITIES", &entities)]),
+        &mut Budget::default(),
+    );
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("VIEWPORT") Int(341)"#.to_owned(),
+            1,
+            vec![Ref::at_record(13)],
+        )]
+    );
+
+    let state = |visible: bool, printable: bool, editable: bool| {
+        Some(LayerState {
+            visible,
+            printable,
+            editable,
+        })
+    };
+    let states: Vec<_> = drawing
+        .layers
+        .iter()
+        .map(|layer| (layer.id, layer.name.as_str(), layer.state))
+        .collect();
+    assert_eq!(
+        states,
+        [
+            (LayerId(0), "0", state(true, true, true)),
+            (LayerId(1), "Hidden", state(false, true, true)),
+            (LayerId(2), "Off", state(false, false, true)),
+            (LayerId(3), "Locked", state(true, true, false)),
+            // 表にない名前は、定義のない画層にする
+            (LayerId(4), "Extra", None),
+        ]
+    );
+    assert_ne!(drawing.layers[0].source, Ref::default());
+    assert_eq!(
+        drawing.layers[4],
+        Layer {
+            id: LayerId(4),
+            name: "Extra".to_owned(),
+            state: None,
+            source: Ref::default(),
+        }
+    );
+    // 名前は大文字と小文字を区別せずに引く
+    let layers: Vec<_> = drawing.spaces[0].elements.iter().map(|e| e.layer).collect();
+    assert_eq!(layers, [LayerId(1), LayerId(4)]);
+    assert_eq!(drawing.sheets[0].views[0].hidden_layers, [LayerId(2)]);
+}
+
+#[test]
+fn sortents_tables_order_the_model_and_the_sheet() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "1F"),
+        (2, "*Model_Space"),
+        (0, "BLOCK_RECORD"),
+        (5, "1E"),
+        (2, "*PAPER_SPACE"),
+        (0, "BLOCK_RECORD"),
+        (5, "1D"),
+        (2, "*Paper_Space0"),
+        (0, "ENDTAB"),
+    ];
+    let mut entities = model_line("30", "0");
+    entities.extend(model_line("31", "0"));
+    entities.extend(model_line("32", "0"));
+    entities.extend(paper_line("40"));
+    entities.extend(paper_view("41", &[]));
+    entities.extend(paper_line("42"));
+    let objects = [
+        // モデル空間: 30 を最後に、31 を最初に描く
+        (0, "SORTENTSTABLE"),
+        (5, "50"),
+        (100, "AcDbSortentsTable"),
+        (330, "1F"),
+        (331, "30"),
+        (5, "99"),
+        (331, "31"),
+        (5, "2"),
+        // ペーパー空間: ビューポートを最初に描く
+        (0, "SORTENTSTABLE"),
+        (5, "51"),
+        (100, "AcDbSortentsTable"),
+        (330, "1E"),
+        (331, "41"),
+        (5, "1"),
+        // 移さないレイアウトの表は使わない
+        (0, "SORTENTSTABLE"),
+        (5, "52"),
+        (100, "AcDbSortentsTable"),
+        (330, "1D"),
+        (331, "32"),
+        (5, "0"),
+        // 組の欠けた表は、表ごと使わない
+        (0, "SORTENTSTABLE"),
+        (5, "53"),
+        (100, "AcDbSortentsTable"),
+        (330, "1F"),
+        (331, "32"),
+    ];
+    let (drawing, diag) = lift(
+        &sections(&[
+            ("HEADER", MM),
+            ("TABLES", &tables),
+            ("ENTITIES", &entities),
+            ("OBJECTS", &objects),
+        ]),
+        &mut Budget::default(),
+    );
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("SORTENTSTABLE") Int(5)"#.to_owned(),
+            1,
+            vec![Ref::at_record(21)],
+        )]
+    );
+    // 要素は入力の順のまま
+    assert_eq!(drawing.spaces[0].elements.len(), 3);
+    assert_eq!(drawing.spaces[0].order, [1, 2, 0]);
+    assert_eq!(
+        drawing.sheets[0].order,
+        [
+            SheetItem::View(0),
+            SheetItem::Element(0),
+            SheetItem::Element(1)
+        ]
+    );
+}
+
+#[test]
+fn without_a_sortents_table_the_input_order_is_kept() {
+    let mut entities = model_line("30", "0");
+    entities.extend(model_line("2F", "0"));
+    entities.extend(paper_line("40"));
+    entities.extend(paper_view("3F", &[]));
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert_eq!(found(&diag), []);
+    assert_eq!(drawing.spaces[0].order, [0, 1]);
+    assert_eq!(
+        drawing.sheets[0].order,
+        [SheetItem::Element(0), SheetItem::View(0)]
+    );
+}
+
+#[test]
+fn elements_without_handles_are_not_sorted() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "1F"),
+        (2, "*Model_Space"),
+        (0, "ENDTAB"),
+    ];
+    let mut entities = model_line("30", "0");
+    entities.extend([
+        (0, "LINE"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+    ]);
+    let objects = [
+        (0, "SORTENTSTABLE"),
+        (5, "50"),
+        (100, "AcDbSortentsTable"),
+        (330, "1F"),
+        (331, "30"),
+        (5, "99"),
+    ];
+    let (drawing, diag) = lift(
+        &sections(&[
+            ("HEADER", MM),
+            ("TABLES", &tables),
+            ("ENTITIES", &entities),
+            ("OBJECTS", &objects),
+        ]),
+        &mut Budget::default(),
+    );
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("SORTENTSTABLE") Int(331)"#.to_owned(),
+            1,
+            vec![Ref::at_record(12)],
+        )]
+    );
+    assert_eq!(drawing.unwrap().spaces[0].order, [0, 1]);
 }

@@ -1,19 +1,23 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023）。いまは ENTITIES の LINE・TEXT・VIEWPORT
-//! だけを移す。DXF も DWG も、表を作ってから同じ変換を通す。
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105）。いまは ENTITIES の LINE・TEXT・VIEWPORT
+//! と、画層の表と、空間の描く順だけを移す。DXF も DWG も、表を作ってから同じ変換を通す。
 //!
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
 //! 実寸の単位は見出しの `$INSUNITS` で決め、分からなければ不明とする。用紙の点は `$PLIMMIN` を原点にした mm で、
 //! 単位が分からなければ mm に直せないので、ペーパー空間の図形を移さない。
+//! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間と
+//! ペーパー空間のブロックのレコードを指す SORTENTSTABLE で決め、なければ入力の順とする。
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
 //! DWG でも `dxf.` で始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
-use crate::db::{AcadDb, Data, Object, Origin, Section};
+use std::collections::BTreeMap;
+
+use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Length, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, Placement, Shape, Sheet, SheetId, SpaceId,
-    Text, Unit, Vertical, View,
+    Affine, Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Layer, LayerId, LayerState,
+    Length, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Placement, Shape, Sheet,
+    SheetId, SheetItem, SpaceId, Text, Unit, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -59,27 +63,39 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     };
     let mut out = Out::default();
     for object in db.objects() {
-        if object.section != Section::Entities {
+        if object.section != Section::Tables || object.kind != b"LAYER" {
             continue;
         }
-        cx.check(Kind::Work, 1).map_err(|stop| {
-            cx.report(stop.to_diagnostic());
-            Error::Stopped(stop)
-        })?;
-        let source = match object.origin {
-            Origin::Dxf { record } => Ref::at_record(record as u64),
-            Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
-            Origin::New => Ref::default(),
-        };
-        if let Err(diagnostic) = lifter.entity(object, source.clone(), &mut out) {
+        work(cx, 1)?;
+        let source = source(object);
+        if let Err(diagnostic) = lifter.layer_record(object, source.clone(), &mut out) {
             cx.report((*diagnostic).at(source));
         }
     }
-    let mut drawing = Drawing2D::default();
+    for object in db.objects() {
+        if object.section != Section::Entities {
+            continue;
+        }
+        work(cx, 1)?;
+        let source = source(object);
+        if let Err(diagnostic) = lifter.entity(object, source.clone(), &mut out, cx) {
+            cx.report((*diagnostic).at(source));
+        }
+    }
+    let [model_keys, paper_keys] = lifter.sort_keys(db, cx)?;
+    let mut drawing = Drawing2D {
+        layers: out.layers,
+        ..Drawing2D::default()
+    };
     drawing.spaces.push(ModelSpace {
         id: MODEL,
         unit,
         elements: out.model,
+        order: arrange(
+            model_keys.as_ref(),
+            out.model_handles.into_iter().enumerate().collect(),
+            cx,
+        ),
     });
     if !out.paper.is_empty() || !out.views.is_empty() {
         let size = match (limits(b"$PLIMMAX"), lifter.mm) {
@@ -90,14 +106,57 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             }
             _ => None,
         };
+        let order = arrange(paper_keys.as_ref(), out.sheet, cx);
         drawing.sheets.push(Sheet {
             id: SHEET,
             size,
             elements: out.paper,
             views: out.views,
+            order,
         });
     }
     Ok(drawing)
+}
+
+/// 決まった作業量を数え、上限を超えたら止める（決定 0010）
+fn work(cx: &mut Cx, amount: u64) -> Result<(), Error> {
+    cx.check(Kind::Work, amount).map_err(|stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    })
+}
+
+fn source(object: &Object) -> Ref {
+    match object.origin {
+        Origin::Dxf { record } => Ref::at_record(record as u64),
+        Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
+        Origin::New => Ref::default(),
+    }
+}
+
+/// 空間の SORTENTSTABLE の出所と、図形のハンドルから並べ替えのハンドルへの対応
+type SortKeys = (Ref, BTreeMap<u64, u64>);
+
+/// 描く順に並べたもの。`items` は、入力の順のものとハンドルの組。並べ替えのハンドルの小さいものから描き、
+/// 表にない図形は自分のハンドルで並べる（DXF Reference「SORTENTSTABLE」）。同じハンドルなら入力の順。
+/// 表がなければ入力の順のまま。ハンドルのない図形があれば並べ替えられないので、入力の順のままにして診断する
+fn arrange<T>(keys: Option<&SortKeys>, items: Vec<(T, Option<u64>)>, cx: &mut Cx) -> Vec<T> {
+    let Some((table, sort)) = keys else {
+        return items.into_iter().map(|(item, _)| item).collect();
+    };
+    if items.iter().any(|(_, handle)| handle.is_none()) {
+        cx.report((*invalid(b"SORTENTSTABLE", 331)).at(table.clone()));
+        return items.into_iter().map(|(item, _)| item).collect();
+    }
+    let mut keyed: Vec<(u64, T)> = items
+        .into_iter()
+        .map(|(item, handle)| {
+            let handle = handle.unwrap_or_default();
+            (sort.get(&handle).copied().unwrap_or(handle), item)
+        })
+        .collect();
+    keyed.sort_by_key(|(key, _)| *key);
+    keyed.into_iter().map(|(_, item)| item).collect()
 }
 
 /// 見出しの `$INSUNITS`（DXF Reference「HEADER Section Group Codes」）。長さの単位でなければ不明
@@ -133,8 +192,17 @@ fn header_real(values: &[crate::Value], code: i16) -> Option<f64> {
 #[derive(Default)]
 struct Out {
     model: Vec<Element<ModelPoint>>,
+    /// `model` の図形のハンドル
+    model_handles: Vec<Option<u64>>,
     paper: Vec<Element<PaperPoint>>,
     views: Vec<View>,
+    /// 用紙の上に描くものと、そのハンドル。順序は入力の順
+    sheet: Vec<(SheetItem, Option<u64>)>,
+    layers: Vec<Layer>,
+    /// ASCII の大文字を小文字にした画層の名前。DXF の名前は大文字と小文字を区別しない（推定。docs/formats/dxf.md）
+    by_name: BTreeMap<String, LayerId>,
+    /// 画層の表のレコードのハンドル
+    by_handle: BTreeMap<u64, LayerId>,
 }
 
 struct Lifter {
@@ -147,7 +215,7 @@ struct Lifter {
 }
 
 impl Lifter {
-    fn entity(&self, object: &Object, source: Ref, out: &mut Out) -> Lifted<()> {
+    fn entity(&self, object: &Object, source: Ref, out: &mut Out, cx: &mut Cx) -> Lifted<()> {
         let kind = object.kind.as_slice();
         let paper = self.int(object, 67, 0)? == 1;
         match kind {
@@ -155,7 +223,21 @@ impl Lifter {
             b"VIEWPORT" if paper && self.int(object, 69, 0)? == 1 => {}
             b"VIEWPORT" if paper => {
                 let mm = self.paper_mm(kind)?;
-                out.views.push(self.view(object, mm, source)?);
+                let mut view = self.view(object, mm, source.clone())?;
+                // 341 はビューポートで凍結した画層。指す画層がなければ、その指定だけを除く
+                for value in object.values.iter().filter(|value| value.code == 341) {
+                    let layer = match value.data {
+                        Data::Handle(handle) => out.by_handle.get(&handle).copied(),
+                        _ => None,
+                    };
+                    match layer {
+                        Some(layer) => view.hidden_layers.push(layer),
+                        None => cx.report((*invalid(kind, 341)).at(source.clone())),
+                    }
+                }
+                out.sheet
+                    .push((SheetItem::View(out.views.len()), object.handle()));
+                out.views.push(view);
             }
             b"LINE" | b"TEXT" if paper => {
                 let mm = self.paper_mm(kind)?;
@@ -166,10 +248,14 @@ impl Lifter {
                     y: (y - oy) * mm,
                 };
                 let length = |value: f64| Length::Paper(PaperLength(value * mm));
+                let shape = self.shape(object, point, length)?;
+                let layer = self.layer(object, out)?;
+                out.sheet
+                    .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(Element {
-                    layer: self.layer(object)?,
-                    shape: self.shape(object, point, length)?,
                     source,
+                    layer,
+                    shape,
                 });
             }
             b"LINE" | b"TEXT" => {
@@ -180,10 +266,13 @@ impl Lifter {
                         value,
                     })
                 };
+                let shape = self.shape(object, point, length)?;
+                let layer = self.layer(object, out)?;
+                out.model_handles.push(object.handle());
                 out.model.push(Element {
-                    layer: self.layer(object)?,
-                    shape: self.shape(object, point, length)?,
                     source,
+                    layer,
+                    shape,
                 });
             }
             _ => {
@@ -343,12 +432,14 @@ impl Lifter {
         Ok(View {
             space: MODEL,
             transform,
+            sheet: SHEET,
             clip: vec![
                 corner(-1.0, -1.0),
                 corner(1.0, -1.0),
                 corner(1.0, 1.0),
                 corner(-1.0, 1.0),
             ],
+            hidden_layers: Vec::new(),
             source,
         })
     }
@@ -373,9 +464,127 @@ impl Lifter {
         })
     }
 
-    fn layer(&self, object: &Object) -> Lifted<String> {
-        self.string(object, 8)?
-            .ok_or_else(|| invalid(&object.kind, 8))
+    /// 図形の画層（8）。表にない名前なら、定義のない画層として足す
+    fn layer(&self, object: &Object, out: &mut Out) -> Lifted<LayerId> {
+        let name = self
+            .string(object, 8)?
+            .ok_or_else(|| invalid(&object.kind, 8))?;
+        if let Some(id) = out.by_name.get(&name.to_ascii_lowercase()) {
+            return Ok(*id);
+        }
+        self.add_layer(&object.kind, name, None, Ref::default(), out)
+    }
+
+    /// 画層の表のレコード（DXF Reference「LAYER」）。凍結（70 の 1）か色（62）が負なら表示せず、290 が偽なら
+    /// 印刷せず、ロック（70 の 4）なら編集できないとする。凍結と非表示の違いは移さない
+    fn layer_record(&self, object: &Object, source: Ref, out: &mut Out) -> Lifted<()> {
+        let kind = object.kind.as_slice();
+        let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
+        let flags = self.int(object, 70, 0)?;
+        let state = LayerState {
+            visible: flags & 1 == 0 && self.int(object, 62, 7)? >= 0,
+            printable: match object.first(290) {
+                Some(Data::Bool(printable)) => *printable,
+                Some(_) => return Err(invalid(kind, 290)),
+                None => true,
+            },
+            editable: flags & 4 == 0,
+        };
+        let id = self.add_layer(kind, name, Some(state), source, out)?;
+        if let Some(handle) = object.handle() {
+            out.by_handle.insert(handle, id);
+        }
+        Ok(())
+    }
+
+    /// 画層を足す。同じ名前がすでにあれば、名前で引くのは先のものにする
+    fn add_layer(
+        &self,
+        kind: &[u8],
+        name: String,
+        state: Option<LayerState>,
+        source: Ref,
+        out: &mut Out,
+    ) -> Lifted<LayerId> {
+        let id = LayerId(u32::try_from(out.layers.len()).map_err(|_| invalid(kind, 8))?);
+        out.by_name.entry(name.to_ascii_lowercase()).or_insert(id);
+        out.layers.push(Layer {
+            id,
+            name,
+            state,
+            source,
+        });
+        Ok(id)
+    }
+
+    /// モデル空間とペーパー空間の SORTENTSTABLE。ほかのブロックの表は、そのブロックを移さないので読まない
+    fn sort_keys(&self, db: &AcadDb, cx: &mut Cx) -> Result<[Option<SortKeys>; 2], Error> {
+        let mut keys = [None, None];
+        for object in db.objects() {
+            if object.section != Section::Objects || object.kind != b"SORTENTSTABLE" {
+                continue;
+            }
+            work(cx, 1)?;
+            let source = source(object);
+            match self.sortents(db, object) {
+                Ok((space, sort)) => {
+                    work(cx, sort.len() as u64)?;
+                    if let Some(slot) = space.and_then(|index| keys.get_mut(index)) {
+                        let (_, all) = slot.get_or_insert_with(|| (source, BTreeMap::new()));
+                        all.extend(sort);
+                    }
+                }
+                Err(diagnostic) => cx.report((*diagnostic).at(source)),
+            }
+        }
+        Ok(keys)
+    }
+
+    /// SORTENTSTABLE の、指すブロックのレコード（0 はモデル空間、1 はペーパー空間、ほかは `None`）と、
+    /// 図形のハンドル（331）から並べ替えのハンドル（5）への対応（DXF Reference「SORTENTSTABLE」）
+    fn sortents(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+    ) -> Lifted<(Option<usize>, BTreeMap<u64, u64>)> {
+        let kind = object.kind.as_slice();
+        let start = object
+            .values
+            .iter()
+            .position(|value| {
+                matches!((value.code, &value.data), (100, Data::Text(text)) if text == b"AcDbSortentsTable")
+            })
+            .ok_or_else(|| invalid(kind, 100))?;
+        let mut rest = object.values.iter().skip(start + 1);
+        let block = match rest.next() {
+            Some(Value {
+                code: 330,
+                data: Data::Handle(handle),
+            }) => db
+                .get(*handle)
+                .filter(|record| record.kind == b"BLOCK_RECORD")
+                .ok_or_else(|| invalid(kind, 330))?,
+            _ => return Err(invalid(kind, 330)),
+        };
+        let name = self.string(block, 2)?.unwrap_or_default();
+        let space = ["*Model_Space", "*Paper_Space"]
+            .iter()
+            .position(|space| name.eq_ignore_ascii_case(space));
+        let mut sort = BTreeMap::new();
+        while let Some(value) = rest.next() {
+            let (331, Data::Handle(entity)) = (value.code, &value.data) else {
+                return Err(invalid(kind, value.code));
+            };
+            let Some(Value {
+                code: 5,
+                data: Data::Handle(key),
+            }) = rest.next()
+            else {
+                return Err(invalid(kind, 5));
+            };
+            sort.insert(*entity, *key);
+        }
+        Ok((space, sort))
     }
 
     /// 有限の実数の値。なければ `default`、それもなければ読めないとする
