@@ -33,7 +33,7 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 - `ZUMEN_SAMPLES` のフォルダーにある R2004 から後の DWG は、組み直して読み直し、区切りが元と同じになることを確かめる。
 - オブジェクトの置き換え・除き・足しは、展開した `AcDb:AcDbObjects` の後ろに R2000 と同じ形で足し、`AcDb:Handles` を区切りの初めからの位置で作り直して、区切りを置き換える（決定 0071）。`AcDb:ObjFreeSpace` は直さない。見出しの変数の変更は、まだ R2000 だけを扱う。
 - 共有の表の変更は、図形の値の変更のうち、共通の欄と、型ごとの欄が R2000 と同じ種類（LINE・CIRCLE・ARC・POINT・ELLIPSE・RAY・XLINE・SOLID・TRACE・3DFACE・TEXT）だけを書き戻す（決定 0072）。色を変えるときは、透明度を写し、RGB の値か DBCOLOR を持つ色は変えない。
-- ATTRIB・ATTDEF・LWPOLYLINE・SPLINE・DIMENSION・TOLERANCE・LEADER・MLINE・SHAPE・VERTEX・INSERT・MTEXT・VIEWPORT の型ごとの欄も書き戻す（決定 0073）。属性を持つ INSERT の持つオブジェクトの数と、MTEXT の背景の欄は、元のビットを写す。MINSERT・HATCH・POLYLINE は、まだ書き戻さない。
+- ATTRIB・ATTDEF・LWPOLYLINE・SPLINE・DIMENSION・TOLERANCE・LEADER・MLINE・SHAPE・VERTEX・INSERT・MTEXT・VIEWPORT の型ごとの欄も書き戻す（決定 0073）。属性を持つ INSERT の持つオブジェクトの数と、MTEXT の背景の欄は、元のビットを写す。HATCH は、初めのグラデーションの欄を元のビットのまま写す（決定 0074）。MINSERT・POLYLINE は、まだ書き戻さない。
 
 ## R2010 から後の版
 

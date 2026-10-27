@@ -471,7 +471,7 @@ fn r2004_drawings_keep_their_table_when_objects_are_rewritten_and_removed() {
 
 #[test]
 fn r2004_drawings_take_back_changed_entities() {
-    const SIMPLE: [&[u8]; 24] = [
+    const SIMPLE: [&[u8]; 25] = [
         b"LINE",
         b"CIRCLE",
         b"ARC",
@@ -495,6 +495,7 @@ fn r2004_drawings_take_back_changed_entities() {
         b"VERTEX",
         b"INSERT",
         b"MTEXT",
+        b"HATCH",
         b"VIEWPORT",
     ];
     let (mut changed, mut colored) = (0, 0);
@@ -566,7 +567,7 @@ fn r2004_drawings_take_back_changed_entities() {
             }
         }
         // 型ごとの欄をまだ符号化しない種類の図形と、表のレコードの変更は書き戻さない
-        for kind in [&b"HATCH"[..], b"MULTILEADER", b"LAYER"] {
+        for kind in [&b"MULTILEADER"[..], b"LAYER"] {
             let mut db = base.clone();
             let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
                 continue;

@@ -2567,7 +2567,7 @@ fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
 }
 
 /// HATCH のグラデーションの欄（ODS 5.4.1 の 20.4.75、R2004 から）。グラデーションでなければ空
-fn hatch_gradient(bits: &mut Bits) -> Option<Vec<Value>> {
+pub(super) fn hatch_gradient(bits: &mut Bits) -> Option<Vec<Value>> {
     let kind = bits.bl()?;
     let reserved = bits.bl()?;
     let angle = bits.bd()?;
