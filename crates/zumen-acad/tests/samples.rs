@@ -1588,6 +1588,13 @@ fn r2004_drawings_take_back_changed_header_variables() {
     header_variables_are_taken_back(b"AC1018");
 }
 
+#[test]
+fn r2010_and_later_drawings_take_back_changed_header_variables() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        header_variables_are_taken_back(version);
+    }
+}
+
 /// 版 `version` の試料の図面の見出しの変数を変えて書き戻し、読み直した表が変えた表と同じことと、
 /// HANDSEED を書き換えられることを確かめる
 #[cfg(test)]
@@ -1617,7 +1624,25 @@ fn header_variables_are_taken_back(version: &[u8]) {
         let point = |x, y| vec![value(10, Data::Real(x)), value(20, Data::Real(y))];
         db.set_variable(b"$PLIMMIN", point(-1.0, -2.0));
         db.set_variable(b"$PLIMMAX", point(841.0, 594.0));
-        file.write_back(&db, &mut cx).unwrap();
+        if matches!(version, b"AC1015" | b"AC1018") {
+            file.write_back(&db, &mut cx).unwrap();
+        } else {
+            // R2010 から後は共有の表から書き戻せないので、変更で同じ値にする
+            let mut txn = file.transaction();
+            if let Some(
+                [
+                    Value {
+                        data: Data::Int(units),
+                        ..
+                    },
+                ],
+            ) = db.variable(b"$INSUNITS")
+            {
+                txn.set_units(i16::try_from(*units).unwrap()).unwrap();
+            }
+            txn.set_paper_limits([-1.0, -2.0, 841.0, 594.0]).unwrap();
+            txn.commit(&mut cx).unwrap();
+        }
         let mut out = Vec::new();
         Dwg::write(&file, &mut out, &mut cx).unwrap();
         let mut fresh = Diagnostics::new();

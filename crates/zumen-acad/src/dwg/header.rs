@@ -296,13 +296,12 @@ fn streams(data: &[u8], release: Release) -> Option<Bits<'_>> {
     Some(bits)
 }
 
-/// 版 `release` の、空間ごとの変数より前の変数の並び。R2010 からは、ハンドルが別の流れにあるので、
-/// 書き換えには使えず `None`
+/// 版 `release` の、空間ごとの変数より前の変数の並び。R2010 からは、R2004 と同じ並びのハンドルを
+/// 別の流れから読む（決定 0084）
 fn first_fields(release: Release) -> Option<&'static [(Field, usize)]> {
     match release {
         Release::R2000 => Some(&FIRST),
-        Release::R2004 => Some(&FIRST_R2004),
-        _ => None,
+        _ => Some(&FIRST_R2004),
     }
 }
 
@@ -399,7 +398,7 @@ pub(super) struct HandleSeed {
     pub(super) value: u64,
 }
 
-/// `start` から始まる版 `release`（R2004 まで）の見出しの変数の区切りの、HANDSEED。読めなければ `None`
+/// `start` から始まる版 `release` の見出しの変数の区切りの、HANDSEED。読めなければ `None`
 pub(super) fn handle_seed(src: &[u8], start: usize, release: Release) -> Option<HandleSeed> {
     let first = first_fields(release)?;
     let (data, crc_at) = section(src, start, release)?;
@@ -437,9 +436,10 @@ pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> 
     store(src, seed.start, seed.data_at, seed.crc_at, out)
 }
 
-/// `start` から始まる版 `release`（R2004 まで）の見出しの変数の区切りの、INSUNITS を `units` に、用紙空間の
-/// PLIMMIN・PLIMMAX を `limits` にし、区切りの CRC を直す（決定 0069・0078）。`None` の変数は変えない。
-/// データの大きさ（バイト）が変わる値なら `None`
+/// `start` から始まる版 `release` の見出しの変数の区切りの、INSUNITS を `units` に、用紙空間の
+/// PLIMMIN・PLIMMAX を `limits` にし、区切りの CRC を直す（決定 0069・0078・0084）。`None` の変数は変えない。
+/// データの大きさ（バイト）が変わる値なら `None`。R2010 からは、主のデータの後の文字列とハンドルの流れが
+/// ずれないよう、ビットの数が変わる値でも `None`
 pub(super) fn set_values(
     src: &mut [u8],
     start: usize,
@@ -462,6 +462,9 @@ pub(super) fn set_values(
     }
     out.copy(&data, found.limits_at + 4 * 64..found.units_at)?;
     out.bs(units.unwrap_or(found.units));
+    if release >= Release::R2010 && out.len() != bits.pos() {
+        return None;
+    }
     out.copy(&data, bits.pos()..data.len() * 8)?;
     store(src, start, data_at, crc_at, out)
 }
