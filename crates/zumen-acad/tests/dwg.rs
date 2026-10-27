@@ -3463,7 +3463,8 @@ fn invalid_object_changes_are_rejected_without_changing_the_file() {
         let (out, _) = edited(&mut file, &[]);
         assert_eq!(out.unwrap(), src);
     }
-    // R2010 から後の版は変えられない
+    // R2010 から後の版のデータは、初めにハンドルの流れの大きさ（MC）を持つ。MC を読めないデータと、ハンドルの
+    // 流れが残りのデータより大きいデータは受け付けない（決定 0083）
     let mut sections = r2004_sections();
     let classes = r2010_classes(false);
     sections[1] = (
@@ -3474,9 +3475,29 @@ fn invalid_object_changes_are_rejected_without_changing_the_file() {
     let mut r2010 = r2004(&sections);
     r2010[..6].copy_from_slice(b"AC1024");
     let mut r2010 = read(&r2010, Limits::default()).0.unwrap();
-    let (result, diag) = edited(&mut r2010, &[(0, first)]);
-    assert_eq!(result, Err(Error::Rejected));
-    assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
+    let count = r2010.record_count();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    for data in [vec![0x80], vec![0x7F, 0x0A, 0x80]] {
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut txn = r2010.transaction();
+        assert_eq!(txn.add(0x100, &data), Err(Error::Rejected));
+        assert_eq!(txn.commit(&mut cx), Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_DATA_INVALID]);
+    }
+    // MC と BOT の型（DICTIONARY）を持つデータは足せ、書いて読み直すと同じデータを持つ
+    let data = vec![0x08, 0x0A, 0x80, 0x00];
+    let mut diag = Diagnostics::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let mut txn = r2010.transaction();
+    txn.add(0x100, &data).unwrap();
+    txn.commit(&mut cx).unwrap();
+    let mut out = Vec::new();
+    Dwg::write(&r2010, &mut out, &mut cx).unwrap();
+    let again = Dwg::read(&out, &mut cx).unwrap();
+    assert_eq!(again.record_count(), count + 1);
+    assert!((0..again.record_count()).any(|i| again.object_data(i) == Some(&data[..])));
 }
 
 /// オブジェクトを並べた区切りと、それを指すオブジェクトの地図を持つ R2004 の入れ物

@@ -90,6 +90,7 @@
 - [0080: R2004 の DWG に足す属性を持つ INSERT は、ATTRIB の数とすべての ATTRIB のハンドルを持つ](0080-dwg-r2004-write-back-attributed-insert-addition.md)（2026-10-27、採用）
 - [0081: R2004 の DWG に足す表のレコードは、R2004 の共通の欄と CMC の色で符号化し、ブロックのレコードは持つ図形をみな指す](0081-dwg-r2004-write-back-record-addition.md)（2026-10-27、採用）
 - [0082: R2004 の LAYOUT は、印刷するビューをハンドルで持ち、陰影の印刷の欄とビューポートの数を持つ形で読み書きする](0082-dwg-r2004-layout.md)（2026-10-27、採用）
+- [0083: R2010 から後の DWG のオブジェクトは、ハンドルの流れの大きさ（MC）から始まるデータで置き換え、除き、足す](0083-dwg-r2010-object-edit.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
