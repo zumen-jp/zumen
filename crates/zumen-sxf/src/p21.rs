@@ -36,13 +36,20 @@ const COLORS: [&str; 16] = [
 const DEFAULT_STYLE: [i64; 3] = [8, 1, 1];
 
 /// 用紙の要素のうち、まだ組み直さない表記の種類。どれでもなければ、実体の最初の部分の名前を種類にする
-const NOT_YET: [&str; 5] = [
+const NOT_YET: [&str; 3] = [
     "draughting_callout",
     "annotation_subfigure_occurrence",
     "annotation_fill_area_occurrence",
-    "annotation_text_occurrence",
-    "annotation_symbol_occurrence",
 ];
+
+/// 点マーカーのコード 1〜7 の名前
+const MARKERS: [&str; 7] = [
+    "asterisk", "circle", "dot", "plus", "square", "triangle", "x",
+];
+
+/// 文字の配置の行（下から）と列（左から）の名前。`$$SXF_` の後に、行と列を空白で区切って書く
+const ROWS: [&str; 3] = ["baseline", "middleline", "topline"];
+const COLUMNS: [&[&str]; 3] = [&["left"], &["centre", "center"], &["right"]];
 
 /// P21 の実体を、フィーチャのレコードに組み直す
 pub(crate) fn records(file: &SxfFile, cx: &mut Cx) -> Result<Vec<FeatureRecord>, Error> {
@@ -65,6 +72,8 @@ struct Placement {
     x: f64,
     y: f64,
     angle: f64,
+    /// X 軸の向きの単位の値
+    axis: [f64; 2],
 }
 
 /// トリムの値。媒介変数（PARAMETER_VALUE）か点
@@ -80,6 +89,7 @@ struct Builder<'f> {
     out: Vec<FeatureRecord>,
     colors: BTreeMap<u64, i64>,
     line_types: BTreeMap<u64, i64>,
+    fonts: BTreeMap<u64, i64>,
     /// 利用者定義線幅（mm）。コードは 11 から
     widths: Vec<f64>,
     /// 要素（表記の実体）からレイヤのコードへ
@@ -104,6 +114,7 @@ impl<'f> Builder<'f> {
             out: Vec::new(),
             colors: BTreeMap::new(),
             line_types: BTreeMap::new(),
+            fonts: BTreeMap::new(),
             widths: Vec::new(),
             layer_of: BTreeMap::new(),
         }
@@ -230,14 +241,20 @@ impl<'f> Builder<'f> {
     fn placement(&self, id: Option<u64>) -> Option<Placement> {
         let args = self.args(id, "AXIS2_PLACEMENT_2D")?;
         let [x, y] = self.point(reference(args.get(1)))?;
-        let angle = match reference(args.get(2)) {
-            None => 0.0,
-            Some(direction) => {
-                let [dx, dy] = self.direction(Some(direction))?;
-                degrees(libm::atan2(dy, dx))
-            }
+        let [dx, dy] = match reference(args.get(2)) {
+            None => [1.0, 0.0],
+            Some(direction) => self.direction(Some(direction))?,
         };
-        Some(Placement { x, y, angle })
+        let length = libm::hypot(dx, dy);
+        if length == 0.0 {
+            return None;
+        }
+        Some(Placement {
+            x,
+            y,
+            angle: degrees(libm::atan2(dy, dx)),
+            axis: [dx / length, dy / length],
+        })
     }
 
     /// 色・線種・文字フォント・レイヤを、番号の順にフィーチャにする。コードは SFC と同じに、書いた順で決まる
@@ -296,8 +313,10 @@ impl<'f> Builder<'f> {
             users += 1;
             self.line_types.insert(id, 16 + users);
         }
-        for (_, instance, args) in self.all("EXTERNALLY_DEFINED_TEXT_FONT") {
+        for (id, instance, args) in self.all("EXTERNALLY_DEFINED_TEXT_FONT") {
             let name = self.text(args.first()).map_or(Arg::Other, Arg::Text);
+            let code = self.fonts.len() as i64 + 1;
+            self.fonts.insert(id, code);
             self.push(
                 instance.record,
                 "text_font",
@@ -388,6 +407,30 @@ impl<'f> Builder<'f> {
             .part(occurrence, "ANNOTATION_CURVE_OCCURRENCE")
             .is_some();
         let (style, geometry) = self.styled(occurrence);
+        let nested = ["ANNOTATION_SUBFIGURE_OCCURRENCE", "DRAUGHTING_CALLOUT"]
+            .iter()
+            .any(|name| self.part(occurrence, name).is_some());
+        if !nested
+            && self
+                .part(occurrence, "ANNOTATION_TEXT_OCCURRENCE")
+                .is_some()
+        {
+            let args = self.text_string(id, style, geometry);
+            self.finish(occurrence, geometry, "text_string", args);
+            return;
+        }
+        if !nested
+            && self
+                .part(occurrence, "ANNOTATION_SYMBOL_OCCURRENCE")
+                .is_some()
+        {
+            let symbol = self.symbol(id, style, geometry);
+            match symbol {
+                Some((name, args)) => self.finish(occurrence, geometry, name, Some(args)),
+                None => self.finish(occurrence, geometry, "", None),
+            }
+            return;
+        }
         let composite = self.has(geometry, "COMPOSITE_CURVE");
         if !curve || composite {
             let kind = if composite {
@@ -410,30 +453,214 @@ impl<'f> Builder<'f> {
             }
             return;
         }
-        let mut args = vec![Arg::Text(
-            self.layer_of
-                .get(&id)
-                .copied()
-                .unwrap_or_default()
-                .to_string(),
-        )];
+        let mut args = vec![self.layer(id)];
         args.extend(
             self.curve_style(style)
                 .map(|code| Arg::Text(code.to_string())),
         );
         match self.curve(geometry, &mut args) {
             Some((name, kind)) => self.push(occurrence.record, name, &kind, args),
-            None => {
-                let kind = geometry
-                    .and_then(|geometry| self.instances.get(&geometry))
-                    .and_then(|instance| instance.parts.first())
-                    .map(|part| {
-                        String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_lowercase()
-                    })
-                    .unwrap_or_else(|| "annotation_curve_occurrence".to_owned());
-                self.push(occurrence.record, "", &kind, Vec::new());
+            None => self.finish(occurrence, geometry, "", None),
+        }
+    }
+
+    /// 組み直した要素を足す。引数がなければ、対象の実体の名前を種類にして、まだ移さないものにする
+    fn finish(
+        &mut self,
+        occurrence: Instance<'f>,
+        target: Option<u64>,
+        name: &str,
+        args: Option<Vec<Arg>>,
+    ) {
+        let kind = target
+            .and_then(|target| self.instances.get(&target))
+            .and_then(|instance| instance.parts.first())
+            .map(|part| String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_lowercase())
+            .unwrap_or_else(|| {
+                let first = occurrence.parts.first().map(Part::name).unwrap_or_default();
+                String::from_utf8_lossy(self.file.bytes(first)).to_ascii_lowercase()
+            });
+        match args {
+            Some(args) => self.push(occurrence.record, name, &kind, args),
+            None => self.push(occurrence.record, "", &kind, Vec::new()),
+        }
+    }
+
+    fn layer(&self, id: u64) -> Arg {
+        Arg::Text(
+            self.layer_of
+                .get(&id)
+                .copied()
+                .unwrap_or_default()
+                .to_string(),
+        )
+    }
+
+    fn color(&self, id: Option<u64>) -> i64 {
+        id.map_or(0, |id| self.colors.get(&id).copied().unwrap_or_default())
+    }
+
+    /// 文字の引数（SFC の text_string と同じ順）。配置基点は、行ごとにずらして書いた点を戻す
+    fn text_string(&self, id: u64, style: Option<u64>, literal: Option<u64>) -> Option<Vec<Arg>> {
+        let args = self
+            .args(literal, "TEXT_LITERAL_WITH_EXTENT")
+            .or_else(|| self.args(literal, "TEXT_LITERAL"))?;
+        let alignment = self.text(args.first()).unwrap_or_default();
+        let alignment = alignment.trim();
+        let mut names = alignment
+            .strip_prefix("$$SXF_")
+            .unwrap_or(alignment)
+            .split_whitespace();
+        let row = names
+            .next()
+            .and_then(|name| {
+                ROWS.iter()
+                    .position(|known| known.eq_ignore_ascii_case(name))
+            })
+            .unwrap_or_default();
+        let column = names
+            .next()
+            .and_then(|name| {
+                COLUMNS
+                    .iter()
+                    .position(|known| known.iter().any(|known| known.eq_ignore_ascii_case(name)))
+            })
+            .unwrap_or_default();
+        let placement = self.placement(reference(args.get(2)));
+        let extent = self.args(reference(args.get(6)), "PLANAR_EXTENT");
+        let width = extent.and_then(|extent| self.number(extent.get(1)));
+        let height = extent.and_then(|extent| self.number(extent.get(2)));
+        let (mut color, mut slant, mut spacing) = (8, 0.0, 0.0);
+        let styles = references(
+            self.args(style, "PRESENTATION_STYLE_ASSIGNMENT")
+                .and_then(<[Value]>::first),
+        );
+        for style in styles {
+            let appearance = self
+                .args(Some(style), "TEXT_STYLE")
+                .and_then(|text| self.args(reference(text.get(1)), "TEXT_STYLE_FOR_DEFINED_FONT"));
+            if let Some(appearance) = appearance {
+                color = self.color(reference(appearance.first()));
+            }
+            let characteristics = self
+                .args(Some(style), "TEXT_STYLE_WITH_BOX_CHARACTERISTICS")
+                .and_then(<[Value]>::first);
+            if let Some(Value::List(characteristics)) = characteristics {
+                for characteristic in characteristics {
+                    if let Value::Typed(part) = characteristic
+                        && self
+                            .file
+                            .bytes(part.name())
+                            .eq_ignore_ascii_case(b"BOX_SLANT_ANGLE")
+                    {
+                        slant = self.number(part.args().first()).map_or(slant, degrees);
+                    }
+                }
+            }
+            if let Some(value) = self
+                .args(Some(style), "TEXT_STYLE_WITH_SPACING")
+                .and_then(<[Value]>::first)
+            {
+                spacing = self.number(Some(value)).unwrap_or(spacing);
             }
         }
+        // 書き手は配置基点を、下・中・上の行ごとに、高さの 1/2・-1/2・-1 だけ文字の上の向きへずらす（推定。
+        // 旧版が同じ図面の SFC と P21 で確かめた）
+        let point = placement.as_ref().zip(height).map(|(p, height)| {
+            let offset = match row {
+                0 => height / 2.0,
+                1 => -height / 2.0,
+                _ => -height,
+            };
+            let [dx, dy] = p.axis;
+            [p.x + dy * offset, p.y - dx * offset]
+        });
+        let font = reference(args.get(5))
+            .map_or(0, |font| self.fonts.get(&font).copied().unwrap_or_default());
+        let down = self.enumeration(args.get(4)) == Some(b"DOWN".as_slice());
+        Some(vec![
+            self.layer(id),
+            Arg::Text(color.to_string()),
+            Arg::Text(font.to_string()),
+            self.text(args.get(1)).map_or(Arg::Other, Arg::Text),
+            num(point.map(|[x, _]| x)),
+            num(point.map(|[_, y]| y)),
+            num(height),
+            num(width),
+            num(Some(spacing)),
+            num(placement.as_ref().map(|p| p.angle)),
+            num(Some(slant)),
+            Arg::Text((row * 3 + column + 1).to_string()),
+            Arg::Text(if down { "2" } else { "1" }.to_owned()),
+        ])
+    }
+
+    /// 点マーカーか既定義シンボルの、フィーチャの名前と引数（SFC と同じ順）
+    fn symbol(
+        &self,
+        id: u64,
+        style: Option<u64>,
+        symbol: Option<u64>,
+    ) -> Option<(&'static str, Vec<Arg>)> {
+        let symbol = self.args(symbol, "DEFINED_SYMBOL")?;
+        let target = self.args(reference(symbol.get(2)), "SYMBOL_TARGET");
+        let placement = self.placement(target.and_then(|target| reference(target.get(1))));
+        let scale = target
+            .and_then(|target| self.number(target.get(2)))
+            .filter(|scale| *scale != 0.0)
+            .unwrap_or(1.0);
+        let mut color = None;
+        let styles = references(
+            self.args(style, "PRESENTATION_STYLE_ASSIGNMENT")
+                .and_then(<[Value]>::first),
+        );
+        for style in styles {
+            let colour = self
+                .args(Some(style), "SYMBOL_STYLE")
+                .and_then(|symbol| self.args(reference(symbol.get(1)), "SYMBOL_COLOUR"));
+            if let Some(colour) = colour {
+                color = Some(self.color(reference(colour.first())));
+            }
+        }
+        let definition = reference(symbol.get(1));
+        let point = [
+            num(placement.as_ref().map(|p| p.x)),
+            num(placement.as_ref().map(|p| p.y)),
+        ];
+        let angle = num(placement.as_ref().map(|p| p.angle));
+        if let Some(marker) = self.args(definition, "PRE_DEFINED_POINT_MARKER_SYMBOL") {
+            let name = self.text(marker.first()).unwrap_or_default();
+            let code = MARKERS
+                .iter()
+                .position(|known| known.eq_ignore_ascii_case(name.trim()))
+                .map_or(Arg::Other, |at| Arg::Text((at + 1).to_string()));
+            let [x, y] = point;
+            let args = vec![
+                self.layer(id),
+                Arg::Text(color.unwrap_or(8).to_string()),
+                x,
+                y,
+                code,
+                angle,
+                num(Some(scale)),
+            ];
+            return Some(("point_marker", args));
+        }
+        if let Some(external) = self.args(definition, "EXTERNALLY_DEFINED_SYMBOL") {
+            let [x, y] = point;
+            let args = vec![
+                self.layer(id),
+                Arg::Text(if color.is_some() { "1" } else { "0" }.to_owned()),
+                Arg::Text(color.unwrap_or_default().to_string()),
+                self.text(external.first()).map_or(Arg::Other, Arg::Text),
+                x,
+                y,
+                angle,
+                num(Some(scale)),
+            ];
+            return Some(("externally_defined_symbol", args));
+        }
+        None
     }
 
     /// STYLED_ITEM の見え方と対象。複合の実体では、名前を REPRESENTATION_ITEM が持つ
@@ -471,8 +698,7 @@ impl<'f> Builder<'f> {
                 self.line_types.get(&id).copied().unwrap_or_default()
             });
             let width = self.width(args.get(2));
-            let color = reference(args.get(3))
-                .map_or(0, |id| self.colors.get(&id).copied().unwrap_or_default());
+            let color = self.color(reference(args.get(3)));
             return [color, line_type, width];
         }
         DEFAULT_STYLE

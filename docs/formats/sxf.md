@@ -6,7 +6,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 
 - SFC と P21。どちらも ISO 10303-21 の交換構造に入る（[決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)）。
 - 圧縮した SFZ・P2Z は、まだ読まない。
-- SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 の文字・寸法・ハッチング・複合図形などは、まだ組み直さない（#193）。
+- SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 の寸法・引出線・バルーン・ハッチング・複合図形などは、まだ組み直さない（#193）。
 
 ## 判定
 
@@ -62,5 +62,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 - 名前が `$$SXF_` で始まる `COLOUR_RGB` は既定義色に、名前が `$$SXF_dummy` で始まるレイヤは複合図形の仮のレイヤとしてレイヤにしない（推定。旧版の扱いを引き継ぐ）。
 - 文字列は ISO 10303-21 のエスケープを戻し、規格の外の 8 ビットのバイトは Shift_JIS として読む（推定）。
 - 用紙は最初の `DRAWING_SHEET_REVISION` で、要素はその並びの順に置く。用紙の名前が `A0`〜`A4` と向き（`horizontal`・`vertical`）でなければ、自由サイズとして `PLANAR_BOX` の大きさを使う。
+- 文字の配置基点は、書き手が下・中・上の行ごとに高さの 1/2・-1/2・-1 だけ文字の上の向きへずらして書くので、戻して SFC の基点にする（推定。旧版が同じ図面の SFC と P21 で確かめた）。9 点の配置は、`TEXT_LITERAL_WITH_EXTENT` の名前の `$$SXF_` の後の行（`baseline`・`middleline`・`topline`）と列（`left`・`centre`・`right`）から読む。斜体の角度と字の間隔は、文字の見え方から読む。
+- 点マーカーは `PRE_DEFINED_POINT_MARKER_SYMBOL` の名前から、既定義シンボルは `EXTERNALLY_DEFINED_SYMBOL` の名前から作る。記号の見え方に色がなければ、点マーカーは白、既定義シンボルはレイヤに従う（推定）。
 - トリムした曲線は、向きが合っていれば反時計回りとし、クロソイドの曲がる向きは実体の名前に書いた 0・1 とする（推定）。
 - 参照の先がない実体は `sxf.p21-reference.missing`、用紙がなければ `sxf.p21-sheet.missing` で報告する。
