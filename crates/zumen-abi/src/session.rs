@@ -8,6 +8,7 @@ use zumen_base::{Ref, codes, name};
 use zumen_drawing::{Drawing2D, Element, Placement, Shape, Unit};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_sdk::{Codec, Lift};
+use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::bounds::{self, Planar};
@@ -48,6 +49,7 @@ pub struct Session {
 enum Doc {
     Dxf(DxfFile),
     Dwg(DwgFile),
+    Sxf(SxfFile),
 }
 
 impl Doc {
@@ -56,6 +58,7 @@ impl Doc {
         match self {
             Doc::Dxf(_) => Dxf::FORMAT,
             Doc::Dwg(_) => Dwg::FORMAT,
+            Doc::Sxf(_) => Sxf::FORMAT,
         }
     }
 
@@ -64,6 +67,7 @@ impl Doc {
         match self {
             Doc::Dxf(file) => file.lift(cx),
             Doc::Dwg(file) => file.lift(cx),
+            Doc::Sxf(file) => file.lift(cx),
         }
     }
 }
@@ -276,6 +280,9 @@ impl Session {
         } else if Dwg::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
             // 読めるのは R2000（AC1015）だけ。ほかの版は、コーデックが診断を足して失敗する
             Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
+        } else if Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+            // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
+            Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?)
         } else {
             cx.check(Kind::InputBytes, bytes.len() as u64)
                 .map_err(|stop| stopped(cx, stop))?;
@@ -422,16 +429,20 @@ fn capabilities() -> CapabilitiesResult {
             minor: SCHEMA_MINOR,
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
-        formats: [Dxf::FORMAT, Dwg::FORMAT]
-            .into_iter()
-            .map(|id| Format {
-                id: id.to_string(),
-                family: "acad".to_string(),
-                read: true,
-                write: false,
-                id_rules: 1,
-            })
-            .collect(),
+        formats: [
+            (Dxf::FORMAT, "acad"),
+            (Dwg::FORMAT, "acad"),
+            (Sxf::FORMAT, "sxf"),
+        ]
+        .into_iter()
+        .map(|(id, family)| Format {
+            id: id.to_string(),
+            family: family.to_string(),
+            read: true,
+            write: false,
+            id_rules: 1,
+        })
+        .collect(),
     }
 }
 
@@ -875,7 +886,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":3}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":3}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
