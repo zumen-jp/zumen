@@ -6,7 +6,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 
 - SFC と P21。どちらも ISO 10303-21 の交換構造に入る（[決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)）。
 - 圧縮した SFZ・P2Z は、まだ読まない。
-- SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 のハッチング・複合曲線・複合図形などは、まだ組み直さない（#193）。
+- SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 の組み直しは、下の「P21 の組み直し」に記録する。
 
 ## 判定
 
@@ -67,4 +67,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 - 寸法は `DRAUGHTING_CALLOUT` の中の寸法線（`DIMENSION_CURVE`）の線の見え方とレイヤを使う。寸法補助線（`PROJECTION_CURVE`）は名前（`$$SXF_prj_1`・`$$SXF_prj_2`）の順に読み、基点は `LINE` の点とする。矢印の向きは、端末記号の X 軸が寸法線の外向きなら 1、内向きなら 2 とする。円弧の寸法の外向きは、始めの側を時計回り、終わりの側を反時計回りの接線とする（推定。旧版の書き手と同じ向き）。寸法値だけの `STRUCTURED_DIMENSION_CALLOUT` は要素にしない。
 - 引出線とバルーンは `LEADER_DIRECTED_CALLOUT` で、引出線（`LEADER_CURVE`）の折れ線と、引出線でない円の要素をバルーンの円とする。矢印の名前は `PRE_DEFINED_TERMINATOR_SYMBOL` の名前から矢印のコードにし、名前が表にない矢印は open arrow とする（推定）。
 - トリムした曲線は、向きが合っていれば反時計回りとし、クロソイドの曲がる向きは実体の名前に書いた 0・1 とする（推定）。
+- 複合曲線は、ハッチングの外形と中抜きから引く。線の見え方とレイヤと表示の可否は、複合曲線を指す `ANNOTATION_CURVE_OCCURRENCE` から読む。SFC の変換は複合曲線にその前の要素をまとめるので、複合曲線は図形の並びの先に置く（推定。P21 は複合曲線を置く所を持たない）。
+- 複合図形の定義（`DRAUGHTING_SUBFIGURE_REPRESENTATION`）は、名前の接頭語（`$$SXF_FM_`・`$$SXF_FG_`・`$$SXF_G_`・`$$SXF_P_`）から種類を決め、接頭語がなければ作図グループとする（推定。旧版の扱いを引き継ぐ）。定義は、中の定義から先に、用紙の要素より前に置く。属性付加機構の名前は、接頭語を除いた名前のまま SFC と同じに扱う。
+- タイルのハッチングは、最初の `FILL_AREA_STYLE_TILE_SYMBOL_WITH_STYLE` の外部定義の記号から、名前・色・基点・倍率・角度を読む。
 - 参照の先がない実体は `sxf.p21-reference.missing`、用紙がなければ `sxf.p21-sheet.missing` で報告する。

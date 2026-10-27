@@ -35,10 +35,23 @@ const COLORS: [&str; 16] = [
 /// 曲線の見え方がないときの色・線種・線幅のコード
 const DEFAULT_STYLE: [i64; 3] = [8, 1, 1];
 
-/// 用紙の要素のうち、まだ組み直さない表記の種類。どれでもなければ、実体の最初の部分の名前を種類にする
-const NOT_YET: [&str; 2] = [
-    "annotation_subfigure_occurrence",
-    "annotation_fill_area_occurrence",
+/// 複合図形の名前の接頭語と、SFC の複合図形の種類のコード。接頭語がなければ作図グループ（3）とする
+const SUBFIGURES: [(&str, i64); 4] = [
+    ("$$SXF_FM_", 1),
+    ("$$SXF_FG_", 2),
+    ("$$SXF_G_", 3),
+    ("$$SXF_P_", 4),
+];
+
+/// 複合図形の定義の入れ子の上限
+const MAX_DEPTH: usize = 64;
+
+/// ハッチングのフィーチャの名前。最後の 3 つの引数が、外形と中抜きの複合曲線の番号
+const FILLS: [&str; 4] = [
+    "fill_area_style_colour",
+    "fill_area_style_hatching",
+    "fill_area_style_tiles",
+    "externally_defined_hatch",
 ];
 
 /// 矢印（端末記号）のコード 1〜11 の名前
@@ -69,12 +82,50 @@ const ROWS: [&str; 3] = ["baseline", "middleline", "topline"];
 const COLUMNS: [&[&str]; 3] = [&["left"], &["centre", "center"], &["right"]];
 
 /// P21 の実体を、フィーチャのレコードに組み直す
+///
+/// SFC の変換は、複合曲線と複合図形の定義に、その前にある要素をまとめる。複合図形の定義を先に、複合曲線を
+/// その図形の並びの先に書き、ほかの要素がまとめられないようにする
 pub(crate) fn records(file: &SxfFile, cx: &mut Cx) -> Result<Vec<FeatureRecord>, Error> {
     let mut builder = Builder::new(file);
     builder.check_references(cx)?;
     builder.tables(cx)?;
+    let mut out = core::mem::take(&mut builder.out);
     builder.sheet(cx)?;
-    Ok(builder.out)
+    out.append(&mut builder.definitions);
+    out.append(&mut builder.front);
+    out.append(&mut builder.out);
+    number_composites(&mut out);
+    Ok(out)
+}
+
+/// ハッチングの外形と中抜きに書いた複合曲線のレコードを、複合曲線の番号（書いた順に 1 から）にする
+fn number_composites(out: &mut [FeatureRecord]) {
+    let composites: Vec<usize> = out
+        .iter()
+        .filter(|record| record.name == "composite_curve_org")
+        .map(|record| record.record)
+        .collect();
+    let number = |arg: &mut Arg| {
+        if let Arg::Text(text) = arg
+            && let Ok(record) = text.parse::<usize>()
+        {
+            let at = composites.iter().position(|known| *known == record);
+            *text = at.map_or(0, |at| at + 1).to_string();
+        }
+    };
+    for record in out
+        .iter_mut()
+        .filter(|record| FILLS.contains(&record.name.as_str()))
+    {
+        let at = record.args.len().saturating_sub(3);
+        let mut region = record.args.iter_mut().skip(at);
+        if let Some(outer) = region.next() {
+            number(outer);
+        }
+        if let Some(Arg::List(inner)) = region.nth(1) {
+            inner.iter_mut().for_each(number);
+        }
+    }
 }
 
 /// 番号で引く実体
@@ -120,6 +171,17 @@ struct Builder<'f> {
     widths: Vec<f64>,
     /// 要素（表記の実体）からレイヤのコードへ
     layer_of: BTreeMap<u64, i64>,
+    /// 複合図形の定義のレコード。用紙の要素より前に書く
+    definitions: Vec<FeatureRecord>,
+    /// いま組み直している図形の並びの、複合曲線のレコード。並びの先に書く
+    front: Vec<FeatureRecord>,
+    /// 組み直した複合図形の定義（DRAUGHTING_SUBFIGURE_REPRESENTATION）の名前
+    subfigures: BTreeMap<u64, String>,
+    /// 組み直した複合曲線（COMPOSITE_CURVE）
+    composites: Vec<u64>,
+    /// 非表示にする要素（INVISIBILITY）
+    invisible: Vec<u64>,
+    depth: usize,
 }
 
 impl<'f> Builder<'f> {
@@ -143,6 +205,12 @@ impl<'f> Builder<'f> {
             fonts: BTreeMap::new(),
             widths: Vec::new(),
             layer_of: BTreeMap::new(),
+            definitions: Vec::new(),
+            front: Vec::new(),
+            subfigures: BTreeMap::new(),
+            composites: Vec::new(),
+            invisible: Vec::new(),
+            depth: 0,
         }
     }
 
@@ -355,6 +423,7 @@ impl<'f> Builder<'f> {
             .into_iter()
             .flat_map(|(_, _, args)| references(args.first()))
             .collect();
+        self.invisible.clone_from(&invisible);
         let mut code = 0;
         for (id, instance, args) in self.all("PRESENTATION_LAYER_ASSIGNMENT") {
             let name = self.text(args.first()).unwrap_or_default();
@@ -433,6 +502,34 @@ impl<'f> Builder<'f> {
             .part(occurrence, "ANNOTATION_CURVE_OCCURRENCE")
             .is_some();
         let (style, geometry) = self.styled(occurrence);
+        if self
+            .part(occurrence, "ANNOTATION_SUBFIGURE_OCCURRENCE")
+            .is_some()
+        {
+            let args = self.subfigure(id, geometry);
+            self.finish(occurrence, geometry, "sfig_locate", args);
+            return;
+        }
+        if self
+            .part(occurrence, "ANNOTATION_FILL_AREA_OCCURRENCE")
+            .is_some()
+        {
+            match self.fill(id, style, geometry) {
+                Some((name, args)) => self.push(
+                    occurrence.record,
+                    name,
+                    "annotation_fill_area_occurrence",
+                    args,
+                ),
+                None => self.push(
+                    occurrence.record,
+                    "",
+                    "annotation_fill_area_occurrence",
+                    Vec::new(),
+                ),
+            }
+            return;
+        }
         if self.part(occurrence, "DRAUGHTING_CALLOUT").is_some() {
             self.callout(occurrence);
             return;
@@ -444,22 +541,17 @@ impl<'f> Builder<'f> {
             self.callout(callout);
             return;
         }
-        let nested = ["ANNOTATION_SUBFIGURE_OCCURRENCE", "DRAUGHTING_CALLOUT"]
-            .iter()
-            .any(|name| self.part(occurrence, name).is_some());
-        if !nested
-            && self
-                .part(occurrence, "ANNOTATION_TEXT_OCCURRENCE")
-                .is_some()
+        if self
+            .part(occurrence, "ANNOTATION_TEXT_OCCURRENCE")
+            .is_some()
         {
             let args = self.text_string(id, style, geometry);
             self.finish(occurrence, geometry, "text_string", args);
             return;
         }
-        if !nested
-            && self
-                .part(occurrence, "ANNOTATION_SYMBOL_OCCURRENCE")
-                .is_some()
+        if self
+            .part(occurrence, "ANNOTATION_SYMBOL_OCCURRENCE")
+            .is_some()
         {
             let symbol = self.symbol(id, style, geometry);
             match symbol {
@@ -468,22 +560,19 @@ impl<'f> Builder<'f> {
             }
             return;
         }
-        let composite = self.has(geometry, "COMPOSITE_CURVE");
-        if !curve || composite {
-            let kind = if composite {
-                Some("composite_curve".to_owned())
-            } else {
-                NOT_YET
-                    .iter()
-                    .find(|name| self.part(occurrence, name).is_some())
-                    .map(|name| (*name).to_owned())
-                    .or_else(|| {
-                        // 見え方を持つほかの要素も、まだ移さない
-                        self.styled_args(occurrence)?;
-                        let first = occurrence.parts.first().map(Part::name)?;
-                        Some(String::from_utf8_lossy(self.file.bytes(first)).to_ascii_lowercase())
-                    })
-            };
+        if curve
+            && let Some(composite) = geometry.filter(|id| self.has(Some(*id), "COMPOSITE_CURVE"))
+        {
+            // 複合曲線は、並びの先に置く
+            self.composite(composite, self.layer(id));
+            return;
+        }
+        if !curve {
+            // 見え方を持つほかの要素は、まだ移さない
+            let kind = self.styled_args(occurrence).and_then(|_| {
+                let first = occurrence.parts.first().map(Part::name)?;
+                Some(String::from_utf8_lossy(self.file.bytes(first)).to_ascii_lowercase())
+            });
             // 見え方を持たない要素（用紙の枠の PLANAR_BOX など）は、図形にしない
             if let Some(kind) = kind {
                 self.push(occurrence.record, "", &kind, Vec::new());
@@ -499,6 +588,264 @@ impl<'f> Builder<'f> {
             Some((name, kind)) => self.push(occurrence.record, name, &kind, args),
             None => self.finish(occurrence, geometry, "", None),
         }
+    }
+
+    /// 複合図形の配置（SFC の sfig_locate と同じ順）
+    fn subfigure(&mut self, id: u64, mapped: Option<u64>) -> Option<Vec<Arg>> {
+        let mapped = self.args(mapped, "MAPPED_ITEM")?;
+        // 単純な実体は名前を先に持つ
+        let at = usize::from(mapped.len() >= 3);
+        let map = self.args(reference(mapped.get(at)), "SYMBOL_REPRESENTATION_MAP")?;
+        let target = self.args(reference(mapped.get(at + 1)), "SYMBOL_TARGET")?;
+        let name = self.definition(reference(map.get(1))?)?;
+        let placement = self.placement(reference(target.get(1)))?;
+        Some(vec![
+            self.layer(id),
+            Arg::Text(name),
+            num(Some(placement.x)),
+            num(Some(placement.y)),
+            num(Some(placement.angle)),
+            num(self.number(target.get(2))),
+            num(self.number(target.get(3))),
+        ])
+    }
+
+    /// 複合図形の定義を組み直して、名前を返す。要素と複合曲線をまとめて、定義のレコードに書く
+    fn definition(&mut self, id: u64) -> Option<String> {
+        if let Some(name) = self.subfigures.get(&id) {
+            return Some(name.clone());
+        }
+        let instance = *self.instances.get(&id)?;
+        let args = self.part(instance, "DRAUGHTING_SUBFIGURE_REPRESENTATION")?;
+        if self.depth >= MAX_DEPTH {
+            return None;
+        }
+        let full = self.text(args.first()).unwrap_or_default();
+        let (name, flag) = SUBFIGURES
+            .iter()
+            .find_map(|(prefix, flag)| Some((full.strip_prefix(prefix)?.to_owned(), *flag)))
+            .unwrap_or((full, 3));
+        // 輪になる配置は、名前だけで指す
+        self.subfigures.insert(id, name.clone());
+        let out = core::mem::take(&mut self.out);
+        let front = core::mem::take(&mut self.front);
+        self.depth += 1;
+        for item in references(args.get(1)) {
+            if let Some(occurrence) = self.instances.get(&item).copied() {
+                self.item(item, occurrence);
+            }
+        }
+        self.depth -= 1;
+        let mut members = core::mem::replace(&mut self.front, front);
+        members.append(&mut core::mem::replace(&mut self.out, out));
+        self.definitions.append(&mut members);
+        self.definitions.push(FeatureRecord {
+            record: instance.record,
+            name: "sfig_org".to_owned(),
+            kind: "draughting_subfigure_representation".to_owned(),
+            args: vec![Arg::Text(name.clone()), Arg::Text(flag.to_string())],
+        });
+        Some(name)
+    }
+
+    /// 複合曲線を、いまの並びの先に書く。曲線の見え方とレイヤは、複合曲線を指す曲線の要素から読み、
+    /// なければ `layer` にする
+    fn composite(&mut self, id: u64, layer: Arg) {
+        if self.composites.contains(&id) {
+            return;
+        }
+        self.composites.push(id);
+        let Some(instance) = self.instances.get(&id).copied() else {
+            return;
+        };
+        let occurrence = self
+            .instances
+            .iter()
+            .filter(|(_, candidate)| {
+                self.part(**candidate, "ANNOTATION_CURVE_OCCURRENCE")
+                    .is_some()
+            })
+            .find(|(_, candidate)| self.styled(**candidate).1 == Some(id))
+            .map(|(occurrence, candidate)| (*occurrence, *candidate));
+        let (layer, style, visible) = match occurrence {
+            Some((occurrence, candidate)) => (
+                self.layer(occurrence),
+                self.curve_style(self.styled(candidate).0),
+                !self.invisible.contains(&occurrence),
+            ),
+            None => (layer, DEFAULT_STYLE, true),
+        };
+        let segments = references(
+            self.part(instance, "COMPOSITE_CURVE")
+                .and_then(|args| args.get(1)),
+        );
+        for segment in segments {
+            let parent = self
+                .args(Some(segment), "COMPOSITE_CURVE_SEGMENT")
+                .and_then(|args| reference(args.get(2)));
+            let mut args = vec![layer.clone()];
+            args.extend(style.map(|code| Arg::Text(code.to_string())));
+            let record = parent
+                .and_then(|parent| self.instances.get(&parent))
+                .map_or(instance.record, |parent| parent.record);
+            let (name, kind, args) = match self.curve(parent, &mut args) {
+                Some((name, kind)) => (name.to_owned(), kind, args),
+                None => (
+                    String::new(),
+                    "composite_curve_segment".to_owned(),
+                    Vec::new(),
+                ),
+            };
+            self.front.push(FeatureRecord {
+                record,
+                name,
+                kind,
+                args,
+            });
+        }
+        let mut args: Vec<Arg> = style
+            .iter()
+            .map(|code| Arg::Text(code.to_string()))
+            .collect();
+        args.push(Arg::Text(if visible { "1" } else { "0" }.to_owned()));
+        self.front.push(FeatureRecord {
+            record: instance.record,
+            name: "composite_curve_org".to_owned(),
+            kind: "composite_curve".to_owned(),
+            args,
+        });
+    }
+
+    /// ハッチングの、フィーチャの名前と引数（SFC と同じ順）。外形と中抜きは、複合曲線のレコードで書き、
+    /// 最後に複合曲線の番号にする
+    fn fill(
+        &mut self,
+        id: u64,
+        style: Option<u64>,
+        area: Option<u64>,
+    ) -> Option<(&'static str, Vec<Arg>)> {
+        let boundaries: Vec<u64> = references(self.args(area, "ANNOTATION_FILL_AREA")?.get(1))
+            .into_iter()
+            .filter(|boundary| self.has(Some(*boundary), "COMPOSITE_CURVE"))
+            .collect();
+        let (outer, inner) = boundaries.split_first()?;
+        let layer = self.layer(id);
+        for boundary in &boundaries {
+            self.composite(*boundary, layer.clone());
+        }
+        let record = |id: &u64| {
+            Arg::Text(
+                self.instances
+                    .get(id)
+                    .map_or(0, |instance| instance.record)
+                    .to_string(),
+            )
+        };
+        let region = [
+            record(outer),
+            Arg::Text(inner.len().to_string()),
+            Arg::List(inner.iter().map(record).collect()),
+        ];
+        let fills = references(
+            self.args(style, "PRESENTATION_STYLE_ASSIGNMENT")
+                .and_then(<[Value]>::first),
+        )
+        .into_iter()
+        .filter_map(|style| self.args(Some(style), "FILL_AREA_STYLE"))
+        .flat_map(|args| references(args.get(1)))
+        .collect::<Vec<u64>>();
+        let mut patterns = Vec::new();
+        let mut args = vec![layer];
+        for fill in fills {
+            if let Some(colour) = self.args(Some(fill), "FILL_AREA_STYLE_COLOUR") {
+                args.push(Arg::Text(self.color(reference(colour.get(1))).to_string()));
+                args.extend(region);
+                return Some(("fill_area_style_colour", args));
+            }
+            if let Some(external) = self.args(Some(fill), "EXTERNALLY_DEFINED_HATCH_STYLE") {
+                args.push(self.text(external.first()).map_or(Arg::Other, Arg::Text));
+                args.extend(region);
+                return Some(("externally_defined_hatch", args));
+            }
+            if let Some(tiles) = self.args(Some(fill), "FILL_AREA_STYLE_TILES") {
+                args.extend(self.tiles(tiles)?);
+                args.extend(region);
+                return Some(("fill_area_style_tiles", args));
+            }
+            if let Some(hatching) = self.args(Some(fill), "FILL_AREA_STYLE_HATCHING") {
+                patterns.push(self.hatching(hatching)?);
+            }
+        }
+        if patterns.is_empty() {
+            return None;
+        }
+        args.push(Arg::Text(patterns.len().to_string()));
+        args.extend(patterns);
+        args.extend(region);
+        Some(("fill_area_style_hatching", args))
+    }
+
+    /// ハッチングの線の 1 本。色・線種・線幅のコード、通る点、間隔、角度（度）
+    fn hatching(&mut self, hatching: &'f [Value]) -> Option<Arg> {
+        let style = self.args(reference(hatching.get(1)), "CURVE_STYLE")?;
+        let line_type = reference(style.get(1)).map_or(1, |id| {
+            self.line_types.get(&id).copied().unwrap_or_default()
+        });
+        let width = self.width(style.get(2));
+        let color = self.color(reference(style.get(3)));
+        let repeat = self.args(reference(hatching.get(2)), "ONE_DIRECTION_REPEAT_FACTOR")?;
+        let vector = self.args(reference(repeat.get(1)), "VECTOR")?;
+        let [x, y] = self.point(reference(hatching.get(3)))?;
+        let mut values: Vec<Arg> = [color, line_type, width]
+            .iter()
+            .map(|code| Arg::Text(code.to_string()))
+            .collect();
+        values.extend([
+            num(Some(x)),
+            num(Some(y)),
+            num(self.number(vector.get(2))),
+            num(self.number(hatching.get(5)).map(degrees)),
+        ]);
+        Some(Arg::List(values))
+    }
+
+    /// タイルのハッチングの、名前から角度までの引数。タイルの記号は、最初の外部定義の記号とする
+    fn tiles(&self, tiles: &'f [Value]) -> Option<Vec<Arg>> {
+        let repeat = self.args(reference(tiles.get(1)), "TWO_DIRECTION_REPEAT_FACTOR")?;
+        let vector = |at: usize| -> Option<[Arg; 2]> {
+            let vector = self.args(reference(repeat.get(at)), "VECTOR")?;
+            let [dx, dy] = self.direction(reference(vector.get(1)))?;
+            Some([
+                num(self.number(vector.get(2))),
+                num(Some(degrees(libm::atan2(dy, dx)))),
+            ])
+        };
+        let [first, first_angle] = vector(1)?;
+        let [second, second_angle] = vector(2)?;
+        let tile = references(tiles.get(2))
+            .into_iter()
+            .find_map(|tile| self.args(Some(tile), "FILL_AREA_STYLE_TILE_SYMBOL_WITH_STYLE"))?;
+        let occurrence = *self.instances.get(&reference(tile.get(1))?)?;
+        let (style, defined) = self.styled(occurrence);
+        let target = self
+            .args(defined, "DEFINED_SYMBOL")
+            .and_then(|symbol| self.args(reference(symbol.get(2)), "SYMBOL_TARGET"))?;
+        let (_, symbol) = self.symbol(0, style, defined)?;
+        // 外部定義の記号の引数は、レイヤ・色の有無・色・名前・X・Y・角度・倍率
+        let [_, _, color, name, x, y, angle, _] = <[Arg; 8]>::try_from(symbol).ok()?;
+        Some(vec![
+            name,
+            color,
+            x,
+            y,
+            first,
+            first_angle,
+            second,
+            second_angle,
+            num(self.number(target.get(2))),
+            num(self.number(target.get(3))),
+            angle,
+        ])
     }
 
     /// 組み直した要素を足す。引数がなければ、対象の実体の名前を種類にして、まだ移さないものにする

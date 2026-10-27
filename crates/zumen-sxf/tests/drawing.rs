@@ -887,6 +887,18 @@ fn p21(instances: &str) -> Vec<u8> {
     format!("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n{instances}ENDSEC;\nEND-ISO-10303-21;\n").into_bytes()
 }
 
+#[cfg(test)]
+fn unsource<P>(elements: &mut [zumen_drawing::Element<P>]) {
+    for element in elements {
+        element.source = Ref::default();
+        if let Shape::Hatch(hatch) = &mut element.shape {
+            for hatch_loop in &mut hatch.loops {
+                hatch_loop.sources.clear();
+            }
+        }
+    }
+}
+
 /// 出どころを除いた図面モデル。SFC と P21 の比較に使う
 #[cfg(test)]
 fn unsourced(mut drawing: Drawing2D) -> Drawing2D {
@@ -899,13 +911,21 @@ fn unsourced(mut drawing: Drawing2D) -> Drawing2D {
     for extension in &mut drawing.extensions {
         extension.source = Ref::default();
         if let zumen_drawing::Basis::Paper(element) = &mut extension.basis {
-            element.source = Ref::default();
+            unsource(core::slice::from_mut(element));
         }
     }
     for sheet in &mut drawing.sheets {
-        for element in &mut sheet.elements {
-            element.source = Ref::default();
+        unsource(&mut sheet.elements);
+        for view in &mut sheet.views {
+            view.source = Ref::default();
         }
+    }
+    for space in &mut drawing.spaces {
+        unsource(&mut space.elements);
+    }
+    for symbol in &mut drawing.symbols {
+        symbol.source = Ref::default();
+        unsource(&mut symbol.space.elements);
     }
     drawing
 }
@@ -1227,5 +1247,186 @@ fn moves_p21_dimensions_and_callouts_like_the_same_sfc() {
     assert!(sfc_diag.is_empty(), "{sfc_diag:?}");
     assert!(diag.is_empty(), "{diag:?}");
     assert_eq!(from_p21.sheets[0].elements.len(), 5);
+    assert_eq!(unsourced(from_p21), unsourced(from_sfc));
+}
+
+#[test]
+fn moves_p21_hatches_and_composite_curves_like_the_same_sfc() {
+    let sfc = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"line_feature('1','2','1','1','0','0','10','0')",
+        b"polyline_feature('1','2','1','1','3','(10,10,0)','(0,10,10)')",
+        b"composite_curve_org_feature('2','1','1','1')",
+        b"circle_feature('1','1','1','1','5','5','1')",
+        b"composite_curve_org_feature('1','1','1','0')",
+        b"fill_area_style_colour_feature('1','3','1','1','(2)')",
+        b"fill_area_style_hatching_feature('1','1','(4,1,1,0,0,2,90)','1','0','()')",
+        b"externally_defined_hatch_feature('1',\\'Area_control\\','1','0','()')",
+        b"fill_area_style_tiles_feature('1',\\'P\\','2','0','0','1','0','1','90','2','2','90','1','0','()')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    // 複合曲線は用紙の要素として並べず、ハッチングの外形と中抜きから引く
+    let p21 = p21(concat!(
+        "#1=DRAUGHTING_PRE_DEFINED_COLOUR('black');\n",
+        "#2=DRAUGHTING_PRE_DEFINED_COLOUR('red');\n",
+        "#3=DRAUGHTING_PRE_DEFINED_COLOUR('green');\n",
+        "#4=DRAUGHTING_PRE_DEFINED_COLOUR('blue');\n",
+        "#5=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n",
+        "#6=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n",
+        "#7=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.13),#6);\n",
+        "#8=CURVE_STYLE(' ',#5,#7,#2);\n",
+        "#9=PRESENTATION_STYLE_ASSIGNMENT((#8));\n",
+        "#10=CURVE_STYLE(' ',#5,#7,#1);\n",
+        "#11=PRESENTATION_STYLE_ASSIGNMENT((#10));\n",
+        "#12=DIRECTION(' ',(1.,0.));\n",
+        "#13=DIRECTION(' ',(0.,1.));\n",
+        "#20=CARTESIAN_POINT(' ',(0.,0.));\n",
+        "#21=CARTESIAN_POINT(' ',(10.,0.));\n",
+        "#22=VECTOR(' ',#12,1.);\n",
+        "#23=LINE(' ',#20,#22);\n",
+        "#24=TRIMMED_CURVE(' ',#23,(#20),(#21),.T.,.CARTESIAN.);\n",
+        "#25=CARTESIAN_POINT(' ',(10.,10.));\n",
+        "#26=CARTESIAN_POINT(' ',(0.,10.));\n",
+        "#27=POLYLINE(' ',(#21,#25,#26));\n",
+        "#28=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#24);\n",
+        "#29=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#27);\n",
+        "#30=COMPOSITE_CURVE(' ',(#28,#29),.F.);\n",
+        "#31=ANNOTATION_CURVE_OCCURRENCE(' ',(#9),#30);\n",
+        "#32=CARTESIAN_POINT(' ',(5.,5.));\n",
+        "#33=AXIS2_PLACEMENT_2D(' ',#32,#12);\n",
+        "#34=CIRCLE(' ',#33,1.);\n",
+        "#35=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#34);\n",
+        "#36=COMPOSITE_CURVE(' ',(#35),.F.);\n",
+        "#37=ANNOTATION_CURVE_OCCURRENCE(' ',(#11),#36);\n",
+        "#38=INVISIBILITY((#37));\n",
+        "#40=FILL_AREA_STYLE_COLOUR(' ',#3);\n",
+        "#41=FILL_AREA_STYLE(' ',(#40));\n",
+        "#42=PRESENTATION_STYLE_ASSIGNMENT((#41));\n",
+        "#43=ANNOTATION_FILL_AREA(' ',(#30,#36));\n",
+        "#44=ANNOTATION_FILL_AREA_OCCURRENCE(' ',(#42),#43,#20);\n",
+        "#50=CURVE_STYLE(' ',#5,#7,#4);\n",
+        "#51=DIRECTION(' ',(-1.,0.));\n",
+        "#52=VECTOR(' ',#51,2.);\n",
+        "#53=ONE_DIRECTION_REPEAT_FACTOR(' ',#52);\n",
+        "#54=FILL_AREA_STYLE_HATCHING(' ',#50,#53,#20,#20,1.5707963267948966);\n",
+        "#55=FILL_AREA_STYLE(' ',(#54));\n",
+        "#56=PRESENTATION_STYLE_ASSIGNMENT((#55));\n",
+        "#57=ANNOTATION_FILL_AREA(' ',(#30));\n",
+        "#58=ANNOTATION_FILL_AREA_OCCURRENCE(' ',(#56),#57,#20);\n",
+        "#60=EXTERNALLY_DEFINED_HATCH_STYLE(IDENTIFIER('Area_control'),$,' ');\n",
+        "#61=FILL_AREA_STYLE(' ',(#60));\n",
+        "#62=PRESENTATION_STYLE_ASSIGNMENT((#61));\n",
+        "#63=ANNOTATION_FILL_AREA_OCCURRENCE(' ',(#62),#57,#20);\n",
+        "#70=SYMBOL_COLOUR(#2);\n",
+        "#71=SYMBOL_STYLE(' ',#70);\n",
+        "#72=PRESENTATION_STYLE_ASSIGNMENT((#71));\n",
+        "#73=AXIS2_PLACEMENT_2D(' ',#20,#13);\n",
+        "#74=SYMBOL_TARGET(' ',#73,2.,2.);\n",
+        "#75=EXTERNALLY_DEFINED_SYMBOL(IDENTIFIER('P'),$);\n",
+        "#76=DEFINED_SYMBOL(' ',#75,#74);\n",
+        "#77=ANNOTATION_SYMBOL_OCCURRENCE(' ',(#72),#76);\n",
+        "#78=FILL_AREA_STYLE_TILE_SYMBOL_WITH_STYLE(' ',#77);\n",
+        "#79=VECTOR(' ',#12,1.);\n",
+        "#80=VECTOR(' ',#13,1.);\n",
+        "#81=TWO_DIRECTION_REPEAT_FACTOR(' ',#79,#80);\n",
+        "#82=FILL_AREA_STYLE_TILES(' ',#81,(#78),1.);\n",
+        "#83=FILL_AREA_STYLE(' ',(#82));\n",
+        "#84=PRESENTATION_STYLE_ASSIGNMENT((#83));\n",
+        "#85=ANNOTATION_FILL_AREA_OCCURRENCE(' ',(#84),#57,#20);\n",
+        "#90=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#31,#37,#44,#58,#63,#85));\n",
+        "#91=DRAWING_SHEET_REVISION('A3_horizontal',(#44,#58,#63,#85),$,'01');\n",
+        "#92=DRAUGHTING_TITLE((),'JAPANESE','S');\n",
+    ));
+    let (from_sfc, sfc_diag) = lift(&sfc);
+    let (from_p21, diag) = lift(&p21);
+    assert!(sfc_diag.is_empty(), "{sfc_diag:?}");
+    assert!(diag.is_empty(), "{diag:?}");
+    assert_eq!(from_p21.sheets[0].elements.len(), 6);
+    assert_eq!(unsourced(from_p21), unsourced(from_sfc));
+}
+
+#[test]
+fn moves_p21_subfigures_and_attributes_like_the_same_sfc() {
+    // 複合図形の定義は、中の定義から先に書く
+    let sfc = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"line_feature('1','1','1','1','0','0','5','5')",
+        b"sfig_org_feature(\\'B\\','1')",
+        b"line_feature('1','1','1','1','0','0','1','0')",
+        b"sfig_org_feature(\\'P\\','4')",
+        b"sfig_locate_feature('1',\\'B\\','10','0','0','1','1')",
+        b"sfig_locate_feature('1',\\'P\\','2','3','90','2','2')",
+        b"sfig_org_feature(\\'A\\','1')",
+        b"line_feature('1','1','1','1','0','0','0','1')",
+        b"sfig_org_feature(\\'$$ATRU$$1$$contour$$height$$12.5\\','3')",
+        b"sfig_locate_feature('1',\\'A\\','100','50','0','2','2')",
+        b"sfig_locate_feature('1',\\'$$ATRU$$1$$contour$$height$$12.5\\','0','0','0','1','1')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let p21 = p21(concat!(
+        "#1=DRAUGHTING_PRE_DEFINED_COLOUR('black');\n",
+        "#2=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n",
+        "#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n",
+        "#4=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.13),#3);\n",
+        "#5=CURVE_STYLE(' ',#2,#4,#1);\n",
+        "#6=PRESENTATION_STYLE_ASSIGNMENT((#5));\n",
+        "#7=PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)));\n",
+        "#8=DIRECTION(' ',(1.,0.));\n",
+        "#9=DIRECTION(' ',(0.,1.));\n",
+        "#10=CARTESIAN_POINT(' ',(0.,0.));\n",
+        "#11=AXIS2_PLACEMENT_2D(' ',#10,#8);\n",
+        "#12=GEOMETRIC_REPRESENTATION_CONTEXT(' ',' ',2);\n",
+        "#20=CARTESIAN_POINT(' ',(5.,5.));\n",
+        "#21=POLYLINE(' ',(#10,#20));\n",
+        "#22=CARTESIAN_POINT(' ',(1.,0.));\n",
+        "#23=VECTOR(' ',#8,1.);\n",
+        "#24=LINE(' ',#10,#23);\n",
+        "#25=TRIMMED_CURVE(' ',#24,(#10),(#22),.T.,.CARTESIAN.);\n",
+        "#26=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#25);\n",
+        "#27=CARTESIAN_POINT(' ',(0.,1.));\n",
+        "#28=VECTOR(' ',#9,1.);\n",
+        "#29=LINE(' ',#10,#28);\n",
+        "#30=TRIMMED_CURVE(' ',#29,(#10),(#27),.T.,.CARTESIAN.);\n",
+        "#31=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#30);\n",
+        "#32=VECTOR(' ',#8,7.0710678118654755);\n",
+        "#33=DIRECTION(' ',(0.7071067811865475,0.7071067811865475));\n",
+        "#34=VECTOR(' ',#33,1.);\n",
+        "#35=LINE(' ',#10,#34);\n",
+        "#36=TRIMMED_CURVE(' ',#35,(#10),(#20),.T.,.CARTESIAN.);\n",
+        "#37=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#36);\n",
+        "#40=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_FM_B',(#37,#11),#12);\n",
+        "#41=SYMBOL_REPRESENTATION_MAP(#11,#40);\n",
+        "#42=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_P_P',(#26,#11),#12);\n",
+        "#43=SYMBOL_REPRESENTATION_MAP(#11,#42);\n",
+        "#44=CARTESIAN_POINT(' ',(10.,0.));\n",
+        "#45=AXIS2_PLACEMENT_2D(' ',#44,#8);\n",
+        "#46=SYMBOL_TARGET(' ',#45,1.,1.);\n",
+        "#47=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#41,#46) REPRESENTATION_ITEM(' '));\n",
+        "#48=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM('$$SXF_FM_B') STYLED_ITEM((#7),#47));\n",
+        "#49=CARTESIAN_POINT(' ',(2.,3.));\n",
+        "#50=AXIS2_PLACEMENT_2D(' ',#49,#9);\n",
+        "#51=SYMBOL_TARGET(' ',#50,2.,2.);\n",
+        "#52=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#43,#51) REPRESENTATION_ITEM(' '));\n",
+        "#53=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM('$$SXF_P_P') STYLED_ITEM((#7),#52));\n",
+        "#54=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_FM_A',(#48,#53,#11),#12);\n",
+        "#55=SYMBOL_REPRESENTATION_MAP(#11,#54);\n",
+        "#56=CARTESIAN_POINT(' ',(100.,50.));\n",
+        "#57=AXIS2_PLACEMENT_2D(' ',#56,#8);\n",
+        "#58=SYMBOL_TARGET(' ',#57,2.,2.);\n",
+        "#59=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#55,#58) REPRESENTATION_ITEM(' '));\n",
+        "#60=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM('$$SXF_FM_A') STYLED_ITEM((#7),#59));\n",
+        "#61=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_G_$$ATRU$$1$$contour$$height$$12.5',(#31,#11),#12);\n",
+        "#62=SYMBOL_REPRESENTATION_MAP(#11,#61);\n",
+        "#63=SYMBOL_TARGET(' ',#11,1.,1.);\n",
+        "#64=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#62,#63) REPRESENTATION_ITEM(' '));\n",
+        "#65=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#7),#64));\n",
+        "#70=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#26,#31,#37,#48,#53,#60,#65));\n",
+        "#71=DRAWING_SHEET_REVISION('A3_horizontal',(#60,#65),$,'01');\n",
+        "#72=DRAUGHTING_TITLE((),'JAPANESE','S');\n",
+    ));
+    let (from_sfc, sfc_diag) = lift(&sfc);
+    let (from_p21, diag) = lift(&p21);
+    assert!(sfc_diag.is_empty(), "{sfc_diag:?}");
+    assert!(diag.is_empty(), "{diag:?}");
     assert_eq!(unsourced(from_p21), unsourced(from_sfc));
 }
