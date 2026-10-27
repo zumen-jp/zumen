@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0094）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0095）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -799,9 +799,12 @@ impl DwgFile {
         changes: &mut BTreeMap<usize, Vec<u8>>,
         block: Option<&NewBlock>,
     ) -> Option<(u64, Vec<u8>)> {
+        // R2010 からは、寸法の体裁は増えた欄と、寸法線と補助線の線種（345〜347）を持つ（決定 0095）
+        let r2010_dimstyle = self.release >= Release::R2010;
         let dimstyle_codes: Vec<i16> = std::iter::once(70)
-            .chain(DIM_FIELDS.iter().map(|field| field.0))
+            .chain(dim_fields(self.release).iter().map(|field| field.0))
             .chain(340..=344)
+            .chain((345..=347).filter(|_| r2010_dimstyle))
             .collect();
         let view_codes = [VIEW, &[345, 346]].concat();
         let vport_codes = [VPORT, &[345, 346]].concat();
@@ -972,7 +975,32 @@ impl DwgFile {
             (small(object, 70)?? == 0).then_some(())?;
             fields.rc(0);
         } else if type_code == VIEW_TYPE {
-            let associated = view_fields(&mut fields, object, false, None)?;
+            // R2010 からは、描画の種類の後に照明の欄を持つ。試料の図面と同じく、既定の照明を使い、種類は 1、
+            // 明るさと対比は 0、環境の色は真の色の 0x333333 とする（決定 0095）
+            let mut lighting = BitWriter::default();
+            lighting.bit(true);
+            lighting.rc(1);
+            lighting.bd(0.0);
+            lighting.bd(0.0);
+            lighting.bs(0);
+            lighting.bl(i32::from_ne_bytes(0xC233_3333_u32.to_ne_bytes()));
+            lighting.rc(0);
+            let bits = lighting.len();
+            let lighting = lighting.into_bytes();
+            let associated = view_fields(
+                &mut fields,
+                object,
+                false,
+                r2010.then_some((&lighting[..], 0..bits)),
+            )?;
+            // R2010 からは、カメラを印刷するかの B が続き、試料の図面と同じく偽とする。外部参照のブロックの
+            // 後に、背景・表示スタイル・太陽を指す。どれも持たないものとする
+            if r2010 {
+                fields.bit(false);
+                handles.handle(4, 0);
+                handles.handle(5, 0);
+                handles.handle(3, 0);
+            }
             // UCS を伴わないビューは、UCS の欄を持たない
             let ucs = [110, 120, 130, 111, 121, 131, 112, 122, 132, 79, 146];
             (associated || !object.values.iter().any(|value| ucs.contains(&value.code)))
@@ -985,6 +1013,10 @@ impl DwgFile {
             } else {
                 (ucs_handle(db, object, 346)? == 0 && ucs_handle(db, object, 345)? == 0)
                     .then_some(())?;
+            }
+            // R2010 からは、最後に断面の表示を指す
+            if r2010 {
+                handles.handle(4, 0);
             }
         } else if type_code == VPORT_TYPE {
             // 使い道の分からないビットは、試料の図面と同じく偽とする
@@ -1018,6 +1050,13 @@ impl DwgFile {
             // 説明と、絵の大きさ
             fields.text(b"")?;
             fields.bl(0);
+            // R2010 からは、挿す単位（BS）・分解できるか（B）・尺度を揃えるか（RC）が続く。試料の図面の
+            // 多くと同じく、単位なし・分解できる・揃えないとする（決定 0095）
+            if r2010 {
+                fields.bs(0);
+                fields.bit(true);
+                fields.rc(0);
+            }
             handles.handle(3, block.block?);
             // R2000 は最初と最後の図形を指し、R2004 は持つ図形をみな固い所有で指す
             if r2004 {
@@ -1036,14 +1075,29 @@ impl DwgFile {
             handles.handle(5, 0);
         } else {
             (small(object, 70)?? == 0).then_some(())?;
-            for &(code, field) in &DIM_FIELDS {
+            // R2010 からは、文字の背景の色（DIMTFILLCLR）も 70 に置かれるので、2 つ目の 70 は受け付けない
+            (object
+                .values
+                .iter()
+                .filter(|value| value.code == 70)
+                .count()
+                == 1)
+                .then_some(())?;
+            for (code, field) in dim_fields(self.release) {
                 dim_field(&mut fields, object, code, field, self.release)?;
             }
+            // R2010 からは、使い道の分からない B が続く。試料の図面と同じく偽とする
+            if r2010 {
+                fields.bit(false);
+            }
             // 文字の体裁と、引出線・矢印・1 つめと 2 つめの矢印のブロック。試料の図面と同じく、参照の型は 5
-            for code in 340..=344 {
+            // R2010 からは、寸法線と 2 つの補助線の線種が続く
+            let last = if r2010 { 347 } else { 344 };
+            for code in 340..=last {
                 let handle = match object.values.iter().find(|value| value.code == code) {
                     Some(value) => match value.data {
-                        Data::Handle(h) => db.get(h).map(|_| h)?,
+                        Data::Handle(h) if code < 345 => db.get(h).map(|_| h)?,
+                        Data::Handle(h) => (db.get(h)?.kind == b"LTYPE").then_some(h)?,
                         _ => return None,
                     },
                     None => 0,
@@ -1753,16 +1807,23 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092〜0094）。型ごとの欄と文字列の流れが R2000 と同じ形に
-/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、R2010 の SPLINE と、一部の
-/// 表のレコードを足せる。MINSERT と、回した INSERT（変更でも確かめられていない）は、まだ足せない
+/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092〜0095）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、R2010 の SPLINE と、
+/// ビューポートの設定と UCS のほかの表のレコードと、足したブロックを足せる。MINSERT と、回した INSERT（変更でも
+/// 確かめられていない）は、まだ足せない
 fn r2010_addable(object: &Object, release: Release) -> bool {
-    // 表のレコードは、LAYER・STYLE・LTYPE・APPID を足せる（決定 0094）
+    // 表のレコードは、LAYER・STYLE・LTYPE・APPID（決定 0094）と、DIMSTYLE・VIEW・ブロックのレコード
+    // （決定 0095）を足せる
     if object.section == Section::Tables {
         return matches!(
             object.kind.as_slice(),
-            b"LAYER" | b"STYLE" | b"LTYPE" | b"APPID"
+            b"LAYER" | b"STYLE" | b"LTYPE" | b"APPID" | b"DIMSTYLE" | b"VIEW" | b"BLOCK_RECORD"
         );
+    }
+    // 足したブロックの BLOCK・ENDBLK と、ブロックの持つ図形も足せる（決定 0095）
+    let kind = object.kind.as_slice();
+    if matches!(kind, b"BLOCK" | b"ENDBLK") {
+        return object.section == Section::Blocks;
     }
     const KINDS: [&[u8]; 17] = [
         b"LINE",
@@ -1783,7 +1844,6 @@ fn r2010_addable(object: &Object, release: Release) -> bool {
         b"ATTRIB",
         b"SEQEND",
     ];
-    let kind = object.kind.as_slice();
     let attributed = kind == b"INSERT" && object.values.iter().any(|value| value.code == 66);
     // R2018 からの MTEXT と属性は欄が増え、R2013 からの SPLINE も欄の形が異なる
     if (matches!(kind, b"MTEXT" | b"ATTRIB" | b"SEQEND") || attributed) && release >= Release::R2018
@@ -1791,7 +1851,7 @@ fn r2010_addable(object: &Object, release: Release) -> bool {
     {
         return false;
     }
-    object.section == Section::Entities
+    matches!(object.section, Section::Entities | Section::Blocks)
         && KINDS.contains(&kind)
         && (kind != b"INSERT"
             || object
