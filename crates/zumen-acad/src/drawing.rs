@@ -7,8 +7,8 @@
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
 //! 実寸の単位は見出しの `$INSUNITS` で決め、分からなければ不明とする。用紙の点は `$PLIMMIN` を原点にした mm で、
 //! 単位が分からなければ mm に直せないので、ペーパー空間の図形を移さない。
-//! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間と
-//! ペーパー空間のブロックのレコードを指す SORTENTSTABLE で決め、なければ入力の順とする。
+//! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間・
+//! ペーパー空間・記号の定義のブロックのレコードを指す SORTENTSTABLE で決め、なければ入力の順とする。
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
 //! DWG でも `dxf.` で始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
@@ -130,9 +130,9 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             cx.report((*diagnostic).at(source));
         }
     }
-    let symbols = lifter.definitions(db, &mut out, cx)?;
+    let ([model_keys, paper_keys], block_keys) = lifter.sort_keys(db, cx)?;
+    let symbols = lifter.definitions(db, &block_keys, &mut out, cx)?;
     check_symbols(&symbols, &out, cx)?;
-    let [model_keys, paper_keys] = lifter.sort_keys(db, cx)?;
     // 見出しの $LTSCALE と、1/100 mm の $LWDEFAULT（DXF Reference「HEADER Section Group Codes」）
     let line_type_scale = db
         .variable(b"$LTSCALE")
@@ -288,6 +288,9 @@ fn source(object: &Object) -> Ref {
 
 /// 空間の SORTENTSTABLE の出所と、図形のハンドルから並べ替えのハンドルへの対応
 type SortKeys = (Ref, BTreeMap<u64, u64>);
+
+/// モデル空間とペーパー空間の SortKeys と、ほかのブロックのレコードのハンドルごとの SortKeys
+type SpaceKeys = ([Option<SortKeys>; 2], BTreeMap<u64, SortKeys>);
 
 /// 描く順に並べたもの。`items` は、入力の順のものとハンドルの組。並べ替えのハンドルの小さいものから描き、
 /// 表にない図形は自分のハンドルで並べる（DXF Reference「SORTENTSTABLE」）。同じハンドルなら入力の順。
@@ -600,10 +603,12 @@ impl Lifter {
     /// レコードの BLOCK のもの、所有者が分からなければ、並びの中で前の BLOCK から ENDBLK までのものとする。
     /// 名前は BLOCK の 2、なければブロックのレコードの 2。基点は 10、印（70）の 1 は名前のない定義、4 は外部参照
     /// で、そのパス（1）を持つ。名前が `*` で始まるものも名前のない定義とする（推定）。
-    /// 空間のブロック（`*Model_Space`・`*Paper_Space`）は移さない。中身の SORTENTSTABLE は、まだ読まない
+    /// 空間のブロック（`*Model_Space`・`*Paper_Space`）は移さない。中身の描く順は、ブロックのレコードを指す
+    /// SORTENTSTABLE（`keys`。ブロックのレコードのハンドルごと）で決め、なければ入力の順とする
     fn definitions(
         &self,
         db: &AcadDb,
+        keys: &BTreeMap<u64, SortKeys>,
         out: &mut Out,
         cx: &mut Cx,
     ) -> Result<Vec<SymbolDefinition>, Error> {
@@ -668,7 +673,7 @@ impl Lifter {
                 continue;
             };
             let space = SpaceId(u32::try_from(at).unwrap_or(u32::MAX).saturating_add(1));
-            if let Some(symbol) = self.definition(db, block, space, &members, out, cx)? {
+            if let Some(symbol) = self.definition(db, block, space, &members, keys, out, cx)? {
                 symbols.push(symbol);
             }
         }
@@ -677,12 +682,14 @@ impl Lifter {
 
     /// BLOCK と中身の図形を、空間 `space` の記号の定義にする。空間のブロックなら `None`。中身の図形のうち
     /// 移せないものは、その図形を指す診断を返し、定義は移す
+    #[allow(clippy::too_many_arguments)]
     fn definition(
         &self,
         db: &AcadDb,
         block: &Object,
         space: SpaceId,
         members: &[&Object],
+        keys: &BTreeMap<u64, SortKeys>,
         out: &mut Out,
         cx: &mut Cx,
     ) -> Result<Option<SymbolDefinition>, Error> {
@@ -730,6 +737,7 @@ impl Lifter {
         };
         let (attached, owned) = attached(members);
         let mut elements = Vec::new();
+        let mut handles = Vec::new();
         let mut attributes = Vec::new();
         for (index, object) in members.iter().enumerate() {
             let source = source(object);
@@ -767,6 +775,7 @@ impl Lifter {
                         };
                         self.extend(object, target, || Basis::Model(element.clone()), out, cx);
                         elements.push(element);
+                        handles.push(object.handle());
                     })
                 }
                 kind => Err(Box::new(
@@ -777,6 +786,10 @@ impl Lifter {
                 cx.report((*diagnostic).at(source));
             }
         }
+        let keys = record
+            .and_then(Object::handle)
+            .and_then(|handle| keys.get(&handle));
+        let order = arrange(keys, handles.into_iter().enumerate().collect(), cx);
         Ok(Some(SymbolDefinition {
             key: SymbolKey {
                 namespace: BLOCK,
@@ -785,7 +798,7 @@ impl Lifter {
             space: ModelSpace {
                 id: space,
                 unit: self.unit,
-                order: (0..elements.len()).collect(),
+                order,
                 elements,
             },
             base,
@@ -2875,9 +2888,10 @@ impl Lifter {
         Ok(id)
     }
 
-    /// モデル空間とペーパー空間の SORTENTSTABLE。ほかのブロックの表は、そのブロックを移さないので読まない
-    fn sort_keys(&self, db: &AcadDb, cx: &mut Cx) -> Result<[Option<SortKeys>; 2], Error> {
+    /// モデル空間とペーパー空間の SORTENTSTABLE と、ほかのブロックのレコードのハンドルごとの SORTENTSTABLE
+    fn sort_keys(&self, db: &AcadDb, cx: &mut Cx) -> Result<SpaceKeys, Error> {
         let mut keys = [None, None];
+        let mut blocks: BTreeMap<u64, SortKeys> = BTreeMap::new();
         for object in db.objects() {
             if object.section != Section::Objects || object.kind != b"SORTENTSTABLE" {
                 continue;
@@ -2885,26 +2899,36 @@ impl Lifter {
             let source = source(object);
             work(cx, 1, &source)?;
             match self.sortents(db, object) {
-                Ok((space, sort)) => {
+                Ok((record, space, sort)) => {
                     work(cx, sort.len() as u64, &source)?;
-                    if let Some(slot) = space.and_then(|index| keys.get_mut(index)) {
-                        let (_, all) = slot.get_or_insert_with(|| (source, BTreeMap::new()));
+                    let all = match space {
+                        Some(index) => keys.get_mut(index).map(|slot| {
+                            &mut slot.get_or_insert_with(|| (source, BTreeMap::new())).1
+                        }),
+                        None => Some(
+                            &mut blocks
+                                .entry(record)
+                                .or_insert_with(|| (source, BTreeMap::new()))
+                                .1,
+                        ),
+                    };
+                    if let Some(all) = all {
                         all.extend(sort);
                     }
                 }
                 Err(diagnostic) => cx.report((*diagnostic).at(source)),
             }
         }
-        Ok(keys)
+        Ok((keys, blocks))
     }
 
-    /// SORTENTSTABLE の、指すブロックのレコード（0 はモデル空間、1 はペーパー空間、ほかは `None`）と、
-    /// 図形のハンドル（331）から並べ替えのハンドル（5）への対応（DXF Reference「SORTENTSTABLE」）
+    /// SORTENTSTABLE の、指すブロックのレコードのハンドルと空間（0 はモデル空間、1 はペーパー空間、ほかは
+    /// `None`）と、図形のハンドル（331）から並べ替えのハンドル（5）への対応（DXF Reference「SORTENTSTABLE」）
     fn sortents(
         &self,
         db: &AcadDb,
         object: &Object,
-    ) -> Lifted<(Option<usize>, BTreeMap<u64, u64>)> {
+    ) -> Lifted<(u64, Option<usize>, BTreeMap<u64, u64>)> {
         let kind = object.kind.as_slice();
         // DWG の表は区切りの 100 を持たないので、所有者（初めの 330）の後から読む
         let start = object
@@ -2919,14 +2943,16 @@ impl Lifter {
             })
             .ok_or_else(|| invalid(kind, 100))?;
         let mut rest = object.values.iter().skip(start + 1);
-        let block = match rest.next() {
+        let (record, block) = match rest.next() {
             Some(Value {
                 code: 330,
                 data: Data::Handle(handle),
-            }) => db
-                .get(*handle)
-                .filter(|record| record.kind == b"BLOCK_RECORD")
-                .ok_or_else(|| invalid(kind, 330))?,
+            }) => (
+                *handle,
+                db.get(*handle)
+                    .filter(|record| record.kind == b"BLOCK_RECORD")
+                    .ok_or_else(|| invalid(kind, 330))?,
+            ),
             _ => return Err(invalid(kind, 330)),
         };
         let name = self.string(block, 2)?.unwrap_or_default();
@@ -2947,7 +2973,7 @@ impl Lifter {
             };
             sort.insert(*entity, *key);
         }
-        Ok((space, sort))
+        Ok((record, space, sort))
     }
 
     /// 有限の実数の値。なければ `default`、それもなければ読めないとする

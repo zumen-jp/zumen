@@ -685,6 +685,81 @@ fn layers_keep_their_table_and_views_hide_layers() {
 }
 
 #[test]
+fn sortents_tables_order_the_block_definitions() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "B1"),
+        (2, "Door"),
+        (0, "BLOCK_RECORD"),
+        (5, "C1"),
+        (2, "Window"),
+        (0, "ENDTAB"),
+    ];
+    let mut blocks = vec![
+        (0, "BLOCK"),
+        (5, "B2"),
+        (330, "B1"),
+        (8, "0"),
+        (2, "Door"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+    ];
+    blocks.extend(model_line("B3", "0"));
+    blocks.extend(model_line("B4", "0"));
+    blocks.extend(model_line("B5", "0"));
+    blocks.extend([(0, "ENDBLK"), (5, "B6"), (330, "B1"), (8, "0")]);
+    blocks.extend([
+        (0, "BLOCK"),
+        (5, "C2"),
+        (330, "C1"),
+        (8, "0"),
+        (2, "Window"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+    ]);
+    blocks.extend(model_line("C3", "0"));
+    blocks.extend(model_line("C4", "0"));
+    blocks.extend([(0, "ENDBLK"), (5, "C5"), (330, "C1"), (8, "0")]);
+    let objects = [
+        // Door: B3 を最後に、B5 を最初に描く。Window は表がないので入力の順
+        (0, "SORTENTSTABLE"),
+        (5, "50"),
+        (100, "AcDbSortentsTable"),
+        (330, "B1"),
+        (331, "B3"),
+        (5, "FF"),
+        (331, "B5"),
+        (5, "1"),
+    ];
+    let (drawing, diag) = lift(
+        &sections(&[
+            ("HEADER", MM),
+            ("TABLES", &tables),
+            ("BLOCKS", &blocks),
+            ("ENTITIES", &[]),
+            ("OBJECTS", &objects),
+        ]),
+        &mut Budget::default(),
+    );
+    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    let drawing = drawing.unwrap();
+    let order = |name: &str| {
+        let symbol = drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key.name == name)
+            .unwrap();
+        (symbol.space.elements.len(), symbol.space.order.clone())
+    };
+    assert_eq!(order("Door"), (3, vec![2, 1, 0]));
+    assert_eq!(order("Window"), (2, vec![0, 1]));
+}
+
+#[test]
 fn sortents_tables_order_the_model_and_the_sheet() {
     let tables = [
         (0, "TABLE"),
