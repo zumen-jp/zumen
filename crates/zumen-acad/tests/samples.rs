@@ -607,14 +607,22 @@ fn r2004_drawings_take_back_changed_entities() {
     }
 }
 
-/// R2010 から後の図面の、文字列を持たない単純な図形の線種の尺度と点と色を変えて書き戻すと、読み直した表が
-/// 変えた表と同じになる。文字列を持つ図形と、図形でないオブジェクトの変更は、まだ書き戻さない（決定 0085）
+/// R2010 から後の図面の、図形の線種の尺度と点と色と文字列を変えて書き戻すと、読み直した表が変えた表と
+/// 同じになる。図形でないオブジェクトと MTEXT の変更は、まだ書き戻さない（決定 0085・0086）
 #[test]
 fn r2010_and_later_drawings_take_back_changed_entities() {
     const SIMPLE: [&[u8]; 10] = [
         b"LINE", b"CIRCLE", b"ARC", b"POINT", b"ELLIPSE", b"RAY", b"XLINE", b"SOLID", b"TRACE",
         b"3DFACE",
     ];
+    // 文字列を持つ図形と、R2004 と同じに書き戻せる種類（決定 0086）。R2018 の属性と R2013 からの SPLINE は除く
+    let more = |version: &[u8; 6], kind: &[u8]| match kind {
+        b"TEXT" | b"LWPOLYLINE" | b"INSERT" | b"MLINE" => true,
+        b"ATTRIB" | b"ATTDEF" => version != b"AC1032",
+        b"SPLINE" => version == b"AC1024",
+        _ => false,
+    };
+    let mut texts = 0;
     let (mut changed, mut colored, mut found) = (0, 0, false);
     for version in [b"AC1024", b"AC1027", b"AC1032"] {
         for path in dwgs(version) {
@@ -629,14 +637,24 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
             let mut db = base.clone();
             for index in 0..db.objects().len() {
                 let object = db.object_mut(index).unwrap();
-                if !SIMPLE.contains(&object.kind.as_slice()) {
+                let kind = object.kind.clone();
+                // MINSERT（列の数の 70 を持つ INSERT）と、回転（50）を持つ INSERT は除く。回転は度から直すので、
+                // 元のビットと同じに符号化できるとは限らない
+                let skipped =
+                    kind == b"INSERT" && object.values.iter().any(|v| [70, 50].contains(&v.code));
+                if !SIMPLE.contains(&kind.as_slice()) && !more(version, &kind) || skipped {
                     continue;
                 }
                 for value in object.values.iter_mut() {
                     match (value.code, &mut value.data) {
                         // 2 倍で既定の 1 になる尺度は、読み直すと値に置かれないので変えない
                         (48, Data::Real(v)) if *v != 0.5 => *v *= 2.0,
-                        (10 | 20 | 11 | 21, Data::Real(v)) => *v += 1.5,
+                        (10 | 20, Data::Real(v)) => *v += 1.5,
+                        (11 | 21, Data::Real(v)) if SIMPLE.contains(&kind.as_slice()) => *v += 1.5,
+                        (1, Data::Text(text)) if kind != b"MLINE" => {
+                            text.extend_from_slice("（改）".as_bytes());
+                            texts += 1;
+                        }
                         _ => continue,
                     }
                     changed += 1;
@@ -677,8 +695,8 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                     }
                 }
             }
-            // 文字列を持つ図形と、図形でないオブジェクトの変更は書き戻さない
-            for kind in [&b"TEXT"[..], b"LAYER"] {
+            // 図形でないオブジェクトと MTEXT の変更は書き戻さない
+            for kind in [&b"MTEXT"[..], b"LAYER"] {
                 let mut db = base.clone();
                 let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
                     continue;
@@ -687,7 +705,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                     .unwrap()
                     .values
                     .push(zumen_acad::Value {
-                        code: 48,
+                        code: if kind == b"MTEXT" { 10 } else { 48 },
                         data: Data::Real(3.0),
                     });
                 assert_eq!(
@@ -700,7 +718,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
         }
     }
     if found {
-        assert!(changed > 0 && colored > 0);
+        assert!(changed > 0 && colored > 0 && texts > 0);
     }
 }
 

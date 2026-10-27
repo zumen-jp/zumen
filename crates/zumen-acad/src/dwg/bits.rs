@@ -459,9 +459,27 @@ pub(super) struct BitWriter {
     out: Vec<u8>,
     /// 書いたビットの数
     len: usize,
+    /// R2007 からの文字列の流れ。あれば、T をここに TU で書く
+    strings: Option<Box<BitWriter>>,
 }
 
 impl BitWriter {
+    /// T を文字列の流れに TU で書く（R2007 から）
+    pub(super) fn with_strings() -> Self {
+        Self {
+            strings: Some(Box::default()),
+            ..Self::default()
+        }
+    }
+
+    /// 文字列の流れを取り出す。なければ空
+    pub(super) fn take_strings(&mut self) -> BitWriter {
+        self.strings
+            .take()
+            .map(|strings| *strings)
+            .unwrap_or_default()
+    }
+
     /// 書いたビットの数
     pub(super) fn len(&self) -> usize {
         self.len
@@ -586,8 +604,19 @@ impl BitWriter {
         }
     }
 
-    /// R2000 の T（BS のバイトの数と、バイト列）。BS に収まらない長さなら `None`
+    /// T。R2000 は BS のバイトの数とバイト列。文字列の流れがあれば、UTF-8 の `text` を、そこに TU（BS の
+    /// 文字の数と UTF-16LE）で書く。BS に収まらない長さなら `None`
     pub(super) fn text(&mut self, text: &[u8]) -> Option<()> {
+        if let Some(strings) = &mut self.strings {
+            // 流れの TU は、終わりの NUL を持たない（図面で確かめた）
+            let text = text.strip_suffix(&[0]).unwrap_or(text);
+            let units: Vec<u16> = core::str::from_utf8(text).ok()?.encode_utf16().collect();
+            strings.bs(i16::try_from(units.len()).ok()?);
+            for unit in units {
+                strings.rs(unit as i16);
+            }
+            return Some(());
+        }
         self.bs(i16::try_from(text.len()).ok()?);
         self.raw(text);
         Some(())
