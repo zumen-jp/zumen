@@ -544,6 +544,9 @@ fn e9_lifting_stops_at_the_work_limit() {
     let (result, diag) = lift(&src, &mut budget);
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(diag.iter().count(), 1);
+    // 止めたときに扱っていたレコードを場所に持つ（決定 0119）
+    let places: Vec<_> = diag.iter().flat_map(|d| d.places().to_vec()).collect();
+    assert_eq!(places, [Ref::at_record(2)]);
 }
 
 /// 用紙の線分。ハンドルを持つ

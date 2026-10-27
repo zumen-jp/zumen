@@ -94,8 +94,8 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             if object.section != Section::Tables || object.kind != kind {
                 continue;
             }
-            work(cx, 1)?;
             let source = source(object);
+            work(cx, 1, &source)?;
             let lifted = match kind {
                 b"LTYPE" => lifter.line_type_record(object, source.clone(), &mut out, cx),
                 b"LAYER" => lifter.layer_record(object, source.clone(), &mut out),
@@ -113,11 +113,11 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         .collect();
     let (attributes, owned) = attached(&entities);
     for (index, object) in entities.iter().enumerate() {
-        work(cx, amount(object))?;
+        let source = source(object);
+        work(cx, amount(object), &source)?;
         if owned.contains(&index) {
             continue;
         }
-        let source = source(object);
         let attributes: Vec<&Object> = attributes
             .get(&index)
             .map_or(&[][..], Vec::as_slice)
@@ -231,7 +231,7 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
         .iter()
         .flat_map(|symbol| placed(&symbol.space.elements));
     for (key, at) in placed(&out.model).chain(placed(&out.paper)).chain(inner) {
-        work(cx, 1)?;
+        work(cx, 1, at)?;
         if !by_name.contains_key(key) {
             cx.report(
                 Diagnostic::new(codes::DXF_BLOCK_MISSING)
@@ -252,7 +252,7 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
         let mut seen = vec![false; symbols.len()];
         let mut next = edges.get(index).cloned().unwrap_or_default();
         while let Some(at) = next.pop() {
-            work(cx, 1)?;
+            work(cx, 1, &symbol.source)?;
             if at == index {
                 cx.report(
                     Diagnostic::new(codes::DXF_BLOCK_CYCLE_INVALID)
@@ -270,9 +270,10 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
     Ok(())
 }
 
-fn work(cx: &mut Cx, amount: u64) -> Result<(), Error> {
+/// 作業を数える。止めたら、扱っていた項目か図形の出所を場所に入れる（決定 0119）
+fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
     cx.check(Kind::Work, amount).map_err(|stop| {
-        cx.report(stop.to_diagnostic());
+        cx.report(stop.to_diagnostic().at(place.clone()));
         Error::Stopped(stop)
     })
 }
@@ -629,7 +630,7 @@ impl Lifter {
         let mut members: Vec<Vec<&Object>> = vec![Vec::new(); starts.len()];
         let mut open = None;
         for object in &objects {
-            work(cx, 1)?;
+            work(cx, 1, &source(object))?;
             match object.kind.as_slice() {
                 b"BLOCK" => {
                     open = starts.iter().position(|index| {
@@ -731,11 +732,11 @@ impl Lifter {
         let mut elements = Vec::new();
         let mut attributes = Vec::new();
         for (index, object) in members.iter().enumerate() {
-            work(cx, amount(object))?;
+            let source = source(object);
+            work(cx, amount(object), &source)?;
             if owned.contains(&index) {
                 continue;
             }
-            let source = source(object);
             let lifted = match object.kind.as_slice() {
                 b"ATTDEF" => self
                     .attribute_definition(object, &point, &length, out)
@@ -2873,11 +2874,11 @@ impl Lifter {
             if object.section != Section::Objects || object.kind != b"SORTENTSTABLE" {
                 continue;
             }
-            work(cx, 1)?;
             let source = source(object);
+            work(cx, 1, &source)?;
             match self.sortents(db, object) {
                 Ok((space, sort)) => {
-                    work(cx, sort.len() as u64)?;
+                    work(cx, sort.len() as u64, &source)?;
                     if let Some(slot) = space.and_then(|index| keys.get_mut(index)) {
                         let (_, all) = slot.get_or_insert_with(|| (source, BTreeMap::new()));
                         all.extend(sort);

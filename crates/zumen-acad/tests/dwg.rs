@@ -2489,6 +2489,24 @@ fn reading_stops_at_the_record_limit() {
 }
 
 #[test]
+fn making_the_object_table_stops_at_the_object_it_was_reading() {
+    let file = read(&sample(), Limits::default()).0.unwrap();
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+    let result = file.objects(&mut Cx::new(&mut budget, &mut diag, &CancelToken::new()));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    // 止めた診断は、読もうとしていたオブジェクトのバイト範囲を場所に持つ（決定 0119）
+    let stop = diag.iter().last().unwrap();
+    assert_eq!(stop.code(), codes::BUDGET_WORK_EXCEEDED);
+    let bytes = stop
+        .places()
+        .first()
+        .and_then(|place| place.bytes())
+        .unwrap();
+    assert!(bytes.start < bytes.end && bytes.end as usize <= sample().len());
+}
+
+#[test]
 fn writing_keeps_the_bytes() {
     let src = sample();
     let (file, _) = read(&src, Limits::default());

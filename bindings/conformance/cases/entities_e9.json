@@ -1,5 +1,5 @@
 {
-  "description": "対応表の E9 の、輪になる定義・定義のない配置・有限でない尺度・展開しない大きな格子の配置を持つ DXF を、entities で読む。配置は展開せず、診断を返し、予算で止まる所はネイティブと wasm で同じになる。作業は、変換で 55、返す要素ごとに 1 を使う（決定 0007・0010・0116・0117）",
+  "description": "対応表の E9 の、輪になる定義・定義のない配置・有限でない尺度・展開しない大きな格子の配置を持つ DXF を、entities で読む。配置は展開せず、診断を返し、予算で止まる所はネイティブと wasm で同じになる。作業は、変換で 55、返す要素ごとに 1 を使う。止めた診断は、返そうとしていた要素のレコードを場所に持つ（決定 0007・0010・0116・0117・0119）",
   "steps": [
     {
       "push": {
@@ -87,7 +87,8 @@
       "status": "failed",
       "expect": {
         "/diagnostics/4/code": "dxf.block-cycle.invalid",
-        "/diagnostics/5/code": "budget.work.exceeded"
+        "/diagnostics/5/code": "budget.work.exceeded",
+        "/diagnostics/5/at/0/record": 18
       },
       "absent": [
         "/result"
