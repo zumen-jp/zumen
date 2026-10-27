@@ -1221,7 +1221,18 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
 /// もう一度足しても合う（決定 0061〜0067）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
-    for path in dwgs(b"AC1015") {
+    added_table_records_are_taken_back(b"AC1015");
+}
+
+#[test]
+fn r2004_drawings_take_back_added_table_records() {
+    added_table_records_are_taken_back(b"AC1018");
+}
+
+/// 版 `version` の図面に表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと合う
+#[cfg(test)]
+fn added_table_records_are_taken_back(version: &[u8]) {
+    for path in dwgs(version) {
         let mut src = std::fs::read(&path).unwrap();
         for name in [b"zumen-1".as_slice(), b"zumen-2"] {
             let mut diag = Diagnostics::new();
@@ -1238,7 +1249,7 @@ fn r2000_drawings_take_back_added_table_records() {
                         o.kind == kind
                             && o.values
                                 .iter()
-                                .any(|v| v.code == 2 && v.data == Data::Text(name.to_vec()))
+                                .any(|v| matches!(&v.data, Data::Text(t) if v.code == 2 && t.eq_ignore_ascii_case(name)))
                     })
                     .cloned()
                     .unwrap()
