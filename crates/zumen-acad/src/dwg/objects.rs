@@ -647,16 +647,20 @@ fn read(
     }
 }
 
-/// R2000 の図形でないオブジェクトのデータの、ハンドルの流れの位置（RL）を書く所と、型ごとの欄の始まりと、
-/// ハンドルの流れの始まりの、ビットの位置
-pub(super) fn object_fields(data: &[u8]) -> Option<[usize; 3]> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+/// 版 `release`（R2004 まで）の図形でないオブジェクトのデータの、ハンドルの流れの位置（RL）を書く所と、
+/// 型ごとの欄の始まりと、ハンドルの流れの始まりの、ビットの位置
+pub(super) fn object_fields(data: &[u8], release: Release) -> Option<[usize; 3]> {
+    let mut bits = Bits::with_release(data, release);
     bits.bs()?;
     let size_at = bits.pos();
     let handles_at = usize::try_from(bits.rl()?).ok()?;
     bits.handle()?;
     skip_extended_data(&mut bits)?;
     bits.bl()?;
+    // R2004 からは、反応子の数の後に、拡張辞書を持たない印（B）が続く
+    if release >= Release::R2004 {
+        bits.bit()?;
+    }
     let start = bits.pos();
     (start <= handles_at).then_some([size_at, start, handles_at])
 }

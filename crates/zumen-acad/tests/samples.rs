@@ -566,8 +566,8 @@ fn r2004_drawings_take_back_changed_entities() {
                 }
             }
         }
-        // 型ごとの欄をまだ符号化しない種類の図形と、表のレコードの変更は書き戻さない
-        for kind in [&b"MULTILEADER"[..], b"LAYER"] {
+        // 型ごとの欄をまだ符号化しない種類の図形と、図形でないオブジェクトの変更は書き戻さない
+        for kind in [&b"MULTILEADER"[..], b"DICTIONARY"] {
             let mut db = base.clone();
             let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
                 continue;
@@ -590,6 +590,45 @@ fn r2004_drawings_take_back_changed_entities() {
     }
     if !dwgs(b"AC1018").is_empty() {
         assert!(changed > 0 && colored > 0);
+    }
+}
+
+#[test]
+fn r2004_drawings_take_back_changed_table_records() {
+    let mut changed = 0;
+    for path in dwgs(b"AC1018") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let file = Dwg::read(&src, &mut cx).unwrap();
+        let mut db = file.objects(&mut cx).unwrap();
+        // R2000 の試験と同じ欄と、寸法の色（176〜178）を変える。画層と寸法の色は CMC の形で書き直す
+        for index in 0..db.objects().len() {
+            let object = db.object_mut(index).unwrap();
+            if object.section != Section::Tables {
+                continue;
+            }
+            for value in object.values.iter_mut() {
+                match (object.kind.as_slice(), value.code, &mut value.data) {
+                    (b"LAYER", 62, Data::Int(v)) => *v = v.signum() * (v.abs() % 255 + 1),
+                    (b"STYLE", 41, Data::Real(v)) => *v *= 2.0,
+                    (b"LTYPE", 49, Data::Real(v)) => *v *= 2.0,
+                    (b"VIEW" | b"VPORT", 40, Data::Real(v)) => *v *= 2.0,
+                    (b"UCS", 10, Data::Real(v)) => *v += 1.5,
+                    (b"DIMSTYLE", 40, Data::Real(v)) => *v *= 2.0,
+                    (b"DIMSTYLE", 176..=178, Data::Int(v)) => *v = *v % 255 + 1,
+                    _ => continue,
+                }
+                changed += 1;
+            }
+        }
+        let first: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(taken_back(&file, &db), Ok(first), "{}", path.display());
+    }
+    if !dwgs(b"AC1018").is_empty() {
+        assert!(changed > 0);
     }
 }
 

@@ -306,9 +306,9 @@ impl DwgFile {
                             Section::Entities | Section::Blocks => {
                                 encode(data, old, object, self.release)
                             }
-                            // R2004 の表のレコードと図形でないオブジェクトは、まだ符号化しない
+                            Section::Tables => encode_record(data, old, object, self.release),
+                            // R2004 の図形でないオブジェクトは、まだ符号化しない
                             _ if r2004 => None,
-                            Section::Tables => encode_record(data, old, object),
                             Section::Objects => encode_object(data, old, object),
                             _ => None,
                         }
@@ -927,7 +927,7 @@ impl DwgFile {
         } else {
             (small(object, 70)?? == 0).then_some(())?;
             for &(code, field) in &DIM_FIELDS {
-                dim_field(&mut fields, object, code, field)?;
+                dim_field(&mut fields, object, code, field, Release::R2000)?;
             }
             // 文字の体裁と、引出線・矢印・1 つめと 2 つめの矢印のブロック。試料の図面と同じく、参照の型は 5
             for code in 340..=344 {
@@ -1469,7 +1469,7 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
 
 /// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
 /// ほかの値が変わったものは `None`
-fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     // DIMSTYLE は、70 と DWG の並びの欄
     let dimstyle_codes: Vec<i16> = std::iter::once(70)
         .chain(DIM_FIELDS.iter().map(|field| field.0))
@@ -1495,9 +1495,9 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     if rest(old) != rest(new) {
         return None;
     }
-    let [size_at, start, handles_at] = object_fields(data)?;
+    let [size_at, start, handles_at] = object_fields(data, release)?;
     // 名前・参照される印・外部参照の番号・外部参照に依る印
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     bits.text()?;
     bits.bit()?;
@@ -1507,13 +1507,13 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let mut fields = BitWriter::default();
     fields.copy(data, start..own_at)?;
     let end = match new.kind.as_slice() {
-        b"LAYER" => layer(&mut fields, new, xdep, data, own_at)?,
+        b"LAYER" => layer(&mut fields, new, xdep, data, own_at, release)?,
         b"STYLE" => style(&mut fields, old, new, xdep, data, own_at)?,
         b"LTYPE" => ltype(&mut fields, old, new, xdep, data, own_at)?,
         b"VIEW" => view_record(&mut fields, new, xdep, data, own_at)?,
         b"UCS" => ucs_record(&mut fields, new, xdep, data, own_at)?,
         b"VPORT" => vport_record(&mut fields, old, new, xdep, data, own_at)?,
-        _ => dimstyle(&mut fields, old, new, xdep, data, own_at)?,
+        _ => dimstyle(&mut fields, old, new, xdep, data, own_at, release)?,
     };
     fields.copy(data, end..handles_at)?;
     let mut out = BitWriter::default();
@@ -1558,7 +1558,7 @@ fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     if rest(old) != rest(new) {
         return None;
     }
-    let [size_at, start, handles_at] = object_fields(data)?;
+    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(start);
     let mut fields = BitWriter::default();
@@ -1603,14 +1603,20 @@ fn layer(
     xdep: bool,
     data: &[u8],
     own_at: usize,
+    release: Release,
 ) -> Option<usize> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
     let old = bits.bs()?;
-    bits.bs()?;
+    let color_at = bits.pos();
+    let old_color = bits.cmc()?;
     let (flags, color) = layer_flags(object, xdep, old)?;
     fields.bs(flags);
-    fields.bs(color);
+    if old_color.rgb.is_none() && old_color.index == color {
+        fields.copy(data, color_at..bits.pos())?;
+    } else {
+        cmc(fields, color, release)?;
+    }
     Some(bits.pos())
 }
 
@@ -1639,7 +1645,7 @@ fn layer_flags(object: &Object, xdep: bool, old: i16) -> Option<(i16, i16)> {
 /// 型 `type_code` のレコードの表のオブジェクトのデータ `data` の、項目の数（BL）を 1 増やし、項目の
 /// ハンドルの終わりに `entry` を足したもの（決定 0061）。ハンドルの流れの後の埋めるビットは写さない
 fn add_entry(data: &[u8], entry: u64, type_code: i16) -> Option<Vec<u8>> {
-    let [size_at, start, handles_at] = object_fields(data)?;
+    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(size_at + 32);
     bits.handle()?;
@@ -1873,6 +1879,7 @@ fn dimstyle(
     xdep: bool,
     data: &[u8],
     own_at: usize,
+    release: Release,
 ) -> Option<usize> {
     record_flags(new, xdep, 0)?;
     let of = |object: &Object, code: i16| -> Vec<_> {
@@ -1883,7 +1890,7 @@ fn dimstyle(
             .cloned()
             .collect()
     };
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
     for &(code, field) in &DIM_FIELDS {
         let at = bits.pos();
@@ -1891,19 +1898,26 @@ fn dimstyle(
             Dim::Text => bits.text().map(drop)?,
             Dim::Real(_) => bits.bd().map(drop)?,
             Dim::Bit(_) => bits.bit().map(drop)?,
-            Dim::Short(_) | Dim::Color(_) => bits.bs().map(drop)?,
+            Dim::Short(_) => bits.bs().map(drop)?,
+            Dim::Color(_) => bits.cmc().map(drop)?,
         }
         if of(old, code) == of(new, code) {
             fields.copy(data, at..bits.pos())?;
             continue;
         }
-        dim_field(fields, new, code, field)?;
+        dim_field(fields, new, code, field, release)?;
     }
     Some(bits.pos())
 }
 
 /// DIMSTYLE の `code` の欄を、`new` の値で書く。値がなければ、読む側と同じ既定の値で書く
-fn dim_field(fields: &mut BitWriter, new: &Object, code: i16, field: Dim) -> Option<()> {
+fn dim_field(
+    fields: &mut BitWriter,
+    new: &Object,
+    code: i16,
+    field: Dim,
+    release: Release,
+) -> Option<()> {
     match field {
         Dim::Text if text_of(new, code).is_some() => string(fields, new, code)?,
         Dim::Text => {
@@ -1920,9 +1934,26 @@ fn dim_field(fields: &mut BitWriter, new: &Object, code: i16, field: Dim) -> Opt
             Some(1) => fields.bit(true),
             Some(_) => return None,
         },
-        Dim::Short(default) | Dim::Color(default) => {
-            fields.bs(small(new, code)?.unwrap_or(default));
-        }
+        Dim::Short(default) => fields.bs(small(new, code)?.unwrap_or(default)),
+        Dim::Color(default) => cmc(fields, small(new, code)?.unwrap_or(default), release)?,
+    }
+    Some(())
+}
+
+/// 色の番号 `index` の CMC（決定 0075）。R2004 からは、番号（BS）の後に、色の決め方（上位の
+/// バイト）と番号（下位のバイト）の BL と、名前を持たない印（RC の 0）を書く。決め方は、ByLayer（256）が
+/// 0xC0、ByBlock（0）が 0xC1、ほかの番号が 0xC3
+fn cmc(fields: &mut BitWriter, index: i16, release: Release) -> Option<()> {
+    fields.bs(index);
+    if release >= Release::R2004 {
+        let method: u32 = match index {
+            256 => 0xC0 << 24,
+            0 => 0xC1 << 24,
+            1..=255 => (0xC3 << 24) | u32::from(index.unsigned_abs()),
+            _ => return None,
+        };
+        fields.bl(i32::from_ne_bytes(method.to_ne_bytes()));
+        fields.rc(0);
     }
     Some(())
 }
@@ -1967,7 +1998,7 @@ fn encode_layout(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     if rest(old)? != rest(new)? {
         return None;
     }
-    let [size_at, start, handles_at] = object_fields(data)?;
+    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(start);
     let mut fields = BitWriter::default();
@@ -2026,7 +2057,7 @@ fn encode_xrecord(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         let value = values.next()?;
         (value.code == code).then_some(&value.data)
     };
-    let [size_at, start, handles_at] = object_fields(data)?;
+    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(start);
     let len = usize::try_from(bits.bl()?).ok()?;
