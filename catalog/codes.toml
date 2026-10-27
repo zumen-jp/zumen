@@ -439,6 +439,13 @@ fidelity = "dropped"
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.mtext-columns.unsupported"]
+description = "段組みの MTEXT と複数行の属性を、図面モデルに移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.line-type-element.dropped"]
 description = "線種の要素の形と文字を、図面モデルに移さなかった。線と間の長さだけを移した"
 severity = "warning"

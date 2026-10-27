@@ -480,6 +480,17 @@ pub const DXF_LINE_TYPE_ELEMENT_DROPPED: Code = Code::new(
     &["name"],
 );
 
+/// 段組みの MTEXT と複数行の属性を、図面モデルに移さなかった
+///
+/// `dxf.mtext-columns.unsupported`（0.0.0 から）
+pub const DXF_MTEXT_COLUMNS_UNSUPPORTED: Code = Code::new(
+    "dxf.mtext-columns.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// Z が 0 でないか、押し出しの向きが Z でない図形を、平面の図面モデルに移さなかった
 ///
 /// `dxf.non-planar.dropped`（0.0.0 から）
@@ -732,6 +743,7 @@ pub const ALL: &[Code] = &[
     DXF_LIFT_DROPPED,
     DXF_LIFT_INVALID,
     DXF_LINE_TYPE_ELEMENT_DROPPED,
+    DXF_MTEXT_COLUMNS_UNSUPPORTED,
     DXF_NON_PLANAR_DROPPED,
     DXF_OBJECT_UNSUPPORTED,
     DXF_PAPER_SPACE_DROPPED,
