@@ -65,6 +65,7 @@
 - [0055: DWG（R2000）への書き戻しで足す属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を INSERT に持たせる](0055-dwg-write-back-attributed-insert-addition.md)（2026-10-27、採用）
 - [0056: DWG（R2000）への書き戻しで足す LWPOLYLINE は、表にない印のビットと一定の幅を 0 にする](0056-dwg-write-back-lwpolyline-addition.md)（2026-10-27、採用）
 - [0057: DWG（R2000）への書き戻しで足す SPLINE は、節点と制御点を持ち重みを持たないものだけを、表にない印を 0 にして書く](0057-dwg-write-back-spline-addition.md)（2026-10-27、採用）
+- [0058: DWG（R2000）への書き戻しでは、足した SHAPE を受け付けない](0058-dwg-write-back-shape-addition.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
