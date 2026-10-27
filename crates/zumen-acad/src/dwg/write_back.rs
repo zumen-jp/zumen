@@ -46,7 +46,7 @@ use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 const COMMON: &[i16] = &[62, 48, 60];
 
 /// R2004 で、型ごとの欄を R2000 と同じに符号化する図形の種類（決定 0072・0073）
-/// R2010 から後に書き戻す図形の種類（決定 0085・0086）
+/// R2010 から後に書き戻す図形の種類（決定 0085〜0087）
 const R2010_KINDS: &[&[u8]] = &[
     b"LINE",
     b"CIRCLE",
@@ -65,6 +65,8 @@ const R2010_KINDS: &[&[u8]] = &[
     b"SPLINE",
     b"INSERT",
     b"MLINE",
+    b"MTEXT",
+    b"VERTEX",
 ];
 
 const R2004_KINDS: &[&[u8]] = &[
@@ -1764,6 +1766,37 @@ fn r2010_own_fields(
         let mut fields = BitWriter::with_strings();
         r2010_attribute(&mut fields, new, data, end)?;
         Some(fields)
+    } else if new.kind == b"MTEXT" {
+        let mut fields = BitWriter::with_strings();
+        r2010_mtext(&mut fields, new, data, start, end, release)?;
+        Some(fields)
+    } else if new.kind == b"VERTEX" && type_code == 0x0A {
+        // 2D の頂点は、膨らみの後に頂点の番号（BL）を持つ。元のビットを写し、接線の向きを後に書く
+        let mut bits = Bits::with_release(data, release);
+        bits.seek(start);
+        bits.rc()?;
+        for _ in 0..3 {
+            bits.bd()?;
+        }
+        if bits.bd()? >= 0.0 {
+            bits.bd()?;
+        }
+        bits.bd()?;
+        let id_at = bits.pos();
+        bits.bl()?;
+        let id = id_at..bits.pos();
+        let mut whole = BitWriter::with_strings();
+        vertex(&mut whole, new, type_code)?;
+        // 接線の向き（BD）の前までを写し、番号と接線の向きを続ける
+        let tangent = real(new, 50)?.unwrap_or(0.0).to_radians();
+        let mut last = BitWriter::default();
+        last.bd(tangent);
+        let head = whole.len().checked_sub(last.len())?;
+        let mut fields = BitWriter::with_strings();
+        fields.copy(&whole.into_bytes(), 0..head)?;
+        fields.copy(data, id)?;
+        fields.bd(tangent);
+        Some(fields)
     } else if new.kind == b"HATCH" {
         // 初めのグラデーションの欄は、元のビットを写す（決定 0074）
         let mut bits = Bits::with_release(data, Release::R2004);
@@ -1773,7 +1806,7 @@ fn r2010_own_fields(
         fields.copy(data, start..bits.pos())?;
         hatch(&mut fields, old, new)?;
         Some(fields)
-    } else if matches!(new.kind.as_slice(), b"INSERT" | b"MTEXT") {
+    } else if new.kind == b"INSERT" {
         (type_code != MINSERT_TYPE).then_some(())?;
         r2004_own_fields(
             BitWriter::with_strings,
@@ -1787,6 +1820,60 @@ fn r2010_own_fields(
     } else {
         own_fields(BitWriter::with_strings(), old, new, type_code, data, start)
     }
+}
+
+/// R2010 から後の MTEXT の欄（決定 0087）。幅（41）の後に枠の高さ（46）を書く。範囲の大きさと、文字列の後の
+/// 印から主のデータの終わり `end` まで（背景の欄など）は、元のビットを写す
+fn r2010_mtext(
+    fields: &mut BitWriter,
+    object: &Object,
+    data: &[u8],
+    start: usize,
+    end: usize,
+    release: Release,
+) -> Option<()> {
+    // 文字列は文字列の流れにあるので、主のデータの位置を求めるときは読まない
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(start);
+    for _ in 0..12 {
+        bits.bd()?;
+    }
+    bits.bs()?;
+    bits.bs()?;
+    let extents_at = bits.pos();
+    bits.bd()?;
+    bits.bd()?;
+    let extents_end = bits.pos();
+    bits.bs()?;
+    bits.bd()?;
+    let flag_at = bits.pos();
+    point3(fields, object, 10)?;
+    for (code, default) in [(210, [0.0, 0.0, 1.0]), (11, [1.0, 0.0, 0.0])] {
+        match [code, code + 10, code + 20].map(|code| real(object, code)) {
+            [Some(None), Some(None), Some(None)] => default.map(|v| fields.bd(v)),
+            [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
+            _ => return None,
+        };
+    }
+    for code in [41, 46, 40] {
+        fields.bd(real(object, code)??);
+    }
+    for code in [71, 72] {
+        fields.bs(small(object, code)??);
+    }
+    fields.copy(data, extents_at..extents_end)?;
+    let mut text = Vec::new();
+    for value in object.values.iter().filter(|value| value.code == 3) {
+        let Data::Text(chunk) = &value.data else {
+            return None;
+        };
+        text.extend(uncaret(chunk)?);
+    }
+    text.extend(uncaret(text_of(object, 1)?)?);
+    fields.text(&text)?;
+    fields.bs(small(object, 73)??);
+    fields.bd(real(object, 44)??);
+    fields.copy(data, flag_at..end)
 }
 
 /// R2010・R2013 の ATTRIB・ATTDEF の欄。名前の前に属性の版（RC、1 つ目の 280）を、印の後に位置を固定するか

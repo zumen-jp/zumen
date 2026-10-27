@@ -2361,6 +2361,10 @@ fn vertex2d(bits: &mut Bits) -> Option<Vec<Value>> {
         (start, bits.bd()?)
     };
     let bulge = bits.bd()?;
+    // R2010 からは、頂点の番号（BL、DXF の 91）が続く。表には置かない
+    if bits.release() >= Release::R2010 {
+        bits.bl()?;
+    }
     let tangent = bits.bd()?.to_degrees();
     for (code, value) in [(40, start), (41, end), (42, bulge), (50, tangent)] {
         if value != 0.0 {
