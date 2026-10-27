@@ -545,6 +545,8 @@ fn read(
     if entity {
         let common = entity_data(&mut bits)?;
         let mut frozen = 0;
+        // データの中で、ハンドルの流れから読むハンドルの数（MULTILEADER）
+        let mut slots = 0;
         let own = if bits.pos() <= handles_at {
             match entry.type_code {
                 TEXT => text(&mut bits)?,
@@ -578,6 +580,7 @@ fn read(
                 // HATCH は型が固定でなく、クラスで決まる
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ if kind == b"IMAGE" => image(&mut bits, release)?,
+                _ if kind == b"MULTILEADER" => multileader(&mut bits, release, &mut slots)?,
                 _ => Vec::new(),
             }
         } else {
@@ -628,6 +631,22 @@ fn read(
         }
         for _ in 0..common.styles {
             bits.handle()?;
+        }
+        // MULTILEADER は、データの中のハンドルを、データの順にハンドルの流れから読む。仮の値を読んだ値で
+        // 置き換え、0 のハンドルと置かないハンドルは除く
+        if slots > 0 {
+            let mut read = Vec::with_capacity(usize::try_from(slots).ok()?.min(data.len()));
+            for _ in 0..slots {
+                read.push(bits.handle()?.resolve(entry.handle)?);
+            }
+            for value in &mut values {
+                if let Data::Handle(handle) = &mut value.data
+                    && let Some(slot) = handle.checked_sub(SLOT)
+                {
+                    *handle = *read.get(usize::try_from(slot).ok()?)?;
+                }
+            }
+            values.retain(|v| !matches!(v.data, Data::Handle(0)));
         }
         // IMAGE は、画像の定義（340）と、その反応子（360）のハンドルを持つ。DXF と同じく、表示の印（70）と
         // 切り抜きの境界の種類（71）の前に置く
@@ -2202,6 +2221,278 @@ fn image(bits: &mut Bits, release: Release) -> Option<Vec<Value>> {
     values.push(int(91, i64::from(count)));
     for _ in 0..count {
         values.extend(point2(bits, 14)?);
+    }
+    Some(values)
+}
+
+/// データの中のハンドルの仮の値の始まり。`SLOT + n` は、データの n 番目のハンドル
+const SLOT: u64 = 1 << 63;
+
+/// MULTILEADER の欄を読む助け。データの中のハンドルを数える
+struct Leaders<'b, 'a> {
+    bits: &'b mut Bits<'a>,
+    slots: &'b mut u64,
+}
+
+impl Leaders<'_, '_> {
+    /// データの中のハンドル。次のハンドルの仮の値を返す
+    fn handle(&mut self) -> Data {
+        let slot = Data::Handle(SLOT + *self.slots);
+        *self.slots += 1;
+        slot
+    }
+
+    /// CMC の色を、DXF と同じく RGB の値（BL）で置く。番号だけを持つ R2000 は、DXF と同じく、ByLayer（256）を
+    /// 0xC0000000、ByBlock（0）を 0xC1000000、ほかの番号を 0xC3000000 に番号を足した値に直す（ByLayer と
+    /// ByBlock は試料の DWG と DXF で確かめた）
+    fn color(&mut self, code: i16) -> Option<Value> {
+        let index = self.bits.bs()?;
+        if self.bits.release() < Release::R2004 {
+            let rgb: u32 = match index {
+                256 => 0xC000_0000,
+                0 => 0xC100_0000,
+                _ => 0xC300_0000 | u32::from(index as u16 & 0xFF),
+            };
+            return Some(int(code, i64::from(rgb as i32)));
+        }
+        let rgb = self.bits.bl()?;
+        let flags = self.bits.rc()?;
+        if flags & 1 != 0 {
+            self.bits.text()?;
+        }
+        if flags & 2 != 0 {
+            self.bits.text()?;
+        }
+        Some(int(code, i64::from(rgb)))
+    }
+
+    fn flag(&mut self, code: i16) -> Option<Value> {
+        Some(Value {
+            code,
+            data: Data::Bool(self.bits.bit()?),
+        })
+    }
+
+    fn bs(&mut self, code: i16) -> Option<Value> {
+        Some(int(code, i64::from(self.bits.bs()?)))
+    }
+
+    fn bl(&mut self, code: i16) -> Option<Value> {
+        Some(int(code, i64::from(self.bits.bl()?)))
+    }
+
+    fn bd(&mut self, code: i16) -> Option<Value> {
+        Some(real(code, self.bits.bd()?))
+    }
+
+    fn point(&mut self, code: i16) -> Option<Vec<Value>> {
+        point3(self.bits, code)
+    }
+
+    fn count(&mut self) -> Option<usize> {
+        usize::try_from(self.bits.bl()?).ok()
+    }
+}
+
+/// MULTILEADER の欄（ODS 5.4.1 の 20.4.48 と、注記の文脈の 20.4.86。クラスで決まる型）。DXF と同じく、文脈を
+/// 300〜301 の区切りに置き、枝（302〜303）と線（304〜305）を、文脈の内容の後に置く（DWG では内容の前にある）。
+/// 文脈が文字を持つときも、DXF と同じく記号を持つ印（296）を偽で置く。線ごとの上書きの欄は、DXF と同じく上書きの
+/// 印（93）が立つものだけを置く。2 つの欄を持つ文脈と図形の上と下の寄せ方は、DWG では上・下の順だが、DXF の
+/// 下（272）・上（273）の順に置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）
+fn multileader(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value>> {
+    let r2010 = release >= Release::R2010;
+    let mut r = Leaders { bits, slots };
+    let mut values = Vec::new();
+    if r2010 {
+        values.push(r.bs(270)?);
+    }
+    // 枝と線
+    let mut leaders = Vec::new();
+    for _ in 0..r.count()? {
+        leaders.push(text_value(302, b"LEADER{"));
+        leaders.extend([r.flag(290)?, r.flag(291)?]);
+        leaders.extend(r.point(10)?);
+        leaders.extend(r.point(11)?);
+        for _ in 0..r.count()? {
+            leaders.extend(r.point(12)?);
+            leaders.extend(r.point(13)?);
+        }
+        leaders.extend([r.bl(90)?, r.bd(40)?]);
+        for _ in 0..r.count()? {
+            leaders.push(text_value(304, b"LEADER_LINE{"));
+            for _ in 0..r.count()? {
+                leaders.extend(r.point(10)?);
+            }
+            for _ in 0..r.count()? {
+                leaders.push(r.bl(90)?);
+                for _ in 0..r.count()? {
+                    leaders.extend(r.point(11)?);
+                    leaders.extend(r.point(12)?);
+                }
+            }
+            leaders.push(r.bl(91)?);
+            if r2010 {
+                let line_type = r.handle();
+                let arrow = r.handle();
+                let overrides = [
+                    r.bs(170)?,
+                    r.color(92)?,
+                    Value {
+                        code: 340,
+                        data: line_type,
+                    },
+                    r.bl(171)?,
+                    r.bd(40)?,
+                    Value {
+                        code: 341,
+                        data: arrow,
+                    },
+                ];
+                let flags = r.bits.bl()?;
+                for (bit, value) in overrides.into_iter().enumerate() {
+                    // 置かないハンドルも、仮の値を数えたので、ハンドルの流れからは読む
+                    if (flags >> bit) & 1 != 0 {
+                        leaders.push(value);
+                    }
+                }
+                if flags != 0 {
+                    leaders.push(int(93, i64::from(flags)));
+                }
+            }
+            leaders.push(text_value(305, b"}"));
+        }
+        if r2010 {
+            leaders.push(r.bs(271)?);
+        }
+        leaders.push(text_value(303, b"}"));
+    }
+    // 文脈の内容
+    values.push(text_value(300, b"CONTEXT_DATA{"));
+    values.push(r.bd(40)?);
+    values.extend(r.point(10)?);
+    values.extend([r.bd(41)?, r.bd(140)?, r.bd(145)?]);
+    values.extend([r.bs(174)?, r.bs(175)?, r.bs(176)?, r.bs(177)?]);
+    let text = r.bits.bit()?;
+    values.push(Value {
+        code: 290,
+        data: Data::Bool(text),
+    });
+    if text {
+        values.push(text_value(304, &r.bits.text()?));
+        values.extend(r.point(11)?);
+        let style = r.handle();
+        values.push(Value {
+            code: 340,
+            data: style,
+        });
+        values.extend(r.point(12)?);
+        values.extend(r.point(13)?);
+        values.extend([r.bd(42)?, r.bd(43)?, r.bd(44)?, r.bd(45)?]);
+        values.extend([r.bs(170)?, r.color(90)?, r.bs(171)?, r.bs(172)?]);
+        values.extend([r.color(91)?, r.bd(141)?, r.bl(92)?]);
+        values.extend([r.flag(291)?, r.flag(292)?, r.bs(173)?, r.flag(293)?]);
+        values.extend([r.bd(142)?, r.bd(143)?, r.flag(294)?]);
+        for _ in 0..r.count()? {
+            values.push(r.bd(144)?);
+        }
+        values.push(r.flag(295)?);
+        r.bits.bit()?;
+        values.push(Value {
+            code: 296,
+            data: Data::Bool(false),
+        });
+    } else {
+        let symbol = r.bits.bit()?;
+        values.push(Value {
+            code: 296,
+            data: Data::Bool(symbol),
+        });
+        if symbol {
+            let block = r.handle();
+            values.push(Value {
+                code: 341,
+                data: block,
+            });
+            values.extend(r.point(14)?);
+            values.extend(r.point(15)?);
+            values.extend(r.point(16)?);
+            values.extend([r.bd(46)?, r.color(93)?]);
+            for _ in 0..16 {
+                values.push(r.bd(47)?);
+            }
+        }
+    }
+    values.extend(r.point(110)?);
+    values.extend(r.point(111)?);
+    values.extend(r.point(112)?);
+    values.push(r.flag(297)?);
+    values.extend(leaders);
+    if r2010 {
+        let top = r.bs(273)?;
+        values.extend([r.bs(272)?, top]);
+    }
+    values.push(text_value(301, b"}"));
+    // 図形の欄
+    let style = r.handle();
+    values.push(Value {
+        code: 340,
+        data: style,
+    });
+    values.extend([r.bl(90)?, r.bs(170)?, r.color(91)?]);
+    let line_type = r.handle();
+    values.push(Value {
+        code: 341,
+        data: line_type,
+    });
+    values.extend([r.bl(171)?, r.flag(290)?, r.flag(291)?, r.bd(41)?]);
+    let arrow = r.handle();
+    values.push(Value {
+        code: 342,
+        data: arrow,
+    });
+    values.extend([r.bd(42)?, r.bs(172)?]);
+    let text_style = r.handle();
+    values.push(Value {
+        code: 343,
+        data: text_style,
+    });
+    values.extend([r.bs(173)?, r.bs(95)?, r.bs(174)?, r.bs(175)?]);
+    values.extend([r.color(92)?, r.flag(292)?]);
+    let block = r.handle();
+    values.push(Value {
+        code: 344,
+        data: block,
+    });
+    values.push(r.color(93)?);
+    values.extend(r.point(10)?);
+    values.extend([r.bd(43)?, r.bs(176)?, r.flag(293)?]);
+    // 矢印は R2007 までだけが持つ（R2010 からは線ごとに持つ。試料の DWG で、数が 1 つだけなことを確かめた）
+    let arrows = if r2010 { 0 } else { r.count()? };
+    for _ in 0..arrows {
+        values.push(r.flag(94)?);
+        let arrow = r.handle();
+        values.push(Value {
+            code: 345,
+            data: arrow,
+        });
+    }
+    for _ in 0..r.count()? {
+        let definition = r.handle();
+        values.push(Value {
+            code: 330,
+            data: definition,
+        });
+        values.push(text_value(302, &r.bits.text()?));
+        values.extend([r.bs(177)?, r.bd(44)?]);
+    }
+    values.extend([r.flag(294)?, r.bs(178)?, r.bs(179)?, r.bd(45)?]);
+    if r2010 {
+        values.push(r.bs(271)?);
+        let top = r.bs(273)?;
+        values.extend([r.bs(272)?, top]);
+    }
+    if release >= Release::R2013 {
+        values.push(r.flag(295)?);
     }
     Some(values)
 }

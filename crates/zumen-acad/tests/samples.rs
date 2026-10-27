@@ -176,6 +176,21 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             } else {
                 other
             };
+            // R2000 の DXF は、代わりの図形のバイト数を 92 に置き、続けて図形（310）を置く。DWG は置かない
+            let proxyless;
+            let proxy = other
+                .values
+                .windows(2)
+                .position(|pair| pair[0].code == 92 && pair[1].code == 310);
+            let other = match proxy {
+                Some(at) => {
+                    let mut copy = other.clone();
+                    copy.values.remove(at);
+                    proxyless = copy;
+                    &proxyless
+                }
+                None => other,
+            };
             let mut seen: BTreeMap<i16, usize> = BTreeMap::new();
             // 辞書の項目（名前 3 と指すオブジェクト 350・360 の組）は、組で比べる。DXF にない
             // オブジェクトを指す項目は、DXF を書くときに落とされたか作り直されたものなので比べない
@@ -237,10 +252,15 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     .nth(*nth)
                     .map(|v| &v.data);
                 *nth += 1;
+                // R2000 の MULTILEADER の色は番号だけを持つ（0xC3）。DXF が RGB の色（0xC2）を持つときは比べない
+                let nearest = |data: &Data, theirs: &Data| {
+                    matches!((data, theirs), (Data::Int(ours), Data::Int(theirs))
+                        if ours >> 24 & 0xFF == 0xC3 && theirs >> 24 & 0xFF == 0xC2)
+                };
                 assert!(
-                    theirs.is_some_and(
-                        |theirs| same(&value.data, theirs) || numbered(&value.data, theirs)
-                    ),
+                    theirs.is_some_and(|theirs| same(&value.data, theirs)
+                        || numbered(&value.data, theirs)
+                        || (object.kind == b"MULTILEADER" && nearest(&value.data, theirs))),
                     "{at} {}: {:?} {theirs:?}",
                     value.code,
                     value.data
