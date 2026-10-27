@@ -1763,3 +1763,19 @@ mod tests {
         assert_eq!(on(0, 0.0).distance(&on(1, 3.0)), None);
     }
 }
+
+/// 図面モデルへの変更の一覧（決定 0139）。要素を出所で指し、並べた順に当てる
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Changes {
+    /// 変更
+    pub edits: Vec<Edit>,
+}
+
+/// 図面モデルの要素 1 つへの変更
+#[derive(Clone, Debug, PartialEq)]
+pub enum Edit {
+    /// 同じ出所を持つ実寸の空間の要素を、この要素で置き換える
+    Replace(Box<Element<ModelPoint>>),
+    /// この出所の要素を除く
+    Remove(Ref),
+}

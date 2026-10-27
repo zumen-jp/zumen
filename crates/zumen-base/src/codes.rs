@@ -399,6 +399,17 @@ pub const DXF_BLOCK_MISSING: Code = Code::new(
     &["name"],
 );
 
+/// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。今は、LINE・CIRCLE の形の置き換えと、続くレコードを持たない図形の除去だけを扱う（決定 0139）
+///
+/// `dxf.change.unsupported`（0.0.0 から）
+pub const DXF_CHANGE_UNSUPPORTED: Code = Code::new(
+    "dxf.change.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &[],
+);
+
 /// コード・ページの版の ASCII でない文字を、まだ読めないので、その文字の図形を図面モデルに移さなかった
 ///
 /// `dxf.code-page.unsupported`（0.0.0 から）
@@ -409,6 +420,12 @@ pub const DXF_CODE_PAGE_UNSUPPORTED: Code = Code::new(
     &[Param::new("kind", ParamType::Text)],
     &["kind"],
 );
+
+/// 図面モデルの変更が指す出所の要素が、今のファイルの実寸の空間の図形にない（決定 0139）
+///
+/// `dxf.element.missing`（0.0.0 から）
+pub const DXF_ELEMENT_MISSING: Code =
+    Code::new("dxf.element.missing", Severity::Error, None, &[], &[]);
 
 /// 出力先の DXF の版にない種類の図形を、書かなかった
 ///
@@ -945,7 +962,9 @@ pub const ALL: &[Code] = &[
     DXF_BINARY_UNSUPPORTED,
     DXF_BLOCK_CYCLE_INVALID,
     DXF_BLOCK_MISSING,
+    DXF_CHANGE_UNSUPPORTED,
     DXF_CODE_PAGE_UNSUPPORTED,
+    DXF_ELEMENT_MISSING,
     DXF_ENTITY_DROPPED,
     DXF_GROUP_CODE_DROPPED,
     DXF_GROUP_CODE_MISSING,

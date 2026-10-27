@@ -3,10 +3,11 @@
 //! - [`Codec`]・[`FileModel`] は、L1 のファイルモデルと、その符号化の 1 つ
 //! - [`Transact`]・[`Transaction`] は、L1 の変更を確かめてからまとめて反映する仕組み
 //! - [`Lift`] は、L1 から L2 の領域モデルを作る変換
+//! - [`Apply`] は、L2 の変更を元の L1 へその場で書き戻す
 //! - [`Signature`] は、形式の判定の規則。コーデックがデータとして持つ
 //! - [`testkit`] は、往復・決定性・レコードの範囲を確かめる試験の道具
 //!
-//! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lower` は、試作の次の段階で足す。
+//! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lower` は、別の形式への変換を作るときに足す。
 
 pub mod testkit;
 
@@ -38,6 +39,13 @@ impl From<Stop> for Error {
 pub trait Lift<M>: FileModel {
     /// 領域モデルを作る。予算の上限か中断の合図で止めたときだけ失敗する
     fn lift(&self, cx: &mut Cx) -> Result<M, Error>;
+}
+
+/// L2 の領域モデルへの変更 `C` を、元の L1 にその場で書き戻す（決定 0008・0139）
+pub trait Apply<C>: FileModel {
+    /// すべての変更を確かめてから反映する。1 つでも書き戻せなければ、何も反映せずに
+    /// [`Error::Rejected`] を返す。理由は診断として文脈に足す
+    fn apply(&mut self, changes: &C, cx: &mut Cx) -> Result<(), Error>;
 }
 
 /// L1: 形式の系統のモデルと、その符号化の 1 つ（決定 0008）
