@@ -488,6 +488,22 @@ severity = "info"
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.block.missing"]
+description = "配置が指すブロックの定義がないので、配置だけを図面モデルに移した"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.block-cycle.invalid"]
+description = "自分を直接か間接に配置するブロックの定義を、展開せずに図面モデルに移した"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.viewport.unsupported"]
 description = "まだ扱えない設定を持つビューポートを、図面モデルに移さなかった"
 severity = "warning"

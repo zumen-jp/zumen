@@ -36,6 +36,8 @@
     "dwg.type.unsupported": "Kept {count} DWG objects of type {type}, which is not supported yet, with an empty kind.",
     "dwg.version.unsupported": "DWG version {version} cannot be read yet.",
     "dxf.binary.unsupported": "Binary DXF cannot be read yet.",
+    "dxf.block-cycle.invalid": "Kept {count} definitions of block \"{name}\" without expanding them, because the block places itself directly or indirectly.",
+    "dxf.block.missing": "Kept only the placement of {count} references to block \"{name}\", because the block is not defined.",
     "dxf.code-page.unsupported": "Did not lift {count} \"{kind}\" entities into the drawing model, because characters outside ASCII in code page versions cannot be read yet.",
     "dxf.entity.dropped": "Did not write {count} \"{kind}\" entities, which the target DXF version does not have.",
     "dxf.group-code.dropped": "Did not write {count} tags with group code {code} of \"{kind}\", which the target DXF version does not have.",

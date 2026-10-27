@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0115）。いまは ENTITIES の
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0116）。いまは ENTITIES の
 //! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・ACAD_TABLE・IMAGE・PDFUNDERLAY など・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! BLOCKS の BLOCK（と、その中身と ATTDEF）を記号の定義にし、図形の色・線種・線幅と、空間の描く順を移す。
 //! 図形の XDATA は、読んだときの図形の値とともに形式固有の情報にする。
@@ -131,6 +131,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         }
     }
     let symbols = lifter.definitions(db, &mut out, cx)?;
+    check_symbols(&symbols, &out, cx)?;
     let [model_keys, paper_keys] = lifter.sort_keys(db, cx)?;
     // 見出しの $LTSCALE と、1/100 mm の $LWDEFAULT（DXF Reference「HEADER Section Group Codes」）
     let line_type_scale = db
@@ -213,6 +214,62 @@ fn layout_block(name: &str) -> bool {
 }
 
 /// 決まった作業量を数え、上限を超えたら止める（決定 0010）
+/// 配置（INSERT）が指す定義がないものと、自分を直接か間接に配置する定義を診断する（決定 0116）。配置は
+/// 展開しないので、どちらも配置と定義は移したまま持つ。表のセルと寸法などが指すブロックは、まだ確かめない
+fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result<(), Error> {
+    fn placed<P>(elements: &[Element<P>]) -> impl Iterator<Item = (&SymbolKey, &Ref)> {
+        elements.iter().filter_map(|element| match &element.shape {
+            Shape::Symbol(symbol) => Some((&symbol.key, &element.source)),
+            _ => None,
+        })
+    }
+    let mut by_name = BTreeMap::new();
+    for (index, symbol) in symbols.iter().enumerate() {
+        by_name.entry(&symbol.key).or_insert(index);
+    }
+    let inner = symbols
+        .iter()
+        .flat_map(|symbol| placed(&symbol.space.elements));
+    for (key, at) in placed(&out.model).chain(placed(&out.paper)).chain(inner) {
+        work(cx, 1)?;
+        if !by_name.contains_key(key) {
+            cx.report(
+                Diagnostic::new(codes::DXF_BLOCK_MISSING)
+                    .with("name", key.name.clone())
+                    .at(at.clone()),
+            );
+        }
+    }
+    let edges: Vec<Vec<usize>> = symbols
+        .iter()
+        .map(|symbol| {
+            placed(&symbol.space.elements)
+                .filter_map(|(key, _)| by_name.get(key).copied())
+                .collect()
+        })
+        .collect();
+    for (index, symbol) in symbols.iter().enumerate() {
+        let mut seen = vec![false; symbols.len()];
+        let mut next = edges.get(index).cloned().unwrap_or_default();
+        while let Some(at) = next.pop() {
+            work(cx, 1)?;
+            if at == index {
+                cx.report(
+                    Diagnostic::new(codes::DXF_BLOCK_CYCLE_INVALID)
+                        .with("name", symbol.key.name.clone())
+                        .at(symbol.source.clone()),
+                );
+                break;
+            }
+            if let Some(visited @ false) = seen.get_mut(at) {
+                *visited = true;
+                next.extend(edges.get(at).into_iter().flatten());
+            }
+        }
+    }
+    Ok(())
+}
+
 fn work(cx: &mut Cx, amount: u64) -> Result<(), Error> {
     cx.check(Kind::Work, amount).map_err(|stop| {
         cx.report(stop.to_diagnostic());

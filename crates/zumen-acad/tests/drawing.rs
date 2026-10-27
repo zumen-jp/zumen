@@ -1,6 +1,6 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
-//! 色と線種・E5 の形式固有の情報・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
+//! 色と線種・E5 の形式固有の情報・E6 の同じ見た目の定義と符号・E8 の穴のある塗り・E9 の循環と欠けた定義・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
 //! 記号と属性・ハッチング・E8 の曲線と記号の定義・E10 の表と表題欄・E7 の下敷きを試す。
 #![cfg(feature = "drawing")]
 
@@ -1617,6 +1617,9 @@ fn symbols_keep_the_block_key_the_placement_and_the_attributes() {
                 1
             ),
             (codes::DXF_LIFT_DROPPED, r#"Text("ATTRIB")"#.to_owned(), 1),
+            // BLOCKS を持たないので、どの配置も定義を指さない
+            (codes::DXF_BLOCK_MISSING, r#"Text("部品A")"#.to_owned(), 1),
+            (codes::DXF_BLOCK_MISSING, r#"Text("柱")"#.to_owned(), 1),
         ]
     );
     let shapes = model_shapes(&drawing);
@@ -2065,7 +2068,15 @@ fn e3_formatted_text_keeps_the_content_the_spans_and_the_frame() {
     .concat();
     let header = [MM, &[(9, "$ACADVER"), (1, "AC1021")]].concat();
     let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
-    assert_eq!(found(&diag), []);
+    // BLOCKS を持たないので、配置は定義を指さない
+    let missing: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, _, _)| (c, p))
+        .collect();
+    assert_eq!(
+        missing,
+        [(codes::DXF_BLOCK_MISSING, r#"Text("枠")"#.to_owned())]
+    );
     let drawing = drawing.unwrap();
     let shapes = model_shapes(&drawing);
     let [Shape::Formatted(vertical), Shape::Symbol(frame)] = shapes.as_slice() else {
@@ -3670,5 +3681,241 @@ fn e9_xdata_that_cannot_be_read_is_reported() {
     assert_eq!(
         found(&diag),
         [invalid(1000), invalid(1030), invalid(1002), invalid(1099)]
+    );
+}
+
+#[test]
+fn e6_definitions_and_codes_with_the_same_look_are_kept_apart() {
+    let dashes = |handle: &'static str, name: &'static str| {
+        vec![
+            (0, "LTYPE"),
+            (5, handle),
+            (2, name),
+            (3, "__ __"),
+            (73, "2"),
+            (49, "0.5"),
+            (74, "0"),
+            (49, "-0.25"),
+            (74, "0"),
+        ]
+    };
+    let tables = [
+        vec![(0, "TABLE"), (2, "LTYPE")],
+        dashes("14", "DASH1"),
+        dashes("15", "DASH2"),
+        vec![(0, "ENDTAB")],
+    ]
+    .concat();
+    let entities = [
+        model_line("20", "0"),
+        vec![(6, "DASH1"), (62, "1"), (420, "16711680")],
+        model_line("21", "0"),
+        vec![(6, "DASH2"), (420, "16711680")],
+    ]
+    .concat();
+    let src = sections(&[("HEADER", MM), ("TABLES", &tables), ("ENTITIES", &entities)]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    // 同じ形の線種も、名前ごとに別の定義のまま持つ
+    let [first, second] = drawing.line_types.as_slice() else {
+        panic!("線種が 2 つでない");
+    };
+    assert_eq!(
+        (first.name.as_str(), second.name.as_str()),
+        ("DASH1", "DASH2")
+    );
+    assert_eq!(first.definition, second.definition);
+    assert_ne!(first.id, second.id);
+    let styles: Vec<_> = drawing.spaces[0]
+        .elements
+        .iter()
+        .map(|e| (e.style.color, e.style.line_type))
+        .collect();
+    // 同じ RGB でも、元の符号を持つ色と RGB だけの色を分ける
+    assert_eq!(
+        styles,
+        [
+            (
+                Inherit::Own(Color {
+                    code: Some(ColorCode {
+                        system: ColorSystem::Aci,
+                        value: 1
+                    }),
+                    rgb: Some([255, 0, 0]),
+                }),
+                Inherit::Own(first.id),
+            ),
+            (
+                Inherit::Own(Color {
+                    code: None,
+                    rgb: Some([255, 0, 0]),
+                }),
+                Inherit::Own(second.id),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn e8_a_fill_keeps_its_hole() {
+    let square = |flags: &'static str, [a, b]: [&'static str; 2]| {
+        vec![
+            (92, flags),
+            (72, "0"),
+            (73, "1"),
+            (93, "4"),
+            (10, a),
+            (20, a),
+            (10, b),
+            (20, a),
+            (10, b),
+            (20, b),
+            (10, a),
+            (20, b),
+            (97, "0"),
+        ]
+    };
+    let hatch = [
+        entity(
+            "HATCH",
+            &[
+                (100, "AcDbHatch"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (30, "0.0"),
+                (2, "SOLID"),
+                (70, "1"),
+                (71, "0"),
+                (91, "2"),
+            ],
+        ),
+        // 外側でいちばん外の輪と、穴の輪
+        square("19", ["0.0", "10.0"]),
+        square("2", ["4.0", "6.0"]),
+        vec![(75, "0"), (76, "1"), (98, "0")],
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &hatch), &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let Shape::Hatch(hatch) = &drawing.spaces[0].elements[0].shape else {
+        panic!("ハッチングでない");
+    };
+    assert_eq!(hatch.fill, Fill::Solid);
+    assert_eq!(hatch.islands, Islands::Nested);
+    let loops: Vec<_> = hatch
+        .loops
+        .iter()
+        .map(|l| (l.external, l.outermost, l.boundary.clone()))
+        .collect();
+    let square = |a: f64, b: f64| Boundary::Polyline {
+        vertices: [(a, a), (b, a), (b, b), (a, b)]
+            .map(|(x, y)| Vertex {
+                point: at(x, y),
+                bulge: 0.0,
+            })
+            .to_vec(),
+        closed: true,
+    };
+    // 穴の輪を外側の輪と混ぜず、塗りつぶさない
+    assert_eq!(
+        loops,
+        [
+            (true, true, square(0.0, 10.0)),
+            (false, false, square(4.0, 6.0)),
+        ]
+    );
+}
+
+#[test]
+fn e9_cyclic_and_missing_definitions_are_reported_and_placements_are_not_expanded() {
+    let block = |name: &'static str, inner: &'static str| {
+        [
+            entity("BLOCK", &[(2, name), (70, "0"), (10, "0.0"), (20, "0.0")]),
+            entity("INSERT", &[(2, inner), (10, "0.0"), (20, "0.0")]),
+            entity("ENDBLK", &[]),
+        ]
+        .concat()
+    };
+    let blocks = [
+        // A と B は互いを、C は自分を配置する
+        block("A", "B"),
+        block("B", "A"),
+        block("C", "C"),
+        block("D", "A"),
+    ]
+    .concat();
+    let entities = [
+        // 定義のない配置
+        entity("INSERT", &[(2, "MISSING"), (10, "0.0"), (20, "0.0")]),
+        // 6 万 × 6 万の格子。展開しない
+        entity(
+            "INSERT",
+            &[
+                (2, "D"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (70, "60000"),
+                (71, "60000"),
+                (44, "1.0"),
+                (45, "1.0"),
+            ],
+        ),
+        // 有限でない尺度
+        entity("INSERT", &[(2, "D"), (10, "0.0"), (20, "0.0"), (41, "inf")]),
+    ]
+    .concat();
+    let src = sections(&[("HEADER", MM), ("BLOCKS", &blocks), ("ENTITIES", &entities)]);
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(100)));
+    let (drawing, diag) = lift(&src, &mut budget);
+    let drawing = drawing.unwrap();
+    let elements = &drawing.spaces[0].elements;
+    assert_eq!(elements.len(), 2);
+    let Shape::Symbol(grid) = &elements[1].shape else {
+        panic!("記号でない");
+    };
+    assert_eq!(
+        grid.grid.as_ref().map(|g| (g.columns, g.rows)),
+        Some((60000, 60000))
+    );
+    // 定義は輪があっても移す。D は輪の中にないので診断しない
+    let names: Vec<&str> = drawing
+        .symbols
+        .iter()
+        .map(|s| s.key.name.as_str())
+        .collect();
+    assert_eq!(names, ["A", "B", "C", "D"]);
+    let at = |name: &str| {
+        drawing
+            .symbols
+            .iter()
+            .find(|s| s.key.name == name)
+            .unwrap()
+            .source
+            .clone()
+    };
+    let named = |code, name: &str, place: Ref| (code, format!("Text({name:?})"), 1, vec![place]);
+    let mut found = found(&diag);
+    let invalid = found.remove(0);
+    assert_eq!(
+        (invalid.0, invalid.1),
+        (
+            codes::DXF_LIFT_INVALID,
+            "Text(\"INSERT\") Int(41)".to_owned()
+        )
+    );
+    assert_eq!(
+        found,
+        [
+            named(
+                codes::DXF_BLOCK_MISSING,
+                "MISSING",
+                elements[0].source.clone()
+            ),
+            named(codes::DXF_BLOCK_CYCLE_INVALID, "A", at("A")),
+            named(codes::DXF_BLOCK_CYCLE_INVALID, "B", at("B")),
+            named(codes::DXF_BLOCK_CYCLE_INVALID, "C", at("C")),
+        ]
     );
 }
