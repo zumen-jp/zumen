@@ -46,6 +46,27 @@ use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 const COMMON: &[i16] = &[62, 48, 60];
 
 /// R2004 で、型ごとの欄を R2000 と同じに符号化する図形の種類（決定 0072・0073）
+/// R2010 から後に書き戻す図形の種類（決定 0085・0086）
+const R2010_KINDS: &[&[u8]] = &[
+    b"LINE",
+    b"CIRCLE",
+    b"ARC",
+    b"POINT",
+    b"ELLIPSE",
+    b"RAY",
+    b"XLINE",
+    b"SOLID",
+    b"TRACE",
+    b"3DFACE",
+    b"TEXT",
+    b"ATTRIB",
+    b"ATTDEF",
+    b"LWPOLYLINE",
+    b"SPLINE",
+    b"INSERT",
+    b"MLINE",
+];
+
 const R2004_KINDS: &[&[u8]] = &[
     b"LINE",
     b"CIRCLE",
@@ -1320,7 +1341,7 @@ impl NewEntity<'_> {
         common.bb(0);
         common.bs(small(object, 60)?.unwrap_or(0));
         common.rc(lineweight_index(-1)?.try_into().ok()?);
-        let mut fields = own_fields(object, object, self.type_code, &[], 0)?;
+        let mut fields = own_fields(BitWriter::default(), object, object, self.type_code, &[], 0)?;
         if r2004 && object.kind == b"MTEXT" {
             fields.bl(0);
         }
@@ -1528,46 +1549,7 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
 fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型で欄が分かれる
     let type_code = Bits::with_release(data, Release::R2000).bs()?;
-    let grid = type_code == MINSERT_TYPE;
-    let own: &[i16] = match new.kind.as_slice() {
-        b"LINE" => LINE,
-        b"CIRCLE" => CIRCLE,
-        b"ARC" => ARC,
-        b"POINT" => POINT,
-        b"ELLIPSE" => ELLIPSE,
-        b"RAY" | b"XLINE" => RAY,
-        b"SOLID" | b"TRACE" => SOLID,
-        b"3DFACE" => FACE3D,
-        b"TEXT" => TEXT,
-        b"ATTRIB" => ATTRIB,
-        b"ATTDEF" => ATTDEF,
-        b"MTEXT" => MTEXT,
-        b"LWPOLYLINE" => LWPOLYLINE,
-        b"SPLINE" => SPLINE,
-        b"HATCH" => HATCH,
-        b"VERTEX" => match type_code {
-            0x0A => VERTEX_2D,
-            0x0B..=0x0D => VERTEX_3D,
-            0x0E => FACE_RECORD,
-            _ => &[],
-        },
-        b"POLYLINE" => match type_code {
-            0x0F => POLYLINE_2D,
-            0x10 => POLYLINE_3D,
-            0x1D => POLYFACE,
-            0x1E => MESH,
-            _ => &[],
-        },
-        b"DIMENSION" => DIMENSION_ALL,
-        b"INSERT" if grid => MINSERT,
-        b"INSERT" => INSERT,
-        b"TOLERANCE" => TOLERANCE,
-        b"LEADER" => LEADER,
-        b"MLINE" => MLINE,
-        b"VIEWPORT" => VIEWPORT,
-        b"SHAPE" => SHAPE,
-        _ => &[],
-    };
+    let own = own_codes(&new.kind, type_code);
     if release == Release::R2004 && !R2004_KINDS.contains(&new.kind.as_slice()) {
         return None;
     }
@@ -1608,9 +1590,17 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
     } else if release == Release::R2004 && matches!(new.kind.as_slice(), b"INSERT" | b"MTEXT") {
         // MINSERT は、持つオブジェクトの数が列と行の欄の前に入るので、まだ扱わない
         (type_code != MINSERT_TYPE).then_some(())?;
-        r2004_own_fields(old, new, type_code, data, start, handles_at)?
+        r2004_own_fields(
+            BitWriter::default,
+            old,
+            new,
+            type_code,
+            data,
+            start,
+            handles_at,
+        )?
     } else {
-        own_fields(old, new, type_code, data, start)?
+        own_fields(BitWriter::default(), old, new, type_code, data, start)?
     };
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
@@ -1625,18 +1615,9 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
     Some(out.into_bytes())
 }
 
-/// R2010 から後の図形を符号化し直したデータ（決定 0085）。`data` はハンドルの流れの大きさ（MC）の後のデータ、
-/// `handles_at` はハンドルの流れの始まり。文字列を持たない図形（LINE・CIRCLE・ARC・POINT・ELLIPSE・RAY・
-/// XLINE・SOLID・TRACE・3DFACE）の、共通の欄と型ごとの欄だけを扱う。主のデータの後の、文字列の流れの
-/// 有無の印とハンドルの流れは写し、MC を付けて返す
-fn encode_r2010(
-    data: &[u8],
-    handles_at: usize,
-    old: &Object,
-    new: &Object,
-    release: Release,
-) -> Option<Vec<u8>> {
-    let own: &[i16] = match new.kind.as_slice() {
+/// 種類 `kind`（型 `type_code`）の図形の、型ごとの欄の組の符号。扱わない種類は空
+fn own_codes(kind: &[u8], type_code: i16) -> &'static [i16] {
+    match kind {
         b"LINE" => LINE,
         b"CIRCLE" => CIRCLE,
         b"ARC" => ARC,
@@ -1645,8 +1626,53 @@ fn encode_r2010(
         b"RAY" | b"XLINE" => RAY,
         b"SOLID" | b"TRACE" => SOLID,
         b"3DFACE" => FACE3D,
-        _ => return None,
-    };
+        b"TEXT" => TEXT,
+        b"ATTRIB" => ATTRIB,
+        b"ATTDEF" => ATTDEF,
+        b"MTEXT" => MTEXT,
+        b"LWPOLYLINE" => LWPOLYLINE,
+        b"SPLINE" => SPLINE,
+        b"HATCH" => HATCH,
+        b"VERTEX" => match type_code {
+            0x0A => VERTEX_2D,
+            0x0B..=0x0D => VERTEX_3D,
+            0x0E => FACE_RECORD,
+            _ => &[],
+        },
+        b"POLYLINE" => match type_code {
+            0x0F => POLYLINE_2D,
+            0x10 => POLYLINE_3D,
+            0x1D => POLYFACE,
+            0x1E => MESH,
+            _ => &[],
+        },
+        b"DIMENSION" => DIMENSION_ALL,
+        b"INSERT" if type_code == MINSERT_TYPE => MINSERT,
+        b"INSERT" => INSERT,
+        b"TOLERANCE" => TOLERANCE,
+        b"LEADER" => LEADER,
+        b"MLINE" => MLINE,
+        b"VIEWPORT" => VIEWPORT,
+        b"SHAPE" => SHAPE,
+        _ => &[],
+    }
+}
+
+/// R2010 から後の図形を符号化し直したデータ（決定 0085・0086）。`data` はハンドルの流れの大きさ（MC）の後の
+/// データ、`handles_at` はハンドルの流れの始まり。型ごとの欄を変えたときは、主のデータの後の文字列の流れも
+/// 書き直す。ハンドルの流れは写し、MC を付けて返す
+fn encode_r2010(
+    data: &[u8],
+    handles_at: usize,
+    old: &Object,
+    new: &Object,
+    release: Release,
+) -> Option<Vec<u8>> {
+    let type_code = Bits::with_release(data, release).bot()?;
+    let own = own_codes(&new.kind, type_code);
+    if !R2010_KINDS.contains(&new.kind.as_slice()) {
+        return None;
+    }
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -1668,29 +1694,49 @@ fn encode_r2010(
         let color = only(&[62], old, true) != only(&[62], new, true);
         common_fields(data, color_at, start, new, release, color)?
     };
-    let fields = if only(own, old, true) == only(own, new, true) {
-        let mut fields = BitWriter::default();
-        fields.copy(data, start..end)?;
-        fields
-    } else {
-        // 元の値を符号化した欄が、主のデータの終わりまでの長さを持つことを確かめる。角度は度から直すので、
-        // ビットが元と同じとは限らない
-        let type_code = Bits::with_release(data, release).bot()?;
-        let same = own_fields(old, old, type_code, data, start)?;
-        (start + same.len() == end).then_some(())?;
-        own_fields(old, new, type_code, data, start)?
-    };
     let mut out = BitWriter::default();
     out.copy(data, 0..color_at)?;
-    for part in [common, fields] {
-        let len = part.len();
-        out.copy(&part.into_bytes(), 0..len)?;
-    }
-    let moved = out.len();
-    out.copy(data, end..data.len() * 8)?;
+    let common_len = common.len();
+    out.copy(&common.into_bytes(), 0..common_len)?;
+    let handles = if only(own, old, true) == only(own, new, true) {
+        out.copy(data, start..end)?;
+        // ハンドルの流れは、主のデータの終わりと同じだけずれる
+        let handles = (out.len() + handles_at).checked_sub(end)?;
+        out.copy(data, end..data.len() * 8)?;
+        handles
+    } else {
+        // 元の値を符号化した欄が、主のデータの終わりまでの長さを持ち、文字列の流れが元と同じことを確かめる。
+        // 角度は度から直すので、主のデータのビットが元と同じとは限らない
+        let mut same = r2010_own_fields(old, old, type_code, data, start, end, release)?;
+        (start + same.len() == end).then_some(())?;
+        let strings_end = r2010_strings_end(data, end, handles_at)?;
+        let mut found = BitWriter::default();
+        found.copy(data, end..strings_end)?;
+        (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
+        let mut fields = r2010_own_fields(old, new, type_code, data, start, end, release)?;
+        let strings = fields.take_strings();
+        let fields_len = fields.len();
+        out.copy(&fields.into_bytes(), 0..fields_len)?;
+        let size = strings.len();
+        out.copy(&strings.into_bytes(), 0..size)?;
+        if size > 0 {
+            // 流れのビットの数（RS）。0x8000 に収まらなければ、上位の RS を前に置き、下位に 0x8000 を立てる
+            if size >= 0x8000 {
+                out.rs(i16::try_from(size >> 15).ok()?);
+                out.rs(i16::from_ne_bytes(
+                    (u16::try_from(size & 0x7FFF).ok()? | 0x8000).to_ne_bytes(),
+                ));
+            } else {
+                out.rs(i16::try_from(size).ok()?);
+            }
+        }
+        out.bit(size > 0);
+        let handles = out.len();
+        out.copy(data, handles_at..data.len() * 8)?;
+        handles
+    };
     let out = out.into_bytes();
-    // ハンドルの流れは、主のデータの終わりと同じだけずれる。MC は、そこからバイトの終わりまでのビットの数
-    let handles = (moved + handles_at).checked_sub(end)?;
+    // MC は、ハンドルの流れの始まりからバイトの終わりまでのビットの数
     let mut bytes = Vec::new();
     push_modular_char(
         &mut bytes,
@@ -1699,6 +1745,88 @@ fn encode_r2010(
     );
     bytes.extend(out);
     Some(bytes)
+}
+
+/// R2010 から後の型ごとの欄を、文字列の流れを分けて符号化する。R2004 で後ろに欄が増えた種類は、増えた欄を
+/// 主のデータの終わり `end` まで写す
+fn r2010_own_fields(
+    old: &Object,
+    new: &Object,
+    type_code: i16,
+    data: &[u8],
+    start: usize,
+    end: usize,
+    release: Release,
+) -> Option<BitWriter> {
+    if matches!(new.kind.as_slice(), b"ATTRIB" | b"ATTDEF") {
+        // R2018 からの複数行の属性の欄は、まだ扱わない
+        (release < Release::R2018).then_some(())?;
+        let mut fields = BitWriter::with_strings();
+        r2010_attribute(&mut fields, new, data, end)?;
+        Some(fields)
+    } else if new.kind == b"HATCH" {
+        // 初めのグラデーションの欄は、元のビットを写す（決定 0074）
+        let mut bits = Bits::with_release(data, Release::R2004);
+        bits.seek(start);
+        hatch_gradient(&mut bits)?;
+        let mut fields = BitWriter::with_strings();
+        fields.copy(data, start..bits.pos())?;
+        hatch(&mut fields, old, new)?;
+        Some(fields)
+    } else if matches!(new.kind.as_slice(), b"INSERT" | b"MTEXT") {
+        (type_code != MINSERT_TYPE).then_some(())?;
+        r2004_own_fields(
+            BitWriter::with_strings,
+            old,
+            new,
+            type_code,
+            data,
+            start,
+            end,
+        )
+    } else {
+        own_fields(BitWriter::with_strings(), old, new, type_code, data, start)
+    }
+}
+
+/// R2010・R2013 の ATTRIB・ATTDEF の欄。名前の前に属性の版（RC、1 つ目の 280）を、印の後に位置を固定するか
+/// （B、2 つ目の 280）を書く。ATTDEF の問いの前の版（RC）は、主のデータの終わり `end` の前の元のビットを写す
+fn r2010_attribute(fields: &mut BitWriter, object: &Object, data: &[u8], end: usize) -> Option<()> {
+    let mut versions = object.values.iter().filter(|value| value.code == 280);
+    let mut next = || match versions.next().map(|value| &value.data) {
+        Some(Data::Int(value)) => u8::try_from(*value).ok(),
+        _ => None,
+    };
+    let (version, locked) = (next()?, next()?);
+    text(fields, object, 74)?;
+    fields.rc(version);
+    string(fields, object, 2)?;
+    fields.bs(small(object, 73)?.unwrap_or(0));
+    fields.rc(u8::try_from(small(object, 70)??).ok()?);
+    fields.bit(locked != 0);
+    if object.kind == b"ATTDEF" {
+        fields.copy(data, end.checked_sub(8)?..end)?;
+        string(fields, object, 3)?;
+    }
+    Some(())
+}
+
+/// 主のデータの終わり `end` から始まる文字列の流れの終わり（流れのビットの数（RS）の始まり）のビットの位置。
+/// 流れがなければ `end`
+fn r2010_strings_end(data: &[u8], end: usize, handles_at: usize) -> Option<usize> {
+    let mut bits = Bits::new(data);
+    bits.seek(handles_at.checked_sub(1)?);
+    if !bits.bit()? {
+        return Some(end);
+    }
+    let at = handles_at.checked_sub(17)?;
+    bits.seek(at);
+    let low = bits.rs()?;
+    if low < 0 {
+        at.checked_sub(16)
+    } else {
+        Some(at)
+    }
 }
 
 /// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
@@ -2836,13 +2964,13 @@ fn common_fields(
 /// 型ごとの欄。`grid` は MINSERT か。表にない欄は、元のデータ `data` の `start` からの型ごとの欄から写す。
 /// 符号化できない種類なら `None`
 fn own_fields(
+    mut fields: BitWriter,
     old: &Object,
     new: &Object,
     type_code: i16,
     data: &[u8],
     start: usize,
 ) -> Option<BitWriter> {
-    let mut fields = BitWriter::default();
     match new.kind.as_slice() {
         b"LINE" => line(&mut fields, new)?,
         b"CIRCLE" | b"ARC" => {
@@ -2909,6 +3037,7 @@ fn own_fields(
 /// 型ごとの欄。R2000 の形で符号化し、増えた欄は元のビットを写す。元の値を R2000 の形で符号化した欄が、元の
 /// ビットの初めと同じでなければ `None`（決定 0073）
 fn r2004_own_fields(
+    writer: fn() -> BitWriter,
     old: &Object,
     new: &Object,
     type_code: i16,
@@ -2916,8 +3045,8 @@ fn r2004_own_fields(
     start: usize,
     handles_at: usize,
 ) -> Option<BitWriter> {
-    let mut fields = own_fields(old, new, type_code, data, start)?;
-    let same = own_fields(old, old, type_code, data, start)?;
+    let mut fields = own_fields(writer(), old, new, type_code, data, start)?;
+    let same = own_fields(writer(), old, old, type_code, data, start)?;
     let end = start
         .checked_add(same.len())
         .filter(|&end| end <= handles_at)?;
