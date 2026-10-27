@@ -815,6 +815,34 @@ fn r2000_drawings_take_back_added_entities() {
                 ));
             }
             added.push((b"SEQEND", Vec::new()));
+            // 列と行の数と間隔を持ち、属性を 1 つ持つ MINSERT も足す
+            added.push((
+                b"INSERT",
+                vec![
+                    real(10, 8.0),
+                    real(20, 9.0),
+                    real(30, 0.0),
+                    int(66, 1),
+                    int(70, 2),
+                    int(71, 3),
+                    real(44, 5.0),
+                    real(45, 6.0),
+                    text(2, &name),
+                ],
+            ));
+            added.push((
+                b"ATTRIB",
+                vec![
+                    real(10, 8.0),
+                    real(20, 9.0),
+                    real(30, 0.0),
+                    real(40, 2.5),
+                    text(1, b"3"),
+                    text(2, b"TAG"),
+                    int(70, 0),
+                ],
+            ));
+            added.push((b"SEQEND", Vec::new()));
         }
         let count = added.len() as u64;
         let mut insert = model;
