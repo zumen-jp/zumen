@@ -8,7 +8,10 @@
 //! 表から除いた図形は、オブジェクトの地図から除き、前後の図形と所有者のブロックのレコードの、図形の並びを
 //! たどるハンドルを直す（決定 0051）。
 //!
-//! オブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
+//! 表の終わりに足した図形のうち、いくつかの種類は、一から符号化してオブジェクトの地図に加え、所有者の
+//! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。
+//!
+//! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,7 +20,7 @@ use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits};
 use super::objects::{DIM_FIELDS, Dim, block_links, entity_fields, entity_links, object_fields};
-use super::{DwgFile, Release};
+use super::{DwgFile, Release, header};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 
 /// 図形の共通の欄のうち、表に置くもののグループ・コード
@@ -116,8 +119,24 @@ const MLINE: &[i16] = &[
     42,
 ];
 
-/// 変えたオブジェクトの番号と、新しいデータ。除いたオブジェクトは `None`
-type Changes = Vec<(usize, Option<Vec<u8>>)>;
+/// 足したオブジェクトのハンドルとデータの並び
+type Added = Vec<(u64, Vec<u8>)>;
+
+/// 並びをたどったオブジェクトのハンドルと番号の並び
+type Chain = Vec<(u64, usize)>;
+
+/// 書き戻す変更
+#[derive(Debug, Default)]
+struct Changes {
+    /// 変えたオブジェクトの番号と、新しいデータ
+    set: BTreeMap<usize, Vec<u8>>,
+    /// 除いたオブジェクトの番号
+    removed: Vec<usize>,
+    /// 足したオブジェクトのハンドルと、データ
+    added: Added,
+    /// 新しい HANDSEED
+    seed: Option<u64>,
+}
 
 impl DwgFile {
     /// 表 `db` のオブジェクトの値の変更を、このファイルに書き戻す。`db` は、このファイルから作った表を
@@ -139,10 +158,22 @@ impl DwgFile {
         let changes = self.changes(db, &base);
         let mut txn = self.transaction();
         let staged = match changes {
-            Ok(changes) => changes.iter().try_for_each(|(record, data)| match data {
-                Some(data) => txn.set_data(*record, data),
-                None => txn.remove(*record),
-            }),
+            Ok(changes) => changes
+                .set
+                .iter()
+                .try_for_each(|(record, data)| txn.set_data(*record, data))
+                .and_then(|()| changes.removed.iter().try_for_each(|&r| txn.remove(r)))
+                .and_then(|()| {
+                    changes
+                        .added
+                        .iter()
+                        .try_for_each(|(handle, data)| txn.add(*handle, data))
+                })
+                .and_then(|()| {
+                    changes
+                        .seed
+                        .map_or(Ok(()), |seed| txn.set_handle_seed(seed))
+                }),
             Err(diagnostic) => Err(txn.reject(*diagnostic)),
         };
         // 失敗した変更があれば、確定が最初の失敗を診断として返し、何も反映しない
@@ -173,16 +204,24 @@ impl DwgFile {
             .collect();
         let mut kept = BTreeSet::new();
         let mut changes = BTreeMap::new();
+        let mut added = Vec::new();
         for object in db.objects() {
             let found = match object.origin {
                 Origin::Dwg { offset, .. } => before.get(&offset).filter(|(_, old)| {
                     old.kind == object.kind && old.section == object.section && kept.insert(offset)
                 }),
-                Origin::Dxf { .. } | Origin::New => None,
+                Origin::Dxf { .. } | Origin::New => {
+                    added.push(object);
+                    continue;
+                }
             };
             let Some(&(record, old)) = found else {
                 return Err(unsupported(&object.kind));
             };
+            // 足した図形は、表の終わりにだけ置ける
+            if !added.is_empty() {
+                return Err(unsupported(b"ENTITIES"));
+            }
             if old.values != object.values {
                 let data = self
                     .entries
@@ -207,7 +246,7 @@ impl DwgFile {
             .map(|(_, &found)| found)
             .collect();
         // 並べ替えたオブジェクト
-        if !db.objects().iter().map(offset).eq(base
+        if !db.objects().iter().map(offset).take(kept.len()).eq(base
             .objects()
             .iter()
             .map(offset)
@@ -227,12 +266,220 @@ impl DwgFile {
             return Err(unsupported(name));
         }
         self.unlink(base, &removed, &mut changes)?;
-        let removed = removed.iter().map(|&(record, _)| (record, None));
-        Ok(changes
-            .into_iter()
-            .map(|(record, data)| (record, Some(data)))
-            .chain(removed)
-            .collect())
+        let (added, seed) = self.append(base, &added, &mut changes)?;
+        Ok(Changes {
+            set: changes,
+            removed: removed.iter().map(|&(record, _)| record).collect(),
+            added,
+            seed,
+        })
+    }
+
+    /// 足した図形 `added` を符号化し、所有者のブロックのレコードの図形の並びの終わりに繋ぐ（決定 0052）。
+    /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
+    /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
+    /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
+    fn append(
+        &self,
+        base: &AcadDb,
+        added: &[&Object],
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+    ) -> Result<(Added, Option<u64>), Box<Diagnostic>> {
+        let Some(&last) = added.last() else {
+            return Ok((Vec::new(), None));
+        };
+        let mut seed = self.handle_seed().ok_or_else(|| unsupported(b"HANDSEED"))?;
+        let records: BTreeMap<u64, usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(record, entry)| (entry.handle, record))
+            .collect();
+        let mut pending = Vec::new();
+        let mut blocks: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
+        for &object in added {
+            let new = self
+                .prepare(base, object, &records, seed)
+                .ok_or_else(|| unsupported(&object.kind))?;
+            seed = new.handle + 1;
+            blocks.entry(new.owner).or_default().push(pending.len());
+            pending.push(new);
+        }
+        let mut links = vec![(0, 0); pending.len()];
+        for (block, list) in blocks {
+            let block_record = *records
+                .get(&block)
+                .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+            let (first, _, chain) = self
+                .chain(block_record, block, &records, changes)
+                .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+            let handles: Vec<u64> = list
+                .iter()
+                .filter_map(|&i| Some(pending.get(i)?.handle))
+                .collect();
+            let joined = self
+                .join(block_record, block, first, &chain, &handles, changes)
+                .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+            for (&i, link) in list.iter().zip(joined) {
+                if let Some(slot) = links.get_mut(i) {
+                    *slot = link;
+                }
+            }
+        }
+        let data = pending
+            .iter()
+            .zip(links)
+            .map(|(new, (prev, next))| Some((new.handle, new.encode(prev, next)?)))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| unsupported(&last.kind))?;
+        Ok((data, Some(seed)))
+    }
+
+    /// 足した図形 `object` を符号化するのに要るもの。ハンドルが `seed` より小さいか、足せない図形なら `None`
+    fn prepare<'a>(
+        &self,
+        base: &AcadDb,
+        object: &'a Object,
+        records: &BTreeMap<u64, usize>,
+        seed: u64,
+    ) -> Option<NewEntity<'a>> {
+        let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
+        let handle = object.handle().filter(|&h| h >= seed)?;
+        let codes = [&[5, 330, 8, 6, 67], COMMON, own].concat();
+        if object
+            .values
+            .iter()
+            .any(|value| !codes.contains(&value.code))
+        {
+            return None;
+        }
+        let owner = object.owner()?;
+        let entry = self.entries.get(*records.get(&owner)?)?;
+        let block = base.get(owner).filter(|_| {
+            self.kind(entry.type_code)
+                .is_some_and(|(k, _)| k == b"BLOCK_RECORD")
+        })?;
+        // モデル空間と用紙空間の図形は、所有者のハンドルを持たない（entmode が 2・1）
+        let name = text_of(block, 2)?;
+        let mode = if name.eq_ignore_ascii_case(b"*Model_Space") {
+            2
+        } else if name.eq_ignore_ascii_case(b"*Paper_Space") {
+            1
+        } else {
+            0
+        };
+        let section = if mode == 0 {
+            Section::Blocks
+        } else {
+            Section::Entities
+        };
+        // 用紙空間の図形だけが、67 = 1 を持つ
+        let paper = small(object, 67)?;
+        if object.section != section || paper != (mode == 1).then_some(1) {
+            return None;
+        }
+        let layer = record_handle(base, b"LAYER", text_of(object, 8)?)?;
+        let ltype = match object.values.iter().any(|value| value.code == 6) {
+            false => (0, 0),
+            true => match text_of(object, 6)? {
+                name if name.eq_ignore_ascii_case(b"ByLayer") => (0, 0),
+                name if name.eq_ignore_ascii_case(b"ByBlock") => (1, 0),
+                name if name.eq_ignore_ascii_case(b"Continuous") => (2, 0),
+                name => (3, record_handle(base, b"LTYPE", name)?),
+            },
+        };
+        Some(NewEntity {
+            object,
+            handle,
+            type_code,
+            mode,
+            owner,
+            layer,
+            ltype,
+        })
+    }
+
+    /// `record` 番目のオブジェクトの、今の変更 `changes` を入れたデータ
+    fn current(&self, changes: &BTreeMap<usize, Vec<u8>>, record: usize) -> Option<Vec<u8>> {
+        match changes.get(&record) {
+            Some(data) => Some(data.clone()),
+            None => Some(self.data(self.entries.get(record)?).to_vec()),
+        }
+    }
+
+    /// `block_record` 番目のオブジェクトのブロックのレコード `block` の、最初と最後の図形のハンドルと、
+    /// 最初の図形から後ろの図形のハンドルをたどった図形のハンドルと番号の並び。たどれなければ `None`
+    fn chain(
+        &self,
+        block_record: usize,
+        block: u64,
+        records: &BTreeMap<u64, usize>,
+        changes: &BTreeMap<usize, Vec<u8>>,
+    ) -> Option<(u64, u64, Chain)> {
+        let (_, first, last) = block_links(&self.current(changes, block_record)?, block)?;
+        // 輪は数えて止める
+        let mut chain = Vec::new();
+        let mut at = first;
+        while at != 0 {
+            if chain.len() >= self.entries.len() {
+                return None;
+            }
+            let record = *records.get(&at)?;
+            chain.push((at, record));
+            if at == last {
+                break;
+            }
+            at = entity_links(&self.current(changes, record)?, at)?.next;
+        }
+        (chain.last().map_or(0, |&(handle, _)| handle) == last).then_some((first, last, chain))
+    }
+
+    /// ブロックのレコード `block` の図形の並び `chain` の終わりに、ハンドル `handles` の図形を繋ぐ。前の
+    /// 終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足す図形ごとの
+    /// 前後の図形のハンドルを返す
+    fn join(
+        &self,
+        block_record: usize,
+        block: u64,
+        first: u64,
+        chain: &[(u64, usize)],
+        handles: &[u64],
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+    ) -> Option<Vec<(u64, u64)>> {
+        let (&new_first, &new_last) = (handles.first()?, handles.last()?);
+        let tail = chain.last().map(|&(handle, _)| handle);
+        if let Some(&(handle, record)) = chain.last() {
+            let prev = chain
+                .len()
+                .checked_sub(2)
+                .and_then(|i| chain.get(i))
+                .map_or(0, |&(h, _)| h);
+            let data = relink(&self.current(changes, record)?, handle, prev, new_first)?;
+            changes.insert(record, data);
+        }
+        let data = reblock(
+            &self.current(changes, block_record)?,
+            block,
+            if tail.is_some() { first } else { new_first },
+            new_last,
+        )?;
+        changes.insert(block_record, data);
+        Some(
+            (0..handles.len())
+                .map(|i| {
+                    let prev = i.checked_sub(1).and_then(|j| handles.get(j)).copied();
+                    let next = handles.get(i + 1).copied();
+                    (prev.or(tail).unwrap_or(0), next.unwrap_or(0))
+                })
+                .collect(),
+        )
+    }
+
+    /// 見出しの変数の HANDSEED。表に足す図形には、これより小さくないハンドルを付ける（決定 0052）。
+    /// 読めなければ `None`
+    pub fn handle_seed(&self) -> Option<u64> {
+        let (src, span) = self.header_section()?;
+        Some(header::handle_seed(src, span.start)?.value)
     }
 
     /// 除いた図形 `removed` の前後の図形と、所有者のブロックのレコードの、図形の並びをたどるハンドルを直した
@@ -292,31 +539,10 @@ impl DwgFile {
         records: &BTreeMap<u64, usize>,
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Option<()> {
-        let data = |changes: &BTreeMap<usize, Vec<u8>>, record: usize| -> Option<Vec<u8>> {
-            match changes.get(&record) {
-                Some(data) => Some(data.clone()),
-                None => Some(self.data(self.entries.get(record)?).to_vec()),
-            }
-        };
+        let data = |changes: &BTreeMap<usize, Vec<u8>>, record| self.current(changes, record);
         let block_record = *records.get(&block)?;
-        let (_, first, last) = block_links(&data(changes, block_record)?, block)?;
-        // 最初の図形から、後ろの図形のハンドルをたどる。輪は数えて止める
-        let mut chain = Vec::new();
-        let mut at = first;
-        while at != 0 {
-            if chain.len() >= self.entries.len() {
-                return None;
-            }
-            let record = *records.get(&at)?;
-            chain.push((at, record));
-            if at == last {
-                break;
-            }
-            at = entity_links(&data(changes, record)?, at)?.next;
-        }
-        if chain.last().map_or(0, |&(handle, _)| handle) != last
-            || chain.iter().filter(|(h, _)| gone.contains(h)).count() != count
-        {
+        let (first, last, chain) = self.chain(block_record, block, records, changes)?;
+        if chain.iter().filter(|(h, _)| gone.contains(h)).count() != count {
             return None;
         }
         let neighbours = |list: &[(u64, usize)], i: usize| {
@@ -368,6 +594,88 @@ const REMOVABLE: &[&[u8]] = &[
     b"INSERT",
     b"SHAPE",
 ];
+
+/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052）。型ごとの欄を元のデータなしで
+/// 符号化でき、型ごとのハンドルを持たないもの
+const ADDABLE: &[(&[u8], i16, &[i16])] = &[
+    (b"LINE", 0x13, LINE),
+    (b"CIRCLE", 0x12, CIRCLE),
+    (b"ARC", 0x11, ARC),
+    (b"POINT", 0x1B, POINT),
+    (b"ELLIPSE", 0x23, ELLIPSE),
+    (b"RAY", 0x28, RAY),
+    (b"XLINE", 0x29, RAY),
+    (b"SOLID", 0x1F, SOLID),
+    (b"TRACE", 0x20, SOLID),
+    (b"3DFACE", 0x1C, FACE3D),
+];
+
+/// 足す図形を符号化するのに要るもの
+struct NewEntity<'a> {
+    object: &'a Object,
+    handle: u64,
+    type_code: i16,
+    /// entmode。2 はモデル空間、1 は用紙空間、0 はほかのブロック
+    mode: u8,
+    /// 所有者のブロックのレコードのハンドル
+    owner: u64,
+    /// 画層のハンドル
+    layer: u64,
+    /// 線種の印と、印が 3 のときの線種のハンドル
+    ltype: (u8, u64),
+}
+
+impl NewEntity<'_> {
+    /// 前後の図形のハンドルを `prev` と `next` にした、R2000 の図形のデータ。共通の欄は、色（62）が
+    /// なければ ByLayer、線種の尺度（48）がなければ 1、非表示（60）がなければ 0 にし、反応子と拡張辞書と
+    /// 図形の絵を持たず、前後の図形のハンドルを持ち、印刷スタイルと線の太さは ByLayer にする
+    fn encode(&self, prev: u64, next: u64) -> Option<Vec<u8>> {
+        let object = self.object;
+        let mut common = BitWriter::default();
+        common.handle(0, self.handle);
+        // 拡張データがない
+        common.bs(0);
+        common.bit(false);
+        common.bb(self.mode);
+        common.bl(0);
+        common.bit(false);
+        common.bs(small(object, 62)?.unwrap_or(256));
+        common.bd(real(object, 48)?.unwrap_or(1.0));
+        common.bb(self.ltype.0);
+        common.bb(0);
+        common.bs(small(object, 60)?.unwrap_or(0));
+        common.rc(lineweight_index(-1)?.try_into().ok()?);
+        let fields = own_fields(object, object, self.type_code, &[], 0)?;
+        let mut handles = BitWriter::default();
+        if self.mode == 0 {
+            handles.handle(4, self.owner);
+        }
+        handles.handle(3, 0);
+        handles.handle(4, prev);
+        handles.handle(4, next);
+        handles.handle(5, self.layer);
+        if self.ltype.0 == 3 {
+            handles.handle(5, self.ltype.1);
+        }
+        let mut out = BitWriter::default();
+        out.bs(self.type_code);
+        out.rl(i32::try_from(out.len() + 32 + common.len() + fields.len()).ok()?);
+        for part in [common, fields, handles] {
+            let len = part.len();
+            out.copy(&part.into_bytes(), 0..len)?;
+        }
+        Some(out.into_bytes())
+    }
+}
+
+/// 種類 `kind` の表のレコードのうち、名前（2）が `name` のもののハンドル。大文字と小文字は区別しない
+fn record_handle(db: &AcadDb, kind: &[u8], name: &[u8]) -> Option<u64> {
+    db.objects()
+        .iter()
+        .filter(|o| o.kind == kind && o.section == Section::Tables)
+        .find(|o| text_of(o, 2).is_some_and(|n| n.eq_ignore_ascii_case(name)))?
+        .handle()
+}
 
 /// ハンドル `handle` の図形のデータ `data` の、前後の図形のハンドルを `prev` と `next` にしたもの。
 /// 前後の図形のハンドルを持たない図形は、持つようにする。ハンドルの流れの位置は変わらない

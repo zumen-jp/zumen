@@ -416,17 +416,30 @@ fn with_classes(mut src: Vec<u8>, classes: &[(u16, &[u8], bool)]) -> Vec<u8> {
 /// 2 つの空間のハンドルのほかは 0 か空で、CEPSNTYPE は 3（CPSNID のハンドルが続く）
 #[cfg(test)]
 fn with_header_variables(
-    mut src: Vec<u8>,
+    src: Vec<u8>,
     paper: u64,
     model: u64,
     units: u16,
     limits: [f64; 4],
 ) -> Vec<u8> {
+    with_header(src, paper, model, units, limits, 0)
+}
+
+/// [`with_header_variables`] と同じく、HANDSEED を `seed` にした見出しの変数の区切りを足したもの
+#[cfg(test)]
+fn with_header(
+    mut src: Vec<u8>,
+    paper: u64,
+    model: u64,
+    units: u16,
+    limits: [f64; 4],
+    seed: u64,
+) -> Vec<u8> {
     // 型（b・s・l・d・r・t・h は B・BS・BL・BD・RD・TV・H）と数を、R2000 の順に並べる。
-    // 用紙空間の LIMMIN・LIMMAX（P）と INSUNITS（U）には値を書く
+    // 用紙空間の LIMMIN・LIMMAX（P）と INSUNITS（U）と HANDSEED（S）には値を書く
     let space = "d9 r4 d10 h2 s1 h1 d18";
     let layout = format!(
-        "d4 t4 l2 h1 b20 s27 d21 t1 l8 s1 h6 d1 d9 P4 d10 h2 s1 h1 d18 {space} \
+        "d4 t4 l2 h1 b20 s27 d21 t1 l8 s1 S1 h5 d1 d9 P4 d10 h2 s1 h1 d18 {space} \
          t2 d9 b6 s3 d9 b1 s1 b4 s3 s11 b2 s4 b1 s1 h5 s2 h13 s2 t2 h3 l1 U1"
     );
     let mut w = BitWriter::default();
@@ -443,6 +456,7 @@ fn with_header_variables(
                 "r" => w.rd(0.0),
                 "P" => w.rd(limits.next().unwrap()),
                 "U" => w.bs(units),
+                "S" => w.handle(0, seed),
                 _ => w.handle(5, 0),
             }
         }
@@ -5187,7 +5201,8 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
         ("CIRCLE", |db| {
             db.remove(6);
         }),
-        ("LINE", |db| {
+        // HANDSEED を持たないファイルには、図形を足せない
+        ("HANDSEED", |db| {
             let mut line = db.objects()[2].clone();
             line.origin = Origin::New;
             db.push(line);
@@ -6437,5 +6452,114 @@ fn removed_entities_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{kind}");
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&kind.to_string().into()));
+    }
+}
+
+/// [`objects_with_linked_lines`] に、HANDSEED が 0x80 の見出しの変数を付けたもの
+#[cfg(test)]
+fn linked_lines_with_seed(links: bool) -> Vec<u8> {
+    with_header(
+        dwg(&objects_with_linked_lines(links)),
+        0,
+        0,
+        0,
+        [0.0; 4],
+        0x80,
+    )
+}
+
+/// 表の終わりに、ハンドル `handle` の図形を足した表。図形は、LINE 0x72 を写して `kind` と値を変えたもの
+#[cfg(test)]
+fn with_added(db: &AcadDb, handle: u64, kind: &[u8], values: &[(i16, f64)]) -> AcadDb {
+    let mut db = db.clone();
+    let mut object = db.get(0x72).unwrap().clone();
+    object.kind = kind.to_vec();
+    object.origin = Origin::New;
+    object.values.retain(|v| matches!(v.code, 330 | 8));
+    object.values.insert(
+        0,
+        Value {
+            code: 5,
+            data: Data::Handle(handle),
+        },
+    );
+    for &(code, value) in values {
+        object.values.push(Value {
+            code,
+            data: Data::Real(value),
+        });
+    }
+    db.push(object);
+    db
+}
+
+#[test]
+fn added_entities_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Section, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.section.clone(), o.values.clone()))
+            .collect()
+    };
+    let line = [
+        (10, 1.0),
+        (20, 2.0),
+        (30, 0.0),
+        (11, 3.0),
+        (21, 4.0),
+        (31, 0.0),
+    ];
+    let circle = [(10, 5.0), (20, 6.0), (30, 0.0), (40, 7.0)];
+    for links in [true, false] {
+        let src = linked_lines_with_seed(links);
+        let (base, _) = objects(&src);
+        let db = with_added(&base, 0x80, b"LINE", &line);
+        let db = with_added(&db, 0x83, b"CIRCLE", &circle);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        let out = out.unwrap();
+        assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+        let (again, diag) = objects(&out);
+        assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+        assert_eq!(summary(&again), summary(&db));
+        // HANDSEED は 0x84 に進む。足した図形も、並びをたどって除ける
+        let mut file = read(&out, Limits::default()).0.unwrap();
+        let (rejected, _) = written_back(&mut file, &with_added(&again, 0x81, b"LINE", &line));
+        assert_eq!(rejected, Err(Error::Rejected));
+        let mut db = with_added(&again, 0x84, b"LINE", &line);
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(0x80))
+            .unwrap();
+        db.remove(index).unwrap();
+        let mut file = read(&out, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+        let (again, _) = objects(&out.unwrap());
+        assert_eq!(summary(&again), summary(&db));
+    }
+    // HANDSEED より小さいハンドル・足せない種類・表にない画層・表の途中に置いた図形は、書き戻せない
+    let src = linked_lines_with_seed(true);
+    let (base, _) = objects(&src);
+    let mut unknown_layer = with_added(&base, 0x80, b"LINE", &line);
+    set_value(&mut unknown_layer, 0x80, 8, Data::Text(b"NONE".to_vec()));
+    let mut moved = with_added(&base, 0x80, b"LINE", &line);
+    let last = moved.objects().len() - 1;
+    let object = moved.remove(last).unwrap();
+    moved.insert(0, object);
+    let cases = [
+        ("LINE", with_added(&base, 0x7F, b"LINE", &line)),
+        ("MTEXT", with_added(&base, 0x80, b"MTEXT", &line)),
+        ("LINE", unknown_layer),
+        ("ENTITIES", moved),
+    ];
+    for (kind, db) in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected), "{kind}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{kind}");
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&kind.to_string().into()), "{kind}");
     }
 }
