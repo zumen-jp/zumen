@@ -1,0 +1,35 @@
+# バイナリの受け渡しの形式を比べる試作（#6）。核のワークスペースには入れない。
+[package]
+name = "zumen-bench-transfer"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "encode"
+path = "src/main.rs"
+required-features = ["json", "columnar", "flatbuffers", "arrow"]
+
+[features]
+json = []
+columnar = []
+flatbuffers = ["dep:flatbuffers"]
+arrow = ["dep:arrow-array", "dep:arrow-buffer", "dep:arrow-schema", "dep:arrow-ipc"]
+
+[dependencies]
+flatbuffers = { version = "25.12.19", optional = true }
+arrow-array = { version = "60.0.0", optional = true }
+arrow-buffer = { version = "60.0.0", optional = true }
+arrow-schema = { version = "60.0.0", optional = true }
+arrow-ipc = { version = "60.0.0", default-features = false, optional = true }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

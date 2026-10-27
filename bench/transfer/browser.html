@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>受け渡しの測定</title>
+<script type="importmap">
+  {
+    "imports": {
+      "apache-arrow": "/node_modules/apache-arrow/Arrow.dom.mjs",
+      "tslib": "/node_modules/tslib/tslib.es6.mjs",
+      "flatbuffers": "/node_modules/flatbuffers/mjs/flatbuffers.js",
+      "json-with-bigint": "/node_modules/json-with-bigint/json-with-bigint.js"
+    }
+  }
+</script>
+<pre id="out">測っています…</pre>
+<script type="module">
+  import { decoders, now } from "./decoders.mjs";
+
+  const once = (worker) => new Promise((resolve) => (worker.onmessage = (event) => resolve(event.data)));
+  const median = (values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const rows = [["format", "send_ms", "parse_ms", "page_ms", "total_ms"].join("\t")];
+  for (const format of ["json", "columnar", "flatbuffers", "arrow"]) {
+    const runs = [];
+    for (let i = 0; i < 7; i++) {
+      const worker = new Worker("./browser-worker.mjs", { type: "module" });
+      worker.postMessage({ load: format });
+      await once(worker);
+      const reply = once(worker);
+      worker.postMessage({});
+      const message = await reply;
+      const received = now();
+      const scene = decoders[format](message);
+      const done = now();
+      runs.push({ send: received - message.sent, parse: scene.parsed ? scene.parsed - received : NaN, page: done - received, total: done - message.sent });
+      worker.terminate();
+    }
+    const pick = (key) => median(runs.map((run) => run[key]));
+    rows.push([format, ...["send", "parse", "page", "total"].map((key) => (Number.isNaN(pick(key)) ? "-" : pick(key).toFixed(1)))].join("\t"));
+  }
+  document.getElementById("out").textContent = rows.join("\n");
+</script>
