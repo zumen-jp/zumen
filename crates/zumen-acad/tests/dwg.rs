@@ -7078,19 +7078,23 @@ fn layer_table_with_seed() -> Vec<u8> {
         },
     );
     let dimstyle = object(0x45, 0x14, record_named(b"Standard"), record_handles(7));
-    // 項目のないビューの表
-    let view_control = object(
-        0x3C,
-        8,
-        |w| {
-            w.bl_zero();
-            w.bl_zero();
-        },
-        |w| {
-            w.handle(4, 0);
-            w.handle(3, 0);
-        },
-    );
+    // 項目のないビューとビューポートの設定の表
+    let empty = |type_code: u16, handle: u64| {
+        object(
+            type_code,
+            handle,
+            |w| {
+                w.bl_zero();
+                w.bl_zero();
+            },
+            |w| {
+                w.handle(4, 0);
+                w.handle(3, 0);
+            },
+        )
+    };
+    let view_control = empty(0x3C, 8);
+    let vport_control = empty(0x40, 9);
     let mut objects = vec![
         (2, control),
         (3, style_control),
@@ -7098,6 +7102,7 @@ fn layer_table_with_seed() -> Vec<u8> {
         (6, appid_control),
         (7, dimstyle_control),
         (8, view_control),
+        (9, vport_control),
         (0x10, layer),
         (0x11, style),
         (0x12, ltype),
@@ -7595,5 +7600,117 @@ fn added_views_are_written_back() {
         assert_eq!(out, Err(Error::Rejected));
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&"VIEW".to_string().into()));
+    }
+}
+
+#[test]
+fn added_vports_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // 印（70）・見え方の印（71）・UCS のアイコン（74）と、読む側の並びの値を持つビューポートの設定
+    let vport = |flags: i64, mode: i64, icon: i64, extra: Vec<(i16, Data)>| {
+        let mut db = base.clone();
+        let mut values = vec![
+            (5, Data::Handle(0x80)),
+            (330, Data::Handle(9)),
+            (2, Data::Text(b"Two".to_vec())),
+            (70, Data::Int(flags)),
+        ];
+        for (code, v) in [
+            (10, 0.0),
+            (20, 0.0),
+            (11, 1.0),
+            (21, 1.0),
+            (12, 50.0),
+            (22, 40.0),
+            (13, 0.0),
+            (23, 0.0),
+            (14, 10.0),
+            (24, 10.0),
+            (15, 5.0),
+            (25, 5.0),
+            (16, 0.0),
+            (26, 0.0),
+            (36, 1.0),
+            (17, 1.0),
+            (27, 2.0),
+            (37, 0.0),
+            (40, 100.0),
+            (41, 1.5),
+            (42, 50.0),
+            (43, 0.0),
+            (44, 0.0),
+            (50, 0.0),
+            (51, 0.0),
+        ] {
+            values.push((code, Data::Real(v)));
+        }
+        for (code, v) in [
+            (71, mode),
+            (72, 1000),
+            (73, 1),
+            (74, icon),
+            (75, 0),
+            (76, 1),
+            (77, 0),
+            (78, 0),
+            (281, 0),
+            (65, 1),
+        ] {
+            values.push((code, Data::Int(v)));
+        }
+        for (code, v) in [
+            (110, 0.0),
+            (120, 0.0),
+            (130, 0.0),
+            (111, 1.0),
+            (121, 0.0),
+            (131, 0.0),
+            (112, 0.0),
+            (122, 1.0),
+            (132, 0.0),
+        ] {
+            values.push((code, Data::Real(v)));
+        }
+        values.extend([(79, Data::Int(0)), (146, Data::Real(0.0))]);
+        values.extend(extra);
+        db.push(Object {
+            kind: b"VPORT".to_vec(),
+            section: Section::Tables,
+            values: values
+                .into_iter()
+                .map(|(code, data)| Value { code, data })
+                .collect(),
+            origin: Origin::New,
+        });
+        db
+    };
+    let db = vport(0, 8 | 2, 3, Vec::new());
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(summary(&again), summary(&db));
+    // 外部参照に依る印・分からない見え方の印・分からないアイコン・UCS でないものを指すものは、書き戻せない
+    let cases = [
+        vport(16, 0, 3, Vec::new()),
+        vport(0, 32, 3, Vec::new()),
+        vport(0, 0, 4, Vec::new()),
+        vport(0, 0, 3, vec![(345, Data::Handle(0x10))]),
+    ];
+    for db in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"VPORT".to_string().into()));
     }
 }

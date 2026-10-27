@@ -906,8 +906,8 @@ fn r2000_drawings_take_back_added_entities() {
 }
 
 /// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT と、アプリケーションの名前と、足した
-/// 文字の体裁を使う寸法の体裁と、UCS を伴うビューを足して書き戻すと、読み直したものが足したものと合う。書き戻した図面に
-/// もう一度足しても合う（決定 0061〜0066）
+/// 文字の体裁を使う寸法の体裁と、UCS を伴うビューと、ビューポートの設定を足して書き戻すと、読み直したものが足したものと合う。書き戻した図面に
+/// もう一度足しても合う（決定 0061〜0067）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
     for path in dwgs(b"AC1015") {
@@ -965,6 +965,21 @@ fn r2000_drawings_take_back_added_table_records() {
             ];
             for dash in [0.5, -0.25] {
                 ltype.extend([(49, Data::Real(dash)), (74, Data::Int(0))]);
+            }
+            // 今のビューポートの設定を写し、名前を変えたもの
+            let mut vport = db
+                .objects()
+                .iter()
+                .find(|o| o.kind == b"VPORT")
+                .unwrap()
+                .clone();
+            vport.origin = Origin::New;
+            for value in &mut vport.values {
+                match value.code {
+                    5 => value.data = Data::Handle(seed + 8),
+                    2 => value.data = Data::Text(name.to_vec()),
+                    _ => {}
+                }
             }
             let mut appid = named(b"APPID", b"ACAD");
             appid.origin = Origin::New;
@@ -1131,13 +1146,14 @@ fn r2000_drawings_take_back_added_table_records() {
                     .collect(),
                 origin: Origin::New,
             });
+            db.push(vport);
             file.write_back(&db, &mut cx).unwrap();
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 8), "{}", path.display());
+            assert_eq!(again.handle_seed(), Some(seed + 9), "{}", path.display());
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),

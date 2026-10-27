@@ -17,8 +17,8 @@
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
-//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビューは、一から符号化して
-//! オブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0066）。
+//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビュー・ビューポートの設定は、一から符号化して
+//! オブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0067）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -85,6 +85,8 @@ const DIMSTYLE_TYPE: i16 = 0x45;
 const DIMSTYLE_CONTROL_TYPE: u16 = 0x44;
 const VIEW_TYPE: i16 = 0x3D;
 const VIEW_CONTROL_TYPE: u16 = 0x3C;
+const VPORT_TYPE: i16 = 0x41;
+const VPORT_CONTROL_TYPE: u16 = 0x40;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -302,7 +304,7 @@ impl DwgFile {
     /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
     /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
     /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
-    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0066）
+    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0067）
     fn append(
         &self,
         db: &AcadDb,
@@ -551,15 +553,17 @@ impl DwgFile {
         })
     }
 
-    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0066）。所有者（330）の
+    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0067）。所有者（330）の
     /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
-    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁・ビューだけを扱い、名前（2）が表にない
+    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁・ビュー・ビューポートの設定（VPORT）
+    /// だけを扱い、名前（2）が表にない
     /// ことが要る。
     /// 画層は、印（70）・色（62）・線の太さ（370）を持ち、印刷スタイル（390）と線種（6）が表になければ
     /// ならない。印刷スタイルがなければ、画層 0 と同じものにする。文字の体裁は、型ごとの欄をみな持たなければ
     /// ならない。線種は、要素がみな形も文字も持たないことが要る。アプリケーションの名前は、印（70）が 0 で
     /// なければならない。寸法の体裁は、表にない欄を既定の値で書き、文字の体裁とブロックのハンドル（340〜344）
     /// が図面になければならない。ビューは、型ごとの欄をみな持ち、UCS のハンドル（345・346）が図面になければ
+    /// ならない。ビューポートの設定は、型ごとの欄をみな持ち、UCS のハンドル（345・346）が図面になければ
     /// ならない。ハンドルが `seed` より小さいか、足せないレコードなら `None`
     fn add_record(
         &self,
@@ -574,6 +578,7 @@ impl DwgFile {
             .chain(340..=344)
             .collect();
         let view_codes = [VIEW, &[345, 346]].concat();
+        let vport_codes = [VPORT, &[345, 346]].concat();
         // レコードと表のオブジェクトの型と、型ごとの欄のグループ・コード
         let (type_code, control_type, own): (i16, u16, &[i16]) = match object.kind.as_slice() {
             b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE, &[70, 62, 290, 370, 390, 6]),
@@ -582,6 +587,7 @@ impl DwgFile {
             b"APPID" => (APPID_TYPE, APPID_CONTROL_TYPE, &[70]),
             b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE, &dimstyle_codes),
             b"VIEW" => (VIEW_TYPE, VIEW_CONTROL_TYPE, &view_codes),
+            b"VPORT" => (VPORT_TYPE, VPORT_CONTROL_TYPE, &vport_codes),
             _ => return None,
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
@@ -704,19 +710,20 @@ impl DwgFile {
             (associated || !object.values.iter().any(|value| ucs.contains(&value.code)))
                 .then_some(())?;
             // UCS を伴うビューは、基準の UCS と名前の UCS を指す。試料の図面と同じく、参照の型は 5
-            for code in [346, 345] {
-                let handle = match object.values.iter().find(|value| value.code == code) {
-                    Some(value) => match value.data {
-                        Data::Handle(h) if associated => {
-                            (db.get(h)?.kind == b"UCS").then_some(h)?
-                        }
-                        _ => return None,
-                    },
-                    None => 0,
-                };
-                if associated {
-                    handles.handle(5, handle);
+            if associated {
+                for code in [346, 345] {
+                    handles.handle(5, ucs_handle(db, object, code)?);
                 }
+            } else {
+                (ucs_handle(db, object, 346)? == 0 && ucs_handle(db, object, 345)? == 0)
+                    .then_some(())?;
+            }
+        } else if type_code == VPORT_TYPE {
+            // 使い道の分からないビットは、試料の図面と同じく偽とする
+            vport_fields(&mut fields, object, false, None, false)?;
+            // 名前の UCS と基準の UCS。試料の図面と同じく、参照の型は 5
+            for code in [345, 346] {
+                handles.handle(5, ucs_handle(db, object, code)?);
             }
         } else {
             (small(object, 70)?? == 0).then_some(())?;
@@ -2001,6 +2008,17 @@ fn view_record(
     Some(bits.pos())
 }
 
+/// 表のレコードの `code` の UCS のハンドル。なければ 0。図面にある UCS を指さなければ `None`
+fn ucs_handle(db: &AcadDb, object: &Object, code: i16) -> Option<u64> {
+    match object.values.iter().find(|value| value.code == code) {
+        Some(value) => match value.data {
+            Data::Handle(h) => (db.get(h)?.kind == b"UCS").then_some(h),
+            _ => None,
+        },
+        None => Some(0),
+    }
+}
+
 /// VIEW の型ごとの欄。UCS を伴うかを返す
 fn view_fields(fields: &mut BitWriter, new: &Object, xdep: bool) -> Option<bool> {
     let associated = flag(new, 72)?;
@@ -2094,17 +2112,29 @@ fn vport_record(
     let unknown = bits.bit()?;
     bits.seek(own_at);
     super::objects::vport(&mut bits)?;
+    let same = real(old, 40)? == real(new, 40)? && real(old, 41)? == real(new, 41)?;
+    vport_fields(fields, new, xdep, same.then_some(width), unknown)?;
+    Some(bits.pos())
+}
+
+/// VPORT の型ごとの欄。幅は、`width` があればそれを、なければ高さ（40）と比（41）の積を書く。
+/// `unknown` は、使い道の分からないビット
+fn vport_fields(
+    fields: &mut BitWriter,
+    new: &Object,
+    xdep: bool,
+    width: Option<f64>,
+    unknown: bool,
+) -> Option<()> {
     record_flags(new, xdep, 0)?;
     let mode = small(new, 71)??;
     (mode & !(1 | 2 | 4 | 8 | 16) == 0).then_some(())?;
     let height = real(new, 40)??;
     let ratio = real(new, 41)??;
-    let width = if real(old, 40)?? == height && real(old, 41)?? == ratio {
-        width
-    } else if height == 0.0 {
-        ratio
-    } else {
-        ratio * height
+    let width = match width {
+        Some(width) => width,
+        None if height == 0.0 => ratio,
+        None => ratio * height,
     };
     fields.bd(height);
     fields.bd(width);
@@ -2135,8 +2165,7 @@ fn vport_record(
     point2(fields, new, 14)?;
     fields.bit(unknown);
     fields.bit(flag(new, 65)?);
-    ucs_axes(fields, new)?;
-    Some(bits.pos())
+    ucs_axes(fields, new)
 }
 
 /// 共通の欄の、色から型ごとの欄の前まで（R2000）。色（62）がなければ ByLayer、線種の尺度（48）がなければ 1、
