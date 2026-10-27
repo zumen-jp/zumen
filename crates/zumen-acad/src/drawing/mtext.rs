@@ -4,7 +4,10 @@
 //! 取り消し線（`\L`・`\O`・`\K` と小文字）、`\U+XXXX`、値を `;` で閉じる `\H`・`\W`・`\T`・`\Q`・`\A`・`\C`・
 //! `\f`・`\F`・`\S`。ほかの符号と、値を読めない符号は、元の符号のまま `Piece::Unparsed` に置き、黙って
 //! 除かない（決定 0109）。真の色（`\c`）は値のバイト順を確かめていないので、段落の書式（`\p`）は区間の
-//! 書式でないので、解釈しない（推定。docs/formats/dxf.md）
+//! 書式でないので、解釈しない（推定。docs/formats/dxf.md）。
+//!
+//! 寸法値の文字（DXF Reference「DIMENSION」の 1）では、`<>` を測定値を書く所、`\X` を寸法線の下の文字の
+//! 始まりとして読む
 
 use zumen_drawing::{
     Color, Font, FontKind, Format, Inherit, Length, Piece, Scaled, Span, StackKind, Vertical,
@@ -14,10 +17,25 @@ use super::aci;
 
 /// 内容を区間に分ける。`length` は図面の単位の値を長さにする
 pub(super) fn spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<Span> {
+    parse(content, length, false)
+}
+
+/// 寸法値の文字を区間に分ける
+pub(super) fn dimension_spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<Span> {
+    parse(content, length, true)
+}
+
+fn parse(content: &str, length: &impl Fn(f64) -> Length, dimension: bool) -> Vec<Span> {
     let mut parser = Parser {
         spans: Vec::new(),
         state: State::default(),
         length,
+        dimension,
+    };
+    let stops: &[char] = if dimension {
+        &['{', '}', '\\', '<']
+    } else {
+        &['{', '}', '\\']
     };
     let mut groups = Vec::new();
     let mut rest = content;
@@ -36,8 +54,13 @@ pub(super) fn spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<Span>
                 rest = after;
             }
             '\\' => rest = parser.escape(after),
+            '<' if dimension && after.starts_with('>') => {
+                parser.push(Piece::Measurement);
+                rest = after.get(1..).unwrap_or_default();
+            }
             _ => {
-                let end = rest.find(['{', '}', '\\']).unwrap_or(rest.len());
+                // 1 文字目は、対にならない < でも文字列にする
+                let end = c.len_utf8() + after.find(stops).unwrap_or(after.len());
                 let (text, tail) = rest.split_at_checked(end).unwrap_or((rest, ""));
                 parser.text(text);
                 rest = tail;
@@ -66,6 +89,8 @@ struct Parser<'l, L> {
     spans: Vec<Span>,
     state: State,
     length: &'l L,
+    /// 寸法値の文字
+    dimension: bool,
 }
 
 impl<L: Fn(f64) -> Length> Parser<'_, L> {
@@ -125,6 +150,7 @@ impl<L: Fn(f64) -> Length> Parser<'_, L> {
             '\\' | '{' | '}' => self.text(code.encode_utf8(&mut [0; 4])),
             'P' => self.push(Piece::Paragraph),
             'N' => self.push(Piece::Column),
+            'X' if self.dimension => self.push(Piece::Below),
             '~' => self.text("\u{a0}"),
             'L' | 'l' => self.state.underline = code == 'L',
             'O' | 'o' => self.state.overline = code == 'O',
@@ -435,6 +461,34 @@ mod tests {
         assert_eq!(
             spans[2].format.font.as_ref().map(|f| f.kind),
             Some(FontKind::Shape)
+        );
+    }
+
+    #[test]
+    fn dimension_text_marks_the_measurement_and_the_text_below() {
+        let length = |value| {
+            Length::Model(ModelLength {
+                space: SpaceId(0),
+                value,
+            })
+        };
+        assert_eq!(
+            dimension_spans("R<> <x\\X下", &length),
+            [
+                text("R", Format::default()),
+                plain(Piece::Measurement),
+                text(" <x", Format::default()),
+                plain(Piece::Below),
+                text("下", Format::default()),
+            ]
+        );
+        // MTEXT では、どちらも解釈しない
+        assert_eq!(
+            parse("<>\\X"),
+            [
+                text("<>", Format::default()),
+                plain(Piece::Unparsed("\\X".to_owned())),
+            ]
         );
     }
 
