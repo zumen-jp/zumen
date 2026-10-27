@@ -1,20 +1,20 @@
 //! SFC から図面モデル（L2）への変換（決定 0022・0121）。
 //!
 //! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・スプライン・クロソイド・文字・点マーカー・
-//! 寸法・表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
+//! 寸法・引出線・バルーン・表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Basis, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionText,
-    Drawing2D, Edge, Element, Extension, Field, FieldValue, Flow, Font, FontKind, Format,
-    FormattedText, Height, HeightMeaning, Horizontal, Inherit, Label, Layer, LayerId, LayerState,
-    Length, LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, PatternBasis, Piece, Polyline, Resource,
-    Rotation, Scaled, Shape, Sheet, SheetId, SheetItem, SpaceId, Span, Spline, Style, Symbol,
-    SymbolKey, Target, TitleBlock, TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex,
-    Vertical, View,
+    Affine, Arrowhead, Basis, Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem,
+    Dimension, DimensionKind, DimensionText, Drawing2D, Edge, Element, Extension, Field,
+    FieldValue, Flow, Font, FontKind, Format, FormattedText, Height, HeightMeaning, Horizontal,
+    Inherit, Label, Layer, LayerId, LayerState, Length, LineSpacing, LineType, LineTypeDefinition,
+    LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind,
+    PatternBasis, Piece, Polyline, Resource, Rotation, Scaled, Shape, Sheet, SheetId, SheetItem,
+    SpaceId, Span, Spline, Style, Symbol, SymbolKey, Target, TitleBlock, TitleItem, Underlay,
+    UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -618,6 +618,12 @@ impl<'f> Lifter<'f> {
                 }
                 continue;
             }
+            if feature.is(b"label") || feature.is(b"balloon") {
+                if self.callout(feature, at, out, cx).is_none() {
+                    invalid(cx, feature);
+                }
+                continue;
+            }
             if DIMENSIONS.iter().any(|name| feature.is(name)) {
                 if self.dimension(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
@@ -936,72 +942,9 @@ impl<'f> Lifter<'f> {
         cx: &mut Cx,
     ) -> Option<()> {
         let args = self.args(feature);
-        let content = args.text(3)?;
-        let height = args.num(6).filter(|h| *h > 0.0)?;
-        let width = args.num(7).filter(|w| *w >= 0.0)?;
-        let spacing = args.num(8)?;
-        let slant = args.num(10)?;
-        // 1 が左下で、右へ、上へ数える
-        let anchor = args.int(11).filter(|a| (1..=9).contains(a))? - 1;
-        let horizontal = [Horizontal::Left, Horizontal::Center, Horizontal::Right]
-            .get(usize::try_from(anchor % 3).ok()?)
-            .copied()?;
-        let vertical = [Vertical::Bottom, Vertical::Middle, Vertical::Top]
-            .get(usize::try_from(anchor / 3).ok()?)
-            .copied()?;
-        // 書く向きは、1 が横書き、2 が縦書き。ないものは横書きとする
-        let flow = match args.int(12) {
-            None if feature.args.len() < 13 => Flow::LeftToRight,
-            Some(1) => Flow::LeftToRight,
-            Some(2) => Flow::TopToBottom,
-            _ => return None,
-        };
         let source = feature.source();
-        let font = args.int(2).unwrap_or_default();
-        let name = usize::try_from(font)
-            .ok()
-            .and_then(|code| code.checked_sub(1))
-            .and_then(|at| self.fonts.get(at));
-        if name.is_none() {
-            missing(cx, "font", font, &source);
-        }
-        let format = Format {
-            oblique: (slant != 0.0).then_some(slant),
-            font: name.map(|name| Font {
-                name: name.clone(),
-                kind: FontKind::Named {
-                    bold: false,
-                    italic: false,
-                    charset: None,
-                    pitch: None,
-                },
-            }),
-            ..Format::default()
-        };
-        let shape = Shape::Formatted(FormattedText {
-            spans: vec![Span {
-                piece: Piece::Text(content.clone()),
-                format,
-            }],
-            content,
-            height: Height {
-                value: at.length(height),
-                meaning: HeightMeaning::Frame,
-            },
-            point: at.point(args.num(4)?, args.num(5)?),
-            horizontal,
-            vertical,
-            rotation: Rotation::Angle(args.num(9)?),
-            width: None,
-            frame_height: Some(at.length(height)),
-            flow,
-            line_spacing: LineSpacing {
-                factor: 1.0,
-                exact: false,
-            },
-            background: None,
-            style: String::new(),
-        });
+        let (text, width, spacing) = self.annotation(feature, 1, at, &source, cx)?;
+        let shape = Shape::Formatted(text);
         let element = Element {
             layer: self.layer_id(args.int(0), &source, cx),
             style: Style {
@@ -1037,7 +980,6 @@ impl<'f> Lifter<'f> {
         Some(())
     }
 
-    /// レイヤ・色・線種・線幅のコード（引数の 0〜3）で、要素を作る
     /// 寸法（決定 0127）。定義点・寸法値の文字は図面モデルの欄に、寸法線と補助線の端・矢印・文字範囲の幅と字の間隔・
     /// 書く向きは `sxf.dimension` の拡張に、要素と同じ座標で残す。SXF は測定値を持たないので、`measurement` は `None`
     fn dimension<C: Place>(
@@ -1270,6 +1212,154 @@ impl<'f> Lifter<'f> {
         Some(())
     }
 
+    /// 引出線とバルーン（決定 0128）。引出線の頂点は矢印の側から並ぶ。矢印は、名前空間 `sxf.arrow` の、矢印のコードを
+    /// 名前にした記号のキーで指す。バルーンの円と、文字範囲の幅と字の間隔は、`sxf.callout` の拡張に残す
+    fn callout<C: Place>(
+        &mut self,
+        feature: Feature<'f>,
+        at: &C,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Option<()> {
+        let args = self.args(feature);
+        let xs = args.nums(5)?;
+        let ys = args.nums(6)?;
+        if xs.len() != ys.len() || xs.len() < 2 {
+            return None;
+        }
+        let mut fields = Vec::new();
+        let balloon = feature.is(b"balloon");
+        if balloon {
+            let radius = args.num(9).filter(|r| *r > 0.0)?;
+            fields.push(Field {
+                key: "center",
+                value: FieldValue::Point([args.num(7)?, args.num(8)?, 0.0]),
+            });
+            fields.push(Field {
+                key: "radius",
+                value: FieldValue::Real(radius),
+            });
+        }
+        let arrow = if balloon { 10 } else { 7 };
+        let code = args.int(arrow)?;
+        let scale = args.num(arrow + 1)?;
+        let source = feature.source();
+        let content = match args.int(arrow + 2)? {
+            0 => CalloutContent::None,
+            1 => {
+                let (text, width, spacing) =
+                    self.annotation(feature, arrow + 2, at, &source, cx)?;
+                fields.push(Field {
+                    key: "text_width",
+                    value: FieldValue::Real(width),
+                });
+                fields.push(Field {
+                    key: "text_spacing",
+                    value: FieldValue::Real(spacing),
+                });
+                CalloutContent::Text(Box::new(text))
+            }
+            _ => return None,
+        };
+        let shape = Shape::Callout(Callout {
+            branches: vec![Branch {
+                lines: vec![xs.iter().zip(&ys).map(|(x, y)| at.point(*x, *y)).collect()],
+                end: None,
+                dogleg: None,
+            }],
+            content,
+            path: PathKind::Straight,
+            arrowhead: Arrowhead::Symbol(SymbolKey {
+                namespace: "sxf.arrow",
+                name: code.to_string(),
+            }),
+            // 矢印の形と大きさは、コードの表で決まる（推定。docs/formats/sxf.md）
+            arrow_size: at.length(1.0),
+            landing: false,
+            scale,
+            style: None,
+        });
+        let element = self.element(feature, shape, cx);
+        if !fields.is_empty() {
+            let (target, basis) = at.target(&element, out);
+            out.extensions.push(Extension {
+                namespace: "sxf.callout",
+                name: String::new(),
+                version: None,
+                schema: 1,
+                target,
+                basis,
+                fields,
+                source,
+            });
+        }
+        at.element(element, out);
+        Some(())
+    }
+
+    /// 文字の値（`at` の次から、フォントのコード・文字列・基点・文字範囲の高さと幅・字の間隔・回転・斜体・9 点の配置・
+    /// 書く向き）を、書式つきの文字にする。文字範囲の幅と字の間隔も返す（決定 0122）
+    fn annotation<C: Place>(
+        &self,
+        feature: Feature<'f>,
+        at: usize,
+        place: &C,
+        source: &Ref,
+        cx: &mut Cx,
+    ) -> Option<(FormattedText<C::P>, f64, f64)> {
+        let args = self.args(feature);
+        let content = args.text(at + 2)?;
+        let height = args.num(at + 5).filter(|h| *h > 0.0)?;
+        let width = args.num(at + 6).filter(|w| *w >= 0.0)?;
+        let spacing = args.num(at + 7)?;
+        let slant = args.num(at + 9)?;
+        // 1 が左下で、右へ、上へ数える
+        let anchor = args.int(at + 10).filter(|a| (1..=9).contains(a))? - 1;
+        let horizontal = [Horizontal::Left, Horizontal::Center, Horizontal::Right]
+            .get(usize::try_from(anchor % 3).ok()?)
+            .copied()?;
+        let vertical = [Vertical::Bottom, Vertical::Middle, Vertical::Top]
+            .get(usize::try_from(anchor / 3).ok()?)
+            .copied()?;
+        // 書く向きは、1 が横書き、2 が縦書き。ないものは横書きとする
+        let flow = match args.int(at + 11) {
+            None if feature.args.len() < at + 12 => Flow::LeftToRight,
+            Some(1) => Flow::LeftToRight,
+            Some(2) => Flow::TopToBottom,
+            _ => return None,
+        };
+        let format = Format {
+            oblique: (slant != 0.0).then_some(slant),
+            font: self.font(args.int(at + 1).unwrap_or_default(), source, cx),
+            ..Format::default()
+        };
+        let text = FormattedText {
+            spans: vec![Span {
+                piece: Piece::Text(content.clone()),
+                format,
+            }],
+            content,
+            height: Height {
+                value: place.length(height),
+                meaning: HeightMeaning::Frame,
+            },
+            point: place.point(args.num(at + 3)?, args.num(at + 4)?),
+            horizontal,
+            vertical,
+            rotation: Rotation::Angle(args.num(at + 8)?),
+            width: None,
+            frame_height: Some(place.length(height)),
+            flow,
+            line_spacing: LineSpacing {
+                factor: 1.0,
+                exact: false,
+            },
+            background: None,
+            style: String::new(),
+        };
+        Some((text, width, spacing))
+    }
+
     /// 文字のフォントのコードを、`text_font_feature` の順の名前にする。なければ診断して `None`
     fn font(&self, code: i64, source: &Ref, cx: &mut Cx) -> Option<Font> {
         let name = usize::try_from(code)
@@ -1290,6 +1380,7 @@ impl<'f> Lifter<'f> {
         })
     }
 
+    /// レイヤ・色・線種・線幅のコード（引数の 0〜3）で、要素を作る
     fn element<P>(&mut self, feature: Feature<'f>, shape: Shape<P>, cx: &mut Cx) -> Element<P> {
         let args = self.args(feature);
         let source = feature.source();

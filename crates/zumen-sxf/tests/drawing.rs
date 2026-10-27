@@ -2,9 +2,10 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, FieldValue, Flow, HeightMeaning,
-    Horizontal, Inherit, Label, Length, LineWeight, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, Rotation, Scaled, Shape, SheetItem, SpaceId, Target, UnderlayFrame, Vertical,
+    Arrowhead, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, FieldValue,
+    Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight, ModelLength, ModelPoint,
+    PaperLength, PaperPoint, Rotation, Scaled, Shape, SheetItem, SpaceId, SymbolKey, Target,
+    UnderlayFrame, Vertical,
 };
 use zumen_sdk::{Lift, testkit};
 use zumen_sxf::{Sxf, SxfFile};
@@ -63,7 +64,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
         b"arc_feature('1','1','1','1','0.0','0.0','5.0','1','0.0','90.0')",
         b"ellipse_feature('1','1','1','1','0.0','0.0','2.0','4.0','30.0')",
         b"polyline_feature('1','1','1','1','3',(0,1,2),'(0,1,0)')",
-        b"balloon_feature('1','1','1','1')",
+        b"future_feature('1','1','1','1')",
         b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
     ]);
     let (drawing, diag) = lift(&src);
@@ -156,7 +157,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
     let dropped = find(&diag, codes::SXF_LIFT_DROPPED);
     assert_eq!(
         dropped.param("kind").map(|v| format!("{v:?}")),
-        Some(format!("{:?}", zumen_base::Value::from("balloon_feature")))
+        Some(format!("{:?}", zumen_base::Value::from("future_feature")))
     );
 }
 
@@ -601,5 +602,69 @@ fn moves_dimensions_with_their_definition_points() {
     );
     // 文字の有無が 0 と 1 でなければ読めない
     assert_eq!(dimensions.len(), 5);
+    find(&diag, codes::SXF_LIFT_INVALID);
+}
+
+#[test]
+fn moves_labels_and_balloons_as_callouts() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"label_feature('1','1','1','1','3','(0,10,20)','(0,5,5)','1','2.0','1','1',\\'A\\','21','5','2','4','0','0','0','1','1')",
+        b"balloon_feature('1','1','1','1','2','(0,10)','(0,10)','15','15','5','0','1.0','1','1',\\'3\\','15','15','4','2','0','0','0','5','1')",
+        b"label_feature('1','1','1','1','1','(0)','(0)','1','1.0','0')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let elements = &drawing.sheets[0].elements;
+    assert_eq!(elements.len(), 2);
+    let Shape::Callout(label) = &elements[0].shape else {
+        panic!("{:?}", elements[0].shape);
+    };
+    // 頂点は矢印の側から並ぶ
+    assert_eq!(
+        label.branches[0].lines,
+        [vec![paper(0.0, 0.0), paper(10.0, 5.0), paper(20.0, 5.0)]]
+    );
+    assert_eq!(
+        label.arrowhead,
+        Arrowhead::Symbol(SymbolKey {
+            namespace: "sxf.arrow",
+            name: "1".into(),
+        })
+    );
+    assert_eq!(label.scale, 2.0);
+    let CalloutContent::Text(text) = &label.content else {
+        panic!("{:?}", label.content);
+    };
+    assert_eq!((text.content.as_str(), text.point), ("A", paper(21.0, 5.0)));
+
+    let Shape::Callout(balloon) = &elements[1].shape else {
+        panic!("{:?}", elements[1].shape);
+    };
+    let CalloutContent::Text(text) = &balloon.content else {
+        panic!("{:?}", balloon.content);
+    };
+    assert_eq!(
+        (text.horizontal, text.vertical),
+        (Horizontal::Center, Vertical::Middle)
+    );
+    let extension = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "sxf.callout" && e.fields[0].key == "center")
+        .unwrap();
+    assert_eq!(
+        extension.fields[0].value,
+        FieldValue::Point([15.0, 15.0, 0.0])
+    );
+    assert_eq!(extension.fields[1].value, FieldValue::Real(5.0));
+    assert!(
+        drawing
+            .extensions
+            .iter()
+            .filter(|e| e.namespace == "sxf.callout")
+            .all(|e| e.is_current(&drawing))
+    );
+    // 頂点が 1 つの引出線は読めない
     find(&diag, codes::SXF_LIFT_INVALID);
 }
