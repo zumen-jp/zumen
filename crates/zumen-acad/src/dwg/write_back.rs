@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0098）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0099）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -2502,8 +2502,7 @@ fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> O
 
 /// R2010 から後の OBJECTS のオブジェクトを符号化し直したデータ（決定 0090）。`data` はハンドルの流れの
 /// 大きさ（MC）の後のデータ、`handles_at` はハンドルの流れの始まり。文字列の流れは、型ごとの欄の文字列だけを持つ。
-/// XRECORD の文字列の値は、試料の図面になく確かめていないので受け付けない。R2018 からの MLINESTYLE は、線ごとの
-/// 欄の形が異なり読めていないので受け付けない
+/// XRECORD の文字列の値は、試料の図面になく確かめていないので受け付けない
 fn encode_object_r2010(
     data: &[u8],
     handles_at: usize,
@@ -2518,7 +2517,6 @@ fn encode_object_r2010(
             .any(|v| matches!(v.data, Data::Text(_)))
     };
     (new.kind != b"XRECORD" || !text(old) && !text(new)).then_some(())?;
-    (new.kind != b"MLINESTYLE" || release < Release::R2018).then_some(())?;
     let [start, end] = r2010_object_fields(data, handles_at, release)?;
     let encode = |object: &Object| -> Option<BitWriter> {
         let mut fields = BitWriter::with_strings();
@@ -3277,7 +3275,8 @@ fn dictionary(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]
 }
 
 /// MLINESTYLE の欄（決定 0048）。名前は元のまま写す（R2010 からは書き直す）。印（70）は DXF のビットを DWG のビットに並べ直し、
-/// DXF にない DWG のビットは元のまま写す。角度は度からラジアンに直す。線の線種の番号は元のまま写す
+/// DXF にない DWG のビットは元のまま写す。角度は度からラジアンに直す。線の線種の番号（R2018 からはハンドル）は
+/// 元のまま写す
 fn mlinestyle(
     fields: &mut BitWriter,
     bits: &mut Bits,
@@ -3367,7 +3366,10 @@ fn mlinestyle(
         let color_at = bits.pos();
         let old_color = bits.cmc()?;
         let ltype = bits.pos();
-        bits.bs()?;
+        // R2018 からは、線種を番号でなくハンドルで指す。ハンドルは元のまま写す（決定 0099）
+        if release < Release::R2018 {
+            bits.bs()?;
+        }
         fields.bd(float(offset)?);
         same_cmc(
             fields,

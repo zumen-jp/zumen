@@ -849,9 +849,8 @@ fn objects_are_taken_back(version: &[u8; 6]) {
                     (b"GROUP", 300, Data::Text(text)) => text.extend(b"0"),
                     (b"DICTIONARYVAR", 1, Data::Text(text)) => text.extend(b"0"),
                     (b"DICTIONARY" | b"ACDBDICTIONARYWDFLT", 281, Data::Int(v)) => *v = *v % 5 + 1,
-                    // R2018 からの MLINESTYLE は、まだ書き戻さない
-                    (b"MLINESTYLE", 49, Data::Real(v)) if version != b"AC1032" => *v *= 2.0,
-                    (b"MLINESTYLE", 62, Data::Int(v)) if version != b"AC1032" => *v = *v % 255 + 1,
+                    (b"MLINESTYLE", 49, Data::Real(v)) => *v *= 2.0,
+                    (b"MLINESTYLE", 62, Data::Int(v)) => *v = *v % 255 + 1,
                     (b"LAYOUT", 146, Data::Real(v)) => *v += 1.0,
                     (b"LAYOUT", 78, Data::Int(v)) => *v += 100,
                     (b"XRECORD", _, Data::Real(v)) => *v += 1.0,
