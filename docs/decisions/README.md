@@ -107,6 +107,7 @@
 - [0097: R2013 から後の DWG の SPLINE は、増えた印と節点の取り方を写して書き戻し、足すのは制御点のものだけとする](0097-dwg-r2013-spline.md)（2026-10-27、採用）
 - [0098: R2018 から後の DWG に MTEXT を足し、1 行の属性の変更と足しを書き戻す](0098-dwg-r2018-mtext-attribute.md)（2026-10-27、採用）
 - [0099: R2018 から後の DWG の MLINESTYLE は、線ごとの線種の番号を読まずに書き戻す](0099-dwg-r2018-mlinestyle.md)（2026-10-27、採用）
+- [0100: R2010 から後の DWG の LTYPE の文字の要素の文字列は、UTF-16LE で 512 バイトの領域に詰め直して書き戻す](0100-dwg-r2010-ltype-text.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

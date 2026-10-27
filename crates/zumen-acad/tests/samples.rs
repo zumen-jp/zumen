@@ -799,8 +799,11 @@ fn table_records_are_taken_back(version: &[u8; 6]) {
                     (b"UCS", 10, Data::Real(v)) => *v += 1.5,
                     (b"DIMSTYLE", 40, Data::Real(v)) => *v *= 2.0,
                     (b"DIMSTYLE", 176..=178, Data::Int(v)) => *v = *v % 255 + 1,
-                    // R2010 からは、文字列の流れの文字列も変える
-                    (b"STYLE" | b"LTYPE", 3, Data::Text(text)) if r2010 => {
+                    // R2010 からは、文字列の流れの文字列と、線種の文字の要素の文字列も変える（決定 0100）
+                    (b"STYLE" | b"LTYPE", 3, Data::Text(text))
+                    | (b"LTYPE", 9, Data::Text(text))
+                        if r2010 =>
+                    {
                         text.extend("あ".as_bytes())
                     }
                     _ => continue,
