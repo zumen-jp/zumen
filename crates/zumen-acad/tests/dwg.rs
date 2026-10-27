@@ -1800,7 +1800,7 @@ fn viewports_have_their_view_and_ucs() {
                 w.rd(v);
             }
             w.bs(1000);
-            w.bl_zero(); // 凍結した画層の数
+            w.bs(1); // 凍結した画層の数（BL の短い形は BS と同じ）
             w.bl_zero(); // 状態
             w.bs(0);
             w.bytes(&[0]);
@@ -1811,7 +1811,10 @@ fn viewports_have_their_view_and_ucs() {
             }
             w.bs(0);
         },
-        entity_handles(0x10),
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x10); // 凍結した画層
+        },
     );
     let (db, diag) = objects(&dwg(&[(0x10, layer), (0x20, viewport)]));
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
@@ -1839,6 +1842,7 @@ fn viewports_have_their_view_and_ucs() {
     assert_eq!(viewport.first(71), Some(&Data::Int(1)));
     assert_eq!(viewport.first(74), Some(&Data::Int(0)));
     assert_eq!(viewport.first(1), Some(&Data::Text(Vec::new())));
+    assert_eq!(viewport.first(341), Some(&Data::Handle(0x10)));
     // 番号と状態は DWG に記録されていない
     for code in [68, 69] {
         assert!(viewport.first(code).is_none(), "{code}");
@@ -1883,6 +1887,51 @@ fn types_of_classes_are_named_by_the_classes() {
     let var = db.get(0x21).unwrap();
     assert_eq!(var.kind, b"DICTIONARYVAR");
     assert_eq!(var.section, Section::Objects);
+}
+
+#[test]
+fn sortents_tables_have_their_entities_and_keys() {
+    // 2 つの図形の並べ替えのハンドルを持つ。並べ替えのハンドルはデータの流れにある
+    let sortents = object(
+        502,
+        0x22,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2); // 項目の数（BL の RC）
+            w.bytes(&[2]);
+            w.handle(0, 0x41);
+            w.handle(0, 0x40);
+        },
+        |w| {
+            w.handle(4, 0xC); // 所有者
+            w.handle(3, 0); // 拡張辞書
+            w.handle(4, 0x1F); // ブロックのレコード
+            w.handle(4, 0x40);
+            w.handle(4, 0x41);
+        },
+    );
+    let src = with_classes(dwg(&[(0x22, sortents)]), &[(502, b"SORTENTSTABLE", false)]);
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let table = db.get(0x22).unwrap();
+    let values: Vec<_> = table
+        .values
+        .iter()
+        .filter(|v| matches!(v.code, 330 | 331 | 5))
+        .map(|v| (v.code, v.data.clone()))
+        .collect();
+    assert_eq!(
+        values,
+        [
+            (5, Data::Handle(0x22)),
+            (330, Data::Handle(0xC)),
+            (330, Data::Handle(0x1F)),
+            (331, Data::Handle(0x40)),
+            (5, Data::Handle(0x41)),
+            (331, Data::Handle(0x41)),
+            (5, Data::Handle(0x40)),
+        ]
+    );
 }
 
 #[test]

@@ -465,6 +465,7 @@ fn read(
     skip_extended_data(&mut bits)?;
     if entity {
         let common = entity_data(&mut bits)?;
+        let mut frozen = 0;
         let own = if bits.pos() <= handles_at {
             match entry.type_code {
                 TEXT => text(&mut bits)?,
@@ -472,7 +473,7 @@ fn read(
                 TOLERANCE => tolerance(&mut bits)?,
                 LEADER => leader(&mut bits)?,
                 MLINE => mline(&mut bits)?,
-                VIEWPORT => viewport(&mut bits)?,
+                VIEWPORT => viewport(&mut bits, &mut frozen)?,
                 INSERT => insert(&mut bits, false)?,
                 MINSERT => insert(&mut bits, true)?,
                 MTEXT => mtext(&mut bits)?,
@@ -548,6 +549,31 @@ fn read(
         for _ in 0..common.styles {
             bits.handle()?;
         }
+        // HATCH は、輪ごとの境界の図形の数（97）だけ、境界の図形のハンドル（330）を持つ。数の後に置く
+        if kind == b"HATCH" {
+            let mut placed = Vec::with_capacity(values.len());
+            for value in values {
+                let count = match (value.code, &value.data) {
+                    (97, Data::Int(count)) => *count,
+                    _ => 0,
+                };
+                placed.push(value);
+                for _ in 0..count {
+                    placed.push(Value {
+                        code: 330,
+                        data: Data::Handle(bits.handle()?.resolve(entry.handle)?),
+                    });
+                }
+            }
+            values = placed;
+        }
+        // VIEWPORT は、型ごとのハンドルの初めに、ビューポートで凍結した画層（341）を持つ
+        for _ in 0..frozen {
+            values.push(Value {
+                code: 341,
+                data: Data::Handle(bits.handle()?.resolve(entry.handle)?),
+            });
+        }
         // 寸法は、寸法の体裁（3）とブロック（2）の順に指す
         let pointed: &[(i16, u16)] = match entry.type_code {
             TEXT | MTEXT | ATTRIB | ATTDEF => &[(7, STYLE)],
@@ -602,6 +628,9 @@ fn read(
         // 6 のハンドルは線種の名前に直す
         let mut handles = Vec::new();
         let mut records = Vec::new();
+        // SORTENTSTABLE の並べ替えのハンドル。データの流れにあり、図形のハンドルはハンドルの流れにある
+        let sortents = kind == b"SORTENTSTABLE";
+        let mut sorts = Vec::new();
         let mut values = if is_table_record(entry.type_code) {
             table_record(&mut bits, entry.type_code, &mut handles)?
         } else if entry.type_code == MLINESTYLE {
@@ -625,18 +654,40 @@ fn read(
             scale(&mut bits)?
         } else if kind == b"LAYOUT" {
             layout(&mut bits, release, &mut handles)?
+        } else if sortents {
+            for _ in 0..bits.bl()? {
+                sorts.push(bits.handle()?.resolve(entry.handle)?);
+            }
+            Vec::new()
         } else {
             Vec::new()
         };
         // オブジェクトのハンドルの並び: 所有者・反応子・拡張辞書・型ごとのハンドル
         bits.seek(handles_at);
         let owner = bits.handle()?.resolve(entry.handle)?;
-        if !entries.is_empty() || !handles.is_empty() {
+        if !entries.is_empty() || !handles.is_empty() || sortents {
             for _ in 0..reactors {
                 bits.handle()?;
             }
             if xdic {
                 bits.handle()?;
+            }
+            // SORTENTSTABLE は、ブロックのレコード（330）と、図形（331）と並べ替えのハンドル（5）の組を持つ
+            if sortents {
+                values.push(Value {
+                    code: 330,
+                    data: Data::Handle(bits.handle()?.resolve(entry.handle)?),
+                });
+                for sort in sorts {
+                    values.push(Value {
+                        code: 331,
+                        data: Data::Handle(bits.handle()?.resolve(entry.handle)?),
+                    });
+                    values.push(Value {
+                        code: 5,
+                        data: Data::Handle(sort),
+                    });
+                }
             }
             // 辞書の項目は、名前（3）と指すオブジェクトの組。所有するなら 360、しないなら 350
             let code = if values.iter().any(|v| v.code == 280) {
@@ -1196,8 +1247,8 @@ fn mline(bits: &mut Bits) -> Option<Vec<Value>> {
 
 /// VIEWPORT の欄（ODS 5.4.1 の 20.4.38、R2000）。仕様の欄を、DXF の並び（中心・大きさ・ビューの中心・
 /// スナップ・グリッド・ビューの向きと目標・ビュー・状態・UCS）で置く。角度は度に直す。ビューポートの
-/// 番号（69）と状態（68）は DWG に記録されていないので置かない
-fn viewport(bits: &mut Bits) -> Option<Vec<Value>> {
+/// 番号（69）と状態（68）は DWG に記録されていないので置かない。凍結した画層の数を `frozen` に返す
+fn viewport(bits: &mut Bits, frozen: &mut u32) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     values.push(real(40, bits.bd()?));
     values.push(real(41, bits.bd()?));
@@ -1228,7 +1279,7 @@ fn viewport(bits: &mut Bits) -> Option<Vec<Value>> {
     if bits.release() >= Release::R2010 {
         values.push(int(61, i64::from(bits.bs()?)));
     }
-    bits.bl()?;
+    *frozen = u32::try_from(bits.bl()?).ok()?;
     values.push(int(90, i64::from(bits.bl()?)));
     values.push(text_value(1, &bits.text()?));
     values.push(int(281, i64::from(bits.rc()?)));
@@ -2755,7 +2806,7 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
 }
 
 /// HATCH の欄（ODS 5.4.1 の 20.4.75、R2000）。DXF と同じく、標高を 30 に置き、10・20 は 0 とする。
-/// 角度は度に直す。境界の図形のハンドル（330）は、所有者と見分けられないので、まだ置かない
+/// 角度は度に直す。境界の図形のハンドル（330）は、ハンドルの流れから読んで輪ごとの数（97）の後に置く
 fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
     // R2004 からは、先頭にグラデーションの欄が来る。DXF と同じく、グラデーションのときだけ置く
     let gradient = if bits.release() >= Release::R2004 {

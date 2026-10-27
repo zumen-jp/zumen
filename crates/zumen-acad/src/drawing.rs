@@ -1519,8 +1519,8 @@ impl Lifter {
 
     /// HATCH（DXF Reference「HATCH」「Boundary Path Data」「Pattern Data」）。境界の輪の数（91）からは、値を
     /// 並びの順に読む。標高（30）が 0 でなければ平面に移さない。SPLINE の辺を持つものは、まだ移さない。
-    /// 境界を作った図形（330）は、輪ごとの数（97）と合わなければ読めないとする。DWG の読み手は 330 を置かない
-    /// ので、DWG では空にする。密度の画素の大きさ（47）は表示のための値なので移さない。グラデーション（450 が
+    /// 境界を作った図形（330）は、輪ごとの数（97）と合わなければ読めないとする。密度の画素の大きさ（47）は
+    /// 表示のための値なので移さない。グラデーション（450 が
     /// 1）は、色の RGB（421）だけを移し、色の番号（63）は移さない（推定。docs/formats/dxf.md）
     fn hatch<P: Copy>(
         &self,
@@ -1583,7 +1583,7 @@ impl Lifter {
                 let found = db.get(*handle).ok_or_else(|| invalid(kind, 330))?;
                 sources.push(source(found));
             }
-            if sources.len() != count && !matches!(object.origin, Origin::Dwg { .. }) {
+            if sources.len() != count {
                 return Err(invalid(kind, 97));
             }
             loops.push(HatchLoop {
@@ -2896,11 +2896,16 @@ impl Lifter {
         object: &Object,
     ) -> Lifted<(Option<usize>, BTreeMap<u64, u64>)> {
         let kind = object.kind.as_slice();
+        // DWG の表は区切りの 100 を持たないので、所有者（初めの 330）の後から読む
         let start = object
             .values
             .iter()
             .position(|value| {
                 matches!((value.code, &value.data), (100, Data::Text(text)) if text == b"AcDbSortentsTable")
+            })
+            .or_else(|| match object.origin {
+                Origin::Dwg { .. } => object.values.iter().position(|value| value.code == 330),
+                _ => None,
             })
             .ok_or_else(|| invalid(kind, 100))?;
         let mut rest = object.values.iter().skip(start + 1);
