@@ -384,3 +384,25 @@ fn moves_clothoids_as_they_are_defined() {
     assert_eq!(elements.len(), 1);
     find(&diag, codes::SXF_LIFT_INVALID);
 }
+
+#[test]
+fn moves_the_title_block_items() {
+    // 「橋」は Shift_JIS で 0x8B 0xB4
+    let src = sfc(&[
+        b"drawing_attribute_feature(\\'A\\',\\'\x8b\xb4 \\','x','y','1')",
+        b"drawing_attribute_feature(('bad'))",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    assert_eq!(drawing.title_blocks.len(), 1);
+    let items = &drawing.title_blocks[0].items;
+    assert_eq!(items.len(), 12);
+    assert_eq!(items[1].key, Some("construction_name"));
+    assert_eq!(items[1].name, "工事名");
+    assert_eq!(items[1].value, "橋");
+    assert_eq!(items[4].value, "1");
+    assert_eq!(items[11].value, "");
+    assert!(items[0].display.is_empty());
+    assert_eq!(drawing.title_blocks[0].source, Ref::at_record(6));
+    find(&diag, codes::SXF_LIFT_INVALID);
+}
