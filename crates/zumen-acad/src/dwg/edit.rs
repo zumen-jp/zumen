@@ -166,21 +166,45 @@ impl Transaction for DwgTxn<'_> {
         };
         let objects_changed = !self.staged.is_empty() || !self.added.is_empty();
         let mut entries = file.entries.clone();
-        let header = file
-            .locators
-            .iter()
-            .find(|l| l.number == header::NUMBER && l.size > 0)
-            .map(|l| l.seeker as usize);
+        // R2004 の見出しの変数は、展開した見出しの区切りを書き換えて置き換える（決定 0078）
+        let mut head = container
+            .as_ref()
+            .and_then(|container| container.section(R2004_SECTIONS[0]))
+            .map(<[u8]>::to_vec);
+        let header_changed = self.seed.is_some() || self.units.is_some() || self.limits.is_some();
+        let (header_src, header) = match head.as_mut() {
+            Some(head) => (head, Some(0)),
+            None => (
+                &mut src,
+                file.locators
+                    .iter()
+                    .find(|l| l.number == header::NUMBER && l.size > 0)
+                    .map(|l| l.seeker as usize),
+            ),
+        };
+        let release = file.release;
         if let Some(value) = self.seed {
             header
-                .and_then(|start| handle_seed(&src, start))
-                .and_then(|seed| set_handle_seed(&mut src, &seed, value))
-                .ok_or_else(|| invalid(cx, "header variables", header.unwrap_or(0)..src.len()))?;
+                .and_then(|start| handle_seed(header_src, start, release))
+                .and_then(|seed| set_handle_seed(header_src, &seed, value))
+                .ok_or_else(|| {
+                    invalid(
+                        cx,
+                        "header variables",
+                        header.unwrap_or(0)..header_src.len(),
+                    )
+                })?;
         }
         if self.units.is_some() || self.limits.is_some() {
             header
-                .and_then(|start| set_values(&mut src, start, self.units, self.limits))
-                .ok_or_else(|| invalid(cx, "header variables", header.unwrap_or(0)..src.len()))?;
+                .and_then(|start| set_values(header_src, start, release, self.units, self.limits))
+                .ok_or_else(|| {
+                    invalid(
+                        cx,
+                        "header variables",
+                        header.unwrap_or(0)..header_src.len(),
+                    )
+                })?;
         }
         for (record, data) in self.staged {
             let Some(entry) = entries.get_mut(record) else {
@@ -203,6 +227,11 @@ impl Transaction for DwgTxn<'_> {
             if objects_changed {
                 container
                     .replace(R2004_SECTIONS[3], src)
+                    .ok_or_else(|| invalid(cx, "section", 0..6))?;
+            }
+            if let Some(head) = head.filter(|_| header_changed) {
+                container
+                    .replace(R2004_SECTIONS[0], head)
                     .ok_or_else(|| invalid(cx, "section", 0..6))?;
             }
             container
@@ -247,9 +276,10 @@ impl DwgFile {
         self.unsupported(self.release > Release::R2004)
     }
 
-    /// この版の DWG の見出しの変数を変えられず、共有の表から書き戻せなければ、その診断。R2000 だけを扱う
+    /// この版の DWG の見出しの変数を変えられず、共有の表から書き戻せなければ、その診断。R2000 と R2004 を
+    /// 扱う（決定 0078）
     pub(super) fn header_unsupported(&self) -> Option<Diagnostic> {
-        self.unsupported(self.release != Release::R2000)
+        self.unsupported(self.release > Release::R2004)
     }
 
     fn unsupported(&self, unsupported: bool) -> Option<Diagnostic> {

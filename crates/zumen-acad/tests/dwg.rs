@@ -3554,13 +3554,13 @@ fn r2004_objects_are_changed_removed_and_added_in_rebuilt_sections() {
     let (out, diag) = self::edited(&mut read(&src, Limits::default()).0.unwrap(), &[]);
     assert_eq!(codes_of(&diag), []);
     assert_eq!(out.unwrap(), src);
-    // 見出しの変数は、R2004 では変えられない
+    // R2004 の見出しの変数は、見出しの区切りを書き換える。区切りが読めなければ、確定で失敗する
     let mut txn = again.transaction();
-    assert_eq!(txn.set_units(4), Err(Error::Rejected));
+    assert_eq!(txn.set_units(4), Ok(()));
     let mut diag = Diagnostics::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-    assert_eq!(txn.commit(&mut cx), Err(Error::Rejected));
-    assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
+    assert_eq!(txn.commit(&mut cx), Err(Error::Invalid));
+    assert_eq!(codes_of(&diag), [codes::DWG_FILE_INVALID]);
 }
 
 /// 表 `db` の変更を書き戻し、書いたバイト列と診断を返す
@@ -5352,7 +5352,7 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
             data: Data::Int(4),
         }],
     );
-    // R2004 の見出しの変数は、まだ書き戻さない
+    // 読めない見出しの区切りの変数は、書き戻さない
     let (result, diag) = written_back(&mut r2004, &db);
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
