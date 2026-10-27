@@ -1,21 +1,21 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
-//! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
+//! 色と線種・E5 の形式固有の情報・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
 //! 記号と属性・ハッチング・E8 の曲線と記号の定義・E10 の表と表題欄・E7 の下敷きを試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Axis, Background, BackgroundFill, Boundary, Branch, CalloutContent, Cell,
+    Arrowhead, Axis, Background, BackgroundFill, Basis, Boundary, Branch, CalloutContent, Cell,
     CellContent, Clip, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle,
-    DimensionText, Dogleg, Drawing2D, Edge, Element, Fill, Fit, Flow, Format, FormattedText,
-    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
-    Layer, LayerId, LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId,
-    LineWeight, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern,
-    PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Resource, Rotation,
-    Shape, SheetId, SheetItem, SpaceId, Span, Spline, Style, SymbolKey, Table, Text, Underlay,
-    UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical,
+    DimensionText, Dogleg, Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow,
+    Format, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal,
+    Inherit, Islands, Label, Layer, LayerId, LayerState, Leader, Length, LineSpacing,
+    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, PaperLength,
+    PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Placement,
+    Polyline, Resource, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Spline, Style,
+    SymbolKey, Table, Target, Text, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -3479,5 +3479,196 @@ fn e9_underlays_that_cannot_be_read_are_reported() {
             invalid("PDFDEFINITION", 1),
             invalid("PDFUNDERLAY", 340),
         ]
+    );
+}
+
+/// XDATA の値
+fn field(key: &'static str, value: FieldValue) -> Field {
+    Field { key, value }
+}
+
+#[test]
+fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited() {
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1027")]].concat();
+    let blocks = [
+        entity("BLOCK", &[(2, "DOOR"), (70, "0"), (10, "0.0"), (20, "0.0")]),
+        entity(
+            "LINE",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "1.0"),
+                (21, "0.0"),
+                (1001, "PARTS"),
+                (1071, "7"),
+            ],
+        ),
+        entity("ENDBLK", &[]),
+    ]
+    .concat();
+    let entities = [
+        // 2 つの登録アプリケーション名の XDATA を持つ文字
+        entity(
+            "TEXT",
+            &[
+                (10, "10.0"),
+                (20, "20.0"),
+                (40, "2.5"),
+                (1, "居間"),
+                (1001, "ROOM"),
+                (1000, "部屋"),
+                (1002, "{"),
+                (1070, "3"),
+                (1003, "A-AREA"),
+                (1002, "}"),
+                (1011, "10.0"),
+                (1021, "20.0"),
+                (1031, "0.0"),
+                (1040, "0.5"),
+                (1041, "2.5"),
+                (1042, "1.5"),
+                (1005, "1F"),
+                (1004, "0AFF"),
+                (1001, "EMPTY"),
+            ],
+        ),
+        entity(
+            "LINE",
+            &[(10, "0.0"), (20, "0.0"), (11, "10.0"), (21, "0.0")],
+        ),
+    ]
+    .concat();
+    let src = sections(&[
+        ("HEADER", &header),
+        ("BLOCKS", &blocks),
+        ("ENTITIES", &entities),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let mut drawing = drawing.unwrap();
+    let text = drawing.spaces[0].elements[0].clone();
+    let door = drawing.symbols[0].space.clone();
+    let extension = |name: &str, target, basis, fields, source| Extension {
+        namespace: "dxf.xdata",
+        name: name.to_owned(),
+        version: Some("AC1027".to_owned()),
+        schema: 1,
+        target,
+        basis,
+        fields,
+        source,
+    };
+    let room = Target::Model {
+        space: MODEL,
+        index: 0,
+    };
+    assert_eq!(
+        drawing.extensions,
+        [
+            extension(
+                "ROOM",
+                room,
+                Basis::Model(text.clone()),
+                vec![
+                    field("string", FieldValue::Text("部屋".to_owned())),
+                    field("control", FieldValue::Text("{".to_owned())),
+                    field("integer", FieldValue::Integer(3)),
+                    field("layer", FieldValue::Text("A-AREA".to_owned())),
+                    field("control", FieldValue::Text("}".to_owned())),
+                    field("position", FieldValue::Point([10.0, 20.0, 0.0])),
+                    field("real", FieldValue::Real(0.5)),
+                    field("distance", FieldValue::Real(2.5)),
+                    field("scale", FieldValue::Real(1.5)),
+                    field("handle", FieldValue::Handle(0x1F)),
+                    field("binary", FieldValue::Bytes(vec![0x0A, 0xFF])),
+                ],
+                text.source.clone(),
+            ),
+            extension(
+                "EMPTY",
+                room,
+                Basis::Model(text.clone()),
+                vec![],
+                text.source.clone()
+            ),
+            extension(
+                "PARTS",
+                Target::Model {
+                    space: door.id,
+                    index: 0
+                },
+                Basis::Model(door.elements[0].clone()),
+                vec![field("long", FieldValue::Integer(7))],
+                door.elements[0].source.clone(),
+            ),
+        ]
+    );
+    assert_eq!(drawing.current_extensions().count(), 3);
+
+    // 付く先でない要素の編集は、どれも失効させない
+    drawing.spaces[0].elements[1].layer = LayerId(9);
+    assert_eq!(drawing.stale_extensions().count(), 0);
+    // 文字を動かすと、文字の XDATA は失効し、書き戻す一覧から外れる。動かす前の位置は戻らない
+    let Shape::Text(moved) = &mut drawing.spaces[0].elements[0].shape else {
+        panic!("文字ではない");
+    };
+    moved.placement = anchor(at(30.0, 20.0));
+    let names = |extensions: Vec<&Extension>| -> Vec<String> {
+        extensions.iter().map(|e| e.name.clone()).collect()
+    };
+    assert_eq!(
+        names(drawing.stale_extensions().collect()),
+        ["ROOM", "EMPTY"]
+    );
+    assert_eq!(names(drawing.current_extensions().collect()), ["PARTS"]);
+    // 定義の中身を消すと、定義の中身の XDATA も失効する
+    drawing.symbols[0].space.elements.clear();
+    assert_eq!(drawing.current_extensions().count(), 0);
+}
+
+#[test]
+fn e9_xdata_that_cannot_be_read_is_reported() {
+    let entities = [entity(
+        "LINE",
+        &[
+            (10, "0.0"),
+            (20, "0.0"),
+            (11, "1.0"),
+            (21, "0.0"),
+            // 登録アプリケーション名より前の XDATA
+            (1000, "orphan"),
+            // Z のない点
+            (1001, "A"),
+            (1010, "1.0"),
+            (1020, "2.0"),
+            // 括弧でない制御の値
+            (1001, "B"),
+            (1002, "["),
+            // XDATA にない番号
+            (1001, "C"),
+            (1099, "x"),
+            // 読める名前は移す
+            (1001, "D"),
+            (1070, "1"),
+        ],
+    )]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert_eq!(drawing.spaces[0].elements.len(), 1);
+    let names: Vec<&str> = drawing.extensions.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["D"]);
+    let source = drawing.spaces[0].elements[0].source.clone();
+    let invalid = |code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text(\"LINE\") Int({code})"),
+            1,
+            vec![source.clone()],
+        )
+    };
+    assert_eq!(
+        found(&diag),
+        [invalid(1000), invalid(1030), invalid(1002), invalid(1099)]
     );
 }
