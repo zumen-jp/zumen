@@ -358,8 +358,8 @@ impl DwgFile {
                 _ => return Err(unsupported(name)),
             }
         }
-        // R2004 の図形の追加は、まだ書き戻さない
-        if r2004 && let Some(object) = added.first() {
+        // R2004 は、すでにあるブロックの単純な図形の追加だけを書き戻す（決定 0079）
+        if r2004 && let Some(object) = added.iter().find(|object| !r2004_addable(object)) {
             return Err(unsupported(&object.kind));
         }
         self.unlink(base, &removed, &mut changes)?;
@@ -550,6 +550,15 @@ impl DwgFile {
             let block_record = *records
                 .get(&block)
                 .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+            // R2004 の図形は前後の図形のハンドルを持たず、ブロックのレコードの持つ図形に加える
+            if self.release == Release::R2004 {
+                let data = self
+                    .current(changes, block_record)
+                    .and_then(|data| adopt(&data, block, &handles))
+                    .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+                changes.insert(block_record, data);
+                continue;
+            }
             let (first, _, chain) = self
                 .chain(block_record, block, &records, changes)
                 .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
@@ -575,7 +584,7 @@ impl DwgFile {
         let mut entities = pending
             .iter()
             .zip(links)
-            .map(|(new, (prev, next))| Some((new.handle, new.encode(prev, next)?)))
+            .map(|(new, (prev, next))| Some((new.handle, new.encode(prev, next, self.release)?)))
             .collect::<Option<Vec<_>>>()
             .ok_or_else(|| unsupported(&last.kind))?
             .into_iter();
@@ -1264,11 +1273,13 @@ struct NewEntity<'a> {
 }
 
 impl NewEntity<'_> {
-    /// 前後の図形のハンドルを `prev` と `next` にした、R2000 の図形のデータ。共通の欄は、色（62）が
+    /// 前後の図形のハンドルを `prev` と `next` にした、版 `release` の図形のデータ。共通の欄は、色（62）が
     /// なければ ByLayer、線種の尺度（48）がなければ 1、非表示（60）がなければ 0 にし、反応子と拡張辞書と
-    /// 図形の絵を持たず、前後の図形のハンドルを持ち、印刷スタイルと線の太さは ByLayer にする
-    fn encode(&self, prev: u64, next: u64) -> Option<Vec<u8>> {
+    /// 図形の絵を持たず、印刷スタイルと線の太さは ByLayer にする。R2000 では前後の図形のハンドルを持ち、
+    /// R2004 では持たず、拡張辞書を持たない印を書き、MTEXT の背景の欄（BL）を 0 にする（決定 0079）
+    fn encode(&self, prev: u64, next: u64, release: Release) -> Option<Vec<u8>> {
         let object = self.object;
+        let r2004 = release == Release::R2004;
         let mut common = BitWriter::default();
         common.handle(0, self.handle);
         // 拡張データがない
@@ -1276,21 +1287,27 @@ impl NewEntity<'_> {
         common.bit(false);
         common.bb(self.mode);
         common.bl(0);
-        common.bit(false);
+        // R2000 は前後の図形のハンドルを持つ印、R2004 は拡張辞書を持たない印
+        common.bit(r2004);
         common.bs(small(object, 62)?.unwrap_or(256));
         common.bd(real(object, 48)?.unwrap_or(1.0));
         common.bb(self.ltype.0);
         common.bb(0);
         common.bs(small(object, 60)?.unwrap_or(0));
         common.rc(lineweight_index(-1)?.try_into().ok()?);
-        let fields = own_fields(object, object, self.type_code, &[], 0)?;
+        let mut fields = own_fields(object, object, self.type_code, &[], 0)?;
+        if r2004 && object.kind == b"MTEXT" {
+            fields.bl(0);
+        }
         let mut handles = BitWriter::default();
         if self.mode == 0 {
             handles.handle(4, self.owner);
         }
-        handles.handle(3, 0);
-        handles.handle(4, prev);
-        handles.handle(4, next);
+        if !r2004 {
+            handles.handle(3, 0);
+            handles.handle(4, prev);
+            handles.handle(4, next);
+        }
         handles.handle(5, self.layer);
         if self.ltype.0 == 3 {
             handles.handle(5, self.ltype.1);
@@ -1385,6 +1402,57 @@ fn disown(data: &[u8], block: u64, count: usize, gone: &BTreeSet<u64>) -> Option
         out.copy(data, at.clone())?;
     }
     out.copy(data, last..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// R2004 の DWG に足せる図形か（決定 0079）。すでにあるブロックの、型ごとの欄が R2000 と同じ形か、MTEXT の
+/// 図形だけを足せる。属性を持つ INSERT と MINSERT は、まだ足せない
+fn r2004_addable(object: &Object) -> bool {
+    const KINDS: [&[u8]; 16] = [
+        b"LINE",
+        b"CIRCLE",
+        b"ARC",
+        b"POINT",
+        b"ELLIPSE",
+        b"RAY",
+        b"XLINE",
+        b"SOLID",
+        b"TRACE",
+        b"3DFACE",
+        b"TEXT",
+        b"ATTDEF",
+        b"MTEXT",
+        b"LWPOLYLINE",
+        b"SPLINE",
+        b"INSERT",
+    ];
+    matches!(object.section, Section::Entities | Section::Blocks)
+        && KINDS.contains(&object.kind.as_slice())
+        && (object.kind != b"INSERT"
+            || object
+                .values
+                .iter()
+                .all(|value| !matches!(value.code, 66 | 70 | 71 | 44 | 45)))
+}
+
+/// ハンドル `block` の R2004 のブロックのレコードのデータ `data` の、持つ図形の終わりに `handles` を加えた
+/// もの（決定 0079）。持つ図形の数（BL）を増やし、ハンドルは固い所有（符号 3）で書く（図面で確かめた）
+fn adopt(data: &[u8], block: u64, handles: &[u64]) -> Option<Vec<u8>> {
+    let owned = owned(data, block)?;
+    let mut fields = BitWriter::default();
+    fields.copy(data, owned.size_at + 32..owned.count.start)?;
+    fields.bl(i32::try_from(owned.handles.len().checked_add(handles.len())?).ok()?);
+    fields.copy(data, owned.count.end..owned.handles_at)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..owned.size_at)?;
+    out.rl(i32::try_from(owned.size_at + 32 + fields.len()).ok()?);
+    let len = fields.len();
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, owned.handles_at..owned.end)?;
+    for &handle in handles {
+        out.handle(3, handle);
+    }
+    out.copy(data, owned.end..data.len() * 8)?;
     Some(out.into_bytes())
 }
 

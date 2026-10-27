@@ -773,6 +773,8 @@ pub(super) struct Owned {
     pub(super) handles_at: usize,
     /// 持つ図形のハンドルの、ビットの範囲とハンドルの並び
     pub(super) handles: Vec<(Range<usize>, u64)>,
+    /// 持つ図形のハンドルの終わり（ENDBLK のハンドルの始まり）のビットの位置
+    pub(super) end: usize,
 }
 
 /// ハンドル `handle` の R2004 のブロックのレコードのデータの、持つ図形（決定 0077）。外部参照のブロックは
@@ -815,6 +817,7 @@ pub(super) fn owned(data: &[u8], handle: u64) -> Option<Owned> {
         count: count_range,
         handles_at,
         handles,
+        end: bits.pos(),
     })
 }
 
