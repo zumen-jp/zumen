@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0092）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0093）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -398,7 +398,11 @@ impl DwgFile {
             return Err(unsupported(&object.kind));
         }
         // R2010 から後は、文字列の流れの形が R2000 と同じ図形の足しだけを書き戻す（決定 0092）
-        if r2010 && let Some(object) = added.iter().find(|object| !r2010_addable(object)) {
+        if r2010
+            && let Some(object) = added
+                .iter()
+                .find(|object| !r2010_addable(object, self.release))
+        {
             return Err(unsupported(&object.kind));
         }
         self.unlink(base, &removed, &mut changes)?;
@@ -673,7 +677,13 @@ impl DwgFile {
             b"INSERT" => return None,
             _ => &[],
         };
-        let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing].concat();
+        // R2010 からは、MTEXT は枠の高さ（46）を、ATTRIB は属性の版と位置を固定するか（280）を持つ（決定 0093）
+        let r2010: &[i16] = match object.kind.as_slice() {
+            b"MTEXT" if self.release >= Release::R2010 => &[46],
+            b"ATTRIB" if self.release >= Release::R2010 => &[280],
+            _ => &[],
+        };
+        let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing, r2010].concat();
         if object
             .values
             .iter()
@@ -1472,14 +1482,16 @@ impl NewEntity<'_> {
         }
         out.bs(small(object, 60)?.unwrap_or(0));
         out.rc(lineweight_index(-1)?.try_into().ok()?);
-        let fields = own_fields(
-            BitWriter::with_strings(),
-            object,
-            object,
-            self.type_code,
-            &[],
-            0,
-        )?;
+        let mut fields = BitWriter::with_strings();
+        match object.kind.as_slice() {
+            b"ATTRIB" => r2010_attribute(&mut fields, object, &[], 0)?,
+            b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
+            _ => fields = own_fields(fields, object, object, self.type_code, &[], 0)?,
+        }
+        // 属性を持つ INSERT は、R2004 と同じく型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0093）
+        if let Some((attribs, _)) = &self.children {
+            fields.bl(i32::try_from(attribs.len()).ok()?);
+        }
         let mut handles = BitWriter::default();
         if self.mode == 0 {
             handles.handle(4, self.owner);
@@ -1490,6 +1502,12 @@ impl NewEntity<'_> {
         }
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
+        }
+        if let Some((attribs, seqend)) = &self.children {
+            for &attrib in attribs {
+                handles.handle(3, attrib);
+            }
+            handles.handle(3, *seqend);
         }
         r2010_assemble(out, fields, handles)
     }
@@ -1693,11 +1711,11 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// R2010 から後の DWG に足せるものか（決定 0092）。型ごとの欄と文字列の流れが R2000 と同じ形に書ける図形だけを
-/// 足せる。表のレコードと、属性を持つ INSERT と MINSERT と、回した INSERT（変更でも確かめられていない）は、
-/// まだ足せない
-fn r2010_addable(object: &Object) -> bool {
-    const KINDS: [&[u8]; 13] = [
+/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092・0093）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、R2010 の SPLINE を足せる。
+/// 表のレコードと MINSERT と、回した INSERT（変更でも確かめられていない）は、まだ足せない
+fn r2010_addable(object: &Object, release: Release) -> bool {
+    const KINDS: [&[u8]; 17] = [
         b"LINE",
         b"CIRCLE",
         b"ARC",
@@ -1711,14 +1729,26 @@ fn r2010_addable(object: &Object) -> bool {
         b"TEXT",
         b"LWPOLYLINE",
         b"INSERT",
+        b"MTEXT",
+        b"SPLINE",
+        b"ATTRIB",
+        b"SEQEND",
     ];
+    let kind = object.kind.as_slice();
+    let attributed = kind == b"INSERT" && object.values.iter().any(|value| value.code == 66);
+    // R2018 からの MTEXT と属性は欄が増え、R2013 からの SPLINE も欄の形が異なる
+    if (matches!(kind, b"MTEXT" | b"ATTRIB" | b"SEQEND") || attributed) && release >= Release::R2018
+        || kind == b"SPLINE" && release >= Release::R2013
+    {
+        return false;
+    }
     object.section == Section::Entities
-        && KINDS.contains(&object.kind.as_slice())
-        && (object.kind != b"INSERT"
+        && KINDS.contains(&kind)
+        && (kind != b"INSERT"
             || object
                 .values
                 .iter()
-                .all(|value| !matches!(value.code, 66 | 70 | 71 | 44 | 45 | 50)))
+                .all(|value| !matches!(value.code, 70 | 71 | 44 | 45 | 50)))
 }
 
 fn offset(object: &Object) -> Option<usize> {
@@ -2068,21 +2098,28 @@ fn r2010_mtext(
     end: usize,
     release: Release,
 ) -> Option<()> {
-    // 文字列は文字列の流れにあるので、主のデータの位置を求めるときは読まない
-    let mut bits = Bits::with_release(data, release);
-    bits.seek(start);
-    for _ in 0..12 {
-        bits.bd()?;
-    }
-    bits.bs()?;
-    bits.bs()?;
-    let extents_at = bits.pos();
-    bits.bd()?;
-    bits.bd()?;
-    let extents_end = bits.pos();
-    bits.bs()?;
-    bits.bd()?;
-    let flag_at = bits.pos();
+    // 足した MTEXT は元のデータを持たない（`data` が空）。範囲の大きさを 0 にし、後の B と背景の印（BL）を 0 に
+    // する（決定 0093）
+    let copied = match data.is_empty() {
+        true => None,
+        false => {
+            // 文字列は文字列の流れにあるので、主のデータの位置を求めるときは読まない
+            let mut bits = Bits::with_release(data, release);
+            bits.seek(start);
+            for _ in 0..12 {
+                bits.bd()?;
+            }
+            bits.bs()?;
+            bits.bs()?;
+            let extents_at = bits.pos();
+            bits.bd()?;
+            bits.bd()?;
+            let extents_end = bits.pos();
+            bits.bs()?;
+            bits.bd()?;
+            Some((extents_at..extents_end, bits.pos()))
+        }
+    };
     point3(fields, object, 10)?;
     for (code, default) in [(210, [0.0, 0.0, 1.0]), (11, [1.0, 0.0, 0.0])] {
         match [code, code + 10, code + 20].map(|code| real(object, code)) {
@@ -2097,7 +2134,13 @@ fn r2010_mtext(
     for code in [71, 72] {
         fields.bs(small(object, code)??);
     }
-    fields.copy(data, extents_at..extents_end)?;
+    match &copied {
+        Some((extents, _)) => fields.copy(data, extents.clone())?,
+        None => {
+            fields.bd(0.0);
+            fields.bd(0.0);
+        }
+    }
     let mut text = Vec::new();
     for value in object.values.iter().filter(|value| value.code == 3) {
         let Data::Text(chunk) = &value.data else {
@@ -2109,7 +2152,14 @@ fn r2010_mtext(
     fields.text(&text)?;
     fields.bs(small(object, 73)??);
     fields.bd(real(object, 44)??);
-    fields.copy(data, flag_at..end)
+    match copied {
+        Some((_, flag_at)) => fields.copy(data, flag_at..end),
+        None => {
+            fields.bit(false);
+            fields.bl(0);
+            Some(())
+        }
+    }
 }
 
 /// R2010・R2013 の ATTRIB・ATTDEF の欄。名前の前に属性の版（RC、1 つ目の 280）を、印の後に位置を固定するか
