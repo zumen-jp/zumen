@@ -2990,7 +2990,8 @@ fn header_variables_and_paper_space_flags_are_in_the_table() {
 fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
     use zumen_base::Ref;
     use zumen_drawing::{
-        Element, LayerId, ModelPoint, PaperLength, PaperPoint, Shape, SheetId, SpaceId, Unit,
+        Element, Inherit, LayerId, ModelPoint, PaperLength, PaperPoint, Shape, SheetId, SpaceId,
+        Style, Unit,
     };
     use zumen_sdk::Lift;
     let src = with_header_variables(
@@ -3036,6 +3037,13 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
         [Element {
             source: source(0x2A),
             layer: LayerId(0),
+            // DWG の読み手は図形の線幅を表に置かない
+            style: Style {
+                color: Inherit::Layer,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
             shape: Shape::Line {
                 start: model(1.5, 2.0),
                 end: model(100.0, 50.0),
@@ -3055,6 +3063,13 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
         [Element {
             source: source(0x2E),
             layer: LayerId(0),
+            // DWG の読み手は図形の線幅を表に置かない
+            style: Style {
+                color: Inherit::Layer,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
             shape: Shape::Line {
                 start: paper(-10.0, -10.0),
                 end: paper(-9.0, -9.0),

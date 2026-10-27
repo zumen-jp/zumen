@@ -9,6 +9,10 @@
 //! レイヤは図面の一覧（[`Layer`]）に置き、要素は ID で指す。描く順は、空間と用紙ごとの一覧（`order`）で持ち、
 //! 要素の一覧は入力の順のままにする。
 //!
+//! 色・線種・線幅は、要素ごとに指定値か継承元（[`Inherit`]）で持ち、元の符号（[`ColorCode`]）を残す。
+//! 符号から RGB への表はプロファイル（#9）に置くので、ここでは引かない。レイヤからの継承は
+//! [`Drawing2D::color_of`] などで解き、解けない継承は継承のまま返す。
+//!
 //! 要素は、いまは線分と文字だけ。寸法・記号・ハッチング・下敷き・スタイルの解決などは #28 で足す。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。
 
@@ -23,12 +27,58 @@ pub struct Drawing2D {
     pub sheets: Vec<Sheet>,
     /// レイヤ。順序は元の形式の定義の順
     pub layers: Vec<Layer>,
+    /// 線種。順序は元の形式の定義の順
+    pub line_types: Vec<LineType>,
+    /// 文書全体の線種の倍率。元の形式が決めていなければ `None`
+    pub line_type_scale: Option<f64>,
+    /// [`LineWeight::Default`] の線幅。元の形式が決めていなければ `None`
+    pub default_line_weight: Option<PaperLength>,
 }
 
 impl Drawing2D {
     /// ID のレイヤ
     pub fn layer(&self, id: LayerId) -> Option<&Layer> {
         self.layers.iter().find(|layer| layer.id == id)
+    }
+
+    /// ID の線種
+    pub fn line_type(&self, id: LineTypeId) -> Option<&LineType> {
+        self.line_types.iter().find(|line_type| line_type.id == id)
+    }
+
+    /// 要素の色。レイヤからの継承を解く。ブロックからの継承と、レイヤが値を持たないものは解かない
+    pub fn color_of<P>(&self, element: &Element<P>) -> Inherit<Color> {
+        self.through_layer(element.style.color, element.layer, |style| style.color)
+    }
+
+    /// 要素の線種。レイヤからの継承を解く。ブロックからの継承と、レイヤが値を持たないものは解かない
+    pub fn line_type_of<P>(&self, element: &Element<P>) -> Inherit<LineTypeId> {
+        self.through_layer(element.style.line_type, element.layer, |style| {
+            style.line_type
+        })
+    }
+
+    /// 要素の線幅。レイヤからの継承を解く。ブロックからの継承と、レイヤが値を持たないものは解かない。
+    /// 元の形式から読めていなければ `None`
+    pub fn line_weight_of<P>(&self, element: &Element<P>) -> Option<Inherit<LineWeight>> {
+        let own = element.style.line_weight?;
+        Some(self.through_layer(own, element.layer, |style| style.line_weight))
+    }
+
+    fn through_layer<T>(
+        &self,
+        own: Inherit<T>,
+        layer: LayerId,
+        get: impl Fn(&LayerStyle) -> Option<T>,
+    ) -> Inherit<T> {
+        match own {
+            Inherit::Layer => self
+                .layer(layer)
+                .and_then(|layer| layer.style.as_ref())
+                .and_then(get)
+                .map_or(Inherit::Layer, Inherit::Own),
+            other => other,
+        }
     }
 }
 
@@ -53,6 +103,8 @@ pub struct Layer {
     pub name: String,
     /// 表示・印刷・編集の可否。要素が名前で指すだけで、ファイルに定義がなければ `None`
     pub state: Option<LayerState>,
+    /// 色・線種・線幅。ファイルに定義がなければ `None`
+    pub style: Option<LayerStyle>,
     /// 定義の出所。定義がなければ既定の値
     pub source: Ref,
 }
@@ -66,6 +118,112 @@ pub struct LayerState {
     pub printable: bool,
     /// 編集できる
     pub editable: bool,
+}
+
+/// レイヤの色・線種・線幅。どれも、定義が値を持たなければ `None`
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LayerStyle {
+    /// 色
+    pub color: Option<Color>,
+    /// 線種
+    pub line_type: Option<LineTypeId>,
+    /// 線幅
+    pub line_weight: Option<LineWeight>,
+}
+
+/// 要素の色・線種・線幅の指定
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Style {
+    /// 色
+    pub color: Inherit<Color>,
+    /// 線種
+    pub line_type: Inherit<LineTypeId>,
+    /// 要素の線種の倍率。文書全体の倍率（[`Drawing2D::line_type_scale`]）と掛け合わせる
+    pub line_type_scale: f64,
+    /// 線幅。元の形式から読めていなければ `None`
+    pub line_weight: Option<Inherit<LineWeight>>,
+}
+
+/// 指定値か、継承元
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Inherit<T> {
+    /// レイヤから継承する
+    Layer,
+    /// 要素を置いた部品の配置から継承する
+    Block,
+    /// 要素が持つ値
+    Own(T),
+}
+
+/// 色。元の符号と RGB の少なくとも一方を持つ
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Color {
+    /// 元の符号。ファイルが RGB だけを持てば `None`
+    pub code: Option<ColorCode>,
+    /// ファイルが持つ RGB。符号表から引いた値は置かない
+    pub rgb: Option<[u8; 3]>,
+}
+
+/// 色の元の符号。系統の違う符号を混ぜない
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ColorCode {
+    /// 系統
+    pub system: ColorSystem,
+    /// 系統の中の値
+    pub value: u32,
+}
+
+/// 色の符号の系統
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorSystem {
+    /// AutoCAD の色の番号（ACI、DXF の 62）。1〜255
+    Aci,
+}
+
+/// 線種の ID。同じ図面の中で重ならない
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LineTypeId(pub u32);
+
+/// 線種。同じ形でも、名前と定義が別なら別の線種にする
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineType {
+    /// ID
+    pub id: LineTypeId,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 定義。要素が名前で指すだけで、ファイルに定義がなければ `None`
+    pub definition: Option<LineTypeDefinition>,
+    /// 定義の出所。定義がなければ既定の値
+    pub source: Ref,
+}
+
+/// 線種の定義
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineTypeDefinition {
+    /// 元の説明
+    pub description: String,
+    /// 線と間の長さの列。正は線、負は間、0 は点
+    pub pattern: Vec<f64>,
+    /// 列の長さの空間
+    pub basis: PatternBasis,
+}
+
+/// 線種の列の長さの空間
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PatternBasis {
+    /// 要素の空間の、文書の単位。要素と文書の倍率を掛ける（DXF の LTYPE）
+    Element,
+    /// 用紙の mm
+    Paper,
+}
+
+/// 線幅
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LineWeight {
+    /// 用紙の上の幅
+    Width(PaperLength),
+    /// 文書の既定の線幅（[`Drawing2D::default_line_weight`]）
+    Default,
 }
 
 /// 文書の長さの単位。分からないものを mm とみなさない
@@ -270,6 +428,8 @@ pub struct Element<P> {
     pub source: Ref,
     /// レイヤ
     pub layer: LayerId,
+    /// 色・線種・線幅
+    pub style: Style,
     /// 形と意味
     pub shape: Shape<P>,
 }
