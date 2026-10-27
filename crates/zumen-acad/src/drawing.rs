@@ -1,5 +1,5 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0112）。いまは ENTITIES の
-//! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0113）。いまは ENTITIES の
+//! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・ACAD_TABLE・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! BLOCKS の BLOCK（と、その中身と ATTDEF）を記号の定義にし、図形の色・線種・線幅と、空間の描く順を移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
@@ -20,14 +20,15 @@ use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
-    BackgroundFill, Boundary, Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem,
-    Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element,
-    Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
-    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
-    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Placement, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId,
-    Spline, Style, Symbol, SymbolDefinition, SymbolKey, Text, Unit, Vertex, Vertical, View,
+    BackgroundFill, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, Color, ColorCode,
+    ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge,
+    Element, Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height,
+    HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle,
+    Leader, Length, LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured,
+    ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis,
+    PatternLine, PatternOrigin, Placement, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem,
+    SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table, Text, Unit, Vertex,
+    Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -188,6 +189,7 @@ fn amount(object: &Object) -> u64 {
     1 + match object.kind.as_slice() {
         b"MTEXT" | b"ATTRIB" | b"ATTDEF" => count(&[3]),
         b"LWPOLYLINE" | b"SPLINE" => count(&[10, 11, 40]),
+        b"ACAD_TABLE" => count(&[141, 142, 171]),
         _ => 0,
     }
 }
@@ -378,7 +380,7 @@ impl Lifter {
                 out.views.push(view);
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
-            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH"
+            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" | b"ACAD_TABLE"
                 if paper =>
             {
                 let mm = self.paper_mm(kind)?;
@@ -396,7 +398,8 @@ impl Lifter {
                 out.paper.push(element);
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
-            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH" => {
+            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
+            | b"ACAD_TABLE" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -564,7 +567,8 @@ impl Lifter {
                     .attribute_definition(object, &point, &length, out)
                     .map(|definition| attributes.push(definition)),
                 b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
-                | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH" => {
+                | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
+                | b"ACAD_TABLE" => {
                     let inserted: Vec<&Object> = attached
                         .get(&index)
                         .map_or(&[][..], Vec::as_slice)
@@ -608,6 +612,158 @@ impl Lifter {
             external,
             source: source(block),
         }))
+    }
+
+    /// ACAD_TABLE（DXF Reference「TABLE」、決定 0113）。AcDbTable（100）より前の挿入点（10）と、表を描いた
+    /// ブロック（2）を読む。後の値は、行と列の数（91・92）・横の向き（11・21・31）・表のスタイル（342）・行の高さ
+    /// （141）・列の幅（142）と、種類（171）で始まるセルの並び。セルは、覆われる（173）・広げる列と行の数（175・
+    /// 176）を持ち、種類が 1 なら文字（2 の区切りと 1）、2 ならブロックのレコード（340）を内容とする。文字がなく、
+    /// 2007 からの値（301 から）の文字（302）があれば、それを内容とする（推定。docs/formats/dxf.md）。数が合わない
+    /// ものは読めないとする。セルの書式・枠・値の種類と表示の書式は、まだ移さない
+    fn table<P>(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Table<P>> {
+        let kind = object.kind.as_slice();
+        let marker = object
+            .values
+            .iter()
+            .position(|value| {
+                matches!((value.code, &value.data), (100, Data::Text(text)) if text == b"AcDbTable")
+            })
+            .ok_or_else(|| invalid(kind, 100))?;
+        let (reference, rest) = object
+            .values
+            .split_at_checked(marker)
+            .ok_or_else(|| invalid(kind, 100))?;
+        let part = |values: &[Value]| Object {
+            values: values.to_vec(),
+            ..object.clone()
+        };
+        let reference = part(reference);
+        let first = rest
+            .iter()
+            .position(|value| value.code == 171)
+            .unwrap_or(rest.len());
+        let (head, body) = rest.split_at_checked(first).unwrap_or((rest, &[]));
+        let head = part(head);
+        let count = |code: i16| -> Lifted<usize> {
+            usize::try_from(self.int(&head, code, 0)?)
+                .ok()
+                .filter(|count| *count > 0)
+                .ok_or_else(|| invalid(kind, code))
+        };
+        let [rows, columns] = [count(91)?, count(92)?];
+        if self.real(&head, 31, Some(0.0))? != 0.0 {
+            return Err(non_planar(kind));
+        }
+        let sizes = |code: i16, expected: usize| -> Lifted<Vec<Length>> {
+            let sizes: Vec<Length> = head
+                .values
+                .iter()
+                .filter(|value| value.code == code)
+                .map(|value| match value.data {
+                    Data::Real(size) if size.is_finite() && size > 0.0 => Ok(length(size)),
+                    _ => Err(invalid(kind, code)),
+                })
+                .collect::<Lifted<_>>()?;
+            if sizes.len() == expected {
+                Ok(sizes)
+            } else {
+                Err(invalid(kind, code))
+            }
+        };
+        let row_heights = sizes(141, rows)?;
+        let column_widths = sizes(142, columns)?;
+        let mut cells = Vec::new();
+        for chunk in body.chunk_by(|_, next| next.code != 171) {
+            cells.push(self.cell(db, &part(chunk), length)?);
+        }
+        if Some(cells.len()) != rows.checked_mul(columns) {
+            return Err(invalid(kind, 171));
+        }
+        let style = match head.first(342) {
+            None | Some(Data::Handle(0)) => None,
+            Some(Data::Handle(handle)) => {
+                Some(source(db.get(*handle).ok_or_else(|| invalid(kind, 342))?))
+            }
+            Some(_) => return Err(invalid(kind, 342)),
+        };
+        Ok(Table {
+            position: self.planar_point(&reference, 10, point)?,
+            direction: [
+                self.real(&head, 11, Some(1.0))?,
+                self.real(&head, 21, Some(0.0))?,
+            ],
+            row_heights,
+            column_widths,
+            cells,
+            style,
+            drawn: self.string(&reference, 2)?.map(|name| SymbolKey {
+                namespace: BLOCK,
+                name,
+            }),
+        })
+    }
+
+    /// 表のセル 1 つの値。2007 からの値（301〜304）の中のコードは、セルの欄として読まない
+    fn cell(&self, db: &AcadDb, cell: &Object, length: &impl Fn(f64) -> Length) -> Lifted<Cell> {
+        let kind = cell.kind.as_slice();
+        let end = cell
+            .values
+            .iter()
+            .position(|value| value.code == 301)
+            .unwrap_or(cell.values.len());
+        let (fields, value) = cell
+            .values
+            .split_at_checked(end)
+            .unwrap_or((&cell.values, &[]));
+        let fields = Object {
+            values: fields.to_vec(),
+            ..cell.clone()
+        };
+        let span = |code: i16| -> Lifted<u32> {
+            u32::try_from(self.int(&fields, code, 1)?)
+                .ok()
+                .filter(|span| *span > 0)
+                .ok_or_else(|| invalid(kind, code))
+        };
+        let content = match self.int(&fields, 171, 1)? {
+            1 => {
+                let mut content = String::new();
+                for value in fields
+                    .values
+                    .iter()
+                    .filter(|value| matches!(value.code, 1 | 2))
+                {
+                    content.push_str(&self.decode(kind, value.code, &value.data)?);
+                }
+                if fields.first(1).is_none()
+                    && let Some(value) = value.iter().find(|value| value.code == 302)
+                {
+                    content = self.decode(kind, 302, &value.data)?;
+                }
+                if content.is_empty() {
+                    CellContent::Empty
+                } else {
+                    let spans = mtext::spans(&content, length);
+                    CellContent::Text { content, spans }
+                }
+            }
+            2 => CellContent::Symbol(
+                self.block_key(db, &fields, 340)?
+                    .ok_or_else(|| invalid(kind, 340))?,
+            ),
+            _ => return Err(invalid(kind, 171)),
+        };
+        Ok(Cell {
+            content,
+            span: [span(175)?, span(176)?],
+            covered: self.int(&fields, 173, 0)? != 0,
+        })
     }
 
     /// ATTDEF（DXF Reference「ATTDEF」）。ATTRIB と同じ欄に、値を尋ねる文（3）を持つ。印（70）の 1 は表示しない、
@@ -677,6 +833,7 @@ impl Lifter {
             b"DIMENSION" => Ok(Shape::Dimension(self.dimension(object, point, length)?)),
             b"LEADER" => Ok(Shape::Leader(self.leader(db, object, point)?)),
             b"MULTILEADER" => Ok(Shape::Callout(self.callout(db, object, point, length)?)),
+            b"ACAD_TABLE" => Ok(Shape::Table(self.table(db, object, point, length)?)),
             b"INSERT" => Ok(Shape::Symbol(self.symbol(object, point, length)?)),
             b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
             b"LINE" => self.line(object, point),
