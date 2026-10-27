@@ -3505,7 +3505,7 @@ fn e7_underlays_keep_their_resource_page_frame_clip_and_order() {
             "TEXT",
             &[(10, "0.0"), (20, "0.0"), (40, "2.5"), (1, "NOTE")],
         ),
-        // 2 ページ目を 30 度回し、長方形で切り抜く
+        // 2 ページ目を 30 度回し、長方形の内側を切り抜く（280 の 16）
         entity(
             "PDFUNDERLAY",
             &[
@@ -3515,7 +3515,7 @@ fn e7_underlays_keep_their_resource_page_frame_clip_and_order() {
                 (41, "25.4"),
                 (42, "25.4"),
                 (50, "30.0"),
-                (280, "3"),
+                (280, "19"),
                 (11, "0.0"),
                 (21, "0.0"),
                 (11, "8.5"),
@@ -3581,7 +3581,7 @@ fn e7_underlays_keep_their_resource_page_frame_clip_and_order() {
             },
             clip: Some(Clip {
                 vertices: vec![[0.0, 0.0], [8.5, 11.0]],
-                inverted: false,
+                inverted: true,
             }),
             visible: true,
         }
