@@ -1029,15 +1029,19 @@ fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
     // R2018 からは、版の後に属性の種類（RC、DXF の 71）が続く。1 は 1 行の属性で、2（ATTRIB）と
     // 4（ATTDEF）は複数行の属性。複数行の属性は、意味の分からない 37 ビット（図面の 2 つの属性で
     // 同じ値）の後に、埋め込みの MTEXT の欄と、DXF の 72 にあたる BS を持つ（図面で確かめた）。
-    // 埋め込みの MTEXT の値は、まだ置かない
+    // DXF と同じく、属性の値の後に、種類（71）と 72 と、埋め込みのオブジェクトの印（101）と MTEXT の値を
+    // 置く（決定 0102）
+    let mut embedded = Vec::new();
     if bits.release() >= Release::R2018 {
         let kind = bits.rc()?;
         if kind != 1 {
             bits.seek(bits.pos() + 37);
-            mtext(bits)?;
+            let mtext = mtext(bits)?;
             mtext_columns(bits)?;
-            values.push(int(71, i64::from(kind)));
-            values.push(int(72, i64::from(bits.bs()?)));
+            embedded.push(int(71, i64::from(kind)));
+            embedded.push(int(72, i64::from(bits.bs()?)));
+            embedded.push(text_value(101, b"Embedded Object"));
+            embedded.extend(mtext);
         }
     }
     values.push(text_value(2, &bits.text()?));
@@ -1055,6 +1059,7 @@ fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
         }
         values.push(text_value(3, &bits.text()?));
     }
+    values.extend(embedded);
     Some(values)
 }
 

@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0101）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0102）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -680,10 +680,19 @@ impl DwgFile {
             _ => &[],
         };
         let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing, r2010].concat();
-        if object
-            .values
-            .iter()
-            .any(|value| !codes.contains(&value.code))
+        // R2018 からの複数行の ATTRIB は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトの印（101）と
+        // MTEXT の値（枠の高さ（46）も）を持つ（決定 0102）
+        let (values, embedded) = match multiline_at(object) {
+            Some(at) if object.kind == b"ATTRIB" && self.release >= Release::R2018 => {
+                object.values.split_at(at)
+            }
+            _ => (object.values.as_slice(), &[][..]),
+        };
+        let embedded_codes = [&[71, 72, 101, 46], MTEXT].concat();
+        if values.iter().any(|value| !codes.contains(&value.code))
+            || embedded
+                .iter()
+                .any(|value| !embedded_codes.contains(&value.code))
         {
             return None;
         }
@@ -761,6 +770,14 @@ impl DwgFile {
         if !pointing.is_empty() && pointed.is_none() {
             return None;
         }
+        // R2018 からの複数行の ATTRIB の埋め込みの MTEXT は、ByLayer の線種と材質を指す（決定 0102）
+        let embedded = match embedded.is_empty() {
+            true => None,
+            false => Some((
+                record_handle(db, b"LTYPE", b"ByLayer")?,
+                dictionary_item(db, b"ACAD_MATERIAL", b"ByLayer")?,
+            )),
+        };
         Some(NewEntity {
             object,
             handle,
@@ -770,6 +787,7 @@ impl DwgFile {
             layer,
             ltype,
             pointed,
+            embedded,
             children: None,
         })
     }
@@ -1475,6 +1493,8 @@ struct NewEntity<'a> {
     ltype: (u8, u64),
     /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字の体裁、INSERT のブロック）のハンドル
     pointed: Option<u64>,
+    /// R2018 からの複数行の ATTRIB の、埋め込みの MTEXT が指す ByLayer の線種と材質のハンドル
+    embedded: Option<(u64, u64)>,
     /// INSERT が持つ ATTRIB と、SEQEND のハンドル
     children: Option<(Vec<u64>, u64)>,
 }
@@ -1582,7 +1602,7 @@ impl NewEntity<'_> {
         out.rc(lineweight_index(-1)?.try_into().ok()?);
         let mut fields = BitWriter::with_strings();
         match object.kind.as_slice() {
-            b"ATTRIB" => r2010_attribute(&mut fields, object, &[], 0, release)?,
+            b"ATTRIB" => r2010_attribute(&mut fields, object, &[], [0, 0], release)?,
             b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
             _ => fields = own_fields(fields, object, object, self.type_code, &[], 0)?,
@@ -1606,6 +1626,14 @@ impl NewEntity<'_> {
         if object.kind == b"MTEXT" && release >= Release::R2018 {
             handles.handle(5, 0);
         }
+        // 複数行の ATTRIB の埋め込みの MTEXT は、所有者（0）・画層・線種・材質・文字の体裁・アプリケーションの
+        // 名前（0）を指す。試料の図面と同じ並び（決定 0102）
+        if let Some((ltype, material)) = self.embedded {
+            handles.handle(4, 0);
+            for handle in [self.layer, ltype, material, self.pointed?, 0] {
+                handles.handle(5, handle);
+            }
+        }
         if let Some((attribs, seqend)) = &self.children {
             for &attrib in attribs {
                 handles.handle(3, attrib);
@@ -1626,6 +1654,29 @@ fn base_point(object: &Object) -> Option<[f64; 3]> {
 }
 
 /// 種類 `kind` の表のレコードのうち、名前（2）が `name` のもののハンドル。大文字と小文字は区別しない
+/// 名前のオブジェクトの辞書の項目 `group`（ACAD_MATERIAL など）が指す辞書の、項目 `name` が指すオブジェクトの
+/// ハンドル
+fn dictionary_item(db: &AcadDb, group: &[u8], name: &[u8]) -> Option<u64> {
+    let item = |dictionary: &Object, name: &[u8]| {
+        dictionary.values.windows(2).find_map(|pair| match pair {
+            [
+                Value {
+                    code: 3,
+                    data: Data::Text(found),
+                },
+                Value {
+                    code: 350 | 360,
+                    data: Data::Handle(handle),
+                },
+            ] if found.eq_ignore_ascii_case(name) => Some(*handle),
+            _ => None,
+        })
+    };
+    let mut dictionaries = db.objects().iter().filter(|o| o.kind == b"DICTIONARY");
+    let group = dictionaries.clone().find_map(|o| item(o, group))?;
+    item(dictionaries.find(|o| o.handle() == Some(group))?, name)
+}
+
 fn record_handle(db: &AcadDb, kind: &[u8], name: &[u8]) -> Option<u64> {
     db.objects()
         .iter()
@@ -1814,7 +1865,7 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// R2010 から後の DWG に足せるものか（決定 0092〜0101）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// R2010 から後の DWG に足せるものか（決定 0092〜0102）。型ごとの欄と文字列の流れが R2000 と同じ形に
 /// 書ける図形と、MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
 /// 制御点のものだけ）と、
 /// UCS のほかの表のレコードと、足したブロックを足せる。MINSERT は、まだ足せない
@@ -2124,7 +2175,7 @@ fn r2010_own_fields(
 ) -> Option<BitWriter> {
     if matches!(new.kind.as_slice(), b"ATTRIB" | b"ATTDEF") {
         let mut fields = BitWriter::with_strings();
-        r2010_attribute(&mut fields, new, data, end, release)?;
+        r2010_attribute(&mut fields, new, data, [start, end], release)?;
         Some(fields)
     } else if new.kind == b"VIEWPORT" {
         let mut fields = BitWriter::with_strings();
@@ -2299,24 +2350,111 @@ fn r2010_mtext(
     }
 }
 
-/// 複数行の属性（版（280）の後に種類（71）を持つ）か
-fn multiline(object: &Object) -> bool {
+/// R2018 からの複数行の属性の、意味の分からない 37 ビット。試料の図面の属性はどれもこの値を持つ（決定 0102）
+const EMBEDDED_BITS: &[u8; 37] = b"0010101101111100000000000001000011101";
+
+/// 複数行の属性の種類（71）の位置。属性の版（280）の後の 71 で、版の前の 71 は文字の向き。属性の値は、その前に
+/// 並ぶ（決定 0102）
+fn multiline_at(object: &Object) -> Option<usize> {
+    let version = object.values.iter().position(|value| value.code == 280)?;
     object
         .values
         .iter()
-        .skip_while(|value| value.code != 280)
-        .any(|value| value.code == 71)
+        .skip(version)
+        .position(|value| value.code == 71)
+        .map(|at| at + version)
 }
 
-/// R2010・R2013 の ATTRIB・ATTDEF の欄。名前の前に属性の版（RC、1 つ目の 280）を、印の後に位置を固定するか
-/// （B、2 つ目の 280）を書く。ATTDEF の問いの前の版（RC）は、主のデータの終わり `end` の前の元のビットを写す
+/// R2018 からの複数行の属性の元の欄の、種類の後の 37 ビットの始まりと、埋め込みの MTEXT の欄の始まりと、
+/// 段の種類の後の終わりのビットの位置。型ごとの欄は `start` から始まる。文字列は文字列の流れにあるので読まない
+fn embedded_span(data: &[u8], start: usize, release: Release) -> Option<[usize; 3]> {
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(start);
+    // TEXT の欄（R2000）。DataFlags のビットが立つ欄はない
+    let flags = bits.rc()?;
+    if flags & 0x01 == 0 {
+        bits.rd()?;
+    }
+    bits.rd()?;
+    bits.rd()?;
+    if flags & 0x02 == 0 {
+        bits.dd(0.0)?;
+        bits.dd(0.0)?;
+    }
+    if !bits.bit()? {
+        for _ in 0..3 {
+            bits.bd()?;
+        }
+    }
+    if !bits.bit()? {
+        bits.bd()?;
+    }
+    for bit in [0x04, 0x08] {
+        if flags & bit == 0 {
+            bits.rd()?;
+        }
+    }
+    bits.rd()?;
+    if flags & 0x10 == 0 {
+        bits.rd()?;
+    }
+    for bit in [0x20, 0x40, 0x80] {
+        if flags & bit == 0 {
+            bits.bs()?;
+        }
+    }
+    // 属性の版と種類
+    bits.rc()?;
+    (bits.rc()? != 1).then_some(())?;
+    let at = bits.pos();
+    let mtext_at = at.checked_add(EMBEDDED_BITS.len())?;
+    bits.seek(mtext_at);
+    // 埋め込みの MTEXT の欄。挿入点・押し出しと X 軸の向き・幅・枠の高さ・文字の高さ、揃えと向き、範囲の大きさ、
+    // 行の間隔の取り方と倍率、B と背景の欄
+    for _ in 0..12 {
+        bits.bd()?;
+    }
+    bits.bs()?;
+    bits.bs()?;
+    bits.bd()?;
+    bits.bd()?;
+    bits.bs()?;
+    bits.bd()?;
+    bits.bit()?;
+    if bits.bl()? & 1 != 0 {
+        bits.bd()?;
+        bits.cmc()?;
+        bits.bl()?;
+    }
+    // R2018 から増えた欄（決定 0098）。段のあるものは、まだ扱わない
+    bits.bit()?;
+    bits.bs()?;
+    bits.bit()?;
+    bits.bl()?;
+    for _ in 0..10 {
+        bits.bd()?;
+    }
+    (bits.bl()? == 0).then_some(())?;
+    Some([at, mtext_at, bits.pos()])
+}
+
+/// R2010 から後の ATTRIB・ATTDEF の欄。名前の前に属性の版（RC、1 つ目の 280）を、印の後に位置を固定するか
+/// （B、2 つ目の 280）を書く。ATTDEF の問いの前の版（RC）は、主のデータの終わり `end` の前の元のビットを写す。
+/// 型ごとの欄は `start` から始まり、足したものは元のデータを持たない（`data` が空）
 fn r2010_attribute(
     fields: &mut BitWriter,
     object: &Object,
     data: &[u8],
-    end: usize,
+    [start, end]: [usize; 2],
     release: Release,
 ) -> Option<()> {
+    // 複数行の属性は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトの印（101）と MTEXT の値を持つ
+    let mut own = object.clone();
+    let rest = match multiline_at(object) {
+        Some(at) => own.values.split_off(at),
+        None => Vec::new(),
+    };
+    let object = &own;
     let mut versions = object.values.iter().filter(|value| value.code == 280);
     let mut next = || match versions.next().map(|value| &value.data) {
         Some(Data::Int(value)) => u8::try_from(*value).ok(),
@@ -2325,11 +2463,39 @@ fn r2010_attribute(
     let (version, locked) = (next()?, next()?);
     text(fields, object, 74)?;
     fields.rc(version);
-    // R2018 からは、版の後に属性の種類（RC）が続く。1 行の属性（1）だけを書き、複数行の属性（版の後の DXF の
-    // 71。版の前の 71 は文字の向き）は、埋め込みの MTEXT の欄を読まないので受け付けない（決定 0098）
-    if release >= Release::R2018 {
-        (!multiline(object)).then_some(())?;
-        fields.rc(1);
+    // R2018 からは、版の後に属性の種類（RC）が続く。複数行の属性は、37 ビットの後に、埋め込みの MTEXT の欄と
+    // DXF の 72 にあたる BS を持つ。37 ビットは元のものを写し、足したものは試料の図面と同じ値を書く。
+    // MTEXT の欄は、MTEXT と同じく書く（決定 0098・0102）
+    match rest.as_slice() {
+        [] if release >= Release::R2018 => fields.rc(1),
+        [] => {}
+        [kind, after, marker, mtext @ ..]
+            if release >= Release::R2018
+                && (kind.code, after.code, marker.code) == (71, 72, 101) =>
+        {
+            let int = |value: &Value| match value.data {
+                Data::Int(value) => Some(value),
+                _ => None,
+            };
+            let kind = u8::try_from(int(kind)?).ok().filter(|&kind| kind != 1)?;
+            fields.rc(kind);
+            let embedded = Object {
+                values: mtext.to_vec(),
+                ..object.clone()
+            };
+            if data.is_empty() {
+                for &bit in EMBEDDED_BITS {
+                    fields.bit(bit == b'1');
+                }
+                r2010_mtext(fields, &embedded, &[], 0, 0, release)?;
+            } else {
+                let [at, mtext_at, mtext_end] = embedded_span(data, start, release)?;
+                fields.copy(data, at..mtext_at)?;
+                r2010_mtext(fields, &embedded, data, mtext_at, mtext_end, release)?;
+            }
+            fields.bs(i16::try_from(int(after)?).ok()?);
+        }
+        _ => return None,
     }
     string(fields, object, 2)?;
     fields.bs(small(object, 73)?.unwrap_or(0));
