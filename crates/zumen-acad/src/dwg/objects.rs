@@ -24,6 +24,10 @@ const COMMON_ENTITY: SpecRef = SpecRef {
     section: "20.4.1 Common entity data",
 };
 
+const EXTENDED_DATA: SpecRef = SpecRef {
+    spec: "ods_dwg_5_4_1",
+    section: "28 Extended Entity Data (Extended Object Data)",
+};
 const COMMON_ENTITY_HANDLES: SpecRef = SpecRef {
     spec: "ods_dwg_5_4_1",
     section: "20.4.2 Common entity handle data",
@@ -34,6 +38,7 @@ const ATTRIB: u16 = 0x02;
 const ATTDEF: u16 = 0x03;
 const TOLERANCE: u16 = 0x2E;
 const LEADER: u16 = 0x2D;
+const APPID: u16 = 0x43;
 const MLINE: u16 = 0x2F;
 const VIEWPORT: u16 = 0x22;
 const ARC: u16 = 0x11;
@@ -128,7 +133,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         0x3D => table(b"VIEW"),
         0x3F => table(b"UCS"),
         0x41 => table(b"VPORT"),
-        0x43 => table(b"APPID"),
+        APPID => table(b"APPID"),
         DIMSTYLE => table(b"DIMSTYLE"),
         // DXF にない表。名前は DWG のもの
         0x46 => table(b"VP_ENT_HDR_CONTROL"),
@@ -200,9 +205,12 @@ impl DwgFile {
         let mut objects = Vec::with_capacity(self.entries.len());
         // 所有者ごとの、これまでのビューポートの数
         let mut viewports: BTreeMap<u64, i64> = BTreeMap::new();
+        // オブジェクトごとの拡張データ。ほかの値を移した後で、終わりに置く
+        let mut extended = Vec::with_capacity(self.entries.len());
         for (entry, (kind, fields)) in self.entries.iter().zip(found) {
             let at = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
             let handle_code = if entry.type_code == DIMSTYLE { 105 } else { 5 };
+            let mut extra = Vec::new();
             let mut values = vec![Value {
                 code: handle_code,
                 data: Data::Handle(entry.handle),
@@ -211,7 +219,11 @@ impl DwgFile {
                 Some((kind, section)) => {
                     let entity = matches!(section, Section::Entities | Section::Blocks);
                     match fields {
-                        Some(fields) => values.extend(fields.place(&names, entry, cx, &at)),
+                        Some(fields) => {
+                            let (own, xdata) = fields.place(&names, entry, cx, &at);
+                            values.extend(own);
+                            extra = xdata;
+                        }
                         None => cx.report(
                             Diagnostic::new(codes::DWG_OBJECT_INVALID)
                                 .with("type", i64::from(entry.type_code))
@@ -247,10 +259,14 @@ impl DwgFile {
                 object.values.push(int(69, *number));
             }
             objects.push(object);
+            extended.push(extra);
         }
         to_blocks(&mut objects);
         if let Some(header) = header {
             in_blocks(&mut objects, header);
+        }
+        for (object, xdata) in objects.iter_mut().zip(extended) {
+            object.values.extend(xdata);
         }
         let mut db = AcadDb::default();
         for object in objects {
@@ -337,6 +353,14 @@ struct Fields {
     values: Vec<Value>,
     /// 値の後に、名前に直して置く表のレコード
     records: Vec<RecordRef>,
+    /// 登録アプリケーションのハンドルごとの拡張データ。読めなければ `None`
+    xdata: Vec<(u64, Option<Vec<Xdata>>)>,
+}
+
+/// 拡張データの値。画層は名前に直して 1003 に置く
+enum Xdata {
+    Value(Value),
+    Layer(u64),
 }
 
 /// 表のレコードを指すハンドル。`code` の値として、`record` の型のレコードの名前を置く
@@ -353,19 +377,20 @@ const BLOCK_FIELDS: &[i16] = &[70, 10, 20, 30, 1, 4];
 fn is_table_record(type_code: u16) -> bool {
     matches!(
         type_code,
-        BLOCK_RECORD | LAYER | STYLE | LTYPE | VIEW | UCS | VPORT | 0x43 | DIMSTYLE | 0x47
+        BLOCK_RECORD | LAYER | STYLE | LTYPE | VIEW | UCS | VPORT | APPID | DIMSTYLE | 0x47
     )
 }
 
 impl Fields {
-    /// ハンドル（5）より後の値を並べる。画層などは名前に直し、見つからなければ診断を返す
+    /// ハンドル（5）より後の値と、拡張データ（1001 から）を並べる。画層などは名前に直し、見つからなければ
+    /// 診断を返す
     fn place(
         self,
         names: &BTreeMap<u64, (u16, Vec<u8>)>,
         entry: &Entry,
         cx: &mut Cx,
         at: &Ref,
-    ) -> Vec<Value> {
+    ) -> (Vec<Value>, Vec<Value>) {
         let mut values = Vec::new();
         if let Some(owner) = self.owner {
             values.push(Value {
@@ -410,7 +435,58 @@ impl Fields {
                 ),
             }
         }
-        values
+        // 拡張データ。登録アプリケーションの名前（1001）か画層の名前（1003）がなければ、そのアプリケーションの
+        // ものを置かない
+        let mut xdata = Vec::new();
+        for (app, items) in self.xdata {
+            let Some(items) = items else {
+                cx.report(
+                    Diagnostic::new(codes::DWG_XDATA_INVALID)
+                        .with("type", i64::from(entry.type_code))
+                        .at(at.clone())
+                        .cite(EXTENDED_DATA),
+                );
+                continue;
+            };
+            let name = |handle: u64, record: u16| {
+                names
+                    .get(&handle)
+                    .filter(|(found, _)| *found == record)
+                    .map(|(_, name)| name.clone())
+            };
+            let mut group = Vec::with_capacity(items.len() + 1);
+            let mut missing = None;
+            match name(app, APPID) {
+                Some(name) => group.push(Value {
+                    code: 1001,
+                    data: Data::Text(name),
+                }),
+                None => missing = Some(1001),
+            }
+            for item in items {
+                match item {
+                    Xdata::Value(value) => group.push(value),
+                    Xdata::Layer(handle) => match name(handle, LAYER) {
+                        Some(name) => group.push(Value {
+                            code: 1003,
+                            data: Data::Text(name),
+                        }),
+                        None => missing = missing.or(Some(1003)),
+                    },
+                }
+            }
+            match missing {
+                None => xdata.extend(group),
+                Some(code) => cx.report(
+                    Diagnostic::new(codes::DWG_RECORD_MISSING)
+                        .with("type", i64::from(entry.type_code))
+                        .with("code", i64::from(code))
+                        .at(at.clone())
+                        .cite(EXTENDED_DATA),
+                ),
+            }
+        }
+        (values, xdata)
     }
 }
 
@@ -462,7 +538,10 @@ fn read(
         }
     };
     bits.handle()?;
-    skip_extended_data(&mut bits)?;
+    let xdata = extended_data(&mut bits)?
+        .into_iter()
+        .map(|(app, bytes)| (app, xdata(&bytes, release)))
+        .collect::<Vec<_>>();
     if entity {
         let common = entity_data(&mut bits)?;
         let mut frozen = 0;
@@ -614,6 +693,7 @@ fn read(
             layer: Some(layer),
             values,
             records,
+            xdata,
         })
     } else {
         let reactors = bits.bl()?;
@@ -725,6 +805,7 @@ fn read(
             layer: None,
             values,
             records,
+            xdata,
         })
     }
 }
@@ -966,6 +1047,95 @@ pub(super) fn owned(
         handles,
         end: bits.pos(),
     })
+}
+
+/// 拡張データ（EED）を、登録アプリケーションのハンドルとデータのバイト列の組で読む（ODS 5.4.1 の 28）
+fn extended_data(bits: &mut Bits) -> Option<Vec<(u64, Vec<u8>)>> {
+    let mut found = Vec::new();
+    loop {
+        let size = usize::try_from(bits.bs()?).ok()?;
+        if size == 0 {
+            return Some(found);
+        }
+        let app = bits.handle()?.value;
+        let bytes = (0..size).map(|_| bits.rc()).collect::<Option<Vec<_>>>()?;
+        found.push((app, bytes));
+    }
+}
+
+/// 拡張データのバイト列の値（ODS 5.4.1 の 28）。DXF と同じく、1 バイトの種類に 1000 を足したグループ・コードで
+/// 置く。文字列は、R2007 から（読める版では R2010 から）は RS の長さと UTF-16LE、それより前は RC の長さと RS のコード・ページと
+/// バイト列。画層と図形のハンドルは 8 バイト。知らない種類か、バイト列が足りなければ `None`
+fn xdata(bytes: &[u8], release: Release) -> Option<Vec<Xdata>> {
+    let mut rest = bytes;
+    let mut take = |n: usize| -> Option<&[u8]> {
+        let (head, tail) = rest.split_at_checked(n)?;
+        rest = tail;
+        Some(head)
+    };
+    let mut items = Vec::new();
+    loop {
+        let Some(&[kind]) = take(1) else {
+            return Some(items);
+        };
+        let code = 1000 + i16::from(kind);
+        let value = |data| Xdata::Value(Value { code, data });
+        // ハンドルは上位のバイトから並ぶ（試料の DWG と DXF で確かめた）
+        let handle = |bytes: &[u8]| {
+            bytes
+                .iter()
+                .fold(0u64, |sum, byte| sum << 8 | u64::from(*byte))
+        };
+        match kind {
+            0 if release >= Release::R2010 => {
+                let len = usize::from(u16::from_le_bytes(take(2)?.try_into().ok()?));
+                let units: Vec<u16> = take(len * 2)?
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|unit| u16::from_le_bytes(*unit))
+                    .collect();
+                items.push(value(Data::Text(
+                    String::from_utf16_lossy(&units).into_bytes(),
+                )));
+            }
+            0 => {
+                let len = usize::from(*take(1)?.first()?);
+                take(2)?;
+                items.push(value(Data::Text(take(len)?.to_vec())));
+            }
+            2 => items.push(value(Data::Text(match take(1)? {
+                [0] => b"{".to_vec(),
+                [1] => b"}".to_vec(),
+                _ => return None,
+            }))),
+            3 => items.push(Xdata::Layer(handle(take(8)?))),
+            4 => {
+                let len = usize::from(*take(1)?.first()?);
+                items.push(value(Data::Binary(take(len)?.to_vec())));
+            }
+            5 => items.push(value(Data::Handle(handle(take(8)?)))),
+            10..=13 => {
+                for axis in 0..3 {
+                    let real = f64::from_le_bytes(take(8)?.try_into().ok()?);
+                    items.push(Xdata::Value(Value {
+                        code: code + axis * 10,
+                        data: Data::Real(real),
+                    }));
+                }
+            }
+            40..=42 => items.push(value(Data::Real(f64::from_le_bytes(
+                take(8)?.try_into().ok()?,
+            )))),
+            70 => items.push(value(Data::Int(i64::from(i16::from_le_bytes(
+                take(2)?.try_into().ok()?,
+            ))))),
+            71 => items.push(value(Data::Int(i64::from(i32::from_le_bytes(
+                take(4)?.try_into().ok()?,
+            ))))),
+            _ => return None,
+        }
+    }
 }
 
 /// 拡張データ（EED）を読み飛ばす（ODS 5.4.1 の 28）
@@ -1613,7 +1783,7 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
         _ => {
             values.push(int(70, xdep));
             // APPID は、使い道の分からない RC を持つ
-            if type_code == 0x43 {
+            if type_code == APPID {
                 bits.rc()?;
             }
         }

@@ -201,6 +201,26 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 }
                 values.retain(|v| !matches!(v.code, 3 | 350 | 360));
             }
+            // 拡張データ（1001 から）は、登録アプリケーションごとの組で比べる。AutoCAD の往復のための拡張データ
+            // （ACAD の RTTcAl などと ACAD_SPLINE_DATA）は、DXF に書かれない
+            let theirs = xdata_groups(&other.values);
+            for group in xdata_groups(&object.values) {
+                let found = theirs.iter().any(|their| {
+                    their.len() == group.len()
+                        && their
+                            .iter()
+                            .zip(group)
+                            .all(|(a, b)| a.code == b.code && same(&a.data, &b.data))
+                });
+                let round_trip = matches!(
+                    group.first().map(|v| &v.data),
+                    Some(Data::Text(app)) if app == b"ACAD" || app == b"ACAD_SPLINE_DATA"
+                );
+                assert!(found || round_trip, "{at} {group:?}");
+            }
+            if let Some(start) = values.iter().position(|v| v.code == 1001) {
+                values.truncate(start);
+            }
             for value in values {
                 if matches!(value.code, 5 | 105 | 330) {
                     continue;
@@ -325,6 +345,18 @@ fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
         .filter(|c| c.name().starts_with("dxf."))
         .collect();
     (format!("{drawing:?}"), codes)
+}
+
+/// 拡張データの、登録アプリケーションの名前（1001）ごとの組
+#[cfg(test)]
+fn xdata_groups(values: &[Value]) -> Vec<&[Value]> {
+    let start = values
+        .iter()
+        .position(|v| v.code == 1001)
+        .unwrap_or(values.len());
+    values[start..]
+        .chunk_by(|_, next| next.code != 1001)
+        .collect()
 }
 
 /// DXF の LEADER から、鉤の線を持つ（75 が 1）ときに足される、終わりの前の頂点を除く。DWG は
@@ -500,11 +532,26 @@ fn objects_are_rewritten_and_removed(version: &[u8]) {
         let again = Dwg::read(&out, &mut cx).unwrap();
         assert_eq!(again.record_count(), count - 1, "{}", path.display());
         let after = again.objects(&mut cx).unwrap();
-        let removed = before.objects()[count - 1].handle();
+        let removed = &before.objects()[count - 1];
+        // 除いたものが APPID なら、その名前の拡張データは名前が分からなくなるので置かれない
+        let app = (removed.kind == b"APPID")
+            .then(|| removed.first(2).cloned())
+            .flatten();
         let kept: Vec<_> = before
             .objects()
             .iter()
-            .filter(|o| o.handle() != removed)
+            .filter(|o| o.handle() != removed.handle())
+            .map(|o| {
+                let mut o = o.clone();
+                let mut dropped = false;
+                o.values.retain(|v| {
+                    if v.code == 1001 {
+                        dropped = Some(&v.data) == app.as_ref();
+                    }
+                    !dropped
+                });
+                o
+            })
             .collect();
         assert_eq!(after.objects().len(), kept.len(), "{}", path.display());
         for (a, b) in kept.iter().zip(after.objects()) {
@@ -515,7 +562,11 @@ fn objects_are_rewritten_and_removed(version: &[u8]) {
                 path.display()
             );
         }
-        let found: Vec<_> = reread.iter().map(|d| d.code()).collect();
+        let found: Vec<_> = reread
+            .iter()
+            .map(|d| d.code())
+            .filter(|code| app.is_none() || *code != codes::DWG_RECORD_MISSING)
+            .collect();
         let first: Vec<_> = diag.iter().map(|d| d.code()).collect();
         assert_eq!(found, first, "{}", path.display());
     }
@@ -1567,8 +1618,10 @@ fn added_table_records_are_taken_back(version: &[u8]) {
             };
             let model = named(b"BLOCK_RECORD", b"*Model_Space").handle().unwrap();
             let blocks = named(b"BLOCK_RECORD", b"*Model_Space").owner().unwrap();
+            // 足すオブジェクトは拡張データを持てないので、写したレコードの拡張データを除く
             let mut layer = named(b"LAYER", b"0");
             layer.origin = Origin::New;
+            layer.values.retain(|v| v.code < 1000);
             for value in &mut layer.values {
                 match value.code {
                     5 => value.data = Data::Handle(seed),
@@ -1585,6 +1638,7 @@ fn added_table_records_are_taken_back(version: &[u8]) {
             }
             let mut style = named(b"STYLE", b"Standard");
             style.origin = Origin::New;
+            style.values.retain(|v| v.code < 1000);
             for value in &mut style.values {
                 match value.code {
                     5 => value.data = Data::Handle(seed + 1),
@@ -1615,6 +1669,7 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                 .unwrap()
                 .clone();
             vport_record.origin = Origin::New;
+            vport_record.values.retain(|v| v.code < 1000);
             for value in &mut vport_record.values {
                 match value.code {
                     5 => value.data = Data::Handle(seed + 8),

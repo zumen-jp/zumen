@@ -138,12 +138,29 @@ fn object(
     body: impl Fn(&mut BitWriter),
     handles: impl Fn(&mut BitWriter),
 ) -> Vec<u8> {
+    object_with_xdata(type_code, handle, &[], body, handles)
+}
+
+/// 登録アプリケーションのハンドルと拡張データのバイト列を持つオブジェクト
+#[cfg(test)]
+fn object_with_xdata(
+    type_code: u16,
+    handle: u64,
+    xdata: &[(u64, Vec<u8>)],
+    body: impl Fn(&mut BitWriter),
+    handles: impl Fn(&mut BitWriter),
+) -> Vec<u8> {
     let mut w = BitWriter::default();
     w.bs(type_code);
     let rl_at = w.bits.len();
     w.rl(0);
     w.handle(0, handle);
-    w.bs(0); // 拡張データはない
+    for (app, bytes) in xdata {
+        w.bs(bytes.len() as u16);
+        w.handle(5, *app);
+        w.bytes(bytes);
+    }
+    w.bs(0); // 拡張データの終わり
     body(&mut w);
     let handles_at = w.bits.len();
     w.patch_rl(rl_at, handles_at as u32);
@@ -1887,6 +1904,97 @@ fn types_of_classes_are_named_by_the_classes() {
     let var = db.get(0x21).unwrap();
     assert_eq!(var.kind, b"DICTIONARYVAR");
     assert_eq!(var.section, Section::Objects);
+}
+
+#[test]
+fn extended_data_is_placed_as_xdata() {
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let app = object(
+        0x43,
+        0x11,
+        |w| {
+            w.bl_zero();
+            w.bs(6);
+            w.bytes(b"MYAPP\0");
+            w.bit(false);
+            w.bs(0);
+            w.bit(false);
+            w.bytes(&[0]);
+        },
+        |w| {
+            w.handle(4, 0x3);
+            w.handle(3, 0);
+            w.handle(5, 0); // 外部参照のブロック
+        },
+    );
+    let mut known = vec![0, 3, 0x1E, 0x04];
+    known.extend(b"abc");
+    known.extend([2, 0, 3]);
+    known.extend(0x10u64.to_be_bytes());
+    known.extend([70, 5, 0, 2, 1, 10]);
+    for v in [1.0f64, 2.0, 3.0] {
+        known.extend(v.to_le_bytes());
+    }
+    known.push(40);
+    known.extend(0.5f64.to_le_bytes());
+    known.push(5);
+    known.extend(0x2Au64.to_be_bytes());
+    known.extend([4, 2, 0xAB, 0xCD]);
+    // 知らない種類（99）を持つものと、APPID のないものは置かない
+    let line = object_with_xdata(
+        0x13,
+        0x2A,
+        &[(0x11, known), (0x11, vec![99]), (0x12, vec![70, 1, 0])],
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            line_data(w, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.0);
+        },
+        |w| {
+            w.handle(3, 0);
+            w.handle(5, 0x10);
+        },
+    );
+    let (db, diag) = objects(&dwg(&[(0x10, layer), (0x11, app), (0x2A, line)]));
+    assert_eq!(
+        codes_of(&diag),
+        [codes::DWG_XDATA_INVALID, codes::DWG_RECORD_MISSING]
+    );
+    let line = db.get(0x2A).unwrap();
+    let start = line.values.iter().position(|v| v.code == 1001).unwrap();
+    let text = |code, text: &[u8]| Value {
+        code,
+        data: Data::Text(text.to_vec()),
+    };
+    let real = |code, v| Value {
+        code,
+        data: Data::Real(v),
+    };
+    assert_eq!(
+        line.values[start..],
+        [
+            text(1001, b"MYAPP"),
+            text(1000, b"abc"),
+            text(1002, b"{"),
+            text(1003, b"0"),
+            Value {
+                code: 1070,
+                data: Data::Int(5)
+            },
+            text(1002, b"}"),
+            real(1010, 1.0),
+            real(1020, 2.0),
+            real(1030, 3.0),
+            real(1040, 0.5),
+            Value {
+                code: 1005,
+                data: Data::Handle(0x2A)
+            },
+            Value {
+                code: 1004,
+                data: Data::Binary(vec![0xAB, 0xCD])
+            },
+        ]
+    );
 }
 
 #[test]

@@ -35,6 +35,7 @@
     "dwg.record.missing": "型 {type} の DWG の図形がグループ・コード {code} で指す表のレコードがないので、名前を置きませんでした（{count} 件）。",
     "dwg.type.unsupported": "まだ扱えない型 {type} の DWG のオブジェクトを、種類を空にして置きました（{count} 件）。",
     "dwg.version.unsupported": "版が {version} の DWG は、まだ読めません。",
+    "dwg.xdata.invalid": "型 {type} の DWG のオブジェクトの拡張データを読めないので、その登録アプリケーションの拡張データを置きませんでした（{count} 件）。",
     "dxf.binary.unsupported": "バイナリの DXF は、まだ読めません。",
     "dxf.block-cycle.invalid": "ブロック「{name}」の定義は、自分を直接か間接に配置します。展開せずに図面モデルに移しました（{count} 件）。",
     "dxf.block.missing": "ブロック「{name}」の定義がないので、配置だけを図面モデルに移しました（{count} 件）。",

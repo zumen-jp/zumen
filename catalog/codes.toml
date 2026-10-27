@@ -258,6 +258,14 @@ group-by = ["type"]
 since = "0.0.0"
 status = "active"
 
+[codes."dwg.xdata.invalid"]
+description = "DWG のオブジェクトの拡張データ（EED）を読めないので、その登録アプリケーションの拡張データを置かなかった"
+severity = "warning"
+params = { type = "int" }
+group-by = ["type"]
+since = "0.0.0"
+status = "active"
+
 [codes."dwg.type.unsupported"]
 description = "まだ扱えない型の DWG のオブジェクトを、種類を空にして表に置いた"
 severity = "warning"
