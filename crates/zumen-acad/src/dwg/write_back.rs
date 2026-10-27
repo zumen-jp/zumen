@@ -1,6 +1,6 @@
 //! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 を扱う。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
-//! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。
+//! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
@@ -35,7 +35,8 @@ use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits};
 use super::objects::{
-    DIM_FIELDS, Dim, block_links, entity_fields, entity_links, object_fields, skip_extended_data,
+    DIM_FIELDS, Dim, block_links, entity_fields, entity_links, hatch_gradient, object_fields,
+    skip_extended_data,
 };
 use super::{DwgFile, Release, header};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
@@ -68,6 +69,7 @@ const R2004_KINDS: &[&[u8]] = &[
     b"VERTEX",
     b"INSERT",
     b"MTEXT",
+    b"HATCH",
     b"VIEWPORT",
 ];
 
@@ -1435,6 +1437,15 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
     let fields = if only(own, old, true) == only(own, new, true) {
         let mut fields = BitWriter::default();
         fields.copy(data, start..handles_at)?;
+        fields
+    } else if release == Release::R2004 && new.kind == b"HATCH" {
+        // R2004 の初めのグラデーションの欄（表では 450〜470）は、元のビットを写す（決定 0074）
+        let mut bits = Bits::with_release(data, release);
+        bits.seek(start);
+        hatch_gradient(&mut bits)?;
+        let mut fields = BitWriter::default();
+        fields.copy(data, start..bits.pos())?;
+        hatch(&mut fields, old, new)?;
         fields
     } else if release == Release::R2004 && matches!(new.kind.as_slice(), b"INSERT" | b"MTEXT") {
         // MINSERT は、持つオブジェクトの数が列と行の欄の前に入るので、まだ扱わない
