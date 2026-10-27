@@ -7095,6 +7095,23 @@ fn layer_table_with_seed() -> Vec<u8> {
     };
     let view_control = empty(0x3C, 8);
     let vport_control = empty(0x40, 9);
+    // ブロック B の表。項目の後に、モデル空間と用紙空間のハンドルが続く
+    let block_control = object(
+        0x30,
+        0x5F,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2);
+            w.bytes(&[1]);
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+            w.handle(2, 0x60);
+            w.handle(3, 0);
+            w.handle(3, 0);
+        },
+    );
     let mut objects = vec![
         (2, control),
         (3, style_control),
@@ -7108,6 +7125,7 @@ fn layer_table_with_seed() -> Vec<u8> {
         (0x12, ltype),
         (0x13, appid),
         (0x14, dimstyle),
+        (0x5F, block_control),
     ];
     objects.extend(objects_with_linked_lines(true).into_iter().skip(2));
     with_header(dwg(&objects), 0, 0, 0, [0.0; 4], 0x80)
@@ -7713,4 +7731,135 @@ fn added_vports_are_written_back() {
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&"VPORT".to_string().into()));
     }
+}
+
+#[test]
+fn added_blocks_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let real = |code, value| Value {
+        code,
+        data: Data::Real(value),
+    };
+    let text = |code, value: &[u8]| Value {
+        code,
+        data: Data::Text(value.to_vec()),
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // ブロック Two のレコードと、BLOCK・2 本の LINE・ENDBLK。ブロック B に、Two を挿す INSERT を足す
+    let record = |db: &AcadDb, name: &[u8]| {
+        let mut db = db.clone();
+        db.push(Object {
+            kind: b"BLOCK_RECORD".to_vec(),
+            section: Section::Tables,
+            values: vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(0x80),
+                },
+                Value {
+                    code: 330,
+                    data: Data::Handle(0x5F),
+                },
+                text(2, name),
+            ],
+            origin: Origin::New,
+        });
+        db
+    };
+    let owned = |db: AcadDb, handle: u64, kind: &[u8], values: Vec<Value>| {
+        let mut db = with_added_values(&db, handle, kind, values);
+        let at = db.objects().len() - 1;
+        for value in &mut db.object_mut(at).unwrap().values {
+            if value.code == 330 {
+                value.data = Data::Handle(0x80);
+            }
+        }
+        db
+    };
+    let line = |x: f64| {
+        vec![
+            real(10, 0.0),
+            real(20, 0.0),
+            real(30, 0.0),
+            real(11, x),
+            real(21, 1.0),
+            real(31, 0.0),
+        ]
+    };
+    let block = |name: &[u8], base_point: Vec<Value>| [&[text(2, name)][..], &base_point].concat();
+    let point = vec![real(10, 1.0), real(20, 2.0), real(30, 0.0)];
+    let built = |name: &[u8], block_name: &[u8], base_point: Vec<Value>, endblk: bool| {
+        let db = record(&base, name);
+        let db = owned(db, 0x81, b"BLOCK", block(block_name, base_point));
+        let db = owned(db, 0x82, b"LINE", line(1.0));
+        let db = owned(db, 0x83, b"LINE", line(2.0));
+        if endblk {
+            owned(db, 0x84, b"ENDBLK", Vec::new())
+        } else {
+            db
+        }
+    };
+    let db = with_added_values(
+        &built(b"Two", b"Two", point.clone(), true),
+        0x85,
+        b"INSERT",
+        vec![real(10, 1.0), real(20, 2.0), real(30, 0.0), text(2, b"Two")],
+    );
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let out = out.unwrap();
+    let (again, diag) = objects(&out);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // DWG の BLOCK は、名前と基点を値に持たない
+    let mut expected = db.clone();
+    let mut block = expected.get(0x81).unwrap().clone();
+    block.values.retain(|v| !matches!(v.code, 2 | 10 | 20 | 30));
+    let at = expected
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x81))
+        .unwrap();
+    *expected.object_mut(at).unwrap() = block;
+    assert_eq!(summary(&again), summary(&expected));
+    // 足したブロックの図形は、ブロックの並びとしてたどれ、除くこともできる
+    let mut file = read(&out, Limits::default()).0.unwrap();
+    let mut removed = again.clone();
+    let at = removed
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x82))
+        .unwrap();
+    removed.remove(at);
+    let (out, diag) = written_back(&mut file, &removed);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, _) = objects(&out.unwrap());
+    assert_eq!(summary(&again), summary(&removed));
+    // 名前のない・空間のブロック、表にある名前、名前の違う BLOCK、一部だけの基点、ENDBLK のないブロックは
+    // 書き戻せない
+    for (db, kind) in [
+        (built(b"*U1", b"*U1", point.clone(), true), "BLOCK_RECORD"),
+        (built(b"b", b"b", point.clone(), true), "BLOCK_RECORD"),
+        (built(b"Two", b"Three", point.clone(), true), "BLOCK"),
+        (built(b"Two", b"Two", vec![real(10, 1.0)], true), "BLOCK"),
+        (built(b"Two", b"Two", point.clone(), false), "BLOCK_RECORD"),
+    ] {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&kind.to_string().into()), "{kind}");
+    }
+    // 足したブロックでないものが持つ BLOCK も書き戻せない
+    let db = with_added_values(&base, 0x80, b"BLOCK", vec![text(2, b"B")]);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, _) = written_back(&mut file, &db);
+    assert_eq!(out, Err(Error::Rejected));
 }
