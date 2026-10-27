@@ -358,3 +358,29 @@ fn moves_text_with_its_box() {
             .all(|e| e.is_current(&drawing))
     );
 }
+
+#[test]
+fn moves_clothoids_as_they_are_defined() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"clothoid_feature('1','1','1','1','10.0','20.0','50.0','1','30.0','-5.0','40.0')",
+        b"clothoid_feature('1','1','1','1','0','0','0','0','0','0','1')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let elements = &drawing.sheets[0].elements;
+    assert_eq!(
+        elements[0].shape,
+        Shape::Curve(Edge::Clothoid {
+            origin: paper(10.0, 20.0),
+            parameter: Length::Paper(PaperLength(50.0)),
+            angle: 30.0,
+            counterclockwise: false,
+            start: Length::Paper(PaperLength(-5.0)),
+            end: Length::Paper(PaperLength(40.0)),
+        })
+    );
+    // パラメーターが 0 のものは読めない
+    assert_eq!(elements.len(), 1);
+    find(&diag, codes::SXF_LIFT_INVALID);
+}

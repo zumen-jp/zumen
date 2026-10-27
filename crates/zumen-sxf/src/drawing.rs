@@ -1,6 +1,6 @@
 //! SFC から図面モデル（L2）への変換（決定 0022・0121）。
 //!
-//! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・文字を移す。部分図は実寸の空間にし、
+//! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・クロソイド・文字を移す。部分図は実寸の空間にし、
 //! 用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
 
 use std::collections::BTreeMap;
@@ -702,6 +702,23 @@ impl<'f> Lifter<'f> {
                     [args.num(10)?, args.num(11)?],
                     ccw,
                 )
+            })()
+        } else if feature.is(b"clothoid") {
+            (|| {
+                let start = args.num(9)?;
+                let end = args.num(10)?;
+                if start == end {
+                    return None;
+                }
+                Some(Shape::Curve(Edge::Clothoid {
+                    origin: at.point(args.num(4)?, args.num(5)?),
+                    parameter: at.length(args.num(6).filter(|a| *a > 0.0)?),
+                    // 向きのフラグは 0 が反時計回り
+                    counterclockwise: args.int(7)? == 0,
+                    angle: args.num(8)?,
+                    start: at.length(start),
+                    end: at.length(end),
+                }))
             })()
         } else {
             return Shaped::NotYet;
