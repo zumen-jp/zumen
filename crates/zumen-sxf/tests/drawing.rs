@@ -820,3 +820,43 @@ fn moves_parts_predefined_symbols_and_nested_views() {
     assert_eq!(symbol.scale, [1.5, 1.5]);
     assert!(matches!(element.style.color, Inherit::Own(_)));
 }
+
+#[test]
+fn keeps_attribute_mechanism_names_on_the_elements() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"line_feature('1','1','1','1','0','0','1','0')",
+        b"line_feature('1','1','1','1','0','0','0','1')",
+        b"sfig_org_feature(\\'$$ATRU$$1$$contour$$height$$12.5\\','3')",
+        b"line_feature('1','1','1','1','0','0','2','2')",
+        b"sfig_locate_feature('1',\\'$$ATRU$$1$$contour$$height$$12.5\\','0','0','0','1','1')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    assert!(diag.is_empty(), "{diag:?}");
+    let attributes: Vec<_> = drawing
+        .extensions
+        .iter()
+        .filter(|e| e.namespace == "sxf.attribute")
+        .collect();
+    // 属性のグループの 2 本の線（用紙の 2 本目と 3 本目）に付け、グループの外の線には付けない
+    let indices: Vec<_> = attributes
+        .iter()
+        .map(|e| match e.target {
+            Target::Paper { index, .. } => index,
+            _ => panic!("{:?}", e.target),
+        })
+        .collect();
+    assert_eq!(indices, [1, 2]);
+    let parts: Vec<_> = attributes[0]
+        .fields
+        .iter()
+        .filter(|f| f.key == "part")
+        .map(|f| f.value.clone())
+        .collect();
+    assert_eq!(
+        parts,
+        ["ATRU", "1", "contour", "height", "12.5"].map(|p| FieldValue::Text(p.into()))
+    );
+    assert!(attributes.iter().all(|e| e.is_current(&drawing)));
+}
