@@ -898,6 +898,9 @@ fn unsourced(mut drawing: Drawing2D) -> Drawing2D {
     }
     for extension in &mut drawing.extensions {
         extension.source = Ref::default();
+        if let zumen_drawing::Basis::Paper(element) = &mut extension.basis {
+            element.source = Ref::default();
+        }
     }
     for sheet in &mut drawing.sheets {
         for element in &mut sheet.elements {
@@ -1008,7 +1011,7 @@ fn moves_p21_curves_like_the_same_sfc() {
 fn reports_p21_elements_it_does_not_move_yet() {
     let src = p21(concat!(
         "#1=PRESENTATION_STYLE_ASSIGNMENT(());\n",
-        "#2=ANNOTATION_TEXT_OCCURRENCE(' ',(#1),#3);\n",
+        "#2=ANNOTATION_FILL_AREA_OCCURRENCE(' ',(#1),#3,$);\n",
         "#3=TEXT_LITERAL(' ','A',#4,.LEFT.,#5);\n",
         "#4=AXIS2_PLACEMENT_2D(' ',#6,$);\n",
         "#5=CARTESIAN_POINT(' ',(0.,0.));\n",
@@ -1029,9 +1032,78 @@ fn reports_p21_elements_it_does_not_move_yet() {
         [
             format!(
                 "{:?}",
-                zumen_base::Value::from("annotation_text_occurrence")
+                zumen_base::Value::from("annotation_fill_area_occurrence")
             ),
             format!("{:?}", zumen_base::Value::from("b_spline_curve")),
         ]
     );
+}
+
+#[test]
+fn moves_p21_text_and_symbols_like_the_same_sfc() {
+    // 「表」は Shift_JIS で 0x95 0x5C、Unicode で U+8868
+    let sfc = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"text_font_feature(\\'MS\\')",
+        b"text_string_feature('1','2','1',\\'\x95\x5c a\\','10','20','3.5','30','0.5','90','10','6','2')",
+        b"text_string_feature('1','2','1',\\'b\\','0','0','1','1','0','0','0','1','1')",
+        b"point_marker_feature('1','3','5','6','2','45','1.5')",
+        b"externally_defined_symbol_feature('1','1','3',\\'arrow\\','5','6','0','1.5')",
+        b"externally_defined_symbol_feature('1','0','0',\\'tree\\','1','2','0','1')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    // 文字の配置基点は、行ごとにずらして書く。中の行は高さの -1/2、下の行は 1/2 だけ文字の上の向きへずれる
+    let p21 = p21(concat!(
+        "#1=DRAUGHTING_PRE_DEFINED_COLOUR('red');\n",
+        "#2=DRAUGHTING_PRE_DEFINED_COLOUR('green');\n",
+        "#3=EXTERNALLY_DEFINED_TEXT_FONT('MS',$);\n",
+        "#5=TEXT_STYLE_FOR_DEFINED_FONT(#1);\n",
+        "#6=(TEXT_STYLE(' ',#5) TEXT_STYLE_WITH_BOX_CHARACTERISTICS((BOX_HEIGHT(3.5),BOX_WIDTH(2.8),BOX_SLANT_ANGLE(0.17453292519943295),BOX_ROTATE_ANGLE(1.5707963267948966))) TEXT_STYLE_WITH_SPACING(LENGTH_MEASURE(0.5)));\n",
+        "#7=PRESENTATION_STYLE_ASSIGNMENT((#6));\n",
+        "#10=CARTESIAN_POINT(' ',(11.75,20.));\n",
+        "#11=DIRECTION(' ',(0.,1.));\n",
+        "#12=AXIS2_PLACEMENT_2D(' ',#10,#11);\n",
+        "#13=PLANAR_EXTENT(' ',30.,3.5);\n",
+        "#14=TEXT_LITERAL_WITH_EXTENT('$$SXF_middleline right','\\X2\\8868\\X0\\ a',#12,'baseline right',.DOWN.,#3,#13);\n",
+        "#15=(ANNOTATION_OCCURRENCE() ANNOTATION_TEXT_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#7),#14));\n",
+        "#16=(TEXT_STYLE(' ',#5) TEXT_STYLE_WITH_BOX_CHARACTERISTICS((BOX_SLANT_ANGLE(0.))) TEXT_STYLE_WITH_SPACING(LENGTH_MEASURE(0.)));\n",
+        "#17=PRESENTATION_STYLE_ASSIGNMENT((#16));\n",
+        "#20=CARTESIAN_POINT(' ',(0.,0.5));\n",
+        "#21=DIRECTION(' ',(1.,0.));\n",
+        "#22=AXIS2_PLACEMENT_2D(' ',#20,#21);\n",
+        "#23=PLANAR_EXTENT(' ',1.,1.);\n",
+        "#24=TEXT_LITERAL_WITH_EXTENT('$$SXF_baseline left','b',#22,'baseline left',.RIGHT.,#3,#23);\n",
+        "#25=ANNOTATION_TEXT_OCCURRENCE(' ',(#17),#24);\n",
+        "#30=SYMBOL_COLOUR(#2);\n",
+        "#31=SYMBOL_STYLE(' ',#30);\n",
+        "#32=PRESENTATION_STYLE_ASSIGNMENT((#31));\n",
+        "#33=CARTESIAN_POINT(' ',(5.,6.));\n",
+        "#34=DIRECTION(' ',(1.,1.));\n",
+        "#35=AXIS2_PLACEMENT_2D(' ',#33,#34);\n",
+        "#36=SYMBOL_TARGET(' ',#35,1.5,1.5);\n",
+        "#37=PRE_DEFINED_POINT_MARKER_SYMBOL('circle');\n",
+        "#38=DEFINED_SYMBOL(' ',#37,#36);\n",
+        "#39=ANNOTATION_SYMBOL_OCCURRENCE(' ',(#32),#38);\n",
+        "#40=AXIS2_PLACEMENT_2D(' ',#33,#21);\n",
+        "#41=SYMBOL_TARGET(' ',#40,1.5,1.5);\n",
+        "#42=EXTERNALLY_DEFINED_SYMBOL(IDENTIFIER('arrow'),$);\n",
+        "#43=DEFINED_SYMBOL(' ',#42,#41);\n",
+        "#44=ANNOTATION_SYMBOL_OCCURRENCE(' ',(#32),#43);\n",
+        "#45=CARTESIAN_POINT(' ',(1.,2.));\n",
+        "#46=AXIS2_PLACEMENT_2D(' ',#45,#21);\n",
+        "#47=SYMBOL_TARGET(' ',#46,1.,1.);\n",
+        "#48=EXTERNALLY_DEFINED_SYMBOL(IDENTIFIER('tree'),$);\n",
+        "#49=DEFINED_SYMBOL(' ',#48,#47);\n",
+        "#50=PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)));\n",
+        "#52=ANNOTATION_SYMBOL_OCCURRENCE(' ',(#50),#49);\n",
+        "#60=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#15,#25,#39,#44,#52));\n",
+        "#70=DRAWING_SHEET_REVISION('A3_horizontal',(#15,#25,#39,#44,#52),$,'01');\n",
+        "#71=DRAUGHTING_TITLE((),'JAPANESE','S');\n",
+    ));
+    let (from_sfc, sfc_diag) = lift(&sfc);
+    let (from_p21, diag) = lift(&p21);
+    assert!(sfc_diag.is_empty(), "{sfc_diag:?}");
+    assert!(diag.is_empty(), "{diag:?}");
+    assert_eq!(from_p21.sheets[0].elements.len(), 5);
+    assert_eq!(unsourced(from_p21), unsourced(from_sfc));
 }
