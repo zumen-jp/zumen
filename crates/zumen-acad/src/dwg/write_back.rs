@@ -341,7 +341,7 @@ impl DwgFile {
             .into_iter()
             .filter(|n| base.variable(n) != db.variable(n))
         {
-            if base.variable(name).is_none() || r2004 {
+            if base.variable(name).is_none() {
                 return Err(unsupported(name));
             }
             match name {
@@ -1031,7 +1031,7 @@ impl DwgFile {
     /// 読めなければ `None`
     pub fn handle_seed(&self) -> Option<u64> {
         let (src, span) = self.header_section()?;
-        Some(header::handle_seed(src, span.start)?.value)
+        Some(header::handle_seed(src, span.start, self.release)?.value)
     }
 
     /// 除いた図形 `removed` の前後の図形と、所有者のブロックのレコードの、図形の並びをたどるハンドルを直した

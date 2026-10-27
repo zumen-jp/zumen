@@ -1539,7 +1539,19 @@ fn r2000_drawings_take_back_added_table_records() {
 /// ほかは変わらない（決定 0069）
 #[test]
 fn r2000_drawings_take_back_changed_header_variables() {
-    for path in dwgs(b"AC1015") {
+    header_variables_are_taken_back(b"AC1015");
+}
+
+#[test]
+fn r2004_drawings_take_back_changed_header_variables() {
+    header_variables_are_taken_back(b"AC1018");
+}
+
+/// 版 `version` の試料の図面の見出しの変数を変えて書き戻し、読み直した表が変えた表と同じことと、
+/// HANDSEED を書き換えられることを確かめる
+#[cfg(test)]
+fn header_variables_are_taken_back(version: &[u8]) {
+    for path in dwgs(version) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -1576,5 +1588,17 @@ fn r2000_drawings_take_back_changed_header_variables() {
             path.display()
         );
         assert!(after == db, "{}", path.display());
+        // HANDSEED は、大きさ（バイト）を変えない値に進める
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut file = Dwg::read(&out, &mut cx).unwrap();
+        let seed = file.handle_seed().unwrap();
+        let mut txn = file.transaction();
+        txn.set_handle_seed(seed + 1).unwrap();
+        txn.commit(&mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        let again = Dwg::read(&out, &mut cx).unwrap();
+        assert_eq!(again.handle_seed(), Some(seed + 1), "{}", path.display());
     }
 }

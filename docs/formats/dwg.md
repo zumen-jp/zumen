@@ -31,7 +31,7 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 - `ZUMEN_SAMPLES` のフォルダーにある R2004 の DWG は、診断を出さずに読めることを確かめる。
 - 区切りを置き換えたときは、入れ物を組み直して書く（決定 0070）。置き換えていない区切りのページは見出しを隠し直して写し、置き換えた区切りは圧縮し直す。ページの番号を 1 から振り直し、区切りの地図・ページの地図・空のページの見出し・2 つめの見出しを終わりに置き、暗号化した見出しを書き直す。置き換えていなければ、元のバイト列を写す。
 - `ZUMEN_SAMPLES` のフォルダーにある R2004 から後の DWG は、組み直して読み直し、区切りが元と同じになることを確かめる。
-- オブジェクトの置き換え・除き・足しは、展開した `AcDb:AcDbObjects` の後ろに R2000 と同じ形で足し、`AcDb:Handles` を区切りの初めからの位置で作り直して、区切りを置き換える（決定 0071）。`AcDb:ObjFreeSpace` は直さない。見出しの変数の変更は、まだ R2000 だけを扱う。
+- オブジェクトの置き換え・除き・足しは、展開した `AcDb:AcDbObjects` の後ろに R2000 と同じ形で足し、`AcDb:Handles` を区切りの初めからの位置で作り直して、区切りを置き換える（決定 0071）。`AcDb:ObjFreeSpace` は直さない。見出しの変数の HANDSEED・INSUNITS・PLIMMIN・PLIMMAX の変更は、展開した `AcDb:Header` の中で R2000 と同じく大きさを変えずに書き直し、区切りを置き換える（決定 0078）。
 - 共有の表の変更は、図形の値の変更のうち、共通の欄と、型ごとの欄が R2000 と同じ種類（LINE・CIRCLE・ARC・POINT・ELLIPSE・RAY・XLINE・SOLID・TRACE・3DFACE・TEXT）だけを書き戻す（決定 0072）。色を変えるときは、透明度を写し、RGB の値か DBCOLOR を持つ色は変えない。
 - ATTRIB・ATTDEF・LWPOLYLINE・SPLINE・DIMENSION・TOLERANCE・LEADER・MLINE・SHAPE・VERTEX・INSERT・MTEXT・VIEWPORT の型ごとの欄も書き戻す（決定 0073）。属性を持つ INSERT の持つオブジェクトの数と、MTEXT の背景の欄は、元のビットを写す。HATCH は、初めのグラデーションの欄を元のビットのまま写す（決定 0074）。MINSERT・POLYLINE は、まだ書き戻さない。
 - 表のレコード（LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE）の欄も書き戻す。色の欄は、変わらなければ元のビットを写し、変わったものは番号の形の CMC で書く（決定 0075）。図形でないオブジェクトも、GROUP・DICTIONARYVAR・DICTIONARY・MLINESTYLE・XRECORD の欄を書き戻す（決定 0076）。LAYOUT は、読む側がまだ R2004 の欄を読まないので、書き戻さない。

@@ -296,6 +296,16 @@ fn streams(data: &[u8], release: Release) -> Option<Bits<'_>> {
     Some(bits)
 }
 
+/// 版 `release` の、空間ごとの変数より前の変数の並び。R2010 からは、ハンドルが別の流れにあるので、
+/// 書き換えには使えず `None`
+fn first_fields(release: Release) -> Option<&'static [(Field, usize)]> {
+    match release {
+        Release::R2000 => Some(&FIRST),
+        Release::R2004 => Some(&FIRST_R2004),
+        _ => None,
+    }
+}
+
 /// 変数を順に読み、取り出した変数を返す。見出しのハンドルは絶対の値
 fn variables(bits: &mut Bits) -> Option<Header> {
     let first: &[(Field, usize)] = match bits.release() {
@@ -373,7 +383,7 @@ fn skip(bits: &mut Bits, field: Field) -> Option<()> {
     }
 }
 
-/// R2000 の見出しの変数の HANDSEED（決定 0052）
+/// R2000・R2004 の見出しの変数の HANDSEED（決定 0052・0078）
 #[derive(Clone, Copy, Debug)]
 pub(super) struct HandleSeed {
     /// 区切りの始まり（始まりの印の位置）
@@ -389,12 +399,13 @@ pub(super) struct HandleSeed {
     pub(super) value: u64,
 }
 
-/// `start` から始まる R2000 の見出しの変数の区切りの、HANDSEED。読めなければ `None`
-pub(super) fn handle_seed(src: &[u8], start: usize) -> Option<HandleSeed> {
-    let (data, crc_at) = section(src, start, Release::R2000)?;
-    let mut bits = streams(data, Release::R2000)?;
-    let before = FIRST.iter().position(|(field, _)| matches!(field, Seed))?;
-    skip_all(&mut bits, FIRST.get(..before)?)?;
+/// `start` から始まる版 `release`（R2004 まで）の見出しの変数の区切りの、HANDSEED。読めなければ `None`
+pub(super) fn handle_seed(src: &[u8], start: usize, release: Release) -> Option<HandleSeed> {
+    let first = first_fields(release)?;
+    let (data, crc_at) = section(src, start, release)?;
+    let mut bits = streams(data, release)?;
+    let before = first.iter().position(|(field, _)| matches!(field, Seed))?;
+    skip_all(&mut bits, first.get(..before)?)?;
     let at = bits.pos();
     let seed = bits.main_handle()?;
     Some(HandleSeed {
@@ -426,20 +437,22 @@ pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> 
     store(src, seed.start, seed.data_at, seed.crc_at, out)
 }
 
-/// `start` から始まる R2000 の見出しの変数の区切りの、INSUNITS を `units` に、用紙空間の PLIMMIN・PLIMMAX を
-/// `limits` にし、区切りの CRC を直す（決定 0069）。`None` の変数は変えない。データの大きさ（バイト）が
-/// 変わる値なら `None`
+/// `start` から始まる版 `release`（R2004 まで）の見出しの変数の区切りの、INSUNITS を `units` に、用紙空間の
+/// PLIMMIN・PLIMMAX を `limits` にし、区切りの CRC を直す（決定 0069・0078）。`None` の変数は変えない。
+/// データの大きさ（バイト）が変わる値なら `None`
 pub(super) fn set_values(
     src: &mut [u8],
     start: usize,
+    release: Release,
     units: Option<i16>,
     limits: Option<[f64; 4]>,
 ) -> Option<()> {
-    let (data, crc_at) = section(src, start, Release::R2000)?;
+    first_fields(release)?;
+    let (data, crc_at) = section(src, start, release)?;
     let data = data.to_vec();
     let data_at = crc_at - data.len();
-    let found = variables(&mut streams(&data, Release::R2000)?)?;
-    let mut bits = Bits::with_release(&data, Release::R2000);
+    let found = variables(&mut streams(&data, release)?)?;
+    let mut bits = Bits::with_release(&data, release);
     bits.seek(found.units_at);
     bits.bs()?;
     let mut out = BitWriter::default();
