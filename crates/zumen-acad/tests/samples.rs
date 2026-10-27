@@ -1355,14 +1355,26 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             ));
             added.push((b"SEQEND", Vec::new()));
         }
-        // R2010 から後は、文字列の流れの形が R2000 と同じ図形だけを足せる（決定 0092）
+        // R2010 から後は、R2018 からの MTEXT と属性と、R2013 からの SPLINE をまだ足せない（決定 0092・0093）。
+        // MTEXT は枠の高さ（46）を、ATTRIB は属性の版と位置を固定するか（280）を持つ
         if !matches!(version, b"AC1015" | b"AC1018") {
-            added.retain(|(kind, own)| {
-                matches!(
-                    *kind,
-                    b"LINE" | b"CIRCLE" | b"TEXT" | b"LWPOLYLINE" | b"INSERT"
-                ) && own.iter().all(|value| value.code != 66)
+            let r2018 = version == b"AC1032";
+            added.retain(|(kind, own)| match *kind {
+                b"MTEXT" | b"ATTRIB" | b"SEQEND" => !r2018,
+                b"INSERT" => !r2018 || own.iter().all(|value| value.code != 66),
+                b"SPLINE" => version == b"AC1024",
+                _ => true,
             });
+            for (kind, own) in &mut added {
+                if *kind == b"MTEXT" {
+                    let at = own.iter().position(|value| value.code == 41).unwrap();
+                    own.insert(at + 1, real(46, 0.0));
+                } else if *kind == b"ATTRIB" {
+                    let at = own.iter().position(|value| value.code == 2).unwrap();
+                    own.insert(at, int(280, 0));
+                    own.push(int(280, 0));
+                }
+            }
         }
         let count = added.len() as u64;
         let mut insert = model;
