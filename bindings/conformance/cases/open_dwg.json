@@ -117,6 +117,29 @@
           "total": 1
         }
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dwg",
+        "fields": [
+          "bbox"
+        ],
+        "region": [
+          -1000000000.0,
+          -1000000000.0,
+          1000000000.0,
+          1000000000.0
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "space/0/b428"
+      },
+      "absent": [
+        "/result/items/0/kind"
+      ]
     }
   ]
 }

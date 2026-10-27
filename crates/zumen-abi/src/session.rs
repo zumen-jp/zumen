@@ -10,12 +10,13 @@ use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_sdk::{Codec, Lift};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
+use crate::bounds::{self, Planar};
 use crate::describe;
 use crate::messages::{
     self, BlobKind, ByteRange, CapabilitiesResult, CloseRequest, CloseResult, DrawingRequest,
-    DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityKind,
-    Extent, Format, OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions,
-    SheetSummary, Source, SpaceSummary,
+    DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField,
+    EntityKind, Extent, Format, OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion,
+    SessionOptions, SheetSummary, Source, SpaceSummary,
 };
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
@@ -340,12 +341,38 @@ impl Session {
         request: &EntitiesRequest,
         cx: &mut Cx<'_>,
     ) -> Result<EntitiesResult, Failed> {
+        let fields = match &request.fields {
+            None => vec![EntityField::Kind, EntityField::Layer, EntityField::Source],
+            Some(fields) => {
+                let mut sorted = fields.clone();
+                sorted.sort();
+                sorted.dedup();
+                if fields.is_empty() || sorted.len() != fields.len() {
+                    return Err(fail(cx, invalid_value("/fields")));
+                }
+                sorted
+            }
+        };
+        let region = match request.region.as_deref() {
+            None => None,
+            Some(&[min_x, min_y, max_x, max_y]) if min_x <= max_x && min_y <= max_y => {
+                Some(Extent {
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y,
+                })
+            }
+            Some(_) => return Err(fail(cx, invalid_value("/region"))),
+        };
         let drawing = self.lift(&request.doc, cx)?;
         let offset = request.offset.unwrap_or(0);
         let limit = request.limit.unwrap_or(ENTITIES_LIMIT);
         let mut page = Page {
             start: offset,
             end: offset.saturating_add(limit),
+            fields,
+            region,
             position: 0,
             items: Vec::new(),
         };
@@ -439,6 +466,10 @@ struct Page {
     start: u64,
     /// 返す範囲の終わり（含まない）
     end: u64,
+    /// 返す欄。`id` のほかに返すもの
+    fields: Vec<EntityField>,
+    /// 範囲がこの長方形と重なる要素だけを数える
+    region: Option<Extent>,
     /// 次に数える要素の位置
     position: u64,
     items: Vec<Entity>,
@@ -446,7 +477,7 @@ struct Page {
 
 impl Page {
     /// 空間か用紙の要素を数え、返す範囲にあるものを足す
-    fn collect<P>(
+    fn collect<P: Planar>(
         &mut self,
         drawing: &Drawing2D,
         place: &str,
@@ -456,8 +487,6 @@ impl Page {
         // 出所ごとの、これまでに出てきた要素の数
         let mut seen = BTreeMap::<Ref, u64>::new();
         for (index, element) in elements.iter().enumerate() {
-            let position = self.position;
-            self.position += 1;
             let origin = match (element.source.record(), element.source.bytes()) {
                 (Some(record), _) => format!("r{record}"),
                 (None, Some(bytes)) => format!("b{}", bytes.start),
@@ -470,6 +499,19 @@ impl Page {
                 *count += 1;
                 *count - 1
             };
+            let mut bbox = None;
+            if let Some(region) = &self.region {
+                cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+                bbox = bounds::bbox(&element.shape);
+                if !bbox
+                    .as_ref()
+                    .is_some_and(|extent| bounds::overlaps(extent, region))
+                {
+                    continue;
+                }
+            }
+            let position = self.position;
+            self.position += 1;
             if position < self.start || position >= self.end {
                 continue;
             }
@@ -478,17 +520,25 @@ impl Page {
                 0 => format!("{place}/{origin}"),
                 n => format!("{place}/{origin}/{n}"),
             };
+            let has = |field| self.fields.contains(&field);
+            if has(EntityField::Bbox) && self.region.is_none() {
+                bbox = bounds::bbox(&element.shape);
+            }
             self.items.push(Entity {
                 id,
-                kind: kind_of(&element.shape),
-                layer: drawing.layer(element.layer).map(|layer| layer.name.clone()),
-                source: Source {
+                kind: has(EntityField::Kind).then(|| kind_of(&element.shape)),
+                layer: drawing
+                    .layer(element.layer)
+                    .filter(|_| has(EntityField::Layer))
+                    .map(|layer| layer.name.clone()),
+                source: has(EntityField::Source).then(|| Source {
                     record: element.source.record(),
                     bytes: element.source.bytes().map(|bytes| ByteRange {
                         start: bytes.start,
                         end: bytes.end,
                     }),
-                },
+                }),
+                bbox: bbox.filter(|_| has(EntityField::Bbox)),
             });
         }
         Ok(())
@@ -817,7 +867,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":2}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":3}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1004,14 +1054,75 @@ mod tests {
     }
 
     #[test]
+    fn selects_fields_and_narrows_to_a_region() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", DRAWING).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["bbox"]}"#,
+        );
+        assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/items/0/id"), "space/0/r3");
+        assert_eq!(number(&response, "/result/items/0/bbox/min_x"), "1.5");
+        assert_eq!(number(&response, "/result/items/0/bbox/max_y"), "50");
+        assert!(response.pointer("/result/items/0/kind").is_none());
+        assert!(response.pointer("/result/items/0/source").is_none());
+        // 文字は基点だけを囲む。用紙の要素は用紙の座標で比べる
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","region":[0,0,50,50],"fields":["kind","bbox"]}"#,
+        );
+        assert_eq!(status, Status::Ok);
+        assert_eq!(number(&response, "/result/total"), "2");
+        assert_eq!(text(&response, "/result/items/0/id"), "space/0/r3");
+        assert_eq!(text(&response, "/result/items/1/id"), "sheet/0/r5");
+        assert_eq!(number(&response, "/result/items/1/bbox/max_x"), "410");
+        for (request, pointer) in [
+            (
+                r#"{"v":1,"op":"entities","doc":"a.dxf","fields":[]}"#,
+                "/fields",
+            ),
+            (
+                r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["id","id"]}"#,
+                "/fields",
+            ),
+            (
+                r#"{"v":1,"op":"entities","doc":"a.dxf","region":[0,0,1]}"#,
+                "/region",
+            ),
+            (
+                r#"{"v":1,"op":"entities","doc":"a.dxf","region":[1,0,0,1]}"#,
+                "/region",
+            ),
+        ] {
+            let (status, response) = call(&mut session, request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&response, "/diagnostics/0/params/pointer"), pointer);
+        }
+    }
+
+    #[test]
     fn numbers_elements_that_share_a_source() {
         let mut page = Page {
             start: 0,
             end: 10,
+            fields: vec![EntityField::Layer, EntityField::Source],
+            region: Some(Extent {
+                min_x: 0.5,
+                min_y: 0.5,
+                max_x: 9.0,
+                max_y: 9.0,
+            }),
             position: 0,
             items: Vec::new(),
         };
-        let line = |source: Ref| Element {
+        let at = |x: f64| zumen_drawing::PaperPoint {
+            sheet: zumen_drawing::SheetId(3),
+            x,
+            y: x,
+        };
+        let line = |source: Ref, from: f64| Element {
             source,
             layer: zumen_drawing::LayerId(9),
             style: zumen_drawing::Style {
@@ -1021,14 +1132,16 @@ mod tests {
                 line_weight: None,
             },
             shape: Shape::Line {
-                start: (0.0, 0.0),
-                end: (1.0, 1.0),
+                start: at(from),
+                end: at(from + 1.0),
             },
         };
+        // 2 つ目は region の外にあるが、ID の番号は絞り込む前の要素で振る
         let elements = [
-            line(Ref::at_bytes(40, 80)),
-            line(Ref::at_bytes(40, 80)),
-            line(Ref::default()),
+            line(Ref::at_bytes(40, 80), 0.0),
+            line(Ref::at_bytes(40, 80), 20.0),
+            line(Ref::at_bytes(40, 80), 1.0),
+            line(Ref::default(), 2.0),
         ];
         let mut budget = Budget::new(Limits::default());
         let mut diagnostics = Diagnostics::new();
@@ -1039,9 +1152,16 @@ mod tests {
                 .is_ok()
         );
         let ids: Vec<_> = page.items.iter().map(|item| item.id.as_str()).collect();
-        assert_eq!(ids, ["sheet/3/b40", "sheet/3/b40/1", "sheet/3/e2"]);
+        assert_eq!(ids, ["sheet/3/b40", "sheet/3/b40/2", "sheet/3/e3"]);
+        assert_eq!(page.position, 3);
         assert_eq!(page.items[0].layer, None);
-        assert_eq!(page.items[0].source.bytes.as_ref().map(|b| b.end), Some(80));
+        assert_eq!(page.items[0].kind, None);
+        assert_eq!(page.items[0].bbox, None);
+        let source = page.items[0].source.as_ref();
+        assert_eq!(
+            source.and_then(|s| s.bytes.as_ref()).map(|b| b.end),
+            Some(80)
+        );
     }
 
     #[test]
