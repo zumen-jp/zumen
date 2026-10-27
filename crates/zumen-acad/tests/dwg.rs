@@ -6339,3 +6339,103 @@ fn changed_xrecords_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
 }
+
+/// ブロックのレコード 0x60 と、その図形の LINE 0x70〜0x72。`links` なら、LINE は前後の図形のハンドルを持つ
+#[cfg(test)]
+fn objects_with_linked_lines(links: bool) -> Vec<(u64, Vec<u8>)> {
+    let control = object(0x32, 2, |w| w.bl_zero(), |w| w.handle(4, 0));
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let block = object(0x31, 0x60, record_named(b"B"), |w| {
+        w.handle(4, 0x5F); // 所有者
+        w.handle(3, 0); // 拡張辞書
+        w.handle(5, 0); // 外部参照のブロック
+        w.handle(3, 0); // BLOCK
+        w.handle(4, 0x70); // 最初の図形
+        w.handle(4, 0x72); // 最後の図形
+        w.handle(3, 0); // ENDBLK
+        w.handle(5, 0); // 配置
+    });
+    let mut objects = vec![(2, control), (0x10, layer), (0x60, block)];
+    for handle in 0x70..=0x72u64 {
+        let line = object(
+            0x13,
+            handle,
+            move |w| {
+                w.bit(false);
+                w.bits(0, 2); // 所有者のハンドルを持つ
+                w.bl_zero();
+                w.bit(!links);
+                w.bs(256);
+                w.bd(1.0);
+                w.bits(0, 2);
+                w.bits(0, 2);
+                w.bs(0);
+                w.bytes(&[0x1D]);
+                line_data(w, [0.0; 3], [handle as f64, 1.0, 0.0], 0.0);
+            },
+            move |w| {
+                w.handle(4, 0x60);
+                w.handle(3, 0);
+                if links {
+                    w.handle(4, if handle == 0x70 { 0 } else { handle - 1 });
+                    w.handle(4, if handle == 0x72 { 0 } else { handle + 1 });
+                }
+                w.handle(5, 0x10);
+            },
+        );
+        objects.push((handle, line));
+    }
+    objects
+}
+
+#[test]
+fn removed_entities_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    for links in [true, false] {
+        let mut src = dwg(&objects_with_linked_lines(links));
+        // 真ん中・最初・最後の順に除く。並びのハンドルが崩れれば、次の削除を書き戻せない
+        for handle in [0x71, 0x70, 0x72] {
+            let (mut db, _) = objects(&src);
+            let index = db
+                .objects()
+                .iter()
+                .position(|o| o.handle() == Some(handle))
+                .unwrap();
+            db.remove(index).unwrap();
+            let mut file = read(&src, Limits::default()).0.unwrap();
+            let (out, diag) = written_back(&mut file, &db);
+            let out = out.unwrap();
+            assert!(codes_of(&diag).is_empty(), "{handle:X}");
+            let (again, diag) = objects(&out);
+            assert!(codes_of(&diag).is_empty(), "{handle:X}");
+            assert_eq!(summary(&again), summary(&db), "{handle:X}");
+            src = out;
+        }
+    }
+    // 表のレコードと、所有者がブロックのレコードでない図形は除けない
+    let cases = [
+        ("LAYER", dwg(&objects_with_linked_lines(true)), 0x10),
+        ("BLOCK_RECORD", dwg(&objects_with_linked_lines(true)), 0x60),
+        ("LINE", dwg(&objects_in_sample()), 0x2A),
+    ];
+    for (kind, src, handle) in cases {
+        let (mut db, _) = objects(&src);
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(handle))
+            .unwrap();
+        db.remove(index).unwrap();
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected), "{kind}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED], "{kind}");
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&kind.to_string().into()));
+    }
+}

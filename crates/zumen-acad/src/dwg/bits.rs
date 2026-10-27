@@ -506,6 +506,16 @@ impl BitWriter {
         Some(())
     }
 
+    /// H。符号（4 ビット）と、値のバイトの数（4 ビット）と、上位のバイトから並ぶ値
+    pub(super) fn handle(&mut self, code: u8, value: u64) {
+        let bytes = value.to_be_bytes();
+        let skip = bytes.iter().take_while(|&&byte| byte == 0).count();
+        let bytes = bytes.get(skip..).unwrap_or_default();
+        self.small(code, 4);
+        self.small(u8::try_from(bytes.len()).unwrap_or_default(), 4);
+        self.raw(bytes);
+    }
+
     /// BB
     pub(super) fn bb(&mut self, value: u8) {
         self.small(value, 2);

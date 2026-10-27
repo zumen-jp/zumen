@@ -544,3 +544,79 @@ fn r2000_drawings_take_back_changed_entities() {
         assert!(changed > 0);
     }
 }
+
+#[test]
+fn r2000_drawings_take_back_removed_entities() {
+    let mut removed = 0;
+    for path in dwgs(b"AC1015") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let base = Dwg::read(&src, &mut cx).unwrap().objects(&mut cx).unwrap();
+        let without = |gone: &[u64]| {
+            let mut db = base.clone();
+            while let Some(index) = db
+                .objects()
+                .iter()
+                .position(|o| o.handle().is_some_and(|h| gone.contains(&h)))
+            {
+                db.remove(index);
+            }
+            db
+        };
+        let written = |db: &AcadDb| {
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let mut file = Dwg::read(&src, &mut cx).unwrap();
+            file.write_back(db, &mut cx).ok()?;
+            let mut out = Vec::new();
+            Dwg::write(&file, &mut out, &mut cx).unwrap();
+            Some(Dwg::read(&out, &mut cx).unwrap().objects(&mut cx).unwrap())
+        };
+        // 図形を持たない LINE・CIRCLE・ARC・TEXT・INSERT を 2 つおきに選び、1 つずつ足して除く。反応子か
+        // 拡張辞書を持つものは除けないので、足さない
+        let owners: Vec<u64> = base.objects().iter().filter_map(Object::owner).collect();
+        let candidates: Vec<u64> = base
+            .objects()
+            .iter()
+            .filter(|o| {
+                matches!(o.section, Section::Entities | Section::Blocks)
+                    && matches!(
+                        o.kind.as_slice(),
+                        b"LINE" | b"CIRCLE" | b"ARC" | b"TEXT" | b"INSERT"
+                    )
+            })
+            .filter_map(Object::handle)
+            .filter(|h| !owners.contains(h))
+            .step_by(3)
+            .take(8)
+            .collect();
+        let mut gone = Vec::new();
+        for handle in candidates {
+            gone.push(handle);
+            if written(&without(&gone)).is_none() {
+                gone.pop();
+            }
+        }
+        // 除いた図形の前後の図形も、また読める
+        let db = without(&gone);
+        let after = written(&db).unwrap();
+        assert_eq!(
+            after.objects().len(),
+            db.objects().len(),
+            "{}",
+            path.display()
+        );
+        for (a, b) in db.objects().iter().zip(after.objects()) {
+            assert_eq!(a.kind, b.kind, "{}", path.display());
+            assert_eq!(a.values, b.values, "{}", path.display());
+        }
+        removed += gone.len();
+    }
+    if !dwgs(b"AC1015").is_empty() {
+        assert!(removed > 0);
+    }
+}

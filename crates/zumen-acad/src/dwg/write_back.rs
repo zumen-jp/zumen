@@ -5,7 +5,10 @@
 //! いくつかの種類の型ごとの欄（決定 0030〜0050）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
-//! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
+//! 表から除いた図形は、オブジェクトの地図から除き、前後の図形と所有者のブロックのレコードの、図形の並びを
+//! たどるハンドルを直す（決定 0051）。
+//!
+//! オブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,7 +16,7 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits};
-use super::objects::{DIM_FIELDS, Dim, entity_fields, object_fields};
+use super::objects::{DIM_FIELDS, Dim, block_links, entity_fields, entity_links, object_fields};
 use super::{DwgFile, Release};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 
@@ -113,6 +116,9 @@ const MLINE: &[i16] = &[
     42,
 ];
 
+/// 変えたオブジェクトの番号と、新しいデータ。除いたオブジェクトは `None`
+type Changes = Vec<(usize, Option<Vec<u8>>)>;
+
 impl DwgFile {
     /// 表 `db` のオブジェクトの値の変更を、このファイルに書き戻す。`db` は、このファイルから作った表を
     /// 変えたもの。変えていないオブジェクトは、元のバイトのまま残る。1 つでも書き戻せない変更があれば、
@@ -133,9 +139,10 @@ impl DwgFile {
         let changes = self.changes(db, &base);
         let mut txn = self.transaction();
         let staged = match changes {
-            Ok(changes) => changes
-                .iter()
-                .try_for_each(|(record, data)| txn.set_data(*record, data)),
+            Ok(changes) => changes.iter().try_for_each(|(record, data)| match data {
+                Some(data) => txn.set_data(*record, data),
+                None => txn.remove(*record),
+            }),
             Err(diagnostic) => Err(txn.reject(*diagnostic)),
         };
         // 失敗した変更があれば、確定が最初の失敗を診断として返し、何も反映しない
@@ -143,12 +150,8 @@ impl DwgFile {
         staged.and(committed)
     }
 
-    /// 変えたオブジェクトの番号と、新しいデータ
-    fn changes(
-        &self,
-        db: &AcadDb,
-        base: &AcadDb,
-    ) -> Result<Vec<(usize, Vec<u8>)>, Box<Diagnostic>> {
+    /// 表 `db` を書き戻す変更
+    fn changes(&self, db: &AcadDb, base: &AcadDb) -> Result<Changes, Box<Diagnostic>> {
         if db != base
             && let Some(diagnostic) = self.edit_unsupported()
         {
@@ -169,7 +172,7 @@ impl DwgFile {
             })
             .collect();
         let mut kept = BTreeSet::new();
-        let mut changes = Vec::new();
+        let mut changes = BTreeMap::new();
         for object in db.objects() {
             let found = match object.origin {
                 Origin::Dwg { offset, .. } => before.get(&offset).filter(|(_, old)| {
@@ -195,18 +198,20 @@ impl DwgFile {
                         }
                     })
                     .ok_or_else(|| unsupported(&object.kind))?;
-                changes.push((record, data));
+                changes.insert(record, data);
             }
         }
-        // 表から除いたか、並べ替えたオブジェクト
-        if let Some((_, (_, old))) = before.iter().find(|(offset, _)| !kept.contains(*offset)) {
-            return Err(unsupported(&old.kind));
-        }
-        if !db
+        let removed: Vec<(usize, &Object)> = before
+            .iter()
+            .filter(|(offset, _)| !kept.contains(*offset))
+            .map(|(_, &found)| found)
+            .collect();
+        // 並べ替えたオブジェクト
+        if !db.objects().iter().map(offset).eq(base
             .objects()
             .iter()
             .map(offset)
-            .eq(base.objects().iter().map(offset))
+            .filter(|o| o.is_none_or(|o| kept.contains(&o))))
         {
             return Err(unsupported(b"ENTITIES"));
         }
@@ -221,8 +226,173 @@ impl DwgFile {
         {
             return Err(unsupported(name));
         }
-        Ok(changes)
+        self.unlink(base, &removed, &mut changes)?;
+        let removed = removed.iter().map(|&(record, _)| (record, None));
+        Ok(changes
+            .into_iter()
+            .map(|(record, data)| (record, Some(data)))
+            .chain(removed)
+            .collect())
     }
+
+    /// 除いた図形 `removed` の前後の図形と、所有者のブロックのレコードの、図形の並びをたどるハンドルを直した
+    /// データを、`changes` に足す（決定 0051）。図形を持つ図形（ATTRIB を持つ INSERT など）と、反応子か
+    /// 拡張辞書を持つ図形と、[`REMOVABLE`] にない種類は除けない
+    fn unlink(
+        &self,
+        base: &AcadDb,
+        removed: &[(usize, &Object)],
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+    ) -> Result<(), Box<Diagnostic>> {
+        let records: BTreeMap<u64, usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(record, entry)| (entry.handle, record))
+            .collect();
+        let owners: BTreeSet<u64> = base.objects().iter().filter_map(Object::owner).collect();
+        let mut gone = BTreeSet::new();
+        let mut blocks = BTreeMap::new();
+        for &(record, old) in removed {
+            let block = self
+                .entries
+                .get(record)
+                .filter(|entry| {
+                    matches!(old.section, Section::Entities | Section::Blocks)
+                        && REMOVABLE.contains(&old.kind.as_slice())
+                        && !owners.contains(&entry.handle)
+                })
+                .and_then(|entry| {
+                    let links = entity_links(self.data(entry), entry.handle)?;
+                    let owner = old.owner()?;
+                    let block = self.entries.get(*records.get(&owner)?)?;
+                    (links.reactors == 0
+                        && links.xdic == 0
+                        && self.kind(block.type_code)?.0 == b"BLOCK_RECORD")
+                        .then_some((entry.handle, owner))
+                })
+                .ok_or_else(|| unsupported(&old.kind))?;
+            gone.insert(block.0);
+            *blocks.entry(block.1).or_insert(0usize) += 1;
+        }
+        for (block, count) in blocks {
+            self.relink_block(block, count, &gone, &records, changes)
+                .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+        }
+        Ok(())
+    }
+
+    /// ブロックのレコード `block` の図形の並びから、`gone` の `count` 個の図形を除き、隣が変わった図形と
+    /// レコードの、並びをたどるハンドルを直す。並びをたどれなければ `None`
+    fn relink_block(
+        &self,
+        block: u64,
+        count: usize,
+        gone: &BTreeSet<u64>,
+        records: &BTreeMap<u64, usize>,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+    ) -> Option<()> {
+        let data = |changes: &BTreeMap<usize, Vec<u8>>, record: usize| -> Option<Vec<u8>> {
+            match changes.get(&record) {
+                Some(data) => Some(data.clone()),
+                None => Some(self.data(self.entries.get(record)?).to_vec()),
+            }
+        };
+        let block_record = *records.get(&block)?;
+        let (_, first, last) = block_links(&data(changes, block_record)?, block)?;
+        // 最初の図形から、後ろの図形のハンドルをたどる。輪は数えて止める
+        let mut chain = Vec::new();
+        let mut at = first;
+        while at != 0 {
+            if chain.len() >= self.entries.len() {
+                return None;
+            }
+            let record = *records.get(&at)?;
+            chain.push((at, record));
+            if at == last {
+                break;
+            }
+            at = entity_links(&data(changes, record)?, at)?.next;
+        }
+        if chain.last().map_or(0, |&(handle, _)| handle) != last
+            || chain.iter().filter(|(h, _)| gone.contains(h)).count() != count
+        {
+            return None;
+        }
+        let neighbours = |list: &[(u64, usize)], i: usize| {
+            let handle = |j: Option<usize>| j.and_then(|j| list.get(j)).map_or(0, |&(h, _)| h);
+            (handle(i.checked_sub(1)), handle(i.checked_add(1)))
+        };
+        let kept: Vec<_> = chain
+            .iter()
+            .copied()
+            .filter(|(h, _)| !gone.contains(h))
+            .collect();
+        for (i, &(handle, record)) in kept.iter().enumerate() {
+            let was = chain.iter().position(|&(h, _)| h == handle)?;
+            let (prev, next) = neighbours(&kept, i);
+            if (prev, next) != neighbours(&chain, was) {
+                let new = relink(&data(changes, record)?, handle, prev, next)?;
+                changes.insert(record, new);
+            }
+        }
+        let ends = (
+            kept.first().map_or(0, |&(h, _)| h),
+            kept.last().map_or(0, |&(h, _)| h),
+        );
+        if ends != (first, last) {
+            let new = reblock(&data(changes, block_record)?, block, ends.0, ends.1)?;
+            changes.insert(block_record, new);
+        }
+        Some(())
+    }
+}
+
+/// 表から除ける図形の種類（決定 0051）
+const REMOVABLE: &[&[u8]] = &[
+    b"LINE",
+    b"CIRCLE",
+    b"ARC",
+    b"POINT",
+    b"ELLIPSE",
+    b"RAY",
+    b"XLINE",
+    b"SOLID",
+    b"TRACE",
+    b"3DFACE",
+    b"TEXT",
+    b"MTEXT",
+    b"ATTDEF",
+    b"LWPOLYLINE",
+    b"SPLINE",
+    b"INSERT",
+    b"SHAPE",
+];
+
+/// ハンドル `handle` の図形のデータ `data` の、前後の図形のハンドルを `prev` と `next` にしたもの。
+/// 前後の図形のハンドルを持たない図形は、持つようにする。ハンドルの流れの位置は変わらない
+fn relink(data: &[u8], handle: u64, prev: u64, next: u64) -> Option<Vec<u8>> {
+    let links = entity_links(data, handle)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..links.no_links_at)?;
+    out.bit(false);
+    out.copy(data, links.no_links_at + 1..links.at.start)?;
+    out.handle(4, prev);
+    out.handle(4, next);
+    out.copy(data, links.at.end..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// ハンドル `handle` のブロックのレコードのデータ `data` の、最初と最後の図形のハンドルを、`first` と
+/// `last` にしたもの
+fn reblock(data: &[u8], handle: u64, first: u64, last: u64) -> Option<Vec<u8>> {
+    let (at, _, _) = block_links(data, handle)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..at.start)?;
+    out.handle(4, first);
+    out.handle(4, last);
+    out.copy(data, at.end..data.len() * 8)?;
+    Some(out.into_bytes())
 }
 
 fn offset(object: &Object) -> Option<usize> {
