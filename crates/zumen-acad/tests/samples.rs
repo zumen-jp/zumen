@@ -651,7 +651,11 @@ fn r2000_drawings_take_back_added_entities() {
             code,
             data: Data::Text(value.to_vec()),
         };
-        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT を足す
+        let int = |code, value| Value {
+            code,
+            data: Data::Int(value),
+        };
+        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT と MTEXT を足す
         let mut added: Vec<(&[u8], Vec<Value>)> = vec![
             (
                 b"LINE",
@@ -676,6 +680,21 @@ fn r2000_drawings_take_back_added_entities() {
                     real(30, 0.0),
                     real(40, 2.5),
                     text(1, b"zumen"),
+                ],
+            ),
+            (
+                b"MTEXT",
+                vec![
+                    real(10, 1.0),
+                    real(20, 2.0),
+                    real(30, 0.0),
+                    real(41, 10.0),
+                    real(40, 2.5),
+                    int(71, 1),
+                    int(72, 1),
+                    text(1, b"zumen"),
+                    int(73, 1),
+                    real(44, 1.0),
                 ],
             ),
         ];

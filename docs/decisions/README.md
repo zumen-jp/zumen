@@ -61,6 +61,7 @@
 - [0037: DWG（R2000）への書き戻しは、HATCH の欄を表の順に読み直して符号化し、境界の図形の数の変更は受け付けない](0037-dwg-write-back-hatch.md)（2026-10-27、採用）
 - [0052: DWG（R2000）への書き戻しは、表の終わりに足した単純な図形を一から符号化し、ブロックの並びの終わりに繋いで HANDSEED を進める](0052-dwg-write-back-entity-addition.md)（2026-10-27、採用）
 - [0053: DWG（R2000）への書き戻しで足す TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを名前で探してハンドルを書く](0053-dwg-write-back-pointing-entity-addition.md)（2026-10-27、採用）
+- [0054: DWG（R2000）への書き戻しで足す MTEXT は、表にない文字の範囲の大きさと行の間隔の後の B を 0 にする](0054-dwg-write-back-mtext-addition.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

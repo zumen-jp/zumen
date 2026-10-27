@@ -10,7 +10,7 @@
 //!
 //! 表の終わりに足した図形のうち、いくつかの種類は、一から符号化してオブジェクトの地図に加え、所有者の
 //! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを
-//! 名前で探して、そのハンドルを書く（決定 0053）。
+//! 名前で探して、そのハンドルを書く（決定 0053）。足した MTEXT は、表にない欄を 0 にする（決定 0054）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -348,7 +348,7 @@ impl DwgFile {
         let handle = object.handle().filter(|&h| h >= seed)?;
         // TEXT と ATTDEF は文字の体裁（7）を、INSERT はブロック（2）を指す
         let pointing: &[i16] = match object.kind.as_slice() {
-            b"TEXT" | b"ATTDEF" => &[7],
+            b"TEXT" | b"ATTDEF" | b"MTEXT" => &[7],
             b"INSERT" => &[2],
             _ => &[],
         };
@@ -397,10 +397,12 @@ impl DwgFile {
         };
         let pointed = match object.kind.as_slice() {
             // 文字の体裁がなければ Standard
-            b"TEXT" | b"ATTDEF" => match object.values.iter().any(|value| value.code == 7) {
-                false => Some(record_handle(base, b"STYLE", b"Standard")?),
-                true => Some(record_handle(base, b"STYLE", text_of(object, 7)?)?),
-            },
+            b"TEXT" | b"ATTDEF" | b"MTEXT" => {
+                match object.values.iter().any(|value| value.code == 7) {
+                    false => Some(record_handle(base, b"STYLE", b"Standard")?),
+                    true => Some(record_handle(base, b"STYLE", text_of(object, 7)?)?),
+                }
+            }
             b"INSERT" => {
                 // 空間のブロックと、図形を持つブロックそのものは挿せない
                 let name = text_of(object, 2)?;
@@ -626,7 +628,7 @@ const REMOVABLE: &[&[u8]] = &[
     b"SHAPE",
 ];
 
-/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052・0053）。型ごとの欄を元のデータ
+/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0054）。型ごとの欄を元のデータ
 /// なしで符号化でき、型ごとのハンドルが表のレコードを指すものだけか、ないもの。INSERT は属性を持たないもの
 const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"LINE", 0x13, LINE),
@@ -642,6 +644,7 @@ const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"TEXT", 0x01, TEXT),
     (b"ATTDEF", 0x03, ATTDEF),
     (b"INSERT", 0x07, INSERT),
+    (b"MTEXT", 0x2C, MTEXT),
 ];
 
 /// 足す図形を符号化するのに要るもの
@@ -1970,23 +1973,29 @@ fn attribute(fields: &mut BitWriter, object: &Object) -> Option<()> {
 
 /// MTEXT の欄（R2000）。押し出しの向きと X 軸の向きは、なければ (0, 0, 1)・(1, 0, 0) を書く。文字列は、
 /// 250 バイトずつの 3 と、残りの 1 をつないで書く。表にない文字の範囲の大きさ（2 つの BD）と、行の間隔の後の
-/// B は、元のデータから写す
+/// B は、元のデータから写す。足した MTEXT では、どちらも 0 にする（決定 0054）
 fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
-    let mut bits = Bits::with_release(data, Release::R2000);
-    bits.seek(start);
-    for _ in 0..11 {
-        bits.bd()?;
-    }
-    bits.bs()?;
-    bits.bs()?;
-    let extents_at = bits.pos();
-    bits.bd()?;
-    bits.bd()?;
-    let extents_end = bits.pos();
-    bits.text()?;
-    bits.bs()?;
-    bits.bd()?;
-    let flag_at = bits.pos();
+    // 足した MTEXT は元のデータを持たない（`data` が空）。範囲の大きさを 0、B を 0 にする
+    let copied = match data.is_empty() {
+        true => None,
+        false => {
+            let mut bits = Bits::with_release(data, Release::R2000);
+            bits.seek(start);
+            for _ in 0..11 {
+                bits.bd()?;
+            }
+            bits.bs()?;
+            bits.bs()?;
+            let extents_at = bits.pos();
+            bits.bd()?;
+            bits.bd()?;
+            let extents_end = bits.pos();
+            bits.text()?;
+            bits.bs()?;
+            bits.bd()?;
+            Some((extents_at..extents_end, bits.pos()))
+        }
+    };
     point3(fields, object, 10)?;
     for (code, default) in [(210, [0.0, 0.0, 1.0]), (11, [1.0, 0.0, 0.0])] {
         match [code, code + 10, code + 20].map(|code| real(object, code)) {
@@ -2001,7 +2010,13 @@ fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
     for code in [71, 72] {
         fields.bs(small(object, code)??);
     }
-    fields.copy(data, extents_at..extents_end)?;
+    match &copied {
+        Some((extents, _)) => fields.copy(data, extents.clone())?,
+        None => {
+            fields.bd(0.0);
+            fields.bd(0.0);
+        }
+    }
     let mut text = Vec::new();
     for value in object.values.iter().filter(|value| value.code == 3) {
         let Data::Text(chunk) = &value.data else {
@@ -2014,7 +2029,13 @@ fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
     fields.text(&text)?;
     fields.bs(small(object, 73)??);
     fields.bd(real(object, 44)??);
-    fields.copy(data, flag_at..flag_at + 1)
+    match copied {
+        Some((_, flag_at)) => fields.copy(data, flag_at..flag_at + 1),
+        None => {
+            fields.bit(false);
+            Some(())
+        }
+    }
 }
 
 /// LWPOLYLINE の欄（R2000）。続く欄があるかの印は、値があるかから選ぶ。膨らみ（42）が 1 つでもあれば、
