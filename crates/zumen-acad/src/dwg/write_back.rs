@@ -46,7 +46,7 @@ use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 const COMMON: &[i16] = &[62, 48, 60];
 
 /// R2004 で、型ごとの欄を R2000 と同じに符号化する図形の種類（決定 0072・0073）
-/// R2010 から後に書き戻す図形の種類（決定 0085〜0087）
+/// R2010 から後に書き戻す図形の種類（決定 0085〜0088）
 const R2010_KINDS: &[&[u8]] = &[
     b"LINE",
     b"CIRCLE",
@@ -67,6 +67,11 @@ const R2010_KINDS: &[&[u8]] = &[
     b"MLINE",
     b"MTEXT",
     b"VERTEX",
+    b"HATCH",
+    b"DIMENSION",
+    b"TOLERANCE",
+    b"VIEWPORT",
+    b"SHAPE",
 ];
 
 const R2004_KINDS: &[&[u8]] = &[
@@ -1766,6 +1771,22 @@ fn r2010_own_fields(
         let mut fields = BitWriter::with_strings();
         r2010_attribute(&mut fields, new, data, end)?;
         Some(fields)
+    } else if new.kind == b"VIEWPORT" {
+        let mut fields = BitWriter::with_strings();
+        viewport(&mut fields, old, new, data, [start, end], release)?;
+        Some(fields)
+    } else if new.kind == b"TOLERANCE" {
+        let mut fields = BitWriter::with_strings();
+        tolerance(&mut fields, old, new, data, [start, end], release)?;
+        Some(fields)
+    } else if new.kind == b"SHAPE" {
+        let mut fields = BitWriter::with_strings();
+        shape(&mut fields, new, data, [start, end], release)?;
+        Some(fields)
+    } else if new.kind == b"DIMENSION" {
+        let mut fields = BitWriter::with_strings();
+        dimension(&mut fields, old, new, type_code, data, start, release)?;
+        Some(fields)
     } else if new.kind == b"MTEXT" {
         let mut fields = BitWriter::with_strings();
         r2010_mtext(&mut fields, new, data, start, end, release)?;
@@ -1798,12 +1819,16 @@ fn r2010_own_fields(
         fields.bd(tangent);
         Some(fields)
     } else if new.kind == b"HATCH" {
-        // 初めのグラデーションの欄は、元のビットを写す（決定 0074）
-        let mut bits = Bits::with_release(data, Release::R2004);
+        // 初めのグラデーションの欄は、元のビットを写す（決定 0074）。その名前は文字列の流れの初めにあるので、
+        // 流れの初めの TU も写す（決定 0088）
+        let mut bits = Bits::with_release(data, release);
         bits.seek(start);
         hatch_gradient(&mut bits)?;
         let mut fields = BitWriter::with_strings();
         fields.copy(data, start..bits.pos())?;
+        bits.seek(end);
+        let units = usize::try_from(bits.bs()?).ok()?;
+        fields.copy_strings(data, end..bits.pos() + units * 16)?;
         hatch(&mut fields, old, new)?;
         Some(fields)
     } else if new.kind == b"INSERT" {
@@ -3105,13 +3130,30 @@ fn own_fields(
         b"HATCH" => hatch(&mut fields, old, new)?,
         b"VERTEX" => vertex(&mut fields, new, type_code)?,
         b"POLYLINE" => polyline(&mut fields, new, type_code, data, start)?,
-        b"DIMENSION" => dimension(&mut fields, old, new, type_code, data, start)?,
+        b"DIMENSION" => dimension(
+            &mut fields,
+            old,
+            new,
+            type_code,
+            data,
+            start,
+            Release::R2000,
+        )?,
         b"INSERT" => insert(&mut fields, new, type_code == MINSERT_TYPE)?,
-        b"TOLERANCE" => tolerance(&mut fields, old, new, data, start)?,
+        b"TOLERANCE" => {
+            let end = entity_fields(data, Release::R2000)?[3];
+            tolerance(&mut fields, old, new, data, [start, end], Release::R2000)?;
+        }
         b"LEADER" => leader(&mut fields, new, data, start)?,
         b"MLINE" => mline(&mut fields, new)?,
-        b"VIEWPORT" => viewport(&mut fields, old, new, data, start)?,
-        b"SHAPE" => shape(&mut fields, new, data, start)?,
+        b"VIEWPORT" => {
+            let end = entity_fields(data, Release::R2000)?[3];
+            viewport(&mut fields, old, new, data, [start, end], Release::R2000)?;
+        }
+        b"SHAPE" => {
+            let end = entity_fields(data, Release::R2000)?[3];
+            shape(&mut fields, new, data, [start, end], Release::R2000)?;
+        }
         // SEQEND は型ごとの欄を持たない
         b"SEQEND" | b"ENDBLK" => {}
         b"BLOCK" => string(&mut fields, new, 2)?,
@@ -3925,6 +3967,7 @@ fn dimension(
     type_code: i16,
     data: &[u8],
     start: usize,
+    release: Release,
 ) -> Option<()> {
     let at = usize::try_from(type_code.checked_sub(DIMENSION_TYPE)?).ok()?;
     let (kind, own) = (*DIMENSION_KIND.get(at)?, *DIMENSION_KINDS.get(at)?);
@@ -3937,8 +3980,16 @@ fn dimension(
     {
         return None;
     }
-    let mut bits = Bits::with_release(data, Release::R2000);
+    // R2010 からは、初めの寸法の版（RC）と、測った値の後の 3 つの B を写し、文字列は文字列の流れに書く
+    // （決定 0088）
+    let r2010 = release >= Release::R2010;
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
+    let version_at = bits.pos();
+    if r2010 {
+        bits.rc()?;
+    }
+    let version = version_at..bits.pos();
     for _ in 0..3 {
         bits.bd()?;
     }
@@ -3960,6 +4011,13 @@ fn dimension(
     bits.bs()?;
     bits.bd()?;
     bits.bd()?;
+    let arrows_at = bits.pos();
+    if r2010 {
+        for _ in 0..3 {
+            bits.bit()?;
+        }
+    }
+    let arrows = arrows_at..bits.pos();
     bits.rd()?;
     bits.rd()?;
     let old_ordinate = if type_code == DIMENSION_TYPE {
@@ -3976,6 +4034,7 @@ fn dimension(
     let elevation = real(new, 31)??;
     let same = |code| real(new, code).map(|z| z.is_none_or(|z| z.to_bits() == elevation.to_bits()));
     (same(32)? && same(36)?).then_some(())?;
+    fields.copy(data, version)?;
     match [210, 220, 230].map(|code| real(new, code)) {
         [Some(None), Some(None), Some(None)] => [0.0, 0.0, 1.0].map(|v| fields.bd(v)),
         [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
@@ -3995,7 +4054,7 @@ fn dimension(
             .cloned()
             .collect()
     };
-    if texts(old) == texts(new) {
+    if texts(old) == texts(new) && !r2010 {
         fields.copy(data, text_at..text_end)?;
     } else if texts(new).is_empty() {
         fields.text(&[])?;
@@ -4010,6 +4069,7 @@ fn dimension(
     fields.bs(small(new, 72)?.unwrap_or(1));
     fields.bd(real(new, 41)?.unwrap_or(1.0));
     fields.bd(real(new, 42)??);
+    fields.copy(data, arrows)?;
     let [x, y, z] = [12, 22, 32].map(|code| real(new, code));
     match [x?, y?, z?] {
         [Some(x), Some(y), Some(_)] => {
@@ -4095,9 +4155,10 @@ fn tolerance(
     old: &Object,
     new: &Object,
     data: &[u8],
-    start: usize,
+    [start, end]: [usize; 2],
+    release: Release,
 ) -> Option<()> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     for _ in 0..9 {
         bits.bd()?;
@@ -4108,12 +4169,13 @@ fn tolerance(
     point3(fields, new, 10)?;
     point3_or(fields, new, 11, [1.0, 0.0, 0.0])?;
     point3_or(fields, new, 210, [0.0, 0.0, 1.0])?;
-    if text_of(old, 1) == text_of(new, 1) {
+    // R2010 からは、文字列は文字列の流れに書く（決定 0088）
+    if text_of(old, 1) == text_of(new, 1) && release < Release::R2010 {
         fields.copy(data, text_at..text_end)?;
     } else {
         string(fields, new, 1)?;
     }
-    fields.copy(data, text_end..entity_fields(data, Release::R2000)?[3])
+    fields.copy(data, text_end..end)
 }
 
 /// LEADER の欄（決定 0040）。注釈の種類（73）・経路の種類（72、なければ 0）・押し出しの向き（なければ
@@ -4217,9 +4279,13 @@ fn viewport(
     old: &Object,
     new: &Object,
     data: &[u8],
-    start: usize,
+    [start, end]: [usize; 2],
+    release: Release,
 ) -> Option<()> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    // R2010 からは、グリッドの向き（72）の後に主なグリッドの線の間隔（BS、61）を書き、文字列は文字列の
+    // 流れに書く（決定 0088）
+    let r2010 = release >= Release::R2010;
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     for _ in 0..17 {
         bits.bd()?;
@@ -4228,6 +4294,9 @@ fn viewport(
         bits.rd()?;
     }
     bits.bs()?;
+    if r2010 {
+        bits.bs()?;
+    }
     let frozen_at = bits.pos();
     bits.bl()?;
     let frozen_end = bits.pos();
@@ -4259,9 +4328,12 @@ fn viewport(
         fields.rd(real(new, code + 10)??);
     }
     fields.bs(small(new, 72)??);
+    if r2010 {
+        fields.bs(small(new, 61)??);
+    }
     fields.copy(data, frozen_at..frozen_end)?;
     fields.bl(i32::try_from(integer(new, 90)??).ok()?);
-    if text_of(old, 1) == text_of(new, 1) {
+    if text_of(old, 1) == text_of(new, 1) && !r2010 {
         fields.copy(data, text_at..text_end)?;
     } else {
         string(fields, new, 1)?;
@@ -4279,14 +4351,20 @@ fn viewport(
     }
     fields.bd(real(new, 146)??);
     fields.bs(small(new, 79)??);
-    fields.copy(data, rest_at..entity_fields(data, Release::R2000)?[3])
+    fields.copy(data, rest_at..end)
 }
 
 /// SHAPE の欄（決定 0042）。角度（50・51）がなければ 0、幅の尺度（41）がなければ 1、厚さ（39）がなければ 0、
 /// 押し出しの向きがなければ (0, 0, 1) を書く。角度は度からラジアンに直す。表にない形の番号と後ろの欄は、
 /// 元のビットを写す
-fn shape(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+fn shape(
+    fields: &mut BitWriter,
+    object: &Object,
+    data: &[u8],
+    [start, end]: [usize; 2],
+    release: Release,
+) -> Option<()> {
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     for _ in 0..8 {
         bits.bd()?;
@@ -4306,7 +4384,7 @@ fn shape(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
     fields.bd(real(object, 39)?.unwrap_or(0.0));
     fields.copy(data, number_at..number_end)?;
     point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
-    fields.copy(data, rest_at..entity_fields(data, Release::R2000)?[3])
+    fields.copy(data, rest_at..end)
 }
 
 /// 3BD の点（`code`・`code + 10`・`code + 20`）。どれもなければ `default` を書く
