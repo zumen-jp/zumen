@@ -67,6 +67,9 @@
     "dxf.version.unsupported": "Changing the DXF version from {from} to {to} is not supported yet.",
     "dxf.viewport.unsupported": "Did not lift {count} viewports whose group code {code} has a setting that is not supported yet.",
     "internal.panic.caught": "Stopped by an internal error. Please report it as a bug.",
+    "sxf.file.invalid": "Cannot read the file as SXF: the ISO 10303-21 start, the DATA section, or the end is missing.",
+    "sxf.record.invalid": "Skipped statements or feature comments whose form could not be read ({count}).",
+    "sxf.schema.unsupported": "Cannot read a file with the schema \"{schema}\": it is not an SXF drawing (ASSOCIATIVE_DRAUGHTING).",
     "zip.path.unsafe": "Did not use {count} ZIP entry names that are unsafe as paths (the first is \"{name}\")."
   }
 }

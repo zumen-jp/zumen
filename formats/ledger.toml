@@ -104,7 +104,8 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezsxf", license = "MIT", url = "https://github.com/monozukuri-ai/ezsxf" }]
 verify = ["Jw_cad", "SXF ブラウザ"]
 samples = ["ezsxf のリポジトリにある公開の図面"]
-decisions = ["0008"]
+decisions = ["0008", "0120"]
+docs = ["docs/formats/sxf.md"]
 
 [[formats.sxf.evidence]]
 title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"

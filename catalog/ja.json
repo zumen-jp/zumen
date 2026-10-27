@@ -67,6 +67,9 @@
     "dxf.version.unsupported": "DXF の版を {from} から {to} に変えることは、まだできません。",
     "dxf.viewport.unsupported": "グループ・コード {code} にまだ扱えない設定を持つビューポートを、図面モデルに移しませんでした（{count} 件）。",
     "internal.panic.caught": "内部の不具合で止めました。不具合として報告してください。",
+    "sxf.file.invalid": "ISO 10303-21 の始まり・DATA の節・終わりのどれかがないので、SXF として読めません。",
+    "sxf.record.invalid": "形の読めない文かフィーチャのコメントを、レコードにせずに飛ばしました（{count} 件）。",
+    "sxf.schema.unsupported": "スキーマ「{schema}」のファイルは、SXF の図面（ASSOCIATIVE_DRAUGHTING）でないので、読めません。",
     "zip.path.unsafe": "パスとして安全でない ZIP の項目の名前を、そのまま使いませんでした（{count} 件。最初は「{name}」）。"
   }
 }

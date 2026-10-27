@@ -34,7 +34,7 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 | --- | --- | --- | --- |
 | 1 | [#66 適合試験で比べる出力と入力](https://github.com/zumen-jp/zumen/issues/66) | `entities` の op（決定 0117）と DXF・DWG の組が main にある | 再配布できる実際の図面に近い入力を確かめて足す（公開サンプルを Git に入れない規則との両立に、利用者の判断が要る）。`entities` の `bbox`・`fields`・`region`（決定 0118）、E9 の図面の停止位置の比較、停止の診断の場所（決定 0119）は main にある |
 | 2 | [#170 図面モデルの書き戻し](https://github.com/zumen-jp/zumen/issues/170) | 図面モデルの型と DXF の lift・形式固有の情報（決定 0105〜0116）と、L1 の書き戻し（決定 0024・0025）が main にある | 決定を残し、DXF への lower・apply を作る。E1・E4・E5・E10 の書く向きを試す |
-| 3 | [#171 SXF のコーデック](https://github.com/zumen-jp/zumen/issues/171) | 図面モデルの型が main にある。入力は試験の中で作るか、再配布できる公開の図面を使う | SFC・P21 の L1 を作り、用紙・クロソイド・表題欄・画像を図面モデルへ移す |
+| 3 | [#171 SXF のコーデック](https://github.com/zumen-jp/zumen/issues/171) | 図面モデルの型が main にある。入力は試験の中で作るか、再配布できる公開の図面を使う | 線・円・円弧・文字・レイヤ・用紙を図面モデルへ移し、続けてクロソイド・表題欄・画像を移す。SFC・P21 の L1（決定 0120）は main にある |
 | 4 | [#172 JWW のコーデック](https://github.com/zumen-jp/zumen/issues/172) | 図面モデルの型が main にある。入力は試験の中で作る | JWW の L1 を作り、要素と画像と編集状態の拡張を図面モデルへ移す |
 | 5 | [#173 DWG の読み手の図面モデルに要る欄](https://github.com/zumen-jp/zumen/issues/173) | DWG の読み手は公開の仕様だけから書く。試料で確かめるものは `ZUMEN_SAMPLES` に置ける | 画層の凍結・SORTENTSTABLE・BLOCK の基点・ACAD_TABLE・IMAGE・EED などの欄を表に置く |
 | 6 | [#174 DXF から図面モデルへ移す値の残り](https://github.com/zumen-jp/zumen/issues/174) | 試料で確かめるものは `ZUMEN_SAMPLES` に置ける | まだ移さない値を移すか、移さない理由と診断を残す。推定を試料で確かめる |

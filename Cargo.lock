@@ -239,3 +239,11 @@ version = "0.0.0"
 dependencies = [
  "zumen-base",
 ]
+
+[[package]]
+name = "zumen-sxf"
+version = "0.0.0"
+dependencies = [
+ "zumen-base",
+ "zumen-sdk",
+]

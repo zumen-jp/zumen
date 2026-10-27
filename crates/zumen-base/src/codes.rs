@@ -710,6 +710,28 @@ pub const DXF_VIEWPORT_UNSUPPORTED: Code = Code::new(
 pub const INTERNAL_PANIC_CAUGHT: Code =
     Code::new("internal.panic.caught", Severity::Error, None, &[], &[]);
 
+/// ISO 10303-21 の始まり・DATA の節・終わりのどれかがない
+///
+/// `sxf.file.invalid`（0.0.0 から）
+pub const SXF_FILE_INVALID: Code = Code::new("sxf.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 文かフィーチャのコメントの形が読めないので、レコードにせずに、次の文から読んだ
+///
+/// `sxf.record.invalid`（0.0.0 から）
+pub const SXF_RECORD_INVALID: Code =
+    Code::new("sxf.record.invalid", Severity::Warning, None, &[], &[]);
+
+/// FILE_SCHEMA が SXF の図面のスキーマ（ASSOCIATIVE_DRAUGHTING）でない
+///
+/// `sxf.schema.unsupported`（0.0.0 から）
+pub const SXF_SCHEMA_UNSUPPORTED: Code = Code::new(
+    "sxf.schema.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("schema", ParamType::Text)],
+    &[],
+);
+
 /// ZIP の項目の名前が、パスとして安全でない（`..`・絶対パス・ドライブ名・NUL を含む）
 ///
 /// `zip.path.unsafe`（0.0.0 から）
@@ -787,5 +809,8 @@ pub const ALL: &[Code] = &[
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
+    SXF_FILE_INVALID,
+    SXF_RECORD_INVALID,
+    SXF_SCHEMA_UNSUPPORTED,
     ZIP_PATH_UNSAFE,
 ];
