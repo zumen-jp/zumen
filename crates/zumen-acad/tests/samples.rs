@@ -905,8 +905,8 @@ fn r2000_drawings_take_back_added_entities() {
     }
 }
 
-/// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT を足して書き戻すと、読み直したものが
-/// 足したものと合う。書き戻した図面にもう一度足しても合う（決定 0061〜0063）
+/// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT と、アプリケーションの名前を足して
+/// 書き戻すと、読み直したものが足したものと合う。書き戻した図面にもう一度足しても合う（決定 0061〜0064）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
     for path in dwgs(b"AC1015") {
@@ -964,6 +964,15 @@ fn r2000_drawings_take_back_added_table_records() {
             ];
             for dash in [0.5, -0.25] {
                 ltype.extend([(49, Data::Real(dash)), (74, Data::Int(0))]);
+            }
+            let mut appid = named(b"APPID", b"ACAD");
+            appid.origin = Origin::New;
+            for value in &mut appid.values {
+                match value.code {
+                    5 => value.data = Data::Handle(seed + 5),
+                    2 => value.data = Data::Text(name.to_vec()),
+                    _ => {}
+                }
             }
             db.push(layer);
             db.push(style);
@@ -1037,13 +1046,14 @@ fn r2000_drawings_take_back_added_table_records() {
                 values: text,
                 origin: Origin::New,
             });
+            db.push(appid);
             file.write_back(&db, &mut cx).unwrap();
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 5), "{}", path.display());
+            assert_eq!(again.handle_seed(), Some(seed + 6), "{}", path.display());
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
