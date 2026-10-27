@@ -121,6 +121,7 @@
 - [0111: 図面モデルの曲線を元の定義のまま持ち、線分に近似しない](0111-drawing-curves.md)（2026-10-27、採用）
 - [0112: 図面モデルの記号の定義を、定義ごとの空間に持つ](0112-drawing-symbol-definitions.md)（2026-10-27、採用）
 - [0113: 図面モデルの表をセルの格子で持ち、表題欄を属性を持つ記号のまま持つ](0113-drawing-tables-and-title-blocks.md)（2026-10-27、採用）
+- [0114: 図面モデルの下敷きを、資源の参照名と置き方と切り抜きで持つ](0114-drawing-underlays.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

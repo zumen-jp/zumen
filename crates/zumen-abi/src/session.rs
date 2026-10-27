@@ -429,6 +429,7 @@ fn extent<P: Copy>(elements: &[Element<P>], xy: impl Fn(P) -> (f64, f64)) -> Opt
         | Shape::Leader(_)
         | Shape::Callout(_)
         | Shape::Table(_)
+        | Shape::Underlay(_)
         | Shape::Symbol(_)
         | Shape::Hatch(_) => [None, None],
     });

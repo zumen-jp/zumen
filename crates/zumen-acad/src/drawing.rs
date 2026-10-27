@@ -1,5 +1,5 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0113）。いまは ENTITIES の
-//! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・ACAD_TABLE・VIEWPORT と、画層・線種・寸法スタイルの表と、
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0114）。いまは ENTITIES の
+//! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・ACAD_TABLE・IMAGE・PDFUNDERLAY など・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! BLOCKS の BLOCK（と、その中身と ATTDEF）を記号の定義にし、図形の色・線種・線幅と、空間の描く順を移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
@@ -20,15 +20,15 @@ use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
-    BackgroundFill, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, Color, ColorCode,
-    ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge,
-    Element, Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height,
-    HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle,
-    Leader, Length, LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured,
-    ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis,
-    PatternLine, PatternOrigin, Placement, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem,
-    SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table, Text, Unit, Vertex,
-    Vertical, View,
+    BackgroundFill, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, Clip, Color,
+    ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
+    Drawing2D, Edge, Element, Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop,
+    Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState,
+    LayerStyle, Leader, Length, LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight,
+    Measured, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern,
+    PatternBasis, PatternLine, PatternOrigin, Placement, Polyline, Resource, Rotation, Shape,
+    Sheet, SheetId, SheetItem, SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table,
+    Text, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -381,6 +381,7 @@ impl Lifter {
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
             | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" | b"ACAD_TABLE"
+            | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
                 if paper =>
             {
                 let mm = self.paper_mm(kind)?;
@@ -399,7 +400,7 @@ impl Lifter {
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
             | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
-            | b"ACAD_TABLE" => {
+            | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -568,7 +569,7 @@ impl Lifter {
                     .map(|definition| attributes.push(definition)),
                 b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
                 | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
-                | b"ACAD_TABLE" => {
+                | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY" => {
                     let inserted: Vec<&Object> = attached
                         .get(&index)
                         .map_or(&[][..], Vec::as_slice)
@@ -709,6 +710,144 @@ impl Lifter {
         })
     }
 
+    /// 下敷きが指す定義（340）の、参照名（1）。定義が `definition` の種類でなければ読めないとする。
+    /// 定義と出所を返す
+    fn resource<'a>(
+        &self,
+        db: &'a AcadDb,
+        object: &Object,
+        definition: &[u8],
+    ) -> Lifted<(&'a Object, Resource)> {
+        let kind = object.kind.as_slice();
+        let found = match object.first(340) {
+            Some(Data::Handle(handle)) => db.get(*handle),
+            _ => None,
+        }
+        .filter(|found| found.kind == definition)
+        .ok_or_else(|| invalid(kind, 340))?;
+        let path = self
+            .string(found, 1)?
+            .ok_or_else(|| invalid(&found.kind, 1))?;
+        Ok((
+            found,
+            Resource {
+                path,
+                definition: source(found),
+            },
+        ))
+    }
+
+    /// IMAGE（DXF Reference「IMAGE」「IMAGEDEF」、決定 0114）。挿入点（10）は左下の角、1 画素の横と縦の向きと
+    /// 大きさ（11・21・31 と 12・22・32）、画素の数（13・23）から、右下と左上の角を求める。表示の印（70）の 1 は
+    /// 表示する。切り抜く（280 が 1）なら、境界（71 が 1 なら長方形、2 なら多角形）の頂点（14・24）を、数（91）と
+    /// 合わせて読み、290 が 1 なら内側を隠す。明るさ・コントラスト・薄さ（281〜283）は、まだ移さない
+    fn image<P>(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+    ) -> Lifted<Underlay<P>> {
+        let kind = object.kind.as_slice();
+        let (_, resource) = self.resource(db, object, b"IMAGEDEF")?;
+        if self.real(object, 30, Some(0.0))? != 0.0
+            || self.real(object, 31, Some(0.0))? != 0.0
+            || self.real(object, 32, Some(0.0))? != 0.0
+        {
+            return Err(non_planar(kind));
+        }
+        let [x, y] = [self.real(object, 10, None)?, self.real(object, 20, None)?];
+        let u = [self.real(object, 11, None)?, self.real(object, 21, None)?];
+        let v = [self.real(object, 12, None)?, self.real(object, 22, None)?];
+        let size = [self.real(object, 13, None)?, self.real(object, 23, None)?];
+        if size.iter().any(|pixels| *pixels <= 0.0) {
+            return Err(invalid(kind, 13));
+        }
+        let [width, height] = size;
+        let clip = if self.int(object, 280, 0)? == 1 {
+            let vertices: Vec<[f64; 2]> = self.points(kind, &object.values, 14, &|x, y| [x, y])?;
+            let expected = match self.int(object, 71, 1)? {
+                1 => 2,
+                2 => vertices.len().max(3),
+                _ => return Err(invalid(kind, 71)),
+            };
+            if usize::try_from(self.int(object, 91, -1)?).ok() != Some(vertices.len())
+                || vertices.len() != expected
+            {
+                return Err(invalid(kind, 91));
+            }
+            Some(Clip {
+                vertices,
+                inverted: self.flag(object, 290, false)?,
+            })
+        } else {
+            None
+        };
+        Ok(Underlay {
+            kind: UnderlayKind::Image,
+            resource,
+            page: None,
+            frame: UnderlayFrame::Pixels {
+                size,
+                origin: point(x, y),
+                right: point(x + u[0] * width, y + u[1] * width),
+                top: point(x + v[0] * height, y + v[1] * height),
+            },
+            clip,
+            visible: self.int(object, 70, 1)? & 1 != 0,
+        })
+    }
+
+    /// PDFUNDERLAY・DWFUNDERLAY・DGNUNDERLAY（DXF Reference「UNDERLAY」「UNDERLAYDEFINITION」、決定 0114）。
+    /// 定義の 2 はページなどの名前。挿入点（10）・尺度（41・42）・回転（50）を持つ。印（280）の 2 は表示する、1 は
+    /// 切り抜く。切り抜くなら、境界の頂点（11・21）を読む。反転の印・コントラスト・薄さ・単色（281・282 と 280 の
+    /// 4・8）は、まだ移さない
+    fn underlay<P>(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Underlay<P>> {
+        let kind = object.kind.as_slice();
+        let (underlay, definition): (UnderlayKind, &[u8]) = match kind {
+            b"PDFUNDERLAY" => (UnderlayKind::Pdf, b"PDFDEFINITION"),
+            b"DWFUNDERLAY" => (UnderlayKind::Dwf, b"DWFDEFINITION"),
+            _ => (UnderlayKind::Dgn, b"DGNDEFINITION"),
+        };
+        let (found, resource) = self.resource(db, object, definition)?;
+        let scale = |code: i16| -> Lifted<Length> {
+            match self.real(object, code, Some(1.0))? {
+                scale if scale > 0.0 => Ok(length(scale)),
+                _ => Err(invalid(kind, code)),
+            }
+        };
+        let flags = self.int(object, 280, 2)?;
+        let clip = if flags & 1 != 0 {
+            let vertices: Vec<[f64; 2]> = self.points(kind, &object.values, 11, &|x, y| [x, y])?;
+            if vertices.len() < 2 {
+                return Err(invalid(kind, 11));
+            }
+            Some(Clip {
+                vertices,
+                inverted: false,
+            })
+        } else {
+            None
+        };
+        Ok(Underlay {
+            kind: underlay,
+            resource,
+            page: self.string(found, 2)?,
+            frame: UnderlayFrame::Scaled {
+                origin: self.planar_point(object, 10, point)?,
+                scale: [scale(41)?, scale(42)?],
+                rotation: self.real(object, 50, Some(0.0))?,
+            },
+            clip,
+            visible: flags & 2 != 0,
+        })
+    }
+
     /// 表のセル 1 つの値。2007 からの値（301〜304）の中のコードは、セルの欄として読まない
     fn cell(&self, db: &AcadDb, cell: &Object, length: &impl Fn(f64) -> Length) -> Lifted<Cell> {
         let kind = cell.kind.as_slice();
@@ -834,6 +973,10 @@ impl Lifter {
             b"LEADER" => Ok(Shape::Leader(self.leader(db, object, point)?)),
             b"MULTILEADER" => Ok(Shape::Callout(self.callout(db, object, point, length)?)),
             b"ACAD_TABLE" => Ok(Shape::Table(self.table(db, object, point, length)?)),
+            b"IMAGE" => Ok(Shape::Underlay(self.image(db, object, point)?)),
+            b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY" => {
+                Ok(Shape::Underlay(self.underlay(db, object, point, length)?))
+            }
             b"INSERT" => Ok(Shape::Symbol(self.symbol(object, point, length)?)),
             b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
             b"LINE" => self.line(object, point),
