@@ -360,6 +360,17 @@ pub const DWG_VERSION_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// DWG のオブジェクトの拡張データ（EED）を読めないので、その登録アプリケーションの拡張データを置かなかった
+///
+/// `dwg.xdata.invalid`（0.0.0 から）
+pub const DWG_XDATA_INVALID: Code = Code::new(
+    "dwg.xdata.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("type", ParamType::Int)],
+    &["type"],
+);
+
 /// バイナリの DXF は、まだ読めない
 ///
 /// `dxf.binary.unsupported`（0.0.0 から）
@@ -930,6 +941,7 @@ pub const ALL: &[Code] = &[
     DWG_RECORD_MISSING,
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,
+    DWG_XDATA_INVALID,
     DXF_BINARY_UNSUPPORTED,
     DXF_BLOCK_CYCLE_INVALID,
     DXF_BLOCK_MISSING,

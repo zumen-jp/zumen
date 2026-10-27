@@ -35,6 +35,7 @@
     "dwg.record.missing": "Left out group code {code} of {count} DWG entities of type {type}, because the table record they point to is missing.",
     "dwg.type.unsupported": "Kept {count} DWG objects of type {type}, which is not supported yet, with an empty kind.",
     "dwg.version.unsupported": "DWG version {version} cannot be read yet.",
+    "dwg.xdata.invalid": "Left out the extended data of one registered application on {count} DWG objects of type {type}, because it cannot be read.",
     "dxf.binary.unsupported": "Binary DXF cannot be read yet.",
     "dxf.block-cycle.invalid": "Kept {count} definitions of block \"{name}\" without expanding them, because the block places itself directly or indirectly.",
     "dxf.block.missing": "Kept only the placement of {count} references to block \"{name}\", because the block is not defined.",
