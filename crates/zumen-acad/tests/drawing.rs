@@ -1,7 +1,7 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
 //! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
-//! 記号と属性・ハッチング・E8 の曲線を試す。
+//! 記号と属性・ハッチング・E8 の曲線と記号の定義を試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
@@ -2324,8 +2324,17 @@ fn e4_callouts_keep_their_branches_and_content() {
         (0, "BLOCK_RECORD"),
         (5, "B1"),
         (2, "_TagCircle"),
+        (0, "BLOCK"),
+        (5, "B2"),
+        (330, "B1"),
+        (8, "0"),
+        (2, "_TagCircle"),
+        (70, "2"),
+        (10, "0.0"),
+        (20, "0.0"),
         (0, "ATTDEF"),
         (5, "AD"),
+        (330, "B1"),
         (8, "0"),
         (10, "0.0"),
         (20, "0.0"),
@@ -2334,6 +2343,10 @@ fn e4_callouts_keep_their_branches_and_content() {
         (2, "NO"),
         (3, "番号"),
         (70, "0"),
+        (0, "ENDBLK"),
+        (5, "B3"),
+        (330, "B1"),
+        (8, "0"),
     ];
     let header = [MM, &[(9, "$ACADVER"), (1, "AC1021")]].concat();
     let src = sections(&[
@@ -2834,6 +2847,201 @@ fn e9_curves_that_cannot_be_read_are_reported() {
             invalid("SPLINE", 40),
             invalid("SPLINE", 10),
             invalid("SPLINE", 72),
+        ]
+    );
+}
+
+#[test]
+fn e8_symbol_definitions_keep_their_contents_apart_from_placements() {
+    let blocks = [
+        // 空間のブロックは、記号の定義にしない
+        entity(
+            "BLOCK",
+            &[(2, "*Model_Space"), (70, "0"), (10, "0.0"), (20, "0.0")],
+        ),
+        entity("ENDBLK", &[]),
+        // 基点を持ち、線分と円と属性の定義を中身に持つ
+        entity("BLOCK", &[(2, "DOOR"), (70, "2"), (10, "5.0"), (20, "5.0")]),
+        entity(
+            "LINE",
+            &[(10, "0.0"), (20, "0.0"), (11, "10.0"), (21, "0.0")],
+        ),
+        entity(
+            "ATTDEF",
+            &[
+                (10, "1.0"),
+                (20, "2.0"),
+                (40, "2.5"),
+                (1, "900"),
+                (2, "WIDTH"),
+                (3, "Width?"),
+                (70, "10"),
+            ],
+        ),
+        entity("CIRCLE", &[(10, "5.0"), (20, "5.0"), (40, "1.0")]),
+        entity("ENDBLK", &[]),
+        // 名前のない定義
+        entity("BLOCK", &[(2, "*U1"), (70, "1"), (10, "0.0"), (20, "0.0")]),
+        entity(
+            "LINE",
+            &[(10, "0.0"), (20, "0.0"), (11, "1.0"), (21, "1.0")],
+        ),
+        entity("ENDBLK", &[]),
+        // 外部参照。外部のファイルは読まない
+        entity(
+            "BLOCK",
+            &[
+                (2, "XREF"),
+                (70, "4"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (1, "parts.dxf"),
+            ],
+        ),
+        entity("ENDBLK", &[]),
+    ]
+    .concat();
+    // 同じ定義の 2 つの配置
+    let entities = [
+        entity("INSERT", &[(2, "DOOR"), (10, "100.0"), (20, "0.0")]),
+        entity(
+            "INSERT",
+            &[(2, "DOOR"), (10, "200.0"), (20, "0.0"), (50, "90.0")],
+        ),
+    ]
+    .concat();
+    let src = sections(&[("HEADER", MM), ("BLOCKS", &blocks), ("ENTITIES", &entities)]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let keys: Vec<_> = drawing
+        .symbols
+        .iter()
+        .map(|s| s.key.name.as_str())
+        .collect();
+    assert_eq!(keys, ["DOOR", "*U1", "XREF"]);
+    let placed: Vec<_> = model_shapes(&drawing)
+        .into_iter()
+        .map(|shape| match shape {
+            Shape::Symbol(symbol) => (symbol.key, symbol.position),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        placed,
+        [
+            (block("DOOR"), at(100.0, 0.0)),
+            (block("DOOR"), at(200.0, 0.0)),
+        ]
+    );
+    // 中身は、図面の実寸の空間とは別の、定義ごとの空間の点で持つ
+    let door = drawing.symbol(&block("DOOR")).unwrap();
+    let local = |x: f64, y: f64| ModelPoint {
+        space: SpaceId(2),
+        x,
+        y,
+    };
+    assert_eq!(door.space.id, SpaceId(2));
+    assert_eq!(door.space.unit, Unit::Millimeter);
+    assert_eq!(door.base, Some(local(5.0, 5.0)));
+    assert_eq!(door.source, Ref::at_record(5));
+    let shapes: Vec<_> = door
+        .space
+        .elements
+        .iter()
+        .map(|e| e.shape.clone())
+        .collect();
+    assert_eq!(
+        shapes,
+        [
+            Shape::Line {
+                start: local(0.0, 0.0),
+                end: local(10.0, 0.0),
+            },
+            Shape::Circle {
+                center: local(5.0, 5.0),
+                radius: Length::Model(ModelLength {
+                    space: SpaceId(2),
+                    value: 1.0,
+                }),
+            },
+        ]
+    );
+    assert_eq!(door.space.order, [0, 1]);
+    let [width] = door.attributes.as_slice() else {
+        panic!("{:?}", door.attributes);
+    };
+    assert_eq!(
+        (
+            width.attribute.tag.as_str(),
+            width.attribute.text.content.as_str(),
+            width.prompt.as_str()
+        ),
+        ("WIDTH", "900", "Width?")
+    );
+    assert_eq!(
+        (
+            width.constant,
+            width.verify,
+            width.preset,
+            width.attribute.hidden
+        ),
+        (true, false, true, false)
+    );
+    assert!(!door.anonymous && door.external.is_none());
+    let [_, anonymous, external] = drawing.symbols.as_slice() else {
+        panic!();
+    };
+    assert_eq!(anonymous.space.id, SpaceId(3));
+    assert!(anonymous.anonymous);
+    assert_eq!(external.external.as_deref(), Some("parts.dxf"));
+    assert_eq!(external.space.elements, []);
+}
+
+#[test]
+fn e9_symbol_definitions_that_cannot_be_read_are_reported() {
+    let blocks = [
+        // BLOCK の外の図形は、どの定義のものか分からない
+        entity(
+            "LINE",
+            &[(10, "0.0"), (20, "0.0"), (11, "1.0"), (21, "1.0")],
+        ),
+        // 名前のない BLOCK は、中身ごと移さない
+        entity("BLOCK", &[(70, "0"), (10, "0.0"), (20, "0.0")]),
+        entity("ENDBLK", &[]),
+        // まだ移さない種類の中身は、定義を残して落とす
+        entity("BLOCK", &[(2, "MARK"), (70, "0"), (10, "0.0"), (20, "0.0")]),
+        entity("POINT", &[(10, "0.0"), (20, "0.0")]),
+        entity("ENDBLK", &[]),
+    ]
+    .concat();
+    let src = sections(&[("HEADER", MM), ("BLOCKS", &blocks), ("ENTITIES", &[])]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert_eq!(drawing.symbols.len(), 1);
+    assert_eq!(drawing.symbols[0].space.elements, []);
+    let record = |at: u64| vec![Ref::at_record(at)];
+    assert_eq!(
+        found(&diag),
+        [
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("LINE") Int(330)"#.to_owned(),
+                1,
+                record(3)
+            ),
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("BLOCK") Int(2)"#.to_owned(),
+                1,
+                record(4)
+            ),
+            (
+                codes::DXF_LIFT_DROPPED,
+                r#"Text("POINT")"#.to_owned(),
+                1,
+                record(7)
+            ),
         ]
     );
 }

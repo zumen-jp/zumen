@@ -13,11 +13,11 @@
 //! 符号から RGB への表はプロファイル（#9）に置くので、ここでは引かない。レイヤからの継承は
 //! [`Drawing2D::color_of`] などで解き、解けない継承は継承のまま返す。
 //!
-//! 要素は、いまは線分・文字・寸法・引出線・記号・ハッチングだけ。寸法は、種類と定義点・保存された測定値・
+//! 要素は、いまは線分・円・曲線・折れ線・文字・寸法・引出線・記号・ハッチングだけ。寸法は、種類と定義点・保存された測定値・
 //! 文字の上書きを別に持つ（[`Dimension`]）。引出線は経路を持ち、注記の要素を出所で指す（[`Leader`]）。
 //! 寸法と引出線の端部記号は、図面の寸法スタイルの表（[`DimensionStyle`]）に置く。記号は、定義を名前空間付きの
-//! キー（[`SymbolKey`]）で指し、配置と属性を持つ（[`Symbol`]）。ハッチングは、境界の輪と、塗り・パターン・
-//! グラデーションの区別を持つ（[`Hatch`]）。曲線・下敷きなどは #28 で足す。
+//! キー（[`SymbolKey`]）で指し、配置と属性を持つ（[`Symbol`]）。定義の中身は、定義ごとの空間に置く（[`SymbolDefinition`]）。ハッチングは、境界の輪と、塗り・パターン・
+//! グラデーションの区別を持つ（[`Hatch`]）。表・下敷きなどは #28 で足す。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。
 
 use zumen_base::Ref;
@@ -39,6 +39,8 @@ pub struct Drawing2D {
     pub default_line_weight: Option<PaperLength>,
     /// 寸法スタイル。順序は元の形式の定義の順
     pub dimension_styles: Vec<DimensionStyle>,
+    /// 記号の定義。順序は元の形式の定義の順
+    pub symbols: Vec<SymbolDefinition>,
 }
 
 impl Drawing2D {
@@ -57,6 +59,11 @@ impl Drawing2D {
         self.dimension_styles
             .iter()
             .find(|style| style.name == name)
+    }
+
+    /// キーの記号の定義。名前は大文字と小文字も含めて比べ、同じキーがあれば先のもの
+    pub fn symbol(&self, key: &SymbolKey) -> Option<&SymbolDefinition> {
+        self.symbols.iter().find(|symbol| symbol.key == *key)
     }
 
     /// 要素の色。レイヤからの継承を解く。ブロックからの継承と、レイヤが値を持たないものは解かない
@@ -803,6 +810,41 @@ pub struct Attribute<P> {
     pub style: Style,
     /// 出所
     pub source: Ref,
+}
+
+/// 記号の定義（決定 0112）。中身は、図面の実寸の空間とは別の、定義ごとの空間に置く。配置（[`Symbol`]）は、
+/// この空間の点を、基点から配置の点へ写す
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolDefinition {
+    /// 配置が指すキー
+    pub key: SymbolKey,
+    /// 中身を置く空間。ID は、図面の実寸の空間とも、ほかの定義とも重ならない
+    pub space: ModelSpace,
+    /// 配置の点に重ねる基点。元の形式から分からなければ `None`
+    pub base: Option<ModelPoint>,
+    /// 属性の定義。順序は入力の順
+    pub attributes: Vec<AttributeDefinition>,
+    /// 名前のない定義（寸法やハッチングが作ったものなど）
+    pub anonymous: bool,
+    /// 外部参照なら、元のパス。外部のファイルは読まない
+    pub external: Option<String>,
+    /// 出所
+    pub source: Ref,
+}
+
+/// 記号の属性の定義。配置の属性の値は、ここから作る
+#[derive(Clone, Debug, PartialEq)]
+pub struct AttributeDefinition {
+    /// タグ・既定の値と、その配置と書式・表示しない・レイヤ・色・出所
+    pub attribute: Attribute<ModelPoint>,
+    /// 値を尋ねる文。翻訳しない
+    pub prompt: String,
+    /// 値が決まっていて、配置ごとに変えない
+    pub constant: bool,
+    /// 値を確かめる
+    pub verify: bool,
+    /// 尋ねずに既定の値を使う
+    pub preset: bool,
 }
 
 /// ハッチング。境界の輪と、中を埋めるものを持つ。境界を作った要素は、輪ごとに出所で指す

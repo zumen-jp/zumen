@@ -3015,13 +3015,15 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
             &CancelToken::new(),
         ))
         .unwrap();
-    // 表を作るときの診断に続けて、Z のある線分と、欄の途中で尽きた CIRCLE を移さない
+    // 表を作るときの診断に続けて、Z のある線分と、欄の途中で尽きた CIRCLE を移さない。BLOCK のないブロックの
+    // レコードに着く LINE は、どの定義のものか分からないので移さない
     assert_eq!(
         codes_of(&diag),
         [
             codes::DWG_TYPE_UNSUPPORTED,
             codes::DWG_OBJECT_INVALID,
             codes::DXF_NON_PLANAR_DROPPED,
+            codes::DXF_LIFT_INVALID,
             codes::DXF_LIFT_INVALID,
         ]
     );
