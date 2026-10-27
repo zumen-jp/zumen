@@ -1,0 +1,13 @@
+{
+  "name": "zumen-bench-transfer",
+  "private": true,
+  "description": "バイナリの受け渡しの形式を比べる試作（#6）",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "apache-arrow": "21.2.0"
+  }
+}
