@@ -1,5 +1,5 @@
 {
-  "description": "open は、SXF の判定の規則に合う入力を SXF のコーデックで読む。FILE_SCHEMA が SXF の図面のスキーマでない入力（IFC など、同じ ISO-10303-21 の始まりを持つもの）は、診断を返して失敗する。drawing は、SFC を図面モデルに変換する（決定 0120・0121）。SFC の図形は用紙の座標で、部分図の外の図形は用紙に置く。入力は試験の中で作る合成の SFC で、レイヤ・線分・A3 の用紙を持つ",
+  "description": "open は、SXF の判定の規則に合う入力を SXF のコーデックで読む。FILE_SCHEMA が SXF の図面のスキーマでない入力（IFC など、同じ ISO-10303-21 の始まりを持つもの）は、診断を返して失敗する。drawing は、SFC を図面モデルに変換し、P21 は SFC と同じ形のフィーチャに組み直して同じ変換に通す（決定 0120・0121・0132）。SFC の図形は用紙の座標で、部分図の外の図形は用紙に置く。入力は試験の中で作る合成の SFC と、同じ図面の P21 で、レイヤ・線分・A3 の用紙を持つ",
   "steps": [
     {
       "push": {
@@ -11,6 +11,12 @@
       "push": {
         "name": "b.sfc",
         "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "c.p21",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=DRAUGHTING_PRE_DEFINED_COLOUR('black');\n#2=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n#4=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.13),#3);\n#5=CURVE_STYLE(' ',#2,#4,#1);\n#6=PRESENTATION_STYLE_ASSIGNMENT((#5));\n#10=CARTESIAN_POINT(' ',(0.,0.));\n#11=CARTESIAN_POINT(' ',(100.,50.));\n#14=DIRECTION(' ',(2.,1.));\n#15=VECTOR(' ',#14,1.);\n#16=LINE(' ',#10,#15);\n#17=TRIMMED_CURVE(' ',#16,(#10),(#11),.T.,.CARTESIAN.);\n#18=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#17);\n#20=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#18));\n#30=DRAWING_SHEET_REVISION('A3_horizontal',(#18),$,'01');\n#31=DRAUGHTING_TITLE((),'JAPANESE','S');\nENDSEC;\nEND-ISO-10303-21;\n"
       }
     },
     {
@@ -32,6 +38,52 @@
         "v": 1,
         "op": "drawing",
         "doc": "a.sfc"
+      },
+      "expect": {
+        "/result": {
+          "spaces": [],
+          "sheets": [
+            {
+              "size": [
+                420,
+                297
+              ],
+              "elements": {
+                "lines": 1,
+                "texts": 0
+              },
+              "views": 0,
+              "extent": {
+                "min_x": 0,
+                "min_y": 0,
+                "max_x": 100,
+                "max_y": 50
+              }
+            }
+          ]
+        },
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "c.p21"
+      },
+      "expect": {
+        "/result": {
+          "doc": "c.p21",
+          "format": "sxf"
+        },
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "c.p21"
       },
       "expect": {
         "/result": {
