@@ -5,11 +5,11 @@ mod common;
 use core::f64::consts::PI;
 
 use common::{Archive, Spec};
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, codes};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
 use zumen_drawing::{
-    Boundary, Color, ColorCode, ColorSystem, Drawing2D, Edge, Element, Fill, Inherit, LayerId,
-    LayerState, Length, LineWeight, ModelLength, ModelPoint, PaperLength, Placement, Shape,
-    SpaceId, Unit,
+    Boundary, Color, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, Element, FieldValue,
+    Fill, Inherit, Label, LayerId, LayerState, Length, LineWeight, ModelLength, ModelPoint,
+    PaperLength, Placement, Shape, SpaceId, Target, Unit,
 };
 use zumen_jww::Jww;
 use zumen_sdk::{Lift, testkit};
@@ -24,13 +24,6 @@ fn lift(src: &[u8]) -> (Drawing2D, Vec<Diagnostic>) {
         .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
         .unwrap();
     (drawing, diag.into_vec())
-}
-
-#[cfg(test)]
-fn find(diag: &[Diagnostic], code: Code) -> &Diagnostic {
-    diag.iter()
-        .find(|d| d.code() == code)
-        .unwrap_or_else(|| panic!("{code:?} がない: {diag:?}"))
 }
 
 fn model(space: u32, x: f64, y: f64) -> ModelPoint {
@@ -131,18 +124,34 @@ fn entities(archive: &mut Archive) -> u16 {
     archive.tag("CDataSolid");
     archive.base(101, 1);
     archive.reals(&[0.0, 0.0, 1.0, 1.0, 0.0, 0.0, PI / 2.0, 0.0]);
-    // ブロックの参照は、まだ移さない
+    // ブロックの参照と、SXF の形を持つ寸法
     archive.tag("CDataBlock");
     archive.base(1, 1);
-    archive.reals(&[5.0, 5.0, 1.0, 1.0, 0.0]);
-    archive.out.extend(0u32.to_le_bytes());
-    13
+    archive.reals(&[5.0, 5.0, 2.0, 3.0, PI / 2.0]);
+    archive.out.extend(1u32.to_le_bytes());
+    archive.tag("CDataSunpou");
+    archive.base(1, 1);
+    archive.base(1, 2);
+    archive.reals(&[0.0, 0.0, 10.0, 0.0]);
+    archive.base(1, 2);
+    archive.text_body("1000");
+    archive.out.extend(1u16.to_le_bytes());
+    for x in [0.0, 10.0] {
+        archive.base(1, 2);
+        archive.reals(&[x, -2.0, x, 1.0]);
+    }
+    for [x, y] in [[0.0, 0.0], [10.0, 0.0], [0.0, -2.0], [10.0, -2.0]] {
+        archive.base(1, 2);
+        archive.reals(&[x, y]);
+        archive.out.extend(0u32.to_le_bytes());
+    }
+    14
 }
 
 #[cfg(test)]
 fn drawing() -> (Drawing2D, Vec<Diagnostic>) {
     let mut archive = Archive::new(700);
-    archive.count(13);
+    archive.count(14);
     entities(&mut archive);
     archive.count(1);
     archive.block("部品");
@@ -194,17 +203,7 @@ fn sheet_layers_and_groups() {
     let shown = drawing.layer(LayerId(17)).unwrap().state.unwrap();
     assert!(shown.visible && !shown.editable);
     assert_eq!(drawing.layer(LayerId(256)).unwrap().name, "F-F");
-    // ブロックの参照と定義は、まだ移さない
-    let dropped: Vec<_> = diag
-        .iter()
-        .filter(|d| d.code() == codes::JWW_LIFT_DROPPED)
-        .collect();
-    assert_eq!(dropped.len(), 2, "{diag:?}");
-    assert_eq!(
-        find(&diag, codes::JWW_LIFT_DROPPED).param("kind"),
-        Some(&"CDataBlock".into())
-    );
-    assert_eq!(diag.len(), 2, "{diag:?}");
+    assert!(diag.is_empty(), "{diag:?}");
     // 設定の文字は、図面の設定にする
     let setting = &drawing.extensions[0];
     assert_eq!(setting.namespace, "jww.setting");
@@ -358,7 +357,7 @@ fn points_texts_and_solids() {
     };
     assert_eq!(start, model(0, 0.0, 0.0));
     assert!(close(end.x, 100.0) && close(end.y, 0.0));
-    assert_eq!(shapes.len(), 9);
+    assert_eq!(shapes.len(), 11);
 }
 
 #[test]
@@ -381,4 +380,72 @@ fn zero_headers_have_hidden_layers_and_no_widths() {
         assert_eq!(line.style.line_weight, None);
         assert!(!drawing.layer(line.layer).unwrap().state.unwrap().visible);
     }
+}
+
+#[test]
+fn blocks_and_dimensions() {
+    let (drawing, _) = drawing();
+    // 定義の中身は、定義の空間に用紙の mm のまま置く
+    let block = &drawing.symbols[0];
+    assert_eq!(block.key.namespace, "jww.block");
+    assert_eq!(block.key.name, "1");
+    assert_eq!(block.space.id, SpaceId(16));
+    let Shape::Line { end, .. } = block.space.elements[0].shape else {
+        panic!("{:?}", block.space.elements[0].shape);
+    };
+    assert_eq!(end, model(16, 10.0, 0.0));
+    let named = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "jww.block")
+        .unwrap();
+    assert_eq!(named.name, "1");
+    assert_eq!(named.fields[0].value, FieldValue::Text("部品".into()));
+
+    // 参照は、尺度にレイヤグループの縮尺を掛ける
+    let shapes = elements(&drawing, 0);
+    let Shape::Symbol(insert) = &shapes[9].shape else {
+        panic!("{:?}", shapes[9].shape);
+    };
+    assert_eq!(insert.key, block.key);
+    assert_eq!(insert.position, model(0, 500.0, 500.0));
+    assert_eq!(insert.scale, [200.0, 300.0]);
+    assert!(close(insert.rotation, 90.0));
+    assert_eq!(shapes[9].style.color, Inherit::Block);
+
+    // 寸法は、基準点を寸法線の向きに測る
+    let Shape::Dimension(dimension) = &shapes[10].shape else {
+        panic!("{:?}", shapes[10].shape);
+    };
+    let DimensionKind::Linear {
+        first,
+        second,
+        line,
+        rotation,
+        ..
+    } = dimension.kind
+    else {
+        panic!("{:?}", dimension.kind);
+    };
+    assert_eq!(first, model(0, 0.0, -200.0));
+    assert_eq!(second, model(0, 1000.0, -200.0));
+    assert_eq!(line, model(0, 0.0, 0.0));
+    assert_eq!(rotation, 0.0);
+    let Label::Override { content, .. } = &dimension.label else {
+        panic!();
+    };
+    assert_eq!(content, "1000");
+    let extension = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "jww.dimension")
+        .unwrap();
+    assert!(extension.is_current(&drawing));
+    assert_eq!(
+        extension.target,
+        Target::Model {
+            space: SpaceId(0),
+            index: 10
+        }
+    );
 }

@@ -13,6 +13,10 @@ use zumen_drawing::{
     ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Shape, Sheet, SheetId, SheetItem,
     SpaceId, Style, Symbol, SymbolKey, Target, Text, Unit, Vertex, Vertical, View,
 };
+use zumen_drawing::{
+    Basis, Dimension, DimensionKind, DimensionText, Font, FontKind, Format, Label, Piece, Scaled,
+    Span, SymbolDefinition,
+};
 use zumen_sdk::{Cx, Error, Lift};
 
 use crate::parse::{Fail, Reader};
@@ -69,6 +73,20 @@ const CIRCLE_SOLID: u8 = 101;
 /// 設定を書いた文字の位置（Jw_cad 8 から）
 const SETTING_AT: [f64; 2] = [0.0, -1000.0];
 
+/// 寸法の形・色と線種・拡張の値
+type Dimensioned = (Shape<ModelPoint>, Style, Vec<Field>);
+
+/// ブロックの定義の空間の、最初の ID。レイヤグループの空間（0〜15）と重ならない
+const DEFINITION_SPACES: u32 = 16;
+
+/// ブロックの定義を指すキー。番号で指す
+fn block_key(number: u32) -> SymbolKey {
+    SymbolKey {
+        namespace: "jww.block",
+        name: number.to_string(),
+    }
+}
+
 /// 1 周（ラジアン）
 const TURN: f64 = 2.0 * core::f64::consts::PI;
 
@@ -87,6 +105,7 @@ impl Lift<Drawing2D> for JwwFile {
             header: header.unwrap_or_default(),
             line_types: BTreeMap::new(),
             groups: BTreeMap::new(),
+            definitions: BTreeMap::new(),
             out: Drawing2D::default(),
         }
         .run(cx)
@@ -326,6 +345,30 @@ struct Base {
     pen_width: u16,
     layer: usize,
     group: usize,
+    /// 図形を置く空間と、座標に掛ける倍率
+    at: At,
+}
+
+/// 図形を置く空間と、座標に掛ける倍率。レイヤグループの空間は縮尺の分母、ブロックの定義の空間は 1
+#[derive(Clone, Copy, Debug)]
+struct At {
+    space: SpaceId,
+    scale: f64,
+}
+
+fn point(at: At, x: f64, y: f64) -> ModelPoint {
+    ModelPoint {
+        space: at.space,
+        x: x * at.scale,
+        y: y * at.scale,
+    }
+}
+
+fn length(at: At, value: f64) -> Length {
+    Length::Model(ModelLength {
+        space: at.space,
+        value: value * at.scale,
+    })
 }
 
 impl Base {
@@ -347,6 +390,10 @@ impl Base {
             pen_width,
             layer,
             group,
+            at: At {
+                space: SpaceId(0),
+                scale: 1.0,
+            },
         })
     }
 
@@ -362,6 +409,8 @@ struct Lifter<'f> {
     line_types: BTreeMap<u8, LineTypeId>,
     /// 要素を置いたレイヤグループと、その空間の要素
     groups: BTreeMap<usize, Vec<Element<ModelPoint>>>,
+    /// ブロックの定義のレコードの位置から、記号の定義の位置へ
+    definitions: BTreeMap<usize, usize>,
     out: Drawing2D,
 }
 
@@ -375,10 +424,10 @@ impl Lifter<'_> {
                 Error::Stopped(stop)
             })?;
             match record.kind() {
-                RecordKind::Entity if record.block().is_none() => {
-                    self.entity(record, source, cx);
+                RecordKind::Entity => self.entity(record, source, cx),
+                RecordKind::Block if self.definition(index, record, source.clone()).is_err() => {
+                    invalid(cx, self.file.kind_name(record), source);
                 }
-                RecordKind::Block => dropped(cx, self.file.kind_name(record), source),
                 _ => {}
             }
         }
@@ -417,54 +466,283 @@ impl Lifter<'_> {
         }
     }
 
+    /// ブロックの定義（決定 0135）。番号を名前空間 `jww.block` のキーにし、中身は定義ごとの空間に、用紙の mm のまま置く。
+    /// 名前と、使われているかは、拡張に残す
+    fn definition(&mut self, index: usize, record: &Record, source: Ref) -> Result<(), Fail> {
+        let mut r = Reader::new(self.file.bytes(0..record.span().end), record.body().start);
+        Base::read(&mut r, self.header.version)?;
+        let number = r.u32()?;
+        let referenced = r.u32()?;
+        r.skip(4)?;
+        let (unicode, name) = r.string()?;
+        let name = decode(unicode, name);
+        let space = SpaceId(DEFINITION_SPACES + self.out.symbols.len() as u32);
+        self.definitions.insert(index, self.out.symbols.len());
+        self.out.symbols.push(SymbolDefinition {
+            key: block_key(number),
+            space: ModelSpace {
+                id: space,
+                unit: Unit::Millimeter,
+                elements: Vec::new(),
+                order: Vec::new(),
+            },
+            base: Some(ModelPoint {
+                space,
+                x: 0.0,
+                y: 0.0,
+            }),
+            attributes: Vec::new(),
+            anonymous: false,
+            external: None,
+            source: source.clone(),
+        });
+        self.out.extensions.push(Extension {
+            namespace: "jww.block",
+            name: number.to_string(),
+            version: Some(self.header.version.to_string()),
+            schema: 1,
+            target: Target::Document,
+            basis: Basis::Document,
+            fields: vec![
+                Field {
+                    key: "name",
+                    value: FieldValue::Text(name),
+                },
+                Field {
+                    key: "referenced",
+                    value: FieldValue::Integer(i64::from(referenced)),
+                },
+            ],
+            source,
+        });
+        Ok(())
+    }
+
     fn entity(&mut self, record: &Record, source: Ref, cx: &mut Cx) {
         let name = self.file.kind_name(record);
         let mut r = Reader::new(self.file.bytes(0..record.span().end), record.body().start);
         let version = self.header.version;
-        let Ok(base) = Base::read(&mut r, version) else {
+        let Ok(mut base) = Base::read(&mut r, version) else {
             invalid(cx, name, source);
             return;
         };
+        let definition = record
+            .block()
+            .and_then(|block| self.definitions.get(&block).copied());
+        if record.block().is_some() && definition.is_none() {
+            // 読めなかった定義の中身
+            return;
+        }
+        base.at = match definition.and_then(|at| self.out.symbols.get(at)) {
+            Some(symbol) => At {
+                space: symbol.space.id,
+                scale: 1.0,
+            },
+            None => At {
+                space: SpaceId(base.group as u32),
+                scale: self.header.scale(base.group),
+            },
+        };
+        let mut fields = None;
         let lifted = match name {
             b"CDataSen" => self.line(&mut r, &base),
             b"CDataEnko" => self.arc(&mut r, &base),
             b"CDataTen" => self.point(&mut r, &base),
             b"CDataMoji" => self.text(&mut r, &base, &source, cx),
             b"CDataSolid" => self.solid(&mut r, &base),
+            b"CDataBlock" => self.insert(&mut r, &base),
+            b"CDataSunpou" => self.dimension(&mut r, &base).map(|lifted| {
+                lifted.map(|(shape, style, own)| {
+                    fields = Some(own);
+                    (shape, style)
+                })
+            }),
             _ => {
                 dropped(cx, name, source);
                 return;
             }
         };
-        match lifted {
-            Ok(Some((shape, style))) => {
-                let element = Element {
-                    source,
-                    layer: base.layer(),
-                    style,
-                    shape,
-                };
-                self.groups.entry(base.group).or_default().push(element);
+        let (shape, style) = match lifted {
+            Ok(Some(lifted)) => lifted,
+            Ok(None) => return,
+            Err(_) => {
+                invalid(cx, name, source);
+                return;
             }
-            Ok(None) => {}
-            Err(_) => invalid(cx, name, source),
+        };
+        let element = Element {
+            source: source.clone(),
+            layer: base.layer(),
+            style,
+            shape,
+        };
+        let elements = match definition.and_then(|at| self.out.symbols.get_mut(at)) {
+            Some(symbol) => {
+                symbol.space.order.push(symbol.space.elements.len());
+                &mut symbol.space.elements
+            }
+            None => self.groups.entry(base.group).or_default(),
+        };
+        if let Some(fields) = fields {
+            self.out.extensions.push(Extension {
+                namespace: "jww.dimension",
+                name: String::new(),
+                version: Some(version.to_string()),
+                schema: 1,
+                target: Target::Model {
+                    space: base.at.space,
+                    index: elements.len(),
+                },
+                basis: Basis::Model(element.clone()),
+                fields,
+                source,
+            });
         }
+        elements.push(element);
     }
 
-    fn point_at(&self, group: usize, x: f64, y: f64) -> ModelPoint {
-        let scale = self.header.scale(group);
-        ModelPoint {
-            space: SpaceId(group as u32),
-            x: x * scale,
-            y: y * scale,
-        }
+    /// ブロックの参照。尺度にレイヤグループの縮尺を掛け、回転はラジアンから度にする
+    fn insert(
+        &mut self,
+        r: &mut Reader,
+        base: &Base,
+    ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
+        let [x, y, sx, sy, rotation] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let number = r.u32()?;
+        let shape = Shape::Symbol(Symbol {
+            key: block_key(number),
+            position: point(base.at, x, y),
+            scale: [sx * base.at.scale, sy * base.at.scale],
+            rotation: rotation.to_degrees(),
+            grid: None,
+            attributes: Vec::new(),
+        });
+        // 中身の色・線種・線幅は、定義の図形が持つ
+        let style = Style {
+            color: Inherit::Block,
+            line_type: Inherit::Block,
+            line_type_scale: 1.0,
+            line_weight: None,
+        };
+        Ok(Some((shape, style)))
     }
 
-    fn length(&self, group: usize, value: f64) -> Length {
-        Length::Model(ModelLength {
-            space: SpaceId(group as u32),
-            value: value * self.header.scale(group),
-        })
+    /// 寸法（決定 0135）。寸法線の向きに測る長さとし、測る点は、版 420 からの SXF の形があれば基準点、なければ寸法線の端
+    /// とする。寸法値の文字は、そのまま上書きの文字にする。寸法線・補助線・端の点は `jww.dimension` の拡張に残す
+    fn dimension(&mut self, r: &mut Reader, base: &Base) -> Result<Option<Dimensioned>, Fail> {
+        let version = self.header.version;
+        let at = base.at;
+        let xy = |p: ModelPoint| FieldValue::Point([p.x, p.y, 0.0]);
+        let line_base = Base::read(r, version)?;
+        let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let (start, end) = (point(at, x1, y1), point(at, x2, y2));
+        let mut fields = vec![
+            Field {
+                key: "line_start",
+                value: xy(start),
+            },
+            Field {
+                key: "line_end",
+                value: xy(end),
+            },
+        ];
+        Base::read(r, version)?;
+        let [tx1, ty1, tx2, ty2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        r.skip(4)?;
+        let [size_x, size_y, spacing, angle] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let (unicode, font) = r.string()?;
+        let font = decode(unicode, font);
+        let (unicode, content) = r.string()?;
+        let content = decode(unicode, content);
+        fields.push(Field {
+            key: "text_end",
+            value: xy(point(at, tx2, ty2)),
+        });
+        fields.push(Field {
+            key: "text_spacing",
+            value: FieldValue::Real(spacing),
+        });
+        let (mut first, mut second) = (start, end);
+        if version >= SXF_SINCE {
+            let mode = r.u16()?;
+            fields.push(Field {
+                key: "sxf_mode",
+                value: FieldValue::Integer(i64::from(mode)),
+            });
+            for (start_key, end_key) in [
+                ("extension1_start", "extension1_end"),
+                ("extension2_start", "extension2_end"),
+            ] {
+                Base::read(r, version)?;
+                let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+                fields.push(Field {
+                    key: start_key,
+                    value: xy(point(at, x1, y1)),
+                });
+                fields.push(Field {
+                    key: end_key,
+                    value: xy(point(at, x2, y2)),
+                });
+            }
+            let mut points = Vec::with_capacity(4);
+            for key in ["end1", "end2", "reference1", "reference2"] {
+                let point_base = Base::read(r, version)?;
+                let p = point(at, r.f64()?, r.f64()?);
+                r.skip(4)?;
+                if point_base.pen_style == POINT_SYMBOL {
+                    r.skip(20)?;
+                }
+                fields.push(Field { key, value: xy(p) });
+                points.push(p);
+            }
+            // SXF の形を持つ寸法は、基準点を測る点とする（推定）
+            if mode != 0
+                && let [_, _, reference1, reference2] = points[..]
+            {
+                (first, second) = (reference1, reference2);
+            }
+        }
+        let rotation = libm::atan2(y2 - y1, x2 - x1).to_degrees();
+        let format = Format {
+            height: Some(Scaled::Value(Length::Paper(PaperLength(size_y)))),
+            width_factor: (size_y > 0.0).then_some(Scaled::Value(size_x / size_y)),
+            font: (!font.is_empty()).then_some(Font {
+                name: font,
+                kind: FontKind::Named {
+                    bold: false,
+                    italic: false,
+                    charset: None,
+                    pitch: None,
+                },
+            }),
+            ..Format::default()
+        };
+        let shape = Shape::Dimension(Dimension {
+            kind: DimensionKind::Linear {
+                first,
+                second,
+                line: start,
+                rotation,
+                oblique: 0.0,
+            },
+            measurement: None,
+            label: Label::Override {
+                spans: vec![Span {
+                    piece: Piece::Text(content.clone()),
+                    format,
+                }],
+                content,
+            },
+            text: DimensionText {
+                position: Some(point(at, tx1, ty1)),
+                moved: false,
+                rotation: Some(angle),
+                attachment: Some((Horizontal::Left, Vertical::Bottom)),
+            },
+            style: String::new(),
+            block: None,
+        });
+        Ok(Some((shape, self.line_style(&line_base), fields)))
     }
 
     /// 色。1〜9 と 100〜356 は見出しの色を、ほかは番号だけを持つ
@@ -592,8 +870,8 @@ impl Lifter<'_> {
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
         let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
         let shape = Shape::Line {
-            start: self.point_at(base.group, x1, y1),
-            end: self.point_at(base.group, x2, y2),
+            start: point(base.at, x1, y1),
+            end: point(base.at, x2, y2),
         };
         Ok(Some((shape, self.line_style(base))))
     }
@@ -615,7 +893,7 @@ impl Lifter<'_> {
         ];
         let full = r.u32()? != 0;
         let edge = self.ellipse(
-            base.group,
+            base.at,
             [cx, cy],
             radius,
             flatness,
@@ -635,7 +913,7 @@ impl Lifter<'_> {
     #[expect(clippy::too_many_arguments)]
     fn ellipse(
         &self,
-        group: usize,
+        at: At,
         [cx, cy]: [f64; 2],
         radius: f64,
         flatness: f64,
@@ -644,7 +922,7 @@ impl Lifter<'_> {
         sweep: f64,
         full: bool,
     ) -> Edge<ModelPoint> {
-        let center = self.point_at(group, cx, cy);
+        let center = point(at, cx, cy);
         let radius = radius.abs();
         let flatness = if flatness.is_finite() && flatness > 0.0 {
             flatness
@@ -656,7 +934,7 @@ impl Lifter<'_> {
         if (flatness - 1.0).abs() <= 1e-9 {
             return Edge::Arc {
                 center,
-                radius: self.length(group, radius),
+                radius: length(at, radius),
                 start: (tilt + start).to_degrees(),
                 end: (tilt + start + sweep).to_degrees(),
                 counterclockwise,
@@ -675,8 +953,8 @@ impl Lifter<'_> {
         };
         Edge::Elliptic {
             center,
-            major: self.point_at(
-                group,
+            major: point(
+                at,
                 cx + major * libm::cos(axis),
                 cy + major * libm::sin(axis),
             ),
@@ -710,7 +988,7 @@ impl Lifter<'_> {
                 namespace: "jww.point",
                 name,
             },
-            position: self.point_at(base.group, x, y),
+            position: point(base.at, x, y),
             scale: [scale; 2],
             rotation,
             grid: None,
@@ -745,7 +1023,7 @@ impl Lifter<'_> {
                 version: Some(self.header.version.to_string()),
                 schema: 1,
                 target: Target::Document,
-                basis: zumen_drawing::Basis::Document,
+                basis: Basis::Document,
                 fields: vec![Field {
                     key: "value",
                     value: FieldValue::Text(value.to_owned()),
@@ -765,7 +1043,7 @@ impl Lifter<'_> {
                 meaning: HeightMeaning::Declared("jww.moji.size_y"),
             },
             placement: Placement::Anchor {
-                point: self.point_at(base.group, x1, y1),
+                point: point(base.at, x1, y1),
                 horizontal: Horizontal::Left,
                 vertical: Vertical::Bottom,
             },
@@ -798,15 +1076,15 @@ impl Lifter<'_> {
         } else {
             self.color(base.pen_color)
         };
-        let group = base.group;
+        let at = base.at;
         let boundary = if base.pen_style >= CIRCLE_SOLID {
             let [cx, cy, radius, flatness, tilt, start, sweep, mode] = values;
             let full = mode == 100.0 || (sweep.abs() - TURN).abs() <= 1e-9;
-            let arc = self.ellipse(group, [cx, cy], radius, flatness, tilt, start, sweep, full);
+            let arc = self.ellipse(at, [cx, cy], radius, flatness, tilt, start, sweep, full);
             let mut edges = Vec::new();
             if !full {
                 let [first, last] = ends(&arc).ok_or(Fail::Invalid)?;
-                let center = self.point_at(group, cx, cy);
+                let center = point(at, cx, cy);
                 // 弓形（-1 と 5）は弦で、ほかは扇形として中心を通って閉じる（推定）
                 if mode == -1.0 || mode == 5.0 {
                     edges.push(arc);
@@ -835,7 +1113,7 @@ impl Lifter<'_> {
                 .0
                 .iter()
                 .map(|&[x, y]| Vertex {
-                    point: self.point_at(group, x, y),
+                    point: point(at, x, y),
                     bulge: 0.0,
                 })
                 .collect();
