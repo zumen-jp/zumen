@@ -1,14 +1,16 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
-//! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順を試す。
+//! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
+//! 色と線種・E4 の寸法と引出線を試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Color, ColorCode, ColorSystem, Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal,
-    Inherit, Layer, LayerId, LayerState, Length, LineTypeDefinition, LineTypeId, LineWeight,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, PatternBasis, Placement, Shape, SheetId,
-    SheetItem, SpaceId, Style, Text, Unit, Vertical,
+    Axis, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionText, Drawing2D,
+    Element, Fit, Height, HeightMeaning, Horizontal, Inherit, Label, Layer, LayerId, LayerState,
+    Leader, Length, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint,
+    PaperLength, PaperPoint, PatternBasis, Placement, Shape, SheetId, SheetItem, SpaceId, Style,
+    Text, Unit, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -1013,4 +1015,409 @@ fn colors_line_types_and_line_weights_keep_their_source_and_inheritance() {
     assert_eq!(t.line_type, Some(LineTypeId(0)));
     assert_eq!(t.line_weight, Some(LineWeight::Width(PaperLength(0.25))));
     assert_eq!(drawing.layers[2].style, None);
+}
+
+/// 図形を種類とタグの組から作る。画層は 0
+fn entity(kind: &'static str, tags: &[(i16, &'static str)]) -> Vec<(i16, &'static str)> {
+    let mut entity = vec![(0, kind), (8, "0")];
+    entity.extend_from_slice(tags);
+    entity
+}
+
+/// 実寸の空間の要素の形
+fn model_shapes(drawing: &Drawing2D) -> Vec<Shape<ModelPoint>> {
+    drawing
+        .spaces
+        .iter()
+        .flat_map(|space| &space.elements)
+        .map(|element| element.shape.clone())
+        .collect()
+}
+
+#[test]
+fn e4_dimensions_keep_the_measurement_and_the_override_apart() {
+    // 1000 mm 離れた 2 点の線形寸法。測定値は 1000 で、文字は「995」に上書きし、利用者が動かした（128）。
+    // 部品は寸法だけが使う（32）
+    let linear = entity(
+        "DIMENSION",
+        &[
+            (2, "*D1"),
+            (3, "ISO-25"),
+            (10, "0.0"),
+            (20, "100.0"),
+            (11, "520.0"),
+            (21, "110.0"),
+            (70, "160"),
+            (71, "5"),
+            (42, "1000.0"),
+            (1, "995"),
+            (13, "0.0"),
+            (23, "0.0"),
+            (14, "1000.0"),
+            (24, "0.0"),
+        ],
+    );
+    let label = |text: &'static str| {
+        let mut dimension = entity(
+            "DIMENSION",
+            &[
+                (10, "0.0"),
+                (20, "100.0"),
+                (70, "1"),
+                (13, "0.0"),
+                (23, "0.0"),
+                (14, "1000.0"),
+                (24, "0.0"),
+            ],
+        );
+        dimension.push((1, text));
+        dimension
+    };
+    let mut entities = linear;
+    for text in ["<>", " ", "<> mm"] {
+        entities.extend(label(text));
+    }
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    let shapes = model_shapes(&drawing);
+    assert_eq!(
+        shapes[0],
+        Shape::Dimension(Dimension {
+            kind: DimensionKind::Linear {
+                first: at(0.0, 0.0),
+                second: at(1000.0, 0.0),
+                line: at(0.0, 100.0),
+                rotation: 0.0,
+                oblique: 0.0,
+            },
+            measurement: Some(Measured {
+                value: 1000.0,
+                key: "dxf.DIMENSION.42",
+            }),
+            label: Label::Override("995".to_owned()),
+            text: DimensionText {
+                position: Some(at(520.0, 110.0)),
+                moved: true,
+                rotation: None,
+                attachment: Some((Horizontal::Center, Vertical::Middle)),
+            },
+            style: "ISO-25".to_owned(),
+            block: Some("*D1".to_owned()),
+        })
+    );
+    let labels: Vec<_> = shapes[1..]
+        .iter()
+        .map(|shape| match shape {
+            Shape::Dimension(dimension) => (dimension.label.clone(), dimension.measurement),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            (Label::Measurement, None),
+            (Label::Hidden, None),
+            (Label::Override("<> mm".to_owned()), None),
+        ]
+    );
+}
+
+#[test]
+fn e4_each_dimension_kind_keeps_its_definition_points() {
+    let points = |tags: &[(i16, &'static str)]| entity("DIMENSION", tags);
+    let mut entities = Vec::new();
+    // 2 線の角度
+    entities.extend(points(&[
+        (70, "2"),
+        (13, "0.0"),
+        (23, "0.0"),
+        (14, "10.0"),
+        (24, "0.0"),
+        (15, "0.0"),
+        (25, "0.0"),
+        (10, "0.0"),
+        (20, "10.0"),
+        (16, "5.0"),
+        (26, "5.0"),
+    ]));
+    // 直径
+    entities.extend(points(&[
+        (70, "3"),
+        (15, "10.0"),
+        (25, "0.0"),
+        (10, "-10.0"),
+        (20, "0.0"),
+        (40, "3.0"),
+    ]));
+    // 3 点の角度
+    entities.extend(points(&[
+        (70, "5"),
+        (15, "0.0"),
+        (25, "0.0"),
+        (13, "10.0"),
+        (23, "0.0"),
+        (14, "0.0"),
+        (24, "10.0"),
+        (10, "7.0"),
+        (20, "7.0"),
+        (42, "1.5707963267948966"),
+    ]));
+    // X の座標寸法（6 + 64）
+    entities.extend(points(&[
+        (70, "70"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (13, "30.0"),
+        (23, "40.0"),
+        (14, "30.0"),
+        (24, "60.0"),
+    ]));
+    // 回した線形寸法と、傾けた補助線
+    entities.extend(points(&[
+        (70, "0"),
+        (13, "0.0"),
+        (23, "0.0"),
+        (14, "10.0"),
+        (24, "10.0"),
+        (10, "0.0"),
+        (20, "5.0"),
+        (50, "90.0"),
+        (52, "30.0"),
+        (53, "45.0"),
+    ]));
+    // 用紙の上の半径寸法。引出線の長さは用紙の長さになる
+    entities.extend(points(&[
+        (67, "1"),
+        (70, "4"),
+        (10, "50.0"),
+        (20, "50.0"),
+        (15, "60.0"),
+        (25, "50.0"),
+        (40, "5.0"),
+    ]));
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    let kinds: Vec<_> = model_shapes(&drawing)
+        .into_iter()
+        .map(|shape| match shape {
+            Shape::Dimension(dimension) => dimension.kind,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    let model = |value: f64| {
+        Length::Model(ModelLength {
+            space: MODEL,
+            value,
+        })
+    };
+    assert_eq!(
+        kinds,
+        [
+            DimensionKind::AngularLines {
+                first: [at(0.0, 0.0), at(10.0, 0.0)],
+                second: [at(0.0, 0.0), at(0.0, 10.0)],
+                arc: at(5.0, 5.0),
+            },
+            DimensionKind::Diameter {
+                chord: at(10.0, 0.0),
+                opposite: at(-10.0, 0.0),
+                leader: model(3.0),
+            },
+            DimensionKind::Angular {
+                vertex: at(0.0, 0.0),
+                first: at(10.0, 0.0),
+                second: at(0.0, 10.0),
+                arc: at(7.0, 7.0),
+            },
+            DimensionKind::Ordinate {
+                origin: at(0.0, 0.0),
+                feature: at(30.0, 40.0),
+                leader_end: at(30.0, 60.0),
+                axis: Axis::X,
+            },
+            DimensionKind::Linear {
+                first: at(0.0, 0.0),
+                second: at(10.0, 10.0),
+                line: at(0.0, 5.0),
+                rotation: 90.0,
+                oblique: 30.0,
+            },
+        ]
+    );
+    let Shape::Dimension(rotated) = &drawing.spaces[0].elements[4].shape else {
+        panic!();
+    };
+    assert_eq!(rotated.text.rotation, Some(45.0));
+    let Shape::Dimension(radius) = &drawing.sheets[0].elements[0].shape else {
+        panic!();
+    };
+    assert_eq!(
+        radius.kind,
+        DimensionKind::Radius {
+            center: on(50.0, 50.0),
+            chord: on(60.0, 50.0),
+            leader: Length::Paper(PaperLength(5.0)),
+        }
+    );
+}
+
+#[test]
+fn e4_leaders_keep_their_path_and_point_to_the_annotation() {
+    let entities = [
+        entity(
+            "MTEXT",
+            &[
+                (5, "A1"),
+                (10, "20.0"),
+                (20, "10.0"),
+                (40, "2.5"),
+                (1, "注記"),
+            ],
+        ),
+        entity(
+            "LEADER",
+            &[
+                (3, "ISO-25"),
+                (71, "1"),
+                (72, "1"),
+                (76, "3"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (30, "0.0"),
+                (10, "10.0"),
+                (20, "10.0"),
+                (30, "0.0"),
+                (10, "20.0"),
+                (20, "10.0"),
+                (30, "0.0"),
+                (340, "A1"),
+            ],
+        ),
+        // 矢印も注記も持たない折れ線
+        entity(
+            "LEADER",
+            &[
+                (76, "2"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "5.0"),
+                (20, "0.0"),
+            ],
+        ),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    // 注記の MTEXT はまだ移さないが、引出線はその出所を指す
+    let found = found(&diag);
+    let [(code, _, 1, mtext)] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    assert_eq!(*code, codes::DXF_LIFT_DROPPED);
+    assert_eq!(
+        model_shapes(&drawing),
+        [
+            Shape::Leader(Leader {
+                path: vec![at(0.0, 0.0), at(10.0, 10.0), at(20.0, 10.0)],
+                spline: true,
+                arrow: Some(true),
+                annotation: Some(mtext[0].clone()),
+                style: "ISO-25".to_owned(),
+            }),
+            Shape::Leader(Leader {
+                path: vec![at(0.0, 0.0), at(5.0, 0.0)],
+                spline: false,
+                arrow: None,
+                annotation: None,
+                style: "STANDARD".to_owned(),
+            }),
+        ]
+    );
+}
+
+#[test]
+fn e9_dimensions_and_leaders_that_cannot_be_read_are_reported() {
+    let dimension = |tags: &[(i16, &'static str)]| {
+        let mut all = vec![
+            (13, "0.0"),
+            (23, "0.0"),
+            (14, "1.0"),
+            (24, "0.0"),
+            (10, "0.0"),
+            (20, "1.0"),
+        ];
+        all.extend_from_slice(tags);
+        entity("DIMENSION", &all)
+    };
+    let entities = [
+        // 種類の値がない
+        dimension(&[(70, "7")]),
+        // 文字の位置合わせが範囲の外
+        dimension(&[(71, "10")]),
+        // Z のある定義点
+        dimension(&[(33, "1.0")]),
+        // 頂点の数が合わない
+        entity(
+            "LEADER",
+            &[
+                (76, "3"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "1.0"),
+                (20, "0.0"),
+            ],
+        ),
+        // 指すオブジェクトのない注記
+        entity(
+            "LEADER",
+            &[
+                (76, "2"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "1.0"),
+                (20, "0.0"),
+                (340, "FF"),
+            ],
+        ),
+        // Z のある頂点
+        entity(
+            "LEADER",
+            &[
+                (76, "2"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (30, "1.0"),
+                (10, "1.0"),
+                (20, "0.0"),
+            ],
+        ),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert_eq!(drawing.unwrap().spaces[0].elements, []);
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    let invalid = |kind: &str, code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text({kind:?}) Int({code})"),
+            1,
+        )
+    };
+    let non_planar = |kind: &str| (codes::DXF_NON_PLANAR_DROPPED, format!("Text({kind:?})"), 1);
+    assert_eq!(
+        params,
+        [
+            invalid("DIMENSION", 70),
+            invalid("DIMENSION", 71),
+            non_planar("DIMENSION"),
+            invalid("LEADER", 76),
+            invalid("LEADER", 340),
+            non_planar("LEADER"),
+        ]
+    );
 }
