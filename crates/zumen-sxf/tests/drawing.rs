@@ -63,7 +63,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
         b"arc_feature('1','1','1','1','0.0','0.0','5.0','1','0.0','90.0')",
         b"ellipse_feature('1','1','1','1','0.0','0.0','2.0','4.0','30.0')",
         b"polyline_feature('1','1','1','1','3',(0,1,2),'(0,1,0)')",
-        b"point_marker_feature('1','1','0','0','1','0','1')",
+        b"linear_dim_feature('1','1','1','1')",
         b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
     ]);
     let (drawing, diag) = lift(&src);
@@ -158,7 +158,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
         dropped.param("kind").map(|v| format!("{v:?}")),
         Some(format!(
             "{:?}",
-            zumen_base::Value::from("point_marker_feature")
+            zumen_base::Value::from("linear_dim_feature")
         ))
     );
 }
@@ -445,4 +445,48 @@ fn moves_raster_groups_as_underlays() {
         missing.param("name"),
         Some(&zumen_base::Value::from("$$ATRU$$1$$x$$画像$$b$$c.jpg"))
     );
+}
+
+#[test]
+fn moves_splines_as_joined_bezier_curves() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"spline_feature('1','1','1','1','1','7',(0,1,2,3,4,5,6),(0,1,1,0,-1,-1,0))",
+        b"spline_feature('1','1','1','1','0','5',(0,1,2,3,4),(0,1,1,0,0))",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let elements = &drawing.sheets[0].elements;
+    let Shape::Curve(Edge::Spline(spline)) = &elements[0].shape else {
+        panic!("{:?}", elements[0].shape);
+    };
+    assert_eq!(spline.degree, 3);
+    assert_eq!(
+        spline.knots,
+        [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]
+    );
+    assert_eq!(spline.control[3], paper(3.0, 0.0));
+    assert!(!spline.closed);
+    // 制御点が 3n + 1 個でないものは読めない
+    assert_eq!(elements.len(), 1);
+    find(&diag, codes::SXF_LIFT_INVALID);
+}
+
+#[test]
+fn moves_point_markers_as_predefined_symbols() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"point_marker_feature('1','3','5.0','6.0','2','45.0','1.5')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, _) = lift(&src);
+    let element = &drawing.sheets[0].elements[0];
+    let Shape::Symbol(symbol) = &element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    assert_eq!(symbol.key.namespace, "sxf.marker");
+    assert_eq!(symbol.key.name, "2");
+    assert_eq!(symbol.position, paper(5.0, 6.0));
+    assert_eq!((symbol.scale, symbol.rotation), ([1.5, 1.5], 45.0));
+    assert!(drawing.symbol(&symbol.key).is_none());
 }

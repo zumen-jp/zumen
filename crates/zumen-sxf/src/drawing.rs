@@ -1,7 +1,7 @@
 //! SFC から図面モデル（L2）への変換（決定 0022・0121）。
 //!
-//! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・クロソイド・文字を移す。部分図は実寸の空間にし、
-//! 用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
+//! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・スプライン・クロソイド・文字・点マーカー・
+//! 表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
 
 use std::collections::BTreeMap;
 
@@ -12,8 +12,8 @@ use zumen_drawing::{
     Inherit, Layer, LayerId, LayerState, Length, LineSpacing, LineType, LineTypeDefinition,
     LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint,
     PatternBasis, Piece, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId,
-    Span, Style, Target, TitleBlock, TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit,
-    Vertex, Vertical, View,
+    Span, Spline, Style, Symbol, SymbolKey, Target, TitleBlock, TitleItem, Underlay, UnderlayFrame,
+    UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -611,6 +611,12 @@ impl<'f> Lifter<'f> {
                 }
                 continue;
             }
+            if feature.is(b"point_marker") {
+                if self.marker(feature, at, out, cx).is_none() {
+                    invalid(cx, feature);
+                }
+                continue;
+            }
             let outline = self
                 .raster
                 .as_ref()
@@ -839,6 +845,18 @@ impl<'f> Lifter<'f> {
                     ccw,
                 )
             })()
+        } else if feature.is(b"spline") {
+            (|| {
+                let xs = args.nums(6)?;
+                let ys = args.nums(7)?;
+                Some(Shape::Curve(Edge::Spline(bezier(
+                    &xs,
+                    &ys,
+                    // 開閉のフラグは 0 が閉じている（推定）
+                    args.int(4)? == 0,
+                    at,
+                )?)))
+            })()
         } else if feature.is(b"clothoid") {
             (|| {
                 let start = args.num(9)?;
@@ -860,6 +878,45 @@ impl<'f> Lifter<'f> {
             return Shaped::NotYet;
         };
         shape.map_or(Shaped::Invalid, |shape| Shaped::Element(Box::new(shape)))
+    }
+
+    /// 点マーカー。引数は、レイヤと色のコード、点、マーカーのコード、回転、尺度。既定義のマーカーは中身を
+    /// 持たないので、名前空間 `sxf.marker` のコードのキーで指す
+    fn marker<C: Place>(
+        &mut self,
+        feature: Feature<'f>,
+        at: &C,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Option<()> {
+        let args = self.args(feature);
+        let code = args.int(4)?;
+        let scale = args.num(6)?;
+        let shape = Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "sxf.marker",
+                name: code.to_string(),
+            },
+            position: at.point(args.num(2)?, args.num(3)?),
+            scale: [scale; 2],
+            rotation: args.num(5)?,
+            grid: None,
+            attributes: Vec::new(),
+        });
+        let source = feature.source();
+        let element = Element {
+            layer: self.layer_id(args.int(0), &source, cx),
+            style: Style {
+                color: Inherit::Own(self.color(args.int(1), &source, cx)),
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
+            source,
+            shape,
+        };
+        at.element(element, out);
+        Some(())
     }
 
     /// 文字。引数は、レイヤ・色・フォントのコード、文字列、基点、文字範囲の高さと幅、字の間隔、回転、斜体、
@@ -1197,6 +1254,34 @@ impl Args<'_> {
             }
         }
     }
+}
+
+/// 3 次のベジェ曲線をつないだもの（制御点が 3n + 1 個）を、内側の節点を 3 重にした 3 次の B スプラインにする。
+/// 形は変わらない
+fn bezier<C: Place>(xs: &[f64], ys: &[f64], closed: bool, at: &C) -> Option<Spline<C::P>> {
+    let count = xs.len();
+    if count != ys.len() || count < 4 || !(count - 1).is_multiple_of(3) {
+        return None;
+    }
+    let pieces = (count - 1) / 3;
+    let mut knots = vec![0.0; 4];
+    let mut knot = 0.0;
+    for _ in 1..pieces {
+        knot += 1.0;
+        knots.extend([knot; 3]);
+    }
+    knots.extend([knot + 1.0; 4]);
+    Some(Spline {
+        degree: 3,
+        knots,
+        control: xs.iter().zip(ys).map(|(x, y)| at.point(*x, *y)).collect(),
+        weights: Vec::new(),
+        fit: Vec::new(),
+        start_tangent: None,
+        end_tangent: None,
+        closed,
+        periodic: false,
+    })
 }
 
 /// 作図グループの名前が示す画像のファイルの名前
