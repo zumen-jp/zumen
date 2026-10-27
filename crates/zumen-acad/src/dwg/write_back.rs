@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0103）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0104）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -997,11 +997,15 @@ impl DwgFile {
                 r2010.then_some((&lighting[..], 0..bits)),
             )?;
             // R2010 からは、カメラを印刷するかの B が続き、試料の図面と同じく偽とする。外部参照のブロックの
-            // 後に、背景・表示スタイル・太陽を指す。どれも持たないものとする
+            // 後に、背景・表示スタイル・太陽を指す。表示スタイルは試料の図面と同じく 2dWireframe を指し、
+            // 見つからなければ持たない。背景と太陽は持たないものとする（決定 0104）
             if r2010 {
                 fields.bit(false);
                 handles.handle(4, 0);
-                handles.handle(5, 0);
+                handles.handle(
+                    5,
+                    dictionary_item(db, b"ACAD_VISUALSTYLE", b"2dWireframe").unwrap_or(0),
+                );
                 handles.handle(3, 0);
             }
             // UCS を伴わないビューは、UCS の欄を持たない
@@ -1653,7 +1657,6 @@ fn base_point(object: &Object) -> Option<[f64; 3]> {
     Some([point[0]?, point[1]?, point[2]?])
 }
 
-/// 種類 `kind` の表のレコードのうち、名前（2）が `name` のもののハンドル。大文字と小文字は区別しない
 /// 名前のオブジェクトの辞書の項目 `group`（ACAD_MATERIAL など）が指す辞書の、項目 `name` が指すオブジェクトの
 /// ハンドル
 fn dictionary_item(db: &AcadDb, group: &[u8], name: &[u8]) -> Option<u64> {
@@ -1677,6 +1680,7 @@ fn dictionary_item(db: &AcadDb, group: &[u8], name: &[u8]) -> Option<u64> {
     item(dictionaries.find(|o| o.handle() == Some(group))?, name)
 }
 
+/// 種類 `kind` の表のレコードのうち、名前（2）が `name` のもののハンドル。大文字と小文字は区別しない
 fn record_handle(db: &AcadDb, kind: &[u8], name: &[u8]) -> Option<u64> {
     db.objects()
         .iter()
