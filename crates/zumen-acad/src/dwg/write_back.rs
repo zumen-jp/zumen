@@ -132,7 +132,7 @@ const MTEXT: &[i16] = &[
 /// MINSERT の型の番号
 const LWPOLYLINE: &[i16] = &[90, 70, 43, 38, 39, 10, 20, 40, 41, 42, 210, 220, 230];
 const SPLINE: &[i16] = &[
-    71, 72, 73, 74, 44, 12, 22, 32, 13, 23, 33, 42, 43, 40, 10, 20, 30, 41, 11, 21, 31,
+    70, 71, 72, 73, 74, 44, 12, 22, 32, 13, 23, 33, 42, 43, 40, 10, 20, 30, 41, 11, 21, 31,
 ];
 const HATCH: &[i16] = &[
     10, 20, 30, 210, 220, 230, 2, 70, 71, 91, 92, 93, 72, 73, 74, 11, 21, 40, 42, 50, 51, 94, 95,
@@ -188,7 +188,9 @@ const DIMENSION_KIND: [i16; 7] = [6, 0, 1, 5, 2, 4, 3];
 const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
 const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
-const LEADER: &[i16] = &[73, 72, 40, 41, 74, 210, 220, 230, 211, 221, 231];
+const LEADER: &[i16] = &[
+    73, 72, 40, 41, 74, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231,
+];
 const LAYER: &[i16] = &[70, 62, 290, 370];
 const STYLE: &[i16] = &[70, 40, 41, 50, 71, 42, 3, 4];
 const LTYPE: &[i16] = &[70, 3, 72, 73, 40, 49, 74, 75, 46, 50, 44, 45, 9];
@@ -4487,8 +4489,8 @@ fn fit_bezier(
 }
 
 /// SPLINE の欄（R2000）。場合（scenario）は元のままとし、1 なら節点と制御点、2 なら当てはめる点を書く。
-/// 場合に合わない値があれば `None`。有理・閉じている・周期的の印は表にないので元のビットを写し、重みが
-/// あるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
+/// 場合に合わない値があれば `None`。有理・閉じている・周期的の印は、印（70）があればその 4・1・2 を書き、
+/// なければ元のビットを写す。重みがあるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
 /// 当てはめる点（11）を持てば場合を 2、持たなければ 1 とし、閉じている・周期的の印を 0、有理の印を
 /// 重みがあるかにする（決定 0057・0059）
 fn spline(
@@ -4591,12 +4593,18 @@ fn spline(
             if controls.iter().any(|c| c[3].is_some() != weighted) {
                 return None;
             }
-            if added {
-                for on in [weighted, false, false] {
-                    fields.bit(on);
+            match integer(object, 70)? {
+                Some(flags) => {
+                    for bit in [4, 1, 2] {
+                        fields.bit(flags & bit != 0);
+                    }
                 }
-            } else {
-                fields.copy(data, flags_at..flags_at + 3)?;
+                None if added => {
+                    for on in [weighted, false, false] {
+                        fields.bit(on);
+                    }
+                }
+                None => fields.copy(data, flags_at..flags_at + 3)?,
             }
             for code in [42, 43] {
                 fields.bd(real(object, code)??);
@@ -5205,9 +5213,10 @@ fn tolerance(
     fields.copy(data, text_end..end)
 }
 
-/// LEADER の欄（決定 0040）。注釈の種類（73）・経路の種類（72、なければ 0）・押し出しの向き（なければ
-/// (0, 0, 1)）・X 軸の向き（211、なければ (1, 0, 0)）・注釈の高さと幅（40・41）・鉤の線の向き（74）を
-/// 書く。表にない鉤の線の点と差の欄と、後ろの欄は、元のビットを写す
+/// LEADER の欄（決定 0040）。注釈の種類（73）・経路の種類（72、なければ 0）・頂点の数（76）と頂点（10）・
+/// 押し出しの向き（なければ (0, 0, 1)）・X 軸の向き（211、なければ (1, 0, 0)）・注釈の高さと幅（40・41）・
+/// 鉤の線の向き（74）を書く。頂点が変わったら、表にない終わりの点の射影は終わりの頂点にする。表にない
+/// 鉤の線の点と差の欄と、後ろの欄は、元のビットを写す
 fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(start);
@@ -5217,12 +5226,30 @@ fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
     bits.bs()?;
     let points_at = bits.pos();
     let count = bits.bl()?;
-    for _ in 0..=count {
-        for _ in 0..3 {
-            bits.bd()?;
-        }
+    let mut old = Vec::new();
+    for _ in 0..count {
+        old.push([bits.bd()?, bits.bd()?, bits.bd()?]);
+    }
+    for _ in 0..3 {
+        bits.bd()?;
     }
     let points_end = bits.pos();
+    let mut values = Cursor(
+        object
+            .values
+            .iter()
+            .filter(|value| matches!(value.code, 76 | 10 | 20 | 30))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .peekable(),
+    );
+    let mut vertices = Vec::new();
+    for _ in 0..values.int(76)? {
+        vertices.push([values.real(10)?, values.real(20)?, values.real(30)?]);
+    }
+    if values.0.next().is_some() {
+        return None;
+    }
     for _ in 0..6 {
         bits.bd()?;
     }
@@ -5238,7 +5265,17 @@ fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
     fields.copy(data, start..kinds_at)?;
     fields.bs(small(object, 73)??);
     fields.bs(small(object, 72)?.unwrap_or(0));
-    fields.copy(data, points_at..points_end)?;
+    if vertices == old {
+        fields.copy(data, points_at..points_end)?;
+    } else {
+        let last = *vertices.last()?;
+        fields.bl(i32::try_from(vertices.len()).ok()?);
+        for point in vertices.iter().chain([&last]) {
+            for value in point {
+                fields.bd(*value);
+            }
+        }
+    }
     point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
     point3_or(fields, object, 211, [1.0, 0.0, 0.0])?;
     fields.copy(data, offsets_at..offsets_end)?;
