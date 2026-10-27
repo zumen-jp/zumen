@@ -241,7 +241,83 @@ impl Bounds {
                 self.points(spline.control.iter().copied());
                 self.points(spline.fit.iter().copied());
             }
+            Edge::Clothoid {
+                origin,
+                parameter,
+                angle,
+                counterclockwise,
+                start,
+                end,
+            } => {
+                let lengths = (
+                    origin.length(*parameter),
+                    origin.length(*start),
+                    origin.length(*end),
+                );
+                let (Some(a), Some(s0), Some(s1)) = lengths else {
+                    return self.point(*origin);
+                };
+                if !(a > 0.0 && a.is_finite() && s0.is_finite() && s1.is_finite()) {
+                    return self.point(*origin);
+                }
+                self.clothoid(origin.xy(), a, *angle, *counterclockwise, [s0, s1]);
+            }
         }
+    }
+
+    /// クロソイドの端点と、接線の向きが 90 度の倍数になる所（X か Y の極値）を足す。極値が多すぎるものは、
+    /// 原点から長さの最大までの正方形で囲む（曲線上の点は、原点からたどった長さより遠くない）
+    fn clothoid(
+        &mut self,
+        (ox, oy): (f64, f64),
+        a: f64,
+        angle: f64,
+        counterclockwise: bool,
+        [s0, s1]: [f64; 2],
+    ) {
+        const MAX_EXTREMES: f64 = 1024.0;
+        let side = if counterclockwise { 1.0 } else { -1.0 };
+        let t = angle.to_radians();
+        let (c, s) = (libm::cos(t), libm::sin(t));
+        let mut at = |length: f64| {
+            let (x, y) = clothoid_point(a, side, length);
+            self.add(ox + c * x - s * y, oy + s * x + c * y);
+        };
+        let (lo, hi) = (s0.min(s1), s0.max(s1));
+        at(lo);
+        at(hi);
+        // 原点からの向きごとに、曲がる角度（度）の範囲を求める。接線の向きは原点での向きから
+        // 曲がる向きへ回り、長さの符号によらない
+        let turn = |length: f64| (length * length / (2.0 * a * a)).to_degrees();
+        let mut extremes = Vec::new();
+        for (from, to, sign) in [
+            (lo.max(0.0), hi.max(0.0), 1.0),
+            ((-hi).max(0.0), (-lo).max(0.0), -1.0),
+        ] {
+            if to <= from {
+                continue;
+            }
+            let (p, q) = (turn(from), turn(to));
+            // 向き angle + side·φ が 90k になる φ
+            let (first, last) = if side > 0.0 {
+                (((angle + p) / 90.0).ceil(), ((angle + q) / 90.0).floor())
+            } else {
+                (((angle - q) / 90.0).ceil(), ((angle - p) / 90.0).floor())
+            };
+            if last - first >= MAX_EXTREMES {
+                let r = lo.abs().max(hi.abs());
+                self.add(ox - r, oy - r);
+                self.add(ox + r, oy + r);
+                return;
+            }
+            let mut k = first;
+            while k <= last {
+                let phi = side * (90.0 * k - angle);
+                extremes.push(sign * (2.0 * a * a * phi.to_radians()).sqrt());
+                k += 1.0;
+            }
+        }
+        extremes.into_iter().for_each(at);
     }
 
     /// 頂点と、膨らみのある区間の極値を足す
@@ -340,6 +416,30 @@ fn sweep(start: f64, end: f64, counterclockwise: bool) -> (f64, f64) {
     }
 }
 
+/// クロソイドの原点から長さ `length` の点の、原点での接線を X 軸にした座標。接線の向きの積分を
+/// シンプソンの公式で求める。区間の数は、パラメーターに対する長さに比べて増やし、上限で止める
+fn clothoid_point(a: f64, side: f64, length: f64) -> (f64, f64) {
+    let steps = 32.0 * (length.abs() / a).ceil().clamp(1.0, 256.0);
+    let h = length / steps;
+    let (mut x, mut y) = (0.0, 0.0);
+    let mut k = 0.0;
+    while k <= steps {
+        let weight = if k == 0.0 || k == steps {
+            1.0
+        } else if k % 2.0 == 1.0 {
+            4.0
+        } else {
+            2.0
+        };
+        let t = h * k;
+        let phi = t * t / (2.0 * a * a);
+        x += weight * libm::cos(phi);
+        y += weight * libm::sin(phi);
+        k += 1.0;
+    }
+    (x * h / 3.0, side * y * h / 3.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,6 +508,53 @@ mod tests {
             radius: Length::Paper(PaperLength(2.0)),
         };
         assert_eq!(rounded(bbox(&paper)), Some([1.0, 1.0, 1.0, 1.0]));
+    }
+
+    fn clothoid(angle: f64, counterclockwise: bool, start: f64, end: f64) -> Shape<ModelPoint> {
+        Shape::Curve(Edge::Clothoid {
+            origin: at(1.0, 2.0),
+            parameter: model(1.0),
+            angle,
+            counterclockwise,
+            start: model(start),
+            end: model(end),
+        })
+    }
+
+    #[test]
+    fn clothoids_cover_where_the_tangent_turns_a_right_angle() {
+        let near = |got: Option<[f64; 4]>, want: [f64; 4]| {
+            let got = got.unwrap();
+            assert!(
+                got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-6),
+                "{got:?}"
+            );
+        };
+        // 長さ 1 までは 90 度曲がらないので、端点で囲む
+        near(
+            rounded(bbox(&clothoid(0.0, true, 0.0, 1.0))),
+            [1.0, 2.0, 1.975287688, 2.163714047],
+        );
+        // 長さ 3 までに、向きが 90 度（X の最大）と 180 度（Y の最大）を通る
+        near(
+            rounded(bbox(&clothoid(0.0, true, 0.0, 3.0))),
+            [1.0, 2.0, 2.382325061, 3.265482800],
+        );
+        // 原点の手前は原点で点対称に、時計回りは X 軸で折り返すので、両方なら Y 軸で折り返す
+        near(
+            rounded(bbox(&clothoid(0.0, false, -3.0, 0.0))),
+            [-0.382325061, 2.0, 1.0, 3.265482800],
+        );
+        // 90 度回すと、X と Y が入れ替わる
+        near(
+            rounded(bbox(&clothoid(90.0, true, 0.0, 1.0))),
+            [0.836285953, 2.0, 1.0, 2.975287688],
+        );
+        // 極値が多すぎるものは、長さの正方形で囲む
+        near(
+            rounded(bbox(&clothoid(0.0, true, 0.0, 1000.0))),
+            [-999.0, -998.0, 1001.0, 1002.0],
+        );
     }
 
     #[test]
