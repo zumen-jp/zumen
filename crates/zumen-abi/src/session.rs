@@ -7,6 +7,7 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, 
 use zumen_base::{Ref, codes, name};
 use zumen_drawing::{Drawing2D, Element, Placement, Shape, Unit};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
+use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Codec, Lift};
 use zumen_sxf::{Sxf, SxfFile};
 
@@ -50,6 +51,7 @@ enum Doc {
     Dxf(DxfFile),
     Dwg(DwgFile),
     Sxf(SxfFile),
+    Jww(JwwFile),
 }
 
 impl Doc {
@@ -59,6 +61,7 @@ impl Doc {
             Doc::Dxf(_) => Dxf::FORMAT,
             Doc::Dwg(_) => Dwg::FORMAT,
             Doc::Sxf(_) => Sxf::FORMAT,
+            Doc::Jww(_) => Jww::FORMAT,
         }
     }
 
@@ -68,6 +71,7 @@ impl Doc {
             Doc::Dxf(file) => file.lift(cx),
             Doc::Dwg(file) => file.lift(cx),
             Doc::Sxf(file) => file.lift(cx),
+            Doc::Jww(file) => file.lift(cx),
         }
     }
 }
@@ -283,6 +287,8 @@ impl Session {
         } else if Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
             // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
             Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?)
+        } else if Jww::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+            Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
         } else {
             cx.check(Kind::InputBytes, bytes.len() as u64)
                 .map_err(|stop| stopped(cx, stop))?;
@@ -433,6 +439,7 @@ fn capabilities() -> CapabilitiesResult {
             (Dxf::FORMAT, "acad"),
             (Dwg::FORMAT, "acad"),
             (Sxf::FORMAT, "sxf"),
+            (Jww::FORMAT, "jww"),
         ]
         .into_iter()
         .map(|(id, family)| Format {
@@ -886,7 +893,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":3}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":3}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

@@ -19,6 +19,7 @@ zumen-acad = { path = "../zumen-acad" }
 zumen-base = { path = "../zumen-base" }
 zumen-drawing = { path = "../zumen-drawing" }
 zumen-json = { path = "../zumen-json" }
+zumen-jww = { path = "../zumen-jww" }
 zumen-sxf = { path = "../zumen-sxf" }
 zumen-sdk = { path = "../zumen-sdk" }
 
