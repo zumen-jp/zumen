@@ -10,8 +10,9 @@ use zumen_drawing::{
     Affine, Boundary, Color, ColorCode, ColorSystem, Drawing2D, Edge, Element, Extension, Field,
     FieldValue, Fill, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Layer,
     LayerId, LayerState, Length, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Shape, Sheet, SheetId, SheetItem,
-    SpaceId, Style, Symbol, SymbolKey, Target, Text, Unit, Vertex, Vertical, View,
+    ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Resource, Shape, Sheet, SheetId,
+    SheetItem, SpaceId, Style, Symbol, SymbolKey, Target, Text, Underlay, UnderlayFrame,
+    UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_drawing::{
     Basis, Dimension, DimensionKind, DimensionText, Font, FontKind, Format, Label, Piece, Scaled,
@@ -73,9 +74,6 @@ const CIRCLE_SOLID: u8 = 101;
 /// 設定を書いた文字の位置（Jw_cad 8 から）
 const SETTING_AT: [f64; 2] = [0.0, -1000.0];
 
-/// 寸法の形・色と線種・拡張の値
-type Dimensioned = (Shape<ModelPoint>, Style, Vec<Field>);
-
 /// ブロックの定義の空間の、最初の ID。レイヤグループの空間（0〜15）と重ならない
 const DEFINITION_SPACES: u32 = 16;
 
@@ -106,6 +104,8 @@ impl Lift<Drawing2D> for JwwFile {
             line_types: BTreeMap::new(),
             groups: BTreeMap::new(),
             definitions: BTreeMap::new(),
+            images: images(self),
+            own: Vec::new(),
             out: Drawing2D::default(),
         }
         .run(cx)
@@ -116,8 +116,13 @@ impl Lift<Drawing2D> for JwwFile {
 #[derive(Clone, Debug, Default)]
 struct Group {
     state: u32,
+    /// 書き込むレイヤ
+    write_layer: u32,
     scale: f64,
+    protect: u32,
     layers: [u32; 16],
+    /// レイヤの保護
+    protects: [u32; 16],
 }
 
 /// 変換に使う見出しの欄
@@ -125,7 +130,10 @@ struct Group {
 struct Header {
     version: u32,
     paper: u32,
+    /// 書き込むレイヤグループ
+    write_group: u32,
     groups: Vec<Group>,
+    group_names: Vec<String>,
     /// 1 単位が 1/100 mm の線幅（負）か、プリンターのドット（ほか）
     max_draw_width: i32,
     layer_names: Vec<String>,
@@ -152,22 +160,26 @@ impl Header {
         let mut r = Reader::new(src, 12);
         r.string()?;
         let paper = r.u32()?;
-        r.skip(4)?;
+        let write_group = r.u32()?;
         let mut groups = Vec::with_capacity(16);
         for _ in 0..16 {
             let state = r.u32()?;
-            r.skip(4)?;
+            let write_layer = r.u32()?;
             let scale = r.f64()?;
-            r.skip(4)?;
+            let protect = r.u32()?;
             let mut layers = [0; 16];
-            for layer in &mut layers {
+            let mut protects = [0; 16];
+            for (layer, protect) in layers.iter_mut().zip(&mut protects) {
                 *layer = r.u32()?;
-                r.skip(4)?;
+                *protect = r.u32()?;
             }
             groups.push(Group {
                 state,
+                write_layer,
                 scale,
+                protect,
                 layers,
+                protects,
             });
         }
         r.skip(80)?;
@@ -178,8 +190,10 @@ impl Header {
             let (unicode, bytes) = r.string()?;
             layer_names.push(decode(unicode, bytes));
         }
+        let mut group_names = Vec::with_capacity(16);
         for _ in 0..16 {
-            r.string()?;
+            let (unicode, bytes) = r.string()?;
+            group_names.push(decode(unicode, bytes));
         }
         let jumps = if version >= 300 { 8 * 28 } else { 4 * 24 };
         r.skip(28 + since(300, 16) + 4 + 24 + 24 + jumps + since(300, 56) + 80 + 8)?;
@@ -247,7 +261,9 @@ impl Header {
         Ok(Header {
             version,
             paper,
+            write_group,
             groups,
+            group_names,
             max_draw_width,
             layer_names,
             pens,
@@ -319,6 +335,20 @@ fn bit_pattern([pattern, unit, _, printer_pitch]: [u32; 4]) -> Option<Vec<f64>> 
     ))
 }
 
+/// 同梱画像の名前と、レコードの位置
+fn images(file: &JwwFile) -> BTreeMap<String, usize> {
+    file.records()
+        .iter()
+        .enumerate()
+        .filter(|(_, record)| record.kind() == RecordKind::Image)
+        .filter_map(|(at, record)| {
+            let mut r = Reader::new(file.bytes(0..record.span().end), record.span().start);
+            let (unicode, name) = r.string().ok()?;
+            Some((decode(unicode, name), at))
+        })
+        .collect()
+}
+
 /// 文字列を戻す。UTF-16LE でなければ Shift_JIS
 fn decode(unicode: bool, bytes: &[u8]) -> String {
     if unicode {
@@ -340,11 +370,15 @@ fn decode(unicode: bool, bytes: &[u8]) -> String {
 
 /// 図形の共通の欄
 struct Base {
+    /// 曲線属性の番号
+    curve: u32,
     pen_style: u8,
     pen_color: u16,
     pen_width: u16,
     layer: usize,
     group: usize,
+    /// 属性のフラグ
+    flag: u16,
     /// 図形を置く空間と、座標に掛ける倍率
     at: At,
 }
@@ -373,7 +407,7 @@ fn length(at: At, value: f64) -> Length {
 
 impl Base {
     fn read(r: &mut Reader, version: u32) -> Result<Base, Fail> {
-        r.skip(4)?;
+        let curve = r.u32()?;
         let pen_style = r.u8()?;
         let pen_color = r.u16()?;
         let pen_width = if version >= PEN_WIDTH_SINCE {
@@ -383,13 +417,15 @@ impl Base {
         };
         let layer = usize::from(r.u16()? & 0xF);
         let group = usize::from(r.u16()? & 0xF);
-        r.skip(2)?;
+        let flag = r.u16()?;
         Ok(Base {
+            curve,
             pen_style,
             pen_color,
             pen_width,
             layer,
             group,
+            flag,
             at: At {
                 space: SpaceId(0),
                 scale: 1.0,
@@ -411,12 +447,17 @@ struct Lifter<'f> {
     groups: BTreeMap<usize, Vec<Element<ModelPoint>>>,
     /// ブロックの定義のレコードの位置から、記号の定義の位置へ
     definitions: BTreeMap<usize, usize>,
+    /// 同梱画像の名前から、レコードの位置へ
+    images: BTreeMap<String, usize>,
+    /// 変換中の要素に付ける拡張の名前空間と欄
+    own: Vec<(&'static str, Vec<Field>)>,
     out: Drawing2D,
 }
 
 impl Lifter<'_> {
     fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
         self.layers();
+        self.edit_state();
         for (index, record) in self.file.records().iter().enumerate() {
             let source = Ref::at_record(index as u64);
             cx.check(Kind::Work, 1).map_err(|stop| {
@@ -432,6 +473,58 @@ impl Lifter<'_> {
             }
         }
         Ok(self.finish())
+    }
+
+    /// 書き込むグループとレイヤ・保護・グループの名前を、図面の拡張にする。保護しないレイヤは拡張にしない
+    fn edit_state(&mut self) {
+        let header = &self.header;
+        if header.groups.is_empty() {
+            return;
+        }
+        let integer = |key, value: u32| Field {
+            key,
+            value: FieldValue::Integer(i64::from(value)),
+        };
+        let extension = |namespace, name, fields| Extension {
+            namespace,
+            name,
+            version: Some(header.version.to_string()),
+            schema: 1,
+            target: Target::Document,
+            basis: Basis::Document,
+            fields,
+            source: Ref::at_record(0),
+        };
+        let mut out = vec![extension(
+            "jww.edit",
+            String::new(),
+            vec![integer("write_group", header.write_group)],
+        )];
+        for (at, group) in header.groups.iter().enumerate() {
+            let name = header.group_names.get(at).cloned().unwrap_or_default();
+            out.push(extension(
+                "jww.group",
+                format!("{at:X}"),
+                vec![
+                    Field {
+                        key: "name",
+                        value: FieldValue::Text(name),
+                    },
+                    integer("write_layer", group.write_layer),
+                    integer("protect", group.protect),
+                ],
+            ));
+            for (layer, &protect) in group.protects.iter().enumerate() {
+                if protect != 0 {
+                    out.push(extension(
+                        "jww.layer",
+                        format!("{at:X}-{layer:X}"),
+                        vec![integer("protect", protect)],
+                    ));
+                }
+            }
+        }
+        self.out.extensions.extend(out);
     }
 
     /// 16 のレイヤグループの 16 のレイヤ。番号はグループ × 16 + レイヤ + 1
@@ -543,20 +636,15 @@ impl Lifter<'_> {
                 scale: self.header.scale(base.group),
             },
         };
-        let mut fields = None;
+        self.own.clear();
         let lifted = match name {
             b"CDataSen" => self.line(&mut r, &base),
             b"CDataEnko" => self.arc(&mut r, &base),
             b"CDataTen" => self.point(&mut r, &base),
-            b"CDataMoji" => self.text(&mut r, &base, &source, cx),
+            b"CDataMoji" => self.text(&mut r, &base, &source),
             b"CDataSolid" => self.solid(&mut r, &base),
             b"CDataBlock" => self.insert(&mut r, &base),
-            b"CDataSunpou" => self.dimension(&mut r, &base).map(|lifted| {
-                lifted.map(|(shape, style, own)| {
-                    fields = Some(own);
-                    (shape, style)
-                })
-            }),
+            b"CDataSunpou" => self.dimension(&mut r, &base),
             _ => {
                 dropped(cx, name, source);
                 return;
@@ -583,9 +671,24 @@ impl Lifter<'_> {
             }
             None => self.groups.entry(base.group).or_default(),
         };
-        if let Some(fields) = fields {
+        if base.curve != 0 || base.flag != 0 {
+            self.own.push((
+                "jww.entity",
+                vec![
+                    Field {
+                        key: "curve",
+                        value: FieldValue::Integer(i64::from(base.curve)),
+                    },
+                    Field {
+                        key: "flag",
+                        value: FieldValue::Integer(i64::from(base.flag)),
+                    },
+                ],
+            ));
+        }
+        for (namespace, fields) in self.own.drain(..) {
             self.out.extensions.push(Extension {
-                namespace: "jww.dimension",
+                namespace,
                 name: String::new(),
                 version: Some(version.to_string()),
                 schema: 1,
@@ -595,7 +698,7 @@ impl Lifter<'_> {
                 },
                 basis: Basis::Model(element.clone()),
                 fields,
-                source,
+                source: source.clone(),
             });
         }
         elements.push(element);
@@ -629,7 +732,11 @@ impl Lifter<'_> {
 
     /// 寸法（決定 0135）。寸法線の向きに測る長さとし、測る点は、版 420 からの SXF の形があれば基準点、なければ寸法線の端
     /// とする。寸法値の文字は、そのまま上書きの文字にする。寸法線・補助線・端の点は `jww.dimension` の拡張に残す
-    fn dimension(&mut self, r: &mut Reader, base: &Base) -> Result<Option<Dimensioned>, Fail> {
+    fn dimension(
+        &mut self,
+        r: &mut Reader,
+        base: &Base,
+    ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
         let version = self.header.version;
         let at = base.at;
         let xy = |p: ModelPoint| FieldValue::Point([p.x, p.y, 0.0]);
@@ -742,7 +849,8 @@ impl Lifter<'_> {
             style: String::new(),
             block: None,
         });
-        Ok(Some((shape, self.line_style(&line_base), fields)))
+        self.own.push(("jww.dimension", fields));
+        Ok(Some((shape, self.line_style(&line_base))))
     }
 
     /// 色。1〜9 と 100〜356 は見出しの色を、ほかは番号だけを持つ
@@ -1003,12 +1111,12 @@ impl Lifter<'_> {
         r: &mut Reader,
         base: &Base,
         source: &Ref,
-        cx: &mut Cx,
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
         let [x1, y1] = [r.f64()?, r.f64()?];
-        r.skip(16 + 4)?;
+        r.skip(16)?;
+        let kind = r.u32()?;
         let [size_x, size_y] = [r.f64()?, r.f64()?];
-        r.skip(8)?;
+        let spacing = r.f64()?;
         let angle = r.f64()?;
         let (unicode, font) = r.string()?;
         let font = decode(unicode, font);
@@ -1032,9 +1140,40 @@ impl Lifter<'_> {
             });
             return Ok(None);
         }
+        if let Some(image) = content.strip_prefix("^@BM") {
+            return self.image(image, base, [x1, y1], angle, source).map(Some);
+        }
         if content.starts_with("^@") {
-            dropped(cx, b"CDataMoji ^@", source.clone());
+            // 画像のほかの制御文字は、描かずに元のまま持つ
+            self.out.extensions.push(Extension {
+                namespace: "jww.control",
+                name: content,
+                version: Some(self.header.version.to_string()),
+                schema: 1,
+                target: Target::Document,
+                basis: Basis::Document,
+                fields: vec![Field {
+                    key: "position",
+                    value: FieldValue::Point([x1, y1, 0.0]),
+                }],
+                source: source.clone(),
+            });
             return Ok(None);
+        }
+        if kind != 0 || spacing != 0.0 {
+            self.own.push((
+                "jww.moji",
+                vec![
+                    Field {
+                        key: "kind",
+                        value: FieldValue::Integer(i64::from(kind)),
+                    },
+                    Field {
+                        key: "spacing",
+                        value: FieldValue::Real(spacing),
+                    },
+                ],
+            ));
         }
         let shape = Shape::Text(Text {
             content,
@@ -1056,6 +1195,65 @@ impl Lifter<'_> {
             style: font,
         });
         Ok(Some((shape, self.fill_style(self.color(base.pen_color)))))
+    }
+
+    /// `^@BM` の文字の画像。`ファイル,幅,高さ` の幅と高さは用紙の mm で、文字の始点を左下の角にし、文字の角度で
+    /// 回す（推定）。同梱画像を指す `%temp%` の名前は、同梱画像のレコードを定義にする
+    fn image(
+        &mut self,
+        image: &str,
+        base: &Base,
+        [x, y]: [f64; 2],
+        angle: f64,
+        source: &Ref,
+    ) -> Result<(Shape<ModelPoint>, Style), Fail> {
+        let mut values = image.splitn(4, ',');
+        let path = values.next().unwrap_or_default();
+        let size = |value: Option<&str>| {
+            value
+                .and_then(|value| value.trim().parse::<f64>().ok())
+                .filter(|value| value.is_finite() && *value > 0.0)
+        };
+        let (Some(width), Some(height)) = (size(values.next()), size(values.next())) else {
+            return Err(Fail::Invalid);
+        };
+        if path.is_empty() {
+            return Err(Fail::Invalid);
+        }
+        if let Some(extra) = values.next() {
+            self.own.push((
+                "jww.image",
+                vec![Field {
+                    key: "extra",
+                    value: FieldValue::Text(extra.to_owned()),
+                }],
+            ));
+        }
+        let definition = path
+            .strip_prefix("%temp%")
+            .and_then(|name| {
+                self.images
+                    .get(name)
+                    .or_else(|| self.images.get(&format!("{name}.gz")))
+            })
+            .map_or_else(|| source.clone(), |&at| Ref::at_record(at as u64));
+        let (sin, cos) = (libm::sin(angle.to_radians()), libm::cos(angle.to_radians()));
+        let shape = Shape::Underlay(Underlay {
+            kind: UnderlayKind::Image,
+            resource: Resource {
+                path: path.to_owned(),
+                definition,
+            },
+            page: None,
+            frame: UnderlayFrame::Corners {
+                origin: point(base.at, x, y),
+                right: point(base.at, x + width * cos, y + width * sin),
+                top: point(base.at, x - height * sin, y + height * cos),
+            },
+            clip: None,
+            visible: true,
+        });
+        Ok((shape, self.fill_style(self.color(base.pen_color))))
     }
 
     /// ソリッド。4 点は書いた順に結ぶ。線種が 101 からは円のソリッドとする
