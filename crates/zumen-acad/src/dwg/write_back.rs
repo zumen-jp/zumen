@@ -29,11 +29,12 @@
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と、ほかの見出しの変数の変更は、まだ書き戻せない。
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 
 use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
-use super::bits::{BitWriter, Bits};
+use super::bits::{BitWriter, Bits, Color};
 use super::objects::{
     DIM_FIELDS, Dim, block_links, entity_fields, entity_links, hatch_gradient, object_fields,
     skip_extended_data,
@@ -307,9 +308,7 @@ impl DwgFile {
                                 encode(data, old, object, self.release)
                             }
                             Section::Tables => encode_record(data, old, object, self.release),
-                            // R2004 の図形でないオブジェクトは、まだ符号化しない
-                            _ if r2004 => None,
-                            Section::Objects => encode_object(data, old, object),
+                            Section::Objects => encode_object(data, old, object, self.release),
                             _ => None,
                         }
                     })
@@ -1529,14 +1528,15 @@ fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> O
 /// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047〜0050）。GROUP・DICTIONARYVAR・
 /// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE・LAYOUT・XRECORD だけを扱う。ハンドルの並びから作る値などのほかの値が
 /// 変わったものは `None`
-fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     let own: &[i16] = match new.kind.as_slice() {
         b"GROUP" => &[300, 70, 71],
         b"DICTIONARYVAR" => &[280, 1],
         b"DICTIONARY" | b"ACDBDICTIONARYWDFLT" => &[280, 281, 3],
         b"MLINESTYLE" => &[2, 70, 3, 62, 51, 52, 71, 49],
-        b"LAYOUT" => return encode_layout(data, old, new),
-        b"XRECORD" => return encode_xrecord(data, old, new),
+        // R2004 の LAYOUT は、読む側がまだ欄を読まない
+        b"LAYOUT" if release == Release::R2000 => return encode_layout(data, old, new),
+        b"XRECORD" => return encode_xrecord(data, old, new, release),
         _ => return None,
     };
     // 辞書の項目の数と、多重線の体裁の線の数と名前は変えない
@@ -1558,8 +1558,8 @@ fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     if rest(old) != rest(new) {
         return None;
     }
-    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let [size_at, start, handles_at] = object_fields(data, release)?;
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     let mut fields = BitWriter::default();
     if new.kind == b"GROUP" {
@@ -1578,7 +1578,7 @@ fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         fields.rc(u8::try_from(small(new, 280)??).ok()?);
         string(&mut fields, new, 1)?;
     } else if new.kind == b"MLINESTYLE" {
-        mlinestyle(&mut fields, &mut bits, new, data)?;
+        mlinestyle(&mut fields, &mut bits, new, data, release)?;
     } else {
         dictionary(&mut fields, &mut bits, new, data)?;
     }
@@ -1612,11 +1612,14 @@ fn layer(
     let old_color = bits.cmc()?;
     let (flags, color) = layer_flags(object, xdep, old)?;
     fields.bs(flags);
-    if old_color.rgb.is_none() && old_color.index == color {
-        fields.copy(data, color_at..bits.pos())?;
-    } else {
-        cmc(fields, color, release)?;
-    }
+    same_cmc(
+        fields,
+        data,
+        color_at..bits.pos(),
+        old_color,
+        color,
+        release,
+    )?;
     Some(bits.pos())
 }
 
@@ -1940,6 +1943,22 @@ fn dim_field(
     Some(())
 }
 
+/// 色の番号 `index` の CMC。元の CMC `old`（`data` の `at` のビット）が同じ番号の色なら、元のビットを写す
+fn same_cmc(
+    fields: &mut BitWriter,
+    data: &[u8],
+    at: Range<usize>,
+    old: Color,
+    index: i16,
+    release: Release,
+) -> Option<()> {
+    if old.rgb.is_none() && old.index == index {
+        fields.copy(data, at)
+    } else {
+        cmc(fields, index, release)
+    }
+}
+
 /// 色の番号 `index` の CMC（決定 0075）。R2004 からは、番号（BS）の後に、色の決め方（上位の
 /// バイト）と番号（下位のバイト）の BL と、名前を持たない印（RC の 0）を書く。決め方は、ByLayer（256）が
 /// 0xC0、ByBlock（0）が 0xC1、ほかの番号が 0xC3
@@ -2039,7 +2058,7 @@ fn encode_layout(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
 
 /// XRECORD を符号化し直したデータ（決定 0050）。値の番号の並びが元と同じものだけを扱う。データは、
 /// 元のデータを読みながら値を書き直し、文字列のコード・ページのバイトは元の値のものを写す
-fn encode_xrecord(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+fn encode_xrecord(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
     if codes(old) != codes(new) {
         return None;
@@ -2057,8 +2076,8 @@ fn encode_xrecord(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         let value = values.next()?;
         (value.code == code).then_some(&value.data)
     };
-    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let [size_at, start, handles_at] = object_fields(data, release)?;
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     let len = usize::try_from(bits.bl()?).ok()?;
     let end = bits.pos().checked_add(len.checked_mul(8)?)?;
@@ -2191,7 +2210,13 @@ fn dictionary(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]
 
 /// MLINESTYLE の欄（決定 0048）。名前は元のまま写す。印（70）は DXF のビットを DWG のビットに並べ直し、
 /// DXF にない DWG のビットは元のまま写す。角度は度からラジアンに直す。線の線種の番号は元のまま写す
-fn mlinestyle(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]) -> Option<()> {
+fn mlinestyle(
+    fields: &mut BitWriter,
+    bits: &mut Bits,
+    new: &Object,
+    data: &[u8],
+    release: Release,
+) -> Option<()> {
     // DWG のビットと、DXF のビット（読む側と同じ）
     const MOVED: [(i16, i16); 8] = [
         (1, 2),
@@ -2208,7 +2233,9 @@ fn mlinestyle(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]
     fields.copy(data, start..bits.pos())?;
     bits.text()?;
     let flags = bits.bs()?;
-    bits.bs()?;
+    let color_at = bits.pos();
+    let old_color = bits.cmc()?;
+    let color_end = bits.pos();
     for _ in 0..2 {
         bits.bd()?;
     }
@@ -2248,7 +2275,14 @@ fn mlinestyle(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]
         about
     })?;
     fields.bs(dwg);
-    fields.bs(int(color)?);
+    same_cmc(
+        fields,
+        data,
+        color_at..color_end,
+        old_color,
+        int(color)?,
+        release,
+    )?;
     fields.bd(float(begin)?.to_radians());
     fields.bd(float(end)?.to_radians());
     fields.rc(lines);
@@ -2257,11 +2291,19 @@ fn mlinestyle(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]
             return None;
         };
         bits.bd()?;
-        bits.bs()?;
+        let color_at = bits.pos();
+        let old_color = bits.cmc()?;
         let ltype = bits.pos();
         bits.bs()?;
         fields.bd(float(offset)?);
-        fields.bs(int(color)?);
+        same_cmc(
+            fields,
+            data,
+            color_at..ltype,
+            old_color,
+            int(color)?,
+            release,
+        )?;
         fields.copy(data, ltype..bits.pos())?;
     }
     Some(())
