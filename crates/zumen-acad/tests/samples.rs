@@ -920,7 +920,19 @@ fn removed_entities_are_taken_back(version: &[u8]) -> usize {
 
 #[test]
 fn r2000_drawings_take_back_added_entities() {
-    for path in dwgs(b"AC1015") {
+    added_entities_are_taken_back(b"AC1015", true);
+}
+
+#[test]
+fn r2004_drawings_take_back_added_entities() {
+    added_entities_are_taken_back(b"AC1018", false);
+}
+
+/// 版 `version` の試料の図面のモデル空間に図形を足して書き戻し、読み直した表が足した表と同じことを確かめる。
+/// `attributes` なら、属性を持つ INSERT と MINSERT も足す
+#[cfg(test)]
+fn added_entities_are_taken_back(version: &[u8], attributes: bool) {
+    for path in dwgs(version) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -1081,11 +1093,13 @@ fn r2000_drawings_take_back_added_entities() {
                     _ => None,
                 })
             });
-        if let Some(name) = block {
+        if let Some(name) = &block {
             added.push((
                 b"INSERT",
-                vec![real(10, 8.0), real(20, 9.0), real(30, 0.0), text(2, &name)],
+                vec![real(10, 8.0), real(20, 9.0), real(30, 0.0), text(2, name)],
             ));
+        }
+        if let Some(name) = block.filter(|_| attributes) {
             // 属性を 2 つ持つ INSERT も足す。ATTRIB と SEQEND は、すぐ前の INSERT が持つ
             added.push((
                 b"INSERT",

@@ -35,7 +35,8 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 - 共有の表の変更は、図形の値の変更のうち、共通の欄と、型ごとの欄が R2000 と同じ種類（LINE・CIRCLE・ARC・POINT・ELLIPSE・RAY・XLINE・SOLID・TRACE・3DFACE・TEXT）だけを書き戻す（決定 0072）。色を変えるときは、透明度を写し、RGB の値か DBCOLOR を持つ色は変えない。
 - ATTRIB・ATTDEF・LWPOLYLINE・SPLINE・DIMENSION・TOLERANCE・LEADER・MLINE・SHAPE・VERTEX・INSERT・MTEXT・VIEWPORT の型ごとの欄も書き戻す（決定 0073）。属性を持つ INSERT の持つオブジェクトの数と、MTEXT の背景の欄は、元のビットを写す。HATCH は、初めのグラデーションの欄を元のビットのまま写す（決定 0074）。MINSERT・POLYLINE は、まだ書き戻さない。
 - 表のレコード（LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE）の欄も書き戻す。色の欄は、変わらなければ元のビットを写し、変わったものは番号の形の CMC で書く（決定 0075）。図形でないオブジェクトも、GROUP・DICTIONARYVAR・DICTIONARY・MLINESTYLE・XRECORD の欄を書き戻す（決定 0076）。LAYOUT は、読む側がまだ R2004 の欄を読まないので、書き戻さない。
-- 表から除いた図形も書き戻す。R2004 の図形は前後の図形のハンドルを持たないので、所有者のブロックのレコードの持つ図形の数（BL）とハンドルを直す（決定 0077）。図形の追加は、まだ書き戻さない。
+- 表から除いた図形も書き戻す。R2004 の図形は前後の図形のハンドルを持たないので、所有者のブロックのレコードの持つ図形の数（BL）とハンドルを直す（決定 0077）。
+- 表の終わりに足した、すでにあるブロックの単純な図形・MTEXT・属性を持たない INSERT も書き戻す。R2004 の共通の欄で符号化し、所有者のブロックのレコードの持つ図形に加え、HANDSEED を進める（決定 0079）。属性を持つ INSERT・MINSERT・表のレコード・ブロックの足しは、まだ書き戻さない。
 
 ## R2010 から後の版
 
