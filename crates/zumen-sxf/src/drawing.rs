@@ -160,6 +160,10 @@ trait Place {
     fn target(&self, element: &Element<Self::P>, out: &Out) -> (Target, Basis);
     /// 用紙なら、部分図を置くビューを足す
     fn view(&self, view: View, out: &mut Out) -> bool;
+    /// 置く先の要素の数
+    fn count(&self, out: &Out) -> usize;
+    /// 置く先の `index` の要素を指す、拡張の対象と前提
+    fn placed(&self, index: usize, out: &Out) -> Option<(Target, Basis)>;
 }
 
 struct OnSheet;
@@ -192,6 +196,19 @@ impl Place for OnSheet {
         out.order.push(SheetItem::View(out.views.len()));
         out.views.push(view);
         true
+    }
+
+    fn count(&self, out: &Out) -> usize {
+        out.paper.len()
+    }
+
+    fn placed(&self, index: usize, out: &Out) -> Option<(Target, Basis)> {
+        let element = out.paper.get(index)?;
+        let target = Target::Paper {
+            sheet: SHEET,
+            index,
+        };
+        Some((target, Basis::Paper(element.clone())))
     }
 }
 
@@ -229,6 +246,19 @@ impl Place for InSpace {
 
     fn view(&self, _: View, _: &mut Out) -> bool {
         false
+    }
+
+    fn count(&self, out: &Out) -> usize {
+        out.model.len()
+    }
+
+    fn placed(&self, index: usize, out: &Out) -> Option<(Target, Basis)> {
+        let element = out.model.get(index)?;
+        let target = Target::Model {
+            space: self.0,
+            index,
+        };
+        Some((target, Basis::Model(element.clone())))
     }
 }
 
@@ -384,6 +414,7 @@ impl<'f> Lifter<'f> {
             let mut stack = vec![name.clone()];
             let (flag, source) = (definition.flag, definition.source.clone());
             self.members(&members, &InSpace(space), &mut out, &mut stack, cx)?;
+            attributes(name, 0, &InSpace(space), &mut out, source.clone());
             let model = ModelSpace {
                 id: space,
                 unit: Unit::Millimeter,
@@ -742,9 +773,11 @@ impl<'f> Lifter<'f> {
                 let members = definition.members.clone();
                 let raster = self.raster(&name, definition, cx);
                 cx.enter().map_err(|stop| stopped(cx, stop, feature))?;
-                stack.push(name);
+                stack.push(name.clone());
                 let outer = core::mem::replace(&mut self.raster, raster);
+                let from = at.count(out);
                 let result = self.members(&members, at, out, stack, cx);
+                attributes(&name, from, at, out, feature.source());
                 self.raster = outer;
                 stack.pop();
                 cx.leave();
@@ -1993,6 +2026,37 @@ fn placement([x, y]: [f64; 2], angle: f64, [sx, sy]: [f64; 2], geodetic: bool) -
         [sx * cos, -sy * sin, x, sx * sin, sy * cos, y]
     };
     m.iter().all(|v| v.is_finite()).then_some(Affine { m })
+}
+
+/// 名前が属性付加機構の記述（`$$ATRU$$…`・`$$ATRF$$…` など）の複合図形なら、`from` から後に置いた要素に、名前と、
+/// `$$` で区切った値を `sxf.attribute` の拡張で付ける（決定 0131）
+fn attributes<C: Place>(name: &str, from: usize, at: &C, out: &mut Out, source: Ref) {
+    if !name.starts_with("$$ATR") {
+        return;
+    }
+    let mut fields = vec![Field {
+        key: "name",
+        value: FieldValue::Text(name.to_owned()),
+    }];
+    fields.extend(name.split("$$").skip(1).map(|part| Field {
+        key: "part",
+        value: FieldValue::Text(part.to_owned()),
+    }));
+    for index in from..at.count(out) {
+        let Some((target, basis)) = at.placed(index, out) else {
+            continue;
+        };
+        out.extensions.push(Extension {
+            namespace: "sxf.attribute",
+            name: String::new(),
+            version: None,
+            schema: 1,
+            target,
+            basis,
+            fields: fields.clone(),
+            source: source.clone(),
+        });
+    }
 }
 
 /// `inner` で写してから `outer` で写す変換
