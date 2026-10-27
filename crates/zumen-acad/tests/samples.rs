@@ -420,6 +420,60 @@ fn r2000_drawings_keep_their_table_when_every_object_is_rewritten() {
 }
 
 #[test]
+fn r2004_drawings_keep_their_table_when_objects_are_rewritten_and_removed() {
+    for path in dwgs(b"AC1018") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut file = Dwg::read(&src, &mut cx).unwrap();
+        let before = file.objects(&mut cx).unwrap();
+        let count = file.record_count();
+        // すべてのオブジェクトを同じデータで置き換えて区切りの後ろに並べ直し、最後のオブジェクトを除く
+        let changes: Vec<_> = (0..count)
+            .map(|i| file.object_data(i).unwrap().to_vec())
+            .collect();
+        let mut txn = file.transaction();
+        for (i, data) in changes.iter().enumerate() {
+            txn.set_data(i, data).unwrap();
+        }
+        txn.remove(count - 1).unwrap();
+        txn.commit(&mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        let reported = diag.len();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let again = Dwg::read(&out, &mut cx).unwrap();
+        assert_eq!(again.record_count(), count - 1, "{}", path.display());
+        let after = again.objects(&mut cx).unwrap();
+        let removed = before.objects()[count - 1].handle();
+        let kept: Vec<_> = before
+            .objects()
+            .iter()
+            .filter(|o| o.handle() != removed)
+            .collect();
+        assert_eq!(after.objects().len(), kept.len(), "{}", path.display());
+        for (a, b) in kept.iter().zip(after.objects()) {
+            assert_eq!(
+                (&a.kind, &a.values),
+                (&b.kind, &b.values),
+                "{}",
+                path.display()
+            );
+        }
+        let found: Vec<_> = diag.iter().skip(reported).map(|d| d.code()).collect();
+        let first: Vec<_> = diag.iter().take(reported).map(|d| d.code()).collect();
+        // 除いたオブジェクトの診断は出なくなる
+        assert!(
+            found.iter().all(|code| first.contains(code)) && found.len() <= first.len(),
+            "{}",
+            path.display()
+        );
+    }
+}
+
+#[test]
 fn r2000_drawings_take_back_changed_entities() {
     let mut changed = 0;
     for path in dwgs(b"AC1015") {

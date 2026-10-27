@@ -7,6 +7,7 @@
 //! 系統で共有するオブジェクトの表に置く（決定 0023）。
 //!
 //! 書くときは、元のバイトをそのまま並べる。R2000 は、[`DwgTxn`] でオブジェクトのデータを置き換えられ（決定 0028）、[`DwgFile::write_back`] で共有の表の変更を書き戻せる（決定 0029）。
+//! R2004 も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せる（決定 0071）。
 
 use core::ops::Range;
 
@@ -162,6 +163,12 @@ impl DwgFile {
     /// 見出しの区切りの記録
     pub fn locators(&self) -> &[Locator] {
         &self.locators
+    }
+
+    /// `record` 番目のオブジェクトのデータ（大きさ（MS）の後から CRC の前まで）。[`DwgTxn::set_data`] に
+    /// 渡す形と同じ。R2010 からは、ハンドルの流れの大きさ（MC）の後から
+    pub fn object_data(&self, record: usize) -> Option<&[u8]> {
+        self.entries.get(record).map(|entry| self.data(entry))
     }
 
     fn data(&self, entry: &Entry) -> &[u8] {

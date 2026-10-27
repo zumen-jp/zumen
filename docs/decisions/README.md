@@ -78,6 +78,7 @@
 - [0068: DWG（R2000）への書き戻しで足すブロックは、レコードと BLOCK・ENDBLK と図形を揃えて加え、レコードを表のオブジェクトの項目の終わりに足す](0068-dwg-write-back-block-record-addition.md)（2026-10-27、採用）
 - [0069: DWG（R2000）への書き戻しで変えた INSUNITS・PLIMMIN・PLIMMAX は、見出しの変数の区切りの長さを変えずにその場で書き直す](0069-dwg-write-back-header-variables.md)（2026-10-27、採用）
 - [0070: R2004 の入れ物は、置き換えた区切りだけを圧縮し直し、ページを並べ直して地図と見出しを作り直して書く](0070-dwg-r2004-container-write.md)（2026-10-27、採用）
+- [0071: R2004 の DWG の変更は、オブジェクトの区切りの後ろに足し、地図の区切りを作り直して、入れ物の区切りを置き換える](0071-dwg-r2004-object-edit.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

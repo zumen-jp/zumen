@@ -224,7 +224,7 @@ impl DwgFile {
     /// 表 `db` を書き戻す変更
     fn changes(&self, db: &AcadDb, base: &AcadDb) -> Result<Changes, Box<Diagnostic>> {
         if db != base
-            && let Some(diagnostic) = self.edit_unsupported()
+            && let Some(diagnostic) = self.header_unsupported()
         {
             return Err(Box::new(diagnostic));
         }

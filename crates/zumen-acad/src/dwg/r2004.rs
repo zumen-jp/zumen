@@ -92,10 +92,6 @@ impl Container {
     }
 
     /// 名前の区切りを置き換える。読めた区切りがなければ `None`
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "R2004 のオブジェクトの書き換えで使う")
-    )]
     pub(super) fn replace(&mut self, name: &[u8], data: Vec<u8>) -> Option<()> {
         let section = self
             .sections

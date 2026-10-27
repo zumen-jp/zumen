@@ -3463,11 +3463,103 @@ fn invalid_object_changes_are_rejected_without_changing_the_file() {
         let (out, _) = edited(&mut file, &[]);
         assert_eq!(out.unwrap(), src);
     }
-    let mut r2004 = read(&r2004(&r2004_sections()), Limits::default())
-        .0
-        .unwrap();
-    let (result, diag) = edited(&mut r2004, &[(0, first)]);
+    // R2010 から後の版は変えられない
+    let mut sections = r2004_sections();
+    let classes = r2010_classes(false);
+    sections[1] = (
+        b"AcDb:Classes",
+        literal_stream(&classes),
+        classes.len() as u64,
+    );
+    let mut r2010 = r2004(&sections);
+    r2010[..6].copy_from_slice(b"AC1024");
+    let mut r2010 = read(&r2010, Limits::default()).0.unwrap();
+    let (result, diag) = edited(&mut r2010, &[(0, first)]);
     assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
+}
+
+/// オブジェクトを並べた区切りと、それを指すオブジェクトの地図を持つ R2004 の入れ物
+#[cfg(test)]
+fn r2004_with_objects(objects: &[(u64, Vec<u8>)]) -> Vec<u8> {
+    // オブジェクトの区切りは、初めの RL（0x0DCA）の後にオブジェクトを並べる
+    let mut body = 0x0DCAu32.to_le_bytes().to_vec();
+    let mut pairs = Vec::new();
+    let (mut handle, mut location) = (0u64, 0i64);
+    for (h, object) in objects {
+        let offset = body.len() as i64;
+        pairs.extend(modular_char((h - handle) as i64, false));
+        pairs.extend(modular_char(offset - location, true));
+        (handle, location) = (*h, offset);
+        body.extend(object);
+    }
+    let mut map = ((pairs.len() + 2) as u16).to_be_bytes().to_vec();
+    map.extend(&pairs);
+    map.extend(crc16(0xC0C1, &map).to_be_bytes());
+    let mut end = vec![0x00, 0x02];
+    end.extend(crc16(0xC0C1, &end).to_be_bytes());
+    map.extend(end);
+    let mut sections = r2004_sections();
+    sections[2] = (b"AcDb:Handles", literal_stream(&map), map.len() as u64);
+    sections[3] = (
+        b"AcDb:AcDbObjects",
+        literal_stream(&body),
+        body.len() as u64,
+    );
+    r2004(&sections)
+}
+
+#[test]
+fn r2004_objects_are_changed_removed_and_added_in_rebuilt_sections() {
+    let objects = objects_in_sample();
+    // 図形でないオブジェクト（画層の表・画層・クラスで決まる型）だけを置く
+    let kept: Vec<_> = [0, 1, 4].iter().map(|&i| objects[i].clone()).collect();
+    let src = r2004_with_objects(&kept);
+    let (result, diag) = read(&src, Limits::default());
+    let mut file = result.unwrap();
+    assert_eq!(codes_of(&diag), []);
+    assert_eq!(file.record_count(), 3);
+
+    // 画層を、同じハンドルの画層の表に置き換える
+    let renamed = object(0x32, 0x10, |w| w.bl_zero(), |w| w.handle(4, 0));
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let mut txn = file.transaction();
+    txn.set_data(1, &data_of(&renamed)).unwrap();
+    txn.remove(2).unwrap();
+    txn.add(0x30, &data_of(&objects[4].1)).unwrap();
+    txn.commit(&mut cx).unwrap();
+    // 合成の見出しの区切りは変数を持たないので、表を作るときに診断が出る
+    let edited = file.objects(&mut cx).unwrap();
+    let mut out = Vec::new();
+    Dwg::write(&file, &mut out, &mut cx).unwrap();
+    assert_eq!(&out[..6], b"AC1018");
+
+    // 読み直すと、置き換え・除き・足したオブジェクトが地図から読め、表も同じになる
+    let (result, diag) = read(&out, Limits::default());
+    let mut again = result.unwrap();
+    assert_eq!(codes_of(&diag), []);
+    assert_eq!(again.record_count(), 3);
+    let mut diag = Diagnostics::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let read_back = again.objects(&mut cx).unwrap();
+    let handles: Vec<_> = read_back.objects().iter().map(Object::handle).collect();
+    assert_eq!(handles, [Some(2), Some(0x10), Some(0x30)]);
+    assert_eq!(read_back, edited);
+    assert_eq!(read_back.get(0x10).unwrap().kind, b"TABLE");
+
+    // 変えない確定は、元のバイト列を写す
+    let (out, diag) = self::edited(&mut read(&src, Limits::default()).0.unwrap(), &[]);
+    assert_eq!(codes_of(&diag), []);
+    assert_eq!(out.unwrap(), src);
+    // 見出しの変数は、R2004 では変えられない
+    let mut txn = again.transaction();
+    assert_eq!(txn.set_units(4), Err(Error::Rejected));
+    let mut diag = Diagnostics::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    assert_eq!(txn.commit(&mut cx), Err(Error::Rejected));
     assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
 }
 

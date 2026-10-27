@@ -1,4 +1,4 @@
-//! DWG の変更（決定 0028）。R2000 だけを扱う。
+//! DWG の変更（決定 0028）。R2000 と R2004 のオブジェクトを扱う。見出しの変数は R2000 だけを扱う。
 //!
 //! 変えたオブジェクトは、元のファイルの後ろに足し、オブジェクトの地図を作り直してその後ろに置く。
 //! 見出しの区切りの記録の地図の位置と大きさと、見出しの CRC を直す。ほかのバイトは元のまま残す。
@@ -6,6 +6,9 @@
 //!
 //! 足したオブジェクトは、変えたオブジェクトと同じく後ろに足し、地図に加える。見出しの変数の HANDSEED は、
 //! 大きさ（バイト）が変わらないときだけ、その場で書き換えて区切りの CRC を直す（決定 0052）。
+//!
+//! R2004 は、展開した `AcDb:AcDbObjects` の区切りの後ろにオブジェクトを足し、`AcDb:Handles` の区切りを
+//! 作り直して、入れ物の区切りを置き換える（決定 0071）。入れ物は、書くときに組み直す（決定 0070）。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -15,8 +18,8 @@ use zumen_sdk::{Error, Transact, Transaction};
 use super::bits::{Bits, crc16, push_modular_char, push_modular_short};
 use super::header::{self, handle_seed, set_handle_seed, set_values};
 use super::{
-    DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER, Release,
-    header_crc_mask, invalid, stopped,
+    DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER,
+    R2004_SECTIONS, Release, header_crc_mask, invalid, stopped,
 };
 
 /// オブジェクトの地図の 1 つの区切りの、データの大きさの上限。試料の DWG の区切りは、
@@ -99,7 +102,7 @@ impl DwgTxn<'_> {
 
     /// 見出しの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときに失敗する
     pub fn set_handle_seed(&mut self, seed: u64) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.edit_unsupported() {
+        if let Some(diagnostic) = self.file.header_unsupported() {
             return Err(self.reject(diagnostic));
         }
         self.seed = Some(seed);
@@ -109,7 +112,7 @@ impl DwgTxn<'_> {
     /// 見出しの変数の INSUNITS を `units` にする（決定 0069）。大きさ（バイト）が変わる値なら、確定のときに
     /// 失敗する
     pub fn set_units(&mut self, units: i16) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.edit_unsupported() {
+        if let Some(diagnostic) = self.file.header_unsupported() {
             return Err(self.reject(diagnostic));
         }
         self.units = Some(units);
@@ -118,7 +121,7 @@ impl DwgTxn<'_> {
 
     /// 見出しの変数の、用紙空間の PLIMMIN と PLIMMAX（X・Y の順）を `limits` にする（決定 0069）
     pub fn set_paper_limits(&mut self, limits: [f64; 4]) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.edit_unsupported() {
+        if let Some(diagnostic) = self.file.header_unsupported() {
             return Err(self.reject(diagnostic));
         }
         self.limits = Some(limits);
@@ -152,7 +155,16 @@ impl Transaction for DwgTxn<'_> {
         cx.check(Kind::Work, work as u64)
             .map_err(|stop| stopped(cx, stop))?;
         let file = self.file;
-        let mut src = file.src.clone();
+        // R2000 はファイル全体、R2004 は展開したオブジェクトの区切りの後ろに足す
+        let mut container = file.container.clone();
+        let mut src = match &container {
+            Some(container) => container
+                .section(R2004_SECTIONS[3])
+                .unwrap_or_default()
+                .to_vec(),
+            None => file.src.clone(),
+        };
+        let objects_changed = !self.staged.is_empty() || !self.added.is_empty();
         let mut entries = file.entries.clone();
         let header = file
             .locators
@@ -185,6 +197,21 @@ impl Transaction for DwgTxn<'_> {
             .filter(|(record, _)| !self.removed.contains(record))
             .map(|(_, entry)| entry)
             .collect();
+        if let Some(mut container) = container.take() {
+            let mut map = Vec::new();
+            push_object_map(&mut map, &entries);
+            if objects_changed {
+                container
+                    .replace(R2004_SECTIONS[3], src)
+                    .ok_or_else(|| invalid(cx, "section", 0..6))?;
+            }
+            container
+                .replace(R2004_SECTIONS[2], map)
+                .ok_or_else(|| invalid(cx, "section", 0..6))?;
+            file.container = Some(container);
+            file.entries = entries;
+            return Ok(());
+        }
         let map = src.len();
         push_object_map(&mut src, &entries);
         let size = src.len() - map;
@@ -215,9 +242,18 @@ impl Transaction for DwgTxn<'_> {
 }
 
 impl DwgFile {
-    /// この版の DWG を変えられなければ、その診断
+    /// この版の DWG のオブジェクトを変えられなければ、その診断。R2000 と R2004 を変えられる（決定 0071）
     pub(super) fn edit_unsupported(&self) -> Option<Diagnostic> {
-        (self.release != Release::R2000).then(|| {
+        self.unsupported(self.release > Release::R2004)
+    }
+
+    /// この版の DWG の見出しの変数を変えられず、共有の表から書き戻せなければ、その診断。R2000 だけを扱う
+    pub(super) fn header_unsupported(&self) -> Option<Diagnostic> {
+        self.unsupported(self.release != Release::R2000)
+    }
+
+    fn unsupported(&self, unsupported: bool) -> Option<Diagnostic> {
+        unsupported.then(|| {
             let version = String::from_utf8_lossy(self.version()).into_owned();
             Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", version)
         })
