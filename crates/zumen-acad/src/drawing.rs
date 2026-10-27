@@ -1,6 +1,6 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0111）。いまは ENTITIES の
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0112）。いまは ENTITIES の
 //! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
-//! 図形の色・線種・線幅と、空間の描く順だけを移す。
+//! BLOCKS の BLOCK（と、その中身と ATTDEF）を記号の定義にし、図形の色・線種・線幅と、空間の描く順を移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
@@ -19,15 +19,15 @@ use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Arrowhead, Attribute, AttributeValue, Axis, Background, BackgroundFill, Boundary,
-    Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem, Dimension, DimensionKind,
-    DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element, Fill, Fit, Flow,
-    FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit,
-    Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
-    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, ModelSpace,
-    PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin,
-    Placement, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, Style,
-    Symbol, SymbolKey, Text, Unit, Vertex, Vertical, View,
+    Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
+    BackgroundFill, Boundary, Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem,
+    Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element,
+    Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
+    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
+    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Placement, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId,
+    Spline, Style, Symbol, SymbolDefinition, SymbolKey, Text, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -76,6 +76,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         unicode: version.is_some_and(|v| v >= UTF8),
         fit_data: version.is_some_and(|v| v >= FIT_DATA),
         mm: unit.millimeters(),
+        unit,
         origin: limits(b"$PLIMMIN").unwrap_or_default(),
     };
     let mut out = Out::default();
@@ -104,21 +105,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         .collect();
     let (attributes, owned) = attached(&entities);
     for (index, object) in entities.iter().enumerate() {
-        // 書式つきの文字は、内容の 250 バイトの区切り（3）ごとにも数える
-        // 曲線は、頂点・制御点・当てはめる点・節点（10・11・40）ごとにも数える
-        let count = |codes: &[i16]| {
-            object
-                .values
-                .iter()
-                .filter(|value| codes.contains(&value.code))
-                .count() as u64
-        };
-        let chunks = match object.kind.as_slice() {
-            b"MTEXT" | b"ATTRIB" => count(&[3]),
-            b"LWPOLYLINE" | b"SPLINE" => count(&[10, 11, 40]),
-            _ => 0,
-        };
-        work(cx, 1 + chunks)?;
+        work(cx, amount(object))?;
         if owned.contains(&index) {
             continue;
         }
@@ -135,6 +122,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             cx.report((*diagnostic).at(source));
         }
     }
+    let symbols = lifter.definitions(db, &mut out, cx)?;
     let [model_keys, paper_keys] = lifter.sort_keys(db, cx)?;
     // 見出しの $LTSCALE と、1/100 mm の $LWDEFAULT（DXF Reference「HEADER Section Group Codes」）
     let line_type_scale = db
@@ -153,6 +141,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         line_type_scale,
         default_line_weight,
         dimension_styles: out.dimension_styles,
+        symbols,
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -184,6 +173,29 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         });
     }
     Ok(drawing)
+}
+
+/// 図形 1 つの作業量。書式つきの文字は、内容の 250 バイトの区切り（3）ごとにも数える。曲線は、頂点・制御点・
+/// 当てはめる点・節点（10・11・40）ごとにも数える
+fn amount(object: &Object) -> u64 {
+    let count = |codes: &[i16]| {
+        object
+            .values
+            .iter()
+            .filter(|value| codes.contains(&value.code))
+            .count() as u64
+    };
+    1 + match object.kind.as_slice() {
+        b"MTEXT" | b"ATTRIB" | b"ATTDEF" => count(&[3]),
+        b"LWPOLYLINE" | b"SPLINE" => count(&[10, 11, 40]),
+        _ => 0,
+    }
+}
+
+/// 用紙とモデルの空間のブロック。中身は空間の図形として移すので、記号の定義にしない
+fn layout_block(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("*model_space") || name.starts_with("*paper_space")
 }
 
 /// 決まった作業量を数え、上限を超えたら止める（決定 0010）
@@ -324,6 +336,8 @@ struct Lifter {
     unicode: bool,
     /// 2010 以降の版なら、DXF の HATCH の SPLINE の辺は当てはめる点（97）を持つ
     fit_data: bool,
+    /// 文書の長さの単位。記号の定義の空間も、この単位とする
+    unit: Unit,
     /// 1 単位の mm の数。不明なら `None`
     mm: Option<f64>,
     /// 用紙の原点（`$PLIMMIN`、図面の単位）
@@ -402,6 +416,218 @@ impl Lifter {
             }
         }
         Ok(())
+    }
+
+    /// BLOCKS の節の BLOCK を、記号の定義にする（決定 0112）。中身は、所有者（330）をたどって着くブロックの
+    /// レコードの BLOCK のもの、所有者が分からなければ、並びの中で前の BLOCK から ENDBLK までのものとする。
+    /// 名前は BLOCK の 2、なければブロックのレコードの 2。基点は 10、印（70）の 1 は名前のない定義、4 は外部参照
+    /// で、そのパス（1）を持つ。名前が `*` で始まるものも名前のない定義とする（推定。DWG の読み手は 70 を置かない）。
+    /// 空間のブロック（`*Model_Space`・`*Paper_Space`）は移さない。中身の SORTENTSTABLE は、まだ読まない
+    fn definitions(
+        &self,
+        db: &AcadDb,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Result<Vec<SymbolDefinition>, Error> {
+        let objects: Vec<&Object> = db
+            .objects()
+            .iter()
+            .filter(|object| object.section == Section::Blocks)
+            .collect();
+        let starts: Vec<usize> = objects
+            .iter()
+            .enumerate()
+            .filter(|(_, object)| object.kind == b"BLOCK")
+            .map(|(index, _)| index)
+            .collect();
+        let by_record: BTreeMap<u64, usize> = starts
+            .iter()
+            .enumerate()
+            .filter_map(|(at, index)| Some((objects.get(*index)?.owner()?, at)))
+            .collect();
+        let owners: BTreeMap<u64, Option<u64>> = objects
+            .iter()
+            .filter_map(|object| Some((object.handle()?, object.owner())))
+            .collect();
+        let mut members: Vec<Vec<&Object>> = vec![Vec::new(); starts.len()];
+        let mut open = None;
+        for object in &objects {
+            work(cx, 1)?;
+            match object.kind.as_slice() {
+                b"BLOCK" => {
+                    open = starts.iter().position(|index| {
+                        objects
+                            .get(*index)
+                            .is_some_and(|o| std::ptr::eq(*o, *object))
+                    });
+                    continue;
+                }
+                b"ENDBLK" => {
+                    open = None;
+                    continue;
+                }
+                _ => {}
+            }
+            // 所有者が図形（ATTRIB の INSERT など）なら、その所有者へ。輪は数えて止める
+            let mut owner = object.owner();
+            let mut at = None;
+            for _ in 0..=owners.len() {
+                let Some(handle) = owner else { break };
+                if let Some(found) = by_record.get(&handle) {
+                    at = Some(*found);
+                    break;
+                }
+                owner = owners.get(&handle).copied().flatten();
+            }
+            match at.or(open).and_then(|at| members.get_mut(at)) {
+                Some(group) => group.push(object),
+                None => cx.report((*invalid(&object.kind, 330)).at(source(object))),
+            }
+        }
+        let mut symbols = Vec::new();
+        for (at, (index, members)) in starts.iter().zip(members).enumerate() {
+            let Some(block) = objects.get(*index).copied() else {
+                continue;
+            };
+            let space = SpaceId(u32::try_from(at).unwrap_or(u32::MAX).saturating_add(1));
+            if let Some(symbol) = self.definition(db, block, space, &members, out, cx)? {
+                symbols.push(symbol);
+            }
+        }
+        Ok(symbols)
+    }
+
+    /// BLOCK と中身の図形を、空間 `space` の記号の定義にする。空間のブロックなら `None`。中身の図形のうち
+    /// 移せないものは、その図形を指す診断を返し、定義は移す
+    fn definition(
+        &self,
+        db: &AcadDb,
+        block: &Object,
+        space: SpaceId,
+        members: &[&Object],
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Result<Option<SymbolDefinition>, Error> {
+        let kind = block.kind.as_slice();
+        let record = block
+            .owner()
+            .and_then(|owner| db.get(owner))
+            .filter(|record| record.kind == b"BLOCK_RECORD");
+        let name = match self.string(block, 2) {
+            Ok(Some(name)) => Some(name),
+            Ok(None) => record.and_then(|record| self.string(record, 2).ok().flatten()),
+            Err(diagnostic) => {
+                cx.report((*diagnostic).at(source(block)));
+                return Ok(None);
+            }
+        };
+        let Some(name) = name else {
+            cx.report((*invalid(kind, 2)).at(source(block)));
+            return Ok(None);
+        };
+        if layout_block(&name) {
+            return Ok(None);
+        }
+        let point = |x: f64, y: f64| ModelPoint { space, x, y };
+        let length = |value: f64| Length::Model(ModelLength { space, value });
+        let head = (|| -> Lifted<_> {
+            let base = match block.first(10) {
+                Some(_) => Some(self.planar_point(block, 10, &point)?),
+                None => None,
+            };
+            let flags = self.int(block, 70, 0)?;
+            let external = if flags & 4 != 0 {
+                Some(self.string(block, 1)?.unwrap_or_default())
+            } else {
+                None
+            };
+            Ok((base, flags & 1 != 0 || name.starts_with('*'), external))
+        })();
+        let (base, anonymous, external) = match head {
+            Ok(head) => head,
+            Err(diagnostic) => {
+                cx.report((*diagnostic).at(source(block)));
+                return Ok(None);
+            }
+        };
+        let (attached, owned) = attached(members);
+        let mut elements = Vec::new();
+        let mut attributes = Vec::new();
+        for (index, object) in members.iter().enumerate() {
+            work(cx, amount(object))?;
+            if owned.contains(&index) {
+                continue;
+            }
+            let source = source(object);
+            let lifted = match object.kind.as_slice() {
+                b"ATTDEF" => self
+                    .attribute_definition(object, &point, &length, out)
+                    .map(|definition| attributes.push(definition)),
+                b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
+                | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH" => {
+                    let inserted: Vec<&Object> = attached
+                        .get(&index)
+                        .map_or(&[][..], Vec::as_slice)
+                        .iter()
+                        .filter_map(|at| members.get(*at).copied())
+                        .collect();
+                    self.element(
+                        db,
+                        object,
+                        source.clone(),
+                        &inserted,
+                        point,
+                        length,
+                        out,
+                        cx,
+                    )
+                    .map(|element| elements.push(element))
+                }
+                kind => Err(Box::new(
+                    Diagnostic::new(codes::DXF_LIFT_DROPPED).with("kind", text(kind)),
+                )),
+            };
+            if let Err(diagnostic) = lifted {
+                cx.report((*diagnostic).at(source));
+            }
+        }
+        Ok(Some(SymbolDefinition {
+            key: SymbolKey {
+                namespace: BLOCK,
+                name,
+            },
+            space: ModelSpace {
+                id: space,
+                unit: self.unit,
+                order: (0..elements.len()).collect(),
+                elements,
+            },
+            base,
+            attributes,
+            anonymous,
+            external,
+            source: source(block),
+        }))
+    }
+
+    /// ATTDEF（DXF Reference「ATTDEF」）。ATTRIB と同じ欄に、値を尋ねる文（3）を持つ。印（70）の 1 は表示しない、
+    /// 2 は値が決まっている、4 は確かめる、8 は尋ねない
+    fn attribute_definition(
+        &self,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> ModelPoint,
+        length: &impl Fn(f64) -> Length,
+        out: &mut Out,
+    ) -> Lifted<AttributeDefinition> {
+        let attribute = self.attribute(object, point, length, out)?;
+        let flags = self.int(object, 70, 0)?;
+        Ok(AttributeDefinition {
+            attribute,
+            prompt: self.string(object, 3)?.unwrap_or_default(),
+            constant: flags & 2 != 0,
+            verify: flags & 4 != 0,
+            preset: flags & 8 != 0,
+        })
     }
 
     /// 図形を要素にする。INSERT の属性のうち移せないものは、属性の出所を指す診断を返し、INSERT は移す

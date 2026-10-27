@@ -119,6 +119,7 @@
 - [0109: 図面モデルの書式つきの文字を、元の内容と書式の区間に分けて持つ](0109-drawing-formatted-text.md)（2026-10-27、採用）
 - [0110: 図面モデルの引出線つきの注記を枝と注記の組で持ち、寸法値の文字を区間に分ける](0110-drawing-callouts-and-dimension-text.md)（2026-10-27、採用）
 - [0111: 図面モデルの曲線を元の定義のまま持ち、線分に近似しない](0111-drawing-curves.md)（2026-10-27、採用）
+- [0112: 図面モデルの記号の定義を、定義ごとの空間に持つ](0112-drawing-symbol-definitions.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
