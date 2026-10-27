@@ -512,3 +512,24 @@ params = { code = "int" }
 group-by = ["code"]
 since = "0.0.0"
 status = "active"
+
+# SXF の交換構造（決定 0120）
+
+[codes."sxf.file.invalid"]
+description = "ISO 10303-21 の始まり・DATA の節・終わりのどれかがない"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."sxf.schema.unsupported"]
+description = "FILE_SCHEMA が SXF の図面のスキーマ（ASSOCIATIVE_DRAUGHTING）でない"
+severity = "error"
+params = { schema = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."sxf.record.invalid"]
+description = "文かフィーチャのコメントの形が読めないので、レコードにせずに、次の文から読んだ"
+severity = "warning"
+since = "0.0.0"
+status = "active"

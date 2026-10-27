@@ -149,3 +149,4 @@
 - [0117: 要素の一覧を返す entities の op は、空間と出所で作る ID と、offset と limit で続きを読む](0117-entities-op.md)（2026-10-28、採用）
 - [0118: entities の範囲は形の定義から求め、欄は fields で選び、region で範囲の重なる要素に絞る](0118-entities-bbox-fields-region.md)（2026-10-28、採用）
 - [0119: 予算で止めた診断は、止めたときに扱っていたレコードかバイト範囲を場所に持つ](0119-budget-stop-place.md)（2026-10-28、採用）
+- [0120: SXF の L1 は、ISO 10303-21 の文と SFC のフィーチャのコメントを、元のバイト範囲のままレコードにする](0120-sxf-l1-exchange-structure.md)（2026-10-28、採用）
