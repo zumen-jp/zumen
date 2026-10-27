@@ -1,20 +1,20 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
 //! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
-//! 記号と属性・ハッチング・E8 の曲線と記号の定義を試す。
+//! 記号と属性・ハッチング・E8 の曲線と記号の定義・E10 の表と表題欄を試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Axis, Background, BackgroundFill, Boundary, Branch, CalloutContent, Color,
-    ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
-    Drawing2D, Edge, Element, Fill, Fit, Flow, Format, FormattedText, Gradient, Grid, Hatch,
-    HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId,
-    LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId, LineWeight, Measured,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Piece, Placement, Polyline, Rotation, Shape, SheetId, SheetItem, SpaceId, Span,
-    Spline, Style, SymbolKey, Text, Unit, Vertex, Vertical,
+    Arrowhead, Axis, Background, BackgroundFill, Boundary, Branch, CalloutContent, Cell,
+    CellContent, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle,
+    DimensionText, Dogleg, Drawing2D, Edge, Element, Fill, Fit, Flow, Format, FormattedText,
+    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
+    Layer, LayerId, LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId,
+    LineWeight, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern,
+    PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Rotation, Shape, SheetId,
+    SheetItem, SpaceId, Span, Spline, Style, SymbolKey, Table, Text, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -3043,5 +3043,232 @@ fn e9_symbol_definitions_that_cannot_be_read_are_reported() {
                 record(7)
             ),
         ]
+    );
+}
+
+/// 行の高さ・列の幅とセルを持つ ACAD_TABLE
+fn table(sizes: &[(i16, &'static str)], cells: &[(i16, &'static str)]) -> Vec<(i16, &'static str)> {
+    let mut tags = vec![
+        (100, "AcDbBlockReference"),
+        (2, "*T1"),
+        (10, "0.0"),
+        (20, "100.0"),
+        (100, "AcDbTable"),
+        (280, "0"),
+        (11, "1.0"),
+        (21, "0.0"),
+        (90, "22"),
+    ];
+    tags.extend_from_slice(sizes);
+    tags.extend_from_slice(cells);
+    entity("ACAD_TABLE", &tags)
+}
+
+#[test]
+fn e10_tables_keep_rows_columns_merges_and_contents() {
+    let sizes = [
+        (91, "2"),
+        (92, "2"),
+        (93, "0"),
+        (141, "10.0"),
+        (141, "8.0"),
+        (142, "30.0"),
+        (142, "20.0"),
+    ];
+    let cells = [
+        // 2 列に広げた見出し。セルの中の 91 は、行の数ではない
+        (171, "1"),
+        (172, "0"),
+        (173, "0"),
+        (175, "2"),
+        (176, "1"),
+        (91, "0"),
+        (1, "PARTS"),
+        (7, "Standard"),
+        (140, "2.5"),
+        // 見出しに覆われる
+        (171, "1"),
+        (173, "1"),
+        (175, "1"),
+        (176, "1"),
+        (171, "1"),
+        (2, "BO"),
+        (1, "LT"),
+        // 2007 からの値の文字
+        (171, "1"),
+        (301, "CELL_VALUE"),
+        (93, "6"),
+        (90, "4"),
+        (302, "M8"),
+        (304, "ACVALUE_END"),
+    ];
+    let (drawing, diag) = lift(&dxf(MM, &table(&sizes, &cells)), &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let text = |content: &str| CellContent::Text {
+        content: content.to_owned(),
+        spans: vec![span(Piece::Text(content.to_owned()), Format::default())],
+    };
+    let cell = |content, span, covered| Cell {
+        content,
+        span,
+        covered,
+    };
+    assert_eq!(
+        model_shapes(&drawing.unwrap()),
+        [Shape::Table(Table {
+            position: at(0.0, 100.0),
+            direction: [1.0, 0.0],
+            row_heights: vec![model(10.0), model(8.0)],
+            column_widths: vec![model(30.0), model(20.0)],
+            cells: vec![
+                cell(text("PARTS"), [2, 1], false),
+                cell(CellContent::Empty, [1, 1], true),
+                cell(text("BOLT"), [1, 1], false),
+                cell(text("M8"), [1, 1], false),
+            ],
+            style: None,
+            drawn: Some(block("*T1")),
+        })]
+    );
+}
+
+#[test]
+fn e10_table_cells_can_hold_symbols() {
+    let record = [(0, "BLOCK_RECORD"), (5, "B1"), (2, "MARK")];
+    let entities = table(
+        &[(91, "1"), (92, "1"), (141, "5.0"), (142, "5.0")],
+        &[(171, "2"), (340, "B1")],
+    );
+    let src = sections(&[("HEADER", MM), ("TABLES", &record), ("ENTITIES", &entities)]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    match model_shapes(&drawing.unwrap()).as_slice() {
+        [Shape::Table(table)] => assert_eq!(
+            table.cells,
+            [Cell {
+                content: CellContent::Symbol(block("MARK")),
+                span: [1, 1],
+                covered: false,
+            }]
+        ),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn e10_title_blocks_keep_the_item_and_the_shown_value_apart() {
+    // DXF は表題欄の役割を持たないので、属性を持つ記号のまま持ち、表題欄と推定しない
+    let blocks = [
+        entity(
+            "BLOCK",
+            &[(2, "TITLE"), (70, "2"), (10, "0.0"), (20, "0.0")],
+        ),
+        entity(
+            "ATTDEF",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (40, "3.5"),
+                (1, ""),
+                (2, "DWG_NO"),
+                (3, "図面番号"),
+                (70, "0"),
+            ],
+        ),
+        entity("ENDBLK", &[]),
+    ]
+    .concat();
+    let entities = [
+        entity(
+            "INSERT",
+            &[(66, "1"), (2, "TITLE"), (10, "380.0"), (20, "10.0")],
+        ),
+        entity(
+            "ATTRIB",
+            &[
+                (10, "390.0"),
+                (20, "12.0"),
+                (40, "3.5"),
+                (1, "A-101"),
+                (2, "DWG_NO"),
+                (70, "0"),
+            ],
+        ),
+        entity("SEQEND", &[]),
+    ]
+    .concat();
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1021")]].concat();
+    let src = sections(&[
+        ("HEADER", &header),
+        ("BLOCKS", &blocks),
+        ("ENTITIES", &entities),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let shapes = model_shapes(&drawing);
+    let [Shape::Symbol(title)] = shapes.as_slice() else {
+        panic!("{shapes:?}");
+    };
+    let [value] = title.attributes.as_slice() else {
+        panic!("{:?}", title.attributes);
+    };
+    assert_eq!(
+        (value.tag.as_str(), value.text.content.as_str()),
+        ("DWG_NO", "A-101")
+    );
+    let [item] = drawing.symbol(&title.key).unwrap().attributes.as_slice() else {
+        panic!();
+    };
+    assert_eq!(
+        (item.attribute.tag.as_str(), item.prompt.as_str()),
+        ("DWG_NO", "図面番号")
+    );
+}
+
+#[test]
+fn e9_tables_that_cannot_be_read_are_reported() {
+    let entities = [
+        // AcDbTable の印がない
+        entity("ACAD_TABLE", &[(10, "0.0"), (20, "0.0")]),
+        // 行の高さの数が合わない
+        table(
+            &[(91, "2"), (92, "1"), (141, "5.0"), (142, "5.0")],
+            &[(171, "1"), (171, "1")],
+        ),
+        // セルの数が合わない
+        table(
+            &[
+                (91, "1"),
+                (92, "2"),
+                (141, "5.0"),
+                (142, "5.0"),
+                (142, "5.0"),
+            ],
+            &[(171, "1")],
+        ),
+        // 結合して広げる数が 0
+        table(
+            &[(91, "1"), (92, "1"), (141, "5.0"), (142, "5.0")],
+            &[(171, "1"), (175, "0")],
+        ),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert_eq!(drawing.unwrap().spaces[0].elements, []);
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    let invalid = |code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text(\"ACAD_TABLE\") Int({code})"),
+            1,
+        )
+    };
+    assert_eq!(
+        params,
+        [invalid(100), invalid(141), invalid(171), invalid(175)]
     );
 }

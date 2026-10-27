@@ -13,11 +13,11 @@
 //! 符号から RGB への表はプロファイル（#9）に置くので、ここでは引かない。レイヤからの継承は
 //! [`Drawing2D::color_of`] などで解き、解けない継承は継承のまま返す。
 //!
-//! 要素は、いまは線分・円・曲線・折れ線・文字・寸法・引出線・記号・ハッチングだけ。寸法は、種類と定義点・保存された測定値・
+//! 要素は、いまは線分・円・曲線・折れ線・文字・寸法・引出線・記号・ハッチング・表だけ。寸法は、種類と定義点・保存された測定値・
 //! 文字の上書きを別に持つ（[`Dimension`]）。引出線は経路を持ち、注記の要素を出所で指す（[`Leader`]）。
 //! 寸法と引出線の端部記号は、図面の寸法スタイルの表（[`DimensionStyle`]）に置く。記号は、定義を名前空間付きの
 //! キー（[`SymbolKey`]）で指し、配置と属性を持つ（[`Symbol`]）。定義の中身は、定義ごとの空間に置く（[`SymbolDefinition`]）。ハッチングは、境界の輪と、塗り・パターン・
-//! グラデーションの区別を持つ（[`Hatch`]）。表・下敷きなどは #28 で足す。
+//! グラデーションの区別を持つ（[`Hatch`]）。表は、行と列の大きさとセルの結合・内容を持つ（[`Table`]）。下敷きなどは #28 で足す。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。
 
 use zumen_base::Ref;
@@ -485,6 +485,8 @@ pub enum Shape<P> {
     Leader(Leader<P>),
     /// 引出線つきの注記（バルーンを含む）
     Callout(Callout<P>),
+    /// 表
+    Table(Table<P>),
     /// 記号
     Symbol(Symbol<P>),
     /// ハッチング
@@ -647,6 +649,53 @@ pub struct Leader<P> {
     pub annotation: Option<Ref>,
     /// 元の寸法スタイルの名前
     pub style: String,
+}
+
+/// 表（決定 0113）。行と列の大きさとセルを持つ。表を線と文字で描いた記号の定義は、表示のための構成要素として
+/// 指し、表の意味はセルが持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct Table<P> {
+    /// 挿入点
+    pub position: P,
+    /// 行の向き（横の向きのベクトル）
+    pub direction: [f64; 2],
+    /// 行の高さ。上の行から
+    pub row_heights: Vec<Length>,
+    /// 列の幅。左の列から
+    pub column_widths: Vec<Length>,
+    /// セル。上の行から、行ごとに左の列から並べる。数は行の数と列の数の積
+    pub cells: Vec<Cell>,
+    /// 元の表のスタイル
+    pub style: Option<Ref>,
+    /// 表を線と文字で描いた記号の定義
+    pub drawn: Option<SymbolKey>,
+}
+
+/// 表のセル
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cell {
+    /// 内容
+    pub content: CellContent,
+    /// 結合して広げる列と行の数。結合しなければ `[1, 1]`
+    pub span: [u32; 2],
+    /// ほかのセルに結合されて覆われる
+    pub covered: bool,
+}
+
+/// セルの内容
+#[derive(Clone, Debug, PartialEq)]
+pub enum CellContent {
+    /// 空
+    Empty,
+    /// 書式の符号を含む元の文字列と、その区間
+    Text {
+        /// 元の内容
+        content: String,
+        /// 書式の区間
+        spans: Vec<Span>,
+    },
+    /// 記号の定義
+    Symbol(SymbolKey),
 }
 
 /// 引出線つきの注記。枝と注記を 1 つの要素に持つ。注記の記号は、バルーンなどの囲みを表す（決定 0110）
