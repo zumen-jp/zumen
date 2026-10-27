@@ -3247,6 +3247,121 @@ fn tables_dimensions_and_styles_report_blocks_without_definitions() {
 }
 
 #[test]
+fn old_polylines_become_polylines() {
+    let vertex = |tags: &[(i16, &'static str)]| entity("VERTEX", tags);
+    let polyline = |flags: &'static str,
+                    extra: &[(i16, &'static str)],
+                    vertices: &[Vec<(i16, &'static str)>]| {
+        let mut tags = vec![(66, "1"), (10, "0.0"), (20, "0.0"), (70, flags)];
+        tags.extend_from_slice(extra);
+        let mut all = entity("POLYLINE", &tags);
+        for v in vertices {
+            all.extend(v.iter().copied());
+        }
+        all.extend(entity("SEQEND", &[]));
+        all
+    };
+    let entities = [
+        // 閉じていて、最初の頂点だけが幅と膨らみを持つ。既定の幅（40）は使わない
+        polyline(
+            "1",
+            &[(40, "9.0")],
+            &[
+                vertex(&[
+                    (10, "0.0"),
+                    (20, "0.0"),
+                    (40, "1.0"),
+                    (41, "2.0"),
+                    (42, "1.0"),
+                ]),
+                vertex(&[(10, "10.0"), (20, "0.0")]),
+                vertex(&[(10, "10.0"), (20, "10.0")]),
+            ],
+        ),
+        // どの頂点も同じ幅なので、一定の幅にする
+        polyline(
+            "0",
+            &[],
+            &[
+                vertex(&[(10, "0.0"), (20, "0.0"), (40, "0.5"), (41, "0.5")]),
+                vertex(&[(10, "1.0"), (20, "1.0"), (40, "0.5"), (41, "0.5")]),
+            ],
+        ),
+        // Z が 0 の 3D の折れ線
+        polyline(
+            "8",
+            &[],
+            &[
+                vertex(&[(10, "0.0"), (20, "0.0"), (30, "0.0"), (70, "32")]),
+                vertex(&[(10, "2.0"), (20, "3.0"), (30, "0.0"), (70, "32")]),
+            ],
+        ),
+        // 曲線で当てはめたものと、網は移さない
+        polyline("2", &[], &[vertex(&[(10, "0.0"), (20, "0.0")])]),
+        polyline("16", &[(71, "2"), (72, "2")], &[]),
+        // 標高か頂点の Z が 0 でない
+        polyline("0", &[(30, "1.0")], &[vertex(&[(10, "0.0"), (20, "0.0")])]),
+        polyline(
+            "8",
+            &[],
+            &[vertex(&[(10, "0.0"), (20, "0.0"), (30, "1.0")])],
+        ),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    assert_eq!(
+        params,
+        [
+            (codes::DXF_LIFT_DROPPED, r#"Text("POLYLINE")"#.to_owned(), 2),
+            (
+                codes::DXF_NON_PLANAR_DROPPED,
+                r#"Text("POLYLINE")"#.to_owned(),
+                2
+            ),
+        ]
+    );
+    let corner = |x, y, bulge| Vertex {
+        point: at(x, y),
+        bulge,
+    };
+    assert_eq!(
+        model_shapes(&drawing.unwrap()),
+        [
+            Shape::Polyline(Polyline {
+                vertices: vec![
+                    corner(0.0, 0.0, 1.0),
+                    corner(10.0, 0.0, 0.0),
+                    corner(10.0, 10.0, 0.0),
+                ],
+                closed: true,
+                width: None,
+                vertex_widths: vec![
+                    [model(1.0), model(2.0)],
+                    [model(0.0), model(0.0)],
+                    [model(0.0), model(0.0)],
+                ],
+            }),
+            Shape::Polyline(Polyline {
+                vertices: vec![corner(0.0, 0.0, 0.0), corner(1.0, 1.0, 0.0)],
+                closed: false,
+                width: Some(model(0.5)),
+                vertex_widths: Vec::new(),
+            }),
+            Shape::Polyline(Polyline {
+                vertices: vec![corner(0.0, 0.0, 0.0), corner(2.0, 3.0, 0.0)],
+                closed: false,
+                width: None,
+                vertex_widths: Vec::new(),
+            }),
+        ]
+    );
+}
+
+#[test]
 fn e10_tables_keep_rows_columns_merges_and_contents() {
     let sizes = [
         (91, "2"),

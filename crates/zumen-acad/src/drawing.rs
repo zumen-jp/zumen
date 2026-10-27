@@ -1,5 +1,5 @@
 //! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0116）。いまは ENTITIES の
-//! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・ACAD_TABLE・IMAGE・PDFUNDERLAY など・VIEWPORT と、画層・線種・寸法スタイルの表と、
+//! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・POLYLINE（と、その VERTEX）・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・ACAD_TABLE・IMAGE・PDFUNDERLAY など・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! BLOCKS の BLOCK（と、その中身と ATTDEF）を記号の定義にし、図形の色・線種・線幅と、空間の描く順を移す。
 //! 図形の XDATA は、読んだときの図形の値とともに形式固有の情報にする。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
@@ -375,9 +375,10 @@ fn arrange<T>(keys: Option<&SortKeys>, items: Vec<(T, Option<u64>)>, cx: &mut Cx
     keyed.into_iter().map(|(_, item)| item).collect()
 }
 
-/// INSERT の属性（ATTRIB）と終わりの印（SEQEND）。所有者（330）が INSERT を指すもの、所有者がないか図形でない
-/// ものは、属性が続く（66 = 1）INSERT の後に並ぶものを、その INSERT のものとする（DXF Reference「INSERT」）。
-/// INSERT の添字から ATTRIB の添字への対応と、INSERT のものとした添字を返す
+/// INSERT の属性（ATTRIB）と POLYLINE の頂点（VERTEX）と、終わりの印（SEQEND）。所有者（330）が INSERT か
+/// POLYLINE を指すもの、所有者がないか図形でないものは、続く印（66 = 1）を持つ INSERT か POLYLINE の後に並ぶ
+/// ものを、そのもののとする（DXF Reference「INSERT」「POLYLINE」）。INSERT と POLYLINE の添字から ATTRIB と
+/// VERTEX の添字への対応と、どれかのものとした添字を返す
 fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
     let by_handle: BTreeMap<u64, usize> = entities
         .iter()
@@ -389,19 +390,24 @@ fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usiz
     let mut open = None;
     for (index, object) in entities.iter().enumerate() {
         match object.kind.as_slice() {
-            b"INSERT" => {
+            b"INSERT" | b"POLYLINE" => {
                 open = matches!(object.first(66), Some(Data::Int(1) | Data::Bool(true)))
                     .then_some(index);
             }
-            kind @ (b"ATTRIB" | b"SEQEND") => {
+            kind @ (b"ATTRIB" | b"VERTEX" | b"SEQEND") => {
+                let expected = |parent: &[u8]| match kind {
+                    b"ATTRIB" => parent == b"INSERT",
+                    b"VERTEX" => parent == b"POLYLINE",
+                    _ => parent == b"INSERT" || parent == b"POLYLINE",
+                };
                 let parent = object
                     .owner()
                     .and_then(|owner| by_handle.get(&owner).copied())
                     .or(open)
-                    .filter(|parent| entities.get(*parent).is_some_and(|o| o.kind == b"INSERT"));
+                    .filter(|parent| entities.get(*parent).is_some_and(|o| expected(&o.kind)));
                 if let Some(parent) = parent {
                     owned.insert(index);
-                    if kind == b"ATTRIB" {
+                    if kind != b"SEQEND" {
                         attributes.entry(parent).or_default().push(index);
                     }
                 }
@@ -542,7 +548,8 @@ impl Lifter {
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
             | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
-            | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY" => {
+            | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
+            | b"POLYLINE" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -812,7 +819,8 @@ impl Lifter {
                     .map(|definition| attributes.push(definition)),
                 b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
                 | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
-                | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY" => {
+                | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
+                | b"POLYLINE" => {
                     let inserted: Vec<&Object> = attached
                         .get(&index)
                         .map_or(&[][..], Vec::as_slice)
@@ -1203,7 +1211,13 @@ impl Lifter {
         out: &mut Out,
         cx: &mut Cx,
     ) -> Lifted<Element<P>> {
-        let mut shape = self.shape(db, object, &point, &length)?;
+        // POLYLINE は、続く VERTEX（`attributes`）を頂点にする
+        let mut shape = if object.kind == b"POLYLINE" {
+            self.planar(object)?;
+            Shape::Polyline(self.polyline(object, attributes, &point, &length)?)
+        } else {
+            self.shape(db, object, &point, &length)?
+        };
         let style = self.style(object, out)?;
         let layer = self.layer(object, out)?;
         if let Shape::Symbol(symbol) = &mut shape {
@@ -2512,6 +2526,71 @@ impl Lifter {
         Ok(Polyline {
             vertices,
             closed: self.int(object, 70, 0)? & 1 != 0,
+            width,
+            vertex_widths,
+        })
+    }
+
+    /// 古い POLYLINE と、その VERTEX（DXF Reference「POLYLINE」「VERTEX」）。印（70）の 1 は閉じている、8 は 3D
+    /// の折れ線。曲線（2）かスプライン（4）で当てはめたものと、網（16）・多面（64）は、まだ移さない。頂点は VERTEX
+    /// の点（10・20）と膨らみ（42）と、始まりと終わりの幅（40・41。なければ 0）。どの頂点の幅も同じなら一定の
+    /// 幅にし、0 なら幅を持たない。POLYLINE の既定の幅（40・41）は、新しい頂点のためのものなので使わない。
+    /// 標高（POLYLINE の 30）か頂点の Z（30）が 0 でなければ平面に移さない。厚さ（39）は、まだ移さない
+    fn polyline<P: Copy>(
+        &self,
+        object: &Object,
+        vertices: &[&Object],
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Polyline<P>> {
+        let kind = object.kind.as_slice();
+        let flags = self.int(object, 70, 0)?;
+        if flags & (2 | 4 | 16 | 64) != 0 {
+            return Err(Box::new(
+                Diagnostic::new(codes::DXF_LIFT_DROPPED).with("kind", text(kind)),
+            ));
+        }
+        if self.real(object, 30, Some(0.0))? != 0.0 {
+            return Err(non_planar(kind));
+        }
+        let mut corners = Vec::new();
+        for vertex in vertices {
+            let widths = [
+                self.real(vertex, 40, Some(0.0))?,
+                self.real(vertex, 41, Some(0.0))?,
+            ];
+            if widths.iter().any(|width| *width < 0.0) {
+                return Err(invalid(&vertex.kind, 40));
+            }
+            if self.real(vertex, 30, Some(0.0))? != 0.0 {
+                return Err(non_planar(kind));
+            }
+            let at = point(self.real(vertex, 10, None)?, self.real(vertex, 20, None)?);
+            corners.push((at, widths, self.real(vertex, 42, Some(0.0))?));
+        }
+        let first = corners.first().map(|(_, widths, _)| *widths);
+        let uniform = first.filter(|[start, end]| {
+            start == end
+                && corners
+                    .iter()
+                    .all(|(_, widths, _)| *widths == [*start, *end])
+        });
+        let (width, vertex_widths) = match uniform {
+            Some([width, _]) => ((width > 0.0).then(|| length(width)), Vec::new()),
+            None => (
+                None,
+                corners
+                    .iter()
+                    .map(|(_, [start, end], _)| [length(*start), length(*end)])
+                    .collect(),
+            ),
+        };
+        Ok(Polyline {
+            vertices: corners
+                .into_iter()
+                .map(|(point, _, bulge)| Vertex { point, bulge })
+                .collect(),
+            closed: flags & 1 != 0,
             width,
             vertex_widths,
         })
