@@ -87,6 +87,12 @@ pub(crate) fn bbox<P: Planar>(shape: &Shape<P>) -> Option<Extent> {
                     first,
                     second,
                     arc,
+                }
+                | DimensionKind::ArcLength {
+                    center: vertex,
+                    first,
+                    second,
+                    arc,
                 } => {
                     b.points([*vertex, *first, *second, *arc]);
                 }

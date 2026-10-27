@@ -2,9 +2,9 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    ColorCode, ColorSystem, Drawing2D, Edge, FieldValue, Flow, HeightMeaning, Horizontal, Inherit,
-    Length, LineWeight, ModelLength, ModelPoint, PaperLength, PaperPoint, Rotation, Shape,
-    SheetItem, SpaceId, Target, UnderlayFrame, Vertical,
+    ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, FieldValue, Flow, HeightMeaning,
+    Horizontal, Inherit, Label, Length, LineWeight, ModelLength, ModelPoint, PaperLength,
+    PaperPoint, Rotation, Scaled, Shape, SheetItem, SpaceId, Target, UnderlayFrame, Vertical,
 };
 use zumen_sdk::{Lift, testkit};
 use zumen_sxf::{Sxf, SxfFile};
@@ -63,7 +63,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
         b"arc_feature('1','1','1','1','0.0','0.0','5.0','1','0.0','90.0')",
         b"ellipse_feature('1','1','1','1','0.0','0.0','2.0','4.0','30.0')",
         b"polyline_feature('1','1','1','1','3',(0,1,2),'(0,1,0)')",
-        b"linear_dim_feature('1','1','1','1')",
+        b"balloon_feature('1','1','1','1')",
         b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
     ]);
     let (drawing, diag) = lift(&src);
@@ -156,10 +156,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
     let dropped = find(&diag, codes::SXF_LIFT_DROPPED);
     assert_eq!(
         dropped.param("kind").map(|v| format!("{v:?}")),
-        Some(format!(
-            "{:?}",
-            zumen_base::Value::from("linear_dim_feature")
-        ))
+        Some(format!("{:?}", zumen_base::Value::from("balloon_feature")))
     );
 }
 
@@ -489,4 +486,120 @@ fn moves_point_markers_as_predefined_symbols() {
     assert_eq!(symbol.position, paper(5.0, 6.0));
     assert_eq!((symbol.scale, symbol.rotation), ([1.5, 1.5], 45.0));
     assert!(drawing.symbol(&symbol.key).is_none());
+}
+
+#[test]
+fn moves_dimensions_with_their_definition_points() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"linear_dim_feature('1','1','1','1','0','10','100','10','1','0','0','0','2','0','12','1','100','0','100','2','100','12','1','1','0','10','1','1','2','100','10','1','1','1',\\'100\\','50','11','3.5','9','0.5','0','0','2','1')",
+        b"curve_dim_feature('1','1','1','1','0','0','10','0','90','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')",
+        b"angular_dim_feature('1','1','1','1','0','0','10','350','10','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')",
+        b"radius_dim_feature('1','1','1','1','5','0','0','0','1','1','5','0','1','0')",
+        b"diameter_dim_feature('1','1','1','1','-5','0','5','0','0','0','0','0','0','0','0','0','0','0','0')",
+        b"radius_dim_feature('1','1','1','1','5','0','0','0','1','1','5','0','1','2')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let elements = &drawing.sheets[0].elements;
+    let dimensions: Vec<_> = elements
+        .iter()
+        .map(|e| match &e.shape {
+            Shape::Dimension(d) => d,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    // 補助線の基点が定義点で、寸法線は補助線に垂直
+    assert_eq!(
+        dimensions[0].kind,
+        DimensionKind::Linear {
+            first: paper(0.0, 0.0),
+            second: paper(100.0, 0.0),
+            line: paper(0.0, 10.0),
+            rotation: 0.0,
+            oblique: 0.0,
+        }
+    );
+    assert_eq!(dimensions[0].measurement, None);
+    let Label::Override { content, spans } = &dimensions[0].label else {
+        panic!("{:?}", dimensions[0].label);
+    };
+    assert_eq!(content, "100");
+    assert_eq!(
+        spans[0].format.height,
+        Some(Scaled::Value(Length::Paper(PaperLength(3.5))))
+    );
+    assert_eq!(dimensions[0].text.position, Some(paper(50.0, 11.0)));
+    assert_eq!(
+        dimensions[0].text.attachment,
+        Some((Horizontal::Center, Vertical::Bottom))
+    );
+    let extension = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "sxf.dimension")
+        .unwrap();
+    let value = |key: &str| {
+        &extension
+            .fields
+            .iter()
+            .find(|f| f.key == key)
+            .unwrap_or_else(|| panic!("{key} がない"))
+            .value
+    };
+    assert_eq!(
+        value("extension1_start"),
+        &FieldValue::Point([0.0, 2.0, 0.0])
+    );
+    assert_eq!(value("line_end"), &FieldValue::Point([100.0, 10.0, 0.0]));
+    assert_eq!(value("arrow2_direction"), &FieldValue::Integer(2));
+    assert_eq!(value("text_width"), &FieldValue::Real(9.0));
+    assert!(
+        drawing
+            .extensions
+            .iter()
+            .filter(|e| e.namespace == "sxf.dimension")
+            .all(|e| e.is_current(&drawing))
+    );
+
+    // 弧長は角度に変えない。補助線がなければ、寸法の弧の両端を定義点にする
+    let near = |p: PaperPoint, x: f64, y: f64| (p.x - x).abs() < 1e-9 && (p.y - y).abs() < 1e-9;
+    let DimensionKind::ArcLength {
+        center,
+        first,
+        second,
+        arc,
+    } = dimensions[1].kind
+    else {
+        panic!("{:?}", dimensions[1].kind);
+    };
+    assert!(near(center, 0.0, 0.0) && near(first, 10.0, 0.0) && near(second, 0.0, 10.0));
+    let half = 10.0 * core::f64::consts::FRAC_1_SQRT_2;
+    assert!(near(arc, half, half), "{arc:?}");
+    assert_eq!(dimensions[1].label, Label::Hidden);
+    // 角度の寸法の弧は、反時計回りに 0 度をまたぐ
+    let DimensionKind::Angular { arc, .. } = dimensions[2].kind else {
+        panic!("{:?}", dimensions[2].kind);
+    };
+    assert!(near(arc, 10.0, 0.0), "{arc:?}");
+    // 半径は、矢印に近い端が円の上の点
+    assert_eq!(
+        dimensions[3].kind,
+        DimensionKind::Radius {
+            center: paper(0.0, 0.0),
+            chord: paper(5.0, 0.0),
+            leader: Length::Paper(PaperLength(0.0)),
+        }
+    );
+    assert_eq!(
+        dimensions[4].kind,
+        DimensionKind::Diameter {
+            chord: paper(-5.0, 0.0),
+            opposite: paper(5.0, 0.0),
+            leader: Length::Paper(PaperLength(0.0)),
+        }
+    );
+    // 文字の有無が 0 と 1 でなければ読めない
+    assert_eq!(dimensions.len(), 5);
+    find(&diag, codes::SXF_LIFT_INVALID);
 }

@@ -262,4 +262,5 @@
 - 記録: [決定 0124](../decisions/0124-drawing-title-blocks.md)
 - 記録: [決定 0125](../decisions/0125-sxf-raster-underlays.md)
 - 記録: [決定 0126](../decisions/0126-sxf-splines-and-point-markers.md)
+- 記録: [決定 0127](../decisions/0127-sxf-dimensions.md)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
