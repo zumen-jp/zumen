@@ -663,6 +663,28 @@ pub(super) fn object_fields(data: &[u8], release: Release) -> Option<[usize; 3]>
     (start <= handles_at).then_some([size_at, start, handles_at])
 }
 
+/// 版 `release`（R2010 から）の図形でないオブジェクトのデータ（ハンドルの流れの大きさ（MC）の後）の、型ごとの
+/// 欄の始まりと、主のデータの終わりの、ビットの位置。`handles_at` は、ハンドルの流れの始まり（決定 0089）
+pub(super) fn r2010_object_fields(
+    data: &[u8],
+    handles_at: usize,
+    release: Release,
+) -> Option<[usize; 2]> {
+    let mut bits = Bits::with_release(data, release);
+    bits.bot()?;
+    let end = bits.split_strings(handles_at)?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    bits.bl()?;
+    bits.bit()?;
+    // R2013 からは、DS のデータを持つかの B が続く
+    if release >= Release::R2013 {
+        bits.bit()?;
+    }
+    let start = bits.pos();
+    (start <= end).then_some([start, end])
+}
+
 /// 版 `release`（R2010 から）の図形のデータ（ハンドルの流れの大きさ（MC）の後）の、共通の欄の色の始まりと、
 /// 型ごとの欄の始まりと、主のデータの終わり（文字列の流れの始まりか、その有無の印）の、ビットの位置。
 /// `handles_at` は、ハンドルの流れの始まり（決定 0085）
@@ -1664,13 +1686,12 @@ pub(super) const DIM_FIELDS: [(i16, Dim); 59] = {
     ]
 };
 
-/// DIMSTYLE の欄。DXF と同じく、既定の値と同じ欄は置かない
-fn dimstyle(bits: &mut Bits) -> Option<Vec<Value>> {
-    let mut values = Vec::new();
+/// 版 `release` の DIMSTYLE の欄の並び。コードが 0 の欄は、DXF に書かれない
+pub(super) fn dim_fields(release: Release) -> Vec<(i16, Dim)> {
     // R2010 からは、見出しの変数と同じく、DIMTM（48）の後に DIMFXL・DIMJOGANG・DIMTFILL・
     // DIMTFILLCLR、DIMAZIN（79）の後に DIMARCSYM、DIMATFIT（289）の後に DIMFXLON・
     // DIMTXTDIRECTION・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が入る（図面で確かめた）
-    let added: &[(i16, &[(i16, Dim)])] = if bits.release() >= Release::R2010 {
+    let added: &[(i16, &[(i16, Dim)])] = if release >= Release::R2010 {
         &[
             (
                 48,
@@ -1697,14 +1718,23 @@ fn dimstyle(bits: &mut Bits) -> Option<Vec<Value>> {
     } else {
         &[]
     };
-    let fields = DIM_FIELDS.iter().flat_map(|field| {
-        let extra = added
-            .iter()
-            .find(|(after, _)| *after == field.0)
-            .map_or(&[][..], |(_, extra)| *extra);
-        std::iter::once(field).chain(extra)
-    });
-    for &(code, field) in fields {
+    DIM_FIELDS
+        .iter()
+        .flat_map(|field| {
+            let extra = added
+                .iter()
+                .find(|(after, _)| *after == field.0)
+                .map_or(&[][..], |(_, extra)| *extra);
+            std::iter::once(field).chain(extra)
+        })
+        .copied()
+        .collect()
+}
+
+/// DIMSTYLE の欄。DXF と同じく、既定の値と同じ欄は置かない
+fn dimstyle(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = Vec::new();
+    for (code, field) in dim_fields(bits.release()) {
         // コードが 0 の欄は、DXF に書かれないので読み飛ばす
         if code == 0 {
             match field {
