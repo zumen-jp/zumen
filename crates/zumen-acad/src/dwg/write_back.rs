@@ -1689,8 +1689,7 @@ fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> O
         b"DICTIONARYVAR" => &[280, 1],
         b"DICTIONARY" | b"ACDBDICTIONARYWDFLT" => &[280, 281, 3],
         b"MLINESTYLE" => &[2, 70, 3, 62, 51, 52, 71, 49],
-        // R2004 の LAYOUT は、読む側がまだ欄を読まない
-        b"LAYOUT" if release == Release::R2000 => return encode_layout(data, old, new),
+        b"LAYOUT" => return encode_layout(data, old, new, release),
         b"XRECORD" => return encode_xrecord(data, old, new, release),
         _ => return None,
     };
@@ -2153,32 +2152,46 @@ const LAYOUT_FIELDS: [Field; 54] = {
     ]
 };
 
-/// LAYOUT を符号化し直したデータ（決定 0049）。値の番号の並びが元と同じで、レイアウトの名前（2 つめの 1）
+/// 版 `release` の LAYOUT の欄の形の並び。R2004 からは、印刷するビューの名前がハンドルの流れに移り、
+/// 印刷の設定の終わりに陰影の印刷の 3 つの欄が加わる（決定 0082）
+fn layout_fields(release: Release) -> Vec<Field> {
+    let mut fields = LAYOUT_FIELDS.to_vec();
+    if release >= Release::R2004 {
+        fields.remove(19);
+        fields.splice(26..26, [Field::Short; 3]);
+    }
+    fields
+}
+
+/// LAYOUT を符号化し直したデータ（決定 0049・0082）。値の番号の並びが元と同じで、レイアウトの名前（2 つめの 1）
 /// とハンドルの並びから作る値が変わらないものだけを扱う。欄は DWG の並びのまま、すべて書き直す
-fn encode_layout(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+fn encode_layout(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
     if codes(old) != codes(new) {
         return None;
     }
     // 欄は、ハンドル（5）と所有者（330）の後に、ハンドルの並びから作る値の前に並ぶ
     let at = new.values.iter().position(|value| value.code == 1)?;
-    let range = at..at + LAYOUT_FIELDS.len();
+    let layout = layout_fields(release);
+    let range = at..at + layout.len();
+    // レイアウトの名前は、印刷の設定の欄の次
+    let name = at + layout.len() - 27;
     let own = new.values.get(range.clone())?;
     let rest = |object: &Object| -> Option<Vec<Value>> {
         let mut values = object.values.clone();
         values.drain(range.clone());
         // レイアウトの名前
-        values.push(object.values.get(at + 27)?.clone());
+        values.push(object.values.get(name)?.clone());
         Some(values)
     };
     if rest(old)? != rest(new)? {
         return None;
     }
-    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let [size_at, start, handles_at] = object_fields(data, release)?;
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     let mut fields = BitWriter::default();
-    for (field, value) in LAYOUT_FIELDS.iter().zip(own) {
+    for (field, value) in layout.iter().zip(own) {
         match (field, &value.data) {
             (Field::Text, Data::Text(text)) => {
                 bits.text()?;

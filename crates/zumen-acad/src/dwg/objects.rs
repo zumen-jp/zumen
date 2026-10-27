@@ -591,9 +591,7 @@ fn read(
         } else if kind == b"SCALE" {
             scale(&mut bits)?
         } else if kind == b"LAYOUT" {
-            // 紙空間のブロックのレコード・最後に使ったビューポート・基準の UCS・名前の UCS
-            handles.extend([330, 331, 346, 345]);
-            layout(&mut bits)?
+            layout(&mut bits, release, &mut handles)?
         } else {
             Vec::new()
         };
@@ -1776,8 +1774,20 @@ fn scale(bits: &mut Bits) -> Option<Vec<Value>> {
     ])
 }
 
-/// LAYOUT の欄（ODS 5.4.1 の LAYOUT の節、R2000）。印刷の設定の欄に続けて、レイアウトの欄を置く
-fn layout(bits: &mut Bits) -> Option<Vec<Value>> {
+/// LAYOUT の欄（ODS 5.4.1 の LAYOUT の節）。印刷の設定の欄に続けて、レイアウトの欄を置く。R2004 からは、
+/// 印刷の設定に陰影の印刷の欄（76〜78）が加わり、レイアウトの欄の後にビューポートの数が続く（決定 0082）
+fn layout(bits: &mut Bits, release: Release, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    let r2004 = release >= Release::R2004;
+    // R2004 からは、印刷するビューの名前（6）の代わりに、そのハンドルを持つ。値には置かない
+    if r2004 {
+        handles.push(0);
+    }
+    // R2007 からは、表示スタイルのハンドルも持つ（読むのは R2010 から）
+    if release >= Release::R2010 {
+        handles.push(0);
+    }
+    // 紙空間のブロックのレコード・最後に使ったビューポート・基準の UCS・名前の UCS
+    handles.extend([330, 331, 346, 345]);
     let mut values = vec![
         text_value(1, &bits.text()?),
         text_value(2, &bits.text()?),
@@ -1795,12 +1805,20 @@ fn layout(bits: &mut Bits) -> Option<Vec<Value>> {
     // 印刷する窓の隅
     values.extend([real(48, bits.bd()?), real(49, bits.bd()?)]);
     values.extend([real(140, bits.bd()?), real(141, bits.bd()?)]);
-    values.push(text_value(6, &bits.text()?));
+    if !r2004 {
+        values.push(text_value(6, &bits.text()?));
+    }
     values.extend([real(142, bits.bd()?), real(143, bits.bd()?)]);
     values.push(text_value(7, &bits.text()?));
     values.push(int(75, i64::from(bits.bs()?)));
     values.push(real(147, bits.bd()?));
     values.extend([real(148, bits.bd()?), real(149, bits.bd()?)]);
+    // 陰影の印刷の方法・解像度・DPI
+    if r2004 {
+        for code in [76, 77, 78] {
+            values.push(int(code, i64::from(bits.bs()?)));
+        }
+    }
     // レイアウトの欄
     values.push(text_value(1, &bits.text()?));
     values.push(int(71, i64::from(bits.bs()?)));
@@ -1815,6 +1833,12 @@ fn layout(bits: &mut Bits) -> Option<Vec<Value>> {
     values.push(int(76, i64::from(bits.bs()?)));
     values.extend(point3(bits, 14)?);
     values.extend(point3(bits, 15)?);
+    if r2004 {
+        // ビューポートの数。ODS は RL とするが、試料の図面では BL だった。ビューポートのハンドルは置かない
+        for _ in 0..bits.bl()? {
+            handles.push(0);
+        }
+    }
     Some(values)
 }
 
