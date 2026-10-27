@@ -17,8 +17,9 @@
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
-//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビュー・ビューポートの設定は、一から符号化して
-//! オブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0067）。
+//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビュー・ビューポートの設定・ブロックの
+//! レコードは、一から符号化してオブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0068）。
+//! 足したブロックのレコードは、同じく足した BLOCK・ENDBLK と図形を揃えて書く（決定 0068）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -87,6 +88,8 @@ const VIEW_TYPE: i16 = 0x3D;
 const VIEW_CONTROL_TYPE: u16 = 0x3C;
 const VPORT_TYPE: i16 = 0x41;
 const VPORT_CONTROL_TYPE: u16 = 0x40;
+const BLOCK_RECORD_TYPE: i16 = 0x31;
+const BLOCK_RECORD_CONTROL_TYPE: u16 = 0x30;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -304,7 +307,9 @@ impl DwgFile {
     /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
     /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
     /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
-    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0067）
+    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0068）。足した
+    /// ブロックのレコードは、同じく足した BLOCK・ENDBLK と、それが持つ図形を最後に揃えてから符号化する
+    /// （決定 0068）
     fn append(
         &self,
         db: &AcadDb,
@@ -329,6 +334,13 @@ impl DwgFile {
         let mut inner = BTreeMap::new();
         // 足した表のレコードの、足したものの中の番号とハンドルとデータ。図形の並びへは入れない
         let mut tables: BTreeMap<usize, (u64, Vec<u8>)> = BTreeMap::new();
+        // 足したブロックのレコードのハンドルごとの、足したものの中の番号と、BLOCK・ENDBLK・図形
+        let mut new_blocks: BTreeMap<u64, (usize, NewBlock)> = added
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.kind == b"BLOCK_RECORD" && o.section == Section::Tables)
+            .filter_map(|(position, o)| Some((o.handle()?, (position, NewBlock::default()))))
+            .collect();
         for (position, &object) in added.iter().enumerate() {
             if object.section == Section::Tables {
                 if let Some((insert, _)) = &open {
@@ -337,8 +349,17 @@ impl DwgFile {
                         .map_or(&object.kind, |i| &i.object.kind);
                     return Err(unsupported(kind));
                 }
+                // ブロックのレコードは、BLOCK・ENDBLK と図形が揃ってから符号化する
+                if object.kind == b"BLOCK_RECORD" {
+                    let handle = object
+                        .handle()
+                        .filter(|&h| h >= seed)
+                        .ok_or_else(|| unsupported(&object.kind))?;
+                    seed = handle + 1;
+                    continue;
+                }
                 let (handle, data) = self
-                    .add_record(db, object, &records, seed, changes)
+                    .add_record(db, object, &records, seed, changes, None)
                     .ok_or_else(|| unsupported(&object.kind))?;
                 seed = handle + 1;
                 tables.insert(position, (handle, data));
@@ -349,10 +370,47 @@ impl DwgFile {
                 .and_then(|(i, _)| pending.get(*i))
                 .map(|insert| (insert.handle, insert.object.section.clone()));
             let new = self
-                .prepare(db, object, &records, seed, parent)
+                .prepare(db, object, &records, &new_blocks, seed, parent)
                 .ok_or_else(|| unsupported(&object.kind))?;
             seed = new.handle + 1;
             let index = pending.len();
+            if let Some((at, block)) = new_blocks.get_mut(&new.owner) {
+                match object.kind.as_slice() {
+                    b"ATTDEF" => block.attdef = true,
+                    b"BLOCK" | b"ENDBLK" => {
+                        // 1 つのブロックに 1 つずつ。BLOCK は基点（10・20・30）を持てる
+                        if open.is_some() {
+                            return Err(unsupported(&object.kind));
+                        }
+                        let slot = if object.kind == b"BLOCK" {
+                            &mut block.block
+                        } else {
+                            &mut block.endblk
+                        };
+                        if slot.replace(new.handle).is_some() {
+                            return Err(unsupported(&object.kind));
+                        }
+                        // BLOCK の名前は、レコードの名前と同じ
+                        if object.kind == b"BLOCK" {
+                            let name = added.get(*at).and_then(|record| text_of(record, 2));
+                            block.base = base_point(object)
+                                .filter(|_| name.is_some() && name == text_of(object, 2))
+                                .ok_or_else(|| unsupported(&object.kind))?;
+                        }
+                        pending.push(new);
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            // 足したブロックを挿す INSERT は、そのレコードの挿す図形の並びへ入れる
+            if let Some((_, block)) = new
+                .pointed
+                .filter(|_| object.kind == b"INSERT")
+                .and_then(|pointed| new_blocks.get_mut(&pointed))
+            {
+                block.inserts.push(new.handle);
+            }
             match (object.kind.as_slice(), open.take()) {
                 (b"ATTRIB", Some((insert, mut attribs))) => {
                     attribs.push(index);
@@ -402,16 +460,28 @@ impl DwgFile {
             .map(|i| inner.get(&i).copied().unwrap_or((0, 0)))
             .collect();
         for (block, list) in blocks {
+            let handles: Vec<u64> = list
+                .iter()
+                .filter_map(|&i| Some(pending.get(i)?.handle))
+                .collect();
+            // 足したブロックの図形は、足した順に繋ぐ
+            if let Some((_, new)) = new_blocks.get_mut(&block) {
+                for (n, &i) in list.iter().enumerate() {
+                    let prev = n.checked_sub(1).and_then(|m| handles.get(m)).copied();
+                    let next = handles.get(n + 1).copied();
+                    if let Some(slot) = links.get_mut(i) {
+                        *slot = (prev.unwrap_or(0), next.unwrap_or(0));
+                    }
+                }
+                new.entities = handles;
+                continue;
+            }
             let block_record = *records
                 .get(&block)
                 .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
             let (first, _, chain) = self
                 .chain(block_record, block, &records, changes)
                 .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
-            let handles: Vec<u64> = list
-                .iter()
-                .filter_map(|&i| Some(pending.get(i)?.handle))
-                .collect();
             let joined = self
                 .join(block_record, block, first, &chain, &handles, changes)
                 .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
@@ -420,6 +490,16 @@ impl DwgFile {
                     *slot = link;
                 }
             }
+        }
+        for (handle, (position, block)) in &new_blocks {
+            let object = added
+                .get(*position)
+                .copied()
+                .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+            let (record, data) = self
+                .add_record(db, object, &records, *handle, changes, Some(block))
+                .ok_or_else(|| unsupported(&object.kind))?;
+            tables.insert(*position, (record, data));
         }
         let mut entities = pending
             .iter()
@@ -440,6 +520,7 @@ impl DwgFile {
         db: &AcadDb,
         object: &'a Object,
         records: &BTreeMap<u64, usize>,
+        new_blocks: &BTreeMap<u64, (usize, NewBlock)>,
         seed: u64,
         parent: Option<(u64, Section)>,
     ) -> Option<NewEntity<'a>> {
@@ -474,10 +555,17 @@ impl DwgFile {
             return None;
         }
         let owner = object.owner()?;
+        // BLOCK と ENDBLK は、足したブロックのレコードだけが持つ
+        (!matches!(object.kind.as_slice(), b"BLOCK" | b"ENDBLK")
+            || new_blocks.contains_key(&owner))
+        .then_some(())?;
         // ATTRIB と SEQEND は、すぐ前の INSERT が持ち、同じ所に置く。所有者のハンドルを持つ（entmode が 0）
         let (mode, section) = if matches!(object.kind.as_slice(), b"ATTRIB" | b"SEQEND") {
             let (insert, section) = parent?;
             (owner == insert).then_some((0, section))?
+        } else if new_blocks.contains_key(&owner) {
+            // 足したブロックの図形は、ほかのブロックと同じく所有者のハンドルを持つ
+            (0, Section::Blocks)
         } else {
             let entry = self.entries.get(*records.get(&owner)?)?;
             let block = db.get(owner).filter(|_| {
@@ -553,18 +641,18 @@ impl DwgFile {
         })
     }
 
-    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0067）。所有者（330）の
+    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0068）。所有者（330）の
     /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
-    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁・ビュー・ビューポートの設定（VPORT）
-    /// だけを扱い、名前（2）が表にない
-    /// ことが要る。
+    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁・ビュー・ビューポートの設定（VPORT）・
+    /// ブロックのレコードだけを扱い、名前（2）が表にないことが要る。
     /// 画層は、印（70）・色（62）・線の太さ（370）を持ち、印刷スタイル（390）と線種（6）が表になければ
     /// ならない。印刷スタイルがなければ、画層 0 と同じものにする。文字の体裁は、型ごとの欄をみな持たなければ
     /// ならない。線種は、要素がみな形も文字も持たないことが要る。アプリケーションの名前は、印（70）が 0 で
     /// なければならない。寸法の体裁は、表にない欄を既定の値で書き、文字の体裁とブロックのハンドル（340〜344）
     /// が図面になければならない。ビューは、型ごとの欄をみな持ち、UCS のハンドル（345・346）が図面になければ
     /// ならない。ビューポートの設定は、型ごとの欄をみな持ち、UCS のハンドル（345・346）が図面になければ
-    /// ならない。ハンドルが `seed` より小さいか、足せないレコードなら `None`
+    /// ならない。ブロックのレコードは、名前が `*` で始まってはならず、`block` の BLOCK・ENDBLK・図形・INSERT と
+    /// 基点を指す。ハンドルが `seed` より小さいか、足せないレコードなら `None`
     fn add_record(
         &self,
         db: &AcadDb,
@@ -572,6 +660,7 @@ impl DwgFile {
         records: &BTreeMap<u64, usize>,
         seed: u64,
         changes: &mut BTreeMap<usize, Vec<u8>>,
+        block: Option<&NewBlock>,
     ) -> Option<(u64, Vec<u8>)> {
         let dimstyle_codes: Vec<i16> = std::iter::once(70)
             .chain(DIM_FIELDS.iter().map(|field| field.0))
@@ -588,6 +677,7 @@ impl DwgFile {
             b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE, &dimstyle_codes),
             b"VIEW" => (VIEW_TYPE, VIEW_CONTROL_TYPE, &view_codes),
             b"VPORT" => (VPORT_TYPE, VPORT_CONTROL_TYPE, &vport_codes),
+            b"BLOCK_RECORD" => (BLOCK_RECORD_TYPE, BLOCK_RECORD_CONTROL_TYPE, &[]),
             _ => return None,
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
@@ -609,6 +699,8 @@ impl DwgFile {
             .filter(|o| text_of(o, 2).is_some_and(|n| n.eq_ignore_ascii_case(name)))
             .count();
         (!name.is_empty() && same == 1).then_some(())?;
+        // 名前のないブロックと空間のブロック（* で始まる）は足せない
+        (type_code != BLOCK_RECORD_TYPE || !name.starts_with(b"*")).then_some(())?;
         let mut fields = BitWriter::default();
         fields.handle(0, handle);
         // 拡張データと反応子がない
@@ -725,6 +817,36 @@ impl DwgFile {
             for code in [345, 346] {
                 handles.handle(5, ucs_handle(db, object, code)?);
             }
+        } else if type_code == BLOCK_RECORD_TYPE {
+            let block = block?;
+            // 名前のない印・属性を持つ印・外部参照の印・重ねる外部参照の印・読み込んだ印と基点。属性を
+            // 持つのは、ATTDEF を持つブロック
+            fields.bit(false);
+            fields.bit(block.attdef);
+            for _ in 0..3 {
+                fields.bit(false);
+            }
+            for value in block.base {
+                fields.bd(value);
+            }
+            // 外部参照のパス。挿す INSERT ごとに 1 を書き、0 で閉じる
+            fields.text(b"")?;
+            for _ in &block.inserts {
+                fields.rc(1);
+            }
+            fields.rc(0);
+            // 説明と、絵の大きさ
+            fields.text(b"")?;
+            fields.bl(0);
+            handles.handle(3, block.block?);
+            handles.handle(4, block.entities.first().copied().unwrap_or(0));
+            handles.handle(4, block.entities.last().copied().unwrap_or(0));
+            handles.handle(3, block.endblk?);
+            for &insert in &block.inserts {
+                handles.handle(4, insert);
+            }
+            // 配置
+            handles.handle(5, 0);
         } else {
             (small(object, 70)?? == 0).then_some(())?;
             for &(code, field) in &DIM_FIELDS {
@@ -746,11 +868,7 @@ impl DwgFile {
         (self.entries.get(record)?.type_code == control_type).then_some(())?;
         changes.insert(
             record,
-            add_entry(
-                &self.current(changes, record)?,
-                handle,
-                type_code == DIMSTYLE_TYPE,
-            )?,
+            add_entry(&self.current(changes, record)?, handle, type_code)?,
         );
         let mut out = BitWriter::default();
         out.bs(type_code);
@@ -979,7 +1097,26 @@ const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"SPLINE", 0x24, SPLINE),
     (b"ATTRIB", 0x02, ATTRIB),
     (b"SEQEND", 0x06, &[]),
+    // 足したブロックのレコードの BLOCK と ENDBLK（決定 0068）。BLOCK の名前（2）と基点は、レコードに合わせる
+    (b"BLOCK", 0x04, &[2, 10, 20, 30]),
+    (b"ENDBLK", 0x05, &[]),
 ];
+
+/// 足したブロックのレコードが持つもの（決定 0068）
+#[derive(Default)]
+struct NewBlock {
+    /// BLOCK と ENDBLK のハンドル
+    block: Option<u64>,
+    endblk: Option<u64>,
+    /// BLOCK の基点
+    base: [f64; 3],
+    /// 図形のハンドル。足した順
+    entities: Vec<u64>,
+    /// このブロックを挿す、足した INSERT のハンドル
+    inserts: Vec<u64>,
+    /// ATTDEF を持つか
+    attdef: bool,
+}
 
 /// 足す図形を符号化するのに要るもの
 struct NewEntity<'a> {
@@ -1050,6 +1187,15 @@ impl NewEntity<'_> {
         }
         Some(out.into_bytes())
     }
+}
+
+/// BLOCK の基点（10・20・30）。どれもなければ原点。一部だけなら `None`
+fn base_point(object: &Object) -> Option<[f64; 3]> {
+    let point = [real(object, 10)?, real(object, 20)?, real(object, 30)?];
+    if point.iter().all(Option::is_none) {
+        return Some([0.0; 3]);
+    }
+    Some([point[0]?, point[1]?, point[2]?])
 }
 
 /// 種類 `kind` の表のレコードのうち、名前（2）が `name` のもののハンドル。大文字と小文字は区別しない
@@ -1353,9 +1499,9 @@ fn layer_flags(object: &Object, xdep: bool, old: i16) -> Option<(i16, i16)> {
     (1..=255).contains(&color).then_some((flags, color))
 }
 
-/// 表のオブジェクトのデータ `data` の、項目の数（BL）を 1 増やし、項目のハンドルの終わりに `entry` を
-/// 足したもの（決定 0061）。ハンドルの流れの後の埋めるビットは写さない
-fn add_entry(data: &[u8], entry: u64, more: bool) -> Option<Vec<u8>> {
+/// 型 `type_code` のレコードの表のオブジェクトのデータ `data` の、項目の数（BL）を 1 増やし、項目の
+/// ハンドルの終わりに `entry` を足したもの（決定 0061）。ハンドルの流れの後の埋めるビットは写さない
+fn add_entry(data: &[u8], entry: u64, type_code: i16) -> Option<Vec<u8>> {
     let [size_at, start, handles_at] = object_fields(data)?;
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(size_at + 32);
@@ -1365,9 +1511,14 @@ fn add_entry(data: &[u8], entry: u64, more: bool) -> Option<Vec<u8>> {
     let count = bits.bl()?;
     let mut fields = BitWriter::default();
     fields.bl(count.checked_add(1)?);
-    // 寸法の体裁の表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く
-    let extra = if more { bits.rc()? } else { 0 };
-    if more {
+    // 寸法の体裁の表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く。ブロックの表は、
+    // 項目の後にモデル空間と用紙空間のハンドルが続く（決定 0068）
+    let extra = match type_code {
+        DIMSTYLE_TYPE => bits.rc()?,
+        BLOCK_RECORD_TYPE => 2,
+        _ => 0,
+    };
+    if type_code == DIMSTYLE_TYPE {
         fields.rc(extra);
     }
     (bits.pos() == handles_at).then_some(())?;
@@ -2253,7 +2404,8 @@ fn own_fields(
         b"VIEWPORT" => viewport(&mut fields, old, new, data, start)?,
         b"SHAPE" => shape(&mut fields, new, data, start)?,
         // SEQEND は型ごとの欄を持たない
-        b"SEQEND" => {}
+        b"SEQEND" | b"ENDBLK" => {}
+        b"BLOCK" => string(&mut fields, new, 2)?,
         _ => return None,
     }
     Some(fields)

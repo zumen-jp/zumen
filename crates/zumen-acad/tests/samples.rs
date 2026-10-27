@@ -933,6 +933,7 @@ fn r2000_drawings_take_back_added_table_records() {
                     .unwrap()
             };
             let model = named(b"BLOCK_RECORD", b"*Model_Space").handle().unwrap();
+            let blocks = named(b"BLOCK_RECORD", b"*Model_Space").owner().unwrap();
             let mut layer = named(b"LAYER", b"0");
             layer.origin = Origin::New;
             for value in &mut layer.values {
@@ -1147,13 +1148,75 @@ fn r2000_drawings_take_back_added_table_records() {
                 origin: Origin::New,
             });
             db.push(vport);
+            // 線を 1 本持つブロックと、それをモデル空間に挿す INSERT
+            let record = seed + 9;
+            let block = |kind: &[u8], handle: u64, values: Vec<(i16, Data)>| {
+                let owner = if kind == b"INSERT" { model } else { record };
+                let mut all = vec![
+                    (5, Data::Handle(handle)),
+                    (330, Data::Handle(owner)),
+                    (8, Data::Text(name.to_vec())),
+                ];
+                all.extend(values);
+                Object {
+                    kind: kind.to_vec(),
+                    section: if kind == b"INSERT" {
+                        Section::Entities
+                    } else {
+                        Section::Blocks
+                    },
+                    values: all
+                        .into_iter()
+                        .map(|(code, data)| Value { code, data })
+                        .collect(),
+                    origin: Origin::New,
+                }
+            };
+            db.push(Object {
+                kind: b"BLOCK_RECORD".to_vec(),
+                section: Section::Tables,
+                values: [
+                    (5, Data::Handle(record)),
+                    (330, Data::Handle(blocks)),
+                    (2, Data::Text(name.to_vec())),
+                ]
+                .into_iter()
+                .map(|(code, data)| Value { code, data })
+                .collect(),
+                origin: Origin::New,
+            });
+            let point = [
+                (10, Data::Real(1.0)),
+                (20, Data::Real(2.0)),
+                (30, Data::Real(0.0)),
+            ];
+            let mut begin = vec![(2, Data::Text(name.to_vec()))];
+            begin.extend(point.clone());
+            db.push(block(b"BLOCK", seed + 10, begin));
+            let mut line = point.to_vec();
+            line.extend([
+                (11, Data::Real(3.0)),
+                (21, Data::Real(4.0)),
+                (31, Data::Real(0.0)),
+            ]);
+            db.push(block(b"LINE", seed + 11, line));
+            db.push(block(b"ENDBLK", seed + 12, Vec::new()));
+            let mut insert = point.to_vec();
+            insert.push((2, Data::Text(name.to_vec())));
+            db.push(block(b"INSERT", seed + 13, insert));
             file.write_back(&db, &mut cx).unwrap();
+            // DWG の BLOCK は、名前と基点を値に持たない
+            let at = db.objects().len() - 4;
+            db.object_mut(at)
+                .unwrap()
+                .values
+                .retain(|v| !matches!(v.code, 2 | 10 | 20 | 30));
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 9), "{}", path.display());
+            assert_eq!(again.handle_seed(), Some(seed + 14), "{}", path.display());
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
