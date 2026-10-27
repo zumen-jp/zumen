@@ -83,6 +83,7 @@
 - [0073: R2004 の DWG への書き戻しは、R2000 と同じ形の種類を広げ、後ろに増えた欄は元のビットを写す](0073-dwg-r2004-write-back-kinds.md)（2026-10-27、採用）
 - [0074: R2004 の DWG への HATCH の書き戻しは、初めのグラデーションの欄を元のビットのまま写す](0074-dwg-r2004-write-back-hatch.md)（2026-10-27、採用）
 - [0075: R2004 の DWG への表のレコードの書き戻しは、色を CMC の形で書く](0075-dwg-r2004-write-back-records.md)（2026-10-27、採用）
+- [0076: R2004 の DWG への図形でないオブジェクトの書き戻しは、LAYOUT を除いて R2000 と同じに符号化する](0076-dwg-r2004-write-back-objects.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
