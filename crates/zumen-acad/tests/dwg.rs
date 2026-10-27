@@ -6780,6 +6780,86 @@ fn added_lwpolylines_are_written_back() {
 }
 
 #[test]
+fn added_splines_are_written_back() {
+    let real = |code, value| Value {
+        code,
+        data: Data::Real(value),
+    };
+    let int = |code, value| Value {
+        code,
+        data: Data::Int(value),
+    };
+    let src = with_header(
+        dwg(&objects_with_linked_lines(true)),
+        0,
+        0,
+        0,
+        [0.0; 4],
+        0x80,
+    );
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // 3 次で、節点 8 つと制御点 4 つを持つもの
+    let head = [
+        int(71, 3),
+        int(72, 8),
+        int(73, 4),
+        int(74, 0),
+        real(42, 1e-10),
+        real(43, 1e-10),
+    ];
+    let knots = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0].map(|k| real(40, k));
+    let controls: Vec<Value> = [[0.0, 0.0], [1.0, 2.0], [3.0, 2.0], [4.0, 0.0]]
+        .iter()
+        .flat_map(|[x, y]| [real(10, *x), real(20, *y), real(30, 0.0)])
+        .collect();
+    let spline = [&head[..], &knots, &controls].concat();
+    let db = with_added_values(&base, 0x80, b"SPLINE", spline.clone());
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    assert_eq!(summary(&again), summary(&db));
+    // 重みを持つもの（有理かどうかが表にない）と、当てはめる点だけを持つもの（場合が 2）は、書き戻せない
+    let weighted: Vec<Value> = spline
+        .iter()
+        .cloned()
+        .flat_map(|v| match v.code {
+            30 => vec![v, real(41, 1.0)],
+            _ => vec![v],
+        })
+        .collect();
+    let fitted = vec![
+        int(71, 3),
+        int(72, 0),
+        int(73, 0),
+        int(74, 2),
+        real(44, 1e-10),
+        real(11, 0.0),
+        real(21, 0.0),
+        real(31, 0.0),
+        real(11, 1.0),
+        real(21, 1.0),
+        real(31, 0.0),
+    ];
+    for values in [weighted, fitted] {
+        let db = with_added_values(&base, 0x80, b"SPLINE", values);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"SPLINE".to_string().into()));
+    }
+}
+
+#[test]
 fn added_entities_are_written_back() {
     let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Section, Vec<Value>)> {
         db.objects()
