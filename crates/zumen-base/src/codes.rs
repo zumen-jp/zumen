@@ -720,6 +720,34 @@ pub const JWW_BODY_INVALID: Code = Code::new("jww.body.invalid", Severity::Error
 /// `jww.file.invalid`（0.0.0 から）
 pub const JWW_FILE_INVALID: Code = Code::new("jww.file.invalid", Severity::Error, None, &[], &[]);
 
+/// 見出しの欄を読めず、レイヤの名前と状態・色・線幅・縮尺を既定にした
+///
+/// `jww.header.invalid`（0.0.0 から）
+pub const JWW_HEADER_INVALID: Code =
+    Code::new("jww.header.invalid", Severity::Warning, None, &[], &[]);
+
+/// 図面モデルにまだ移せない種類の図形を、移さなかった
+///
+/// `jww.lift.dropped`（0.0.0 から）
+pub const JWW_LIFT_DROPPED: Code = Code::new(
+    "jww.lift.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 中身を読めない図形を、移さなかった
+///
+/// `jww.lift.invalid`（0.0.0 から）
+pub const JWW_LIFT_INVALID: Code = Code::new(
+    "jww.lift.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// 図形の一覧の後ろのバイト列（版 700 からは画像の一覧）を読めず、そのまま残した
 ///
 /// `jww.trailer.invalid`（0.0.0 から）
@@ -936,6 +964,9 @@ pub const ALL: &[Code] = &[
     INTERNAL_PANIC_CAUGHT,
     JWW_BODY_INVALID,
     JWW_FILE_INVALID,
+    JWW_HEADER_INVALID,
+    JWW_LIFT_DROPPED,
+    JWW_LIFT_INVALID,
     JWW_TRAILER_INVALID,
     SXF_CODE_MISSING,
     SXF_FILE_INVALID,

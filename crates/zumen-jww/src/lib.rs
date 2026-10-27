@@ -3,6 +3,8 @@
 //! JWW は、見出しの欄と、MFC の CArchive で書いた図形の一覧・ブロックの定義の一覧と、版 700 からは画像の一覧を持つ。
 //! 見出し・図形・ブロックの定義・画像を、レコードとして元のバイト範囲のまま読む。値は戻さず、戻すのは図面モデルへの変換で行う。
 
+#[cfg(feature = "drawing")]
+mod drawing;
 mod parse;
 
 use core::ops::Range;

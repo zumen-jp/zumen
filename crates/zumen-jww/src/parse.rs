@@ -48,20 +48,20 @@ pub(crate) struct Read {
 }
 
 /// 読めなかった理由。予算で止めたときは、止めた所を持つ
-enum Fail {
+pub(crate) enum Fail {
     /// 形が読めない
     Invalid,
     Stop(Stop, Range<usize>),
 }
 
 /// バイト列を前から読む
-struct Reader<'s> {
+pub(crate) struct Reader<'s> {
     src: &'s [u8],
-    pos: usize,
+    pub(crate) pos: usize,
 }
 
 impl<'s> Reader<'s> {
-    fn new(src: &'s [u8], pos: usize) -> Self {
+    pub(crate) fn new(src: &'s [u8], pos: usize) -> Self {
         Self { src, pos }
     }
 
@@ -72,26 +72,36 @@ impl<'s> Reader<'s> {
         Ok(bytes)
     }
 
-    fn skip(&mut self, n: usize) -> Result<(), Fail> {
+    pub(crate) fn skip(&mut self, n: usize) -> Result<(), Fail> {
         self.take(n).map(|_| ())
     }
 
-    fn u8(&mut self) -> Result<u8, Fail> {
+    pub(crate) fn u8(&mut self) -> Result<u8, Fail> {
         self.take(1)?.first().copied().ok_or(Fail::Invalid)
     }
 
-    fn u16(&mut self) -> Result<u16, Fail> {
+    pub(crate) fn u16(&mut self) -> Result<u16, Fail> {
         let bytes: [u8; 2] = self.take(2)?.try_into().map_err(|_| Fail::Invalid)?;
         Ok(u16::from_le_bytes(bytes))
     }
 
-    fn u32(&mut self) -> Result<u32, Fail> {
+    pub(crate) fn u32(&mut self) -> Result<u32, Fail> {
         let bytes: [u8; 4] = self.take(4)?.try_into().map_err(|_| Fail::Invalid)?;
         Ok(u32::from_le_bytes(bytes))
     }
 
-    /// MFC の CString。長さは 1・2・4 バイトへ広げ、`FF FE FF` は UTF-16LE の印
+    #[cfg_attr(not(feature = "drawing"), expect(dead_code))]
+    pub(crate) fn f64(&mut self) -> Result<f64, Fail> {
+        let bytes: [u8; 8] = self.take(8)?.try_into().map_err(|_| Fail::Invalid)?;
+        Ok(f64::from_le_bytes(bytes))
+    }
+
     fn cstring(&mut self) -> Result<(), Fail> {
+        self.string().map(|_| ())
+    }
+
+    /// MFC の CString。長さは 1・2・4 バイトへ広げ、`FF FE FF` は UTF-16LE の印。UTF-16LE かと、中身を返す
+    pub(crate) fn string(&mut self) -> Result<(bool, &'s [u8]), Fail> {
         let mut unicode = false;
         let mut n = u32::from(self.u8()?);
         if n == 0xFF {
@@ -108,11 +118,12 @@ impl<'s> Reader<'s> {
             }
         }
         let n = usize::try_from(n).map_err(|_| Fail::Invalid)?;
-        self.skip(if unicode {
+        let bytes = self.take(if unicode {
             n.checked_mul(2).ok_or(Fail::Invalid)?
         } else {
             n
-        })
+        })?;
+        Ok((unicode, bytes))
     }
 
     /// MFC の件数。`FFFF` なら 4 バイトが続く
