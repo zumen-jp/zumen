@@ -1469,6 +1469,10 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
         VPORT => {
             values.push(int(70, xdep));
             values.extend(vport(bits)?);
+            // R2010 からは、外部参照のブロックの後に、背景・表示スタイル・太陽のハンドルが続く
+            if bits.release() >= Release::R2010 {
+                handles.extend([0, 0, 0]);
+            }
             handles.extend([345, 346]);
         }
         DIMSTYLE => {
@@ -1589,6 +1593,14 @@ pub(super) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
     let (lens, front, back) = (bits.bd()?, bits.bd()?, bits.bd()?);
     let mode = view_mode(bits)?;
     let render = bits.rc()?;
+    // R2010 からは、VIEW と同じく照明の欄が続く（図面で確かめた、決定 0096）
+    if bits.release() >= Release::R2010 {
+        bits.bit()?;
+        bits.rc()?;
+        bits.bd()?;
+        bits.bd()?;
+        bits.cmc()?;
+    }
     let mut values = point2(bits, 10)?;
     values.extend(point2(bits, 11)?);
     values.extend(center);

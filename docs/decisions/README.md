@@ -103,6 +103,7 @@
 - [0093: R2010 から後の DWG に足した MTEXT・属性を持つ INSERT・SPLINE は、欄の形を確かめた版だけで書き戻す](0093-dwg-r2010-write-back-more-entity-addition.md)（2026-10-27、採用）
 - [0094: R2010 から後の DWG に足した表のレコードは、LAYER・STYLE・LTYPE・APPID だけを、名前を文字列の流れに書いて書き戻す](0094-dwg-r2010-write-back-table-record-addition.md)（2026-10-27、採用）
 - [0095: R2010 から後の DWG に足した寸法の体裁・ビュー・ブロックは、版で増えた欄を試料の図面と同じ値で書いて書き戻す](0095-dwg-r2010-write-back-more-record-addition.md)（2026-10-27、採用）
+- [0096: R2010 から後の DWG の VPORT は、照明と格子の欄を読み分け、変更と足しを書き戻す](0096-dwg-r2010-vport.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

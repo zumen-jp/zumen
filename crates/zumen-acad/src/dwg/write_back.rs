@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0095）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0096）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -975,18 +975,7 @@ impl DwgFile {
             (small(object, 70)?? == 0).then_some(())?;
             fields.rc(0);
         } else if type_code == VIEW_TYPE {
-            // R2010 からは、描画の種類の後に照明の欄を持つ。試料の図面と同じく、既定の照明を使い、種類は 1、
-            // 明るさと対比は 0、環境の色は真の色の 0x333333 とする（決定 0095）
-            let mut lighting = BitWriter::default();
-            lighting.bit(true);
-            lighting.rc(1);
-            lighting.bd(0.0);
-            lighting.bd(0.0);
-            lighting.bs(0);
-            lighting.bl(i32::from_ne_bytes(0xC233_3333_u32.to_ne_bytes()));
-            lighting.rc(0);
-            let bits = lighting.len();
-            let lighting = lighting.into_bytes();
+            let (lighting, bits) = default_lighting();
             let associated = view_fields(
                 &mut fields,
                 object,
@@ -1020,7 +1009,24 @@ impl DwgFile {
             }
         } else if type_code == VPORT_TYPE {
             // 使い道の分からないビットは、試料の図面と同じく偽とする
-            vport_fields(&mut fields, object, false, None, false)?;
+            let (lighting, bits) = default_lighting();
+            vport_fields(
+                &mut fields,
+                object,
+                false,
+                None,
+                false,
+                r2010.then_some((&lighting[..], 0..bits)),
+            )?;
+            // R2010 からは、格子の印と主の線の間隔（BS）が続く。試料の図面の多くと同じく 3 と 5 とする。外部参照の
+            // ブロックの後に、背景・表示スタイル・太陽を指す。どれも持たないものとする（決定 0096）
+            if r2010 {
+                fields.bs(3);
+                fields.bs(5);
+                handles.handle(4, 0);
+                handles.handle(5, 0);
+                handles.handle(3, 0);
+            }
             // 名前の UCS と基準の UCS。試料の図面と同じく、参照の型は 5
             for code in [345, 346] {
                 handles.handle(5, ucs_handle(db, object, code)?);
@@ -1807,9 +1813,9 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092〜0095）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092〜0096）。型ごとの欄と文字列の流れが R2000 と同じ形に
 /// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、R2010 の SPLINE と、
-/// ビューポートの設定と UCS のほかの表のレコードと、足したブロックを足せる。MINSERT と、回した INSERT（変更でも
+/// UCS のほかの表のレコードと、足したブロックを足せる。MINSERT と、回した INSERT（変更でも
 /// 確かめられていない）は、まだ足せない
 fn r2010_addable(object: &Object, release: Release) -> bool {
     // 表のレコードは、LAYER・STYLE・LTYPE・APPID（決定 0094）と、DIMSTYLE・VIEW・ブロックのレコード
@@ -1817,7 +1823,14 @@ fn r2010_addable(object: &Object, release: Release) -> bool {
     if object.section == Section::Tables {
         return matches!(
             object.kind.as_slice(),
-            b"LAYER" | b"STYLE" | b"LTYPE" | b"APPID" | b"DIMSTYLE" | b"VIEW" | b"BLOCK_RECORD"
+            b"LAYER"
+                | b"STYLE"
+                | b"LTYPE"
+                | b"APPID"
+                | b"DIMSTYLE"
+                | b"VIEW"
+                | b"VPORT"
+                | b"BLOCK_RECORD"
         );
     }
     // 足したブロックの BLOCK・ENDBLK と、ブロックの持つ図形も足せる（決定 0095）
@@ -3420,6 +3433,21 @@ fn view_record(
     Some(bits.pos())
 }
 
+/// R2010 から後の VIEW・VPORT の、描画の種類の後の照明の欄の既定の値と、そのビットの長さ。試料の図面と同じく、
+/// 既定の照明を使い、種類は 1、明るさと対比は 0、環境の色は真の色の 0x333333 とする（決定 0095・0096）
+fn default_lighting() -> (Vec<u8>, usize) {
+    let mut lighting = BitWriter::default();
+    lighting.bit(true);
+    lighting.rc(1);
+    lighting.bd(0.0);
+    lighting.bd(0.0);
+    lighting.bs(0);
+    lighting.bl(i32::from_ne_bytes(0xC233_3333_u32.to_ne_bytes()));
+    lighting.rc(0);
+    let bits = lighting.len();
+    (lighting.into_bytes(), bits)
+}
+
 /// 表のレコードの `code` の UCS のハンドル。なければ 0。図面にある UCS を指さなければ `None`
 fn ucs_handle(db: &AcadDb, object: &Object, code: i16) -> Option<u64> {
     match object.values.iter().find(|value| value.code == code) {
@@ -3514,6 +3542,18 @@ fn vport_record(
         bits.bit()?;
     }
     bits.rc()?;
+    // R2010 からは、描画の種類の後の照明の欄を、元のビットから写す（決定 0096）
+    let lighting = if release >= Release::R2010 {
+        let at = bits.pos();
+        bits.bit()?;
+        bits.rc()?;
+        bits.bd()?;
+        bits.bd()?;
+        bits.cmc()?;
+        Some((data, at..bits.pos()))
+    } else {
+        None
+    };
     for _ in 0..4 {
         bits.rd()?;
     }
@@ -3535,7 +3575,7 @@ fn vport_record(
     bits.seek(own_at);
     super::objects::vport(&mut bits)?;
     let same = real(old, 40)? == real(new, 40)? && real(old, 41)? == real(new, 41)?;
-    vport_fields(fields, new, xdep, same.then_some(width), unknown)?;
+    vport_fields(fields, new, xdep, same.then_some(width), unknown, lighting)?;
     Some(bits.pos())
 }
 
@@ -3547,6 +3587,7 @@ fn vport_fields(
     xdep: bool,
     width: Option<f64>,
     unknown: bool,
+    lighting: Option<(&[u8], Range<usize>)>,
 ) -> Option<()> {
     record_flags(new, xdep, 0)?;
     let mode = small(new, 71)??;
@@ -3569,6 +3610,9 @@ fn vport_fields(
     }
     view_mode(fields, mode);
     fields.rc(u8::try_from(small(new, 281)??).ok()?);
+    if let Some((data, range)) = lighting {
+        fields.copy(data, range)?;
+    }
     point2(fields, new, 10)?;
     point2(fields, new, 11)?;
     fields.bit(mode & 8 != 0);
