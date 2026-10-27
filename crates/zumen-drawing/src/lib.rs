@@ -4,6 +4,11 @@
 //! 用紙は mm で、X が右、Y が上、原点は用紙の左下（決定 0019）。実寸は空間ごとの文書の単位で持つ。
 //! [`View`] は、実寸の空間を用紙に置くアフィン変換と、用紙上の切り抜きを持つ。
 //!
+//! 点どうしの計測とビューでの配置は、空間か用紙の ID が合わなければ値を返さない。別の部分図を混ぜて計測しない。
+//!
+//! レイヤは図面の一覧（[`Layer`]）に置き、要素は ID で指す。描く順は、空間と用紙ごとの一覧（`order`）で持ち、
+//! 要素の一覧は入力の順のままにする。
+//!
 //! 要素は、いまは線分と文字だけ。寸法・記号・ハッチング・下敷き・スタイルの解決などは #28 で足す。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。
 
@@ -16,6 +21,15 @@ pub struct Drawing2D {
     pub spaces: Vec<ModelSpace>,
     /// 用紙
     pub sheets: Vec<Sheet>,
+    /// レイヤ。順序は元の形式の定義の順
+    pub layers: Vec<Layer>,
+}
+
+impl Drawing2D {
+    /// ID のレイヤ
+    pub fn layer(&self, id: LayerId) -> Option<&Layer> {
+        self.layers.iter().find(|layer| layer.id == id)
+    }
 }
 
 /// 実寸の空間の ID。同じ図面の中で重ならない
@@ -25,6 +39,34 @@ pub struct SpaceId(pub u32);
 /// 用紙の ID。同じ図面の中で重ならない
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SheetId(pub u32);
+
+/// レイヤの ID。同じ図面の中で重ならない
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayerId(pub u32);
+
+/// レイヤ。同じ名前でも、定義が別なら別のレイヤにする
+#[derive(Clone, Debug, PartialEq)]
+pub struct Layer {
+    /// ID
+    pub id: LayerId,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 表示・印刷・編集の可否。要素が名前で指すだけで、ファイルに定義がなければ `None`
+    pub state: Option<LayerState>,
+    /// 定義の出所。定義がなければ既定の値
+    pub source: Ref,
+}
+
+/// レイヤの表示・印刷・編集の可否。どれも、ビューごとの指定（[`View::hidden_layers`]）より前の値
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LayerState {
+    /// 表示する
+    pub visible: bool,
+    /// 印刷する
+    pub printable: bool,
+    /// 編集できる
+    pub editable: bool,
+}
 
 /// 文書の長さの単位。分からないものを mm とみなさない
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,8 +106,10 @@ pub struct ModelSpace {
     pub id: SpaceId,
     /// 文書の長さの単位
     pub unit: Unit,
-    /// 要素。順序は描く順
+    /// 要素。順序は入力の順
     pub elements: Vec<Element<ModelPoint>>,
+    /// 描く順。`elements` の添字を、先に描くものから並べる
+    pub order: Vec<usize>,
 }
 
 /// 用紙
@@ -75,10 +119,21 @@ pub struct Sheet {
     pub id: SheetId,
     /// 幅と高さ。元の形式から決まらなければ `None`
     pub size: Option<[PaperLength; 2]>,
-    /// 用紙上の要素。順序は描く順
+    /// 用紙上の要素。順序は入力の順
     pub elements: Vec<Element<PaperPoint>>,
-    /// 実寸の空間を用紙に置くビュー
+    /// 実寸の空間を用紙に置くビュー。順序は入力の順
     pub views: Vec<View>,
+    /// 描く順。要素とビューを、先に描くものから並べる
+    pub order: Vec<SheetItem>,
+}
+
+/// 用紙の上に描くもの
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SheetItem {
+    /// `elements` の添字
+    Element(usize),
+    /// `views` の添字
+    View(usize),
 }
 
 /// 実寸の空間の点
@@ -92,6 +147,16 @@ pub struct ModelPoint {
     pub y: f64,
 }
 
+impl ModelPoint {
+    /// 2 点の距離。空間が違えば `None`
+    pub fn distance(&self, other: &ModelPoint) -> Option<ModelLength> {
+        (self.space == other.space).then(|| ModelLength {
+            space: self.space,
+            value: norm(other.x - self.x, other.y - self.y),
+        })
+    }
+}
+
 /// 用紙の点
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PaperPoint {
@@ -101,6 +166,18 @@ pub struct PaperPoint {
     pub x: f64,
     /// Y（mm）
     pub y: f64,
+}
+
+impl PaperPoint {
+    /// 2 点の距離。用紙が違えば `None`
+    pub fn distance(&self, other: &PaperPoint) -> Option<PaperLength> {
+        (self.sheet == other.sheet).then(|| PaperLength(norm(other.x - self.x, other.y - self.y)))
+    }
+}
+
+/// ベクトルの長さ。`hypot` は環境で値が違いうるので、IEEE 754 で決まる平方根で求める（決定 0007）
+fn norm(x: f64, y: f64) -> f64 {
+    (x * x + y * y).sqrt()
 }
 
 /// 用紙の長さ（mm）
@@ -130,12 +207,45 @@ pub enum Length {
 pub struct View {
     /// 置く空間
     pub space: SpaceId,
+    /// 置く先の用紙
+    pub sheet: SheetId,
     /// 実寸の点から用紙の点への変換
     pub transform: Affine,
     /// 用紙上の切り抜き。閉じた多角形の頂点
     pub clip: Vec<PaperPoint>,
+    /// このビューで表示しないレイヤ
+    pub hidden_layers: Vec<LayerId>,
     /// 出所
     pub source: Ref,
+}
+
+impl View {
+    /// 実寸の点を用紙に置く。点の空間がビューの空間でなければ `None`
+    pub fn place(&self, point: ModelPoint) -> Option<PaperPoint> {
+        (point.space == self.space).then(|| {
+            let (x, y) = self.transform.apply(point.x, point.y);
+            PaperPoint {
+                sheet: self.sheet,
+                x,
+                y,
+            }
+        })
+    }
+
+    /// 実寸の向き `direction` に測った長さの、用紙の上の長さ。非等方の変換では、向きによって値が変わる。
+    /// 長さの空間がビューの空間でないか、向きが 0 か有限でなければ `None`
+    pub fn paper_length(&self, length: ModelLength, direction: [f64; 2]) -> Option<PaperLength> {
+        let [dx, dy] = direction;
+        let size = norm(dx, dy);
+        if length.space != self.space || !size.is_finite() || size == 0.0 {
+            return None;
+        }
+        let [a, b, _, d, e, _] = self.transform.m;
+        let [ux, uy] = [dx / size, dy / size];
+        Some(PaperLength(
+            length.value * norm(a * ux + b * uy, d * ux + e * uy),
+        ))
+    }
 }
 
 /// 2 次元のアフィン変換。`(x, y)` を `(a x + b y + c, d x + e y + f)` に写す
@@ -158,8 +268,8 @@ impl Affine {
 pub struct Element<P> {
     /// 元の形式のレコード
     pub source: Ref,
-    /// レイヤの名前
-    pub layer: String,
+    /// レイヤ
+    pub layer: LayerId,
     /// 形と意味
     pub shape: Shape<P>,
 }
@@ -279,4 +389,81 @@ pub enum Fit {
     Aligned,
     /// 高さを保ち、幅だけを変える
     Fit,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MODEL: SpaceId = SpaceId(0);
+    const SHEET: SheetId = SheetId(0);
+
+    fn at(space: SpaceId, x: f64, y: f64) -> ModelPoint {
+        ModelPoint { space, x, y }
+    }
+
+    /// 対応表の E1: 実寸を X に 0.01 倍、Y に 0.02 倍して（20,30）mm へ移す
+    fn e1() -> View {
+        View {
+            space: MODEL,
+            sheet: SHEET,
+            transform: Affine {
+                m: [0.01, 0.0, 20.0, 0.0, 0.02, 30.0],
+            },
+            clip: Vec::new(),
+            hidden_layers: Vec::new(),
+            source: Ref::default(),
+        }
+    }
+
+    #[test]
+    fn e1_an_anisotropic_view_places_the_corners() {
+        let view = e1();
+        let place = |x: f64, y: f64| view.place(at(MODEL, x, y));
+        let paper = |x: f64, y: f64| Some(PaperPoint { sheet: SHEET, x, y });
+        assert_eq!(place(0.0, 0.0), paper(20.0, 30.0));
+        assert_eq!(place(1000.0, 500.0), paper(30.0, 40.0));
+        // 実寸の大きさは変えない
+        assert_eq!(
+            at(MODEL, 0.0, 0.0).distance(&at(MODEL, 1000.0, 0.0)),
+            Some(ModelLength {
+                space: MODEL,
+                value: 1000.0
+            })
+        );
+    }
+
+    #[test]
+    fn e2_an_anisotropic_view_converts_lengths_by_direction() {
+        let view = e1();
+        let frame = ModelLength {
+            space: MODEL,
+            value: 250.0,
+        };
+        // 縦の文字枠の高さは 5 mm、横なら 2.5 mm。1 つの平均の縮尺で換算しない
+        assert_eq!(view.paper_length(frame, [0.0, 1.0]), Some(PaperLength(5.0)));
+        assert_eq!(view.paper_length(frame, [2.0, 0.0]), Some(PaperLength(2.5)));
+        assert_eq!(view.paper_length(frame, [0.0, 0.0]), None);
+        assert_eq!(view.paper_length(frame, [f64::NAN, 1.0]), None);
+    }
+
+    #[test]
+    fn spaces_and_sheets_are_not_mixed() {
+        let other = SpaceId(1);
+        let view = e1();
+        assert_eq!(at(MODEL, 0.0, 0.0).distance(&at(other, 3.0, 4.0)), None);
+        assert_eq!(view.place(at(other, 0.0, 0.0)), None);
+        let length = ModelLength {
+            space: other,
+            value: 1.0,
+        };
+        assert_eq!(view.paper_length(length, [1.0, 0.0]), None);
+        let on = |sheet: u32, x: f64| PaperPoint {
+            sheet: SheetId(sheet),
+            x,
+            y: 0.0,
+        };
+        assert_eq!(on(0, 0.0).distance(&on(0, 3.0)), Some(PaperLength(3.0)));
+        assert_eq!(on(0, 0.0).distance(&on(1, 3.0)), None);
+    }
 }

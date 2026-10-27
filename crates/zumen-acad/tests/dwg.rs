@@ -2990,7 +2990,7 @@ fn header_variables_and_paper_space_flags_are_in_the_table() {
 fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
     use zumen_base::Ref;
     use zumen_drawing::{
-        Element, ModelPoint, PaperLength, PaperPoint, Shape, SheetId, SpaceId, Unit,
+        Element, LayerId, ModelPoint, PaperLength, PaperPoint, Shape, SheetId, SpaceId, Unit,
     };
     use zumen_sdk::Lift;
     let src = with_header_variables(
@@ -3035,7 +3035,7 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
         space.elements,
         [Element {
             source: source(0x2A),
-            layer: "0".to_owned(),
+            layer: LayerId(0),
             shape: Shape::Line {
                 start: model(1.5, 2.0),
                 end: model(100.0, 50.0),
@@ -3054,7 +3054,7 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
         sheet.elements,
         [Element {
             source: source(0x2E),
-            layer: "0".to_owned(),
+            layer: LayerId(0),
             shape: Shape::Line {
                 start: paper(-10.0, -10.0),
                 end: paper(-9.0, -9.0),
