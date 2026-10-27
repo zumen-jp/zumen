@@ -2176,6 +2176,153 @@ fn images_and_their_definitions_have_their_fields() {
 }
 
 #[test]
+fn multileaders_have_their_context_and_leaders() {
+    let bl = |w: &mut BitWriter, n: u8| {
+        w.bits(1, 2);
+        w.bytes(&[n]);
+    };
+    let point = |w: &mut BitWriter, p: [f64; 3]| {
+        for v in p {
+            w.bd(v);
+        }
+    };
+    // 枝 1 つと線 1 本と、文字を持つ MULTILEADER（R2000）
+    let leader = object(
+        510,
+        0x44,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            bl(w, 1); // 枝の数
+            w.bit(true);
+            w.bit(true);
+            point(w, [1.0, 2.0, 0.0]);
+            point(w, [1.0, 0.0, 0.0]);
+            w.bl_zero(); // 切れ目の数
+            w.bl_zero(); // 枝の番号
+            w.bd(0.5);
+            bl(w, 1); // 線の数
+            bl(w, 2); // 点の数
+            point(w, [0.0, 0.0, 0.0]);
+            point(w, [1.0, 2.0, 0.0]);
+            w.bl_zero(); // 切れ目の数
+            w.bl_zero(); // 線の番号
+            // 文脈
+            w.bd(1.0);
+            point(w, [5.0, 2.0, 0.0]);
+            for v in [0.25, 0.25, 0.125] {
+                w.bd(v);
+            }
+            for v in [1, 1, 0, 0] {
+                w.bs(v);
+            }
+            w.bit(true); // 文字を持つ
+            w.bs(2);
+            w.bytes(b"A\0");
+            point(w, [0.0, 0.0, 1.0]);
+            point(w, [5.0, 2.0, 0.0]);
+            point(w, [1.0, 0.0, 0.0]);
+            for v in [0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bs(1);
+            w.bs(256); // 文字の色
+            w.bs(1);
+            w.bs(5);
+            w.bs(0); // 背景の色
+            w.bd(0.0);
+            w.bl_zero();
+            w.bit(false);
+            w.bit(false);
+            w.bs(0);
+            w.bit(false);
+            w.bd(0.0);
+            w.bd(0.0);
+            w.bit(false);
+            w.bl_zero(); // 段の数
+            w.bit(false);
+            w.bit(false);
+            point(w, [0.0, 0.0, 0.0]);
+            point(w, [1.0, 0.0, 0.0]);
+            point(w, [0.0, 1.0, 0.0]);
+            w.bit(false);
+            // 図形の欄
+            w.bl_zero();
+            w.bs(1);
+            w.bs(256);
+            w.bl_zero();
+            w.bit(true);
+            w.bit(true);
+            w.bd(0.5);
+            w.bd(0.25);
+            w.bs(2);
+            for v in [1, 1, 1, 0] {
+                w.bs(v);
+            }
+            w.bs(9); // 文字の色
+            w.bit(false);
+            w.bs(256);
+            point(w, [1.0, 1.0, 1.0]);
+            w.bd(0.0);
+            w.bs(0);
+            w.bit(false);
+            w.bl_zero(); // 矢印の数
+            w.bl_zero(); // ラベルの数
+            w.bit(false);
+            w.bs(0);
+            w.bs(1);
+            w.bd(1.0);
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            // 文脈の文字の体裁・体裁・線種・矢印・文字の体裁・ブロック
+            for handle in [0x11, 0x12, 0, 0, 0x11, 0] {
+                w.handle(5, handle);
+            }
+        },
+    );
+    let mut list: Vec<_> = objects_in_sample().into_iter().take(2).collect();
+    list.push((0x44, leader));
+    let src = with_classes(dwg(&list), &[(510, b"MULTILEADER", true)]);
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let values: Vec<_> = db
+        .get(0x44)
+        .unwrap()
+        .values
+        .iter()
+        .filter(|v| !matches!(v.code, 5 | 8 | 62 | 330 | 370))
+        .collect();
+    let codes: Vec<i16> = values.iter().map(|v| v.code).collect();
+    #[rustfmt::skip]
+    let expected: [i16; _] = [
+        300, 40, 10, 20, 30, 41, 140, 145, 174, 175, 176, 177, 290,
+        304, 11, 21, 31, 340, 12, 22, 32, 13, 23, 33, 42, 43, 44, 45, 170, 90, 171, 172, 91, 141, 92,
+        291, 292, 173, 293, 142, 143, 294, 295, 296,
+        110, 120, 130, 111, 121, 131, 112, 122, 132, 297,
+        302, 290, 291, 10, 20, 30, 11, 21, 31, 90, 40,
+        304, 10, 20, 30, 10, 20, 30, 91, 305, 303, 301,
+        340, 90, 170, 91, 171, 290, 291, 41, 42, 172, 343, 173, 95, 174, 175, 92, 292, 93,
+        10, 20, 30, 43, 176, 293, 294, 178, 179, 45,
+    ];
+    assert_eq!(codes, expected);
+    let data = |code: i16, nth: usize| {
+        values
+            .iter()
+            .filter(|v| v.code == code)
+            .nth(nth)
+            .map(|v| v.data.clone())
+    };
+    assert_eq!(data(304, 0), Some(Data::Text(b"A".to_vec())));
+    assert_eq!(data(340, 0), Some(Data::Handle(0x11)));
+    assert_eq!(data(340, 1), Some(Data::Handle(0x12)));
+    assert_eq!(data(343, 0), Some(Data::Handle(0x11)));
+    // R2000 の色の番号は、DXF の色の値に直す
+    assert_eq!(data(90, 0), Some(Data::Int(0xC000_0000_u32 as i32 as i64)));
+    assert_eq!(data(91, 0), Some(Data::Int(0xC100_0000_u32 as i32 as i64)));
+    assert_eq!(data(92, 1), Some(Data::Int(0xC300_0009_u32 as i32 as i64)));
+}
+
+#[test]
 fn dictionaries_and_xrecords_have_their_entries_and_data() {
     let text = |w: &mut BitWriter, text: &[u8]| {
         w.bs(text.len() as u16 + 1);

@@ -34,7 +34,7 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 | --- | --- | --- | --- |
 | 1 | [#66 適合試験で比べる出力と入力](https://github.com/zumen-jp/zumen/issues/66) | `entities` の op（決定 0117）と DXF・DWG の組が main にある | 再配布できる実際の図面に近い入力を確かめて足す（公開サンプルを Git に入れない規則との両立に、利用者の判断が要る）。`entities` の `bbox`・`fields`・`region`（決定 0118）、E9 の図面の停止位置の比較、停止の診断の場所（決定 0119）は main にある |
 | 2 | [#170 図面モデルの書き戻し](https://github.com/zumen-jp/zumen/issues/170) | 図面モデルの型と DXF の lift・形式固有の情報（決定 0105〜0116）と、L1 の書き戻し（決定 0024・0025）が main にある | 決定を残し、DXF への lower・apply を作る。E1・E4・E5・E10 の書く向きを試す |
-| 3 | [#173 DWG の読み手の図面モデルに要る欄](https://github.com/zumen-jp/zumen/issues/173) | DWG の読み手は公開の仕様だけから書く。試料で確かめるものは `ZUMEN_SAMPLES` に置ける | MULTILEADER（ODS の 20.4.48）と ACAD_TABLE（20.4.96）の欄を表に置く。図形の線幅・LEADER の頂点・SPLINE の印・BLOCK の基点と印・画層の凍結・SORTENTSTABLE・HATCH の境界の図形・EED・IMAGE は main にある。PDFUNDERLAY などは ODS に載っておらず読まない |
+| 3 | [#173 DWG の読み手の図面モデルに要る欄](https://github.com/zumen-jp/zumen/issues/173) | DWG の読み手は公開の仕様だけから書く。試料で確かめるものは `ZUMEN_SAMPLES` に置ける | ACAD_TABLE（ODS の 20.4.96）の欄を表に置く。図形の線幅・LEADER の頂点・SPLINE の印・BLOCK の基点と印・画層の凍結・SORTENTSTABLE・HATCH の境界の図形・EED・IMAGE・MULTILEADER は main にある。PDFUNDERLAY などは ODS に載っておらず読まない |
 | 4 | [#174 DXF から図面モデルへ移す値の残り](https://github.com/zumen-jp/zumen/issues/174) | 試料で確かめるものは `ZUMEN_SAMPLES` に置ける | まだ移さない値を移すか、移さない理由と診断を残す。推定を試料で確かめる |
 | 5 | [#6 バイナリの受け渡し](https://github.com/zumen-jp/zumen/issues/6) | 試作は合成データで開始できる。最終判断には issue が指定する測定用データが必要 | 転送時間・ページ側の時間・メモリ・wasm の増分を測る。図面モデル全体の完成を待たずに試す |
 | 6 | [#9 プロファイル](https://github.com/zumen-jp/zumen/issues/9) | 旧版の `mlit-cad-2025` の項目と出典を確認できる | データの形式と版を決め、移行例を作る。図面要素の対応は決定 0022 と照らす |
