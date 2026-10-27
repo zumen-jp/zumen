@@ -1,5 +1,5 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105・0106）。いまは ENTITIES の LINE・TEXT・
-//! VIEWPORT と、画層と線種の表と、図形の色・線種・線幅と、空間の描く順だけを移す。
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105・0106・0107）。いまは ENTITIES の
+//! LINE・TEXT・DIMENSION・LEADER・VIEWPORT と、画層と線種の表と、図形の色・線種・線幅と、空間の描く順だけを移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
@@ -16,11 +16,11 @@ use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Color, ColorCode, ColorSystem, Drawing2D, Element, Fit, Height, HeightMeaning,
-    Horizontal, Inherit, Layer, LayerId, LayerState, LayerStyle, Length, LineType,
-    LineTypeDefinition, LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength,
-    PaperPoint, PatternBasis, Placement, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Text,
-    Unit, Vertical, View,
+    Affine, Axis, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionText,
+    Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Inherit, Label, Layer, LayerId,
+    LayerState, LayerStyle, Leader, Length, LineType, LineTypeDefinition, LineTypeId, LineWeight,
+    Measured, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PatternBasis,
+    Placement, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Text, Unit, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -89,7 +89,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         }
         work(cx, 1)?;
         let source = source(object);
-        if let Err(diagnostic) = lifter.entity(object, source.clone(), &mut out, cx) {
+        if let Err(diagnostic) = lifter.entity(db, object, source.clone(), &mut out, cx) {
             cx.report((*diagnostic).at(source));
         }
     }
@@ -245,7 +245,14 @@ struct Lifter {
 }
 
 impl Lifter {
-    fn entity(&self, object: &Object, source: Ref, out: &mut Out, cx: &mut Cx) -> Lifted<()> {
+    fn entity(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        source: Ref,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Lifted<()> {
         let kind = object.kind.as_slice();
         let paper = self.int(object, 67, 0)? == 1;
         match kind {
@@ -269,7 +276,7 @@ impl Lifter {
                     .push((SheetItem::View(out.views.len()), object.handle()));
                 out.views.push(view);
             }
-            b"LINE" | b"TEXT" if paper => {
+            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" if paper => {
                 let mm = self.paper_mm(kind)?;
                 let [ox, oy] = self.origin;
                 let point = |x: f64, y: f64| PaperPoint {
@@ -278,7 +285,7 @@ impl Lifter {
                     y: (y - oy) * mm,
                 };
                 let length = |value: f64| Length::Paper(PaperLength(value * mm));
-                let shape = self.shape(object, point, length)?;
+                let shape = self.shape(db, object, point, length)?;
                 let style = self.style(object, out)?;
                 let layer = self.layer(object, out)?;
                 out.sheet
@@ -290,7 +297,7 @@ impl Lifter {
                     shape,
                 });
             }
-            b"LINE" | b"TEXT" => {
+            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -298,7 +305,7 @@ impl Lifter {
                         value,
                     })
                 };
-                let shape = self.shape(object, point, length)?;
+                let shape = self.shape(db, object, point, length)?;
                 let style = self.style(object, out)?;
                 let layer = self.layer(object, out)?;
                 out.model_handles.push(object.handle());
@@ -320,12 +327,18 @@ impl Lifter {
 
     fn shape<P: Copy>(
         &self,
+        db: &AcadDb,
         object: &Object,
         point: impl Fn(f64, f64) -> P,
         length: impl Fn(f64) -> Length,
     ) -> Lifted<Shape<P>> {
         let kind = object.kind.as_slice();
         self.planar(object)?;
+        match kind {
+            b"DIMENSION" => return Ok(Shape::Dimension(self.dimension(object, &point, &length)?)),
+            b"LEADER" => return Ok(Shape::Leader(self.leader(db, object, &point)?)),
+            _ => {}
+        }
         if kind == b"LINE" {
             // LINE（DXF Reference「LINE」）。Z のないものは 0 とみなす（推定。docs/formats/dxf.md）
             let end = |x: i16| -> Lifted<[f64; 3]> {
@@ -408,6 +421,208 @@ impl Lifter {
                 .string(object, 7)?
                 .unwrap_or_else(|| "STANDARD".to_owned()),
         }))
+    }
+
+    /// DIMENSION（DXF Reference「DIMENSION」「Common Dimension Group Codes」）。70 の下の 5 ビットが種類で、
+    /// 64 は座標寸法の X、128 は利用者が動かした文字。利用者の文字（1）は、ないか空か `<>` なら測定値を、
+    /// 空白 1 つなら書かないことを表す。複製の挿入点（12）・行間（41・72）・水平の向き（51）は移さない
+    /// （推定。docs/formats/dxf.md）
+    fn dimension<P: Copy>(
+        &self,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Dimension<P>> {
+        let kind = object.kind.as_slice();
+        let at = |x: i16| self.planar_point(object, x, point);
+        let real = |code: i16, default: Option<f64>| self.real(object, code, default);
+        let flags = self.int(object, 70, 0)?;
+        let dimension = match flags & 0b1_1111 {
+            0 => DimensionKind::Linear {
+                first: at(13)?,
+                second: at(14)?,
+                line: at(10)?,
+                rotation: real(50, Some(0.0))?,
+                oblique: real(52, Some(0.0))?,
+            },
+            1 => DimensionKind::Aligned {
+                first: at(13)?,
+                second: at(14)?,
+                line: at(10)?,
+                oblique: real(52, Some(0.0))?,
+            },
+            2 => DimensionKind::AngularLines {
+                first: [at(13)?, at(14)?],
+                second: [at(15)?, at(10)?],
+                arc: at(16)?,
+            },
+            3 => DimensionKind::Diameter {
+                chord: at(15)?,
+                opposite: at(10)?,
+                leader: length(real(40, None)?),
+            },
+            4 => DimensionKind::Radius {
+                center: at(10)?,
+                chord: at(15)?,
+                leader: length(real(40, None)?),
+            },
+            5 => DimensionKind::Angular {
+                vertex: at(15)?,
+                first: at(13)?,
+                second: at(14)?,
+                arc: at(10)?,
+            },
+            6 => DimensionKind::Ordinate {
+                origin: at(10)?,
+                feature: at(13)?,
+                leader_end: at(14)?,
+                axis: if flags & 64 != 0 { Axis::X } else { Axis::Y },
+            },
+            _ => return Err(invalid(kind, 70)),
+        };
+        let label = match self.string(object, 1)?.as_deref() {
+            None | Some("") | Some("<>") => Label::Measurement,
+            Some(" ") => Label::Hidden,
+            Some(text) => Label::Override(text.to_owned()),
+        };
+        // 71 は 1〜9 で、上・中・下の段ごとに左・中央・右
+        let attachment = match object.first(71) {
+            None => None,
+            Some(_) => match self.int(object, 71, 0)? {
+                at @ 1..=9 => Some((
+                    match (at - 1) % 3 {
+                        0 => Horizontal::Left,
+                        1 => Horizontal::Center,
+                        _ => Horizontal::Right,
+                    },
+                    match (at - 1) / 3 {
+                        0 => Vertical::Top,
+                        1 => Vertical::Middle,
+                        _ => Vertical::Bottom,
+                    },
+                )),
+                _ => return Err(invalid(kind, 71)),
+            },
+        };
+        let position = match object.first(11) {
+            Some(_) => Some(at(11)?),
+            None => None,
+        };
+        let rotation = match object.first(53) {
+            Some(_) => Some(real(53, None)?),
+            None => None,
+        };
+        Ok(Dimension {
+            kind: dimension,
+            measurement: match object.first(42) {
+                Some(_) => Some(Measured {
+                    value: real(42, None)?,
+                    key: "dxf.DIMENSION.42",
+                }),
+                None => None,
+            },
+            label,
+            text: DimensionText {
+                position,
+                moved: flags & 128 != 0,
+                rotation,
+                attachment,
+            },
+            style: self
+                .string(object, 3)?
+                .unwrap_or_else(|| "STANDARD".to_owned()),
+            block: self.string(object, 2)?,
+        })
+    }
+
+    /// LEADER（DXF Reference「LEADER」）。頂点（10）は数（76）と合わなければ読めないとする。矢印（71）がなければ
+    /// 寸法スタイルに従うとして `None` にする。注記（340）は、指すオブジェクトの出所にする。鉤の線（74・75）・
+    /// 注記の種類と大きさ（73・40・41）・ずれ（212・213）は移さない（推定。docs/formats/dxf.md）
+    fn leader<P: Copy>(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+    ) -> Lifted<Leader<P>> {
+        let kind = object.kind.as_slice();
+        let mut path = Vec::new();
+        let mut current: Option<[Option<f64>; 3]> = None;
+        let finish = |current: Option<[Option<f64>; 3]>, path: &mut Vec<P>| -> Lifted<()> {
+            if let Some([x, y, z]) = current {
+                let (Some(x), Some(y)) = (x, y) else {
+                    return Err(invalid(kind, 20));
+                };
+                if z.unwrap_or(0.0) != 0.0 {
+                    return Err(non_planar(kind));
+                }
+                path.push(point(x, y));
+            }
+            Ok(())
+        };
+        for value in &object.values {
+            let slot = match value.code {
+                10 => {
+                    finish(current.take(), &mut path)?;
+                    0
+                }
+                20 => 1,
+                30 => 2,
+                _ => continue,
+            };
+            let Data::Real(number) = value.data else {
+                return Err(invalid(kind, value.code));
+            };
+            let slot = current.get_or_insert([None; 3]).get_mut(slot);
+            match slot {
+                Some(slot @ None) if number.is_finite() => *slot = Some(number),
+                _ => return Err(invalid(kind, value.code)),
+            }
+        }
+        finish(current, &mut path)?;
+        let count = self.int(object, 76, -1)?;
+        if path.len() < 2 || usize::try_from(count).ok() != Some(path.len()) {
+            return Err(invalid(kind, 76));
+        }
+        let annotation = match object.first(340) {
+            Some(Data::Handle(handle)) => {
+                Some(source(db.get(*handle).ok_or_else(|| invalid(kind, 340))?))
+            }
+            Some(_) => return Err(invalid(kind, 340)),
+            None => None,
+        };
+        let arrow = match object.first(71) {
+            Some(_) => Some(self.int(object, 71, 0)? != 0),
+            None => None,
+        };
+        Ok(Leader {
+            path,
+            spline: match self.int(object, 72, 0)? {
+                0 => false,
+                1 => true,
+                _ => return Err(invalid(kind, 72)),
+            },
+            arrow,
+            annotation,
+            style: self
+                .string(object, 3)?
+                .unwrap_or_else(|| "STANDARD".to_owned()),
+        })
+    }
+
+    /// 平面の点（`x` と `x + 10`）。Z（`x + 20`）がなければ 0 とし、0 でなければ移さない
+    fn planar_point<P>(
+        &self,
+        object: &Object,
+        x: i16,
+        point: &impl Fn(f64, f64) -> P,
+    ) -> Lifted<P> {
+        if self.real(object, x + 20, Some(0.0))? != 0.0 {
+            return Err(non_planar(&object.kind));
+        }
+        Ok(point(
+            self.real(object, x, None)?,
+            self.real(object, x + 10, None)?,
+        ))
     }
 
     /// ペーパー空間のビューポート（DXF Reference「VIEWPORT」）。ねじれ・視点の向き・注視点のないものだけを扱う
