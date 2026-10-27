@@ -653,17 +653,10 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                 let kind = object.kind.clone();
                 // MINSERT（列の数の 70 を持つ INSERT）は除く
                 // 多面の面の VERTEX（70 が 128）の点は 0 と決まっているので動かさない。R2013 からの、当てはめる
-                // 点から制御点を求めた SPLINE（節点の許容差が 1e-9）と、R2018 からの複数行の属性（版の 280 の後に
-                // 71 を持つ）は書き戻さない（決定 0097・0098）
-                let multiline = object
-                    .values
-                    .iter()
-                    .skip_while(|v| v.code != 280)
-                    .any(|v| v.code == 71);
+                // 点から制御点を求めた SPLINE（節点の許容差が 1e-9）は書き戻さない（決定 0097）
                 let skipped = kind == b"INSERT" && object.values.iter().any(|v| v.code == 70)
                     || kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128))
-                    || kind == b"SPLINE" && object.first(42) == Some(&Data::Real(1e-9))
-                    || multiline;
+                    || kind == b"SPLINE" && object.first(42) == Some(&Data::Real(1e-9));
                 if !SIMPLE.contains(&kind.as_slice()) && !more(&kind) || skipped {
                     continue;
                 }
@@ -1388,8 +1381,10 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             added.push((b"SEQEND", Vec::new()));
         }
         // R2010 から後は、R2013 からの当てはめる点の SPLINE をまだ足せない（決定 0092・0093・0097）。
-        // MTEXT は枠の高さ（46）を、ATTRIB は属性の版と位置を固定するか（280）を持つ
+        // MTEXT は枠の高さ（46）を、ATTRIB は属性の版と位置を固定するか（280）を持つ。R2018 からは、初めの
+        // ATTRIB を、埋め込みの MTEXT を持つ複数行の属性とする（決定 0102）
         if !matches!(version, b"AC1015" | b"AC1018") {
+            let mut multiline = version == b"AC1032";
             added.retain(|(kind, own)| match *kind {
                 b"SPLINE" => version == b"AC1024" || own.iter().all(|value| value.code != 11),
                 _ => true,
@@ -1402,6 +1397,25 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
                     let at = own.iter().position(|value| value.code == 2).unwrap();
                     own.insert(at, int(280, 0));
                     own.push(int(280, 0));
+                    if multiline {
+                        multiline = false;
+                        own.extend([
+                            int(71, 2),
+                            int(72, 0),
+                            text(101, b"Embedded Object"),
+                            real(10, 8.0),
+                            real(20, 9.0),
+                            real(30, 0.0),
+                            real(41, 0.0),
+                            real(46, 0.0),
+                            real(40, 2.5),
+                            int(71, 1),
+                            int(72, 5),
+                            text(1, b"one\\Ptwo"),
+                            int(73, 1),
+                            real(44, 1.0),
+                        ]);
+                    }
                 }
             }
         }
