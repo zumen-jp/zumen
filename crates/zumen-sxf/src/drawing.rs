@@ -12,7 +12,7 @@ use zumen_drawing::{
     Inherit, Layer, LayerId, LayerState, Length, LineSpacing, LineType, LineTypeDefinition,
     LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint,
     PatternBasis, Piece, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Span,
-    Style, Target, Unit, Vertex, Vertical, View,
+    Style, Target, TitleBlock, TitleItem, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -60,6 +60,22 @@ const A_SIZES: [[f64; 2]; 5] = [
 
 /// 自由サイズの用紙サイズ種別
 const FREE_SIZE: i64 = 9;
+
+/// 図面表題欄の項目の、キーと項目名。引数の順（推定。docs/formats/sxf.md）
+const TITLE_ITEMS: [(&str, &str); 12] = [
+    ("business_name", "事業名"),
+    ("construction_name", "工事名"),
+    ("contract_type", "契約区分"),
+    ("drawing_name", "図面名"),
+    ("drawing_number", "図面番号"),
+    ("drawing_type", "図面種別"),
+    ("scale", "尺度"),
+    ("year", "作成年"),
+    ("month", "作成月"),
+    ("day", "作成日"),
+    ("contractor", "受注会社名"),
+    ("client", "発注事業者名"),
+];
 
 impl Lift<Drawing2D> for SxfFile {
     /// SFC を変換する。P21 の変換はまだないので、空の図面を返して診断する
@@ -257,6 +273,7 @@ impl<'f> Lifter<'f> {
 
     fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
         let mut extensions = Vec::new();
+        let mut title_blocks = Vec::new();
         let mut size = None;
         let mut pending = Vec::new();
         let mut sheet_members = Vec::new();
@@ -296,8 +313,8 @@ impl<'f> Lifter<'f> {
                 dropped(cx, feature);
                 Some(())
             } else if feature.is(b"drawing_attribute") {
-                dropped(cx, feature);
-                Some(())
+                self.title_block(feature)
+                    .map(|title_block| title_blocks.push(title_block))
             } else {
                 pending.push(index);
                 Some(())
@@ -349,6 +366,7 @@ impl<'f> Lifter<'f> {
             layers: self.layers,
             line_types: self.line_types,
             extensions,
+            title_blocks,
             ..Drawing2D::default()
         })
     }
@@ -441,6 +459,32 @@ impl<'f> Lifter<'f> {
     }
 
     /// 用紙の大きさと、種別を持つ形式固有の情報
+    /// 図面表題欄。表示する要素との対応は持たない。足りない項目は空にする
+    fn title_block(&self, feature: Feature<'f>) -> Option<TitleBlock> {
+        let args = self.args(feature);
+        let items = TITLE_ITEMS
+            .iter()
+            .enumerate()
+            .map(|(at, (key, name))| {
+                let value = if at < feature.args.len() {
+                    args.text(at)?.trim().to_owned()
+                } else {
+                    String::new()
+                };
+                Some(TitleItem {
+                    key: Some(key),
+                    name: (*name).to_owned(),
+                    value,
+                    display: Vec::new(),
+                })
+            })
+            .collect::<Option<_>>()?;
+        Some(TitleBlock {
+            items,
+            source: feature.source(),
+        })
+    }
+
     fn sheet(&self, feature: Feature<'f>) -> Option<(Option<[PaperLength; 2]>, Extension)> {
         let args = self.args(feature);
         let kind = args.int(1)?;

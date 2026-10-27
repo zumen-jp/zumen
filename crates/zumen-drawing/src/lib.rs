@@ -43,6 +43,8 @@ pub struct Drawing2D {
     pub symbols: Vec<SymbolDefinition>,
     /// 形式固有の情報。順序は変換した順
     pub extensions: Vec<Extension>,
+    /// 表題欄。順序は元の形式の順
+    pub title_blocks: Vec<TitleBlock>,
 }
 
 impl Drawing2D {
@@ -1532,6 +1534,29 @@ pub enum FontKind {
         /// ピッチと系統の番号
         pitch: Option<u32>,
     },
+}
+
+/// 表題欄（決定 0124）。元の形式が表題欄として持つ項目を、表示する要素と分けて持つ。罫線と文字から
+/// 推定して作らない
+#[derive(Clone, Debug, PartialEq)]
+pub struct TitleBlock {
+    /// 項目。順序は元の形式の順
+    pub items: Vec<TitleItem>,
+    /// 出所
+    pub source: Ref,
+}
+
+/// 表題欄の項目
+#[derive(Clone, Debug, PartialEq)]
+pub struct TitleItem {
+    /// 形式によらない項目のキー。共通の項目に当たらなければ `None`
+    pub key: Option<&'static str>,
+    /// 元の項目名。翻訳しない
+    pub name: String,
+    /// 値
+    pub value: String,
+    /// 値を表示する要素。元の形式が対応を持たなければ空
+    pub display: Vec<Target>,
 }
 
 /// 形式固有の情報（決定 0022・0115）。共通の要素にできない残りを、系統・版・型付きの値・出所と、
