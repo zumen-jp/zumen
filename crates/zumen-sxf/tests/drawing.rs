@@ -860,3 +860,24 @@ fn keeps_attribute_mechanism_names_on_the_elements() {
     );
     assert!(attributes.iter().all(|e| e.is_current(&drawing)));
 }
+
+#[test]
+fn keeps_the_kind_of_a_free_sheet_of_a_standard_size() {
+    // E6: 自由サイズの用紙は、定型（A3）と同じ大きさでも種別を保つ
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"drawing_sheet_feature(\\'S\\','9','1','420.0','297.0')",
+    ]);
+    let (drawing, _) = lift(&src);
+    assert_eq!(
+        drawing.sheets[0].size,
+        Some([PaperLength(420.0), PaperLength(297.0)])
+    );
+    let extension = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "sxf.sheet")
+        .unwrap();
+    assert_eq!(extension.fields[0].key, "size");
+    assert_eq!(extension.fields[0].value, FieldValue::Integer(9));
+}
