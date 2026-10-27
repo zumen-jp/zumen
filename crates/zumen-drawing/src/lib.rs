@@ -457,6 +457,17 @@ pub enum Shape<P> {
         /// 終点
         end: P,
     },
+    /// 円
+    Circle {
+        /// 中心
+        center: P,
+        /// 半径
+        radius: Length,
+    },
+    /// 曲線（円弧・楕円弧・スプライン）。元の定義のまま持ち、線分に近似しない（決定 0111）
+    Curve(Edge<P>),
+    /// 膨らみを持つ頂点を結んだ折れ線
+    Polyline(Polyline<P>),
     /// 文字
     Text(Text<P>),
     /// 書式つきの文字
@@ -849,8 +860,21 @@ pub struct Vertex<P> {
     pub bulge: f64,
 }
 
-/// 境界の辺。角度は度で、反時計回り
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// 膨らみを持つ頂点を結んだ折れ線
+#[derive(Clone, Debug, PartialEq)]
+pub struct Polyline<P> {
+    /// 頂点。順序は入力の順
+    pub vertices: Vec<Vertex<P>>,
+    /// 終点と始点を結ぶ
+    pub closed: bool,
+    /// 一定の幅。なければ幅を持たない
+    pub width: Option<Length>,
+    /// 頂点ごとの、次の頂点までの始まりと終わりの幅。元の形式が持たなければ空
+    pub vertex_widths: Vec<[Length; 2]>,
+}
+
+/// 辺と曲線。角度は度で、反時計回り
+#[derive(Clone, Debug, PartialEq)]
 pub enum Edge<P> {
     /// 線分
     Line {
@@ -887,6 +911,32 @@ pub enum Edge<P> {
         /// 反時計回りにたどる
         counterclockwise: bool,
     },
+    /// スプライン
+    Spline(Spline<P>),
+}
+
+/// スプライン。制御点と節点の定義と、当てはめる点の定義の、元の形式が持つものを持つ。片方から
+/// 他方を計算しない
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spline<P> {
+    /// 次数
+    pub degree: u32,
+    /// 節点
+    pub knots: Vec<f64>,
+    /// 制御点
+    pub control: Vec<P>,
+    /// 制御点の重み。有理でなければ空
+    pub weights: Vec<f64>,
+    /// 当てはめる点
+    pub fit: Vec<P>,
+    /// 始まりの接線の向き。なければ `None`
+    pub start_tangent: Option<[f64; 2]>,
+    /// 終わりの接線の向き。なければ `None`
+    pub end_tangent: Option<[f64; 2]>,
+    /// 閉じている
+    pub closed: bool,
+    /// 周期的
+    pub periodic: bool,
 }
 
 /// 輪の中の輪の埋め方

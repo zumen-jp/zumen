@@ -69,7 +69,7 @@
         "/diagnostics/1/code": "dwg.object.invalid",
         "/diagnostics/2/code": "dxf.units.missing",
         "/diagnostics/3/code": "dxf.non-planar.dropped",
-        "/diagnostics/4/code": "dxf.lift.dropped"
+        "/diagnostics/4/code": "dxf.lift.invalid"
       }
     },
     {

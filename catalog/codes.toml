@@ -437,7 +437,7 @@ description = "SPLINE の辺を持つ HATCH を、図面モデルに移さなか
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."dxf.mtext-columns.unsupported"]
 description = "段組みの MTEXT と複数行の属性を、図面モデルに移さなかった"

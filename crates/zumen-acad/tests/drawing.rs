@@ -1,7 +1,7 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
 //! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
-//! 記号と属性・ハッチングを試す。
+//! 記号と属性・ハッチング・E8 の曲線を試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
@@ -13,8 +13,8 @@ use zumen_drawing::{
     HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId,
     LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId, LineWeight, Measured,
     ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Piece, Placement, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Style,
-    SymbolKey, Text, Unit, Vertex, Vertical,
+    PatternOrigin, Piece, Placement, Polyline, Rotation, Shape, SheetId, SheetItem, SpaceId, Span,
+    Spline, Style, SymbolKey, Text, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -420,7 +420,7 @@ fn e9_what_cannot_be_lifted_is_reported_per_record() {
         (1, "A"),
         (230, "-1.0"),
         // 5: まだ移さない種類
-        (0, "CIRCLE"),
+        (0, "POINT"),
         (8, "0"),
         // 6: 画層のない線分
         (0, "LINE"),
@@ -468,7 +468,7 @@ fn e9_what_cannot_be_lifted_is_reported_per_record() {
     let expected = [
         (codes::DXF_NON_PLANAR_DROPPED, text("LINE"), 1, vec![3]),
         (codes::DXF_NON_PLANAR_DROPPED, text("TEXT"), 1, vec![4]),
-        (codes::DXF_LIFT_DROPPED, text("CIRCLE"), 1, vec![5]),
+        (codes::DXF_LIFT_DROPPED, text("POINT"), 1, vec![5]),
         (
             codes::DXF_LIFT_INVALID,
             format!("{} Int(8)", text("LINE")),
@@ -1931,7 +1931,7 @@ fn e9_hatches_and_symbols_that_cannot_be_read_are_reported() {
         entity("HATCH", &all)
     };
     let entities = [
-        // SPLINE の辺
+        // 制御点も当てはめる点もない SPLINE の辺
         hatch(&[
             (92, "0"),
             (93, "1"),
@@ -1977,7 +1977,7 @@ fn e9_hatches_and_symbols_that_cannot_be_read_are_reported() {
     assert_eq!(
         params,
         [
-            (codes::DXF_HATCH_SPLINE_UNSUPPORTED, String::new(), 1),
+            invalid("HATCH", 10),
             invalid("HATCH", 97),
             invalid("HATCH", 72),
             (
@@ -2486,6 +2486,354 @@ fn e9_callouts_that_cannot_be_read_are_reported() {
             invalid(172),
             invalid(10),
             (codes::DXF_MTEXT_COLUMNS_UNSUPPORTED, String::new(), 1),
+        ]
+    );
+}
+
+#[test]
+fn e8_curves_keep_their_definition() {
+    let entities = [
+        entity("CIRCLE", &[(10, "1.0"), (20, "2.0"), (40, "3.0")]),
+        entity(
+            "ARC",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (40, "5.0"),
+                (50, "0.0"),
+                (51, "90.0"),
+            ],
+        ),
+        // 始まりと終わりのパラメーターはラジアン
+        entity(
+            "ELLIPSE",
+            &[
+                (10, "1.0"),
+                (20, "1.0"),
+                (11, "4.0"),
+                (21, "0.0"),
+                (40, "0.5"),
+                (41, "0.0"),
+                (42, "3.141592653589793"),
+            ],
+        ),
+        // 閉じていて、最初の頂点だけが幅と膨らみを持つ
+        entity(
+            "LWPOLYLINE",
+            &[
+                (90, "3"),
+                (70, "1"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (40, "1.0"),
+                (41, "2.0"),
+                (42, "1.0"),
+                (10, "10.0"),
+                (20, "0.0"),
+                (10, "10.0"),
+                (20, "10.0"),
+            ],
+        ),
+        // 一様な幅（43）を持つ開いた折れ線
+        entity(
+            "LWPOLYLINE",
+            &[
+                (90, "2"),
+                (70, "0"),
+                (43, "0.5"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "1.0"),
+                (20, "1.0"),
+            ],
+        ),
+        // 有理の 2 次。節点・制御点・重み
+        entity(
+            "SPLINE",
+            &[
+                (70, "4"),
+                (71, "2"),
+                (72, "6"),
+                (73, "3"),
+                (74, "0"),
+                (40, "0.0"),
+                (40, "0.0"),
+                (40, "0.0"),
+                (40, "1.0"),
+                (40, "1.0"),
+                (40, "1.0"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (30, "0.0"),
+                (10, "5.0"),
+                (20, "5.0"),
+                (30, "0.0"),
+                (10, "10.0"),
+                (20, "0.0"),
+                (30, "0.0"),
+                (41, "1.0"),
+                (41, "0.5"),
+                (41, "1.0"),
+            ],
+        ),
+        // 当てはめる点と接線だけを持つ、閉じた 3 次
+        entity(
+            "SPLINE",
+            &[
+                (70, "1"),
+                (71, "3"),
+                (72, "0"),
+                (73, "0"),
+                (74, "2"),
+                (12, "1.0"),
+                (22, "0.0"),
+                (32, "0.0"),
+                (13, "0.0"),
+                (23, "1.0"),
+                (33, "0.0"),
+                (11, "0.0"),
+                (21, "0.0"),
+                (31, "0.0"),
+                (11, "10.0"),
+                (21, "10.0"),
+                (31, "0.0"),
+            ],
+        ),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let width = |start, end| [model(start), model(end)];
+    assert_eq!(
+        model_shapes(&drawing.unwrap()),
+        [
+            Shape::Circle {
+                center: at(1.0, 2.0),
+                radius: model(3.0),
+            },
+            Shape::Curve(Edge::Arc {
+                center: at(0.0, 0.0),
+                radius: model(5.0),
+                start: 0.0,
+                end: 90.0,
+                counterclockwise: true,
+            }),
+            Shape::Curve(Edge::Elliptic {
+                center: at(1.0, 1.0),
+                major: at(5.0, 1.0),
+                ratio: 0.5,
+                start: 0.0,
+                end: 180.0,
+                counterclockwise: true,
+            }),
+            Shape::Polyline(Polyline {
+                vertices: vec![
+                    Vertex {
+                        point: at(0.0, 0.0),
+                        bulge: 1.0,
+                    },
+                    Vertex {
+                        point: at(10.0, 0.0),
+                        bulge: 0.0,
+                    },
+                    Vertex {
+                        point: at(10.0, 10.0),
+                        bulge: 0.0,
+                    },
+                ],
+                closed: true,
+                width: None,
+                vertex_widths: vec![width(1.0, 2.0), width(0.0, 0.0), width(0.0, 0.0)],
+            }),
+            Shape::Polyline(Polyline {
+                vertices: vec![
+                    Vertex {
+                        point: at(0.0, 0.0),
+                        bulge: 0.0,
+                    },
+                    Vertex {
+                        point: at(1.0, 1.0),
+                        bulge: 0.0,
+                    },
+                ],
+                closed: false,
+                width: Some(model(0.5)),
+                vertex_widths: vec![],
+            }),
+            Shape::Curve(Edge::Spline(Spline {
+                degree: 2,
+                knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                control: vec![at(0.0, 0.0), at(5.0, 5.0), at(10.0, 0.0)],
+                weights: vec![1.0, 0.5, 1.0],
+                fit: vec![],
+                start_tangent: None,
+                end_tangent: None,
+                closed: false,
+                periodic: false,
+            })),
+            Shape::Curve(Edge::Spline(Spline {
+                degree: 3,
+                knots: vec![],
+                control: vec![],
+                weights: vec![],
+                fit: vec![at(0.0, 0.0), at(10.0, 10.0)],
+                start_tangent: Some([1.0, 0.0]),
+                end_tangent: Some([0.0, 1.0]),
+                closed: true,
+                periodic: false,
+            })),
+        ]
+    );
+}
+
+/// SPLINE の辺 1 つの輪を持つ HATCH
+fn spline_hatch(fit: &[(i16, &'static str)]) -> Vec<(i16, &'static str)> {
+    let mut tags = vec![
+        (2, "SOLID"),
+        (70, "1"),
+        (91, "1"),
+        (92, "1"),
+        (93, "1"),
+        (72, "4"),
+        (94, "1"),
+        (73, "1"),
+        (74, "0"),
+        (95, "4"),
+        (96, "2"),
+        (40, "0.0"),
+        (40, "0.0"),
+        (40, "1.0"),
+        (40, "1.0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (42, "1.0"),
+        (10, "10.0"),
+        (20, "0.0"),
+        (42, "2.0"),
+    ];
+    tags.extend_from_slice(fit);
+    tags.extend_from_slice(&[(97, "0"), (75, "0"), (76, "1"), (98, "0")]);
+    entity("HATCH", &tags)
+}
+
+#[test]
+fn e8_hatch_spline_edges_read_fit_data_from_2010() {
+    let edges = |header: &[(i16, &str)], fit: &[(i16, &'static str)]| {
+        let (drawing, diag) = lift(&dxf(header, &spline_hatch(fit)), &mut Budget::default());
+        assert_eq!(found(&diag), []);
+        match model_shapes(&drawing.unwrap()).as_slice() {
+            [Shape::Hatch(hatch)] => match hatch.loops.as_slice() {
+                [
+                    HatchLoop {
+                        boundary: Boundary::Edges(edges),
+                        ..
+                    },
+                ] => edges.clone(),
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    };
+    let spline = |fit, start_tangent| {
+        vec![Edge::Spline(Spline {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control: vec![at(0.0, 0.0), at(10.0, 0.0)],
+            weights: vec![1.0, 2.0],
+            fit,
+            start_tangent,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+        })]
+    };
+    // 2010 より前は、当てはめる点を持たない。続く 97 は、境界を作った図形の数
+    assert_eq!(edges(MM, &[]), spline(vec![], None));
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1024")]].concat();
+    assert_eq!(
+        edges(
+            &header,
+            &[
+                (97, "1"),
+                (11, "5.0"),
+                (21, "0.0"),
+                (12, "1.0"),
+                (22, "0.0")
+            ]
+        ),
+        spline(vec![at(5.0, 0.0)], Some([1.0, 0.0]))
+    );
+}
+
+#[test]
+fn e9_curves_that_cannot_be_read_are_reported() {
+    let entities = [
+        // 半径が 0
+        entity("CIRCLE", &[(10, "0.0"), (20, "0.0"), (40, "0.0")]),
+        // 比が 1 より大きい
+        entity(
+            "ELLIPSE",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "1.0"),
+                (21, "0.0"),
+                (40, "2.0"),
+            ],
+        ),
+        // 頂点の数が合わない
+        entity("LWPOLYLINE", &[(90, "2"), (10, "0.0"), (20, "0.0")]),
+        // 標高が 0 でない
+        entity(
+            "LWPOLYLINE",
+            &[(90, "1"), (38, "1.0"), (10, "0.0"), (20, "0.0")],
+        ),
+        // 節点の数が制御点の数と次数に合わない
+        entity(
+            "SPLINE",
+            &[
+                (71, "1"),
+                (40, "0.0"),
+                (40, "1.0"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "1.0"),
+                (20, "0.0"),
+            ],
+        ),
+        // 制御点が次数より多くない
+        entity("SPLINE", &[(71, "3"), (10, "0.0"), (20, "0.0")]),
+        // 数えた節点の数（72）が合わない
+        entity("SPLINE", &[(71, "1"), (72, "3"), (11, "0.0"), (21, "0.0")]),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert_eq!(drawing.unwrap().spaces[0].elements, []);
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    let invalid = |kind: &str, code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text({kind:?}) Int({code})"),
+            1,
+        )
+    };
+    assert_eq!(
+        params,
+        [
+            invalid("CIRCLE", 40),
+            invalid("ELLIPSE", 40),
+            invalid("LWPOLYLINE", 90),
+            (
+                codes::DXF_NON_PLANAR_DROPPED,
+                r#"Text("LWPOLYLINE")"#.to_owned(),
+                1
+            ),
+            invalid("SPLINE", 40),
+            invalid("SPLINE", 10),
+            invalid("SPLINE", 72),
         ]
     );
 }
