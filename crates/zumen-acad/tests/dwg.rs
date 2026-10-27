@@ -6974,3 +6974,164 @@ fn added_entities_are_written_back() {
         assert_eq!(found, Some(&kind.to_string().into()), "{kind}");
     }
 }
+
+/// 画層の表（項目は画層 0 の 1 つ）と、画層 0 と、線種 Continuous と、[`objects_with_linked_lines`] の
+/// ブロックと LINE を持ち、HANDSEED が 0x80 の図面
+#[cfg(test)]
+fn layer_table_with_seed() -> Vec<u8> {
+    let control = object(
+        0x32,
+        2,
+        |w| {
+            w.bl_zero();
+            // 項目の数 1
+            w.bits(1, 2);
+            w.bytes(&[1]);
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+            w.handle(2, 0x10);
+        },
+    );
+    let layer = object(
+        0x33,
+        0x10,
+        |w| {
+            w.bl_zero();
+            w.bs(2);
+            w.bytes(b"0\0");
+            w.bit(true); // 参照される印
+            w.bs(0); // 外部参照の番号
+            w.bit(false); // 外部参照に依る印
+            w.bs(0x3F0); // 印刷し、線の太さは既定
+            w.bs(7);
+        },
+        |w| {
+            w.handle(4, 2);
+            w.handle(3, 0);
+            w.handle(5, 0); // 外部参照のブロック
+            w.handle(5, 5); // 印刷スタイルの代わりの、表にあるオブジェクト
+            w.handle(5, 0x12); // 線種
+        },
+    );
+    let ltype_control = object(
+        0x38,
+        5,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2);
+            w.bytes(&[1]);
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+            w.handle(2, 0x12);
+        },
+    );
+    let ltype = object(0x39, 0x12, record_named(b"Continuous"), record_handles(5));
+    let mut objects = vec![
+        (2, control),
+        (5, ltype_control),
+        (0x10, layer),
+        (0x12, ltype),
+    ];
+    objects.extend(objects_with_linked_lines(true).into_iter().skip(2));
+    with_header(dwg(&objects), 0, 0, 0, [0.0; 4], 0x80)
+}
+
+#[test]
+fn added_layers_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // 画層 0 を写し、ハンドルと名前と印を変えたもの
+    let layer = |db: &AcadDb, handle: u64, name: &[u8], change: &dyn Fn(&mut Vec<Value>)| {
+        let mut db = db.clone();
+        let mut object = db.get(0x10).unwrap().clone();
+        object.origin = Origin::New;
+        for value in &mut object.values {
+            match value.code {
+                5 => value.data = Data::Handle(handle),
+                2 => value.data = Data::Text(name.to_vec()),
+                _ => {}
+            }
+        }
+        change(&mut object.values);
+        db.push(object);
+        db
+    };
+    let set = |code: i16, data: Data| {
+        move |values: &mut Vec<Value>| {
+            for value in values.iter_mut().filter(|v| v.code == code) {
+                value.data = data.clone();
+            }
+        }
+    };
+    // 凍結して表示せず、印刷しない、線の太さ 0.25 の画層と、そのままの画層と、その画層の LINE
+    let db = layer(&base, 0x80, b"Frozen", &|values| {
+        set(70, Data::Int(1))(values);
+        set(62, Data::Int(-3))(values);
+        set(370, Data::Int(25))(values);
+        let at = values.iter().position(|v| v.code == 370).unwrap();
+        values.insert(
+            at,
+            Value {
+                code: 290,
+                data: Data::Bool(false),
+            },
+        );
+    });
+    let db = layer(&db, 0x81, b"Plain", &|_| {});
+    let mut db = with_added(
+        &db,
+        0x82,
+        b"LINE",
+        &[
+            (10, 1.0),
+            (20, 2.0),
+            (30, 0.0),
+            (11, 3.0),
+            (21, 4.0),
+            (31, 0.0),
+        ],
+    );
+    let line = db.objects().len() - 1;
+    let mut object = db.objects()[line].clone();
+    for value in object.values.iter_mut().filter(|v| v.code == 8) {
+        value.data = Data::Text(b"Plain".to_vec());
+    }
+    db.remove(line).unwrap();
+    db.push(object);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(summary(&again), summary(&db));
+    // 表にある名前・画層の表でない所有者・真の色・外部参照に依る印を持つ画層は、書き戻せない
+    let cases = [
+        layer(&base, 0x80, b"0", &|_| {}),
+        layer(&base, 0x80, b"Other", &set(330, Data::Handle(5))),
+        layer(&base, 0x80, b"Other", &|values| {
+            values.push(Value {
+                code: 420,
+                data: Data::Int(0x00FF_0000),
+            })
+        }),
+        layer(&base, 0x80, b"Other", &set(70, Data::Int(16))),
+    ];
+    for db in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"LAYER".to_string().into()));
+    }
+}

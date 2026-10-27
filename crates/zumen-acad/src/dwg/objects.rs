@@ -749,7 +749,7 @@ pub(super) fn block_links(data: &[u8], handle: u64) -> Option<(Range<usize>, u64
 }
 
 /// 拡張データ（EED）を読み飛ばす（ODS 5.4.1 の 28）
-fn skip_extended_data(bits: &mut Bits) -> Option<()> {
+pub(super) fn skip_extended_data(bits: &mut Bits) -> Option<()> {
     loop {
         let size = bits.bs()?;
         if size == 0 {
