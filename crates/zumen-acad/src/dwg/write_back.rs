@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と図形の除きを扱う（決定 0085〜0091）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0092）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -397,8 +397,8 @@ impl DwgFile {
         if r2004 && let Some(object) = added.iter().find(|object| !r2004_addable(object)) {
             return Err(unsupported(&object.kind));
         }
-        // R2010 から後は、足しをまだ書き戻さない（決定 0085・0091）
-        if r2010 && let Some(object) = added.first() {
+        // R2010 から後は、文字列の流れの形が R2000 と同じ図形の足しだけを書き戻す（決定 0092）
+        if r2010 && let Some(object) = added.iter().find(|object| !r2010_addable(object)) {
             return Err(unsupported(&object.kind));
         }
         self.unlink(base, &removed, &mut changes)?;
@@ -588,6 +588,15 @@ impl DwgFile {
             let block_record = *records
                 .get(&block)
                 .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+            // R2010 から後も同じく、ブロックのレコードの持つ図形に加える（決定 0092）
+            if self.release >= Release::R2010 {
+                let data = self
+                    .current_r2010(changes, block_record)
+                    .and_then(|(data, at)| adopt_r2010(&data, at, block, &handles, self.release))
+                    .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+                changes.insert(block_record, data);
+                continue;
+            }
             // R2004 の図形は前後の図形のハンドルを持たず、ブロックのレコードの持つ図形に加える
             if self.release == Release::R2004 {
                 let data = self
@@ -1368,6 +1377,9 @@ impl NewEntity<'_> {
     /// 図形の絵を持たず、印刷スタイルと線の太さは ByLayer にする。R2000 では前後の図形のハンドルを持ち、
     /// R2004 では持たず、拡張辞書を持たない印を書き、MTEXT の背景の欄（BL）を 0 にする（決定 0079）
     fn encode(&self, prev: u64, next: u64, release: Release) -> Option<Vec<u8>> {
+        if release >= Release::R2010 {
+            return self.encode_r2010(release);
+        }
         let object = self.object;
         let r2004 = release == Release::R2004;
         let mut common = BitWriter::default();
@@ -1430,6 +1442,56 @@ impl NewEntity<'_> {
             out.copy(&part.into_bytes(), 0..len)?;
         }
         Some(out.into_bytes())
+    }
+    /// R2010 から後の形で符号化したデータ（決定 0092）。ハンドルの流れの大きさ（MC）から始まる。材質は画層の
+    /// もので、影の印は 0、表示スタイルは持たない
+    fn encode_r2010(&self, release: Release) -> Option<Vec<u8>> {
+        let object = self.object;
+        let mut out = BitWriter::default();
+        out.bot(self.type_code);
+        out.handle(0, self.handle);
+        // 拡張データと図形の絵がない
+        out.bs(0);
+        out.bit(false);
+        out.bb(self.mode);
+        out.bl(0);
+        // 拡張辞書を持たない印。R2013 からは、DS のデータを持たない印
+        out.bit(true);
+        if release >= Release::R2013 {
+            out.bit(false);
+        }
+        out.bs(small(object, 62)?.unwrap_or(256));
+        out.bd(real(object, 48)?.unwrap_or(1.0));
+        out.bb(self.ltype.0);
+        out.bb(0);
+        // 材質の印（BB）・影の印（RC）・表示スタイルを持つかの 3 つの B
+        out.bb(0);
+        out.rc(0);
+        for _ in 0..3 {
+            out.bit(false);
+        }
+        out.bs(small(object, 60)?.unwrap_or(0));
+        out.rc(lineweight_index(-1)?.try_into().ok()?);
+        let fields = own_fields(
+            BitWriter::with_strings(),
+            object,
+            object,
+            self.type_code,
+            &[],
+            0,
+        )?;
+        let mut handles = BitWriter::default();
+        if self.mode == 0 {
+            handles.handle(4, self.owner);
+        }
+        handles.handle(5, self.layer);
+        if self.ltype.0 == 3 {
+            handles.handle(5, self.ltype.1);
+        }
+        if let Some(pointed) = self.pointed {
+            handles.handle(5, pointed);
+        }
+        r2010_assemble(out, fields, handles)
     }
 }
 
@@ -1606,6 +1668,57 @@ fn adopt(data: &[u8], block: u64, handles: &[u64]) -> Option<Vec<u8>> {
     }
     out.copy(data, owned.end..data.len() * 8)?;
     Some(out.into_bytes())
+}
+
+/// ハンドル `block` の R2010 から後のブロックのレコードのデータ `data`（ハンドルの流れの大きさ（MC）の後）の、
+/// 持つ図形の終わりに `handles` を加えたもの（決定 0092）。`handles_at` はハンドルの流れの始まり
+fn adopt_r2010(
+    data: &[u8],
+    handles_at: usize,
+    block: u64,
+    handles: &[u64],
+    release: Release,
+) -> Option<Vec<u8>> {
+    let owned = owned(data, block, release, Some(handles_at))?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..owned.count.start)?;
+    out.bl(i32::try_from(owned.handles.len().checked_add(handles.len())?).ok()?);
+    out.copy(data, owned.count.end..handles_at)?;
+    let at = out.len();
+    out.copy(data, handles_at..owned.end)?;
+    for &handle in handles {
+        out.handle(3, handle);
+    }
+    out.copy(data, owned.end..data.len() * 8)?;
+    with_modular_size(out, at)
+}
+
+/// R2010 から後の DWG に足せるものか（決定 0092）。型ごとの欄と文字列の流れが R2000 と同じ形に書ける図形だけを
+/// 足せる。表のレコードと、属性を持つ INSERT と MINSERT と、回した INSERT（変更でも確かめられていない）は、
+/// まだ足せない
+fn r2010_addable(object: &Object) -> bool {
+    const KINDS: [&[u8]; 13] = [
+        b"LINE",
+        b"CIRCLE",
+        b"ARC",
+        b"POINT",
+        b"ELLIPSE",
+        b"RAY",
+        b"XLINE",
+        b"SOLID",
+        b"TRACE",
+        b"3DFACE",
+        b"TEXT",
+        b"LWPOLYLINE",
+        b"INSERT",
+    ];
+    object.section == Section::Entities
+        && KINDS.contains(&object.kind.as_slice())
+        && (object.kind != b"INSERT"
+            || object
+                .values
+                .iter()
+                .all(|value| !matches!(value.code, 66 | 70 | 71 | 44 | 45 | 50)))
 }
 
 fn offset(object: &Object) -> Option<usize> {
@@ -1799,10 +1912,22 @@ fn encode_r2010(
 /// R2010 から後のオブジェクトのデータを、`out` に続けて、型ごとの欄 `fields` の主のデータと文字列の流れ、
 /// 流れのビットの数と有無の印、元のハンドルの流れの順に書き、MC を付けて返す
 fn r2010_finish(
-    mut out: BitWriter,
-    mut fields: BitWriter,
+    out: BitWriter,
+    fields: BitWriter,
     data: &[u8],
     handles_at: usize,
+) -> Option<Vec<u8>> {
+    let mut handles = BitWriter::default();
+    handles.copy(data, handles_at..data.len() * 8)?;
+    r2010_assemble(out, fields, handles)
+}
+
+/// `out` に、主のデータと文字列の流れを持つ `fields` と、その大きさと有無の印と、ハンドルの流れ `handles` を続け、
+/// ハンドルの流れの大きさ（MC）を前に付けたデータ
+fn r2010_assemble(
+    mut out: BitWriter,
+    mut fields: BitWriter,
+    handles: BitWriter,
 ) -> Option<Vec<u8>> {
     let strings = fields.take_strings();
     let fields_len = fields.len();
@@ -1821,9 +1946,10 @@ fn r2010_finish(
         }
     }
     out.bit(size > 0);
-    let handles = out.len();
-    out.copy(data, handles_at..data.len() * 8)?;
-    with_modular_size(out, handles)
+    let at = out.len();
+    let len = handles.len();
+    out.copy(&handles.into_bytes(), 0..len)?;
+    with_modular_size(out, at)
 }
 
 /// `out` の前に、ビット `handles` から終わりまでのビットの数（MC）を付ける

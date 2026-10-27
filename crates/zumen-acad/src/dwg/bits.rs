@@ -540,6 +540,20 @@ impl BitWriter {
     }
 
     /// BB
+    /// BOT（R2010 から）。[`Bits::bot`] の逆
+    pub(super) fn bot(&mut self, value: i16) {
+        if let Ok(code) = u8::try_from(value) {
+            self.bb(0);
+            self.rc(code);
+        } else if let Some(code) = value.checked_sub(0x1F0).and_then(|c| u8::try_from(c).ok()) {
+            self.bb(1);
+            self.rc(code);
+        } else {
+            self.bb(2);
+            self.rs(value);
+        }
+    }
+
     pub(super) fn bb(&mut self, value: u8) {
         self.small(value, 2);
     }
