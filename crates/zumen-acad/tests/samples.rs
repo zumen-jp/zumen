@@ -710,7 +710,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                     }
                 }
             }
-            // 図形でないオブジェクトの変更は書き戻さない
+            // 図形でないオブジェクトの、型ごとの欄でない値の変更は書き戻さない
             for kind in [&b"DICTIONARY"[..]] {
                 let mut db = base.clone();
                 let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
@@ -797,8 +797,22 @@ fn table_records_are_taken_back(version: &[u8; 6]) {
 
 #[test]
 fn r2004_drawings_take_back_changed_objects() {
+    objects_are_taken_back(b"AC1018");
+}
+
+/// R2010 から後の図面の、図形でないオブジェクトの欄と文字列を変えて書き戻すと、読み直した表が変えた表と
+/// 同じになる（決定 0090）
+#[test]
+fn r2010_and_later_drawings_take_back_changed_objects() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        objects_are_taken_back(version);
+    }
+}
+
+#[cfg(test)]
+fn objects_are_taken_back(version: &[u8; 6]) {
     let mut changed = 0;
-    for path in dwgs(b"AC1018") {
+    for path in dwgs(version) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -814,8 +828,9 @@ fn r2004_drawings_take_back_changed_objects() {
                     (b"GROUP", 300, Data::Text(text)) => text.extend(b"0"),
                     (b"DICTIONARYVAR", 1, Data::Text(text)) => text.extend(b"0"),
                     (b"DICTIONARY" | b"ACDBDICTIONARYWDFLT", 281, Data::Int(v)) => *v = *v % 5 + 1,
-                    (b"MLINESTYLE", 49, Data::Real(v)) => *v *= 2.0,
-                    (b"MLINESTYLE", 62, Data::Int(v)) => *v = *v % 255 + 1,
+                    // R2018 からの MLINESTYLE は、まだ書き戻さない
+                    (b"MLINESTYLE", 49, Data::Real(v)) if version != b"AC1032" => *v *= 2.0,
+                    (b"MLINESTYLE", 62, Data::Int(v)) if version != b"AC1032" => *v = *v % 255 + 1,
                     (b"LAYOUT", 146, Data::Real(v)) => *v += 1.0,
                     (b"LAYOUT", 78, Data::Int(v)) => *v += 100,
                     (b"XRECORD", _, Data::Real(v)) => *v += 1.0,
@@ -828,7 +843,7 @@ fn r2004_drawings_take_back_changed_objects() {
         let first: Vec<_> = diag.iter().map(|d| d.code()).collect();
         assert_eq!(taken_back(&file, &db), Ok(first), "{}", path.display());
     }
-    if !dwgs(b"AC1018").is_empty() {
+    if !dwgs(version).is_empty() {
         assert!(changed > 0);
     }
 }

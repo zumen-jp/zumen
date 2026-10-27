@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形と表のレコードを扱う（決定 0085〜0089）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトを扱う（決定 0085〜0090）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -334,6 +334,9 @@ impl DwgFile {
                             }
                             Section::Tables if r2010 => {
                                 encode_record_r2010(data, entry.handles?, old, object, self.release)
+                            }
+                            Section::Objects if r2010 => {
+                                encode_object_r2010(data, entry.handles?, old, object, self.release)
                             }
                             _ if r2010 => None,
                             Section::Entities | Section::Blocks => {
@@ -2042,8 +2045,17 @@ fn encode_record_r2010(
         fields.copy(data, own_end..end)?;
         Some(fields)
     };
-    // 元の値を符号化したデータが、元の主のデータの長さと文字列の流れを持つことを確かめる
-    let mut same = encode(old)?;
+    r2010_checked(data, [start, end, handles_at], encode(old)?, encode(new)?)
+}
+
+/// 型ごとの欄がビット `start` から `end` まで、ハンドルの流れが `handles_at` からの R2010 のオブジェクトに、
+/// 欄 `fields` を置いたデータ。元の値を符号化した `same` が、元の主のデータの長さと文字列の流れを持つことを確かめる
+fn r2010_checked(
+    data: &[u8],
+    [start, end, handles_at]: [usize; 3],
+    mut same: BitWriter,
+    fields: BitWriter,
+) -> Option<Vec<u8>> {
     (start + same.len() == end).then_some(())?;
     let strings_end = r2010_strings_end(data, end, handles_at)?;
     let mut found = BitWriter::default();
@@ -2051,7 +2063,7 @@ fn encode_record_r2010(
     (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
     let mut out = BitWriter::default();
     out.copy(data, 0..start)?;
-    r2010_finish(out, encode(new)?, data, handles_at)
+    r2010_finish(out, fields, data, handles_at)
 }
 
 /// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
@@ -2076,13 +2088,65 @@ fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> O
 /// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE・LAYOUT・XRECORD だけを扱う。ハンドルの並びから作る値などのほかの値が
 /// 変わったものは `None`
 fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+    let [size_at, start, handles_at] = object_fields(data, release)?;
+    let mut fields = BitWriter::default();
+    let end = object_own_fields(&mut fields, old, new, data, start, release)?;
+    fields.copy(data, end..handles_at)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(start + fields.len()).ok()?);
+    out.copy(data, size_at + 32..start)?;
+    let len = fields.len();
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, handles_at..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// R2010 から後の OBJECTS のオブジェクトを符号化し直したデータ（決定 0090）。`data` はハンドルの流れの
+/// 大きさ（MC）の後のデータ、`handles_at` はハンドルの流れの始まり。文字列の流れは、型ごとの欄の文字列だけを持つ。
+/// XRECORD の文字列の値は、試料の図面になく確かめていないので受け付けない。R2018 からの MLINESTYLE は、線ごとの
+/// 欄の形が異なり読めていないので受け付けない
+fn encode_object_r2010(
+    data: &[u8],
+    handles_at: usize,
+    old: &Object,
+    new: &Object,
+    release: Release,
+) -> Option<Vec<u8>> {
+    let text = |object: &Object| {
+        object
+            .values
+            .iter()
+            .any(|v| matches!(v.data, Data::Text(_)))
+    };
+    (new.kind != b"XRECORD" || !text(old) && !text(new)).then_some(())?;
+    (new.kind != b"MLINESTYLE" || release < Release::R2018).then_some(())?;
+    let [start, end] = r2010_object_fields(data, handles_at, release)?;
+    let encode = |object: &Object| -> Option<BitWriter> {
+        let mut fields = BitWriter::with_strings();
+        let own_end = object_own_fields(&mut fields, old, object, data, start, release)?;
+        fields.copy(data, own_end..end)?;
+        Some(fields)
+    };
+    r2010_checked(data, [start, end, handles_at], encode(old)?, encode(new)?)
+}
+
+/// OBJECTS のオブジェクトの型ごとの欄を、ビット `start` から読みながら `fields` に書き、元の欄の終わりの位置を返す
+fn object_own_fields(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    data: &[u8],
+    start: usize,
+    release: Release,
+) -> Option<usize> {
     let own: &[i16] = match new.kind.as_slice() {
         b"GROUP" => &[300, 70, 71],
         b"DICTIONARYVAR" => &[280, 1],
         b"DICTIONARY" | b"ACDBDICTIONARYWDFLT" => &[280, 281, 3],
         b"MLINESTYLE" => &[2, 70, 3, 62, 51, 52, 71, 49],
-        b"LAYOUT" => return encode_layout(data, old, new, release),
-        b"XRECORD" => return encode_xrecord(data, old, new, release),
+        b"LAYOUT" => return layout(fields, old, new, data, start, release),
+        b"XRECORD" => return xrecord(fields, old, new, data, start, release),
         _ => return None,
     };
     // 辞書の項目の数と、多重線の体裁の線の数と名前は変えない
@@ -2104,16 +2168,14 @@ fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> O
     if rest(old) != rest(new) {
         return None;
     }
-    let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
-    let mut fields = BitWriter::default();
     if new.kind == b"GROUP" {
         // 説明・名前のない印・選べる印。図形の数は元のまま写す
         bits.text()?;
         bits.bs()?;
         bits.bs()?;
-        string(&mut fields, new, 300)?;
+        string(fields, new, 300)?;
         for code in [70, 71] {
             fields.bs(i16::from(flag(new, code)?));
         }
@@ -2122,22 +2184,13 @@ fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> O
         bits.rc()?;
         bits.text()?;
         fields.rc(u8::try_from(small(new, 280)??).ok()?);
-        string(&mut fields, new, 1)?;
+        string(fields, new, 1)?;
     } else if new.kind == b"MLINESTYLE" {
-        mlinestyle(&mut fields, &mut bits, new, data, release)?;
+        mlinestyle(fields, &mut bits, new, data, release)?;
     } else {
-        dictionary(&mut fields, &mut bits, new, data)?;
+        dictionary(fields, &mut bits, new, data)?;
     }
-    let end = bits.pos();
-    fields.copy(data, end..handles_at)?;
-    let mut out = BitWriter::default();
-    out.copy(data, 0..size_at)?;
-    out.rl(i32::try_from(start + fields.len()).ok()?);
-    out.copy(data, size_at + 32..start)?;
-    let len = fields.len();
-    out.copy(&fields.into_bytes(), 0..len)?;
-    out.copy(data, handles_at..data.len() * 8)?;
-    Some(out.into_bytes())
+    Some(bits.pos())
 }
 
 /// LAYER の欄（決定 0043）。DXF の 70 の凍結 1・新しいビューポートで凍結 2・ロック 4 と、負の色（62）の
@@ -2570,9 +2623,16 @@ fn layout_fields(release: Release) -> Vec<Field> {
     fields
 }
 
-/// LAYOUT を符号化し直したデータ（決定 0049・0082）。値の番号の並びが元と同じで、レイアウトの名前（2 つめの 1）
+/// LAYOUT の欄を `fields` に符号化し直し、元の欄の終わりの位置を返す（決定 0049・0082）。値の番号の並びが元と同じで、レイアウトの名前（2 つめの 1）
 /// とハンドルの並びから作る値が変わらないものだけを扱う。欄は DWG の並びのまま、すべて書き直す
-fn encode_layout(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+fn layout(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    data: &[u8],
+    start: usize,
+    release: Release,
+) -> Option<usize> {
     let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
     if codes(old) != codes(new) {
         return None;
@@ -2594,10 +2654,8 @@ fn encode_layout(data: &[u8], old: &Object, new: &Object, release: Release) -> O
     if rest(old)? != rest(new)? {
         return None;
     }
-    let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
-    let mut fields = BitWriter::default();
     for (field, value) in layout.iter().zip(own) {
         match (field, &value.data) {
             (Field::Text, Data::Text(text)) => {
@@ -2621,21 +2679,19 @@ fn encode_layout(data: &[u8], old: &Object, new: &Object, release: Release) -> O
             _ => return None,
         }
     }
-    let end = bits.pos();
-    fields.copy(data, end..handles_at)?;
-    let mut out = BitWriter::default();
-    out.copy(data, 0..size_at)?;
-    out.rl(i32::try_from(start + fields.len()).ok()?);
-    out.copy(data, size_at + 32..start)?;
-    let len = fields.len();
-    out.copy(&fields.into_bytes(), 0..len)?;
-    out.copy(data, handles_at..data.len() * 8)?;
-    Some(out.into_bytes())
+    Some(bits.pos())
 }
 
-/// XRECORD を符号化し直したデータ（決定 0050）。値の番号の並びが元と同じものだけを扱う。データは、
+/// XRECORD の欄を `fields` に符号化し直し、元の欄の終わりの位置を返す（決定 0050）。値の番号の並びが元と同じものだけを扱う。データは、
 /// 元のデータを読みながら値を書き直し、文字列のコード・ページのバイトは元の値のものを写す
-fn encode_xrecord(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+fn xrecord(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    data: &[u8],
+    start: usize,
+    release: Release,
+) -> Option<usize> {
     let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
     if codes(old) != codes(new) {
         return None;
@@ -2653,7 +2709,6 @@ fn encode_xrecord(data: &[u8], old: &Object, new: &Object, release: Release) -> 
         let value = values.next()?;
         (value.code == code).then_some(&value.data)
     };
-    let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     let len = usize::try_from(bits.bl()?).ok()?;
@@ -2743,21 +2798,11 @@ fn encode_xrecord(data: &[u8], old: &Object, new: &Object, release: Release) -> 
         return None;
     }
     bits.bs()?;
-    let mut fields = BitWriter::default();
     fields.bl(i32::try_from(items.len() / 8).ok()?);
     let len = items.len();
     fields.copy(&items.into_bytes(), 0..len)?;
     fields.bs(i16::try_from(cloning).ok()?);
-    let end = bits.pos();
-    fields.copy(data, end..handles_at)?;
-    let mut out = BitWriter::default();
-    out.copy(data, 0..size_at)?;
-    out.rl(i32::try_from(start + fields.len()).ok()?);
-    out.copy(data, size_at + 32..start)?;
-    let len = fields.len();
-    out.copy(&fields.into_bytes(), 0..len)?;
-    out.copy(data, handles_at..data.len() * 8)?;
-    Some(out.into_bytes())
+    Some(bits.pos())
 }
 
 /// DICTIONARY の欄（決定 0048）。項目の数は元のまま写し、複製の扱い（281）・所有する印（280）・項目の
@@ -2785,7 +2830,7 @@ fn dictionary(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]
     Some(())
 }
 
-/// MLINESTYLE の欄（決定 0048）。名前は元のまま写す。印（70）は DXF のビットを DWG のビットに並べ直し、
+/// MLINESTYLE の欄（決定 0048）。名前は元のまま写す（R2010 からは書き直す）。印（70）は DXF のビットを DWG のビットに並べ直し、
 /// DXF にない DWG のビットは元のまま写す。角度は度からラジアンに直す。線の線種の番号は元のまま写す
 fn mlinestyle(
     fields: &mut BitWriter,
@@ -2805,9 +2850,14 @@ fn mlinestyle(
         (512, 1024),
         (1024, 512),
     ];
+    // R2010 からは、名前を文字列の流れに書く
     let start = bits.pos();
     bits.text()?;
-    fields.copy(data, start..bits.pos())?;
+    if release >= Release::R2010 {
+        string(fields, new, 2)?;
+    } else {
+        fields.copy(data, start..bits.pos())?;
+    }
     bits.text()?;
     let flags = bits.bs()?;
     let color_at = bits.pos();
