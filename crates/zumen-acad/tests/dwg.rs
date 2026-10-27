@@ -3168,7 +3168,8 @@ fn r2004(sections: &[(&[u8], Vec<u8>, u64)]) -> Vec<u8> {
         let number = i as i32 + 1;
         let address = src.len() as u32;
         let mask = 0x4164_536B ^ address;
-        for value in [
+        let checksum = adler(0, stream);
+        let mut fields = [
             0x4163_043B,
             number as u32,
             stream.len() as u32,
@@ -3176,8 +3177,11 @@ fn r2004(sections: &[(&[u8], Vec<u8>, u64)]) -> Vec<u8> {
             0,
             0,
             0,
-            0,
-        ] {
+            checksum,
+        ];
+        let plain: Vec<u8> = fields.iter().flat_map(|v| v.to_le_bytes()).collect();
+        fields[6] = adler(checksum, &plain);
+        for value in fields {
             src.extend_from_slice(&(value ^ mask).to_le_bytes());
         }
         src.extend_from_slice(stream);
@@ -3276,6 +3280,13 @@ fn r2004_containers_are_checked_and_read() {
     let (result, diag) = read(&broken, Limits::default());
     assert!(matches!(result, Err(Error::Invalid)));
     assert_eq!(codes_of(&diag), [codes::DWG_FILE_INVALID]);
+
+    // データのページの圧縮したデータを変えると、そのページの検査の値が合わなくなる
+    let mut broken = src.clone();
+    broken[0x100 + 0x20 + 1] ^= 0x01;
+    let (result, diag) = read(&broken, Limits::default());
+    assert!(result.is_ok());
+    assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
 
     // ページの地図の最後のページの大きさ（使わない）を変えると、検査の値が合わなくなる
     let mut broken = src;

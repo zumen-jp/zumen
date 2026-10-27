@@ -250,6 +250,17 @@ fn data_page(
         .and_then(|size| data_start.checked_add(size))
         .and_then(|end| src.get(data_start..end))
         .ok_or_else(|| invalid(cx, "data page", page_range(at)))?;
+    // データの検査の値は 0 を種に、見出しの検査の値はデータの検査の値を種に、見出しの検査の値を 0 にした
+    // 戻した見出しから求める
+    let mut plain = [0; DATA_PAGE_HEADER];
+    for (i, out) in plain.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        *out = field(i).to_le_bytes();
+    }
+    plain[24..28].fill(0);
+    let checksum = adler(0, data);
+    if checksum != field(7) || adler(checksum, &plain) != field(6) {
+        cx.report(crc_invalid("data page", start..data_start + data.len()));
+    }
     if !compressed {
         return Ok(data.to_vec());
     }
@@ -375,7 +386,7 @@ fn copy_literal(
     Some(())
 }
 
-/// 地図のページの検査の値。2 つの和を `0xFFF1` で割った余りを、`0x15B0` バイトごとにとる
+/// 地図とデータのページの検査の値。2 つの和を `0xFFF1` で割った余りを、`0x15B0` バイトごとにとる
 fn adler(seed: u32, data: &[u8]) -> u32 {
     let mut low = seed & 0xFFFF;
     let mut high = seed >> 16;
