@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0097）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0098）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -398,11 +398,7 @@ impl DwgFile {
             return Err(unsupported(&object.kind));
         }
         // R2010 から後は、文字列の流れの形が R2000 と同じ図形の足しだけを書き戻す（決定 0092）
-        if r2010
-            && let Some(object) = added
-                .iter()
-                .find(|object| !r2010_addable(object, self.release))
-        {
+        if r2010 && let Some(object) = added.iter().find(|object| !r2010_addable(object)) {
             return Err(unsupported(&object.kind));
         }
         self.unlink(base, &removed, &mut changes)?;
@@ -1586,7 +1582,7 @@ impl NewEntity<'_> {
         out.rc(lineweight_index(-1)?.try_into().ok()?);
         let mut fields = BitWriter::with_strings();
         match object.kind.as_slice() {
-            b"ATTRIB" => r2010_attribute(&mut fields, object, &[], 0)?,
+            b"ATTRIB" => r2010_attribute(&mut fields, object, &[], 0, release)?,
             b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
             _ => fields = own_fields(fields, object, object, self.type_code, &[], 0)?,
@@ -1605,6 +1601,10 @@ impl NewEntity<'_> {
         }
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
+        }
+        // R2018 からの MTEXT は、アプリケーションの名前を指す。試料の図面と同じく 0 とする（決定 0098）
+        if object.kind == b"MTEXT" && release >= Release::R2018 {
+            handles.handle(5, 0);
         }
         if let Some((attribs, seqend)) = &self.children {
             for &attrib in attribs {
@@ -1814,12 +1814,12 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// 版 `release`（R2010 から）の DWG に足せるものか（決定 0092〜0096）。型ごとの欄と文字列の流れが R2000 と同じ形に
-/// 書ける図形と、R2013 までの MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
+/// R2010 から後の DWG に足せるものか（決定 0092〜0098）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// 書ける図形と、MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
 /// 制御点のものだけ）と、
 /// UCS のほかの表のレコードと、足したブロックを足せる。MINSERT と、回した INSERT（変更でも
 /// 確かめられていない）は、まだ足せない
-fn r2010_addable(object: &Object, release: Release) -> bool {
+fn r2010_addable(object: &Object) -> bool {
     // 表のレコードは、LAYER・STYLE・LTYPE・APPID（決定 0094）と、DIMSTYLE・VIEW・ブロックのレコード
     // （決定 0095）を足せる
     if object.section == Section::Tables {
@@ -1859,12 +1859,6 @@ fn r2010_addable(object: &Object, release: Release) -> bool {
         b"ATTRIB",
         b"SEQEND",
     ];
-    let attributed = kind == b"INSERT" && object.values.iter().any(|value| value.code == 66);
-    // R2018 からの MTEXT と属性は欄が増える
-    if (matches!(kind, b"MTEXT" | b"ATTRIB" | b"SEQEND") || attributed) && release >= Release::R2018
-    {
-        return false;
-    }
     matches!(object.section, Section::Entities | Section::Blocks)
         && KINDS.contains(&kind)
         && (kind != b"INSERT"
@@ -2130,10 +2124,8 @@ fn r2010_own_fields(
     release: Release,
 ) -> Option<BitWriter> {
     if matches!(new.kind.as_slice(), b"ATTRIB" | b"ATTDEF") {
-        // R2018 からの複数行の属性の欄は、まだ扱わない
-        (release < Release::R2018).then_some(())?;
         let mut fields = BitWriter::with_strings();
-        r2010_attribute(&mut fields, new, data, end)?;
+        r2010_attribute(&mut fields, new, data, end, release)?;
         Some(fields)
     } else if new.kind == b"VIEWPORT" {
         let mut fields = BitWriter::with_strings();
@@ -2284,14 +2276,48 @@ fn r2010_mtext(
         None => {
             fields.bit(false);
             fields.bl(0);
+            // R2018 からは、注釈的でない印（B）と、版（BS）・既定の印（B）・揃え・X 軸・挿入点・枠の幅と高さ・
+            // 範囲の幅と高さ・段の種類（BS）が続く。試料の図面と同じく、注釈的でなく、版は 4、既定の印は真、
+            // 段はないとし、ほかは型ごとの欄と同じ値を書く（決定 0098）
+            if release >= Release::R2018 {
+                fields.bit(true);
+                fields.bs(4);
+                fields.bit(true);
+                fields.bl(i32::from(small(object, 71)??));
+                for (code, default) in [(11, 1.0), (21, 0.0), (31, 0.0)] {
+                    fields.bd(real(object, code)?.unwrap_or(default));
+                }
+                point3(fields, object, 10)?;
+                for code in [41, 46] {
+                    fields.bd(real(object, code)??);
+                }
+                fields.bd(0.0);
+                fields.bd(0.0);
+                fields.bs(0);
+            }
             Some(())
         }
     }
 }
 
+/// 複数行の属性（版（280）の後に種類（71）を持つ）か
+fn multiline(object: &Object) -> bool {
+    object
+        .values
+        .iter()
+        .skip_while(|value| value.code != 280)
+        .any(|value| value.code == 71)
+}
+
 /// R2010・R2013 の ATTRIB・ATTDEF の欄。名前の前に属性の版（RC、1 つ目の 280）を、印の後に位置を固定するか
 /// （B、2 つ目の 280）を書く。ATTDEF の問いの前の版（RC）は、主のデータの終わり `end` の前の元のビットを写す
-fn r2010_attribute(fields: &mut BitWriter, object: &Object, data: &[u8], end: usize) -> Option<()> {
+fn r2010_attribute(
+    fields: &mut BitWriter,
+    object: &Object,
+    data: &[u8],
+    end: usize,
+    release: Release,
+) -> Option<()> {
     let mut versions = object.values.iter().filter(|value| value.code == 280);
     let mut next = || match versions.next().map(|value| &value.data) {
         Some(Data::Int(value)) => u8::try_from(*value).ok(),
@@ -2300,6 +2326,12 @@ fn r2010_attribute(fields: &mut BitWriter, object: &Object, data: &[u8], end: us
     let (version, locked) = (next()?, next()?);
     text(fields, object, 74)?;
     fields.rc(version);
+    // R2018 からは、版の後に属性の種類（RC）が続く。1 行の属性（1）だけを書き、複数行の属性（版の後の DXF の
+    // 71。版の前の 71 は文字の向き）は、埋め込みの MTEXT の欄を読まないので受け付けない（決定 0098）
+    if release >= Release::R2018 {
+        (!multiline(object)).then_some(())?;
+        fields.rc(1);
+    }
     string(fields, object, 2)?;
     fields.bs(small(object, 73)?.unwrap_or(0));
     fields.rc(u8::try_from(small(object, 70)??).ok()?);
