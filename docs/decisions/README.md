@@ -105,6 +105,7 @@
 - [0095: R2010 から後の DWG に足した寸法の体裁・ビュー・ブロックは、版で増えた欄を試料の図面と同じ値で書いて書き戻す](0095-dwg-r2010-write-back-more-record-addition.md)（2026-10-27、採用）
 - [0096: R2010 から後の DWG の VPORT は、照明と格子の欄を読み分け、変更と足しを書き戻す](0096-dwg-r2010-vport.md)（2026-10-27、採用）
 - [0097: R2013 から後の DWG の SPLINE は、増えた印と節点の取り方を写して書き戻し、足すのは制御点のものだけとする](0097-dwg-r2013-spline.md)（2026-10-27、採用）
+- [0098: R2018 から後の DWG に MTEXT を足し、1 行の属性の変更と足しを書き戻す](0098-dwg-r2018-mtext-attribute.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
