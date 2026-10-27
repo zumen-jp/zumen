@@ -6905,7 +6905,8 @@ fn added_entities_are_written_back() {
         let (again, _) = objects(&out.unwrap());
         assert_eq!(summary(&again), summary(&db));
     }
-    // HANDSEED より小さいハンドル・足せない種類・表にない画層・表の途中に置いた図形は、書き戻せない
+    // HANDSEED より小さいハンドル・足せない種類（形を示せない SHAPE も）・表にない画層・表の途中に置いた図形は、
+    // 書き戻せない
     let src = linked_lines_with_seed(true);
     let (base, _) = objects(&src);
     let mut unknown_layer = with_added(&base, 0x80, b"LINE", &line);
@@ -6917,6 +6918,15 @@ fn added_entities_are_written_back() {
     let cases = [
         ("LINE", with_added(&base, 0x7F, b"LINE", &line)),
         ("MTEXT", with_added(&base, 0x80, b"MTEXT", &line)),
+        (
+            "SHAPE",
+            with_added(
+                &base,
+                0x80,
+                b"SHAPE",
+                &[(10, 1.0), (20, 2.0), (30, 0.0), (40, 1.0)],
+            ),
+        ),
         ("LINE", unknown_layer),
         ("ENTITIES", moved),
     ];
