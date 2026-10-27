@@ -490,7 +490,8 @@ impl BitWriter {
         }
     }
 
-    fn raw(&mut self, bytes: &[u8]) {
+    /// バイト列をそのまま
+    pub(super) fn raw(&mut self, bytes: &[u8]) {
         for &byte in bytes {
             self.small(byte, 8);
         }
@@ -513,6 +514,11 @@ impl BitWriter {
     /// RC
     pub(super) fn rc(&mut self, value: u8) {
         self.small(value, 8);
+    }
+
+    /// RS
+    pub(super) fn rs(&mut self, value: i16) {
+        self.raw(&value.to_le_bytes());
     }
 
     /// RL

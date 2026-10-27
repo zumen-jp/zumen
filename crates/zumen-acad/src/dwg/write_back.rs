@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0049）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0050）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -15,7 +15,7 @@ use zumen_sdk::{Error, Transact, Transaction};
 use super::bits::{BitWriter, Bits};
 use super::objects::{DIM_FIELDS, Dim, entity_fields, object_fields};
 use super::{DwgFile, Release};
-use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
+use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 
 /// 図形の共通の欄のうち、表に置くもののグループ・コード
 const COMMON: &[i16] = &[62, 48, 60];
@@ -381,8 +381,8 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047〜0049）。GROUP・DICTIONARYVAR・
-/// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE・LAYOUT だけを扱う。ハンドルの並びから作る値などのほかの値が
+/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047〜0050）。GROUP・DICTIONARYVAR・
+/// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE・LAYOUT・XRECORD だけを扱う。ハンドルの並びから作る値などのほかの値が
 /// 変わったものは `None`
 fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let own: &[i16] = match new.kind.as_slice() {
@@ -391,6 +391,7 @@ fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"DICTIONARY" | b"ACDBDICTIONARYWDFLT" => &[280, 281, 3],
         b"MLINESTYLE" => &[2, 70, 3, 62, 51, 52, 71, 49],
         b"LAYOUT" => return encode_layout(data, old, new),
+        b"XRECORD" => return encode_xrecord(data, old, new),
         _ => return None,
     };
     // 辞書の項目の数と、多重線の体裁の線の数と名前は変えない
@@ -787,6 +788,133 @@ fn encode_layout(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
             _ => return None,
         }
     }
+    let end = bits.pos();
+    fields.copy(data, end..handles_at)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(start + fields.len()).ok()?);
+    out.copy(data, size_at + 32..start)?;
+    let len = fields.len();
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, handles_at..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// XRECORD を符号化し直したデータ（決定 0050）。値の番号の並びが元と同じものだけを扱う。データは、
+/// 元のデータを読みながら値を書き直し、文字列のコード・ページのバイトは元の値のものを写す
+fn encode_xrecord(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+    let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
+    if codes(old) != codes(new) {
+        return None;
+    }
+    // 複製の扱い（280）の前は、ハンドル（5）と所有者（330）
+    let at = new.values.iter().position(|value| value.code == 280)?;
+    if old.values.get(..at) != new.values.get(..at) {
+        return None;
+    }
+    let Data::Int(cloning) = new.values.get(at)?.data else {
+        return None;
+    };
+    let mut values = new.values.get(at + 1..)?.iter();
+    let mut next = |code: i16| -> Option<&Data> {
+        let value = values.next()?;
+        (value.code == code).then_some(&value.data)
+    };
+    let [size_at, start, handles_at] = object_fields(data)?;
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    let len = usize::try_from(bits.bl()?).ok()?;
+    let end = bits.pos().checked_add(len.checked_mul(8)?)?;
+    let mut items = BitWriter::default();
+    while bits.pos() < end {
+        let code = bits.rs()?;
+        items.rs(code);
+        match DataType::of(code) {
+            DataType::Real if matches!(code, 10..=19 | 1010..=1019) => {
+                for code in [code, code + 10, code + 20] {
+                    bits.rd()?;
+                    let &Data::Real(v) = next(code)? else {
+                        return None;
+                    };
+                    items.rd(v);
+                }
+            }
+            DataType::Real => {
+                bits.rd()?;
+                let &Data::Real(v) = next(code)? else {
+                    return None;
+                };
+                items.rd(v);
+            }
+            DataType::Int => {
+                let &Data::Int(v) = next(code)? else {
+                    return None;
+                };
+                match code {
+                    280..=289 => {
+                        bits.rc()?;
+                        items.rc(u8::try_from(v).ok()?);
+                    }
+                    90..=99 | 420..=429 | 440..=459 | 1071 => {
+                        bits.rl()?;
+                        items.rl(i32::try_from(v).ok()?);
+                    }
+                    160..=169 => {
+                        bits.skip_bytes(8)?;
+                        items.raw(&v.to_le_bytes());
+                    }
+                    _ => {
+                        bits.rs()?;
+                        items.rs(i16::try_from(v).ok()?);
+                    }
+                }
+            }
+            DataType::Bool => {
+                bits.rc()?;
+                let &Data::Bool(v) = next(code)? else {
+                    return None;
+                };
+                items.rc(u8::from(v));
+            }
+            DataType::Handle => {
+                bits.skip_bytes(8)?;
+                let &Data::Handle(v) = next(code)? else {
+                    return None;
+                };
+                items.raw(&v.to_le_bytes());
+            }
+            DataType::Binary => {
+                let len = usize::from(bits.rc()?);
+                bits.skip_bytes(len)?;
+                let Data::Binary(v) = next(code)? else {
+                    return None;
+                };
+                items.rc(u8::try_from(v.len()).ok()?);
+                items.raw(v);
+            }
+            DataType::Text => {
+                let len = usize::try_from(bits.rs()?).ok()?;
+                let code_page = bits.rc()?;
+                bits.skip_bytes(len)?;
+                let Data::Text(v) = next(code)? else {
+                    return None;
+                };
+                let text = uncaret(v)?;
+                items.rs(i16::try_from(text.len()).ok()?);
+                items.rc(code_page);
+                items.raw(&text);
+            }
+        }
+    }
+    if bits.pos() != end || values.next().is_some() {
+        return None;
+    }
+    bits.bs()?;
+    let mut fields = BitWriter::default();
+    fields.bl(i32::try_from(items.len() / 8).ok()?);
+    let len = items.len();
+    fields.copy(&items.into_bytes(), 0..len)?;
+    fields.bs(i16::try_from(cloning).ok()?);
     let end = bits.pos();
     fields.copy(data, end..handles_at)?;
     let mut out = BitWriter::default();
