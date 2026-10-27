@@ -104,7 +104,7 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezsxf", license = "MIT", url = "https://github.com/monozukuri-ai/ezsxf" }]
 verify = ["Jw_cad", "SXF ブラウザ"]
 samples = ["ezsxf のリポジトリにある公開の図面"]
-decisions = ["0008", "0120"]
+decisions = ["0008", "0120", "0121"]
 docs = ["docs/formats/sxf.md"]
 
 [[formats.sxf.evidence]]
