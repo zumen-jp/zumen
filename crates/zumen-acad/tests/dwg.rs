@@ -3022,7 +3022,7 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
             codes::DWG_TYPE_UNSUPPORTED,
             codes::DWG_OBJECT_INVALID,
             codes::DXF_NON_PLANAR_DROPPED,
-            codes::DXF_LIFT_DROPPED,
+            codes::DXF_LIFT_INVALID,
         ]
     );
     let model = |x: f64, y: f64| ModelPoint {

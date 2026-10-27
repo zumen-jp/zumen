@@ -1,5 +1,5 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0110）。いまは ENTITIES の
-//! LINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0111）。いまは ENTITIES の
+//! LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・SPLINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! 図形の色・線種・線幅と、空間の描く順だけを移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
@@ -26,13 +26,16 @@ use zumen_drawing::{
     Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
     LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, ModelSpace,
     PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin,
-    Placement, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, Text,
-    Unit, Vertex, Vertical, View,
+    Placement, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, Style,
+    Symbol, SymbolKey, Text, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
 /// UTF-8 で書く最初の版（2007）
 const UTF8: &[u8] = b"AC1021";
+
+/// HATCH の SPLINE の辺が当てはめる点を持つ最初の版（2010）
+const FIT_DATA: &[u8] = b"AC1024";
 
 /// 移さない理由。診断は大きいので箱に入れる
 type Lifted<T> = Result<T, Box<Diagnostic>>;
@@ -71,6 +74,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             });
     let lifter = Lifter {
         unicode: version.is_some_and(|v| v >= UTF8),
+        fit_data: version.is_some_and(|v| v >= FIT_DATA),
         mm: unit.millimeters(),
         origin: limits(b"$PLIMMIN").unwrap_or_default(),
     };
@@ -101,9 +105,17 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     let (attributes, owned) = attached(&entities);
     for (index, object) in entities.iter().enumerate() {
         // 書式つきの文字は、内容の 250 バイトの区切り（3）ごとにも数える
-        let chunks = object.values.iter().filter(|value| value.code == 3).count();
+        // 曲線は、頂点・制御点・当てはめる点・節点（10・11・40）ごとにも数える
+        let count = |codes: &[i16]| {
+            object
+                .values
+                .iter()
+                .filter(|value| codes.contains(&value.code))
+                .count() as u64
+        };
         let chunks = match object.kind.as_slice() {
-            b"MTEXT" | b"ATTRIB" => chunks as u64,
+            b"MTEXT" | b"ATTRIB" => count(&[3]),
+            b"LWPOLYLINE" | b"SPLINE" => count(&[10, 11, 40]),
             _ => 0,
         };
         work(cx, 1 + chunks)?;
@@ -310,6 +322,8 @@ struct Out {
 struct Lifter {
     /// 2007 以降の版なら、文字の値を UTF-8 として読む
     unicode: bool,
+    /// 2010 以降の版なら、DXF の HATCH の SPLINE の辺は当てはめる点（97）を持つ
+    fit_data: bool,
     /// 1 単位の mm の数。不明なら `None`
     mm: Option<f64>,
     /// 用紙の原点（`$PLIMMIN`、図面の単位）
@@ -349,7 +363,8 @@ impl Lifter {
                     .push((SheetItem::View(out.views.len()), object.handle()));
                 out.views.push(view);
             }
-            b"LINE" | b"TEXT" | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH"
+            b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
+            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH"
                 if paper =>
             {
                 let mm = self.paper_mm(kind)?;
@@ -366,8 +381,8 @@ impl Lifter {
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(element);
             }
-            b"LINE" | b"TEXT" | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER"
-            | b"INSERT" | b"HATCH" => {
+            b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
+            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -439,6 +454,21 @@ impl Lifter {
             b"INSERT" => Ok(Shape::Symbol(self.symbol(object, point, length)?)),
             b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
             b"LINE" => self.line(object, point),
+            b"CIRCLE" => Ok(Shape::Circle {
+                center: self.planar_point(object, 10, point)?,
+                radius: length(self.radius(object)?),
+            }),
+            // ARC（DXF Reference「ARC」）。角度は度で、反時計回り
+            b"ARC" => Ok(Shape::Curve(Edge::Arc {
+                center: self.planar_point(object, 10, point)?,
+                radius: length(self.radius(object)?),
+                start: self.real(object, 50, None)?,
+                end: self.real(object, 51, None)?,
+                counterclockwise: true,
+            })),
+            b"ELLIPSE" => Ok(Shape::Curve(self.ellipse(object, point)?)),
+            b"LWPOLYLINE" => Ok(Shape::Polyline(self.lwpolyline(object, point, length)?)),
+            b"SPLINE" => Ok(Shape::Curve(Edge::Spline(self.spline(object, point)?))),
             // 段組みの欄は、R2018 からは埋め込みのオブジェクト（101）に置く（推定。docs/formats/dxf.md）
             b"MTEXT" if object.first(101).is_some() => Err(columns()),
             b"MTEXT" => Ok(Shape::Formatted(self.formatted(object, point, length)?)),
@@ -792,6 +822,8 @@ impl Lifter {
         point: &impl Fn(f64, f64) -> P,
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<Hatch<P>> {
+        // DWG の読み手は、SPLINE の辺の当てはめる点を置かない
+        let fit_data = self.fit_data && !matches!(object.origin, Origin::Dwg { .. });
         let kind = object.kind.as_slice();
         if self.real(object, 30, Some(0.0))? != 0.0 {
             return Err(non_planar(kind));
@@ -831,7 +863,7 @@ impl Lifter {
             } else {
                 let mut edges = Vec::new();
                 for _ in 0..values.count(93)? {
-                    edges.push(self.hatch_edge(&mut values, point, length)?);
+                    edges.push(self.hatch_edge(&mut values, fit_data, point, length)?);
                 }
                 Boundary::Edges(edges)
             };
@@ -930,6 +962,7 @@ impl Lifter {
     fn hatch_edge<P: Copy>(
         &self,
         values: &mut Values,
+        fit_data: bool,
         point: &impl Fn(f64, f64) -> P,
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<Edge<P>> {
@@ -969,10 +1002,50 @@ impl Lifter {
                     counterclockwise: values.int(73)? != 0,
                 }
             }
+            // 次数（94）・有理（73）・周期的（74）・節点（95・40）・制御点（96・10・20）と、有理なら重み（42）。
+            // 2010 以降の DXF は、当てはめる点（97・11・21）と、あれば接線（12・22・13・23）が続く
             4 => {
-                return Err(Box::new(Diagnostic::new(
-                    codes::DXF_HATCH_SPLINE_UNSUPPORTED,
-                )));
+                let degree = u32::try_from(values.int(94)?).map_err(|_| invalid(kind, 94))?;
+                let rational = values.int(73)? != 0;
+                let periodic = values.int(74)? != 0;
+                let knots = values.count(95)?;
+                let controls = values.count(96)?;
+                let mut spline = Spline {
+                    degree,
+                    knots: Vec::new(),
+                    control: Vec::new(),
+                    weights: Vec::new(),
+                    fit: Vec::new(),
+                    start_tangent: None,
+                    end_tangent: None,
+                    closed: false,
+                    periodic,
+                };
+                for _ in 0..knots {
+                    spline.knots.push(values.real(40)?);
+                }
+                for _ in 0..controls {
+                    spline
+                        .control
+                        .push(point(values.real(10)?, values.real(20)?));
+                    if rational {
+                        spline.weights.push(values.real(42)?);
+                    }
+                }
+                if fit_data {
+                    let fit = values.count(97)?;
+                    for _ in 0..fit {
+                        spline.fit.push(point(values.real(11)?, values.real(21)?));
+                    }
+                    if values.next() == Some(12) {
+                        spline.start_tangent = Some([values.real(12)?, values.real(22)?]);
+                    }
+                    if values.next() == Some(13) {
+                        spline.end_tangent = Some([values.real(13)?, values.real(23)?]);
+                    }
+                }
+                check_spline(kind, &spline)?;
+                Edge::Spline(spline)
             }
             _ => return Err(invalid(kind, 72)),
         };
@@ -1466,23 +1539,35 @@ impl Lifter {
         values: &[Value],
         point: &impl Fn(f64, f64) -> P,
     ) -> Lifted<Vec<P>> {
-        let mut values = Values { kind, values };
-        let mut vertices = Vec::new();
-        while let Some(code) = values.next() {
-            if code != 10 {
-                values.values = values.values.get(1..).unwrap_or_default();
-                continue;
-            }
-            let (x, y) = (values.real(10)?, values.real(20)?);
-            if values.next() == Some(30) && values.real(30)? != 0.0 {
-                return Err(non_planar(kind));
-            }
-            vertices.push(point(x, y));
-        }
+        let vertices = self.points(kind, values, 10, point)?;
         if vertices.is_empty() {
             return Err(invalid(kind, 10));
         }
         Ok(vertices)
+    }
+
+    /// `code` で始まる点（X・Y と、あれば Z）の並び。Z が 0 でなければ平面に移さない
+    fn points<P>(
+        &self,
+        kind: &[u8],
+        values: &[Value],
+        code: i16,
+        point: &impl Fn(f64, f64) -> P,
+    ) -> Lifted<Vec<P>> {
+        let mut values = Values { kind, values };
+        let mut points = Vec::new();
+        while let Some(next) = values.next() {
+            if next != code {
+                values.values = values.values.get(1..).unwrap_or_default();
+                continue;
+            }
+            let (x, y) = (values.real(code)?, values.real(code + 10)?);
+            if values.next() == Some(code + 20) && values.real(code + 20)? != 0.0 {
+                return Err(non_planar(kind));
+            }
+            points.push(point(x, y));
+        }
+        Ok(points)
     }
 
     /// 元の形式の色の値（AcCmColor）。上の 1 バイトが 0xC2 なら下の 3 バイトが RGB、0xC3 なら下の 1 バイトが
@@ -1534,6 +1619,167 @@ impl Lifter {
             }
             Some(_) => Err(invalid(kind, code)),
         }
+    }
+
+    /// 半径（40）。正でなければ読めないとする
+    fn radius(&self, object: &Object) -> Lifted<f64> {
+        let radius = self.real(object, 40, None)?;
+        if radius > 0.0 {
+            Ok(radius)
+        } else {
+            Err(invalid(&object.kind, 40))
+        }
+    }
+
+    /// ELLIPSE（DXF Reference「ELLIPSE」）。長軸の端（11・21）は中心からの向きで、比（40）は 0 より大きく 1 以下。
+    /// 始まりと終わりのパラメーター（41・42）はラジアンなので、度に直す
+    fn ellipse<P>(&self, object: &Object, point: &impl Fn(f64, f64) -> P) -> Lifted<Edge<P>> {
+        let kind = object.kind.as_slice();
+        if self.real(object, 30, Some(0.0))? != 0.0 || self.real(object, 31, Some(0.0))? != 0.0 {
+            return Err(non_planar(kind));
+        }
+        let [x, y] = [self.real(object, 10, None)?, self.real(object, 20, None)?];
+        let [dx, dy] = [self.real(object, 11, None)?, self.real(object, 21, None)?];
+        if [dx, dy] == [0.0, 0.0] {
+            return Err(invalid(kind, 11));
+        }
+        let ratio = self.real(object, 40, None)?;
+        if !(ratio > 0.0 && ratio <= 1.0) {
+            return Err(invalid(kind, 40));
+        }
+        Ok(Edge::Elliptic {
+            center: point(x, y),
+            major: point(x + dx, y + dy),
+            ratio,
+            start: self.real(object, 41, Some(0.0))?.to_degrees(),
+            end: self
+                .real(object, 42, Some(core::f64::consts::TAU))?
+                .to_degrees(),
+            counterclockwise: true,
+        })
+    }
+
+    /// LWPOLYLINE（DXF Reference「LWPOLYLINE」）。頂点（10・20）ごとに、続く始まりと終わりの幅（40・41）と
+    /// 膨らみ（42）を読む。頂点の数（90）と合わなければ読めないとする。標高（38）が 0 でなければ平面に移さない。
+    /// 線種の生成の印（70 の 128）と厚さ（39）は、まだ移さない
+    fn lwpolyline<P: Copy>(
+        &self,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Polyline<P>> {
+        let kind = object.kind.as_slice();
+        if self.real(object, 38, Some(0.0))? != 0.0 {
+            return Err(non_planar(kind));
+        }
+        let mut corners: Vec<([f64; 2], [Option<f64>; 2], f64)> = Vec::new();
+        let mut values = Values {
+            kind,
+            values: &object.values,
+        };
+        while let Some(code) = values.next() {
+            match code {
+                10 => {
+                    let at = [values.real(10)?, values.real(20)?];
+                    corners.push((at, [None; 2], 0.0));
+                }
+                40..=42 => {
+                    let value = values.real(code)?;
+                    let (_, widths, bulge) =
+                        corners.last_mut().ok_or_else(|| invalid(kind, code))?;
+                    match code {
+                        40 => widths[0] = Some(value),
+                        41 => widths[1] = Some(value),
+                        _ => *bulge = value,
+                    }
+                }
+                _ => values.values = values.values.get(1..).unwrap_or_default(),
+            }
+        }
+        if usize::try_from(self.int(object, 90, -1)?).ok() != Some(corners.len()) {
+            return Err(invalid(kind, 90));
+        }
+        let any_width = corners
+            .iter()
+            .any(|(_, widths, _)| widths.iter().any(Option::is_some));
+        let mut vertex_widths = Vec::new();
+        let mut vertices = Vec::new();
+        for ([x, y], [start, end], bulge) in corners {
+            if any_width {
+                vertex_widths.push([length(start.unwrap_or(0.0)), length(end.unwrap_or(0.0))]);
+            }
+            vertices.push(Vertex {
+                point: point(x, y),
+                bulge,
+            });
+        }
+        let width = match self.real(object, 43, Some(0.0))? {
+            0.0 => None,
+            width if width > 0.0 => Some(length(width)),
+            _ => return Err(invalid(kind, 43)),
+        };
+        Ok(Polyline {
+            vertices,
+            closed: self.int(object, 70, 0)? & 1 != 0,
+            width,
+            vertex_widths,
+        })
+    }
+
+    /// SPLINE（DXF Reference「SPLINE」）。印（70）の 1 は閉じている、2 は周期的、4 は有理。次数（71）・節点
+    /// （40）・制御点（10・20・30）・重み（41）・当てはめる点（11・21・31）・接線（12・13）を持つ。節点・制御点・
+    /// 当てはめる点の数（72〜74）と合わなければ読めないとする。許容差（42〜44）は、まだ移さない
+    fn spline<P>(&self, object: &Object, point: &impl Fn(f64, f64) -> P) -> Lifted<Spline<P>> {
+        let kind = object.kind.as_slice();
+        let flags = self.int(object, 70, 0)?;
+        let degree = u32::try_from(self.int(object, 71, -1)?).map_err(|_| invalid(kind, 71))?;
+        let reals = |code: i16| -> Lifted<Vec<f64>> {
+            object
+                .values
+                .iter()
+                .filter(|value| value.code == code)
+                .map(|value| match value.data {
+                    Data::Real(value) if value.is_finite() => Ok(value),
+                    _ => Err(invalid(kind, code)),
+                })
+                .collect()
+        };
+        let tangent = |code: i16| -> Lifted<Option<[f64; 2]>> {
+            if object.first(code).is_none() {
+                return Ok(None);
+            }
+            if self.real(object, code + 20, Some(0.0))? != 0.0 {
+                return Err(non_planar(kind));
+            }
+            Ok(Some([
+                self.real(object, code, None)?,
+                self.real(object, code + 10, None)?,
+            ]))
+        };
+        let spline = Spline {
+            degree,
+            knots: reals(40)?,
+            control: self.points(kind, &object.values, 10, point)?,
+            weights: reals(41)?,
+            fit: self.points(kind, &object.values, 11, point)?,
+            start_tangent: tangent(12)?,
+            end_tangent: tangent(13)?,
+            closed: flags & 1 != 0,
+            periodic: flags & 2 != 0,
+        };
+        for (code, count) in [
+            (72, spline.knots.len()),
+            (73, spline.control.len()),
+            (74, spline.fit.len()),
+        ] {
+            if object.first(code).is_some()
+                && usize::try_from(self.int(object, code, -1)?).ok() != Some(count)
+            {
+                return Err(invalid(kind, code));
+            }
+        }
+        check_spline(kind, &spline)?;
+        Ok(spline)
     }
 
     fn planar_point<P>(
@@ -2094,6 +2340,31 @@ fn invalid(kind: &[u8], code: i16) -> Box<Diagnostic> {
             .with("kind", text(kind))
             .with("code", i64::from(code)),
     )
+}
+
+/// スプラインの定義の数が合うか。制御点があれば、次数より多く、重みは空か同じ数で正、周期的でなければ
+/// 節点は制御点の数と次数と 1 の和。制御点も当てはめる点もなければ読めないとする
+fn check_spline<P>(kind: &[u8], spline: &Spline<P>) -> Lifted<()> {
+    let degree = spline.degree as usize;
+    let controls = spline.control.len();
+    if spline.degree == 0 {
+        return Err(invalid(kind, 71));
+    }
+    if controls == 0 && spline.fit.is_empty() {
+        return Err(invalid(kind, 10));
+    }
+    if controls > 0 && controls <= degree {
+        return Err(invalid(kind, 10));
+    }
+    if !(spline.weights.is_empty() || spline.weights.len() == controls)
+        || spline.weights.iter().any(|weight| *weight <= 0.0)
+    {
+        return Err(invalid(kind, 41));
+    }
+    if controls > 0 && !spline.periodic && spline.knots.len() != controls + degree + 1 {
+        return Err(invalid(kind, 40));
+    }
+    Ok(())
 }
 
 /// MULTILEADER の値の区切り

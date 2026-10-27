@@ -421,7 +421,10 @@ fn extent<P: Copy>(elements: &[Element<P>], xy: impl Fn(P) -> (f64, f64)) -> Opt
             Placement::Anchor { point, .. } => [Some(point), None],
             Placement::Between { first, second, .. } => [Some(first), Some(second)],
         },
-        Shape::Formatted(_)
+        Shape::Circle { .. }
+        | Shape::Curve(_)
+        | Shape::Polyline(_)
+        | Shape::Formatted(_)
         | Shape::Dimension(_)
         | Shape::Leader(_)
         | Shape::Callout(_)
@@ -657,13 +660,13 @@ mod tests {
     use super::*;
     use zumen_json::Value;
 
-    /// 見出しの単位と用紙の範囲、モデル空間の線分と文字、ペーパー空間の線分、移さない円を持つ DXF
+    /// 見出しの単位と用紙の範囲、モデル空間の線分と文字、ペーパー空間の線分、移さない点を持つ DXF
     const DRAWING: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n\
         9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n420.0\n20\n297.0\n0\nENDSEC\n\
         0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n\
         0\nTEXT\n8\nTEXT\n10\n-3.0\n20\n4.0\n40\n2.5\n1\nABC\n\
         0\nLINE\n8\n0\n67\n1\n10\n10.0\n20\n10.0\n11\n410.0\n21\n287.0\n\
-        0\nCIRCLE\n8\n0\n10\n0.0\n20\n0.0\n40\n1.0\n0\nENDSEC\n0\nEOF\n";
+        0\nPOINT\n8\n0\n10\n0.0\n20\n0.0\n0\nENDSEC\n0\nEOF\n";
 
     fn call(session: &mut Session, request: &str) -> (Status, Value) {
         let reply = session.call(request.as_bytes(), &CancelToken::new());

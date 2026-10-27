@@ -425,6 +425,7 @@ pub const DXF_HANDLE_SEED_MISSING: Code =
 /// SPLINE の辺を持つ HATCH を、図面モデルに移さなかった
 ///
 /// `dxf.hatch-spline.unsupported`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const DXF_HATCH_SPLINE_UNSUPPORTED: Code = Code::new(
     "dxf.hatch-spline.unsupported",
     Severity::Warning,
