@@ -1,5 +1,5 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0109）。いまは ENTITIES の
-//! LINE・TEXT・MTEXT・DIMENSION・LEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0110）。いまは ENTITIES の
+//! LINE・TEXT・MTEXT・DIMENSION・LEADER・MULTILEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! 図形の色・線種・線幅と、空間の描く順だけを移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
@@ -19,14 +19,15 @@ use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Arrowhead, Attribute, Axis, Background, BackgroundFill, Boundary, Color, ColorCode,
-    ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Drawing2D, Edge, Element,
-    Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
-    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
-    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Placement, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Symbol,
-    SymbolKey, Text, Unit, Vertex, Vertical, View,
+    Affine, Arrowhead, Attribute, AttributeValue, Axis, Background, BackgroundFill, Boundary,
+    Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem, Dimension, DimensionKind,
+    DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element, Fill, Fit, Flow,
+    FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit,
+    Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
+    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, ModelSpace,
+    PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin,
+    Placement, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, Text,
+    Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -365,7 +366,8 @@ impl Lifter {
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(element);
             }
-            b"LINE" | b"TEXT" | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" => {
+            b"LINE" | b"TEXT" | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER"
+            | b"INSERT" | b"HATCH" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -433,6 +435,7 @@ impl Lifter {
         match kind {
             b"DIMENSION" => Ok(Shape::Dimension(self.dimension(object, point, length)?)),
             b"LEADER" => Ok(Shape::Leader(self.leader(db, object, point)?)),
+            b"MULTILEADER" => Ok(Shape::Callout(self.callout(db, object, point, length)?)),
             b"INSERT" => Ok(Shape::Symbol(self.symbol(object, point, length)?)),
             b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
             b"LINE" => self.line(object, point),
@@ -570,19 +573,7 @@ impl Lifter {
         if !ended {
             return Err(invalid(kind, 1));
         }
-        // 1〜9 は、上・中央・下の行の、左・中央・右
-        let attachment = self.int(object, 71, 1)?;
-        let vertical = match (attachment - 1) / 3 {
-            _ if !(1..=9).contains(&attachment) => return Err(invalid(kind, 71)),
-            0 => Vertical::Top,
-            1 => Vertical::Middle,
-            _ => Vertical::Bottom,
-        };
-        let horizontal = match (attachment - 1) % 3 {
-            0 => Horizontal::Left,
-            1 => Horizontal::Center,
-            _ => Horizontal::Right,
-        };
+        let (horizontal, vertical) = attachment(kind, self.int(object, 71, 1)?, 71)?;
         let rotation = if object.first(11).is_some() {
             if self.real(object, 31, Some(0.0))? != 0.0 {
                 return Err(non_planar(kind));
@@ -605,12 +596,7 @@ impl Lifter {
                 _ => Err(invalid(kind, code)),
             }
         };
-        let flow = match self.int(object, 72, 1)? {
-            1 => Flow::LeftToRight,
-            3 => Flow::TopToBottom,
-            5 => Flow::ByStyle,
-            _ => return Err(invalid(kind, 72)),
-        };
+        let flow = flow(kind, self.int(object, 72, 1)?, 72)?;
         let exact = match self.int(object, 73, 1)? {
             1 => false,
             2 => true,
@@ -1086,7 +1072,10 @@ impl Lifter {
         let label = match self.string(object, 1)?.as_deref() {
             None | Some("") | Some("<>") => Label::Measurement,
             Some(" ") => Label::Hidden,
-            Some(text) => Label::Override(text.to_owned()),
+            Some(text) => Label::Override {
+                spans: mtext::dimension_spans(text, length),
+                content: text.to_owned(),
+            },
         };
         // 71 は 1〜9 で、上・中・下の段ごとに左・中央・右
         let attachment = match object.first(71) {
@@ -1213,6 +1202,340 @@ impl Lifter {
     }
 
     /// 平面の点（`x` と `x + 10`）。Z（`x + 20`）がなければ 0 とし、0 でなければ移さない
+    /// MULTILEADER（DXF Reference「MLEADER」）。値を、注記の文脈（300〜301）・枝（302〜303）・線（304〜305）の
+    /// 区切りで分けてから読む。注記は、文脈の 290 が真なら書式つきの文字、296 が真なら記号とする。公差の注記
+    /// （172 = 3）と段組み（173）は、まだ移さない。線ごとの端部記号（94・345）・線の色と線種と線幅・文字と
+    /// 記号の色・寄せ方の欄は、まだ移さない（docs/formats/dxf.md）
+    fn callout<P: Copy>(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Callout<P>> {
+        let kind = object.kind.as_slice();
+        let parts = split_callout(object)?;
+        let part = |values: Vec<Value>| Object {
+            values,
+            ..object.clone()
+        };
+        let entity = part(parts.entity);
+        let context = part(parts.context);
+        if self.int(&entity, 172, 0)? == 3 {
+            return Err(invalid(kind, 172));
+        }
+        let content = match (
+            self.flag(&context, 290, false)?,
+            self.flag(&context, 296, false)?,
+        ) {
+            (false, false) => CalloutContent::None,
+            (true, false) => {
+                CalloutContent::Text(Box::new(self.callout_text(db, &context, point, length)?))
+            }
+            (false, true) => CalloutContent::Symbol {
+                symbol: Box::new(self.callout_symbol(db, &context, point)?),
+                values: self.attribute_values(db, &entity)?,
+            },
+            (true, true) => return Err(invalid(kind, 296)),
+        };
+        let doglegs = self.flag(&entity, 291, true)?;
+        let mut branches = Vec::new();
+        for (leader, lines) in parts.leaders {
+            let leader = part(leader);
+            let end = if self.flag(&leader, 290, false)? {
+                Some(self.planar_point(&leader, 10, point)?)
+            } else {
+                None
+            };
+            let dogleg = if doglegs && self.flag(&leader, 291, false)? {
+                let direction = [self.real(&leader, 11, None)?, self.real(&leader, 21, None)?];
+                if direction == [0.0, 0.0] || self.real(&leader, 31, Some(0.0))? != 0.0 {
+                    return Err(invalid(kind, 11));
+                }
+                Some(Dogleg {
+                    direction,
+                    length: length(self.real(&leader, 40, None)?),
+                })
+            } else {
+                None
+            };
+            let lines = lines
+                .iter()
+                .map(|line| self.vertices(kind, line, point))
+                .collect::<Lifted<Vec<_>>>()?;
+            branches.push(Branch { lines, end, dogleg });
+        }
+        let path = match self.int(&entity, 170, 1)? {
+            0 => PathKind::Hidden,
+            1 => PathKind::Straight,
+            2 => PathKind::Spline,
+            _ => return Err(invalid(kind, 170)),
+        };
+        // 端部記号の大きさは図形の 42 にあり、なければ文脈の 140 とする
+        let arrow_size = match entity.first(42) {
+            Some(_) => self.real(&entity, 42, None)?,
+            None => self.real(&context, 140, None)?,
+        };
+        let scale = self.real(&context, 40, Some(1.0))?;
+        if scale <= 0.0 || arrow_size < 0.0 {
+            return Err(invalid(kind, if scale <= 0.0 { 40 } else { 42 }));
+        }
+        let style = match entity.first(340) {
+            None => None,
+            Some(Data::Handle(handle)) => {
+                Some(source(db.get(*handle).ok_or_else(|| invalid(kind, 340))?))
+            }
+            Some(_) => return Err(invalid(kind, 340)),
+        };
+        Ok(Callout {
+            branches,
+            content,
+            path,
+            arrowhead: self
+                .block_key(db, &entity, 342)?
+                .map_or(Arrowhead::Default, Arrowhead::Symbol),
+            arrow_size: length(arrow_size),
+            landing: self.flag(&entity, 290, true)?,
+            scale,
+            style,
+        })
+    }
+
+    /// MULTILEADER の文脈の書式つきの文字。欄は MTEXT と同じ意味で、符号が違う（DXF Reference「MLEADER」）。
+    /// 背景の色（91）は、ほかの色と同じく元の形式の色の値とする
+    fn callout_text<P: Copy>(
+        &self,
+        db: &AcadDb,
+        context: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<FormattedText<P>> {
+        let kind = context.kind.as_slice();
+        if self.int(context, 173, 0)? != 0 {
+            return Err(columns());
+        }
+        let content = self
+            .string(context, 304)?
+            .ok_or_else(|| invalid(kind, 304))?;
+        let (horizontal, vertical) = attachment(kind, self.int(context, 171, 1)?, 171)?;
+        let direction = [
+            self.real(context, 13, Some(0.0))?,
+            self.real(context, 23, Some(0.0))?,
+        ];
+        if self.real(context, 33, Some(0.0))? != 0.0 {
+            return Err(non_planar(kind));
+        }
+        let rotation = if direction == [0.0, 0.0] {
+            Rotation::Angle(self.real(context, 42, Some(0.0))?.to_degrees())
+        } else {
+            Rotation::Direction(direction)
+        };
+        let frame = |code: i16| -> Lifted<Option<Length>> {
+            match self.real(context, code, Some(0.0))? {
+                0.0 => Ok(None),
+                size if size > 0.0 => Ok(Some(length(size))),
+                _ => Err(invalid(kind, code)),
+            }
+        };
+        let background = if self.flag(context, 292, false)? {
+            let fill = if self.flag(context, 291, false)? {
+                BackgroundFill::Screen
+            } else {
+                BackgroundFill::Color(self.raw_color(context, 91)?)
+            };
+            let scale = self.real(context, 141, Some(1.5))?;
+            if scale <= 0.0 {
+                return Err(invalid(kind, 141));
+            }
+            let transparency = match context.first(92) {
+                None => None,
+                Some(Data::Int(value)) => {
+                    Some(u32::try_from(*value).map_err(|_| invalid(kind, 92))?)
+                }
+                Some(_) => return Err(invalid(kind, 92)),
+            };
+            Some(Background {
+                fill: Some(fill),
+                frame: false,
+                scale,
+                transparency,
+            })
+        } else {
+            None
+        };
+        let style = match context.first(340) {
+            None => "STANDARD".to_owned(),
+            Some(Data::Handle(handle)) => db
+                .get(*handle)
+                .filter(|record| record.kind == b"STYLE")
+                .map(|record| self.string(record, 2))
+                .transpose()?
+                .flatten()
+                .ok_or_else(|| invalid(kind, 340))?,
+            Some(_) => return Err(invalid(kind, 340)),
+        };
+        let factor = self.real(context, 45, Some(1.0))?;
+        if factor <= 0.0 {
+            return Err(invalid(kind, 45));
+        }
+        Ok(FormattedText {
+            spans: mtext::spans(&content, length),
+            content,
+            height: Height {
+                value: length(self.real(context, 41, None)?),
+                meaning: HeightMeaning::Declared("dxf.MULTILEADER.41"),
+            },
+            point: self.planar_point(context, 12, point)?,
+            horizontal,
+            vertical,
+            rotation,
+            width: frame(43)?,
+            frame_height: frame(44)?,
+            flow: flow(kind, self.int(context, 172, 1)?, 172)?,
+            line_spacing: LineSpacing {
+                factor,
+                exact: match self.int(context, 170, 1)? {
+                    1 => false,
+                    2 => true,
+                    _ => return Err(invalid(kind, 170)),
+                },
+            },
+            background,
+            style,
+        })
+    }
+
+    /// MULTILEADER の文脈の記号。ブロックのレコード（341）を指し、位置（15）・尺度（16・26）・回転（46、
+    /// ラジアン）を持つ。変換の行列（47）は、これらから決まる値なので移さない
+    fn callout_symbol<P: Copy>(
+        &self,
+        db: &AcadDb,
+        context: &Object,
+        point: &impl Fn(f64, f64) -> P,
+    ) -> Lifted<Symbol<P>> {
+        let kind = context.kind.as_slice();
+        let key = self
+            .block_key(db, context, 341)?
+            .ok_or_else(|| invalid(kind, 341))?;
+        let mut scale = [1.0; 2];
+        for (code, slot) in [16, 26].into_iter().zip(&mut scale) {
+            *slot = self.real(context, code, Some(1.0))?;
+            if *slot == 0.0 {
+                return Err(invalid(kind, code));
+            }
+        }
+        Ok(Symbol {
+            key,
+            position: self.planar_point(context, 15, point)?,
+            scale,
+            rotation: self.real(context, 46, Some(0.0))?.to_degrees(),
+            grid: None,
+            attributes: Vec::new(),
+        })
+    }
+
+    /// MULTILEADER の記号の属性の値。属性の定義（330）・番号（177）・幅（44）・値（302）の組を、入力の順に
+    /// 読む。番号と幅は、まだ移さない
+    fn attribute_values(&self, db: &AcadDb, entity: &Object) -> Lifted<Vec<AttributeValue>> {
+        let kind = entity.kind.as_slice();
+        let mut values = Vec::new();
+        let mut definition = None;
+        for value in &entity.values {
+            match (value.code, &value.data) {
+                (330, Data::Handle(handle)) => {
+                    let found = db
+                        .get(*handle)
+                        .filter(|record| record.kind == b"ATTDEF")
+                        .ok_or_else(|| invalid(kind, 330))?;
+                    definition = Some(source(found));
+                }
+                (302, data) => values.push(AttributeValue {
+                    definition: definition.take().ok_or_else(|| invalid(kind, 330))?,
+                    text: self.decode(kind, 302, data)?,
+                }),
+                _ => {}
+            }
+        }
+        Ok(values)
+    }
+
+    /// 線の頂点（10・20・30）。1 つもなければ読めないとする
+    fn vertices<P>(
+        &self,
+        kind: &[u8],
+        values: &[Value],
+        point: &impl Fn(f64, f64) -> P,
+    ) -> Lifted<Vec<P>> {
+        let mut values = Values { kind, values };
+        let mut vertices = Vec::new();
+        while let Some(code) = values.next() {
+            if code != 10 {
+                values.values = values.values.get(1..).unwrap_or_default();
+                continue;
+            }
+            let (x, y) = (values.real(10)?, values.real(20)?);
+            if values.next() == Some(30) && values.real(30)? != 0.0 {
+                return Err(non_planar(kind));
+            }
+            vertices.push(point(x, y));
+        }
+        if vertices.is_empty() {
+            return Err(invalid(kind, 10));
+        }
+        Ok(vertices)
+    }
+
+    /// 元の形式の色の値（AcCmColor）。上の 1 バイトが 0xC2 なら下の 3 バイトが RGB、0xC3 なら下の 1 バイトが
+    /// 色の番号（推定。docs/formats/dxf.md）。ほかは読めないとする
+    fn raw_color(&self, object: &Object, code: i16) -> Lifted<Color> {
+        let value = match object.first(code) {
+            Some(Data::Int(value)) => *value as u32,
+            _ => return Err(invalid(&object.kind, code)),
+        };
+        let [method, r, g, b] = value.to_be_bytes();
+        match (method, b) {
+            (0xC2, _) => Ok(Color {
+                code: None,
+                rgb: Some([r, g, b]),
+            }),
+            (0xC3, index @ 1..=255) => Ok(Color {
+                code: Some(aci(i64::from(index))),
+                rgb: None,
+            }),
+            _ => Err(invalid(&object.kind, code)),
+        }
+    }
+
+    /// 真偽の値。なければ `default`
+    fn flag(&self, object: &Object, code: i16, default: bool) -> Lifted<bool> {
+        match object.first(code) {
+            None => Ok(default),
+            Some(Data::Bool(flag)) => Ok(*flag),
+            Some(Data::Int(flag @ (0 | 1))) => Ok(*flag == 1),
+            Some(_) => Err(invalid(&object.kind, code)),
+        }
+    }
+
+    /// ブロックのレコードを指すハンドルを、記号のキーにする。ないか 0 なら `None`
+    fn block_key(&self, db: &AcadDb, object: &Object, code: i16) -> Lifted<Option<SymbolKey>> {
+        let kind = object.kind.as_slice();
+        match object.first(code) {
+            None | Some(Data::Handle(0)) => Ok(None),
+            Some(Data::Handle(handle)) => {
+                let record = db
+                    .get(*handle)
+                    .filter(|record| record.kind == b"BLOCK_RECORD")
+                    .ok_or_else(|| invalid(kind, code))?;
+                let name = self.string(record, 2)?.ok_or_else(|| invalid(kind, code))?;
+                Ok(Some(SymbolKey {
+                    namespace: BLOCK,
+                    name,
+                }))
+            }
+            Some(_) => Err(invalid(kind, code)),
+        }
+    }
+
     fn planar_point<P>(
         &self,
         object: &Object,
@@ -1536,21 +1859,9 @@ impl Lifter {
         let kind = object.kind.as_slice();
         let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
         let arrow = |code: i16| -> Lifted<Arrowhead> {
-            match object.first(code) {
-                None | Some(Data::Handle(0)) => Ok(Arrowhead::Default),
-                Some(Data::Handle(handle)) => {
-                    let record = db
-                        .get(*handle)
-                        .filter(|record| record.kind == b"BLOCK_RECORD")
-                        .ok_or_else(|| invalid(kind, code))?;
-                    let name = self.string(record, 2)?.ok_or_else(|| invalid(kind, code))?;
-                    Ok(Arrowhead::Symbol(SymbolKey {
-                        namespace: BLOCK,
-                        name,
-                    }))
-                }
-                Some(_) => Err(invalid(kind, code)),
-            }
+            Ok(self
+                .block_key(db, object, code)?
+                .map_or(Arrowhead::Default, Arrowhead::Symbol))
         };
         let separate = match object.first(173) {
             None => false,
@@ -1783,6 +2094,97 @@ fn invalid(kind: &[u8], code: i16) -> Box<Diagnostic> {
             .with("kind", text(kind))
             .with("code", i64::from(code)),
     )
+}
+
+/// MULTILEADER の値の区切り
+struct CalloutParts {
+    /// 図形の値
+    entity: Vec<Value>,
+    /// 注記の文脈の値
+    context: Vec<Value>,
+    /// 枝ごとの、枝の値と線ごとの値
+    leaders: Vec<(Vec<Value>, Vec<Vec<Value>>)>,
+}
+
+/// MULTILEADER の値を、区切り（300 `CONTEXT_DATA{`・301・302 `LEADER{`・303・304 `LEADER_LINE{`・305）で
+/// 分ける。文脈の中の 304 は、`LEADER_LINE{` でなければ文字の内容とする。区切りが閉じなければ読めないとする
+fn split_callout(object: &Object) -> Lifted<CalloutParts> {
+    let kind = object.kind.as_slice();
+    let mut parts = CalloutParts {
+        entity: Vec::new(),
+        context: Vec::new(),
+        leaders: Vec::new(),
+    };
+    // 0 は図形、1 は文脈、2 は枝、3 は線の中
+    let mut depth = 0;
+    let mut seen = false;
+    for value in &object.values {
+        let marker = |text: &[u8]| matches!(&value.data, Data::Text(t) if t.as_slice() == text);
+        match (depth, value.code) {
+            (0, 300) if !seen => {
+                depth = 1;
+                seen = true;
+            }
+            (1, 301) => depth = 0,
+            (1, 302) if marker(b"LEADER{") => {
+                parts.leaders.push((Vec::new(), Vec::new()));
+                depth = 2;
+            }
+            (2, 303) => depth = 1,
+            (2, 304) if marker(b"LEADER_LINE{") => {
+                if let Some((_, lines)) = parts.leaders.last_mut() {
+                    lines.push(Vec::new());
+                }
+                depth = 3;
+            }
+            (3, 305) => depth = 2,
+            (0, _) => parts.entity.push(value.clone()),
+            (1, _) => parts.context.push(value.clone()),
+            (2, _) => {
+                if let Some((leader, _)) = parts.leaders.last_mut() {
+                    leader.push(value.clone());
+                }
+            }
+            _ => {
+                if let Some(line) = parts.leaders.last_mut().and_then(|(_, l)| l.last_mut()) {
+                    line.push(value.clone());
+                }
+            }
+        }
+    }
+    match (seen, depth) {
+        (false, _) => Err(invalid(kind, 300)),
+        (true, 0) => Ok(parts),
+        (true, _) => Err(invalid(kind, 301)),
+    }
+}
+
+/// 枠への位置合わせ。1〜9 は、上・中央・下の行の、左・中央・右
+fn attachment(kind: &[u8], value: i64, code: i16) -> Lifted<(Horizontal, Vertical)> {
+    if !(1..=9).contains(&value) {
+        return Err(invalid(kind, code));
+    }
+    let vertical = match (value - 1) / 3 {
+        0 => Vertical::Top,
+        1 => Vertical::Middle,
+        _ => Vertical::Bottom,
+    };
+    let horizontal = match (value - 1) % 3 {
+        0 => Horizontal::Left,
+        1 => Horizontal::Center,
+        _ => Horizontal::Right,
+    };
+    Ok((horizontal, vertical))
+}
+
+/// 書き進める向き。1 は左から右、3 は上から下、5 は文字スタイルに従う
+fn flow(kind: &[u8], value: i64, code: i16) -> Lifted<Flow> {
+    match value {
+        1 => Ok(Flow::LeftToRight),
+        3 => Ok(Flow::TopToBottom),
+        5 => Ok(Flow::ByStyle),
+        _ => Err(invalid(kind, code)),
+    }
 }
 
 fn columns() -> Box<Diagnostic> {

@@ -1,18 +1,20 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
-//! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と引出線と端部記号・記号と属性・ハッチングを試す。
+//! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
+//! 記号と属性・ハッチングを試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Axis, Background, BackgroundFill, Boundary, Color, ColorCode, ColorSystem,
-    Dimension, DimensionKind, DimensionStyle, DimensionText, Drawing2D, Edge, Element, Fill, Fit,
-    Flow, Format, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
-    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Leader, Length, LineSpacing,
-    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Rotation,
-    Shape, SheetId, SheetItem, SpaceId, Span, Style, SymbolKey, Text, Unit, Vertex, Vertical,
+    Arrowhead, Axis, Background, BackgroundFill, Boundary, Branch, CalloutContent, Color,
+    ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
+    Drawing2D, Edge, Element, Fill, Fit, Flow, Format, FormattedText, Gradient, Grid, Hatch,
+    HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId,
+    LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId, LineWeight, Measured,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Piece, Placement, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Style,
+    SymbolKey, Text, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -1097,7 +1099,10 @@ fn e4_dimensions_keep_the_measurement_and_the_override_apart() {
                 value: 1000.0,
                 key: "dxf.DIMENSION.42",
             }),
-            label: Label::Override("995".to_owned()),
+            label: Label::Override {
+                content: "995".to_owned(),
+                spans: vec![span(words("995"), Format::default())],
+            },
             text: DimensionText {
                 position: Some(at(520.0, 110.0)),
                 moved: true,
@@ -1120,7 +1125,16 @@ fn e4_dimensions_keep_the_measurement_and_the_override_apart() {
         [
             (Label::Measurement, None),
             (Label::Hidden, None),
-            (Label::Override("<> mm".to_owned()), None),
+            (
+                Label::Override {
+                    content: "<> mm".to_owned(),
+                    spans: vec![
+                        span(Piece::Measurement, Format::default()),
+                        span(words(" mm"), Format::default()),
+                    ],
+                },
+                None
+            ),
         ]
     );
 }
@@ -2199,4 +2213,279 @@ fn e9_formatted_text_counts_its_chunks_as_work() {
     let chunks = [(3, "a"), (3, "b")];
     assert!(!run(&chunks, least + 1));
     assert!(run(&chunks, least + 2));
+}
+
+/// 引出線つきの注記の値。文脈の中に注記と枝を置く
+fn multileader(
+    entity: &[(i16, &'static str)],
+    context: &[(i16, &'static str)],
+    leaders: &[(i16, &'static str)],
+) -> Vec<(i16, &'static str)> {
+    let mut all = vec![
+        (0, "MULTILEADER"),
+        (5, "M1"),
+        (8, "0"),
+        (300, "CONTEXT_DATA{"),
+    ];
+    all.extend_from_slice(context);
+    all.extend_from_slice(leaders);
+    all.push((301, "}"));
+    all.extend_from_slice(entity);
+    all
+}
+
+/// 対応表の E4 のうち引出線とバルーン: MULTILEADER の枝・線・折れ曲がりと、文字か記号の注記
+#[test]
+fn e4_callouts_keep_their_branches_and_content() {
+    // 2 本の線が 1 点に集まり、右へ折れ曲がる枝
+    let branch: &[(i16, &str)] = &[
+        (302, "LEADER{"),
+        (290, "1"),
+        (291, "1"),
+        (10, "30.0"),
+        (20, "20.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "0.0"),
+        (31, "0.0"),
+        (90, "0"),
+        (40, "5.0"),
+        (304, "LEADER_LINE{"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (91, "0"),
+        (305, "}"),
+        (304, "LEADER_LINE{"),
+        (10, "0.0"),
+        (20, "10.0"),
+        (30, "0.0"),
+        (10, "10.0"),
+        (20, "15.0"),
+        (30, "0.0"),
+        (91, "1"),
+        (305, "}"),
+        (303, "}"),
+    ];
+    let text = multileader(
+        &[(170, "2"), (342, "0"), (42, "2.5"), (290, "1"), (172, "2")],
+        &[
+            (40, "2.0"),
+            (10, "36.0"),
+            (20, "20.0"),
+            (30, "0.0"),
+            (41, "3.5"),
+            (140, "1.0"),
+            (290, "1"),
+            (304, "注記\\P2 行目"),
+            (12, "36.0"),
+            (22, "21.0"),
+            (32, "0.0"),
+            (13, "1.0"),
+            (23, "0.0"),
+            (33, "0.0"),
+            (42, "0.0"),
+            (43, "0.0"),
+            (44, "0.0"),
+            (45, "1.0"),
+            (170, "1"),
+            (171, "1"),
+            (172, "1"),
+            (292, "1"),
+            (291, "0"),
+            (91, "-1023410175"),
+            (141, "1.5"),
+            (92, "0"),
+            (173, "0"),
+            (296, "0"),
+        ],
+        branch,
+    );
+    // 記号（バルーン）の注記。属性の値は、定義の出所で指す
+    let balloon = multileader(
+        &[(172, "1"), (330, "AD"), (177, "1"), (44, "0.0"), (302, "1")],
+        &[
+            (40, "1.0"),
+            (140, "2.0"),
+            (290, "0"),
+            (296, "1"),
+            (341, "B1"),
+            (15, "50.0"),
+            (25, "60.0"),
+            (35, "0.0"),
+            (16, "2.0"),
+            (26, "2.0"),
+            (36, "1.0"),
+            (46, "0.0"),
+        ],
+        &[],
+    );
+    let blocks = [
+        (0, "BLOCK_RECORD"),
+        (5, "B1"),
+        (2, "_TagCircle"),
+        (0, "ATTDEF"),
+        (5, "AD"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (40, "1.0"),
+        (1, ""),
+        (2, "NO"),
+        (3, "番号"),
+        (70, "0"),
+    ];
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1021")]].concat();
+    let src = sections(&[
+        ("HEADER", &header),
+        ("TABLES", &blocks[..3]),
+        ("BLOCKS", &blocks[3..]),
+        ("ENTITIES", &[text, balloon].concat()),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let shapes = model_shapes(&drawing);
+    let [Shape::Callout(text), Shape::Callout(balloon)] = shapes.as_slice() else {
+        panic!("{shapes:?}");
+    };
+    assert_eq!(
+        text.branches,
+        [Branch {
+            lines: vec![vec![at(0.0, 0.0)], vec![at(0.0, 10.0), at(10.0, 15.0)]],
+            end: Some(at(30.0, 20.0)),
+            dogleg: Some(Dogleg {
+                direction: [1.0, 0.0],
+                length: model(5.0),
+            }),
+        }]
+    );
+    assert_eq!(
+        (
+            text.path,
+            &text.arrowhead,
+            text.arrow_size,
+            text.landing,
+            text.scale
+        ),
+        (PathKind::Spline, &Arrowhead::Default, model(2.5), true, 2.0)
+    );
+    let CalloutContent::Text(note) = &text.content else {
+        panic!("{:?}", text.content);
+    };
+    assert_eq!(note.content, "注記\\P2 行目");
+    assert_eq!(
+        note.spans,
+        [
+            span(words("注記"), Format::default()),
+            span(Piece::Paragraph, Format::default()),
+            span(words("2 行目"), Format::default()),
+        ]
+    );
+    assert_eq!(
+        (note.point, note.horizontal, note.vertical, note.rotation),
+        (
+            at(36.0, 21.0),
+            Horizontal::Left,
+            Vertical::Top,
+            Rotation::Direction([1.0, 0.0])
+        )
+    );
+    assert_eq!(
+        note.height.meaning,
+        HeightMeaning::Declared("dxf.MULTILEADER.41")
+    );
+    // 0xC3 は色の番号
+    assert_eq!(
+        note.background.map(|b| b.fill),
+        Some(Some(BackgroundFill::Color(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: 1,
+            }),
+            rgb: None,
+        })))
+    );
+    assert_eq!(balloon.branches, []);
+    // 端部記号の大きさは、図形になければ文脈の 140
+    assert_eq!(balloon.arrow_size, model(2.0));
+    let CalloutContent::Symbol { symbol, values } = &balloon.content else {
+        panic!("{:?}", balloon.content);
+    };
+    assert_eq!(symbol.key, block("_TagCircle"));
+    assert_eq!(
+        (symbol.position, symbol.scale, symbol.rotation),
+        (at(50.0, 60.0), [2.0, 2.0], 0.0)
+    );
+    let [value] = values.as_slice() else {
+        panic!("{values:?}");
+    };
+    assert_eq!(value.text, "1");
+    // 定義は BLOCKS の ATTDEF を指す
+    assert!(value.definition.record().is_some());
+}
+
+#[test]
+fn e9_callouts_that_cannot_be_read_are_reported() {
+    let entities = [
+        // 文脈の区切りが閉じない
+        vec![
+            (0, "MULTILEADER"),
+            (8, "0"),
+            (300, "CONTEXT_DATA{"),
+            (40, "1.0"),
+        ],
+        // 文脈がない
+        entity("MULTILEADER", &[(170, "1")]),
+        // 公差の注記
+        multileader(&[(172, "3"), (42, "1.0")], &[], &[]),
+        // 線の頂点がない
+        multileader(
+            &[(42, "1.0")],
+            &[],
+            &[
+                (302, "LEADER{"),
+                (304, "LEADER_LINE{"),
+                (305, "}"),
+                (303, "}"),
+            ],
+        ),
+        // 段組みの文字
+        multileader(
+            &[(42, "1.0")],
+            &[
+                (290, "1"),
+                (304, "a"),
+                (41, "1.0"),
+                (12, "0.0"),
+                (22, "0.0"),
+                (173, "1"),
+            ],
+            &[],
+        ),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert_eq!(drawing.unwrap().spaces[0].elements, []);
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    let invalid = |code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text(\"MULTILEADER\") Int({code})"),
+            1,
+        )
+    };
+    assert_eq!(
+        params,
+        [
+            invalid(301),
+            invalid(300),
+            invalid(172),
+            invalid(10),
+            (codes::DXF_MTEXT_COLUMNS_UNSUPPORTED, String::new(), 1),
+        ]
+    );
 }
