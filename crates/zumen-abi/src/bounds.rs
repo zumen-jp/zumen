@@ -116,7 +116,8 @@ pub(crate) fn bbox<P: Planar>(shape: &Shape<P>) -> Option<Extent> {
         Shape::Underlay(underlay) => match &underlay.frame {
             UnderlayFrame::Pixels {
                 origin, right, top, ..
-            } => {
+            }
+            | UnderlayFrame::Corners { origin, right, top } => {
                 b.points([*origin, *right, *top]);
                 let [(ox, oy), (rx, ry), (tx, ty)] = [origin.xy(), right.xy(), top.xy()];
                 b.add(rx + tx - ox, ry + ty - oy);

@@ -578,6 +578,15 @@ group-by = ["name"]
 since = "0.0.0"
 status = "active"
 
+[codes."sxf.raster-frame.missing"]
+description = "画像の作図グループに、範囲を示す折れ線がないので、画像を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
 [codes."sxf.sfig-cycle.invalid"]
 description = "自分を直接か間接に配置する作図グループの配置を、展開しなかった"
 severity = "warning"

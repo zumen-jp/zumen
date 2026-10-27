@@ -4,7 +4,7 @@ use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Ref, co
 use zumen_drawing::{
     ColorCode, ColorSystem, Drawing2D, Edge, FieldValue, Flow, HeightMeaning, Horizontal, Inherit,
     Length, LineWeight, ModelLength, ModelPoint, PaperLength, PaperPoint, Rotation, Shape,
-    SheetItem, SpaceId, Target, Vertical,
+    SheetItem, SpaceId, Target, UnderlayFrame, Vertical,
 };
 use zumen_sdk::{Lift, testkit};
 use zumen_sxf::{Sxf, SxfFile};
@@ -405,4 +405,44 @@ fn moves_the_title_block_items() {
     assert!(items[0].display.is_empty());
     assert_eq!(drawing.title_blocks[0].source, Ref::at_record(6));
     find(&diag, codes::SXF_LIFT_INVALID);
+}
+
+#[test]
+fn moves_raster_groups_as_underlays() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        // 2 番目の点が上なので、4 番目の点が右下の角
+        b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0,0))",
+        b"line_feature('1','1','1','1','0','0','1','1')",
+        b"sfig_org_feature(\\'$$RASTER$$a.tif\\','3')",
+        b"line_feature('1','1','1','1','0','0','1','1')",
+        b"sfig_org_feature(\\'$$ATRU$$1$$x$$\x89\xe6\x91\x9c$$b$$c.jpg\\','3')",
+        b"sfig_locate_feature('1',\\'$$RASTER$$a.tif\\','0','0','0','1','1')",
+        b"sfig_locate_feature('1',\\'$$ATRU$$1$$x$$\x89\xe6\x91\x9c$$b$$c.jpg\\','0','0','0','1','1')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let elements = &drawing.sheets[0].elements;
+    assert_eq!(elements.len(), 3);
+    let Shape::Underlay(underlay) = &elements[0].shape else {
+        panic!("{:?}", elements[0].shape);
+    };
+    assert_eq!(underlay.resource.path, "a.tif");
+    assert_eq!(underlay.resource.definition, Ref::at_record(9));
+    assert_eq!(
+        underlay.frame,
+        UnderlayFrame::Corners {
+            origin: paper(0.0, 0.0),
+            right: paper(20.0, 0.0),
+            top: paper(0.0, 10.0),
+        }
+    );
+    assert_eq!(elements[0].source, Ref::at_record(7));
+    assert!(matches!(elements[1].shape, Shape::Line { .. }));
+    // 「画像」の属性の名前のグループに、範囲を示す折れ線がなければ、画像を移さない
+    let missing = find(&diag, codes::SXF_RASTER_FRAME_MISSING);
+    assert_eq!(
+        missing.param("name"),
+        Some(&zumen_base::Value::from("$$ATRU$$1$$x$$画像$$b$$c.jpg"))
+    );
 }

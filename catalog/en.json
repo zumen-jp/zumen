@@ -73,6 +73,7 @@
     "sxf.lift.invalid": "Did not move \"{kind}\" features whose arguments are missing, unreadable or out of range ({count}).",
     "sxf.member.assumed": "Elements written after the sheet feature were made elements of the sheet ({count}).",
     "sxf.p21.unsupported": "P21 cannot be turned into the drawing model yet, so the drawing is empty.",
+    "sxf.raster-frame.missing": "The image drawing group \"{name}\" has no polyline that shows its extent, so the image was not moved ({count}).",
     "sxf.record.invalid": "Skipped statements or feature comments whose form could not be read ({count}).",
     "sxf.schema.unsupported": "Cannot read a file with the schema \"{schema}\": it is not an SXF drawing (ASSOCIATIVE_DRAUGHTING).",
     "sxf.sfig-cycle.invalid": "The drawing group \"{name}\" places itself directly or indirectly, so it was not expanded ({count}).",
