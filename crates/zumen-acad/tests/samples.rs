@@ -453,6 +453,45 @@ fn nearly(a: &str, b: &str) -> bool {
             })
 }
 
+/// R2010 から後の DXF の表のセルの値（301 `CELL_VALUE` から 304 `ACVALUE_END` まで）は、印（93）・
+/// 型（90）・型ごとの値・単位（94）・書式（300）・表示する文字（302）の順に並ぶ。文字の型（4）の値は
+/// 1 に元の文字を持つ。印の 1 のビットが立てば、型ごとの値はない。DWG の値（ODS 5.4.1 の 20.4.99）と
+/// 同じ並び
+#[test]
+fn r2010_and_later_table_cell_values_end_with_the_displayed_text() {
+    let mut checked = 0;
+    for (dwg, dxf) in pairs() {
+        let version = std::fs::read(&dwg).unwrap();
+        if version.starts_with(b"AC1015") || version.starts_with(b"AC1018") {
+            continue;
+        }
+        let db = table(&dxf);
+        for object in db.objects().iter().filter(|o| o.kind == b"ACAD_TABLE") {
+            let values = &object.values;
+            let starts = values
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| v.code == 301 && v.data == Data::Text(b"CELL_VALUE".to_vec()))
+                .map(|(i, _)| i);
+            for start in starts {
+                let end = start + values[start..].iter().position(|v| v.code == 304).unwrap();
+                let codes: Vec<i16> = values[start + 1..end].iter().map(|v| v.code).collect();
+                let at = format!("{} {:?}", dxf.display(), object.handle());
+                assert_eq!(codes[..2], [93, 90], "{at}");
+                assert_eq!(codes[codes.len() - 3..], [94, 300, 302], "{at}");
+                let data = &codes[2..codes.len() - 3];
+                match (&values[start + 1].data, &values[start + 2].data) {
+                    (Data::Int(flags), _) if flags & 1 != 0 => assert!(data.is_empty(), "{at}"),
+                    (_, Data::Int(4)) => assert_eq!(data, [1], "{at}"),
+                    _ => {}
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(pairs().is_empty() || checked > 0);
+}
+
 #[cfg(feature = "drawing")]
 #[test]
 fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
