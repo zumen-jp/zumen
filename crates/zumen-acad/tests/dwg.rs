@@ -6064,3 +6064,161 @@ fn changed_dictionaries_and_mlinestyles_are_written_back() {
     let (out, _) = written_back(&mut file, &changed);
     assert_eq!(out, Err(Error::Rejected));
 }
+
+/// 印刷の機器（2）・紙の幅（44）・印刷の単位（72）・範囲の左下の X（10）・高さ（146）のほかは決まった値の
+/// LAYOUT（0x23）
+#[cfg(test)]
+fn layouts_with(
+    device: &'static [u8],
+    width: f64,
+    units: u16,
+    left: f64,
+    elevation: f64,
+) -> Vec<u8> {
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let layout = object(
+        500,
+        0x23,
+        move |w| {
+            w.bl_zero();
+            text(w, b"");
+            text(w, device);
+            w.bs(688);
+            for v in [6.35, 6.35, 6.35, 6.35, width, 279.4] {
+                w.bd(v);
+            }
+            text(w, b"Letter");
+            w.bd(1.0);
+            w.bd(2.0);
+            for v in [units, 1, 5] {
+                w.bs(v);
+            }
+            for v in [3.0, 4.0, 5.0, 6.0] {
+                w.bd(v);
+            }
+            text(w, b"");
+            w.bd(1.0);
+            w.bd(1.0);
+            text(w, b"mono.ctb");
+            w.bs(16);
+            w.bd(1.0);
+            w.bd(0.0);
+            w.bd(0.0);
+            text(w, b"Layout1");
+            w.bs(1);
+            w.bs(1);
+            for v in [0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            for v in [left, -0.25, 10.75, 8.25] {
+                w.rd(v);
+            }
+            for v in [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(elevation);
+            w.bs(0);
+            for v in [1.0, 0.5, 0.0, 9.5, 7.0, 0.0] {
+                w.bd(v);
+            }
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+            w.handle(4, 0x40);
+            w.handle(4, 0x41);
+            w.handle(5, 0);
+            w.handle(5, 0);
+        },
+    );
+    with_classes(dwg(&[(0x23, layout)]), &[(500, b"LAYOUT", false)])
+}
+
+#[test]
+fn changed_layouts_are_written_back() {
+    let src = layouts_with(b"none_device", 215.9, 0, -0.25, 0.0);
+    let (mut db, before) = objects(&src);
+    assert!(before.is_empty(), "{:?}", codes_of(&before));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    set_value(&mut db, 0x23, 2, Data::Text(b"DWG To PDF.pc3".to_vec()));
+    set_value(&mut db, 0x23, 44, Data::Real(420.0));
+    set_value(&mut db, 0x23, 72, Data::Int(1));
+    set_value(&mut db, 0x23, 10, Data::Real(-1.5));
+    set_value(&mut db, 0x23, 146, Data::Real(2.5));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    assert_eq!(
+        after.get(0x23).unwrap().values,
+        db.get(0x23).unwrap().values
+    );
+    let built = layouts_with(b"DWG To PDF.pc3", 420.0, 1, -1.5, 2.5);
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x23))
+        .unwrap();
+    let got = read(&out, Limits::default())
+        .0
+        .unwrap()
+        .record(index)
+        .unwrap()
+        .bytes
+        .unwrap();
+    let range = read(&built, Limits::default())
+        .0
+        .unwrap()
+        .record(index)
+        .unwrap()
+        .bytes
+        .unwrap();
+    assert_eq!(
+        &out[got.start as usize..got.end as usize],
+        &built[range.start as usize..range.end as usize]
+    );
+    // レイアウトの名前・紙空間のブロックのレコード・BS に収まらない値・欄の削除は受け付けない
+    let layout_name = |db: &mut AcadDb| {
+        let index = db
+            .objects()
+            .iter()
+            .position(|o| o.handle() == Some(0x23))
+            .unwrap();
+        let values = &mut db.object_mut(index).unwrap().values;
+        let at = values
+            .iter()
+            .position(|v| v.data == Data::Text(b"Layout1".to_vec()))
+            .unwrap();
+        values[at].data = Data::Text(b"Sheet".to_vec());
+    };
+    let mut changed = objects(&src).0;
+    layout_name(&mut changed);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    assert_eq!(written_back(&mut file, &changed).0, Err(Error::Rejected));
+    for (code, data) in [(331, Data::Handle(0x42)), (72, Data::Int(40000))] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, 0x23, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+    let mut changed = objects(&src).0;
+    let index = changed
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x23))
+        .unwrap();
+    changed
+        .object_mut(index)
+        .unwrap()
+        .values
+        .retain(|v| v.code != 146);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    assert_eq!(written_back(&mut file, &changed).0, Err(Error::Rejected));
+}

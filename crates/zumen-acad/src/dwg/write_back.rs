@@ -2,7 +2,7 @@
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0048）を符号化する。型ごとの欄を書き直して
+//! いくつかの種類の型ごとの欄（決定 0030〜0049）を符号化する。型ごとの欄を書き直して
 //! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
 //!
 //! オブジェクトの追加と削除と並べ替え、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -381,8 +381,8 @@ fn encode_record(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047・0048）。GROUP・DICTIONARYVAR・
-/// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE だけを扱う。ハンドルの並びから作る値などのほかの値が
+/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047〜0049）。GROUP・DICTIONARYVAR・
+/// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE・LAYOUT だけを扱う。ハンドルの並びから作る値などのほかの値が
 /// 変わったものは `None`
 fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     let own: &[i16] = match new.kind.as_slice() {
@@ -390,6 +390,7 @@ fn encode_object(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"DICTIONARYVAR" => &[280, 1],
         b"DICTIONARY" | b"ACDBDICTIONARYWDFLT" => &[280, 281, 3],
         b"MLINESTYLE" => &[2, 70, 3, 62, 51, 52, 71, 49],
+        b"LAYOUT" => return encode_layout(data, old, new),
         _ => return None,
     };
     // 辞書の項目の数と、多重線の体裁の線の数と名前は変えない
@@ -717,6 +718,85 @@ fn dimstyle(
         }
     }
     Some(bits.pos())
+}
+
+/// LAYOUT の欄の形。読む側は、すべての欄を DWG の並びで置く
+#[derive(Clone, Copy)]
+enum Field {
+    Text,
+    Short,
+    Bd,
+    Rd,
+}
+
+/// LAYOUT の欄の形の並び（印刷の設定の 28 の欄と、レイアウトの 26 の欄）
+const LAYOUT_FIELDS: [Field; 54] = {
+    use Field::{Bd, Rd, Short, Text};
+    [
+        Text, Text, Short, Bd, Bd, Bd, Bd, Bd, Bd, Text, Bd, Bd, Short, Short, Short, Bd, Bd, Bd,
+        Bd, Text, Bd, Bd, Text, Short, Bd, Bd, Bd, Text, Short, Short, Bd, Bd, Bd, Rd, Rd, Rd, Rd,
+        Bd, Bd, Bd, Bd, Bd, Bd, Bd, Bd, Bd, Bd, Short, Bd, Bd, Bd, Bd, Bd, Bd,
+    ]
+};
+
+/// LAYOUT を符号化し直したデータ（決定 0049）。値の番号の並びが元と同じで、レイアウトの名前（2 つめの 1）
+/// とハンドルの並びから作る値が変わらないものだけを扱う。欄は DWG の並びのまま、すべて書き直す
+fn encode_layout(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+    let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
+    if codes(old) != codes(new) {
+        return None;
+    }
+    // 欄は、ハンドル（5）と所有者（330）の後に、ハンドルの並びから作る値の前に並ぶ
+    let at = new.values.iter().position(|value| value.code == 1)?;
+    let range = at..at + LAYOUT_FIELDS.len();
+    let own = new.values.get(range.clone())?;
+    let rest = |object: &Object| -> Option<Vec<Value>> {
+        let mut values = object.values.clone();
+        values.drain(range.clone());
+        // レイアウトの名前
+        values.push(object.values.get(at + 27)?.clone());
+        Some(values)
+    };
+    if rest(old)? != rest(new)? {
+        return None;
+    }
+    let [size_at, start, handles_at] = object_fields(data)?;
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(start);
+    let mut fields = BitWriter::default();
+    for (field, value) in LAYOUT_FIELDS.iter().zip(own) {
+        match (field, &value.data) {
+            (Field::Text, Data::Text(text)) => {
+                bits.text()?;
+                let mut text = uncaret(text)?;
+                text.push(0);
+                fields.text(&text)?;
+            }
+            (Field::Short, Data::Int(v)) => {
+                bits.bs()?;
+                fields.bs(i16::try_from(*v).ok()?);
+            }
+            (Field::Bd, Data::Real(v)) => {
+                bits.bd()?;
+                fields.bd(*v);
+            }
+            (Field::Rd, Data::Real(v)) => {
+                bits.rd()?;
+                fields.rd(*v);
+            }
+            _ => return None,
+        }
+    }
+    let end = bits.pos();
+    fields.copy(data, end..handles_at)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(start + fields.len()).ok()?);
+    out.copy(data, size_at + 32..start)?;
+    let len = fields.len();
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, handles_at..data.len() * 8)?;
+    Some(out.into_bytes())
 }
 
 /// DICTIONARY の欄（決定 0048）。項目の数は元のまま写し、複製の扱い（281）・所有する印（280）・項目の
