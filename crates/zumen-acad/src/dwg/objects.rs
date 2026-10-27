@@ -581,10 +581,11 @@ fn read(
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ if kind == b"IMAGE" => image(&mut bits, release)?,
                 _ if kind == b"MULTILEADER" => multileader(&mut bits, release, &mut slots)?,
-                // R2010 からの ACAD_TABLE は、内容を TABLECONTENT の形で持つ（ODS 5.4.1 の 20.4.96.2）。まだ読まない
                 _ if kind == b"ACAD_TABLE" && release < Release::R2010 => {
                     table(&mut bits, release, &mut slots)?
                 }
+                // R2010 からの ACAD_TABLE は、内容を TABLECONTENT の形で持つ（ODS 5.4.1 の 20.4.96.2）
+                _ if kind == b"ACAD_TABLE" => table_content(&mut bits, release, &mut slots)?,
                 _ => Vec::new(),
             }
         } else {
@@ -2660,6 +2661,247 @@ fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value
     values.extend(widths);
     values.extend(cells);
     Some(values)
+}
+
+/// R2010 からの ACAD_TABLE の欄（ODS 5.4.1 の 20.4.96.2 と、20.4.97 の TABLECONTENT）。
+fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value>> {
+    let mut values = insert(bits, false)?;
+    let attribs = values.iter().any(|v| v.code == 66);
+    values.retain(|v| v.code != 66);
+    let owned = if attribs { bits.bl()? } else { 0 };
+    let mut r = Slotted { bits, slots };
+    let block = r.handle();
+    for _ in 0..owned {
+        r.handle();
+    }
+    if attribs {
+        r.handle();
+    }
+    // 20.4.96.2 の意味の分からない欄
+    r.bits.rc()?;
+    r.handle();
+    r.bits.bl()?;
+    if release == Release::R2010 {
+        r.bits.bit()?;
+    } else {
+        r.bits.bl()?;
+    }
+    // AcDbLinkedData
+    r.bits.text()?;
+    r.bits.text()?;
+    let columns = r.count()?;
+    let mut widths = Vec::new();
+    for _ in 0..columns {
+        r.bits.text()?;
+        r.bits.bl()?;
+        custom_data(&mut r)?;
+        cell_style(&mut r)?;
+        r.bits.bl()?;
+        widths.push(r.bd(142)?);
+    }
+    let rows = r.count()?;
+    let mut heights = Vec::new();
+    let mut cells = Vec::new();
+    for row in 0..rows {
+        for column in 0..r.count()? {
+            r.bits.bl()?;
+            r.bits.text()?;
+            r.bits.bl()?;
+            custom_data(&mut r)?;
+            if r.bits.bl()? != 0 {
+                r.handle();
+                r.bits.bl()?;
+                r.bits.bl()?;
+                r.bits.bl()?;
+            }
+            let contents = r.count()?;
+            let mut text = Vec::new();
+            let mut kind = 1;
+            let mut symbol = None;
+            for _ in 0..contents {
+                match r.bits.bl()? {
+                    1 => text = table_value(&mut r)?,
+                    2 => {
+                        r.handle();
+                    }
+                    4 => {
+                        kind = 2;
+                        symbol = Some(r.handle());
+                    }
+                    _ => return None,
+                }
+                for _ in 0..r.count()? {
+                    r.handle();
+                    r.bits.text()?;
+                    r.bits.bl()?;
+                }
+                if r.bits.bs()? != 0 {
+                    content_format(&mut r)?;
+                }
+            }
+            cell_style(&mut r)?;
+            r.bits.bl()?;
+            if r.bits.bl()? != 0 {
+                r.bits.bl()?;
+                r.bits.bd()?;
+                r.bits.bd()?;
+                let geometry = r.bits.bl()?;
+                r.handle();
+                if geometry != 0 {
+                    for _ in 0..6 {
+                        r.bits.bd()?;
+                    }
+                    for _ in 0..4 {
+                        r.bits.bd()?;
+                    }
+                    r.bits.bl()?;
+                }
+            }
+            cells.push((row, column, kind, symbol, text));
+        }
+        r.bits.bl()?;
+        custom_data(&mut r)?;
+        cell_style(&mut r)?;
+        r.bits.bl()?;
+        heights.push(r.bd(141)?);
+    }
+    for _ in 0..r.count()? {
+        r.handle();
+    }
+    // AcDbFormattedTableData
+    cell_style(&mut r)?;
+    // 結合の範囲は、上・左・下・右の行と列の番号
+    let mut merged = Vec::new();
+    for _ in 0..r.count()? {
+        let top = r.count()?;
+        let left = r.count()?;
+        let bottom = r.count()?;
+        let right = r.count()?;
+        merged.push((top, left, bottom, right));
+    }
+    let style = r.handle();
+    r.bits.bs()?;
+    let direction = r.point(11)?;
+    values.push(Value {
+        code: 342,
+        data: style,
+    });
+    values.extend(direction);
+    values.push(int(91, i64::try_from(rows).ok()?));
+    values.push(int(92, i64::try_from(columns).ok()?));
+    values.extend(heights);
+    values.extend(widths);
+    for (row, column, kind, symbol, text) in cells {
+        let (covered, columns, rows) = merged
+            .iter()
+            .find(|m| m.0 <= row && row <= m.2 && m.1 <= column && column <= m.3)
+            .map_or((0, 1, 1), |m| {
+                if (m.0, m.1) == (row, column) {
+                    (0, m.3 - m.1 + 1, m.2 - m.0 + 1)
+                } else {
+                    (1, 1, 1)
+                }
+            });
+        values.push(int(171, kind));
+        values.push(int(173, covered));
+        values.push(int(175, i64::try_from(columns).ok()?));
+        values.push(int(176, i64::try_from(rows).ok()?));
+        if let Some(symbol) = symbol {
+            values.push(Value {
+                code: 340,
+                data: symbol,
+            });
+        }
+        values.push(text_value(301, b"CELL_VALUE"));
+        values.push(text_value(302, &text));
+    }
+    values.push(Value {
+        code: 2,
+        data: block,
+    });
+    Some(values)
+}
+
+/// 表の名前と値の組（ODS 5.4.1 の 20.4.100）を読み飛ばす
+fn custom_data(r: &mut Slotted) -> Option<()> {
+    for _ in 0..r.count()? {
+        r.bits.text()?;
+        table_value(r)?;
+    }
+    Some(())
+}
+
+/// 表の値（ODS 5.4.1 の 20.4.99、R2007 から）。値の文字列を返す
+fn table_value(r: &mut Slotted) -> Option<Vec<u8>> {
+    let flags = r.bits.bl()?;
+    let kind = r.bits.bl()?;
+    if flags & 1 == 0 {
+        match kind {
+            0 | 1 => {
+                r.bits.bl()?;
+            }
+            2 => {
+                r.bits.bd()?;
+            }
+            // 文字列も、文字列の流れでなく、本体に大きさと UTF-16 の並びで持つ
+            4 | 8 | 16 | 32 | 512 => {
+                let size = usize::try_from(r.bits.bl()?).ok()?;
+                r.bits.skip_bytes(size)?;
+            }
+            64 => {
+                r.handle();
+            }
+            _ => return None,
+        }
+    }
+    r.bits.bl()?;
+    r.bits.text()?;
+    r.bits.text()
+}
+
+/// 内容の書式（ODS 5.4.1 の 20.4.101.3）を読み飛ばす
+fn content_format(r: &mut Slotted) -> Option<()> {
+    for _ in 0..4 {
+        r.bits.bl()?;
+    }
+    r.bits.text()?;
+    r.bits.bd()?;
+    r.bits.bd()?;
+    r.bits.bl()?;
+    r.bits.cmc_r2004()?;
+    r.handle();
+    r.bits.bd()?;
+    Some(())
+}
+
+/// セルのスタイル（ODS 5.4.1 の 20.4.101.4）を読み飛ばす
+fn cell_style(r: &mut Slotted) -> Option<()> {
+    r.bits.bl()?;
+    if r.bits.bs()? == 0 {
+        return Some(());
+    }
+    r.bits.bl()?;
+    r.bits.bl()?;
+    r.bits.cmc_r2004()?;
+    r.bits.bl()?;
+    content_format(r)?;
+    if r.bits.bs()? & 1 != 0 {
+        for _ in 0..6 {
+            r.bits.bd()?;
+        }
+    }
+    for _ in 0..r.count()? {
+        if r.bits.bl()? != 0 {
+            r.bits.bl()?;
+            r.bits.bl()?;
+            r.bits.cmc_r2004()?;
+            r.bits.bl()?;
+            r.handle();
+            r.bits.bl()?;
+            r.bits.bd()?;
+        }
+    }
+    Some(())
 }
 
 /// ACAD_TABLE のセルの欄（ODS 5.4.1 の 20.4.96.1）。種類（171）が 1 なら文字（2 と 1）、2 ならブロック（340）と、

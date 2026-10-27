@@ -38,7 +38,7 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 | 4 | [#6 バイナリの受け渡し](https://github.com/zumen-jp/zumen/issues/6) | 試作は合成データで開始できる。最終判断には issue が指定する測定用データが必要 | 合成データの測定（`bench/transfer`）と、提案の決定 0137 は main にある。次は、測定用の図面と IFC を `ZUMEN_SAMPLES` に置いて測り、0137 を採るか決める。3D のインスタンスと LOD を測る |
 | 5 | [#9 プロファイル](https://github.com/zumen-jp/zumen/issues/9) | 旧版の `mlit-cad-2025` の項目と出典を確認できる | プロファイルの形の提案（決定 0138）と、`mlit-cad` の 2025-12 版を移した例は main にある。次は 0138 を採るか決め、照合の実装と、電子納品要領などのプロファイルを足す |
 | 6 | [#5 建物モデル](https://github.com/zumen-jp/zumen/issues/5) | 成分の整理と開口処理の試作は開始できる。平面図への変換には決定 0022 に沿った #3・#28 の図面モデルと切断処理が必要 | IFC の成分を整理し、開口の処理を小さく試す。成分への読み込みと階の平面図の試作へ進む |
-| 7 | [#156 DWG の書き戻しの試料のない種類と意味の分からない欄](https://github.com/zumen-jp/zumen/issues/156) | 対象の種類を含む図面を `ZUMEN_SAMPLES` に置ける。AutoCAD で開いて確かめるものは、AutoCAD を使える環境 | 試料の図面を得た種類から、変更と足しを書き戻して試料の試験で確かめる。R2010 からの ACAD_TABLE（TABLECONTENT などの、意味の分からない欄）を読む |
+| 7 | [#156 DWG の書き戻しの試料のない種類と意味の分からない欄](https://github.com/zumen-jp/zumen/issues/156) | 対象の種類を含む図面を `ZUMEN_SAMPLES` に置ける。AutoCAD で開いて確かめるものは、AutoCAD を使える環境 | 試料の図面を得た種類から、変更と足しを書き戻して試料の試験で確かめる。R2010 からの ACAD_TABLE は読める。残りは試料のない種類 |
 
 #6 の測定用の図面は Git の外の `ZUMEN_SAMPLES` で扱い、入手できない測定結果を推測で埋めません。
 
