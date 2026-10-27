@@ -87,6 +87,7 @@
 - [0077: R2004 の DWG への図形の除きは、ブロックのレコードの持つ図形の数とハンドルを直して書き戻す](0077-dwg-r2004-write-back-entity-removal.md)（2026-10-27、採用）
 - [0078: R2004 の DWG の見出しの変数は、展開した見出しの区切りの中で書き直し、区切りを置き換える](0078-dwg-r2004-header-variables.md)（2026-10-27、採用）
 - [0079: R2004 の DWG への図形の足しは、R2004 の共通の欄で符号化し、ブロックのレコードの持つ図形に加える](0079-dwg-r2004-write-back-entity-addition.md)（2026-10-27、採用）
+- [0080: R2004 の DWG に足す属性を持つ INSERT は、ATTRIB の数とすべての ATTRIB のハンドルを持つ](0080-dwg-r2004-write-back-attributed-insert-addition.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

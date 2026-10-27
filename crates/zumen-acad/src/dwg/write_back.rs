@@ -492,17 +492,16 @@ impl DwgFile {
                         .iter()
                         .filter_map(|&i| Some(pending.get(i)?.handle))
                         .collect();
-                    let (&first, &last) = handles
-                        .first()
-                        .zip(handles.last())
-                        .ok_or_else(|| unsupported(&object.kind))?;
+                    if handles.is_empty() {
+                        return Err(unsupported(&object.kind));
+                    }
                     for (n, &i) in attribs.iter().enumerate() {
                         let prev = n.checked_sub(1).and_then(|m| handles.get(m));
                         let next = handles.get(n + 1);
                         inner.insert(i, (prev.copied().unwrap_or(0), next.copied().unwrap_or(0)));
                     }
                     if let Some(insert) = pending.get_mut(insert) {
-                        insert.children = Some((first, last, new.handle));
+                        insert.children = Some((handles, new.handle));
                     }
                 }
                 (b"ATTRIB" | b"SEQEND", None) => return Err(unsupported(&object.kind)),
@@ -1268,8 +1267,8 @@ struct NewEntity<'a> {
     ltype: (u8, u64),
     /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字の体裁、INSERT のブロック）のハンドル
     pointed: Option<u64>,
-    /// INSERT が持つ最初と最後の ATTRIB と、SEQEND のハンドル
-    children: Option<(u64, u64, u64)>,
+    /// INSERT が持つ ATTRIB と、SEQEND のハンドル
+    children: Option<(Vec<u64>, u64)>,
 }
 
 impl NewEntity<'_> {
@@ -1299,6 +1298,10 @@ impl NewEntity<'_> {
         if r2004 && object.kind == b"MTEXT" {
             fields.bl(0);
         }
+        // R2004 の属性を持つ INSERT は、型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0080）
+        if r2004 && let Some((attribs, _)) = &self.children {
+            fields.bl(i32::try_from(attribs.len()).ok()?);
+        }
         let mut handles = BitWriter::default();
         if self.mode == 0 {
             handles.handle(4, self.owner);
@@ -1315,11 +1318,18 @@ impl NewEntity<'_> {
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
         }
-        // INSERT は、ブロックに続けて、最初と最後の ATTRIB と SEQEND を指す
-        if let Some((first, last, seqend)) = self.children {
-            handles.handle(4, first);
-            handles.handle(4, last);
-            handles.handle(3, seqend);
+        // INSERT は、ブロックに続けて、R2000 では最初と最後の ATTRIB を、R2004 ではすべての ATTRIB を固い
+        // 所有で指し、SEQEND を指す（決定 0080）
+        if let Some((attribs, seqend)) = &self.children {
+            if r2004 {
+                for &attrib in attribs {
+                    handles.handle(3, attrib);
+                }
+            } else {
+                handles.handle(4, *attribs.first()?);
+                handles.handle(4, *attribs.last()?);
+            }
+            handles.handle(3, *seqend);
         }
         let mut out = BitWriter::default();
         out.bs(self.type_code);
@@ -1405,10 +1415,10 @@ fn disown(data: &[u8], block: u64, count: usize, gone: &BTreeSet<u64>) -> Option
     Some(out.into_bytes())
 }
 
-/// R2004 の DWG に足せる図形か（決定 0079）。すでにあるブロックの、型ごとの欄が R2000 と同じ形か、MTEXT の
-/// 図形だけを足せる。属性を持つ INSERT と MINSERT は、まだ足せない
+/// R2004 の DWG に足せる図形か（決定 0079・0080）。すでにあるブロックの、型ごとの欄が R2000 と同じ形か、
+/// MTEXT か、属性を持つ INSERT とその ATTRIB・SEQEND だけを足せる。MINSERT は、まだ足せない
 fn r2004_addable(object: &Object) -> bool {
-    const KINDS: [&[u8]; 16] = [
+    const KINDS: [&[u8]; 18] = [
         b"LINE",
         b"CIRCLE",
         b"ARC",
@@ -1425,6 +1435,8 @@ fn r2004_addable(object: &Object) -> bool {
         b"LWPOLYLINE",
         b"SPLINE",
         b"INSERT",
+        b"ATTRIB",
+        b"SEQEND",
     ];
     matches!(object.section, Section::Entities | Section::Blocks)
         && KINDS.contains(&object.kind.as_slice())
@@ -1432,7 +1444,7 @@ fn r2004_addable(object: &Object) -> bool {
             || object
                 .values
                 .iter()
-                .all(|value| !matches!(value.code, 66 | 70 | 71 | 44 | 45)))
+                .all(|value| !matches!(value.code, 70 | 71 | 44 | 45)))
 }
 
 /// ハンドル `block` の R2004 のブロックのレコードのデータ `data` の、持つ図形の終わりに `handles` を加えた
