@@ -257,4 +257,5 @@
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)
 - 記録: [決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)
+- 記録: [決定 0122](../decisions/0122-sxf-text-to-formatted-text.md)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)

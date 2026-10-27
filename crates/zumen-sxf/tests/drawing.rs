@@ -2,8 +2,9 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    ColorCode, ColorSystem, Drawing2D, Edge, FieldValue, Length, LineWeight, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Shape, SheetItem, SpaceId,
+    ColorCode, ColorSystem, Drawing2D, Edge, FieldValue, Flow, HeightMeaning, Horizontal, Inherit,
+    Length, LineWeight, ModelLength, ModelPoint, PaperLength, PaperPoint, Rotation, Shape,
+    SheetItem, SpaceId, Target, Vertical,
 };
 use zumen_sdk::{Lift, testkit};
 use zumen_sxf::{Sxf, SxfFile};
@@ -62,7 +63,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
         b"arc_feature('1','1','1','1','0.0','0.0','5.0','1','0.0','90.0')",
         b"ellipse_feature('1','1','1','1','0.0','0.0','2.0','4.0','30.0')",
         b"polyline_feature('1','1','1','1','3',(0,1,2),'(0,1,0)')",
-        b"text_string_feature('1','1','1',\\'a\\','0','0','1','1','0','0','0','1','1')",
+        b"point_marker_feature('1','1','0','0','1','0','1')",
         b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
     ]);
     let (drawing, diag) = lift(&src);
@@ -157,7 +158,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
         dropped.param("kind").map(|v| format!("{v:?}")),
         Some(format!(
             "{:?}",
-            zumen_base::Value::from("text_string_feature")
+            zumen_base::Value::from("point_marker_feature")
         ))
     );
 }
@@ -282,4 +283,78 @@ fn reports_what_it_cannot_place() {
     let (drawing, diag) = lift(p21.as_bytes());
     assert_eq!(drawing, Drawing2D::default());
     find(&diag, codes::SXF_P21_UNSUPPORTED);
+}
+
+#[test]
+fn moves_text_with_its_box() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"text_font_feature(\\'\x82\x6c\x82\x72 \x83\x53\x83\x56\x83\x62\x83\x4e\\')",
+        b"text_string_feature('1','2','1',\\'\x95\x5c a\\','10.0','20.0','3.5','30.0','0.5','15.0','10.0','6','2')",
+        b"text_string_feature('1','2','2',\\'b\\','0','0','1','1','0','0','0','1')",
+        b"text_string_feature('1','2','1',\\'c\\','0','0','1','1','0','0','0','10','1')",
+        b"sfig_org_feature(\\'A\\','1')",
+        b"sfig_locate_feature('1',\\'A\\','0','0','0','1','1')",
+        b"text_string_feature('1','2','1',\\'d\\','0','0','2','4','0','0','0','1','1')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let text = &drawing.spaces[0].elements[0];
+    let Shape::Formatted(text) = &text.shape else {
+        panic!("{:?}", text.shape);
+    };
+    // 「表」の 2 バイト目の `\` は、エスケープとして戻さない
+    assert_eq!(text.content, "表 a");
+    assert_eq!(text.height.meaning, HeightMeaning::Frame);
+    assert_eq!(text.horizontal, Horizontal::Right);
+    assert_eq!(text.vertical, Vertical::Middle);
+    assert_eq!(text.rotation, Rotation::Angle(15.0));
+    assert_eq!(text.flow, Flow::TopToBottom);
+    assert_eq!(text.width, None);
+    let format = &text.spans[0].format;
+    assert_eq!(format.oblique, Some(10.0));
+    assert_eq!(format.font.as_ref().unwrap().name, "ＭＳ ゴシック");
+    let extension = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "sxf.text" && matches!(e.target, Target::Model { .. }))
+        .unwrap();
+    assert_eq!(
+        extension.target,
+        Target::Model {
+            space: SpaceId(0),
+            index: 0
+        }
+    );
+    assert_eq!(extension.fields[0].value, FieldValue::Real(30.0));
+    assert_eq!(extension.fields[1].value, FieldValue::Real(0.5));
+    assert!(extension.is_current(&drawing));
+
+    // 書く向きのない文字は横書き。フォントの定義がなければ、コードを報告する
+    let space = &drawing.spaces[0];
+    let Shape::Formatted(b) = &space.elements[1].shape else {
+        panic!();
+    };
+    assert_eq!(
+        (b.flow, b.horizontal, b.vertical),
+        (Flow::LeftToRight, Horizontal::Left, Vertical::Bottom)
+    );
+    assert!(b.spans[0].format.font.is_none());
+    assert_eq!(space.elements[1].style.line_type, Inherit::Layer);
+    let missing = find(&diag, codes::SXF_CODE_MISSING);
+    assert_eq!(
+        missing.param("kind"),
+        Some(&zumen_base::Value::from("font"))
+    );
+    // 9 点の外の配置は読めない
+    find(&diag, codes::SXF_LIFT_INVALID);
+    assert_eq!(space.elements.len(), 2);
+    assert_eq!(drawing.sheets[0].elements.len(), 1);
+    assert!(
+        drawing
+            .extensions
+            .iter()
+            .filter(|e| e.namespace == "sxf.text")
+            .all(|e| e.is_current(&drawing))
+    );
 }

@@ -1,6 +1,6 @@
 //! SFC から図面モデル（L2）への変換（決定 0022・0121）。
 //!
-//! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧を移す。部分図は実寸の空間にし、
+//! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・文字を移す。部分図は実寸の空間にし、
 //! 用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
 
 use std::collections::BTreeMap;
@@ -8,10 +8,11 @@ use std::collections::BTreeMap;
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Basis, Color, ColorCode, ColorSystem, Drawing2D, Edge, Element, Extension, Field,
-    FieldValue, Inherit, Layer, LayerId, LayerState, Length, LineType, LineTypeDefinition,
+    FieldValue, Flow, Font, FontKind, Format, FormattedText, Height, HeightMeaning, Horizontal,
+    Inherit, Layer, LayerId, LayerState, Length, LineSpacing, LineType, LineTypeDefinition,
     LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint,
-    PatternBasis, Polyline, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Target, Unit, Vertex,
-    View,
+    PatternBasis, Piece, Polyline, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Span,
+    Style, Target, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -115,6 +116,8 @@ trait Place {
     fn point(&self, x: f64, y: f64) -> Self::P;
     fn length(&self, value: f64) -> Length;
     fn element(&self, element: Element<Self::P>, out: &mut Out);
+    /// 次に足す要素を指す、拡張の対象と前提
+    fn target(&self, element: &Element<Self::P>, out: &Out) -> (Target, Basis);
     /// 用紙なら、部分図を置くビューを足す
     fn view(&self, view: View, out: &mut Out) -> bool;
 }
@@ -135,6 +138,14 @@ impl Place for OnSheet {
     fn element(&self, element: Element<PaperPoint>, out: &mut Out) {
         out.order.push(SheetItem::Element(out.paper.len()));
         out.paper.push(element);
+    }
+
+    fn target(&self, element: &Element<PaperPoint>, out: &Out) -> (Target, Basis) {
+        let target = Target::Paper {
+            sheet: SHEET,
+            index: out.paper.len(),
+        };
+        (target, Basis::Paper(element.clone()))
     }
 
     fn view(&self, view: View, out: &mut Out) -> bool {
@@ -168,6 +179,14 @@ impl Place for InSpace {
         out.model.push(element);
     }
 
+    fn target(&self, element: &Element<ModelPoint>, out: &Out) -> (Target, Basis) {
+        let target = Target::Model {
+            space: self.0,
+            index: out.model.len(),
+        };
+        (target, Basis::Model(element.clone()))
+    }
+
     fn view(&self, _: View, _: &mut Out) -> bool {
         false
     }
@@ -179,6 +198,7 @@ struct Out {
     views: Vec<View>,
     order: Vec<SheetItem>,
     model: Vec<Element<ModelPoint>>,
+    extensions: Vec<Extension>,
 }
 
 struct Lifter<'f> {
@@ -192,6 +212,8 @@ struct Lifter<'f> {
     colors: Vec<Option<[u8; 3]>>,
     /// 利用者定義線幅（mm）。コードは 11 から
     widths: Vec<Option<f64>>,
+    /// 文字フォントの名前。コードは 1 から
+    fonts: Vec<String>,
     definitions: BTreeMap<String, Definition>,
 }
 
@@ -228,6 +250,7 @@ impl<'f> Lifter<'f> {
             line_types: Vec::new(),
             colors: Vec::new(),
             widths: Vec::new(),
+            fonts: Vec::new(),
             definitions: BTreeMap::new(),
         }
     }
@@ -252,11 +275,10 @@ impl<'f> Lifter<'f> {
                 self.user_font(feature)
             } else if feature.is(b"width") {
                 self.width(feature)
-            } else if feature.is(b"pre_defined_colour")
-                || feature.is(b"pre_defined_font")
-                || feature.is(b"text_font")
-            {
-                // 既定義のものは、コードで決まる。文字フォントは、文字と一緒に移す
+            } else if feature.is(b"text_font") {
+                self.args(feature).text(0).map(|name| self.fonts.push(name))
+            } else if feature.is(b"pre_defined_colour") || feature.is(b"pre_defined_font") {
+                // 既定義のものは、コードで決まる
                 Some(())
             } else if feature.is(b"drawing_sheet") {
                 sheet_seen = true;
@@ -314,6 +336,7 @@ impl<'f> Lifter<'f> {
             });
         }
         self.members(&sheet_members, &OnSheet, &mut out, &mut Vec::new(), cx)?;
+        extensions.append(&mut out.extensions);
         Ok(Drawing2D {
             spaces,
             sheets: vec![Sheet {
@@ -520,6 +543,12 @@ impl<'f> Lifter<'f> {
                 self.locate(feature, at, out, stack, cx)?;
                 continue;
             }
+            if feature.is(b"text_string") {
+                if self.text(feature, at, out, cx).is_none() {
+                    invalid(cx, feature);
+                }
+                continue;
+            }
             match self.shape(feature, at) {
                 Shaped::Element(shape) => {
                     let element = self.element(feature, *shape, cx);
@@ -678,6 +707,117 @@ impl<'f> Lifter<'f> {
             return Shaped::NotYet;
         };
         shape.map_or(Shaped::Invalid, |shape| Shaped::Element(Box::new(shape)))
+    }
+
+    /// 文字。引数は、レイヤ・色・フォントのコード、文字列、基点、文字範囲の高さと幅、字の間隔、回転、斜体、
+    /// 9 点の配置、書く向き。範囲の幅と字の間隔は図面モデルの欄にないので、`sxf.text` の拡張に残す（決定 0122）
+    fn text<C: Place>(
+        &mut self,
+        feature: Feature<'f>,
+        at: &C,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Option<()> {
+        let args = self.args(feature);
+        let content = args.text(3)?;
+        let height = args.num(6).filter(|h| *h > 0.0)?;
+        let width = args.num(7).filter(|w| *w >= 0.0)?;
+        let spacing = args.num(8)?;
+        let slant = args.num(10)?;
+        // 1 が左下で、右へ、上へ数える
+        let anchor = args.int(11).filter(|a| (1..=9).contains(a))? - 1;
+        let horizontal = [Horizontal::Left, Horizontal::Center, Horizontal::Right]
+            .get(usize::try_from(anchor % 3).ok()?)
+            .copied()?;
+        let vertical = [Vertical::Bottom, Vertical::Middle, Vertical::Top]
+            .get(usize::try_from(anchor / 3).ok()?)
+            .copied()?;
+        // 書く向きは、1 が横書き、2 が縦書き。ないものは横書きとする
+        let flow = match args.int(12) {
+            None if feature.args.len() < 13 => Flow::LeftToRight,
+            Some(1) => Flow::LeftToRight,
+            Some(2) => Flow::TopToBottom,
+            _ => return None,
+        };
+        let source = feature.source();
+        let font = args.int(2).unwrap_or_default();
+        let name = usize::try_from(font)
+            .ok()
+            .and_then(|code| code.checked_sub(1))
+            .and_then(|at| self.fonts.get(at));
+        if name.is_none() {
+            missing(cx, "font", font, &source);
+        }
+        let format = Format {
+            oblique: (slant != 0.0).then_some(slant),
+            font: name.map(|name| Font {
+                name: name.clone(),
+                kind: FontKind::Named {
+                    bold: false,
+                    italic: false,
+                    charset: None,
+                    pitch: None,
+                },
+            }),
+            ..Format::default()
+        };
+        let shape = Shape::Formatted(FormattedText {
+            spans: vec![Span {
+                piece: Piece::Text(content.clone()),
+                format,
+            }],
+            content,
+            height: Height {
+                value: at.length(height),
+                meaning: HeightMeaning::Frame,
+            },
+            point: at.point(args.num(4)?, args.num(5)?),
+            horizontal,
+            vertical,
+            rotation: Rotation::Angle(args.num(9)?),
+            width: None,
+            frame_height: Some(at.length(height)),
+            flow,
+            line_spacing: LineSpacing {
+                factor: 1.0,
+                exact: false,
+            },
+            background: None,
+            style: String::new(),
+        });
+        let element = Element {
+            layer: self.layer_id(args.int(0), &source, cx),
+            style: Style {
+                color: Inherit::Own(self.color(args.int(1), &source, cx)),
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
+            source: source.clone(),
+            shape,
+        };
+        let (target, basis) = at.target(&element, out);
+        out.extensions.push(Extension {
+            namespace: "sxf.text",
+            name: String::new(),
+            version: None,
+            schema: 1,
+            target,
+            basis,
+            fields: vec![
+                Field {
+                    key: "width",
+                    value: FieldValue::Real(width),
+                },
+                Field {
+                    key: "spacing",
+                    value: FieldValue::Real(spacing),
+                },
+            ],
+            source,
+        });
+        at.element(element, out);
+        Some(())
     }
 
     /// レイヤ・色・線種・線幅のコード（引数の 0〜3）で、要素を作る
