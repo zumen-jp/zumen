@@ -32,16 +32,20 @@ GitHub を確認できない場合は、候補と未確認の点を報告する�
 
 | 順 | 作業 | 開始条件 | 次の一手 |
 | --- | --- | --- | --- |
-| 1 | [#28 図面モデルの要素と試験](https://github.com/zumen-jp/zumen/issues/28) | 決定 0022 と対応表が main にあり、対象部分の共通の型を #3 から使える | 空間と長さの照合、非等方のビューでの配置と長さの換算、レイヤの表とビューごとの非表示、描く順の一覧を足した（[決定 0105](decisions/0105-drawing-layers-and-order.md)）。色・線種・線幅を、指定値か継承元と元の符号で持つようにした（[決定 0106](decisions/0106-drawing-color-line-type-weight.md)）。寸法と引出線を、定義点・保存された測定値・文字の上書きを分けて持つようにした（[決定 0107](decisions/0107-drawing-dimensions-and-leaders.md)）。記号と属性・ハッチング・寸法の端部記号を、定義のキーと元の値で持つようにした（[決定 0108](decisions/0108-drawing-symbols-hatches-arrowheads.md)）。MTEXT と複数行の属性を、元の内容と書式の区間に分けて持つようにした（[決定 0109](decisions/0109-drawing-formatted-text.md)）。MULTILEADER を枝と注記の組で持ち、寸法値の文字を区間に分けた（[決定 0110](decisions/0110-drawing-callouts-and-dimension-text.md)）。円・円弧・楕円弧・スプライン・LWPOLYLINE とハッチングの SPLINE の辺を、元の定義のまま持つようにした（[決定 0111](decisions/0111-drawing-curves.md)）。記号の定義（DXF の BLOCKS）を、配置とは別の、定義ごとの空間に持つようにした（[決定 0112](decisions/0112-drawing-symbol-definitions.md)）。表を行と列の大きさとセルの結合・内容で持ち、表題欄は属性を持つ記号のまま持つことにした（[決定 0113](decisions/0113-drawing-tables-and-title-blocks.md)）。下敷きを、資源の参照名と置き方と切り抜きで、ほかの要素と同じ描く順に持つようにした（[決定 0114](decisions/0114-drawing-underlays.md)）。形式固有の情報を、系統と版と読んだときの付く先の値で持ち、付く先を編集すれば失効したとするようにした（[決定 0115](decisions/0115-drawing-format-extensions.md)）。定義のない配置と輪になる定義を診断し、E6・E8・E9 の残りを試験にした（[決定 0116](decisions/0116-drawing-symbol-references.md)）。次は SXF・JWW の残件の追跡先を作る。対応表の E1〜E10 を対象ごとに試験にする。SXF・JWW のコーデック全体は別 issue に分ける |
-| 2 | [#66 適合試験で比べる出力と入力](https://github.com/zumen-jp/zumen/issues/66) | `drawing` の op と DXF の組が main にある。要素の一覧の op は #28 の要素と合わせる | 要素の一覧を返す `entities` の op（決定 0012）を足して比べ、再配布できる実際の図面に近い入力を確かめて足す。停止の診断に位置を持たせるかを決める |
-| 3 | [#6 バイナリの受け渡し](https://github.com/zumen-jp/zumen/issues/6) | 試作は合成データで開始できる。最終判断には issue が指定する測定用データが必要 | 転送時間・ページ側の時間・メモリ・wasm の増分を測る。図面モデル全体の完成を待たずに試す |
-| 4 | [#9 プロファイル](https://github.com/zumen-jp/zumen/issues/9) | 旧版の `mlit-cad-2025` の項目と出典を確認できる | データの形式と版を決め、移行例を作る。図面要素の対応は決定 0022 と照らす |
-| 5 | [#5 建物モデル](https://github.com/zumen-jp/zumen/issues/5) | 成分の整理と開口処理の試作は開始できる。平面図への変換には決定 0022 に沿った #3・#28 のモデルと切断処理が必要 | IFC の成分を整理し、開口の処理を小さく試す。成分への読み込みと階の平面図の試作へ進む |
-| 6 | [#156 DWG の書き戻しの試料のない種類と意味の分からない欄](https://github.com/zumen-jp/zumen/issues/156) | 対象の種類を含む図面を `ZUMEN_SAMPLES` に置ける。AutoCAD で開いて確かめるものは、AutoCAD を使える環境 | 試料の図面を得た種類から、変更と足しを書き戻して試料の試験で確かめる |
+| 1 | [#66 適合試験で比べる出力と入力](https://github.com/zumen-jp/zumen/issues/66) | `drawing` の op と DXF の組が main にある。要素の一覧の op は図面モデルの要素（決定 0105〜0116）と合わせる | 要素の一覧を返す `entities` の op（決定 0012）を足して比べ、再配布できる実際の図面に近い入力を確かめて足す。停止の診断に位置を持たせるかを決める。図面の E9 の停止位置も、この op でネイティブと wasm を比べる |
+| 2 | [#170 図面モデルの書き戻し](https://github.com/zumen-jp/zumen/issues/170) | 図面モデルの型と DXF の lift・形式固有の情報（決定 0105〜0116）と、L1 の書き戻し（決定 0024・0025）が main にある | 決定を残し、DXF への lower・apply を作る。E1・E4・E5・E10 の書く向きを試す |
+| 3 | [#171 SXF のコーデック](https://github.com/zumen-jp/zumen/issues/171) | 図面モデルの型が main にある。入力は試験の中で作るか、再配布できる公開の図面を使う | SFC・P21 の L1 を作り、用紙・クロソイド・表題欄・画像を図面モデルへ移す |
+| 4 | [#172 JWW のコーデック](https://github.com/zumen-jp/zumen/issues/172) | 図面モデルの型が main にある。入力は試験の中で作る | JWW の L1 を作り、要素と画像と編集状態の拡張を図面モデルへ移す |
+| 5 | [#173 DWG の読み手の図面モデルに要る欄](https://github.com/zumen-jp/zumen/issues/173) | DWG の読み手は公開の仕様だけから書く。試料で確かめるものは `ZUMEN_SAMPLES` に置ける | 画層の凍結・SORTENTSTABLE・BLOCK の基点・ACAD_TABLE・IMAGE・EED などの欄を表に置く |
+| 6 | [#174 DXF から図面モデルへ移す値の残り](https://github.com/zumen-jp/zumen/issues/174) | 試料で確かめるものは `ZUMEN_SAMPLES` に置ける | まだ移さない値を移すか、移さない理由と診断を残す。推定を試料で確かめる |
+| 7 | [#6 バイナリの受け渡し](https://github.com/zumen-jp/zumen/issues/6) | 試作は合成データで開始できる。最終判断には issue が指定する測定用データが必要 | 転送時間・ページ側の時間・メモリ・wasm の増分を測る。図面モデル全体の完成を待たずに試す |
+| 8 | [#9 プロファイル](https://github.com/zumen-jp/zumen/issues/9) | 旧版の `mlit-cad-2025` の項目と出典を確認できる | データの形式と版を決め、移行例を作る。図面要素の対応は決定 0022 と照らす |
+| 9 | [#5 建物モデル](https://github.com/zumen-jp/zumen/issues/5) | 成分の整理と開口処理の試作は開始できる。平面図への変換には決定 0022 に沿った #3・#28 の図面モデルと切断処理が必要 | IFC の成分を整理し、開口の処理を小さく試す。成分への読み込みと階の平面図の試作へ進む |
+| 10 | [#156 DWG の書き戻しの試料のない種類と意味の分からない欄](https://github.com/zumen-jp/zumen/issues/156) | 対象の種類を含む図面を `ZUMEN_SAMPLES` に置ける。AutoCAD で開いて確かめるものは、AutoCAD を使える環境 | 試料の図面を得た種類から、変更と足しを書き戻して試料の試験で確かめる |
 
 #6 の測定用の図面は Git の外の `ZUMEN_SAMPLES` で扱い、入手できない測定結果を推測で埋めません。
 
-#4 の設計後の実装は #3 と #28 に分けました。#28 は最初の読み書きと環境間の一致を確かめる作業の後に置き、モデル全体を作り終える前に経路を検証します。#3 と独立した部分を進める場合は、担当する型と要素を両方の issue に記します。
+#4 の設計後の実装は #3 と #28 で進め、#28 の残件は #170〜#174 に分けました。図面モデルを書き出す経路（#170）を、SXF・JWW のコーデック（#171・#172）より先に置き、読み書きの両方の向きを DXF で通してから形式を広げます。
 
 ## 完了したとき・途中で引き継ぐとき
 
