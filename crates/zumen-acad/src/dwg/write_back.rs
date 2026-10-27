@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 を扱う。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形と表のレコードを扱う（決定 0085〜0089）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -36,8 +36,9 @@ use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits, Color, push_modular_char};
 use super::objects::{
-    DIM_FIELDS, Dim, block_links, entity_fields, entity_links, entity_refs, hatch_gradient,
-    object_fields, owned, r2010_entity_fields, skip_extended_data,
+    DIM_FIELDS, Dim, block_links, dim_fields, entity_fields, entity_links, entity_refs,
+    hatch_gradient, object_fields, owned, r2010_entity_fields, r2010_object_fields,
+    skip_extended_data,
 };
 use super::{DwgFile, Release, header};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
@@ -330,6 +331,9 @@ impl DwgFile {
                         match self.kind(entry.type_code)?.1 {
                             Section::Entities | Section::Blocks if r2010 => {
                                 encode_r2010(data, entry.handles?, old, object, self.release)
+                            }
+                            Section::Tables if r2010 => {
+                                encode_record_r2010(data, entry.handles?, old, object, self.release)
                             }
                             _ if r2010 => None,
                             Section::Entities | Section::Blocks => {
@@ -913,7 +917,7 @@ impl DwgFile {
             (small(object, 70)?? == 0).then_some(())?;
             fields.rc(0);
         } else if type_code == VIEW_TYPE {
-            let associated = view_fields(&mut fields, object, false)?;
+            let associated = view_fields(&mut fields, object, false, None)?;
             // UCS を伴わないビューは、UCS の欄を持たない
             let ucs = [110, 120, 130, 111, 121, 131, 112, 122, 132, 79, 146];
             (associated || !object.values.iter().any(|value| ucs.contains(&value.code)))
@@ -1720,30 +1724,45 @@ fn encode_r2010(
         let mut found = BitWriter::default();
         found.copy(data, end..strings_end)?;
         (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
-        let mut fields = r2010_own_fields(old, new, type_code, data, start, end, release)?;
-        let strings = fields.take_strings();
-        let fields_len = fields.len();
-        out.copy(&fields.into_bytes(), 0..fields_len)?;
-        let size = strings.len();
-        out.copy(&strings.into_bytes(), 0..size)?;
-        if size > 0 {
-            // 流れのビットの数（RS）。0x8000 に収まらなければ、上位の RS を前に置き、下位に 0x8000 を立てる
-            if size >= 0x8000 {
-                out.rs(i16::try_from(size >> 15).ok()?);
-                out.rs(i16::from_ne_bytes(
-                    (u16::try_from(size & 0x7FFF).ok()? | 0x8000).to_ne_bytes(),
-                ));
-            } else {
-                out.rs(i16::try_from(size).ok()?);
-            }
-        }
-        out.bit(size > 0);
-        let handles = out.len();
-        out.copy(data, handles_at..data.len() * 8)?;
-        handles
+        let fields = r2010_own_fields(old, new, type_code, data, start, end, release)?;
+        return r2010_finish(out, fields, data, handles_at);
     };
+    with_modular_size(out, handles)
+}
+
+/// R2010 から後のオブジェクトのデータを、`out` に続けて、型ごとの欄 `fields` の主のデータと文字列の流れ、
+/// 流れのビットの数と有無の印、元のハンドルの流れの順に書き、MC を付けて返す
+fn r2010_finish(
+    mut out: BitWriter,
+    mut fields: BitWriter,
+    data: &[u8],
+    handles_at: usize,
+) -> Option<Vec<u8>> {
+    let strings = fields.take_strings();
+    let fields_len = fields.len();
+    out.copy(&fields.into_bytes(), 0..fields_len)?;
+    let size = strings.len();
+    out.copy(&strings.into_bytes(), 0..size)?;
+    if size > 0 {
+        // 流れのビットの数（RS）。0x8000 に収まらなければ、上位の RS を前に置き、下位に 0x8000 を立てる
+        if size >= 0x8000 {
+            out.rs(i16::try_from(size >> 15).ok()?);
+            out.rs(i16::from_ne_bytes(
+                (u16::try_from(size & 0x7FFF).ok()? | 0x8000).to_ne_bytes(),
+            ));
+        } else {
+            out.rs(i16::try_from(size).ok()?);
+        }
+    }
+    out.bit(size > 0);
+    let handles = out.len();
+    out.copy(data, handles_at..data.len() * 8)?;
+    with_modular_size(out, handles)
+}
+
+/// `out` の前に、ビット `handles` から終わりまでのビットの数（MC）を付ける
+fn with_modular_size(out: BitWriter, handles: usize) -> Option<Vec<u8>> {
     let out = out.into_bytes();
-    // MC は、ハンドルの流れの始まりからバイトの終わりまでのビットの数
     let mut bytes = Vec::new();
     push_modular_char(
         &mut bytes,
@@ -1941,9 +1960,8 @@ fn r2010_strings_end(data: &[u8], end: usize, handles_at: usize) -> Option<usize
     }
 }
 
-/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
-/// ほかの値が変わったものは `None`
-fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+/// 表のレコードの、型ごとの欄でない値が変わっていなければ `Some`（決定 0043〜0046）
+fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
     // DIMSTYLE は、70 と DWG の並びの欄
     let dimstyle_codes: Vec<i16> = std::iter::once(70)
         .chain(DIM_FIELDS.iter().map(|field| field.0))
@@ -1966,29 +1984,83 @@ fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> O
             .cloned()
             .collect()
     };
-    if rest(old) != rest(new) {
-        return None;
-    }
-    let [size_at, start, handles_at] = object_fields(data, release)?;
-    // 名前・参照される印・外部参照の番号・外部参照に依る印
+    (rest(old) == rest(new)).then_some(())
+}
+
+/// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
+/// 名前・参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す
+fn record_fields(
+    fields: &mut BitWriter,
+    old: &Object,
+    new: &Object,
+    data: &[u8],
+    start: usize,
+    release: Release,
+) -> Option<usize> {
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     bits.text()?;
     bits.bit()?;
-    bits.bs()?;
+    // R2010 からは、外部参照の番号（BS）がない
+    if release < Release::R2010 {
+        bits.bs()?;
+    }
     let xdep = bits.bit()?;
     let own_at = bits.pos();
-    let mut fields = BitWriter::default();
     fields.copy(data, start..own_at)?;
-    let end = match new.kind.as_slice() {
-        b"LAYER" => layer(&mut fields, new, xdep, data, own_at, release)?,
-        b"STYLE" => style(&mut fields, old, new, xdep, data, own_at)?,
-        b"LTYPE" => ltype(&mut fields, old, new, xdep, data, own_at)?,
-        b"VIEW" => view_record(&mut fields, new, xdep, data, own_at)?,
-        b"UCS" => ucs_record(&mut fields, new, xdep, data, own_at)?,
-        b"VPORT" => vport_record(&mut fields, old, new, xdep, data, own_at)?,
-        _ => dimstyle(&mut fields, old, new, xdep, data, own_at, release)?,
+    match new.kind.as_slice() {
+        b"LAYER" => layer(fields, new, xdep, data, own_at, release),
+        b"STYLE" => style(fields, old, new, xdep, data, own_at, release),
+        b"LTYPE" => ltype(fields, old, new, xdep, data, own_at, release),
+        b"VIEW" => view_record(fields, new, xdep, data, own_at, release),
+        b"UCS" => ucs_record(fields, new, xdep, data, own_at, release),
+        b"VPORT" => vport_record(fields, old, new, xdep, data, own_at, release),
+        _ => dimstyle(fields, old, new, xdep, data, own_at, release),
+    }
+}
+
+/// R2010 から後の表のレコードを符号化し直したデータ（決定 0089）。`data` はハンドルの流れの大きさ（MC）の後の
+/// データ、`handles_at` はハンドルの流れの始まり。文字列の流れは、初めの名前を写し、型ごとの欄の文字列を続ける
+fn encode_record_r2010(
+    data: &[u8],
+    handles_at: usize,
+    old: &Object,
+    new: &Object,
+    release: Release,
+) -> Option<Vec<u8>> {
+    same_record_rest(old, new)?;
+    // UCS のレコードは、試料の図面になく確かめていない
+    (new.kind != b"UCS").then_some(())?;
+    let [start, end] = r2010_object_fields(data, handles_at, release)?;
+    let encode = |object: &Object| -> Option<BitWriter> {
+        let mut fields = BitWriter::with_strings();
+        let mut bits = Bits::with_release(data, release);
+        bits.seek(end);
+        let units = usize::try_from(bits.bs()?).ok()?;
+        fields.copy_strings(data, end..bits.pos() + units * 16)?;
+        let own_end = record_fields(&mut fields, old, object, data, start, release)?;
+        fields.copy(data, own_end..end)?;
+        Some(fields)
     };
+    // 元の値を符号化したデータが、元の主のデータの長さと文字列の流れを持つことを確かめる
+    let mut same = encode(old)?;
+    (start + same.len() == end).then_some(())?;
+    let strings_end = r2010_strings_end(data, end, handles_at)?;
+    let mut found = BitWriter::default();
+    found.copy(data, end..strings_end)?;
+    (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..start)?;
+    r2010_finish(out, encode(new)?, data, handles_at)
+}
+
+/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
+/// ほかの値が変わったものは `None`
+fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+    same_record_rest(old, new)?;
+    let [size_at, start, handles_at] = object_fields(data, release)?;
+    let mut fields = BitWriter::default();
+    let end = record_fields(&mut fields, old, new, data, start, release)?;
     fields.copy(data, end..handles_at)?;
     let mut out = BitWriter::default();
     out.copy(data, 0..size_at)?;
@@ -2203,8 +2275,9 @@ fn style(
     xdep: bool,
     data: &[u8],
     own_at: usize,
+    release: Release,
 ) -> Option<usize> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
     bits.bit()?;
     bits.bit()?;
@@ -2228,7 +2301,8 @@ fn style(
     fields.rc(u8::try_from(small(new, 71)??).ok()?);
     fields.bd(real(new, 42)??);
     for (code, range) in texts {
-        if text_of(old, code) == text_of(new, code) {
+        // R2010 からは、文字列は文字列の流れに書く（決定 0089）
+        if text_of(old, code) == text_of(new, code) && release < Release::R2010 {
             fields.copy(data, range)?;
         } else {
             string(fields, new, code)?;
@@ -2248,8 +2322,9 @@ fn ltype(
     xdep: bool,
     data: &[u8],
     own_at: usize,
+    release: Release,
 ) -> Option<usize> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
     bits.text()?;
     let description = own_at..bits.pos();
@@ -2264,8 +2339,14 @@ fn ltype(
         let (scale, rotation) = (bits.bd()?, bits.bd()?);
         dashes.push((shape, x, y, scale, rotation, bits.bs()?));
     }
+    // R2010 からは、文字の要素があるときだけ、UTF-16LE の 512 バイトの領域がある（決定 0089）
+    let r2010 = release >= Release::R2010;
     let area_at = bits.pos();
-    bits.skip_bytes(256)?;
+    if !r2010 {
+        bits.skip_bytes(256)?;
+    } else if dashes.iter().any(|dash| dash.5 & 2 != 0) {
+        bits.skip_bytes(512)?;
+    }
     let texts = |object: &Object| -> Vec<_> {
         object
             .values
@@ -2275,6 +2356,10 @@ fn ltype(
             .collect()
     };
     let same_texts = texts(old) == texts(new);
+    // R2010 の文字の要素の文字列は、まだ書き換えない
+    (same_texts || !r2010).then_some(())?;
+    // R2013 からは、DXF の 74 も文字の要素の印（8）を持つ
+    let mask = if release >= Release::R2013 { 15 } else { 7 };
     let mut values = Cursor(
         new.values
             .iter()
@@ -2285,7 +2370,7 @@ fn ltype(
     );
     (values.int(70)? == if xdep { 16 } else { 0 }).then_some(())?;
     match values.next(3)? {
-        Data::Text(_) if text_of(old, 3) == text_of(new, 3) => {
+        Data::Text(_) if text_of(old, 3) == text_of(new, 3) && !r2010 => {
             fields.copy(data, description)?;
         }
         Data::Text(_) => string(fields, new, 3)?,
@@ -2300,7 +2385,7 @@ fn ltype(
     for (shape, x, y, scale, rotation, flags) in dashes {
         fields.bd(values.real(49)?);
         let dxf = i16::try_from(values.int(74)?).ok()?;
-        (dxf & !7 == 0 && dxf & 6 == flags & 6).then_some(())?;
+        (dxf & !mask == 0 && dxf & 6 == flags & 6).then_some(())?;
         if flags & 6 == 0 {
             fields.bs(shape);
             fields.rd(x);
@@ -2334,7 +2419,7 @@ fn ltype(
             fields.bd(scale);
             fields.bd(rotation);
         }
-        fields.bs(flags & !7 | dxf);
+        fields.bs(flags & !mask | dxf);
     }
     values.0.next().is_none().then_some(())?;
     if same_texts {
@@ -2371,7 +2456,9 @@ fn dimstyle(
     };
     let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
-    for &(code, field) in &DIM_FIELDS {
+    // R2010 からは、増えた欄も並べ、文字列は文字列の流れに書く（決定 0089）
+    let r2010 = release >= Release::R2010;
+    for (code, field) in dim_fields(release) {
         let at = bits.pos();
         match field {
             Dim::Text => bits.text().map(drop)?,
@@ -2380,7 +2467,7 @@ fn dimstyle(
             Dim::Short(_) => bits.bs().map(drop)?,
             Dim::Color(_) => bits.cmc().map(drop)?,
         }
-        if of(old, code) == of(new, code) {
+        if of(old, code) == of(new, code) && !(r2010 && matches!(field, Dim::Text)) {
             fields.copy(data, at..bits.pos())?;
             continue;
         }
@@ -2849,13 +2936,41 @@ fn view_record(
     xdep: bool,
     data: &[u8],
     own_at: usize,
+    release: Release,
 ) -> Option<usize> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
     let old = super::objects::view(&mut bits, 0, &mut Vec::new())?;
     let was = old.iter().find(|value| value.code == 72)?;
     (was.data == Data::Int(i64::from(flag(new, 72)?))).then_some(())?;
-    view_fields(fields, new, xdep)?;
+    // R2010 からは、描画の種類（281）の後の照明の欄を、元のビットから写す（決定 0089）
+    let lighting = if release >= Release::R2010 {
+        let mut bits = Bits::with_release(data, release);
+        bits.seek(own_at);
+        for _ in 0..2 {
+            bits.bd()?;
+        }
+        for _ in 0..2 {
+            bits.rd()?;
+        }
+        for _ in 0..10 {
+            bits.bd()?;
+        }
+        for _ in 0..4 {
+            bits.bit()?;
+        }
+        bits.rc()?;
+        let at = bits.pos();
+        bits.bit()?;
+        bits.rc()?;
+        bits.bd()?;
+        bits.bd()?;
+        bits.cmc()?;
+        Some((data, at..bits.pos()))
+    } else {
+        None
+    };
+    view_fields(fields, new, xdep, lighting)?;
     Some(bits.pos())
 }
 
@@ -2871,7 +2986,12 @@ fn ucs_handle(db: &AcadDb, object: &Object, code: i16) -> Option<u64> {
 }
 
 /// VIEW の型ごとの欄。UCS を伴うかを返す
-fn view_fields(fields: &mut BitWriter, new: &Object, xdep: bool) -> Option<bool> {
+fn view_fields(
+    fields: &mut BitWriter,
+    new: &Object,
+    xdep: bool,
+    lighting: Option<(&[u8], Range<usize>)>,
+) -> Option<bool> {
     let associated = flag(new, 72)?;
     let paper = record_flags(new, xdep, 1)? & 1 != 0;
     let mode = small(new, 71)??;
@@ -2887,6 +3007,9 @@ fn view_fields(fields: &mut BitWriter, new: &Object, xdep: bool) -> Option<bool>
     }
     view_mode(fields, mode);
     fields.rc(u8::try_from(small(new, 281)??).ok()?);
+    if let Some((data, range)) = lighting {
+        fields.copy(data, range)?;
+    }
     fields.bit(paper);
     fields.bit(associated);
     if associated {
@@ -2902,8 +3025,9 @@ fn ucs_record(
     xdep: bool,
     data: &[u8],
     own_at: usize,
+    release: Release,
 ) -> Option<usize> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
     for _ in 0..10 {
         bits.bd()?;
@@ -2928,8 +3052,9 @@ fn vport_record(
     xdep: bool,
     data: &[u8],
     own_at: usize,
+    release: Release,
 ) -> Option<usize> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+    let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
     bits.bd()?;
     let width = bits.bd()?;

@@ -711,7 +711,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                 }
             }
             // 図形でないオブジェクトの変更は書き戻さない
-            for kind in [&b"LAYER"[..]] {
+            for kind in [&b"DICTIONARY"[..]] {
                 let mut db = base.clone();
                 let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
                     continue;
@@ -739,8 +739,23 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
 
 #[test]
 fn r2004_drawings_take_back_changed_table_records() {
+    table_records_are_taken_back(b"AC1018");
+}
+
+/// R2010 から後の図面の表のレコードの欄と文字列を変えて書き戻すと、読み直した表が変えた表と同じになる
+/// （決定 0089）
+#[test]
+fn r2010_and_later_drawings_take_back_changed_table_records() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        table_records_are_taken_back(version);
+    }
+}
+
+#[cfg(test)]
+fn table_records_are_taken_back(version: &[u8; 6]) {
+    let r2010 = version != b"AC1018";
     let mut changed = 0;
-    for path in dwgs(b"AC1018") {
+    for path in dwgs(version) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -763,6 +778,10 @@ fn r2004_drawings_take_back_changed_table_records() {
                     (b"UCS", 10, Data::Real(v)) => *v += 1.5,
                     (b"DIMSTYLE", 40, Data::Real(v)) => *v *= 2.0,
                     (b"DIMSTYLE", 176..=178, Data::Int(v)) => *v = *v % 255 + 1,
+                    // R2010 からは、文字列の流れの文字列も変える
+                    (b"STYLE" | b"LTYPE", 3, Data::Text(text)) if r2010 => {
+                        text.extend("あ".as_bytes())
+                    }
                     _ => continue,
                 }
                 changed += 1;
@@ -771,7 +790,7 @@ fn r2004_drawings_take_back_changed_table_records() {
         let first: Vec<_> = diag.iter().map(|d| d.code()).collect();
         assert_eq!(taken_back(&file, &db), Ok(first), "{}", path.display());
     }
-    if !dwgs(b"AC1018").is_empty() {
+    if !dwgs(version).is_empty() {
         assert!(changed > 0);
     }
 }
