@@ -421,7 +421,21 @@ fn r2000_drawings_keep_their_table_when_every_object_is_rewritten() {
 
 #[test]
 fn r2004_drawings_keep_their_table_when_objects_are_rewritten_and_removed() {
-    for path in dwgs(b"AC1018") {
+    objects_are_rewritten_and_removed(b"AC1018");
+}
+
+#[test]
+fn r2010_and_later_drawings_keep_their_table_when_objects_are_rewritten_and_removed() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        objects_are_rewritten_and_removed(version);
+    }
+}
+
+/// 版 `version` の図面のすべてのオブジェクトを同じデータで置き換え、最後のオブジェクトを除いて書くと、読み直した
+/// 表が、除いたものを除いて元と同じになる
+#[cfg(test)]
+fn objects_are_rewritten_and_removed(version: &[u8]) {
+    for path in dwgs(version) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();

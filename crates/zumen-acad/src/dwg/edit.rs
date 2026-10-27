@@ -1,4 +1,4 @@
-//! DWG の変更（決定 0028）。R2000 と R2004 のオブジェクトを扱う。見出しの変数は R2000 だけを扱う。
+//! DWG の変更（決定 0028）。R2000 から R2018 までのオブジェクトを扱う（決定 0071・0083）。見出しの変数は R2000 と R2004 を扱う。
 //!
 //! 変えたオブジェクトは、元のファイルの後ろに足し、オブジェクトの地図を作り直してその後ろに置く。
 //! 見出しの区切りの記録の地図の位置と大きさと、見出しの CRC を直す。ほかのバイトは元のまま残す。
@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Kind, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
-use super::bits::{Bits, crc16, push_modular_char, push_modular_short};
+use super::bits::{Bits, crc16, modular_char, push_modular_char, push_modular_short};
 use super::header::{self, handle_seed, set_handle_seed, set_values};
 use super::{
     DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER,
@@ -45,14 +45,11 @@ impl DwgTxn<'_> {
     /// `record` 番目のオブジェクトのデータ（大きさ（MS）の後から CRC の前まで）を置き換える。
     /// 型（BS）を読めないデータは受け付けない
     pub fn set_data(&mut self, record: usize, data: &[u8]) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.edit_unsupported() {
-            return Err(self.reject(diagnostic));
-        }
         if record >= self.file.entries.len() {
             return Err(self
                 .reject(Diagnostic::new(codes::DWG_OBJECT_MISSING).with("record", record as u64)));
         }
-        if type_code(data).is_none() {
+        if type_code(data, self.file.release).is_none() {
             return Err(
                 self.reject(Diagnostic::new(codes::DWG_DATA_INVALID).with("record", record as u64))
             );
@@ -64,9 +61,6 @@ impl DwgTxn<'_> {
     /// `record` 番目のオブジェクトを除く。置き換えたデータも捨てる。確定の後は、後ろのオブジェクトの番号が
     /// 詰まる。ほかのオブジェクトが指すハンドルは直さない
     pub fn remove(&mut self, record: usize) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.edit_unsupported() {
-            return Err(self.reject(diagnostic));
-        }
         if record >= self.file.entries.len() {
             return Err(self
                 .reject(Diagnostic::new(codes::DWG_OBJECT_MISSING).with("record", record as u64)));
@@ -80,9 +74,6 @@ impl DwgTxn<'_> {
     /// 確定の後は、今のオブジェクトの後ろの番号になる。ほかのオブジェクトと同じハンドルと、型（BS）を
     /// 読めないデータは受け付けない
     pub fn add(&mut self, handle: u64, data: &[u8]) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.edit_unsupported() {
-            return Err(self.reject(diagnostic));
-        }
         let taken = self.file.entries.iter().any(|entry| entry.handle == handle)
             || self.added.iter().any(|(h, _)| *h == handle);
         if taken {
@@ -90,7 +81,7 @@ impl DwgTxn<'_> {
                 self.reject(Diagnostic::new(codes::DWG_CHANGE_UNSUPPORTED).with("kind", "handle"))
             );
         }
-        if type_code(data).is_none() {
+        if type_code(data, self.file.release).is_none() {
             let record = self.file.entries.len() + self.added.len();
             return Err(
                 self.reject(Diagnostic::new(codes::DWG_DATA_INVALID).with("record", record as u64))
@@ -210,10 +201,10 @@ impl Transaction for DwgTxn<'_> {
             let Some(entry) = entries.get_mut(record) else {
                 return Err(Error::Rejected);
             };
-            *entry = push_object(&mut src, entry.handle, &data).ok_or(Error::Rejected)?;
+            *entry = push_object(&mut src, entry.handle, &data, release).ok_or(Error::Rejected)?;
         }
         for (handle, data) in self.added {
-            entries.push(push_object(&mut src, handle, &data).ok_or(Error::Rejected)?);
+            entries.push(push_object(&mut src, handle, &data, release).ok_or(Error::Rejected)?);
         }
         let entries: Vec<_> = entries
             .into_iter()
@@ -271,11 +262,6 @@ impl Transaction for DwgTxn<'_> {
 }
 
 impl DwgFile {
-    /// この版の DWG のオブジェクトを変えられなければ、その診断。R2000 と R2004 を変えられる（決定 0071）
-    pub(super) fn edit_unsupported(&self) -> Option<Diagnostic> {
-        self.unsupported(self.release > Release::R2004)
-    }
-
     /// この版の DWG の見出しの変数を変えられず、共有の表から書き戻せなければ、その診断。R2000 と R2004 を
     /// 扱う（決定 0078）
     pub(super) fn header_unsupported(&self) -> Option<Diagnostic> {
@@ -314,29 +300,49 @@ pub(super) fn put(src: &mut [u8], at: usize, bytes: &[u8]) -> Option<()> {
     Some(())
 }
 
-/// ハンドル `handle` のオブジェクトのデータ `data` を、大きさ（MS）と CRC を付けて `src` の後ろに足す
-fn push_object(src: &mut Vec<u8>, handle: u64, data: &[u8]) -> Option<Entry> {
-    let type_code = type_code(data)?;
+/// 版 `release` のハンドル `handle` のオブジェクトのデータ `data` を、大きさ（MS）と CRC を付けて `src` の
+/// 後ろに足す。R2010 からは、大きさは、データの初めのハンドルの流れの大きさ（MC）を除いたバイトの数
+fn push_object(src: &mut Vec<u8>, handle: u64, data: &[u8], release: Release) -> Option<Entry> {
+    let type_code = type_code(data, release)?;
+    let (skip, handles) = match handle_bits(data, release) {
+        Some((skip, bits)) => (skip, Some(data.len().checked_sub(skip)? * 8 - bits)),
+        None => (0, None),
+    };
     let offset = src.len();
-    push_modular_short(src, data.len() as u64);
-    let start = src.len();
+    push_modular_short(src, (data.len() - skip) as u64);
+    let start = src.len() + skip;
     src.extend_from_slice(data);
     let crc = crc16(OBJECT_CRC_SEED, src.get(offset..).unwrap_or_default());
     src.extend_from_slice(&crc.to_le_bytes());
     Some(Entry {
         handle,
         span: offset..src.len(),
-        data: start..start + data.len(),
-        handles: None,
+        data: start..start + data.len() - skip,
+        handles,
         type_code,
     })
 }
 
-/// データの初めの型（BS）
-fn type_code(data: &[u8]) -> Option<u16> {
-    Bits::new(data)
-        .bs()
-        .and_then(|code| u16::try_from(code).ok())
+/// 版 `release` のデータの初めの型。R2010 からは、ハンドルの流れの大きさ（MC）の後の BOT
+fn type_code(data: &[u8], release: Release) -> Option<u16> {
+    let code = if release >= Release::R2010 {
+        let (skip, _) = handle_bits(data, release)?;
+        Bits::new(data.get(skip..)?).bot()
+    } else {
+        Bits::new(data).bs()
+    };
+    code.and_then(|code| u16::try_from(code).ok())
+}
+
+/// R2010 からのデータの初めの、ハンドルの流れの大きさ（MC）のバイトの数と、その値（ビットの数）。MC を
+/// 読めないか、ハンドルの流れが残りのデータより大きければ `None`。R2004 までは `None`
+fn handle_bits(data: &[u8], release: Release) -> Option<(usize, usize)> {
+    if release < Release::R2010 {
+        return None;
+    }
+    let mut skip = 0;
+    let bits = usize::try_from(modular_char(data, &mut skip, false)?).ok()?;
+    (bits <= data.len().checked_sub(skip)? * 8).then_some((skip, bits))
 }
 
 /// オブジェクトの地図を、ハンドルの順に書く。区切りごとに、ハンドルと位置の差分を 0 から数え、

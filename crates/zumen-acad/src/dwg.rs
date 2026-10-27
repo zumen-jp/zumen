@@ -7,7 +7,7 @@
 //! 系統で共有するオブジェクトの表に置く（決定 0023）。
 //!
 //! 書くときは、元のバイトをそのまま並べる。R2000 は、[`DwgTxn`] でオブジェクトのデータを置き換えられ（決定 0028）、[`DwgFile::write_back`] で共有の表の変更を書き戻せる（決定 0029）。
-//! R2004 も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せ（決定 0071）、図形・表のレコード・図形でないオブジェクトの値の一部と、図形の除きと足しと、見出しの変数を書き戻せる（決定 0072・0075〜0082）。
+//! R2004 も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せ（決定 0071）、図形・表のレコード・図形でないオブジェクトの値の一部と、図形の除きと足しと、見出しの変数を書き戻せる（決定 0072・0075〜0082）。R2010 から後も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せる（決定 0083）。
 
 use core::ops::Range;
 
@@ -166,9 +166,12 @@ impl DwgFile {
     }
 
     /// `record` 番目のオブジェクトのデータ（大きさ（MS）の後から CRC の前まで）。[`DwgTxn::set_data`] に
-    /// 渡す形と同じ。R2010 からは、ハンドルの流れの大きさ（MC）の後から
+    /// 渡す形と同じ。R2010 からは、ハンドルの流れの大きさ（MC）から始まる（決定 0083）
     pub fn object_data(&self, record: usize) -> Option<&[u8]> {
-        self.entries.get(record).map(|entry| self.data(entry))
+        let entry = self.entries.get(record)?;
+        let mut start = entry.span.start;
+        modular_short(self.body(), &mut start)?;
+        self.body().get(start..entry.data.end)
     }
 
     fn data(&self, entry: &Entry) -> &[u8] {
