@@ -10,6 +10,7 @@
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 
 use super::bits::Bits;
 use super::header::{self, Header};
@@ -672,6 +673,79 @@ pub(super) fn entity_fields(data: &[u8]) -> Option<[usize; 4]> {
     let common = entity_data(&mut bits)?;
     let start = bits.pos();
     (start <= handles_at).then_some([size_at, common.color_at, start, handles_at])
+}
+
+/// R2000 の図形の、図形の並びをたどるのに要るもの（決定 0051）
+pub(super) struct Links {
+    /// 前後の図形のハンドルを持たないことを表す B のビットの位置
+    pub(super) no_links_at: usize,
+    /// 反応子の数
+    pub(super) reactors: u32,
+    /// 拡張辞書のハンドル。なければ 0
+    pub(super) xdic: u64,
+    /// 前後の図形のハンドルのビットの範囲。持たなければ、拡張辞書の後ろの空の範囲
+    pub(super) at: Range<usize>,
+    /// 後ろの図形のハンドル。持たなければ、ハンドルの 1 つ後ろ（図面で確かめた）。最後の図形は 0
+    pub(super) next: u64,
+}
+
+/// ハンドル `handle` の R2000 の図形のデータの、図形の並びをたどるのに要るもの
+pub(super) fn entity_links(data: &[u8], handle: u64) -> Option<Links> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.bs()?;
+    let handles_at = usize::try_from(bits.rl()?).ok()?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    if bits.bit()? {
+        let size = usize::try_from(bits.rl()?).ok()?;
+        bits.skip_bytes(size)?;
+    }
+    let entmode = bits.bb()?;
+    let reactors = u32::try_from(bits.bl()?).ok()?;
+    let no_links_at = bits.pos();
+    let no_links = bits.bit()?;
+    bits.seek(handles_at);
+    if entmode == 0 {
+        bits.handle()?;
+    }
+    for _ in 0..reactors {
+        bits.handle()?;
+    }
+    let xdic = bits.handle()?.resolve(handle)?;
+    let start = bits.pos();
+    let next = if no_links {
+        handle.checked_add(1)?
+    } else {
+        bits.handle()?;
+        bits.handle()?.resolve(handle)?
+    };
+    Some(Links {
+        no_links_at,
+        reactors,
+        xdic,
+        at: start..bits.pos(),
+        next,
+    })
+}
+
+/// ハンドル `handle` の R2000 のブロックのレコードのデータの、最初と最後の図形のハンドルのビットの範囲と、
+/// その 2 つのハンドル（決定 0051）。ハンドルの並びは、所有者・反応子・拡張辞書・外部参照のブロック・
+/// BLOCK・最初の図形・最後の図形・ENDBLK・配置（図面で確かめた）。図形がなければ、どちらも 0
+pub(super) fn block_links(data: &[u8], handle: u64) -> Option<(Range<usize>, u64, u64)> {
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.bs()?;
+    let handles_at = usize::try_from(bits.rl()?).ok()?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let reactors = u32::try_from(bits.bl()?).ok()?;
+    bits.seek(handles_at);
+    for _ in 0..reactors + 4 {
+        bits.handle()?;
+    }
+    let start = bits.pos();
+    let first = bits.handle()?.resolve(handle)?;
+    let last = bits.handle()?.resolve(handle)?;
+    Some((start..bits.pos(), first, last))
 }
 
 /// 拡張データ（EED）を読み飛ばす（ODS 5.4.1 の 28）

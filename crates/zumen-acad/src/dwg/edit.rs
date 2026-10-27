@@ -2,8 +2,9 @@
 //!
 //! 変えたオブジェクトは、元のファイルの後ろに足し、オブジェクトの地図を作り直してその後ろに置く。
 //! 見出しの区切りの記録の地図の位置と大きさと、見出しの CRC を直す。ほかのバイトは元のまま残す。
+//! 除いたオブジェクトは、地図から除く。元のバイトは残る（決定 0051）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Cx, Diagnostic, Kind, codes};
 use zumen_sdk::{Error, Transact, Transaction};
@@ -25,6 +26,7 @@ const MAP_SECTION_LIMIT: usize = 2032;
 pub struct DwgTxn<'a> {
     file: &'a mut DwgFile,
     staged: BTreeMap<usize, Vec<u8>>,
+    removed: BTreeSet<usize>,
     rejected: Option<Diagnostic>,
 }
 
@@ -48,6 +50,21 @@ impl DwgTxn<'_> {
         Ok(())
     }
 
+    /// `record` 番目のオブジェクトを除く。置き換えたデータも捨てる。確定の後は、後ろのオブジェクトの番号が
+    /// 詰まる。ほかのオブジェクトが指すハンドルは直さない
+    pub fn remove(&mut self, record: usize) -> Result<(), Error> {
+        if let Some(diagnostic) = self.file.edit_unsupported() {
+            return Err(self.reject(diagnostic));
+        }
+        if record >= self.file.entries.len() {
+            return Err(self
+                .reject(Diagnostic::new(codes::DWG_OBJECT_MISSING).with("record", record as u64)));
+        }
+        self.staged.remove(&record);
+        self.removed.insert(record);
+        Ok(())
+    }
+
     /// 最初の失敗を、確定のときに診断として返すために覚える
     pub(super) fn reject(&mut self, diagnostic: Diagnostic) -> Error {
         self.rejected.get_or_insert(diagnostic);
@@ -61,7 +78,7 @@ impl Transaction for DwgTxn<'_> {
             cx.report(diagnostic);
             return Err(Error::Rejected);
         }
-        if self.staged.is_empty() {
+        if self.staged.is_empty() && self.removed.is_empty() {
             return Ok(());
         }
         // 予算を先にすべて確かめ、反映の途中では止めない
@@ -85,6 +102,12 @@ impl Transaction for DwgTxn<'_> {
             entry.data = start..start + data.len();
             entry.type_code = code;
         }
+        let entries: Vec<_> = entries
+            .into_iter()
+            .enumerate()
+            .filter(|(record, _)| !self.removed.contains(record))
+            .map(|(_, entry)| entry)
+            .collect();
         let map = src.len();
         push_object_map(&mut src, &entries);
         let size = src.len() - map;
@@ -131,6 +154,7 @@ impl Transact for DwgFile {
         DwgTxn {
             file: self,
             staged: BTreeMap::new(),
+            removed: BTreeSet::new(),
             rejected: None,
         }
     }
