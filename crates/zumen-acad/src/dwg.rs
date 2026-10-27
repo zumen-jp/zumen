@@ -310,7 +310,15 @@ impl Codec for Dwg {
 
     fn write(file: &DwgFile, out: &mut Vec<u8>, cx: &mut Cx) -> Result<(), Error> {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        out.extend_from_slice(&file.src);
+        // R2004 の入れ物は、区切りを置き換えたときだけ組み直す（決定 0070）
+        match &file.container {
+            Some(container) if container.replaced() => {
+                let rebuilt = r2004::write(&file.src, container)
+                    .ok_or_else(|| r2004::invalid(cx, "r2004 container", 0..file.src.len()))?;
+                out.extend_from_slice(&rebuilt);
+            }
+            _ => out.extend_from_slice(&file.src),
+        }
         Ok(())
     }
 }
