@@ -1,11 +1,12 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
-//! - `codegen`: 形式の一覧、Rust の定数と型、C のヘッダー、カタログの JSON を生成する
-//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマを確かめ、生成したファイルが最新かを確かめる
+//! - `codegen`: 形式の一覧、Rust の定数と型、C のヘッダー、カタログとプロファイルの JSON を生成する
+//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイルを確かめ、生成したファイルが最新かを確かめる
 
 mod boundary;
 mod catalog;
 mod formats;
+mod profiles;
 mod schema;
 
 use std::fs;
@@ -95,6 +96,8 @@ fn codegen(mode: Mode) -> Result<(), String> {
         )
     })?;
 
+    let profiles = profiles::generate(&root)?;
+
     let outputs = [
         (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
         (ABI_RS, rustfmt(&root, &boundary::render_rust(&boundary))?),
@@ -104,6 +107,14 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
         (FORMATS_MD, formats),
     ];
+    let outputs: Vec<(&str, String)> = outputs
+        .into_iter()
+        .chain(
+            profiles
+                .iter()
+                .map(|(path, json)| (path.as_str(), json.clone())),
+        )
+        .collect();
     update_outputs(&root, &outputs, mode)
 }
 

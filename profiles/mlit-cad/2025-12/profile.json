@@ -1,0 +1,478 @@
+{
+  "edition": "2025-12",
+  "format": "0.1",
+  "id": "mlit-cad",
+  "license": "CC-BY-4.0",
+  "revision": 1,
+  "rules": [
+    {
+      "check": "layer-name",
+      "id": "layer-name",
+      "level": "error",
+      "max-width": 256,
+      "parts": ["responsibility", "layer-object"],
+      "separator": "-",
+      "source": {
+        "document": "main",
+        "section": "1-5-7"
+      },
+      "user-part": true
+    },
+    {
+      "check": "color",
+      "id": "color",
+      "level": "warning",
+      "source": {
+        "document": "main",
+        "section": "1-5-9"
+      },
+      "vocabulary": "color"
+    },
+    {
+      "check": "line-type",
+      "id": "line-type",
+      "level": "warning",
+      "source": {
+        "document": "main",
+        "item": "1",
+        "section": "1-5-10"
+      },
+      "vocabulary": "line-type"
+    },
+    {
+      "check": "line-width",
+      "id": "line-width",
+      "level": "warning",
+      "source": {
+        "document": "main",
+        "item": "3",
+        "section": "1-5-10"
+      },
+      "vocabulary": "line-width"
+    },
+    {
+      "check": "text-height",
+      "id": "text-height",
+      "level": "warning",
+      "source": {
+        "document": "main",
+        "item": "2",
+        "section": "1-5-11"
+      },
+      "vocabulary": "text-height"
+    },
+    {
+      "check": "characters",
+      "id": "characters",
+      "level": "warning",
+      "source": {
+        "document": "manual",
+        "item": "(2)",
+        "section": "1-5-11"
+      },
+      "vocabulary": "dependent-characters"
+    },
+    {
+      "check": "sheet-size",
+      "id": "sheet-size",
+      "level": "warning",
+      "source": {
+        "document": "main",
+        "section": "1-4-1"
+      },
+      "vocabulary": "sheet"
+    },
+    {
+      "check": "orientation",
+      "id": "orientation",
+      "level": "info",
+      "orientation": "landscape",
+      "source": {
+        "document": "main",
+        "section": "1-4-2"
+      }
+    },
+    {
+      "check": "scale",
+      "id": "scale",
+      "level": "info",
+      "source": {
+        "document": "manual",
+        "section": "1-4-5"
+      },
+      "vocabulary": "scale"
+    }
+  ],
+  "sources": {
+    "main": {
+      "checked": "2026-10-28",
+      "publisher": "国土交通省",
+      "title": "CAD製図基準",
+      "url": "https://www.cals-ed.go.jp/mg/wp-content/uploads/cad8.pdf",
+      "version": "令和 7 年 12 月"
+    },
+    "manual": {
+      "checked": "2026-10-28",
+      "publisher": "国土交通省",
+      "title": "CAD製図基準 解説",
+      "url": "https://www.cals-ed.go.jp/mg/wp-content/uploads/cad8_manu.pdf",
+      "version": "令和 7 年 12 月"
+    },
+    "sxf": {
+      "spec": "sxf_3_1"
+    }
+  },
+  "standard-code": "土木 202512-01",
+  "title": "CAD製図基準（土木）",
+  "vocabularies": {
+    "color": {
+      "source": {
+        "document": "manual",
+        "item": "解説表 1-4",
+        "section": "1-5-9"
+      },
+      "values": [
+        {
+          "name": "黒",
+          "rgb": "#000000",
+          "sxf": 1
+        },
+        {
+          "name": "赤",
+          "rgb": "#ff0000",
+          "sxf": 2
+        },
+        {
+          "name": "緑",
+          "rgb": "#00ff00",
+          "sxf": 3
+        },
+        {
+          "name": "青",
+          "rgb": "#0000ff",
+          "sxf": 4
+        },
+        {
+          "name": "黄",
+          "rgb": "#ffff00",
+          "sxf": 5
+        },
+        {
+          "name": "マジェンタ",
+          "rgb": "#ff00ff",
+          "sxf": 6
+        },
+        {
+          "name": "シアン",
+          "rgb": "#00ffff",
+          "sxf": 7
+        },
+        {
+          "name": "白",
+          "rgb": "#ffffff",
+          "sxf": 8
+        },
+        {
+          "name": "牡丹",
+          "rgb": "#c00080",
+          "sxf": 9
+        },
+        {
+          "name": "茶",
+          "rgb": "#c08040",
+          "sxf": 10
+        },
+        {
+          "name": "橙",
+          "rgb": "#ff8000",
+          "sxf": 11
+        },
+        {
+          "name": "薄緑",
+          "rgb": "#80c080",
+          "sxf": 12
+        },
+        {
+          "name": "明青",
+          "rgb": "#0080ff",
+          "sxf": 13
+        },
+        {
+          "name": "青紫",
+          "rgb": "#8040ff",
+          "sxf": 14
+        },
+        {
+          "name": "明灰",
+          "rgb": "#c0c0c0",
+          "sxf": 15
+        },
+        {
+          "name": "暗灰",
+          "rgb": "#808080",
+          "sxf": 16
+        }
+      ]
+    },
+    "dependent-characters": {
+      "source": {
+        "basis": "chosen",
+        "document": "manual",
+        "item": "(2)",
+        "section": "1-5-11"
+      },
+      "values": ["FF61-FF9F", "2460-2473", "2160-217F", "3220-3243", "3280-32B0", "3300-33FF", "301D-301F", "2116", "2121", "2211", "221F", "222E", "22BF"]
+    },
+    "layer-object": {
+      "source": {
+        "document": "main",
+        "item": "表 1-4",
+        "section": "1-5-7"
+      },
+      "values": [
+        {
+          "code": "TTL",
+          "name": "図枠"
+        },
+        {
+          "code": "BGD",
+          "name": "背景"
+        },
+        {
+          "code": "BMK",
+          "name": "基準"
+        },
+        {
+          "code": "STR",
+          "name": "主構造物"
+        },
+        {
+          "code": "BYP",
+          "name": "副構造物"
+        },
+        {
+          "code": "MTR",
+          "name": "材料表"
+        },
+        {
+          "code": "DCR",
+          "name": "説明、着色"
+        },
+        {
+          "code": "DOC",
+          "name": "文章"
+        },
+        {
+          "code": "SUV",
+          "name": "測量"
+        },
+        {
+          "code": "ORD",
+          "name": "発注用",
+          "responsibility": ["C"]
+        }
+      ]
+    },
+    "line-type": {
+      "source": {
+        "document": "main",
+        "item": "表 1-6",
+        "section": "1-5-10"
+      },
+      "values": [
+        {
+          "code": 1,
+          "name": "実線",
+          "sxf": "continuous"
+        },
+        {
+          "code": 2,
+          "name": "破線",
+          "sxf": "dashed"
+        },
+        {
+          "code": 3,
+          "name": "跳び破線",
+          "sxf": "dashed spaced"
+        },
+        {
+          "code": 4,
+          "name": "一点長鎖線",
+          "sxf": "long dashed dotted"
+        },
+        {
+          "code": 5,
+          "name": "二点長鎖線",
+          "sxf": "long dashed double-dotted"
+        },
+        {
+          "code": 6,
+          "name": "三点長鎖線",
+          "sxf": "long dashed triplicate-dotted"
+        },
+        {
+          "code": 7,
+          "name": "点線",
+          "sxf": "dotted"
+        },
+        {
+          "code": 8,
+          "name": "一点鎖線",
+          "sxf": "chain"
+        },
+        {
+          "code": 9,
+          "name": "二点鎖線",
+          "sxf": "chain double dash"
+        },
+        {
+          "code": 10,
+          "name": "一点短鎖線",
+          "sxf": "dashed dotted"
+        },
+        {
+          "code": 11,
+          "name": "一点二短鎖線",
+          "sxf": "double-dashed dotted"
+        },
+        {
+          "code": 12,
+          "name": "二点短鎖線",
+          "sxf": "dashed double-dotted"
+        },
+        {
+          "code": 13,
+          "name": "二点二短鎖線",
+          "sxf": "double-dashed double-dotted"
+        },
+        {
+          "code": 14,
+          "name": "三点短鎖線",
+          "sxf": "dashed triplicate-dotted"
+        },
+        {
+          "code": 15,
+          "name": "三点二短鎖線",
+          "sxf": "double-dashed triplicate-dotted"
+        }
+      ]
+    },
+    "line-width": {
+      "source": {
+        "document": "main",
+        "item": "3",
+        "section": "1-5-10"
+      },
+      "unit": "mm",
+      "values": [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1, 1.4, 2]
+    },
+    "responsibility": {
+      "source": {
+        "document": "main",
+        "item": "図 1-10",
+        "section": "1-5-7"
+      },
+      "values": [
+        {
+          "code": "S",
+          "name": "測量"
+        },
+        {
+          "code": "D",
+          "name": "設計"
+        },
+        {
+          "code": "C",
+          "name": "施工"
+        },
+        {
+          "code": "M",
+          "name": "維持管理"
+        }
+      ]
+    },
+    "scale": {
+      "source": {
+        "document": "manual",
+        "section": "1-4-5"
+      },
+      "values": [
+        {
+          "mantissa": 1,
+          "rank": "preferred"
+        },
+        {
+          "mantissa": 2,
+          "rank": "preferred"
+        },
+        {
+          "mantissa": 5,
+          "rank": "preferred"
+        },
+        {
+          "mantissa": 1.5,
+          "rank": "secondary"
+        },
+        {
+          "mantissa": 2.5,
+          "rank": "secondary"
+        },
+        {
+          "mantissa": 3,
+          "rank": "secondary"
+        },
+        {
+          "mantissa": 4,
+          "rank": "secondary"
+        },
+        {
+          "mantissa": 6,
+          "rank": "secondary"
+        }
+      ]
+    },
+    "sheet": {
+      "source": {
+        "document": "main",
+        "section": "1-4-1"
+      },
+      "unit": "mm",
+      "values": [
+        {
+          "height": 841,
+          "name": "A0",
+          "width": 1189
+        },
+        {
+          "height": 594,
+          "name": "A1",
+          "width": 841
+        },
+        {
+          "height": 420,
+          "name": "A2",
+          "width": 594
+        },
+        {
+          "height": 297,
+          "name": "A3",
+          "width": 420
+        },
+        {
+          "height": 210,
+          "name": "A4",
+          "width": 297
+        }
+      ]
+    },
+    "text-height": {
+      "source": {
+        "document": "main",
+        "item": "2",
+        "section": "1-5-11"
+      },
+      "unit": "mm",
+      "values": [1.8, 2.5, 3.5, 5, 7, 10, 14, 20]
+    }
+  }
+}
