@@ -710,6 +710,22 @@ pub const DXF_VIEWPORT_UNSUPPORTED: Code = Code::new(
 pub const INTERNAL_PANIC_CAUGHT: Code =
     Code::new("internal.panic.caught", Severity::Error, None, &[], &[]);
 
+/// 図形の一覧とブロックの定義の一覧を、終わりまで読めない
+///
+/// `jww.body.invalid`（0.0.0 から）
+pub const JWW_BODY_INVALID: Code = Code::new("jww.body.invalid", Severity::Error, None, &[], &[]);
+
+/// JwwData. の始まりか版がない
+///
+/// `jww.file.invalid`（0.0.0 から）
+pub const JWW_FILE_INVALID: Code = Code::new("jww.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 図形の一覧の後ろのバイト列（版 700 からは画像の一覧）を読めず、そのまま残した
+///
+/// `jww.trailer.invalid`（0.0.0 から）
+pub const JWW_TRAILER_INVALID: Code =
+    Code::new("jww.trailer.invalid", Severity::Warning, None, &[], &[]);
+
 /// 要素が指すレイヤ・色・線種・線幅のコードに定義がない
 ///
 /// `sxf.code.missing`（0.0.0 から）
@@ -918,6 +934,9 @@ pub const ALL: &[Code] = &[
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
+    JWW_BODY_INVALID,
+    JWW_FILE_INVALID,
+    JWW_TRAILER_INVALID,
     SXF_CODE_MISSING,
     SXF_FILE_INVALID,
     SXF_LIFT_DROPPED,
