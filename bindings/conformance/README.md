@@ -27,10 +27,10 @@ cargo run -p zumen-conformance -- --write
 
 ## 形式の入力
 
-[#2](https://github.com/zumen-jp/zumen/issues/2) の出力の一致と [#8](https://github.com/zumen-jp/zumen/issues/8) の停止位置の一致は、形式を読む組で確かめます。いまの対象は DXF と DWG（R2000）です（[#3](https://github.com/zumen-jp/zumen/issues/3)・[#64](https://github.com/zumen-jp/zumen/issues/64)）。
+[#2](https://github.com/zumen-jp/zumen/issues/2) の出力の一致と [#8](https://github.com/zumen-jp/zumen/issues/8) の停止位置の一致は、形式を読む組で確かめます。いまの対象は DXF と DWG（R2000）と SXF の SFC です（[#3](https://github.com/zumen-jp/zumen/issues/3)・[#64](https://github.com/zumen-jp/zumen/issues/64)・[#171](https://github.com/zumen-jp/zumen/issues/171)）。
 
 - 呼び出し方: `zm_push` で入力を渡し、`open` の要求を送ります。核は、コーデックが持つ判定の規則で形式を決めて読み、文書の名前と形式を返します。`capabilities` の `formats` に、読める形式が出ます。続けて `drawing` の要求を送ると、文書を図面モデル（L2）に変換し、空間と用紙ごとの単位・要素の数・範囲と、移さなかった図形の診断を返します。`entities` の要求を送ると、要素の一覧（ID・種類・レイヤ・出所）を、`offset` と `limit` で区切って返します（決定 0117）。`fields` で範囲（`bbox`）を含む返す欄を選び、`region` で範囲の重なる要素に絞ります（決定 0118）
-- 対象の入力: `cases/open.json` の、試験の中で作る ASCII の DXF（SECTION・ENTITIES・EOF の 3 つのタグ）と、`cases/drawing.json` の、見出しの単位と用紙の範囲、モデル空間とペーパー空間の図形を持つ DXF と、`cases/entities.json` の、`drawing.json` と同じ DXF と、`cases/entities_e9.json` の、対応表の E9 の輪になる定義・定義のない配置・有限でない尺度・展開しない格子の配置を持つ DXF と、`cases/open_dwg.json` の、`zumen-acad` の試験と同じ合成の DWG です
+- 対象の入力: `cases/open.json` の、試験の中で作る ASCII の DXF（SECTION・ENTITIES・EOF の 3 つのタグ）と、`cases/drawing.json` の、見出しの単位と用紙の範囲、モデル空間とペーパー空間の図形を持つ DXF と、`cases/entities.json` の、`drawing.json` と同じ DXF と、`cases/entities_e9.json` の、対応表の E9 の輪になる定義・定義のない配置・有限でない尺度・展開しない格子の配置を持つ DXF と、`cases/open_dwg.json` の、`zumen-acad` の試験と同じ合成の DWG と、`cases/open_sxf.json` の、試験の中で作るレイヤ・線分・用紙を持つ SFC と、FILE_SCHEMA が IFC の入力です
 - 止まる所: 入力の大きさは読む前に、作業は読むときにタグごと、表を作るときにレコードごと、変換で ENTITIES の図形ごとに、レコードはグループ・コード 0 のタグごとに数えます。止まった診断の `requested` は、その単位でそれまでに使った量です。同じ入力と予算なら、どの形でも同じ値になることを、`hashes.txt` で確かめます
 
 いまの制限です。それぞれ、要るものと一緒に足します。

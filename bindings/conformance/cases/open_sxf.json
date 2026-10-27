@@ -1,0 +1,78 @@
+{
+  "description": "open は、SXF の判定の規則に合う入力を SXF のコーデックで読む。FILE_SCHEMA が SXF の図面のスキーマでない入力（IFC など、同じ ISO-10303-21 の始まりを持つもの）は、診断を返して失敗する。drawing は、SFC を図面モデルに変換する（決定 0120・0121）。SFC の図形は用紙の座標で、部分図の外の図形は用紙に置く。入力は試験の中で作る合成の SFC で、レイヤ・線分・A3 の用紙を持つ",
+  "steps": [
+    {
+      "push": {
+        "name": "a.sfc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#20 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')\nSXF3*/\n/*SXF3\n#30 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "b.sfc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.sfc"
+      },
+      "expect": {
+        "/result": {
+          "doc": "a.sfc",
+          "format": "sxf"
+        },
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "a.sfc"
+      },
+      "expect": {
+        "/result": {
+          "spaces": [],
+          "sheets": [
+            {
+              "size": [
+                420,
+                297
+              ],
+              "elements": {
+                "lines": 1,
+                "texts": 0
+              },
+              "views": 0,
+              "extent": {
+                "min_x": 0,
+                "min_y": 0,
+                "max_x": 100,
+                "max_y": 50
+              }
+            }
+          ]
+        },
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "b.sfc"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "sxf.schema.unsupported",
+        "/diagnostics/0/params/schema": "IFC4"
+      },
+      "absent": [
+        "/result"
+      ]
+    }
+  ]
+}
