@@ -581,6 +581,10 @@ fn read(
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ if kind == b"IMAGE" => image(&mut bits, release)?,
                 _ if kind == b"MULTILEADER" => multileader(&mut bits, release, &mut slots)?,
+                // R2010 からの ACAD_TABLE は、内容を TABLECONTENT の形で持つ（ODS 5.4.1 の 20.4.96.2）。まだ読まない
+                _ if kind == b"ACAD_TABLE" && release < Release::R2010 => {
+                    table(&mut bits, release, &mut slots)?
+                }
                 _ => Vec::new(),
             }
         } else {
@@ -645,6 +649,33 @@ fn read(
                 {
                     *handle = *read.get(usize::try_from(slot).ok()?)?;
                 }
+            }
+            // ACAD_TABLE の文字のセルの欄（344）は、0 のときだけ文字を持つ。文字を読んだので、0 でなければ
+            // 読めないとする。ブロック（2）と文字の体裁（7）は、名前に直す
+            if kind == b"ACAD_TABLE" {
+                if values
+                    .iter()
+                    .any(|v| v.code == 344 && v.data != Data::Handle(0))
+                {
+                    return None;
+                }
+                let mut kept = Vec::with_capacity(values.len());
+                for value in values {
+                    match (value.code, &value.data) {
+                        (2, Data::Handle(handle)) => records.push(RecordRef {
+                            code: 2,
+                            record: BLOCK_RECORD,
+                            handle: *handle,
+                        }),
+                        (7, Data::Handle(handle)) => records.push(RecordRef {
+                            code: 7,
+                            record: STYLE,
+                            handle: *handle,
+                        }),
+                        _ => kept.push(value),
+                    }
+                }
+                values = kept;
             }
             values.retain(|v| !matches!(v.data, Data::Handle(0)));
         }
@@ -2228,13 +2259,13 @@ fn image(bits: &mut Bits, release: Release) -> Option<Vec<Value>> {
 /// データの中のハンドルの仮の値の始まり。`SLOT + n` は、データの n 番目のハンドル
 const SLOT: u64 = 1 << 63;
 
-/// MULTILEADER の欄を読む助け。データの中のハンドルを数える
-struct Leaders<'b, 'a> {
+/// データの中にハンドルを持つ型（MULTILEADER・ACAD_TABLE）の欄を読む助け。データの中のハンドルを数える
+struct Slotted<'b, 'a> {
     bits: &'b mut Bits<'a>,
     slots: &'b mut u64,
 }
 
-impl Leaders<'_, '_> {
+impl Slotted<'_, '_> {
     /// データの中のハンドル。次のハンドルの仮の値を返す
     fn handle(&mut self) -> Data {
         let slot = Data::Handle(SLOT + *self.slots);
@@ -2264,6 +2295,11 @@ impl Leaders<'_, '_> {
             self.bits.text()?;
         }
         Some(int(code, i64::from(rgb)))
+    }
+
+    /// ACAD_TABLE の CMC の色を、DXF と同じく色の番号で置く。版に依らず R2004 からの形で読む
+    fn table_color(&mut self, code: i16) -> Option<Value> {
+        Some(int(code, i64::from(self.bits.cmc_r2004()?.index)))
     }
 
     fn flag(&mut self, code: i16) -> Option<Value> {
@@ -2301,7 +2337,7 @@ impl Leaders<'_, '_> {
 /// 下（272）・上（273）の順に置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）
 fn multileader(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value>> {
     let r2010 = release >= Release::R2010;
-    let mut r = Leaders { bits, slots };
+    let mut r = Slotted { bits, slots };
     let mut values = Vec::new();
     if r2010 {
         values.push(r.bs(270)?);
@@ -2495,6 +2531,232 @@ fn multileader(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec
         values.push(r.flag(295)?);
     }
     Some(values)
+}
+
+/// ACAD_TABLE の欄（ODS 5.4.1 の 20.4.96.1。クラスで決まる型。R2004 まで）。INSERT の欄に続けて、表の欄を
+/// DXF と同じ並び（表のスタイル（342）・横の向き（11）・印（90）・行と列の数（91・92）・表の上書き・行の高さ
+/// （141）・列の幅（142）・セル）で置く。ブロック（2）は、名前に直して値の終わりに置く。セルの文字は、DXF と
+/// 同じく 250 バイトずつの 2 と、残りの 1 に分ける。枠の線幅と表示の上書きは、DXF のグループ・コードが
+/// 分からないので、印（95・96）だけを置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）
+fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value>> {
+    let mut values = insert(bits, false)?;
+    let attribs = values.iter().any(|v| v.code == 66);
+    values.retain(|v| v.code != 66);
+    // R2004 からは、属性を持つときだけ、持つオブジェクトの数（BL）が続く（試料の DWG で確かめた）
+    let owned = if attribs && release >= Release::R2004 {
+        bits.bl()?
+    } else {
+        0
+    };
+    let mut r = Slotted { bits, slots };
+    // ハンドルの流れ: ブロック・属性（R2000 は最初と最後、R2004 は持つ数だけ）・SEQEND・表のスタイル・セル
+    let block = r.handle();
+    values.push(Value {
+        code: 2,
+        data: block,
+    });
+    let attributes = match (attribs, release >= Release::R2004) {
+        (false, _) => 0,
+        (true, false) => 2,
+        (true, true) => owned,
+    };
+    for _ in 0..attributes {
+        r.handle();
+    }
+    if attribs {
+        r.handle();
+    }
+    let style = r.handle();
+    values.push(Value {
+        code: 342,
+        data: style,
+    });
+    let flags = r.bs(90)?;
+    values.extend(r.point(11)?);
+    values.push(flags);
+    let columns = r.count()?;
+    let rows = r.count()?;
+    values.push(int(91, i64::try_from(rows).ok()?));
+    values.push(int(92, i64::try_from(columns).ok()?));
+    let mut widths = Vec::new();
+    for _ in 0..columns {
+        widths.push(r.bd(142)?);
+    }
+    let mut heights = Vec::new();
+    for _ in 0..rows {
+        heights.push(r.bd(141)?);
+    }
+    let mut cells = Vec::new();
+    for _ in 0..rows.checked_mul(columns)? {
+        cell(&mut r, &mut cells)?;
+    }
+    // 表の上書き
+    if r.bits.bit()? {
+        let flags = r.bits.bl()?;
+        values.push(int(93, i64::from(flags)));
+        let set = |bit: i32| flags & bit != 0;
+        if set(0x1) {
+            values.push(int(280, i64::from(r.bits.bit()?)));
+        }
+        if set(0x4) {
+            values.push(r.bs(70)?);
+        }
+        if set(0x8) {
+            values.push(r.bd(40)?);
+        }
+        if set(0x10) {
+            values.push(r.bd(41)?);
+        }
+        // 表題・見出し・データの行の上書き。DWG はこの順に持ち、DXF はデータ・表題・見出しの順に書く（推定。
+        // 試料では、見出しとデータの行の値が同じ）
+        let mut rows = |bits: [i32; 3], read: &mut dyn FnMut(&mut Slotted) -> Option<Value>| {
+            let mut found: [Option<Value>; 3] = [None, None, None];
+            for (slot, bit) in found.iter_mut().zip(bits) {
+                if set(bit) {
+                    *slot = Some(read(&mut r)?);
+                }
+            }
+            let [title, header, data] = found;
+            values.extend([data, title, header].into_iter().flatten());
+            Some(())
+        };
+        rows([0x20, 0x40, 0x80], &mut |r| r.table_color(64))?;
+        rows([0x100, 0x200, 0x400], &mut |r| {
+            Some(int(283, i64::from(r.bits.bit()?)))
+        })?;
+        rows([0x800, 0x1000, 0x2000], &mut |r| r.table_color(63))?;
+        rows([0x4000, 0x8000, 0x1_0000], &mut |r| r.bs(170))?;
+        rows([0x2_0000, 0x4_0000, 0x8_0000], &mut |r| {
+            Some(Value {
+                code: 7,
+                data: r.handle(),
+            })
+        })?;
+        rows([0x10_0000, 0x20_0000, 0x40_0000], &mut |r| r.bd(140))?;
+    }
+    // 枠の色・線幅・表示の上書き。表題・見出し・データの行ごとに、横の上・中・下と縦の左・中・右の 6 つ
+    if r.bits.bit()? {
+        let flags = r.bits.bl()?;
+        values.push(int(94, i64::from(flags)));
+        for bit in 0..18 {
+            if (flags >> bit) & 1 != 0 {
+                let code = *[64, 65, 66, 63, 68, 69].get(bit % 6)?;
+                values.push(r.table_color(code)?);
+            }
+        }
+    }
+    for code in [95, 96] {
+        if r.bits.bit()? {
+            let flags = r.bits.bl()?;
+            values.push(int(code, i64::from(flags)));
+            for bit in 0..18 {
+                if (flags >> bit) & 1 != 0 {
+                    r.bits.bs()?;
+                }
+            }
+        }
+    }
+    values.extend(heights);
+    values.extend(widths);
+    values.extend(cells);
+    Some(values)
+}
+
+/// ACAD_TABLE のセルの欄（ODS 5.4.1 の 20.4.96.1）。種類（171）が 1 なら文字（2 と 1）、2 ならブロック（340）と、
+/// 属性の定義（331）と文字（300）を持つ。セルのハンドルは、セルの順に、内容・属性の定義・文字の体裁と読む
+/// （推定。試料にあるのは、文字の体裁を上書きしない文字のセルだけ）
+fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
+    let kind = r.bits.bs()?;
+    cells.push(int(171, i64::from(kind)));
+    cells.push(int(172, i64::from(r.bits.rc()?)));
+    cells.push(int(173, i64::from(r.bits.bit()?)));
+    cells.push(int(174, i64::from(r.bits.bit()?)));
+    cells.extend([r.bl(175)?, r.bl(176)?, r.bd(145)?]);
+    match kind {
+        1 => {
+            let field = r.handle();
+            cells.push(Value {
+                code: 344,
+                data: field,
+            });
+            let text = r.bits.text()?;
+            let mut rest = text.as_slice();
+            while rest.len() > 250 {
+                let (chunk, tail) = rest.split_at(250);
+                cells.push(text_value(2, chunk));
+                rest = tail;
+            }
+            cells.push(text_value(1, rest));
+        }
+        2 => {
+            let block = r.handle();
+            cells.push(Value {
+                code: 340,
+                data: block,
+            });
+            cells.push(r.bd(144)?);
+            if r.bits.bit()? {
+                let count = r.bits.bs()?;
+                cells.push(int(179, i64::from(count)));
+                for _ in 0..count {
+                    let definition = r.handle();
+                    cells.push(Value {
+                        code: 331,
+                        data: definition,
+                    });
+                    r.bits.bs()?;
+                    cells.push(text_value(300, &r.bits.text()?));
+                }
+            }
+        }
+        _ => return None,
+    }
+    if r.bits.bit()? {
+        let flags = r.bits.bl()?;
+        // DXF は、印の下位の 16 ビットを符号つきで書く
+        cells.push(int(177, i64::from(flags as i16)));
+        cells.push(int(178, i64::from(r.bits.rc()?)));
+        let set = |bit: i32| flags & bit != 0;
+        if set(0x1) {
+            cells.push(r.bs(170)?);
+        }
+        if set(0x2) {
+            cells.push(int(283, i64::from(r.bits.bit()?)));
+        }
+        if set(0x4) {
+            cells.push(r.table_color(63)?);
+        }
+        if set(0x8) {
+            cells.push(r.table_color(64)?);
+        }
+        if set(0x10) {
+            let style = r.handle();
+            cells.push(Value {
+                code: 7,
+                data: style,
+            });
+        }
+        if set(0x20) {
+            cells.push(r.bd(140)?);
+        }
+        // 枠の上・右・下・左の、色・線幅・表示。表示は、DXF が書かないので置かない（印が立っても、試料の DXF
+        // にはない）
+        for (color, weight, shift) in [(69, 279, 0), (65, 275, 1), (66, 276, 2), (68, 278, 3)] {
+            if set(0x40 << shift) {
+                cells.push(r.table_color(color)?);
+            }
+            if set(0x400 << shift) {
+                cells.push(r.bs(weight)?);
+            }
+            if set(0x4000 << shift) {
+                r.bits.bs()?;
+            }
+        }
+    } else {
+        // 上書きがないときも、DXF は 177 と 178 を 0 で書く
+        cells.extend([int(177, 0), int(178, 0)]);
+    }
+    Some(())
 }
 
 /// IMAGEDEF の欄（ODS 5.4.1 の 20.4.81。クラスで決まる型）。DXF の順に、版（90）・ファイルの場所（1）・

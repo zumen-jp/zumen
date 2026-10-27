@@ -1887,16 +1887,16 @@ fn types_of_classes_are_named_by_the_classes() {
     );
     let src = with_classes(
         dwg(&[(0x10, layer), (0x20, table), (0x21, var)]),
-        &[(500, b"ACAD_TABLE", true), (501, b"DICTIONARYVAR", false)],
+        &[(500, b"WIPEOUT", true), (501, b"DICTIONARYVAR", false)],
     );
     let (file, diag) = read(&src, Limits::default());
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
-    assert_eq!(file.unwrap().record(1).unwrap().kind, b"ACAD_TABLE");
+    assert_eq!(file.unwrap().record(1).unwrap().kind, b"WIPEOUT");
 
     let (db, diag) = objects(&src);
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
     let table = db.get(0x20).unwrap();
-    assert_eq!(table.kind, b"ACAD_TABLE");
+    assert_eq!(table.kind, b"WIPEOUT");
     assert_eq!(table.section, Section::Entities);
     // 図形を作るクラスなので、図形の共通の欄を読む
     assert_eq!(table.first(8), Some(&Data::Text(b"0".to_vec())));
@@ -2320,6 +2320,131 @@ fn multileaders_have_their_context_and_leaders() {
     assert_eq!(data(90, 0), Some(Data::Int(0xC000_0000_u32 as i32 as i64)));
     assert_eq!(data(91, 0), Some(Data::Int(0xC100_0000_u32 as i32 as i64)));
     assert_eq!(data(92, 1), Some(Data::Int(0xC300_0009_u32 as i32 as i64)));
+}
+
+#[test]
+fn tables_have_their_cells_and_overrides() {
+    let bl = |w: &mut BitWriter, n: u8| {
+        w.bits(1, 2);
+        w.bytes(&[n]);
+    };
+    // R2004 の形の CMC（番号・RGB の値・名前の印）
+    let color = |w: &mut BitWriter, index: u16| {
+        w.bs(index);
+        w.bl_zero();
+        w.bytes(&[0]);
+    };
+    let block = object(0x31, 0x11, record_named(b"*T1"), record_handles(1));
+    let cell_block = object(0x31, 0x12, record_named(b"B"), record_handles(1));
+    // 1 列 2 行で、文字のセルとブロックのセルを持つ ACAD_TABLE（R2000）
+    let table = object(
+        510,
+        0x44,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            // INSERT の欄
+            for v in [4.0, 5.0, 0.0] {
+                w.bd(v);
+            }
+            w.bits(3, 2);
+            w.bd(0.0);
+            for v in [0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            w.bit(false); // 属性は続かない
+            w.bs(0); // 表の印
+            for v in [1.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            bl(w, 1); // 列の数
+            bl(w, 2); // 行の数
+            w.bd(10.0); // 列の幅
+            w.bd(2.0); // 行の高さ
+            w.bd(3.0);
+            // 文字のセル。色（0x4）と文字の向き（0x1）を上書きする
+            w.bs(1);
+            w.bytes(&[0]);
+            w.bit(false);
+            w.bit(false);
+            bl(w, 1);
+            bl(w, 1);
+            w.bd(0.0);
+            w.bs(2);
+            w.bytes(b"A\0");
+            w.bit(true);
+            bl(w, 0x5);
+            w.bytes(&[0]);
+            w.bs(1);
+            color(w, 3);
+            // ブロックのセル。上書きはない
+            w.bs(2);
+            w.bytes(&[0]);
+            w.bit(false);
+            w.bit(false);
+            bl(w, 1);
+            bl(w, 1);
+            w.bd(0.0);
+            w.bd(1.5);
+            w.bit(false); // 属性の値はない
+            w.bit(false);
+            // 表の上書き: 文字の高さ（0x8）と、表題（0x20）とデータ（0x80）の行の色
+            w.bit(true);
+            bl(w, 0xA8);
+            w.bd(0.5);
+            color(w, 1);
+            color(w, 2);
+            // 枠の色・線幅・表示の上書きはない
+            for _ in 0..3 {
+                w.bit(false);
+            }
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            // ブロック・表のスタイル・文字のセルの欄・ブロックのセルのブロック
+            for handle in [0x11, 0x13, 0, 0x12] {
+                w.handle(5, handle);
+            }
+        },
+    );
+    let mut list: Vec<_> = objects_in_sample().into_iter().take(2).collect();
+    list.extend([(0x11, block), (0x12, cell_block), (0x44, table)]);
+    let src = with_classes(dwg(&list), &[(510, b"ACAD_TABLE", true)]);
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let table = db.get(0x44).unwrap();
+    assert_eq!(table.kind, b"ACAD_TABLE");
+    let data = |code: i16, nth: usize| {
+        table
+            .values
+            .iter()
+            .filter(|v| v.code == code)
+            .nth(nth)
+            .map(|v| v.data.clone())
+    };
+    assert_eq!(data(2, 0), Some(Data::Text(b"*T1".to_vec())));
+    assert_eq!(data(342, 0), Some(Data::Handle(0x13)));
+    assert_eq!(data(91, 0), Some(Data::Int(2)));
+    assert_eq!(data(92, 0), Some(Data::Int(1)));
+    assert_eq!(data(142, 0), Some(Data::Real(10.0)));
+    assert_eq!(data(141, 1), Some(Data::Real(3.0)));
+    // 表の上書きは、データの行を表題の行より前に置く
+    assert_eq!(data(93, 0), Some(Data::Int(0xA8)));
+    assert_eq!(data(40, 0), Some(Data::Real(0.5)));
+    assert_eq!(data(64, 0), Some(Data::Int(2)));
+    assert_eq!(data(64, 1), Some(Data::Int(1)));
+    // セル
+    assert_eq!(data(171, 0), Some(Data::Int(1)));
+    assert_eq!(data(1, 0), Some(Data::Text(b"A".to_vec())));
+    assert_eq!(data(177, 0), Some(Data::Int(5)));
+    assert_eq!(data(170, 0), Some(Data::Int(1)));
+    assert_eq!(data(63, 0), Some(Data::Int(3)));
+    assert_eq!(data(171, 1), Some(Data::Int(2)));
+    assert_eq!(data(340, 0), Some(Data::Handle(0x12)));
+    assert_eq!(data(144, 0), Some(Data::Real(1.5)));
+    // 上書きのないセルも、DXF と同じく 177 と 178 を 0 で持つ
+    assert_eq!(data(177, 1), Some(Data::Int(0)));
+    assert_eq!(data(178, 1), Some(Data::Int(0)));
+    assert_eq!(data(344, 0), None);
 }
 
 #[test]

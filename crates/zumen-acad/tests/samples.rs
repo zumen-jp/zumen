@@ -141,9 +141,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
     for (dwg, dxf) in pairs() {
         let (dwg_db, dxf_db) = (table(&dwg), table(&dxf));
         let dxf_objects = by_handle(&dxf_db);
+        let dwg_objects = by_handle(&dwg_db);
         // 最後に保存したときの情報（GUID とファイルのパス）は、DWG と DXF で違うので比べない
         let saved_info = named(&dwg_db, b"ACAD_LAST_SAVED_VERSION_INFO");
-        for (handle, object) in by_handle(&dwg_db) {
+        for (&handle, object) in &dwg_objects {
             // 型を知らないオブジェクトと、DXF に書かれないオブジェクトは比べない
             let Some(other) = dxf_objects.get(&handle) else {
                 continue;
@@ -257,9 +258,29 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     matches!((data, theirs), (Data::Int(ours), Data::Int(theirs))
                         if ours >> 24 & 0xFF == 0xC3 && theirs >> 24 & 0xFF == 0xC2)
                 };
+                // DXF は、表のセルが指す名前のないブロック（`*U`）を、別のハンドルで書き直すことがある
+                let anonymous = |data: &Data, theirs: &Data| {
+                    let name = |db: &BTreeMap<u64, &Object>, data: &Data| match data {
+                        Data::Handle(h) => db
+                            .get(h)
+                            .filter(|o| o.kind == b"BLOCK_RECORD")
+                            .and_then(|o| {
+                                o.values
+                                    .iter()
+                                    .find(|v| v.code == 2)
+                                    .map(|v| v.data.clone())
+                            }),
+                        _ => None,
+                    };
+                    matches!((name(&dwg_objects, data), name(&dxf_objects, theirs)),
+                        (Some(Data::Text(a)), Some(Data::Text(b))) if a.starts_with(b"*U") && b.starts_with(b"*U"))
+                };
                 assert!(
                     theirs.is_some_and(|theirs| same(&value.data, theirs)
                         || numbered(&value.data, theirs)
+                        || (object.kind == b"ACAD_TABLE"
+                            && value.code == 340
+                            && anonymous(&value.data, theirs))
                         || (object.kind == b"MULTILEADER" && nearest(&value.data, theirs))),
                     "{at} {}: {:?} {theirs:?}",
                     value.code,
