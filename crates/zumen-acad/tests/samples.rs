@@ -1442,27 +1442,26 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
 /// もう一度足しても合う（決定 0061〜0067）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
-    added_table_records_are_taken_back(b"AC1015", true);
+    added_table_records_are_taken_back(b"AC1015");
 }
 
 #[test]
 fn r2004_drawings_take_back_added_table_records() {
-    added_table_records_are_taken_back(b"AC1018", true);
+    added_table_records_are_taken_back(b"AC1018");
 }
 
-/// R2010 以降の図面に、ビューポートの設定のほかの表のレコードと、それを使う図形とブロックを足して書き戻すと、
-/// 読み直したものが足したものと合う（決定 0094・0095）
+/// R2010 以降の図面に、表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと
+/// 合う（決定 0094〜0096）
 #[test]
 fn r2010_and_later_drawings_take_back_added_table_records() {
     for version in [b"AC1024", b"AC1027", b"AC1032"] {
-        added_table_records_are_taken_back(version, false);
+        added_table_records_are_taken_back(version);
     }
 }
 
-/// 版 `version` の図面に表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと合う。
-/// `vport` でなければ、ビューポートの設定を足さない
+/// 版 `version` の図面に表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと合う
 #[cfg(test)]
-fn added_table_records_are_taken_back(version: &[u8], vport: bool) {
+fn added_table_records_are_taken_back(version: &[u8]) {
     for path in dwgs(version) {
         let mut src = std::fs::read(&path).unwrap();
         for name in [b"zumen-1".as_slice(), b"zumen-2"] {
@@ -1724,9 +1723,7 @@ fn added_table_records_are_taken_back(version: &[u8], vport: bool) {
                     .collect(),
                 origin: Origin::New,
             });
-            if vport {
-                db.push(vport_record);
-            }
+            db.push(vport_record);
             // 線を 1 本持つブロックと、それをモデル空間に挿す INSERT
             let record = seed + 9;
             let block = |kind: &[u8], handle: u64, values: Vec<(i16, Data)>| {
