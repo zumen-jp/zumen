@@ -17,6 +17,9 @@
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
+//! 表の終わりに足した画層は、一から符号化してオブジェクトの地図に加え、所有者の画層の表のオブジェクトの
+//! 項目の終わりに足す（決定 0061）。
+//!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,7 +28,9 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits};
-use super::objects::{DIM_FIELDS, Dim, block_links, entity_fields, entity_links, object_fields};
+use super::objects::{
+    DIM_FIELDS, Dim, block_links, entity_fields, entity_links, object_fields, skip_extended_data,
+};
 use super::{DwgFile, Release, header};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 
@@ -68,6 +73,8 @@ const HATCH: &[i16] = &[
     96, 97, 75, 76, 52, 41, 77, 78, 53, 43, 44, 45, 46, 79, 49, 47, 98,
 ];
 const MINSERT_TYPE: i16 = 0x08;
+const LAYER_TYPE: i16 = 0x33;
+const LAYER_CONTROL_TYPE: u16 = 0x32;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -272,7 +279,7 @@ impl DwgFile {
             return Err(unsupported(name));
         }
         self.unlink(base, &removed, &mut changes)?;
-        let (added, seed) = self.append(base, &added, &mut changes)?;
+        let (added, seed) = self.append(db, &added, &mut changes)?;
         Ok(Changes {
             set: changes,
             removed: removed.iter().map(|&(record, _)| record).collect(),
@@ -285,9 +292,10 @@ impl DwgFile {
     /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
     /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
     /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
+    /// 足した画層は、図形の並びへ繋がず、画層の表のオブジェクトに加える（決定 0061）
     fn append(
         &self,
-        base: &AcadDb,
+        db: &AcadDb,
         added: &[&Object],
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Result<(Added, Option<u64>), Box<Diagnostic>> {
@@ -307,13 +315,29 @@ impl DwgFile {
         // SEQEND で閉じる。ATTRIB は ATTRIB どうしで繋ぎ、SEQEND は前後を持たない
         let mut open: Option<(usize, Vec<usize>)> = None;
         let mut inner = BTreeMap::new();
-        for &object in added {
+        // 足した画層のレコードの、足したものの中の番号とハンドルとデータ。図形の並びへは入れない
+        let mut tables: BTreeMap<usize, (u64, Vec<u8>)> = BTreeMap::new();
+        for (position, &object) in added.iter().enumerate() {
+            if object.section == Section::Tables {
+                if let Some((insert, _)) = &open {
+                    let kind = pending
+                        .get(*insert)
+                        .map_or(&object.kind, |i| &i.object.kind);
+                    return Err(unsupported(kind));
+                }
+                let (handle, data) = self
+                    .add_layer(db, object, &records, seed, changes)
+                    .ok_or_else(|| unsupported(&object.kind))?;
+                seed = handle + 1;
+                tables.insert(position, (handle, data));
+                continue;
+            }
             let parent = open
                 .as_ref()
                 .and_then(|(i, _)| pending.get(*i))
                 .map(|insert| (insert.handle, insert.object.section.clone()));
             let new = self
-                .prepare(base, object, &records, seed, parent)
+                .prepare(db, object, &records, seed, parent)
                 .ok_or_else(|| unsupported(&object.kind))?;
             seed = new.handle + 1;
             let index = pending.len();
@@ -385,19 +409,23 @@ impl DwgFile {
                 }
             }
         }
-        let data = pending
+        let mut entities = pending
             .iter()
             .zip(links)
             .map(|(new, (prev, next))| Some((new.handle, new.encode(prev, next)?)))
             .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| unsupported(&last.kind))?;
+            .ok_or_else(|| unsupported(&last.kind))?
+            .into_iter();
+        let data = (0..added.len())
+            .filter_map(|position| tables.remove(&position).or_else(|| entities.next()))
+            .collect();
         Ok((data, Some(seed)))
     }
 
     /// 足した図形 `object` を符号化するのに要るもの。ハンドルが `seed` より小さいか、足せない図形なら `None`
     fn prepare<'a>(
         &self,
-        base: &AcadDb,
+        db: &AcadDb,
         object: &'a Object,
         records: &BTreeMap<u64, usize>,
         seed: u64,
@@ -440,7 +468,7 @@ impl DwgFile {
             (owner == insert).then_some((0, section))?
         } else {
             let entry = self.entries.get(*records.get(&owner)?)?;
-            let block = base.get(owner).filter(|_| {
+            let block = db.get(owner).filter(|_| {
                 self.kind(entry.type_code)
                     .is_some_and(|(k, _)| k == b"BLOCK_RECORD")
             })?;
@@ -465,22 +493,22 @@ impl DwgFile {
         if object.section != section || paper != (mode == 1).then_some(1) {
             return None;
         }
-        let layer = record_handle(base, b"LAYER", text_of(object, 8)?)?;
+        let layer = record_handle(db, b"LAYER", text_of(object, 8)?)?;
         let ltype = match object.values.iter().any(|value| value.code == 6) {
             false => (0, 0),
             true => match text_of(object, 6)? {
                 name if name.eq_ignore_ascii_case(b"ByLayer") => (0, 0),
                 name if name.eq_ignore_ascii_case(b"ByBlock") => (1, 0),
                 name if name.eq_ignore_ascii_case(b"Continuous") => (2, 0),
-                name => (3, record_handle(base, b"LTYPE", name)?),
+                name => (3, record_handle(db, b"LTYPE", name)?),
             },
         };
         let pointed = match object.kind.as_slice() {
             // 文字の体裁がなければ Standard
             b"TEXT" | b"ATTRIB" | b"ATTDEF" | b"MTEXT" => {
                 match object.values.iter().any(|value| value.code == 7) {
-                    false => Some(record_handle(base, b"STYLE", b"Standard")?),
-                    true => Some(record_handle(base, b"STYLE", text_of(object, 7)?)?),
+                    false => Some(record_handle(db, b"STYLE", b"Standard")?),
+                    true => Some(record_handle(db, b"STYLE", text_of(object, 7)?)?),
                 }
             }
             b"INSERT" => {
@@ -492,7 +520,7 @@ impl DwgFile {
                         name.get(..space.len())
                             .is_some_and(|head| head.eq_ignore_ascii_case(space))
                     });
-                let block = record_handle(base, b"BLOCK_RECORD", name)?;
+                let block = record_handle(db, b"BLOCK_RECORD", name)?;
                 (!space && block != owner).then_some(block)
             }
             _ => None,
@@ -511,6 +539,89 @@ impl DwgFile {
             pointed,
             children: None,
         })
+    }
+
+    /// 足した画層 `object` のハンドルと、R2000 のレコードのデータ（決定 0061）。所有者（330）の画層の表の
+    /// オブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
+    /// 名前（2）が表にないこと、印（70）・色（62）・線の太さ（370）を持つこと、印刷スタイル（390）と線種（6）が
+    /// 表にあることが要る。印刷スタイルがなければ、画層 0 と同じものにする。ハンドルが `seed` より小さいか、
+    /// 足せない画層なら `None`
+    fn add_layer(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        records: &BTreeMap<u64, usize>,
+        seed: u64,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+    ) -> Option<(u64, Vec<u8>)> {
+        (object.kind == b"LAYER").then_some(())?;
+        let handle = object.handle().filter(|&h| h >= seed)?;
+        let codes = [&[5, 330, 2, 390, 6], LAYER].concat();
+        if object
+            .values
+            .iter()
+            .any(|value| !codes.contains(&value.code))
+        {
+            return None;
+        }
+        let name = text_of(object, 2)?;
+        let same = db
+            .objects()
+            .iter()
+            .filter(|o| o.kind == b"LAYER" && o.section == Section::Tables)
+            .filter(|o| text_of(o, 2).is_some_and(|n| n.eq_ignore_ascii_case(name)))
+            .count();
+        (!name.is_empty() && same == 1).then_some(())?;
+        let (flags, color) = layer_flags(object, false, 0)?;
+        let plot_style = match object.values.iter().find(|value| value.code == 390) {
+            Some(value) => match value.data {
+                Data::Handle(h) => h,
+                _ => return None,
+            },
+            None => match db
+                .get(record_handle(db, b"LAYER", b"0")?)?
+                .values
+                .iter()
+                .find(|value| value.code == 390)?
+                .data
+            {
+                Data::Handle(h) => h,
+                _ => return None,
+            },
+        };
+        db.get(plot_style)?;
+        let ltype = record_handle(db, b"LTYPE", text_of(object, 6)?)?;
+        let control = object.owner()?;
+        let record = *records.get(&control)?;
+        (self.entries.get(record)?.type_code == LAYER_CONTROL_TYPE).then_some(())?;
+        changes.insert(record, add_entry(&self.current(changes, record)?, handle)?);
+        let mut fields = BitWriter::default();
+        fields.handle(0, handle);
+        // 拡張データと反応子がない
+        fields.bs(0);
+        fields.bl(0);
+        fields.text(name)?;
+        // 参照される印・外部参照の番号・外部参照に依る印
+        fields.bit(true);
+        fields.bs(0);
+        fields.bit(false);
+        fields.bs(flags);
+        fields.bs(color);
+        let mut handles = BitWriter::default();
+        handles.handle(4, control);
+        handles.handle(3, 0);
+        // 外部参照のブロック
+        handles.handle(5, 0);
+        handles.handle(5, plot_style);
+        handles.handle(5, ltype);
+        let mut out = BitWriter::default();
+        out.bs(LAYER_TYPE);
+        out.rl(i32::try_from(out.len() + 32 + fields.len()).ok()?);
+        for part in [fields, handles] {
+            let len = part.len();
+            out.copy(&part.into_bytes(), 0..len)?;
+        }
+        Some((handle, out.into_bytes()))
     }
 
     /// `record` 番目のオブジェクトの、今の変更 `changes` を入れたデータ
@@ -1076,6 +1187,14 @@ fn layer(
     bits.seek(own_at);
     let old = bits.bs()?;
     bits.bs()?;
+    let (flags, color) = layer_flags(object, xdep, old)?;
+    fields.bs(flags);
+    fields.bs(color);
+    Some(bits.pos())
+}
+
+/// LAYER の DWG の印（BS）と色の番号。印のほかのビットは `old` から写す（決定 0043）
+fn layer_flags(object: &Object, xdep: bool, old: i16) -> Option<(i16, i16)> {
     let dxf = small(object, 70)??;
     (dxf & !(1 | 2 | 4 | 16) == 0 && (dxf & 16 != 0) == xdep).then_some(())?;
     let color = small(object, 62)??;
@@ -1092,9 +1211,39 @@ fn layer(
         flags |= 16;
     }
     flags |= lineweight_index(integer(object, 370)??)? << 5;
-    fields.bs(flags);
-    fields.bs(color.checked_abs()?);
-    Some(bits.pos())
+    let color = color.checked_abs()?;
+    (1..=255).contains(&color).then_some((flags, color))
+}
+
+/// 表のオブジェクトのデータ `data` の、項目の数（BL）を 1 増やし、項目のハンドルの終わりに `entry` を
+/// 足したもの（決定 0061）。ハンドルの流れの後の埋めるビットは写さない
+fn add_entry(data: &[u8], entry: u64) -> Option<Vec<u8>> {
+    let [size_at, start, handles_at] = object_fields(data)?;
+    let mut bits = Bits::with_release(data, Release::R2000);
+    bits.seek(size_at + 32);
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let reactors = bits.bl()?;
+    let count = bits.bl()?;
+    (bits.pos() == handles_at).then_some(())?;
+    let mut fields = BitWriter::default();
+    fields.bl(count.checked_add(1)?);
+    let mut handles = BitWriter::default();
+    // 所有者・反応子・拡張辞書・項目
+    for _ in 0..(1 + i64::from(reactors) + 1 + i64::from(count)) {
+        let found = bits.handle()?;
+        handles.handle(found.code, found.value);
+    }
+    handles.handle(2, entry);
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(start + fields.len()).ok()?);
+    out.copy(data, size_at + 32..start)?;
+    for part in [fields, handles] {
+        let len = part.len();
+        out.copy(&part.into_bytes(), 0..len)?;
+    }
+    Some(out.into_bytes())
 }
 
 /// 印刷する画層か。290 がなければ印刷し、偽なら印刷しない

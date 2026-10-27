@@ -904,3 +904,101 @@ fn r2000_drawings_take_back_added_entities() {
         }
     }
 }
+
+/// R2000 の図面に画層と、その画層の LINE を足して書き戻すと、読み直したものが足したものと合う。
+/// 書き戻した図面にもう一度足しても合う（決定 0061）
+#[test]
+fn r2000_drawings_take_back_added_layers() {
+    for path in dwgs(b"AC1015") {
+        let mut src = std::fs::read(&path).unwrap();
+        for name in [b"zumen-1".as_slice(), b"zumen-2"] {
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let mut file = Dwg::read(&src, &mut cx).unwrap();
+            let mut db = file.objects(&mut cx).unwrap();
+            let seed = file.handle_seed().unwrap();
+            let named = |kind: &[u8], name: &[u8]| {
+                db.objects()
+                    .iter()
+                    .find(|o| {
+                        o.kind == kind
+                            && o.values
+                                .iter()
+                                .any(|v| v.code == 2 && v.data == Data::Text(name.to_vec()))
+                    })
+                    .cloned()
+                    .unwrap()
+            };
+            let model = named(b"BLOCK_RECORD", b"*Model_Space").handle().unwrap();
+            let mut layer = named(b"LAYER", b"0");
+            layer.origin = Origin::New;
+            for value in &mut layer.values {
+                match value.code {
+                    5 => value.data = Data::Handle(seed),
+                    2 => value.data = Data::Text(name.to_vec()),
+                    _ => {}
+                }
+            }
+            db.push(layer);
+            let mut values = vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(seed + 1),
+                },
+                Value {
+                    code: 330,
+                    data: Data::Handle(model),
+                },
+                Value {
+                    code: 8,
+                    data: Data::Text(name.to_vec()),
+                },
+            ];
+            for (code, value) in [
+                (10, 1.0),
+                (20, 2.0),
+                (30, 0.0),
+                (11, 3.0),
+                (21, 4.0),
+                (31, 0.0),
+            ] {
+                values.push(Value {
+                    code,
+                    data: Data::Real(value),
+                });
+            }
+            db.push(Object {
+                kind: b"LINE".to_vec(),
+                section: Section::Entities,
+                values,
+                origin: Origin::New,
+            });
+            file.write_back(&db, &mut cx).unwrap();
+            let mut out = Vec::new();
+            Dwg::write(&file, &mut out, &mut cx).unwrap();
+            let mut fresh = Diagnostics::new();
+            let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
+            let again = Dwg::read(&out, &mut cx).unwrap();
+            assert_eq!(again.handle_seed(), Some(seed + 2), "{}", path.display());
+            let after = again.objects(&mut cx).unwrap();
+            assert!(
+                fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
+                "{}",
+                path.display()
+            );
+            assert_eq!(
+                after.objects().len(),
+                db.objects().len(),
+                "{}",
+                path.display()
+            );
+            for (a, b) in db.objects().iter().zip(after.objects()) {
+                assert_eq!(a.kind, b.kind, "{}", path.display());
+                assert_eq!(a.values, b.values, "{}", path.display());
+            }
+            src = out;
+        }
+    }
+}
