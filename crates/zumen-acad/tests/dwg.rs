@@ -7239,3 +7239,91 @@ fn added_styles_are_written_back() {
         assert_eq!(found, Some(&"STYLE".to_string().into()));
     }
 }
+
+#[test]
+fn added_ltypes_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // Continuous を写し、名前と印と要素の数と、要素ごとの長さと印 `dashes` を変えたもの
+    let ltype = |name: &[u8], flags: i64, count: i64, dashes: &[(f64, i64)]| {
+        let mut db = base.clone();
+        let mut object = db.get(0x12).unwrap().clone();
+        object.origin = Origin::New;
+        for value in &mut object.values {
+            match value.code {
+                5 => value.data = Data::Handle(0x80),
+                2 => value.data = Data::Text(name.to_vec()),
+                70 => value.data = Data::Int(flags),
+                3 => value.data = Data::Text(b"__ __".to_vec()),
+                72 => value.data = Data::Int(65),
+                73 => value.data = Data::Int(count),
+                40 => value.data = Data::Real(0.75),
+                _ => {}
+            }
+        }
+        for &(dash, flags) in dashes {
+            object.values.extend([
+                Value {
+                    code: 49,
+                    data: Data::Real(dash),
+                },
+                Value {
+                    code: 74,
+                    data: Data::Int(flags),
+                },
+            ]);
+        }
+        db.push(object);
+        db
+    };
+    // 線と空きの線種と、その線種の LINE
+    let dashes = [(0.5, 0), (-0.25, 0)];
+    let mut db = with_added(
+        &ltype(b"Dashed", 0, 2, &dashes),
+        0x81,
+        b"LINE",
+        &[
+            (10, 1.0),
+            (20, 2.0),
+            (30, 0.0),
+            (11, 3.0),
+            (21, 4.0),
+            (31, 0.0),
+        ],
+    );
+    let line = db.objects().len() - 1;
+    let mut object = db.objects()[line].clone();
+    object.values.push(Value {
+        code: 6,
+        data: Data::Text(b"Dashed".to_vec()),
+    });
+    db.remove(line).unwrap();
+    db.push(object);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(summary(&again), summary(&db));
+    // 表にある名前・外部参照に依る印・数の合わない要素・文字の要素を持つ線種は、書き戻せない
+    let cases = [
+        ltype(b"continuous", 0, 2, &dashes),
+        ltype(b"Other", 16, 2, &dashes),
+        ltype(b"Other", 0, 3, &dashes),
+        ltype(b"Other", 0, 2, &[(0.5, 0), (-0.25, 2)]),
+    ];
+    for db in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"LTYPE".to_string().into()));
+    }
+}

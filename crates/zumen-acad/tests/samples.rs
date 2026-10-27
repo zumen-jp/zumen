@@ -905,10 +905,10 @@ fn r2000_drawings_take_back_added_entities() {
     }
 }
 
-/// R2000 の図面に画層と文字の体裁と、その画層の LINE とその体裁の TEXT を足して書き戻すと、読み直したものが
-/// 足したものと合う。書き戻した図面にもう一度足しても合う（決定 0061・0062）
+/// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT を足して書き戻すと、読み直したものが
+/// 足したものと合う。書き戻した図面にもう一度足しても合う（決定 0061〜0063）
 #[test]
-fn r2000_drawings_take_back_added_layers_and_styles() {
+fn r2000_drawings_take_back_added_table_records() {
     for path in dwgs(b"AC1015") {
         let mut src = std::fs::read(&path).unwrap();
         for name in [b"zumen-1".as_slice(), b"zumen-2"] {
@@ -937,7 +937,7 @@ fn r2000_drawings_take_back_added_layers_and_styles() {
             for value in &mut layer.values {
                 match value.code {
                     5 => value.data = Data::Handle(seed),
-                    2 => value.data = Data::Text(name.to_vec()),
+                    2 | 6 => value.data = Data::Text(name.to_vec()),
                     _ => {}
                 }
             }
@@ -950,12 +950,36 @@ fn r2000_drawings_take_back_added_layers_and_styles() {
                     _ => {}
                 }
             }
+            // 長さ 0.5 の線と 0.25 の空きの、形も文字もない要素の線種
+            let ltypes = named(b"LTYPE", b"Continuous").owner().unwrap();
+            let mut ltype = vec![
+                (5, Data::Handle(seed + 2)),
+                (330, Data::Handle(ltypes)),
+                (2, Data::Text(name.to_vec())),
+                (70, Data::Int(0)),
+                (3, Data::Text(b"__ __".to_vec())),
+                (72, Data::Int(65)),
+                (73, Data::Int(2)),
+                (40, Data::Real(0.75)),
+            ];
+            for dash in [0.5, -0.25] {
+                ltype.extend([(49, Data::Real(dash)), (74, Data::Int(0))]);
+            }
             db.push(layer);
             db.push(style);
+            db.push(Object {
+                kind: b"LTYPE".to_vec(),
+                section: Section::Tables,
+                values: ltype
+                    .into_iter()
+                    .map(|(code, data)| Value { code, data })
+                    .collect(),
+                origin: Origin::New,
+            });
             let mut values = vec![
                 Value {
                     code: 5,
-                    data: Data::Handle(seed + 2),
+                    data: Data::Handle(seed + 3),
                 },
                 Value {
                     code: 330,
@@ -979,14 +1003,19 @@ fn r2000_drawings_take_back_added_layers_and_styles() {
                     data: Data::Real(value),
                 });
             }
+            let mut line = values.clone();
+            line.push(Value {
+                code: 6,
+                data: Data::Text(name.to_vec()),
+            });
             db.push(Object {
                 kind: b"LINE".to_vec(),
                 section: Section::Entities,
-                values: values.clone(),
+                values: line,
                 origin: Origin::New,
             });
             let mut text = values;
-            text[0].data = Data::Handle(seed + 3);
+            text[0].data = Data::Handle(seed + 4);
             text.truncate(6);
             text.extend([
                 Value {
@@ -1014,7 +1043,7 @@ fn r2000_drawings_take_back_added_layers_and_styles() {
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 4), "{}", path.display());
+            assert_eq!(again.handle_seed(), Some(seed + 5), "{}", path.display());
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),

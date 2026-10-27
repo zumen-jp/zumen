@@ -17,8 +17,8 @@
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
-//! 表の終わりに足した画層と文字の体裁は、一から符号化してオブジェクトの地図に加え、所有者の表の
-//! オブジェクトの項目の終わりに足す（決定 0061・0062）。
+//! 表の終わりに足した画層と文字の体裁と線種は、一から符号化してオブジェクトの地図に加え、所有者の表の
+//! オブジェクトの項目の終わりに足す（決定 0061〜0063）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -77,6 +77,8 @@ const LAYER_TYPE: i16 = 0x33;
 const LAYER_CONTROL_TYPE: u16 = 0x32;
 const STYLE_TYPE: i16 = 0x35;
 const STYLE_CONTROL_TYPE: u16 = 0x34;
+const LTYPE_TYPE: i16 = 0x39;
+const LTYPE_CONTROL_TYPE: u16 = 0x38;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -294,7 +296,7 @@ impl DwgFile {
     /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
     /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
     /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
-    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061・0062）
+    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0063）
     fn append(
         &self,
         db: &AcadDb,
@@ -543,12 +545,12 @@ impl DwgFile {
         })
     }
 
-    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061・0062）。所有者（330）の
+    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0063）。所有者（330）の
     /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
-    /// 画層と文字の体裁だけを扱い、名前（2）が表にないことが要る。画層は、印（70）・色（62）・線の太さ（370）を
-    /// 持ち、印刷スタイル（390）と線種（6）が表になければならない。印刷スタイルがなければ、画層 0 と同じものに
-    /// する。文字の体裁は、型ごとの欄をみな持たなければならない。ハンドルが `seed` より小さいか、足せない
-    /// レコードなら `None`
+    /// 画層と文字の体裁と線種だけを扱い、名前（2）が表にないことが要る。画層は、印（70）・色（62）・線の太さ
+    /// （370）を持ち、印刷スタイル（390）と線種（6）が表になければならない。印刷スタイルがなければ、画層 0 と
+    /// 同じものにする。文字の体裁は、型ごとの欄をみな持たなければならない。線種は、要素がみな形も文字も
+    /// 持たないことが要る。ハンドルが `seed` より小さいか、足せないレコードなら `None`
     fn add_record(
         &self,
         db: &AcadDb,
@@ -561,6 +563,7 @@ impl DwgFile {
         let (type_code, control_type, own): (i16, u16, &[i16]) = match object.kind.as_slice() {
             b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE, &[70, 62, 290, 370, 390, 6]),
             b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE, STYLE),
+            b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE, &[70, 3, 72, 73, 40, 49, 74]),
             _ => return None,
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
@@ -619,7 +622,7 @@ impl DwgFile {
             db.get(plot_style)?;
             handles.handle(5, plot_style);
             handles.handle(5, record_handle(db, b"LTYPE", text_of(object, 6)?)?);
-        } else {
+        } else if type_code == STYLE_TYPE {
             // 形のファイル 1 と縦書き 4 の印、高さ・幅の係数・斜めの角度・生成の印・前の高さ・字体の名前
             let flags = small(object, 70)??;
             (flags & !(1 | 4) == 0).then_some(())?;
@@ -632,6 +635,44 @@ impl DwgFile {
             fields.bd(real(object, 42)??);
             string(&mut fields, object, 3)?;
             string(&mut fields, object, 4)?;
+        } else {
+            // 外部参照に依らない線種の、説明・揃え・要素の数・長さと、要素ごとの長さ。形も文字もない要素の
+            // 形の番号・ずれ・尺度・回転は、試料の図面と同じく 0・0・0・1・0 とし、文字の領域は 0 で埋める
+            let mut values = Cursor(
+                object
+                    .values
+                    .iter()
+                    .filter(|value| own.contains(&value.code))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .peekable(),
+            );
+            (values.int(70)? == 0).then_some(())?;
+            let Data::Text(_) = values.next(3)? else {
+                return None;
+            };
+            string(&mut fields, object, 3)?;
+            let align = u8::try_from(values.int(72)?).ok()?;
+            let count = u8::try_from(values.int(73)?).ok()?;
+            fields.bd(values.real(40)?);
+            fields.rc(align);
+            fields.rc(count);
+            for _ in 0..count {
+                fields.bd(values.real(49)?);
+                (values.int(74)? == 0).then_some(())?;
+                fields.bs(0);
+                fields.rd(0.0);
+                fields.rd(0.0);
+                fields.bd(1.0);
+                fields.bd(0.0);
+                fields.bs(0);
+                // 形のファイルの文字の体裁
+                handles.handle(5, 0);
+            }
+            values.0.next().is_none().then_some(())?;
+            for _ in 0..256 {
+                fields.rc(0);
+            }
         }
         let record = *records.get(&control)?;
         (self.entries.get(record)?.type_code == control_type).then_some(())?;
