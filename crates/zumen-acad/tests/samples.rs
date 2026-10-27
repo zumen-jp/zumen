@@ -828,8 +828,26 @@ fn r2000_drawings_take_back_changed_entities() {
 
 #[test]
 fn r2000_drawings_take_back_removed_entities() {
+    let removed = removed_entities_are_taken_back(b"AC1015");
+    if !dwgs(b"AC1015").is_empty() {
+        assert!(removed > 0);
+    }
+}
+
+#[test]
+fn r2004_drawings_take_back_removed_entities() {
+    let removed = removed_entities_are_taken_back(b"AC1018");
+    if !dwgs(b"AC1018").is_empty() {
+        assert!(removed > 0);
+    }
+}
+
+/// 版 `version` の試料の図面から図形を除いて書き戻し、読み直した表が除いた表と同じことを確かめ、除いた
+/// 図形の数を返す
+#[cfg(test)]
+fn removed_entities_are_taken_back(version: &[u8]) -> usize {
     let mut removed = 0;
-    for path in dwgs(b"AC1015") {
+    for path in dwgs(version) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -897,9 +915,7 @@ fn r2000_drawings_take_back_removed_entities() {
         }
         removed += gone.len();
     }
-    if !dwgs(b"AC1015").is_empty() {
-        assert!(removed > 0);
-    }
+    removed
 }
 
 #[test]

@@ -36,8 +36,8 @@ use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{BitWriter, Bits, Color};
 use super::objects::{
-    DIM_FIELDS, Dim, block_links, entity_fields, entity_links, hatch_gradient, object_fields,
-    skip_extended_data,
+    DIM_FIELDS, Dim, block_links, entity_fields, entity_links, entity_refs, hatch_gradient,
+    object_fields, owned, skip_extended_data,
 };
 use super::{DwgFile, Release, header};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
@@ -358,14 +358,9 @@ impl DwgFile {
                 _ => return Err(unsupported(name)),
             }
         }
-        // R2004 の図形の削除と追加は、まだ書き戻さない
-        if r2004 {
-            if let Some((_, object)) = removed.first() {
-                return Err(unsupported(&object.kind));
-            }
-            if let Some(object) = added.first() {
-                return Err(unsupported(&object.kind));
-            }
+        // R2004 の図形の追加は、まだ書き戻さない
+        if r2004 && let Some(object) = added.first() {
+            return Err(unsupported(&object.kind));
         }
         self.unlink(base, &removed, &mut changes)?;
         let (added, seed) = self.append(db, &added, &mut changes)?;
@@ -1067,12 +1062,16 @@ impl DwgFile {
                         && !owners.contains(&entry.handle)
                 })
                 .and_then(|entry| {
-                    let links = entity_links(self.data(entry), entry.handle)?;
+                    let data = self.data(entry);
+                    let free = if self.release == Release::R2004 {
+                        entity_refs(data)? == (0, false)
+                    } else {
+                        let links = entity_links(data, entry.handle)?;
+                        links.reactors == 0 && links.xdic == 0
+                    };
                     let owner = old.owner()?;
                     let block = self.entries.get(*records.get(&owner)?)?;
-                    (links.reactors == 0
-                        && links.xdic == 0
-                        && self.kind(block.type_code)?.0 == b"BLOCK_RECORD")
+                    (free && self.kind(block.type_code)?.0 == b"BLOCK_RECORD")
                         .then_some((entry.handle, owner))
                 })
                 .ok_or_else(|| unsupported(&old.kind))?;
@@ -1080,8 +1079,17 @@ impl DwgFile {
             *blocks.entry(block.1).or_insert(0usize) += 1;
         }
         for (block, count) in blocks {
-            self.relink_block(block, count, &gone, &records, changes)
-                .ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
+            // R2004 の図形は前後の図形のハンドルを持たず、ブロックのレコードが持つ図形を並べる（決定 0077）
+            let done = if self.release == Release::R2004 {
+                records.get(&block).and_then(|&record| {
+                    let new = disown(&self.current(changes, record)?, block, count, &gone)?;
+                    changes.insert(record, new);
+                    Some(())
+                })
+            } else {
+                self.relink_block(block, count, &gone, &records, changes)
+            };
+            done.ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
         }
         Ok(())
     }
@@ -1348,6 +1356,35 @@ fn reblock(data: &[u8], handle: u64, first: u64, last: u64) -> Option<Vec<u8>> {
     out.handle(4, first);
     out.handle(4, last);
     out.copy(data, at.end..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// ハンドル `block` の R2004 のブロックのレコードのデータ `data` から、持つ図形のうち `gone` の `count` 個を
+/// 除いたもの（決定 0077）。持つ図形の数（BL）を減らし、そのハンドルを除く
+fn disown(data: &[u8], block: u64, count: usize, gone: &BTreeSet<u64>) -> Option<Vec<u8>> {
+    let owned = owned(data, block)?;
+    let kept: Vec<_> = owned
+        .handles
+        .iter()
+        .filter(|(_, handle)| !gone.contains(handle))
+        .collect();
+    (owned.handles.len().checked_sub(kept.len())? == count).then_some(())?;
+    let first = owned.handles.first()?.0.start;
+    let last = owned.handles.last()?.0.end;
+    let mut fields = BitWriter::default();
+    fields.copy(data, owned.size_at + 32..owned.count.start)?;
+    fields.bl(i32::try_from(kept.len()).ok()?);
+    fields.copy(data, owned.count.end..owned.handles_at)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..owned.size_at)?;
+    out.rl(i32::try_from(owned.size_at + 32 + fields.len()).ok()?);
+    let len = fields.len();
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, owned.handles_at..first)?;
+    for (at, _) in kept {
+        out.copy(data, at.clone())?;
+    }
+    out.copy(data, last..data.len() * 8)?;
     Some(out.into_bytes())
 }
 
