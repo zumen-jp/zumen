@@ -1,0 +1,188 @@
+{
+  "description": "entities は、開いた文書を図面モデル（L2）に変換し、実寸の空間、用紙の順に要素の一覧を返す。ID は空間か用紙と出所で作り、続きは offset と limit で読む。作業は変換の分に加えて、返す要素ごとに 1 つ使い、止まる所はネイティブと wasm で同じになる（決定 0007・0010・0117）",
+  "steps": [
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.document.missing",
+        "/diagnostics/0/params/name": "a.dxf"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n420.0\n20\n297.0\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n0\nTEXT\n8\nTEXT\n10\n-3.0\n20\n4.0\n40\n2.5\n1\nABC\n0\nLINE\n8\n0\n67\n1\n10\n10.0\n20\n10.0\n11\n410.0\n21\n287.0\n0\nPOINT\n8\n0\n10\n0.0\n20\n0.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf"
+      },
+      "expect": {
+        "/result": {
+          "items": [
+            {
+              "id": "space/0/r3",
+              "kind": "line",
+              "layer": "0",
+              "source": {
+                "record": 3
+              }
+            },
+            {
+              "id": "space/0/r4",
+              "kind": "text",
+              "layer": "TEXT",
+              "source": {
+                "record": 4
+              }
+            },
+            {
+              "id": "sheet/0/r5",
+              "kind": "line",
+              "layer": "0",
+              "source": {
+                "record": 5
+              }
+            }
+          ],
+          "total": 3
+        },
+        "/diagnostics/0/code": "dxf.lift.dropped"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "limit": 2
+      },
+      "expect": {
+        "/result/total": 3,
+        "/result/next_offset": 2
+      },
+      "absent": [
+        "/result/items/2"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "offset": 2,
+        "limit": 2
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/r5"
+      },
+      "absent": [
+        "/result/items/1",
+        "/result/next_offset"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "offset": 9
+      },
+      "expect": {
+        "/result/items": [],
+        "/result/total": 3
+      },
+      "absent": [
+        "/result/next_offset"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "budget": {
+          "work": 15
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/1/code": "budget.work.exceeded",
+        "/diagnostics/1/params/requested": 16
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "budget": {
+          "work": 16
+        }
+      },
+      "expect": {
+        "/result/total": 3
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "limit": 0
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "limit": 10001
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "cursor": "x"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ]
+    }
+  ]
+}

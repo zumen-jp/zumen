@@ -11,7 +11,8 @@
         { "$ref": "#/$defs/open_request" },
         { "$ref": "#/$defs/close_request" },
         { "$ref": "#/$defs/describe_request" },
-        { "$ref": "#/$defs/drawing_request" }
+        { "$ref": "#/$defs/drawing_request" },
+        { "$ref": "#/$defs/entities_request" }
       ]
     },
     "request_common": {
@@ -286,6 +287,90 @@
         "max_y": { "description": "Y の最大", "type": "number" }
       },
       "required": ["min_x", "min_y", "max_x", "max_y"],
+      "additionalProperties": false
+    },
+    "entities_request": {
+      "description": "開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "entities" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" },
+        "offset": {
+          "description": "返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す要素の数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "entities_result": {
+      "description": "要素の一覧の一部。移さなかった図形と値は、診断で返す",
+      "type": "object",
+      "properties": {
+        "items": {
+          "description": "offset から limit 個までの要素",
+          "type": "array",
+          "items": { "$ref": "#/$defs/entity" }
+        },
+        "total": { "description": "全体の要素の数", "type": "integer", "minimum": 0 },
+        "next_offset": {
+          "description": "続きの最初の要素の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["items", "total"],
+      "additionalProperties": false
+    },
+    "entity": {
+      "description": "図面モデルの要素",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "空間か用紙と、出所で作る ID（space/0/r12、sheet/1/b4096 など）。同じバイト列には、どの版でも同じ ID を返す（決定 0117）",
+          "type": "string"
+        },
+        "kind": { "description": "形の種類", "$ref": "#/$defs/entity_kind" },
+        "layer": { "description": "レイヤの元の名前。翻訳しない。図面モデルにレイヤがなければ持たない", "type": "string" },
+        "source": { "description": "元の形式のレコード", "$ref": "#/$defs/source" }
+      },
+      "required": ["id", "kind", "source"],
+      "additionalProperties": false
+    },
+    "entity_kind": {
+      "description": "要素の形の種類（決定 0022）",
+      "type": "string",
+      "enum": [
+        "line",
+        "circle",
+        "curve",
+        "polyline",
+        "text",
+        "formatted_text",
+        "dimension",
+        "leader",
+        "callout",
+        "table",
+        "underlay",
+        "symbol",
+        "hatch"
+      ]
+    },
+    "source": {
+      "description": "要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）。ファイルから読んでいない要素は、どちらも持たない",
+      "type": "object",
+      "properties": {
+        "record": { "description": "L1 のレコードの番号", "type": "integer", "minimum": 0 },
+        "bytes": { "description": "L1 のバイト範囲", "$ref": "#/$defs/byte_range" }
+      },
       "additionalProperties": false
     },
     "response": {
