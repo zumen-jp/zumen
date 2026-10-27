@@ -905,8 +905,9 @@ fn r2000_drawings_take_back_added_entities() {
     }
 }
 
-/// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT と、アプリケーションの名前を足して
-/// 書き戻すと、読み直したものが足したものと合う。書き戻した図面にもう一度足しても合う（決定 0061〜0064）
+/// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT と、アプリケーションの名前と、足した
+/// 文字の体裁を使う寸法の体裁を足して書き戻すと、読み直したものが足したものと合う。書き戻した図面に
+/// もう一度足しても合う（決定 0061〜0065）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
     for path in dwgs(b"AC1015") {
@@ -974,6 +975,23 @@ fn r2000_drawings_take_back_added_table_records() {
                     _ => {}
                 }
             }
+            // 接尾辞・矢印の大きさ・文字の高さを持ち、足した文字の体裁を使う寸法の体裁
+            let dimstyles = db
+                .objects()
+                .iter()
+                .find(|o| o.kind == b"DIMSTYLE")
+                .and_then(Object::owner)
+                .unwrap();
+            let dimstyle = [
+                (105, Data::Handle(seed + 6)),
+                (330, Data::Handle(dimstyles)),
+                (2, Data::Text(name.to_vec())),
+                (70, Data::Int(0)),
+                (3, Data::Text(b"<>mm".to_vec())),
+                (41, Data::Real(2.5)),
+                (140, Data::Real(3.0)),
+                (340, Data::Handle(seed + 1)),
+            ];
             db.push(layer);
             db.push(style);
             db.push(Object {
@@ -1047,13 +1065,22 @@ fn r2000_drawings_take_back_added_table_records() {
                 origin: Origin::New,
             });
             db.push(appid);
+            db.push(Object {
+                kind: b"DIMSTYLE".to_vec(),
+                section: Section::Tables,
+                values: dimstyle
+                    .into_iter()
+                    .map(|(code, data)| Value { code, data })
+                    .collect(),
+                origin: Origin::New,
+            });
             file.write_back(&db, &mut cx).unwrap();
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 6), "{}", path.display());
+            assert_eq!(again.handle_seed(), Some(seed + 7), "{}", path.display());
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),

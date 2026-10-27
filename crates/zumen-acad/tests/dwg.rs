@@ -1,6 +1,6 @@
 //! DWG（R2000）の試作を、試験の中で組み立てた DWG で確かめる。受け取った図面は使わない。
 
-use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Line, Origin, Section, Value};
+use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Line, Object, Origin, Section, Value};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction};
 
@@ -7060,15 +7060,35 @@ fn layer_table_with_seed() -> Vec<u8> {
         },
     );
     let appid = object(0x43, 0x13, record_named(b"ACAD"), record_handles(6));
+    let dimstyle_control = object(
+        0x44,
+        7,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2);
+            w.bytes(&[1]);
+            // 項目の後に続くハンドルの数
+            w.bytes(&[1]);
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+            w.handle(2, 0x14);
+            w.handle(5, 0x14);
+        },
+    );
+    let dimstyle = object(0x45, 0x14, record_named(b"Standard"), record_handles(7));
     let mut objects = vec![
         (2, control),
         (3, style_control),
         (5, ltype_control),
         (6, appid_control),
+        (7, dimstyle_control),
         (0x10, layer),
         (0x11, style),
         (0x12, ltype),
         (0x13, appid),
+        (0x14, dimstyle),
     ];
     objects.extend(objects_with_linked_lines(true).into_iter().skip(2));
     with_header(dwg(&objects), 0, 0, 0, [0.0; 4], 0x80)
@@ -7389,5 +7409,73 @@ fn added_appids_are_written_back() {
         assert_eq!(out, Err(Error::Rejected));
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&"APPID".to_string().into()));
+    }
+}
+
+#[test]
+fn added_dimstyles_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // 名前と、読む側の並びの値 `values` を持つ寸法の体裁
+    let dimstyle = |name: &[u8], values: Vec<(i16, Data)>| {
+        let mut db = base.clone();
+        let mut all = vec![
+            (105, Data::Handle(0x80)),
+            (330, Data::Handle(7)),
+            (2, Data::Text(name.to_vec())),
+        ];
+        all.extend(values);
+        db.push(Object {
+            kind: b"DIMSTYLE".to_vec(),
+            section: Section::Tables,
+            values: all
+                .into_iter()
+                .map(|(code, data)| Value { code, data })
+                .collect(),
+            origin: Origin::New,
+        });
+        db
+    };
+    // 接尾辞・矢印の大きさ・ゼロの省略・文字の高さ・寸法線の色・文字の体裁を持つ寸法の体裁
+    let values = |flags: i64, style: u64| {
+        vec![
+            (70, Data::Int(flags)),
+            (3, Data::Text(b"<>mm".to_vec())),
+            (41, Data::Real(2.5)),
+            (78, Data::Int(8)),
+            (140, Data::Real(3.0)),
+            (176, Data::Int(1)),
+            (340, Data::Handle(style)),
+        ]
+    };
+    let db = dimstyle(b"ISO", values(0, 0x11));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(summary(&again), summary(&db));
+    // 表にある名前・外部参照に依る印・図面にない文字の体裁・形の違う値を持つ寸法の体裁は、書き戻せない
+    let mut wrong = values(0, 0x11);
+    wrong[2].1 = Data::Int(2);
+    let cases = [
+        dimstyle(b"standard", values(0, 0x11)),
+        dimstyle(b"Other", values(16, 0x11)),
+        dimstyle(b"Other", values(0, 0x99)),
+        dimstyle(b"Other", wrong),
+    ];
+    for db in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"DIMSTYLE".to_string().into()));
     }
 }
