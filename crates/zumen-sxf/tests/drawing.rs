@@ -760,3 +760,63 @@ fn moves_hatches_with_composite_curve_boundaries() {
     // 複合曲線のない番号は読めない
     find(&diag, codes::SXF_LIFT_INVALID);
 }
+
+#[test]
+fn moves_parts_predefined_symbols_and_nested_views() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"line_feature('1','1','1','1','0','0','1','0')",
+        b"sfig_org_feature(\\'P\\','4')",
+        b"line_feature('1','1','1','1','0','0','5','5')",
+        b"sfig_org_feature(\\'B\\','1')",
+        b"sfig_locate_feature('1',\\'B\\','10','0','0','1','1')",
+        b"sfig_locate_feature('1',\\'P\\','2','3','90','2','2')",
+        b"sfig_org_feature(\\'A\\','1')",
+        b"sfig_locate_feature('1',\\'A\\','100','50','0','2','2')",
+        b"externally_defined_symbol_feature('1','1','3',\\'arrow\\','5','6','0','1.5')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    assert!(diag.is_empty(), "{diag:?}");
+    // 作図部品は、原点を基点にした記号の定義
+    let key = SymbolKey {
+        namespace: "sxf.sfig",
+        name: "P".into(),
+    };
+    let part = drawing.symbol(&key).unwrap();
+    assert_eq!(part.space.elements.len(), 1);
+    assert_eq!(part.base.map(|b| (b.x, b.y)), Some((0.0, 0.0)));
+    assert!(drawing.spaces.iter().all(|s| s.id != part.space.id));
+    let a = drawing.spaces.iter().find(|s| s.id == SpaceId(2)).unwrap();
+    let Shape::Symbol(placed) = &a.elements[0].shape else {
+        panic!("{:?}", a.elements[0].shape);
+    };
+    assert_eq!(placed.key, key);
+    assert_eq!(
+        (
+            placed.position.x,
+            placed.position.y,
+            placed.scale,
+            placed.rotation
+        ),
+        (2.0, 3.0, [2.0, 2.0], 90.0)
+    );
+
+    // 部分図の中の部分図は、外の部分図のビューに重ねて用紙に置く
+    let views = &drawing.sheets[0].views;
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[0].space, SpaceId(2));
+    assert_eq!(views[1].space, SpaceId(1));
+    assert_eq!(views[1].transform.m, [2.0, 0.0, 120.0, 0.0, 2.0, 50.0]);
+
+    let element = &drawing.sheets[0].elements[0];
+    let Shape::Symbol(symbol) = &element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    assert_eq!(
+        (symbol.key.namespace, symbol.key.name.as_str()),
+        ("sxf.symbol", "arrow")
+    );
+    assert_eq!(symbol.scale, [1.5, 1.5]);
+    assert!(matches!(element.style.color, Inherit::Own(_)));
+}

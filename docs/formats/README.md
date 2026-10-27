@@ -265,4 +265,5 @@
 - 記録: [決定 0127](../decisions/0127-sxf-dimensions.md)
 - 記録: [決定 0128](../decisions/0128-sxf-labels-and-balloons.md)
 - 記録: [決定 0129](../decisions/0129-sxf-hatches-and-composite-curves.md)
+- 記録: [決定 0130](../decisions/0130-sxf-parts-symbols-and-nested-views.md)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)

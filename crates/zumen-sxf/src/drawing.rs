@@ -1,7 +1,7 @@
 //! SFC から図面モデル（L2）への変換（決定 0022・0121）。
 //!
 //! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・スプライン・クロソイド・文字・点マーカー・
-//! 寸法・引出線・バルーン・複合曲線・ハッチング・表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
+//! 寸法・引出線・バルーン・複合曲線・ハッチング・表題欄・画像を移す。既定義シンボルを名前のキーで指す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。作図部品は記号の定義にする。ほかのフィーチャは、まだ移さずに診断する。
 
 use std::collections::BTreeMap;
 
@@ -14,8 +14,8 @@ use zumen_drawing::{
     LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength, ModelPoint,
     ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
     PatternOrigin, Piece, Polyline, Resource, Rotation, Scaled, Shape, Sheet, SheetId, SheetItem,
-    SpaceId, Span, Spline, Style, Symbol, SymbolKey, Target, TitleBlock, TitleItem, Underlay,
-    UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
+    SpaceId, Span, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Target, TitleBlock,
+    TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -124,7 +124,7 @@ struct Definition {
     flag: i64,
     /// 前の定義の後に書いた要素のフィーチャの添字
     members: Vec<usize>,
-    /// 部分図なら、その空間
+    /// 部分図と作図部品なら、その空間
     space: Option<SpaceId>,
     /// 定義のフィーチャ
     source: Ref,
@@ -372,6 +372,7 @@ impl<'f> Lifter<'f> {
 
         let mut out = Out::default();
         let mut spaces = Vec::new();
+        let mut symbols = Vec::new();
         for name in &order {
             let Some(definition) = self.definitions.get(name) else {
                 continue;
@@ -381,13 +382,32 @@ impl<'f> Lifter<'f> {
             };
             let members = definition.members.clone();
             let mut stack = vec![name.clone()];
+            let (flag, source) = (definition.flag, definition.source.clone());
             self.members(&members, &InSpace(space), &mut out, &mut stack, cx)?;
-            spaces.push(ModelSpace {
+            let model = ModelSpace {
                 id: space,
                 unit: Unit::Millimeter,
                 order: (0..out.model.len()).collect(),
                 elements: core::mem::take(&mut out.model),
-            });
+            };
+            if flag == 4 {
+                // 作図部品は、原点を基点にした記号の定義にする（決定 0130）
+                symbols.push(SymbolDefinition {
+                    key: part(name),
+                    space: model,
+                    base: Some(ModelPoint {
+                        space,
+                        x: 0.0,
+                        y: 0.0,
+                    }),
+                    attributes: Vec::new(),
+                    anonymous: false,
+                    external: None,
+                    source,
+                });
+            } else {
+                spaces.push(model);
+            }
         }
         self.members(&sheet_members, &OnSheet, &mut out, &mut Vec::new(), cx)?;
         extensions.append(&mut out.extensions);
@@ -404,6 +424,7 @@ impl<'f> Lifter<'f> {
             line_types: self.line_types,
             extensions,
             title_blocks,
+            symbols,
             ..Drawing2D::default()
         })
     }
@@ -584,7 +605,7 @@ impl<'f> Lifter<'f> {
             // 同じ名前の 2 つ目の定義は使わない
             return None;
         }
-        let space = matches!(flag, 1 | 2)
+        let space = matches!(flag, 1 | 2 | 4)
             .then(|| u32::try_from(self.spaces()).ok().map(SpaceId))
             .flatten();
         self.definitions.insert(
@@ -627,6 +648,12 @@ impl<'f> Lifter<'f> {
             }
             if feature.is(b"text_string") {
                 if self.text(feature, at, out, cx).is_none() {
+                    invalid(cx, feature);
+                }
+                continue;
+            }
+            if feature.is(b"externally_defined_symbol") {
+                if self.predefined(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
                 continue;
@@ -723,6 +750,38 @@ impl<'f> Lifter<'f> {
                 cx.leave();
                 result
             }
+            (4, _) => {
+                let Some(position) = (|| Some(at.point(args.num(2)?, args.num(3)?)))() else {
+                    invalid(cx, feature);
+                    return Ok(());
+                };
+                let (Some(rotation), Some(sx), Some(sy)) = (args.num(4), args.num(5), args.num(6))
+                else {
+                    invalid(cx, feature);
+                    return Ok(());
+                };
+                let source = feature.source();
+                let element = Element {
+                    layer: self.layer_id(args.int(0), &source, cx),
+                    style: Style {
+                        color: Inherit::Layer,
+                        line_type: Inherit::Layer,
+                        line_type_scale: 1.0,
+                        line_weight: None,
+                    },
+                    source,
+                    shape: Shape::Symbol(Symbol {
+                        key: part(&name),
+                        position,
+                        scale: [sx, sy],
+                        rotation,
+                        grid: None,
+                        attributes: Vec::new(),
+                    }),
+                };
+                at.element(element, out);
+                Ok(())
+            }
             (flag, Some(space)) => {
                 let Some(transform) = (|| {
                     placement(
@@ -743,18 +802,101 @@ impl<'f> Lifter<'f> {
                     hidden_layers: Vec::new(),
                     source: feature.source(),
                 };
-                if !at.view(view, out) {
-                    // 部分図の中に置いた部分図は、まだ移さない
+                if at.view(view, out) {
+                    // 部分図の中の部分図は、外の部分図のビューに重ねて、用紙に置く（決定 0130）
+                    stack.push(name.clone());
+                    let result = self.nested(&name, transform, out, stack, cx);
+                    stack.pop();
+                    return result;
+                }
+                let in_part = stack
+                    .first()
+                    .and_then(|root| self.definitions.get(root))
+                    .is_some_and(|root| root.flag == 4);
+                if in_part {
+                    // 作図部品の中の部分図は、置く用紙が決まらない
                     dropped(cx, feature);
                 }
                 Ok(())
             }
-            // 作図部品は、記号と一緒に移す
             _ => {
-                dropped(cx, feature);
+                invalid(cx, feature);
                 Ok(())
             }
         }
+    }
+
+    /// 用紙に置いた部分図 `name` の中の、部分図の配置を、`outer` を重ねたビューにして用紙に置く。作図グループの中も見る
+    fn nested(
+        &mut self,
+        name: &str,
+        outer: Affine,
+        out: &mut Out,
+        stack: &mut Vec<String>,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        let members = match self.definitions.get(name) {
+            Some(definition) => definition.members.clone(),
+            None => return Ok(()),
+        };
+        for index in members {
+            let Some(&feature) = self.features.get(index) else {
+                continue;
+            };
+            if !feature.is(b"sfig_locate") {
+                continue;
+            }
+            let args = self.args(feature);
+            let Some(inner) = args.text(1) else {
+                continue;
+            };
+            let Some(definition) = self.definitions.get(&inner) else {
+                continue;
+            };
+            let (flag, space) = (definition.flag, definition.space);
+            // 輪になる配置は、部分図の空間に移すときに報告している
+            if stack.contains(&inner) {
+                continue;
+            }
+            let transform = match (flag, space) {
+                (3, _) => outer,
+                (1 | 2, Some(_)) => {
+                    let placed = (|| {
+                        placement(
+                            [args.num(2)?, args.num(3)?],
+                            args.num(4)?,
+                            [args.num(5)?, args.num(6)?],
+                            flag == 2,
+                        )
+                    })();
+                    let Some(placed) = placed else {
+                        continue;
+                    };
+                    compose(outer, placed)
+                }
+                _ => continue,
+            };
+            if let (1 | 2, Some(space)) = (flag, space) {
+                OnSheet.view(
+                    View {
+                        space,
+                        sheet: SHEET,
+                        transform,
+                        clip: Vec::new(),
+                        hidden_layers: Vec::new(),
+                        source: feature.source(),
+                    },
+                    out,
+                );
+            }
+            cx.enter().map_err(|stop| stopped(cx, stop, feature))?;
+            stack.push(inner.clone());
+            let result = self.nested(&inner, transform, out, stack, cx);
+            stack.pop();
+            cx.leave();
+            result?;
+        }
+        Ok(())
     }
 
     /// 画像の作図グループなら、その画像。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$` の後が
@@ -950,6 +1092,49 @@ impl<'f> Lifter<'f> {
             layer: self.layer_id(args.int(0), &source, cx),
             style: Style {
                 color: Inherit::Own(self.color(args.int(1), &source, cx)),
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
+            source,
+            shape,
+        };
+        at.element(element, out);
+        Some(())
+    }
+
+    /// 既定義シンボル（決定 0130）。引数は、レイヤのコード・色を指定するか・色のコード・名前・配置の点・回転・尺度。
+    /// 名前空間 `sxf.symbol` の、名前のキーで指す配置にする。色を指定しなければ、色はレイヤに従う（推定）
+    fn predefined<C: Place>(
+        &mut self,
+        feature: Feature<'f>,
+        at: &C,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Option<()> {
+        let args = self.args(feature);
+        let source = feature.source();
+        let color = match args.int(1)? {
+            0 => Inherit::Layer,
+            1 => Inherit::Own(self.color(args.int(2), &source, cx)),
+            _ => return None,
+        };
+        let scale = args.num(7)?;
+        let shape = Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "sxf.symbol",
+                name: args.text(3)?,
+            },
+            position: at.point(args.num(4)?, args.num(5)?),
+            scale: [scale; 2],
+            rotation: args.num(6)?,
+            grid: None,
+            attributes: Vec::new(),
+        });
+        let element = Element {
+            layer: self.layer_id(args.int(0), &source, cx),
+            style: Style {
+                color,
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
@@ -1808,6 +1993,30 @@ fn placement([x, y]: [f64; 2], angle: f64, [sx, sy]: [f64; 2], geodetic: bool) -
         [sx * cos, -sy * sin, x, sx * sin, sy * cos, y]
     };
     m.iter().all(|v| v.is_finite()).then_some(Affine { m })
+}
+
+/// `inner` で写してから `outer` で写す変換
+fn compose(outer: Affine, inner: Affine) -> Affine {
+    let [a, b, c, d, e, f] = outer.m;
+    let [p, q, r, s, t, u] = inner.m;
+    Affine {
+        m: [
+            a * p + b * s,
+            a * q + b * t,
+            a * r + b * u + c,
+            d * p + e * s,
+            d * q + e * t,
+            d * r + e * u + f,
+        ],
+    }
+}
+
+/// 作図部品の記号のキー
+fn part(name: &str) -> SymbolKey {
+    SymbolKey {
+        namespace: "sxf.sfig",
+        name: name.to_owned(),
+    }
 }
 
 /// フィーチャの引数を読む
