@@ -635,3 +635,29 @@ description = "図形の一覧の後ろのバイト列（版 700 からは画像
 severity = "warning"
 since = "0.0.0"
 status = "active"
+
+# JWW から図面の領域モデルへの変換（決定 0134）
+
+[codes."jww.header.invalid"]
+description = "見出しの欄を読めず、レイヤの名前と状態・色・線幅・縮尺を既定にした"
+severity = "warning"
+since = "0.0.0"
+status = "active"
+
+[codes."jww.lift.dropped"]
+description = "図面モデルにまだ移せない種類の図形を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.0.0"
+status = "active"
+
+[codes."jww.lift.invalid"]
+description = "中身を読めない図形を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.0.0"
+status = "active"
