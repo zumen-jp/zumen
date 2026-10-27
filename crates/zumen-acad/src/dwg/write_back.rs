@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0099）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0100）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -2810,8 +2810,8 @@ fn style(
 
 /// LTYPE の欄（決定 0044）。要素の数（73）と、要素ごとの形と文字の印（74 の 2・4）は、元のものと同じでなければ
 /// 受け付けない。要素の印の 7 より上のビットと、形も文字もない要素の形の番号・ずれ・尺度・回転は、元のまま写す。
-/// 説明（3）と文字の要素の文字列（9）が変わらなければ元のビットを写し、文字列が変われば、256 バイトの領域に
-/// 初めから順に詰め直す。元の欄の終わりの位置を返す
+/// 説明（3）と文字の要素の文字列（9）が変わらなければ元のビットを写し、文字列が変われば、256 バイト（R2010 からは
+/// 512 バイト）の領域に初めから順に詰め直す。元の欄の終わりの位置を返す
 fn ltype(
     fields: &mut BitWriter,
     old: &Object,
@@ -2853,8 +2853,6 @@ fn ltype(
             .collect()
     };
     let same_texts = texts(old) == texts(new);
-    // R2010 の文字の要素の文字列は、まだ書き換えない
-    (same_texts || !r2010).then_some(())?;
     // R2013 からは、DXF の 74 も文字の要素の印（8）を持つ
     let mask = if release >= Release::R2013 { 15 } else { 7 };
     let mut values = Cursor(
@@ -2905,9 +2903,17 @@ fn ltype(
                 let Data::Text(text) = values.next(9)? else {
                     return None;
                 };
+                // R2010 からは、UTF-16LE で詰め、形の番号はバイトの位置とする（決定 0100）
                 let at = i16::try_from(area.len()).ok()?;
-                area.extend(uncaret(text)?);
-                area.push(0);
+                let text = uncaret(text)?;
+                if r2010 {
+                    for unit in core::str::from_utf8(&text).ok()?.encode_utf16().chain([0]) {
+                        area.extend(unit.to_le_bytes());
+                    }
+                } else {
+                    area.extend(text);
+                    area.push(0);
+                }
                 at
             };
             fields.bs(shape);
@@ -2922,8 +2928,9 @@ fn ltype(
     if same_texts {
         fields.copy(data, area_at..bits.pos())?;
     } else {
-        (area.len() <= 256).then_some(())?;
-        area.resize(256, 0);
+        let size = if r2010 { 512 } else { 256 };
+        (area.len() <= size).then_some(())?;
+        area.resize(size, 0);
         for byte in area {
             fields.rc(byte);
         }
