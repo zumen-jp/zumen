@@ -110,6 +110,7 @@
 - [0100: R2010 から後の DWG の LTYPE の文字の要素の文字列は、UTF-16LE で 512 バイトの領域に詰め直して書き戻す](0100-dwg-r2010-ltype-text.md)（2026-10-27、採用）
 - [0101: DWG の INSERT の回転は、変わらなければ元のラジアンを書き、R2010 から後も回した INSERT を足せるようにする](0101-dwg-rotated-insert.md)（2026-10-27、採用）
 - [0102: R2018 から後の DWG の複数行の属性は、埋め込みの MTEXT の値を DXF と同じく 101 の後に置き、書き戻す](0102-dwg-r2018-multiline-attribute.md)（2026-10-27、採用）
+- [0103: R2013 から後の DWG の当てはめる点だけを持つ SPLINE の変更は、Bézier の形の値だけを当てはめる点に戻して書き戻す](0103-dwg-r2013-fit-only-spline.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

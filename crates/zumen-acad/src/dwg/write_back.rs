@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0102）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0103）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -4351,6 +4351,137 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
     Some(())
 }
 
+/// R2013 からの、制御点を書かないスプライン（場合が 1 で、印の 1 が立つ）の欄（決定 0103）。読む側は、3 次で
+/// 当てはめる点が 2 つのものを、両端の点と接線から Bézier の制御点に直して置く。その形（3 次・節点が
+/// 0 と 1 の 4 つずつ・重みのない 4 つの制御点・許容差が 1e-9 と 1e-10）の値だけを受け付け、両端の制御点を
+/// 当てはめる点に、両端の制御点との差の 3 倍を接線に戻して書く。両端の 2 つの制御点が変わらなければ、元の
+/// 接線のビットを写す。印・節点の取り方・当てはめる許容差は元のビットを写す
+fn fit_bezier(
+    fields: &mut BitWriter,
+    object: &Object,
+    data: &[u8],
+    start: usize,
+    release: Release,
+) -> Option<()> {
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(start);
+    bits.bl()?;
+    let method_at = bits.pos();
+    bits.bl()?;
+    bits.bl()?;
+    let method_end = bits.pos();
+    (bits.bl()? == 3).then_some(())?;
+    let tolerance_at = bits.pos();
+    bits.bd()?;
+    let tangents_at = bits.pos();
+    let point =
+        |bits: &mut Bits| -> Option<[f64; 3]> { Some([bits.bd()?, bits.bd()?, bits.bd()?]) };
+    let (start_tangent, end_tangent) = (point(&mut bits)?, point(&mut bits)?);
+    (bits.bl()? == 2).then_some(())?;
+    let (first, last) = (point(&mut bits)?, point(&mut bits)?);
+    // 値は、読む側が置く形でなければならない
+    let codes: Vec<_> = object
+        .values
+        .iter()
+        .filter(|value| matches!(value.code, 10..=13 | 20..=23 | 30..=33 | 40..=44 | 71..=74))
+        .map(|value| (value.code, &value.data))
+        .collect();
+    let int = |data: &Data| match data {
+        Data::Int(value) => Some(*value),
+        _ => None,
+    };
+    let float = |data: &Data| match data {
+        Data::Real(value) => Some(*value),
+        _ => None,
+    };
+    let [
+        (71, degree),
+        (72, knots),
+        (73, controls),
+        (74, fit),
+        (42, knot_tolerance),
+        (43, control_tolerance),
+        rest @ ..,
+    ] = codes.as_slice()
+    else {
+        return None;
+    };
+    ([int(degree)?, int(knots)?, int(controls)?, int(fit)?] == [3, 8, 4, 0]
+        && float(knot_tolerance)? == 1e-9
+        && float(control_tolerance)? == 1e-10)
+        .then_some(())?;
+    let [
+        knots @ ..,
+        p0x,
+        p0y,
+        p0z,
+        p1x,
+        p1y,
+        p1z,
+        p2x,
+        p2y,
+        p2z,
+        p3x,
+        p3y,
+        p3z,
+    ] = rest
+    else {
+        return None;
+    };
+    (knots.len() == 8
+        && knots
+            .iter()
+            .zip([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+            .all(|((code, data), knot)| *code == 40 && float(data) == Some(knot)))
+    .then_some(())?;
+    let mut points = Vec::new();
+    for xyz in [
+        [p0x, p0y, p0z],
+        [p1x, p1y, p1z],
+        [p2x, p2y, p2z],
+        [p3x, p3y, p3z],
+    ] {
+        let [(10, x), (20, y), (30, z)] = xyz.map(|(code, data)| (*code, *data)) else {
+            return None;
+        };
+        points.push([float(x)?, float(y)?, float(z)?]);
+    }
+    let [p0, p1, p2, p3] = points.as_slice() else {
+        return None;
+    };
+    // 読む側と同じく、元の接線から求めた制御点
+    let near = |end: [f64; 3], tangent: [f64; 3], sign: f64| -> [f64; 3] {
+        let mut out = end;
+        for (v, t) in out.iter_mut().zip(tangent) {
+            *v += sign * t / 3.0;
+        }
+        out
+    };
+    let same =
+        |a: &[f64; 3], b: &[f64; 3]| a.iter().zip(b).all(|(a, b)| a.to_bits() == b.to_bits());
+    fields.bl(1);
+    fields.copy(data, method_at..method_end)?;
+    fields.bl(3);
+    fields.copy(data, tolerance_at..tangents_at)?;
+    for (end, inner, tangent, sign) in [(p0, p1, start_tangent, 1.0), (p3, p2, end_tangent, -1.0)] {
+        let original = if sign > 0.0 { first } else { last };
+        if same(end, &original) && same(inner, &near(original, tangent, sign)) {
+            for v in tangent {
+                fields.bd(v);
+            }
+        } else {
+            for (inner, end) in inner.iter().zip(end) {
+                fields.bd(sign * (inner - end) * 3.0);
+            }
+        }
+    }
+    fields.bl(2);
+    for v in p0.iter().chain(p3) {
+        fields.bd(*v);
+    }
+    Some(())
+}
+
 /// SPLINE の欄（R2000）。場合（scenario）は元のままとし、1 なら節点と制御点、2 なら当てはめる点を書く。
 /// 場合に合わない値があれば `None`。有理・閉じている・周期的の印は表にないので元のビットを写し、重みが
 /// あるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
@@ -4373,12 +4504,14 @@ fn spline(
         bits.seek(start);
         let scenario = bits.bl()?;
         // R2013 からは、場合の後にスプラインの印と節点の取り方（BL）が続く。印の 1 が立つ制御点の
-        // スプラインは、読む側が当てはめる点から制御点を求めて置くので、書き戻さない（決定 0097）
+        // スプラインは、読む側が当てはめる点から制御点を求めて置くので、当てはめる点に戻して書く（決定 0103）
         let method = if r2013 {
             let at = bits.pos();
             let flags = bits.bl()?;
             bits.bl()?;
-            (scenario != 1 || flags & 1 == 0).then_some(())?;
+            if scenario == 1 && flags & 1 != 0 {
+                return fit_bezier(fields, object, data, start, release);
+            }
             Some(at..bits.pos())
         } else {
             None
