@@ -2043,6 +2043,139 @@ fn sortents_tables_have_their_entities_and_keys() {
 }
 
 #[test]
+fn images_and_their_definitions_have_their_fields() {
+    let bl = |w: &mut BitWriter, n: u8| {
+        w.bits(1, 2);
+        w.bytes(&[n]);
+    };
+    // 矩形で切り抜く IMAGE（R2000）。画像の定義と、その反応子を指す
+    let image = object(
+        510,
+        0x44,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bl_zero(); // 版
+            for v in [1.0, 2.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 0.0] {
+                w.bd(v);
+            }
+            w.rd(640.0);
+            w.rd(480.0);
+            w.bs(7);
+            w.bit(false);
+            w.bytes(&[50, 50, 0]);
+            w.bs(1); // 矩形
+            for v in [-0.5, -0.5, 639.5, 479.5] {
+                w.rd(v);
+            }
+        },
+        |w| {
+            entity_handles_to(0x10, 0x45)(w);
+            w.handle(3, 0x46);
+        },
+    );
+    let definition = object(
+        511,
+        0x45,
+        |w| {
+            w.bl_zero(); // 反応子の数
+            w.bl_zero(); // 版
+            w.rd(640.0);
+            w.rd(480.0);
+            w.bs(6);
+            w.bytes(b"a.png\0");
+            w.bit(true);
+            w.bytes(&[5]);
+            w.rd(0.01);
+            w.rd(0.01);
+        },
+        |w| {
+            w.handle(4, 0x22);
+            w.handle(3, 0);
+        },
+    );
+    let reactor = object(
+        512,
+        0x46,
+        |w| {
+            w.bl_zero();
+            bl(w, 2);
+        },
+        |w| {
+            w.handle(4, 0x44);
+            w.handle(3, 0);
+        },
+    );
+    // 見本からは、画層の表と画層だけを使う
+    let mut list: Vec<_> = objects_in_sample().into_iter().take(2).collect();
+    list.extend([(0x44, image), (0x45, definition), (0x46, reactor)]);
+    let src = with_classes(
+        dwg(&list),
+        &[
+            (510, b"IMAGE", true),
+            (511, b"IMAGEDEF", false),
+            (512, b"IMAGEDEF_REACTOR", false),
+        ],
+    );
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let codes = |handle: u64| -> Vec<(i16, Data)> {
+        db.get(handle)
+            .unwrap()
+            .values
+            .iter()
+            .filter(|v| !matches!(v.code, 5 | 8 | 62 | 330 | 370))
+            .map(|v| (v.code, v.data.clone()))
+            .collect()
+    };
+    let int = |code: i16, v: i64| (code, Data::Int(v));
+    let real = |code: i16, v: f64| (code, Data::Real(v));
+    assert_eq!(
+        codes(0x44),
+        [
+            int(90, 0),
+            real(10, 1.0),
+            real(20, 2.0),
+            real(30, 0.0),
+            real(11, 0.5),
+            real(21, 0.0),
+            real(31, 0.0),
+            real(12, 0.0),
+            real(22, 0.5),
+            real(32, 0.0),
+            real(13, 640.0),
+            real(23, 480.0),
+            (340, Data::Handle(0x45)),
+            int(70, 7),
+            int(280, 0),
+            int(281, 50),
+            int(282, 50),
+            int(283, 0),
+            (360, Data::Handle(0x46)),
+            int(71, 1),
+            int(91, 2),
+            real(14, -0.5),
+            real(24, -0.5),
+            real(14, 639.5),
+            real(24, 479.5),
+        ]
+    );
+    assert_eq!(
+        codes(0x45),
+        [
+            int(90, 0),
+            (1, Data::Text(b"a.png".to_vec())),
+            real(10, 640.0),
+            real(20, 480.0),
+            real(11, 0.01),
+            real(21, 0.01),
+            int(280, 1),
+            int(281, 5),
+        ]
+    );
+    assert_eq!(codes(0x46), [int(90, 2)]);
+}
+
+#[test]
 fn dictionaries_and_xrecords_have_their_entries_and_data() {
     let text = |w: &mut BitWriter, text: &[u8]| {
         w.bs(text.len() as u16 + 1);
