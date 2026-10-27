@@ -752,6 +752,72 @@ pub(super) fn block_links(data: &[u8], handle: u64) -> Option<(Range<usize>, u64
     Some((start..bits.pos(), first, last))
 }
 
+/// R2004 の図形のデータの、反応子の数と、拡張辞書のハンドルを持つか
+pub(super) fn entity_refs(data: &[u8]) -> Option<(u32, bool)> {
+    let mut bits = Bits::with_release(data, Release::R2004);
+    bits.bs()?;
+    bits.rl()?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let common = entity_data(&mut bits)?;
+    Some((common.reactors, common.xdic))
+}
+
+/// R2004 のブロックのレコードが持つ図形（決定 0077）
+pub(super) struct Owned {
+    /// ハンドルの流れの位置（RL）を書く所のビットの位置
+    pub(super) size_at: usize,
+    /// 持つ図形の数（BL）のビットの範囲
+    pub(super) count: Range<usize>,
+    /// ハンドルの流れの始まりのビットの位置
+    pub(super) handles_at: usize,
+    /// 持つ図形のハンドルの、ビットの範囲とハンドルの並び
+    pub(super) handles: Vec<(Range<usize>, u64)>,
+}
+
+/// ハンドル `handle` の R2004 のブロックのレコードのデータの、持つ図形（決定 0077）。外部参照のブロックは
+/// `None`。持つ図形の数は、読み込まれた印（B）の後に BL で置かれ、ハンドルは、所有者・反応子・拡張辞書・
+/// 外部参照のブロック・BLOCK の後に、その数だけ並ぶ（図面で確かめた）
+pub(super) fn owned(data: &[u8], handle: u64) -> Option<Owned> {
+    let mut bits = Bits::with_release(data, Release::R2004);
+    bits.bs()?;
+    let size_at = bits.pos();
+    let handles_at = usize::try_from(bits.rl()?).ok()?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let reactors = u32::try_from(bits.bl()?).ok()?;
+    let xdic = !bits.bit()?;
+    // 名前・参照される印・外部参照の番号・外部参照に依る印
+    bits.text()?;
+    bits.bit()?;
+    bits.bs()?;
+    bits.bit()?;
+    // 名前のない印・属性を持つ印・外部参照の印・重ねる外部参照の印・読み込まれた印
+    let flags: Vec<bool> = (0..5).map(|_| bits.bit()).collect::<Option<_>>()?;
+    if flags.get(2..4)?.contains(&true) {
+        return None;
+    }
+    let start = bits.pos();
+    let count = usize::try_from(bits.bl()?).ok()?;
+    let count_range = start..bits.pos();
+    bits.seek(handles_at);
+    for _ in 0..reactors + u32::from(xdic) + 3 {
+        bits.handle()?;
+    }
+    let mut handles = Vec::with_capacity(count.min(data.len()));
+    for _ in 0..count {
+        let at = bits.pos();
+        let owned = bits.handle()?.resolve(handle)?;
+        handles.push((at..bits.pos(), owned));
+    }
+    Some(Owned {
+        size_at,
+        count: count_range,
+        handles_at,
+        handles,
+    })
+}
+
 /// 拡張データ（EED）を読み飛ばす（ODS 5.4.1 の 28）
 pub(super) fn skip_extended_data(bits: &mut Bits) -> Option<()> {
     loop {
