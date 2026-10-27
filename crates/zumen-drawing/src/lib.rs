@@ -13,11 +13,11 @@
 //! 符号から RGB への表はプロファイル（#9）に置くので、ここでは引かない。レイヤからの継承は
 //! [`Drawing2D::color_of`] などで解き、解けない継承は継承のまま返す。
 //!
-//! 要素は、いまは線分・円・曲線・折れ線・文字・寸法・引出線・記号・ハッチング・表だけ。寸法は、種類と定義点・保存された測定値・
+//! 要素は、いまは線分・円・曲線・折れ線・文字・寸法・引出線・記号・ハッチング・表・下敷きだけ。寸法は、種類と定義点・保存された測定値・
 //! 文字の上書きを別に持つ（[`Dimension`]）。引出線は経路を持ち、注記の要素を出所で指す（[`Leader`]）。
 //! 寸法と引出線の端部記号は、図面の寸法スタイルの表（[`DimensionStyle`]）に置く。記号は、定義を名前空間付きの
 //! キー（[`SymbolKey`]）で指し、配置と属性を持つ（[`Symbol`]）。定義の中身は、定義ごとの空間に置く（[`SymbolDefinition`]）。ハッチングは、境界の輪と、塗り・パターン・
-//! グラデーションの区別を持つ（[`Hatch`]）。表は、行と列の大きさとセルの結合・内容を持つ（[`Table`]）。下敷きなどは #28 で足す。
+//! グラデーションの区別を持つ（[`Hatch`]）。表は、行と列の大きさとセルの結合・内容を持つ（[`Table`]）。下敷きは、資源を参照名で指し、置き方と切り抜きを持つ（[`Underlay`]）。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。
 
 use zumen_base::Ref;
@@ -487,6 +487,8 @@ pub enum Shape<P> {
     Callout(Callout<P>),
     /// 表
     Table(Table<P>),
+    /// 下敷きの画像・PDF など
+    Underlay(Underlay<P>),
     /// 記号
     Symbol(Symbol<P>),
     /// ハッチング
@@ -649,6 +651,79 @@ pub struct Leader<P> {
     pub annotation: Option<Ref>,
     /// 元の寸法スタイルの名前
     pub style: String,
+}
+
+/// 下敷き（決定 0114）。資源を参照名で指し、核は開かない。描く順は、ほかの要素と同じく空間と用紙の一覧に従う
+#[derive(Clone, Debug, PartialEq)]
+pub struct Underlay<P> {
+    /// 資源の種類
+    pub kind: UnderlayKind,
+    /// 資源
+    pub resource: Resource,
+    /// 資源の中のページなど。元の形式の名前のまま持つ
+    pub page: Option<String>,
+    /// 置き方
+    pub frame: UnderlayFrame<P>,
+    /// 切り抜き
+    pub clip: Option<Clip>,
+    /// 表示する
+    pub visible: bool,
+}
+
+/// 下敷きの資源の種類
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnderlayKind {
+    /// 画素の画像
+    Image,
+    /// PDF
+    Pdf,
+    /// DWF
+    Dwf,
+    /// DGN
+    Dgn,
+}
+
+/// 図面が指す資源。内容はホストが渡して解決する
+#[derive(Clone, Debug, PartialEq)]
+pub struct Resource {
+    /// 元の参照名（ファイルのパスなど）。翻訳も正規化もしない
+    pub path: String,
+    /// 参照を定義する元の形式のレコード
+    pub definition: Ref,
+}
+
+/// 下敷きの置き方
+#[derive(Clone, Debug, PartialEq)]
+pub enum UnderlayFrame<P> {
+    /// 画素の格子。元の形式が持つ画素の数と、左下・右下・左上の角
+    Pixels {
+        /// 画素の数（横・縦）
+        size: [f64; 2],
+        /// 左下の角
+        origin: P,
+        /// 右下の角
+        right: P,
+        /// 左上の角
+        top: P,
+    },
+    /// 資源の内容の座標を、尺度・回転・移動で写す
+    Scaled {
+        /// 内容の原点を置く点
+        origin: P,
+        /// 内容の 1 単位の、X と Y の長さ
+        scale: [Length; 2],
+        /// 回転（度、反時計回り）
+        rotation: f64,
+    },
+}
+
+/// 下敷きの切り抜き。頂点は、元の形式の下敷きの座標のまま持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct Clip {
+    /// 境界の頂点。2 つなら、向かい合う角の長方形
+    pub vertices: Vec<[f64; 2]>,
+    /// 境界の内側を隠す
+    pub inverted: bool,
 }
 
 /// 表（決定 0113）。行と列の大きさとセルを持つ。表を線と文字で描いた記号の定義は、表示のための構成要素として

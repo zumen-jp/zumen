@@ -1,20 +1,21 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
 //! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
-//! 記号と属性・ハッチング・E8 の曲線と記号の定義・E10 の表と表題欄を試す。
+//! 記号と属性・ハッチング・E8 の曲線と記号の定義・E10 の表と表題欄・E7 の下敷きを試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Axis, Background, BackgroundFill, Boundary, Branch, CalloutContent, Cell,
-    CellContent, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle,
+    CellContent, Clip, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle,
     DimensionText, Dogleg, Drawing2D, Edge, Element, Fill, Fit, Flow, Format, FormattedText,
     Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
     Layer, LayerId, LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId,
     LineWeight, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern,
-    PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Rotation, Shape, SheetId,
-    SheetItem, SpaceId, Span, Spline, Style, SymbolKey, Table, Text, Unit, Vertex, Vertical,
+    PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Resource, Rotation,
+    Shape, SheetId, SheetItem, SpaceId, Span, Spline, Style, SymbolKey, Table, Text, Underlay,
+    UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -3270,5 +3271,213 @@ fn e9_tables_that_cannot_be_read_are_reported() {
     assert_eq!(
         params,
         [invalid(100), invalid(141), invalid(171), invalid(175)]
+    );
+}
+
+#[test]
+fn e7_underlays_keep_their_resource_page_frame_clip_and_order() {
+    let objects = [
+        (0, "IMAGEDEF"),
+        (5, "D1"),
+        (1, "site.png"),
+        (10, "640.0"),
+        (20, "480.0"),
+        (0, "PDFDEFINITION"),
+        (5, "D2"),
+        (1, "plan.pdf"),
+        (2, "2"),
+    ];
+    let entities = [
+        entity(
+            "LINE",
+            &[(10, "0.0"), (20, "0.0"), (11, "10.0"), (21, "0.0")],
+        ),
+        // 1 画素が 0.5 の画像。三角形で切り抜き、内側を隠す
+        entity(
+            "IMAGE",
+            &[
+                (100, "AcDbRasterImage"),
+                (90, "0"),
+                (10, "100.0"),
+                (20, "0.0"),
+                (11, "0.5"),
+                (21, "0.0"),
+                (12, "0.0"),
+                (22, "0.5"),
+                (13, "640.0"),
+                (23, "480.0"),
+                (340, "D1"),
+                (70, "7"),
+                (280, "1"),
+                (71, "2"),
+                (91, "3"),
+                (14, "0.0"),
+                (24, "0.0"),
+                (14, "640.0"),
+                (24, "0.0"),
+                (14, "0.0"),
+                (24, "480.0"),
+                (290, "1"),
+            ],
+        ),
+        entity(
+            "TEXT",
+            &[(10, "0.0"), (20, "0.0"), (40, "2.5"), (1, "NOTE")],
+        ),
+        // 2 ページ目を 30 度回し、長方形で切り抜く
+        entity(
+            "PDFUNDERLAY",
+            &[
+                (340, "D2"),
+                (10, "0.0"),
+                (20, "300.0"),
+                (41, "25.4"),
+                (42, "25.4"),
+                (50, "30.0"),
+                (280, "3"),
+                (11, "0.0"),
+                (21, "0.0"),
+                (11, "8.5"),
+                (21, "11.0"),
+            ],
+        ),
+    ]
+    .concat();
+    let src = sections(&[
+        ("HEADER", MM),
+        ("ENTITIES", &entities),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    assert_eq!(drawing.spaces[0].order, [0, 1, 2, 3]);
+    let shapes = model_shapes(&drawing);
+    let [
+        Shape::Line { .. },
+        Shape::Underlay(image),
+        Shape::Text(_),
+        Shape::Underlay(pdf),
+    ] = shapes.as_slice()
+    else {
+        panic!("{shapes:?}");
+    };
+    assert_eq!(
+        *image,
+        Underlay {
+            kind: UnderlayKind::Image,
+            resource: Resource {
+                path: "site.png".to_owned(),
+                definition: Ref::at_record(9),
+            },
+            page: None,
+            frame: UnderlayFrame::Pixels {
+                size: [640.0, 480.0],
+                origin: at(100.0, 0.0),
+                right: at(420.0, 0.0),
+                top: at(100.0, 240.0),
+            },
+            clip: Some(Clip {
+                vertices: vec![[0.0, 0.0], [640.0, 0.0], [0.0, 480.0]],
+                inverted: true,
+            }),
+            visible: true,
+        }
+    );
+    assert_eq!(
+        *pdf,
+        Underlay {
+            kind: UnderlayKind::Pdf,
+            resource: Resource {
+                path: "plan.pdf".to_owned(),
+                definition: Ref::at_record(10),
+            },
+            page: Some("2".to_owned()),
+            frame: UnderlayFrame::Scaled {
+                origin: at(0.0, 300.0),
+                scale: [model(25.4), model(25.4)],
+                rotation: 30.0,
+            },
+            clip: Some(Clip {
+                vertices: vec![[0.0, 0.0], [8.5, 11.0]],
+                inverted: false,
+            }),
+            visible: true,
+        }
+    );
+}
+
+#[test]
+fn e9_underlays_that_cannot_be_read_are_reported() {
+    let objects = [
+        (0, "IMAGEDEF"),
+        (5, "D1"),
+        (1, "site.png"),
+        (0, "PDFDEFINITION"),
+        (5, "D2"),
+    ];
+    let image = |tags: &[(i16, &'static str)]| {
+        let mut all = vec![
+            (10, "0.0"),
+            (20, "0.0"),
+            (11, "1.0"),
+            (21, "0.0"),
+            (12, "0.0"),
+            (22, "1.0"),
+        ];
+        all.extend_from_slice(tags);
+        entity("IMAGE", &all)
+    };
+    let entities = [
+        // 定義を指さない
+        image(&[(13, "1.0"), (23, "1.0")]),
+        // 画素の数が 0
+        image(&[(13, "0.0"), (23, "1.0"), (340, "D1")]),
+        // 切り抜きの頂点の数が合わない
+        image(&[
+            (13, "1.0"),
+            (23, "1.0"),
+            (340, "D1"),
+            (280, "1"),
+            (71, "1"),
+            (91, "3"),
+            (14, "0.0"),
+            (24, "0.0"),
+            (14, "1.0"),
+            (24, "1.0"),
+        ]),
+        // 定義が参照名を持たない
+        entity("PDFUNDERLAY", &[(340, "D2"), (10, "0.0"), (20, "0.0")]),
+        // 定義の種類が違う
+        entity("PDFUNDERLAY", &[(340, "D1"), (10, "0.0"), (20, "0.0")]),
+    ]
+    .concat();
+    let src = sections(&[
+        ("HEADER", MM),
+        ("ENTITIES", &entities),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(drawing.unwrap().spaces[0].elements, []);
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    let invalid = |kind: &str, code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text({kind:?}) Int({code})"),
+            1,
+        )
+    };
+    assert_eq!(
+        params,
+        [
+            invalid("IMAGE", 340),
+            invalid("IMAGE", 13),
+            invalid("IMAGE", 91),
+            invalid("PDFDEFINITION", 1),
+            invalid("PDFUNDERLAY", 340),
+        ]
     );
 }

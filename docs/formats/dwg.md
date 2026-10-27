@@ -179,6 +179,8 @@ R2010・R2013・R2018 は R2004 と同じ入れ物を使う（決定 0027）。�
 
 表は DXF と同じく ACAD_TABLE から移す（[決定 0113](../decisions/0113-drawing-tables-and-title-blocks.md)）。いまの DWG の読み手は ACAD_TABLE の型ごとの欄を表に置かないので、DWG の表は移らず、`dxf.lift.invalid` を返す。
 
+下敷きは DXF と同じく IMAGE と PDFUNDERLAY などから移す（[決定 0114](../decisions/0114-drawing-underlays.md)）。いまの DWG の読み手は、その型ごとの欄を表に置かないので、DWG の下敷きは移らず、`dxf.lift.invalid` を返す。
+
 ## 実際の図面で確かめる
 
 `crates/zumen-acad/tests/samples.rs` は、`ZUMEN_SAMPLES` のフォルダーにある `名前.dwg`（R2000）と `名前_ascii.dxf` の組を読み、同じハンドルのオブジェクトの種類・所有者（DWG が持つとき。図形は持たないときも）が同じか、DWG が置いた値が DXF の同じグループ・コードの最初の値と同じかを比べます。形の欄を読む図形では、DXF だけにある形の欄が既定の値かも確かめます。DXF は実数を 16 桁で書くので、実数は相対の誤差 1e-14 まで許します。所有者が DXF に書かれないとき（R2000 の DXF は、新しい版の表の中身を XRECORD の下に移す）は、所有者を比べません。辞書（既定の項目を持つ辞書も）の項目は名前とハンドルの組で比べ、DXF にないオブジェクトを指す項目は比べません（R2000 の DXF は、新しい版の見出しの変数の辞書を別のハンドルで書き、版の往復のための XRECORD を書かない）。最後に保存したときの情報の XRECORD（`ACAD_LAST_SAVED_VERSION_INFO`）は、GUID とファイルのパスが DWG と DXF で違うので比べません。フォルダーを指定しないときは何も確かめません。
