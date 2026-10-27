@@ -6502,7 +6502,7 @@ fn with_added_values(db: &AcadDb, handle: u64, kind: &[u8], values: Vec<Value>) 
 }
 
 #[test]
-fn added_texts_and_inserts_are_written_back() {
+fn added_texts_mtexts_and_inserts_are_written_back() {
     let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
         db.objects()
             .iter()
@@ -6576,13 +6576,31 @@ fn added_texts_and_inserts_are_written_back() {
         b"INSERT",
         vec![real(10, 1.0), real(20, 2.0), real(30, 0.0), text(2, b"C")],
     );
+    let mtext = |handle, style: &[Value]| {
+        let values = [
+            real(10, 1.0),
+            real(20, 2.0),
+            real(30, 0.0),
+            real(41, 10.0),
+            real(40, 2.5),
+            int(71, 1),
+            int(72, 1),
+            text(1, b"zumen\\Pmtext"),
+            int(73, 1),
+            real(44, 1.0),
+        ];
+        let values = [&values[..], style].concat();
+        move |db: &AcadDb| with_added_values(db, handle, b"MTEXT", values.clone())
+    };
+    let db = mtext(0x84, &[])(&db);
+    let db = mtext(0x85, &[text(7, b"Mono")])(&db);
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &db);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にない文字の体裁とブロック、図形を持つブロックそのもの、属性を持つ INSERT は、書き戻せない
+    // 表にない文字の体裁（TEXT・MTEXT）とブロック、図形を持つブロックそのもの、属性を持つ INSERT は、書き戻せない
     let insert = |values: Vec<Value>| with_added_values(&base, 0x80, b"INSERT", values);
     let cases = [
         (
@@ -6594,6 +6612,7 @@ fn added_texts_and_inserts_are_written_back() {
                 [&place[..], &[text(1, b"Hi"), text(7, b"NONE")]].concat(),
             ),
         ),
+        ("MTEXT", mtext(0x80, &[text(7, b"NONE")])(&base)),
         (
             "INSERT",
             insert(vec![
