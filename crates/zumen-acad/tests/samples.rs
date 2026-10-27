@@ -1022,6 +1022,17 @@ fn r2004_drawings_take_back_removed_entities() {
     }
 }
 
+/// R2010 から後の図面から図形を除いて書き戻すと、読み直した表が除いた表と同じになる（決定 0091）
+#[test]
+fn r2010_and_later_drawings_take_back_removed_entities() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        let removed = removed_entities_are_taken_back(version);
+        if !dwgs(version).is_empty() {
+            assert!(removed > 0);
+        }
+    }
+}
+
 /// 版 `version` の試料の図面から図形を除いて書き戻し、読み直した表が除いた表と同じことを確かめ、除いた
 /// 図形の数を返す
 #[cfg(test)]

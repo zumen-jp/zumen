@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトを扱う（決定 0085〜0090）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と図形の除きを扱う（決定 0085〜0091）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -34,7 +34,7 @@ use std::ops::Range;
 use zumen_base::{Cx, Diagnostic, Diagnostics, Severity, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
-use super::bits::{BitWriter, Bits, Color, push_modular_char};
+use super::bits::{BitWriter, Bits, Color, modular_char, push_modular_char};
 use super::objects::{
     DIM_FIELDS, Dim, block_links, dim_fields, entity_fields, entity_links, entity_refs,
     hatch_gradient, object_fields, owned, r2010_entity_fields, r2010_object_fields,
@@ -397,8 +397,8 @@ impl DwgFile {
         if r2004 && let Some(object) = added.iter().find(|object| !r2004_addable(object)) {
             return Err(unsupported(&object.kind));
         }
-        // R2010 から後は、除きと足しをまだ書き戻さない（決定 0085）
-        if r2010 && let Some(object) = removed.first().map(|&(_, o)| o).or(added.first().copied()) {
+        // R2010 から後は、足しをまだ書き戻さない（決定 0085・0091）
+        if r2010 && let Some(object) = added.first() {
             return Err(unsupported(&object.kind));
         }
         self.unlink(base, &removed, &mut changes)?;
@@ -1028,6 +1028,28 @@ impl DwgFile {
         }
     }
 
+    /// R2010 から後の `record` 番目のオブジェクトの、今のデータ（ハンドルの流れの大きさ（MC）の後）と、
+    /// ハンドルの流れの始まりのビットの位置。`changes` のデータは MC から始まる
+    fn current_r2010(
+        &self,
+        changes: &BTreeMap<usize, Vec<u8>>,
+        record: usize,
+    ) -> Option<(Vec<u8>, usize)> {
+        match changes.get(&record) {
+            Some(bytes) => {
+                let mut skip = 0;
+                let bits = usize::try_from(modular_char(bytes, &mut skip, false)?).ok()?;
+                let data = bytes.get(skip..)?.to_vec();
+                let handles_at = (data.len() * 8).checked_sub(bits)?;
+                Some((data, handles_at))
+            }
+            None => {
+                let entry = self.entries.get(record)?;
+                Some((self.data(entry).to_vec(), entry.handles?))
+            }
+        }
+    }
+
     /// `block_record` 番目のオブジェクトのブロックのレコード `block` の、最初と最後の図形のハンドルと、
     /// 最初の図形から後ろの図形のハンドルをたどった図形のハンドルと番号の並び。たどれなければ `None`
     fn chain(
@@ -1132,8 +1154,8 @@ impl DwgFile {
                 })
                 .and_then(|entry| {
                     let data = self.data(entry);
-                    let free = if self.release == Release::R2004 {
-                        entity_refs(data)? == (0, false)
+                    let free = if self.release >= Release::R2004 {
+                        entity_refs(data, self.release)? == (0, false)
                     } else {
                         let links = entity_links(data, entry.handle)?;
                         links.reactors == 0 && links.xdic == 0
@@ -1149,7 +1171,15 @@ impl DwgFile {
         }
         for (block, count) in blocks {
             // R2004 の図形は前後の図形のハンドルを持たず、ブロックのレコードが持つ図形を並べる（決定 0077）
-            let done = if self.release == Release::R2004 {
+            // R2010 から後も同じく、ブロックのレコードが持つ図形を並べる（決定 0091）
+            let done = if self.release >= Release::R2010 {
+                records.get(&block).and_then(|&record| {
+                    let (data, handles_at) = self.current_r2010(changes, record)?;
+                    let new = disown_r2010(&data, handles_at, block, count, &gone, self.release)?;
+                    changes.insert(record, new);
+                    Some(())
+                })
+            } else if self.release == Release::R2004 {
                 records.get(&block).and_then(|&record| {
                     let new = disown(&self.current(changes, record)?, block, count, &gone)?;
                     changes.insert(record, new);
@@ -1450,7 +1480,7 @@ fn reblock(data: &[u8], handle: u64, first: u64, last: u64) -> Option<Vec<u8>> {
 /// ハンドル `block` の R2004 のブロックのレコードのデータ `data` から、持つ図形のうち `gone` の `count` 個を
 /// 除いたもの（決定 0077）。持つ図形の数（BL）を減らし、そのハンドルを除く
 fn disown(data: &[u8], block: u64, count: usize, gone: &BTreeSet<u64>) -> Option<Vec<u8>> {
-    let owned = owned(data, block)?;
+    let owned = owned(data, block, Release::R2004, None)?;
     let kept: Vec<_> = owned
         .handles
         .iter()
@@ -1474,6 +1504,39 @@ fn disown(data: &[u8], block: u64, count: usize, gone: &BTreeSet<u64>) -> Option
     }
     out.copy(data, last..data.len() * 8)?;
     Some(out.into_bytes())
+}
+
+/// ハンドル `block` の R2010 から後のブロックのレコードのデータ `data`（ハンドルの流れの大きさ（MC）の後）から、
+/// `gone` の `count` 個の図形を除いたもの（決定 0091）。持つ図形の数（BL）を減らし、文字列の流れは元のまま写して、
+/// MC を付け直す。`handles_at` はハンドルの流れの始まり
+fn disown_r2010(
+    data: &[u8],
+    handles_at: usize,
+    block: u64,
+    count: usize,
+    gone: &BTreeSet<u64>,
+    release: Release,
+) -> Option<Vec<u8>> {
+    let owned = owned(data, block, release, Some(handles_at))?;
+    let kept: Vec<_> = owned
+        .handles
+        .iter()
+        .filter(|(_, handle)| !gone.contains(handle))
+        .collect();
+    (owned.handles.len().checked_sub(kept.len())? == count).then_some(())?;
+    let first = owned.handles.first()?.0.start;
+    let last = owned.handles.last()?.0.end;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..owned.count.start)?;
+    out.bl(i32::try_from(kept.len()).ok()?);
+    out.copy(data, owned.count.end..handles_at)?;
+    let handles = out.len();
+    out.copy(data, handles_at..first)?;
+    for (at, _) in kept {
+        out.copy(data, at.clone())?;
+    }
+    out.copy(data, last..data.len() * 8)?;
+    with_modular_size(out, handles)
 }
 
 /// R2004 の DWG に足せるものか（決定 0079〜0081）。型ごとの欄が R2000 と同じ形の図形か、MTEXT か、
@@ -1527,7 +1590,7 @@ fn r2004_addable(object: &Object) -> bool {
 /// ハンドル `block` の R2004 のブロックのレコードのデータ `data` の、持つ図形の終わりに `handles` を加えた
 /// もの（決定 0079）。持つ図形の数（BL）を増やし、ハンドルは固い所有（符号 3）で書く（図面で確かめた）
 fn adopt(data: &[u8], block: u64, handles: &[u64]) -> Option<Vec<u8>> {
-    let owned = owned(data, block)?;
+    let owned = owned(data, block, Release::R2004, None)?;
     let mut fields = BitWriter::default();
     fields.copy(data, owned.size_at + 32..owned.count.start)?;
     fields.bl(i32::try_from(owned.handles.len().checked_add(handles.len())?).ok()?);
