@@ -621,9 +621,6 @@ fn r2000_drawings_take_back_removed_entities() {
     }
 }
 
-/// 足す図形の種類と値
-type Added<'a> = (&'a [u8], &'a [(i16, f64)]);
-
 #[test]
 fn r2000_drawings_take_back_added_entities() {
     for path in dwgs(b"AC1015") {
@@ -646,22 +643,63 @@ fn r2000_drawings_take_back_added_entities() {
             })
             .and_then(Object::handle)
             .unwrap();
-        // モデル空間に、画層 0 の LINE と CIRCLE を足す
-        let added: [Added; 2] = [
+        let real = |code, value| Value {
+            code,
+            data: Data::Real(value),
+        };
+        let text = |code, value: &[u8]| Value {
+            code,
+            data: Data::Text(value.to_vec()),
+        };
+        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT を足す
+        let mut added: Vec<(&[u8], Vec<Value>)> = vec![
             (
                 b"LINE",
-                &[
-                    (10, 1.0),
-                    (20, 2.0),
-                    (30, 0.0),
-                    (11, 3.0),
-                    (21, 4.0),
-                    (31, 0.0),
+                vec![
+                    real(10, 1.0),
+                    real(20, 2.0),
+                    real(30, 0.0),
+                    real(11, 3.0),
+                    real(21, 4.0),
+                    real(31, 0.0),
                 ],
             ),
-            (b"CIRCLE", &[(10, 5.0), (20, 6.0), (30, 0.0), (40, 7.0)]),
+            (
+                b"CIRCLE",
+                vec![real(10, 5.0), real(20, 6.0), real(30, 0.0), real(40, 7.0)],
+            ),
+            (
+                b"TEXT",
+                vec![
+                    real(10, 1.0),
+                    real(20, 2.0),
+                    real(30, 0.0),
+                    real(40, 2.5),
+                    text(1, b"zumen"),
+                ],
+            ),
         ];
-        for (handle, (kind, reals)) in (seed..).zip(added) {
+        // 名前のあるブロックがあれば、その INSERT も足す
+        let block = db
+            .objects()
+            .iter()
+            .filter(|o| o.kind == b"BLOCK_RECORD")
+            .find_map(|o| {
+                o.values.iter().find_map(|v| match &v.data {
+                    Data::Text(name) if v.code == 2 && !name.starts_with(b"*") => {
+                        Some(name.clone())
+                    }
+                    _ => None,
+                })
+            });
+        if let Some(name) = block {
+            added.push((
+                b"INSERT",
+                vec![real(10, 8.0), real(20, 9.0), real(30, 0.0), text(2, &name)],
+            ));
+        }
+        let count = added.len() as u64;
+        for (handle, (kind, own)) in (seed..).zip(added) {
             let mut values = vec![
                 Value {
                     code: 5,
@@ -671,15 +709,9 @@ fn r2000_drawings_take_back_added_entities() {
                     code: 330,
                     data: Data::Handle(model),
                 },
-                Value {
-                    code: 8,
-                    data: Data::Text(b"0".to_vec()),
-                },
+                text(8, b"0"),
             ];
-            values.extend(reals.iter().map(|&(code, value)| Value {
-                code,
-                data: Data::Real(value),
-            }));
+            values.extend(own);
             db.push(Object {
                 kind: kind.to_vec(),
                 section: Section::Entities,
@@ -694,7 +726,12 @@ fn r2000_drawings_take_back_added_entities() {
         let mut fresh = Diagnostics::new();
         let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
         let again = Dwg::read(&out, &mut cx).unwrap();
-        assert_eq!(again.handle_seed(), Some(seed + 2), "{}", path.display());
+        assert_eq!(
+            again.handle_seed(),
+            Some(seed + count),
+            "{}",
+            path.display()
+        );
         let after = again.objects(&mut cx).unwrap();
         assert!(
             fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),

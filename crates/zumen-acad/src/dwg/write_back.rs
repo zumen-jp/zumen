@@ -9,7 +9,8 @@
 //! たどるハンドルを直す（決定 0051）。
 //!
 //! 表の終わりに足した図形のうち、いくつかの種類は、一から符号化してオブジェクトの地図に加え、所有者の
-//! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。
+//! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを
+//! 名前で探して、そのハンドルを書く（決定 0053）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -345,7 +346,13 @@ impl DwgFile {
     ) -> Option<NewEntity<'a>> {
         let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
         let handle = object.handle().filter(|&h| h >= seed)?;
-        let codes = [&[5, 330, 8, 6, 67], COMMON, own].concat();
+        // TEXT と ATTDEF は文字の体裁（7）を、INSERT はブロック（2）を指す
+        let pointing: &[i16] = match object.kind.as_slice() {
+            b"TEXT" | b"ATTDEF" => &[7],
+            b"INSERT" => &[2],
+            _ => &[],
+        };
+        let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing].concat();
         if object
             .values
             .iter()
@@ -388,6 +395,29 @@ impl DwgFile {
                 name => (3, record_handle(base, b"LTYPE", name)?),
             },
         };
+        let pointed = match object.kind.as_slice() {
+            // 文字の体裁がなければ Standard
+            b"TEXT" | b"ATTDEF" => match object.values.iter().any(|value| value.code == 7) {
+                false => Some(record_handle(base, b"STYLE", b"Standard")?),
+                true => Some(record_handle(base, b"STYLE", text_of(object, 7)?)?),
+            },
+            b"INSERT" => {
+                // 空間のブロックと、図形を持つブロックそのものは挿せない
+                let name = text_of(object, 2)?;
+                let space = [b"*Model_Space".as_slice(), b"*Paper_Space"]
+                    .iter()
+                    .any(|space| {
+                        name.get(..space.len())
+                            .is_some_and(|head| head.eq_ignore_ascii_case(space))
+                    });
+                let block = record_handle(base, b"BLOCK_RECORD", name)?;
+                (!space && block != owner).then_some(block)
+            }
+            _ => None,
+        };
+        if !pointing.is_empty() && pointed.is_none() {
+            return None;
+        }
         Some(NewEntity {
             object,
             handle,
@@ -396,6 +426,7 @@ impl DwgFile {
             owner,
             layer,
             ltype,
+            pointed,
         })
     }
 
@@ -595,8 +626,8 @@ const REMOVABLE: &[&[u8]] = &[
     b"SHAPE",
 ];
 
-/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052）。型ごとの欄を元のデータなしで
-/// 符号化でき、型ごとのハンドルを持たないもの
+/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052・0053）。型ごとの欄を元のデータ
+/// なしで符号化でき、型ごとのハンドルが表のレコードを指すものだけか、ないもの。INSERT は属性を持たないもの
 const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"LINE", 0x13, LINE),
     (b"CIRCLE", 0x12, CIRCLE),
@@ -608,6 +639,9 @@ const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"SOLID", 0x1F, SOLID),
     (b"TRACE", 0x20, SOLID),
     (b"3DFACE", 0x1C, FACE3D),
+    (b"TEXT", 0x01, TEXT),
+    (b"ATTDEF", 0x03, ATTDEF),
+    (b"INSERT", 0x07, INSERT),
 ];
 
 /// 足す図形を符号化するのに要るもの
@@ -623,6 +657,8 @@ struct NewEntity<'a> {
     layer: u64,
     /// 線種の印と、印が 3 のときの線種のハンドル
     ltype: (u8, u64),
+    /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字の体裁、INSERT のブロック）のハンドル
+    pointed: Option<u64>,
 }
 
 impl NewEntity<'_> {
@@ -656,6 +692,9 @@ impl NewEntity<'_> {
         handles.handle(5, self.layer);
         if self.ltype.0 == 3 {
             handles.handle(5, self.ltype.1);
+        }
+        if let Some(pointed) = self.pointed {
+            handles.handle(5, pointed);
         }
         let mut out = BitWriter::default();
         out.bs(self.type_code);

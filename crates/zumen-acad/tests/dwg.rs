@@ -6471,6 +6471,19 @@ fn linked_lines_with_seed(links: bool) -> Vec<u8> {
 /// 表の終わりに、ハンドル `handle` の図形を足した表。図形は、LINE 0x72 を写して `kind` と値を変えたもの
 #[cfg(test)]
 fn with_added(db: &AcadDb, handle: u64, kind: &[u8], values: &[(i16, f64)]) -> AcadDb {
+    let values = values
+        .iter()
+        .map(|&(code, value)| Value {
+            code,
+            data: Data::Real(value),
+        })
+        .collect();
+    with_added_values(db, handle, kind, values)
+}
+
+/// 表の終わりに、ハンドル `handle` の図形を足した表。図形は、LINE 0x72 を写して `kind` と値を変えたもの
+#[cfg(test)]
+fn with_added_values(db: &AcadDb, handle: u64, kind: &[u8], values: Vec<Value>) -> AcadDb {
     let mut db = db.clone();
     let mut object = db.get(0x72).unwrap().clone();
     object.kind = kind.to_vec();
@@ -6483,14 +6496,140 @@ fn with_added(db: &AcadDb, handle: u64, kind: &[u8], values: &[(i16, f64)]) -> A
             data: Data::Handle(handle),
         },
     );
-    for &(code, value) in values {
-        object.values.push(Value {
-            code,
-            data: Data::Real(value),
-        });
-    }
+    object.values.extend(values);
     db.push(object);
     db
+}
+
+#[test]
+fn added_texts_and_inserts_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let real = |code, value| Value {
+        code,
+        data: Data::Real(value),
+    };
+    let text = |code, value: &[u8]| Value {
+        code,
+        data: Data::Text(value.to_vec()),
+    };
+    let int = |code, value| Value {
+        code,
+        data: Data::Int(value),
+    };
+    // 文字の体裁の Standard と Mono と、図形のないブロック C を足したファイル
+    let mut parts = objects_with_linked_lines(true);
+    parts.push((
+        0x11,
+        object(0x35, 0x11, record_named(b"Standard"), record_handles(3)),
+    ));
+    parts.push((
+        0x12,
+        object(0x35, 0x12, record_named(b"Mono"), record_handles(3)),
+    ));
+    let block = object(0x31, 0x61, record_named(b"C"), |w| {
+        w.handle(4, 0x5F);
+        w.handle(3, 0);
+        w.handle(5, 0);
+        w.handle(3, 0);
+        w.handle(4, 0);
+        w.handle(4, 0);
+        w.handle(3, 0);
+        w.handle(5, 0);
+    });
+    parts.push((0x61, block));
+    // 地図は、ハンドルの順に並べる
+    parts.sort_by_key(|(handle, _)| *handle);
+    let src = with_header(dwg(&parts), 0, 0, 0, [0.0; 4], 0x80);
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let place = [real(10, 1.0), real(20, 2.0), real(30, 0.0), real(40, 2.5)];
+    let db = with_added_values(
+        &base,
+        0x80,
+        b"TEXT",
+        [&place[..], &[text(1, b"Hi")]].concat(),
+    );
+    let db = with_added_values(
+        &db,
+        0x81,
+        b"TEXT",
+        [&place[..], &[text(1, b"Mono"), text(7, b"Mono")]].concat(),
+    );
+    let db = with_added_values(
+        &db,
+        0x82,
+        b"ATTDEF",
+        [
+            &place[..],
+            &[text(1, b"A"), text(2, b"TAG"), int(70, 0), text(3, b"Tag?")],
+        ]
+        .concat(),
+    );
+    let db = with_added_values(
+        &db,
+        0x83,
+        b"INSERT",
+        vec![real(10, 1.0), real(20, 2.0), real(30, 0.0), text(2, b"C")],
+    );
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(summary(&again), summary(&db));
+    // 表にない文字の体裁とブロック、図形を持つブロックそのもの、属性を持つ INSERT は、書き戻せない
+    let insert = |values: Vec<Value>| with_added_values(&base, 0x80, b"INSERT", values);
+    let cases = [
+        (
+            "TEXT",
+            with_added_values(
+                &base,
+                0x80,
+                b"TEXT",
+                [&place[..], &[text(1, b"Hi"), text(7, b"NONE")]].concat(),
+            ),
+        ),
+        (
+            "INSERT",
+            insert(vec![
+                real(10, 0.0),
+                real(20, 0.0),
+                real(30, 0.0),
+                text(2, b"X"),
+            ]),
+        ),
+        (
+            "INSERT",
+            insert(vec![
+                real(10, 0.0),
+                real(20, 0.0),
+                real(30, 0.0),
+                text(2, b"B"),
+            ]),
+        ),
+        (
+            "INSERT",
+            insert(vec![
+                real(10, 0.0),
+                real(20, 0.0),
+                real(30, 0.0),
+                int(66, 1),
+                text(2, b"C"),
+            ]),
+        ),
+    ];
+    for (kind, db) in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected), "{kind}");
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&kind.to_string().into()), "{kind}");
+    }
 }
 
 #[test]
