@@ -651,8 +651,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
             for index in 0..db.objects().len() {
                 let object = db.object_mut(index).unwrap();
                 let kind = object.kind.clone();
-                // MINSERT（列の数の 70 を持つ INSERT）と、回転（50）を持つ INSERT は除く。回転は度から直すので、
-                // 元のビットと同じに符号化できるとは限らない
+                // MINSERT（列の数の 70 を持つ INSERT）は除く
                 // 多面の面の VERTEX（70 が 128）の点は 0 と決まっているので動かさない。R2013 からの、当てはめる
                 // 点から制御点を求めた SPLINE（節点の許容差が 1e-9）と、R2018 からの複数行の属性（版の 280 の後に
                 // 71 を持つ）は書き戻さない（決定 0097・0098）
@@ -661,8 +660,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                     .iter()
                     .skip_while(|v| v.code != 280)
                     .any(|v| v.code == 71);
-                let skipped = kind == b"INSERT"
-                    && object.values.iter().any(|v| [70, 50].contains(&v.code))
+                let skipped = kind == b"INSERT" && object.values.iter().any(|v| v.code == 70)
                     || kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128))
                     || kind == b"SPLINE" && object.first(42) == Some(&Data::Real(1e-9))
                     || multiline;
@@ -1320,6 +1318,17 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             added.push((
                 b"INSERT",
                 vec![real(10, 8.0), real(20, 9.0), real(30, 0.0), text(2, name)],
+            ));
+            // 回した INSERT も足す（決定 0101）
+            added.push((
+                b"INSERT",
+                vec![
+                    real(10, 8.0),
+                    real(20, 9.0),
+                    real(30, 0.0),
+                    real(50, 90.0),
+                    text(2, name),
+                ],
             ));
             // 属性を 2 つ持つ INSERT も足す。ATTRIB と SEQEND は、すぐ前の INSERT が持つ
             added.push((
