@@ -1064,8 +1064,8 @@ impl Lifter {
 
     /// PDFUNDERLAY・DWFUNDERLAY・DGNUNDERLAY（DXF Reference「UNDERLAY」「UNDERLAYDEFINITION」、決定 0114）。
     /// 定義の 2 はページなどの名前。挿入点（10）・尺度（41・42）・回転（50）を持つ。印（280）の 2 は表示する、1 は
-    /// 切り抜く。切り抜くなら、境界の頂点（11・21）を読む。反転の印・コントラスト・薄さ・単色（281・282 と 280 の
-    /// 4・8）は、まだ移さない
+    /// 切り抜く、16 は内側を切り抜く（内側を隠す）。切り抜くなら、境界の頂点（11・21）を読む。コントラスト・薄さ・
+    /// 単色（281・282 と 280 の 4・8）は、まだ移さない
     fn underlay<P>(
         &self,
         db: &AcadDb,
@@ -1094,7 +1094,7 @@ impl Lifter {
             }
             Some(Clip {
                 vertices,
-                inverted: false,
+                inverted: flags & 16 != 0,
             })
         } else {
             None
