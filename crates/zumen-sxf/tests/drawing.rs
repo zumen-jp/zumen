@@ -2,10 +2,10 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, FieldValue,
-    Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight, ModelLength, ModelPoint,
-    PaperLength, PaperPoint, Rotation, Scaled, Shape, SheetItem, SpaceId, SymbolKey, Target,
-    UnderlayFrame, Vertical,
+    Arrowhead, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge,
+    FieldValue, Fill, Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, PatternOrigin, Rotation, Scaled, Shape,
+    SheetItem, SpaceId, SymbolKey, Target, UnderlayFrame, Vertical,
 };
 use zumen_sdk::{Lift, testkit};
 use zumen_sxf::{Sxf, SxfFile};
@@ -666,5 +666,97 @@ fn moves_labels_and_balloons_as_callouts() {
             .all(|e| e.is_current(&drawing))
     );
     // 頂点が 1 つの引出線は読めない
+    find(&diag, codes::SXF_LIFT_INVALID);
+}
+
+#[test]
+fn moves_hatches_with_composite_curve_boundaries() {
+    let src = sfc(&[
+        b"layer_feature(\\'L\\','1')",
+        b"line_feature('1','1','1','1','0','0','10','0')",
+        b"polyline_feature('1','1','1','1','3','(10,10,0)','(0,10,10)')",
+        b"line_feature('1','1','1','1','0','10','0','0')",
+        b"composite_curve_org_feature('2','1','1','1')",
+        b"circle_feature('1','1','1','1','5','5','1')",
+        b"composite_curve_org_feature('1','1','1','0')",
+        b"fill_area_style_colour_feature('1','3','1','1','(2)')",
+        b"fill_area_style_hatching_feature('1','1','(4,1,1,0,0,2,90)','1','0','()')",
+        b"externally_defined_hatch_feature('1',\\'Area_control\\','1','0','()')",
+        b"fill_area_style_tiles_feature('1',\\'P\\','2','0','0','1','0','1','90','2','2','30','1','0','()')",
+        b"fill_area_style_colour_feature('1','3','9','0','()')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let elements = &drawing.sheets[0].elements;
+    // 表示する複合曲線の曲線は、複合曲線の色で置く。表示しない複合曲線は置かない
+    assert_eq!(elements.len(), 7, "{diag:?}");
+    assert!(matches!(elements[1].shape, Shape::Polyline(_)));
+    assert_eq!(elements[0].style.color, elements[2].style.color);
+    let hatches: Vec<_> = elements[3..]
+        .iter()
+        .map(|e| match &e.shape {
+            Shape::Hatch(hatch) => hatch,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    let solid = hatches[0];
+    assert_eq!(solid.fill, Fill::Solid);
+    assert_eq!(solid.loops.len(), 2);
+    let Boundary::Edges(outer) = &solid.loops[0].boundary else {
+        panic!();
+    };
+    assert_eq!(outer.len(), 4);
+    assert_eq!(
+        outer[1],
+        Edge::Line {
+            start: paper(10.0, 0.0),
+            end: paper(10.0, 10.0),
+        }
+    );
+    assert!(solid.loops[0].external && !solid.loops[1].external);
+    assert_eq!(solid.loops[0].sources.len(), 3);
+    let Boundary::Edges(hole) = &solid.loops[1].boundary else {
+        panic!();
+    };
+    assert!(matches!(hole[0], Edge::Arc { end: 360.0, .. }));
+
+    // 線のハッチングは、間隔を線に垂直なずれにする
+    let Fill::Pattern(pattern) = &hatches[1].fill else {
+        panic!("{:?}", hatches[1].fill);
+    };
+    assert_eq!(pattern.origin, PatternOrigin::UserDefined);
+    let line = &pattern.lines[0];
+    assert_eq!((line.angle, line.base), (90.0, [0.0, 0.0]));
+    assert!((line.offset[0] + 2.0).abs() < 1e-12 && line.offset[1].abs() < 1e-12);
+    let extension = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "sxf.hatch")
+        .unwrap();
+    assert_eq!(extension.fields[0].value, FieldValue::Integer(4));
+
+    let Fill::Pattern(external) = &hatches[2].fill else {
+        panic!();
+    };
+    assert_eq!(
+        (external.name.as_str(), external.origin),
+        ("Area_control", PatternOrigin::Predefined)
+    );
+    assert_eq!(elements[5].style.color, Inherit::Layer);
+    let Fill::Pattern(tiles) = &hatches[3].fill else {
+        panic!();
+    };
+    assert_eq!(
+        (tiles.name.as_str(), tiles.angle, tiles.scale),
+        ("P", 30.0, 2.0)
+    );
+    assert!(
+        drawing
+            .extensions
+            .iter()
+            .filter(|e| e.namespace == "sxf.hatch")
+            .all(|e| e.is_current(&drawing))
+    );
+    // 複合曲線のない番号は読めない
     find(&diag, codes::SXF_LIFT_INVALID);
 }

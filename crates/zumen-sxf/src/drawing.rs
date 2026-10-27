@@ -1,18 +1,19 @@
 //! SFC から図面モデル（L2）への変換（決定 0022・0121）。
 //!
 //! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・スプライン・クロソイド・文字・点マーカー・
-//! 寸法・引出線・バルーン・表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
+//! 寸法・引出線・バルーン・複合曲線・ハッチング・表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Arrowhead, Basis, Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem,
-    Dimension, DimensionKind, DimensionText, Drawing2D, Edge, Element, Extension, Field,
-    FieldValue, Flow, Font, FontKind, Format, FormattedText, Height, HeightMeaning, Horizontal,
-    Inherit, Label, Layer, LayerId, LayerState, Length, LineSpacing, LineType, LineTypeDefinition,
-    LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind,
-    PatternBasis, Piece, Polyline, Resource, Rotation, Scaled, Shape, Sheet, SheetId, SheetItem,
+    Affine, Arrowhead, Basis, Boundary, Branch, Callout, CalloutContent, Color, ColorCode,
+    ColorSystem, Dimension, DimensionKind, DimensionText, Drawing2D, Edge, Element, Extension,
+    Field, FieldValue, Fill, Flow, Font, FontKind, Format, FormattedText, Hatch, HatchLoop, Height,
+    HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Length,
+    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength, ModelPoint,
+    ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Piece, Polyline, Resource, Rotation, Scaled, Shape, Sheet, SheetId, SheetItem,
     SpaceId, Span, Spline, Style, Symbol, SymbolKey, Target, TitleBlock, TitleItem, Underlay,
     UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
@@ -129,6 +130,14 @@ struct Definition {
     source: Ref,
 }
 
+/// 複合曲線（composite_curve_org）。ハッチングは、ファイルの中の順の番号（1 から）で指す
+struct Composite {
+    /// 前の定義の後に書いた、曲線のフィーチャの添字
+    members: Vec<usize>,
+    /// 定義のフィーチャの添字
+    feature: usize,
+}
+
 /// 展開している画像の作図グループ。範囲を示す折れ線を、画像の下敷きにする
 #[derive(Clone)]
 struct Raster {
@@ -143,7 +152,7 @@ struct Raster {
 /// 置く先の空間。点と長さを作る
 trait Place {
     /// 点
-    type P;
+    type P: Copy;
     fn point(&self, x: f64, y: f64) -> Self::P;
     fn length(&self, value: f64) -> Length;
     fn element(&self, element: Element<Self::P>, out: &mut Out);
@@ -248,6 +257,7 @@ struct Lifter<'f> {
     /// 展開している画像の作図グループ
     raster: Option<Raster>,
     definitions: BTreeMap<String, Definition>,
+    composites: Vec<Composite>,
 }
 
 impl<'f> Lifter<'f> {
@@ -286,6 +296,7 @@ impl<'f> Lifter<'f> {
             fonts: Vec::new(),
             raster: None,
             definitions: BTreeMap::new(),
+            composites: Vec::new(),
         }
     }
 
@@ -326,9 +337,17 @@ impl<'f> Lifter<'f> {
                 let members = core::mem::take(&mut pending);
                 self.definition(feature, members, &mut order)
             } else if feature.is(b"composite_curve_org") {
-                // 複合曲線の要素は、ハッチングの境界と一緒に移す
-                pending.clear();
-                dropped(cx, feature);
+                // 曲線は複合曲線にまとめ、複合曲線を置いた所に、表示するなら曲線を置く（決定 0129）
+                // 前の複合曲線は、曲線にしない
+                let (members, kept) = core::mem::take(&mut pending)
+                    .into_iter()
+                    .partition(|at| !self.composites.iter().any(|c| c.feature == *at));
+                pending = kept;
+                self.composites.push(Composite {
+                    members,
+                    feature: index,
+                });
+                pending.push(index);
                 Some(())
             } else if feature.is(b"drawing_attribute") {
                 self.title_block(feature)
@@ -614,6 +633,16 @@ impl<'f> Lifter<'f> {
             }
             if feature.is(b"point_marker") {
                 if self.marker(feature, at, out, cx).is_none() {
+                    invalid(cx, feature);
+                }
+                continue;
+            }
+            if feature.is(b"composite_curve_org") {
+                self.composite(*index, at, out, cx)?;
+                continue;
+            }
+            if HATCHES.iter().any(|name| feature.is(name)) {
+                if self.hatch(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
                 continue;
@@ -1212,6 +1241,249 @@ impl<'f> Lifter<'f> {
         Some(())
     }
 
+    /// 複合曲線（決定 0129）。表示するなら、曲線を、レイヤは曲線の、色・線種・線幅は複合曲線のコードで置く
+    fn composite<C: Place>(
+        &mut self,
+        index: usize,
+        at: &C,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        let Some(&feature) = self.features.get(index) else {
+            return Ok(());
+        };
+        let args = self.args(feature);
+        // 引数は、色・線種・線幅のコードと、表示の有無（ないものは表示する）
+        let visible = match args.int(3) {
+            None if feature.args.len() < 4 => true,
+            Some(flag @ (0 | 1)) => flag == 1,
+            _ => {
+                invalid(cx, feature);
+                return Ok(());
+            }
+        };
+        if !visible {
+            return Ok(());
+        }
+        let source = feature.source();
+        let color = self.color(args.int(0), &source, cx);
+        let line_type = self.line_type(args.int(1), &source, cx);
+        let line_weight = self.line_weight(args.int(2), &source, cx);
+        let members = self
+            .composites
+            .iter()
+            .find(|c| c.feature == index)
+            .map(|c| c.members.clone())
+            .unwrap_or_default();
+        for member in members {
+            let Some(&curve) = self.features.get(member) else {
+                continue;
+            };
+            work(cx, 1, &curve.source())?;
+            match self.shape(curve, at) {
+                Shaped::Element(shape) => {
+                    let layer = self.args(curve).int(0);
+                    let element = Element {
+                        layer: self.layer_id(layer, &curve.source(), cx),
+                        style: Style {
+                            color: Inherit::Own(color),
+                            line_type: Inherit::Own(line_type),
+                            line_type_scale: 1.0,
+                            line_weight: line_weight
+                                .map(|width| Inherit::Own(LineWeight::Width(width))),
+                        },
+                        source: curve.source(),
+                        shape: *shape,
+                    };
+                    at.element(element, out);
+                }
+                Shaped::Invalid => invalid(cx, curve),
+                Shaped::NotYet => dropped(cx, curve),
+            }
+        }
+        Ok(())
+    }
+
+    /// ハッチング（決定 0129）。外形と中抜きを複合曲線の番号で指し、輪にする
+    fn hatch<C: Place>(
+        &mut self,
+        feature: Feature<'f>,
+        at: &C,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Option<()> {
+        let args = self.args(feature);
+        let source = feature.source();
+        let mut fields = Vec::new();
+        let (color, fill, region) = if feature.is(b"fill_area_style_colour") {
+            (Some(args.int(1)), Fill::Solid, 2)
+        } else if feature.is(b"fill_area_style_hatching") {
+            let count = usize::try_from(args.int(1)?).ok()?;
+            let mut lines = Vec::new();
+            let mut first = None;
+            for at in 2..2 + count {
+                // 線ごとに、色・線種・線幅のコード・通る点・間隔・角度
+                let [color, line_type, width, x, y, spacing, angle] = args.nums(at)?[..] else {
+                    return None;
+                };
+                let code = |value: f64| (value.fract() == 0.0).then_some(value as i64);
+                first = first.or(Some(code(color)?));
+                fields.push(Field {
+                    key: "color",
+                    value: FieldValue::Integer(code(color)?),
+                });
+                fields.push(Field {
+                    key: "line_type",
+                    value: FieldValue::Integer(code(line_type)?),
+                });
+                fields.push(Field {
+                    key: "line_width",
+                    value: FieldValue::Integer(code(width)?),
+                });
+                let radians = angle.to_radians();
+                lines.push(PatternLine {
+                    angle,
+                    base: [x, y],
+                    offset: [-spacing * libm::sin(radians), spacing * libm::cos(radians)],
+                    dashes: Vec::new(),
+                });
+            }
+            let pattern = Pattern {
+                name: String::new(),
+                origin: PatternOrigin::UserDefined,
+                angle: 0.0,
+                scale: 1.0,
+                double: false,
+                lines,
+            };
+            (first.map(Some), Fill::Pattern(pattern), 2 + count)
+        } else if feature.is(b"fill_area_style_tiles") {
+            let keys = [
+                "x",
+                "y",
+                "vector1",
+                "vector1_angle",
+                "vector2",
+                "vector2_angle",
+                "scale_x",
+                "scale_y",
+            ];
+            for (key, at) in keys.into_iter().zip(3..) {
+                fields.push(Field {
+                    key,
+                    value: FieldValue::Real(args.num(at)?),
+                });
+            }
+            let pattern = Pattern {
+                name: args.text(1)?,
+                origin: PatternOrigin::Predefined,
+                angle: args.num(11)?,
+                scale: args.num(9)?,
+                double: false,
+                lines: Vec::new(),
+            };
+            (Some(args.int(2)), Fill::Pattern(pattern), 12)
+        } else {
+            let pattern = Pattern {
+                name: args.text(1)?,
+                origin: PatternOrigin::Predefined,
+                angle: 0.0,
+                scale: 1.0,
+                double: false,
+                lines: Vec::new(),
+            };
+            (None, Fill::Pattern(pattern), 2)
+        };
+        // 外形の番号・中抜きの数・中抜きの番号の並び
+        let outer = args.int(region)?;
+        let holes = match args.int(region + 1)? {
+            0 => args.nums(region + 2).unwrap_or_default(),
+            count => args
+                .nums(region + 2)
+                .filter(|ids| usize::try_from(count).is_ok_and(|n| n == ids.len()))?,
+        };
+        let mut loops = Vec::new();
+        for (position, id) in core::iter::once(outer as f64).chain(holes).enumerate() {
+            let composite = (id.fract() == 0.0 && id >= 1.0)
+                .then(|| self.composites.get(id as usize - 1))
+                .flatten()?;
+            let mut edges = Vec::new();
+            let mut sources = Vec::new();
+            for member in &composite.members {
+                let curve = *self.features.get(*member)?;
+                sources.push(curve.source());
+                match self.shape(curve, at) {
+                    Shaped::Element(shape) => match *shape {
+                        Shape::Line { start, end } => edges.push(Edge::Line { start, end }),
+                        Shape::Curve(edge) => edges.push(edge),
+                        Shape::Circle { center, radius } => edges.push(Edge::Arc {
+                            center,
+                            radius,
+                            start: 0.0,
+                            end: 360.0,
+                            counterclockwise: true,
+                        }),
+                        Shape::Polyline(polyline) => {
+                            edges.extend(polyline.vertices.windows(2).filter_map(|pair| {
+                                let [a, b] = pair else { return None };
+                                Some(Edge::Line {
+                                    start: a.point,
+                                    end: b.point,
+                                })
+                            }));
+                        }
+                        _ => return None,
+                    },
+                    _ => return None,
+                }
+            }
+            loops.push(HatchLoop {
+                boundary: Boundary::Edges(edges),
+                external: position == 0,
+                outermost: position == 0,
+                derived: false,
+                text_box: false,
+                sources,
+            });
+        }
+        let color = match color {
+            Some(code) => Inherit::Own(self.color(code, &source, cx)),
+            None => Inherit::Layer,
+        };
+        let element = Element {
+            layer: self.layer_id(args.int(0), &source, cx),
+            style: Style {
+                color,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
+            source: source.clone(),
+            shape: Shape::Hatch(Hatch {
+                loops,
+                islands: Islands::Nested,
+                fill,
+                associative: false,
+                seeds: Vec::new(),
+            }),
+        };
+        if !fields.is_empty() {
+            let (target, basis) = at.target(&element, out);
+            out.extensions.push(Extension {
+                namespace: "sxf.hatch",
+                name: String::new(),
+                version: None,
+                schema: 1,
+                target,
+                basis,
+                fields,
+                source,
+            });
+        }
+        at.element(element, out);
+        Some(())
+    }
+
     /// 引出線とバルーン（決定 0128）。引出線の頂点は矢印の側から並ぶ。矢印は、名前空間 `sxf.arrow` の、矢印のコードを
     /// 名前にした記号のキーで指す。バルーンの円と、文字範囲の幅と字の間隔は、`sxf.callout` の拡張に残す
     fn callout<C: Place>(
@@ -1664,6 +1936,14 @@ fn stopped(cx: &mut Cx, stop: zumen_sdk::Stop, feature: Feature) -> Error {
     cx.report(stop.to_diagnostic().at(feature.source()));
     Error::Stopped(stop)
 }
+
+/// ハッチングのフィーチャの名前（`_feature` を除く）
+const HATCHES: [&[u8]; 4] = [
+    b"fill_area_style_colour",
+    b"fill_area_style_hatching",
+    b"fill_area_style_tiles",
+    b"externally_defined_hatch",
+];
 
 /// 寸法のフィーチャの名前（`_feature` を除く）
 const DIMENSIONS: [&[u8]; 5] = [
