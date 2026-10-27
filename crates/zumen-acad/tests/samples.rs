@@ -655,7 +655,7 @@ fn r2000_drawings_take_back_added_entities() {
             code,
             data: Data::Int(value),
         };
-        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT と MTEXT を足す
+        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT と MTEXT と、LWPOLYLINE を足す
         let mut added: Vec<(&[u8], Vec<Value>)> = vec![
             (
                 b"LINE",
@@ -695,6 +695,19 @@ fn r2000_drawings_take_back_added_entities() {
                     text(1, b"zumen"),
                     int(73, 1),
                     real(44, 1.0),
+                ],
+            ),
+            (
+                b"LWPOLYLINE",
+                vec![
+                    int(90, 2),
+                    int(70, 1),
+                    real(43, 0.0),
+                    real(10, 0.0),
+                    real(20, 0.0),
+                    real(42, 1.0),
+                    real(10, 3.0),
+                    real(20, 4.0),
                 ],
             ),
         ];

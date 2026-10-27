@@ -6694,6 +6694,92 @@ fn added_texts_mtexts_and_inserts_with_attribs_are_written_back() {
 }
 
 #[test]
+fn added_lwpolylines_are_written_back() {
+    let real = |code, value| Value {
+        code,
+        data: Data::Real(value),
+    };
+    let int = |code, value| Value {
+        code,
+        data: Data::Int(value),
+    };
+    let src = with_header(
+        dwg(&objects_with_linked_lines(true)),
+        0,
+        0,
+        0,
+        [0.0; 4],
+        0x80,
+    );
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // 一定の幅のもの、閉じて膨らみと標高と厚みと押し出しの向きを持つもの、頂点ごとの幅を持つもの
+    let plain = vec![
+        int(90, 2),
+        int(70, 0),
+        real(43, 0.5),
+        real(10, 0.0),
+        real(20, 0.0),
+        real(10, 3.0),
+        real(20, 4.0),
+    ];
+    let bulged = vec![
+        int(90, 3),
+        int(70, 1),
+        real(43, 0.0),
+        real(38, 1.5),
+        real(39, 2.0),
+        real(10, 0.0),
+        real(20, 0.0),
+        real(42, 1.0),
+        real(10, 5.0),
+        real(20, 0.0),
+        real(10, 5.0),
+        real(20, 5.0),
+        real(42, -0.5),
+        real(210, 0.0),
+        real(220, 0.0),
+        real(230, -1.0),
+    ];
+    let wide = vec![
+        int(90, 2),
+        int(70, 0),
+        real(10, 0.0),
+        real(20, 0.0),
+        real(40, 0.1),
+        real(41, 0.2),
+        real(10, 1.0),
+        real(20, 1.0),
+        real(40, 0.3),
+        real(41, 0.4),
+    ];
+    let db = with_added_values(&base, 0x80, b"LWPOLYLINE", plain.clone());
+    let db = with_added_values(&db, 0x81, b"LWPOLYLINE", bulged);
+    let db = with_added_values(&db, 0x82, b"LWPOLYLINE", wide);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    assert_eq!(summary(&again), summary(&db));
+    // 頂点の数（90）が頂点と合わないものは、書き戻せない
+    let mut miscounted = plain;
+    miscounted[0] = int(90, 3);
+    let db = with_added_values(&base, 0x80, b"LWPOLYLINE", miscounted);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert_eq!(out, Err(Error::Rejected));
+    let found = diag.iter().next().and_then(|d| d.param("kind"));
+    assert_eq!(found, Some(&"LWPOLYLINE".to_string().into()));
+}
+
+#[test]
 fn added_entities_are_written_back() {
     let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Section, Vec<Value>)> {
         db.objects()
