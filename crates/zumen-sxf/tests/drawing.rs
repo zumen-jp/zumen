@@ -1,4 +1,4 @@
-//! SFC から図面モデルへの変換（決定 0121）。入力は、どれも試験の中で作る。
+//! SFC と P21 から図面モデルへの変換（決定 0121・0132）。入力は、どれも試験の中で作る。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
@@ -279,8 +279,8 @@ fn reports_what_it_cannot_place() {
         .unwrap()
         .replace("feature_mode", "AP202_mode");
     let (drawing, diag) = lift(p21.as_bytes());
-    assert_eq!(drawing, Drawing2D::default());
-    find(&diag, codes::SXF_P21_UNSUPPORTED);
+    assert!(drawing.sheets[0].elements.is_empty());
+    find(&diag, codes::SXF_P21_SHEET_MISSING);
 }
 
 #[test]
@@ -880,4 +880,158 @@ fn keeps_the_kind_of_a_free_sheet_of_a_standard_size() {
         .unwrap();
     assert_eq!(extension.fields[0].key, "size");
     assert_eq!(extension.fields[0].value, FieldValue::Integer(9));
+}
+
+#[cfg(test)]
+fn p21(instances: &str) -> Vec<u8> {
+    format!("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n{instances}ENDSEC;\nEND-ISO-10303-21;\n").into_bytes()
+}
+
+/// 出どころを除いた図面モデル。SFC と P21 の比較に使う
+#[cfg(test)]
+fn unsourced(mut drawing: Drawing2D) -> Drawing2D {
+    for layer in &mut drawing.layers {
+        layer.source = Ref::default();
+    }
+    for line_type in &mut drawing.line_types {
+        line_type.source = Ref::default();
+    }
+    for extension in &mut drawing.extensions {
+        extension.source = Ref::default();
+    }
+    for sheet in &mut drawing.sheets {
+        for element in &mut sheet.elements {
+            element.source = Ref::default();
+        }
+    }
+    drawing
+}
+
+#[test]
+fn moves_p21_curves_like_the_same_sfc() {
+    let sfc = sfc(&[
+        b"layer_feature(\\'\x95\xc7\\','1')",
+        b"layer_feature(\\'hidden\\','0')",
+        b"user_defined_colour_feature('10','20','30')",
+        b"width_feature('0.3')",
+        b"user_defined_font_feature(\\'mine\\','2','(2.0,1.0)')",
+        b"line_feature('1','17','17','11','0','0','10','0')",
+        b"circle_feature('2','3','2','3','5','5','3')",
+        b"arc_feature('1','1','1','1','0','0','5','1','0','180')",
+        b"ellipse_feature('1','1','1','1','0','0','2','4','90')",
+        b"polyline_feature('1','1','1','1','3',(0,1,2),(0,1,0))",
+        b"spline_feature('1','1','1','1','1','4',(0,1,2,3),(0,1,1,0))",
+        b"clothoid_feature('1','1','1','1','0','0','2','0','0','0','1.5')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ]);
+    // 色・線種・線幅は CURVE_STYLE に、レイヤは PRESENTATION_LAYER_ASSIGNMENT に書く。用紙の枠（#91）は図形にしない
+    let p21 = p21(concat!(
+        "#1=COLOUR_RGB(' ',0.0392156862745098,0.0784313725490196,0.117647058823529);\n",
+        "#2=DRAUGHTING_PRE_DEFINED_COLOUR('green');\n",
+        "#3=DRAUGHTING_PRE_DEFINED_COLOUR('black');\n",
+        "#4=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n",
+        "#5=DRAUGHTING_PRE_DEFINED_CURVE_FONT('dashed');\n",
+        "#6=CURVE_STYLE_FONT('mine',(#7));\n",
+        "#7=CURVE_STYLE_FONT_PATTERN(2.,1.);\n",
+        "#8=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n",
+        "#9=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.3),#8);\n",
+        "#10=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.25),#8);\n",
+        "#11=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.13),#8);\n",
+        "#12=CURVE_STYLE(' ',#6,#9,#1);\n",
+        "#13=PRESENTATION_STYLE_ASSIGNMENT((#12));\n",
+        "#14=CURVE_STYLE(' ',#5,#10,#2);\n",
+        "#15=PRESENTATION_STYLE_ASSIGNMENT((#14));\n",
+        "#16=CURVE_STYLE(' ',#4,#11,#3);\n",
+        "#17=PRESENTATION_STYLE_ASSIGNMENT((#16));\n",
+        "#20=CARTESIAN_POINT(' ',(0.,0.));\n",
+        "#21=CARTESIAN_POINT(' ',(10.,0.));\n",
+        "#22=DIRECTION(' ',(1.,0.));\n",
+        "#23=VECTOR(' ',#22,1.);\n",
+        "#24=LINE(' ',#20,#23);\n",
+        "#25=TRIMMED_CURVE(' ',#24,(#20),(#21),.T.,.CARTESIAN.);\n",
+        "#26=(ANNOTATION_CURVE_OCCURRENCE() ANNOTATION_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#13),#25));\n",
+        "#30=CARTESIAN_POINT(' ',(5.,5.));\n",
+        "#31=AXIS2_PLACEMENT_2D(' ',#30,#22);\n",
+        "#32=CIRCLE(' ',#31,3.);\n",
+        "#33=ANNOTATION_CURVE_OCCURRENCE(' ',(#15),#32);\n",
+        "#35=AXIS2_PLACEMENT_2D(' ',#20,#22);\n",
+        "#36=CIRCLE(' ',#35,5.);\n",
+        "#37=TRIMMED_CURVE(' ',#36,(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(3.141592653589793)),.F.,.PARAMETER.);\n",
+        "#38=ANNOTATION_CURVE_OCCURRENCE(' ',(#17),#37);\n",
+        "#40=DIRECTION(' ',(0.,1.));\n",
+        "#41=AXIS2_PLACEMENT_2D(' ',#20,#40);\n",
+        "#42=ELLIPSE(' ',#41,2.,4.);\n",
+        "#43=ANNOTATION_CURVE_OCCURRENCE(' ',(#17),#42);\n",
+        "#50=CARTESIAN_POINT(' ',(1.,1.));\n",
+        "#51=CARTESIAN_POINT(' ',(2.,0.));\n",
+        "#52=POLYLINE(' ',(#20,#50,#51));\n",
+        "#53=ANNOTATION_CURVE_OCCURRENCE(' ',(#17),#52);\n",
+        "#54=CARTESIAN_POINT(' ',(1.,1.));\n",
+        "#55=CARTESIAN_POINT(' ',(2.,1.));\n",
+        "#56=CARTESIAN_POINT(' ',(3.,0.));\n",
+        "#57=BEZIER_CURVE(' ',3,(#20,#54,#55,#56),.UNSPECIFIED.,.F.,.F.);\n",
+        "#58=ANNOTATION_CURVE_OCCURRENCE(' ',(#17),#57);\n",
+        "#60=CLOTHOID('0',#35,2.);\n",
+        "#61=TRIMMED_CURVE(' ',#60,(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(1.5)),.T.,.PARAMETER.);\n",
+        "#62=ANNOTATION_CURVE_OCCURRENCE(' ',(#17),#61);\n",
+        "#70=PRESENTATION_LAYER_ASSIGNMENT('\\X2\\58C1\\X0\\',' ',(#26,#38,#43,#53,#58,#62));\n",
+        "#71=PRESENTATION_LAYER_ASSIGNMENT('hidden',' ',(#33));\n",
+        "#72=INVISIBILITY((#71));\n",
+        "#80=DRAUGHTING_TITLE((#81),'JAPANESE','S');\n",
+        "#90=DRAWING_SHEET_REVISION('A3_horizontal',(#26,#33,#38,#43,#53,#58,#62,#91),#99,'01');\n",
+        "#91=PLANAR_BOX(' ',420.,297.,#35);\n",
+        "#92=PRESENTATION_SIZE(#90,#91);\n",
+    ));
+    let (from_sfc, sfc_diag) = lift(&sfc);
+    let (from_p21, diag) = lift(&p21);
+    assert!(sfc_diag.is_empty(), "{sfc_diag:?}");
+    // 用紙の文脈（#99）と表題の版（#81）は、この試験では書かない
+    assert_eq!(
+        diag.iter().map(Diagnostic::code).collect::<Vec<_>>(),
+        [codes::SXF_P21_REFERENCE_MISSING]
+    );
+    assert_eq!(from_p21.sheets[0].elements.len(), 7);
+    assert_eq!(unsourced(from_p21.clone()), unsourced(from_sfc));
+    // 出どころは、表記の実体のレコード。レコードは始まりの行から数える
+    let records = |id: &str| {
+        let text = String::from_utf8(p21.clone()).unwrap();
+        let at = text.find(&format!("\n{id}=")).unwrap();
+        text.get(..=at).unwrap().matches(";\n").count() as u64
+    };
+    assert_eq!(
+        from_p21.sheets[0].elements[0].source,
+        Ref::at_record(records("#26"))
+    );
+}
+
+#[test]
+fn reports_p21_elements_it_does_not_move_yet() {
+    let src = p21(concat!(
+        "#1=PRESENTATION_STYLE_ASSIGNMENT(());\n",
+        "#2=ANNOTATION_TEXT_OCCURRENCE(' ',(#1),#3);\n",
+        "#3=TEXT_LITERAL(' ','A',#4,.LEFT.,#5);\n",
+        "#4=AXIS2_PLACEMENT_2D(' ',#6,$);\n",
+        "#5=CARTESIAN_POINT(' ',(0.,0.));\n",
+        "#6=CARTESIAN_POINT(' ',(0.,0.));\n",
+        "#7=B_SPLINE_CURVE(' ',2,(#5,#6),.UNSPECIFIED.,.F.,.F.);\n",
+        "#8=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#7);\n",
+        "#9=DRAWING_SHEET_REVISION('FREE',(#2,#8),$,'01');\n",
+    ));
+    let (drawing, diag) = lift(&src);
+    assert!(drawing.sheets[0].elements.is_empty());
+    let kinds: Vec<String> = diag
+        .iter()
+        .filter(|d| d.code() == codes::SXF_LIFT_DROPPED)
+        .filter_map(|d| d.param("kind").map(|v| format!("{v:?}")))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            format!(
+                "{:?}",
+                zumen_base::Value::from("annotation_text_occurrence")
+            ),
+            format!("{:?}", zumen_base::Value::from("b_spline_curve")),
+        ]
+    );
 }

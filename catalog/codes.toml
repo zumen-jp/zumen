@@ -541,6 +541,20 @@ description = "P21 の図面モデルへの変換はまだないので、空の�
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
+status = "retired"
+
+[codes."sxf.p21-reference.missing"]
+description = "P21 の実体が、ない実体を参照している"
+severity = "warning"
+params = { id = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."sxf.p21-sheet.missing"]
+description = "P21 に用紙（DRAWING_SHEET_REVISION）がないので、要素を図面モデルに移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
 status = "active"
 
 [codes."sxf.lift.dropped"]

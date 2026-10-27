@@ -6,7 +6,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 
 - SFC と P21。どちらも ISO 10303-21 の交換構造に入る（[決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)）。
 - 圧縮した SFZ・P2Z は、まだ読まない。
-- SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 の変換は、まだない（#193）。
+- SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 の文字・寸法・ハッチング・複合図形などは、まだ組み直さない（#193）。
 
 ## 判定
 
@@ -55,3 +55,12 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 - 名前が `$$ATR` で始まる複合図形の要素に、名前と `$$` で区切った値を `sxf.attribute` の拡張で付ける。背景色などの値は解かない（[決定 0131](../decisions/0131-sxf-attribute-mechanism.md)）。
 - 測地座標系の部分図は、X と Y を入れ替えて用紙へ置く。
 - まだ移さない種類と、読めない値は、`sxf.lift.dropped`・`sxf.lift.invalid` で報告する。
+
+## P21 の組み直し
+
+- 表は実体の番号の順に組み直し、利用者定義の色・線種・文字フォントとレイヤに、その順でコードを付ける。線幅は、既定義の太さでなければ、最初に使った順に 11 から付ける。
+- 名前が `$$SXF_` で始まる `COLOUR_RGB` は既定義色に、名前が `$$SXF_dummy` で始まるレイヤは複合図形の仮のレイヤとしてレイヤにしない（推定。旧版の扱いを引き継ぐ）。
+- 文字列は ISO 10303-21 のエスケープを戻し、規格の外の 8 ビットのバイトは Shift_JIS として読む（推定）。
+- 用紙は最初の `DRAWING_SHEET_REVISION` で、要素はその並びの順に置く。用紙の名前が `A0`〜`A4` と向き（`horizontal`・`vertical`）でなければ、自由サイズとして `PLANAR_BOX` の大きさを使う。
+- トリムした曲線は、向きが合っていれば反時計回りとし、クロソイドの曲がる向きは実体の名前に書いた 0・1 とする（推定）。
+- 参照の先がない実体は `sxf.p21-reference.missing`、用紙がなければ `sxf.p21-sheet.missing` で報告する。

@@ -1,4 +1,4 @@
-//! SFC から図面モデル（L2）への変換（決定 0022・0121）。
+//! SFC と P21 から図面モデル（L2）への変換（決定 0022・0121・0132）。
 //!
 //! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・スプライン・クロソイド・文字・点マーカー・
 //! 寸法・引出線・バルーン・複合曲線・ハッチング・表題欄・画像を移す。既定義シンボルを名前のキーで指す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。作図部品は記号の定義にする。ほかのフィーチャは、まだ移さずに診断する。
@@ -19,12 +19,12 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Cx, Error, Lift};
 
-use crate::{Mode, Quote, SxfFile, Value};
+use crate::{Mode, Quote, SxfFile, Value, p21};
 
 const SHEET: SheetId = SheetId(0);
 
 /// 既定義線種のコード 1〜15 の名前（SXF の共通既定義要素の表）
-const LINE_TYPES: [&str; 15] = [
+pub(crate) const LINE_TYPES: [&str; 15] = [
     "continuous",
     "dashed",
     "dashed spaced",
@@ -43,7 +43,7 @@ const LINE_TYPES: [&str; 15] = [
 ];
 
 /// 既定義線幅のコード 1〜9 の太さ（mm）
-const WIDTHS: [f64; 9] = [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1.0, 1.4, 2.0];
+pub(crate) const WIDTHS: [f64; 9] = [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1.0, 1.4, 2.0];
 
 /// 既定義色のコードの数。利用者定義色は、この次から数える
 const PREDEFINED_COLORS: i64 = 16;
@@ -81,14 +81,96 @@ const TITLE_ITEMS: [(&str, &str); 12] = [
 ];
 
 impl Lift<Drawing2D> for SxfFile {
-    /// SFC を変換する。P21 の変換はまだないので、空の図面を返して診断する
+    /// SFC はフィーチャのまま、P21 は実体を同じ形のフィーチャに組み直して変換する（決定 0132）
     fn lift(&self, cx: &mut Cx) -> Result<Drawing2D, Error> {
-        if self.mode() == Mode::P21 {
-            cx.report(Diagnostic::new(codes::SXF_P21_UNSUPPORTED));
-            return Ok(Drawing2D::default());
-        }
-        Lifter::new(self).run(cx)
+        let records = match self.mode() {
+            Mode::Sfc => sfc_records(self),
+            Mode::P21 => p21::records(self, cx)?,
+        };
+        Lifter::new(&records).run(cx)
     }
+}
+
+/// フィーチャの引数。文字列は戻したもの
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Arg {
+    Text(String),
+    List(Vec<Arg>),
+    /// 文字列でも並びでもない値
+    Other,
+}
+
+/// 変換に通すフィーチャのレコード。SFC はフィーチャのコメント、P21 は組み直したもの
+pub(crate) struct FeatureRecord {
+    /// 出どころのレコードの番号
+    pub(crate) record: usize,
+    /// `_feature` を除いた名前
+    pub(crate) name: String,
+    /// 診断に書く種類。SFC はフィーチャの名前、P21 は実体の名前
+    pub(crate) kind: String,
+    pub(crate) args: Vec<Arg>,
+}
+
+fn sfc_records(file: &SxfFile) -> Vec<FeatureRecord> {
+    file.records()
+        .iter()
+        .enumerate()
+        .filter(|(_, record)| record.marker().is_some())
+        .filter_map(|(record, entry)| {
+            let part = entry.parts().first()?;
+            let name = file.bytes(part.name());
+            let name = name
+                .len()
+                .checked_sub(b"_feature".len())
+                .and_then(|end| {
+                    let (head, tail) = name.split_at(end);
+                    tail.eq_ignore_ascii_case(b"_feature").then_some(head)
+                })
+                .unwrap_or(name);
+            let mut kind = String::from_utf8_lossy(name).to_ascii_lowercase();
+            kind.push_str("_feature");
+            Some(FeatureRecord {
+                record,
+                name: String::from_utf8_lossy(name).into_owned(),
+                kind,
+                args: part
+                    .args()
+                    .iter()
+                    .map(|value| sfc_arg(file, value))
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// SFC の値を引数にする。文字列は `\'…\'` の `\\` を戻し、改行を除いて、Shift_JIS として読む
+fn sfc_arg(file: &SxfFile, value: &Value) -> Arg {
+    let (raw, quote) = match value {
+        Value::Text { raw, quote } => (file.bytes(raw.clone()), *quote),
+        Value::Token(raw) => (file.bytes(raw.clone()), Quote::Plain),
+        Value::List(items) => {
+            return Arg::List(items.iter().map(|item| sfc_arg(file, item)).collect());
+        }
+        _ => return Arg::Other,
+    };
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut rest = raw.iter().copied().peekable();
+    while let Some(byte) = rest.next() {
+        if matches!(byte, b'\r' | b'\n') {
+            continue;
+        }
+        if matches!(byte, 0x81..=0x9f | 0xe0..=0xfc) {
+            bytes.push(byte);
+            bytes.extend(rest.next());
+            continue;
+        }
+        if quote == Quote::Backslash && byte == b'\\' && rest.peek() == Some(&b'\\') {
+            rest.next();
+        }
+        bytes.push(byte);
+    }
+    let (text, _) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(&bytes);
+    Arg::Text(text.into_owned())
 }
 
 /// フィーチャのレコード
@@ -96,25 +178,22 @@ impl Lift<Drawing2D> for SxfFile {
 struct Feature<'f> {
     /// レコードの番号
     record: usize,
-    /// `_feature` を除いた名前
-    name: &'f [u8],
-    args: &'f [Value],
+    name: &'f str,
+    kind: &'f str,
+    args: &'f [Arg],
 }
 
 impl Feature<'_> {
     fn is(&self, name: &[u8]) -> bool {
-        self.name.eq_ignore_ascii_case(name)
+        self.name.as_bytes().eq_ignore_ascii_case(name)
     }
 
     fn source(&self) -> Ref {
         Ref::at_record(self.record as u64)
     }
 
-    /// 診断に書く種類。フィーチャの名前
     fn kind(&self) -> String {
-        let mut kind = String::from_utf8_lossy(self.name).to_ascii_lowercase();
-        kind.push_str("_feature");
-        kind
+        self.kind.to_owned()
     }
 }
 
@@ -272,7 +351,6 @@ struct Out {
 }
 
 struct Lifter<'f> {
-    file: &'f SxfFile,
     features: Vec<Feature<'f>>,
     layers: Vec<Layer>,
     /// 定義のあるレイヤの数。コードは 1 から
@@ -291,32 +369,17 @@ struct Lifter<'f> {
 }
 
 impl<'f> Lifter<'f> {
-    fn new(file: &'f SxfFile) -> Self {
-        let features = file
-            .records()
+    fn new(records: &'f [FeatureRecord]) -> Self {
+        let features = records
             .iter()
-            .enumerate()
-            .filter(|(_, record)| record.marker().is_some())
-            .filter_map(|(record, entry)| {
-                let part = entry.parts().first()?;
-                let name = file.bytes(part.name());
-                let name = name
-                    .len()
-                    .checked_sub(b"_feature".len())
-                    .and_then(|end| {
-                        let (head, tail) = name.split_at(end);
-                        tail.eq_ignore_ascii_case(b"_feature").then_some(head)
-                    })
-                    .unwrap_or(name);
-                Some(Feature {
-                    record,
-                    name,
-                    args: part.args(),
-                })
+            .map(|record| Feature {
+                record: record.record,
+                name: &record.name,
+                kind: &record.kind,
+                args: &record.args,
             })
             .collect();
         Self {
-            file,
             features,
             layers: Vec::new(),
             defined_layers: 0,
@@ -470,7 +533,6 @@ impl<'f> Lifter<'f> {
 
     fn args(&self, feature: Feature<'f>) -> Args<'f> {
         Args {
-            file: self.file,
             values: feature.args,
         }
     }
@@ -2085,36 +2147,15 @@ fn part(name: &str) -> SymbolKey {
 
 /// フィーチャの引数を読む
 struct Args<'f> {
-    file: &'f SxfFile,
-    values: &'f [Value],
+    values: &'f [Arg],
 }
 
 impl Args<'_> {
-    /// 文字列。`\'…\'` の `\\` を戻し、改行を除いて、Shift_JIS として読む
     fn text(&self, at: usize) -> Option<String> {
-        let (raw, quote) = match self.values.get(at)? {
-            Value::Text { raw, quote } => (self.file.bytes(raw.clone()), *quote),
-            Value::Token(raw) => (self.file.bytes(raw.clone()), Quote::Plain),
-            _ => return None,
-        };
-        let mut bytes = Vec::with_capacity(raw.len());
-        let mut rest = raw.iter().copied().peekable();
-        while let Some(byte) = rest.next() {
-            if matches!(byte, b'\r' | b'\n') {
-                continue;
-            }
-            if matches!(byte, 0x81..=0x9f | 0xe0..=0xfc) {
-                bytes.push(byte);
-                bytes.extend(rest.next());
-                continue;
-            }
-            if quote == Quote::Backslash && byte == b'\\' && rest.peek() == Some(&b'\\') {
-                rest.next();
-            }
-            bytes.push(byte);
+        match self.values.get(at)? {
+            Arg::Text(text) => Some(text.clone()),
+            _ => None,
         }
-        let (text, _) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(&bytes);
-        Some(text.into_owned())
     }
 
     fn num(&self, at: usize) -> Option<f64> {
@@ -2129,11 +2170,10 @@ impl Args<'_> {
     /// 数の並び。`(…)` の並びか、`'(1,2)'` のように囲んだ文字列
     fn nums(&self, at: usize) -> Option<Vec<f64>> {
         match self.values.get(at)? {
-            Value::List(items) => items
+            Arg::List(items) => items
                 .iter()
                 .map(|item| {
                     let one = Args {
-                        file: self.file,
                         values: core::slice::from_ref(item),
                     };
                     one.num(0)
@@ -2198,7 +2238,7 @@ fn number(text: &str) -> Option<f64> {
     text.parse::<f64>().ok().filter(|value| value.is_finite())
 }
 
-fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
+pub(crate) fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
     cx.check(Kind::Work, amount).map_err(|stop| {
         cx.report(stop.to_diagnostic().at(place.clone()));
         Error::Stopped(stop)
