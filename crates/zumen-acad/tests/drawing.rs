@@ -1,17 +1,18 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
-//! 色と線種・E4 の寸法と引出線と端部記号・記号と属性・ハッチングを試す。
+//! 色と線種・E3 の書式つきの文字と複数行の属性・E4 の寸法と引出線と端部記号・記号と属性・ハッチングを試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Axis, Boundary, Color, ColorCode, ColorSystem, Dimension, DimensionKind,
-    DimensionStyle, DimensionText, Drawing2D, Edge, Element, Fill, Fit, Gradient, Grid, Hatch,
-    HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId,
-    LayerState, Leader, Length, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Pattern, PatternBasis, PatternLine, PatternOrigin,
-    Placement, Shape, SheetId, SheetItem, SpaceId, Style, SymbolKey, Text, Unit, Vertex, Vertical,
+    Arrowhead, Axis, Background, BackgroundFill, Boundary, Color, ColorCode, ColorSystem,
+    Dimension, DimensionKind, DimensionStyle, DimensionText, Drawing2D, Edge, Element, Fill, Fit,
+    Flow, Format, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
+    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Leader, Length, LineSpacing,
+    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, PaperLength,
+    PaperPoint, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Rotation,
+    Shape, SheetId, SheetItem, SpaceId, Span, Style, SymbolKey, Text, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -1274,7 +1275,7 @@ fn e4_leaders_keep_their_path_and_point_to_the_annotation() {
                 (10, "20.0"),
                 (20, "10.0"),
                 (40, "2.5"),
-                (1, "注記"),
+                (1, "NOTE"),
             ],
         ),
         entity(
@@ -1311,20 +1312,18 @@ fn e4_leaders_keep_their_path_and_point_to_the_annotation() {
     .concat();
     let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
     let drawing = drawing.unwrap();
-    // 注記の MTEXT はまだ移さないが、引出線はその出所を指す
-    let found = found(&diag);
-    let [(code, _, 1, mtext)] = found.as_slice() else {
-        panic!("{found:?}");
-    };
-    assert_eq!(*code, codes::DXF_LIFT_DROPPED);
+    // 引出線は、注記の MTEXT の出所を指す
+    assert_eq!(found(&diag), []);
+    let mtext = &drawing.spaces[0].elements[0];
+    assert!(matches!(mtext.shape, Shape::Formatted(_)));
     assert_eq!(
-        model_shapes(&drawing),
+        model_shapes(&drawing)[1..],
         [
             Shape::Leader(Leader {
                 path: vec![at(0.0, 0.0), at(10.0, 10.0), at(20.0, 10.0)],
                 spline: true,
                 arrow: Some(true),
-                annotation: Some(mtext[0].clone()),
+                annotation: Some(mtext.source.clone()),
                 style: "ISO-25".to_owned(),
             }),
             Shape::Leader(Leader {
@@ -1567,18 +1566,6 @@ fn symbols_keep_the_block_key_the_placement_and_the_attributes() {
         ),
         attrib("NO", "A-1", "0"),
         attrib("MAKER", "社名", "1"),
-        // 複数行の属性はまだ移さない
-        entity(
-            "ATTRIB",
-            &[
-                (10, "0.0"),
-                (20, "0.0"),
-                (40, "2.5"),
-                (1, "x"),
-                (2, "NOTE"),
-                (101, "Embedded Object"),
-            ],
-        ),
         vec![(0, "SEQEND"), (8, "0")],
         // 3 列 2 行の格子に並べる
         entity(
@@ -1609,11 +1596,6 @@ fn symbols_keep_the_block_key_the_placement_and_the_attributes() {
     assert_eq!(
         params,
         [
-            (
-                codes::DXF_LIFT_INVALID,
-                r#"Text("ATTRIB") Int(101)"#.to_owned(),
-                1
-            ),
             (
                 codes::DXF_LIFT_INVALID,
                 r#"Text("INSERT") Int(41)"#.to_owned(),
@@ -1992,4 +1974,229 @@ fn e9_hatches_and_symbols_that_cannot_be_read_are_reported() {
             invalid("INSERT", 2),
         ]
     );
+}
+
+fn model(value: f64) -> Length {
+    Length::Model(ModelLength {
+        space: MODEL,
+        value,
+    })
+}
+
+fn span(piece: Piece, format: Format) -> Span {
+    Span { piece, format }
+}
+
+fn words(text: &str) -> Piece {
+    Piece::Text(text.to_owned())
+}
+
+/// 対応表の E3 のうち書式と配置: MTEXT と複数行の属性
+#[test]
+fn e3_formatted_text_keeps_the_content_the_spans_and_the_frame() {
+    let entities = [
+        // 縦書きで、枠の中央に置き、X 軸を上に向け、色で塗って枠の線を描く
+        entity(
+            "MTEXT",
+            &[
+                (10, "5.0"),
+                (20, "6.0"),
+                (40, "2.5"),
+                (41, "100.0"),
+                (71, "5"),
+                (72, "3"),
+                (3, "前半{\\L"),
+                (1, "下線}\\P後半\\pxi-3;"),
+                (7, "明朝"),
+                (11, "0.0"),
+                (21, "1.0"),
+                (73, "2"),
+                (44, "1.5"),
+                (90, "17"),
+                (63, "1"),
+                (45, "1.2"),
+                (441, "0"),
+            ],
+        ),
+        // 用紙の上の MTEXT
+        entity(
+            "MTEXT",
+            &[(67, "1"), (10, "10.0"), (20, "20.0"), (40, "3.5"), (1, "A")],
+        ),
+        // 複数行の属性。埋め込みの印の前の 71 と 72 は、1 行の値の欄にしない
+        entity("INSERT", &[(66, "1"), (2, "枠"), (10, "0.0"), (20, "0.0")]),
+        entity(
+            "ATTRIB",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (40, "2.5"),
+                (1, "一行目"),
+                (2, "NOTE"),
+                (71, "2"),
+                (72, "0"),
+                (101, "Embedded Object"),
+                (10, "1.0"),
+                (20, "2.0"),
+                (40, "2.5"),
+                (41, "50.0"),
+                (71, "1"),
+                (72, "1"),
+                (1, "一行目\\P二行目"),
+            ],
+        ),
+        vec![(0, "SEQEND"), (8, "0")],
+    ]
+    .concat();
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1021")]].concat();
+    let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let shapes = model_shapes(&drawing);
+    let [Shape::Formatted(vertical), Shape::Symbol(frame)] = shapes.as_slice() else {
+        panic!("{shapes:?}");
+    };
+    let underline = Format {
+        underline: true,
+        ..Format::default()
+    };
+    assert_eq!(
+        *vertical,
+        FormattedText {
+            content: "前半{\\L下線}\\P後半\\pxi-3;".to_owned(),
+            spans: vec![
+                span(words("前半"), Format::default()),
+                span(words("下線"), underline),
+                span(Piece::Paragraph, Format::default()),
+                span(words("後半"), Format::default()),
+                span(Piece::Unparsed("\\pxi-3;".to_owned()), Format::default()),
+            ],
+            height: Height {
+                value: model(2.5),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+            },
+            point: at(5.0, 6.0),
+            horizontal: Horizontal::Center,
+            vertical: Vertical::Middle,
+            rotation: Rotation::Direction([0.0, 1.0]),
+            width: Some(model(100.0)),
+            frame_height: None,
+            flow: Flow::TopToBottom,
+            line_spacing: LineSpacing {
+                factor: 1.5,
+                exact: true,
+            },
+            background: Some(Background {
+                fill: Some(BackgroundFill::Color(Color {
+                    code: Some(ColorCode {
+                        system: ColorSystem::Aci,
+                        value: 1,
+                    }),
+                    rgb: None,
+                })),
+                frame: true,
+                scale: 1.2,
+                transparency: Some(0),
+            }),
+            style: "明朝".to_owned(),
+        }
+    );
+    let Shape::Formatted(paper) = &drawing.sheets[0].elements[0].shape else {
+        panic!("{:?}", drawing.sheets[0].elements);
+    };
+    assert_eq!(paper.point, on(10.0, 20.0));
+    assert_eq!(paper.height.value, Length::Paper(PaperLength(3.5)));
+    assert_eq!(
+        (paper.rotation, paper.flow, paper.background),
+        (Rotation::Angle(0.0), Flow::LeftToRight, None)
+    );
+    let [note] = frame.attributes.as_slice() else {
+        panic!("{:?}", frame.attributes);
+    };
+    // 1 行の値は、属性の種類を TEXT の欄と取り違えない
+    assert_eq!(note.text.content, "一行目");
+    assert!(!note.text.backward);
+    assert_eq!(
+        note.text.placement,
+        Placement::Anchor {
+            point: at(0.0, 0.0),
+            horizontal: Horizontal::Left,
+            vertical: Vertical::Baseline,
+        }
+    );
+    let formatted = note.formatted.as_ref().unwrap();
+    assert_eq!(
+        formatted.spans,
+        [
+            span(words("一行目"), Format::default()),
+            span(Piece::Paragraph, Format::default()),
+            span(words("二行目"), Format::default()),
+        ]
+    );
+    assert_eq!(
+        (formatted.point, formatted.horizontal, formatted.vertical),
+        (at(1.0, 2.0), Horizontal::Left, Vertical::Top)
+    );
+    assert_eq!(formatted.width, Some(model(50.0)));
+}
+
+#[test]
+fn e9_formatted_text_that_cannot_be_read_is_reported() {
+    let mtext = |tags: &[(i16, &'static str)]| {
+        let mut all = vec![(10, "0.0"), (20, "0.0"), (40, "2.5")];
+        all.extend_from_slice(tags);
+        entity("MTEXT", &all)
+    };
+    let entities = [
+        // 段組み
+        mtext(&[(1, "a"), (75, "1")]),
+        mtext(&[(1, "a"), (101, "Embedded Object"), (70, "1")]),
+        // 位置合わせ・内容の順・背景の値が読めない
+        mtext(&[(1, "a"), (71, "10")]),
+        mtext(&[(1, "a"), (3, "b")]),
+        mtext(&[(3, "a")]),
+        mtext(&[(1, "a"), (90, "4")]),
+        mtext(&[(1, "a"), (90, "1")]),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert_eq!(drawing.unwrap().spaces[0].elements, []);
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    let invalid = |code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text(\"MTEXT\") Int({code})"),
+            1,
+        )
+    };
+    assert_eq!(
+        params,
+        [
+            (codes::DXF_MTEXT_COLUMNS_UNSUPPORTED, String::new(), 2),
+            invalid(71),
+            invalid(3),
+            invalid(1),
+            invalid(90),
+            invalid(63),
+        ]
+    );
+}
+
+#[test]
+fn e9_formatted_text_counts_its_chunks_as_work() {
+    let run = |chunks: &[(i16, &'static str)], limit: u64| {
+        let mut tags = vec![(10, "0.0"), (20, "0.0"), (40, "2.5")];
+        tags.extend_from_slice(chunks);
+        tags.push((1, "c"));
+        let src = dxf(MM, &entity("MTEXT", &tags));
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+        lift(&src, &mut budget).0.is_ok()
+    };
+    let least = (1..100).find(|limit| run(&[], *limit)).unwrap();
+    let chunks = [(3, "a"), (3, "b")];
+    assert!(!run(&chunks, least + 1));
+    assert!(run(&chunks, least + 2));
 }

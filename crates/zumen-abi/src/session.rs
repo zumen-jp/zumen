@@ -405,7 +405,7 @@ fn unit_of(unit: Unit) -> messages::Unit {
 }
 
 fn counts<P>(elements: &[Element<P>]) -> ElementCounts {
-    // 寸法・引出線・記号・ハッチングは、要約の欄がまだないので数えない（#66）
+    // 書式つきの文字・寸法・引出線・記号・ハッチングは、要約の欄がまだないので数えない（#66）
     let count = |is: fn(&Shape<P>) -> bool| elements.iter().filter(|e| is(&e.shape)).count() as u64;
     ElementCounts {
         lines: count(|shape| matches!(shape, Shape::Line { .. })),
@@ -421,7 +421,11 @@ fn extent<P: Copy>(elements: &[Element<P>], xy: impl Fn(P) -> (f64, f64)) -> Opt
             Placement::Anchor { point, .. } => [Some(point), None],
             Placement::Between { first, second, .. } => [Some(first), Some(second)],
         },
-        Shape::Dimension(_) | Shape::Leader(_) | Shape::Symbol(_) | Shape::Hatch(_) => [None, None],
+        Shape::Formatted(_)
+        | Shape::Dimension(_)
+        | Shape::Leader(_)
+        | Shape::Symbol(_)
+        | Shape::Hatch(_) => [None, None],
     });
     points.flatten().map(xy).fold(None, |extent, (x, y)| {
         Some(match extent {

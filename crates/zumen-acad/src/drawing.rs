@@ -1,5 +1,5 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105・0106・0107・0108）。いまは ENTITIES の
-//! LINE・TEXT・DIMENSION・LEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105〜0109）。いまは ENTITIES の
+//! LINE・TEXT・MTEXT・DIMENSION・LEADER・INSERT（と、その ATTRIB）・HATCH・VIEWPORT と、画層・線種・寸法スタイルの表と、
 //! 図形の色・線種・線幅と、空間の描く順だけを移す。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
@@ -11,19 +11,22 @@
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
 //! DWG でも `dxf.` で始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
+mod mtext;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Arrowhead, Attribute, Axis, Boundary, Color, ColorCode, ColorSystem, Dimension,
-    DimensionKind, DimensionStyle, DimensionText, Drawing2D, Edge, Element, Fill, Fit, Gradient,
-    Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer,
-    LayerId, LayerState, LayerStyle, Leader, Length, LineType, LineTypeDefinition, LineTypeId,
-    LineWeight, Measured, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Pattern,
-    PatternBasis, PatternLine, PatternOrigin, Placement, Shape, Sheet, SheetId, SheetItem, SpaceId,
-    Style, Symbol, SymbolKey, Text, Unit, Vertex, Vertical, View,
+    Affine, Arrowhead, Attribute, Axis, Background, BackgroundFill, Boundary, Color, ColorCode,
+    ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Drawing2D, Edge, Element,
+    Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
+    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
+    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Placement, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Symbol,
+    SymbolKey, Text, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -96,7 +99,13 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         .collect();
     let (attributes, owned) = attached(&entities);
     for (index, object) in entities.iter().enumerate() {
-        work(cx, 1)?;
+        // 書式つきの文字は、内容の 250 バイトの区切り（3）ごとにも数える
+        let chunks = object.values.iter().filter(|value| value.code == 3).count();
+        let chunks = match object.kind.as_slice() {
+            b"MTEXT" | b"ATTRIB" => chunks as u64,
+            _ => 0,
+        };
+        work(cx, 1 + chunks)?;
         if owned.contains(&index) {
             continue;
         }
@@ -339,7 +348,9 @@ impl Lifter {
                     .push((SheetItem::View(out.views.len()), object.handle()));
                 out.views.push(view);
             }
-            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" if paper => {
+            b"LINE" | b"TEXT" | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH"
+                if paper =>
+            {
                 let mm = self.paper_mm(kind)?;
                 let [ox, oy] = self.origin;
                 let point = |x: f64, y: f64| PaperPoint {
@@ -354,7 +365,7 @@ impl Lifter {
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(element);
             }
-            b"LINE" | b"TEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" => {
+            b"LINE" | b"TEXT" | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -425,6 +436,9 @@ impl Lifter {
             b"INSERT" => Ok(Shape::Symbol(self.symbol(object, point, length)?)),
             b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
             b"LINE" => self.line(object, point),
+            // 段組みの欄は、R2018 からは埋め込みのオブジェクト（101）に置く（推定。docs/formats/dxf.md）
+            b"MTEXT" if object.first(101).is_some() => Err(columns()),
+            b"MTEXT" => Ok(Shape::Formatted(self.formatted(object, point, length)?)),
             // TEXT（DXF Reference「TEXT」）
             _ => Ok(Shape::Text(self.text(
                 object,
@@ -531,6 +545,147 @@ impl Lifter {
         })
     }
 
+    /// MTEXT（DXF Reference「MTEXT」）。内容は、250 バイトずつの 3 の後に、残りの 1 を続けたもの。向きは X 軸の
+    /// 向き（11・21）があればそれを、なければ回転（50、ラジアン）を移す。枠の幅（41）と高さ（46）は 0 なら
+    /// 持たない。文字の範囲の大きさ（42・43）は内容から決まる値なので移さない。段組み（75）は、まだ移さない
+    fn formatted<P: Copy>(
+        &self,
+        object: &Object,
+        point: &impl Fn(f64, f64) -> P,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<FormattedText<P>> {
+        let kind = object.kind.as_slice();
+        if self.int(object, 75, 0)? != 0 {
+            return Err(columns());
+        }
+        let mut content = String::new();
+        let mut ended = false;
+        for value in object.values.iter().filter(|v| matches!(v.code, 1 | 3)) {
+            if ended {
+                return Err(invalid(kind, value.code));
+            }
+            content.push_str(&self.decode(kind, value.code, &value.data)?);
+            ended = value.code == 1;
+        }
+        if !ended {
+            return Err(invalid(kind, 1));
+        }
+        // 1〜9 は、上・中央・下の行の、左・中央・右
+        let attachment = self.int(object, 71, 1)?;
+        let vertical = match (attachment - 1) / 3 {
+            _ if !(1..=9).contains(&attachment) => return Err(invalid(kind, 71)),
+            0 => Vertical::Top,
+            1 => Vertical::Middle,
+            _ => Vertical::Bottom,
+        };
+        let horizontal = match (attachment - 1) % 3 {
+            0 => Horizontal::Left,
+            1 => Horizontal::Center,
+            _ => Horizontal::Right,
+        };
+        let rotation = if object.first(11).is_some() {
+            if self.real(object, 31, Some(0.0))? != 0.0 {
+                return Err(non_planar(kind));
+            }
+            let direction = [
+                self.real(object, 11, None)?,
+                self.real(object, 21, Some(0.0))?,
+            ];
+            if direction == [0.0, 0.0] {
+                return Err(invalid(kind, 11));
+            }
+            Rotation::Direction(direction)
+        } else {
+            Rotation::Angle(self.real(object, 50, Some(0.0))?.to_degrees())
+        };
+        let frame = |code: i16| -> Lifted<Option<Length>> {
+            match self.real(object, code, Some(0.0))? {
+                0.0 => Ok(None),
+                size if size > 0.0 => Ok(Some(length(size))),
+                _ => Err(invalid(kind, code)),
+            }
+        };
+        let flow = match self.int(object, 72, 1)? {
+            1 => Flow::LeftToRight,
+            3 => Flow::TopToBottom,
+            5 => Flow::ByStyle,
+            _ => return Err(invalid(kind, 72)),
+        };
+        let exact = match self.int(object, 73, 1)? {
+            1 => false,
+            2 => true,
+            _ => return Err(invalid(kind, 73)),
+        };
+        let factor = self.real(object, 44, Some(1.0))?;
+        if factor <= 0.0 {
+            return Err(invalid(kind, 44));
+        }
+        Ok(FormattedText {
+            spans: mtext::spans(&content, length),
+            content,
+            height: Height {
+                value: length(self.real(object, 40, None)?),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+            },
+            point: self.planar_point(object, 10, point)?,
+            horizontal,
+            vertical,
+            rotation,
+            width: frame(41)?,
+            frame_height: frame(46)?,
+            flow,
+            line_spacing: LineSpacing { factor, exact },
+            background: self.background(object)?,
+            style: self
+                .string(object, 7)?
+                .unwrap_or_else(|| "STANDARD".to_owned()),
+        })
+    }
+
+    /// MTEXT の背景（90）。1 は色（63・421）で、2 は表示の背景の色で塗り、16 は枠の線を描く。倍率（45）の
+    /// 既定は 1.5 とする（推定。docs/formats/dxf.md）
+    fn background(&self, object: &Object) -> Lifted<Option<Background>> {
+        let kind = object.kind.as_slice();
+        let flags = self.int(object, 90, 0)?;
+        if flags & !(1 | 2 | 16) != 0 {
+            return Err(invalid(kind, 90));
+        }
+        if flags == 0 {
+            return Ok(None);
+        }
+        let fill = if flags & 2 != 0 {
+            Some(BackgroundFill::Screen)
+        } else if flags & 1 != 0 {
+            let code = match self.int(object, 63, 0)? {
+                0 => None,
+                index @ 1..=255 => Some(aci(index)),
+                _ => return Err(invalid(kind, 63)),
+            };
+            let rgb = self.rgb(object, 421)?;
+            if code.is_none() && rgb.is_none() {
+                return Err(invalid(kind, 63));
+            }
+            Some(BackgroundFill::Color(Color { code, rgb }))
+        } else {
+            None
+        };
+        let scale = self.real(object, 45, Some(1.5))?;
+        if scale <= 0.0 {
+            return Err(invalid(kind, 45));
+        }
+        let transparency = match object.first(441) {
+            None => None,
+            Some(Data::Int(value)) => Some(u32::try_from(*value).map_err(|_| invalid(kind, 441))?),
+            Some(_) => return Err(invalid(kind, 441)),
+        };
+        Ok(Some(Background {
+            fill,
+            frame: flags & 16 != 0,
+            scale,
+            transparency,
+        }))
+    }
+
     /// INSERT（DXF Reference「INSERT」）。尺度（41・42）が 0 なら読めないとする。Z の尺度（43）は平面の形を
     /// 変えないので移さない。列と行（70・71）が 1 より多ければ、格子に並べる（MINSERT）。属性は後で足す
     fn symbol<P: Copy>(
@@ -579,7 +734,8 @@ impl Lifter {
     }
 
     /// ATTRIB（DXF Reference「ATTRIB」）。タグ（2）と、TEXT と同じ欄の値を移し、70 の 1 なら表示しないとする。
-    /// 複数行の属性（埋め込みの MTEXT を持つ。101）は、MTEXT をまだ移さないので移さない
+    /// 複数行の属性は、埋め込みのオブジェクトの印（101）の後の MTEXT の値も移す。印の直前の 71（属性の種類）と
+    /// 72 は、TEXT の欄と取り違えないよう、1 行の値から除く（決定 0102）
     fn attribute<P: Copy>(
         &self,
         object: &Object,
@@ -589,9 +745,39 @@ impl Lifter {
     ) -> Lifted<Attribute<P>> {
         let kind = object.kind.as_slice();
         self.planar(object)?;
-        if object.first(101).is_some() {
-            return Err(invalid(kind, 101));
-        }
+        let embedded = object
+            .values
+            .iter()
+            .position(|v| v.code == 101)
+            .and_then(|at| object.values.split_at_checked(at));
+        let (single, formatted) = match embedded {
+            None => (None, None),
+            Some((before, marked)) => {
+                let mut values = before.to_vec();
+                for code in [72, 71] {
+                    if values.last().is_some_and(|value| value.code == code) {
+                        values.pop();
+                    }
+                }
+                let single = Object {
+                    values,
+                    ..object.clone()
+                };
+                let mut embedded = Object {
+                    values: marked.get(1..).unwrap_or_default().to_vec(),
+                    ..object.clone()
+                };
+                // 文字スタイルは、埋め込みの値になければ属性のものとする
+                if embedded.first(7).is_none()
+                    && let Some(style) = before.iter().find(|v| v.code == 7)
+                {
+                    embedded.values.push(style.clone());
+                }
+                let formatted = self.formatted(&embedded, point, length)?;
+                (Some(single), Some(formatted))
+            }
+        };
+        let object = single.as_ref().unwrap_or(object);
         let text = self.text(object, point, length, 74, "dxf.ATTRIB.40")?;
         let tag = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
         let hidden = self.int(object, 70, 0)? & 1 != 0;
@@ -600,6 +786,7 @@ impl Lifter {
         Ok(Attribute {
             tag,
             text,
+            formatted,
             hidden,
             layer,
             style,
@@ -1144,7 +1331,7 @@ impl Lifter {
     /// Entities」）。DWG の読み手は図形の線幅を表に置かないので、DWG の図形の線幅は読めていないとする
     fn style(&self, object: &Object, out: &mut Out) -> Lifted<Style> {
         let kind = object.kind.as_slice();
-        let rgb = self.rgb(object)?;
+        let rgb = self.rgb(object, 420)?;
         let color = match (self.int(object, 62, 256)?, rgb) {
             (index @ 1..=255, _) => Inherit::Own(Color {
                 code: Some(aci(index)),
@@ -1183,15 +1370,15 @@ impl Lifter {
         })
     }
 
-    /// 真の色（420）。0x00RRGGBB
-    fn rgb(&self, object: &Object) -> Lifted<Option<[u8; 3]>> {
-        match object.first(420) {
+    /// 真の色（420、背景は 421）。0x00RRGGBB
+    fn rgb(&self, object: &Object, code: i16) -> Lifted<Option<[u8; 3]>> {
+        match object.first(code) {
             None => Ok(None),
             Some(Data::Int(value @ 0..=0xFF_FFFF)) => {
                 let [_, r, g, b] = (*value as u32).to_be_bytes();
                 Ok(Some([r, g, b]))
             }
-            Some(_) => Err(invalid(&object.kind, 420)),
+            Some(_) => Err(invalid(&object.kind, code)),
         }
     }
 
@@ -1294,7 +1481,7 @@ impl Lifter {
             editable: flags & 4 == 0,
         };
         // 色は 62 の絶対値か 420。線種は、DXF では名前、DWG ではレコードのハンドル
-        let rgb = self.rgb(object)?;
+        let rgb = self.rgb(object, 420)?;
         let color = match self.int(object, 62, 0)?.unsigned_abs() {
             index @ 1..=255 => Some(Color {
                 code: Some(aci(index as i64)),
@@ -1507,15 +1694,20 @@ impl Lifter {
 
     /// 文字の値。2007 より前の版の ASCII でない文字は、コード・ページを読まないので受け付けない
     fn string(&self, object: &Object, code: i16) -> Lifted<Option<String>> {
-        let kind = object.kind.as_slice();
-        let value = match object.first(code) {
-            Some(Data::Text(value)) => value,
-            Some(_) => return Err(invalid(kind, code)),
-            None => return Ok(None),
+        match object.first(code) {
+            Some(data) => self.decode(&object.kind, code, data).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// 文字の値を読む
+    fn decode(&self, kind: &[u8], code: i16, data: &Data) -> Lifted<String> {
+        let Data::Text(value) = data else {
+            return Err(invalid(kind, code));
         };
         if self.unicode || value.is_ascii() {
             match core::str::from_utf8(value) {
-                Ok(value) => Ok(Some(value.to_owned())),
+                Ok(value) => Ok(value.to_owned()),
                 Err(_) => Err(invalid(kind, code)),
             }
         } else {
@@ -1591,6 +1783,10 @@ fn invalid(kind: &[u8], code: i16) -> Box<Diagnostic> {
             .with("kind", text(kind))
             .with("code", i64::from(code)),
     )
+}
+
+fn columns() -> Box<Diagnostic> {
+    Box::new(Diagnostic::new(codes::DXF_MTEXT_COLUMNS_UNSUPPORTED))
 }
 
 fn non_planar(kind: &[u8]) -> Box<Diagnostic> {
