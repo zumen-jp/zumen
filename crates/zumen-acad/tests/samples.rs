@@ -716,9 +716,43 @@ fn r2000_drawings_take_back_added_entities() {
                 b"INSERT",
                 vec![real(10, 8.0), real(20, 9.0), real(30, 0.0), text(2, &name)],
             ));
+            // 属性を 2 つ持つ INSERT も足す。ATTRIB と SEQEND は、すぐ前の INSERT が持つ
+            added.push((
+                b"INSERT",
+                vec![
+                    real(10, 8.0),
+                    real(20, 9.0),
+                    real(30, 0.0),
+                    int(66, 1),
+                    text(2, &name),
+                ],
+            ));
+            for value in [b"1", b"2"] {
+                added.push((
+                    b"ATTRIB",
+                    vec![
+                        real(10, 8.0),
+                        real(20, 9.0),
+                        real(30, 0.0),
+                        real(40, 2.5),
+                        text(1, value),
+                        text(2, b"TAG"),
+                        int(70, 0),
+                    ],
+                ));
+            }
+            added.push((b"SEQEND", Vec::new()));
         }
         let count = added.len() as u64;
+        let mut insert = model;
         for (handle, (kind, own)) in (seed..).zip(added) {
+            let owner = match kind {
+                b"ATTRIB" | b"SEQEND" => insert,
+                _ => model,
+            };
+            if kind == b"INSERT" {
+                insert = handle;
+            }
             let mut values = vec![
                 Value {
                     code: 5,
@@ -726,7 +760,7 @@ fn r2000_drawings_take_back_added_entities() {
                 },
                 Value {
                     code: 330,
-                    data: Data::Handle(model),
+                    data: Data::Handle(owner),
                 },
                 text(8, b"0"),
             ];

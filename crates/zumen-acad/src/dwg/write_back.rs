@@ -11,6 +11,7 @@
 //! 表の終わりに足した図形のうち、いくつかの種類は、一から符号化してオブジェクトの地図に加え、所有者の
 //! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを
 //! 名前で探して、そのハンドルを書く（決定 0053）。足した MTEXT は、表にない欄を 0 にする（決定 0054）。
+//! 属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を持たせ、そのハンドルを書く（決定 0055）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -296,17 +297,70 @@ impl DwgFile {
             .enumerate()
             .map(|(record, entry)| (entry.handle, record))
             .collect();
-        let mut pending = Vec::new();
+        let mut pending: Vec<NewEntity> = Vec::new();
         let mut blocks: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
+        // 属性が続く（66）INSERT の番号と、その後の ATTRIB の番号。ATTRIB は INSERT のすぐ後に並べ、
+        // SEQEND で閉じる。ATTRIB は ATTRIB どうしで繋ぎ、SEQEND は前後を持たない
+        let mut open: Option<(usize, Vec<usize>)> = None;
+        let mut inner = BTreeMap::new();
         for &object in added {
+            let parent = open
+                .as_ref()
+                .and_then(|(i, _)| pending.get(*i))
+                .map(|insert| (insert.handle, insert.object.section.clone()));
             let new = self
-                .prepare(base, object, &records, seed)
+                .prepare(base, object, &records, seed, parent)
                 .ok_or_else(|| unsupported(&object.kind))?;
             seed = new.handle + 1;
-            blocks.entry(new.owner).or_default().push(pending.len());
+            let index = pending.len();
+            match (object.kind.as_slice(), open.take()) {
+                (b"ATTRIB", Some((insert, mut attribs))) => {
+                    attribs.push(index);
+                    open = Some((insert, attribs));
+                }
+                (b"SEQEND", Some((insert, attribs))) => {
+                    let handles: Vec<u64> = attribs
+                        .iter()
+                        .filter_map(|&i| Some(pending.get(i)?.handle))
+                        .collect();
+                    let (&first, &last) = handles
+                        .first()
+                        .zip(handles.last())
+                        .ok_or_else(|| unsupported(&object.kind))?;
+                    for (n, &i) in attribs.iter().enumerate() {
+                        let prev = n.checked_sub(1).and_then(|m| handles.get(m));
+                        let next = handles.get(n + 1);
+                        inner.insert(i, (prev.copied().unwrap_or(0), next.copied().unwrap_or(0)));
+                    }
+                    if let Some(insert) = pending.get_mut(insert) {
+                        insert.children = Some((first, last, new.handle));
+                    }
+                }
+                (b"ATTRIB" | b"SEQEND", None) => return Err(unsupported(&object.kind)),
+                (_, Some((insert, _))) => {
+                    let kind = pending.get(insert).map_or(&object.kind, |i| &i.object.kind);
+                    return Err(unsupported(kind));
+                }
+                (_, None) => {
+                    if small(object, 66)
+                        .ok_or_else(|| unsupported(&object.kind))?
+                        .is_some()
+                    {
+                        open = Some((index, Vec::new()));
+                    }
+                    blocks.entry(new.owner).or_default().push(index);
+                }
+            }
             pending.push(new);
         }
-        let mut links = vec![(0, 0); pending.len()];
+        // SEQEND で閉じていない INSERT
+        if let Some((insert, _)) = open {
+            let kind = pending.get(insert).map_or(&last.kind, |i| &i.object.kind);
+            return Err(unsupported(kind));
+        }
+        let mut links: Vec<(u64, u64)> = (0..pending.len())
+            .map(|i| inner.get(&i).copied().unwrap_or((0, 0)))
+            .collect();
         for (block, list) in blocks {
             let block_record = *records
                 .get(&block)
@@ -343,13 +397,17 @@ impl DwgFile {
         object: &'a Object,
         records: &BTreeMap<u64, usize>,
         seed: u64,
+        parent: Option<(u64, Section)>,
     ) -> Option<NewEntity<'a>> {
         let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
         let handle = object.handle().filter(|&h| h >= seed)?;
         // TEXT と ATTDEF は文字の体裁（7）を、INSERT はブロック（2）を指す
         let pointing: &[i16] = match object.kind.as_slice() {
             b"TEXT" | b"ATTDEF" | b"MTEXT" => &[7],
-            b"INSERT" => &[2],
+            b"ATTRIB" => &[7],
+            // 属性が続くこと（66）は、1 だけ
+            b"INSERT" if small(object, 66)?.is_none_or(|v| v == 1) => &[2, 66],
+            b"INSERT" => return None,
             _ => &[],
         };
         let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing].concat();
@@ -361,24 +419,31 @@ impl DwgFile {
             return None;
         }
         let owner = object.owner()?;
-        let entry = self.entries.get(*records.get(&owner)?)?;
-        let block = base.get(owner).filter(|_| {
-            self.kind(entry.type_code)
-                .is_some_and(|(k, _)| k == b"BLOCK_RECORD")
-        })?;
-        // モデル空間と用紙空間の図形は、所有者のハンドルを持たない（entmode が 2・1）
-        let name = text_of(block, 2)?;
-        let mode = if name.eq_ignore_ascii_case(b"*Model_Space") {
-            2
-        } else if name.eq_ignore_ascii_case(b"*Paper_Space") {
-            1
+        // ATTRIB と SEQEND は、すぐ前の INSERT が持ち、同じ所に置く。所有者のハンドルを持つ（entmode が 0）
+        let (mode, section) = if matches!(object.kind.as_slice(), b"ATTRIB" | b"SEQEND") {
+            let (insert, section) = parent?;
+            (owner == insert).then_some((0, section))?
         } else {
-            0
-        };
-        let section = if mode == 0 {
-            Section::Blocks
-        } else {
-            Section::Entities
+            let entry = self.entries.get(*records.get(&owner)?)?;
+            let block = base.get(owner).filter(|_| {
+                self.kind(entry.type_code)
+                    .is_some_and(|(k, _)| k == b"BLOCK_RECORD")
+            })?;
+            // モデル空間と用紙空間の図形は、所有者のハンドルを持たない（entmode が 2・1）
+            let name = text_of(block, 2)?;
+            let mode = if name.eq_ignore_ascii_case(b"*Model_Space") {
+                2
+            } else if name.eq_ignore_ascii_case(b"*Paper_Space") {
+                1
+            } else {
+                0
+            };
+            let section = if mode == 0 {
+                Section::Blocks
+            } else {
+                Section::Entities
+            };
+            (mode, section)
         };
         // 用紙空間の図形だけが、67 = 1 を持つ
         let paper = small(object, 67)?;
@@ -397,7 +462,7 @@ impl DwgFile {
         };
         let pointed = match object.kind.as_slice() {
             // 文字の体裁がなければ Standard
-            b"TEXT" | b"ATTDEF" | b"MTEXT" => {
+            b"TEXT" | b"ATTRIB" | b"ATTDEF" | b"MTEXT" => {
                 match object.values.iter().any(|value| value.code == 7) {
                     false => Some(record_handle(base, b"STYLE", b"Standard")?),
                     true => Some(record_handle(base, b"STYLE", text_of(object, 7)?)?),
@@ -429,6 +494,7 @@ impl DwgFile {
             layer,
             ltype,
             pointed,
+            children: None,
         })
     }
 
@@ -628,8 +694,8 @@ const REMOVABLE: &[&[u8]] = &[
     b"SHAPE",
 ];
 
-/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0054）。型ごとの欄を元のデータ
-/// なしで符号化でき、型ごとのハンドルが表のレコードを指すものだけか、ないもの。INSERT は属性を持たないもの
+/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0055）。型ごとの欄を元のデータ
+/// なしで符号化でき、型ごとのハンドルが表のレコードか、足した図形を指すものだけか、ないもの
 const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"LINE", 0x13, LINE),
     (b"CIRCLE", 0x12, CIRCLE),
@@ -645,6 +711,8 @@ const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"ATTDEF", 0x03, ATTDEF),
     (b"INSERT", 0x07, INSERT),
     (b"MTEXT", 0x2C, MTEXT),
+    (b"ATTRIB", 0x02, ATTRIB),
+    (b"SEQEND", 0x06, &[]),
 ];
 
 /// 足す図形を符号化するのに要るもの
@@ -662,6 +730,8 @@ struct NewEntity<'a> {
     ltype: (u8, u64),
     /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字の体裁、INSERT のブロック）のハンドル
     pointed: Option<u64>,
+    /// INSERT が持つ最初と最後の ATTRIB と、SEQEND のハンドル
+    children: Option<(u64, u64, u64)>,
 }
 
 impl NewEntity<'_> {
@@ -698,6 +768,12 @@ impl NewEntity<'_> {
         }
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
+        }
+        // INSERT は、ブロックに続けて、最初と最後の ATTRIB と SEQEND を指す
+        if let Some((first, last, seqend)) = self.children {
+            handles.handle(4, first);
+            handles.handle(4, last);
+            handles.handle(3, seqend);
         }
         let mut out = BitWriter::default();
         out.bs(self.type_code);
@@ -1826,6 +1902,8 @@ fn own_fields(
         b"MLINE" => mline(&mut fields, new)?,
         b"VIEWPORT" => viewport(&mut fields, old, new, data, start)?,
         b"SHAPE" => shape(&mut fields, new, data, start)?,
+        // SEQEND は型ごとの欄を持たない
+        b"SEQEND" => {}
         _ => return None,
     }
     Some(fields)
