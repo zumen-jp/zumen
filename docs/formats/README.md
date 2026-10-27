@@ -212,6 +212,7 @@
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0133](../decisions/0133-jww-l1-records.md)
 - 記録: [決定 0134](../decisions/0134-jww-lift-to-drawing.md)
+- 記録: [決定 0135](../decisions/0135-jww-blocks-and-dimensions.md)
 - 形式の文書: [docs/formats/jww.md](../../docs/formats/jww.md)
 
 ### format-pdf
