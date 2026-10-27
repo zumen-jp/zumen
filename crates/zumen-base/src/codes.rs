@@ -366,6 +366,28 @@ pub const DWG_VERSION_UNSUPPORTED: Code = Code::new(
 pub const DXF_BINARY_UNSUPPORTED: Code =
     Code::new("dxf.binary.unsupported", Severity::Error, None, &[], &[]);
 
+/// 自分を直接か間接に配置するブロックの定義を、展開せずに図面モデルに移した
+///
+/// `dxf.block-cycle.invalid`（0.0.0 から）
+pub const DXF_BLOCK_CYCLE_INVALID: Code = Code::new(
+    "dxf.block-cycle.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 配置が指すブロックの定義がないので、配置だけを図面モデルに移した
+///
+/// `dxf.block.missing`（0.0.0 から）
+pub const DXF_BLOCK_MISSING: Code = Code::new(
+    "dxf.block.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
 /// コード・ページの版の ASCII でない文字を、まだ読めないので、その文字の図形を図面モデルに移さなかった
 ///
 /// `dxf.code-page.unsupported`（0.0.0 から）
@@ -734,6 +756,8 @@ pub const ALL: &[Code] = &[
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,
     DXF_BINARY_UNSUPPORTED,
+    DXF_BLOCK_CYCLE_INVALID,
+    DXF_BLOCK_MISSING,
     DXF_CODE_PAGE_UNSUPPORTED,
     DXF_ENTITY_DROPPED,
     DXF_GROUP_CODE_DROPPED,
