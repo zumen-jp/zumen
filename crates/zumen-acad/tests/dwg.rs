@@ -7863,3 +7863,68 @@ fn added_blocks_are_written_back() {
     let (out, _) = written_back(&mut file, &db);
     assert_eq!(out, Err(Error::Rejected));
 }
+
+#[test]
+fn header_variables_are_written_back() {
+    let src = with_header_variables(
+        dwg(&objects_with_a_block()),
+        0x58,
+        0x1F,
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+    );
+    let (base, before) = objects(&src);
+    let set = |db: &mut AcadDb, name: &[u8], values: &[(i16, Data)]| {
+        let values = values
+            .iter()
+            .map(|(code, data)| Value {
+                code: *code,
+                data: data.clone(),
+            })
+            .collect();
+        db.set_variable(name, values);
+    };
+    let mut db = base.clone();
+    set(&mut db, b"$INSUNITS", &[(70, Data::Int(6))]);
+    set(
+        &mut db,
+        b"$PLIMMIN",
+        &[(10, Data::Real(-5.5)), (20, Data::Real(0.0))],
+    );
+    set(
+        &mut db,
+        b"$PLIMMAX",
+        &[(10, Data::Real(420.0)), (20, Data::Real(297.0))],
+    );
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    assert_eq!(after, db);
+    // BS の幅が変わる値、形の違う値、ほかの変数の変更は書き戻せない
+    let rejected = [
+        (b"$INSUNITS".as_slice(), vec![(70, Data::Int(0))]),
+        (
+            b"$INSUNITS".as_slice(),
+            vec![(70, Data::Text(b"6".to_vec()))],
+        ),
+        (
+            b"$PLIMMAX".as_slice(),
+            vec![(10, Data::Real(f64::NAN)), (20, Data::Real(1.0))],
+        ),
+        (
+            b"$ACADVER".as_slice(),
+            vec![(1, Data::Text(b"AC1018".to_vec()))],
+        ),
+    ];
+    for (name, values) in rejected {
+        let mut changed = base.clone();
+        set(&mut changed, name, &values);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}

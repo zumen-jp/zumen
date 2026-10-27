@@ -13,7 +13,7 @@ use zumen_base::{Cx, Diagnostic, Kind, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{Bits, crc16, push_modular_char, push_modular_short};
-use super::header::{self, handle_seed, set_handle_seed};
+use super::header::{self, handle_seed, set_handle_seed, set_values};
 use super::{
     DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER, Release,
     header_crc_mask, invalid, stopped,
@@ -33,6 +33,8 @@ pub struct DwgTxn<'a> {
     removed: BTreeSet<usize>,
     added: Vec<(u64, Vec<u8>)>,
     seed: Option<u64>,
+    units: Option<i16>,
+    limits: Option<[f64; 4]>,
     rejected: Option<Diagnostic>,
 }
 
@@ -104,6 +106,25 @@ impl DwgTxn<'_> {
         Ok(())
     }
 
+    /// 見出しの変数の INSUNITS を `units` にする（決定 0069）。大きさ（バイト）が変わる値なら、確定のときに
+    /// 失敗する
+    pub fn set_units(&mut self, units: i16) -> Result<(), Error> {
+        if let Some(diagnostic) = self.file.edit_unsupported() {
+            return Err(self.reject(diagnostic));
+        }
+        self.units = Some(units);
+        Ok(())
+    }
+
+    /// 見出しの変数の、用紙空間の PLIMMIN と PLIMMAX（X・Y の順）を `limits` にする（決定 0069）
+    pub fn set_paper_limits(&mut self, limits: [f64; 4]) -> Result<(), Error> {
+        if let Some(diagnostic) = self.file.edit_unsupported() {
+            return Err(self.reject(diagnostic));
+        }
+        self.limits = Some(limits);
+        Ok(())
+    }
+
     /// 最初の失敗を、確定のときに診断として返すために覚える
     pub(super) fn reject(&mut self, diagnostic: Diagnostic) -> Error {
         self.rejected.get_or_insert(diagnostic);
@@ -121,6 +142,8 @@ impl Transaction for DwgTxn<'_> {
             && self.removed.is_empty()
             && self.added.is_empty()
             && self.seed.is_none()
+            && self.units.is_none()
+            && self.limits.is_none()
         {
             return Ok(());
         }
@@ -131,15 +154,20 @@ impl Transaction for DwgTxn<'_> {
         let file = self.file;
         let mut src = file.src.clone();
         let mut entries = file.entries.clone();
+        let header = file
+            .locators
+            .iter()
+            .find(|l| l.number == header::NUMBER && l.size > 0)
+            .map(|l| l.seeker as usize);
         if let Some(value) = self.seed {
-            let header = file
-                .locators
-                .iter()
-                .find(|l| l.number == header::NUMBER && l.size > 0)
-                .map(|l| l.seeker as usize);
             header
                 .and_then(|start| handle_seed(&src, start))
                 .and_then(|seed| set_handle_seed(&mut src, &seed, value))
+                .ok_or_else(|| invalid(cx, "header variables", header.unwrap_or(0)..src.len()))?;
+        }
+        if self.units.is_some() || self.limits.is_some() {
+            header
+                .and_then(|start| set_values(&mut src, start, self.units, self.limits))
                 .ok_or_else(|| invalid(cx, "header variables", header.unwrap_or(0)..src.len()))?;
         }
         for (record, data) in self.staged {
@@ -206,6 +234,8 @@ impl Transact for DwgFile {
             removed: BTreeSet::new(),
             added: Vec::new(),
             seed: None,
+            units: None,
+            limits: None,
             rejected: None,
         }
     }

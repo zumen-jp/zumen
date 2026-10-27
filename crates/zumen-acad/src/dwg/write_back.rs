@@ -21,7 +21,10 @@
 //! レコードは、一から符号化してオブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0068）。
 //! 足したブロックのレコードは、同じく足した BLOCK・ENDBLK と図形を揃えて書く（決定 0068）。
 //!
-//! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
+//! 見出しの変数の INSUNITS と、用紙空間の PLIMMIN・PLIMMAX の変更は、見出しの変数の区切りの中で書き直す
+//! （決定 0069）。
+//!
+//! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と、ほかの見出しの変数の変更は、まだ書き戻せない。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -164,6 +167,9 @@ struct Changes {
     added: Added,
     /// 新しい HANDSEED
     seed: Option<u64>,
+    /// 新しい INSUNITS と、用紙空間の PLIMMIN・PLIMMAX（決定 0069）
+    units: Option<i16>,
+    limits: Option<[f64; 4]>,
 }
 
 impl DwgFile {
@@ -201,6 +207,12 @@ impl DwgFile {
                     changes
                         .seed
                         .map_or(Ok(()), |seed| txn.set_handle_seed(seed))
+                })
+                .and_then(|()| changes.units.map_or(Ok(()), |units| txn.set_units(units)))
+                .and_then(|()| {
+                    changes
+                        .limits
+                        .map_or(Ok(()), |limits| txn.set_paper_limits(limits))
                 }),
             Err(diagnostic) => Err(txn.reject(*diagnostic)),
         };
@@ -287,11 +299,28 @@ impl DwgFile {
             .chain(db.variables())
             .map(|(n, _)| n)
             .collect();
-        if let Some(name) = names
+        // 変えられるのは、このファイルの見出しの変数の区切りから読んだ変数だけ
+        let (mut units, mut limits) = (None, None);
+        for name in names
             .into_iter()
-            .find(|n| base.variable(n) != db.variable(n))
+            .filter(|n| base.variable(n) != db.variable(n))
         {
-            return Err(unsupported(name));
+            if base.variable(name).is_none() {
+                return Err(unsupported(name));
+            }
+            match name {
+                b"$INSUNITS" => {
+                    // 区切りの長さを変えないよう、BS の幅が変わる値は受け付けない
+                    let new = header_units(db)
+                        .filter(|&new| header_units(base).map(bs_width) == Some(bs_width(new)))
+                        .ok_or_else(|| unsupported(name))?;
+                    units = Some(new);
+                }
+                b"$PLIMMIN" | b"$PLIMMAX" => {
+                    limits = Some(paper_limits(db).ok_or_else(|| unsupported(name))?);
+                }
+                _ => return Err(unsupported(name)),
+            }
         }
         self.unlink(base, &removed, &mut changes)?;
         let (added, seed) = self.append(db, &added, &mut changes)?;
@@ -300,6 +329,8 @@ impl DwgFile {
             removed: removed.iter().map(|&(record, _)| record).collect(),
             added,
             seed,
+            units,
+            limits,
         })
     }
 
@@ -1053,6 +1084,48 @@ impl DwgFile {
         }
         Some(())
     }
+}
+
+/// 表 `db` の INSUNITS。BS に収まる 70 の整数だけを持たなければ `None`（決定 0069）
+fn header_units(db: &AcadDb) -> Option<i16> {
+    match db.variable(b"$INSUNITS")? {
+        [
+            Value {
+                code: 70,
+                data: Data::Int(units),
+            },
+        ] => i16::try_from(*units).ok(),
+        _ => None,
+    }
+}
+
+/// BS で `value` を書くときのビットの数
+fn bs_width(value: i16) -> u32 {
+    match value {
+        0 | 256 => 2,
+        1..=255 => 10,
+        _ => 18,
+    }
+}
+
+/// 表 `db` の用紙空間の PLIMMIN と PLIMMAX（X・Y の順）。どちらも、有限の 10 と 20 の実数だけを持たなければ
+/// `None`（決定 0069）
+fn paper_limits(db: &AcadDb) -> Option<[f64; 4]> {
+    let point = |name: &[u8]| match db.variable(name)? {
+        [
+            Value {
+                code: 10,
+                data: Data::Real(x),
+            },
+            Value {
+                code: 20,
+                data: Data::Real(y),
+            },
+        ] if x.is_finite() && y.is_finite() => Some([*x, *y]),
+        _ => None,
+    };
+    let ([x0, y0], [x1, y1]) = (point(b"$PLIMMIN")?, point(b"$PLIMMAX")?);
+    Some([x0, y0, x1, y1])
 }
 
 /// 表から除ける図形の種類（決定 0051）

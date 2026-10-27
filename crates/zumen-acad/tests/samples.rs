@@ -1237,3 +1237,47 @@ fn r2000_drawings_take_back_added_table_records() {
         }
     }
 }
+
+/// R2000 の図面の INSUNITS と、用紙空間の PLIMMIN・PLIMMAX を変えて書き戻すと、読み直した変数が変えたものと合い、
+/// ほかは変わらない（決定 0069）
+#[test]
+fn r2000_drawings_take_back_changed_header_variables() {
+    for path in dwgs(b"AC1015") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut file = Dwg::read(&src, &mut cx).unwrap();
+        let mut db = file.objects(&mut cx).unwrap();
+        let value = |code, data| Value { code, data };
+        // BS の幅を変えない値にする
+        if let Some(
+            [
+                Value {
+                    data: Data::Int(units @ 1..=255),
+                    ..
+                },
+            ],
+        ) = db.variable(b"$INSUNITS")
+        {
+            let units = if *units == 4 { 6 } else { 4 };
+            db.set_variable(b"$INSUNITS", vec![value(70, Data::Int(units))]);
+        }
+        let point = |x, y| vec![value(10, Data::Real(x)), value(20, Data::Real(y))];
+        db.set_variable(b"$PLIMMIN", point(-1.0, -2.0));
+        db.set_variable(b"$PLIMMAX", point(841.0, 594.0));
+        file.write_back(&db, &mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        let mut fresh = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
+        let after = Dwg::read(&out, &mut cx).unwrap().objects(&mut cx).unwrap();
+        assert!(
+            fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
+            "{}",
+            path.display()
+        );
+        assert!(after == db, "{}", path.display());
+    }
+}

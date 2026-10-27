@@ -38,6 +38,9 @@ pub(super) struct Header {
     pub(super) units: i16,
     /// 用紙空間の PLIMMIN（X・Y）と PLIMMAX（X・Y）
     pub(super) limits: [f64; 4],
+    /// データの中の、PLIMMIN と INSUNITS のビットの位置
+    limits_at: usize,
+    units_at: usize,
 }
 
 /// 読み飛ばす変数の型
@@ -302,6 +305,7 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     skip_all(bits, first)?;
     // 用紙空間、続いてモデル空間。用紙空間の LIMMIN・LIMMAX が PLIMMIN・PLIMMAX
     skip_all(bits, &SPACE[..1])?;
+    let limits_at = bits.pos();
     let limits = [bits.rd()?, bits.rd()?, bits.rd()?, bits.rd()?];
     skip_all(bits, &SPACE[2..])?;
     skip_all(bits, &SPACE)?;
@@ -321,6 +325,7 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     };
     // 最後の BS が INSUNITS
     skip_all(bits, tail.split_last()?.1)?;
+    let units_at = bits.pos();
     let units = bits.bs()?;
     // CEPSNTYPE が 3 なら、CPSNID のハンドルが続く
     if bits.bs()? == 3 {
@@ -339,6 +344,8 @@ fn variables(bits: &mut Bits) -> Option<Header> {
         model,
         units,
         limits,
+        limits_at,
+        units_at,
     })
 }
 
@@ -416,14 +423,51 @@ pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> 
         data,
         seed.at + 8 + usize::from(seed.counter) * 8..data.len() * 8,
     )?;
+    store(src, seed.start, seed.data_at, seed.crc_at, out)
+}
+
+/// `start` から始まる R2000 の見出しの変数の区切りの、INSUNITS を `units` に、用紙空間の PLIMMIN・PLIMMAX を
+/// `limits` にし、区切りの CRC を直す（決定 0069）。`None` の変数は変えない。データの大きさ（バイト）が
+/// 変わる値なら `None`
+pub(super) fn set_values(
+    src: &mut [u8],
+    start: usize,
+    units: Option<i16>,
+    limits: Option<[f64; 4]>,
+) -> Option<()> {
+    let (data, crc_at) = section(src, start, Release::R2000)?;
+    let data = data.to_vec();
+    let data_at = crc_at - data.len();
+    let found = variables(&mut streams(&data, Release::R2000)?)?;
+    let mut bits = Bits::with_release(&data, Release::R2000);
+    bits.seek(found.units_at);
+    bits.bs()?;
+    let mut out = BitWriter::default();
+    out.copy(&data, 0..found.limits_at)?;
+    for value in limits.unwrap_or(found.limits) {
+        out.rd(value);
+    }
+    out.copy(&data, found.limits_at + 4 * 64..found.units_at)?;
+    out.bs(units.unwrap_or(found.units));
+    out.copy(&data, bits.pos()..data.len() * 8)?;
+    store(src, start, data_at, crc_at, out)
+}
+
+/// 見出しの変数の区切りのデータを、同じ大きさ（バイト）の `out` に置き換え、CRC を直す。大きさが違えば `None`
+fn store(
+    src: &mut [u8],
+    start: usize,
+    data_at: usize,
+    crc_at: usize,
+    out: BitWriter,
+) -> Option<()> {
     let out = out.into_bytes();
-    if out.len() != data.len() {
+    if out.len() != crc_at - data_at {
         return None;
     }
-    src.get_mut(seed.data_at..seed.crc_at)?
-        .copy_from_slice(&out);
-    let crc = crc16(OBJECT_CRC_SEED, src.get(seed.start + 16..seed.crc_at)?);
-    src.get_mut(seed.crc_at..seed.crc_at + 2)?
+    src.get_mut(data_at..crc_at)?.copy_from_slice(&out);
+    let crc = crc16(OBJECT_CRC_SEED, src.get(start + 16..crc_at)?);
+    src.get_mut(crc_at..crc_at + 2)?
         .copy_from_slice(&crc.to_le_bytes());
     Some(())
 }
