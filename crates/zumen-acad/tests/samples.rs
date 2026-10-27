@@ -492,6 +492,53 @@ fn r2010_and_later_table_cell_values_end_with_the_displayed_text() {
     assert!(pairs().is_empty() || checked > 0);
 }
 
+/// 図面モデルで動かした線を、DWG に書き戻して読み直すと、同じ所に動いている（決定 0139）
+#[cfg(feature = "drawing")]
+#[test]
+fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
+    use zumen_drawing::{Changes, Drawing2D, Edit, Shape};
+    use zumen_sdk::{Apply, Lift, testkit};
+    let lift = |file: &zumen_acad::DwgFile| -> Drawing2D {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+    };
+    let mut checked = 0;
+    for (dwg, _) in pairs() {
+        let src = std::fs::read(&dwg).unwrap();
+        let mut file = testkit::read::<Dwg>(&src).0.unwrap();
+        let elements = lift(&file).spaces.swap_remove(0).elements;
+        let Some(index) = elements
+            .iter()
+            .position(|e| matches!(e.shape, Shape::Line { .. }))
+        else {
+            continue;
+        };
+        let mut moved = elements[index].clone();
+        if let Shape::Line { end, .. } = &mut moved.shape {
+            end.x += 1.5;
+            end.y -= 0.25;
+        }
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let changes = Changes {
+            edits: vec![Edit::Replace(Box::new(moved.clone()))],
+        };
+        file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        let written = testkit::write::<Dwg>(&file).unwrap();
+        let again = testkit::read::<Dwg>(&written).0.unwrap();
+        let after = lift(&again).spaces.swap_remove(0).elements;
+        assert_eq!(after.len(), elements.len(), "{}", dwg.display());
+        assert_eq!(after[index].shape, moved.shape, "{}", dwg.display());
+        checked += 1;
+    }
+    assert!(pairs().is_empty() || checked > 0);
+}
+
 #[cfg(feature = "drawing")]
 #[test]
 fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {

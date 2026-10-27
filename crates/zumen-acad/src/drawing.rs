@@ -12,6 +12,7 @@
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
 //! DWG でも `dxf.` で始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
+mod apply;
 mod mtext;
 
 use std::collections::{BTreeMap, BTreeSet};

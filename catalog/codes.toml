@@ -303,6 +303,19 @@ params = { kind = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.element.missing"]
+description = "図面モデルの変更が指す出所の要素が、今のファイルの実寸の空間の図形にない（決定 0139）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.change.unsupported"]
+description = "図面モデルの要素の変更を、元の図形のレコードに書き戻せない。今は、LINE・CIRCLE の形の置き換えと、続くレコードを持たない図形の除去だけを扱う（決定 0139）"
+severity = "error"
+params = { kind = "text" }
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.handle-seed.missing"]
 description = "DXF の見出しに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない"
 severity = "error"
