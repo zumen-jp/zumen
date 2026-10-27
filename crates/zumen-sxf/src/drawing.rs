@@ -1,19 +1,20 @@
 //! SFC から図面モデル（L2）への変換（決定 0022・0121）。
 //!
 //! 用紙・レイヤ・色・線種・線幅の表と、線分・折線・円・円弧・楕円・楕円弧・スプライン・クロソイド・文字・点マーカー・
-//! 表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
+//! 寸法・表題欄・画像を移す。部分図は実寸の空間にし、用紙への配置をビューにする。作図グループは、置いた所にそのまま展開する。ほかのフィーチャは、まだ移さずに診断する。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Basis, Color, ColorCode, ColorSystem, Drawing2D, Edge, Element, Extension, Field,
-    FieldValue, Flow, Font, FontKind, Format, FormattedText, Height, HeightMeaning, Horizontal,
-    Inherit, Layer, LayerId, LayerState, Length, LineSpacing, LineType, LineTypeDefinition,
-    LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint,
-    PatternBasis, Piece, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId,
-    Span, Spline, Style, Symbol, SymbolKey, Target, TitleBlock, TitleItem, Underlay, UnderlayFrame,
-    UnderlayKind, Unit, Vertex, Vertical, View,
+    Affine, Basis, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionText,
+    Drawing2D, Edge, Element, Extension, Field, FieldValue, Flow, Font, FontKind, Format,
+    FormattedText, Height, HeightMeaning, Horizontal, Inherit, Label, Layer, LayerId, LayerState,
+    Length, LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, PatternBasis, Piece, Polyline, Resource,
+    Rotation, Scaled, Shape, Sheet, SheetId, SheetItem, SpaceId, Span, Spline, Style, Symbol,
+    SymbolKey, Target, TitleBlock, TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex,
+    Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -617,6 +618,12 @@ impl<'f> Lifter<'f> {
                 }
                 continue;
             }
+            if DIMENSIONS.iter().any(|name| feature.is(name)) {
+                if self.dimension(feature, at, out, cx).is_none() {
+                    invalid(cx, feature);
+                }
+                continue;
+            }
             let outline = self
                 .raster
                 .as_ref()
@@ -1031,6 +1038,258 @@ impl<'f> Lifter<'f> {
     }
 
     /// レイヤ・色・線種・線幅のコード（引数の 0〜3）で、要素を作る
+    /// 寸法（決定 0127）。定義点・寸法値の文字は図面モデルの欄に、寸法線と補助線の端・矢印・文字範囲の幅と字の間隔・
+    /// 書く向きは `sxf.dimension` の拡張に、要素と同じ座標で残す。SXF は測定値を持たないので、`measurement` は `None`
+    fn dimension<C: Place>(
+        &mut self,
+        feature: Feature<'f>,
+        at: &C,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Option<()> {
+        let args = self.args(feature);
+        let point = |x: usize| Some([args.num(x)?, args.num(x + 1)?]);
+        // 補助線は、有無・基点・始点・終点
+        let extension = |x: usize| match args.int(x)? {
+            0 => Some(None),
+            1 => Some(Some([point(x + 1)?, point(x + 3)?, point(x + 5)?])),
+            _ => None,
+        };
+        // 矢印は、コード・向き（0 なら矢印がない）・位置・倍率
+        let arrow = |x: usize| match args.int(x + 1)? {
+            0 => Some(None),
+            direction => Some(Some((
+                args.int(x)?,
+                direction,
+                point(x + 2)?,
+                args.num(x + 4)?,
+            ))),
+        };
+        let mut fields = Vec::new();
+        let mut field = |key: &'static str, value: FieldValue| fields.push(Field { key, value });
+        let xy = |[x, y]: [f64; 2]| FieldValue::Point([x, y, 0.0]);
+        let extensions = |fields: &mut dyn FnMut(&'static str, FieldValue), x: [usize; 2]| {
+            let keys = [
+                ["extension1_start", "extension1_end"],
+                ["extension2_start", "extension2_end"],
+            ];
+            let mut bases = [None, None];
+            for ((x, [start_key, end_key]), slot) in x.into_iter().zip(keys).zip(&mut bases) {
+                if let Some([base, start, end]) = extension(x)? {
+                    *slot = Some(base);
+                    fields(start_key, xy(start));
+                    fields(end_key, xy(end));
+                }
+            }
+            Some(bases)
+        };
+        let (kind, arrows, text) = if feature.is(b"linear_dim") {
+            let (start, end) = (point(4)?, point(6)?);
+            let [first, second] = extensions(&mut field, [8, 15])?;
+            let rotation = degrees(end[0] - start[0], end[1] - start[1])?;
+            field("line_start", xy(start));
+            field("line_end", xy(end));
+            let oblique = match extension(8)?.or(extension(15)?) {
+                Some([_, from, to]) => oblique(start, end, from, to),
+                None => 0.0,
+            };
+            let kind = DimensionKind::Linear {
+                first: at.point(first.unwrap_or(start)[0], first.unwrap_or(start)[1]),
+                second: at.point(second.unwrap_or(end)[0], second.unwrap_or(end)[1]),
+                line: at.point(start[0], start[1]),
+                rotation,
+                oblique,
+            };
+            (kind, [22, 27].as_slice(), 32)
+        } else if feature.is(b"curve_dim") || feature.is(b"angular_dim") {
+            let center = point(4)?;
+            let radius = args.num(6).filter(|r| *r > 0.0)?;
+            let (from, to) = (args.num(7)?, args.num(8)?);
+            let [first, second] = extensions(&mut field, [9, 16])?;
+            field("radius", FieldValue::Real(radius));
+            field("start_angle", FieldValue::Real(from));
+            field("end_angle", FieldValue::Real(to));
+            // 寸法の弧は、始めの角度から反時計回りに終わりの角度まで（推定。docs/formats/sxf.md）
+            let sweep = (to - from).rem_euclid(360.0);
+            let on = |angle: f64| {
+                let radians = angle.to_radians();
+                [
+                    center[0] + radius * libm::cos(radians),
+                    center[1] + radius * libm::sin(radians),
+                ]
+            };
+            let [first, second] = [first.unwrap_or(on(from)), second.unwrap_or(on(to))];
+            let arc = on(from + sweep / 2.0);
+            let [center, first, second, arc] =
+                [center, first, second, arc].map(|[x, y]| at.point(x, y));
+            let kind = if feature.is(b"curve_dim") {
+                DimensionKind::ArcLength {
+                    center,
+                    first,
+                    second,
+                    arc,
+                }
+            } else {
+                DimensionKind::Angular {
+                    vertex: center,
+                    first,
+                    second,
+                    arc,
+                }
+            };
+            (kind, [23, 28].as_slice(), 33)
+        } else if feature.is(b"radius_dim") {
+            let (start, end) = (point(4)?, point(6)?);
+            field("line_start", xy(start));
+            field("line_end", xy(end));
+            // 矢印に近い端を円の上の点とする。矢印がなければ終点（推定。docs/formats/sxf.md）
+            let near = |p: [f64; 2], q: [f64; 2]| {
+                let (x, y) = (p[0] - q[0], p[1] - q[1]);
+                x * x + y * y
+            };
+            let (center, chord) = match arrow(8)? {
+                Some((_, _, tip, _)) if near(start, tip) < near(end, tip) => (end, start),
+                _ => (start, end),
+            };
+            let kind = DimensionKind::Radius {
+                center: at.point(center[0], center[1]),
+                chord: at.point(chord[0], chord[1]),
+                leader: at.length(0.0),
+            };
+            (kind, [8].as_slice(), 13)
+        } else {
+            let (start, end) = (point(4)?, point(6)?);
+            field("line_start", xy(start));
+            field("line_end", xy(end));
+            let kind = DimensionKind::Diameter {
+                chord: at.point(start[0], start[1]),
+                opposite: at.point(end[0], end[1]),
+                leader: at.length(0.0),
+            };
+            (kind, [8, 13].as_slice(), 18)
+        };
+        let keys = [
+            [
+                "arrow1_code",
+                "arrow1_direction",
+                "arrow1_point",
+                "arrow1_scale",
+            ],
+            [
+                "arrow2_code",
+                "arrow2_direction",
+                "arrow2_point",
+                "arrow2_scale",
+            ],
+        ];
+        for (x, [code_key, direction_key, point_key, scale_key]) in arrows.iter().zip(keys) {
+            if let Some((code, direction, tip, scale)) = arrow(*x)? {
+                field(code_key, FieldValue::Integer(code));
+                field(direction_key, FieldValue::Integer(direction));
+                field(point_key, xy(tip));
+                field(scale_key, FieldValue::Real(scale));
+            }
+        }
+        let source = feature.source();
+        let (label, placement) = match args.int(text)? {
+            0 => (
+                Label::Hidden,
+                DimensionText {
+                    position: None,
+                    moved: false,
+                    rotation: None,
+                    attachment: None,
+                },
+            ),
+            1 => {
+                let content = args.text(text + 2)?;
+                let height = args.num(text + 5).filter(|h| *h > 0.0)?;
+                let width = args.num(text + 6).filter(|w| *w >= 0.0)?;
+                let spacing = args.num(text + 7)?;
+                let slant = args.num(text + 9)?;
+                let anchor = args.int(text + 10).filter(|a| (1..=9).contains(a))? - 1;
+                let horizontal = [Horizontal::Left, Horizontal::Center, Horizontal::Right]
+                    .get(usize::try_from(anchor % 3).ok()?)
+                    .copied()?;
+                let vertical = [Vertical::Bottom, Vertical::Middle, Vertical::Top]
+                    .get(usize::try_from(anchor / 3).ok()?)
+                    .copied()?;
+                let flow = match args.int(text + 11) {
+                    None if feature.args.len() < text + 12 => 1,
+                    Some(flow @ (1 | 2)) => flow,
+                    _ => return None,
+                };
+                field("text_width", FieldValue::Real(width));
+                field("text_spacing", FieldValue::Real(spacing));
+                field("text_flow", FieldValue::Integer(flow));
+                let font = args.int(text + 1).unwrap_or_default();
+                let format = Format {
+                    height: Some(Scaled::Value(at.length(height))),
+                    oblique: (slant != 0.0).then_some(slant),
+                    font: self.font(font, &source, cx),
+                    ..Format::default()
+                };
+                let label = Label::Override {
+                    spans: vec![Span {
+                        piece: Piece::Text(content.clone()),
+                        format,
+                    }],
+                    content,
+                };
+                let placement = DimensionText {
+                    position: Some(at.point(args.num(text + 3)?, args.num(text + 4)?)),
+                    moved: false,
+                    rotation: Some(args.num(text + 8)?),
+                    attachment: Some((horizontal, vertical)),
+                };
+                (label, placement)
+            }
+            _ => return None,
+        };
+        let shape = Shape::Dimension(Dimension {
+            kind,
+            measurement: None,
+            label,
+            text: placement,
+            style: String::new(),
+            block: None,
+        });
+        let element = self.element(feature, shape, cx);
+        let (target, basis) = at.target(&element, out);
+        out.extensions.push(Extension {
+            namespace: "sxf.dimension",
+            name: String::new(),
+            version: None,
+            schema: 1,
+            target,
+            basis,
+            fields,
+            source,
+        });
+        at.element(element, out);
+        Some(())
+    }
+
+    /// 文字のフォントのコードを、`text_font_feature` の順の名前にする。なければ診断して `None`
+    fn font(&self, code: i64, source: &Ref, cx: &mut Cx) -> Option<Font> {
+        let name = usize::try_from(code)
+            .ok()
+            .and_then(|code| code.checked_sub(1))
+            .and_then(|at| self.fonts.get(at));
+        if name.is_none() {
+            missing(cx, "font", code, source);
+        }
+        name.map(|name| Font {
+            name: name.clone(),
+            kind: FontKind::Named {
+                bold: false,
+                italic: false,
+                charset: None,
+                pitch: None,
+            },
+        })
+    }
+
     fn element<P>(&mut self, feature: Feature<'f>, shape: Shape<P>, cx: &mut Cx) -> Element<P> {
         let args = self.args(feature);
         let source = feature.source();
@@ -1313,6 +1572,34 @@ fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
 fn stopped(cx: &mut Cx, stop: zumen_sdk::Stop, feature: Feature) -> Error {
     cx.report(stop.to_diagnostic().at(feature.source()));
     Error::Stopped(stop)
+}
+
+/// 寸法のフィーチャの名前（`_feature` を除く）
+const DIMENSIONS: [&[u8]; 5] = [
+    b"linear_dim",
+    b"curve_dim",
+    b"angular_dim",
+    b"radius_dim",
+    b"diameter_dim",
+];
+
+/// 向きの角度（度）。長さがなければ `None`
+fn degrees(x: f64, y: f64) -> Option<f64> {
+    (x != 0.0 || y != 0.0).then(|| libm::atan2(y, x).to_degrees())
+}
+
+/// 補助線の傾き（度）。寸法線に垂直なら 0（決定 0127）
+fn oblique(start: [f64; 2], end: [f64; 2], from: [f64; 2], to: [f64; 2]) -> f64 {
+    let (u, v) = (
+        [end[0] - start[0], end[1] - start[1]],
+        [to[0] - from[0], to[1] - from[1]],
+    );
+    let dot = u[0] * v[0] + u[1] * v[1];
+    let scale = libm::hypot(u[0], u[1]) * libm::hypot(v[0], v[1]);
+    match degrees(v[0], v[1]) {
+        Some(angle) if dot.abs() > 1.0e-9 * scale => angle.rem_euclid(180.0),
+        _ => 0.0,
+    }
 }
 
 fn dropped(cx: &mut Cx, feature: Feature) {

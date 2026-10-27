@@ -604,6 +604,17 @@ pub enum DimensionKind<P> {
         /// 寸法の弧が通る点
         arc: P,
     },
+    /// 円弧の長さ。角度に変えない（決定 0127）
+    ArcLength {
+        /// 円弧の中心
+        center: P,
+        /// 円弧の始めの点
+        first: P,
+        /// 円弧の終わりの点
+        second: P,
+        /// 寸法の弧が通る点
+        arc: P,
+    },
     /// 半径
     Radius {
         /// 中心
