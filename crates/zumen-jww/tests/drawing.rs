@@ -7,9 +7,9 @@ use core::f64::consts::PI;
 use common::{Archive, Spec};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
 use zumen_drawing::{
-    Boundary, Color, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, Element, FieldValue,
-    Fill, Inherit, Label, LayerId, LayerState, Length, LineWeight, ModelLength, ModelPoint,
-    PaperLength, Placement, Shape, SpaceId, Target, Unit,
+    Boundary, Color, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, Element, Extension,
+    FieldValue, Fill, Inherit, Label, LayerId, LayerState, Length, LineWeight, ModelLength,
+    ModelPoint, PaperLength, Placement, Shape, SpaceId, Target, UnderlayFrame, UnderlayKind, Unit,
 };
 use zumen_jww::Jww;
 use zumen_sdk::{Lift, testkit};
@@ -50,6 +50,9 @@ fn spec() -> Spec {
     layers[0] = 1;
     spec.groups[1] = (1, 0.0, layers);
     spec.layer_names = vec![(0, "通り芯")];
+    spec.write_group = 0;
+    spec.group_names = vec![(0, "平面")];
+    spec.protects = vec![(2, 1)];
     spec.max_draw_width = -300;
     spec.pens[2] = 0x0000_00FF;
     spec.printer_widths[2] = 35;
@@ -145,17 +148,40 @@ fn entities(archive: &mut Archive) -> u16 {
         archive.reals(&[x, y]);
         archive.out.extend(0u32.to_le_bytes());
     }
-    14
+    // 同梱画像を指す文字・ほかの制御文字・属性を持つ線
+    archive.tag("CDataMoji");
+    archive.base(1, 1);
+    archive.reals(&[10.0, 10.0, 10.0, 10.0]);
+    archive.out.extend(0u32.to_le_bytes());
+    archive.reals(&[3.0, 3.0, 0.0, 90.0]);
+    archive.cstring("");
+    archive.cstring("^@BM%temp%a.jpg,40,30,0,0,1,0,255,255,255");
+    archive.tag("CDataMoji");
+    archive.base(1, 1);
+    archive.reals(&[1.0, 2.0, 1.0, 2.0]);
+    archive.out.extend(0u32.to_le_bytes());
+    archive.reals(&[3.0, 3.0, 0.0, 0.0]);
+    archive.cstring("");
+    archive.cstring("^@XX");
+    archive.curve = 5;
+    archive.flag = 0x20;
+    archive.line();
+    archive.curve = 0;
+    archive.flag = 0;
+    17
 }
 
 #[cfg(test)]
 fn drawing() -> (Drawing2D, Vec<Diagnostic>) {
     let mut archive = Archive::new(700);
-    archive.count(14);
+    archive.count(17);
     entities(&mut archive);
     archive.count(1);
     archive.block("部品");
-    archive.out.extend(0u32.to_le_bytes());
+    archive.out.extend(1u32.to_le_bytes());
+    archive.cstring("a.jpg.gz");
+    archive.out.extend(3u32.to_le_bytes());
+    archive.out.extend([1, 2, 3]);
     let mut src = spec().build();
     src.extend(&archive.out);
     lift(&src)
@@ -205,7 +231,11 @@ fn sheet_layers_and_groups() {
     assert_eq!(drawing.layer(LayerId(256)).unwrap().name, "F-F");
     assert!(diag.is_empty(), "{diag:?}");
     // 設定の文字は、図面の設定にする
-    let setting = &drawing.extensions[0];
+    let setting = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "jww.setting")
+        .unwrap();
     assert_eq!(setting.namespace, "jww.setting");
     assert_eq!(setting.name, "Printer_Orientation");
 }
@@ -357,7 +387,7 @@ fn points_texts_and_solids() {
     };
     assert_eq!(start, model(0, 0.0, 0.0));
     assert!(close(end.x, 100.0) && close(end.y, 0.0));
-    assert_eq!(shapes.len(), 11);
+    assert_eq!(shapes.len(), 13);
 }
 
 #[test]
@@ -448,4 +478,64 @@ fn blocks_and_dimensions() {
             index: 10
         }
     );
+}
+
+#[test]
+fn images_and_edit_state() {
+    let (drawing, diag) = drawing();
+    assert!(diag.is_empty(), "{diag:?}");
+    let find = |namespace: &str| -> Vec<&Extension> {
+        drawing
+            .extensions
+            .iter()
+            .filter(|e| e.namespace == namespace)
+            .collect()
+    };
+
+    // 画像は、文字の始点を左下にした下敷きにし、同梱画像のレコードを定義にする
+    let shapes = elements(&drawing, 0);
+    let Shape::Underlay(image) = &shapes[11].shape else {
+        panic!("{:?}", shapes[11].shape);
+    };
+    assert_eq!(image.kind, UnderlayKind::Image);
+    assert_eq!(image.resource.path, "%temp%a.jpg");
+    // 同梱画像のレコードは、文字のレコードより後ろにある
+    assert!(image.resource.definition.record() > shapes[11].source.record());
+    let UnderlayFrame::Corners { origin, right, top } = image.frame else {
+        panic!("{:?}", image.frame);
+    };
+    assert_eq!(origin, model(0, 1000.0, 1000.0));
+    assert!(close(right.x, 1000.0) && close(right.y, 5000.0));
+    assert!(close(top.x, -2000.0) && close(top.y, 1000.0));
+    let extra = &find("jww.image")[0];
+    assert_eq!(
+        extra.fields[0].value,
+        FieldValue::Text("0,0,1,0,255,255,255".into())
+    );
+    assert!(extra.is_current(&drawing));
+
+    // ほかの制御文字は、描かずに元のまま持つ
+    let control = &find("jww.control")[0];
+    assert_eq!(control.name, "^@XX");
+    assert_eq!(control.target, Target::Document);
+
+    // 曲線属性と属性のフラグ
+    let entity = &find("jww.entity")[0];
+    assert_eq!(
+        entity.target,
+        Target::Model {
+            space: SpaceId(0),
+            index: 12
+        }
+    );
+    assert_eq!(entity.fields[1].value, FieldValue::Integer(0x20));
+
+    // 書き込むグループ・グループの名前・レイヤの保護
+    assert_eq!(find("jww.edit")[0].fields[0].value, FieldValue::Integer(0));
+    let groups = find("jww.group");
+    assert_eq!(groups.len(), 16);
+    assert_eq!(groups[0].fields[0].value, FieldValue::Text("平面".into()));
+    let layers = find("jww.layer");
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].name, "0-2");
 }

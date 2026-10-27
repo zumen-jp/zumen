@@ -17,6 +17,12 @@ pub struct Spec {
     pub groups: [(u32, f64, [u32; 16]); 16],
     /// レイヤの位置（グループ × 16 + レイヤ）と名前
     pub layer_names: Vec<(usize, &'static str)>,
+    /// 書き込むレイヤグループ
+    pub write_group: u32,
+    /// グループの位置と名前
+    pub group_names: Vec<(usize, &'static str)>,
+    /// レイヤの位置（グループ × 16 + レイヤ）と保護
+    pub protects: Vec<(usize, u32)>,
     pub max_draw_width: i32,
     pub pens: [u32; 10],
     pub printer_widths: [u32; 10],
@@ -37,6 +43,9 @@ impl Spec {
             paper: 0,
             groups: [(0, 0.0, [0; 16]); 16],
             layer_names: Vec::new(),
+            write_group: 0,
+            group_names: Vec::new(),
+            protects: Vec::new(),
             max_draw_width: 0,
             pens: [0; 10],
             printer_widths: [0; 10],
@@ -54,15 +63,17 @@ impl Spec {
         out.extend(version.to_le_bytes());
         out.push(0);
         out.extend(self.paper.to_le_bytes());
-        out.extend([0; 4]);
-        for (state, scale, layers) in &self.groups {
+        out.extend(self.write_group.to_le_bytes());
+        for (group, (state, scale, layers)) in self.groups.iter().enumerate() {
             out.extend(state.to_le_bytes());
             out.extend([0; 4]);
             out.extend(scale.to_le_bytes());
             out.extend([0; 4]);
-            for layer in layers {
-                out.extend(layer.to_le_bytes());
-                out.extend([0; 4]);
+            for (layer, state) in layers.iter().enumerate() {
+                let at = group * 16 + layer;
+                let protect = self.protects.iter().find(|(i, _)| *i == at);
+                out.extend(state.to_le_bytes());
+                out.extend(protect.map_or(0, |p| p.1).to_le_bytes());
             }
         }
         out.extend([0; 80]);
@@ -74,7 +85,12 @@ impl Spec {
                 None => out.push(0),
             }
         }
-        out.extend([0; 16]);
+        for at in 0..16 {
+            match self.group_names.iter().find(|(i, _)| *i == at) {
+                Some((_, name)) => cstring(&mut out, name),
+                None => out.push(0),
+            }
+        }
         let jumps = if version >= 300 { 224 } else { 96 };
         out.extend(vec![
             0;
@@ -168,6 +184,9 @@ pub struct Archive {
     pub layer: u16,
     pub group: u16,
     pub pen_width: u16,
+    /// 次に書く図形の曲線属性と属性のフラグ
+    pub curve: u32,
+    pub flag: u16,
 }
 
 impl Archive {
@@ -181,6 +200,8 @@ impl Archive {
             layer: 2,
             group: 3,
             pen_width: 1,
+            curve: 0,
+            flag: 0,
         }
     }
 
@@ -208,7 +229,7 @@ impl Archive {
     }
 
     pub fn base(&mut self, pen_style: u8, pen_color: u16) {
-        self.out.extend(7u32.to_le_bytes());
+        self.out.extend(self.curve.to_le_bytes());
         self.out.push(pen_style);
         self.out.extend(pen_color.to_le_bytes());
         if self.version >= 351 {
@@ -216,7 +237,7 @@ impl Archive {
         }
         self.out.extend(self.layer.to_le_bytes());
         self.out.extend(self.group.to_le_bytes());
-        self.out.extend([0, 0]);
+        self.out.extend(self.flag.to_le_bytes());
     }
 
     pub fn reals(&mut self, values: &[f64]) {
