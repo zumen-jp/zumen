@@ -11,7 +11,8 @@
 //! 表の終わりに足した図形のうち、いくつかの種類は、一から符号化してオブジェクトの地図に加え、所有者の
 //! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを
 //! 名前で探して、そのハンドルを書く（決定 0053）。足した MTEXT は、表にない欄を 0 にする（決定 0054）。
-//! 属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を持たせ、そのハンドルを書く（決定 0055）。
+//! 属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を持たせ、そのハンドルを書く（決定 0055）。足した LWPOLYLINE は、
+//! 表にない印のビットと一定の幅を 0 にする（決定 0056）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -694,7 +695,7 @@ const REMOVABLE: &[&[u8]] = &[
     b"SHAPE",
 ];
 
-/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0055）。型ごとの欄を元のデータ
+/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0056）。型ごとの欄を元のデータ
 /// なしで符号化でき、型ごとのハンドルが表のレコードか、足した図形を指すものだけか、ないもの
 const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"LINE", 0x13, LINE),
@@ -711,6 +712,7 @@ const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"ATTDEF", 0x03, ATTDEF),
     (b"INSERT", 0x07, INSERT),
     (b"MTEXT", 0x2C, MTEXT),
+    (b"LWPOLYLINE", 0x4D, LWPOLYLINE),
     (b"ATTRIB", 0x02, ATTRIB),
     (b"SEQEND", 0x06, &[]),
 ];
@@ -2118,12 +2120,17 @@ fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
 
 /// LWPOLYLINE の欄（R2000）。続く欄があるかの印は、値があるかから選ぶ。膨らみ（42）が 1 つでもあれば、
 /// すべての頂点の膨らみを書く（ないものは 0）。頂点ごとの幅（40・41）は、初めの頂点から続けて置く。
-/// 頂点ごとの幅があるときは、表にない一定の幅を元のまま残す。ほかの印のビットも元のまま写す
+/// 頂点ごとの幅があるときは、表にない一定の幅を元のまま残す。ほかの印のビットも元のまま写す。足した
+/// LWPOLYLINE（`data` が空）では、どちらも 0 にする（決定 0056）
 fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
-    let mut bits = Bits::with_release(data, Release::R2000);
-    bits.seek(start);
-    let old = bits.bs()?;
-    let old_width = if old & 4 != 0 { bits.bd()? } else { 0.0 };
+    let (old, old_width) = if data.is_empty() {
+        (0, 0.0)
+    } else {
+        let mut bits = Bits::with_release(data, Release::R2000);
+        bits.seek(start);
+        let old = bits.bs()?;
+        (old, if old & 4 != 0 { bits.bd()? } else { 0.0 })
+    };
     // 頂点ごとの x・y・始まりの幅・終わりの幅・膨らみ
     let mut vertices: Vec<[Option<f64>; 5]> = Vec::new();
     for value in &object.values {
