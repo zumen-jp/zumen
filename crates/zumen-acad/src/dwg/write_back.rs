@@ -1,4 +1,5 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 だけを扱う。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 を扱う。
+//! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
@@ -40,6 +41,12 @@ use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 
 /// 図形の共通の欄のうち、表に置くもののグループ・コード
 const COMMON: &[i16] = &[62, 48, 60];
+
+/// R2004 で、型ごとの欄を R2000 と同じに符号化する図形の種類（決定 0072）
+const R2004_KINDS: &[&[u8]] = &[
+    b"LINE", b"CIRCLE", b"ARC", b"POINT", b"ELLIPSE", b"RAY", b"XLINE", b"SOLID", b"TRACE",
+    b"3DFACE", b"TEXT",
+];
 
 /// 型ごとの欄のグループ・コード
 const LINE: &[i16] = &[10, 20, 30, 11, 21, 31, 39, 210, 220, 230];
@@ -224,10 +231,11 @@ impl DwgFile {
     /// 表 `db` を書き戻す変更
     fn changes(&self, db: &AcadDb, base: &AcadDb) -> Result<Changes, Box<Diagnostic>> {
         if db != base
-            && let Some(diagnostic) = self.header_unsupported()
+            && let Some(diagnostic) = self.edit_unsupported()
         {
             return Err(Box::new(diagnostic));
         }
+        let r2004 = self.release == Release::R2004;
         let records: BTreeMap<usize, usize> = self
             .entries
             .iter()
@@ -270,7 +278,11 @@ impl DwgFile {
                         let data = self.data(entry);
                         // BLOCK と ENDBLK も、DWG では図形として書かれる
                         match self.kind(entry.type_code)?.1 {
-                            Section::Entities | Section::Blocks => encode(data, old, object),
+                            Section::Entities | Section::Blocks => {
+                                encode(data, old, object, self.release)
+                            }
+                            // R2004 の表のレコードと図形でないオブジェクトは、まだ符号化しない
+                            _ if r2004 => None,
                             Section::Tables => encode_record(data, old, object),
                             Section::Objects => encode_object(data, old, object),
                             _ => None,
@@ -305,7 +317,7 @@ impl DwgFile {
             .into_iter()
             .filter(|n| base.variable(n) != db.variable(n))
         {
-            if base.variable(name).is_none() {
+            if base.variable(name).is_none() || r2004 {
                 return Err(unsupported(name));
             }
             match name {
@@ -320,6 +332,15 @@ impl DwgFile {
                     limits = Some(paper_limits(db).ok_or_else(|| unsupported(name))?);
                 }
                 _ => return Err(unsupported(name)),
+            }
+        }
+        // R2004 の図形の削除と追加は、まだ書き戻さない
+        if r2004 {
+            if let Some((_, object)) = removed.first() {
+                return Err(unsupported(&object.kind));
+            }
+            if let Some(object) = added.first() {
+                return Err(unsupported(&object.kind));
             }
         }
         self.unlink(base, &removed, &mut changes)?;
@@ -1318,9 +1339,10 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
     Box::new(Diagnostic::new(codes::DWG_CHANGE_UNSUPPORTED).with("kind", kind))
 }
 
-/// `old` から `new` に値を変えた図形のデータ `data` を、符号化し直す。共通の欄と型ごとの欄のほかの値が
-/// 変わったか、符号化できない値なら `None`
-fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
+/// `old` から `new` に値を変えた、版 `release` の図形のデータ `data` を、符号化し直す。共通の欄と型ごとの欄の
+/// ほかの値が変わったか、符号化できない値なら `None`。R2004 は、R2000 と型ごとの欄が同じ種類だけを
+/// 扱う（決定 0072）
+fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型で欄が分かれる
     let type_code = Bits::with_release(data, Release::R2000).bs()?;
     let grid = type_code == MINSERT_TYPE;
@@ -1363,6 +1385,9 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
         b"SHAPE" => SHAPE,
         _ => &[],
     };
+    if release == Release::R2004 && !R2004_KINDS.contains(&new.kind.as_slice()) {
+        return None;
+    }
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -1375,13 +1400,14 @@ fn encode(data: &[u8], old: &Object, new: &Object) -> Option<Vec<u8>> {
     if rest(old) != rest(new) {
         return None;
     }
-    let [size_at, color_at, start, handles_at] = entity_fields(data)?;
+    let [size_at, color_at, start, handles_at] = entity_fields(data, release)?;
     let common = if only(COMMON, old, true) == only(COMMON, new, true) {
         let mut common = BitWriter::default();
         common.copy(data, color_at..start)?;
         common
     } else {
-        common_fields(data, color_at, start, new)?
+        let color = only(&[62], old, true) != only(&[62], new, true);
+        common_fields(data, color_at, start, new, release, color)?
     };
     let fields = if only(own, old, true) == only(own, new, true) {
         let mut fields = BitWriter::default();
@@ -2392,19 +2418,44 @@ fn vport_fields(
     ucs_axes(fields, new)
 }
 
-/// 共通の欄の、色から型ごとの欄の前まで（R2000）。色（62）がなければ ByLayer、線種の尺度（48）がなければ 1、
-/// 非表示（60）がなければ 0 を書く。線種と印刷スタイルの印と、線の太さは元のまま写す
-fn common_fields(data: &[u8], color_at: usize, start: usize, object: &Object) -> Option<BitWriter> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+/// 版 `release` の共通の欄の、色から型ごとの欄の前まで。`color` なら色を書き、色（62）がなければ ByLayer に
+/// する。線種の尺度（48）がなければ 1、非表示（60）がなければ 0 を書く。線種と印刷スタイルの印と、線の太さは
+/// 元のまま写す
+fn common_fields(
+    data: &[u8],
+    color_at: usize,
+    start: usize,
+    object: &Object,
+    release: Release,
+    color: bool,
+) -> Option<BitWriter> {
+    let mut bits = Bits::with_release(data, release);
     bits.seek(color_at);
-    bits.bs()?;
+    let flags = bits.bs()? as u16;
+    let index_end = bits.pos();
+    bits.seek(color_at);
+    bits.enc()?;
+    let scale_at = bits.pos();
     bits.bd()?;
     let flags_at = bits.pos();
     bits.seek(flags_at + 4);
     bits.bs()?;
     let lineweight_at = bits.pos();
     let mut fields = BitWriter::default();
-    fields.bs(small(object, 62)?.unwrap_or(256));
+    if !color {
+        fields.copy(data, color_at..scale_at)?;
+    } else if release == Release::R2000 {
+        fields.bs(small(object, 62)?.unwrap_or(256));
+    } else {
+        // R2004 の番号は、印の下の 12 ビットに収まらなければならない。RGB の値と DBCOLOR を持つ色は、
+        // まだ変えない。透明度（0x2000 と BL）は元のまま写す
+        let index = small(object, 62)?.unwrap_or(256);
+        if flags & 0xC000 != 0 || !(0..=0x0FFF).contains(&index) {
+            return None;
+        }
+        fields.bs(index | (flags & 0x2000) as i16);
+        fields.copy(data, index_end..scale_at)?;
+    }
     fields.bd(real(object, 48)?.unwrap_or(1.0));
     fields.copy(data, flags_at..flags_at + 4)?;
     fields.bs(small(object, 60)?.unwrap_or(0));
@@ -3453,7 +3504,7 @@ fn tolerance(
     } else {
         string(fields, new, 1)?;
     }
-    fields.copy(data, text_end..entity_fields(data)?[3])
+    fields.copy(data, text_end..entity_fields(data, Release::R2000)?[3])
 }
 
 /// LEADER の欄（決定 0040）。注釈の種類（73）・経路の種類（72、なければ 0）・押し出しの向き（なければ
@@ -3500,7 +3551,7 @@ fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
         1 => true,
         _ => return None,
     });
-    fields.copy(data, rest_at..entity_fields(data)?[3])
+    fields.copy(data, rest_at..entity_fields(data, Release::R2000)?[3])
 }
 
 /// MLINE の欄（決定 0040）。値を表の並びで読み、DWG の並びで書く。頂点と線と区切りの数は、表の値の数に
@@ -3619,7 +3670,7 @@ fn viewport(
     }
     fields.bd(real(new, 146)??);
     fields.bs(small(new, 79)??);
-    fields.copy(data, rest_at..entity_fields(data)?[3])
+    fields.copy(data, rest_at..entity_fields(data, Release::R2000)?[3])
 }
 
 /// SHAPE の欄（決定 0042）。角度（50・51）がなければ 0、幅の尺度（41）がなければ 1、厚さ（39）がなければ 0、
@@ -3646,7 +3697,7 @@ fn shape(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
     fields.bd(real(object, 39)?.unwrap_or(0.0));
     fields.copy(data, number_at..number_end)?;
     point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
-    fields.copy(data, rest_at..entity_fields(data)?[3])
+    fields.copy(data, rest_at..entity_fields(data, Release::R2000)?[3])
 }
 
 /// 3BD の点（`code`・`code + 10`・`code + 20`）。どれもなければ `default` を書く

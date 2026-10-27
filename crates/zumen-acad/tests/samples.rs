@@ -442,8 +442,9 @@ fn r2004_drawings_keep_their_table_when_objects_are_rewritten_and_removed() {
         txn.commit(&mut cx).unwrap();
         let mut out = Vec::new();
         Dwg::write(&file, &mut out, &mut cx).unwrap();
-        let reported = diag.len();
-        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        // 同じ種類の診断はまとまるので、読み直しの診断は別に集める
+        let mut reread = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut reread, &cancel);
         let again = Dwg::read(&out, &mut cx).unwrap();
         assert_eq!(again.record_count(), count - 1, "{}", path.display());
         let after = again.objects(&mut cx).unwrap();
@@ -462,15 +463,135 @@ fn r2004_drawings_keep_their_table_when_objects_are_rewritten_and_removed() {
                 path.display()
             );
         }
-        let found: Vec<_> = diag.iter().skip(reported).map(|d| d.code()).collect();
-        let first: Vec<_> = diag.iter().take(reported).map(|d| d.code()).collect();
-        // 除いたオブジェクトの診断は出なくなる
-        assert!(
-            found.iter().all(|code| first.contains(code)) && found.len() <= first.len(),
+        let found: Vec<_> = reread.iter().map(|d| d.code()).collect();
+        let first: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(found, first, "{}", path.display());
+    }
+}
+
+#[test]
+fn r2004_drawings_take_back_changed_entities() {
+    const SIMPLE: [&[u8]; 11] = [
+        b"LINE", b"CIRCLE", b"ARC", b"POINT", b"ELLIPSE", b"RAY", b"XLINE", b"SOLID", b"TRACE",
+        b"3DFACE", b"TEXT",
+    ];
+    let (mut changed, mut colored) = (0, 0);
+    for path in dwgs(b"AC1018") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let file = Dwg::read(&src, &mut cx).unwrap();
+        let base = file.objects(&mut cx).unwrap();
+        // 型ごとの欄を R2000 と同じに符号化する種類の図形の、線種の尺度を変え、点を動かす
+        let mut db = base.clone();
+        for index in 0..db.objects().len() {
+            let object = db.object_mut(index).unwrap();
+            if !SIMPLE.contains(&object.kind.as_slice()) {
+                continue;
+            }
+            for value in object.values.iter_mut() {
+                match (value.code, &mut value.data) {
+                    (48, Data::Real(v)) => *v *= 2.0,
+                    (10 | 20 | 11 | 21, Data::Real(v)) => *v += 1.5,
+                    _ => continue,
+                }
+                changed += 1;
+            }
+        }
+        let first: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(
+            taken_back(&file, &db),
+            Ok(first.clone()),
             "{}",
             path.display()
         );
+        // 色は 1 つずつ、図面ごとに 40 個まで変える。RGB の値か DBCOLOR を持つ色は、まだ書き戻さない
+        let mut tried = 0;
+        for index in 0..base.objects().len() {
+            if tried == 40 {
+                break;
+            }
+            let mut db = base.clone();
+            let object = db.object_mut(index).unwrap();
+            if !SIMPLE.contains(&object.kind.as_slice()) {
+                continue;
+            }
+            let Some(value) = object.values.iter_mut().find(|v| v.code == 62) else {
+                continue;
+            };
+            if let Data::Int(v) = &mut value.data {
+                *v = *v % 255 + 1;
+            }
+            tried += 1;
+            match taken_back(&file, &db) {
+                Ok(found) => {
+                    assert_eq!(found, first, "{}", path.display());
+                    colored += 1;
+                }
+                Err(found) => {
+                    assert_eq!(found, [codes::DWG_CHANGE_UNSUPPORTED], "{}", path.display())
+                }
+            }
+        }
+        // 型ごとの欄をまだ符号化しない種類の図形と、表のレコードの変更は書き戻さない
+        for kind in [&b"MTEXT"[..], b"INSERT", b"LAYER"] {
+            let mut db = base.clone();
+            let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
+                continue;
+            };
+            db.object_mut(index)
+                .unwrap()
+                .values
+                .push(zumen_acad::Value {
+                    code: 48,
+                    data: Data::Real(3.0),
+                });
+            let found = taken_back(&file, &db);
+            assert_eq!(
+                found,
+                Err(vec![codes::DWG_CHANGE_UNSUPPORTED]),
+                "{}",
+                path.display()
+            );
+        }
     }
+    if !dwgs(b"AC1018").is_empty() {
+        assert!(changed > 0 && colored > 0);
+    }
+}
+
+/// `file` の写しに表 `db` を書き戻して書き、読み直した表が `db` と同じことを確かめ、読み直しの診断を返す。
+/// 書き戻せなければ、その診断
+#[cfg(test)]
+fn taken_back(
+    file: &zumen_acad::DwgFile,
+    db: &AcadDb,
+) -> Result<Vec<zumen_base::Code>, Vec<zumen_base::Code>> {
+    let mut file = file.clone();
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    if file.write_back(db, &mut cx).is_err() {
+        return Err(diag.iter().map(|d| d.code()).collect());
+    }
+    let mut out = Vec::new();
+    Dwg::write(&file, &mut out, &mut cx).unwrap();
+    assert!(diag.is_empty());
+    let mut diag = Diagnostics::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let after = Dwg::read(&out, &mut cx).unwrap().objects(&mut cx).unwrap();
+    assert_eq!(after.objects().len(), db.objects().len());
+    for (a, b) in db.objects().iter().zip(after.objects()) {
+        assert_eq!(a.kind, b.kind);
+        assert_eq!(a.values.len(), b.values.len());
+        for (x, y) in a.values.iter().zip(&b.values) {
+            assert!(x.code == y.code && same(&x.data, &y.data));
+        }
+    }
+    Ok(diag.iter().map(|d| d.code()).collect())
 }
 
 #[test]

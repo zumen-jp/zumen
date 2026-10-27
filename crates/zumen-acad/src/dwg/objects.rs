@@ -661,10 +661,10 @@ pub(super) fn object_fields(data: &[u8]) -> Option<[usize; 3]> {
     (start <= handles_at).then_some([size_at, start, handles_at])
 }
 
-/// R2000 の図形のデータの、ハンドルの流れの位置（RL）を書く所と、共通の欄の色の始まりと、型ごとの欄の
-/// 始まりと、ハンドルの流れの始まりの、ビットの位置
-pub(super) fn entity_fields(data: &[u8]) -> Option<[usize; 4]> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+/// 版 `release`（R2004 まで）の図形のデータの、ハンドルの流れの位置（RL）を書く所と、共通の欄の色の
+/// 始まりと、型ごとの欄の始まりと、ハンドルの流れの始まりの、ビットの位置
+pub(super) fn entity_fields(data: &[u8], release: Release) -> Option<[usize; 4]> {
+    let mut bits = Bits::with_release(data, release);
     bits.bs()?;
     let size_at = bits.pos();
     let handles_at = usize::try_from(bits.rl()?).ok()?;
