@@ -6502,7 +6502,7 @@ fn with_added_values(db: &AcadDb, handle: u64, kind: &[u8], values: Vec<Value>) 
 }
 
 #[test]
-fn added_texts_mtexts_and_inserts_are_written_back() {
+fn added_texts_mtexts_and_inserts_with_attribs_are_written_back() {
     let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
         db.objects()
             .iter()
@@ -6594,14 +6594,36 @@ fn added_texts_mtexts_and_inserts_are_written_back() {
     };
     let db = mtext(0x84, &[])(&db);
     let db = mtext(0x85, &[text(7, b"Mono")])(&db);
+    // 属性を持つ INSERT は、ATTRIB を続け、SEQEND で閉じる。ATTRIB と SEQEND は INSERT が持つ
+    let attributed = vec![
+        real(10, 1.0),
+        real(20, 2.0),
+        real(30, 0.0),
+        int(66, 1),
+        text(2, b"C"),
+    ];
+    let attrib =
+        |value: &[u8]| [&place[..], &[text(1, value), text(2, b"TAG"), int(70, 0)]].concat();
+    let owned = |db: &AcadDb, handle, kind: &[u8], owner, values| {
+        let mut db = with_added_values(db, handle, kind, values);
+        set_value(&mut db, handle, 330, Data::Handle(owner));
+        db
+    };
+    let db = with_added_values(&db, 0x86, b"INSERT", attributed.clone());
+    let db = owned(&db, 0x87, b"ATTRIB", 0x86, attrib(b"1"));
+    let db = owned(&db, 0x88, b"ATTRIB", 0x86, attrib(b"2"));
+    let db = owned(&db, 0x89, b"SEQEND", 0x86, Vec::new());
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &db);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にない文字の体裁（TEXT・MTEXT）とブロック、図形を持つブロックそのもの、属性を持つ INSERT は、書き戻せない
+    // 表にない文字の体裁（TEXT・MTEXT）とブロック、図形を持つブロックそのもの、SEQEND で閉じない INSERT、
+    // ATTRIB のない SEQEND、INSERT の後にない ATTRIB は、書き戻せない
     let insert = |values: Vec<Value>| with_added_values(&base, 0x80, b"INSERT", values);
+    let open = insert(attributed.clone());
+    let open = owned(&open, 0x81, b"ATTRIB", 0x80, attrib(b"1"));
     let cases = [
         (
             "TEXT",
@@ -6640,6 +6662,26 @@ fn added_texts_mtexts_and_inserts_are_written_back() {
                 int(66, 1),
                 text(2, b"C"),
             ]),
+        ),
+        ("INSERT", open.clone()),
+        (
+            "INSERT",
+            with_added_values(&open, 0x82, b"LINE", vec![real(10, 0.0)]),
+        ),
+        (
+            "SEQEND",
+            owned(
+                &insert(attributed.clone()),
+                0x81,
+                b"SEQEND",
+                0x80,
+                Vec::new(),
+            ),
+        ),
+        ("ATTRIB", owned(&base, 0x80, b"ATTRIB", 0x61, attrib(b"1"))),
+        (
+            "ATTRIB",
+            owned(&insert(attributed), 0x81, b"ATTRIB", 0x61, attrib(b"1")),
         ),
     ];
     for (kind, db) in cases {
