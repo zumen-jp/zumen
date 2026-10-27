@@ -906,8 +906,8 @@ fn r2000_drawings_take_back_added_entities() {
 }
 
 /// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT と、アプリケーションの名前と、足した
-/// 文字の体裁を使う寸法の体裁を足して書き戻すと、読み直したものが足したものと合う。書き戻した図面に
-/// もう一度足しても合う（決定 0061〜0065）
+/// 文字の体裁を使う寸法の体裁と、UCS を伴うビューを足して書き戻すと、読み直したものが足したものと合う。書き戻した図面に
+/// もう一度足しても合う（決定 0061〜0066）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
     for path in dwgs(b"AC1015") {
@@ -1074,13 +1074,70 @@ fn r2000_drawings_take_back_added_table_records() {
                     .collect(),
                 origin: Origin::New,
             });
+            // UCS を伴うビュー。ビューの表は、見出しの並びと同じく線種の表の次にある
+            let mut tables: Vec<u64> = db
+                .objects()
+                .iter()
+                .filter(|o| o.kind == b"TABLE")
+                .filter_map(Object::handle)
+                .collect();
+            tables.sort_unstable();
+            let views = *tables.iter().find(|&&h| h > ltypes).unwrap();
+            let mut view = vec![
+                (5, Data::Handle(seed + 7)),
+                (330, Data::Handle(views)),
+                (2, Data::Text(name.to_vec())),
+                (70, Data::Int(0)),
+            ];
+            for (code, v) in [
+                (40, 100.0),
+                (10, 50.0),
+                (20, 40.0),
+                (41, 150.0),
+                (11, 0.0),
+                (21, 0.0),
+                (31, 1.0),
+                (12, 0.0),
+                (22, 0.0),
+                (32, 0.0),
+                (42, 50.0),
+                (43, 0.0),
+                (44, 0.0),
+                (50, 0.0),
+            ] {
+                view.push((code, Data::Real(v)));
+            }
+            view.extend([(71, Data::Int(0)), (281, Data::Int(0)), (72, Data::Int(1))]);
+            for (code, v) in [
+                (110, 0.0),
+                (120, 0.0),
+                (130, 0.0),
+                (111, 1.0),
+                (121, 0.0),
+                (131, 0.0),
+                (112, 0.0),
+                (122, 1.0),
+                (132, 0.0),
+            ] {
+                view.push((code, Data::Real(v)));
+            }
+            view.extend([(79, Data::Int(0)), (146, Data::Real(0.0))]);
+            db.push(Object {
+                kind: b"VIEW".to_vec(),
+                section: Section::Tables,
+                values: view
+                    .into_iter()
+                    .map(|(code, data)| Value { code, data })
+                    .collect(),
+                origin: Origin::New,
+            });
             file.write_back(&db, &mut cx).unwrap();
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 7), "{}", path.display());
+            assert_eq!(again.handle_seed(), Some(seed + 8), "{}", path.display());
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
