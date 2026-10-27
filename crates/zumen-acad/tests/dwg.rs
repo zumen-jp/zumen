@@ -6827,12 +6827,12 @@ fn added_splines_are_written_back() {
             .collect()
     };
     assert_eq!(summary(&again), summary(&db));
-    // 重みを持つもの（有理かどうかが表にない）と、当てはめる点だけを持つもの（場合が 2）は、書き戻せない
+    // 重みを持つもの（有理の印を立てる）と、当てはめる点だけを持つもの（場合が 2）も、書き戻せる
     let weighted: Vec<Value> = spline
         .iter()
         .cloned()
         .flat_map(|v| match v.code {
-            30 => vec![v, real(41, 1.0)],
+            30 => vec![v, real(41, 0.5)],
             _ => vec![v],
         })
         .collect();
@@ -6842,6 +6842,9 @@ fn added_splines_are_written_back() {
         int(73, 0),
         int(74, 2),
         real(44, 1e-10),
+        real(12, 1.0),
+        real(22, 0.0),
+        real(32, 0.0),
         real(11, 0.0),
         real(21, 0.0),
         real(31, 0.0),
@@ -6849,7 +6852,31 @@ fn added_splines_are_written_back() {
         real(21, 1.0),
         real(31, 0.0),
     ];
-    for values in [weighted, fitted] {
+    for values in [weighted.clone(), fitted.clone()] {
+        let db = with_added_values(&base, 0x80, b"SPLINE", values);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+        let (again, diag) = objects(&out.unwrap());
+        assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+        assert_eq!(summary(&again), summary(&db));
+    }
+    // 一部の制御点だけが重みを持つものと、制御点と当てはめる点の両方を持つものは、書き戻せない
+    let partly: Vec<Value> = weighted
+        .iter()
+        .enumerate()
+        .filter(|(i, v)| v.code != 41 || *i < weighted.len() - 1)
+        .map(|(_, v)| v.clone())
+        .collect();
+    let both: Vec<Value> = [&spline[..], &fitted[8..]]
+        .concat()
+        .into_iter()
+        .map(|v| match v.code {
+            74 => int(74, 2),
+            _ => v,
+        })
+        .collect();
+    for values in [partly, both] {
         let db = with_added_values(&base, 0x80, b"SPLINE", values);
         let mut file = read(&src, Limits::default()).0.unwrap();
         let (out, diag) = written_back(&mut file, &db);

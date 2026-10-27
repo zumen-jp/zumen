@@ -12,8 +12,8 @@
 //! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを
 //! 名前で探して、そのハンドルを書く（決定 0053）。足した MTEXT は、表にない欄を 0 にする（決定 0054）。
 //! 属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を持たせ、そのハンドルを書く（決定 0055）。足した LWPOLYLINE は、
-//! 表にない印のビットと一定の幅を 0 にする（決定 0056）。足した SPLINE は、節点と制御点を持ち、重みを
-//! 持たないものだけを、表にない印を 0 にして書く（決定 0057）。SHAPE は、形の番号と形のファイルを表で示せないので、
+//! 表にない印のビットと一定の幅を 0 にする（決定 0056）。足した SPLINE は、閉じている・周期的の印を 0 に
+//! して書く（決定 0057）。重みを持つものは有理の印を立て、当てはめる点を持つものは場合を 2 にする（決定 0059）。SHAPE は、形の番号と形のファイルを表で示せないので、
 //! 足せない（決定 0058）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
@@ -697,7 +697,7 @@ const REMOVABLE: &[&[u8]] = &[
     b"SHAPE",
 ];
 
-/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0058）。型ごとの欄を元のデータ
+/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0059）。型ごとの欄を元のデータ
 /// なしで符号化でき、型ごとのハンドルが表のレコードか、足した図形を指すものだけか、ないもの
 const ADDABLE: &[(&[u8], i16, &[i16])] = &[
     (b"LINE", 0x13, LINE),
@@ -2249,11 +2249,13 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
 /// SPLINE の欄（R2000）。場合（scenario）は元のままとし、1 なら節点と制御点、2 なら当てはめる点を書く。
 /// 場合に合わない値があれば `None`。有理・閉じている・周期的の印は表にないので元のビットを写し、重みが
 /// あるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
-/// 場合を 1 とし、重みを持たないものだけを受け付けて、3 つの印を 0 にする（決定 0057）
+/// 当てはめる点（11）を持てば場合を 2、持たなければ 1 とし、閉じている・周期的の印を 0、有理の印を
+/// 重みがあるかにする（決定 0057・0059）
 fn spline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
     let added = data.is_empty();
     let (scenario, flags_at) = if added {
-        (1, 0)
+        let fitted = object.values.iter().any(|value| value.code == 11);
+        (if fitted { 2 } else { 1 }, 0)
     } else {
         let mut bits = Bits::with_release(data, Release::R2000);
         bits.seek(start);
@@ -2316,12 +2318,12 @@ fn spline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
                 return None;
             }
             let weighted = controls.first().is_some_and(|c| c[3].is_some());
-            if controls.iter().any(|c| c[3].is_some() != weighted) || (added && weighted) {
+            if controls.iter().any(|c| c[3].is_some() != weighted) {
                 return None;
             }
             if added {
-                for _ in 0..3 {
-                    fields.bit(false);
+                for on in [weighted, false, false] {
+                    fields.bit(on);
                 }
             } else {
                 fields.copy(data, flags_at..flags_at + 3)?;

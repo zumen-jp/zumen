@@ -655,7 +655,7 @@ fn r2000_drawings_take_back_added_entities() {
             code,
             data: Data::Int(value),
         };
-        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT と MTEXT と、LWPOLYLINE と SPLINE を足す
+        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT と MTEXT と、LWPOLYLINE と、重みのない・重みのある・当てはめる点の SPLINE を足す
         let mut added: Vec<(&[u8], Vec<Value>)> = vec![
             (
                 b"LINE",
@@ -730,6 +730,45 @@ fn r2000_drawings_take_back_added_entities() {
                         .collect(),
                 ]
                 .concat(),
+            ),
+            (
+                b"SPLINE",
+                [
+                    vec![
+                        int(71, 3),
+                        int(72, 8),
+                        int(73, 4),
+                        int(74, 0),
+                        real(42, 1e-10),
+                        real(43, 1e-10),
+                    ],
+                    [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
+                        .map(|k| real(40, k))
+                        .to_vec(),
+                    [[0.0, 0.0], [1.0, 2.0], [3.0, 2.0], [4.0, 0.0]]
+                        .iter()
+                        .flat_map(|[x, y]| {
+                            [real(10, *x), real(20, *y), real(30, 0.0), real(41, 0.5)]
+                        })
+                        .collect(),
+                ]
+                .concat(),
+            ),
+            (
+                b"SPLINE",
+                vec![
+                    int(71, 3),
+                    int(72, 0),
+                    int(73, 0),
+                    int(74, 2),
+                    real(44, 1e-10),
+                    real(11, 0.0),
+                    real(21, 0.0),
+                    real(31, 0.0),
+                    real(11, 1.0),
+                    real(21, 1.0),
+                    real(31, 0.0),
+                ],
             ),
         ];
         // 名前のあるブロックがあれば、その INSERT も足す
