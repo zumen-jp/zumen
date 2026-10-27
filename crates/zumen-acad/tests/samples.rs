@@ -1119,6 +1119,15 @@ fn r2004_drawings_take_back_added_entities() {
     added_entities_are_taken_back(b"AC1018", false);
 }
 
+/// R2010 から後の図面に LINE・CIRCLE・TEXT・LWPOLYLINE・INSERT を足して書き戻すと、読み直したものが足したものと
+/// 合う（決定 0092）
+#[test]
+fn r2010_and_later_drawings_take_back_added_entities() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        added_entities_are_taken_back(version, false);
+    }
+}
+
 /// 版 `version` の試料の図面のモデル空間に図形を足して書き戻し、読み直した表が足した表と同じことを確かめる。
 /// `minsert` なら、属性を持つ MINSERT も足す
 #[cfg(test)]
@@ -1345,6 +1354,15 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
                 ],
             ));
             added.push((b"SEQEND", Vec::new()));
+        }
+        // R2010 から後は、文字列の流れの形が R2000 と同じ図形だけを足せる（決定 0092）
+        if !matches!(version, b"AC1015" | b"AC1018") {
+            added.retain(|(kind, own)| {
+                matches!(
+                    *kind,
+                    b"LINE" | b"CIRCLE" | b"TEXT" | b"LWPOLYLINE" | b"INSERT"
+                ) && own.iter().all(|value| value.code != 66)
+            });
         }
         let count = added.len() as u64;
         let mut insert = model;
