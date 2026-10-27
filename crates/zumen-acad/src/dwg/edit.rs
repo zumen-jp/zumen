@@ -3,6 +3,9 @@
 //! 変えたオブジェクトは、元のファイルの後ろに足し、オブジェクトの地図を作り直してその後ろに置く。
 //! 見出しの区切りの記録の地図の位置と大きさと、見出しの CRC を直す。ほかのバイトは元のまま残す。
 //! 除いたオブジェクトは、地図から除く。元のバイトは残る（決定 0051）。
+//!
+//! 足したオブジェクトは、変えたオブジェクトと同じく後ろに足し、地図に加える。見出しの変数の HANDSEED は、
+//! 大きさ（バイト）が変わらないときだけ、その場で書き換えて区切りの CRC を直す（決定 0052）。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -10,8 +13,9 @@ use zumen_base::{Cx, Diagnostic, Kind, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{Bits, crc16, push_modular_char, push_modular_short};
+use super::header::{self, handle_seed, set_handle_seed};
 use super::{
-    DwgFile, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER, Release,
+    DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER, Release,
     header_crc_mask, invalid, stopped,
 };
 
@@ -27,6 +31,8 @@ pub struct DwgTxn<'a> {
     file: &'a mut DwgFile,
     staged: BTreeMap<usize, Vec<u8>>,
     removed: BTreeSet<usize>,
+    added: Vec<(u64, Vec<u8>)>,
+    seed: Option<u64>,
     rejected: Option<Diagnostic>,
 }
 
@@ -65,6 +71,39 @@ impl DwgTxn<'_> {
         Ok(())
     }
 
+    /// ハンドル `handle` のオブジェクトを、データ `data`（大きさ（MS）の後から CRC の前まで）で足す。
+    /// 確定の後は、今のオブジェクトの後ろの番号になる。ほかのオブジェクトと同じハンドルと、型（BS）を
+    /// 読めないデータは受け付けない
+    pub fn add(&mut self, handle: u64, data: &[u8]) -> Result<(), Error> {
+        if let Some(diagnostic) = self.file.edit_unsupported() {
+            return Err(self.reject(diagnostic));
+        }
+        let taken = self.file.entries.iter().any(|entry| entry.handle == handle)
+            || self.added.iter().any(|(h, _)| *h == handle);
+        if taken {
+            return Err(
+                self.reject(Diagnostic::new(codes::DWG_CHANGE_UNSUPPORTED).with("kind", "handle"))
+            );
+        }
+        if type_code(data).is_none() {
+            let record = self.file.entries.len() + self.added.len();
+            return Err(
+                self.reject(Diagnostic::new(codes::DWG_DATA_INVALID).with("record", record as u64))
+            );
+        }
+        self.added.push((handle, data.to_vec()));
+        Ok(())
+    }
+
+    /// 見出しの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときに失敗する
+    pub fn set_handle_seed(&mut self, seed: u64) -> Result<(), Error> {
+        if let Some(diagnostic) = self.file.edit_unsupported() {
+            return Err(self.reject(diagnostic));
+        }
+        self.seed = Some(seed);
+        Ok(())
+    }
+
     /// 最初の失敗を、確定のときに診断として返すために覚える
     pub(super) fn reject(&mut self, diagnostic: Diagnostic) -> Error {
         self.rejected.get_or_insert(diagnostic);
@@ -78,29 +117,39 @@ impl Transaction for DwgTxn<'_> {
             cx.report(diagnostic);
             return Err(Error::Rejected);
         }
-        if self.staged.is_empty() && self.removed.is_empty() {
+        if self.staged.is_empty()
+            && self.removed.is_empty()
+            && self.added.is_empty()
+            && self.seed.is_none()
+        {
             return Ok(());
         }
         // 予算を先にすべて確かめ、反映の途中では止めない
-        let work = self.staged.len() + self.file.entries.len();
+        let work = self.staged.len() + self.added.len() + self.file.entries.len();
         cx.check(Kind::Work, work as u64)
             .map_err(|stop| stopped(cx, stop))?;
         let file = self.file;
         let mut src = file.src.clone();
         let mut entries = file.entries.clone();
+        if let Some(value) = self.seed {
+            let header = file
+                .locators
+                .iter()
+                .find(|l| l.number == header::NUMBER && l.size > 0)
+                .map(|l| l.seeker as usize);
+            header
+                .and_then(|start| handle_seed(&src, start))
+                .and_then(|seed| set_handle_seed(&mut src, &seed, value))
+                .ok_or_else(|| invalid(cx, "header variables", header.unwrap_or(0)..src.len()))?;
+        }
         for (record, data) in self.staged {
-            let (Some(entry), Some(code)) = (entries.get_mut(record), type_code(&data)) else {
+            let Some(entry) = entries.get_mut(record) else {
                 return Err(Error::Rejected);
             };
-            let offset = src.len();
-            push_modular_short(&mut src, data.len() as u64);
-            let start = src.len();
-            src.extend_from_slice(&data);
-            let crc = crc16(OBJECT_CRC_SEED, src.get(offset..).unwrap_or_default());
-            src.extend_from_slice(&crc.to_le_bytes());
-            entry.span = offset..src.len();
-            entry.data = start..start + data.len();
-            entry.type_code = code;
+            *entry = push_object(&mut src, entry.handle, &data).ok_or(Error::Rejected)?;
+        }
+        for (handle, data) in self.added {
+            entries.push(push_object(&mut src, handle, &data).ok_or(Error::Rejected)?);
         }
         let entries: Vec<_> = entries
             .into_iter()
@@ -155,6 +204,8 @@ impl Transact for DwgFile {
             file: self,
             staged: BTreeMap::new(),
             removed: BTreeSet::new(),
+            added: Vec::new(),
+            seed: None,
             rejected: None,
         }
     }
@@ -165,6 +216,24 @@ fn put(src: &mut [u8], at: usize, bytes: &[u8]) -> Option<()> {
     src.get_mut(at..at.checked_add(bytes.len())?)?
         .copy_from_slice(bytes);
     Some(())
+}
+
+/// ハンドル `handle` のオブジェクトのデータ `data` を、大きさ（MS）と CRC を付けて `src` の後ろに足す
+fn push_object(src: &mut Vec<u8>, handle: u64, data: &[u8]) -> Option<Entry> {
+    let type_code = type_code(data)?;
+    let offset = src.len();
+    push_modular_short(src, data.len() as u64);
+    let start = src.len();
+    src.extend_from_slice(data);
+    let crc = crc16(OBJECT_CRC_SEED, src.get(offset..).unwrap_or_default());
+    src.extend_from_slice(&crc.to_le_bytes());
+    Some(Entry {
+        handle,
+        span: offset..src.len(),
+        data: start..start + data.len(),
+        handles: None,
+        type_code,
+    })
 }
 
 /// データの初めの型（BS）

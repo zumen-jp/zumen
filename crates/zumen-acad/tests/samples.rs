@@ -5,8 +5,8 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Section, Value};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Origin, Section, Value};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
 use zumen_sdk::{Codec, FileModel, Transact, Transaction};
 
 /// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
@@ -618,5 +618,98 @@ fn r2000_drawings_take_back_removed_entities() {
     }
     if !dwgs(b"AC1015").is_empty() {
         assert!(removed > 0);
+    }
+}
+
+/// 足す図形の種類と値
+type Added<'a> = (&'a [u8], &'a [(i16, f64)]);
+
+#[test]
+fn r2000_drawings_take_back_added_entities() {
+    for path in dwgs(b"AC1015") {
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut file = Dwg::read(&src, &mut cx).unwrap();
+        let mut db = file.objects(&mut cx).unwrap();
+        let seed = file.handle_seed().unwrap();
+        let model = db
+            .objects()
+            .iter()
+            .find(|o| {
+                o.kind == b"BLOCK_RECORD"
+                    && o.values
+                        .iter()
+                        .any(|v| v.code == 2 && v.data == Data::Text(b"*Model_Space".to_vec()))
+            })
+            .and_then(Object::handle)
+            .unwrap();
+        // モデル空間に、画層 0 の LINE と CIRCLE を足す
+        let added: [Added; 2] = [
+            (
+                b"LINE",
+                &[
+                    (10, 1.0),
+                    (20, 2.0),
+                    (30, 0.0),
+                    (11, 3.0),
+                    (21, 4.0),
+                    (31, 0.0),
+                ],
+            ),
+            (b"CIRCLE", &[(10, 5.0), (20, 6.0), (30, 0.0), (40, 7.0)]),
+        ];
+        for (handle, (kind, reals)) in (seed..).zip(added) {
+            let mut values = vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(handle),
+                },
+                Value {
+                    code: 330,
+                    data: Data::Handle(model),
+                },
+                Value {
+                    code: 8,
+                    data: Data::Text(b"0".to_vec()),
+                },
+            ];
+            values.extend(reals.iter().map(|&(code, value)| Value {
+                code,
+                data: Data::Real(value),
+            }));
+            db.push(Object {
+                kind: kind.to_vec(),
+                section: Section::Entities,
+                values,
+                origin: Origin::New,
+            });
+        }
+        file.write_back(&db, &mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        // 書き換えた見出しの変数と、足したオブジェクトの CRC は合う
+        let mut fresh = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
+        let again = Dwg::read(&out, &mut cx).unwrap();
+        assert_eq!(again.handle_seed(), Some(seed + 2), "{}", path.display());
+        let after = again.objects(&mut cx).unwrap();
+        assert!(
+            fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
+            "{}",
+            path.display()
+        );
+        assert_eq!(
+            after.objects().len(),
+            db.objects().len(),
+            "{}",
+            path.display()
+        );
+        for (a, b) in db.objects().iter().zip(after.objects()) {
+            assert_eq!(a.kind, b.kind, "{}", path.display());
+            assert_eq!(a.values, b.values, "{}", path.display());
+        }
     }
 }

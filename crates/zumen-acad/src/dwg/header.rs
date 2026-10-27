@@ -2,7 +2,7 @@
 //! ハンドルと、図面モデルへの変換に使う変数（INSUNITS・PLIMMIN・PLIMMAX）だけを取り出す。
 //! どちらの空間の図形も、所有者のハンドルを持たない（entmode が 1・2）ので、所有者はこのハンドルで決まる。
 
-use super::bits::{Bits, crc16};
+use super::bits::{BitWriter, Bits, crc16};
 use super::{OBJECT_CRC_SEED, Release, crc_invalid, le16, le32};
 use core::ops::Range;
 use zumen_base::{Cx, Diagnostic, Ref, SpecRef, codes};
@@ -364,4 +364,66 @@ fn skip(bits: &mut Bits, field: Field) -> Option<()> {
         Cmc => bits.cmc().map(drop),
         Rc => bits.rc().map(drop),
     }
+}
+
+/// R2000 の見出しの変数の HANDSEED（決定 0052）
+#[derive(Clone, Copy, Debug)]
+pub(super) struct HandleSeed {
+    /// 区切りの始まり（始まりの印の位置）
+    start: usize,
+    /// データの始まりと CRC の位置
+    data_at: usize,
+    crc_at: usize,
+    /// データの中の、HANDSEED のビットの位置と、その大きさ（バイト）
+    at: usize,
+    counter: u8,
+    code: u8,
+    /// 値
+    pub(super) value: u64,
+}
+
+/// `start` から始まる R2000 の見出しの変数の区切りの、HANDSEED。読めなければ `None`
+pub(super) fn handle_seed(src: &[u8], start: usize) -> Option<HandleSeed> {
+    let (data, crc_at) = section(src, start, Release::R2000)?;
+    let mut bits = streams(data, Release::R2000)?;
+    let before = FIRST.iter().position(|(field, _)| matches!(field, Seed))?;
+    skip_all(&mut bits, FIRST.get(..before)?)?;
+    let at = bits.pos();
+    let seed = bits.main_handle()?;
+    Some(HandleSeed {
+        start,
+        data_at: crc_at - data.len(),
+        crc_at,
+        at,
+        counter: u8::try_from((bits.pos() - at - 8) / 8).ok()?,
+        code: seed.code,
+        value: seed.value,
+    })
+}
+
+/// `src` の見出しの変数の HANDSEED を `value` にし、区切りの CRC を直す。HANDSEED の大きさ（バイト）が
+/// 変わる値なら `None`
+pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> Option<()> {
+    let size = (u64::BITS - value.leading_zeros()).div_ceil(8);
+    if size != u32::from(seed.counter) {
+        return None;
+    }
+    let data = src.get(seed.data_at..seed.crc_at)?;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..seed.at)?;
+    out.handle(seed.code, value);
+    out.copy(
+        data,
+        seed.at + 8 + usize::from(seed.counter) * 8..data.len() * 8,
+    )?;
+    let out = out.into_bytes();
+    if out.len() != data.len() {
+        return None;
+    }
+    src.get_mut(seed.data_at..seed.crc_at)?
+        .copy_from_slice(&out);
+    let crc = crc16(OBJECT_CRC_SEED, src.get(seed.start + 16..seed.crc_at)?);
+    src.get_mut(seed.crc_at..seed.crc_at + 2)?
+        .copy_from_slice(&crc.to_le_bytes());
+    Some(())
 }
