@@ -125,7 +125,8 @@ basis = ["spec", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad に付くサンプル", "ezjww のリポジトリにある図面"]
-decisions = ["0008"]
+decisions = ["0008", "0133"]
+docs = ["docs/formats/jww.md"]
 
 [formats.jwc]
 name = "JWC（Jw_cad for DOS の図面）"

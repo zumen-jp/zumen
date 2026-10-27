@@ -210,6 +210,8 @@
 - 照合するソフト: Jw\_cad
 - サンプルの出どころ（Git に入れない）: Jw\_cad に付くサンプル・ezjww のリポジトリにある図面
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
+- 記録: [決定 0133](../decisions/0133-jww-l1-records.md)
+- 形式の文書: [docs/formats/jww.md](../../docs/formats/jww.md)
 
 ### format-pdf
 

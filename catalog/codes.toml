@@ -615,3 +615,23 @@ description = "用紙のフィーチャより後に書いた要素を、用紙�
 severity = "info"
 since = "0.0.0"
 status = "active"
+
+# JWW の L1（決定 0133）
+
+[codes."jww.file.invalid"]
+description = "JwwData. の始まりか版がない"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."jww.body.invalid"]
+description = "図形の一覧とブロックの定義の一覧を、終わりまで読めない"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."jww.trailer.invalid"]
+description = "図形の一覧の後ろのバイト列（版 700 からは画像の一覧）を読めず、そのまま残した"
+severity = "warning"
+since = "0.0.0"
+status = "active"
