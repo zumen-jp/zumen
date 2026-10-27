@@ -459,13 +459,15 @@ fn r2000_drawings_take_back_changed_entities() {
                     changed += 1;
                 }
             }
-            // 図面の変数の値の後ろに文字を足し、辞書の複製の扱いと、多重線の体裁の線の位置と、レイアウトの高さを変える
+            // 図面の変数の値の後ろに文字を足し、辞書の複製の扱いと、多重線の体裁の線の位置と、レイアウトの高さと、XRECORD の実数と文字列を変える
             for value in object.values.iter_mut() {
                 match (object.kind.as_slice(), value.code, &mut value.data) {
                     (b"DICTIONARYVAR", 1, Data::Text(text)) => text.extend(b"0"),
                     (b"DICTIONARY" | b"ACDBDICTIONARYWDFLT", 281, Data::Int(v)) => *v = *v % 5 + 1,
                     (b"MLINESTYLE", 49, Data::Real(v)) => *v *= 2.0,
                     (b"LAYOUT", 146, Data::Real(v)) => *v += 1.0,
+                    (b"XRECORD", _, Data::Real(v)) => *v += 1.0,
+                    (b"XRECORD", _, Data::Text(text)) => text.extend(b"0"),
                     _ => continue,
                 }
                 changed += 1;

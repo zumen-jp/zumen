@@ -6222,3 +6222,120 @@ fn changed_layouts_are_written_back() {
     let mut file = read(&src, Limits::default()).0.unwrap();
     assert_eq!(written_back(&mut file, &changed).0, Err(Error::Rejected));
 }
+
+/// 文字列（1）・点の X（10）・実数（40）・整数（70）・真偽（290）・バイナリ（310）のほかは決まった値の
+/// XRECORD（0x21）。文字列のコード・ページは 30
+#[cfg(test)]
+fn xrecords_with(
+    text: &'static [u8],
+    x: f64,
+    real: f64,
+    int: i16,
+    flag: u8,
+    binary: &'static [u8],
+) -> Vec<u8> {
+    let mut data = BitWriter::default();
+    let rs = |w: &mut BitWriter, v: i16| w.bytes(&v.to_le_bytes());
+    rs(&mut data, 1);
+    rs(&mut data, text.len() as i16);
+    data.bytes(&[30]);
+    data.bytes(text);
+    rs(&mut data, 10);
+    for v in [x, 2.0, 3.0] {
+        data.rd(v);
+    }
+    rs(&mut data, 40);
+    data.rd(real);
+    rs(&mut data, 70);
+    rs(&mut data, int);
+    rs(&mut data, 90);
+    data.rl(70000);
+    rs(&mut data, 160);
+    data.bytes(&(1i64 << 40).to_le_bytes());
+    rs(&mut data, 280);
+    data.bytes(&[7]);
+    rs(&mut data, 290);
+    data.bytes(&[flag]);
+    rs(&mut data, 310);
+    data.bytes(&[binary.len() as u8]);
+    data.bytes(binary);
+    rs(&mut data, 340);
+    data.bytes(&0x20u64.to_le_bytes());
+    let xrecord = object(
+        500,
+        0x21,
+        move |w| {
+            w.bl_zero();
+            w.bits(1, 2); // データのバイト数（BL の RC）
+            w.bytes(&[(data.bits.len() / 8) as u8]);
+            w.bits.extend(&data.bits);
+            w.bs(1); // 複製の扱い
+        },
+        |w| {
+            w.handle(4, 0xC);
+            w.handle(3, 0);
+        },
+    );
+    with_classes(dwg(&[(0x21, xrecord)]), &[(500, b"XRECORD", false)])
+}
+
+#[test]
+fn changed_xrecords_are_written_back() {
+    let src = xrecords_with(b"a\nb", 1.0, 0.5, -2, 1, &[0xAB, 0xCD]);
+    let (mut db, before) = objects(&src);
+    assert!(before.is_empty(), "{:?}", codes_of(&before));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    set_value(&mut db, 0x21, 1, Data::Text(b"x^Jyz".to_vec()));
+    set_value(&mut db, 0x21, 10, Data::Real(-4.0));
+    set_value(&mut db, 0x21, 40, Data::Real(2.5));
+    set_value(&mut db, 0x21, 70, Data::Int(300));
+    set_value(&mut db, 0x21, 290, Data::Bool(false));
+    set_value(&mut db, 0x21, 310, Data::Binary(vec![1, 2, 3]));
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    assert_eq!(
+        after.get(0x21).unwrap().values,
+        db.get(0x21).unwrap().values
+    );
+    let built = xrecords_with(b"x\nyz", -4.0, 2.5, 300, 0, &[1, 2, 3]);
+    let index = db
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x21))
+        .unwrap();
+    let got = read(&out, Limits::default())
+        .0
+        .unwrap()
+        .record(index)
+        .unwrap()
+        .bytes
+        .unwrap();
+    let range = read(&built, Limits::default())
+        .0
+        .unwrap()
+        .record(index)
+        .unwrap()
+        .bytes
+        .unwrap();
+    assert_eq!(
+        &out[got.start as usize..got.end as usize],
+        &built[range.start as usize..range.end as usize]
+    );
+    // 所有者・型に収まらない値・値の追加は受け付けない
+    for (code, data) in [
+        (330, Data::Handle(0x42)),
+        (70, Data::Int(40000)),
+        (280, Data::Int(40000)),
+        (300, Data::Text(b"new".to_vec())),
+    ] {
+        let mut changed = objects(&src).0;
+        set_value(&mut changed, 0x21, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
