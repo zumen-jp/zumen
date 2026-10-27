@@ -1,4 +1,4 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0100）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0101）。
 //! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
 //! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
 //!
@@ -1814,11 +1814,10 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// R2010 から後の DWG に足せるものか（決定 0092〜0098）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// R2010 から後の DWG に足せるものか（決定 0092〜0101）。型ごとの欄と文字列の流れが R2000 と同じ形に
 /// 書ける図形と、MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
 /// 制御点のものだけ）と、
-/// UCS のほかの表のレコードと、足したブロックを足せる。MINSERT と、回した INSERT（変更でも
-/// 確かめられていない）は、まだ足せない
+/// UCS のほかの表のレコードと、足したブロックを足せる。MINSERT は、まだ足せない
 fn r2010_addable(object: &Object) -> bool {
     // 表のレコードは、LAYER・STYLE・LTYPE・APPID（決定 0094）と、DIMSTYLE・VIEW・ブロックのレコード
     // （決定 0095）を足せる
@@ -1865,7 +1864,7 @@ fn r2010_addable(object: &Object) -> bool {
             || object
                 .values
                 .iter()
-                .all(|value| !matches!(value.code, 70 | 71 | 44 | 45 | 50)))
+                .all(|value| !matches!(value.code, 70 | 71 | 44 | 45)))
 }
 
 fn offset(object: &Object) -> Option<usize> {
@@ -3800,7 +3799,14 @@ fn own_fields(
             start,
             Release::R2000,
         )?,
-        b"INSERT" => insert(&mut fields, new, type_code == MINSERT_TYPE)?,
+        b"INSERT" => {
+            // 回転が変わらなければ、元のラジアンを書く。度から直すと、元のビットと同じになるとは限らない
+            // （決定 0101）
+            let kept = (real(old, 50) == real(new, 50))
+                .then(|| insert_rotation(data, start))
+                .flatten();
+            insert(&mut fields, new, type_code == MINSERT_TYPE, kept)?
+        }
         b"TOLERANCE" => {
             let end = entity_fields(data, Release::R2000)?[3];
             tolerance(&mut fields, old, new, data, [start, end], Release::R2000)?;
@@ -4797,9 +4803,35 @@ fn zero_point(object: &Object) -> Option<()> {
         .then_some(())
 }
 
+/// 元の INSERT・MINSERT の欄の回転（ラジアン）。元のデータがなければ `None`
+fn insert_rotation(data: &[u8], start: usize) -> Option<f64> {
+    let mut bits = Bits::new(data);
+    bits.seek(start);
+    for _ in 0..3 {
+        bits.bd()?;
+    }
+    match bits.bb()? {
+        3 => {}
+        1 => {
+            bits.dd(1.0)?;
+            bits.dd(1.0)?;
+        }
+        2 => {
+            bits.rd()?;
+        }
+        _ => {
+            let x = bits.rd()?;
+            bits.dd(x)?;
+            bits.dd(x)?;
+        }
+    }
+    bits.bd()
+}
+
 /// INSERT・MINSERT の欄（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
-/// なければ (0, 0, 1) を書く。尺度の印（BB）は、尺度の値から選ぶ。属性が続くかの印は、66 から書く
-fn insert(fields: &mut BitWriter, object: &Object, grid: bool) -> Option<()> {
+/// なければ (0, 0, 1) を書く。回転が変わらなければ、元のラジアン `kept` を書く。尺度の印（BB）は、尺度の値から
+/// 選ぶ。属性が続くかの印は、66 から書く
+fn insert(fields: &mut BitWriter, object: &Object, grid: bool, kept: Option<f64>) -> Option<()> {
     point3(fields, object, 10)?;
     let [x, y, z] = [41, 42, 43].map(|code| real(object, code));
     let [x, y, z] = [x?, y?, z?].map(|scale| scale.unwrap_or(1.0));
@@ -4819,7 +4851,10 @@ fn insert(fields: &mut BitWriter, object: &Object, grid: bool) -> Option<()> {
         fields.dd(y, x);
         fields.dd(z, x);
     }
-    fields.bd(real(object, 50)?.unwrap_or(0.0).to_radians());
+    match kept {
+        Some(rotation) => fields.bd(rotation),
+        None => fields.bd(real(object, 50)?.unwrap_or(0.0).to_radians()),
+    }
     match [210, 220, 230].map(|code| real(object, code)) {
         [Some(None), Some(None), Some(None)] => [0.0, 0.0, 1.0].map(|v| fields.bd(v)),
         [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
