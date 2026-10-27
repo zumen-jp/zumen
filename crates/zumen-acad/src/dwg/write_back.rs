@@ -358,7 +358,7 @@ impl DwgFile {
                 _ => return Err(unsupported(name)),
             }
         }
-        // R2004 は、すでにあるブロックの単純な図形の追加だけを書き戻す（決定 0079）
+        // R2004 は、図形と表のレコードの、R2000 と同じく書けるものの追加だけを書き戻す（決定 0079〜0081）
         if r2004 && let Some(object) = added.iter().find(|object| !r2004_addable(object)) {
             return Err(unsupported(&object.kind));
         }
@@ -780,11 +780,15 @@ impl DwgFile {
         (!name.is_empty() && same == 1).then_some(())?;
         // 名前のないブロックと空間のブロック（* で始まる）は足せない
         (type_code != BLOCK_RECORD_TYPE || !name.starts_with(b"*")).then_some(())?;
+        let r2004 = self.release == Release::R2004;
         let mut fields = BitWriter::default();
         fields.handle(0, handle);
-        // 拡張データと反応子がない
+        // 拡張データと反応子がない。R2004 からは、拡張辞書を持たない印を立てる
         fields.bs(0);
         fields.bl(0);
+        if r2004 {
+            fields.bit(true);
+        }
         string(&mut fields, object, 2)?;
         // 参照される印・外部参照の番号・外部参照に依る印
         fields.bit(true);
@@ -793,13 +797,15 @@ impl DwgFile {
         let control = object.owner()?;
         let mut handles = BitWriter::default();
         handles.handle(4, control);
-        handles.handle(3, 0);
+        if !r2004 {
+            handles.handle(3, 0);
+        }
         // 外部参照のブロック
         handles.handle(5, 0);
         if type_code == LAYER_TYPE {
             let (flags, color) = layer_flags(object, false, 0)?;
             fields.bs(flags);
-            fields.bs(color);
+            cmc(&mut fields, color, self.release)?;
             let plot_style = match object.values.iter().find(|value| value.code == 390) {
                 Some(value) => match value.data {
                     Data::Handle(h) => h,
@@ -905,6 +911,10 @@ impl DwgFile {
             for _ in 0..3 {
                 fields.bit(false);
             }
+            // R2004 からは、持つ図形の数を置く
+            if r2004 {
+                fields.bl(i32::try_from(block.entities.len()).ok()?);
+            }
             for value in block.base {
                 fields.bd(value);
             }
@@ -918,8 +928,15 @@ impl DwgFile {
             fields.text(b"")?;
             fields.bl(0);
             handles.handle(3, block.block?);
-            handles.handle(4, block.entities.first().copied().unwrap_or(0));
-            handles.handle(4, block.entities.last().copied().unwrap_or(0));
+            // R2000 は最初と最後の図形を指し、R2004 は持つ図形をみな固い所有で指す
+            if r2004 {
+                for &entity in &block.entities {
+                    handles.handle(3, entity);
+                }
+            } else {
+                handles.handle(4, block.entities.first().copied().unwrap_or(0));
+                handles.handle(4, block.entities.last().copied().unwrap_or(0));
+            }
             handles.handle(3, block.endblk?);
             for &insert in &block.inserts {
                 handles.handle(4, insert);
@@ -929,7 +946,7 @@ impl DwgFile {
         } else {
             (small(object, 70)?? == 0).then_some(())?;
             for &(code, field) in &DIM_FIELDS {
-                dim_field(&mut fields, object, code, field, Release::R2000)?;
+                dim_field(&mut fields, object, code, field, self.release)?;
             }
             // 文字の体裁と、引出線・矢印・1 つめと 2 つめの矢印のブロック。試料の図面と同じく、参照の型は 5
             for code in 340..=344 {
@@ -947,7 +964,12 @@ impl DwgFile {
         (self.entries.get(record)?.type_code == control_type).then_some(())?;
         changes.insert(
             record,
-            add_entry(&self.current(changes, record)?, handle, type_code)?,
+            add_entry(
+                &self.current(changes, record)?,
+                handle,
+                type_code,
+                self.release,
+            )?,
         );
         let mut out = BitWriter::default();
         out.bs(type_code);
@@ -1415,10 +1437,26 @@ fn disown(data: &[u8], block: u64, count: usize, gone: &BTreeSet<u64>) -> Option
     Some(out.into_bytes())
 }
 
-/// R2004 の DWG に足せる図形か（決定 0079・0080）。すでにあるブロックの、型ごとの欄が R2000 と同じ形か、
-/// MTEXT か、属性を持つ INSERT とその ATTRIB・SEQEND だけを足せる。MINSERT は、まだ足せない
+/// R2004 の DWG に足せるものか（決定 0079〜0081）。型ごとの欄が R2000 と同じ形の図形か、MTEXT か、
+/// 属性を持つ INSERT とその ATTRIB・SEQEND か、表のレコードと、足したブロックの BLOCK・ENDBLK だけを
+/// 足せる。MINSERT は、まだ足せない
 fn r2004_addable(object: &Object) -> bool {
-    const KINDS: [&[u8]; 18] = [
+    const RECORDS: [&[u8]; 8] = [
+        b"LAYER",
+        b"STYLE",
+        b"LTYPE",
+        b"APPID",
+        b"DIMSTYLE",
+        b"VIEW",
+        b"VPORT",
+        b"BLOCK_RECORD",
+    ];
+    if object.section == Section::Tables {
+        return RECORDS.contains(&object.kind.as_slice());
+    }
+    const KINDS: [&[u8]; 20] = [
+        b"BLOCK",
+        b"ENDBLK",
         b"LINE",
         b"CIRCLE",
         b"ARC",
@@ -1764,13 +1802,15 @@ fn layer_flags(object: &Object, xdep: bool, old: i16) -> Option<(i16, i16)> {
 
 /// 型 `type_code` のレコードの表のオブジェクトのデータ `data` の、項目の数（BL）を 1 増やし、項目の
 /// ハンドルの終わりに `entry` を足したもの（決定 0061）。ハンドルの流れの後の埋めるビットは写さない
-fn add_entry(data: &[u8], entry: u64, type_code: i16) -> Option<Vec<u8>> {
-    let [size_at, start, handles_at] = object_fields(data, Release::R2000)?;
-    let mut bits = Bits::with_release(data, Release::R2000);
+fn add_entry(data: &[u8], entry: u64, type_code: i16, release: Release) -> Option<Vec<u8>> {
+    let [size_at, start, handles_at] = object_fields(data, release)?;
+    let mut bits = Bits::with_release(data, release);
     bits.seek(size_at + 32);
     bits.handle()?;
     skip_extended_data(&mut bits)?;
     let reactors = bits.bl()?;
+    // R2004 からは、拡張辞書を持たなければ、そのハンドルもない
+    let xdic = release < Release::R2004 || !bits.bit()?;
     let count = bits.bl()?;
     let mut fields = BitWriter::default();
     fields.bl(count.checked_add(1)?);
@@ -1787,7 +1827,7 @@ fn add_entry(data: &[u8], entry: u64, type_code: i16) -> Option<Vec<u8>> {
     (bits.pos() == handles_at).then_some(())?;
     let mut handles = BitWriter::default();
     // 所有者・反応子・拡張辞書・項目
-    for _ in 0..(1 + i64::from(reactors) + 1 + i64::from(count)) {
+    for _ in 0..(1 + i64::from(reactors) + i64::from(xdic) + i64::from(count)) {
         let found = bits.handle()?;
         handles.handle(found.code, found.value);
     }
