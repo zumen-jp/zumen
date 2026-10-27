@@ -6975,7 +6975,7 @@ fn added_entities_are_written_back() {
     }
 }
 
-/// 画層の表（項目は画層 0 の 1 つ）と、画層 0 と、線種 Continuous と、[`objects_with_linked_lines`] の
+/// 画層の表（項目は画層 0 の 1 つ）と、画層 0 と、文字の体裁の表と Standard と、線種 Continuous と、[`objects_with_linked_lines`] の
 /// ブロックと LINE を持ち、HANDSEED が 0x80 の図面
 #[cfg(test)]
 fn layer_table_with_seed() -> Vec<u8> {
@@ -7030,10 +7030,27 @@ fn layer_table_with_seed() -> Vec<u8> {
         },
     );
     let ltype = object(0x39, 0x12, record_named(b"Continuous"), record_handles(5));
+    let style_control = object(
+        0x34,
+        3,
+        |w| {
+            w.bl_zero();
+            w.bits(1, 2);
+            w.bytes(&[1]);
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+            w.handle(2, 0x11);
+        },
+    );
+    let style = object(0x35, 0x11, record_named(b"Standard"), record_handles(3));
     let mut objects = vec![
         (2, control),
+        (3, style_control),
         (5, ltype_control),
         (0x10, layer),
+        (0x11, style),
         (0x12, ltype),
     ];
     objects.extend(objects_with_linked_lines(true).into_iter().skip(2));
@@ -7133,5 +7150,92 @@ fn added_layers_are_written_back() {
         assert_eq!(out, Err(Error::Rejected));
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&"LAYER".to_string().into()));
+    }
+}
+
+#[test]
+fn added_styles_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // Standard を写し、ハンドルと名前と、`values` の値を変えたもの
+    let style = |db: &AcadDb, handle: u64, name: &[u8], values: &[(i16, Data)]| {
+        let mut db = db.clone();
+        let mut object = db.get(0x11).unwrap().clone();
+        object.origin = Origin::New;
+        for value in &mut object.values {
+            match value.code {
+                5 => value.data = Data::Handle(handle),
+                2 => value.data = Data::Text(name.to_vec()),
+                code => {
+                    if let Some((_, data)) = values.iter().find(|(c, _)| *c == code) {
+                        value.data = data.clone();
+                    }
+                }
+            }
+        }
+        db.push(object);
+        db
+    };
+    // 縦書きで、高さ・幅の係数・斜めの角度・生成の印・字体の名前を持つ文字の体裁と、その体裁の TEXT
+    let db = style(
+        &base,
+        0x80,
+        b"Gothic",
+        &[
+            (70, Data::Int(4)),
+            (40, Data::Real(2.5)),
+            (41, Data::Real(0.8)),
+            (50, Data::Real(45.0)),
+            (71, Data::Int(2)),
+            (42, Data::Real(2.5)),
+            (3, Data::Text(b"txt.shx".to_vec())),
+            (4, Data::Text(b"bigfont.shx".to_vec())),
+        ],
+    );
+    let mut db = with_added(
+        &db,
+        0x81,
+        b"TEXT",
+        &[(10, 1.0), (20, 2.0), (30, 0.0), (40, 2.5)],
+    );
+    let text = db.objects().len() - 1;
+    let mut object = db.objects()[text].clone();
+    object.values.extend([
+        Value {
+            code: 1,
+            data: Data::Text(b"zumen".to_vec()),
+        },
+        Value {
+            code: 7,
+            data: Data::Text(b"Gothic".to_vec()),
+        },
+    ]);
+    db.remove(text).unwrap();
+    db.push(object);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(summary(&again), summary(&db));
+    // 表にある名前・文字の体裁の表でない所有者・外部参照に依る印を持つ文字の体裁は、書き戻せない
+    let cases = [
+        style(&base, 0x80, b"standard", &[]),
+        style(&base, 0x80, b"Other", &[(330, Data::Handle(2))]),
+        style(&base, 0x80, b"Other", &[(70, Data::Int(16))]),
+    ];
+    for db in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"STYLE".to_string().into()));
     }
 }

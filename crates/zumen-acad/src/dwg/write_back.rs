@@ -17,8 +17,8 @@
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
-//! 表の終わりに足した画層は、一から符号化してオブジェクトの地図に加え、所有者の画層の表のオブジェクトの
-//! 項目の終わりに足す（決定 0061）。
+//! 表の終わりに足した画層と文字の体裁は、一から符号化してオブジェクトの地図に加え、所有者の表の
+//! オブジェクトの項目の終わりに足す（決定 0061・0062）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -75,6 +75,8 @@ const HATCH: &[i16] = &[
 const MINSERT_TYPE: i16 = 0x08;
 const LAYER_TYPE: i16 = 0x33;
 const LAYER_CONTROL_TYPE: u16 = 0x32;
+const STYLE_TYPE: i16 = 0x35;
+const STYLE_CONTROL_TYPE: u16 = 0x34;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -292,7 +294,7 @@ impl DwgFile {
     /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
     /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
     /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
-    /// 足した画層は、図形の並びへ繋がず、画層の表のオブジェクトに加える（決定 0061）
+    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061・0062）
     fn append(
         &self,
         db: &AcadDb,
@@ -315,7 +317,7 @@ impl DwgFile {
         // SEQEND で閉じる。ATTRIB は ATTRIB どうしで繋ぎ、SEQEND は前後を持たない
         let mut open: Option<(usize, Vec<usize>)> = None;
         let mut inner = BTreeMap::new();
-        // 足した画層のレコードの、足したものの中の番号とハンドルとデータ。図形の並びへは入れない
+        // 足した表のレコードの、足したものの中の番号とハンドルとデータ。図形の並びへは入れない
         let mut tables: BTreeMap<usize, (u64, Vec<u8>)> = BTreeMap::new();
         for (position, &object) in added.iter().enumerate() {
             if object.section == Section::Tables {
@@ -326,7 +328,7 @@ impl DwgFile {
                     return Err(unsupported(kind));
                 }
                 let (handle, data) = self
-                    .add_layer(db, object, &records, seed, changes)
+                    .add_record(db, object, &records, seed, changes)
                     .ok_or_else(|| unsupported(&object.kind))?;
                 seed = handle + 1;
                 tables.insert(position, (handle, data));
@@ -541,12 +543,13 @@ impl DwgFile {
         })
     }
 
-    /// 足した画層 `object` のハンドルと、R2000 のレコードのデータ（決定 0061）。所有者（330）の画層の表の
-    /// オブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
-    /// 名前（2）が表にないこと、印（70）・色（62）・線の太さ（370）を持つこと、印刷スタイル（390）と線種（6）が
-    /// 表にあることが要る。印刷スタイルがなければ、画層 0 と同じものにする。ハンドルが `seed` より小さいか、
-    /// 足せない画層なら `None`
-    fn add_layer(
+    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061・0062）。所有者（330）の
+    /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
+    /// 画層と文字の体裁だけを扱い、名前（2）が表にないことが要る。画層は、印（70）・色（62）・線の太さ（370）を
+    /// 持ち、印刷スタイル（390）と線種（6）が表になければならない。印刷スタイルがなければ、画層 0 と同じものに
+    /// する。文字の体裁は、型ごとの欄をみな持たなければならない。ハンドルが `seed` より小さいか、足せない
+    /// レコードなら `None`
+    fn add_record(
         &self,
         db: &AcadDb,
         object: &Object,
@@ -554,9 +557,14 @@ impl DwgFile {
         seed: u64,
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Option<(u64, Vec<u8>)> {
-        (object.kind == b"LAYER").then_some(())?;
+        // レコードと表のオブジェクトの型と、型ごとの欄のグループ・コード
+        let (type_code, control_type, own): (i16, u16, &[i16]) = match object.kind.as_slice() {
+            b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE, &[70, 62, 290, 370, 390, 6]),
+            b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE, STYLE),
+            _ => return None,
+        };
         let handle = object.handle().filter(|&h| h >= seed)?;
-        let codes = [&[5, 330, 2, 390, 6], LAYER].concat();
+        let codes = [&[5, 330, 2], own].concat();
         if object
             .values
             .iter()
@@ -568,54 +576,68 @@ impl DwgFile {
         let same = db
             .objects()
             .iter()
-            .filter(|o| o.kind == b"LAYER" && o.section == Section::Tables)
+            .filter(|o| o.kind == object.kind && o.section == Section::Tables)
             .filter(|o| text_of(o, 2).is_some_and(|n| n.eq_ignore_ascii_case(name)))
             .count();
         (!name.is_empty() && same == 1).then_some(())?;
-        let (flags, color) = layer_flags(object, false, 0)?;
-        let plot_style = match object.values.iter().find(|value| value.code == 390) {
-            Some(value) => match value.data {
-                Data::Handle(h) => h,
-                _ => return None,
-            },
-            None => match db
-                .get(record_handle(db, b"LAYER", b"0")?)?
-                .values
-                .iter()
-                .find(|value| value.code == 390)?
-                .data
-            {
-                Data::Handle(h) => h,
-                _ => return None,
-            },
-        };
-        db.get(plot_style)?;
-        let ltype = record_handle(db, b"LTYPE", text_of(object, 6)?)?;
-        let control = object.owner()?;
-        let record = *records.get(&control)?;
-        (self.entries.get(record)?.type_code == LAYER_CONTROL_TYPE).then_some(())?;
-        changes.insert(record, add_entry(&self.current(changes, record)?, handle)?);
         let mut fields = BitWriter::default();
         fields.handle(0, handle);
         // 拡張データと反応子がない
         fields.bs(0);
         fields.bl(0);
-        fields.text(name)?;
+        string(&mut fields, object, 2)?;
         // 参照される印・外部参照の番号・外部参照に依る印
         fields.bit(true);
         fields.bs(0);
         fields.bit(false);
-        fields.bs(flags);
-        fields.bs(color);
+        let control = object.owner()?;
         let mut handles = BitWriter::default();
         handles.handle(4, control);
         handles.handle(3, 0);
         // 外部参照のブロック
         handles.handle(5, 0);
-        handles.handle(5, plot_style);
-        handles.handle(5, ltype);
+        if type_code == LAYER_TYPE {
+            let (flags, color) = layer_flags(object, false, 0)?;
+            fields.bs(flags);
+            fields.bs(color);
+            let plot_style = match object.values.iter().find(|value| value.code == 390) {
+                Some(value) => match value.data {
+                    Data::Handle(h) => h,
+                    _ => return None,
+                },
+                None => match db
+                    .get(record_handle(db, b"LAYER", b"0")?)?
+                    .values
+                    .iter()
+                    .find(|value| value.code == 390)?
+                    .data
+                {
+                    Data::Handle(h) => h,
+                    _ => return None,
+                },
+            };
+            db.get(plot_style)?;
+            handles.handle(5, plot_style);
+            handles.handle(5, record_handle(db, b"LTYPE", text_of(object, 6)?)?);
+        } else {
+            // 形のファイル 1 と縦書き 4 の印、高さ・幅の係数・斜めの角度・生成の印・前の高さ・字体の名前
+            let flags = small(object, 70)??;
+            (flags & !(1 | 4) == 0).then_some(())?;
+            fields.bit(flags & 1 != 0);
+            fields.bit(flags & 4 != 0);
+            fields.bd(real(object, 40)??);
+            fields.bd(real(object, 41)??);
+            fields.bd(real(object, 50)??.to_radians());
+            fields.rc(u8::try_from(small(object, 71)??).ok()?);
+            fields.bd(real(object, 42)??);
+            string(&mut fields, object, 3)?;
+            string(&mut fields, object, 4)?;
+        }
+        let record = *records.get(&control)?;
+        (self.entries.get(record)?.type_code == control_type).then_some(())?;
+        changes.insert(record, add_entry(&self.current(changes, record)?, handle)?);
         let mut out = BitWriter::default();
-        out.bs(LAYER_TYPE);
+        out.bs(type_code);
         out.rl(i32::try_from(out.len() + 32 + fields.len()).ok()?);
         for part in [fields, handles] {
             let len = part.len();

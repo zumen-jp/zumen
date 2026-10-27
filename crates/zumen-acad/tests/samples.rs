@@ -905,10 +905,10 @@ fn r2000_drawings_take_back_added_entities() {
     }
 }
 
-/// R2000 の図面に画層と、その画層の LINE を足して書き戻すと、読み直したものが足したものと合う。
-/// 書き戻した図面にもう一度足しても合う（決定 0061）
+/// R2000 の図面に画層と文字の体裁と、その画層の LINE とその体裁の TEXT を足して書き戻すと、読み直したものが
+/// 足したものと合う。書き戻した図面にもう一度足しても合う（決定 0061・0062）
 #[test]
-fn r2000_drawings_take_back_added_layers() {
+fn r2000_drawings_take_back_added_layers_and_styles() {
     for path in dwgs(b"AC1015") {
         let mut src = std::fs::read(&path).unwrap();
         for name in [b"zumen-1".as_slice(), b"zumen-2"] {
@@ -941,11 +941,21 @@ fn r2000_drawings_take_back_added_layers() {
                     _ => {}
                 }
             }
+            let mut style = named(b"STYLE", b"Standard");
+            style.origin = Origin::New;
+            for value in &mut style.values {
+                match value.code {
+                    5 => value.data = Data::Handle(seed + 1),
+                    2 => value.data = Data::Text(name.to_vec()),
+                    _ => {}
+                }
+            }
             db.push(layer);
+            db.push(style);
             let mut values = vec![
                 Value {
                     code: 5,
-                    data: Data::Handle(seed + 1),
+                    data: Data::Handle(seed + 2),
                 },
                 Value {
                     code: 330,
@@ -972,7 +982,30 @@ fn r2000_drawings_take_back_added_layers() {
             db.push(Object {
                 kind: b"LINE".to_vec(),
                 section: Section::Entities,
-                values,
+                values: values.clone(),
+                origin: Origin::New,
+            });
+            let mut text = values;
+            text[0].data = Data::Handle(seed + 3);
+            text.truncate(6);
+            text.extend([
+                Value {
+                    code: 40,
+                    data: Data::Real(2.5),
+                },
+                Value {
+                    code: 1,
+                    data: Data::Text(b"zumen".to_vec()),
+                },
+                Value {
+                    code: 7,
+                    data: Data::Text(name.to_vec()),
+                },
+            ]);
+            db.push(Object {
+                kind: b"TEXT".to_vec(),
+                section: Section::Entities,
+                values: text,
                 origin: Origin::New,
             });
             file.write_back(&db, &mut cx).unwrap();
@@ -981,7 +1014,7 @@ fn r2000_drawings_take_back_added_layers() {
             let mut fresh = Diagnostics::new();
             let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
             let again = Dwg::read(&out, &mut cx).unwrap();
-            assert_eq!(again.handle_seed(), Some(seed + 2), "{}", path.display());
+            assert_eq!(again.handle_seed(), Some(seed + 4), "{}", path.display());
             let after = again.objects(&mut cx).unwrap();
             assert!(
                 fresh.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
