@@ -98,6 +98,7 @@
 - [0088: R2010 から後の DWG の DIMENSION・HATCH・TOLERANCE・VIEWPORT・SHAPE は、版ごとの欄を読み分けて書き戻す](0088-dwg-r2010-write-back-more-entities.md)（2026-10-27、採用）
 - [0089: R2010 から後の DWG の表のレコードは、名前の文字列を写し、版ごとの欄を読み分けて書き戻す](0089-dwg-r2010-write-back-records.md)（2026-10-27、採用）
 - [0090: R2010 から後の DWG の図形でないオブジェクトは、R2004 と同じ欄の符号化で、文字列を文字列の流れに書いて書き戻す](0090-dwg-r2010-write-back-objects.md)（2026-10-27、採用）
+- [0091: R2010 から後の DWG から除いた図形は、R2004 と同じく、ブロックのレコードが持つ図形の並びから除いて書き戻す](0091-dwg-r2010-write-back-entity-removal.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）

@@ -790,20 +790,25 @@ pub(super) fn block_links(data: &[u8], handle: u64) -> Option<(Range<usize>, u64
     Some((start..bits.pos(), first, last))
 }
 
-/// R2004 の図形のデータの、反応子の数と、拡張辞書のハンドルを持つか
-pub(super) fn entity_refs(data: &[u8]) -> Option<(u32, bool)> {
-    let mut bits = Bits::with_release(data, Release::R2004);
-    bits.bs()?;
-    bits.rl()?;
+/// 版 `release`（R2004 から）の図形のデータの、反応子の数と、拡張辞書のハンドルを持つか。R2010 からは、
+/// データはハンドルの流れの大きさ（MC）の後（決定 0091）
+pub(super) fn entity_refs(data: &[u8], release: Release) -> Option<(u32, bool)> {
+    let mut bits = Bits::with_release(data, release);
+    if release >= Release::R2010 {
+        bits.bot()?;
+    } else {
+        bits.bs()?;
+        bits.rl()?;
+    }
     bits.handle()?;
     skip_extended_data(&mut bits)?;
     let common = entity_data(&mut bits)?;
     Some((common.reactors, common.xdic))
 }
 
-/// R2004 のブロックのレコードが持つ図形（決定 0077）
+/// R2004 から後のブロックのレコードが持つ図形（決定 0077・0091）
 pub(super) struct Owned {
-    /// ハンドルの流れの位置（RL）を書く所のビットの位置
+    /// ハンドルの流れの位置（RL）を書く所のビットの位置。R2010 からは使わない
     pub(super) size_at: usize,
     /// 持つ図形の数（BL）のビットの範囲
     pub(super) count: Range<usize>,
@@ -815,22 +820,42 @@ pub(super) struct Owned {
     pub(super) end: usize,
 }
 
-/// ハンドル `handle` の R2004 のブロックのレコードのデータの、持つ図形（決定 0077）。外部参照のブロックは
-/// `None`。持つ図形の数は、読み込まれた印（B）の後に BL で置かれ、ハンドルは、所有者・反応子・拡張辞書・
-/// 外部参照のブロック・BLOCK の後に、その数だけ並ぶ（図面で確かめた）
-pub(super) fn owned(data: &[u8], handle: u64) -> Option<Owned> {
-    let mut bits = Bits::with_release(data, Release::R2004);
-    bits.bs()?;
-    let size_at = bits.pos();
-    let handles_at = usize::try_from(bits.rl()?).ok()?;
+/// ハンドル `handle` の版 `release`（R2004 から）のブロックのレコードのデータの、持つ図形（決定 0077）。外部参照の
+/// ブロックは `None`。持つ図形の数は、読み込まれた印（B）の後に BL で置かれ、ハンドルは、所有者・反応子・拡張辞書・
+/// 外部参照のブロック・BLOCK の後に、その数だけ並ぶ（図面で確かめた）。R2010 からは、データはハンドルの流れの
+/// 大きさ（MC）の後で、ハンドルの流れの始まり `handles` を受け取る。外部参照の番号はない（決定 0091）
+pub(super) fn owned(
+    data: &[u8],
+    handle: u64,
+    release: Release,
+    handles: Option<usize>,
+) -> Option<Owned> {
+    let mut bits = Bits::with_release(data, release);
+    let r2010 = release >= Release::R2010;
+    let (size_at, handles_at) = if r2010 {
+        bits.bot()?;
+        let at = handles?;
+        bits.split_strings(at)?;
+        (0, at)
+    } else {
+        bits.bs()?;
+        let size_at = bits.pos();
+        (size_at, usize::try_from(bits.rl()?).ok()?)
+    };
     bits.handle()?;
     skip_extended_data(&mut bits)?;
     let reactors = u32::try_from(bits.bl()?).ok()?;
     let xdic = !bits.bit()?;
+    // R2013 からは、DS のデータを持つかの B が続く
+    if release >= Release::R2013 {
+        bits.bit()?;
+    }
     // 名前・参照される印・外部参照の番号・外部参照に依る印
     bits.text()?;
     bits.bit()?;
-    bits.bs()?;
+    if !r2010 {
+        bits.bs()?;
+    }
     bits.bit()?;
     // 名前のない印・属性を持つ印・外部参照の印・重ねる外部参照の印・読み込まれた印
     let flags: Vec<bool> = (0..5).map(|_| bits.bit()).collect::<Option<_>>()?;
