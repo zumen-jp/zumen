@@ -159,6 +159,19 @@ fn object(
 /// 図形の共通の欄。entmode と色・線種の尺度・非表示を選ぶ
 #[cfg(test)]
 fn entity_common(w: &mut BitWriter, entmode: u8, color: u16, ltype_scale: f64, invisible: u16) {
+    entity_common_weighted(w, entmode, color, ltype_scale, invisible, 0x1D);
+}
+
+/// 線の太さの番号を選んだ、所有者を持たない図形の共通の欄
+#[cfg(test)]
+fn entity_common_weighted(
+    w: &mut BitWriter,
+    entmode: u8,
+    color: u16,
+    ltype_scale: f64,
+    invisible: u16,
+    weight: u8,
+) {
     w.bit(false); // 図形の画像はない
     w.bits(u64::from(entmode), 2);
     w.bl_zero(); // 反応子はない
@@ -168,7 +181,7 @@ fn entity_common(w: &mut BitWriter, entmode: u8, color: u16, ltype_scale: f64, i
     w.bits(0, 2); // 線種は画層による
     w.bits(0, 2); // 印刷スタイルは画層による
     w.bs(invisible);
-    w.bytes(&[0x1D]); // 線の太さ
+    w.bytes(&[weight]); // 線の太さ
 }
 
 /// 所有者を持たず、線種の印を選んだ図形の共通の欄
@@ -280,7 +293,7 @@ fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
         0x13,
         0x2B,
         |w| {
-            entity_common(w, 2, 1, 2.0, 1);
+            entity_common_weighted(w, 2, 1, 2.0, 1, 7);
             line_data(w, [0.0, 0.0, 3.0], [0.0, 4.0, 3.0], 0.5);
         },
         |w| {
@@ -611,7 +624,7 @@ fn a_line_has_the_same_values_as_in_dxf() {
     assert_eq!(dwg_line.first(8), dxf_line.first(8));
     assert_eq!(dwg_line.first(8), Some(&Data::Text(b"0".to_vec())));
     // 既定の値の欄は置かない
-    for code in [39, 48, 60, 62, 210] {
+    for code in [39, 48, 60, 62, 210, 370] {
         assert_eq!(dwg_line.first(code), None, "{code}");
     }
 }
@@ -623,6 +636,8 @@ fn fields_that_differ_from_their_defaults_are_kept() {
     assert_eq!(line.first(62), Some(&Data::Int(1)));
     assert_eq!(line.real(48), Some(Some(2.0)));
     assert_eq!(line.first(60), Some(&Data::Int(1)));
+    // 線の太さの番号 7 は 0.25 mm
+    assert_eq!(line.first(370), Some(&Data::Int(25)));
     assert_eq!(line.real(30), Some(Some(3.0)));
     assert_eq!(line.real(31), Some(Some(3.0)));
     assert_eq!(line.real(11), Some(Some(0.0)));
@@ -1258,8 +1273,8 @@ fn splines_have_their_knots_or_fit_points() {
             w.bytes(&[1]);
             w.bits(1, 2); // 次数 1
             w.bytes(&[1]);
-            w.bit(false);
-            w.bit(false);
+            w.bit(true); // 有理
+            w.bit(true); // 閉じている
             w.bit(false);
             w.bd(1e-9);
             w.bd(1e-10);
@@ -1314,8 +1329,8 @@ fn splines_have_their_knots_or_fit_points() {
     let weights: Vec<_> = spline.values.iter().filter(|v| v.code == 41).collect();
     assert_eq!(weights.len(), 2);
     assert_eq!(weights[1].data, Data::Real(0.5));
-    // DXF を書くときに決まる印と法線は置かない
-    assert_eq!(spline.first(70), None);
+    // 印は有理（4）と閉じている（1）だけを置き、DXF を書くときに決まる平らか（8）と法線は置かない
+    assert_eq!(spline.first(70), Some(&Data::Int(5)));
     assert_eq!(spline.first(210), None);
 
     let spline = db.get(0x21).unwrap();
@@ -1730,8 +1745,12 @@ fn leaders_and_mlines_have_their_fields() {
     for (code, value) in [(40, 2.5), (41, 10.0)] {
         assert!(close(leader.real(code), value), "{code}");
     }
-    // 点は DXF が鉤の線の点を足すので置かない。既定の値の欄も置かない
-    for code in [10, 76, 72, 210, 211] {
+    // 頂点の数と頂点を置く。終わりの点の射影と、既定の値の欄は置かない
+    assert_eq!(leader.first(76), Some(&Data::Int(2)));
+    let xs: Vec<_> = leader.values.iter().filter(|v| v.code == 10).collect();
+    assert_eq!(xs.len(), 2);
+    assert_eq!(xs[1].data, Data::Real(5.0));
+    for code in [72, 210, 211] {
         assert!(leader.first(code).is_none(), "{code}");
     }
     let mline = db.get(0x21).unwrap();
@@ -3057,12 +3076,11 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
         [Element {
             source: source(0x2A),
             layer: LayerId(0),
-            // DWG の読み手は図形の線幅を表に置かない
             style: Style {
                 color: Inherit::Layer,
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
-                line_weight: None,
+                line_weight: Some(Inherit::Layer),
             },
             shape: Shape::Line {
                 start: model(1.5, 2.0),
@@ -3083,12 +3101,11 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
         [Element {
             source: source(0x2E),
             layer: LayerId(0),
-            // DWG の読み手は図形の線幅を表に置かない
             style: Style {
                 color: Inherit::Layer,
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
-                line_weight: None,
+                line_weight: Some(Inherit::Layer),
             },
             shape: Shape::Line {
                 start: paper(-10.0, -10.0),
@@ -6985,6 +7002,7 @@ fn added_splines_are_written_back() {
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     // 3 次で、節点 8 つと制御点 4 つを持つもの
     let head = [
+        int(70, 0),
         int(71, 3),
         int(72, 8),
         int(73, 4),
@@ -7016,6 +7034,7 @@ fn added_splines_are_written_back() {
         .iter()
         .cloned()
         .flat_map(|v| match v.code {
+            70 => vec![int(70, 4)],
             30 => vec![v, real(41, 0.5)],
             _ => vec![v],
         })
@@ -7994,10 +8013,18 @@ fn added_blocks_are_written_back() {
     let out = out.unwrap();
     let (again, diag) = objects(&out);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // DWG の BLOCK は、名前と基点を値に持たない
+    // DWG の BLOCK は名前を値に持たず、ブロックのレコードの印（70）と基点を持つ
     let mut expected = db.clone();
     let mut block = expected.get(0x81).unwrap().clone();
-    block.values.retain(|v| !matches!(v.code, 2 | 10 | 20 | 30));
+    block.values.retain(|v| v.code != 2);
+    let point_at = block.values.iter().position(|v| v.code == 10).unwrap();
+    block.values.insert(
+        point_at,
+        Value {
+            code: 70,
+            data: Data::Int(0),
+        },
+    );
     let at = expected
         .objects()
         .iter()

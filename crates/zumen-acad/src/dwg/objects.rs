@@ -248,6 +248,7 @@ impl DwgFile {
             }
             objects.push(object);
         }
+        to_blocks(&mut objects);
         if let Some(header) = header {
             in_blocks(&mut objects, header);
         }
@@ -263,6 +264,33 @@ impl DwgFile {
             db.set_variable(b"$PLIMMAX", vec![real(10, x1), real(20, y1)]);
         }
         Ok(db)
+    }
+}
+
+/// BLOCK_RECORD から読んだ印・基点などを、そのレコードを所有者に持つ BLOCK の名前の後ろへ移す
+fn to_blocks(objects: &mut [Object]) {
+    let mut moved: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+    for object in objects.iter_mut() {
+        if object.kind != b"BLOCK_RECORD" {
+            continue;
+        }
+        let Some(handle) = object.handle() else {
+            continue;
+        };
+        let (block, own) = object
+            .values
+            .drain(..)
+            .partition(|value| BLOCK_FIELDS.contains(&value.code));
+        object.values = own;
+        moved.insert(handle, block);
+    }
+    for object in objects.iter_mut() {
+        if object.kind != b"BLOCK" {
+            continue;
+        }
+        if let Some(values) = object.owner().and_then(|owner| moved.remove(&owner)) {
+            object.values.extend(values);
+        }
     }
 }
 
@@ -317,6 +345,9 @@ struct RecordRef {
     record: u16,
     handle: u64,
 }
+
+/// BLOCK_RECORD から読み、DXF と同じく BLOCK に置く欄
+const BLOCK_FIELDS: &[i16] = &[70, 10, 20, 30, 1, 4];
 
 /// 名前（2）を持つ表のレコードの型か
 fn is_table_record(type_code: u16) -> bool {
@@ -939,7 +970,7 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         }
     }
     let invisible = bits.bs()?;
-    bits.rc()?;
+    let weight = bits.rc()?;
     let mut values = Vec::new();
     // 真の色は、DXF が近い番号を 62 に置くが、近さの決まりが分からないので 420 だけを置く
     match color.rgb {
@@ -952,6 +983,10 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     }
     if invisible != 0 {
         values.push(int(60, i64::from(invisible)));
+    }
+    // 線の太さ（370）。DXF と同じく、ByLayer なら置かない
+    if let Some(weight) = lineweight(u16::from(weight)).filter(|weight| *weight != -1) {
+        values.push(int(370, weight));
     }
     Some(Common {
         entmode,
@@ -1082,16 +1117,18 @@ fn tolerance(bits: &mut Bits) -> Option<Vec<Value>> {
 }
 
 /// LEADER の欄（ODS 5.4.1 の 20.4.47、R2000）。注釈の種類（73）・注釈の高さと幅（40・41）・鉤の線の
-/// 向き（74）を置き、押し出しの向き（210）と X 軸の向き（211）は既定の値でなければ置く。DXF は寸法の
-/// 体裁から鉤の線の点を足して書くので、点（10）とその数（76）はまだ置かない
+/// 向き（74）・頂点の数（76）と頂点（10）を置き、押し出しの向き（210）と X 軸の向き（211）は既定の値で
+/// なければ置く。DXF は寸法の体裁から鉤の線の点を足して書くことがあり、そのときは頂点が 1 つ多い
 fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     bits.bit()?;
     let annotation = bits.bs()?;
     let path = bits.bs()?;
     let count = bits.bl()?;
+    let mut vertices = Vec::new();
     for _ in 0..count {
-        point3(bits, 10)?;
+        vertices.extend(point3(bits, 10)?);
     }
+    // 終わりの点の射影。DXF には書かれない
     point3(bits, 10)?;
     let extrusion = point3(bits, 210)?;
     let direction = point3(bits, 211)?;
@@ -1110,6 +1147,8 @@ fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
         values.push(real(41, width));
     }
     values.push(int(74, i64::from(bits.bit()?)));
+    values.push(int(76, i64::from(count)));
+    values.extend(vertices);
     if reals(&direction) != [Some(1.0), Some(0.0), Some(0.0)] {
         values.extend(direction);
     }
@@ -1491,8 +1530,35 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 handles.extend([345, 346, 347]);
             }
         }
-        // BLOCK_RECORD の印は、DXF では BLOCK の 70 に書かれる
-        BLOCK_RECORD => {}
+        // BLOCK_RECORD の印・基点・外部参照のパス・説明は、DXF では BLOCK に書かれる。ここで読んで、
+        // 表を作るときに BLOCK へ移す（BLOCK_FIELDS）
+        BLOCK_RECORD => {
+            // 名前のない 1・属性の定義を持つ 2・外部参照 4・重ねる外部参照 8 と、読み込んだ外部参照（32）
+            let mut flags = xdep;
+            for bit in [1, 2, 4, 8] {
+                if bits.bit()? {
+                    flags |= bit;
+                }
+            }
+            if bits.bit()? && flags & 4 != 0 {
+                flags |= 32;
+            }
+            if bits.release() >= Release::R2004 {
+                bits.bl()?;
+            }
+            values.push(int(70, flags));
+            values.extend(point3(bits, 10)?);
+            let path = bits.text()?;
+            if !path.is_empty() {
+                values.push(text_value(1, &path));
+            }
+            // 参照する INSERT の数だけ 0 でない RC が並び、0 で終わる
+            while bits.rc()? != 0 {}
+            let description = bits.text()?;
+            if !description.is_empty() {
+                values.push(text_value(4, &description));
+            }
+        }
         _ => {
             values.push(int(70, xdep));
             // APPID は、使い道の分からない RC を持つ
@@ -2344,9 +2410,15 @@ fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
         }
     }
     if scenario == 1 && !fit_only {
-        bits.bit()?; // 有理
-        bits.bit()?; // 閉じている
-        bits.bit()?; // 周期的
+        // 印（70）の 4 は有理、1 は閉じている、2 は周期的。DXF の 70 は平らか（8）なども持つが、DWG に
+        // 書かれないので置かない
+        let mut flags = 0;
+        for bit in [4, 1, 2] {
+            if bits.bit()? {
+                flags |= bit;
+            }
+        }
+        values.insert(0, int(70, flags));
         tail.push(real(42, bits.bd()?));
         tail.push(real(43, bits.bd()?));
         knots = bits.bl()?;

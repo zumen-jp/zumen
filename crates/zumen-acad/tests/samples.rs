@@ -169,6 +169,13 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             if saved_info.contains(&handle) {
                 continue;
             }
+            let hookless;
+            let other = if object.kind == b"LEADER" {
+                hookless = without_hook(other);
+                &hookless
+            } else {
+                other
+            };
             let mut seen: BTreeMap<i16, usize> = BTreeMap::new();
             // 辞書の項目（名前 3 と指すオブジェクト 350・360 の組）は、組で比べる。DXF にない
             // オブジェクトを指す項目は、DXF を書くときに落とされたか作り直されたものなので比べない
@@ -196,6 +203,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             }
             for value in values {
                 if matches!(value.code, 5 | 105 | 330) {
+                    continue;
+                }
+                // SPLINE の 70 は、DXF を書くときに平らかどうかから決まるので比べない
+                if object.kind == b"SPLINE" && value.code == 70 {
                     continue;
                 }
                 let nth = seen.entry(value.code).or_default();
@@ -314,6 +325,33 @@ fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
         .filter(|c| c.name().starts_with("dxf."))
         .collect();
     (format!("{drawing:?}"), codes)
+}
+
+/// DXF の LEADER から、鉤の線を持つ（75 が 1）ときに足される、終わりの前の頂点を除く。DWG は
+/// この点を持たない
+#[cfg(test)]
+fn without_hook(leader: &Object) -> Object {
+    let mut leader = leader.clone();
+    if leader.first(75) != Some(&Data::Int(1)) {
+        return leader;
+    }
+    let count = leader.values.iter().filter(|v| v.code == 10).count();
+    let mut nth = 0;
+    leader.values.retain(|value| {
+        if !matches!(value.code, 10 | 20 | 30) {
+            return true;
+        }
+        if value.code == 10 {
+            nth += 1;
+        }
+        nth + 1 != count
+    });
+    for value in &mut leader.values {
+        if let (76, Data::Int(n)) = (value.code, &mut value.data) {
+            *n -= 1;
+        }
+    }
+    leader
 }
 
 /// 数を除いた部分が同じで、数が相対の誤差の中で同じか
@@ -1235,6 +1273,7 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
                 b"SPLINE",
                 [
                     vec![
+                        int(70, 0),
                         int(71, 3),
                         int(72, 8),
                         int(73, 4),
@@ -1256,6 +1295,7 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
                 b"SPLINE",
                 [
                     vec![
+                        int(70, 4),
                         int(71, 3),
                         int(72, 8),
                         int(73, 4),
@@ -1822,12 +1862,17 @@ fn added_table_records_are_taken_back(version: &[u8]) {
             insert.push((2, Data::Text(name.to_vec())));
             db.push(block(b"INSERT", seed + 13, insert));
             file.write_back(&db, &mut cx).unwrap();
-            // DWG の BLOCK は、名前と基点を値に持たない
+            // DWG の BLOCK は名前を値に持たず、ブロックのレコードの印（70）と基点を持つ
             let at = db.objects().len() - 4;
-            db.object_mut(at)
-                .unwrap()
-                .values
-                .retain(|v| !matches!(v.code, 2 | 10 | 20 | 30));
+            let values = &mut db.object_mut(at).unwrap().values;
+            values.retain(|v| v.code != 2);
+            values.insert(
+                values.len() - 3,
+                Value {
+                    code: 70,
+                    data: Data::Int(0),
+                },
+            );
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             let mut fresh = Diagnostics::new();

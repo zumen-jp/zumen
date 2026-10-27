@@ -599,7 +599,7 @@ impl Lifter {
     /// BLOCKS の節の BLOCK を、記号の定義にする（決定 0112）。中身は、所有者（330）をたどって着くブロックの
     /// レコードの BLOCK のもの、所有者が分からなければ、並びの中で前の BLOCK から ENDBLK までのものとする。
     /// 名前は BLOCK の 2、なければブロックのレコードの 2。基点は 10、印（70）の 1 は名前のない定義、4 は外部参照
-    /// で、そのパス（1）を持つ。名前が `*` で始まるものも名前のない定義とする（推定。DWG の読み手は 70 を置かない）。
+    /// で、そのパス（1）を持つ。名前が `*` で始まるものも名前のない定義とする（推定）。
     /// 空間のブロック（`*Model_Space`・`*Paper_Space`）は移さない。中身の SORTENTSTABLE は、まだ読まない
     fn definitions(
         &self,
@@ -2604,7 +2604,7 @@ impl Lifter {
     }
 
     /// 図形の色（62・420）・線種（6）・線種の倍率（48）・線幅（370）（DXF Reference「Common Group Codes for
-    /// Entities」）。DWG の読み手は図形の線幅を表に置かないので、DWG の図形の線幅は読めていないとする
+    /// Entities」）
     fn style(&self, object: &Object, out: &mut Out) -> Lifted<Style> {
         let kind = object.kind.as_slice();
         let rgb = self.rgb(object, 420)?;
@@ -2631,12 +2631,10 @@ impl Lifter {
         if line_type_scale <= 0.0 {
             return Err(invalid(kind, 48));
         }
-        let line_weight = match (object.first(370), &object.origin) {
-            (None, Origin::Dwg { .. }) => None,
-            (None, _) => Some(Inherit::Layer),
-            (Some(Data::Int(-1)), _) => Some(Inherit::Layer),
-            (Some(Data::Int(-2)), _) => Some(Inherit::Block),
-            (Some(_), _) => Some(Inherit::Own(self.line_weight(object)?)),
+        let line_weight = match object.first(370) {
+            None | Some(Data::Int(-1)) => Some(Inherit::Layer),
+            Some(Data::Int(-2)) => Some(Inherit::Block),
+            Some(_) => Some(Inherit::Own(self.line_weight(object)?)),
         };
         Ok(Style {
             color,
