@@ -688,7 +688,7 @@ fn center(placement: Option<&Placement>) -> [Arg; 2] {
     [num(placement.map(|p| p.x)), num(placement.map(|p| p.y))]
 }
 
-/// 点の並びを、X の値の並びと Y の値の並びにする
+/// 点の並びから、X の値の並びと Y の値の並びを作る
 fn split(points: &[Option<[f64; 2]>]) -> impl Iterator<Item = Arg> {
     let axis = |at: usize| {
         Arg::List(
