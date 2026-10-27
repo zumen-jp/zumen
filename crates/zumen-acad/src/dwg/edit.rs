@@ -1,4 +1,4 @@
-//! DWG の変更（決定 0028）。R2000 から R2018 までのオブジェクトを扱う（決定 0071・0083）。見出しの変数は R2000 と R2004 を扱う。
+//! DWG の変更（決定 0028）。R2000 から R2018 までのオブジェクトを扱う（決定 0071・0083）。見出しの変数も R2018 まで扱う（決定 0084）。
 //!
 //! 変えたオブジェクトは、元のファイルの後ろに足し、オブジェクトの地図を作り直してその後ろに置く。
 //! 見出しの区切りの記録の地図の位置と大きさと、見出しの CRC を直す。ほかのバイトは元のまま残す。
@@ -93,9 +93,6 @@ impl DwgTxn<'_> {
 
     /// 見出しの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときに失敗する
     pub fn set_handle_seed(&mut self, seed: u64) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.header_unsupported() {
-            return Err(self.reject(diagnostic));
-        }
         self.seed = Some(seed);
         Ok(())
     }
@@ -103,18 +100,12 @@ impl DwgTxn<'_> {
     /// 見出しの変数の INSUNITS を `units` にする（決定 0069）。大きさ（バイト）が変わる値なら、確定のときに
     /// 失敗する
     pub fn set_units(&mut self, units: i16) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.header_unsupported() {
-            return Err(self.reject(diagnostic));
-        }
         self.units = Some(units);
         Ok(())
     }
 
     /// 見出しの変数の、用紙空間の PLIMMIN と PLIMMAX（X・Y の順）を `limits` にする（決定 0069）
     pub fn set_paper_limits(&mut self, limits: [f64; 4]) -> Result<(), Error> {
-        if let Some(diagnostic) = self.file.header_unsupported() {
-            return Err(self.reject(diagnostic));
-        }
         self.limits = Some(limits);
         Ok(())
     }
@@ -262,14 +253,9 @@ impl Transaction for DwgTxn<'_> {
 }
 
 impl DwgFile {
-    /// この版の DWG の見出しの変数を変えられず、共有の表から書き戻せなければ、その診断。R2000 と R2004 を
-    /// 扱う（決定 0078）
-    pub(super) fn header_unsupported(&self) -> Option<Diagnostic> {
-        self.unsupported(self.release > Release::R2004)
-    }
-
-    fn unsupported(&self, unsupported: bool) -> Option<Diagnostic> {
-        unsupported.then(|| {
+    /// この版の DWG に共有の表から書き戻せなければ、その診断。R2000 と R2004 を扱う（決定 0072・0084）
+    pub(super) fn write_back_unsupported(&self) -> Option<Diagnostic> {
+        (self.release > Release::R2004).then(|| {
             let version = String::from_utf8_lossy(self.version()).into_owned();
             Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", version)
         })
