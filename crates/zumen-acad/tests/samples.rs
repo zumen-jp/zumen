@@ -566,8 +566,8 @@ fn r2004_drawings_take_back_changed_entities() {
                 }
             }
         }
-        // 型ごとの欄をまだ符号化しない種類の図形と、読む側が欄を読まない LAYOUT の変更は書き戻さない
-        for kind in [&b"MULTILEADER"[..], b"LAYOUT"] {
+        // 型ごとの欄をまだ符号化しない種類の図形の変更は書き戻さない
+        for kind in [&b"MULTILEADER"[..]] {
             let mut db = base.clone();
             let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
                 continue;
@@ -653,6 +653,8 @@ fn r2004_drawings_take_back_changed_objects() {
                     (b"DICTIONARY" | b"ACDBDICTIONARYWDFLT", 281, Data::Int(v)) => *v = *v % 5 + 1,
                     (b"MLINESTYLE", 49, Data::Real(v)) => *v *= 2.0,
                     (b"MLINESTYLE", 62, Data::Int(v)) => *v = *v % 255 + 1,
+                    (b"LAYOUT", 146, Data::Real(v)) => *v += 1.0,
+                    (b"LAYOUT", 78, Data::Int(v)) => *v += 100,
                     (b"XRECORD", _, Data::Real(v)) => *v += 1.0,
                     (b"XRECORD", _, Data::Text(text)) => text.extend(b"0"),
                     _ => continue,
