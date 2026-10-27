@@ -17,8 +17,8 @@
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
-//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁は、一から符号化して
-//! オブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0065）。
+//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビューは、一から符号化して
+//! オブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0066）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と見出しの変数の変更は、まだ書き戻せない。
 
@@ -83,6 +83,8 @@ const APPID_TYPE: i16 = 0x43;
 const APPID_CONTROL_TYPE: u16 = 0x42;
 const DIMSTYLE_TYPE: i16 = 0x45;
 const DIMSTYLE_CONTROL_TYPE: u16 = 0x44;
+const VIEW_TYPE: i16 = 0x3D;
+const VIEW_CONTROL_TYPE: u16 = 0x3C;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -300,7 +302,7 @@ impl DwgFile {
     /// 前の終わりの図形とレコードの、並びをたどるハンドルを直したデータを `changes` に足し、足した図形の
     /// ハンドルとデータと、新しい HANDSEED を返す。ハンドルは、今の HANDSEED から表の順に大きくなければ
     /// ならない。所有者はこのファイルのブロックのレコード、画層（8）は表にある画層でなければならない
-    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0065）
+    /// 足した表のレコードは、図形の並びへ繋がず、表のオブジェクトに加える（決定 0061〜0066）
     fn append(
         &self,
         db: &AcadDb,
@@ -549,15 +551,16 @@ impl DwgFile {
         })
     }
 
-    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0065）。所有者（330）の
+    /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0066）。所有者（330）の
     /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
-    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁だけを扱い、名前（2）が表にない
+    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁・ビューだけを扱い、名前（2）が表にない
     /// ことが要る。
     /// 画層は、印（70）・色（62）・線の太さ（370）を持ち、印刷スタイル（390）と線種（6）が表になければ
     /// ならない。印刷スタイルがなければ、画層 0 と同じものにする。文字の体裁は、型ごとの欄をみな持たなければ
     /// ならない。線種は、要素がみな形も文字も持たないことが要る。アプリケーションの名前は、印（70）が 0 で
     /// なければならない。寸法の体裁は、表にない欄を既定の値で書き、文字の体裁とブロックのハンドル（340〜344）
-    /// が図面になければならない。ハンドルが `seed` より小さいか、足せないレコードなら `None`
+    /// が図面になければならない。ビューは、型ごとの欄をみな持ち、UCS のハンドル（345・346）が図面になければ
+    /// ならない。ハンドルが `seed` より小さいか、足せないレコードなら `None`
     fn add_record(
         &self,
         db: &AcadDb,
@@ -570,6 +573,7 @@ impl DwgFile {
             .chain(DIM_FIELDS.iter().map(|field| field.0))
             .chain(340..=344)
             .collect();
+        let view_codes = [VIEW, &[345, 346]].concat();
         // レコードと表のオブジェクトの型と、型ごとの欄のグループ・コード
         let (type_code, control_type, own): (i16, u16, &[i16]) = match object.kind.as_slice() {
             b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE, &[70, 62, 290, 370, 390, 6]),
@@ -577,6 +581,7 @@ impl DwgFile {
             b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE, &[70, 3, 72, 73, 40, 49, 74]),
             b"APPID" => (APPID_TYPE, APPID_CONTROL_TYPE, &[70]),
             b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE, &dimstyle_codes),
+            b"VIEW" => (VIEW_TYPE, VIEW_CONTROL_TYPE, &view_codes),
             _ => return None,
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
@@ -692,6 +697,27 @@ impl DwgFile {
             // 使い道の分からない RC は、試料の図面と同じく 0 とする
             (small(object, 70)?? == 0).then_some(())?;
             fields.rc(0);
+        } else if type_code == VIEW_TYPE {
+            let associated = view_fields(&mut fields, object, false)?;
+            // UCS を伴わないビューは、UCS の欄を持たない
+            let ucs = [110, 120, 130, 111, 121, 131, 112, 122, 132, 79, 146];
+            (associated || !object.values.iter().any(|value| ucs.contains(&value.code)))
+                .then_some(())?;
+            // UCS を伴うビューは、基準の UCS と名前の UCS を指す。試料の図面と同じく、参照の型は 5
+            for code in [346, 345] {
+                let handle = match object.values.iter().find(|value| value.code == code) {
+                    Some(value) => match value.data {
+                        Data::Handle(h) if associated => {
+                            (db.get(h)?.kind == b"UCS").then_some(h)?
+                        }
+                        _ => return None,
+                    },
+                    None => 0,
+                };
+                if associated {
+                    handles.handle(5, handle);
+                }
+            }
         } else {
             (small(object, 70)?? == 0).then_some(())?;
             for &(code, field) in &DIM_FIELDS {
@@ -1969,9 +1995,15 @@ fn view_record(
     let mut bits = Bits::with_release(data, Release::R2000);
     bits.seek(own_at);
     let old = super::objects::view(&mut bits, 0, &mut Vec::new())?;
-    let associated = flag(new, 72)?;
     let was = old.iter().find(|value| value.code == 72)?;
-    (was.data == Data::Int(i64::from(associated))).then_some(())?;
+    (was.data == Data::Int(i64::from(flag(new, 72)?))).then_some(())?;
+    view_fields(fields, new, xdep)?;
+    Some(bits.pos())
+}
+
+/// VIEW の型ごとの欄。UCS を伴うかを返す
+fn view_fields(fields: &mut BitWriter, new: &Object, xdep: bool) -> Option<bool> {
+    let associated = flag(new, 72)?;
     let paper = record_flags(new, xdep, 1)? & 1 != 0;
     let mode = small(new, 71)??;
     (mode & !(1 | 2 | 4 | 16) == 0).then_some(())?;
@@ -1991,7 +2023,7 @@ fn view_record(
     if associated {
         ucs_axes(fields, new)?;
     }
-    Some(bits.pos())
+    Some(associated)
 }
 
 /// UCS の欄（決定 0045）。後に続く正投影の型は、表にないので元のまま写す。元の欄の終わりの位置を返す

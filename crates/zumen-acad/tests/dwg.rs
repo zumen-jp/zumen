@@ -7078,12 +7078,26 @@ fn layer_table_with_seed() -> Vec<u8> {
         },
     );
     let dimstyle = object(0x45, 0x14, record_named(b"Standard"), record_handles(7));
+    // 項目のないビューの表
+    let view_control = object(
+        0x3C,
+        8,
+        |w| {
+            w.bl_zero();
+            w.bl_zero();
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+        },
+    );
     let mut objects = vec![
         (2, control),
         (3, style_control),
         (5, ltype_control),
         (6, appid_control),
         (7, dimstyle_control),
+        (8, view_control),
         (0x10, layer),
         (0x11, style),
         (0x12, ltype),
@@ -7477,5 +7491,109 @@ fn added_dimstyles_are_written_back() {
         assert_eq!(out, Err(Error::Rejected));
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&"DIMSTYLE".to_string().into()));
+    }
+}
+
+#[test]
+fn added_views_are_written_back() {
+    let summary = |db: &AcadDb| -> Vec<(Vec<u8>, Vec<Value>)> {
+        db.objects()
+            .iter()
+            .map(|o| (o.kind.clone(), o.values.clone()))
+            .collect()
+    };
+    let src = layer_table_with_seed();
+    let (base, diag) = objects(&src);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    // 名前と、印（70）の後の読む側の並びの値 `values` を持つビュー
+    let view = |name: &[u8], flags: i64, values: Vec<(i16, Data)>| {
+        let mut db = base.clone();
+        let mut all = vec![
+            (5, Data::Handle(0x80)),
+            (330, Data::Handle(8)),
+            (2, Data::Text(name.to_vec())),
+            (70, Data::Int(flags)),
+        ];
+        all.extend(values);
+        db.push(Object {
+            kind: b"VIEW".to_vec(),
+            section: Section::Tables,
+            values: all
+                .into_iter()
+                .map(|(code, data)| Value { code, data })
+                .collect(),
+            origin: Origin::New,
+        });
+        db
+    };
+    // 高さ・中心・幅・向き・目標・レンズ・切り取り・ねじれ・見え方・描き方と、UCS を伴う印
+    let values = |mode: i64, associated: bool| {
+        let mut values = vec![
+            (40, Data::Real(120.0)),
+            (10, Data::Real(50.0)),
+            (20, Data::Real(40.0)),
+            (41, Data::Real(200.0)),
+            (11, Data::Real(0.0)),
+            (21, Data::Real(0.0)),
+            (31, Data::Real(1.0)),
+            (12, Data::Real(5.0)),
+            (22, Data::Real(6.0)),
+            (32, Data::Real(0.0)),
+            (42, Data::Real(50.0)),
+            (43, Data::Real(1.5)),
+            (44, Data::Real(-2.5)),
+            (50, Data::Real(0.0)),
+            (71, Data::Int(mode)),
+            (281, Data::Int(0)),
+            (72, Data::Int(i64::from(associated))),
+        ];
+        if associated {
+            for (code, v) in [
+                (110, 1.0),
+                (120, 2.0),
+                (130, 0.0),
+                (111, 1.0),
+                (121, 0.0),
+                (131, 0.0),
+                (112, 0.0),
+                (122, 1.0),
+                (132, 0.0),
+            ] {
+                values.push((code, Data::Real(v)));
+            }
+            values.push((79, Data::Int(0)));
+            values.push((146, Data::Real(3.0)));
+        }
+        values
+    };
+    for db in [
+        view(b"Front", 0, values(2 | 4, false)),
+        view(b"Paper", 1, values(0, true)),
+    ] {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+        let (again, diag) = objects(&out.unwrap());
+        assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+        assert_eq!(summary(&again), summary(&db));
+    }
+    // 外部参照に依る印・分からない見え方の印・UCS を伴わないのに UCS の欄を持つもの・UCS でないものを
+    // 指すものは、書き戻せない
+    let mut stray = values(0, false);
+    stray.push((146, Data::Real(3.0)));
+    let mut layer = values(0, true);
+    layer.push((345, Data::Handle(0x10)));
+    let cases = [
+        view(b"Other", 16, values(0, false)),
+        view(b"Other", 0, values(8, false)),
+        view(b"Other", 0, stray),
+        view(b"Other", 0, layer),
+    ];
+    for db in cases {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert_eq!(out, Err(Error::Rejected));
+        let found = diag.iter().next().and_then(|d| d.param("kind"));
+        assert_eq!(found, Some(&"VIEW".to_string().into()));
     }
 }

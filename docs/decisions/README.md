@@ -73,6 +73,7 @@
 - [0063: DWG（R2000）への書き戻しで足す線種は、形も文字もない要素だけのものを線種の表のオブジェクトの項目の終わりに加える](0063-dwg-write-back-ltype-addition.md)（2026-10-27、採用）
 - [0064: DWG（R2000）への書き戻しで足すアプリケーションの名前は、使い道の分からない RC を 0 として表のオブジェクトの項目の終わりに加える](0064-dwg-write-back-appid-addition.md)（2026-10-27、採用）
 - [0065: DWG（R2000）への書き戻しで足す寸法の体裁は、表にない欄を既定の値で書き、表のオブジェクトの項目の終わりに加える](0065-dwg-write-back-dimstyle-addition.md)（2026-10-27、採用）
+- [0066: DWG（R2000）への書き戻しで足すビューは、型ごとの欄をみな持ち、UCS を伴うなら UCS を指すものを表のオブジェクトの項目の終わりに加える](0066-dwg-write-back-view-addition.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
