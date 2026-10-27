@@ -1369,8 +1369,12 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 370,
                 lineweight(u16::try_from((flags & 0x03E0) >> 5).ok()?)?,
             ));
-            // 印刷スタイル（390）と線種（6）
-            handles.extend([390, 6]);
+            // 印刷スタイル（390）と線種（6）。R2010 からは、その間に材質（347）がある（決定 0094）
+            if bits.release() >= Release::R2010 {
+                handles.extend([390, 347, 6]);
+            } else {
+                handles.extend([390, 6]);
+            }
         }
         STYLE => {
             // 形のファイルの印（70 の 1）と、縦書きの印（70 の 4）
