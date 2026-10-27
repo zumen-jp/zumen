@@ -5379,7 +5379,7 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
     assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     let found = diag.iter().next().and_then(|d| d.param("kind"));
     assert_eq!(found, Some(&"$INSUNITS".to_string().into()));
-    // R2010 から後は、表の変更を書き戻せない
+    // R2010 から後は、文字列を持たない単純な図形の変更だけを書き戻す（決定 0085）
     let mut sections = r2004_sections();
     let classes = r2010_classes(false);
     sections[1] = (
@@ -5392,7 +5392,7 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
     let mut r2010 = read(&r2010_src, Limits::default()).0.unwrap();
     let (result, diag) = written_back(&mut r2010, &db);
     assert_eq!(result, Err(Error::Rejected));
-    assert_eq!(codes_of(&diag), [codes::DWG_EDIT_UNSUPPORTED]);
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
 }
 
 /// 印と色を持つ画層と、縦書きかどうかと高さとフォントを持つ文字スタイル
