@@ -710,10 +710,63 @@ pub const DXF_VIEWPORT_UNSUPPORTED: Code = Code::new(
 pub const INTERNAL_PANIC_CAUGHT: Code =
     Code::new("internal.panic.caught", Severity::Error, None, &[], &[]);
 
+/// 要素が指すレイヤ・色・線種・線幅のコードに定義がない
+///
+/// `sxf.code.missing`（0.0.0 から）
+pub const SXF_CODE_MISSING: Code = Code::new(
+    "sxf.code.missing",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["kind", "code"],
+);
+
 /// ISO 10303-21 の始まり・DATA の節・終わりのどれかがない
 ///
 /// `sxf.file.invalid`（0.0.0 から）
 pub const SXF_FILE_INVALID: Code = Code::new("sxf.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 図面モデルにまだ移せない種類のフィーチャを、移さなかった
+///
+/// `sxf.lift.dropped`（0.0.0 から）
+pub const SXF_LIFT_DROPPED: Code = Code::new(
+    "sxf.lift.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 引数が足りないか、読めないか、範囲の外のフィーチャを、移さなかった
+///
+/// `sxf.lift.invalid`（0.0.0 から）
+pub const SXF_LIFT_INVALID: Code = Code::new(
+    "sxf.lift.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 用紙のフィーチャより後に書いた要素を、用紙の要素とした
+///
+/// `sxf.member.assumed`（0.0.0 から）
+pub const SXF_MEMBER_ASSUMED: Code =
+    Code::new("sxf.member.assumed", Severity::Info, None, &[], &[]);
+
+/// P21 の図面モデルへの変換はまだないので、空の図面にした
+///
+/// `sxf.p21.unsupported`（0.0.0 から）
+pub const SXF_P21_UNSUPPORTED: Code = Code::new(
+    "sxf.p21.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
 
 /// 文かフィーチャのコメントの形が読めないので、レコードにせずに、次の文から読んだ
 ///
@@ -730,6 +783,28 @@ pub const SXF_SCHEMA_UNSUPPORTED: Code = Code::new(
     None,
     &[Param::new("schema", ParamType::Text)],
     &[],
+);
+
+/// 自分を直接か間接に配置する作図グループの配置を、展開しなかった
+///
+/// `sxf.sfig-cycle.invalid`（0.0.0 から）
+pub const SXF_SFIG_CYCLE_INVALID: Code = Code::new(
+    "sxf.sfig-cycle.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 配置が指す複合図形の定義がないので、配置を移さなかった
+///
+/// `sxf.sfig.missing`（0.0.0 から）
+pub const SXF_SFIG_MISSING: Code = Code::new(
+    "sxf.sfig.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
 );
 
 /// ZIP の項目の名前が、パスとして安全でない（`..`・絶対パス・ドライブ名・NUL を含む）
@@ -809,8 +884,15 @@ pub const ALL: &[Code] = &[
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
+    SXF_CODE_MISSING,
     SXF_FILE_INVALID,
+    SXF_LIFT_DROPPED,
+    SXF_LIFT_INVALID,
+    SXF_MEMBER_ASSUMED,
+    SXF_P21_UNSUPPORTED,
     SXF_RECORD_INVALID,
     SXF_SCHEMA_UNSUPPORTED,
+    SXF_SFIG_CYCLE_INVALID,
+    SXF_SFIG_MISSING,
     ZIP_PATH_UNSAFE,
 ];

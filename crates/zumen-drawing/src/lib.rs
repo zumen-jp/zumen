@@ -238,6 +238,8 @@ pub struct ColorCode {
 pub enum ColorSystem {
     /// AutoCAD の色の番号（ACI、DXF の 62）。1〜255
     Aci,
+    /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの（決定 0121）
+    Sxf,
 }
 
 /// 線種の ID。同じ図面の中で重ならない

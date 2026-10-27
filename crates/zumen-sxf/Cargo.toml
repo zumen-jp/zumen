@@ -13,6 +13,19 @@ formats = ["sxf"]
 [dependencies]
 zumen-base = { path = "../zumen-base" }
 zumen-sdk = { path = "../zumen-sdk" }
+zumen-drawing = { path = "../zumen-drawing", optional = true }
+# Shift_JIS の名前と文字を戻す。WHATWG の Shift_JIS で、環境によらない（決定 0121）
+encoding_rs = { version = "0.8.35", optional = true }
+# 部分図の配置の回転。std の三角関数は環境で値が違いうる（決定 0007）
+libm = { version = "0.2.16", default-features = false, optional = true }
+
+[features]
+default = ["drawing"]
+# 図面モデル（L2）への変換。L1 だけを使うなら外せる
+drawing = ["dep:zumen-drawing", "dep:encoding_rs", "dep:libm"]
+
+[dev-dependencies]
+zumen-drawing = { path = "../zumen-drawing" }
 
 [lints]
 workspace = true
