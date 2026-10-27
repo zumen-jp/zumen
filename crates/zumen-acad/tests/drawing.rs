@@ -62,6 +62,13 @@ fn found(diag: &Diagnostics) -> Vec<(Code, String, u64, Vec<Ref>)> {
         .collect()
 }
 
+/// 定義のないブロックの診断を除いた診断。ブロックの定義を書かない試験で使う
+fn found_but_missing_blocks(diag: &Diagnostics) -> Vec<(Code, String, u64, Vec<Ref>)> {
+    let mut found = found(diag);
+    found.retain(|(code, ..)| *code != codes::DXF_BLOCK_MISSING);
+    found
+}
+
 /// どれもレイヤから継承する指定
 fn by_layer() -> Style {
     Style {
@@ -1162,7 +1169,11 @@ fn e4_dimensions_keep_the_measurement_and_the_override_apart() {
     }
     let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
     let drawing = drawing.unwrap();
-    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    assert!(
+        found_but_missing_blocks(&diag).is_empty(),
+        "{:?}",
+        found_but_missing_blocks(&diag)
+    );
     let shapes = model_shapes(&drawing);
     assert_eq!(
         shapes[0],
@@ -1570,7 +1581,7 @@ fn e4_dimension_styles_keep_their_arrowheads() {
         &mut Budget::default(),
     );
     let drawing = drawing.unwrap();
-    let found = found(&diag);
+    let found = found_but_missing_blocks(&diag);
     let [(code, params, 1, broken)] = found.as_slice() else {
         panic!("{found:?}");
     };
@@ -3155,6 +3166,87 @@ fn table(sizes: &[(i16, &'static str)], cells: &[(i16, &'static str)]) -> Vec<(i
 }
 
 #[test]
+fn tables_dimensions_and_styles_report_blocks_without_definitions() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "1A"),
+        (2, "_DOT"),
+        (0, "BLOCK_RECORD"),
+        (5, "B1"),
+        (2, "MARK"),
+        (0, "ENDTAB"),
+        (0, "TABLE"),
+        (2, "DIMSTYLE"),
+        (0, "DIMSTYLE"),
+        (105, "20"),
+        (2, "Dotted"),
+        (342, "1A"),
+        (0, "ENDTAB"),
+    ];
+    // MARK だけを定義する
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "B2"),
+        (330, "B1"),
+        (8, "0"),
+        (2, "MARK"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "ENDBLK"),
+        (5, "B3"),
+        (330, "B1"),
+        (8, "0"),
+    ];
+    // 表を描いた *T1 と、寸法を描いた *D1 は定義がない。セルの MARK は定義がある
+    let mut entities = table(
+        &[(91, "1"), (92, "1"), (141, "5.0"), (142, "5.0")],
+        &[(171, "2"), (340, "B1")],
+    );
+    entities.extend(entity(
+        "DIMENSION",
+        &[
+            (2, "*D1"),
+            (10, "0.0"),
+            (20, "100.0"),
+            (70, "0"),
+            (13, "0.0"),
+            (23, "0.0"),
+            (14, "1000.0"),
+            (24, "0.0"),
+        ],
+    ));
+    let src = sections(&[
+        ("HEADER", MM),
+        ("TABLES", &tables),
+        ("BLOCKS", &blocks),
+        ("ENTITIES", &entities),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let drawing = drawing.unwrap();
+    let style = drawing.dimension_styles[0].source.clone();
+    let shapes = &drawing.spaces[0].elements;
+    let missing = |name: &str, place: &Ref| {
+        (
+            codes::DXF_BLOCK_MISSING,
+            format!("Text({name:?})"),
+            1,
+            vec![place.clone()],
+        )
+    };
+    assert_eq!(
+        found(&diag),
+        [
+            missing("*T1", &shapes[0].source),
+            missing("*D1", &shapes[1].source),
+            missing("_DOT", &style),
+        ]
+    );
+}
+
+#[test]
 fn e10_tables_keep_rows_columns_merges_and_contents() {
     let sizes = [
         (91, "2"),
@@ -3193,7 +3285,7 @@ fn e10_tables_keep_rows_columns_merges_and_contents() {
         (304, "ACVALUE_END"),
     ];
     let (drawing, diag) = lift(&dxf(MM, &table(&sizes, &cells)), &mut Budget::default());
-    assert_eq!(found(&diag), []);
+    assert_eq!(found_but_missing_blocks(&diag), []);
     let text = |content: &str| CellContent::Text {
         content: content.to_owned(),
         spans: vec![span(Piece::Text(content.to_owned()), Format::default())],
@@ -3231,7 +3323,7 @@ fn e10_table_cells_can_hold_symbols() {
     );
     let src = sections(&[("HEADER", MM), ("TABLES", &record), ("ENTITIES", &entities)]);
     let (drawing, diag) = lift(&src, &mut Budget::default());
-    assert_eq!(found(&diag), []);
+    assert_eq!(found_but_missing_blocks(&diag), []);
     match model_shapes(&drawing.unwrap()).as_slice() {
         [Shape::Table(table)] => assert_eq!(
             table.cells,

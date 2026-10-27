@@ -214,14 +214,58 @@ fn layout_block(name: &str) -> bool {
 }
 
 /// 決まった作業量を数え、上限を超えたら止める（決定 0010）
-/// 配置（INSERT）が指す定義がないものと、自分を直接か間接に配置する定義を診断する（決定 0116）。配置は
-/// 展開しないので、どちらも配置と定義は移したまま持つ。表のセルと寸法などが指すブロックは、まだ確かめない
+/// 配置（INSERT）と、表・セル・寸法・引出線つきの注記・寸法スタイルが指す定義がないものと、自分を直接か
+/// 間接に配置する定義を診断する（決定 0116）。配置は展開しないので、どちらも配置と定義は移したまま持つ。
+/// 輪は配置だけでたどる
 fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result<(), Error> {
     fn placed<P>(elements: &[Element<P>]) -> impl Iterator<Item = (&SymbolKey, &Ref)> {
         elements.iter().filter_map(|element| match &element.shape {
             Shape::Symbol(symbol) => Some((&symbol.key, &element.source)),
             _ => None,
         })
+    }
+    /// 配置のほかに図形が指す定義のキー
+    fn referenced<P>(elements: &[Element<P>]) -> impl Iterator<Item = (SymbolKey, &Ref)> {
+        elements.iter().flat_map(|element| {
+            let keys: Vec<SymbolKey> = match &element.shape {
+                Shape::Table(table) => table
+                    .drawn
+                    .iter()
+                    .cloned()
+                    .chain(table.cells.iter().filter_map(|cell| match &cell.content {
+                        CellContent::Symbol(key) => Some(key.clone()),
+                        _ => None,
+                    }))
+                    .collect(),
+                Shape::Dimension(dimension) => dimension
+                    .block
+                    .iter()
+                    .map(|name| SymbolKey {
+                        namespace: BLOCK,
+                        name: name.clone(),
+                    })
+                    .collect(),
+                Shape::Callout(callout) => {
+                    let mut keys: Vec<SymbolKey> = arrowheads([&callout.arrowhead]).collect();
+                    if let CalloutContent::Symbol { symbol, .. } = &callout.content {
+                        keys.push(symbol.key.clone());
+                    }
+                    keys
+                }
+                _ => Vec::new(),
+            };
+            keys.into_iter().map(|key| (key, &element.source))
+        })
+    }
+    fn arrowheads<'a>(
+        arrowheads: impl IntoIterator<Item = &'a Arrowhead>,
+    ) -> impl Iterator<Item = SymbolKey> {
+        arrowheads
+            .into_iter()
+            .filter_map(|arrowhead| match arrowhead {
+                Arrowhead::Symbol(key) => Some(key.clone()),
+                Arrowhead::Default => None,
+            })
     }
     let mut by_name = BTreeMap::new();
     for (index, symbol) in symbols.iter().enumerate() {
@@ -230,9 +274,26 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
     let inner = symbols
         .iter()
         .flat_map(|symbol| placed(&symbol.space.elements));
-    for (key, at) in placed(&out.model).chain(placed(&out.paper)).chain(inner) {
+    let others = referenced(&out.model)
+        .chain(referenced(&out.paper))
+        .chain(
+            symbols
+                .iter()
+                .flat_map(|symbol| referenced(&symbol.space.elements)),
+        )
+        .chain(out.dimension_styles.iter().flat_map(|style| {
+            // 両端と引出線が同じブロックを指すときは、寸法スタイルごとに 1 つと数える
+            let keys: BTreeSet<SymbolKey> =
+                arrowheads(style.ends.iter().chain([&style.leader])).collect();
+            keys.into_iter().map(|key| (key, &style.source))
+        }));
+    let placements = placed(&out.model)
+        .chain(placed(&out.paper))
+        .chain(inner)
+        .map(|(key, at)| (key.clone(), at));
+    for (key, at) in placements.chain(others) {
         work(cx, 1, at)?;
-        if !by_name.contains_key(key) {
+        if !by_name.contains_key(&key) {
             cx.report(
                 Diagnostic::new(codes::DXF_BLOCK_MISSING)
                     .with("name", key.name.clone())
