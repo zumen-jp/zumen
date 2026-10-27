@@ -13,9 +13,11 @@
 //! 符号から RGB への表はプロファイル（#9）に置くので、ここでは引かない。レイヤからの継承は
 //! [`Drawing2D::color_of`] などで解き、解けない継承は継承のまま返す。
 //!
-//! 要素は、いまは線分・文字・寸法・引出線だけ。寸法は、種類と定義点・保存された測定値・文字の上書きを
-//! 別に持つ（[`Dimension`]）。引出線は経路を持ち、注記の要素を出所で指す（[`Leader`]）。
-//! 記号・ハッチング・下敷き・スタイルの解決などは #28 で足す。
+//! 要素は、いまは線分・文字・寸法・引出線・記号・ハッチングだけ。寸法は、種類と定義点・保存された測定値・
+//! 文字の上書きを別に持つ（[`Dimension`]）。引出線は経路を持ち、注記の要素を出所で指す（[`Leader`]）。
+//! 寸法と引出線の端部記号は、図面の寸法スタイルの表（[`DimensionStyle`]）に置く。記号は、定義を名前空間付きの
+//! キー（[`SymbolKey`]）で指し、配置と属性を持つ（[`Symbol`]）。ハッチングは、境界の輪と、塗り・パターン・
+//! グラデーションの区別を持つ（[`Hatch`]）。曲線・下敷きなどは #28 で足す。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。
 
 use zumen_base::Ref;
@@ -35,6 +37,8 @@ pub struct Drawing2D {
     pub line_type_scale: Option<f64>,
     /// [`LineWeight::Default`] の線幅。元の形式が決めていなければ `None`
     pub default_line_weight: Option<PaperLength>,
+    /// 寸法スタイル。順序は元の形式の定義の順
+    pub dimension_styles: Vec<DimensionStyle>,
 }
 
 impl Drawing2D {
@@ -46,6 +50,13 @@ impl Drawing2D {
     /// ID の線種
     pub fn line_type(&self, id: LineTypeId) -> Option<&LineType> {
         self.line_types.iter().find(|line_type| line_type.id == id)
+    }
+
+    /// 名前の寸法スタイル。名前は大文字と小文字も含めて比べ、同じ名前があれば先のもの
+    pub fn dimension_style(&self, name: &str) -> Option<&DimensionStyle> {
+        self.dimension_styles
+            .iter()
+            .find(|style| style.name == name)
     }
 
     /// 要素の色。レイヤからの継承を解く。ブロックからの継承と、レイヤが値を持たないものは解かない
@@ -452,6 +463,10 @@ pub enum Shape<P> {
     Dimension(Dimension<P>),
     /// 引出線
     Leader(Leader<P>),
+    /// 記号
+    Symbol(Symbol<P>),
+    /// ハッチング
+    Hatch(Hatch<P>),
 }
 
 /// 寸法。測る空間は定義点の空間とする。保存された測定値・文字の上書き・表示用の部品は別に持ち、
@@ -605,6 +620,263 @@ pub struct Leader<P> {
     pub annotation: Option<Ref>,
     /// 元の寸法スタイルの名前
     pub style: String,
+}
+
+/// 寸法スタイルのうち、端部記号とその大きさ。寸法と引出線は名前で指す
+#[derive(Clone, Debug, PartialEq)]
+pub struct DimensionStyle {
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号
+    pub ends: [Arrowhead; 2],
+    /// 引出線の端部記号
+    pub leader: Arrowhead,
+    /// 端部記号の大きさ。要素の空間の文書の単位で、`scale` を掛ける前の値
+    pub size: f64,
+    /// 寸法線の端に矢印の代わりに描く斜線の大きさ。斜線を描かなければ `None`。単位は `size` と同じ
+    pub tick: Option<f64>,
+    /// 大きさに掛ける倍率。0 は、ビューの縮尺から決めることを表す（DXF の DIMSCALE）
+    pub scale: f64,
+    /// 定義の出所
+    pub source: Ref,
+}
+
+/// 端部記号
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Arrowhead {
+    /// 元の形式の既定の矢印（DXF では塗りつぶした閉じた矢印）
+    Default,
+    /// 記号の定義。形式が名前で決めた矢印（DXF の `_DOT` など）も、この形で持つ
+    Symbol(SymbolKey),
+}
+
+/// 記号の定義を指すキー。名前空間ごとに名前を比べる
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SymbolKey {
+    /// 名前空間（`dxf.block` など）
+    pub namespace: &'static str,
+    /// 名前空間の中の元の名前。翻訳しない
+    pub name: String,
+}
+
+/// 記号の配置。記号の定義の点を、尺度・回転・移動の順に写す
+#[derive(Clone, Debug, PartialEq)]
+pub struct Symbol<P> {
+    /// 定義
+    pub key: SymbolKey,
+    /// 定義の基点を置く点
+    pub position: P,
+    /// X と Y の尺度。負なら反転する
+    pub scale: [f64; 2],
+    /// 回転（度、反時計回り）
+    pub rotation: f64,
+    /// 格子に並べて置くなら、その列と行。1 つだけ置くなら `None`
+    pub grid: Option<Grid>,
+    /// 属性。順序は入力の順
+    pub attributes: Vec<Attribute<P>>,
+}
+
+/// 記号を格子に並べる列と行。間隔は、記号を回転する前の向きに測る
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Grid {
+    /// 列の数
+    pub columns: u32,
+    /// 行の数
+    pub rows: u32,
+    /// 列の間隔
+    pub column_spacing: Length,
+    /// 行の間隔
+    pub row_spacing: Length,
+}
+
+/// 記号の属性。値は文字として置く
+#[derive(Clone, Debug, PartialEq)]
+pub struct Attribute<P> {
+    /// 元のタグ。翻訳しない
+    pub tag: String,
+    /// 値と、その配置と書式
+    pub text: Text<P>,
+    /// 表示しない
+    pub hidden: bool,
+    /// レイヤ
+    pub layer: LayerId,
+    /// 色・線種・線幅
+    pub style: Style,
+    /// 出所
+    pub source: Ref,
+}
+
+/// ハッチング。境界の輪と、中を埋めるものを持つ。境界を作った要素は、輪ごとに出所で指す
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hatch<P> {
+    /// 境界の輪。順序は入力の順
+    pub loops: Vec<HatchLoop<P>>,
+    /// 輪の中の輪の埋め方
+    pub islands: Islands,
+    /// 中を埋めるもの
+    pub fill: Fill,
+    /// 境界を作った要素に合わせて、境界を作り直す
+    pub associative: bool,
+    /// 境界を探した点。順序は入力の順
+    pub seeds: Vec<P>,
+}
+
+/// ハッチングの境界の輪
+#[derive(Clone, Debug, PartialEq)]
+pub struct HatchLoop<P> {
+    /// 形
+    pub boundary: Boundary<P>,
+    /// 外側の輪
+    pub external: bool,
+    /// いちばん外の輪
+    pub outermost: bool,
+    /// 境界を探して作った輪
+    pub derived: bool,
+    /// 文字の枠
+    pub text_box: bool,
+    /// 輪を作った要素の出所。順序は入力の順
+    pub sources: Vec<Ref>,
+}
+
+/// ハッチングの境界の輪の形
+#[derive(Clone, Debug, PartialEq)]
+pub enum Boundary<P> {
+    /// 膨らみを持つ頂点を結んだ折れ線
+    Polyline {
+        /// 頂点。順序は入力の順
+        vertices: Vec<Vertex<P>>,
+        /// 終点と始点を結ぶ
+        closed: bool,
+    },
+    /// 辺の並び
+    Edges(Vec<Edge<P>>),
+}
+
+/// 折れ線の頂点
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Vertex<P> {
+    /// 点
+    pub point: P,
+    /// 次の頂点までの膨らみ。弧の中心角の 1/4 の正接で、正なら反時計回り。直線なら 0
+    pub bulge: f64,
+}
+
+/// 境界の辺。角度は度で、反時計回り
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Edge<P> {
+    /// 線分
+    Line {
+        /// 始点
+        start: P,
+        /// 終点
+        end: P,
+    },
+    /// 円弧
+    Arc {
+        /// 中心
+        center: P,
+        /// 半径
+        radius: Length,
+        /// 始まりの角度
+        start: f64,
+        /// 終わりの角度
+        end: f64,
+        /// 反時計回りにたどる
+        counterclockwise: bool,
+    },
+    /// 楕円弧
+    Elliptic {
+        /// 中心
+        center: P,
+        /// 長軸の端の点
+        major: P,
+        /// 短軸の長軸に対する比
+        ratio: f64,
+        /// 始まりの角度。楕円を円に引き延ばしたときの角度
+        start: f64,
+        /// 終わりの角度。楕円を円に引き延ばしたときの角度
+        end: f64,
+        /// 反時計回りにたどる
+        counterclockwise: bool,
+    },
+}
+
+/// 輪の中の輪の埋め方
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Islands {
+    /// 外から数えて、奇数番目の輪の内側を埋める
+    Nested,
+    /// いちばん外の輪と、その内側の最初の輪の間だけを埋める
+    Outer,
+    /// 内側の輪を無視して、いちばん外の輪の内側をすべて埋める
+    Ignore,
+}
+
+/// ハッチングの中を埋めるもの
+#[derive(Clone, Debug, PartialEq)]
+pub enum Fill {
+    /// 要素の色で塗る
+    Solid,
+    /// 線の組で埋める
+    Pattern(Pattern),
+    /// グラデーションで塗る
+    Gradient(Gradient),
+}
+
+/// ハッチングのパターン
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pattern {
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 定義の出どころ
+    pub origin: PatternOrigin,
+    /// 定義に加えた回転（度）
+    pub angle: f64,
+    /// 定義に掛けた尺度か、利用者が決めた線の間隔
+    pub scale: f64,
+    /// 線の組を 90 度回して重ねる
+    pub double: bool,
+    /// 線の組。`angle` と `scale` を当てた後の値
+    pub lines: Vec<PatternLine>,
+}
+
+/// パターンの定義の出どころ
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PatternOrigin {
+    /// 利用者が角度と間隔で決めた平行線
+    UserDefined,
+    /// 形式が名前で決めた定義
+    Predefined,
+    /// 利用者の定義のファイル
+    Custom,
+}
+
+/// パターンの 1 組の平行線。長さは、要素の空間の文書の単位（[`PatternBasis::Element`]）
+#[derive(Clone, Debug, PartialEq)]
+pub struct PatternLine {
+    /// 線の向き（度）
+    pub angle: f64,
+    /// 1 本の線が通る点
+    pub base: [f64; 2],
+    /// 隣の線までのずれ
+    pub offset: [f64; 2],
+    /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線
+    pub dashes: Vec<f64>,
+}
+
+/// ハッチングのグラデーション
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gradient {
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 回転（度）
+    pub angle: f64,
+    /// 中心からのずれ。0 は中心
+    pub shift: f64,
+    /// 色の RGB。順序は入力の順
+    pub colors: Vec<[u8; 3]>,
+    /// 1 色で塗るときの、色の濃さ。2 色なら `None`
+    pub tint: Option<f64>,
 }
 
 /// 文字。書式の解釈はまだしない
@@ -764,6 +1036,25 @@ mod tests {
         assert_eq!(view.paper_length(frame, [2.0, 0.0]), Some(PaperLength(2.5)));
         assert_eq!(view.paper_length(frame, [0.0, 0.0]), None);
         assert_eq!(view.paper_length(frame, [f64::NAN, 1.0]), None);
+    }
+
+    #[test]
+    fn e2_hatch_spacing_follows_the_view() {
+        // 実寸で 45 度の向きに 100√2 離れた平行線は、E1 のビューでは向きの縮尺で用紙に移る
+        let line = PatternLine {
+            angle: 45.0,
+            base: [0.0, 0.0],
+            offset: [-100.0, 100.0],
+            dashes: Vec::new(),
+        };
+        let [x, y] = line.offset;
+        let spacing = ModelLength {
+            space: MODEL,
+            value: norm(x, y),
+        };
+        let paper = e1().paper_length(spacing, [x, y]).unwrap();
+        // X に 0.01 倍、Y に 0.02 倍なので、(-1, 2) mm の長さになる
+        assert!((paper.0 - norm(1.0, 2.0)).abs() < 1e-12);
     }
 
     #[test]

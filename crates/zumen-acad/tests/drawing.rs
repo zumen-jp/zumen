@@ -1,16 +1,17 @@
 //! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
-//! 色と線種・E4 の寸法と引出線を試す。
+//! 色と線種・E4 の寸法と引出線と端部記号・記号と属性・ハッチングを試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Axis, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionText, Drawing2D,
-    Element, Fit, Height, HeightMeaning, Horizontal, Inherit, Label, Layer, LayerId, LayerState,
-    Leader, Length, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint,
-    PaperLength, PaperPoint, PatternBasis, Placement, Shape, SheetId, SheetItem, SpaceId, Style,
-    Text, Unit, Vertical,
+    Arrowhead, Axis, Boundary, Color, ColorCode, ColorSystem, Dimension, DimensionKind,
+    DimensionStyle, DimensionText, Drawing2D, Edge, Element, Fill, Fit, Gradient, Grid, Hatch,
+    HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId,
+    LayerState, Leader, Length, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
+    ModelPoint, PaperLength, PaperPoint, Pattern, PatternBasis, PatternLine, PatternOrigin,
+    Placement, Shape, SheetId, SheetItem, SpaceId, Style, SymbolKey, Text, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -1418,6 +1419,577 @@ fn e9_dimensions_and_leaders_that_cannot_be_read_are_reported() {
             invalid("LEADER", 76),
             invalid("LEADER", 340),
             non_planar("LEADER"),
+        ]
+    );
+}
+
+fn block(name: &str) -> SymbolKey {
+    SymbolKey {
+        namespace: "dxf.block",
+        name: name.to_owned(),
+    }
+}
+
+#[test]
+fn e4_dimension_styles_keep_their_arrowheads() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "1A"),
+        (2, "_DOT"),
+        (0, "BLOCK_RECORD"),
+        (5, "1B"),
+        (2, "_ArchTick"),
+        (0, "ENDTAB"),
+        (0, "TABLE"),
+        (2, "DIMSTYLE"),
+        // 値を持たないので、既定の矢印と DXF の既定の値
+        (0, "DIMSTYLE"),
+        (105, "20"),
+        (2, "Standard"),
+        // 両端を別にし（173）、1 本目は点、2 本目は既定、引出線は斜線の記号。大きさ 2.5 を 100 倍する
+        (0, "DIMSTYLE"),
+        (105, "21"),
+        (2, "ISO"),
+        (40, "100.0"),
+        (41, "2.5"),
+        (173, "1"),
+        (342, "1B"),
+        (343, "1A"),
+        (344, "0"),
+        (341, "1B"),
+        // 両端を別にしないので、両端とも 342。矢印の代わりに大きさ 1.5 の斜線を描く
+        (0, "DIMSTYLE"),
+        (105, "22"),
+        (2, "Arch"),
+        (142, "1.5"),
+        (342, "1B"),
+        (343, "1A"),
+        // 指すブロックのレコードがない
+        (0, "DIMSTYLE"),
+        (105, "23"),
+        (2, "Broken"),
+        (342, "FF"),
+        (0, "ENDTAB"),
+    ];
+    let (drawing, diag) = lift(
+        &sections(&[("HEADER", MM), ("TABLES", &tables)]),
+        &mut Budget::default(),
+    );
+    let drawing = drawing.unwrap();
+    let found = found(&diag);
+    let [(code, params, 1, broken)] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    assert_eq!(
+        (*code, params.as_str()),
+        (codes::DXF_LIFT_INVALID, r#"Text("DIMSTYLE") Int(342)"#)
+    );
+    let styles: Vec<_> = drawing
+        .dimension_styles
+        .iter()
+        .map(|style| DimensionStyle {
+            source: Ref::default(),
+            ..style.clone()
+        })
+        .collect();
+    let style = |name: &str, ends: [Arrowhead; 2], leader, size, tick, scale| DimensionStyle {
+        name: name.to_owned(),
+        ends,
+        leader,
+        size,
+        tick,
+        scale,
+        source: Ref::default(),
+    };
+    let dot = || Arrowhead::Symbol(block("_DOT"));
+    let arch = || Arrowhead::Symbol(block("_ArchTick"));
+    assert_eq!(
+        styles,
+        [
+            style(
+                "Standard",
+                [Arrowhead::Default, Arrowhead::Default],
+                Arrowhead::Default,
+                0.18,
+                None,
+                1.0
+            ),
+            style("ISO", [dot(), Arrowhead::Default], arch(), 2.5, None, 100.0),
+            style(
+                "Arch",
+                [arch(), arch()],
+                Arrowhead::Default,
+                0.18,
+                Some(1.5),
+                1.0
+            ),
+        ]
+    );
+    assert_eq!(drawing.dimension_style("ISO").map(|s| s.size), Some(2.5));
+    assert_eq!(drawing.dimension_style("iso"), None);
+    assert_ne!(broken[0], Ref::default());
+}
+
+#[test]
+fn symbols_keep_the_block_key_the_placement_and_the_attributes() {
+    let attrib = |tag: &'static str, value: &'static str, flags: &'static str| {
+        entity(
+            "ATTRIB",
+            &[
+                (10, "100.0"),
+                (20, "50.0"),
+                (40, "2.5"),
+                (1, value),
+                (2, tag),
+                (70, flags),
+                (72, "1"),
+                (11, "100.0"),
+                (21, "50.0"),
+                (74, "2"),
+            ],
+        )
+    };
+    let entities = [
+        // 属性の続く記号。2 倍・反転・30 度回し、表示する属性と表示しない属性を持つ
+        entity(
+            "INSERT",
+            &[
+                (66, "1"),
+                (2, "部品A"),
+                (10, "100.0"),
+                (20, "50.0"),
+                (41, "2.0"),
+                (42, "-2.0"),
+                (50, "30.0"),
+            ],
+        ),
+        attrib("NO", "A-1", "0"),
+        attrib("MAKER", "社名", "1"),
+        // 複数行の属性はまだ移さない
+        entity(
+            "ATTRIB",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (40, "2.5"),
+                (1, "x"),
+                (2, "NOTE"),
+                (101, "Embedded Object"),
+            ],
+        ),
+        vec![(0, "SEQEND"), (8, "0")],
+        // 3 列 2 行の格子に並べる
+        entity(
+            "INSERT",
+            &[
+                (2, "柱"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (70, "3"),
+                (71, "2"),
+                (44, "6000.0"),
+                (45, "4500.0"),
+            ],
+        ),
+        // 尺度が 0
+        entity("INSERT", &[(2, "x"), (10, "0.0"), (20, "0.0"), (41, "0.0")]),
+        // 続く INSERT のない属性
+        attrib("LOST", "?", "0"),
+    ]
+    .concat();
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1021")]].concat();
+    let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    assert_eq!(
+        params,
+        [
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("ATTRIB") Int(101)"#.to_owned(),
+                1
+            ),
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("INSERT") Int(41)"#.to_owned(),
+                1
+            ),
+            (codes::DXF_LIFT_DROPPED, r#"Text("ATTRIB")"#.to_owned(), 1),
+        ]
+    );
+    let shapes = model_shapes(&drawing);
+    let [Shape::Symbol(part), Shape::Symbol(columns)] = shapes.as_slice() else {
+        panic!("{shapes:?}");
+    };
+    assert_eq!(part.key, block("部品A"));
+    assert_eq!(part.position, at(100.0, 50.0));
+    assert_eq!(
+        (part.scale, part.rotation, part.grid),
+        ([2.0, -2.0], 30.0, None)
+    );
+    let attributes: Vec<_> = part
+        .attributes
+        .iter()
+        .map(|a| (a.tag.as_str(), a.text.content.as_str(), a.hidden))
+        .collect();
+    assert_eq!(attributes, [("NO", "A-1", false), ("MAKER", "社名", true)]);
+    // 属性の縦の位置合わせは 74 にあり、高さの欄は ATTRIB のもの
+    let first = &part.attributes[0].text;
+    assert_eq!(
+        first.placement,
+        Placement::Anchor {
+            point: at(100.0, 50.0),
+            horizontal: Horizontal::Center,
+            vertical: Vertical::Middle,
+        }
+    );
+    assert_eq!(
+        first.height.meaning,
+        HeightMeaning::Declared("dxf.ATTRIB.40")
+    );
+    assert_eq!(part.attributes[0].style, by_layer());
+    let model = |value: f64| {
+        Length::Model(ModelLength {
+            space: MODEL,
+            value,
+        })
+    };
+    assert_eq!(
+        columns.grid,
+        Some(Grid {
+            columns: 3,
+            rows: 2,
+            column_spacing: model(6000.0),
+            row_spacing: model(4500.0),
+        })
+    );
+    assert_eq!(columns.attributes, []);
+}
+
+#[test]
+fn hatches_keep_their_boundaries_and_patterns() {
+    let entities = [
+        entity(
+            "LINE",
+            &[
+                (5, "A1"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "10.0"),
+                (21, "0.0"),
+            ],
+        ),
+        // 2 つの輪を持つ ANSI31。外の輪は膨らみのある折れ線で、線分の図形から作った。内の輪は線分・円弧・
+        // 楕円弧の辺。島は入れ子に埋める
+        entity(
+            "HATCH",
+            &[
+                (100, "AcDbHatch"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (30, "0.0"),
+                (2, "ANSI31"),
+                (70, "0"),
+                (71, "1"),
+                (91, "2"),
+                (92, "3"),
+                (72, "1"),
+                (73, "1"),
+                (93, "3"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (42, "0.0"),
+                (10, "10.0"),
+                (20, "0.0"),
+                (42, "1.0"),
+                (10, "10.0"),
+                (20, "10.0"),
+                (42, "0.0"),
+                (97, "1"),
+                (330, "A1"),
+                (92, "16"),
+                (93, "3"),
+                (72, "1"),
+                (10, "1.0"),
+                (20, "1.0"),
+                (11, "2.0"),
+                (21, "1.0"),
+                (72, "2"),
+                (10, "2.0"),
+                (20, "2.0"),
+                (40, "1.0"),
+                (50, "270.0"),
+                (51, "90.0"),
+                (73, "1"),
+                (72, "3"),
+                (10, "2.0"),
+                (20, "3.0"),
+                (11, "1.0"),
+                (21, "0.0"),
+                (40, "0.5"),
+                (50, "0.0"),
+                (51, "180.0"),
+                (73, "1"),
+                (97, "0"),
+                (75, "0"),
+                (76, "1"),
+                (52, "15.0"),
+                (41, "2.0"),
+                (77, "0"),
+                (78, "1"),
+                (53, "60.0"),
+                (43, "0.0"),
+                (44, "0.0"),
+                (45, "-2.2"),
+                (46, "3.8"),
+                (79, "2"),
+                (49, "5.0"),
+                (49, "-1.0"),
+                (98, "1"),
+                (10, "5.0"),
+                (20, "5.0"),
+            ],
+        ),
+        // 塗り。外の輪だけを埋め、パターンの欄も書く形式
+        entity(
+            "HATCH",
+            &[
+                (2, "SOLID"),
+                (70, "1"),
+                (91, "1"),
+                (92, "2"),
+                (72, "0"),
+                (73, "1"),
+                (93, "2"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "1.0"),
+                (20, "0.0"),
+                (97, "0"),
+                (75, "1"),
+                (76, "1"),
+                (52, "0.0"),
+                (41, "1.0"),
+                (77, "0"),
+                (78, "0"),
+                (47, "0.1"),
+                (98, "0"),
+            ],
+        ),
+        // 2 色のグラデーション
+        entity(
+            "HATCH",
+            &[
+                (2, "SOLID"),
+                (70, "1"),
+                (91, "0"),
+                (75, "2"),
+                (76, "1"),
+                (98, "0"),
+                (450, "1"),
+                (451, "0"),
+                (452, "0"),
+                (453, "2"),
+                (463, "0.0"),
+                (63, "5"),
+                (421, "255"),
+                (463, "1.0"),
+                (63, "2"),
+                (421, "16776960"),
+                (460, "0.0"),
+                (461, "0.0"),
+                (462, "1.0"),
+                (470, "LINEAR"),
+            ],
+        ),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert_eq!(found(&diag), []);
+    let line = drawing.spaces[0].elements[0].source.clone();
+    let shapes = model_shapes(&drawing);
+    let model = |value: f64| {
+        Length::Model(ModelLength {
+            space: MODEL,
+            value,
+        })
+    };
+    let vertex = |x: f64, y: f64, bulge: f64| Vertex {
+        point: at(x, y),
+        bulge,
+    };
+    let edge_loop = |boundary, outermost, sources| HatchLoop {
+        boundary,
+        external: false,
+        outermost,
+        derived: false,
+        text_box: false,
+        sources,
+    };
+    assert_eq!(
+        shapes[1..],
+        [
+            Shape::Hatch(Hatch {
+                loops: vec![
+                    HatchLoop {
+                        external: true,
+                        ..edge_loop(
+                            Boundary::Polyline {
+                                vertices: vec![
+                                    vertex(0.0, 0.0, 0.0),
+                                    vertex(10.0, 0.0, 1.0),
+                                    vertex(10.0, 10.0, 0.0),
+                                ],
+                                closed: true,
+                            },
+                            false,
+                            vec![line],
+                        )
+                    },
+                    edge_loop(
+                        Boundary::Edges(vec![
+                            Edge::Line {
+                                start: at(1.0, 1.0),
+                                end: at(2.0, 1.0),
+                            },
+                            Edge::Arc {
+                                center: at(2.0, 2.0),
+                                radius: model(1.0),
+                                start: 270.0,
+                                end: 90.0,
+                                counterclockwise: true,
+                            },
+                            Edge::Elliptic {
+                                center: at(2.0, 3.0),
+                                major: at(3.0, 3.0),
+                                ratio: 0.5,
+                                start: 0.0,
+                                end: 180.0,
+                                counterclockwise: true,
+                            },
+                        ]),
+                        true,
+                        Vec::new(),
+                    ),
+                ],
+                islands: Islands::Nested,
+                fill: Fill::Pattern(Pattern {
+                    name: "ANSI31".to_owned(),
+                    origin: PatternOrigin::Predefined,
+                    angle: 15.0,
+                    scale: 2.0,
+                    double: false,
+                    lines: vec![PatternLine {
+                        angle: 60.0,
+                        base: [0.0, 0.0],
+                        offset: [-2.2, 3.8],
+                        dashes: vec![5.0, -1.0],
+                    }],
+                }),
+                associative: true,
+                seeds: vec![at(5.0, 5.0)],
+            }),
+            Shape::Hatch(Hatch {
+                loops: vec![edge_loop(
+                    Boundary::Polyline {
+                        vertices: vec![vertex(0.0, 0.0, 0.0), vertex(1.0, 0.0, 0.0)],
+                        closed: true,
+                    },
+                    false,
+                    Vec::new(),
+                )],
+                islands: Islands::Outer,
+                fill: Fill::Solid,
+                associative: false,
+                seeds: Vec::new(),
+            }),
+            Shape::Hatch(Hatch {
+                loops: Vec::new(),
+                islands: Islands::Ignore,
+                fill: Fill::Gradient(Gradient {
+                    name: "LINEAR".to_owned(),
+                    angle: 0.0,
+                    shift: 0.0,
+                    colors: vec![[0, 0, 255], [255, 255, 0]],
+                    tint: None,
+                }),
+                associative: false,
+                seeds: Vec::new(),
+            }),
+        ]
+    );
+}
+
+#[test]
+fn e9_hatches_and_symbols_that_cannot_be_read_are_reported() {
+    let hatch = |loops: &[(i16, &'static str)]| {
+        let mut all = vec![(2, "SOLID"), (70, "1"), (91, "1")];
+        all.extend_from_slice(loops);
+        all.extend_from_slice(&[(75, "0"), (76, "1"), (98, "0")]);
+        entity("HATCH", &all)
+    };
+    let entities = [
+        // SPLINE の辺
+        hatch(&[
+            (92, "0"),
+            (93, "1"),
+            (72, "4"),
+            (94, "3"),
+            (73, "0"),
+            (74, "0"),
+            (95, "0"),
+            (96, "0"),
+            (97, "0"),
+        ]),
+        // 境界を作った図形の数が合わない
+        hatch(&[
+            (92, "2"),
+            (72, "0"),
+            (73, "1"),
+            (93, "1"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (97, "2"),
+        ]),
+        // 辺の種類がない
+        hatch(&[(92, "0"), (93, "1"), (72, "9"), (97, "0")]),
+        // 標高が 0 でない
+        entity("HATCH", &[(30, "1.0"), (70, "1"), (91, "0")]),
+        // 名前のない記号
+        entity("INSERT", &[(10, "0.0"), (20, "0.0")]),
+    ]
+    .concat();
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert_eq!(drawing.unwrap().spaces[0].elements, []);
+    let params: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    let invalid = |kind: &str, code: i64| {
+        (
+            codes::DXF_LIFT_INVALID,
+            format!("Text({kind:?}) Int({code})"),
+            1,
+        )
+    };
+    assert_eq!(
+        params,
+        [
+            (codes::DXF_HATCH_SPLINE_UNSUPPORTED, String::new(), 1),
+            invalid("HATCH", 97),
+            invalid("HATCH", 72),
+            (
+                codes::DXF_NON_PLANAR_DROPPED,
+                r#"Text("HATCH")"#.to_owned(),
+                1
+            ),
+            invalid("INSERT", 2),
         ]
     );
 }

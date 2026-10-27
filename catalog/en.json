@@ -41,6 +41,7 @@
     "dxf.group-code.dropped": "Did not write {count} tags with group code {code} of \"{kind}\", which the target DXF version does not have.",
     "dxf.group-code.missing": "DXF record {record} has no tag with group code {code}. The changes were not applied.",
     "dxf.handle-seed.missing": "DXF has no readable $HANDSEED in its header, so no new handle can be chosen. The changes were not applied.",
+    "dxf.hatch-spline.unsupported": "Did not lift {count} HATCH entities whose boundaries have SPLINE edges, which are not supported yet.",
     "dxf.header-variable.dropped": "Did not write the header variable {name}, whose value the target DXF version cannot hold.",
     "dxf.lift.dropped": "Did not lift {count} \"{kind}\" entities, which the drawing model cannot hold yet.",
     "dxf.lift.invalid": "Did not lift {count} \"{kind}\" entities into the drawing model, because the value of group code {code} is missing, unreadable or out of range.",

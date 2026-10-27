@@ -115,6 +115,7 @@
 - [0105: 図面モデルのレイヤを ID で引く一覧にし、描く順を入力の順と分けて持つ](0105-drawing-layers-and-order.md)（2026-10-27、採用）
 - [0106: 図面モデルの色・線種・線幅を、指定値か継承元と元の符号で持つ](0106-drawing-color-line-type-weight.md)（2026-10-27、採用）
 - [0107: 図面モデルの寸法と引出線を、定義点・保存された測定値・文字の上書きを分けて持つ](0107-drawing-dimensions-and-leaders.md)（2026-10-27、採用）
+- [0108: 図面モデルの記号・ハッチング・寸法の端部記号を、定義のキーと元の値で持つ](0108-drawing-symbols-hatches-arrowheads.md)（2026-10-27、採用）
 - [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
 - [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
 - [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
