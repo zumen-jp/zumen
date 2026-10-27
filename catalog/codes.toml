@@ -432,6 +432,15 @@ group-by = ["kind"]
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.line-type-element.dropped"]
+description = "線種の要素の形と文字を、図面モデルに移さなかった。線と間の長さだけを移した"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.lift.invalid"]
 description = "値がないか読めないか範囲の外なので、その図形を図面モデルに移さなかった"
 severity = "warning"

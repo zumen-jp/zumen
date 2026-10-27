@@ -1,5 +1,6 @@
-//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105）。いまは ENTITIES の LINE・TEXT・VIEWPORT
-//! と、画層の表と、空間の描く順だけを移す。DXF も DWG も、表を作ってから同じ変換を通す。
+//! 共有のオブジェクトの表から図面モデル（L2）への変換（決定 0022・0023・0105・0106）。いまは ENTITIES の LINE・TEXT・
+//! VIEWPORT と、画層と線種の表と、図形の色・線種・線幅と、空間の描く順だけを移す。
+//! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
 //! 実寸の単位は見出しの `$INSUNITS` で決め、分からなければ不明とする。用紙の点は `$PLIMMIN` を原点にした mm で、
@@ -15,9 +16,11 @@ use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Layer, LayerId, LayerState,
-    Length, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Placement, Shape, Sheet,
-    SheetId, SheetItem, SpaceId, Text, Unit, Vertical, View,
+    Affine, Color, ColorCode, ColorSystem, Drawing2D, Element, Fit, Height, HeightMeaning,
+    Horizontal, Inherit, Layer, LayerId, LayerState, LayerStyle, Length, LineType,
+    LineTypeDefinition, LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength,
+    PaperPoint, PatternBasis, Placement, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Text,
+    Unit, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -62,14 +65,22 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         origin: limits(b"$PLIMMIN").unwrap_or_default(),
     };
     let mut out = Out::default();
-    for object in db.objects() {
-        if object.section != Section::Tables || object.kind != b"LAYER" {
-            continue;
-        }
-        work(cx, 1)?;
-        let source = source(object);
-        if let Err(diagnostic) = lifter.layer_record(object, source.clone(), &mut out) {
-            cx.report((*diagnostic).at(source));
+    // 画層が線種を指すので、線種の表を先に移す
+    for kind in [&b"LTYPE"[..], b"LAYER"] {
+        for object in db.objects() {
+            if object.section != Section::Tables || object.kind != kind {
+                continue;
+            }
+            work(cx, 1)?;
+            let source = source(object);
+            let lifted = if kind == b"LTYPE" {
+                lifter.line_type_record(object, source.clone(), &mut out, cx)
+            } else {
+                lifter.layer_record(object, source.clone(), &mut out)
+            };
+            if let Err(diagnostic) = lifted {
+                cx.report((*diagnostic).at(source));
+            }
         }
     }
     for object in db.objects() {
@@ -83,8 +94,22 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         }
     }
     let [model_keys, paper_keys] = lifter.sort_keys(db, cx)?;
+    // 見出しの $LTSCALE と、1/100 mm の $LWDEFAULT（DXF Reference「HEADER Section Group Codes」）
+    let line_type_scale = db
+        .variable(b"$LTSCALE")
+        .and_then(|values| header_real(values, 40))
+        .filter(|scale| scale.is_finite() && *scale > 0.0);
+    let default_line_weight = db.variable(b"$LWDEFAULT").and_then(|values| {
+        match values.iter().find(|v| v.code == 370)?.data {
+            Data::Int(width @ 0..=211) => Some(PaperLength(width as f64 / 100.0)),
+            _ => None,
+        }
+    });
     let mut drawing = Drawing2D {
         layers: out.layers,
+        line_types: out.line_types,
+        line_type_scale,
+        default_line_weight,
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -203,6 +228,11 @@ struct Out {
     by_name: BTreeMap<String, LayerId>,
     /// 画層の表のレコードのハンドル
     by_handle: BTreeMap<u64, LayerId>,
+    line_types: Vec<LineType>,
+    /// ASCII の大文字を小文字にした線種の名前
+    line_type_names: BTreeMap<String, LineTypeId>,
+    /// 線種の表のレコードのハンドル
+    line_type_handles: BTreeMap<u64, LineTypeId>,
 }
 
 struct Lifter {
@@ -249,12 +279,14 @@ impl Lifter {
                 };
                 let length = |value: f64| Length::Paper(PaperLength(value * mm));
                 let shape = self.shape(object, point, length)?;
+                let style = self.style(object, out)?;
                 let layer = self.layer(object, out)?;
                 out.sheet
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(Element {
                     source,
                     layer,
+                    style,
                     shape,
                 });
             }
@@ -267,11 +299,13 @@ impl Lifter {
                     })
                 };
                 let shape = self.shape(object, point, length)?;
+                let style = self.style(object, out)?;
                 let layer = self.layer(object, out)?;
                 out.model_handles.push(object.handle());
                 out.model.push(Element {
                     source,
                     layer,
+                    style,
                     shape,
                 });
             }
@@ -475,6 +509,144 @@ impl Lifter {
         self.add_layer(&object.kind, name, None, Ref::default(), out)
     }
 
+    /// 図形の色（62・420）・線種（6）・線種の倍率（48）・線幅（370）（DXF Reference「Common Group Codes for
+    /// Entities」）。DWG の読み手は図形の線幅を表に置かないので、DWG の図形の線幅は読めていないとする
+    fn style(&self, object: &Object, out: &mut Out) -> Lifted<Style> {
+        let kind = object.kind.as_slice();
+        let rgb = self.rgb(object)?;
+        let color = match (self.int(object, 62, 256)?, rgb) {
+            (index @ 1..=255, _) => Inherit::Own(Color {
+                code: Some(aci(index)),
+                rgb,
+            }),
+            (_, Some(rgb)) => Inherit::Own(Color {
+                code: None,
+                rgb: Some(rgb),
+            }),
+            (0, None) => Inherit::Block,
+            (256, None) => Inherit::Layer,
+            _ => return Err(invalid(kind, 62)),
+        };
+        let line_type = match self.string(object, 6)? {
+            None => Inherit::Layer,
+            Some(name) if name.eq_ignore_ascii_case("ByLayer") => Inherit::Layer,
+            Some(name) if name.eq_ignore_ascii_case("ByBlock") => Inherit::Block,
+            Some(name) => Inherit::Own(self.line_type(kind, name, out)?),
+        };
+        let line_type_scale = self.real(object, 48, Some(1.0))?;
+        if line_type_scale <= 0.0 {
+            return Err(invalid(kind, 48));
+        }
+        let line_weight = match (object.first(370), &object.origin) {
+            (None, Origin::Dwg { .. }) => None,
+            (None, _) => Some(Inherit::Layer),
+            (Some(Data::Int(-1)), _) => Some(Inherit::Layer),
+            (Some(Data::Int(-2)), _) => Some(Inherit::Block),
+            (Some(_), _) => Some(Inherit::Own(self.line_weight(object)?)),
+        };
+        Ok(Style {
+            color,
+            line_type,
+            line_type_scale,
+            line_weight,
+        })
+    }
+
+    /// 真の色（420）。0x00RRGGBB
+    fn rgb(&self, object: &Object) -> Lifted<Option<[u8; 3]>> {
+        match object.first(420) {
+            None => Ok(None),
+            Some(Data::Int(value @ 0..=0xFF_FFFF)) => {
+                let [_, r, g, b] = (*value as u32).to_be_bytes();
+                Ok(Some([r, g, b]))
+            }
+            Some(_) => Err(invalid(&object.kind, 420)),
+        }
+    }
+
+    /// 線幅（370）。-3 は文書の既定、0〜211 は 1/100 mm
+    fn line_weight(&self, object: &Object) -> Lifted<LineWeight> {
+        match object.first(370) {
+            Some(Data::Int(-3)) => Ok(LineWeight::Default),
+            Some(Data::Int(width @ 0..=211)) => {
+                Ok(LineWeight::Width(PaperLength(*width as f64 / 100.0)))
+            }
+            _ => Err(invalid(&object.kind, 370)),
+        }
+    }
+
+    /// 名前の線種。表になければ、定義のない線種として足す
+    fn line_type(&self, kind: &[u8], name: String, out: &mut Out) -> Lifted<LineTypeId> {
+        match out.line_type_names.get(&name.to_ascii_lowercase()) {
+            Some(id) => Ok(*id),
+            None => self.add_line_type(kind, name, None, Ref::default(), out),
+        }
+    }
+
+    /// 線種の表のレコード（DXF Reference「LTYPE」）。線と間の長さ（49）の列を移す。形か文字を持つ要素
+    /// （74 が 0 でない）は、長さだけを移して形と文字を落とし、診断する
+    fn line_type_record(
+        &self,
+        object: &Object,
+        source: Ref,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Lifted<()> {
+        let kind = object.kind.as_slice();
+        let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
+        let description = self.string(object, 3)?.unwrap_or_default();
+        let mut pattern = Vec::new();
+        let mut complex = false;
+        for value in &object.values {
+            match (value.code, &value.data) {
+                (49, Data::Real(length)) if length.is_finite() => pattern.push(*length),
+                (49, _) => return Err(invalid(kind, 49)),
+                (74, Data::Int(flags)) => complex |= *flags != 0,
+                (74, _) => return Err(invalid(kind, 74)),
+                _ => {}
+            }
+        }
+        if complex {
+            cx.report(
+                Diagnostic::new(codes::DXF_LINE_TYPE_ELEMENT_DROPPED)
+                    .with("name", name.clone())
+                    .at(source.clone()),
+            );
+        }
+        let definition = LineTypeDefinition {
+            description,
+            pattern,
+            basis: PatternBasis::Element,
+        };
+        let id = self.add_line_type(kind, name, Some(definition), source, out)?;
+        if let Some(handle) = object.handle() {
+            out.line_type_handles.insert(handle, id);
+        }
+        Ok(())
+    }
+
+    /// 線種を足す。同じ名前がすでにあれば、名前で引くのは先のものにする
+    fn add_line_type(
+        &self,
+        kind: &[u8],
+        name: String,
+        definition: Option<LineTypeDefinition>,
+        source: Ref,
+        out: &mut Out,
+    ) -> Lifted<LineTypeId> {
+        let id = LineTypeId(u32::try_from(out.line_types.len()).map_err(|_| invalid(kind, 6))?);
+        out.line_type_names
+            .entry(name.to_ascii_lowercase())
+            .or_insert(id);
+        out.line_types.push(LineType {
+            id,
+            name,
+            definition,
+            source,
+        });
+        Ok(id)
+    }
+
     /// 画層の表のレコード（DXF Reference「LAYER」）。凍結（70 の 1）か色（62）が負なら表示せず、290 が偽なら
     /// 印刷せず、ロック（70 の 4）なら編集できないとする。凍結と非表示の違いは移さない
     fn layer_record(&self, object: &Object, source: Ref, out: &mut Out) -> Lifted<()> {
@@ -490,7 +662,42 @@ impl Lifter {
             },
             editable: flags & 4 == 0,
         };
-        let id = self.add_layer(kind, name, Some(state), source, out)?;
+        // 色は 62 の絶対値か 420。線種は、DXF では名前、DWG ではレコードのハンドル
+        let rgb = self.rgb(object)?;
+        let color = match self.int(object, 62, 0)?.unsigned_abs() {
+            index @ 1..=255 => Some(Color {
+                code: Some(aci(index as i64)),
+                rgb,
+            }),
+            0 => rgb.map(|rgb| Color {
+                code: None,
+                rgb: Some(rgb),
+            }),
+            _ => return Err(invalid(kind, 62)),
+        };
+        let line_type = match object.first(6) {
+            None => None,
+            Some(Data::Text(_)) => {
+                let name = self.string(object, 6)?.unwrap_or_default();
+                Some(self.line_type(kind, name, out)?)
+            }
+            Some(Data::Handle(handle)) => Some(
+                *out.line_type_handles
+                    .get(handle)
+                    .ok_or_else(|| invalid(kind, 6))?,
+            ),
+            Some(_) => return Err(invalid(kind, 6)),
+        };
+        let line_weight = match object.first(370) {
+            None => None,
+            Some(_) => Some(self.line_weight(object)?),
+        };
+        let style = LayerStyle {
+            color,
+            line_type,
+            line_weight,
+        };
+        let id = self.add_layer(kind, name, Some((state, style)), source, out)?;
         if let Some(handle) = object.handle() {
             out.by_handle.insert(handle, id);
         }
@@ -502,7 +709,7 @@ impl Lifter {
         &self,
         kind: &[u8],
         name: String,
-        state: Option<LayerState>,
+        defined: Option<(LayerState, LayerStyle)>,
         source: Ref,
         out: &mut Out,
     ) -> Lifted<LayerId> {
@@ -511,7 +718,8 @@ impl Lifter {
         out.layers.push(Layer {
             id,
             name,
-            state,
+            state: defined.map(|(state, _)| state),
+            style: defined.map(|(_, style)| style),
             source,
         });
         Ok(id)
@@ -624,6 +832,14 @@ impl Lifter {
                 Diagnostic::new(codes::DXF_CODE_PAGE_UNSUPPORTED).with("kind", text(kind)),
             ))
         }
+    }
+}
+
+/// AutoCAD の色の番号。1〜255 のものだけを渡す
+fn aci(index: i64) -> ColorCode {
+    ColorCode {
+        system: ColorSystem::Aci,
+        value: index as u32,
     }
 }
 

@@ -458,6 +458,17 @@ pub const DXF_LIFT_INVALID: Code = Code::new(
     &["kind", "code"],
 );
 
+/// 線種の要素の形と文字を、図面モデルに移さなかった。線と間の長さだけを移した
+///
+/// `dxf.line-type-element.dropped`（0.0.0 から）
+pub const DXF_LINE_TYPE_ELEMENT_DROPPED: Code = Code::new(
+    "dxf.line-type-element.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
 /// Z が 0 でないか、押し出しの向きが Z でない図形を、平面の図面モデルに移さなかった
 ///
 /// `dxf.non-planar.dropped`（0.0.0 から）
@@ -708,6 +719,7 @@ pub const ALL: &[Code] = &[
     DXF_HEADER_VARIABLE_DROPPED,
     DXF_LIFT_DROPPED,
     DXF_LIFT_INVALID,
+    DXF_LINE_TYPE_ELEMENT_DROPPED,
     DXF_NON_PLANAR_DROPPED,
     DXF_OBJECT_UNSUPPORTED,
     DXF_PAPER_SPACE_DROPPED,

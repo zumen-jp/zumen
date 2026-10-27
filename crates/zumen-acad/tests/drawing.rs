@@ -5,9 +5,10 @@
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal, Layer, LayerId, LayerState, Length,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Shape, SheetId, SheetItem,
-    SpaceId, Text, Unit, Vertical,
+    Color, ColorCode, ColorSystem, Drawing2D, Element, Fit, Height, HeightMeaning, Horizontal,
+    Inherit, Layer, LayerId, LayerState, Length, LineTypeDefinition, LineTypeId, LineWeight,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, PatternBasis, Placement, Shape, SheetId,
+    SheetItem, SpaceId, Style, Text, Unit, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -52,6 +53,16 @@ fn found(diag: &Diagnostics) -> Vec<(Code, String, u64, Vec<Ref>)> {
             (d.code(), params.join(" "), d.count(), d.places().to_vec())
         })
         .collect()
+}
+
+/// どれもレイヤから継承する指定
+fn by_layer() -> Style {
+    Style {
+        color: Inherit::Layer,
+        line_type: Inherit::Layer,
+        line_type_scale: 1.0,
+        line_weight: Some(Inherit::Layer),
+    }
 }
 
 fn at(x: f64, y: f64) -> ModelPoint {
@@ -117,6 +128,7 @@ fn e1_an_isotropic_view_places_the_model_on_the_sheet() {
         [Element {
             source: Ref::at_record(3),
             layer: LayerId(0),
+            style: by_layer(),
             shape: Shape::Line {
                 start: at(0.0, 0.0),
                 end: at(1000.0, 500.0),
@@ -652,6 +664,7 @@ fn layers_keep_their_table_and_views_hide_layers() {
             id: LayerId(4),
             name: "Extra".to_owned(),
             state: None,
+            style: None,
             source: Ref::default(),
         }
     );
@@ -808,4 +821,196 @@ fn elements_without_handles_are_not_sorted() {
         )]
     );
     assert_eq!(drawing.unwrap().spaces[0].order, [0, 1]);
+}
+
+#[test]
+fn colors_line_types_and_line_weights_keep_their_source_and_inheritance() {
+    let mut header = MM.to_vec();
+    header.extend_from_slice(&[(9, "$LTSCALE"), (40, "2.0"), (9, "$LWDEFAULT"), (370, "25")]);
+    let tables = [
+        (0, "TABLE"),
+        (2, "LTYPE"),
+        (0, "LTYPE"),
+        (5, "14"),
+        (2, "Continuous"),
+        (3, "Solid line"),
+        (73, "0"),
+        (0, "LTYPE"),
+        (5, "15"),
+        (2, "Dashed"),
+        (3, "__ __"),
+        (73, "2"),
+        (49, "0.5"),
+        (74, "0"),
+        (49, "-0.25"),
+        (74, "0"),
+        // 文字を持つ要素は、長さだけを移す
+        (0, "LTYPE"),
+        (5, "16"),
+        (2, "Gas"),
+        (73, "1"),
+        (49, "1.0"),
+        (74, "2"),
+        (75, "0"),
+        (9, "GAS"),
+        (0, "ENDTAB"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        // 表示しない画層の色は 62 の絶対値
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (62, "-5"),
+        (6, "DASHED"),
+        (370, "-3"),
+        (0, "LAYER"),
+        (5, "11"),
+        (2, "T"),
+        (62, "1"),
+        (420, "1193046"),
+        (6, "Continuous"),
+        (370, "25"),
+        (0, "ENDTAB"),
+    ];
+    let mut entities = model_line("20", "0");
+    entities.extend(model_line("21", "T"));
+    entities.extend([(62, "0"), (6, "ByBlock"), (370, "-2")]);
+    entities.extend(model_line("22", "X"));
+    entities.extend([
+        (62, "3"),
+        (420, "65280"),
+        (6, "Hidden"),
+        (48, "0.5"),
+        (370, "50"),
+    ]);
+    entities.extend(model_line("23", "X"));
+    // 範囲の外の色と線幅
+    entities.extend(model_line("24", "0"));
+    entities.push((62, "300"));
+    entities.extend(model_line("25", "0"));
+    entities.push((370, "300"));
+    let (drawing, diag) = lift(
+        &sections(&[
+            ("HEADER", &header),
+            ("TABLES", &tables),
+            ("ENTITIES", &entities),
+        ]),
+        &mut Budget::default(),
+    );
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        found(&diag),
+        [
+            (
+                codes::DXF_LINE_TYPE_ELEMENT_DROPPED,
+                r#"Text("Gas")"#.to_owned(),
+                1,
+                vec![Ref::at_record(6)],
+            ),
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("LINE") Int(62)"#.to_owned(),
+                1,
+                vec![Ref::at_record(18)],
+            ),
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("LINE") Int(370)"#.to_owned(),
+                1,
+                vec![Ref::at_record(19)],
+            ),
+        ]
+    );
+    assert_eq!(drawing.line_type_scale, Some(2.0));
+    assert_eq!(drawing.default_line_weight, Some(PaperLength(0.25)));
+
+    let names: Vec<_> = drawing
+        .line_types
+        .iter()
+        .map(|t| (t.id, t.name.as_str(), t.definition.is_some()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            (LineTypeId(0), "Continuous", true),
+            (LineTypeId(1), "Dashed", true),
+            (LineTypeId(2), "Gas", true),
+            // 表にない名前は、定義のない線種にする
+            (LineTypeId(3), "Hidden", false),
+        ]
+    );
+    assert_eq!(
+        drawing.line_types[1].definition,
+        Some(LineTypeDefinition {
+            description: "__ __".to_owned(),
+            pattern: vec![0.5, -0.25],
+            basis: PatternBasis::Element,
+        })
+    );
+    assert_eq!(
+        drawing.line_types[2]
+            .definition
+            .as_ref()
+            .map(|d| d.pattern.clone()),
+        Some(vec![1.0])
+    );
+
+    let aci = |value: u32| {
+        Some(ColorCode {
+            system: ColorSystem::Aci,
+            value,
+        })
+    };
+    let resolved: Vec<_> = drawing.spaces[0]
+        .elements
+        .iter()
+        .map(|e| {
+            (
+                drawing.color_of(e),
+                drawing.line_type_of(e),
+                drawing.line_weight_of(e),
+                e.style.line_type_scale,
+            )
+        })
+        .collect();
+    assert_eq!(
+        resolved,
+        [
+            // レイヤから継承する
+            (
+                Inherit::Own(Color {
+                    code: aci(5),
+                    rgb: None
+                }),
+                Inherit::Own(LineTypeId(1)),
+                Some(Inherit::Own(LineWeight::Default)),
+                1.0,
+            ),
+            // 部品の配置から継承するものは解かない
+            (Inherit::Block, Inherit::Block, Some(Inherit::Block), 1.0),
+            // 要素が持つ値。符号と RGB の両方を残す
+            (
+                Inherit::Own(Color {
+                    code: aci(3),
+                    rgb: Some([0, 255, 0])
+                }),
+                Inherit::Own(LineTypeId(3)),
+                Some(Inherit::Own(LineWeight::Width(PaperLength(0.5)))),
+                0.5,
+            ),
+            // 定義のない画層からの継承は、継承のまま
+            (Inherit::Layer, Inherit::Layer, Some(Inherit::Layer), 1.0),
+        ]
+    );
+    let t = drawing.layers[1].style.unwrap();
+    assert_eq!(
+        t.color,
+        Some(Color {
+            code: aci(1),
+            rgb: Some([0x12, 0x34, 0x56])
+        })
+    );
+    assert_eq!(t.line_type, Some(LineTypeId(0)));
+    assert_eq!(t.line_weight, Some(LineWeight::Width(PaperLength(0.25))));
+    assert_eq!(drawing.layers[2].style, None);
 }
