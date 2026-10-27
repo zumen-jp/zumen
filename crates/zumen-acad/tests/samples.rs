@@ -471,9 +471,31 @@ fn r2004_drawings_keep_their_table_when_objects_are_rewritten_and_removed() {
 
 #[test]
 fn r2004_drawings_take_back_changed_entities() {
-    const SIMPLE: [&[u8]; 11] = [
-        b"LINE", b"CIRCLE", b"ARC", b"POINT", b"ELLIPSE", b"RAY", b"XLINE", b"SOLID", b"TRACE",
-        b"3DFACE", b"TEXT",
+    const SIMPLE: [&[u8]; 24] = [
+        b"LINE",
+        b"CIRCLE",
+        b"ARC",
+        b"POINT",
+        b"ELLIPSE",
+        b"RAY",
+        b"XLINE",
+        b"SOLID",
+        b"TRACE",
+        b"3DFACE",
+        b"TEXT",
+        b"ATTRIB",
+        b"ATTDEF",
+        b"LWPOLYLINE",
+        b"SPLINE",
+        b"DIMENSION",
+        b"TOLERANCE",
+        b"LEADER",
+        b"MLINE",
+        b"SHAPE",
+        b"VERTEX",
+        b"INSERT",
+        b"MTEXT",
+        b"VIEWPORT",
     ];
     let (mut changed, mut colored) = (0, 0);
     for path in dwgs(b"AC1018") {
@@ -491,9 +513,17 @@ fn r2004_drawings_take_back_changed_entities() {
             if !SIMPLE.contains(&object.kind.as_slice()) {
                 continue;
             }
+            // 多面の面の VERTEX（70 が 128）の点と、HATCH の初めの 10・20 は 0 と決まっているので動かさない
+            let fixed = object.kind == b"VERTEX" && object.first(70) == Some(&Data::Int(128));
+            let mut skip = if object.kind == b"HATCH" { 2 } else { 0 };
             for value in object.values.iter_mut() {
                 match (value.code, &mut value.data) {
                     (48, Data::Real(v)) => *v *= 2.0,
+                    (10 | 20 | 11 | 21, Data::Real(_)) if fixed => continue,
+                    (10 | 20 | 11 | 21, Data::Real(_)) if skip > 0 => {
+                        skip -= 1;
+                        continue;
+                    }
                     (10 | 20 | 11 | 21, Data::Real(v)) => *v += 1.5,
                     _ => continue,
                 }
@@ -536,7 +566,7 @@ fn r2004_drawings_take_back_changed_entities() {
             }
         }
         // 型ごとの欄をまだ符号化しない種類の図形と、表のレコードの変更は書き戻さない
-        for kind in [&b"MTEXT"[..], b"INSERT", b"LAYER"] {
+        for kind in [&b"HATCH"[..], b"MULTILEADER", b"LAYER"] {
             let mut db = base.clone();
             let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
                 continue;

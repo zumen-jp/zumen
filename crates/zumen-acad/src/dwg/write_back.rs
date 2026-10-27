@@ -1,5 +1,6 @@
 //! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 を扱う。
-//! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。
+//! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
+//! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
 //! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
@@ -42,10 +43,32 @@ use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
 /// 図形の共通の欄のうち、表に置くもののグループ・コード
 const COMMON: &[i16] = &[62, 48, 60];
 
-/// R2004 で、型ごとの欄を R2000 と同じに符号化する図形の種類（決定 0072）
+/// R2004 で、型ごとの欄を R2000 と同じに符号化する図形の種類（決定 0072・0073）
 const R2004_KINDS: &[&[u8]] = &[
-    b"LINE", b"CIRCLE", b"ARC", b"POINT", b"ELLIPSE", b"RAY", b"XLINE", b"SOLID", b"TRACE",
-    b"3DFACE", b"TEXT",
+    b"LINE",
+    b"CIRCLE",
+    b"ARC",
+    b"POINT",
+    b"ELLIPSE",
+    b"RAY",
+    b"XLINE",
+    b"SOLID",
+    b"TRACE",
+    b"3DFACE",
+    b"TEXT",
+    b"ATTRIB",
+    b"ATTDEF",
+    b"LWPOLYLINE",
+    b"SPLINE",
+    b"DIMENSION",
+    b"TOLERANCE",
+    b"LEADER",
+    b"MLINE",
+    b"SHAPE",
+    b"VERTEX",
+    b"INSERT",
+    b"MTEXT",
+    b"VIEWPORT",
 ];
 
 /// 型ごとの欄のグループ・コード
@@ -1413,6 +1436,10 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
         let mut fields = BitWriter::default();
         fields.copy(data, start..handles_at)?;
         fields
+    } else if release == Release::R2004 && matches!(new.kind.as_slice(), b"INSERT" | b"MTEXT") {
+        // MINSERT は、持つオブジェクトの数が列と行の欄の前に入るので、まだ扱わない
+        (type_code != MINSERT_TYPE).then_some(())?;
+        r2004_own_fields(old, new, type_code, data, start, handles_at)?
     } else {
         own_fields(old, new, type_code, data, start)?
     };
@@ -2532,6 +2559,29 @@ fn own_fields(
         b"BLOCK" => string(&mut fields, new, 2)?,
         _ => return None,
     }
+    Some(fields)
+}
+
+/// R2004 で後ろに欄が増えた種類（属性を持つ INSERT の、持つオブジェクトの数（BL）と、MTEXT の背景の欄）の
+/// 型ごとの欄。R2000 の形で符号化し、増えた欄は元のビットを写す。元の値を R2000 の形で符号化した欄が、元の
+/// ビットの初めと同じでなければ `None`（決定 0073）
+fn r2004_own_fields(
+    old: &Object,
+    new: &Object,
+    type_code: i16,
+    data: &[u8],
+    start: usize,
+    handles_at: usize,
+) -> Option<BitWriter> {
+    let mut fields = own_fields(old, new, type_code, data, start)?;
+    let same = own_fields(old, old, type_code, data, start)?;
+    let end = start
+        .checked_add(same.len())
+        .filter(|&end| end <= handles_at)?;
+    let mut found = BitWriter::default();
+    found.copy(data, start..end)?;
+    (found.into_bytes() == same.into_bytes()).then_some(())?;
+    fields.copy(data, end..handles_at)?;
     Some(fields)
 }
 
