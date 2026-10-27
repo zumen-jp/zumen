@@ -1,0 +1,110 @@
+{
+  "description": "対応表の E9 の、輪になる定義・定義のない配置・有限でない尺度・展開しない大きな格子の配置を持つ DXF を、entities で読む。配置は展開せず、診断を返し、予算で止まる所はネイティブと wasm で同じになる。作業は、変換で 55、返す要素ごとに 1 を使う（決定 0007・0010・0116・0117）",
+  "steps": [
+    {
+      "push": {
+        "name": "e9.dxf",
+        "text": "  0\nSECTION\n  2\nHEADER\n  9\n$INSUNITS\n 70\n4\n  0\nENDSEC\n  0\nSECTION\n  2\nBLOCKS\n  0\nBLOCK\n  8\n0\n  2\nA\n 70\n0\n 10\n0.0\n 20\n0.0\n  0\nINSERT\n  8\n0\n  2\nB\n 10\n0.0\n 20\n0.0\n  0\nENDBLK\n  8\n0\n  0\nBLOCK\n  8\n0\n  2\nB\n 70\n0\n 10\n0.0\n 20\n0.0\n  0\nINSERT\n  8\n0\n  2\nA\n 10\n0.0\n 20\n0.0\n  0\nENDBLK\n  8\n0\n  0\nBLOCK\n  8\n0\n  2\nC\n 70\n0\n 10\n0.0\n 20\n0.0\n  0\nINSERT\n  8\n0\n  2\nC\n 10\n0.0\n 20\n0.0\n  0\nENDBLK\n  8\n0\n  0\nBLOCK\n  8\n0\n  2\nD\n 70\n0\n 10\n0.0\n 20\n0.0\n  0\nINSERT\n  8\n0\n  2\nA\n 10\n0.0\n 20\n0.0\n  0\nENDBLK\n  8\n0\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n  0\nINSERT\n  8\n0\n  2\nMISSING\n 10\n0.0\n 20\n0.0\n  0\nINSERT\n  8\n0\n  2\nD\n 10\n5.0\n 20\n7.0\n 70\n60000\n 71\n60000\n 44\n1.0\n 45\n1.0\n  0\nINSERT\n  8\n0\n  2\nD\n 10\n0.0\n 20\n0.0\n 41\ninf\n  0\nENDSEC\n  0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "e9.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "e9.dxf"
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/0/kind": "symbol",
+        "/result/items/1/kind": "symbol",
+        "/diagnostics/0/code": "dxf.lift.invalid",
+        "/diagnostics/1/code": "dxf.block.missing",
+        "/diagnostics/1/params/name": "MISSING",
+        "/diagnostics/2/params/name": "A",
+        "/diagnostics/3/params/name": "B",
+        "/diagnostics/4/code": "dxf.block-cycle.invalid",
+        "/diagnostics/4/params/name": "C"
+      },
+      "absent": [
+        "/diagnostics/5"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "e9.dxf",
+        "fields": [
+          "bbox"
+        ]
+      },
+      "expect": {
+        "/result/items/1/bbox": {
+          "min_x": 5,
+          "min_y": 7,
+          "max_x": 5,
+          "max_y": 7
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "e9.dxf",
+        "budget": {
+          "work": 10
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      },
+      "absent": [
+        "/result",
+        "/diagnostics/1"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "e9.dxf",
+        "budget": {
+          "work": 56
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/4/code": "dxf.block-cycle.invalid",
+        "/diagnostics/5/code": "budget.work.exceeded"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "e9.dxf",
+        "budget": {
+          "work": 57
+        }
+      },
+      "expect": {
+        "/result/total": 2
+      }
+    }
+  ]
+}
