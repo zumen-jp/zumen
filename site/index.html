@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zumen｜日本の建設のデータを読み書きするライブラリ群</title>
+<meta name="description" content="zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品までの日本の建設のデータを読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つの核を、ブラウザー・サーバー・各言語から同じ結果で使います。">
+<meta name="theme-color" content="#123a6b">
+<meta property="og:title" content="zumen｜日本の建設のデータを読み書きするライブラリ群">
+<meta property="og:description" content="図面・BIM・土木・点群・納品のデータを、どの言語からも同じ結果で読み書きする。MIT OR Apache-2.0。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://zumen.dev/">
+<meta property="og:locale" content="ja_JP">
+<link rel="canonical" href="https://zumen.dev/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">本文へ移動</a>
+
+<div class="util">
+  <div class="wrap">
+    <span>日本の建設のデータを読み書きする、オープンソースのライブラリ群</span>
+    <ul>
+      <li><a href="https://github.com/zumen-jp/zumen">GitHub</a></li>
+      <li><a href="https://github.com/zumen-jp/zumen-legacy">旧版</a></li>
+    </ul>
+  </div>
+</div>
+
+<header class="masthead">
+  <div class="wrap">
+    <a class="logo" href="./" aria-label="zumen トップ">
+      <span class="logo-mark" aria-hidden="true">図</span>
+      <span class="logo-text"><strong>zumen</strong><span>図面の読み書きの基盤</span></span>
+    </a>
+    <nav class="gnav" aria-label="サイト内">
+      <ul>
+        <li><a href="#news">お知らせ</a></li>
+        <li><a href="#about">概要</a></li>
+        <li><a href="#policy">方針</a></li>
+        <li><a href="#how">仕組み</a></li>
+        <li><a href="#formats">対応形式</a></li>
+        <li><a href="#platforms">対応環境</a></li>
+        <li><a href="#docs">資料</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="sheet">
+      <ol class="zones-x" aria-hidden="true"><li>1</li><li>2</li><li>3</li><li>4</li><li>5</li><li>6</li><li>7</li><li>8</li></ol>
+      <ol class="zones-y" aria-hidden="true"><li>A</li><li>B</li><li>C</li><li>D</li></ol>
+
+      <div class="hero-body">
+        <div>
+          <p class="hero-label"><span class="stamp" aria-hidden="true">開発<br>中</span>作り直しを進めています</p>
+          <h1 id="hero-title">日本の図面を、<br><em>どの言語からも</em>、<br>同じ結果で。</h1>
+          <p class="hero-lead">zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きするライブラリ群です。Rust の 1 つの核を、ブラウザー・サーバー・Python・.NET・Excel から同じように使えます。ファイルは外へ出さずに、手元で読みます。</p>
+          <div class="actions">
+            <a class="btn btn-primary" href="https://github.com/zumen-jp/zumen">GitHub で見る</a>
+            <a class="btn btn-secondary" href="#formats">対応形式を見る</a>
+          </div>
+        </div>
+
+        <figure class="plan">
+          <svg viewBox="-180 -180 870 870" role="img" aria-labelledby="plan-title">
+            <title id="plan-title">通り芯と寸法を入れた住戸の平面図の例</title>
+            <style>
+              .p-grid { stroke: #c4161c; stroke-width: 1.2; stroke-dasharray: 18 5 3 5; fill: none; opacity: .75; }
+              .p-bubble { fill: #fff; stroke: #c4161c; stroke-width: 1.5; }
+              .p-bubble-t { fill: #c4161c; font: 700 19px var(--font-mono); text-anchor: middle; dominant-baseline: central; }
+              .p-wall { fill: #1d232b; }
+              .p-win { fill: #fff; stroke: #1d232b; stroke-width: 1.2; }
+              .p-thin { stroke: #1d232b; stroke-width: 1.2; fill: none; }
+              .p-swing { stroke: #1d232b; stroke-width: 1; fill: none; stroke-dasharray: 4 3; }
+              .p-dim { stroke: #123a6b; stroke-width: 1; fill: none; }
+              .p-tick { stroke: #123a6b; stroke-width: 2; }
+              .p-dim-t { fill: #123a6b; font: 21px var(--font-mono); text-anchor: middle; }
+              .p-room { fill: #1d232b; font: 700 30px var(--font); text-anchor: middle; }
+              .p-area { fill: #4a5563; font: 21px var(--font-mono); text-anchor: middle; }
+            </style>
+
+            <!-- 通り芯 -->
+            <g class="p-grid">
+              <path d="M0 -132V670M364 -132V670M637 -132V670"/>
+              <path d="M-132 0H670M-132 273H670M-132 637H670"/>
+            </g>
+            <g>
+              <circle class="p-bubble" cx="0" cy="-152" r="24"/><text class="p-bubble-t" x="0" y="-152">X1</text>
+              <circle class="p-bubble" cx="364" cy="-152" r="24"/><text class="p-bubble-t" x="364" y="-152">X2</text>
+              <circle class="p-bubble" cx="637" cy="-152" r="24"/><text class="p-bubble-t" x="637" y="-152">X3</text>
+              <circle class="p-bubble" cx="-150" cy="0" r="24"/><text class="p-bubble-t" x="-150" y="0">Y1</text>
+              <circle class="p-bubble" cx="-150" cy="273" r="24"/><text class="p-bubble-t" x="-150" y="273">Y2</text>
+              <circle class="p-bubble" cx="-150" cy="637" r="24"/><text class="p-bubble-t" x="-150" y="637">Y3</text>
+            </g>
+
+            <!-- 寸法 -->
+            <g class="p-dim">
+              <path d="M0 -14V-110M364 -14V-70M637 -14V-110"/>
+              <path d="M0 -60H637M0 -100H637"/>
+              <path d="M-14 0H-110M-14 273H-70M-14 637H-110"/>
+              <path d="M-60 0V637M-100 0V637"/>
+            </g>
+            <g class="p-tick">
+              <path d="M-7 -53L7 -67M357 -53L371 -67M630 -53L644 -67M-7 -93L7 -107M630 -93L644 -107"/>
+              <path d="M-67 7L-53 -7M-67 280L-53 266M-67 644L-53 630M-107 7L-93 -7M-107 644L-93 630"/>
+            </g>
+            <g class="p-dim-t">
+              <text x="182" y="-68">3,640</text>
+              <text x="500" y="-68">2,730</text>
+              <text x="318" y="-108">6,370</text>
+              <text transform="translate(-68 136) rotate(-90)">2,730</text>
+              <text transform="translate(-68 455) rotate(-90)">3,640</text>
+              <text transform="translate(-108 318) rotate(-90)">6,370</text>
+            </g>
+
+            <!-- 壁 -->
+            <g class="p-wall">
+              <rect x="-6" y="-6" width="106" height="12"/>
+              <rect x="260" y="-6" width="383" height="12"/>
+              <rect x="-6" y="631" width="86" height="12"/>
+              <rect x="300" y="631" width="80" height="12"/>
+              <rect x="560" y="631" width="83" height="12"/>
+              <rect x="-6" y="-6" width="12" height="406"/>
+              <rect x="-6" y="540" width="12" height="103"/>
+              <rect x="631" y="-6" width="12" height="436"/>
+              <rect x="631" y="520" width="12" height="123"/>
+              <rect x="359" y="0" width="10" height="273"/>
+              <rect x="0" y="268" width="60" height="10"/>
+              <rect x="140" y="268" width="300" height="10"/>
+              <rect x="520" y="268" width="117" height="10"/>
+            </g>
+
+            <!-- 窓 -->
+            <g>
+              <rect class="p-win" x="100" y="-6" width="160" height="12"/>
+              <rect class="p-win" x="80" y="631" width="220" height="12"/>
+              <rect class="p-win" x="380" y="631" width="180" height="12"/>
+              <rect class="p-win" x="-6" y="400" width="12" height="140"/>
+              <path class="p-thin" d="M100 0H260M80 637H300M380 637H560M0 400V540"/>
+            </g>
+
+            <!-- 扉 -->
+            <path class="p-thin" d="M60 273V193M520 273V193M631 430H541"/>
+            <path class="p-swing" d="M60 193A80 80 0 0 1 140 273M520 193A80 80 0 0 0 440 273M541 430A90 90 0 0 0 631 520"/>
+
+            <!-- 設備 -->
+            <rect class="p-thin" x="470" y="22" width="148" height="92" rx="10"/>
+            <rect class="p-thin" x="160" y="288" width="240" height="56"/>
+            <circle class="p-thin" cx="230" cy="316" r="12"/>
+            <circle class="p-thin" cx="330" cy="316" r="16"/>
+
+            <!-- 室名 -->
+            <text class="p-room" x="182" y="128">洋室</text>
+            <text class="p-area" x="182" y="162">6帖</text>
+            <text class="p-room" x="500" y="190">浴室・洗面</text>
+            <text class="p-room" x="318" y="470">LDK</text>
+            <text class="p-area" x="318" y="504">14帖</text>
+            <text class="p-area" x="586" y="482">玄関</text>
+          </svg>
+          <figcaption>1 階平面図（例）　S=1/50</figcaption>
+        </figure>
+      </div>
+
+      <div class="titleblock-wrap">
+        <div class="sheet-notes">
+          <p>特記事項</p>
+          <ol>
+            <li>図面は外部へ送らず、手元の環境で読む。</li>
+            <li>読めないものは、黙って捨てずに報告する。</li>
+            <li>寸法の単位は mm とする。</li>
+          </ol>
+        </div>
+        <table class="titleblock">
+          <caption class="skip">表題欄</caption>
+          <tr><th scope="row">工事名称</th><td class="tb-name" colspan="3">zumen ― 日本の建設のデータの読み書き</td></tr>
+          <tr><th scope="row">図面名称</th><td>総合案内</td><th scope="row">図面番号</th><td>Z-000</td></tr>
+          <tr><th scope="row">縮尺</th><td>NTS</td><th scope="row">日付</th><td>2026-10-28</td></tr>
+          <tr><th scope="row">ライセンス</th><td>MIT OR Apache-2.0</td><th scope="row">状態</th><td class="tb-status">開発中</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="news" aria-labelledby="news-title">
+  <div class="wrap">
+    <div class="section-head"><span class="section-no">00</span><h2 id="news-title">お知らせ</h2><p>News</p></div>
+    <ul class="news">
+      <li><time datetime="2026-10-28">2026-10-28</time><span><span class="tag">開発</span></span><span>図面モデルの変更を DXF・DWG に書き戻す apply を加えました（<a href="https://github.com/zumen-jp/zumen/pull/223">#223</a>）。</span></li>
+      <li><time datetime="2026-10-28">2026-10-28</time><span><span class="tag">開発</span></span><span>SXF の SFC と Jw_cad の JWW を、図面モデルへ移せるようになりました（<a href="https://github.com/zumen-jp/zumen/pull/181">#181</a>・<a href="https://github.com/zumen-jp/zumen/pull/201">#201</a>）。</span></li>
+      <li><time datetime="2026-10-27">2026-10-27</time><span><span class="tag">決定</span></span><span>DWG への書き戻しと、R2004 の入れ物の書き方を決めました（<a href="https://github.com/zumen-jp/zumen/tree/main/docs/decisions">決定 0052〜0070</a>）。</span></li>
+      <li><time datetime="2026-10-26">2026-10-26</time><span><span class="tag">開発</span></span><span>DXF と DWG（R2000）を読む最初の経路を置きました（<a href="https://github.com/zumen-jp/zumen/pull/31">#31</a>・<a href="https://github.com/zumen-jp/zumen/pull/38">#38</a>）。</span></li>
+      <li><time datetime="2026-10-24">2026-10-24</time><span><span class="tag tag-red">お知らせ</span></span><span>新しい org の zumen-jp で、zumen の作り直しを始めました（<a href="https://github.com/zumen-jp/zumen/blob/main/docs/decisions/0001-rebuild-in-zumen-jp.md">決定 0001</a>）。</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="section section-alt" id="about" aria-labelledby="about-title">
+  <div class="wrap">
+    <div class="section-head"><span class="section-no">01</span><h2 id="about-title">zumen の概要</h2><p>About</p></div>
+    <div class="table-scroll">
+      <table class="spec">
+        <tr><th scope="row">名称</th><td>zumen（ずめん）</td></tr>
+        <tr><th scope="row">内容</th><td>日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群</td></tr>
+        <tr><th scope="row">仕組み</th><td>読み書きと解析を Rust の 1 つの実装にし、ネイティブ・wasm・各言語の結合で、ビット単位で同じ出力を返します。</td></tr>
+        <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
+        <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
+        <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
+        <tr><th scope="row">状態</th><td>作り直しの開発中です。パッケージはまだ公開していません。SXF・JWW・DXF・DWG・PDF を今すぐ読み書きしたい場合は、<a href="https://github.com/zumen-jp/zumen-legacy">旧版の zumen-legacy</a> を使ってください。</td></tr>
+        <tr><th scope="row">リポジトリ</th><td><a href="https://github.com/zumen-jp/zumen">github.com/zumen-jp/zumen</a></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="policy" aria-labelledby="policy-title">
+  <div class="wrap">
+    <div class="section-head"><span class="section-no">02</span><h2 id="policy-title">5 つの方針</h2><p>Principles</p></div>
+    <ol class="policies">
+      <li><span class="no">01</span><strong>どこでも同じ結果</strong><p>ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。</p></li>
+      <li><span class="no">02</span><strong>黙って捨てない</strong><p>読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。</p></li>
+      <li><span class="no">03</span><strong>ID は契約</strong><p>同じバイト列からは、どの版でも同じ ID を返します。</p></li>
+      <li><span class="no">04</span><strong>ファイルを信用しない</strong><p>大きさ・数・作業量に上限を付けて読みます。壊れた図面でも止まりません。</p></li>
+      <li><span class="no">05</span><strong>日本の実務を優先</strong><p>電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="section section-alt" id="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="section-head"><span class="section-no">03</span><h2 id="how-title">仕組み</h2><p>Architecture</p></div>
+    <div class="flow">
+      <div class="flow-box">
+        <h4>使う所</h4>
+        <ul><li>ブラウザー・Node.js</li><li>Python・.NET・Java</li><li>Excel（VBA）</li><li>Revit・AutoCAD・Rhino</li><li>CLI・MCP</li></ul>
+      </div>
+      <div class="flow-arrow" aria-hidden="true">⇄</div>
+      <div class="flow-box">
+        <h4>境界（API）</h4>
+        <ul><li>数個の関数</li><li>スキーマで定めたメッセージ</li><li>ネイティブ・wasm・プロセスの外・HTTP</li><li>足すだけで、消さない</li></ul>
+      </div>
+      <div class="flow-arrow" aria-hidden="true">⇄</div>
+      <div class="flow-box core">
+        <h4>Rust の核</h4>
+        <ul><li>読み書き・解析を 1 つの実装に</li><li>ビット単位で同じ出力</li><li>作業量で数える予算</li><li>診断を code と場所で返す</li></ul>
+      </div>
+      <div class="flow-arrow" aria-hidden="true">⇄</div>
+      <div class="flow-box">
+        <h4>形式</h4>
+        <ul><li>SXF（SFC・P21）</li><li>JWW・JWC・JWS</li><li>DXF・DWG</li><li>IFC・PDF ほか</li></ul>
+      </div>
+    </div>
+    <p class="note">文言は核に持たせず、日本語と英語のカタログから引きます。各言語への約束は、適合試験のハッシュで確かめます。</p>
+  </div>
+</section>
+
+<section class="section" id="formats" aria-labelledby="formats-title">
+  <div class="wrap">
+    <div class="section-head"><span class="section-no">04</span><h2 id="formats-title">対応形式</h2><p>Formats</p></div>
+    <ul class="legend">
+      <li><span class="m-on">○</span> 使える</li>
+      <li><span class="m-half">△</span> 開発中（未公開）</li>
+      <li><span class="m-plan">―</span> 予定</li>
+      <li><span class="m-off">×</span> 扱わない</li>
+    </ul>
+    <div class="table-scroll">
+      <table class="grid-table">
+        <thead>
+          <tr><th scope="col">形式</th><th scope="col">内容</th><th scope="col">読む</th><th scope="col">書く</th><th scope="col">置き場所</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">SXF</th><td>電子納品の CAD データ（SFC・P21）</td><td class="mark m-half">△</td><td class="mark m-half">△</td><td>核</td></tr>
+          <tr><th scope="row">JWW</th><td>Jw_cad for Windows の図面</td><td class="mark m-half">△</td><td class="mark m-plan">―</td><td>核</td></tr>
+          <tr><th scope="row">JWC・JWS</th><td>Jw_cad for DOS の図面、Jw_cad の図形</td><td class="mark m-plan">―</td><td class="mark m-plan">―</td><td>核</td></tr>
+          <tr><th scope="row">DXF</th><td>AutoCAD の交換形式</td><td class="mark m-half">△</td><td class="mark m-half">△</td><td>核</td></tr>
+          <tr><th scope="row">DWG</th><td>AutoCAD の図面</td><td class="mark m-half">△</td><td class="mark m-half">△</td><td>核</td></tr>
+          <tr><th scope="row">PDF</th><td>図面の PDF</td><td class="mark m-plan">―</td><td class="mark m-plan">―</td><td>核</td></tr>
+          <tr><th scope="row">IFC</th><td>BIM・土木のモデル</td><td class="mark m-plan">―</td><td class="mark m-plan">―</td><td>核</td></tr>
+          <tr><th scope="row">ST-Bridge</th><td>構造のモデル</td><td class="mark m-plan">―</td><td class="mark m-plan">―</td><td>外部のプラグイン</td></tr>
+          <tr><th scope="row">BE-Bridge・CEDXM・Stem</th><td>設備の CAD データ・機器のデータ</td><td class="mark m-off">×</td><td class="mark m-off">×</td><td>権利を確かめられるまで扱わない</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">実装に第三者の許諾が要る形式は、核に入れず外部のプラグインにします。形式ごとの仕様の入手先と権利は、<a href="https://github.com/zumen-jp/zumen/blob/main/docs/formats/README.md">形式と権利の一覧</a>にあります。</p>
+  </div>
+</section>
+
+<section class="section section-alt" id="platforms" aria-labelledby="platforms-title">
+  <div class="wrap">
+    <div class="section-head"><span class="section-no">05</span><h2 id="platforms-title">対応環境</h2><p>Platforms</p></div>
+
+    <div class="tiers">
+      <div class="tier">
+        <h4>段 1</h4>
+        <p>その言語らしいパッケージを作り、PR ごとに適合試験を走らせ、核と同じ日に公開します。</p>
+        <ul class="chips"><li>Rust</li><li>TypeScript・JavaScript</li><li>Python</li><li>.NET</li><li>C・C++</li><li>CLI・MCP</li></ul>
+      </div>
+      <div class="tier">
+        <h4>段 2</h4>
+        <p>生成したパッケージを作り、適合試験を毎晩走らせます。</p>
+        <ul class="chips"><li>Java・Kotlin</li><li>Swift</li><li>Go</li><li>Dart</li><li>VBA</li></ul>
+      </div>
+      <div class="tier">
+        <h4>段 3</h4>
+        <p>C ABI・wasm・CLI・HTTP を使う手順とサンプルを用意します。</p>
+        <ul class="chips"><li>Ruby</li><li>PHP</li><li>R</li><li>Julia</li><li>MATLAB</li><li>AutoLISP</li><li>PowerShell</li><li>ほか</li></ul>
+      </div>
+    </div>
+
+    <h3>使えるホストアプリ（予定）</h3>
+    <ul class="chips">
+      <li>Revit</li><li>AutoCAD</li><li>Civil 3D</li><li>Dynamo</li><li>pyRevit</li><li>Rhino・Grasshopper</li><li>Excel</li><li>QGIS</li><li>ArcGIS Pro</li><li>Blender</li><li>FreeCAD</li><li>SketchUp</li><li>Unity</li>
+    </ul>
+
+    <h3>配布の名前（予定）</h3>
+    <div class="table-scroll">
+      <table class="grid-table">
+        <thead><tr><th scope="col">配布先</th><th scope="col">名前</th><th scope="col">配布先</th><th scope="col">名前</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">crates.io</th><td><code>zumen</code>・<code>zumen-*</code></td><th scope="row">PyPI</th><td><code>zumen</code></td></tr>
+          <tr><th scope="row">npm</th><td><code>@zumen-jp/*</code></td><th scope="row">NuGet</th><td><code>Zumen</code>・<code>Zumen.*</code></td></tr>
+          <tr><th scope="row">Maven</th><td><code>dev.zumen</code></td><th scope="row">Go</th><td><code>zumen.dev/go</code></td></tr>
+          <tr><th scope="row">CLI</th><td><code>zumen</code></td><th scope="row">Homebrew</th><td><code>zumen-jp/tap/zumen</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">OS は Windows 10・macOS 11・glibc 2.28 の Linux・iOS 15・Android 7.0 から、ブラウザーは Chrome・Edge 96、Firefox 79、Safari 15 からを対象にします。詳しい下限は<a href="https://github.com/zumen-jp/zumen/blob/main/docs/support.md">対応する環境</a>にあります。</p>
+  </div>
+</section>
+
+<section class="section" id="docs" aria-labelledby="docs-title">
+  <div class="wrap">
+    <div class="section-head"><span class="section-no">06</span><h2 id="docs-title">資料</h2><p>Documents</p></div>
+    <ul class="links">
+      <li><a href="https://github.com/zumen-jp/zumen/issues/1"><strong>設計</strong><span>作り直しの全体の設計（#1）</span></a></li>
+      <li><a href="https://github.com/zumen-jp/zumen/blob/main/docs/decisions/README.md"><strong>決定の記録</strong><span>選択肢と、選んだ理由の一覧</span></a></li>
+      <li><a href="https://github.com/zumen-jp/zumen/blob/main/docs/work.md"><strong>作業一覧</strong><span>次の作業と進め方</span></a></li>
+      <li><a href="https://github.com/zumen-jp/zumen/blob/main/docs/formats/README.md"><strong>形式と権利の一覧</strong><span>仕様の入手先と、実装を置く所</span></a></li>
+      <li><a href="https://github.com/zumen-jp/zumen/blob/main/schema/README.md"><strong>境界のスキーマ</strong><span>各言語へ渡すメッセージの定め</span></a></li>
+      <li><a href="https://github.com/zumen-jp/zumen/blob/main/CONTRIBUTING.md"><strong>開発への参加</strong><span>PR の出し方と、手元の検査</span></a></li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <a class="logo" href="./">
+        <span class="logo-mark" aria-hidden="true">図</span>
+        <span class="logo-text"><strong>zumen</strong><span>図面の読み書きの基盤</span></span>
+      </a>
+      <ul>
+        <li><a href="https://github.com/zumen-jp/zumen">GitHub</a></li>
+        <li><a href="https://github.com/zumen-jp/zumen-legacy">旧版</a></li>
+        <li><a href="https://github.com/zumen-jp/zumen/blob/main/SECURITY.md">脆弱性の報告</a></li>
+        <li><a href="https://github.com/zumen-jp/zumen/blob/main/CODE_OF_CONDUCT.md">行動規範</a></li>
+      </ul>
+    </div>
+    <small>zumen は MIT License または Apache License 2.0 で提供します。このサイトは、外部のフォント・アクセス解析・クッキーを使いません。</small>
+  </div>
+</footer>
+</body>
+</html>
