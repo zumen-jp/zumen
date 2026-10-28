@@ -8622,6 +8622,23 @@ fn added_blocks_are_written_back() {
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&kind.to_string().into()), "{kind}");
     }
+    // R2004 までの DWG に欄のない挿す単位・分解できるか・尺度を揃えるかを、黙って捨てない
+    for (code, value) in [(70, 4), (280, 0), (281, 1)] {
+        let mut db = built(b"Two", b"Two", point.clone(), true);
+        let at = db
+            .objects()
+            .iter()
+            .position(|object| object.handle() == Some(0x80))
+            .unwrap();
+        db.object_mut(at).unwrap().values.push(Value {
+            code,
+            data: Data::Int(value),
+        });
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        assert!(matches!(out, Err(Error::Rejected)), "{code}");
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
     // 足したブロックでないものが持つ BLOCK も書き戻せない
     let db = with_added_values(&base, 0x80, b"BLOCK", vec![text(2, b"B")]);
     let mut file = read(&src, Limits::default()).0.unwrap();
