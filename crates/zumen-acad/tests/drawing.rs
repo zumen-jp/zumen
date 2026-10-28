@@ -4597,6 +4597,89 @@ fn e3_block_clips_become_the_clip_of_the_symbol() {
     assert_eq!(unclipped.clip, None);
 }
 
+/// 2 点で記録した長方形も、定義の空間への変換で傾けば四隅を持つ。
+/// 有限な入力の積が有限でなくなるときは、診断して切り抜かずに移す。
+#[test]
+fn e3_rectangular_block_clips_keep_transformed_corners() {
+    for (diagonal, expected) in [
+        (
+            "1.0",
+            Some(vec![[0.0, 0.0], [2.0, -2.0], [5.0, 1.0], [3.0, 3.0]]),
+        ),
+        ("1e308", None),
+    ] {
+        let entities = entity(
+            "INSERT",
+            &[
+                (102, "{ACAD_XDICTIONARY"),
+                (360, "A0"),
+                (102, "}"),
+                (2, "PART"),
+                (10, "0.0"),
+                (20, "0.0"),
+            ],
+        );
+        let mut objects = vec![
+            (0, "DICTIONARY"),
+            (5, "A0"),
+            (3, "ACAD_FILTER"),
+            (360, "B0"),
+            (0, "DICTIONARY"),
+            (5, "B0"),
+            (3, "SPATIAL"),
+            (360, "C0"),
+            (0, "SPATIAL_FILTER"),
+            (5, "C0"),
+            (70, "2"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (10, "2.0"),
+            (20, "3.0"),
+            (210, "0.0"),
+            (220, "0.0"),
+            (230, "1.0"),
+            (11, "0.0"),
+            (21, "0.0"),
+            (31, "0.0"),
+            (71, "1"),
+            (72, "0"),
+            (73, "0"),
+        ];
+        for value in [
+            diagonal, "1.0", "0.0", "0.0", "-1.0", "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0",
+            "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0",
+        ] {
+            objects.push((40, value));
+        }
+        let src = sections(&[
+            ("HEADER", MM),
+            ("ENTITIES", &entities),
+            ("OBJECTS", &objects),
+        ]);
+        let (drawing, diag) = lift(&src, &mut Budget::default());
+        let shapes = model_shapes(&drawing.unwrap());
+        let [Shape::Symbol(symbol)] = shapes.as_slice() else {
+            panic!("{shapes:?}");
+        };
+        assert_eq!(
+            symbol.clip.as_ref().map(|clip| clip.vertices.clone()),
+            expected
+        );
+        let found: Vec<_> = found_but_missing_blocks(&diag)
+            .into_iter()
+            .map(|(code, params, count, _)| (code, params, count))
+            .collect();
+        assert_eq!(
+            found,
+            if expected.is_some() {
+                vec![]
+            } else {
+                vec![(codes::DXF_CLIP_DROPPED, "Int(40)".to_owned(), 1)]
+            }
+        );
+    }
+}
+
 /// 図形の拡張辞書の XRECORD は、項目の名前ごとの形式固有の情報になり、値はグループ・コードと値の組で並ぶ。
 /// XRECORD でない項目と、辞書でないものを指す拡張辞書は移さない（決定 0148）
 #[test]

@@ -947,13 +947,32 @@ impl Lifter {
         let apply = |m: &[[f64; 4]; 3], [x, y, z]: [f64; 3]| {
             m.map(|[a, b, c, d]| a * x + b * y + c * z + d)
         };
-        let vertices = points
+        // 2 点の長方形も、回転やせん断の後は軸に平行とは限らないので、四隅を写す。
+        let rectangular = points.len() == 2;
+        if let [[x0, y0], [x1, y1]] = points.as_slice() {
+            points = vec![[*x0, *y0], [*x1, *y0], [*x1, *y1], [*x0, *y1]];
+        }
+        let mut vertices = points
             .into_iter()
             .map(|[x, y]| {
-                let [x, y, _] = apply(&inverse, apply(&bound, [x, y, 0.0]));
-                [x, y]
+                let [x, y, z] = apply(&inverse, apply(&bound, [x, y, 0.0]));
+                if ![x, y, z].iter().all(|value| value.is_finite()) || z != 0.0 {
+                    return Err(dropped(40));
+                }
+                Ok([x, y])
             })
-            .collect();
+            .collect::<Lifted<Vec<_>>>()?;
+        // 軸に平行な長方形なら、元と同じく向かい合う 2 点で持つ。
+        if rectangular {
+            let [a, b, c, d] = vertices.as_slice() else {
+                return Err(dropped(70));
+            };
+            if (a[1] == b[1] && b[0] == c[0] && c[1] == d[1] && d[0] == a[0])
+                || (a[0] == b[0] && b[1] == c[1] && c[0] == d[0] && d[1] == a[1])
+            {
+                vertices = vec![*a, *c];
+            }
+        }
         Ok(Some(Clip {
             vertices,
             inverted: false,
