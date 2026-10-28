@@ -349,6 +349,55 @@ pub struct LineTypeDefinition {
     pub pattern: Vec<f64>,
     /// 列の長さの空間
     pub basis: PatternBasis,
+    /// 列の要素に添える形と文字（決定 0150）。順序は元の形式の順
+    pub marks: Vec<LineTypeMark>,
+}
+
+/// 線種の列の要素に添える形か文字（DXF の複合線種）。長さとずれは、列と同じ空間の長さ
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineTypeMark {
+    /// 添える列の要素の番号（[`LineTypeDefinition::pattern`] の添字）。その要素の始まりに置く
+    pub index: usize,
+    /// 形か文字
+    pub content: MarkContent,
+    /// 倍率。文字なら、文字スタイルの高さへの倍率（高さが 0 の文字スタイルなら、高さそのもの）
+    pub scale: f64,
+    /// 回転（度、反時計回り）
+    pub rotation: f64,
+    /// 回転の基準
+    pub rotation_basis: MarkRotation,
+    /// 置く位置のずれ。線の向きを x とする
+    pub offset: [f64; 2],
+}
+
+/// 線種に添える中身
+#[derive(Clone, Debug, PartialEq)]
+pub enum MarkContent {
+    /// 形のファイルの形
+    Shape {
+        /// 形のファイル。元の形式が指す文字スタイルがなければ `None`
+        font: Option<Font>,
+        /// 形の番号
+        number: u16,
+    },
+    /// 文字
+    Text {
+        /// 文字列
+        content: String,
+        /// 元の文字スタイルの名前。元の形式が指す文字スタイルがなければ `None`
+        style: Option<String>,
+    },
+}
+
+/// 線種に添える形と文字の回転の基準
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkRotation {
+    /// 線の向きから測る
+    Relative,
+    /// 文書の x 軸から測る
+    Absolute,
+    /// 線の向きから測り、文字が逆さに見えるなら半回転する
+    Upright,
 }
 
 /// 線種の列の長さの空間

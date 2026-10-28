@@ -593,7 +593,7 @@ pub const DXF_LIFT_INVALID: Code = Code::new(
     &["kind", "code"],
 );
 
-/// 線種の要素の形と文字を、図面モデルに移さなかった。線と間の長さだけを移した
+/// 線種の要素の形か文字を読めないので、図面モデルに移さなかった。線と間の長さは移した
 ///
 /// `dxf.line-type-element.dropped`（0.0.0 から）
 pub const DXF_LINE_TYPE_ELEMENT_DROPPED: Code = Code::new(

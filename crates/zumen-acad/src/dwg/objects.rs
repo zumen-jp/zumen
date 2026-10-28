@@ -958,14 +958,19 @@ fn read(
             }
             for code in handles {
                 let handle = bits.handle()?.resolve(entry.handle)?;
-                match code {
-                    0 => {}
-                    6 if handle != 0 => records.push(RecordRef {
+                let slot = values
+                    .iter_mut()
+                    .find(|value| value.code == code && value.data == Data::Handle(SLOT));
+                match (code, slot) {
+                    (0, _) => {}
+                    // LTYPE の要素の 340 は、DXF と同じく 0 でも置く
+                    (_, Some(slot)) => slot.data = Data::Handle(handle),
+                    (6, None) if handle != 0 => records.push(RecordRef {
                         code,
                         record: LTYPE,
                         handle,
                     }),
-                    _ if handle != 0 => values.push(Value {
+                    (_, None) if handle != 0 => values.push(Value {
                         code,
                         data: Data::Handle(handle),
                     }),
@@ -1886,7 +1891,8 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 values.push(real(49, dash));
                 values.push(int(74, i64::from(flags & mask)));
                 // 要素ごとに、形のファイルの文字の体裁のハンドル（340）を持つ。形も文字もない要素の
-                // ハンドルは置かない
+                // ハンドルは置かない。DXF と同じく形の番号（75）の後に置くので、ハンドルの流れを読むまで
+                // 仮の値（`SLOT`）を置く
                 if flags & 6 == 0 {
                     handles.push(0);
                     continue;
@@ -1894,6 +1900,10 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 handles.push(340);
                 let text = flags & 2 != 0;
                 values.push(int(75, if text { 0 } else { i64::from(shape) }));
+                values.push(Value {
+                    code: 340,
+                    data: Data::Handle(SLOT),
+                });
                 values.extend([
                     real(46, scale),
                     real(50, rotation.to_degrees()),
