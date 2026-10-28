@@ -3268,6 +3268,21 @@ fn entity_fields(object: &Object) -> Vec<Field> {
             value: FieldValue::Integer(1),
         });
     }
+    if object.kind == b"SPLINE" {
+        let tolerances = [
+            (42, "knot_tolerance"),
+            (43, "control_tolerance"),
+            (44, "fit_tolerance"),
+        ];
+        for (code, key) in tolerances {
+            if let Some(Data::Real(tolerance)) = object.first(code) {
+                fields.push(Field {
+                    key,
+                    value: FieldValue::Real(*tolerance),
+                });
+            }
+        }
+    }
     fields
 }
 

@@ -169,4 +169,4 @@
 - [0137: 2D のシーンは 1 つの ArrayBuffer に列を並べる独自の配置で渡す](0137-columnar-scene-transfer.md)（2026-10-28、採用）
 - [0138: 基準と社内標準を、出典つきの版のあるプロファイル（TOML）として持つ](0138-profiles-as-versioned-data.md)（2026-10-28、採用）
 - [0139: 図面モデルの変更は、出所で要素を指す変更の一覧にし、共有の表を通して元の形式へ書き戻す](0139-drawing-apply.md)（2026-10-28、提案）
-- [0142: DXF・DWG の厚さと線種の生成は、図面モデルの拡張 `dxf.entity` に控える](0142-dxf-entity-extension.md)（2026-10-28、提案）
+- [0142: DXF・DWG の厚さ・線種の生成・スプラインの許容差は、図面モデルの拡張 `dxf.entity` に控える](0142-dxf-entity-extension.md)（2026-10-28、提案）

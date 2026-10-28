@@ -4206,7 +4206,7 @@ fn e9_cyclic_and_missing_definitions_are_reported_and_placements_are_not_expande
 }
 
 #[test]
-fn thickness_and_line_type_generation_are_kept_as_extensions() {
+fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions() {
     let entities = [
         // 厚さを持つ線分
         entity(
@@ -4236,6 +4236,30 @@ fn thickness_and_line_type_generation_are_kept_as_extensions() {
         entity(
             "CIRCLE",
             &[(39, "0.0"), (10, "0.0"), (20, "0.0"), (40, "1.0")],
+        ),
+        // 許容差を持つ 1 次のスプライン
+        entity(
+            "SPLINE",
+            &[
+                (70, "8"),
+                (71, "1"),
+                (72, "4"),
+                (73, "2"),
+                (74, "0"),
+                (42, "0.000000001"),
+                (43, "0.0000000001"),
+                (44, "0.0"),
+                (40, "0.0"),
+                (40, "0.0"),
+                (40, "1.0"),
+                (40, "1.0"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (30, "0.0"),
+                (10, "5.0"),
+                (20, "5.0"),
+                (30, "0.0"),
+            ],
         ),
     ]
     .concat();
@@ -4284,7 +4308,24 @@ fn thickness_and_line_type_generation_are_kept_as_extensions() {
                     },
                 ]
             ),
+            (
+                at(3),
+                vec![
+                    Field {
+                        key: "knot_tolerance",
+                        value: FieldValue::Real(1e-9),
+                    },
+                    Field {
+                        key: "control_tolerance",
+                        value: FieldValue::Real(1e-10),
+                    },
+                    Field {
+                        key: "fit_tolerance",
+                        value: FieldValue::Real(0.0),
+                    },
+                ]
+            ),
         ]
     );
-    assert_eq!(elements.len(), 3);
+    assert_eq!(elements.len(), 4);
 }
