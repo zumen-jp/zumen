@@ -12,10 +12,11 @@ use zumen_drawing::{
     DimensionText, Dogleg, Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow,
     Format, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal,
     Inherit, Islands, Label, Layer, LayerId, LayerState, Leader, Length, LineSpacing,
-    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Placement,
-    Polyline, Resource, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Spline, Style,
-    SymbolKey, Table, Target, Text, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical,
+    LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Piece, Placement, Polyline, Resource, Rotation, Shape, SheetId, SheetItem,
+    SpaceId, Span, Spline, Style, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame,
+    UnderlayKind, Unit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -936,15 +937,23 @@ fn colors_line_types_and_line_weights_keep_their_source_and_inheritance() {
         (74, "0"),
         (49, "-0.25"),
         (74, "0"),
-        // 文字を持つ要素は、長さだけを移す
+        // 文字を持つ要素は、文字を添える。形と文字を兼ねる要素は読めないので、長さだけを移す
         (0, "LTYPE"),
         (5, "16"),
         (2, "Gas"),
-        (73, "1"),
+        (73, "2"),
         (49, "1.0"),
         (74, "2"),
         (75, "0"),
+        (46, "0.1"),
+        (50, "0.0"),
+        (44, "-0.1"),
+        (45, "-0.05"),
         (9, "GAS"),
+        (49, "-0.5"),
+        (74, "6"),
+        (75, "0"),
+        (9, "X"),
         (0, "ENDTAB"),
         (0, "TABLE"),
         (2, "LAYER"),
@@ -1037,14 +1046,27 @@ fn colors_line_types_and_line_weights_keep_their_source_and_inheritance() {
             description: "__ __".to_owned(),
             pattern: vec![0.5, -0.25],
             basis: PatternBasis::Element,
+            marks: Vec::new(),
         })
     );
     assert_eq!(
-        drawing.line_types[2]
-            .definition
-            .as_ref()
-            .map(|d| d.pattern.clone()),
-        Some(vec![1.0])
+        drawing.line_types[2].definition,
+        Some(LineTypeDefinition {
+            description: String::new(),
+            pattern: vec![1.0, -0.5],
+            basis: PatternBasis::Element,
+            marks: vec![LineTypeMark {
+                index: 0,
+                content: MarkContent::Text {
+                    content: "GAS".to_owned(),
+                    style: None,
+                },
+                scale: 0.1,
+                rotation: 0.0,
+                rotation_basis: MarkRotation::Relative,
+                offset: [-0.1, -0.05],
+            }],
+        })
     );
 
     let aci = |value: u32| {

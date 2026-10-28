@@ -585,6 +585,7 @@ impl<'f> Lifter<'f> {
                 .map(|(at, v)| if at % 2 == 0 { *v } else { -*v })
                 .collect(),
             basis: PatternBasis::Paper,
+            marks: Vec::new(),
         });
         let read = definition.is_some();
         self.line_types.push(LineType {

@@ -24,14 +24,14 @@ use zumen_drawing::{
     Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
     BackgroundFill, Basis, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, Clip,
     Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
-    Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow, FormattedText,
-    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
-    Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
-    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, ModelSpace,
-    PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin,
-    Placement, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Spline,
-    Style, Symbol, SymbolDefinition, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame,
-    UnderlayKind, Unit, Vertex, Vertical, View,
+    Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow, Font, FontKind,
+    FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit,
+    Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
+    LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured,
+    ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis,
+    PatternLine, PatternOrigin, Placement, Polyline, Resource, Rotation, Shape, Sheet, SheetId,
+    SheetItem, SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table, Target, Text,
+    Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -98,7 +98,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             let source = source(object);
             work(cx, 1, &source)?;
             let lifted = match kind {
-                b"LTYPE" => lifter.line_type_record(object, source.clone(), &mut out, cx),
+                b"LTYPE" => lifter.line_type_record(db, object, source.clone(), &mut out, cx),
                 b"LAYER" => lifter.layer_record(object, source.clone(), &mut out),
                 _ => lifter.dimension_style_record(db, object, source.clone(), &mut out),
             };
@@ -2843,6 +2843,7 @@ impl Lifter {
     /// （74 が 0 でない）は、長さだけを移して形と文字を落とし、診断する
     fn line_type_record(
         &self,
+        db: &AcadDb,
         object: &Object,
         source: Ref,
         out: &mut Out,
@@ -2852,17 +2853,38 @@ impl Lifter {
         let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
         let description = self.string(object, 3)?.unwrap_or_default();
         let mut pattern = Vec::new();
-        let mut complex = false;
+        let mut dashes: Vec<Dash> = Vec::new();
         for value in &object.values {
-            match (value.code, &value.data) {
-                (49, Data::Real(length)) if length.is_finite() => pattern.push(*length),
-                (49, _) => return Err(invalid(kind, 49)),
-                (74, Data::Int(flags)) => complex |= *flags != 0,
-                (74, _) => return Err(invalid(kind, 74)),
+            match (value.code, &value.data, dashes.last_mut()) {
+                (49, Data::Real(length), _) if length.is_finite() => {
+                    pattern.push(*length);
+                    dashes.push(Dash::default());
+                }
+                (49, _, _) => return Err(invalid(kind, 49)),
+                (74, Data::Int(flags), Some(element)) => element.flags = *flags,
+                (75, Data::Int(number), Some(element)) => element.number = *number,
+                (340, Data::Handle(handle), Some(element)) => element.style = *handle,
+                (46, Data::Real(scale), Some(element)) => element.scale = *scale,
+                (50, Data::Real(rotation), Some(element)) => element.rotation = *rotation,
+                (44, Data::Real(x), Some(element)) => element.offset[0] = *x,
+                (45, Data::Real(y), Some(element)) => element.offset[1] = *y,
+                (9, data, Some(element)) => element.text = Some(self.decode(kind, 9, data)?),
+                (74 | 75 | 340 | 46 | 50 | 44 | 45 | 9, _, _) => {
+                    return Err(invalid(kind, value.code));
+                }
                 _ => {}
             }
         }
-        if complex {
+        let mut marks = Vec::new();
+        let mut unread = false;
+        for (index, dash) in dashes.into_iter().enumerate() {
+            match self.line_type_mark(db, index, dash) {
+                Ok(Some(mark)) => marks.push(mark),
+                Ok(None) => {}
+                Err(()) => unread = true,
+            }
+        }
+        if unread {
             cx.report(
                 Diagnostic::new(codes::DXF_LINE_TYPE_ELEMENT_DROPPED)
                     .with("name", name.clone())
@@ -2873,12 +2895,81 @@ impl Lifter {
             description,
             pattern,
             basis: PatternBasis::Element,
+            marks,
         };
         let id = self.add_line_type(kind, name, Some(definition), source, out)?;
         if let Some(handle) = object.handle() {
             out.line_type_handles.insert(handle, id);
         }
         Ok(())
+    }
+
+    /// 線種の列の要素に添える形か文字（DXF Reference「LTYPE」）。74 の 2 は文字、4 は形、1 は回転を文書の
+    /// x 軸から測ること、8 は文字を逆さにしないことを表す（8 は推定。R2013 からの DXF だけが書く）。形も
+    /// 文字もなければ `None`。形の番号（75）が 0 の形は、形がないとみなす（推定）。形と文字を兼ねるもの、
+    /// 番号が範囲の外のもの、知らない印のもの、有限でない値のものは読めないとする
+    fn line_type_mark(
+        &self,
+        db: &AcadDb,
+        index: usize,
+        dash: Dash,
+    ) -> Result<Option<LineTypeMark>, ()> {
+        let Dash {
+            flags,
+            number,
+            style,
+            scale,
+            rotation,
+            offset,
+            text,
+        } = dash;
+        let style = db
+            .get(style)
+            .filter(|record| style != 0 && record.kind == b"STYLE");
+        let content = match flags & 6 {
+            0 => return Ok(None),
+            2 => MarkContent::Text {
+                content: text.ok_or(())?,
+                style: style
+                    .map(|record| self.string(record, 2))
+                    .transpose()
+                    .map_err(|_| ())?
+                    .flatten(),
+            },
+            4 if number == 0 => return Ok(None),
+            4 => MarkContent::Shape {
+                font: style
+                    .map(|record| self.string(record, 3))
+                    .transpose()
+                    .map_err(|_| ())?
+                    .flatten()
+                    .map(|name| Font {
+                        name,
+                        kind: FontKind::Shape,
+                    }),
+                number: u16::try_from(number).map_err(|_| ())?,
+            },
+            _ => return Err(()),
+        };
+        if flags & !15 != 0
+            || ![scale, rotation, offset[0], offset[1]]
+                .iter()
+                .all(|v| v.is_finite())
+        {
+            return Err(());
+        }
+        Ok(Some(LineTypeMark {
+            index,
+            content,
+            scale,
+            rotation,
+            rotation_basis: match (flags & 1, flags & 8) {
+                (1, _) => MarkRotation::Absolute,
+                (_, 8) => MarkRotation::Upright,
+                _ => MarkRotation::Relative,
+            },
+            offset,
+        }))
     }
 
     /// 線種を足す。同じ名前がすでにあれば、名前で引くのは先のものにする
@@ -3160,6 +3251,18 @@ impl Lifter {
             ))
         }
     }
+}
+
+/// 線種の列の 1 つの要素の、形か文字の値（DXF Reference「LTYPE」の 74〜9）
+#[derive(Default)]
+struct Dash {
+    flags: i64,
+    number: i64,
+    style: u64,
+    scale: f64,
+    rotation: f64,
+    offset: [f64; 2],
+    text: Option<String>,
 }
 
 /// 図形の値の並びを、先頭から順に読む
