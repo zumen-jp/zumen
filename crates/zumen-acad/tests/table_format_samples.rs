@@ -74,7 +74,8 @@ fn aci(value: u32) -> Option<Inherit<Color>> {
 /// セルが 3 列 2 行に広がる。そのセルは、位置合わせ・文字の色・背景の色（塗らない）・高さと、左と上の枠（色 63、
 /// 0.40 mm）を上書きする。右の列のセルは右の枠も上書きする。どの版の DWG と DXF でも、セルの書式が同じになる。
 /// DXF の表のスタイルは、データ・タイトル・見出しの行の書式を持つ（表を描いたブロックの文字と合う）。
-/// R2010 からの DWG の読み手は、セルのスタイルと内容の書式をまだ読まないので、セルの書式は空になる
+/// R2004 までの DWG の TABLESTYLE も、DXF と同じ書式になる。R2010 からの DWG の読み手は、セルのスタイルと
+/// 内容の書式と TABLESTYLE をまだ読まないので、セルの書式は空、表の書式は `None` になる
 #[test]
 fn cell_formats_and_table_styles_are_lifted() {
     let mut cells: BTreeMap<String, Vec<CellFormat>> = BTreeMap::new();
@@ -138,7 +139,7 @@ fn cell_formats_and_table_styles_are_lifted() {
             assert_eq!(borders.right, right, "{name} {at}");
         }
         assert_eq!(table.cells[18].format.borders.top, border, "{name}");
-        if name.ends_with(".dxf") {
+        {
             let formats = table.formats.as_deref().unwrap();
             assert!(formats.title && formats.header, "{name}");
             let height = |format: &CellFormat| match format.text_height {
@@ -154,9 +155,6 @@ fn cell_formats_and_table_styles_are_lifted() {
                 "{name}"
             );
             assert_eq!(formats.data_format.fill, Some(false), "{name}");
-        } else {
-            // DWG の読み手は、TABLESTYLE の欄をまだ読まない
-            assert_eq!(table.formats, None, "{name}");
         }
         let version = name.get(..13).unwrap().to_owned();
         // ASCII の DXF の実数は丸められているので、高さは 1e-9 の桁で比べる
