@@ -1346,6 +1346,7 @@ impl Lifter<'_> {
         let [ox, oy] = size.map_or([0.0, 0.0], |[w, h]| [w / 2.0, h / 2.0]);
         let mut sheet = Sheet {
             id: SHEET,
+            name: None,
             size: size.map(|[w, h]| [PaperLength(w), PaperLength(h)]),
             elements: Vec::new(),
             views: Vec::new(),

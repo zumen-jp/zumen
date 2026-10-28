@@ -4,7 +4,7 @@
 //! 図形の XDATA は、読んだときの図形の値とともに形式固有の情報にする。
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
-//! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは 1 枚の用紙に置く。
+//! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートはレイアウトごとの用紙に置く。
 //! 実寸の単位は見出しの `$INSUNITS` で決め、分からなければ不明とする。用紙の点は `$PLIMMIN` を原点にした mm で、
 //! 単位が分からなければ mm に直せないので、ペーパー空間の図形を移さない。
 //! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間・
@@ -81,6 +81,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
                 _ => None,
             });
     let lifter = Lifter {
+        sheet: SHEET,
         unicode: version.is_some_and(|v| v >= UTF8),
         fit_data: version.is_some_and(|v| v >= FIT_DATA),
         version: version.map(|v| String::from_utf8_lossy(v).into_owned()),
@@ -175,14 +176,28 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             _ => None,
         };
         let order = arrange(paper_keys.as_ref(), out.sheet, cx);
+        // 今のレイアウトの名前は、ペーパー空間の図形の所有者（今のレイアウトのブロックのレコード）を指す LAYOUT
+        // から読む。DWG は、どのレイアウトのブロックのレコードも `*Paper_Space` と名付ける
+        let name = entities
+            .iter()
+            .find(|object| matches!(object.first(67), Some(Data::Int(1))))
+            .and_then(|object| object.owner())
+            .and_then(|handle| layout_of(db, handle))
+            .and_then(|layout| lifter.layout_info(layout).name);
         drawing.sheets.push(Sheet {
             id: SHEET,
+            name,
             size,
             elements: out.paper,
             views: out.views,
             order,
         });
     }
+    // ほかのレイアウトの用紙は、今のレイアウトの後に、タブの順で並べる
+    out.layouts.sort_by_key(|(tab, _)| *tab);
+    drawing
+        .sheets
+        .extend(out.layouts.into_iter().map(|(_, sheet)| sheet));
     Ok(drawing)
 }
 
@@ -212,6 +227,33 @@ fn amount(object: &Object) -> u64 {
 fn layout_block(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name.starts_with("*model_space") || name.starts_with("*paper_space")
+}
+
+/// ペーパー空間のブロック（`*Paper_Space`・`*Paper_Space0` など）か。今のレイアウトの図形は ENTITIES に
+/// あるので、BLOCKS にあるペーパー空間のブロックの中身は、ほかのレイアウトのもの。DWG は名前に番号を持たない
+fn paper_layout(name: &str) -> bool {
+    name.to_ascii_lowercase().starts_with("*paper_space")
+}
+
+/// ブロックのレコード `record` を用紙空間に持つ LAYOUT（DXF Reference「LAYOUT」）。レイアウトの欄の
+/// 330 で指す。初めの 330 は所有者なので見ない
+fn layout_of(db: &AcadDb, record: u64) -> Option<&Object> {
+    db.objects().iter().find(|object| {
+        object.kind == b"LAYOUT"
+            && object
+                .values
+                .iter()
+                .filter(|value| value.code == 330)
+                .skip(1)
+                .any(|value| value.data == Data::Handle(record))
+    })
+}
+
+/// LAYOUT の名前（2 つ目の 1。初めの 1 はページ設定の名前）・タブの順（71）・範囲（10・20 と 11・21）
+struct LayoutInfo {
+    name: Option<String>,
+    tab: i64,
+    limits: Option<[[f64; 2]; 2]>,
 }
 
 /// 決まった作業量を数え、上限を超えたら止める（決定 0010）
@@ -275,8 +317,10 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
     let inner = symbols
         .iter()
         .flat_map(|symbol| placed(&symbol.space.elements));
+    let layouts = || out.layouts.iter().flat_map(|(_, sheet)| &sheet.elements);
     let others = referenced(&out.model)
         .chain(referenced(&out.paper))
+        .chain(layouts().flat_map(|element| referenced(std::slice::from_ref(element))))
         .chain(
             symbols
                 .iter()
@@ -290,6 +334,7 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
         }));
     let placements = placed(&out.model)
         .chain(placed(&out.paper))
+        .chain(layouts().flat_map(|element| placed(std::slice::from_ref(element))))
         .chain(inner)
         .map(|(key, at)| (key.clone(), at));
     for (key, at) in placements.chain(others) {
@@ -461,6 +506,8 @@ struct Out {
     views: Vec<View>,
     /// 用紙の上に描くものと、そのハンドル。順序は入力の順
     sheet: Vec<(SheetItem, Option<u64>)>,
+    /// ほかのレイアウトの用紙と、そのタブの順
+    layouts: Vec<(i64, Sheet)>,
     layers: Vec<Layer>,
     /// ASCII の大文字を小文字にした画層の名前。DXF の名前は大文字と小文字を区別しない（推定。docs/formats/dxf.md）
     by_name: BTreeMap<String, LayerId>,
@@ -475,7 +522,10 @@ struct Out {
     extensions: Vec<Extension>,
 }
 
+#[derive(Clone)]
 struct Lifter {
+    /// ペーパー空間の図形を置く用紙
+    sheet: SheetId,
     /// 2007 以降の版なら、文字の値を UTF-8 として読む
     unicode: bool,
     /// 2010 以降の版なら、DXF の HATCH の SPLINE の辺は当てはめる点（97）を持つ
@@ -500,8 +550,23 @@ impl Lifter {
         out: &mut Out,
         cx: &mut Cx,
     ) -> Lifted<()> {
-        let kind = object.kind.as_slice();
         let paper = self.int(object, 67, 0)? == 1;
+        self.place(db, object, source, attributes, paper, out, cx)
+    }
+
+    /// 図形を、`paper` ならペーパー空間の用紙（`self.sheet`）に、でなければモデル空間に置く
+    #[allow(clippy::too_many_arguments)]
+    fn place(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        source: Ref,
+        attributes: &[&Object],
+        paper: bool,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Lifted<()> {
+        let kind = object.kind.as_slice();
         match kind {
             // 69 = 1 は用紙そのものを表すビューポート
             b"VIEWPORT" if paper && self.int(object, 69, 0)? == 1 => {}
@@ -524,14 +589,15 @@ impl Lifter {
                 out.views.push(view);
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
-            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" | b"ACAD_TABLE"
-            | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
+            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
+            | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
+            | b"POLYLINE"
                 if paper =>
             {
                 let mm = self.paper_mm(kind)?;
                 let [ox, oy] = self.origin;
                 let point = |x: f64, y: f64| PaperPoint {
-                    sheet: SHEET,
+                    sheet: self.sheet,
                     x: (x - ox) * mm,
                     y: (y - oy) * mm,
                 };
@@ -539,7 +605,7 @@ impl Lifter {
                 let element =
                     self.element(db, object, source, attributes, point, length, out, cx)?;
                 let target = Target::Paper {
-                    sheet: SHEET,
+                    sheet: self.sheet,
                     index: out.paper.len(),
                 };
                 self.extend(object, target, || Basis::Paper(element.clone()), out, cx);
@@ -749,6 +815,100 @@ impl Lifter {
         Ok(symbols)
     }
 
+    /// LAYOUT の名前・タブの順・範囲。読めない値は、ないものとする
+    fn layout_info(&self, layout: &Object) -> LayoutInfo {
+        let name = layout
+            .values
+            .iter()
+            .rfind(|value| value.code == 1)
+            .and_then(|value| self.decode(&layout.kind, 1, &value.data).ok());
+        let real = |code| self.real(layout, code, None).ok();
+        let limits = (|| Some([[real(10)?, real(20)?], [real(11)?, real(21)?]]))();
+        LayoutInfo {
+            name,
+            tab: self.int(layout, 71, 0).unwrap_or(0),
+            limits,
+        }
+    }
+
+    /// ほかのレイアウトのペーパー空間のブロックの中身を、1 枚の用紙にする。用紙の原点と大きさは LAYOUT の
+    /// 範囲で決め、なければ原点を 0 とし、大きさを決めない（推定。docs/formats/dxf.md）。中身がなければ
+    /// 用紙を作らない
+    fn layout(
+        &self,
+        db: &AcadDb,
+        record: Option<&Object>,
+        members: &[&Object],
+        keys: &BTreeMap<u64, SortKeys>,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        let handle = record.and_then(Object::handle);
+        let info = handle
+            .and_then(|handle| layout_of(db, handle))
+            .map(|layout| self.layout_info(layout));
+        let limits = info.as_ref().and_then(|info| info.limits);
+        let id = SheetId(
+            u32::try_from(out.layouts.len())
+                .unwrap_or(u32::MAX)
+                .saturating_add(1),
+        );
+        let lifter = Lifter {
+            sheet: id,
+            origin: limits.map_or([0.0, 0.0], |[min, _]| min),
+            ..self.clone()
+        };
+        let paper = std::mem::take(&mut out.paper);
+        let views = std::mem::take(&mut out.views);
+        let sheet = std::mem::take(&mut out.sheet);
+        let (attached, owned) = attached(members);
+        for (index, object) in members.iter().enumerate() {
+            let source = source(object);
+            work(cx, amount(object), &source)?;
+            if owned.contains(&index) {
+                continue;
+            }
+            let inserted: Vec<&Object> = attached
+                .get(&index)
+                .map_or(&[][..], Vec::as_slice)
+                .iter()
+                .filter_map(|at| members.get(*at).copied())
+                .collect();
+            if let Err(diagnostic) =
+                lifter.place(db, object, source.clone(), &inserted, true, out, cx)
+            {
+                cx.report((*diagnostic).at(source));
+            }
+        }
+        let elements = std::mem::replace(&mut out.paper, paper);
+        let views = std::mem::replace(&mut out.views, views);
+        let items = std::mem::replace(&mut out.sheet, sheet);
+        if elements.is_empty() && views.is_empty() {
+            return Ok(());
+        }
+        let size = match (limits, self.mm) {
+            (Some([[x0, y0], [x1, y1]]), Some(mm)) => {
+                let size = [(x1 - x0) * mm, (y1 - y0) * mm];
+                size.iter().all(|s| *s > 0.0).then(|| size.map(PaperLength))
+            }
+            _ => None,
+        };
+        let order = arrange(handle.and_then(|handle| keys.get(&handle)), items, cx);
+        let (name, tab) = info.map_or((None, 0), |info| (info.name, info.tab));
+        out.layouts.push((
+            tab,
+            Sheet {
+                id,
+                name,
+                size,
+                elements,
+                views,
+                order,
+            },
+        ));
+        Ok(())
+    }
+
     /// BLOCK と中身の図形を、空間 `space` の記号の定義にする。空間のブロックなら `None`。中身の図形のうち
     /// 移せないものは、その図形を指す診断を返し、定義は移す
     #[allow(clippy::too_many_arguments)]
@@ -780,6 +940,9 @@ impl Lifter {
             return Ok(None);
         };
         if layout_block(&name) {
+            if paper_layout(&name) {
+                self.layout(db, record, members, keys, out, cx)?;
+            }
             return Ok(None);
         }
         let point = |x: f64, y: f64| ModelPoint { space, x, y };
@@ -2717,14 +2880,14 @@ impl Lifter {
             ],
         };
         let corner = |dx: f64, dy: f64| PaperPoint {
-            sheet: SHEET,
+            sheet: self.sheet,
             x: (px + dx * width / 2.0 - ox) * mm,
             y: (py + dy * height / 2.0 - oy) * mm,
         };
         Ok(View {
             space: MODEL,
             transform,
-            sheet: SHEET,
+            sheet: self.sheet,
             clip: vec![
                 corner(-1.0, -1.0),
                 corner(1.0, -1.0),
