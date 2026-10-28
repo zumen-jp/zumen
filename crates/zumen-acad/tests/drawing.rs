@@ -601,6 +601,160 @@ fn paper_view(handle: &'static str, extra: &[(i16, &'static str)]) -> Vec<(i16, 
     tags
 }
 
+/// LAYOUT。所有者・ページ設定の名前・レイアウトの名前・タブの順・範囲・ブロックのレコード
+fn layout(
+    handle: &'static str,
+    name: &'static str,
+    tab: &'static str,
+    limits: [&'static str; 4],
+    record: &'static str,
+) -> Vec<(i16, &'static str)> {
+    vec![
+        (0, "LAYOUT"),
+        (5, handle),
+        (330, "1A"),
+        (100, "AcDbPlotSettings"),
+        (1, ""),
+        (100, "AcDbLayout"),
+        (1, name),
+        (70, "1"),
+        (71, tab),
+        (10, limits[0]),
+        (20, limits[1]),
+        (11, limits[2]),
+        (21, limits[3]),
+        (330, record),
+    ]
+}
+
+#[test]
+fn each_layout_becomes_a_sheet_with_its_name_and_limits() {
+    // 今のレイアウト（ENTITIES の図形）と、BLOCKS の 2 つのレイアウト。Second はタブの順が先
+    let tables = [
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "B1"),
+        (2, "*Paper_Space"),
+        (0, "BLOCK_RECORD"),
+        (5, "C1"),
+        (2, "*Paper_Space0"),
+        (0, "BLOCK_RECORD"),
+        (5, "D1"),
+        (2, "*Paper_Space1"),
+        (0, "ENDTAB"),
+    ];
+    let mut blocks = Vec::new();
+    for (record, name, line, view) in [
+        ("B1", "*Paper_Space", None, None),
+        ("C1", "*Paper_Space0", Some("C3"), Some("C4")),
+        ("D1", "*Paper_Space1", Some("D3"), None),
+    ] {
+        blocks.extend([
+            (0, "BLOCK"),
+            (330, record),
+            (8, "0"),
+            (2, name),
+            (70, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+        ]);
+        if let Some(line) = line {
+            let mut tags = paper_line(line);
+            tags.insert(2, (330, record));
+            blocks.extend(tags);
+            // 用紙そのもの（69 = 1）は、ビューにしない
+            blocks.extend(
+                paper_view("E1", &[(330, record)])
+                    .into_iter()
+                    .map(|(code, value)| match code {
+                        69 => (69, "1"),
+                        5 => (5, if record == "C1" { "C5" } else { "D5" }),
+                        _ => (code, value),
+                    }),
+            );
+        }
+        if let Some(view) = view {
+            blocks.extend(paper_view(view, &[(330, record)]));
+        }
+        blocks.extend([(0, "ENDBLK"), (330, record), (8, "0")]);
+    }
+    let mut entities = paper_line("A1");
+    entities.insert(2, (330, "B1"));
+    let mut objects = layout("L1", "Main", "1", ["0.0", "0.0", "420.0", "297.0"], "B1");
+    objects.extend(layout(
+        "L2",
+        "First",
+        "3",
+        ["-10.0", "-20.0", "410.0", "277.0"],
+        "C1",
+    ));
+    objects.extend(layout(
+        "L3",
+        "Second",
+        "2",
+        ["0.0", "0.0", "0.0", "0.0"],
+        "D1",
+    ));
+    let (drawing, diag) = lift(
+        &sections(&[
+            ("HEADER", MM),
+            ("TABLES", &tables),
+            ("BLOCKS", &blocks),
+            ("ENTITIES", &entities),
+            ("OBJECTS", &objects),
+        ]),
+        &mut Budget::default(),
+    );
+    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    let drawing = drawing.unwrap();
+    let sheets: Vec<_> = drawing
+        .sheets
+        .iter()
+        .map(|sheet| {
+            (
+                sheet.id,
+                sheet.name.as_deref(),
+                sheet.size.map(|size| size.map(|l| l.0)),
+                sheet.elements.len(),
+                sheet.views.len(),
+            )
+        })
+        .collect();
+    // 今のレイアウトが先で、ほかはタブの順。範囲が空なら大きさを決めない
+    assert_eq!(
+        sheets,
+        [
+            (SHEET, Some("Main"), None, 1, 0),
+            (SheetId(2), Some("Second"), None, 1, 0),
+            (SheetId(1), Some("First"), Some([420.0, 297.0]), 1, 1),
+        ]
+    );
+    // 用紙の点は、そのレイアウトの範囲の左下を原点にする
+    let first = &drawing.sheets[2];
+    let Shape::Line { start, end } = &first.elements[0].shape else {
+        panic!("{:?}", first.elements[0].shape);
+    };
+    assert_eq!(
+        (start, end),
+        (
+            &PaperPoint {
+                sheet: SheetId(1),
+                x: 10.0,
+                y: 20.0
+            },
+            &PaperPoint {
+                sheet: SheetId(1),
+                x: 11.0,
+                y: 21.0
+            }
+        )
+    );
+    assert_eq!(first.views[0].sheet, SheetId(1));
+    assert_eq!(first.views[0].clip[0].sheet, SheetId(1));
+    assert_eq!(first.order, [SheetItem::Element(0), SheetItem::View(0)]);
+}
+
 #[test]
 fn layers_keep_their_table_and_views_hide_layers() {
     let tables = [
@@ -4555,5 +4709,32 @@ fn unreadable_entity_extension_fields_are_reported_without_dropping_the_shape() 
                 vec![drawing.spaces[0].elements[1].source.clone()],
             ),
         ]
+    );
+}
+
+#[test]
+fn paper_space_polylines_are_placed_on_the_sheet() {
+    let mut entities = entity(
+        "POLYLINE",
+        &[(67, "1"), (66, "1"), (10, "0.0"), (20, "0.0"), (70, "0")],
+    );
+    for (x, y) in [("1.0", "2.0"), ("3.0", "4.0")] {
+        entities.extend(entity("VERTEX", &[(67, "1"), (10, x), (20, y)]));
+    }
+    entities.extend(entity("SEQEND", &[(67, "1")]));
+    let (drawing, diag) = lift(&dxf(MM, &entities), &mut Budget::default());
+    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    let drawing = drawing.unwrap();
+    assert!(drawing.spaces[0].elements.is_empty());
+    let Shape::Polyline(polyline) = &drawing.sheets[0].elements[0].shape else {
+        panic!("{:?}", drawing.sheets[0].elements);
+    };
+    assert_eq!(
+        polyline.vertices[1].point,
+        PaperPoint {
+            sheet: SHEET,
+            x: 3.0,
+            y: 4.0
+        }
     );
 }

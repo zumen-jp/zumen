@@ -418,6 +418,8 @@ pub struct ModelSpace {
 pub struct Sheet {
     /// ID
     pub id: SheetId,
+    /// 元の形式の用紙の名前（DXF・DWG のレイアウトの名前）。翻訳しない。元の形式が名前を持たなければ `None`
+    pub name: Option<String>,
     /// 幅と高さ。元の形式から決まらなければ `None`
     pub size: Option<[PaperLength; 2]>,
     /// 用紙上の要素。順序は入力の順
