@@ -303,33 +303,22 @@ caption.skip {
   border-radius: 0;
 }
 
-/* お知らせの帯（DADS の notification banner の color chip の形） */
-.banner {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 12px;
-  margin: 16px 0;
-  padding: 16px 20px 16px 24px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--border-radius-12);
-  background: var(--paper);
-  box-shadow: inset 6px 0 0 var(--warn);
+/* 開発中の知らせ。ページの最上部の細い帯にする */
+.notice {
+  margin: 0;
+  padding: 8px 0;
+  background: var(--paper-sub);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 14px;
 }
 
-.banner-icon {
-  grid-row: span 2;
+.notice .wrap {
+  display: block;
+}
+
+.notice strong {
+  margin-right: 12px;
   color: var(--warn);
-  margin-top: 2px;
-}
-
-.banner-title {
-  margin: 0;
-  font-weight: 700;
-}
-
-.banner p:last-child {
-  margin: 0;
-  font-size: 15px;
 }
 
 /* 下層のページの見出し */
@@ -413,7 +402,7 @@ caption.skip {
 
 /* トップのメインビジュアル */
 .hero {
-  padding: 32px 0 64px;
+  padding: 48px 0 64px;
 }
 
 .hero-body {

@@ -37,6 +37,10 @@ const canonical = new URL(path, Astro.site);
   <body>
     <a class="skip" href="#main">本文へ移動</a>
 
+    <p class="notice">
+      <span class="wrap"><strong>開発中</strong>パッケージはまだ公開していません。今すぐ使う場合は<a href={legacy}>旧版の zumen-legacy</a> をどうぞ。</span>
+    </p>
+
     <header class="masthead">
       <div class="wrap">
         <a class="logo" href="/" aria-label="zumen トップ">
@@ -60,13 +64,6 @@ const canonical = new URL(path, Astro.site);
       </div>
     </header>
 
-    <div class="wrap">
-      <div class="banner" role="note">
-        <svg class="banner-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2Zm1 15h-2v-2h2v2Zm0-4h-2V9h2v4Z"/></svg>
-        <p class="banner-title">作り直しの開発中です</p>
-        <p>パッケージはまだ公開していません。今すぐ図面を読み書きしたい場合は、<a href={legacy}>旧版の zumen-legacy</a> を使ってください。</p>
-      </div>
-    </div>
 
     <main id="main">
       <slot />

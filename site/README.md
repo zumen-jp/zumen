@@ -31,7 +31,7 @@ npm run dev
 | 場所 | 中身 |
 | --- | --- |
 | `src/pages/` | ページ。ファイル名が URL になる |
-| `src/layouts/Base.astro` | ヘッダー・ナビ・開発中のお知らせの帯・フッター |
+| `src/layouts/Base.astro` | ヘッダー・ナビ・開発中の知らせの帯・フッター |
 | `src/components/` | 見出し・お知らせ・対応形式の表・よくある質問などの部品 |
 | `src/data/site.ts` | お知らせ・対応形式・ホストアプリ・よくある質問の中身 |
 | `src/styles/global.css` | 見た目 |
