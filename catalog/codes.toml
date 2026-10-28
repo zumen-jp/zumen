@@ -507,6 +507,15 @@ group-by = ["type"]
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.extension-dictionary.dropped"]
+description = "図形の拡張辞書の、XRECORD でない項目を、図面モデルに移さなかった"
+severity = "info"
+fidelity = "dropped"
+params = { key = "text", kind = "text" }
+group-by = ["key", "kind"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.lift.invalid"]
 description = "値がないか読めないか範囲の外なので、その図形を図面モデルに移さなかった"
 severity = "warning"

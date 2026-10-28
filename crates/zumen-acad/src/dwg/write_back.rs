@@ -2708,7 +2708,7 @@ fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> O
 
 /// R2010 から後の OBJECTS のオブジェクトを符号化し直したデータ（決定 0090）。`data` はハンドルの流れの
 /// 大きさ（MC）の後のデータ、`handles_at` はハンドルの流れの始まり。文字列の流れは、型ごとの欄の文字列だけを持つ。
-/// XRECORD の文字列の値は、試料の図面になく確かめていないので受け付けない
+/// XRECORD の文字列の値は、文字列の流れでなくデータの中に UTF-16LE で持つ（決定 0148）
 fn encode_object_r2010(
     data: &[u8],
     handles_at: usize,
@@ -2716,13 +2716,6 @@ fn encode_object_r2010(
     new: &Object,
     release: Release,
 ) -> Option<Vec<u8>> {
-    let text = |object: &Object| {
-        object
-            .values
-            .iter()
-            .any(|v| matches!(v.data, Data::Text(_)))
-    };
-    (new.kind != b"XRECORD" || !text(old) && !text(new)).then_some(())?;
     let [start, end] = r2010_object_fields(data, handles_at, release)?;
     let encode = |object: &Object| -> Option<BitWriter> {
         let mut fields = BitWriter::with_strings();
@@ -3340,7 +3333,7 @@ fn layout(
 }
 
 /// XRECORD の欄を `fields` に符号化し直し、元の欄の終わりの位置を返す（決定 0050）。値の番号の並びが元と同じものだけを扱う。データは、
-/// 元のデータを読みながら値を書き直し、文字列のコード・ページのバイトは元の値のものを写す
+/// 元のデータを読みながら値を書き直し、文字列のコード・ページのバイトは元の値のものを写す。R2010 からの文字列は UTF-16LE で書く
 fn xrecord(
     fields: &mut BitWriter,
     old: &Object,
@@ -3436,6 +3429,20 @@ fn xrecord(
                 };
                 items.rc(u8::try_from(v.len()).ok()?);
                 items.raw(v);
+            }
+            // R2010 からは、文字の数（RS）と UTF-16LE。コード・ページを持たない
+            DataType::Text if release >= Release::R2010 => {
+                let len = usize::try_from(bits.rs()?).ok()?;
+                bits.skip_bytes(len.checked_mul(2)?)?;
+                let Data::Text(v) = next(code)? else {
+                    return None;
+                };
+                let text = uncaret(v)?;
+                let units: Vec<u16> = core::str::from_utf8(&text).ok()?.encode_utf16().collect();
+                items.rs(i16::try_from(units.len()).ok()?);
+                for unit in units {
+                    items.raw(&unit.to_le_bytes());
+                }
             }
             DataType::Text => {
                 let len = usize::try_from(bits.rs()?).ok()?;
