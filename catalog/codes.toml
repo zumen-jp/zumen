@@ -490,6 +490,14 @@ group-by = ["name"]
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.leader-line-style.dropped"]
+description = "MULTILEADER の線ごとの色・線種・線幅・端部記号の上書きを、図面モデルに移さなかった。線は注記全体の指定で描く"
+severity = "warning"
+fidelity = "dropped"
+params = {}
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.lift.invalid"]
 description = "値がないか読めないか範囲の外なので、その図形を図面モデルに移さなかった"
 severity = "warning"

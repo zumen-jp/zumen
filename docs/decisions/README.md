@@ -175,3 +175,4 @@
 - [0143: 記号の定義の中の要素の継承は、配置の並びで解く](0143-drawing-inherit-through-placements.md)（2026-10-28、提案）
 - [0144: 記号の定義の単位は、ブロックのレコードの挿す単位にする](0144-drawing-block-insertion-units.md)（2026-10-28、提案）
 - [0145: DXF・DWG のレイアウトごとに用紙を作り、用紙に元の名前を持たせる](0145-drawing-sheets-per-layout.md)（2026-10-28、提案）
+- [0146: 引出線つきの注記の線と注記の色・線種・線幅を、注記の要素に従う指定として持つ](0146-drawing-callout-line-style.md)（2026-10-29、提案）
