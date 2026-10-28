@@ -267,21 +267,28 @@ fn write_binary(
     out: &mut Vec<u8>,
     cx: &mut Cx,
 ) -> Result<(), Error> {
-    out.extend_from_slice(binary.sentinel());
-    for record in &file.records {
-        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        if !record.edited {
-            out.extend_from_slice(binary.src.get(record.span.clone()).unwrap_or_default());
-            continue;
-        }
-        for tag in &record.tags {
-            if binary.encode(tag.code, file.value(tag), out).is_none() {
-                return Err(Error::Invalid);
+    let start = out.len();
+    let written = (|| {
+        out.extend_from_slice(binary.sentinel());
+        for record in &file.records {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            if !record.edited {
+                out.extend_from_slice(binary.src.get(record.span.clone()).unwrap_or_default());
+                continue;
+            }
+            for tag in &record.tags {
+                if binary.encode(tag.code, file.value(tag), out).is_none() {
+                    return Err(Error::Invalid);
+                }
             }
         }
+        out.extend_from_slice(binary.src.get(binary.trailer.clone()).unwrap_or_default());
+        Ok(())
+    })();
+    if written.is_err() {
+        out.truncate(start);
     }
-    out.extend_from_slice(binary.src.get(binary.trailer.clone()).unwrap_or_default());
-    Ok(())
+    written
 }
 
 /// DXF の変更をためるトランザクション。[`Transaction::commit`] で、まとめて確かめてから反映する。
