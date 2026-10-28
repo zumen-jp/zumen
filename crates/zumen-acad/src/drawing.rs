@@ -1847,7 +1847,7 @@ impl Lifter {
             })
         };
         let text_style = match object.first(7) {
-            None => None,
+            None | Some(Data::Handle(0)) => None,
             Some(Data::Handle(handle)) => Some(
                 db.get(*handle)
                     .filter(|record| record.kind == b"STYLE")
@@ -4594,4 +4594,83 @@ fn columns() -> Box<Diagnostic> {
 
 fn non_planar(kind: &[u8]) -> Box<Diagnostic> {
     Box::new(Diagnostic::new(codes::DXF_NON_PLANAR_DROPPED).with("kind", text(kind)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn table_style_rows_without_text_styles_keep_their_formats() {
+        let mut db = AcadDb::default();
+        db.push(Object {
+            kind: b"STYLE".to_vec(),
+            section: Section::Tables,
+            values: vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(0x11),
+                },
+                Value {
+                    code: 2,
+                    data: Data::Text(b"Standard".to_vec()),
+                },
+            ],
+            origin: Origin::New,
+        });
+        let mut values = Vec::new();
+        for (handle, height, color) in [(0, 1.0, 1), (0x11, 2.0, 2), (0, 3.0, 3)] {
+            values.extend([
+                Value {
+                    code: 7,
+                    data: Data::Handle(handle),
+                },
+                Value {
+                    code: 140,
+                    data: Data::Real(height),
+                },
+                Value {
+                    code: 62,
+                    data: Data::Int(color),
+                },
+            ]);
+        }
+        let style = Object {
+            kind: b"TABLESTYLE".to_vec(),
+            section: Section::Objects,
+            values,
+            origin: Origin::New,
+        };
+        let layouts = BTreeMap::new();
+        let lifter = Lifter {
+            layouts: &layouts,
+            sheet: SHEET,
+            unicode: true,
+            fit_data: true,
+            version: None,
+            unit: Unit::Millimeter,
+            mm: Some(1.0),
+            origin: [0.0; 2],
+            point_mode: 0,
+        };
+        let formats = lifter
+            .table_formats(&db, &style, &|value| Length::Paper(PaperLength(value)))
+            .unwrap()
+            .unwrap();
+        for (row, height, color, text_style) in [
+            (&formats.data_format, 1.0, 1, None),
+            (&formats.title_format, 2.0, 2, Some("Standard")),
+            (&formats.header_format, 3.0, 3, None),
+        ] {
+            assert_eq!(row.text_height, Some(Length::Paper(PaperLength(height))));
+            assert_eq!(
+                row.text_color,
+                Some(Inherit::Own(Color {
+                    code: Some(aci(color)),
+                    rgb: None
+                }))
+            );
+            assert_eq!(row.text_style.as_deref(), text_style);
+        }
+    }
 }
