@@ -936,6 +936,8 @@ pub struct Table<P> {
     pub cells: Vec<Cell>,
     /// 元の表のスタイル
     pub style: Option<Ref>,
+    /// 表のスタイルの、行の種類ごとの書式（決定 0151）。元の形式が表のスタイルを持たないか、読めなければ `None`
+    pub formats: Option<Box<TableFormats>>,
     /// 表を線と文字で描いた記号の定義
     pub drawn: Option<SymbolKey>,
 }
@@ -951,6 +953,72 @@ pub struct Cell {
     pub covered: bool,
     /// 型のある値と、その単位と表示の書式。元の形式が値を持たなければ `None`。表示する文字は `content` が持つ
     pub value: Option<CellValue>,
+    /// 文字の回転（度、反時計回り）
+    pub rotation: f64,
+    /// セルが上書きする書式（決定 0151）。`None` の欄は、行の種類の書式（[`TableFormats`]）に従う
+    pub format: CellFormat,
+}
+
+/// 表のスタイルの、行の種類ごとの書式（決定 0151）
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableFormats {
+    /// 先頭の行がタイトルの行か
+    pub title: bool,
+    /// タイトルの行の次（タイトルの行がなければ先頭）の行が見出しの行か
+    pub header: bool,
+    /// タイトルの行の書式
+    pub title_format: CellFormat,
+    /// 見出しの行の書式
+    pub header_format: CellFormat,
+    /// データの行の書式
+    pub data_format: CellFormat,
+}
+
+/// セルの書式。`None` の欄は、元の形式が値を持たない
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CellFormat {
+    /// 元の文字スタイルの名前
+    pub text_style: Option<String>,
+    /// 文字の高さ
+    pub text_height: Option<Length>,
+    /// 文字の水平と垂直の位置合わせ
+    pub alignment: Option<(Horizontal, Vertical)>,
+    /// 文字の色
+    pub text_color: Option<Inherit<Color>>,
+    /// 背景を塗るか
+    pub fill: Option<bool>,
+    /// 背景の色
+    pub fill_color: Option<Inherit<Color>>,
+    /// 枠
+    pub borders: Borders,
+}
+
+/// セルか行の枠。内側の枠は、表のスタイルの行の種類の書式だけが持つ
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Borders {
+    /// 上
+    pub top: Border,
+    /// 右
+    pub right: Border,
+    /// 下
+    pub bottom: Border,
+    /// 左
+    pub left: Border,
+    /// 内側の横の枠
+    pub horizontal: Border,
+    /// 内側の縦の枠
+    pub vertical: Border,
+}
+
+/// 枠の 1 辺。`None` の欄は、元の形式が値を持たない
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Border {
+    /// 色
+    pub color: Option<Inherit<Color>>,
+    /// 線幅
+    pub weight: Option<Inherit<LineWeight>>,
+    /// 表示するか
+    pub visible: Option<bool>,
 }
 
 /// セルの型のある値（決定 0147）

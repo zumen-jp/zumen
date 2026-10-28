@@ -279,8 +279,20 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     matches!((data, theirs), (Data::Text(a), Data::Text(b))
                         if a.starts_with(b"*U") && b.starts_with(b"*U"))
                 };
+                // DXF の TABLESTYLE は文字スタイル（7）を名前で書き、DWG はハンドルで持つ
+                let style_name = |data: &Data, theirs: &Data| match data {
+                    Data::Handle(h) => dwg_objects
+                        .get(h)
+                        .filter(|o| o.kind == b"STYLE")
+                        .and_then(|o| o.values.iter().find(|v| v.code == 2))
+                        .is_some_and(|v| &v.data == theirs),
+                    _ => false,
+                };
                 assert!(
                     theirs.is_some_and(|theirs| same(&value.data, theirs)
+                        || (object.kind == b"TABLESTYLE"
+                            && value.code == 7
+                            && style_name(&value.data, theirs))
                         || (object.kind == b"ACAD_TABLE"
                             && value.code == 340
                             && anonymous(&value.data, theirs))
@@ -395,6 +407,18 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
             .views
             .iter_mut()
             .for_each(|v| v.source = nowhere.clone());
+    }
+    // R2010 からの DWG の読み手は、TABLESTYLE の欄とセルのスタイルをまだ読まない（決定 0151）。
+    // 表とセルの書式の DWG と DXF の一致は、table_format_samples.rs が確かめる
+    for space in &mut drawing.spaces {
+        for element in &mut space.elements {
+            if let zumen_drawing::Shape::Table(table) = &mut element.shape {
+                table.formats = None;
+                for cell in &mut table.cells {
+                    cell.format = zumen_drawing::CellFormat::default();
+                }
+            }
+        }
     }
     let codes = diag
         .iter()
