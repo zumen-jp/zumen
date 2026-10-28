@@ -399,6 +399,8 @@ fn in_blocks(objects: &mut [Object], header: Header) {
 struct Fields {
     /// 所有者（330）
     owner: Option<u64>,
+    /// 図形の拡張辞書（`{ACAD_XDICTIONARY` の組の 360）
+    xdic: Option<u64>,
     /// 図形の画層のハンドル
     layer: Option<u64>,
     /// 所有者と画層より後の値
@@ -447,6 +449,15 @@ impl Fields {
         at: &Ref,
     ) -> (Vec<Value>, Vec<Value>) {
         let mut values = Vec::new();
+        // 拡張辞書は、DXF と同じく所有者の前に組で置く
+        if let Some(xdic) = self.xdic {
+            values.push(text_value(102, b"{ACAD_XDICTIONARY"));
+            values.push(Value {
+                code: 360,
+                data: Data::Handle(xdic),
+            });
+            values.push(text_value(102, b"}"));
+        }
         if let Some(owner) = self.owner {
             values.push(Value {
                 code: 330,
@@ -670,9 +681,11 @@ fn read(
         for _ in 0..common.reactors {
             bits.handle()?;
         }
-        if common.xdic {
-            bits.handle()?;
-        }
+        let xdic = if common.xdic {
+            Some(bits.handle()?.resolve(entry.handle)?).filter(|handle| *handle != 0)
+        } else {
+            None
+        };
         if !common.no_links {
             bits.handle()?;
             bits.handle()?;
@@ -826,6 +839,7 @@ fn read(
         }
         Some(Fields {
             owner,
+            xdic,
             layer: Some(layer),
             values,
             records,
@@ -959,6 +973,7 @@ fn read(
         }
         Some(Fields {
             owner: Some(owner),
+            xdic: None,
             layer: None,
             values,
             records,
@@ -1689,7 +1704,7 @@ fn dictionary(bits: &mut Bits, entries: &mut Vec<Vec<u8>>) -> Option<Vec<Value>>
     Some(values)
 }
 
-/// XRECORD の欄（ODS 5.4.1 の 20.4.89、R2000）。複製の扱い（280）を DXF と同じく先に置き、
+/// XRECORD の欄（ODS 5.4.1 の 20.4.89、R2000。文字列は R2007 から UTF-16LE）。複製の扱い（280）を DXF と同じく先に置き、
 /// 続けてデータの値を置く。データは、グループ・コード（RS）と、コードの型で決まる値の並びで、
 /// 記録されたバイト数をちょうど読み切らなければ読めないとする
 fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
@@ -1731,6 +1746,20 @@ fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
                     code,
                     data: Data::Binary(raw_bytes(bits, len)?),
                 });
+            }
+            // R2007 から（読める版では R2010 から）は、RS の文字の数と UTF-16LE。コード・ページを持たない
+            DataType::Text if bits.release() >= Release::R2010 => {
+                let len = usize::try_from(bits.rs()?).ok()?;
+                let units: Vec<u16> = raw_bytes(bits, len.checked_mul(2)?)?
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|unit| u16::from_le_bytes(*unit))
+                    .collect();
+                data.push(text_value(
+                    code,
+                    String::from_utf16_lossy(&units).as_bytes(),
+                ));
             }
             DataType::Text => {
                 let len = usize::try_from(bits.rs()?).ok()?;
