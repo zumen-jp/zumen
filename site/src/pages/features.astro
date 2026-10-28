@@ -1,0 +1,84 @@
+---
+import PageHeader from '../components/PageHeader.astro';
+import SectionHead from '../components/SectionHead.astro';
+import { decision, legacy, repo } from '../data/site';
+import Base from '../layouts/Base.astro';
+
+const policies = [
+  { title: 'どこでも同じ結果', body: 'ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。', link: decision('0007-single-rust-implementation.md') },
+  { title: '黙って捨てない', body: '読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。', link: decision('0009-diagnostics-and-catalog.md') },
+  { title: 'ID は契約', body: '同じバイト列からは、どの版でも同じ ID を返します。' },
+  { title: 'ファイルを信用しない', body: '大きさ・数・作業量に上限を付けて読みます。壊れた図面でも止まりません。', link: decision('0010-budget-by-work.md') },
+  { title: '日本の実務を優先', body: '電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。' },
+];
+---
+
+<Base title="特長" description="zumen の特長・5 つの方針・仕組みを説明します。">
+  <PageHeader title="特長" en="Features" lead="zumen が何をするライブラリ群か、どのように作っているかを説明します。" />
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead no="01" title="zumen の概要" en="About" />
+      <div class="table-scroll">
+        <table class="spec">
+          <tbody>
+            <tr><th scope="row">名称</th><td>zumen（ずめん）</td></tr>
+            <tr><th scope="row">内容</th><td>日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群</td></tr>
+            <tr><th scope="row">仕組み</th><td>読み書きと解析を Rust の 1 つの実装にし、ネイティブ・wasm・各言語の結合で、ビット単位で同じ出力を返します。</td></tr>
+            <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
+            <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
+            <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
+            <tr><th scope="row">状態</th><td>作り直しの開発中です。パッケージはまだ公開していません。今すぐ使う場合は、<a href={legacy}>旧版の zumen-legacy</a> を使ってください。</td></tr>
+            <tr><th scope="row">リポジトリ</th><td><a href={repo}>github.com/zumen-jp/zumen</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead no="02" title="5 つの方針" en="Principles" />
+      <ol class="policies">
+        {
+          policies.map((p, i) => (
+            <li>
+              <span class="no">{String(i + 1).padStart(2, '0')}</span>
+              <strong>{p.title}</strong>
+              <p>{p.body}</p>
+              {p.link && <a class="small-link" href={p.link}>決定の記録</a>}
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead no="03" title="仕組み" en="Architecture" />
+      <div class="flow">
+        <div class="flow-box">
+          <h4>使う所</h4>
+          <ul><li>ブラウザー・Node.js</li><li>Python・.NET・Java</li><li>Excel（VBA）</li><li>Revit・AutoCAD・Rhino</li><li>CLI・MCP</li></ul>
+        </div>
+        <div class="flow-arrow" aria-hidden="true">⇄</div>
+        <div class="flow-box">
+          <h4>境界（API）</h4>
+          <ul><li>数個の関数</li><li>スキーマで定めたメッセージ</li><li>ネイティブ・wasm・プロセスの外・HTTP</li><li>足すだけで、消さない</li></ul>
+        </div>
+        <div class="flow-arrow" aria-hidden="true">⇄</div>
+        <div class="flow-box core">
+          <h4>Rust の核</h4>
+          <ul><li>読み書き・解析を 1 つの実装に</li><li>ビット単位で同じ出力</li><li>作業量で数える予算</li><li>診断を code と場所で返す</li></ul>
+        </div>
+        <div class="flow-arrow" aria-hidden="true">⇄</div>
+        <div class="flow-box">
+          <h4>形式</h4>
+          <ul><li>SXF（SFC・P21）</li><li>JWW・JWC・JWS</li><li>DXF・DWG</li><li>IFC・PDF ほか</li></ul>
+        </div>
+      </div>
+      <p class="note">文言は核に持たせず、日本語と英語のカタログから引きます。各言語への約束は、適合試験のハッシュで確かめます。</p>
+    </div>
+  </section>
+</Base>

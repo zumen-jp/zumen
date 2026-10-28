@@ -1,0 +1,16 @@
+---
+interface Props {
+  no?: string;
+  title: string;
+  en: string;
+  id?: string;
+}
+
+const { no, title, en, id } = Astro.props;
+---
+
+<div class="section-head">
+  {no && <span class="section-no">{no}</span>}
+  <h2 id={id}>{title}</h2>
+  <p>{en}</p>
+</div>

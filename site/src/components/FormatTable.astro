@@ -1,0 +1,37 @@
+---
+import type { Format, Mark } from '../data/site';
+
+interface Props {
+  items: Format[];
+}
+
+const { items } = Astro.props;
+const markClass: Record<Mark, string> = { '○': 'm-on', '△': 'm-half', '―': 'm-plan', '×': 'm-off' };
+---
+
+<ul class="legend">
+  <li><span class="m-on">○</span> 使える</li>
+  <li><span class="m-half">△</span> 開発中（未公開）</li>
+  <li><span class="m-plan">―</span> 予定</li>
+  <li><span class="m-off">×</span> 扱わない</li>
+</ul>
+<div class="table-scroll">
+  <table class="grid-table">
+    <thead>
+      <tr><th scope="col">形式</th><th scope="col">内容</th><th scope="col">読む</th><th scope="col">書く</th><th scope="col">置き場所</th></tr>
+    </thead>
+    <tbody>
+      {
+        items.map((f) => (
+          <tr>
+            <th scope="row">{f.name}</th>
+            <td>{f.about}</td>
+            <td class:list={['mark', markClass[f.read]]}>{f.read}</td>
+            <td class:list={['mark', markClass[f.write]]}>{f.write}</td>
+            <td>{f.place}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>

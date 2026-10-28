@@ -1,0 +1,24 @@
+---
+import FormatTable from '../components/FormatTable.astro';
+import PageHeader from '../components/PageHeader.astro';
+import SectionHead from '../components/SectionHead.astro';
+import { decision, formats, repo } from '../data/site';
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="対応形式" description="形式ごとの、読む・書くの状況と、実装を置く所です。">
+  <PageHeader title="対応形式" en="Formats" lead="形式ごとの、読む・書くの状況と、実装を置く所です。" />
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead no="01" title="形式の一覧" en="Status" />
+      <FormatTable items={formats} />
+      <p class="note">2026 年 10 月の時点の状況です。まだどの形式も、パッケージとして公開していません。</p>
+
+      <h3>権利の考え方</h3>
+      <p>
+        実装を公開するのに第三者の許諾が要る形式は、核に入れず、同じ SDK で作る外部のプラグインにします（<a href={decision('0017-format-rights-ledger-and-plugin-sdk.md')}>決定 0017</a>）。形式ごとの仕様の入手先と権利の根拠は、<a href={`${repo}/blob/main/docs/formats/README.md`}>形式と権利の一覧</a>にあります。
+      </p>
+    </div>
+  </section>
+</Base>

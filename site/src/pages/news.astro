@@ -1,0 +1,15 @@
+---
+import NewsList from '../components/NewsList.astro';
+import PageHeader from '../components/PageHeader.astro';
+import { news } from '../data/site';
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="お知らせ" description="zumen の開発の進み具合と、決めたことです。">
+  <PageHeader title="お知らせ" en="News" />
+  <section class="section">
+    <div class="wrap">
+      <NewsList items={news} />
+    </div>
+  </section>
+</Base>

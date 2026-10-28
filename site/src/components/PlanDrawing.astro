@@ -1,0 +1,102 @@
+---
+// 通り芯と寸法を入れた住戸の平面図。910 のモジュールで描く（単位は 10 mm）。
+---
+
+<figure class="plan">
+  <svg viewBox="-180 -180 870 870" role="img" aria-labelledby="plan-title">
+            <title id="plan-title">通り芯と寸法を入れた住戸の平面図の例</title>
+            <style is:inline>
+              .p-grid { stroke: #c4161c; stroke-width: 1.2; stroke-dasharray: 18 5 3 5; fill: none; opacity: .75; }
+              .p-bubble { fill: #fff; stroke: #c4161c; stroke-width: 1.5; }
+              .p-bubble-t { fill: #c4161c; font: 700 19px var(--font-mono); text-anchor: middle; dominant-baseline: central; }
+              .p-wall { fill: #1d232b; }
+              .p-win { fill: #fff; stroke: #1d232b; stroke-width: 1.2; }
+              .p-thin { stroke: #1d232b; stroke-width: 1.2; fill: none; }
+              .p-swing { stroke: #1d232b; stroke-width: 1; fill: none; stroke-dasharray: 4 3; }
+              .p-dim { stroke: #123a6b; stroke-width: 1; fill: none; }
+              .p-tick { stroke: #123a6b; stroke-width: 2; }
+              .p-dim-t { fill: #123a6b; font: 21px var(--font-mono); text-anchor: middle; }
+              .p-room { fill: #1d232b; font: 700 30px var(--font); text-anchor: middle; }
+              .p-area { fill: #4a5563; font: 21px var(--font-mono); text-anchor: middle; }
+            </style>
+
+            <!-- 通り芯 -->
+            <g class="p-grid">
+              <path d="M0 -132V670M364 -132V670M637 -132V670"/>
+              <path d="M-132 0H670M-132 273H670M-132 637H670"/>
+            </g>
+            <g>
+              <circle class="p-bubble" cx="0" cy="-152" r="24"/><text class="p-bubble-t" x="0" y="-152">X1</text>
+              <circle class="p-bubble" cx="364" cy="-152" r="24"/><text class="p-bubble-t" x="364" y="-152">X2</text>
+              <circle class="p-bubble" cx="637" cy="-152" r="24"/><text class="p-bubble-t" x="637" y="-152">X3</text>
+              <circle class="p-bubble" cx="-150" cy="0" r="24"/><text class="p-bubble-t" x="-150" y="0">Y1</text>
+              <circle class="p-bubble" cx="-150" cy="273" r="24"/><text class="p-bubble-t" x="-150" y="273">Y2</text>
+              <circle class="p-bubble" cx="-150" cy="637" r="24"/><text class="p-bubble-t" x="-150" y="637">Y3</text>
+            </g>
+
+            <!-- 寸法 -->
+            <g class="p-dim">
+              <path d="M0 -14V-110M364 -14V-70M637 -14V-110"/>
+              <path d="M0 -60H637M0 -100H637"/>
+              <path d="M-14 0H-110M-14 273H-70M-14 637H-110"/>
+              <path d="M-60 0V637M-100 0V637"/>
+            </g>
+            <g class="p-tick">
+              <path d="M-7 -53L7 -67M357 -53L371 -67M630 -53L644 -67M-7 -93L7 -107M630 -93L644 -107"/>
+              <path d="M-67 7L-53 -7M-67 280L-53 266M-67 644L-53 630M-107 7L-93 -7M-107 644L-93 630"/>
+            </g>
+            <g class="p-dim-t">
+              <text x="182" y="-68">3,640</text>
+              <text x="500" y="-68">2,730</text>
+              <text x="318" y="-108">6,370</text>
+              <text transform="translate(-68 136) rotate(-90)">2,730</text>
+              <text transform="translate(-68 455) rotate(-90)">3,640</text>
+              <text transform="translate(-108 318) rotate(-90)">6,370</text>
+            </g>
+
+            <!-- 壁 -->
+            <g class="p-wall">
+              <rect x="-6" y="-6" width="106" height="12"/>
+              <rect x="260" y="-6" width="383" height="12"/>
+              <rect x="-6" y="631" width="86" height="12"/>
+              <rect x="300" y="631" width="80" height="12"/>
+              <rect x="560" y="631" width="83" height="12"/>
+              <rect x="-6" y="-6" width="12" height="406"/>
+              <rect x="-6" y="540" width="12" height="103"/>
+              <rect x="631" y="-6" width="12" height="436"/>
+              <rect x="631" y="520" width="12" height="123"/>
+              <rect x="359" y="0" width="10" height="273"/>
+              <rect x="0" y="268" width="60" height="10"/>
+              <rect x="140" y="268" width="300" height="10"/>
+              <rect x="520" y="268" width="117" height="10"/>
+            </g>
+
+            <!-- 窓 -->
+            <g>
+              <rect class="p-win" x="100" y="-6" width="160" height="12"/>
+              <rect class="p-win" x="80" y="631" width="220" height="12"/>
+              <rect class="p-win" x="380" y="631" width="180" height="12"/>
+              <rect class="p-win" x="-6" y="400" width="12" height="140"/>
+              <path class="p-thin" d="M100 0H260M80 637H300M380 637H560M0 400V540"/>
+            </g>
+
+            <!-- 扉 -->
+            <path class="p-thin" d="M60 273V193M520 273V193M631 430H541"/>
+            <path class="p-swing" d="M60 193A80 80 0 0 1 140 273M520 193A80 80 0 0 0 440 273M541 430A90 90 0 0 0 631 520"/>
+
+            <!-- 設備 -->
+            <rect class="p-thin" x="470" y="22" width="148" height="92" rx="10"/>
+            <rect class="p-thin" x="160" y="288" width="240" height="56"/>
+            <circle class="p-thin" cx="230" cy="316" r="12"/>
+            <circle class="p-thin" cx="330" cy="316" r="16"/>
+
+            <!-- 室名 -->
+            <text class="p-room" x="182" y="128">洋室</text>
+            <text class="p-area" x="182" y="162">6帖</text>
+            <text class="p-room" x="500" y="190">浴室・洗面</text>
+            <text class="p-room" x="318" y="470">LDK</text>
+            <text class="p-area" x="318" y="504">14帖</text>
+            <text class="p-area" x="586" y="482">玄関</text>
+          </svg>
+  <figcaption>1 階平面図（例）　S=1/50</figcaption>
+</figure>
