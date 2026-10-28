@@ -2174,3 +2174,89 @@ fn header_variables_are_taken_back(version: &[u8]) {
         assert_eq!(again.handle_seed(), Some(seed + 1), "{}", path.display());
     }
 }
+
+/// 図面モデルで動かした円弧・楕円・軽量の折れ線を、DWG と DXF に書き戻して読み直すと、同じ所に動いている
+/// （決定 0139）
+#[cfg(feature = "drawing")]
+#[test]
+fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
+    use zumen_drawing::{Changes, Drawing2D, Edge, Edit, Element, ModelPoint, Shape};
+    use zumen_sdk::{Apply, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Vec<Element<ModelPoint>> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+            .spaces
+            .swap_remove(0)
+            .elements
+    }
+    /// 形を (dx, dy) だけ動かす。動かせない形なら `None`
+    fn moved(shape: &Shape<ModelPoint>) -> Option<Shape<ModelPoint>> {
+        let by = |p: &mut ModelPoint| {
+            p.x += 1.5;
+            p.y -= 0.25;
+        };
+        let mut shape = shape.clone();
+        match &mut shape {
+            Shape::Curve(Edge::Arc { center, .. }) => by(center),
+            Shape::Curve(Edge::Elliptic { center, major, .. }) => {
+                by(center);
+                by(major);
+            }
+            Shape::Polyline(line) => line.vertices.iter_mut().for_each(|v| by(&mut v.point)),
+            _ => return None,
+        }
+        Some(shape)
+    }
+    fn check<C: Codec>(path: &Path, kinds: &mut BTreeMap<&'static str, usize>)
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let elements = lift(&file);
+        let mut edits = Vec::new();
+        let mut expected = Vec::new();
+        for kind in ["arc", "ellipse", "polyline"] {
+            let found = elements.iter().enumerate().find_map(|(index, element)| {
+                let name = match element.shape {
+                    Shape::Curve(Edge::Arc { .. }) => "arc",
+                    Shape::Curve(Edge::Elliptic { .. }) => "ellipse",
+                    Shape::Polyline(_) => "polyline",
+                    _ => return None,
+                };
+                (name == kind).then(|| (index, moved(&element.shape)))
+            });
+            let Some((index, Some(shape))) = found else {
+                continue;
+            };
+            let mut element = elements[index].clone();
+            element.shape = shape;
+            edits.push(Edit::Replace(Box::new(element.clone())));
+            expected.push((index, element.shape));
+            *kinds.entry(kind).or_default() += 1;
+        }
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(
+            &Changes { edits },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        let written = testkit::write::<C>(&file).unwrap();
+        let after = lift(&testkit::read::<C>(&written).0.unwrap());
+        assert_eq!(after.len(), elements.len(), "{}", path.display());
+        for (index, shape) in expected {
+            assert_eq!(after[index].shape, shape, "{}", path.display());
+        }
+    }
+    let mut kinds = BTreeMap::new();
+    for (dwg, dxf) in pairs() {
+        check::<Dwg>(&dwg, &mut kinds);
+        check::<Dxf>(&dxf, &mut kinds);
+    }
+    assert!(pairs().is_empty() || kinds.len() == 3, "{kinds:?}");
+}
