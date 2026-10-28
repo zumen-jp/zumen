@@ -6,7 +6,9 @@ use super::{lift, source, text};
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
-use zumen_drawing::{Changes, Edge, Edit, Element, Length, ModelPoint, Polyline, Shape, SpaceId};
+use zumen_drawing::{
+    Changes, Edge, Edit, Element, Length, ModelPoint, Placement, Polyline, Shape, SpaceId, Text,
+};
 use zumen_sdk::{Apply, Error};
 
 impl Apply<Changes> for DxfFile {
@@ -38,6 +40,14 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
         .flat_map(|space| &space.elements)
         .map(|element| (&element.source, element))
         .collect();
+    // 2007 からの版は文字を UTF-8 で持つ。それより前は、ASCII の文字だけを書く（読む側と同じ）
+    let unicode = db
+        .variable(b"$ACADVER")
+        .and_then(|values| match values.first().map(|v| &v.data) {
+            Some(Data::Text(text)) => Some(text.trim_ascii() >= super::UTF8),
+            _ => None,
+        })
+        .unwrap_or(false);
     let mut replaced = Vec::new();
     let mut removed = Vec::new();
     let mut rejected = false;
@@ -53,9 +63,8 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
         };
         let object = db.objects().get(index).ok_or(Error::Rejected)?;
         let planned = match change {
-            Edit::Replace(element) => {
-                replacement(original, element, object).map(|values| replaced.push((index, values)))
-            }
+            Edit::Replace(element) => replacement(original, element, object, unicode)
+                .map(|values| replaced.push((index, values))),
             Edit::Remove(_) => (!followed(object)).then(|| removed.push(index)),
         };
         if planned.is_none() {
@@ -103,6 +112,7 @@ fn replacement(
     original: &Element<ModelPoint>,
     element: &Element<ModelPoint>,
     object: &Object,
+    unicode: bool,
 ) -> Option<Vec<Value>> {
     if element.layer != original.layer || element.style != original.style {
         return None;
@@ -174,6 +184,9 @@ fn replacement(
             )?;
         }
         (Shape::Polyline(line), _, b"LWPOLYLINE") => values = lwpolyline(&values, line, space)?,
+        (Shape::Text(text), Shape::Text(was), b"TEXT") => {
+            lettering(&mut values, text, was, space, unicode)?;
+        }
         _ => return None,
     }
     Some(values)
@@ -276,6 +289,124 @@ fn lwpolyline(values: &[Value], line: &Polyline<ModelPoint>, space: SpaceId) -> 
     Some(out)
 }
 
+/// TEXT（DXF Reference「TEXT」）の欄を直す。内容（1）・高さ（40）・回転（50）・幅の倍率（41）・斜体の角度（51）・
+/// 反転（71 の 2 と 4）と、置く点を書く。位置合わせ（72・73）・2 点の間への合わせ方・文字スタイル・高さの意味は
+/// 変えられない。左の基準線に置く文字は 10 を、ほかの位置合わせの文字は 11 を基点とし、10 は 11 と同じだけ動かす。
+/// 10 は位置合わせから決まる点で、読み直すときに使わないが、ほかのソフトが読むので食い違わせない
+fn lettering(
+    values: &mut Vec<Value>,
+    text: &Text<ModelPoint>,
+    was: &Text<ModelPoint>,
+    space: SpaceId,
+    unicode: bool,
+) -> Option<()> {
+    if text.style != was.style || text.height.meaning != was.height.meaning {
+        return None;
+    }
+    match (&text.placement, &was.placement) {
+        (
+            Placement::Anchor {
+                point,
+                horizontal,
+                vertical,
+            },
+            Placement::Anchor {
+                point: was_point,
+                horizontal: was_horizontal,
+                vertical: was_vertical,
+            },
+        ) if horizontal == was_horizontal && vertical == was_vertical => {
+            within(space, &[point])?;
+            let aligned = [72, 73].iter().any(|code| {
+                values
+                    .iter()
+                    .any(|v| v.code == *code && v.data != Data::Int(0))
+            });
+            if point != was_point && aligned {
+                let first = [first_real(values, 10)?, first_real(values, 20)?];
+                put(values, 10, first[0] + (point.x - was_point.x), &[])?;
+                put(values, 20, first[1] + (point.y - was_point.y), &[])?;
+                put(values, 11, point.x, &[])?;
+                put(values, 21, point.y, &[])?;
+            } else if point != was_point {
+                put(values, 10, point.x, &[])?;
+                put(values, 20, point.y, &[])?;
+            }
+        }
+        (
+            Placement::Between { first, second, fit },
+            Placement::Between {
+                first: was_first,
+                second: was_second,
+                fit: was_fit,
+            },
+        ) if fit == was_fit => {
+            within(space, &[first, second])?;
+            if first != was_first {
+                put(values, 10, first.x, &[])?;
+                put(values, 20, first.y, &[])?;
+            }
+            if second != was_second {
+                put(values, 11, second.x, &[])?;
+                put(values, 21, second.y, &[])?;
+            }
+        }
+        _ => return None,
+    }
+    if text.content != was.content {
+        // DXF の値は 1 行なので、改行は書けない
+        let content = &text.content;
+        if !(unicode || content.is_ascii()) || content.contains(['\n', '\r']) {
+            return None;
+        }
+        let slot = values.iter_mut().find(|v| v.code == 1)?;
+        slot.data = Data::Text(content.as_bytes().to_vec());
+    }
+    if text.height.value != was.height.value {
+        put(values, 40, positive(&text.height.value, space)?, &[])?;
+    }
+    if text.width_factor.is_nan() || text.width_factor <= 0.0 {
+        return None;
+    }
+    optional(values, 50, text.rotation, 0.0, &[1])?;
+    optional(values, 41, text.width_factor, 1.0, &[50, 1])?;
+    optional(values, 51, text.oblique, 0.0, &[41, 50, 1])?;
+    let flags = match values.iter().find(|v| v.code == 71).map(|v| &v.data) {
+        Some(Data::Int(flags)) => *flags,
+        Some(_) => return None,
+        None => 0,
+    };
+    let flags = (flags & !6) | (i64::from(text.backward) * 2) | (i64::from(text.upside_down) * 4);
+    match values.iter_mut().find(|v| v.code == 71) {
+        Some(slot) => slot.data = Data::Int(flags),
+        None if flags != 0 => insert(values, 71, Data::Int(flags), &[7, 51, 41, 50, 1])?,
+        None => {}
+    }
+    Some(())
+}
+
+/// `code` の最初の有限の実数
+fn first_real(values: &[Value], code: i16) -> Option<f64> {
+    values.iter().find_map(|v| match v.data {
+        Data::Real(value) if v.code == code && value.is_finite() => Some(value),
+        _ => None,
+    })
+}
+
+/// 省けば `default` になる欄を直す。欄がなく、値が `default` なら足さない
+fn optional(
+    values: &mut Vec<Value>,
+    code: i16,
+    value: f64,
+    default: f64,
+    after: &[i16],
+) -> Option<()> {
+    if value == default && !values.iter().any(|v| v.code == code) {
+        return Some(());
+    }
+    put(values, code, value, after)
+}
+
 /// 時計回りの弧を、同じ弧をたどる反時計回りの始まりと終わりに直す
 fn turned(start: f64, end: f64, counterclockwise: bool) -> (f64, f64) {
     if counterclockwise {
@@ -341,6 +472,10 @@ fn space(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
             Some(center.space)
         }
         Shape::Polyline(line) => line.vertices.first().map(|v| v.point.space),
+        Shape::Text(text) => match &text.placement {
+            Placement::Anchor { point, .. } => Some(point.space),
+            Placement::Between { first, .. } => Some(first.space),
+        },
         _ => None,
     }
 }

@@ -155,9 +155,17 @@ fn changes_that_cannot_be_written_back_change_nothing() {
 /// 図形のタグを並べた DXF
 #[cfg(test)]
 fn dxf(entities: &[(i16, &str)]) -> Vec<u8> {
+    versioned("AC1015", entities)
+}
+
+/// 版が `version` の、図形のタグを並べた DXF
+#[cfg(test)]
+fn versioned(version: &str, entities: &[(i16, &str)]) -> Vec<u8> {
     let head: &[(i16, &str)] = &[
         (0, "SECTION"),
         (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, version),
         (9, "$INSUNITS"),
         (70, "4"),
         (9, "$HANDSEED"),
@@ -330,5 +338,117 @@ fn replacements_the_records_cannot_hold_change_nothing() {
             vec![ellipse.source, line.source]
         )]
     );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+/// 左の基準線に置く TEXT と、中央に置く TEXT を持つ DXF
+#[cfg(test)]
+fn texts(version: &str) -> Vec<u8> {
+    versioned(
+        version,
+        &[
+            (0, "TEXT"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "1.0"),
+            (20, "2.0"),
+            (30, "0.0"),
+            (40, "2.5"),
+            (1, "A-1"),
+            (0, "TEXT"),
+            (5, "1B"),
+            (8, "0"),
+            (10, "4.0"),
+            (20, "0.0"),
+            (30, "0.0"),
+            (40, "2.5"),
+            (1, "B"),
+            (72, "1"),
+            (11, "5.0"),
+            (21, "0.0"),
+            (31, "0.0"),
+        ],
+    )
+}
+
+#[test]
+fn texts_are_moved_rewritten_and_turned() {
+    use zumen_drawing::Placement;
+    let mut file = testkit::read::<Dxf>(&texts("AC1021")).0.unwrap();
+    let [left, centered] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
+    let mut changed = left.clone();
+    let Shape::Text(text) = &mut changed.shape else {
+        panic!("{:?}", changed.shape);
+    };
+    text.content = "通り芯 X1".to_owned();
+    text.rotation = 90.0;
+    text.backward = true;
+    if let Length::Model(height) = &mut text.height.value {
+        height.value = 3.5;
+    }
+    if let Placement::Anchor { point, .. } = &mut text.placement {
+        point.x = 10.0;
+    }
+    let mut moved = centered.clone();
+    if let Shape::Text(text) = &mut moved.shape
+        && let Placement::Anchor { point, .. } = &mut text.placement
+    {
+        point.y = 3.0;
+    }
+    let edits = vec![
+        Edit::Replace(Box::new(changed.clone())),
+        Edit::Replace(Box::new(moved.clone())),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let again = testkit::read::<Dxf>(&written).0.unwrap();
+    let [left, centered] = <[_; 2]>::try_from(elements(&lift(&again))).unwrap();
+    assert_eq!(left.shape, changed.shape);
+    assert_eq!(centered.shape, moved.shape);
+    let text = String::from_utf8(written).unwrap();
+    // 回転と反転は、省いた欄を足して書く。中央に置く文字の 10 は、11 と同じだけ動く
+    assert!(text.contains("  1\n通り芯 X1\n 50\n90.0\n 71\n2\n"));
+    assert!(text.contains(" 10\n4.0\n 20\n3.0\n"));
+}
+
+#[test]
+fn texts_that_the_records_cannot_hold_change_nothing() {
+    use zumen_drawing::Placement;
+    // 2007 より前の版は、ASCII でない文字を書かない
+    let src = texts("AC1015");
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [left, centered] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
+    let mut japanese = left.clone();
+    if let Shape::Text(text) = &mut japanese.shape {
+        text.content = "通り芯".to_owned();
+    }
+    let mut realigned = centered.clone();
+    if let Shape::Text(text) = &mut realigned.shape
+        && let Placement::Anchor { horizontal, .. } = &mut text.placement
+    {
+        *horizontal = zumen_drawing::Horizontal::Right;
+    }
+    let edits = vec![
+        Edit::Replace(Box::new(japanese)),
+        Edit::Replace(Box::new(realigned)),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(
+            codes::DXF_CHANGE_UNSUPPORTED,
+            vec![left.source.clone(), centered.source]
+        )]
+    );
+    let mut broken = left.clone();
+    if let Shape::Text(text) = &mut broken.shape {
+        text.content = "A\nB".to_owned();
+    }
+    let (result, _) = apply(&mut file, vec![Edit::Replace(Box::new(broken))]);
+    assert_eq!(result, Err(Error::Rejected));
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
