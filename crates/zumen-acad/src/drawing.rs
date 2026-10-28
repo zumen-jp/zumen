@@ -22,16 +22,17 @@ use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
-    BackgroundFill, Basis, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, CellData,
-    CellValue, Clip, Color, ColorCode, ColorSystem, DateTime, Dimension, DimensionKind,
-    DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element, Extension, Field, FieldValue,
-    Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
-    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
-    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Placement, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem,
-    SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table, Target, Text, Underlay,
-    UnderlayFrame, UnderlayKind, Unit, ValueUnit, Vertex, Vertical, View,
+    BackgroundFill, Basis, Border, Borders, Boundary, Branch, Callout, CalloutContent, Cell,
+    CellContent, CellData, CellFormat, CellValue, Clip, Color, ColorCode, ColorSystem, DateTime,
+    Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element,
+    Extension, Field, FieldValue, Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop,
+    Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState,
+    LayerStyle, Leader, Length, LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight,
+    Measured, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern,
+    PatternBasis, PatternLine, PatternOrigin, Placement, Polyline, Resource, Rotation, Shape,
+    Sheet, SheetId, SheetItem, SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table,
+    TableFormats, Target, Text, Underlay, UnderlayFrame, UnderlayKind, Unit, ValueUnit, Vertex,
+    Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -967,6 +968,16 @@ impl Lifter {
             }
             Some(_) => return Err(invalid(kind, 342)),
         };
+        let formats = match head.first(342) {
+            Some(Data::Handle(handle)) => db
+                .get(*handle)
+                .filter(|style| style.kind == b"TABLESTYLE")
+                .map(|style| self.table_formats(db, style, length))
+                .transpose()?
+                .flatten()
+                .map(Box::new),
+            _ => None,
+        };
         Ok(Table {
             position: self.planar_point(&reference, 10, point)?,
             direction: [
@@ -977,6 +988,7 @@ impl Lifter {
             column_widths,
             cells,
             style,
+            formats,
             drawn: self.string(&reference, 2)?.map(|name| SymbolKey {
                 namespace: BLOCK,
                 name,
@@ -1177,6 +1189,157 @@ impl Lifter {
             span: [span(175)?, span(176)?],
             covered: self.int(&fields, 173, 0)? != 0,
             value: self.cell_value(cell, value)?,
+            rotation: self.real(&fields, 145, Some(0.0))?,
+            format: self.cell_format(db, &fields, length, &CELL_BORDERS)?,
+        })
+    }
+
+    /// 表のスタイル（DXF Reference「TABLESTYLE」）の、行の種類ごとの書式。説明（3）の後の 280 が 1 ならタイトルの
+    /// 行を、281 が 1 なら見出しの行を持たない。文字スタイル（7）から始まる組が、データ・タイトル・見出しの順に
+    /// 続く（試料の表を描いたブロックの文字の高さと位置合わせで確かめた）。組の枠は、上・内側の横・下・左・
+    /// 内側の縦・右の順に、線幅（274〜279）・表示（284〜289）・色（64〜69）を持つ（推定）。組がなければ `None`
+    /// （DWG の読み手は、TABLESTYLE の欄をまだ読まない）
+    fn table_formats(
+        &self,
+        db: &AcadDb,
+        style: &Object,
+        length: &impl Fn(f64) -> Length,
+    ) -> Lifted<Option<TableFormats>> {
+        let kind = style.kind.as_slice();
+        let first = style
+            .values
+            .iter()
+            .position(|value| value.code == 7)
+            .unwrap_or(style.values.len());
+        let (head, rows) = style.values.split_at_checked(first).unwrap_or_default();
+        let after = head
+            .iter()
+            .position(|value| value.code == 3)
+            .map_or(head, |at| head.get(at..).unwrap_or_default());
+        let head = Object {
+            values: after.to_vec(),
+            ..style.clone()
+        };
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let mut formats = Vec::new();
+        for row in rows.chunk_by(|_, next| next.code != 7) {
+            let row = Object {
+                values: row.to_vec(),
+                ..style.clone()
+            };
+            formats.push(self.cell_format(db, &row, length, &STYLE_BORDERS)?);
+        }
+        let [data_format, title_format, header_format] =
+            <[CellFormat; 3]>::try_from(formats).map_err(|_| invalid(kind, 7))?;
+        Ok(Some(TableFormats {
+            title: self.int(&head, 280, 0)? == 0,
+            header: self.int(&head, 281, 0)? == 0,
+            title_format,
+            header_format,
+            data_format,
+        }))
+    }
+
+    /// セルか、表のスタイルの組の書式。文字スタイル（7。名前か STYLE のハンドル）・高さ（140）・位置合わせ
+    /// （170。1〜9）・文字の色（62 か、セルでは 64）・背景を塗るか（283）と色（63）・枠（`borders` の欄）を読む。
+    /// 色は ACI の符号（0 は配置から、256 はレイヤから継承）、線幅は -1 と -2 を継承、-3 を文書の既定、0〜211 を
+    /// 1/100 mm とする
+    fn cell_format(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        length: &impl Fn(f64) -> Length,
+        borders: &BorderCodes,
+    ) -> Lifted<CellFormat> {
+        let kind = object.kind.as_slice();
+        let color = |code: i16| -> Lifted<Option<Inherit<Color>>> {
+            match object.first(code) {
+                None => Ok(None),
+                Some(Data::Int(0)) => Ok(Some(Inherit::Block)),
+                Some(Data::Int(256)) => Ok(Some(Inherit::Layer)),
+                Some(Data::Int(index @ 1..=255)) => Ok(Some(Inherit::Own(Color {
+                    code: Some(aci(*index)),
+                    rgb: None,
+                }))),
+                Some(_) => Err(invalid(kind, code)),
+            }
+        };
+        let weight = |code: i16| -> Lifted<Option<Inherit<LineWeight>>> {
+            match object.first(code) {
+                None => Ok(None),
+                Some(Data::Int(-1)) => Ok(Some(Inherit::Layer)),
+                Some(Data::Int(-2)) => Ok(Some(Inherit::Block)),
+                Some(Data::Int(-3)) => Ok(Some(Inherit::Own(LineWeight::Default))),
+                Some(Data::Int(width @ 0..=211)) => Ok(Some(Inherit::Own(LineWeight::Width(
+                    PaperLength(*width as f64 / 100.0),
+                )))),
+                Some(_) => Err(invalid(kind, code)),
+            }
+        };
+        let flag = |code: i16| -> Lifted<Option<bool>> {
+            match object.first(code) {
+                None => Ok(None),
+                Some(Data::Int(value)) => Ok(Some(*value != 0)),
+                Some(Data::Bool(value)) => Ok(Some(*value)),
+                Some(_) => Err(invalid(kind, code)),
+            }
+        };
+        let border = |[color_code, weight_code, visible]: [i16; 3]| -> Lifted<Border> {
+            Ok(Border {
+                color: color(color_code)?,
+                weight: weight(weight_code)?,
+                visible: flag(visible)?,
+            })
+        };
+        let text_style = match object.first(7) {
+            None => None,
+            Some(Data::Handle(handle)) => Some(
+                db.get(*handle)
+                    .filter(|record| record.kind == b"STYLE")
+                    .map(|record| self.string(record, 2))
+                    .transpose()?
+                    .flatten()
+                    .ok_or_else(|| invalid(kind, 7))?,
+            ),
+            Some(data) => Some(self.decode(kind, 7, data)?),
+        };
+        let text_height = match object.first(140) {
+            None => None,
+            Some(Data::Real(height)) if height.is_finite() && *height > 0.0 => {
+                Some(length(*height))
+            }
+            Some(_) => return Err(invalid(kind, 140)),
+        };
+        let alignment = match object.first(170) {
+            None => None,
+            Some(Data::Int(value)) => Some(attachment(kind, *value, 170)?),
+            Some(_) => return Err(invalid(kind, 170)),
+        };
+        Ok(CellFormat {
+            text_style,
+            text_height,
+            alignment,
+            text_color: color(borders.text_color)?,
+            fill: flag(283)?,
+            fill_color: color(63)?,
+            borders: Borders {
+                top: border(borders.top)?,
+                right: border(borders.right)?,
+                bottom: border(borders.bottom)?,
+                left: border(borders.left)?,
+                horizontal: borders
+                    .horizontal
+                    .map(border)
+                    .transpose()?
+                    .unwrap_or_default(),
+                vertical: borders
+                    .vertical
+                    .map(border)
+                    .transpose()?
+                    .unwrap_or_default(),
+            },
         })
     }
 
@@ -3335,6 +3498,40 @@ struct CalloutParts {
     /// 枝ごとの、枝の値と線ごとの値
     leaders: Vec<(Vec<Value>, Vec<Vec<Value>>)>,
 }
+
+/// セルか表のスタイルの組の、文字の色と枠の辺ごとの色・線幅・表示のグループ・コード
+struct BorderCodes {
+    text_color: i16,
+    top: [i16; 3],
+    right: [i16; 3],
+    bottom: [i16; 3],
+    left: [i16; 3],
+    horizontal: Option<[i16; 3]>,
+    vertical: Option<[i16; 3]>,
+}
+
+/// セルの枠（DXF Reference「ACAD_TABLE」）。上・右・下・左の枠を持つ。左と上と右は、試料の表を描いたブロックの
+/// 線の色と線幅で確かめた。下は推定。表示（285〜289）は、DXF が書かない
+const CELL_BORDERS: BorderCodes = BorderCodes {
+    text_color: 64,
+    top: [69, 279, 289],
+    right: [65, 275, 285],
+    bottom: [66, 276, 286],
+    left: [68, 278, 288],
+    horizontal: None,
+    vertical: None,
+};
+
+/// 表のスタイルの組の枠（DXF Reference「TABLESTYLE」。推定）
+const STYLE_BORDERS: BorderCodes = BorderCodes {
+    text_color: 62,
+    top: [64, 274, 284],
+    right: [69, 279, 289],
+    bottom: [66, 276, 286],
+    left: [67, 277, 287],
+    horizontal: Some([65, 275, 285]),
+    vertical: Some([68, 278, 288]),
+};
 
 /// 表のセルの値（301 から 304 まで）のうち、`Lifter::cell_value` が移さない型（64・128・256・512）で、値を持つ
 /// （印の 93 の 1 が立たない）ものを診断する

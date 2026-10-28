@@ -7,16 +7,16 @@
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Axis, Background, BackgroundFill, Basis, Boundary, Branch, CalloutContent, Cell,
-    CellContent, CellData, CellValue, Clip, Color, ColorCode, ColorSystem, DateTime, Dimension,
-    DimensionKind, DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element, Extension,
-    Field, FieldValue, Fill, Fit, Flow, Format, FormattedText, Gradient, Grid, Hatch, HatchLoop,
-    Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Leader,
-    Length, LineSpacing, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Piece, Placement, Polyline, Resource, Rotation, Shape, SheetId, SheetItem,
-    SpaceId, Span, Spline, Style, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame,
-    UnderlayKind, Unit, ValueUnit, Vertex, Vertical,
+    Arrowhead, Axis, Background, BackgroundFill, Basis, Border, Borders, Boundary, Branch,
+    CalloutContent, Cell, CellContent, CellData, CellFormat, CellValue, Clip, Color, ColorCode,
+    ColorSystem, DateTime, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
+    Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow, Format, FormattedText,
+    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
+    Layer, LayerId, LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId,
+    LineWeight, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern,
+    PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Resource, Rotation,
+    Shape, SheetId, SheetItem, SpaceId, Span, Spline, Style, SymbolKey, Table, Target, Text,
+    Underlay, UnderlayFrame, UnderlayKind, Unit, ValueUnit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -3414,6 +3414,8 @@ fn e10_tables_keep_rows_columns_merges_and_contents() {
         span,
         covered,
         value: None,
+        rotation: 0.0,
+        format: CellFormat::default(),
     };
     assert_eq!(
         model_shapes(&drawing.unwrap()),
@@ -3423,7 +3425,14 @@ fn e10_tables_keep_rows_columns_merges_and_contents() {
             row_heights: vec![model(10.0), model(8.0)],
             column_widths: vec![model(30.0), model(20.0)],
             cells: vec![
-                cell(text("PARTS"), [2, 1], false),
+                Cell {
+                    format: CellFormat {
+                        text_style: Some("Standard".to_owned()),
+                        text_height: Some(model(2.5)),
+                        ..CellFormat::default()
+                    },
+                    ..cell(text("PARTS"), [2, 1], false)
+                },
                 cell(CellContent::Empty, [1, 1], true),
                 cell(text("BOLT"), [1, 1], false),
                 Cell {
@@ -3436,8 +3445,146 @@ fn e10_tables_keep_rows_columns_merges_and_contents() {
                 },
             ],
             style: None,
+            formats: None,
             drawn: Some(block("*T1")),
         })]
+    );
+}
+
+/// 対応表の E10: セルの上書きの書式（位置合わせ・色・塗り・枠）と、表のスタイルの行の種類ごとの書式。表の
+/// スタイルの組は、データ・タイトル・見出しの順
+#[test]
+fn e10_tables_keep_cell_formats_and_table_styles() {
+    let objects = [
+        (0, "TABLESTYLE"),
+        (5, "87"),
+        (100, "AcDbTableStyle"),
+        (280, "0"),
+        (3, "Standard"),
+        (70, "0"),
+        (280, "0"),
+        (281, "1"),
+        // データ
+        (7, "Standard"),
+        (140, "0.18"),
+        (170, "2"),
+        (62, "0"),
+        (63, "7"),
+        (283, "0"),
+        (274, "-2"),
+        (284, "1"),
+        (64, "0"),
+        (279, "25"),
+        (289, "0"),
+        (69, "1"),
+        // タイトル
+        (7, "Standard"),
+        (140, "0.25"),
+        (170, "5"),
+        // 見出し
+        (7, "Standard"),
+        (140, "0.18"),
+        (170, "5"),
+    ];
+    let cells = [
+        (171, "1"),
+        (145, "90.0"),
+        (170, "5"),
+        (63, "165"),
+        (64, "7"),
+        (283, "1"),
+        (278, "40"),
+        (68, "63"),
+        (279, "-3"),
+        (69, "256"),
+        (1, "A"),
+    ];
+    let sizes = [
+        (342, "87"),
+        (91, "1"),
+        (92, "1"),
+        (141, "5.0"),
+        (142, "5.0"),
+    ];
+    let src = sections(&[
+        ("HEADER", MM),
+        ("ENTITIES", &table(&sizes, &cells)),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found_but_missing_blocks(&diag), []);
+    let aci = |value| {
+        Some(Inherit::Own(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value,
+            }),
+            rgb: None,
+        }))
+    };
+    let width = |mm| Some(Inherit::Own(LineWeight::Width(PaperLength(mm))));
+    let shapes = model_shapes(&drawing.unwrap());
+    let [Shape::Table(table)] = shapes.as_slice() else {
+        panic!();
+    };
+    let [cell] = table.cells.as_slice() else {
+        panic!();
+    };
+    assert_eq!(cell.rotation, 90.0);
+    assert_eq!(
+        cell.format,
+        CellFormat {
+            alignment: Some((Horizontal::Center, Vertical::Middle)),
+            text_color: aci(7),
+            fill: Some(true),
+            fill_color: aci(165),
+            borders: Borders {
+                top: Border {
+                    color: Some(Inherit::Layer),
+                    weight: Some(Inherit::Own(LineWeight::Default)),
+                    visible: None,
+                },
+                left: Border {
+                    color: aci(63),
+                    weight: width(0.4),
+                    visible: None,
+                },
+                ..Borders::default()
+            },
+            ..CellFormat::default()
+        }
+    );
+    let formats = table.formats.as_deref().unwrap();
+    assert!(formats.title);
+    assert!(!formats.header);
+    assert_eq!(
+        formats.data_format,
+        CellFormat {
+            text_style: Some("Standard".to_owned()),
+            text_height: Some(model(0.18)),
+            alignment: Some((Horizontal::Center, Vertical::Top)),
+            text_color: Some(Inherit::Block),
+            fill: Some(false),
+            fill_color: aci(7),
+            borders: Borders {
+                top: Border {
+                    color: Some(Inherit::Block),
+                    weight: Some(Inherit::Block),
+                    visible: Some(true),
+                },
+                right: Border {
+                    color: aci(1),
+                    weight: width(0.25),
+                    visible: Some(false),
+                },
+                ..Borders::default()
+            },
+        }
+    );
+    assert_eq!(formats.title_format.text_height, Some(model(0.25)));
+    assert_eq!(
+        formats.header_format.alignment,
+        Some((Horizontal::Center, Vertical::Middle))
     );
 }
 
@@ -3459,6 +3606,8 @@ fn e10_table_cells_can_hold_symbols() {
                 span: [1, 1],
                 covered: false,
                 value: None,
+                rotation: 0.0,
+                format: CellFormat::default(),
             }]
         ),
         other => panic!("{other:?}"),

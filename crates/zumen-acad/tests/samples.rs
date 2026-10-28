@@ -392,6 +392,18 @@ fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
             .iter_mut()
             .for_each(|v| v.source = nowhere.clone());
     }
+    // DWG の読み手は、TABLESTYLE の欄と R2010 からのセルのスタイルをまだ読まない（決定 0151）。
+    // 表とセルの書式の DWG と DXF の一致は、table_format_samples.rs が確かめる
+    for space in &mut drawing.spaces {
+        for element in &mut space.elements {
+            if let zumen_drawing::Shape::Table(table) = &mut element.shape {
+                table.formats = None;
+                for cell in &mut table.cells {
+                    cell.format = zumen_drawing::CellFormat::default();
+                }
+            }
+        }
+    }
     let codes = diag
         .iter()
         .map(|d| d.code())
