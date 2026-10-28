@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use zumen_acad::{Dwg, Dxf};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
-use zumen_drawing::{Drawing2D, Field, FieldValue};
+use zumen_drawing::{Basis, Drawing2D, Field, FieldValue, Target};
 use zumen_sdk::{Codec, Lift};
 
 /// フォルダーの中の、ASCII の DXF と DWG
@@ -48,10 +48,17 @@ type Records = Vec<(String, Vec<Field>)>;
 
 /// 図形の XRECORD の、グループ・コードと値の並び。ハンドルは、DXF を書くときに付け直されることがあるので除く
 fn values(drawing: &Drawing2D) -> Records {
+    records(drawing, |target| {
+        matches!(target, Target::Model { .. } | Target::Paper { .. })
+    })
+}
+
+/// 付く先が `wanted` の XRECORD の、項目の名前と値の並び。ハンドルは除く
+fn records(drawing: &Drawing2D, wanted: impl Fn(&Target) -> bool) -> Records {
     drawing
         .extensions
         .iter()
-        .filter(|extension| extension.namespace == "dxf.xrecord")
+        .filter(|extension| extension.namespace == "dxf.xrecord" && wanted(&extension.target))
         .map(|extension| {
             let fields = extension
                 .fields
@@ -138,4 +145,69 @@ fn xrecords_of_extension_dictionaries_become_extensions() {
     }
     // ZUMEN_SAMPLES がなければ 0
     assert!(by_version.is_empty() || compared >= 5, "{compared}");
+}
+
+/// 試料の `sample_AC10*` の図面の画層と線種の拡張辞書の XRECORD は、画層と線種に付く（決定 0152）。
+/// R2007 までの図面は、注釈の尺度の画層（`0 @ 1`・`Layer_color_80 @ 1`）に `ASDK_XREC_ANNO_SCALE_INFO` を持ち、
+/// DWG と DXF で同じ値になる。版の往復のための `ACAD_XREC_ROUNDTRIP` は形式ごとに違い、R2010 までの DXF は
+/// 線種 GAS_LINE に、R2000 の DWG は真の色と色見本帳の色を持つ画層に持つ
+#[test]
+fn xrecords_of_layers_and_line_types_become_extensions() {
+    let mut by_version: BTreeMap<String, Vec<Vec<(String, String)>>> = BTreeMap::new();
+    for path in drawings() {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !name.starts_with("sample_AC10") || name.starts_with("sample_AC1009") {
+            continue;
+        }
+        let Some((drawing, _)) = lift(&path) else {
+            continue;
+        };
+        let mut found = Vec::new();
+        for extension in &drawing.extensions {
+            if extension.namespace != "dxf.xrecord" {
+                continue;
+            }
+            let owner = match extension.target {
+                Target::Layer(id) => drawing.layer(id).unwrap().name.clone(),
+                Target::LineType(id) => drawing.line_type(id).unwrap().name.clone(),
+                _ => continue,
+            };
+            assert!(extension.is_current(&drawing), "{name}");
+            assert!(
+                matches!(extension.basis, Basis::Layer(_) | Basis::LineType(_)),
+                "{name}"
+            );
+            found.push((owner, extension.name.clone()));
+        }
+        let dxf = name.ends_with(".dxf");
+        let mut expected = Vec::new();
+        if dxf && name.as_str() < "sample_AC1027" {
+            expected.push(("GAS_LINE".to_owned(), "ACAD_XREC_ROUNDTRIP".to_owned()));
+        }
+        if name == "sample_AC1015.dwg" {
+            for layer in ["Layer_true_color", "Layer_color_book", "color_125_33_79"] {
+                expected.push((layer.to_owned(), "ACAD_XREC_ROUNDTRIP".to_owned()));
+            }
+        }
+        if name.as_str() < "sample_AC1024" {
+            for layer in ["0 @ 1", "Layer_color_80 @ 1"] {
+                expected.push((layer.to_owned(), "ASDK_XREC_ANNO_SCALE_INFO".to_owned()));
+            }
+        }
+        assert_eq!(found, expected, "{name}");
+        let version = name.get(7..13).unwrap().to_owned();
+        let values = records(&drawing, |target| matches!(target, Target::Layer(_)));
+        by_version.entry(version).or_default().push(
+            values
+                .into_iter()
+                .filter(|(key, _)| key == "ASDK_XREC_ANNO_SCALE_INFO")
+                .map(|(key, fields)| (key, format!("{fields:?}")))
+                .collect(),
+        );
+    }
+    for (version, found) in &by_version {
+        if let [dwg, dxf] = found.as_slice() {
+            assert_eq!(dwg, dxf, "{version}");
+        }
+    }
 }

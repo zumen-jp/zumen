@@ -38,6 +38,7 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 - 表から除いた図形も書き戻す。R2004 の図形は前後の図形のハンドルを持たないので、所有者のブロックのレコードの持つ図形の数（BL）とハンドルを直す（決定 0077）。
 - 表の終わりに足した、すでにあるブロックの単純な図形・MTEXT・属性を持たない INSERT も書き戻す。R2004 の共通の欄で符号化し、所有者のブロックのレコードの持つ図形に加え、HANDSEED を進める（決定 0079）。属性を持つ INSERT は、型ごとの欄の終わりに ATTRIB の数（BL）を書き、すべての ATTRIB のハンドルを持たせる（決定 0080）。MINSERT・表のレコード・ブロックの足しは、まだ書き戻さない。
 - 足した表のレコード（画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビュー・ビューポートの設定・ブロックのレコード）も書き戻す。反応子の数の後に拡張辞書を持たない印を立て、画層と寸法の体裁の色を CMC で書く。ブロックのレコードは、持つ図形の数（BL）と、持つ図形のハンドルをみな固い所有で書く（決定 0081）。
+- 変えた図形でないオブジェクトの拡張辞書の組（`102 {ACAD_XDICTIONARY`・360・`102 }`）は、読んだままのときだけ受け付け、型ごとの欄からは除いて書く。拡張辞書を足す・除く・差し替える変更は `dwg.change.unsupported` を返す（決定 0152）。
 
 ## R2010 から後の版
 
@@ -198,7 +199,7 @@ R2010・R2013・R2018 は R2004 と同じ入れ物を使う（決定 0027）。�
 
 下敷きは DXF と同じく IMAGE と PDFUNDERLAY などから移す（[決定 0114](../decisions/0114-drawing-underlays.md)）。DWG の IMAGE は、DXF と同じく画像の下敷きに移る。PDFUNDERLAY などは公開の仕様に載っておらず、型ごとの欄を表に置かないので、DWG の PDF などの下敷きは移らず、`dxf.lift.invalid` を返す。
 
-形式固有の情報は DXF と同じく図形の XDATA から作る（[決定 0115](../decisions/0115-drawing-format-extensions.md)）。DWG の拡張データ（EED）も XDATA と同じく表に置くので、DWG の図形も形式固有の情報を持つ。DXF に書かれない往復のための拡張データの分だけ、DXF から作ったものより多い。記号の切り抜きも、DXF と同じく SPATIAL_FILTER から作る（[決定 0149](../decisions/0149-drawing-symbol-clips.md)）。図形の拡張辞書の XRECORD も、DXF と同じく形式固有の情報にする（[決定 0148](../decisions/0148-drawing-extension-dictionary-xrecords.md)）。図形の拡張辞書のハンドルは、DXF と同じく所有者の前に `102 {ACAD_XDICTIONARY`・360・`102 }` の組で置く。
+形式固有の情報は DXF と同じく図形の XDATA から作る（[決定 0115](../decisions/0115-drawing-format-extensions.md)）。DWG の拡張データ（EED）も XDATA と同じく表に置くので、DWG の図形も形式固有の情報を持つ。DXF に書かれない往復のための拡張データの分だけ、DXF から作ったものより多い。記号の切り抜きも、DXF と同じく SPATIAL_FILTER から作る（[決定 0149](../decisions/0149-drawing-symbol-clips.md)）。図形の拡張辞書の XRECORD も、DXF と同じく形式固有の情報にする（[決定 0148](../decisions/0148-drawing-extension-dictionary-xrecords.md)）。図形の拡張辞書のハンドルは、DXF と同じく所有者の前に `102 {ACAD_XDICTIONARY`・360・`102 }` の組で置く。図形でないオブジェクトの拡張辞書のハンドルも同じ組で置き、画層と線種の XRECORD を形式固有の情報にする（[決定 0152](../decisions/0152-drawing-layer-line-type-xrecords.md)）。R2000 の DWG は、真の色と色見本帳の色を持つ画層に、DXF にない版の往復のための XRECORD を持つ。
 
 ## 実際の図面で確かめる
 

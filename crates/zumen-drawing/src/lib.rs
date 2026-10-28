@@ -71,7 +71,8 @@ impl Drawing2D {
         self.symbols.iter().find(|symbol| symbol.key == *key)
     }
 
-    /// 付く先の、いまの値。図面と、実寸の空間・記号の定義の空間・用紙の要素を探す。なければ `None`
+    /// 付く先の、いまの値。図面と、実寸の空間・記号の定義の空間・用紙の要素と、レイヤ・線種を探す。
+    /// なければ `None`
     pub fn basis(&self, target: &Target) -> Option<Basis> {
         match *target {
             Target::Document => Some(Basis::Document),
@@ -92,6 +93,8 @@ impl Drawing2D {
                 .get(index)
                 .cloned()
                 .map(Basis::Paper),
+            Target::Layer(id) => self.layer(id).cloned().map(Basis::Layer),
+            Target::LineType(id) => self.line_type(id).cloned().map(Basis::LineType),
         }
     }
 
@@ -1910,6 +1913,10 @@ pub enum Target {
         /// 要素の添字
         index: usize,
     },
+    /// レイヤ（決定 0152）
+    Layer(LayerId),
+    /// 線種（決定 0152）
+    LineType(LineTypeId),
 }
 
 /// 形式固有の情報が依存する、付く先の値
@@ -1921,6 +1928,10 @@ pub enum Basis {
     Model(Element<ModelPoint>),
     /// 用紙の要素の、レイヤ・スタイル・形と意味・出所
     Paper(Element<PaperPoint>),
+    /// レイヤの名前・状態・スタイル・出所
+    Layer(Layer),
+    /// 線種の名前・定義・出所
+    LineType(LineType),
 }
 
 /// 形式固有の情報の 1 つの値

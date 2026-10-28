@@ -1245,7 +1245,7 @@ fn objects_are_taken_back(version: &[u8; 6]) {
                     (b"LAYOUT", 146, Data::Real(v)) => *v += 1.0,
                     (b"LAYOUT", 78, Data::Int(v)) => *v += 100,
                     (b"XRECORD", _, Data::Real(v)) => *v += 1.0,
-                    (b"XRECORD", _, Data::Text(text)) => text.extend(b"0"),
+                    (b"XRECORD", code, Data::Text(text)) if code != 102 => text.extend(b"0"),
                     _ => continue,
                 }
                 changed += 1;
@@ -1339,7 +1339,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     (b"MLINESTYLE", 49, Data::Real(v)) => *v *= 2.0,
                     (b"LAYOUT", 146, Data::Real(v)) => *v += 1.0,
                     (b"XRECORD", _, Data::Real(v)) => *v += 1.0,
-                    (b"XRECORD", _, Data::Text(text)) => text.extend(b"0"),
+                    (b"XRECORD", code, Data::Text(text)) if code != 102 => text.extend(b"0"),
                     _ => continue,
                 }
                 changed += 1;
@@ -1928,10 +1928,12 @@ fn added_table_records_are_taken_back(version: &[u8]) {
             };
             let model = named(b"BLOCK_RECORD", b"*Model_Space").handle().unwrap();
             let blocks = named(b"BLOCK_RECORD", b"*Model_Space").owner().unwrap();
-            // 足すオブジェクトは拡張データを持てないので、写したレコードの拡張データを除く
+            // 足すオブジェクトは拡張データと拡張辞書を持てないので、写したレコードの拡張データと拡張辞書の組を除く
             let mut layer = named(b"LAYER", b"0");
             layer.origin = Origin::New;
-            layer.values.retain(|v| v.code < 1000);
+            layer
+                .values
+                .retain(|v| v.code < 1000 && !matches!(v.code, 102 | 360));
             for value in &mut layer.values {
                 match value.code {
                     5 => value.data = Data::Handle(seed),
@@ -1948,7 +1950,9 @@ fn added_table_records_are_taken_back(version: &[u8]) {
             }
             let mut style = named(b"STYLE", b"Standard");
             style.origin = Origin::New;
-            style.values.retain(|v| v.code < 1000);
+            style
+                .values
+                .retain(|v| v.code < 1000 && !matches!(v.code, 102 | 360));
             for value in &mut style.values {
                 match value.code {
                     5 => value.data = Data::Handle(seed + 1),
@@ -1979,7 +1983,9 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                 .unwrap()
                 .clone();
             vport_record.origin = Origin::New;
-            vport_record.values.retain(|v| v.code < 1000);
+            vport_record
+                .values
+                .retain(|v| v.code < 1000 && !matches!(v.code, 102 | 360));
             for value in &mut vport_record.values {
                 match value.code {
                     5 => value.data = Data::Handle(seed + 8),
