@@ -107,7 +107,24 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             };
             if let Err(diagnostic) = lifted {
                 cx.report((*diagnostic).at(source));
+                continue;
             }
+            // 画層と線種の拡張辞書の XRECORD は、移したレコードに付ける（決定 0152）
+            let (target, basis) = match kind {
+                b"LTYPE" => match out.line_types.last() {
+                    Some(line_type) => (
+                        Target::LineType(line_type.id),
+                        Basis::LineType(line_type.clone()),
+                    ),
+                    None => continue,
+                },
+                b"LAYER" => match out.layers.last() {
+                    Some(layer) => (Target::Layer(layer.id), Basis::Layer(layer.clone())),
+                    None => continue,
+                },
+                _ => continue,
+            };
+            lifter.dictionary(db, object, target, &|| basis.clone(), &mut out, cx);
         }
     }
     let entities: Vec<&Object> = db

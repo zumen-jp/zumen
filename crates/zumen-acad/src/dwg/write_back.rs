@@ -324,6 +324,12 @@ impl DwgFile {
                 return Err(unsupported(b"ENTITIES"));
             }
             if old.values != object.values {
+                // 拡張辞書の組は、読む側が置いたままのものだけを受け付け、型ごとの欄からは除く（決定 0148・0152）
+                let (old, object) = match (without_xdictionary(old), without_xdictionary(object)) {
+                    ((before, old), (after, object)) if before == after => (old, object),
+                    _ => return Err(unsupported(&object.kind)),
+                };
+                let (old, object) = (&old, &object);
                 let data = self
                     .entries
                     .get(record)
@@ -1929,6 +1935,24 @@ fn offset(object: &Object) -> Option<usize> {
         Origin::Dwg { offset, .. } => Some(offset),
         Origin::Dxf { .. } | Origin::New => None,
     }
+}
+
+/// 拡張辞書の組（`102 {ACAD_XDICTIONARY`・360・`102 }`）の 360 の値と、組を除いたオブジェクト
+fn without_xdictionary(object: &Object) -> (Option<Data>, Object) {
+    let mut copy = object.clone();
+    let at = copy.values.windows(3).position(|values| {
+        matches!(values, [open, dictionary, close]
+            if open.code == 102
+                && open.data == Data::Text(b"{ACAD_XDICTIONARY".to_vec())
+                && dictionary.code == 360
+                && close.code == 102
+                && close.data == Data::Text(b"}".to_vec()))
+    });
+    let Some(at) = at else {
+        return (None, copy);
+    };
+    let removed: Vec<Value> = copy.values.drain(at..at + 3).collect();
+    (removed.get(1).map(|value| value.data.clone()), copy)
 }
 
 fn unsupported(kind: &[u8]) -> Box<Diagnostic> {

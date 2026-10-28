@@ -170,3 +170,4 @@
 - [0138: 基準と社内標準を、出典つきの版のあるプロファイル（TOML）として持つ](0138-profiles-as-versioned-data.md)（2026-10-28、採用）
 - [0139: 図面モデルの変更は、出所で要素を指す変更の一覧にし、共有の表を通して元の形式へ書き戻す](0139-drawing-apply.md)（2026-10-28、提案）
 - [0148: 図形の拡張辞書の XRECORD を、形式固有の情報にする](0148-drawing-extension-dictionary-xrecords.md)（2026-10-29、提案）
+- [0152: 画層と線種の拡張辞書の XRECORD を、画層と線種に付く形式固有の情報にする](0152-drawing-layer-line-type-xrecords.md)（2026-10-29、提案）

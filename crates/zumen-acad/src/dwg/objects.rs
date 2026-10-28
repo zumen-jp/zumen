@@ -830,13 +830,20 @@ fn read(
         // オブジェクトのハンドルの並び: 所有者・反応子・拡張辞書・型ごとのハンドル
         bits.seek(handles_at);
         let owner = bits.handle()?.resolve(entry.handle)?;
-        if !entries.is_empty() || !handles.is_empty() || sortents {
+        // 拡張辞書は、図形と同じく DXF の組で置く。0 のハンドルは、ないものとする。型ごとのハンドルを
+        // 持たないオブジェクトは、ハンドルの流れが反応子と拡張辞書を持たないことがあるので、読めなければ
+        // 拡張辞書を持たないとする
+        let xdic = (|| {
             for _ in 0..reactors {
                 bits.handle()?;
             }
-            if xdic {
-                bits.handle()?;
+            if !xdic {
+                return None;
             }
+            bits.handle()?.resolve(entry.handle)
+        })()
+        .filter(|handle| *handle != 0);
+        if !entries.is_empty() || !handles.is_empty() || sortents {
             // SORTENTSTABLE は、ブロックのレコード（330）と、図形（331）と並べ替えのハンドル（5）の組を持つ
             if sortents {
                 values.push(Value {
@@ -887,7 +894,7 @@ fn read(
         }
         Some(Fields {
             owner: Some(owner),
-            xdic: None,
+            xdic,
             layer: None,
             values,
             records,

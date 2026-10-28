@@ -4043,6 +4043,113 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
     );
 }
 
+/// 画層と線種の拡張辞書の XRECORD は、画層と線種に付く形式固有の情報になる。画層の名前を変えると失効する
+/// （決定 0152）
+#[test]
+fn e5_xrecords_of_layers_and_line_types_become_extensions() {
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1018")]].concat();
+    let tables = [
+        (0, "TABLE"),
+        (2, "LTYPE"),
+        (0, "LTYPE"),
+        (5, "14"),
+        (102, "{ACAD_XDICTIONARY"),
+        (360, "B0"),
+        (102, "}"),
+        (2, "DASHED"),
+        (3, ""),
+        (72, "65"),
+        (73, "0"),
+        (40, "0.0"),
+        (0, "ENDTAB"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (102, "{ACAD_XDICTIONARY"),
+        (360, "B2"),
+        (102, "}"),
+        (2, "Walls"),
+        (70, "0"),
+        (62, "7"),
+        (0, "ENDTAB"),
+    ];
+    let objects = [
+        (0, "DICTIONARY"),
+        (5, "B0"),
+        (330, "14"),
+        (100, "AcDbDictionary"),
+        (280, "1"),
+        (3, "NOTE"),
+        (360, "B1"),
+        (0, "XRECORD"),
+        (5, "B1"),
+        (330, "B0"),
+        (100, "AcDbXrecord"),
+        (280, "1"),
+        (1, "dashed"),
+        (0, "DICTIONARY"),
+        (5, "B2"),
+        (330, "10"),
+        (100, "AcDbDictionary"),
+        (280, "1"),
+        (3, "SCALE"),
+        (360, "B3"),
+        (0, "XRECORD"),
+        (5, "B3"),
+        (330, "B2"),
+        (100, "AcDbXrecord"),
+        (280, "1"),
+        (90, "2"),
+    ];
+    let src = sections(&[
+        ("HEADER", &header),
+        ("TABLES", &tables),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let mut drawing = drawing.unwrap();
+    let code = |code: i64| field("code", FieldValue::Integer(code));
+    let line_type = drawing.line_types[0].clone();
+    let layer = drawing.layers[0].clone();
+    assert_eq!(
+        drawing.extensions,
+        [
+            Extension {
+                namespace: "dxf.xrecord",
+                name: "NOTE".to_owned(),
+                version: Some("AC1018".to_owned()),
+                schema: 1,
+                target: Target::LineType(line_type.id),
+                basis: Basis::LineType(line_type.clone()),
+                fields: vec![
+                    code(1),
+                    field("text", FieldValue::Text("dashed".to_owned()))
+                ],
+                source: line_type.source.clone(),
+            },
+            Extension {
+                namespace: "dxf.xrecord",
+                name: "SCALE".to_owned(),
+                version: Some("AC1018".to_owned()),
+                schema: 1,
+                target: Target::Layer(layer.id),
+                basis: Basis::Layer(layer.clone()),
+                fields: vec![code(90), field("integer", FieldValue::Integer(2))],
+                source: layer.source.clone(),
+            },
+        ]
+    );
+    assert_eq!(drawing.current_extensions().count(), 2);
+    drawing.layers[0].name = "Doors".to_owned();
+    let stale: Vec<_> = drawing
+        .stale_extensions()
+        .map(|e| e.name.as_str())
+        .collect();
+    assert_eq!(stale, ["SCALE"]);
+}
+
 #[test]
 fn e9_xdata_that_cannot_be_read_is_reported() {
     let entities = [entity(
