@@ -403,15 +403,22 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
             .for_each(|v| v.source = nowhere.clone());
     }
     // R2010 からの DWG の読み手は、TABLESTYLE の欄とセルのスタイルをまだ読まない（決定 0151）。
-    // 表とセルの書式の DWG と DXF の一致は、table_format_samples.rs が確かめる
-    for space in &mut drawing.spaces {
-        for element in &mut space.elements {
-            if let zumen_drawing::Shape::Table(table) = &mut element.shape {
-                table.formats = None;
-                for cell in &mut table.cells {
-                    cell.format = zumen_drawing::CellFormat::default();
-                }
-            }
+    // 書式の一致は table_format_samples.rs が確かめる。記号・用紙と、拡張に控えた値も同じ条件で比べる。
+    for space in drawing
+        .spaces
+        .iter_mut()
+        .chain(drawing.symbols.iter_mut().map(|symbol| &mut symbol.space))
+    {
+        space.elements.iter_mut().for_each(without_table_formats);
+    }
+    for sheet in &mut drawing.sheets {
+        sheet.elements.iter_mut().for_each(without_table_formats);
+    }
+    for extension in &mut drawing.extensions {
+        match &mut extension.basis {
+            zumen_drawing::Basis::Model(element) => without_table_formats(element),
+            zumen_drawing::Basis::Paper(element) => without_table_formats(element),
+            _ => {}
         }
     }
     let codes = diag
@@ -420,6 +427,17 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
         .filter(|c| c.name().starts_with("dxf."))
         .collect();
     (drawing, codes)
+}
+
+/// DWG でまだ読まない表とセルの書式だけを除く。値・内容・回転などは残す。
+#[cfg(feature = "drawing")]
+fn without_table_formats<P>(element: &mut zumen_drawing::Element<P>) {
+    if let zumen_drawing::Shape::Table(table) = &mut element.shape {
+        table.formats = None;
+        for cell in &mut table.cells {
+            cell.format = zumen_drawing::CellFormat::default();
+        }
+    }
 }
 
 /// 図面モデルの、DWG と DXF で比べられる文字列。元の場所（`Ref { .. }`）と、名前のないブロック `*U` の番号と、
