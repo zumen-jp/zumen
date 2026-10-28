@@ -221,7 +221,8 @@ fn sheet_layers_and_groups() {
         Some(LayerState {
             visible: true,
             printable: true,
-            editable: true
+            editable: true,
+            frozen: false,
         })
     );
     assert_eq!(drawing.layer(LayerId(2)).unwrap().name, "0-1");

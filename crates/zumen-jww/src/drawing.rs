@@ -546,6 +546,7 @@ impl Lifter<'_> {
                         visible,
                         printable: visible,
                         editable: g.state >= 2 && own >= 2,
+                        frozen: false,
                     }
                 });
                 self.out.layers.push(Layer {

@@ -554,6 +554,7 @@ impl<'f> Lifter<'f> {
                 visible,
                 printable: visible,
                 editable: true,
+                frozen: false,
             }),
             style: None,
             source: feature.source(),

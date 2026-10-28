@@ -174,12 +174,15 @@ pub struct Layer {
 /// レイヤの表示・印刷・編集の可否。どれも、ビューごとの指定（[`View::hidden_layers`]）より前の値
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerState {
-    /// 表示する
+    /// 表示する。凍結した（`frozen`）レイヤは表示しない
     pub visible: bool,
     /// 印刷する
     pub printable: bool,
     /// 編集できる
     pub editable: bool,
+    /// 凍結する。表示しないことに加え、このレイヤに置いた記号は、中の要素がほかのレイヤにあっても表示しない
+    /// （DXF・DWG の凍結。決定 0141）。凍結を持たない形式は偽
+    pub frozen: bool,
 }
 
 /// レイヤの色・線種・線幅。どれも、定義が値を持たなければ `None`
