@@ -275,8 +275,22 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.binary.unsupported"]
-description = "バイナリの DXF は、まだ読めない"
+description = "バイナリの DXF は、まだ読めない（読めるようにしたので使わない）"
 severity = "error"
+since = "0.0.0"
+status = "retired"
+
+[codes."dxf.binary.invalid"]
+description = "バイナリの DXF の、`offset` バイト目から始まるタグが途中で切れているか、実数の値が有限でない"
+severity = "error"
+params = { offset = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.binary-value.unsupported"]
+description = "バイナリの DXF の変更で、値をグループ・コードの型のバイト列にできない"
+severity = "error"
+params = { record = "uint", code = "int" }
 since = "0.0.0"
 status = "active"
 
