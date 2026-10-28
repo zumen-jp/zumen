@@ -8,14 +8,15 @@ use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Axis, Background, BackgroundFill, Basis, Boundary, Branch, CalloutContent, Cell,
-    CellContent, Clip, Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle,
-    DimensionText, Dogleg, Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow,
-    Format, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal,
-    Inherit, Islands, Label, Layer, LayerId, LayerState, Leader, Length, LineSpacing,
-    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Placement,
-    Polyline, Resource, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Spline, Style,
-    SymbolKey, Table, Target, Text, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical,
+    CellContent, CellData, CellValue, Clip, Color, ColorCode, ColorSystem, DateTime, Dimension,
+    DimensionKind, DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element, Extension,
+    Field, FieldValue, Fill, Fit, Flow, Format, FormattedText, Gradient, Grid, Hatch, HatchLoop,
+    Height, HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Leader,
+    Length, LineSpacing, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
+    ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Piece, Placement, Polyline, Resource, Rotation, Shape, SheetId, SheetItem,
+    SpaceId, Span, Spline, Style, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame,
+    UnderlayKind, Unit, ValueUnit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -3792,6 +3793,9 @@ fn e10_tables_keep_rows_columns_merges_and_contents() {
         (301, "CELL_VALUE"),
         (93, "6"),
         (90, "4"),
+        (1, "M8"),
+        (94, "0"),
+        (300, ""),
         (302, "M8"),
         (304, "ACVALUE_END"),
     ];
@@ -3805,6 +3809,7 @@ fn e10_tables_keep_rows_columns_merges_and_contents() {
         content,
         span,
         covered,
+        value: None,
     };
     assert_eq!(
         model_shapes(&drawing.unwrap()),
@@ -3817,7 +3822,14 @@ fn e10_tables_keep_rows_columns_merges_and_contents() {
                 cell(text("PARTS"), [2, 1], false),
                 cell(CellContent::Empty, [1, 1], true),
                 cell(text("BOLT"), [1, 1], false),
-                cell(text("M8"), [1, 1], false),
+                Cell {
+                    value: Some(CellValue {
+                        data: CellData::Text("M8".to_owned()),
+                        unit: ValueUnit::None,
+                        format: None,
+                    }),
+                    ..cell(text("M8"), [1, 1], false)
+                },
             ],
             style: None,
             drawn: Some(block("*T1")),
@@ -3842,10 +3854,124 @@ fn e10_table_cells_can_hold_symbols() {
                 content: CellContent::Symbol(block("MARK")),
                 span: [1, 1],
                 covered: false,
+                value: None,
             }]
         ),
         other => panic!("{other:?}"),
     }
+}
+
+/// 対応表の E10: 2007 からのセルの値の型（90）・単位（94）・表示の書式（300）。値を持たない（93 の 1）セルと、
+/// 図面モデルが持たない型（64 など）は値を移さず、後者は診断する
+#[test]
+fn e10_table_cells_keep_typed_values_units_and_formats() {
+    let value = |data: &[(i16, &'static str)]| {
+        let mut cell = vec![(171, "1"), (301, "CELL_VALUE")];
+        cell.extend_from_slice(data);
+        cell.push((304, "ACVALUE_END"));
+        cell
+    };
+    let cells = [
+        value(&[
+            (93, "6"),
+            (90, "1"),
+            (91, "5"),
+            (94, "0"),
+            (300, ""),
+            (302, "5"),
+        ]),
+        value(&[
+            (93, "4"),
+            (90, "2"),
+            (140, "100.0"),
+            (94, "16"),
+            (300, "%lu2%pr2%ps[$,]"),
+            (302, "$100.00"),
+        ]),
+        value(&[
+            (93, "6"),
+            (90, "8"),
+            (92, "16"),
+            (310, "E8070B0005000F000000000000000000"),
+            (94, "0"),
+            (302, "11/15/2024"),
+        ]),
+        value(&[
+            (93, "6"),
+            (90, "32"),
+            (11, "1.0"),
+            (21, "2.0"),
+            (31, "3.0"),
+            (94, "1"),
+            (302, "1, 2, 3"),
+        ]),
+        // 値を持たない
+        value(&[(93, "5"), (90, "8"), (94, "0"), (302, "")]),
+        // 図面モデルが持たない型
+        value(&[(93, "6"), (90, "64"), (94, "0"), (302, "ref")]),
+    ]
+    .concat();
+    let sizes = [
+        (91, "3"),
+        (92, "2"),
+        (141, "5.0"),
+        (141, "5.0"),
+        (141, "5.0"),
+        (142, "5.0"),
+        (142, "5.0"),
+    ];
+    let (drawing, diag) = lift(&dxf(MM, &table(&sizes, &cells)), &mut Budget::default());
+    let found: Vec<_> = found_but_missing_blocks(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    assert_eq!(
+        found,
+        [(codes::DXF_CELL_VALUE_DROPPED, "Int(64)".to_owned(), 1)]
+    );
+    let shapes = model_shapes(&drawing.unwrap());
+    let [Shape::Table(table)] = shapes.as_slice() else {
+        panic!("{shapes:?}");
+    };
+    let typed = |data, unit, format: Option<&str>| {
+        Some(CellValue {
+            data,
+            unit,
+            format: format.map(str::to_owned),
+        })
+    };
+    let values: Vec<_> = table.cells.iter().map(|cell| cell.value.clone()).collect();
+    assert_eq!(
+        values,
+        [
+            typed(CellData::Integer(5), ValueUnit::None, None),
+            typed(
+                CellData::Real(100.0),
+                ValueUnit::Currency,
+                Some("%lu2%pr2%ps[$,]")
+            ),
+            typed(
+                CellData::Date(DateTime {
+                    year: 2024,
+                    month: 11,
+                    day: 15,
+                    hour: 0,
+                    minute: 0,
+                    second: 0,
+                    millisecond: 0,
+                }),
+                ValueUnit::None,
+                None
+            ),
+            typed(CellData::Point([1.0, 2.0, 3.0]), ValueUnit::Distance, None),
+            None,
+            None,
+        ]
+    );
+    // 表示する文字は内容に移す
+    assert!(
+        matches!(&table.cells[1].content, CellContent::Text { content, .. } if content == "$100.00")
+    );
 }
 
 #[test]

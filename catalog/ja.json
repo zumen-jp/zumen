@@ -41,6 +41,7 @@
     "dxf.binary.unsupported": "バイナリの DXF は、まだ読めません。",
     "dxf.block-cycle.invalid": "ブロック「{name}」の定義は、自分を直接か間接に配置します。展開せずに図面モデルに移しました（{count} 件）。",
     "dxf.block.missing": "ブロック「{name}」の定義がないので、配置だけを図面モデルに移しました（{count} 件）。",
+    "dxf.cell-value.dropped": "表のセルの値のうち、型 {type} の値は図面モデルが持たないので移しませんでした。表示する文字は移しました（{count} 件）。",
     "dxf.change.unsupported": "「{kind}」の要素のこの変更は、まだ書き戻せません。変更を反映しませんでした。",
     "dxf.code-page.unsupported": "コード・ページの版の ASCII でない文字をまだ読めないので、「{kind}」を図面モデルに移しませんでした（{count} 件）。",
     "dxf.element.missing": "変更が指す要素が、図面にありません。変更を反映しませんでした。",

@@ -2817,12 +2817,12 @@ fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<V
                 r.bits.bl()?;
             }
             let contents = r.count()?;
-            let mut text = Vec::new();
+            let mut value = Vec::new();
             let mut kind = 1;
             let mut symbol = None;
             for _ in 0..contents {
                 match r.bits.bl()? {
-                    1 => text = table_value(&mut r)?,
+                    1 => value = table_value(&mut r)?,
                     2 => {
                         r.handle();
                     }
@@ -2859,7 +2859,7 @@ fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<V
                     r.bits.bl()?;
                 }
             }
-            cells.push((row, column, kind, symbol, text));
+            cells.push((row, column, kind, symbol, value));
         }
         r.bits.bl()?;
         custom_data(&mut r)?;
@@ -2893,7 +2893,7 @@ fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<V
     values.push(int(92, i64::try_from(columns).ok()?));
     values.extend(heights);
     values.extend(widths);
-    for (row, column, kind, symbol, text) in cells {
+    for (row, column, kind, symbol, value) in cells {
         let (covered, columns, rows) = merged
             .iter()
             .find(|m| m.0 <= row && row <= m.2 && m.1 <= column && column <= m.3)
@@ -2915,7 +2915,12 @@ fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<V
             });
         }
         values.push(text_value(301, b"CELL_VALUE"));
-        values.push(text_value(302, &text));
+        if value.is_empty() {
+            values.push(text_value(302, b""));
+        } else {
+            values.extend(value);
+        }
+        values.push(text_value(304, b"ACVALUE_END"));
     }
     values.push(Value {
         code: 2,
@@ -2933,22 +2938,53 @@ fn custom_data(r: &mut Slotted) -> Option<()> {
     Some(())
 }
 
-/// 表の値（ODS 5.4.1 の 20.4.99、R2007 から）。値の文字列を返す
-fn table_value(r: &mut Slotted) -> Option<Vec<u8>> {
+/// 表の値（ODS 5.4.1 の 20.4.99、R2007 から）。DXF の 301 `CELL_VALUE` から 304 `ACVALUE_END` までの間と同じく、
+/// 印（93）・型（90）・値・単位（94）・書式（300）・表示する文字（302）を並べる。値は、整数（1）を 91、実数（2）を
+/// 140、文字列（4）を 1、日時（8）を大きさ（92）とバイト列（310）、点（16・32）を 11・21・31 に置く。ほかの型の値は
+/// 置かない
+fn table_value(r: &mut Slotted) -> Option<Vec<Value>> {
     let flags = r.bits.bl()?;
     let kind = r.bits.bl()?;
+    let mut values = vec![int(93, i64::from(flags)), int(90, i64::from(kind))];
     if flags & 1 == 0 {
         match kind {
-            0 | 1 => {
+            0 => {
                 r.bits.bl()?;
             }
-            2 => {
-                r.bits.bd()?;
-            }
+            1 => values.push(int(91, i64::from(r.bits.bl()?))),
+            2 => values.push(real(140, r.bits.bd()?)),
             // 文字列も、文字列の流れでなく、本体に大きさと UTF-16 の並びで持つ
             4 | 8 | 16 | 32 | 512 => {
                 let size = usize::try_from(r.bits.bl()?).ok()?;
-                r.bits.skip_bytes(size)?;
+                let bytes = raw_bytes(r.bits, size)?;
+                match kind {
+                    4 => {
+                        let mut units: Vec<u16> = bytes
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|pair| u16::from_le_bytes(*pair))
+                            .collect();
+                        if units.last() == Some(&0) {
+                            units.pop();
+                        }
+                        values.push(text_value(1, String::from_utf16_lossy(&units).as_bytes()));
+                    }
+                    8 => values.extend([
+                        int(92, i64::try_from(size).ok()?),
+                        Value {
+                            code: 310,
+                            data: Data::Binary(bytes),
+                        },
+                    ]),
+                    16 | 32 => {
+                        for (code, chunk) in [11, 21, 31].into_iter().zip(bytes.as_chunks::<8>().0)
+                        {
+                            values.push(real(code, f64::from_le_bytes(*chunk)));
+                        }
+                    }
+                    _ => {}
+                }
             }
             64 => {
                 r.handle();
@@ -2956,9 +2992,10 @@ fn table_value(r: &mut Slotted) -> Option<Vec<u8>> {
             _ => return None,
         }
     }
-    r.bits.bl()?;
-    r.bits.text()?;
-    r.bits.text()
+    values.push(int(94, i64::from(r.bits.bl()?)));
+    values.push(text_value(300, &r.bits.text()?));
+    values.push(text_value(302, &r.bits.text()?));
+    Some(values)
 }
 
 /// 内容の書式（ODS 5.4.1 の 20.4.101.3）を読み飛ばす
