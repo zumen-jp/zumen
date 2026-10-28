@@ -5619,6 +5619,7 @@ fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
             rotation: 30.0,
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         })
     );
     assert_eq!(
