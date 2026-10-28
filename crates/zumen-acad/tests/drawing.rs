@@ -4444,6 +4444,59 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
     assert_eq!(drawing.current_extensions().count(), 0);
 }
 
+/// 共有する拡張辞書も、XRECORD の値を移すたびに作業量を数える。
+#[test]
+fn e5_xrecords_stop_before_copying_values_over_the_work_budget() {
+    let entities = entity(
+        "LINE",
+        &[
+            (102, "{ACAD_XDICTIONARY"),
+            (360, "B0"),
+            (102, "}"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (11, "1.0"),
+            (21, "1.0"),
+        ],
+    )
+    .repeat(2);
+    let objects = [
+        (0, "DICTIONARY"),
+        (5, "B0"),
+        (3, "VALUES"),
+        (360, "C0"),
+        (0, "XRECORD"),
+        (5, "C0"),
+        (100, "AcDbXrecord"),
+        (280, "1"),
+        (1, "FIRST"),
+        (1, "SECOND"),
+        (1, "THIRD"),
+    ];
+    let src = sections(&[
+        ("HEADER", MM),
+        ("ENTITIES", &entities),
+        ("OBJECTS", &objects),
+    ]);
+    let plain: Vec<_> = entities
+        .iter()
+        .copied()
+        .filter(|(code, _)| !matches!(code, 102 | 360))
+        .collect();
+    let control = sections(&[("HEADER", MM), ("ENTITIES", &plain), ("OBJECTS", &objects)]);
+    let mut control_budget = Budget::default();
+    assert!(lift(&control, &mut control_budget).0.is_ok());
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control_budget.used(Kind::Work))),
+    );
+    let (drawing, diag) = lift(&src, &mut budget);
+    assert!(matches!(drawing, Err(Error::Stopped(_))));
+    assert_eq!(
+        diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+        [codes::BUDGET_WORK_EXCEEDED]
+    );
+}
+
 /// 図形の拡張辞書の XRECORD は、項目の名前ごとの形式固有の情報になり、値はグループ・コードと値の組で並ぶ。
 /// XRECORD でない項目と、辞書でないものを指す拡張辞書は移さない（決定 0148）
 #[test]

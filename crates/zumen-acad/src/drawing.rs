@@ -135,6 +135,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         if owned.contains(&index) {
             continue;
         }
+        extension_work(db, object, cx)?;
         let attributes: Vec<&Object> = attributes
             .get(&index)
             .map_or(&[][..], Vec::as_slice)
@@ -236,6 +237,37 @@ fn amount(object: &Object) -> u64 {
         .iter()
         .filter(|value| value.code >= 1000)
         .count() as u64
+}
+
+/// 拡張辞書の項目と XRECORD の値の複製を、移す前に数える。同じ辞書を複数の図形が指しても、
+/// 図形ごとに数える。形式固有の情報に控える図形の値の複製も、図形の作業量として加える。
+fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Result<(), Error> {
+    let Some(dictionary) = xdictionary(object)
+        .and_then(|handle| db.get(handle))
+        .filter(|found| found.kind == b"DICTIONARY")
+    else {
+        return Ok(());
+    };
+    let source = source(object);
+    for pair in dictionary.values.windows(2) {
+        work(cx, 1, &source)?;
+        if let [
+            Value { code: 3, .. },
+            Value {
+                code: 350 | 360,
+                data: Data::Handle(handle),
+            },
+        ] = pair
+            && let Some(item) = db.get(*handle).filter(|item| item.kind == b"XRECORD")
+        {
+            work(
+                cx,
+                (item.values.len() as u64).saturating_add(amount(object)),
+                &source,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// 用紙とモデルの空間のブロック。中身は空間の図形として移すので、記号の定義にしない
@@ -1166,6 +1198,7 @@ impl Lifter {
             if owned.contains(&index) {
                 continue;
             }
+            extension_work(db, object, cx)?;
             let lifted = match object.kind.as_slice() {
                 b"ATTDEF" => self
                     .attribute_definition(object, &point, &length, out)
