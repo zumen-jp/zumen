@@ -46,6 +46,8 @@ type Lifted<T> = Result<T, Box<Diagnostic>>;
 
 const MODEL: SpaceId = SpaceId(0);
 const SHEET: SheetId = SheetId(0);
+/// まだ ID を付けていない、中身のない用紙
+const EMPTY: SheetId = SheetId(u32::MAX);
 
 /// ブロックの定義を指す記号のキーの名前空間
 const BLOCK: &str = "dxf.block";
@@ -166,7 +168,15 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             cx,
         ),
     });
-    if !out.paper.is_empty() || !out.views.is_empty() {
+    // 今のレイアウトの LAYOUT は、ペーパー空間の図形の所有者（今のレイアウトのブロックのレコード）を指す
+    // LAYOUT とする。DWG は、どのレイアウトのブロックのレコードも `*Paper_Space` と名付ける
+    let current = entities
+        .iter()
+        .find(|object| matches!(object.first(67), Some(Data::Int(1))))
+        .and_then(|object| object.owner())
+        .and_then(|handle| layout_of(db, handle));
+    let has_paper = !out.paper.is_empty() || !out.views.is_empty();
+    if has_paper {
         let size = match (limits(b"$PLIMMAX"), lifter.mm) {
             (Some([x, y]), Some(mm)) => {
                 let [ox, oy] = lifter.origin;
@@ -176,14 +186,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             _ => None,
         };
         let order = arrange(paper_keys.as_ref(), out.sheet, cx);
-        // 今のレイアウトの名前は、ペーパー空間の図形の所有者（今のレイアウトのブロックのレコード）を指す LAYOUT
-        // から読む。DWG は、どのレイアウトのブロックのレコードも `*Paper_Space` と名付ける
-        let name = entities
-            .iter()
-            .find(|object| matches!(object.first(67), Some(Data::Int(1))))
-            .and_then(|object| object.owner())
-            .and_then(|handle| layout_of(db, handle))
-            .and_then(|layout| lifter.layout_info(layout).name);
+        let name = current.and_then(|layout| lifter.layout_info(layout).name);
         drawing.sheets.push(Sheet {
             id: SHEET,
             name,
@@ -193,11 +196,28 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             order,
         });
     }
-    // ほかのレイアウトの用紙は、今のレイアウトの後に、タブの順で並べる
-    out.layouts.sort_by_key(|(tab, _)| *tab);
+    // ほかのレイアウトの用紙は、今のレイアウトの後に、タブの順で並べる。今のレイアウトのペーパー空間の
+    // ブロックは中身を持たないので、今のレイアウトの用紙を作ったなら、そのブロックからの空の用紙は除く。
+    // 中身のない用紙の ID は、中身のある用紙の後から、タブの順に付ける
+    let current = current.and_then(|layout| position(db, layout));
+    out.layouts
+        .retain(|(_, layout, _)| !(has_paper && layout.is_some() && *layout == current));
+    out.layouts.sort_by_key(|(tab, _, _)| *tab);
+    let filled = out
+        .layouts
+        .iter()
+        .filter(|(_, _, sheet)| sheet.id != EMPTY)
+        .count();
+    let mut next = u32::try_from(filled).unwrap_or(u32::MAX).saturating_add(1);
+    for (_, _, sheet) in &mut out.layouts {
+        if sheet.id == EMPTY {
+            sheet.id = SheetId(next);
+            next = next.saturating_add(1);
+        }
+    }
     drawing
         .sheets
-        .extend(out.layouts.into_iter().map(|(_, sheet)| sheet));
+        .extend(out.layouts.into_iter().map(|(_, _, sheet)| sheet));
     Ok(drawing)
 }
 
@@ -247,6 +267,13 @@ fn layout_of(db: &AcadDb, record: u64) -> Option<&Object> {
                 .skip(1)
                 .any(|value| value.data == Data::Handle(record))
     })
+}
+
+/// オブジェクトの並びの中の位置。ハンドルを持たないオブジェクトも見分ける
+fn position(db: &AcadDb, object: &Object) -> Option<usize> {
+    db.objects()
+        .iter()
+        .position(|candidate| std::ptr::eq(candidate, object))
 }
 
 /// LAYOUT の名前（2 つ目の 1。初めの 1 はページ設定の名前）・タブの順（71）・範囲（10・20 と 11・21）
@@ -317,7 +344,7 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
     let inner = symbols
         .iter()
         .flat_map(|symbol| placed(&symbol.space.elements));
-    let layouts = || out.layouts.iter().flat_map(|(_, sheet)| &sheet.elements);
+    let layouts = || out.layouts.iter().flat_map(|(_, _, sheet)| &sheet.elements);
     let others = referenced(&out.model)
         .chain(referenced(&out.paper))
         .chain(layouts().flat_map(|element| referenced(std::slice::from_ref(element))))
@@ -506,8 +533,9 @@ struct Out {
     views: Vec<View>,
     /// 用紙の上に描くものと、そのハンドル。順序は入力の順
     sheet: Vec<(SheetItem, Option<u64>)>,
-    /// ほかのレイアウトの用紙と、そのタブの順
-    layouts: Vec<(i64, Sheet)>,
+    /// ほかのレイアウトの用紙と、そのタブの順と LAYOUT の位置（オブジェクトの並びの中）。中身のない用紙の ID は、
+    /// 最後に付ける
+    layouts: Vec<(i64, Option<usize>, Sheet)>,
     layers: Vec<Layer>,
     /// ASCII の大文字を小文字にした画層の名前。DXF の名前は大文字と小文字を区別しない（推定。docs/formats/dxf.md）
     by_name: BTreeMap<String, LayerId>,
@@ -832,8 +860,8 @@ impl Lifter {
     }
 
     /// ほかのレイアウトのペーパー空間のブロックの中身を、1 枚の用紙にする。用紙の原点と大きさは LAYOUT の
-    /// 範囲で決め、なければ原点を 0 とし、大きさを決めない（推定。docs/formats/dxf.md）。中身がなければ
-    /// 用紙を作らない
+    /// 範囲で決め、なければ原点を 0 とし、大きさを決めない（推定。docs/formats/dxf.md）。中身がなければ、
+    /// LAYOUT があるときだけ、中身のない用紙を作る
     fn layout(
         &self,
         db: &AcadDb,
@@ -844,15 +872,15 @@ impl Lifter {
         cx: &mut Cx,
     ) -> Result<(), Error> {
         let handle = record.and_then(Object::handle);
-        let info = handle
-            .and_then(|handle| layout_of(db, handle))
-            .map(|layout| self.layout_info(layout));
+        let layout = handle.and_then(|handle| layout_of(db, handle));
+        let info = layout.map(|layout| self.layout_info(layout));
         let limits = info.as_ref().and_then(|info| info.limits);
-        let id = SheetId(
-            u32::try_from(out.layouts.len())
-                .unwrap_or(u32::MAX)
-                .saturating_add(1),
-        );
+        let filled = out
+            .layouts
+            .iter()
+            .filter(|(_, _, sheet)| sheet.id != EMPTY)
+            .count();
+        let id = SheetId(u32::try_from(filled).unwrap_or(u32::MAX).saturating_add(1));
         let lifter = Lifter {
             sheet: id,
             origin: limits.map_or([0.0, 0.0], |[min, _]| min),
@@ -883,7 +911,9 @@ impl Lifter {
         let elements = std::mem::replace(&mut out.paper, paper);
         let views = std::mem::replace(&mut out.views, views);
         let items = std::mem::replace(&mut out.sheet, sheet);
-        if elements.is_empty() && views.is_empty() {
+        // 中身のないレイアウトも、LAYOUT があれば、名前と大きさだけの用紙にする。ID は後で付ける
+        let empty = elements.is_empty() && views.is_empty();
+        if empty && layout.is_none() {
             return Ok(());
         }
         let size = match (limits, self.mm) {
@@ -897,8 +927,9 @@ impl Lifter {
         let (name, tab) = info.map_or((None, 0), |info| (info.name, info.tab));
         out.layouts.push((
             tab,
+            layout.and_then(|layout| position(db, layout)),
             Sheet {
-                id,
+                id: if empty { EMPTY } else { id },
                 name,
                 size,
                 elements,

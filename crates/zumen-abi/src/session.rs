@@ -469,6 +469,7 @@ fn summary(drawing: &Drawing2D) -> DrawingResult {
             .sheets
             .iter()
             .map(|sheet| SheetSummary {
+                name: sheet.name.clone(),
                 size: sheet.size.map(|size| size.iter().map(|l| l.0).collect()),
                 elements: counts(&sheet.elements),
                 views: sheet.views.len() as u64,
@@ -893,7 +894,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":3}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":4}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

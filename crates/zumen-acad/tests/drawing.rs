@@ -755,6 +755,83 @@ fn each_layout_becomes_a_sheet_with_its_name_and_limits() {
     assert_eq!(first.order, [SheetItem::Element(0), SheetItem::View(0)]);
 }
 
+/// 図形のないレイアウトも、名前と大きさだけの用紙になる（決定 0153）。今のレイアウトに図形がなければ、
+/// そのペーパー空間のブロックから中身のない用紙を作る。中身のない用紙の ID は、中身のある用紙の後に付く
+#[test]
+fn empty_layouts_become_sheets_without_elements() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "B1"),
+        (2, "*Paper_Space"),
+        (0, "BLOCK_RECORD"),
+        (5, "C1"),
+        (2, "*Paper_Space0"),
+        (0, "ENDTAB"),
+    ];
+    let mut blocks = Vec::new();
+    for (record, name, line) in [
+        ("B1", "*Paper_Space", None),
+        ("C1", "*Paper_Space0", Some("C3")),
+    ] {
+        blocks.extend([
+            (0, "BLOCK"),
+            (330, record),
+            (8, "0"),
+            (2, name),
+            (70, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+        ]);
+        if let Some(line) = line {
+            let mut tags = paper_line(line);
+            tags.insert(2, (330, record));
+            blocks.extend(tags);
+        }
+        blocks.extend([(0, "ENDBLK"), (330, record), (8, "0")]);
+    }
+    let mut objects = layout("L1", "Main", "1", ["0.0", "0.0", "420.0", "297.0"], "B1");
+    objects.extend(layout(
+        "L2",
+        "Other",
+        "2",
+        ["0.0", "0.0", "297.0", "210.0"],
+        "C1",
+    ));
+    let (drawing, diag) = lift(
+        &sections(&[
+            ("HEADER", MM),
+            ("TABLES", &tables),
+            ("BLOCKS", &blocks),
+            ("ENTITIES", &[]),
+            ("OBJECTS", &objects),
+        ]),
+        &mut Budget::default(),
+    );
+    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    let drawing = drawing.unwrap();
+    let sheets: Vec<_> = drawing
+        .sheets
+        .iter()
+        .map(|sheet| {
+            (
+                sheet.id,
+                sheet.name.as_deref(),
+                sheet.size.map(|size| size.map(|l| l.0)),
+                sheet.elements.len(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        sheets,
+        [
+            (SheetId(2), Some("Main"), Some([420.0, 297.0]), 0),
+            (SheetId(1), Some("Other"), Some([297.0, 210.0]), 1),
+        ]
+    );
+}
+
 #[test]
 fn layers_keep_their_table_and_views_hide_layers() {
     let tables = [

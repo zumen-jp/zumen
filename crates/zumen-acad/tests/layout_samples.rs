@@ -78,3 +78,63 @@ fn each_layout_of_the_samples_becomes_a_sheet() {
     // ZUMEN_SAMPLES がなければ 0
     assert!(checked == 0 || checked >= 11, "{checked}");
 }
+
+/// 図形のないレイアウトも、名前と大きさだけの用紙になる（決定 0153）。`arc_2000.dwg` などの AutoCAD の
+/// 試料は、モデルのタブを今のレイアウトとし、図形のない Layout1・Layout2 を持つ。今のレイアウトの用紙は
+/// 作らず、ほかの 2 つのレイアウトが、中身のない用紙になる
+#[test]
+fn empty_layouts_become_empty_sheets() {
+    let mut checked = 0;
+    for path in drawings() {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !matches!(
+            name.as_str(),
+            "arc_2000.dwg"
+                | "line_2000.dwg"
+                | "jp-yokosuka-minami-survey-plan.dwg"
+                | "jp-yokosuka-minami-survey-plan.dxf"
+        ) {
+            continue;
+        }
+        let Some(drawing) = lift(&path) else { continue };
+        let sheets: Vec<_> = drawing
+            .sheets
+            .iter()
+            .map(|sheet| (sheet.id.0, sheet.name.as_deref()))
+            .collect();
+        assert_eq!(
+            sheets,
+            [(1, Some("Layout1")), (2, Some("Layout2"))],
+            "{name}"
+        );
+        for sheet in &drawing.sheets {
+            assert!(
+                sheet.elements.is_empty() && sheet.views.is_empty(),
+                "{name}"
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked == 0 || checked == 4, "{checked}");
+}
+
+/// 図形のある用紙と図形のない用紙が混じるとき、用紙はタブの順に並び、中身のない用紙の ID は中身の
+/// ある用紙の後に付く。`features-r2018.dxf` は、図形のない Layout1 と、図形のある A3-PLAN を持つ
+#[test]
+fn empty_sheets_take_ids_after_the_filled_ones() {
+    for path in drawings() {
+        if path.file_name().is_none_or(|n| n != "features-r2018.dxf") {
+            continue;
+        }
+        let drawing = lift(&path).unwrap();
+        let sheets: Vec<_> = drawing
+            .sheets
+            .iter()
+            .map(|sheet| (sheet.id.0, sheet.name.as_deref(), sheet.elements.is_empty()))
+            .collect();
+        assert_eq!(
+            sheets,
+            [(2, Some("Layout1"), true), (1, Some("A3-PLAN"), false)]
+        );
+    }
+}
