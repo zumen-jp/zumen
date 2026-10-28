@@ -28,24 +28,24 @@ const packages = [
 ---
 
 <Base title="対応環境" description="言語の段、OS とブラウザーの下限、使えるホストアプリ、配布の名前です。">
-  <PageHeader title="対応環境" en="Platforms" lead="言語ごとの約束、OS とブラウザーの下限、使えるホストアプリです。" />
+  <PageHeader title="対応環境" lead="言語ごとの約束、OS とブラウザーの下限、使えるホストアプリです。" />
 
   <section class="section">
     <div class="wrap">
-      <SectionHead no="01" title="言語の段" en="Languages" />
-      <div class="tiers">
-        <div class="tier">
-          <h4>段 1</h4>
+      <SectionHead title="言語の段" en="Languages" />
+      <div class="cards">
+        <div class="card">
+          <h3>段 1</h3>
           <p>その言語らしいパッケージを作り、PR ごとに適合試験を走らせ、核と同じ日に公開します。</p>
           <ul class="chips"><li>Rust</li><li>TypeScript・JavaScript</li><li>Python</li><li>.NET</li><li>C・C++</li><li>CLI・MCP</li></ul>
         </div>
-        <div class="tier">
-          <h4>段 2</h4>
+        <div class="card">
+          <h3>段 2</h3>
           <p>生成したパッケージを作り、適合試験を毎晩走らせます。</p>
           <ul class="chips"><li>Java・Kotlin</li><li>Swift</li><li>Go</li><li>Dart</li><li>VBA</li></ul>
         </div>
-        <div class="tier">
-          <h4>段 3</h4>
+        <div class="card">
+          <h3>段 3</h3>
           <p>C ABI・wasm・CLI・HTTP を使う手順とサンプルを用意します。</p>
           <ul class="chips"><li>Ruby</li><li>PHP</li><li>R</li><li>Julia</li><li>MATLAB</li><li>AutoLISP</li><li>PowerShell</li><li>ほか</li></ul>
         </div>
@@ -56,9 +56,9 @@ const packages = [
 
   <section class="section section-alt">
     <div class="wrap">
-      <SectionHead no="02" title="OS とブラウザー" en="Requirements" />
+      <SectionHead title="OS とブラウザー" en="Requirements" />
       <div class="table-scroll">
-        <table class="spec">
+        <table class="table spec">
           <tbody>{os.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
         </table>
       </div>
@@ -68,16 +68,16 @@ const packages = [
 
   <section class="section">
     <div class="wrap">
-      <SectionHead no="03" title="使えるホストアプリ（予定）" en="Host apps" />
+      <SectionHead title="使えるホストアプリ（予定）" en="Host apps" />
       <ul class="chips chips-lg">{hostApps.map((a) => <li>{a}</li>)}</ul>
     </div>
   </section>
 
   <section class="section section-alt">
     <div class="wrap">
-      <SectionHead no="04" title="配布の名前（予定）" en="Packages" />
+      <SectionHead title="配布の名前（予定）" en="Packages" />
       <div class="table-scroll">
-        <table class="spec">
+        <table class="table spec">
           <tbody>{packages.map(([k, v]) => <tr><th scope="row">{k}</th><td><code>{v}</code></td></tr>)}</tbody>
         </table>
       </div>

@@ -25,109 +25,87 @@ const points = [
 
 <Base>
   <section class="hero" aria-labelledby="hero-title">
-    <div class="wrap">
-      <div class="sheet">
-        <ol class="zones-x" aria-hidden="true"><li>1</li><li>2</li><li>3</li><li>4</li><li>5</li><li>6</li><li>7</li><li>8</li></ol>
-        <ol class="zones-y" aria-hidden="true"><li>A</li><li>B</li><li>C</li><li>D</li></ol>
-
-        <div class="hero-body">
-          <div>
-            <p class="hero-label"><span class="stamp" aria-hidden="true">開発<br />中</span>作り直しを進めています</p>
-            <h1 id="hero-title">日本の図面を、<br /><em>どの言語からも</em>、<br />同じ結果で。</h1>
-            <p class="hero-lead">
-              zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きするライブラリ群です。Rust の 1 つの核を、ブラウザー・サーバー・Python・.NET・Excel から同じように使えます。
-            </p>
-            <div class="actions">
-              <a class="btn btn-primary" href="/features/">特長を見る</a>
-              <a class="btn btn-secondary" href="/formats/">対応形式を見る</a>
-            </div>
-          </div>
-          <PlanDrawing />
-        </div>
-
-        <div class="titleblock-wrap">
-          <div class="sheet-notes">
-            <p>特記事項</p>
-            <ol>
-              <li>図面は外部へ送らず、手元の環境で読む。</li>
-              <li>読めないものは、黙って捨てずに報告する。</li>
-              <li>寸法の単位は mm とする。</li>
-            </ol>
-          </div>
-          <table class="titleblock">
-            <caption class="skip">表題欄</caption>
-            <tbody>
-              <tr><th scope="row">工事名称</th><td class="tb-name" colspan="3">zumen ― 日本の建設のデータの読み書き</td></tr>
-              <tr><th scope="row">図面名称</th><td>総合案内</td><th scope="row">図面番号</th><td>Z-000</td></tr>
-              <tr><th scope="row">縮尺</th><td>NTS</td><th scope="row">日付</th><td>{news[0]?.date}</td></tr>
-              <tr><th scope="row">ライセンス</th><td>MIT OR Apache-2.0</td><th scope="row">状態</th><td class="tb-status">開発中</td></tr>
-            </tbody>
-          </table>
+    <div class="wrap hero-body">
+      <div>
+        <p class="status-chip">オープンソース（MIT・Apache-2.0）</p>
+        <h1 id="hero-title">日本の図面を、<br /><em>どの言語からも</em>、<br />同じ結果で。</h1>
+        <p class="hero-lead">
+          zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きするライブラリ群です。Rust の 1 つの核を、ブラウザー・サーバー・Python・.NET・Excel から同じように使えます。
+        </p>
+        <div class="actions">
+          <a class="btn btn-primary btn-lg" href="/features/">特長を見る</a>
+          <a class="btn btn-secondary btn-lg" href="/formats/">対応形式を見る</a>
         </div>
       </div>
+      <PlanDrawing />
     </div>
   </section>
 
-  <section class="section section-tight" aria-labelledby="news-title">
-    <div class="wrap news-box">
+  <section class="section section-alt" aria-labelledby="news-title">
+    <div class="wrap">
       <div class="news-box-head">
-        <h2 id="news-title">お知らせ</h2>
-        <a class="more" href="/news/">一覧を見る</a>
+        <div class="section-head">
+          <span class="shoulder" lang="en">News</span>
+          <h2 id="news-title">お知らせ</h2>
+        </div>
+        <a class="btn btn-text arrow" href="/news/">一覧を見る</a>
       </div>
       <NewsList items={news.slice(0, 3)} />
     </div>
   </section>
 
-  <section class="section section-alt" aria-labelledby="points-title">
+  <section class="section" aria-labelledby="points-title">
     <div class="wrap">
       <SectionHead id="points-title" title="zumen の 3 つの特長" en="Features" />
-      <ol class="points">
+      <ol class="cards">
         {
           points.map((p, i) => (
-            <li>
-              <span class="point-no">POINT<strong>{String(i + 1).padStart(2, '0')}</strong></span>
+            <li class="card">
+              <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
               <h3>{p.title}</h3>
               <p>{p.body}</p>
             </li>
           ))
         }
       </ol>
-      <p class="center"><a class="btn btn-secondary" href="/features/">特長と仕組みを詳しく見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary" href="/features/">特長と仕組みを詳しく見る</a></p>
     </div>
   </section>
 
-  <section class="section" aria-labelledby="formats-title">
+  <section class="section section-alt" aria-labelledby="formats-title">
     <div class="wrap">
       <SectionHead id="formats-title" title="対応形式の早見表" en="Formats" />
       <FormatTable items={formats.filter((f) => f.top)} />
-      <p class="center"><a class="btn btn-secondary" href="/formats/">すべての形式を見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary" href="/formats/">すべての形式を見る</a></p>
     </div>
   </section>
 
-  <section class="section section-alt" aria-labelledby="apps-title">
+  <section class="section" aria-labelledby="apps-title">
     <div class="wrap">
       <SectionHead id="apps-title" title="いつものソフトから使える" en="Integrations" />
       <p>各言語のパッケージを通して、次のソフトの中から使えるようにします（予定）。</p>
       <ul class="chips chips-lg">{hostApps.map((a) => <li>{a}</li>)}</ul>
-      <p class="center"><a class="btn btn-secondary" href="/platforms/">対応環境を見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary" href="/platforms/">対応環境を見る</a></p>
     </div>
   </section>
 
-  <section class="section" aria-labelledby="faq-title">
+  <section class="section section-alt" aria-labelledby="faq-title">
     <div class="wrap">
       <SectionHead id="faq-title" title="よくある質問" en="FAQ" />
       <FaqList items={faqs.filter((f) => f.top)} />
-      <p class="center"><a class="btn btn-secondary" href="/faq/">質問をすべて見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary" href="/faq/">質問をすべて見る</a></p>
     </div>
   </section>
 
-  <section class="cta" aria-labelledby="cta-title">
+  <section class="section" aria-labelledby="cta-title">
     <div class="wrap">
-      <h2 id="cta-title">開発の進み具合は、GitHub で公開しています</h2>
-      <p>設計・決めたこと・次の作業を、すべて GitHub で見られます。今すぐ図面を読み書きしたい場合は、旧版を使ってください。</p>
-      <div class="actions">
-        <a class="btn btn-inverse" href={repo}>GitHub で見る</a>
-        <a class="btn btn-ghost" href={legacy}>旧版を使う</a>
+      <div class="cta">
+        <h2 id="cta-title">開発の進み具合は、GitHub で公開しています</h2>
+        <p>設計・決めたこと・次の作業を、すべて GitHub で見られます。今すぐ図面を読み書きしたい場合は、旧版を使ってください。</p>
+        <div class="actions">
+          <a class="btn btn-primary btn-lg" href={repo}>GitHub で見る</a>
+          <a class="btn btn-secondary btn-lg" href={legacy}>旧版を使う</a>
+        </div>
       </div>
     </div>
   </section>

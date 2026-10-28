@@ -1,4 +1,7 @@
 ---
+import '@digital-go-jp/design-tokens/dist/tokens.css';
+import '@fontsource-variable/noto-sans-jp/wght.css';
+import '@fontsource/noto-sans-mono/400.css';
 import '../styles/global.css';
 import { legacy, nav, repo } from '../data/site';
 
@@ -22,7 +25,7 @@ const canonical = new URL(path, Astro.site);
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#123a6b" />
+    <meta name="theme-color" content="#0017c1" />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
@@ -33,16 +36,6 @@ const canonical = new URL(path, Astro.site);
   </head>
   <body>
     <a class="skip" href="#main">本文へ移動</a>
-
-    <div class="util">
-      <div class="wrap">
-        <span>{site}</span>
-        <ul>
-          <li><a href={repo}>GitHub</a></li>
-          <li><a href={legacy}>旧版</a></li>
-        </ul>
-      </div>
-    </div>
 
     <header class="masthead">
       <div class="wrap">
@@ -63,9 +56,17 @@ const canonical = new URL(path, Astro.site);
             }
           </ul>
         </nav>
-        <a class="btn btn-primary header-cta" href={repo}>GitHub で見る</a>
+        <a class="btn btn-secondary header-cta" href={repo}>GitHub で見る</a>
       </div>
     </header>
+
+    <div class="wrap">
+      <div class="banner" role="note">
+        <svg class="banner-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2Zm1 15h-2v-2h2v2Zm0-4h-2V9h2v4Z"/></svg>
+        <p class="banner-title">作り直しの開発中です</p>
+        <p>パッケージはまだ公開していません。今すぐ図面を読み書きしたい場合は、<a href={legacy}>旧版の zumen-legacy</a> を使ってください。</p>
+      </div>
+    </div>
 
     <main id="main">
       <slot />
@@ -88,9 +89,11 @@ const canonical = new URL(path, Astro.site);
             <li><a href={`${repo}/blob/main/CODE_OF_CONDUCT.md`}>行動規範</a></li>
           </ul>
         </div>
-        <small>
-          zumen は MIT License または Apache License 2.0 で提供します。このサイトは、外部のフォント・アクセス解析・クッキーを使いません。
-        </small>
+        <div class="footer-note">
+          <p>zumen は MIT License または Apache License 2.0 で提供します。</p>
+          <p>このサイトの見た目は、<a href="https://design.digital.go.jp/">デジタル庁デザインシステム</a>を参考にしています。zumen は国や自治体の事業ではありません。</p>
+          <p>フォントはこのサイトから配り、アクセス解析とクッキーは使いません。</p>
+        </div>
       </div>
     </footer>
   </body>

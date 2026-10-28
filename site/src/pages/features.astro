@@ -14,13 +14,13 @@ const policies = [
 ---
 
 <Base title="特長" description="zumen の特長・5 つの方針・仕組みを説明します。">
-  <PageHeader title="特長" en="Features" lead="zumen が何をするライブラリ群か、どのように作っているかを説明します。" />
+  <PageHeader title="特長" lead="zumen が何をするライブラリ群か、どのように作っているかを説明します。" />
 
   <section class="section">
     <div class="wrap">
-      <SectionHead no="01" title="zumen の概要" en="About" />
+      <SectionHead title="zumen の概要" en="About" />
       <div class="table-scroll">
-        <table class="spec">
+        <table class="table spec">
           <tbody>
             <tr><th scope="row">名称</th><td>zumen（ずめん）</td></tr>
             <tr><th scope="row">内容</th><td>日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群</td></tr>
@@ -38,13 +38,13 @@ const policies = [
 
   <section class="section section-alt">
     <div class="wrap">
-      <SectionHead no="02" title="5 つの方針" en="Principles" />
-      <ol class="policies">
+      <SectionHead title="5 つの方針" en="Principles" />
+      <ol class="cards">
         {
           policies.map((p, i) => (
-            <li>
-              <span class="no">{String(i + 1).padStart(2, '0')}</span>
-              <strong>{p.title}</strong>
+            <li class="card">
+              <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
+              <h3>{p.title}</h3>
               <p>{p.body}</p>
               {p.link && <a class="small-link" href={p.link}>決定の記録</a>}
             </li>
@@ -56,25 +56,25 @@ const policies = [
 
   <section class="section">
     <div class="wrap">
-      <SectionHead no="03" title="仕組み" en="Architecture" />
+      <SectionHead title="仕組み" en="Architecture" />
       <div class="flow">
         <div class="flow-box">
-          <h4>使う所</h4>
+          <h3>使う所</h3>
           <ul><li>ブラウザー・Node.js</li><li>Python・.NET・Java</li><li>Excel（VBA）</li><li>Revit・AutoCAD・Rhino</li><li>CLI・MCP</li></ul>
         </div>
         <div class="flow-arrow" aria-hidden="true">⇄</div>
         <div class="flow-box">
-          <h4>境界（API）</h4>
+          <h3>境界（API）</h3>
           <ul><li>数個の関数</li><li>スキーマで定めたメッセージ</li><li>ネイティブ・wasm・プロセスの外・HTTP</li><li>足すだけで、消さない</li></ul>
         </div>
         <div class="flow-arrow" aria-hidden="true">⇄</div>
         <div class="flow-box core">
-          <h4>Rust の核</h4>
+          <h3>Rust の核</h3>
           <ul><li>読み書き・解析を 1 つの実装に</li><li>ビット単位で同じ出力</li><li>作業量で数える予算</li><li>診断を code と場所で返す</li></ul>
         </div>
         <div class="flow-arrow" aria-hidden="true">⇄</div>
         <div class="flow-box">
-          <h4>形式</h4>
+          <h3>形式</h3>
           <ul><li>SXF（SFC・P21）</li><li>JWW・JWC・JWS</li><li>DXF・DWG</li><li>IFC・PDF ほか</li></ul>
         </div>
       </div>

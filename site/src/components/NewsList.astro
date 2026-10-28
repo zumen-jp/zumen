@@ -14,7 +14,7 @@ const { items } = Astro.props;
       <li>
         <time datetime={item.date}>{item.date}</time>
         <span>
-          <span class:list={['tag', { 'tag-red': item.tag === 'お知らせ' }]}>{item.tag}</span>
+          <span class:list={['tag', { 'tag-notice': item.tag === 'お知らせ', 'tag-decision': item.tag === '決定' }]}>{item.tag}</span>
         </span>
         <span set:html={item.html} />
       </li>
