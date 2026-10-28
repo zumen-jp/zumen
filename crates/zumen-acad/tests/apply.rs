@@ -151,3 +151,184 @@ fn changes_that_cannot_be_written_back_change_nothing() {
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+/// 図形のタグを並べた DXF
+#[cfg(test)]
+fn dxf(entities: &[(i16, &str)]) -> Vec<u8> {
+    let head: &[(i16, &str)] = &[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$INSUNITS"),
+        (70, "4"),
+        (9, "$HANDSEED"),
+        (5, "20"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+    ];
+    let tail: &[(i16, &str)] = &[(0, "ENDSEC"), (0, "EOF")];
+    head.iter()
+        .chain(entities)
+        .chain(tail)
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+/// ARC・ELLIPSE・LWPOLYLINE を 1 つずつ持つ DXF
+#[cfg(test)]
+fn curves() -> Vec<u8> {
+    dxf(&[
+        (0, "ARC"),
+        (5, "1A"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (40, "1.0"),
+        (50, "0.0"),
+        (51, "90.0"),
+        (0, "ELLIPSE"),
+        (5, "1B"),
+        (8, "0"),
+        (10, "10.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "4.0"),
+        (21, "0.0"),
+        (31, "0.0"),
+        (40, "0.5"),
+        (41, "0.0"),
+        (42, "6.283185307179586"),
+        (0, "LWPOLYLINE"),
+        (5, "1C"),
+        (8, "0"),
+        (90, "2"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "5.0"),
+        (10, "2.0"),
+        (20, "5.0"),
+        (42, "0.5"),
+        (210, "0.0"),
+        (220, "0.0"),
+        (230, "1.0"),
+    ])
+}
+
+#[test]
+fn arcs_ellipses_and_lightweight_polylines_are_replaced() {
+    use zumen_drawing::{Edge, ModelLength, Vertex};
+    let mut file = testkit::read::<Dxf>(&curves()).0.unwrap();
+    let [arc, ellipse, line] = <[_; 3]>::try_from(elements(&lift(&file))).unwrap();
+    // 時計回りに 90 度から 0 度へたどる弧は、0 度から 90 度への反時計回りの弧と同じ
+    let mut turned = arc.clone();
+    if let Shape::Curve(Edge::Arc {
+        center,
+        radius,
+        start,
+        end,
+        counterclockwise,
+    }) = &mut turned.shape
+    {
+        center.x = 1.0;
+        if let Length::Model(radius) = radius {
+            radius.value = 2.5;
+        }
+        (*start, *end, *counterclockwise) = (180.0, 45.0, false);
+    }
+    let mut opened = ellipse.clone();
+    if let Shape::Curve(Edge::Elliptic { end, .. }) = &mut opened.shape {
+        *end = 180.0;
+    }
+    let mut longer = line.clone();
+    let Shape::Polyline(polyline) = &mut longer.shape else {
+        panic!("{:?}", longer.shape);
+    };
+    let at = polyline.vertices[0].point;
+    polyline.vertices.push(Vertex {
+        point: zumen_drawing::ModelPoint { y: 7.0, ..at },
+        bulge: -0.25,
+    });
+    polyline.closed = true;
+    polyline.width = Some(Length::Model(ModelLength {
+        space: at.space,
+        value: 0.5,
+    }));
+    let edits = vec![
+        Edit::Replace(Box::new(turned.clone())),
+        Edit::Replace(Box::new(opened.clone())),
+        Edit::Replace(Box::new(longer.clone())),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let again = testkit::read::<Dxf>(&written).0.unwrap();
+    let [arc, ellipse, line] = <[_; 3]>::try_from(elements(&lift(&again))).unwrap();
+    let Shape::Curve(Edge::Arc { start, end, .. }) = arc.shape else {
+        panic!("{:?}", arc.shape);
+    };
+    assert_eq!((start, end), (45.0, 180.0));
+    assert_eq!(ellipse.shape, opened.shape);
+    assert_eq!(line.shape, longer.shape);
+    let text = String::from_utf8(written).unwrap();
+    // 変えていない楕円の欄と、頂点の後の押し出しの向きは、元の書き方のまま残る
+    assert!(text.contains(" 11\n4.0\n 21\n0.0\n 31\n0.0\n 40\n0.5\n 41\n0.0\n"));
+    assert!(text.contains(" 42\n-0.25\n210\n0.0\n220\n0.0\n230\n1.0\n"));
+    assert!(text.contains(" 90\n3\n 70\n1\n 43\n0.5\n 10\n0.0\n 20\n5.0\n 10\n2.0\n"));
+}
+
+#[test]
+fn replacements_the_records_cannot_hold_change_nothing() {
+    use zumen_drawing::Edge;
+    let src = dxf(&[
+        (0, "ELLIPSE"),
+        (5, "1B"),
+        (8, "0"),
+        (10, "10.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "4.0"),
+        (21, "0.0"),
+        (31, "0.0"),
+        (40, "0.5"),
+        (0, "LWPOLYLINE"),
+        (5, "1C"),
+        (8, "0"),
+        (90, "2"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "5.0"),
+        (91, "1"),
+        (10, "2.0"),
+        (20, "5.0"),
+        (91, "2"),
+    ]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [ellipse, line] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
+    let mut flat = ellipse.clone();
+    if let Shape::Curve(Edge::Elliptic { ratio, .. }) = &mut flat.shape {
+        *ratio = 1.5;
+    }
+    let mut longer = line.clone();
+    if let Shape::Polyline(polyline) = &mut longer.shape {
+        let last = polyline.vertices[1];
+        polyline.vertices.push(last);
+    }
+    let edits = vec![
+        Edit::Replace(Box::new(flat)),
+        Edit::Replace(Box::new(longer)),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(
+            codes::DXF_CHANGE_UNSUPPORTED,
+            vec![ellipse.source, line.source]
+        )]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
