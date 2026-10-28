@@ -900,6 +900,72 @@ pub struct Cell {
     pub span: [u32; 2],
     /// ほかのセルに結合されて覆われる
     pub covered: bool,
+    /// 型のある値と、その単位と表示の書式。元の形式が値を持たなければ `None`。表示する文字は `content` が持つ
+    pub value: Option<CellValue>,
+}
+
+/// セルの型のある値（決定 0147）
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellValue {
+    /// 値
+    pub data: CellData,
+    /// 値の単位の種類
+    pub unit: ValueUnit,
+    /// 元の形式の表示の書式。翻訳しない。なければ `None`
+    pub format: Option<String>,
+}
+
+/// セルの値
+#[derive(Clone, Debug, PartialEq)]
+pub enum CellData {
+    /// 文字列。書式の符号を含む
+    Text(String),
+    /// 整数
+    Integer(i64),
+    /// 実数。長さ・面積・体積は、図面の単位のまま
+    Real(f64),
+    /// 日時
+    Date(DateTime),
+    /// 点。2 次元の点は Z を 0 とする
+    Point([f64; 3]),
+}
+
+/// 日時。時差を持たない
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DateTime {
+    /// 年
+    pub year: u16,
+    /// 月（1〜12）
+    pub month: u8,
+    /// 日（1〜31）
+    pub day: u8,
+    /// 時（0〜23）
+    pub hour: u8,
+    /// 分
+    pub minute: u8,
+    /// 秒
+    pub second: u8,
+    /// ミリ秒
+    pub millisecond: u16,
+}
+
+/// 値の単位の種類
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueUnit {
+    /// 単位なし
+    None,
+    /// 長さ
+    Distance,
+    /// 角度
+    Angle,
+    /// 面積
+    Area,
+    /// 体積
+    Volume,
+    /// 通貨
+    Currency,
+    /// 百分率
+    Percentage,
 }
 
 /// セルの内容

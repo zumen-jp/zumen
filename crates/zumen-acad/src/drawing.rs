@@ -22,16 +22,16 @@ use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
-    BackgroundFill, Basis, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, Clip,
-    Color, ColorCode, ColorSystem, Dimension, DimensionKind, DimensionStyle, DimensionText, Dogleg,
-    Drawing2D, Edge, Element, Extension, Field, FieldValue, Fill, Fit, Flow, FormattedText,
-    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
-    Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
-    LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength, ModelPoint, ModelSpace,
-    PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin,
-    Placement, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem, SpaceId, Spline,
-    Style, Symbol, SymbolDefinition, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame,
-    UnderlayKind, Unit, Vertex, Vertical, View,
+    BackgroundFill, Basis, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, CellData,
+    CellValue, Clip, Color, ColorCode, ColorSystem, DateTime, Dimension, DimensionKind,
+    DimensionStyle, DimensionText, Dogleg, Drawing2D, Edge, Element, Extension, Field, FieldValue,
+    Fill, Fit, Flow, FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning,
+    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
+    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, Measured, ModelLength,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Placement, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem,
+    SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table, Target, Text, Underlay,
+    UnderlayFrame, UnderlayKind, Unit, ValueUnit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -1114,7 +1114,7 @@ impl Lifter {
     /// （141）・列の幅（142）と、種類（171）で始まるセルの並び。セルは、覆われる（173）・広げる列と行の数（175・
     /// 176）を持ち、種類が 1 なら文字（2 の区切りと 1）、2 ならブロックのレコード（340）を内容とする。文字がなく、
     /// 2007 からの値（301 から）の文字（302）があれば、それを内容とする（docs/formats/dxf.md）。数が合わない
-    /// ものは読めないとする。セルの書式・枠・値の種類と表示の書式は、まだ移さない
+    /// ものは読めないとする。セルの値の型と単位と表示の書式は `cell_value` で読む。セルの書式と枠は、まだ移さない
     fn table<P>(
         &self,
         db: &AcadDb,
@@ -1406,7 +1406,76 @@ impl Lifter {
             content,
             span: [span(175)?, span(176)?],
             covered: self.int(&fields, 173, 0)? != 0,
+            value: self.cell_value(cell, value)?,
         })
+    }
+
+    /// セルの 2007 からの値（301 `CELL_VALUE` から 304 `ACVALUE_END` まで）の、型のある値。印（93）の 1 が立つか、
+    /// 型（90）が 0 なら `None`。整数（1）は 91、実数（2）は 140、文字列（4）は 2 の並びと 1、日時（8）は 310 の
+    /// SYSTEMTIME（年・月・曜日・日・時・分・秒・ミリ秒の 16 バイト。推定）、点（16・32）は 11・21・31 から読む。
+    /// ほかの型（64・128・256・512）は移さない（`element` で診断する）。単位（94）は 0・1・2・4・8・16・32 を
+    /// なし・長さ・角度・面積・体積・通貨・百分率とし、書式（300）は空なら `None` とする（docs/formats/dxf.md）
+    fn cell_value(&self, cell: &Object, values: &[Value]) -> Lifted<Option<CellValue>> {
+        let kind = cell.kind.as_slice();
+        let end = values
+            .iter()
+            .position(|value| value.code == 304)
+            .unwrap_or(values.len());
+        let object = Object {
+            values: values.get(..end).unwrap_or_default().to_vec(),
+            ..cell.clone()
+        };
+        if object.values.is_empty() || self.int(&object, 93, 0)? & 1 != 0 {
+            return Ok(None);
+        }
+        let data = match self.int(&object, 90, 0)? {
+            0 | 64 | 128 | 256 | 512 => return Ok(None),
+            1 => match object.first(91) {
+                Some(Data::Int(value)) => CellData::Integer(*value),
+                _ => return Err(invalid(kind, 91)),
+            },
+            2 => CellData::Real(self.real(&object, 140, None)?),
+            4 => {
+                let mut text = String::new();
+                for value in object
+                    .values
+                    .iter()
+                    .filter(|value| matches!(value.code, 1 | 2))
+                {
+                    text.push_str(&self.decode(kind, value.code, &value.data)?);
+                }
+                CellData::Text(text)
+            }
+            8 => match object.first(310) {
+                Some(Data::Binary(bytes)) => {
+                    CellData::Date(system_time(bytes).ok_or_else(|| invalid(kind, 310))?)
+                }
+                _ => return Err(invalid(kind, 310)),
+            },
+            16 | 32 => CellData::Point([
+                self.real(&object, 11, None)?,
+                self.real(&object, 21, None)?,
+                self.real(&object, 31, Some(0.0))?,
+            ]),
+            _ => return Err(invalid(kind, 90)),
+        };
+        let unit = match self.int(&object, 94, 0)? {
+            0 => ValueUnit::None,
+            1 => ValueUnit::Distance,
+            2 => ValueUnit::Angle,
+            4 => ValueUnit::Area,
+            8 => ValueUnit::Volume,
+            16 => ValueUnit::Currency,
+            32 => ValueUnit::Percentage,
+            _ => return Err(invalid(kind, 94)),
+        };
+        Ok(Some(CellValue {
+            data,
+            unit,
+            format: self
+                .string(&object, 300)?
+                .filter(|format| !format.is_empty()),
+        }))
     }
 
     /// ATTDEF（DXF Reference「ATTDEF」）。ATTRIB と同じ欄に、値を尋ねる文（3）を持つ。印（70）の 1 は表示しない、
@@ -1455,6 +1524,9 @@ impl Lifter {
             let symbol = matches!(callout.content, CalloutContent::Symbol { .. });
             (callout.line_style, callout.content_color) =
                 self.callout_style(db, object, symbol, out, cx)?;
+        }
+        if let Shape::Table(_) = &shape {
+            report_cell_values(object, cx);
         }
         if let Shape::Symbol(symbol) = &mut shape {
             for attribute in attributes {
@@ -3723,6 +3795,53 @@ struct CalloutParts {
     context: Vec<Value>,
     /// 枝ごとの、枝の値と線ごとの値
     leaders: Vec<(Vec<Value>, Vec<Vec<Value>>)>,
+}
+
+/// 表のセルの値（301 から 304 まで）のうち、`Lifter::cell_value` が移さない型（64・128・256・512）で、値を持つ
+/// （印の 93 の 1 が立たない）ものを診断する
+fn report_cell_values(object: &Object, cx: &mut Cx) {
+    let mut inside = false;
+    let (mut flags, mut kind) = (0, 0);
+    for value in &object.values {
+        match (value.code, &value.data) {
+            (301, _) => (inside, flags, kind) = (true, 0, 0),
+            (93, Data::Int(value)) if inside => flags = *value,
+            (90, Data::Int(value)) if inside => kind = *value,
+            (304, _) if inside => {
+                inside = false;
+                if flags & 1 == 0 && matches!(kind, 64 | 128 | 256 | 512) {
+                    cx.report(
+                        Diagnostic::new(codes::DXF_CELL_VALUE_DROPPED)
+                            .with("type", kind)
+                            .at(source(object)),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// SYSTEMTIME（年・月・曜日・日・時・分・秒・ミリ秒の、リトル・エンディアンの 16 ビットの並び）。範囲の外なら `None`
+fn system_time(bytes: &[u8]) -> Option<DateTime> {
+    let ([year, month, _, day, hour, minute, second, millisecond], []) = bytes.as_chunks::<2>()
+    else {
+        return None;
+    };
+    let small = |pair: &[u8; 2], range: core::ops::RangeInclusive<u8>| {
+        u8::try_from(u16::from_le_bytes(*pair))
+            .ok()
+            .filter(|value| range.contains(value))
+    };
+    Some(DateTime {
+        year: u16::from_le_bytes(*year),
+        month: small(month, 1..=12)?,
+        day: small(day, 1..=31)?,
+        hour: small(hour, 0..=23)?,
+        minute: small(minute, 0..=59)?,
+        second: small(second, 0..=59)?,
+        millisecond: Some(u16::from_le_bytes(*millisecond)).filter(|ms| *ms < 1000)?,
+    })
 }
 
 /// MULTILEADER の値を、区切り（300 `CONTEXT_DATA{`・301・302 `LEADER{`・303・304 `LEADER_LINE{`・305）で
