@@ -485,6 +485,15 @@ group-by = ["key", "kind"]
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.clip.dropped"]
+description = "記号の切り抜き（SPATIAL_FILTER）を読めず、切り抜かずに移した"
+severity = "warning"
+fidelity = "dropped"
+params = { code = "int" }
+group-by = ["code"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.lift.invalid"]
 description = "値がないか読めないか範囲の外なので、その図形を図面モデルに移さなかった"
 severity = "warning"

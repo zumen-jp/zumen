@@ -872,6 +872,7 @@ impl<'f> Lifter<'f> {
                         rotation,
                         grid: None,
                         attributes: Vec::new(),
+                        clip: None,
                     }),
                 };
                 at.element(element, out);
@@ -1181,6 +1182,7 @@ impl<'f> Lifter<'f> {
             rotation: args.num(5)?,
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         });
         let source = feature.source();
         let element = Element {
@@ -1225,6 +1227,7 @@ impl<'f> Lifter<'f> {
             rotation: args.num(6)?,
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         });
         let element = Element {
             layer: self.layer_id(args.int(0), &source, cx),

@@ -40,6 +40,7 @@
     "dxf.block-cycle.invalid": "ブロック「{name}」の定義は、自分を直接か間接に配置します。展開せずに図面モデルに移しました（{count} 件）。",
     "dxf.block.missing": "ブロック「{name}」の定義がないので、配置だけを図面モデルに移しました（{count} 件）。",
     "dxf.change.unsupported": "「{kind}」の要素のこの変更は、まだ書き戻せません。変更を反映しませんでした。",
+    "dxf.clip.dropped": "記号の切り抜きのグループ・コード {code} を読めず、切り抜かずに移しました（{count} 件）。",
     "dxf.code-page.unsupported": "コード・ページの版の ASCII でない文字をまだ読めないので、「{kind}」を図面モデルに移しませんでした（{count} 件）。",
     "dxf.element.missing": "変更が指す要素が、図面にありません。変更を反映しませんでした。",
     "dxf.entity.dropped": "出力先の DXF の版にない種類の図形「{kind}」を、書きませんでした（{count} 件）。",

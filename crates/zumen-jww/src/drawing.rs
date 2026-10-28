@@ -719,6 +719,7 @@ impl Lifter<'_> {
             rotation: rotation.to_degrees(),
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         });
         // 中身の色・線種・線幅は、定義の図形が持つ
         let style = Style {
@@ -1101,6 +1102,7 @@ impl Lifter<'_> {
             rotation,
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         });
         Ok(Some((shape, self.fill_style(self.color(base.pen_color)))))
     }

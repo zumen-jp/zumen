@@ -40,6 +40,7 @@
     "dxf.block-cycle.invalid": "Kept {count} definitions of block \"{name}\" without expanding them, because the block places itself directly or indirectly.",
     "dxf.block.missing": "Kept only the placement of {count} references to block \"{name}\", because the block is not defined.",
     "dxf.change.unsupported": "This change to a \"{kind}\" element cannot be written back yet. No change was applied.",
+    "dxf.clip.dropped": "Could not read group code {code} of {count} block clips; lifted the blocks without clipping.",
     "dxf.code-page.unsupported": "Did not lift {count} \"{kind}\" entities into the drawing model, because characters outside ASCII in code page versions cannot be read yet.",
     "dxf.element.missing": "The element that the change points to is not in the drawing. No change was applied.",
     "dxf.entity.dropped": "Did not write {count} \"{kind}\" entities, which the target DXF version does not have.",
