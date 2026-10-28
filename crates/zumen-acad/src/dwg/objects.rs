@@ -15,7 +15,7 @@ use std::ops::Range;
 use super::bits::Bits;
 use super::header::{self, Header};
 use super::{COMMON_OBJECT, DwgFile, Entry, Release, stopped_at};
-use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
+use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value, caret};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use zumen_sdk::Error;
 
@@ -4041,19 +4041,6 @@ fn text_value(code: i16, text: &[u8]) -> Value {
         code,
         data: Data::Text(caret(text)),
     }
-}
-
-/// 制御文字を DXF の書き方（0x0A なら `^J`）に直す。`^` は、後に空白を付けて `^ ` とする
-fn caret(text: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(text.len());
-    for &byte in text {
-        match byte {
-            0..0x20 => out.extend([b'^', byte + 0x40]),
-            b'^' => out.extend(*b"^ "),
-            _ => out.push(byte),
-        }
-    }
-    out
 }
 
 fn real(code: i16, value: f64) -> Value {

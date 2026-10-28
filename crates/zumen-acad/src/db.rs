@@ -349,6 +349,38 @@ impl DataType {
     }
 }
 
+/// 制御文字を DXF の書き方（0x0A なら `^J`）に直す。`^` は、後に空白を付けて `^ ` とする
+pub(crate) fn caret(text: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
+    for &byte in text {
+        match byte {
+            0..0x20 => out.extend([b'^', byte + 0x40]),
+            b'^' => out.extend(*b"^ "),
+            _ => out.push(byte),
+        }
+    }
+    out
+}
+
+/// DXF の書き方の文字列を、元のバイト列に戻す。`^` と文字は制御文字に、`^ ` は `^` にする。ほかの `^` の
+/// 並びは、読みが作らないので受け付けない
+pub(crate) fn uncaret(text: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len());
+    let mut bytes = text.iter();
+    while let Some(&byte) = bytes.next() {
+        if byte != b'^' {
+            out.push(byte);
+            continue;
+        }
+        match bytes.next()? {
+            b' ' => out.push(b'^'),
+            &next @ 0x40..0x60 => out.push(next - 0x40),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
 /// 表のオブジェクトの元のレコード
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {

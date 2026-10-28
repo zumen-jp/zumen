@@ -41,7 +41,7 @@ use super::objects::{
     skip_extended_data,
 };
 use super::{DwgFile, Release, header};
-use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value};
+use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value, uncaret};
 
 /// 図形の共通の欄のうち、表に置くもののグループ・コード
 const COMMON: &[i16] = &[62, 48, 60];
@@ -5459,25 +5459,6 @@ fn point3_or(fields: &mut BitWriter, object: &Object, code: i16, default: [f64; 
         _ => return None,
     };
     Some(())
-}
-
-/// DXF の書き方の文字列を、元のバイト列に戻す。`^` と文字は制御文字に、`^ ` は `^` にする。ほかの `^` の
-/// 並びは、読みが作らないので受け付けない
-fn uncaret(text: &[u8]) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(text.len());
-    let mut bytes = text.iter();
-    while let Some(&byte) = bytes.next() {
-        if byte != b'^' {
-            out.push(byte);
-            continue;
-        }
-        match bytes.next()? {
-            b' ' => out.push(b'^'),
-            &next @ 0x40..0x60 => out.push(next - 0x40),
-            _ => return None,
-        }
-    }
-    Some(out)
 }
 
 /// `code` の文字列の値。ちょうど 1 度なければ `None`

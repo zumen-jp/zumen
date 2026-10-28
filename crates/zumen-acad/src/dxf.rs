@@ -1,4 +1,4 @@
-//! ASCII の DXF（DXF Reference「About ASCII DXF Files」「Group Code Value Types」）。
+//! DXF（DXF Reference「About ASCII DXF Files」「Group Code Value Types」「Binary DXF Files」）。
 //!
 //! ファイルは、グループ・コードの行と値の行の組（タグ）が続いたもの。グループ・コード 0 のタグから、
 //! 次のグループ・コード 0 のタグの前までを 1 つのレコードにする。`SECTION`・`ENDSEC` も、
@@ -10,6 +10,10 @@
 //! 変更は [`DxfTxn`] で行う。確定すると、変えたレコードだけを書き直す。書き直すときも、
 //! タグのグループ・コードの行と改行は元のバイトを使い、値だけを差し替える。足したタグは、
 //! グループ・コードを 3 桁に右寄せし、ファイルの最初の行と同じ改行で書く。
+//!
+//! バイナリの DXF は、タグを ASCII の表現にした文の上で同じように扱う（[`binary`]）。
+//! レコードの範囲は元のバイナリのバイト範囲で、書くときは変えていないレコードの元のバイトを並べ、
+//! 変えたレコードのタグをバイナリに符号化し直す。
 
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,6 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 
 use crate::db::ViewError;
+mod binary;
 mod objects;
 mod version;
 mod write_back;
@@ -31,22 +36,25 @@ const ASCII_FILES: SpecRef = SpecRef {
     section: "About ASCII DXF Files",
 };
 
-/// ASCII の DXF のコーデック
+/// DXF のコーデック。ASCII とバイナリの DXF を読み書きする
 #[derive(Clone, Copy, Debug)]
 pub struct Dxf;
 
-/// 読んだ DXF。元のバイト列と、その上のレコードの区切り
+/// 読んだ DXF。元のバイト列と、その上のレコードの区切り。バイナリの DXF では、`src` は
+/// タグを ASCII の表現にした文で、元のバイト列は `binary` が持つ
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DxfFile {
     src: Vec<u8>,
     records: Vec<Record>,
     trailer: Range<usize>,
+    binary: Option<binary::Binary>,
 }
 
 /// グループ・コード 0 のタグから始まるタグの並び。先頭がグループ・コード 0 でないのは、
 /// ファイルの最初のレコードだけ
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record {
+    /// 元のファイルのバイト範囲。バイナリの DXF では、元のバイナリの範囲
     span: Range<usize>,
     tags: Vec<Tag>,
     edited: bool,
@@ -110,7 +118,12 @@ impl DxfFile {
         }
     }
 
-    /// `EOF` の後に続くバイト列
+    /// バイナリの DXF か
+    pub fn is_binary(&self) -> bool {
+        self.binary.is_some()
+    }
+
+    /// `EOF` の後に続くバイト列。バイナリの DXF では空
     pub fn trailer(&self) -> &[u8] {
         self.src.get(self.trailer.clone()).unwrap_or_default()
     }
@@ -146,16 +159,28 @@ impl Codec for Dxf {
 
     const FORMAT: &'static str = "dxf";
 
-    const SIGNATURES: &'static [Signature] = &[Signature::Lines {
-        lines: &[b"0", b"SECTION"],
-    }];
+    const SIGNATURES: &'static [Signature] = &[
+        Signature::Lines {
+            lines: &[b"0", b"SECTION"],
+        },
+        Signature::Bytes {
+            offset: 0,
+            bytes: BINARY_SENTINEL,
+        },
+    ];
 
     fn read(src: &[u8], cx: &mut Cx) -> Result<DxfFile, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
         if src.starts_with(BINARY_SENTINEL) {
-            cx.report(Diagnostic::new(codes::DXF_BINARY_UNSUPPORTED));
-            return Err(Error::Unsupported);
+            let decoded = binary::read(src, cx)?;
+            let end = decoded.text.len();
+            return Ok(DxfFile {
+                src: decoded.text,
+                records: decoded.records,
+                trailer: end..end,
+                binary: Some(decoded.binary),
+            });
         }
         let mut lines = Lines { src, pos: 0, no: 0 };
         let mut records: Vec<Record> = Vec::new();
@@ -201,10 +226,14 @@ impl Codec for Dxf {
             src: src.to_vec(),
             records,
             trailer: lines.pos..src.len(),
+            binary: None,
         })
     }
 
     fn write(file: &DxfFile, out: &mut Vec<u8>, cx: &mut Cx) -> Result<(), Error> {
+        if let Some(binary) = &file.binary {
+            return write_binary(file, binary, out, cx);
+        }
         for record in &file.records {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
             if !record.edited {
@@ -231,6 +260,30 @@ impl Codec for Dxf {
     }
 }
 
+/// バイナリの DXF を書く。値は変更のときに確かめたので、符号化できる
+fn write_binary(
+    file: &DxfFile,
+    binary: &binary::Binary,
+    out: &mut Vec<u8>,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    out.extend_from_slice(binary.sentinel());
+    for record in &file.records {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        if !record.edited {
+            out.extend_from_slice(binary.src.get(record.span.clone()).unwrap_or_default());
+            continue;
+        }
+        for tag in &record.tags {
+            if binary.encode(tag.code, file.value(tag), out).is_none() {
+                return Err(Error::Invalid);
+            }
+        }
+    }
+    out.extend_from_slice(binary.src.get(binary.trailer.clone()).unwrap_or_default());
+    Ok(())
+}
+
 /// DXF の変更をためるトランザクション。[`Transaction::commit`] で、まとめて確かめてから反映する。
 /// 変更の操作が失敗したら、そのトランザクションは確定できない。レコードの位置は、
 /// 確定するまで元のファイルの位置で名指しする
@@ -249,14 +302,20 @@ impl DxfTxn<'_> {
     /// 改行を含む値と、グループ・コード 0 の値の変更は、タグとレコードの区切りが変わるので受け付けない
     pub fn set_value(&mut self, record: usize, tag: usize, value: &[u8]) -> Result<(), Error> {
         let staged = self.stage(record)?;
-        let Some(found) = staged.tags.get_mut(tag) else {
+        let Some(found) = staged.tags.get(tag) else {
             return Err(self.reject(missing_tag(record, tag)));
         };
         let code = found.code;
         if code == 0 || has_newline(value) {
             return Err(self.reject(on_tag(codes::DXF_VALUE_UNSAFE, record, code)));
         }
-        found.edited = Some(value.into());
+        if !encodable(self.file, code, value) {
+            return Err(self.reject(on_tag(codes::DXF_BINARY_VALUE_UNSUPPORTED, record, code)));
+        }
+        let staged = self.staged.get_mut(&record);
+        if let Some(found) = staged.and_then(|r| r.tags.get_mut(tag)) {
+            found.edited = Some(value.into());
+        }
         Ok(())
     }
 
@@ -289,7 +348,12 @@ impl DxfTxn<'_> {
         if code == 0 || has_newline(value) {
             return Err(self.reject(on_tag(codes::DXF_VALUE_UNSAFE, record, code)));
         }
-        staged.tags.insert(before, fresh_tag(code, value));
+        if !encodable(self.file, code, value) {
+            return Err(self.reject(on_tag(codes::DXF_BINARY_VALUE_UNSUPPORTED, record, code)));
+        }
+        if let Some(staged) = self.staged.get_mut(&record) {
+            staged.tags.insert(before, fresh_tag(code, value));
+        }
         Ok(())
     }
 
@@ -330,6 +394,10 @@ impl DxfTxn<'_> {
                 return Err(self.reject(unsafe_record(before)));
             }
             _ => {}
+        }
+        let file = &*self.file;
+        if let Some(&(code, _)) = tags.iter().find(|(c, v)| !encodable(file, *c, v)) {
+            return Err(self.reject(on_tag(codes::DXF_BINARY_VALUE_UNSUPPORTED, before, code)));
         }
         let record = Record {
             span: 0..0,
@@ -488,6 +556,13 @@ fn unsafe_record(record: usize) -> Diagnostic {
 /// 足したり除いたりすると、セクションの区切りが変わるレコードの種類
 fn structural(kind: &[u8]) -> bool {
     matches!(kind, b"SECTION" | b"ENDSEC" | b"EOF")
+}
+
+/// バイナリの DXF なら、値をグループ・コードの型のバイト列にできるか。ASCII の DXF では常に真
+fn encodable(file: &DxfFile, code: i16, value: &[u8]) -> bool {
+    file.binary
+        .as_ref()
+        .is_none_or(|binary| binary.encodable(code, value))
 }
 
 fn has_newline(value: &[u8]) -> bool {

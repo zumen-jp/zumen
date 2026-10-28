@@ -156,11 +156,226 @@ fn broken_tags_are_reported_with_their_line() {
     }
 }
 
+/// バイナリの DXF。`wide` ならグループ・コードを 2 バイト（R13 から）、そうでなければ 1 バイト（R12）で書く。
+/// `tags` の値は、型に合わせて符号化したバイト列
+fn binary_dxf(wide: bool, tags: &[(i16, Vec<u8>)]) -> Vec<u8> {
+    let mut out = b"AutoCAD Binary DXF\r\n\x1a\0".to_vec();
+    for (code, value) in tags {
+        match u8::try_from(*code) {
+            _ if wide => out.extend_from_slice(&code.to_le_bytes()),
+            Ok(code) if code < 255 => out.push(code),
+            _ => {
+                out.push(255);
+                out.extend_from_slice(&code.to_le_bytes());
+            }
+        }
+        out.extend_from_slice(value);
+    }
+    out
+}
+
+fn text(value: &str) -> Vec<u8> {
+    [value.as_bytes(), b"\0"].concat()
+}
+
+/// 1 つの LINE だけを ENTITIES に持つバイナリの DXF。LINE は 1 番目のレコード
+fn binary_line(wide: bool) -> Vec<u8> {
+    binary_dxf(
+        wide,
+        &[
+            (0, text("SECTION")),
+            (2, text("ENTITIES")),
+            (0, text("LINE")),
+            (5, text("1F")),
+            (8, text("0")),
+            (10, 1.5f64.to_le_bytes().to_vec()),
+            (20, 0.0f64.to_le_bytes().to_vec()),
+            (11, (-2.25f64).to_le_bytes().to_vec()),
+            (21, 1e-3f64.to_le_bytes().to_vec()),
+            (62, 3i16.to_le_bytes().to_vec()),
+            (290, vec![1]),
+            (310, vec![2, 0xAB, 0xCD]),
+            (1001, text("ZUMEN")),
+            (1071, (-5i32).to_le_bytes().to_vec()),
+            (0, text("ENDSEC")),
+            (0, text("EOF")),
+        ],
+    )
+}
+
 #[test]
-fn binary_dxf_is_not_read_yet() {
-    let (result, diag) = testkit::read::<Dxf>(b"AutoCAD Binary DXF\r\n\x1a\0\0\0SECTION\0");
+fn binary_dxf_is_read_as_its_tags() {
+    for wide in [true, false] {
+        let src = binary_line(wide);
+        testkit::roundtrip::<Dxf>(&src).unwrap();
+        testkit::records_in_order::<Dxf>(&src).unwrap();
+        testkit::deterministic::<Dxf>(&src).unwrap();
+        let file = read(&src);
+        assert!(file.is_binary());
+        let kinds: Vec<_> = file.records().iter().map(|r| file.kind(r)).collect();
+        assert_eq!(kinds, [b"SECTION".as_slice(), b"LINE", b"ENDSEC", b"EOF"]);
+        let line = &file.records()[1];
+        let values: Vec<_> = line.tags().iter().map(|t| file.value(t)).collect();
+        assert_eq!(
+            values,
+            [
+                b"LINE".as_slice(),
+                b"1F",
+                b"0",
+                b"1.5",
+                b"0.0",
+                b"-2.25",
+                b"0.001",
+                b"3",
+                b"1",
+                b"ABCD",
+                b"ZUMEN",
+                b"-5"
+            ]
+        );
+        // レコードの範囲は、元のバイナリのバイト範囲
+        let start = binary_dxf(wide, &[(0, text("SECTION")), (2, text("ENTITIES"))]).len();
+        let bytes = file.record(1).unwrap().bytes.unwrap();
+        assert_eq!(bytes.start, start as u64);
+        let db = table(&file);
+        let views: Vec<_> = db.objects().iter().filter_map(|o| o.line()).collect();
+        assert_eq!(
+            views,
+            [Ok(Line {
+                layer: b"0",
+                start: [1.5, 0.0, 0.0],
+                end: [-2.25, 0.001, 0.0],
+            })]
+        );
+    }
+}
+
+#[test]
+fn binary_dxf_edits_are_written_as_binary() {
+    for wide in [true, false] {
+        let src = binary_line(wide);
+        testkit::edit_keeps_untouched_records::<Dxf>(&src, |file, cx| {
+            let mut txn = file.transaction();
+            txn.set_real(1, 11, 200.0)?;
+            txn.insert_tag(1, 3, 39, b"2.5")?;
+            txn.commit(cx)
+        })
+        .unwrap();
+        let mut file = read(&src);
+        let mut txn = file.transaction();
+        txn.set_real(1, 11, 200.0).unwrap();
+        txn.insert_tag(1, 3, 39, b"2.5").unwrap();
+        let mut diag = Diagnostics::new();
+        txn.commit(&mut cx_for(
+            &mut Budget::default(),
+            &mut diag,
+            &CancelToken::new(),
+        ))
+        .unwrap();
+        let out = testkit::write::<Dxf>(&file).unwrap();
+        // 書いたものも、元と同じ幅のグループ・コードのバイナリの DXF
+        assert_eq!(out.len(), src.len() + 1 + usize::from(wide) + 8);
+        let again = read(&out);
+        let line = &again.records()[1];
+        assert_eq!(again.real(line, 11), Ok(200.0));
+        assert_eq!(again.real(line, 39), Ok(2.5));
+        assert_eq!(again.value(&line.tags()[10]), b"ABCD");
+    }
+}
+
+#[test]
+fn binary_dxf_values_must_fit_their_type() {
+    let cases: [(i16, &[u8]); 5] = [
+        (62, b"x"),
+        (62, b"70000"),
+        (310, b"ABC"),
+        (8, b"a^@b"),
+        (290, b"256"),
+    ];
+    for (code, value) in cases {
+        let mut file = read(&binary_line(true));
+        let mut txn = file.transaction();
+        let tag = file_tag(code);
+        assert_eq!(txn.set_value(1, tag, value), Err(Error::Rejected));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = txn.commit(&mut cx_for(&mut Budget::default(), &mut diag, &cancel));
+        assert_eq!(result, Err(Error::Rejected));
+        let found: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(found, [codes::DXF_BINARY_VALUE_UNSUPPORTED], "{code}");
+    }
+    let mut file = read(&binary_line(true));
+    let mut txn = file.transaction();
+    assert_eq!(txn.insert_tag(1, 3, 40, b"x"), Err(Error::Rejected));
+}
+
+/// [`binary_line`] の LINE のレコードで、`code` のタグの位置
+#[cfg(test)]
+fn file_tag(code: i16) -> usize {
+    [0, 5, 8, 10, 20, 11, 21, 62, 290, 310, 1001, 1071]
+        .iter()
+        .position(|&c| c == code)
+        .unwrap()
+}
+
+#[test]
+fn broken_binary_dxf_is_reported_with_its_offset() {
+    let src = binary_line(true);
+    let eof = src.len() - b"\0\0EOF\0".len();
+    let (result, diag) = testkit::read::<Dxf>(&src[..src.len() - 1]);
+    assert_eq!(result.unwrap_err(), Error::Invalid);
+    assert_eq!(diag[0].code(), codes::DXF_BINARY_INVALID);
+    assert_eq!(diag[0].param("offset"), Some(&(eof as u64).into()));
+}
+
+#[test]
+fn binary_dxf_versions_are_not_changed_yet() {
+    let src = binary_dxf(
+        true,
+        &[
+            (0, text("SECTION")),
+            (2, text("HEADER")),
+            (9, text("$ACADVER")),
+            (1, text("AC1015")),
+            (0, text("ENDSEC")),
+            (0, text("EOF")),
+        ],
+    );
+    let (result, diag) = write_as(&src, b"AC1015");
+    assert_eq!(result.unwrap(), src);
+    assert_eq!(diag.len(), 0);
+    let (result, diag) = write_as(&src, b"AC1009");
     assert_eq!(result.unwrap_err(), Error::Unsupported);
-    assert_eq!(diag[0].code(), codes::DXF_BINARY_UNSUPPORTED);
+    let found: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+    assert_eq!(found, [codes::DXF_VERSION_UNSUPPORTED]);
+}
+
+#[test]
+fn binary_dxf_control_characters_are_written_with_carets() {
+    let src = binary_dxf(
+        true,
+        &[(0, text("SECTION")), (2, text("A\nB^C")), (0, text("EOF"))],
+    );
+    testkit::roundtrip::<Dxf>(&src).unwrap();
+    let mut file = read(&src);
+    let section = &file.records()[0];
+    assert_eq!(file.value(&section.tags()[1]), b"A^JB^ C");
+    let mut txn = file.transaction();
+    txn.set_value(0, 1, b"X^MY").unwrap();
+    // `^` の後に、読みが作らない文字は続かない
+    assert_eq!(txn.set_value(0, 1, b"^a"), Err(Error::Rejected));
+    let mut file = read(&src);
+    let mut txn = file.transaction();
+    txn.set_value(0, 1, b"X^MY").unwrap();
+    let mut diag = Diagnostics::new();
+    txn.commit(&mut cx_for(
+        &mut Budget::default(),
+        &mut diag,
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    let out = testkit::write::<Dxf>(&file).unwrap();
+    assert!(out.windows(4).any(|w| w == b"X\rY\0"));
 }
 
 #[test]
@@ -190,6 +405,7 @@ fn the_signature_finds_ascii_dxf() {
     assert!(!found(&src));
     assert!(found(&src[b"999\r\nzumen test\r\n".len()..]));
     assert!(!found(b"PK\x03\x04"));
+    assert!(found(&binary_line(true)));
     assert_eq!(Dxf::FORMAT, "dxf");
 }
 

@@ -371,9 +371,35 @@ pub const DWG_XDATA_INVALID: Code = Code::new(
     &["type"],
 );
 
-/// バイナリの DXF は、まだ読めない
+/// バイナリの DXF の変更で、値をグループ・コードの型のバイト列にできない
+///
+/// `dxf.binary-value.unsupported`（0.0.0 から）
+pub const DXF_BINARY_VALUE_UNSUPPORTED: Code = Code::new(
+    "dxf.binary-value.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("record", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// バイナリの DXF の、`offset` バイト目から始まるタグが途中で切れているか、実数の値が有限でない
+///
+/// `dxf.binary.invalid`（0.0.0 から）
+pub const DXF_BINARY_INVALID: Code = Code::new(
+    "dxf.binary.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("offset", ParamType::UInt)],
+    &[],
+);
+
+/// バイナリの DXF は、まだ読めない（読めるようにしたので使わない）
 ///
 /// `dxf.binary.unsupported`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const DXF_BINARY_UNSUPPORTED: Code =
     Code::new("dxf.binary.unsupported", Severity::Error, None, &[], &[]);
 
@@ -959,6 +985,8 @@ pub const ALL: &[Code] = &[
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,
     DWG_XDATA_INVALID,
+    DXF_BINARY_VALUE_UNSUPPORTED,
+    DXF_BINARY_INVALID,
     DXF_BINARY_UNSUPPORTED,
     DXF_BLOCK_CYCLE_INVALID,
     DXF_BLOCK_MISSING,
