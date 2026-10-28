@@ -521,6 +521,17 @@ pub const DXF_HEADER_VARIABLE_DROPPED: Code = Code::new(
     &["name"],
 );
 
+/// MULTILEADER の線ごとの色・線種・線幅・端部記号の上書きを、図面モデルに移さなかった。線は注記全体の指定で描く
+///
+/// `dxf.leader-line-style.dropped`（0.0.0 から）
+pub const DXF_LEADER_LINE_STYLE_DROPPED: Code = Code::new(
+    "dxf.leader-line-style.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// 図面モデルにまだ移せない種類の図形を、移さなかった
 ///
 /// `dxf.lift.dropped`（0.0.0 から）
@@ -999,6 +1010,7 @@ pub const ALL: &[Code] = &[
     DXF_HANDLE_SEED_MISSING,
     DXF_HATCH_SPLINE_UNSUPPORTED,
     DXF_HEADER_VARIABLE_DROPPED,
+    DXF_LEADER_LINE_STYLE_DROPPED,
     DXF_LIFT_DROPPED,
     DXF_LIFT_INVALID,
     DXF_LINE_TYPE_ELEMENT_DROPPED,

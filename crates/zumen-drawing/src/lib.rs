@@ -935,8 +935,25 @@ pub struct Callout<P> {
     pub landing: bool,
     /// 大きさに掛ける倍率
     pub scale: f64,
+    /// 線（枝の線と折れ曲がり）の色・線種・線幅。`Inherit::Block` は、この注記の要素の値に従う（要素を
+    /// 線の配置とみなす）。`Inherit::Layer` は、この注記の要素のレイヤの値に従う。線種の倍率は、要素の
+    /// 線種の倍率と掛け合わせる
+    pub line_style: Style,
+    /// 注記の文字か記号の色。`Inherit::Block` は、この注記の要素の色に従う。記号のときは、記号の中の要素が
+    /// 配置から継承する色を、この色で解く
+    pub content_color: Inherit<Color>,
     /// 元のスタイルの出所。元の形式が指さなければ `None`
     pub style: Option<Ref>,
+}
+
+impl Style {
+    /// 色・線種・線幅のすべてを、要素を置いた配置から継承する指定。線種の倍率は 1
+    pub const BLOCK: Self = Self {
+        color: Inherit::Block,
+        line_type: Inherit::Block,
+        line_type_scale: 1.0,
+        line_weight: Some(Inherit::Block),
+    };
 }
 
 /// 引出線つきの注記の枝。何本かの線が 1 点に集まり、折れ曲がりで注記につながる

@@ -187,7 +187,7 @@ R2010・R2013・R2018 は R2004 と同じ入れ物を使う（決定 0027）。�
 
 書式つきの文字（MTEXT）と複数行の属性も DXF と同じく移す（[決定 0109](../decisions/0109-drawing-formatted-text.md)）。DWG の読み手は、X 軸の向き（11・21・31）を既定でなければ置き、回転（50）は置かない。
 
-寸法値の文字は DXF と同じく区間に分ける（[決定 0110](../decisions/0110-drawing-callouts-and-dimension-text.md)）。DWG の MULTILEADER も、DXF と同じく引出線つきの注記に移る。
+寸法値の文字は DXF と同じく区間に分ける（[決定 0110](../decisions/0110-drawing-callouts-and-dimension-text.md)）。DWG の MULTILEADER も、DXF と同じく引出線つきの注記に移る。線と注記の色・線種・線幅も、DXF と同じく移す（[決定 0146](../decisions/0146-drawing-callout-line-style.md)）。
 
 曲線は DXF と同じく元の定義のまま移す（[決定 0111](../decisions/0111-drawing-curves.md)）。SPLINE の重みを持つ・閉じている・周期的の印は 70 に置く。平らの印（8）は DXF を書くときに決まるので置かない。いまの DWG の読み手は、HATCH の SPLINE の辺の当てはめる点を表に置かないので、DWG の図面モデルでは持たない。
 
