@@ -188,6 +188,16 @@ impl DwgFile {
             });
             found.push((kind, fields));
         }
+        if let Some(header) = header {
+            let records = self
+                .entries
+                .iter()
+                .zip(found.iter_mut())
+                .filter(|(entry, _)| entry.type_code == BLOCK_RECORD)
+                .filter(|(entry, _)| entry.handle != header.model && entry.handle != header.paper)
+                .map(|(_, (_, fields))| fields.as_mut());
+            number_anonymous(records);
+        }
         // 図形は表のレコードと多重線の体裁をハンドルで指すので、先にその型と名前を集める
         let names: BTreeMap<u64, (u16, Vec<u8>)> = self
             .entries
@@ -200,6 +210,22 @@ impl DwgFile {
                     Data::Text(name) => Some((entry.handle, (entry.type_code, name.clone()))),
                     _ => None,
                 }
+            })
+            .collect();
+        // DBCOLOR ごとの、RGB の値（420）と名前（430）
+        let books: BTreeMap<u64, Vec<Value>> = self
+            .entries
+            .iter()
+            .zip(&found)
+            .filter(|(_, (kind, _))| kind.as_ref().is_some_and(|(kind, _)| *kind == b"DBCOLOR"))
+            .filter_map(|(entry, (_, fields))| {
+                let values = &fields.as_ref()?.values;
+                let book: Vec<Value> = values
+                    .iter()
+                    .filter(|v| matches!(v.code, 420 | 430))
+                    .cloned()
+                    .collect();
+                Some((entry.handle, book))
             })
             .collect();
         let mut objects = Vec::with_capacity(self.entries.len());
@@ -220,7 +246,7 @@ impl DwgFile {
                     let entity = matches!(section, Section::Entities | Section::Blocks);
                     match fields {
                         Some(fields) => {
-                            let (own, xdata) = fields.place(&names, entry, cx, &at);
+                            let (own, xdata) = fields.place(&names, &books, entry, cx, &at);
                             values.extend(own);
                             extra = xdata;
                         }
@@ -278,8 +304,30 @@ impl DwgFile {
             db.set_variable(b"$INSUNITS", vec![int(70, i64::from(header.units))]);
             db.set_variable(b"$PLIMMIN", vec![real(10, x0), real(20, y0)]);
             db.set_variable(b"$PLIMMAX", vec![real(10, x1), real(20, y1)]);
+            db.set_variable(b"$LTSCALE", vec![real(40, header.line_type_scale)]);
         }
         Ok(db)
+    }
+}
+
+/// DWG は、名前のないブロック（`*D`・`*U`・`*T` など）と、今の配置でない用紙空間（`*Paper_Space`）の
+/// 名前に番号を持たない。DXF と同じく、モデル空間と今の用紙空間を除いたブロックのレコードの、
+/// オブジェクトの地図の順（ハンドルの順）の位置を番号として名前の後ろに付ける（推定。試料の DWG と DXF の
+/// 比較で確かめた。docs/formats/dwg.md）。`records` は、その順のレコードの欄
+fn number_anonymous<'a>(records: impl Iterator<Item = Option<&'a mut Fields>>) {
+    for (number, fields) in records.enumerate() {
+        let Some(name) = fields.and_then(|fields| fields.values.iter_mut().find(|v| v.code == 2))
+        else {
+            continue;
+        };
+        if let Data::Text(name) = &mut name.data
+            && (name.eq_ignore_ascii_case(b"*Paper_Space")
+                || name.split_first().is_some_and(|(first, rest)| {
+                    *first == b'*' && !rest.is_empty() && rest.iter().all(u8::is_ascii_alphabetic)
+                }))
+        {
+            name.extend_from_slice(number.to_string().as_bytes());
+        }
     }
 }
 
@@ -355,6 +403,8 @@ struct Fields {
     records: Vec<RecordRef>,
     /// 登録アプリケーションのハンドルごとの拡張データ。読めなければ `None`
     xdata: Vec<(u64, Option<Vec<Xdata>>)>,
+    /// 図形の色が指す DBCOLOR のハンドル
+    book: Option<u64>,
 }
 
 /// 拡張データの値。画層は名前に直して 1003 に置く
@@ -387,6 +437,7 @@ impl Fields {
     fn place(
         self,
         names: &BTreeMap<u64, (u16, Vec<u8>)>,
+        books: &BTreeMap<u64, Vec<Value>>,
         entry: &Entry,
         cx: &mut Cx,
         at: &Ref,
@@ -412,7 +463,13 @@ impl Fields {
                 ),
             }
         }
-        values.extend(self.values);
+        let mut own = self.values;
+        // 色見本帳の色は、DXF と同じく DBCOLOR の RGB の値（420）と名前（430）を色の番号の後に置く
+        if let Some(book) = self.book.and_then(|handle| books.get(&handle)) {
+            let at = own.iter().position(|v| v.code == 62).map_or(0, |at| at + 1);
+            own.splice(at..at, book.iter().cloned());
+        }
+        values.extend(own);
         for r in self.records {
             match names
                 .get(&r.handle)
@@ -557,7 +614,13 @@ fn read(
                 VIEWPORT => viewport(&mut bits, &mut frozen)?,
                 INSERT => insert(&mut bits, false)?,
                 MINSERT => insert(&mut bits, true)?,
-                MTEXT => mtext(&mut bits)?,
+                MTEXT => {
+                    let mut values = mtext(&mut bits)?;
+                    if bits.release() >= Release::R2018 {
+                        values.extend(mtext_embedded(&mut bits)?);
+                    }
+                    values
+                }
                 LINE => line(&mut bits)?,
                 ARC => arc(&mut bits)?,
                 CIRCLE => circle(&mut bits)?,
@@ -610,9 +673,11 @@ fn read(
             bits.handle()?;
             bits.handle()?;
         }
-        if common.color_handle {
-            bits.handle()?;
-        }
+        let book = if common.color_handle {
+            Some(bits.handle()?.resolve(entry.handle)?)
+        } else {
+            None
+        };
         let layer = bits.handle()?.resolve(entry.handle)?;
         let mut records = Vec::new();
         let mut values = common.values;
@@ -761,6 +826,7 @@ fn read(
             values,
             records,
             xdata,
+            book,
         })
     } else {
         let reactors = bits.bl()?;
@@ -790,6 +856,22 @@ fn read(
             dictionary(&mut bits, &mut entries)?
         } else if kind == b"XRECORD" {
             xrecord(&mut bits)?
+        } else if kind == b"DBCOLOR" && release < Release::R2004 {
+            // R2000 の DXF は、DBCOLOR に色の値を書かない
+            Vec::new()
+        } else if kind == b"DBCOLOR" {
+            // 色（CMC）だけを持つ。DXF と同じく、番号（62）・RGB の値（420）・名前（430）を置く。真の色は、
+            // 図形と同じく番号を置かない（DWG の番号は 0 で、DXF は近い番号を書く）
+            let (color, name) = bits.cmc_named()?;
+            let mut values = Vec::new();
+            match color.rgb {
+                Some(rgb) => values.push(int(420, i64::from(rgb))),
+                None => values.push(int(62, i64::from(color.index))),
+            }
+            if let Some(name) = name {
+                values.push(text_value(430, &name));
+            }
+            values
         } else if entry.type_code == GROUP {
             group(&mut bits, &mut handles)?
         } else if kind == b"DICTIONARYVAR" {
@@ -877,6 +959,7 @@ fn read(
             values,
             records,
             xdata,
+            book: None,
         })
     }
 }
@@ -1688,14 +1771,17 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 .fold(xdep, |sum, (_, dxf)| sum | dxf);
             values.push(int(70, dxf));
             // 表示しない画層は、DXF と同じく色を負にする
-            // 真の色は、図形と同じく 420 だけを置く
-            let color = bits.cmc()?;
+            // 真の色は、図形と同じく 420 だけを置き、色見本帳の色なら名前（430）も置く
+            let (color, name) = bits.cmc_named()?;
             match color.rgb {
                 Some(rgb) => values.push(int(420, i64::from(rgb))),
                 None => {
                     let index = i64::from(color.index);
                     values.push(int(62, if flags & 2 != 0 { -index } else { index }));
                 }
+            }
+            if let Some(name) = name {
+                values.push(text_value(430, &name));
             }
             if flags & 16 == 0 {
                 values.push(Value {
@@ -3216,6 +3302,47 @@ fn mtext_columns(bits: &mut Bits) -> Option<()> {
         bits.bd()?;
     }
     (bits.bl()? == 0).then_some(())
+}
+
+/// R2018 からの MTEXT の、背景の欄の後の欄。並びは [`mtext_columns`] と同じで、寄せ方（BL）は DXF の 70、
+/// 2 つの点は 10・11、4 つの BD は 40 から 43 にあたる。段組みの種類（BL、DXF の
+/// 71）が 0 でなければ、高さの数（BL、72）・段の幅（BD、44）・段の間隔（BD、45）・高さを自動で決めるか
+/// （B、73）・逆に流すか（B、74）と、自動でない手動の段組み（種類 2）なら段ごとの高さ（BD、46）が続く
+/// （図面で確かめた）。DXF と同じく、段組みがあれば埋め込みのオブジェクトの印（101）の後に置き、なければ
+/// 何も置かない。段ごとの高さは、同じ図面の DXF が 0.0 と書く所に負の値を持つことがあるが、DWG の値を
+/// そのまま置く（docs/formats/dwg.md）
+fn mtext_embedded(bits: &mut Bits) -> Option<Vec<Value>> {
+    bits.bit()?;
+    bits.bs()?;
+    bits.bit()?;
+    let attachment = bits.bl()?;
+    let mut values = vec![
+        text_value(101, b"Embedded Object"),
+        int(70, i64::from(attachment)),
+    ];
+    values.extend(point3(bits, 10)?);
+    values.extend(point3(bits, 11)?);
+    for code in 40..=43 {
+        values.push(real(code, bits.bd()?));
+    }
+    let kind = bits.bl()?;
+    if kind == 0 {
+        return Some(Vec::new());
+    }
+    values.push(int(71, i64::from(kind)));
+    let count = bits.bl()?;
+    values.push(int(72, i64::from(count)));
+    values.push(real(44, bits.bd()?));
+    values.push(real(45, bits.bd()?));
+    let automatic = bits.bit()?;
+    values.push(int(73, i64::from(automatic)));
+    values.push(int(74, i64::from(bits.bit()?)));
+    if !automatic && kind == 2 {
+        for _ in 0..count {
+            values.push(real(46, bits.bd()?));
+        }
+    }
+    Some(values)
 }
 
 /// 押し出しの向きが既定の (0, 0, 1) か

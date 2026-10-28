@@ -99,17 +99,50 @@ impl<'a> Bits<'a> {
         self.rgb_and_names(index)
     }
 
+    /// CMC を読み、色見本帳の色なら、DXF の 430 と同じ名前（`見本帳$色の名前`）も返す
+    pub(super) fn cmc_named(&mut self) -> Option<(Color, Option<Vec<u8>>)> {
+        let index = self.bs()?;
+        if self.release < Release::R2004 {
+            let color = Color {
+                index,
+                rgb: None,
+                book: false,
+            };
+            return Some((color, None));
+        }
+        self.rgb_names(index)
+    }
+
     /// CMC の番号 `index` に続く、RGB の値と、色の名前と色見本帳の名前
     fn rgb_and_names(&mut self, index: i16) -> Option<Color> {
+        self.rgb_names(index).map(|(color, _)| color)
+    }
+
+    /// CMC の番号 `index` に続く、RGB の値と、印の 1 が立つときの色の名前と 2 が立つときの色見本帳の名前
+    /// （ODS 5.4.1 の 2.11）。名前は、DXF の 430 と同じく見本帳と色の名前を `$` でつなぐ
+    fn rgb_names(&mut self, index: i16) -> Option<(Color, Option<Vec<u8>>)> {
         let color = Color::r2004(index, self.bl()? as u32);
         let flags = self.rc()?;
-        if flags & 1 != 0 {
-            self.text()?;
-        }
-        if flags & 2 != 0 {
-            self.text()?;
-        }
-        Some(color)
+        let name = if flags & 1 != 0 {
+            Some(self.text()?)
+        } else {
+            None
+        };
+        let book = if flags & 2 != 0 {
+            Some(self.text()?)
+        } else {
+            None
+        };
+        let named = match (book, name) {
+            (Some(mut book), Some(name)) => {
+                book.push(b'$');
+                book.extend(name);
+                Some(book)
+            }
+            (None, name) => name,
+            (Some(_), None) => None,
+        };
+        Some((color, named))
     }
 
     /// 図形の色（2.12「Entity color encoding」）。色を返す。R2004 からは BS の下位のビットが

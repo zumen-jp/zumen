@@ -2066,6 +2066,13 @@ fn encode_r2010(
     if !R2010_KINDS.contains(&new.kind.as_slice()) {
         return None;
     }
+    // R2018 からの段組みの MTEXT は、埋め込みのオブジェクトの印（101）の後に段組みの欄を持つ。欄は背景の欄の
+    // 後ろにあり、元のビットを写すので、元と同じときだけ受け付け、印から後を除いて比べる
+    let (old, new) = (&columns_removed(old)?, &columns_removed(new)?);
+    if old.1 != new.1 {
+        return None;
+    }
+    let (old, new) = (&old.0, &new.0);
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -2110,6 +2117,24 @@ fn encode_r2010(
         return r2010_finish(out, fields, data, handles_at);
     };
     with_modular_size(out, handles)
+}
+
+/// MTEXT `object` から、埋め込みのオブジェクトの印（101）と後の値を除いたものと、除いた値。MTEXT でなければ
+/// そのまま
+fn columns_removed(object: &Object) -> Option<(Object, Vec<Value>)> {
+    let at = match object.kind.as_slice() {
+        b"MTEXT" => object.values.iter().position(|value| value.code == 101),
+        _ => None,
+    };
+    let Some(at) = at else {
+        return Some((object.clone(), Vec::new()));
+    };
+    let (values, columns) = object.values.split_at_checked(at)?;
+    let kept = Object {
+        values: values.to_vec(),
+        ..object.clone()
+    };
+    Some((kept, columns.to_vec()))
 }
 
 /// R2010 から後のオブジェクトのデータを、`out` に続けて、型ごとの欄 `fields` の主のデータと文字列の流れ、
