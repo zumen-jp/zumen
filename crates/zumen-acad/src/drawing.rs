@@ -1965,6 +1965,7 @@ impl Lifter {
             rotation: self.real(object, 50, Some(0.0))?,
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         })
     }
 
