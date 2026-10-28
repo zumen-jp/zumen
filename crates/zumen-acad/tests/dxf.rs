@@ -284,6 +284,29 @@ fn binary_dxf_edits_are_written_as_binary() {
 }
 
 #[test]
+fn binary_dxf_writing_stops_without_adding_partial_output() {
+    let file = read(&binary_line(true));
+    for limit in [0, 1] {
+        let prefix = b"existing output".to_vec();
+        let mut out = prefix.clone();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = Dxf::write(
+            &file,
+            &mut out,
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        );
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(out, prefix, "{limit}");
+        assert_eq!(
+            diag.iter().next().map(|d| d.code()),
+            Some(codes::BUDGET_WORK_EXCEEDED)
+        );
+    }
+}
+
+#[test]
 fn binary_dxf_values_must_fit_their_type() {
     let cases: [(i16, &[u8]); 5] = [
         (62, b"x"),
