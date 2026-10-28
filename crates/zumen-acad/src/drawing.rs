@@ -1221,6 +1221,11 @@ impl Lifter {
         };
         let style = self.style(object, out)?;
         let layer = self.layer(object, out)?;
+        if let Shape::Callout(callout) = &mut shape {
+            let symbol = matches!(callout.content, CalloutContent::Symbol { .. });
+            (callout.line_style, callout.content_color) =
+                self.callout_style(db, object, symbol, out, cx)?;
+        }
         if let Shape::Symbol(symbol) = &mut shape {
             for attribute in attributes {
                 match self.attribute(attribute, &point, &length, out) {
@@ -2083,8 +2088,8 @@ impl Lifter {
     /// 平面の点（`x` と `x + 10`）。Z（`x + 20`）がなければ 0 とし、0 でなければ移さない
     /// MULTILEADER（DXF Reference「MLEADER」）。値を、注記の文脈（300〜301）・枝（302〜303）・線（304〜305）の
     /// 区切りで分けてから読む。注記は、文脈の 290 が真なら書式つきの文字、296 が真なら記号とする。公差の注記
-    /// （172 = 3）と段組み（173）は、まだ移さない。線ごとの端部記号（94・345）・線の色と線種と線幅・文字と
-    /// 記号の色・寄せ方の欄は、まだ移さない（docs/formats/dxf.md）
+    /// （172 = 3）と段組み（173）は、まだ移さない。線と注記の色・線種・線幅は `callout_style` で読む。
+    /// 線ごとの上書きと、寄せ方の欄は、まだ移さない（docs/formats/dxf.md）
     fn callout<P: Copy>(
         &self,
         db: &AcadDb,
@@ -2176,8 +2181,102 @@ impl Lifter {
             arrow_size: length(arrow_size),
             landing: self.flag(&entity, 290, true)?,
             scale,
+            // 線と注記の色・線種・線幅は、表の線種を引くので `element` で読む
+            line_style: Style::BLOCK,
+            content_color: Inherit::Block,
             style,
         })
+    }
+
+    /// MULTILEADER の線の色（91）・線種（341）・線幅（171）と、注記の色（文字は 92、記号は 93）（DXF
+    /// Reference「MLEADER」）。値がなければ、注記の要素に従う（推定。docs/formats/dxf.md）。線ごとの上書き
+    /// （線の 93 が 0 でないか、線の色（92）が注記の要素に従わない）は移さず、診断する
+    fn callout_style(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        symbol: bool,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) -> Lifted<(Style, Inherit<Color>)> {
+        let kind = object.kind.as_slice();
+        let parts = split_callout(object)?;
+        // DXF の AcDbEntity の欄は、代わりの図形の大きさ（92）を持つ。MULTILEADER の欄は、最後の区切り（100）の後から読む
+        let start = parts
+            .entity
+            .iter()
+            .rposition(|value| value.code == 100)
+            .map_or(0, |at| at + 1);
+        let entity = Object {
+            values: parts.entity.get(start..).unwrap_or_default().to_vec(),
+            ..object.clone()
+        };
+        let line_type = match entity.first(341) {
+            None | Some(Data::Handle(0)) => Inherit::Block,
+            Some(Data::Handle(handle)) => {
+                let record = db
+                    .get(*handle)
+                    .filter(|record| record.kind == b"LTYPE")
+                    .ok_or_else(|| invalid(kind, 341))?;
+                match self.string(record, 2)? {
+                    Some(name) if name.eq_ignore_ascii_case("ByLayer") => Inherit::Layer,
+                    Some(name) if name.eq_ignore_ascii_case("ByBlock") => Inherit::Block,
+                    _ => Inherit::Own(
+                        *out.line_type_handles
+                            .get(handle)
+                            .ok_or_else(|| invalid(kind, 341))?,
+                    ),
+                }
+            }
+            Some(_) => return Err(invalid(kind, 341)),
+        };
+        let line_weight = match entity.first(171) {
+            None | Some(Data::Int(-2)) => Inherit::Block,
+            Some(Data::Int(-1)) => Inherit::Layer,
+            Some(Data::Int(-3)) => Inherit::Own(LineWeight::Default),
+            Some(Data::Int(width @ 0..=211)) => {
+                Inherit::Own(LineWeight::Width(PaperLength(*width as f64 / 100.0)))
+            }
+            Some(_) => return Err(invalid(kind, 171)),
+        };
+        let line_style = Style {
+            color: self.inherited_color(&entity, 91)?,
+            line_type,
+            line_type_scale: 1.0,
+            line_weight: Some(line_weight),
+        };
+        let content_color = self.inherited_color(&entity, if symbol { 93 } else { 92 })?;
+        for line in parts.leaders.iter().flat_map(|(_, lines)| lines) {
+            let line = Object {
+                values: line.clone(),
+                ..object.clone()
+            };
+            let overridden = match line.first(93) {
+                None | Some(Data::Int(0)) => false,
+                Some(Data::Int(_)) => true,
+                Some(_) => return Err(invalid(kind, 93)),
+            };
+            if overridden
+                || line.first(92).is_some() && self.inherited_color(&line, 92)? != Inherit::Block
+            {
+                cx.report(Diagnostic::new(codes::DXF_LEADER_LINE_STYLE_DROPPED).at(source(object)));
+            }
+        }
+        Ok((line_style, content_color))
+    }
+
+    /// 継承を含む色の値（AcCmColor）。上の 1 バイトが 0xC0 ならレイヤ、0xC1 なら配置から継承する（推定。
+    /// docs/formats/dxf.md）。ほかは `raw_color` で読む。なければ配置から継承する
+    fn inherited_color(&self, object: &Object, code: i16) -> Lifted<Inherit<Color>> {
+        match object.first(code) {
+            None => Ok(Inherit::Block),
+            Some(Data::Int(value)) => match (*value as u32).to_be_bytes() {
+                [0xC0, ..] => Ok(Inherit::Layer),
+                [0xC1, ..] => Ok(Inherit::Block),
+                _ => Ok(Inherit::Own(self.raw_color(object, code)?)),
+            },
+            Some(_) => Err(invalid(&object.kind, code)),
+        }
     }
 
     /// MULTILEADER の文脈の書式つきの文字。欄は MTEXT と同じ意味で、符号が違う（DXF Reference「MLEADER」）。
@@ -2319,7 +2418,13 @@ impl Lifter {
         let kind = entity.kind.as_slice();
         let mut values = Vec::new();
         let mut definition = None;
-        for value in &entity.values {
+        // 属性の組は、記号のブロック（344）の後にある。前の 330 は図形の所有者なので読まない
+        let start = entity
+            .values
+            .iter()
+            .position(|value| value.code == 344)
+            .map_or(0, |at| at + 1);
+        for value in entity.values.iter().skip(start) {
             match (value.code, &value.data) {
                 (330, Data::Handle(handle)) => {
                     let found = db

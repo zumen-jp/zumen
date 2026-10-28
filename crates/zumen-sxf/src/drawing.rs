@@ -1828,6 +1828,8 @@ impl<'f> Lifter<'f> {
             // 矢印の形と大きさは、コードの表で決まる（推定。docs/formats/sxf.md）
             arrow_size: at.length(1.0),
             landing: false,
+            line_style: Style::BLOCK,
+            content_color: Inherit::Block,
             scale,
             style: None,
         });

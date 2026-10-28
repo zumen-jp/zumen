@@ -2539,6 +2539,181 @@ fn e4_callouts_keep_their_branches_and_content() {
     assert!(value.definition.record().is_some());
 }
 
+/// 対応表の E4 のうち引出線とバルーン: MULTILEADER の線の色（91）・線種（341）・線幅（171）と、注記の色
+/// （文字は 92、記号は 93）。線ごとの上書き（線の 93）は移さず、診断する
+#[test]
+fn e4_callout_lines_and_content_keep_their_style() {
+    let line_types = [
+        (0, "TABLE"),
+        (2, "LTYPE"),
+        (0, "LTYPE"),
+        (5, "C0"),
+        (2, "ByLayer"),
+        (73, "0"),
+        (0, "LTYPE"),
+        (5, "C1"),
+        (2, "Dashed"),
+        (73, "2"),
+        (49, "0.5"),
+        (74, "0"),
+        (49, "-0.25"),
+        (74, "0"),
+        (0, "ENDTAB"),
+    ];
+    let note = [
+        (290, "1"),
+        (304, "a"),
+        (41, "1.0"),
+        (12, "0.0"),
+        (22, "0.0"),
+    ];
+    // 線の色は RGB、線種は表の線種、線幅は 0.35 mm、文字は色の番号 6。2 本目の線は色を上書きする
+    let text = multileader(
+        &[
+            (42, "1.0"),
+            (91, "-1023442944"),
+            (341, "C1"),
+            (171, "35"),
+            (92, "-1023410170"),
+        ],
+        &note,
+        &[
+            (302, "LEADER{"),
+            (304, "LEADER_LINE{"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (91, "0"),
+            (92, "-1056964608"),
+            (305, "}"),
+            (304, "LEADER_LINE{"),
+            (10, "0.0"),
+            (20, "5.0"),
+            (91, "1"),
+            (92, "-1023410175"),
+            (93, "2"),
+            (305, "}"),
+            (303, "}"),
+        ],
+    );
+    // 線はレイヤに従い、記号は色の番号 5。図形の所有者（330）は、属性の定義ではない
+    let balloon = multileader(
+        &[
+            (330, "1F"),
+            (42, "1.0"),
+            (91, "-1073741824"),
+            (341, "C0"),
+            (171, "-1"),
+            (344, "B1"),
+            (93, "-1023410171"),
+            (330, "AD"),
+            (177, "1"),
+            (44, "0.0"),
+            (302, "1"),
+        ],
+        &[
+            (290, "0"),
+            (296, "1"),
+            (341, "B1"),
+            (15, "0.0"),
+            (25, "0.0"),
+        ],
+        &[],
+    );
+    let blocks = [
+        (0, "BLOCK_RECORD"),
+        (5, "B1"),
+        (2, "_TagCircle"),
+        (0, "BLOCK"),
+        (5, "B2"),
+        (330, "B1"),
+        (8, "0"),
+        (2, "_TagCircle"),
+        (70, "2"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "ATTDEF"),
+        (5, "AD"),
+        (330, "B1"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (40, "1.0"),
+        (1, ""),
+        (2, "NO"),
+        (70, "0"),
+        (0, "ENDBLK"),
+        (5, "B3"),
+        (330, "B1"),
+        (8, "0"),
+    ];
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1021")]].concat();
+    let tables = [&line_types[..], &blocks[..3]].concat();
+    let src = sections(&[
+        ("HEADER", &header),
+        ("TABLES", &tables),
+        ("BLOCKS", &blocks[3..]),
+        ("ENTITIES", &[text, balloon].concat()),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let found: Vec<_> = found(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    assert_eq!(
+        found,
+        [(codes::DXF_LEADER_LINE_STYLE_DROPPED, String::new(), 1)]
+    );
+    let drawing = drawing.unwrap();
+    let dashed = drawing
+        .line_types
+        .iter()
+        .find(|t| t.name == "Dashed")
+        .map(|t| t.id)
+        .unwrap();
+    let shapes = model_shapes(&drawing);
+    let [Shape::Callout(text), Shape::Callout(balloon)] = shapes.as_slice() else {
+        panic!("{shapes:?}");
+    };
+    let aci = |value| Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value,
+        }),
+        rgb: None,
+    };
+    assert_eq!(
+        (text.line_style, text.content_color),
+        (
+            Style {
+                color: Inherit::Own(Color {
+                    code: None,
+                    rgb: Some([255, 128, 0]),
+                }),
+                line_type: Inherit::Own(dashed),
+                line_type_scale: 1.0,
+                line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.35)))),
+            },
+            Inherit::Own(aci(6)),
+        )
+    );
+    assert_eq!(
+        (balloon.line_style, balloon.content_color),
+        (
+            Style {
+                color: Inherit::Layer,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: Some(Inherit::Layer),
+            },
+            Inherit::Own(aci(5)),
+        )
+    );
+    let CalloutContent::Symbol { values, .. } = &balloon.content else {
+        panic!("{:?}", balloon.content);
+    };
+    assert_eq!(values.len(), 1);
+}
+
 #[test]
 fn e9_callouts_that_cannot_be_read_are_reported() {
     let entities = [
