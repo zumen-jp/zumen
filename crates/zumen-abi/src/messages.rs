@@ -10,7 +10,7 @@ use zumen_json::{self as json, FromJson, Invalid, ObjectReader, Problem, ToJson,
 /// 要求。op の値で形が決まる
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
-    /// 核の版と、使える op・形式を尋ねる
+    /// コアの版と、使える op・形式を尋ねる
     Capabilities(CapabilitiesRequest),
     /// 入力を読んで、文書を作る。形式は入力から判定する
     Open(OpenRequest),
@@ -253,7 +253,7 @@ impl ToJson for Limit {
     }
 }
 
-/// 核の版と、使える op・形式を尋ねる
+/// コアの版と、使える op・形式を尋ねる
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapabilitiesRequest {
     /// `request_common` の欄
@@ -291,7 +291,7 @@ impl ToJson for CapabilitiesRequest {
     }
 }
 
-/// 核の版と、使える op・形式（決定 0015）
+/// コアの版と、使える op・形式（決定 0015）
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapabilitiesResult {
     /// パッケージの版（semver）
@@ -300,7 +300,7 @@ pub struct CapabilitiesResult {
     pub abi: u64,
     /// メッセージのスキーマの版
     pub schema: SchemaVersion,
-    /// この核（wasm ではこのモジュール）で使える op の名前
+    /// このコア（wasm ではこのモジュール）で使える op の名前
     pub ops: Vec<String>,
     /// 読み書きできる形式
     pub formats: Vec<Format>,
@@ -1982,7 +1982,7 @@ impl ToJson for SessionOptions {
     }
 }
 
-/// 実行の形（決定 0013）。`native` はプロセスの中で核を動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
+/// 実行の形（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Engine {
     /// `native`
@@ -2036,7 +2036,7 @@ pub struct Catalog {
     pub v: u64,
     /// 言語（ja・en）
     pub lang: String,
-    /// パッケージの版。核と同じ版で出す
+    /// パッケージの版。コアと同じ版で出す
     pub package: String,
     /// 数の書き方
     pub number: NumberFormat,

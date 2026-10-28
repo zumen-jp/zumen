@@ -10,13 +10,13 @@
 - 旧版の `Notice` は `code`・`level`・`message`（日本語）・`count` だけで、どの要素か、仕様のどの節かを持たない。
 - 旧版の表示の部品は文言と CSS を持たなかった（[旧版の決定 0005](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0005-browser-packages-for-embedding.md)）。ただし読み取りの結果には、日本語の種類名（`type`）・属性名（`label`）と、整形した値（`value`）が入っていた。整形を TypeScript の参照実装とそろえるために、Rust の側で JavaScript の数値の整形まで再現した（`zumen_core::js`、[0007](0007-single-rust-implementation.md)）。
 - 変換で落ちたもの（[旧版の決定 0006](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0006-write-through-the-autocad-model.md)・[旧版の決定 0010](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0010-write-sxf-from-the-autocad-model.md) の notices）は、種類ごとの件数だけだった。要素ごとの結果も、書き出す前の見積もりもなかった。
-- [0005](0005-japanese-first.md) で、核は人向けの文を返さず、文言は日本語と英語のカタログに置くと決めた。[0008](0008-model-layers-and-codecs.md) で、lift・lower・apply が要素ごとの出所と忠実度を返すと決めた。
+- [0005](0005-japanese-first.md) で、コアは人向けの文を返さず、文言は日本語と英語のカタログに置くと決めた。[0008](0008-model-layers-and-codecs.md) で、lift・lower・apply が要素ごとの出所と忠実度を返すと決めた。
 
 ## 選択肢
 
-1. **旧版の形を広げる。** `Notice` に場所を足し、文言は核が作り続ける。手間は少ないが、文言と整形の規則が核に残る。
-2. **診断を機械向けの値だけにし、文言は各言語の側で作る。** 核は軽くなるが、同じ診断から言語ごとに違う文ができる。
-3. **診断を機械向けの値だけにし、文言はカタログと境界の `zm_describe` で作る。** 文の組み立ても Rust の 1 か所で行い、どの言語からも同じ文を返す。カタログは核と別に配る。
+1. **旧版の形を広げる。** `Notice` に場所を足し、文言はコアが作り続ける。手間は少ないが、文言と整形の規則がコアに残る。
+2. **診断を機械向けの値だけにし、文言は各言語の側で作る。** コアは軽くなるが、同じ診断から言語ごとに違う文ができる。
+3. **診断を機械向けの値だけにし、文言はカタログと境界の `zm_describe` で作る。** 文の組み立ても Rust の 1 か所で行い、どの言語からも同じ文を返す。カタログはコアと別に配る。
 
 ## 決定
 
@@ -81,7 +81,7 @@ pub struct Diagnostic {
 
 ### カタログと文言
 
-- 核（読み取り・書き出し・解析）は、人向けの文を作らない。種類名・属性名・診断の文の代わりに、安定したキー（要素の種類、属性のキー、列挙の値、code）と型付きの値を返す。
+- コア（読み取り・書き出し・解析）は、人向けの文を作らない。種類名・属性名・診断の文の代わりに、安定したキー（要素の種類、属性のキー、列挙の値、code）と型付きの値を返す。
 - カタログは、`catalog/` に日本語（`ja.toml`）と英語（`en.toml`）で置く。中身は次のとおり。
   - 診断の文のひな形
   - 要素の種類名、属性名、列挙の値の名前
@@ -90,7 +90,7 @@ pub struct Diagnostic {
 - 文は、境界の `zm_describe`（[#13](https://github.com/zumen-jp/zumen/issues/13)）がカタログから組み立てる。Rust の 1 か所で作るので、どの言語からも同じ文になる。
   - 数の整形は、`zm_describe` がカタログの規則で行う。OS のロケールは使わない。読み取りは数を整形しない。
   - カタログにない code は、code と値をそのまま返す。古いカタログでも落ちない。
-- カタログは核と同じ版で出し、核とは別のファイルとして配る。
+- カタログはコアと同じ版で出し、コアとは別のファイルとして配る。
   - 文言が要らないアプリは、読み込まなくてよい。
   - どのパッケージに含めるかは、各言語の包みで決める。ブラウザーでは、要るときに読み込む。
 - カタログのライセンスは、コードと同じ MIT OR Apache-2.0 にする。アプリが文言を組み込みやすいように。
@@ -100,9 +100,9 @@ pub struct Diagnostic {
 - 旧版の `Notice`、日本語の `type`・`label`、整形した `value` は移さない。旧版の notice の code（`unit-assumed` など）は、形式を移すときに新しい名前に付け替え、対応を `docs/formats/` に書く。
 - 診断を足す PR は、台帳と、日本語・英語の文言を一緒に変える。
 - 文言を変えても code は変わらない。アプリと AI は、code で分岐できる。
-- `zm_describe` の引数と、カタログを核に渡す方法は [#13](https://github.com/zumen-jp/zumen/issues/13) で決める。
+- `zm_describe` の引数と、カタログをコアに渡す方法は [#13](https://github.com/zumen-jp/zumen/issues/13) で決める。
 - [#7](https://github.com/zumen-jp/zumen/issues/7) の完了の条件のうち、台帳の最初の版は、base の crate と生成の仕組みと一緒に入れる。
-- AGENTS.md の「核は人向けの文を返さない」から、この記録を参照する。
+- AGENTS.md の「コアは人向けの文を返さない」から、この記録を参照する。
 
 ## 参照
 

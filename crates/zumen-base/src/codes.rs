@@ -142,7 +142,7 @@ pub const CALL_FIELD_MISSING: Code = Code::new(
     &[],
 );
 
-/// 要求に、この核が知らない欄か、この形（wasm など）では使えない欄がある
+/// 要求に、このコアが知らない欄か、この形（wasm など）では使えない欄がある
 ///
 /// `call.field.unsupported`（0.0.0 から）
 pub const CALL_FIELD_UNSUPPORTED: Code = Code::new(
@@ -153,7 +153,7 @@ pub const CALL_FIELD_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 入力の形式を判定できない。または、この核では読めない形式
+/// 入力の形式を判定できない。または、このコアでは読めない形式
 ///
 /// `call.format.unsupported`（0.0.0 から）
 pub const CALL_FORMAT_UNSUPPORTED: Code = Code::new(
@@ -186,7 +186,7 @@ pub const CALL_JSON_INVALID: Code = Code::new(
     &[],
 );
 
-/// この核（wasm ではこのモジュール）にない op
+/// このコア（wasm ではこのモジュール）にない op
 ///
 /// `call.op.unsupported`（0.0.0 から）
 pub const CALL_OP_UNSUPPORTED: Code = Code::new(
@@ -214,7 +214,7 @@ pub const CALL_VALUE_INVALID: Code = Code::new(
     &[],
 );
 
-/// 要求の版 v を、この核が扱えない
+/// 要求の版 v を、このコアが扱えない
 ///
 /// `call.version.unsupported`（0.0.0 から）
 pub const CALL_VERSION_UNSUPPORTED: Code = Code::new(

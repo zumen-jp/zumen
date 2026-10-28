@@ -995,7 +995,7 @@ mod tests {
     #[test]
     #[allow(
         clippy::disallowed_methods,
-        reason = "環境変数を読むのは試験だけで、核は読まない（AGENTS.md の図面と秘密）"
+        reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
     )]
     fn sample_containers_are_rebuilt() {
         let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {

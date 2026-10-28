@@ -710,7 +710,7 @@ pub struct Leader<P> {
     pub style: String,
 }
 
-/// 下敷き（決定 0114）。資源を参照名で指し、核は開かない。描く順は、ほかの要素と同じく空間と用紙の一覧に従う
+/// 下敷き（決定 0114）。資源を参照名で指し、コアは開かない。描く順は、ほかの要素と同じく空間と用紙の一覧に従う
 #[derive(Clone, Debug, PartialEq)]
 pub struct Underlay<P> {
     /// 資源の種類

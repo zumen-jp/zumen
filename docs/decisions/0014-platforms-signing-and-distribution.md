@@ -1,4 +1,4 @@
-# 0014: 対象のプラットフォームを決め、成果物に署名し、言語の段に合わせて配る
+# 0014: 対象のプラットフォームを決め、成果物に署名し、言語の階層に合わせて配る
 
 | 項目 | 内容 |
 | --- | --- |
@@ -7,7 +7,7 @@
 
 ## 背景
 
-- 各言語へは、C ABI のライブラリと wasm のモジュール（[0011](0011-bindings-through-ffi.md)）、CLI（[0013](0013-boundary-in-four-forms.md)）を配る。言語は 3 つの段に分けた（[0006](0006-language-tiers.md)）。
+- 各言語へは、C ABI のライブラリと wasm のモジュール（[0011](0011-bindings-through-ffi.md)）、CLI（[0013](0013-boundary-in-four-forms.md)）を配る。言語は 3 つの階層に分けた（[0006](0006-language-tiers.md)）。
 - 利用者の環境は広い。
   - Windows の x64 が多い。32 bit の Office が残り、ARM64 の PC も増えた。
   - Mac は arm64 が主で、Intel の Mac も残る。
@@ -44,8 +44,8 @@
 
 ### 配る場所
 
-1. **最初から、すべてのレジストリに出す。** 段 3 の言語まで、包みと公開の手間がかかる。
-2. **言語の段に合わせて、順に広げる。**
+1. **最初から、すべてのレジストリに出す。** 階層 3 の言語まで、包みと公開の手間がかかる。
+2. **言語の階層に合わせて、順に広げる。**
 
 ## 決定
 
@@ -78,7 +78,7 @@
   - Windows では、C の実行時ライブラリも静的にリンクする。Visual C++ の再頒布可能パッケージを入れていない PC でも動く。
   - glibc の Linux では、glibc 2.28 の環境で作る（Python の `manylinux_2_28`）。musl の版は、すべてを静的にリンクする。glibc 2.28 より古い Linux では、musl の CLI を、プロセスの外か HTTP の形（[0013](0013-boundary-in-four-forms.md)）で使う。
   - iOS・Android・Unity のために、静的ライブラリも作る。Apple のプラットフォームには、XCFramework にまとめて配る。
-- **外のものに頼らない。** 核とライブラリは、システムのフォント・OpenSSL・ネットワークを使わない。CLI の HTTP も、TLS を持たない（[0013](0013-boundary-in-four-forms.md)）。
+- **外のものに頼らない。** コアとライブラリは、システムのフォント・OpenSSL・ネットワークを使わない。CLI の HTTP も、TLS を持たない（[0013](0013-boundary-in-four-forms.md)）。
 - **ライセンスの文。** どの成果物にも、依存のライセンスの文（`THIRD_PARTY_LICENSES`）を入れる。cargo-about（MIT OR Apache-2.0、Cargo の外の道具）で作る。
 - **SBOM と来歴**
   - リリースに、CycloneDX の SBOM を付ける（cargo-cyclonedx、Apache-2.0）。
@@ -98,7 +98,7 @@
 
 ### 配る場所
 
-| 段 | 言語 | 配る場所 | 中身 |
+| 階層 | 言語 | 配る場所 | 中身 |
 | --- | --- | --- | --- |
 | 1 | Rust | crates.io | crate |
 | 1 | TS・JS | npm（`@zumen-jp/*`） | wasm のモジュールと包み |
@@ -111,7 +111,7 @@
 | 2 | Go | `zumen.dev/go`（鏡の `zumen-go`） | wasm を埋め込んだ module |
 | 2 | Dart | pub.dev | 包みと、ネイティブのライブラリ |
 | 2 | VBA | GitHub Releases | zip: 32 bit と 64 bit の DLL、子プロセス用の CLI、.bas、サンプル |
-| 3 | Ruby・PHP・R など | 文書とサンプル | 段を上げるときに、パッケージを作る（[0006](0006-language-tiers.md)） |
+| 3 | Ruby・PHP・R など | 文書とサンプル | 階層を上げるときに、パッケージを作る（[0006](0006-language-tiers.md)） |
 
 - **子プロセス用の CLI**（[0013](0013-boundary-in-four-forms.md) の `process`）は、MCP と HTTP を外して作り、PyPI・npm・NuGet では別のパッケージにする。主なパッケージを小さく保ち、ホストアプリで使う人だけが足す。VBA の zip には入れる。
 - **鏡のリポジトリ**は、リリースの CI が GitHub App で書く（[0004](0004-repositories.md)）。

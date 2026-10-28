@@ -30,7 +30,7 @@ fn is_default(code: i16, data: &Data) -> bool {
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、核は読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn pairs() -> Vec<(PathBuf, PathBuf)> {
     let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
@@ -60,7 +60,7 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、核は読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn dwgs(version: &[u8]) -> Vec<PathBuf> {
     let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {

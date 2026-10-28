@@ -18,7 +18,7 @@ use zumen_base::CancelToken;
 use crate::abi::{ABI_VERSION, Status};
 use crate::session::Session;
 
-/// 核が返すバッファー（C の `zm_buf`）。`zm_free` で返す
+/// コアが返すバッファー（C の `zm_buf`）。`zm_free` で返す
 #[repr(C)]
 #[derive(Debug)]
 pub struct Buf {
@@ -41,7 +41,7 @@ pub struct SessionHandle {
     session: Mutex<Session>,
     /// 動いている呼び出しの中断の合図。`zm_cancel` が、どのスレッドからでも使う
     running: Mutex<Option<CancelToken>>,
-    /// 核の不具合で止まったか
+    /// コアの不具合で止まったか
     panicked: AtomicBool,
 }
 
@@ -117,7 +117,7 @@ unsafe fn handle<'a>(session: *mut SessionHandle) -> Option<&'a SessionHandle> {
     unsafe { session.as_ref() }
 }
 
-/// 核のバイト列を、ホストが `zm_free` で返すバッファーにして書く
+/// コアのバイト列を、ホストが `zm_free` で返すバッファーにして書く
 ///
 /// # Safety
 ///
@@ -347,7 +347,7 @@ pub unsafe extern "system" fn zm_session_close(session: *mut SessionHandle) {
     });
 }
 
-/// 核が返したバッファーを返す
+/// コアが返したバッファーを返す
 ///
 /// # Safety
 ///

@@ -87,21 +87,21 @@ since = "0.0.0"
 status = "active"
 
 [codes."call.version.unsupported"]
-description = "要求の版 v を、この核が扱えない"
+description = "要求の版 v を、このコアが扱えない"
 severity = "error"
 params = { version = "uint" }
 since = "0.0.0"
 status = "active"
 
 [codes."call.op.unsupported"]
-description = "この核（wasm ではこのモジュール）にない op"
+description = "このコア（wasm ではこのモジュール）にない op"
 severity = "error"
 params = { op = "text" }
 since = "0.0.0"
 status = "active"
 
 [codes."call.field.unsupported"]
-description = "要求に、この核が知らない欄か、この形（wasm など）では使えない欄がある"
+description = "要求に、このコアが知らない欄か、この形（wasm など）では使えない欄がある"
 severity = "error"
 params = { pointer = "text" }
 since = "0.0.0"
@@ -146,7 +146,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."call.format.unsupported"]
-description = "入力の形式を判定できない。または、この核では読めない形式"
+description = "入力の形式を判定できない。または、このコアでは読めない形式"
 severity = "error"
 params = { name = "text" }
 since = "0.0.0"

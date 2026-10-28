@@ -1,4 +1,4 @@
-//! 適合試験を、核を直接呼ぶ形と、C ABI の関数を呼ぶ形で流し、どちらも `hashes.txt` と一致することを確かめる。
+//! 適合試験を、コアを直接呼ぶ形と、C ABI の関数を呼ぶ形で流し、どちらも `hashes.txt` と一致することを確かめる。
 
 use zumen_conformance::{CAbi, Direct, Engine, Report, cases, differences, read_hashes, run};
 

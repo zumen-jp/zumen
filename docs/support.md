@@ -27,7 +27,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 
 ## 言語と実行環境
 
-| 段 | 言語 | 下限 | 理由 | 確かめ方 |
+| 階層 | 言語 | 下限 | 理由 | 確かめ方 |
 | --- | --- | --- | --- | --- |
 | 1 | Rust | 1.99（crate の `rust-version`） | 固定したツールチェーン | PR ごと |
 | 1 | TS・JS（ブラウザー） | Chrome・Edge 96、Firefox 79、Safari 15 | Rust の wasm32 が既定で使う wasm の機能（multivalue・mutable-globals・reference-types・sign-ext・bulk-memory・nontrapping-fptoint） | PR ごと（Chromium）、毎晩（Firefox・WebKit） |
@@ -55,7 +55,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | ArcGIS Pro | 3.3 以降 | Python 3.11（3.6 から 3.13） |
 | FreeCAD | 1.0 以降 | Python 3.11 |
 | Excel | Microsoft 365、Office LTSC 2024 | VBA7（32 bit・64 bit）、.NET（Excel-DNA） |
-| SketchUp | 2024 以降 | Ruby 3.2（段 3） |
+| SketchUp | 2024 以降 | Ruby 3.2（階層 3） |
 | Unity | 6 の LTS | .NET Standard 2.1。IL2CPP は、iOS と Web では静的ライブラリをリンクする |
 
 - 32 bit の Excel では、64 bit の子プロセス（[決定 0013](decisions/0013-boundary-in-four-forms.md) の `process`）を使うと、大きな図面を読めます。
