@@ -81,7 +81,7 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 
 - `DxfFile` の `Lift<Drawing2D>` で、図面モデル（L2、`crates/zumen-drawing`）を作る（[決定 0022](../decisions/0022-drawing2d-semantics-and-format-mapping.md)）。変換は共有のオブジェクトの表（[決定 0023](../decisions/0023-acad-shared-object-table.md)）の上で行い、DWG も同じ変換を使う（[DWG の扱い](dwg.md)）。`zumen-acad` の feature `drawing` にあり、外せば L1 だけを使える。
 - 移す図形と値は、この節の各項に書く。移さない種類の図形は、種類ごとに `dxf.lift.dropped` を返す。
-- モデル空間の図形は 1 つの実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは、レイアウトごとの用紙に置く（[決定 0145](../decisions/0145-drawing-sheets-per-layout.md)）。用紙は、そのレイアウトに何かあるときだけ作る。
+- モデル空間の図形は 1 つの実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートは、レイアウトごとの用紙に置く（[決定 0145](../decisions/0145-drawing-sheets-per-layout.md)）。図形のないレイアウトも、LAYOUT があれば、名前と大きさだけの中身のない用紙にする（[決定 0153](../decisions/0153-drawing-empty-layout-sheets.md)）。中身のない用紙の ID は、中身のある用紙の後から、タブの順に付ける。今のレイアウトに図形があれば、そのペーパー空間のブロックからは用紙を作らない。
   - 今のレイアウトの図形は ENTITIES にあり、ID 0 の用紙に置く。ほかのレイアウトの図形は、BLOCKS のペーパー空間のブロック（DXF では `*Paper_Space0` など、DWG では番号のない `*Paper_Space`）にあり、今のレイアウトの用紙の後に、LAYOUT のタブの順（71）で並べる。
   - 用紙の名前は、そのブロックのレコードを指す LAYOUT のレイアウトの名前（2 つ目の 1）とする。今のレイアウトの LAYOUT は、ペーパー空間の図形の所有者から探す。
   - ほかのレイアウトの用紙の点は、LAYOUT の範囲の左下（10・20）を原点にし、大きさは範囲（10・20 から 11・21）で決める（推定。試料の DXF と DWG で確かめた）。範囲がなければ原点を 0 とし、大きさを持たない。

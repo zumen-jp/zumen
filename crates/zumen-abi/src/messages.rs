@@ -875,6 +875,8 @@ impl ToJson for SpaceSummary {
 /// 用紙の要約
 #[derive(Clone, Debug, PartialEq)]
 pub struct SheetSummary {
+    /// 元の形式の用紙の名前（DXF・DWG のレイアウトの名前）。翻訳しない。なければ持たない
+    pub name: Option<String>,
     /// 用紙の幅と高さ（mm）。分からなければ持たない
     pub size: Option<Vec<f64>>,
     /// 要素の数
@@ -887,11 +889,13 @@ pub struct SheetSummary {
 
 impl SheetSummary {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
         let size = object.optional("size", |value| json::array(value, json::number))?;
         let elements = object.required("elements", ElementCounts::from_json)?;
         let views = object.required("views", |value| json::uint(value, 0, 9007199254740991))?;
         let extent = object.optional("extent", Extent::from_json)?;
         Ok(Self {
+            name,
             size,
             elements,
             views,
@@ -900,6 +904,10 @@ impl SheetSummary {
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
         if let Some(value) = &self.size {
             out.key("size");
             out.array(value, |out, item| out.float(*item));

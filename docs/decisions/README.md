@@ -182,3 +182,4 @@
 - [0150: 線種の列の要素に添える形と文字を、線種の定義に持つ](0150-drawing-line-type-marks.md)（2026-10-29、提案）
 - [0151: 表のセルの書式と枠、表のスタイルの行の書式を、表に持つ](0151-drawing-table-cell-formats.md)（2026-10-29、提案）
 - [0152: 画層と線種の拡張辞書の XRECORD を、画層と線種に付く形式固有の情報にする](0152-drawing-layer-line-type-xrecords.md)（2026-10-29、提案）
+- [0153: 図形のない DXF・DWG のレイアウトも、名前と大きさだけの用紙にする](0153-drawing-empty-layout-sheets.md)（2026-10-29、提案）
