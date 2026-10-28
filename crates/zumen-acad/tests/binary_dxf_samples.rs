@@ -2,10 +2,12 @@
 //! ASCII の DXF（`名前_ascii.dxf`）を読み、比べる。フォルダーを指定しないときは何も確かめない。
 //! 図面は Git に入れない。
 
+mod support;
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use zumen_acad::{Dxf, DxfFile};
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Ref};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics};
 use zumen_sdk::{Codec, Lift, Transact, Transaction};
 
 /// バイナリと ASCII の DXF の組
@@ -56,7 +58,7 @@ fn write(file: &DxfFile) -> Vec<u8> {
     out
 }
 
-/// 図面モデル（元の場所を除く）と、出た DXF の診断の code
+/// 図面モデル（出所と XRECORD のハンドルを除き、拡張はキーごとに比べる）と、出た DXF の診断の code
 #[cfg(test)]
 fn lifted(path: &Path) -> (String, BTreeSet<Code>) {
     let src = std::fs::read(path).unwrap();
@@ -65,25 +67,9 @@ fn lifted(path: &Path) -> (String, BTreeSet<Code>) {
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
     let mut drawing = Dxf::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap();
-    let nowhere = Ref::at_record(0);
-    for space in &mut drawing.spaces {
-        space
-            .elements
-            .iter_mut()
-            .for_each(|e| e.source = nowhere.clone());
-    }
-    for sheet in &mut drawing.sheets {
-        sheet
-            .elements
-            .iter_mut()
-            .for_each(|e| e.source = nowhere.clone());
-        sheet
-            .views
-            .iter_mut()
-            .for_each(|v| v.source = nowhere.clone());
-    }
+    support::normalize_extensions(&mut drawing);
     (
-        format!("{drawing:?}"),
+        support::without_source_refs(&format!("{drawing:?}")),
         diag.iter().map(|d| d.code()).collect(),
     )
 }
