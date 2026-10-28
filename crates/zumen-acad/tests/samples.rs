@@ -346,7 +346,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
 }
 
 /// 図面モデルの値を、実数の誤差を許して比べるための文字列。図形とビューの元のレコードは、
-/// DWG（バイトの範囲）と DXF（レコードの番号）で違うので消す
+/// DWG（バイトの範囲）と DXF（レコードの番号）で違うので消す。拡張辞書の XRECORD の中のハンドルも消す
 #[cfg(test)]
 #[cfg(feature = "drawing")]
 fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
@@ -362,6 +362,16 @@ fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
     } else {
         Dxf::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
     };
+    // 拡張辞書の XRECORD が指すオブジェクトは、DXF を書くときに別のハンドルで作り直されることがある
+    for extension in &mut drawing.extensions {
+        if extension.namespace == "dxf.xrecord" {
+            for field in &mut extension.fields {
+                if let zumen_drawing::FieldValue::Handle(handle) = &mut field.value {
+                    *handle = 0;
+                }
+            }
+        }
+    }
     let nowhere = Ref::at_record(0);
     for space in &mut drawing.spaces {
         space
