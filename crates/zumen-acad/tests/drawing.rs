@@ -767,6 +767,62 @@ fn sortents_tables_order_the_block_definitions() {
 }
 
 #[test]
+fn block_record_units_set_the_unit_of_the_definition() {
+    // 文書は mm。Door は inch、Window は単位なし（0）、Frame は長さでない単位（ミル 9）、Sash は 70 を持たない
+    let mut tables = vec![(0, "TABLE"), (2, "BLOCK_RECORD")];
+    let names = [
+        ("B1", "Door", Some("1")),
+        ("C1", "Window", Some("0")),
+        ("D1", "Frame", Some("9")),
+        ("E1", "Sash", None),
+    ];
+    let mut blocks = Vec::new();
+    for (handle, name, units) in names {
+        tables.extend([(0, "BLOCK_RECORD"), (5, handle), (2, name)]);
+        if let Some(units) = units {
+            tables.push((70, units));
+        }
+        blocks.extend([
+            (0, "BLOCK"),
+            (330, handle),
+            (8, "0"),
+            (2, name),
+            (70, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (0, "ENDBLK"),
+            (330, handle),
+            (8, "0"),
+        ]);
+    }
+    tables.push((0, "ENDTAB"));
+    let (drawing, diag) = lift(
+        &sections(&[
+            ("HEADER", MM),
+            ("TABLES", &tables),
+            ("BLOCKS", &blocks),
+            ("ENTITIES", &[]),
+        ]),
+        &mut Budget::default(),
+    );
+    assert!(found(&diag).is_empty(), "{:?}", found(&diag));
+    let drawing = drawing.unwrap();
+    let unit = |name: &str| {
+        drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key.name == name)
+            .unwrap()
+            .space
+            .unit
+    };
+    assert_eq!(unit("Door"), Unit::Inch);
+    assert_eq!(unit("Window"), Unit::Millimeter);
+    assert_eq!(unit("Frame"), Unit::Unknown);
+    assert_eq!(unit("Sash"), Unit::Millimeter);
+}
+
+#[test]
 fn sortents_tables_order_the_model_and_the_sheet() {
     let tables = [
         (0, "TABLE"),

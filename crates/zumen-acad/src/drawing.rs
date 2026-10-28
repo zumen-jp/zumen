@@ -431,18 +431,50 @@ fn unit(db: &AcadDb, cx: &mut Cx) -> Unit {
             Data::Int(code) => Some(code),
             _ => None,
         });
-    let unit = match code {
-        Some(1) => Unit::Inch,
-        Some(2) => Unit::Foot,
-        Some(4) => Unit::Millimeter,
-        Some(5) => Unit::Centimeter,
-        Some(6) => Unit::Meter,
-        _ => Unit::Unknown,
-    };
+    let unit = code.map_or(Unit::Unknown, unit_of);
     if unit == Unit::Unknown {
         cx.report(Diagnostic::new(codes::DXF_UNITS_MISSING));
     }
     unit
+}
+
+/// ブロックのレコードの挿す単位の番号。R2007 からは 70 に、R2004 までは拡張データの ACAD の
+/// `DesignCenter Data` の組（1002 の `{`、版の 1070、単位の 1070、1002 の `}`）にある（試料の図面で確かめた）
+fn insertion_units(record: &Object) -> Option<i64> {
+    if let Some(Data::Int(code)) = record.first(70) {
+        return Some(*code);
+    }
+    let values = &record.values;
+    let at = values.windows(2).position(|pair| {
+        matches!(pair, [app, name]
+            if app.code == 1001
+                && app.data == Data::Text(b"ACAD".to_vec())
+                && name.code == 1000
+                && name.data == Data::Text(b"DesignCenter Data".to_vec()))
+    })?;
+    match values.get(at + 2..at + 5)? {
+        [open, version, units]
+            if open.code == 1002 && version.code == 1070 && units.code == 1070 =>
+        {
+            match units.data {
+                Data::Int(code) => Some(code),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// 単位の番号（`$INSUNITS` と、ブロックのレコードの挿す単位で共通）。長さの単位でなければ不明
+fn unit_of(code: i64) -> Unit {
+    match code {
+        1 => Unit::Inch,
+        2 => Unit::Foot,
+        4 => Unit::Millimeter,
+        5 => Unit::Centimeter,
+        6 => Unit::Meter,
+        _ => Unit::Unknown,
+    }
 }
 
 fn header_real(values: &[crate::Value], code: i16) -> Option<f64> {
@@ -860,6 +892,12 @@ impl Lifter {
             .and_then(Object::handle)
             .and_then(|handle| keys.get(&handle));
         let order = arrange(keys, handles.into_iter().enumerate().collect(), cx);
+        // ブロックのレコードの挿す単位。0（単位なし）か、なければ文書の単位とする。配置の尺度は、
+        // 単位の違いを掛けた値を持つ（推定。決定 0144）
+        let unit = match record.and_then(insertion_units) {
+            Some(code) if code != 0 => unit_of(code),
+            _ => self.unit,
+        };
         Ok(Some(SymbolDefinition {
             key: SymbolKey {
                 namespace: BLOCK,
@@ -867,7 +905,7 @@ impl Lifter {
             },
             space: ModelSpace {
                 id: space,
-                unit: self.unit,
+                unit,
                 order,
                 elements,
             },

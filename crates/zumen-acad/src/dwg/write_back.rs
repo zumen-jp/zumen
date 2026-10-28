@@ -837,7 +837,11 @@ impl DwgFile {
             b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE, &dimstyle_codes),
             b"VIEW" => (VIEW_TYPE, VIEW_CONTROL_TYPE, &view_codes),
             b"VPORT" => (VPORT_TYPE, VPORT_CONTROL_TYPE, &vport_codes),
-            b"BLOCK_RECORD" => (BLOCK_RECORD_TYPE, BLOCK_RECORD_CONTROL_TYPE, &[]),
+            b"BLOCK_RECORD" => (
+                BLOCK_RECORD_TYPE,
+                BLOCK_RECORD_CONTROL_TYPE,
+                &[70, 280, 281],
+            ),
             _ => return None,
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
@@ -1076,12 +1080,15 @@ impl DwgFile {
             // 説明と、絵の大きさ
             fields.text(b"")?;
             fields.bl(0);
-            // R2010 からは、挿す単位（BS）・分解できるか（B）・尺度を揃えるか（RC）が続く。試料の図面の
-            // 多くと同じく、単位なし・分解できる・揃えないとする（決定 0095）
+            // R2010 からは、挿す単位（BS）・分解できるか（B）・尺度を揃えるか（RC）が続く。レコードの 70・280・281
+            // を書き、ないものは試料の図面の多くと同じく、単位なし・分解できる・揃えないとする（決定 0095）
+            // R2004 までは書く欄がないので、単位なし以外は書けないものとする（推定。docs/formats/dwg.md）
             if r2010 {
-                fields.bs(0);
-                fields.bit(true);
-                fields.rc(0);
+                fields.bs(small(object, 70)?.unwrap_or(0));
+                fields.bit(small(object, 280)?.unwrap_or(1) != 0);
+                fields.rc(u8::try_from(small(object, 281)?.unwrap_or(0)).ok()?);
+            } else {
+                (small(object, 70)?.unwrap_or(0) == 0).then_some(())?;
             }
             handles.handle(3, block.block?);
             // R2000 は最初と最後の図形を指し、R2004 は持つ図形をみな固い所有で指す
