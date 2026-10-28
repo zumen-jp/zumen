@@ -55,6 +55,9 @@ const XDATA: &str = "dxf.xdata";
 
 const POINT: &str = "dxf.point";
 const XDATA_SCHEMA: u32 = 1;
+/// 図面モデルの値にない図形の欄の拡張の名前空間と、値の型の契約の版（決定 0142）
+const ENTITY: &str = "dxf.entity";
+const ENTITY_SCHEMA: u32 = 1;
 
 impl Lift<Drawing2D> for DxfFile {
     /// 表を作ってから変換する。型どおりに読めない値は、変換がその値を使うときに診断を返す
@@ -592,7 +595,7 @@ impl Lifter {
 
     /// 図形の XDATA（DXF Reference「Extended Data」、決定 0115）を、登録アプリケーション名（1001）ごとの
     /// 形式固有の情報にして、図形の値とともに控える。最初の 1001 より前の XDATA の値と、読めない値を持つ
-    /// 名前の分は移さず、診断する
+    /// 名前の分は移さず、診断する。図面モデルの値にない図形の欄は、`dxf.entity` の拡張に控える（決定 0142）
     fn extend(
         &self,
         object: &Object,
@@ -601,6 +604,20 @@ impl Lifter {
         out: &mut Out,
         cx: &mut Cx,
     ) {
+        match entity_fields(object) {
+            Ok(fields) if !fields.is_empty() => out.extensions.push(Extension {
+                namespace: ENTITY,
+                name: String::new(),
+                version: self.version.clone(),
+                schema: ENTITY_SCHEMA,
+                target,
+                basis: basis(),
+                fields,
+                source: source(object),
+            }),
+            Ok(_) => {}
+            Err(diagnostic) => cx.report((*diagnostic).at(source(object))),
+        }
         let start = object
             .values
             .iter()
@@ -2544,7 +2561,7 @@ impl Lifter {
 
     /// LWPOLYLINE（DXF Reference「LWPOLYLINE」）。頂点（10・20）ごとに、続く始まりと終わりの幅（40・41）と
     /// 膨らみ（42）を読む。頂点の数（90）と合わなければ読めないとする。標高（38）が 0 でなければ平面に移さない。
-    /// 線種の生成の印（70 の 128）と厚さ（39）は、まだ移さない
+    /// 線種の生成の印（70 の 128）と厚さ（39）は、`dxf.entity` の拡張に控える（決定 0142）
     fn lwpolyline<P: Copy>(
         &self,
         object: &Object,
@@ -2613,7 +2630,7 @@ impl Lifter {
     /// の折れ線。曲線（2）かスプライン（4）で当てはめたものと、網（16）・多面（64）は、まだ移さない。頂点は VERTEX
     /// の点（10・20）と膨らみ（42）と、始まりと終わりの幅（40・41。なければ 0）。どの頂点の幅も同じなら一定の
     /// 幅にし、0 なら幅を持たない。POLYLINE の既定の幅（40・41）は、新しい頂点のためのものなので使わない。
-    /// 標高（POLYLINE の 30）か頂点の Z（30）が 0 でなければ平面に移さない。厚さ（39）は、まだ移さない
+    /// 標高（POLYLINE の 30）か頂点の Z（30）が 0 でなければ平面に移さない。厚さ（39）と線種の生成（70 の 128）は、`dxf.entity` の拡張に控える（決定 0142）
     fn polyline<P: Copy>(
         &self,
         object: &Object,
@@ -3294,6 +3311,64 @@ fn aci(index: i64) -> ColorCode {
         system: ColorSystem::Aci,
         value: index as u32,
     }
+}
+
+/// 図面モデルの値にない図形の欄（決定 0142）。厚さ（39）は、平面の図形を Z の向きに押し出す長さで、上から
+/// 見た形を変えないので、0 でなければ `thickness` に控える。LWPOLYLINE・POLYLINE の線種の生成（70 の 128）は、
+/// 線種の模様を頂点ごとに切らずに続けることで、立っていれば `line_type_generation` を 1 とする
+fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
+    let mut fields = Vec::new();
+    let real = |code: i16| match object.first(code) {
+        Some(Data::Real(value)) if value.is_finite() => Ok(Some(*value)),
+        None => Ok(None),
+        Some(_) => Err(invalid(&object.kind, code)),
+    };
+    let thick = matches!(
+        object.kind.as_slice(),
+        b"LINE"
+            | b"CIRCLE"
+            | b"ARC"
+            | b"TEXT"
+            | b"LWPOLYLINE"
+            | b"POLYLINE"
+            | b"SOLID"
+            | b"TRACE"
+            | b"POINT"
+            | b"SHAPE"
+    );
+    if thick
+        && let Some(thickness) = real(39)?
+        && thickness != 0.0
+    {
+        fields.push(Field {
+            key: "thickness",
+            value: FieldValue::Real(thickness),
+        });
+    }
+    if matches!(object.kind.as_slice(), b"LWPOLYLINE" | b"POLYLINE")
+        && matches!(object.first(70), Some(Data::Int(flags)) if flags & 128 != 0)
+    {
+        fields.push(Field {
+            key: "line_type_generation",
+            value: FieldValue::Integer(1),
+        });
+    }
+    if object.kind == b"SPLINE" {
+        let tolerances = [
+            (42, "knot_tolerance"),
+            (43, "control_tolerance"),
+            (44, "fit_tolerance"),
+        ];
+        for (code, key) in tolerances {
+            if let Some(tolerance) = real(code)? {
+                fields.push(Field {
+                    key,
+                    value: FieldValue::Real(tolerance),
+                });
+            }
+        }
+    }
+    Ok(fields)
 }
 
 fn text(bytes: &[u8]) -> String {
