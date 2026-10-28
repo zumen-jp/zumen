@@ -4439,3 +4439,56 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
     );
     assert_eq!(elements.len(), 4);
 }
+
+#[test]
+fn unreadable_entity_extension_fields_are_reported_without_dropping_the_shape() {
+    let line = entity(
+        "LINE",
+        &[
+            (39, "not-a-number"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (11, "10.0"),
+            (21, "0.0"),
+        ],
+    );
+    let spline = entity(
+        "SPLINE",
+        &[
+            (70, "8"),
+            (71, "1"),
+            (72, "4"),
+            (73, "2"),
+            (42, "NaN"),
+            (40, "0.0"),
+            (40, "0.0"),
+            (40, "1.0"),
+            (40, "1.0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (10, "5.0"),
+            (20, "5.0"),
+        ],
+    );
+    let (drawing, diag) = lift(&dxf(MM, &[line, spline].concat()), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert_eq!(drawing.spaces[0].elements.len(), 2);
+    assert!(drawing.extensions.is_empty());
+    assert_eq!(
+        found(&diag),
+        [
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("LINE") Int(39)"#.to_owned(),
+                1,
+                vec![drawing.spaces[0].elements[0].source.clone()],
+            ),
+            (
+                codes::DXF_LIFT_INVALID,
+                r#"Text("SPLINE") Int(42)"#.to_owned(),
+                1,
+                vec![drawing.spaces[0].elements[1].source.clone()],
+            ),
+        ]
+    );
+}

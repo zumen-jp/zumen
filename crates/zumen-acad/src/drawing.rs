@@ -604,9 +604,8 @@ impl Lifter {
         out: &mut Out,
         cx: &mut Cx,
     ) {
-        let fields = entity_fields(object);
-        if !fields.is_empty() {
-            out.extensions.push(Extension {
+        match entity_fields(object) {
+            Ok(fields) if !fields.is_empty() => out.extensions.push(Extension {
                 namespace: ENTITY,
                 name: String::new(),
                 version: self.version.clone(),
@@ -615,7 +614,9 @@ impl Lifter {
                 basis: basis(),
                 fields,
                 source: source(object),
-            });
+            }),
+            Ok(_) => {}
+            Err(diagnostic) => cx.report((*diagnostic).at(source(object))),
         }
         let start = object
             .values
@@ -3315,8 +3316,13 @@ fn aci(index: i64) -> ColorCode {
 /// 図面モデルの値にない図形の欄（決定 0142）。厚さ（39）は、平面の図形を Z の向きに押し出す長さで、上から
 /// 見た形を変えないので、0 でなければ `thickness` に控える。LWPOLYLINE・POLYLINE の線種の生成（70 の 128）は、
 /// 線種の模様を頂点ごとに切らずに続けることで、立っていれば `line_type_generation` を 1 とする
-fn entity_fields(object: &Object) -> Vec<Field> {
+fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
     let mut fields = Vec::new();
+    let real = |code: i16| match object.first(code) {
+        Some(Data::Real(value)) if value.is_finite() => Ok(Some(*value)),
+        None => Ok(None),
+        Some(_) => Err(invalid(&object.kind, code)),
+    };
     let thick = matches!(
         object.kind.as_slice(),
         b"LINE"
@@ -3331,12 +3337,12 @@ fn entity_fields(object: &Object) -> Vec<Field> {
             | b"SHAPE"
     );
     if thick
-        && let Some(Data::Real(thickness)) = object.first(39)
-        && *thickness != 0.0
+        && let Some(thickness) = real(39)?
+        && thickness != 0.0
     {
         fields.push(Field {
             key: "thickness",
-            value: FieldValue::Real(*thickness),
+            value: FieldValue::Real(thickness),
         });
     }
     if matches!(object.kind.as_slice(), b"LWPOLYLINE" | b"POLYLINE")
@@ -3354,15 +3360,15 @@ fn entity_fields(object: &Object) -> Vec<Field> {
             (44, "fit_tolerance"),
         ];
         for (code, key) in tolerances {
-            if let Some(Data::Real(tolerance)) = object.first(code) {
+            if let Some(tolerance) = real(code)? {
                 fields.push(Field {
                     key,
-                    value: FieldValue::Real(*tolerance),
+                    value: FieldValue::Real(tolerance),
                 });
             }
         }
     }
-    fields
+    Ok(fields)
 }
 
 fn text(bytes: &[u8]) -> String {
