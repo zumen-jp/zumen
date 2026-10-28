@@ -1680,7 +1680,7 @@ fn tablestyle(bits: &mut Bits) -> Option<Vec<Value>> {
     for _ in 0..3 {
         values.push(Value {
             code: 7,
-            data: Data::Handle(u64::MAX),
+            data: Data::Handle(SLOT),
         });
         values.push(real(140, bits.bd()?));
         values.push(int(170, i64::from(bits.bs()?)));
