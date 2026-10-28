@@ -8711,3 +8711,68 @@ fn header_variables_are_written_back() {
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
 }
+
+/// 文字スタイルがない行も 7 の区切りを残し、高さ・色・枠を次の行と混ぜない
+#[test]
+fn table_style_rows_keep_null_text_style_handles() {
+    let color = |w: &mut BitWriter, index| {
+        w.bs(index);
+        w.bl_zero();
+        w.bytes(&[0]);
+    };
+    let style = object(
+        510,
+        0x44,
+        |w| {
+            w.bl_zero();
+            w.bs(9);
+            w.bytes(b"Standard\0");
+            w.bs(0);
+            w.bs(0);
+            w.bd(0.1);
+            w.bd(0.1);
+            w.bit(false);
+            w.bit(false);
+            for height in [1.0, 2.0, 3.0] {
+                w.bd(height);
+                w.bs(1);
+                color(w, 7);
+                color(w, 0);
+                w.bit(false);
+                for _ in 0..6 {
+                    w.bs(25);
+                    w.bit(true);
+                    color(w, 7);
+                }
+            }
+        },
+        |w| {
+            w.handle(4, 0);
+            w.handle(3, 0);
+            for handle in [0, 0x11, 0] {
+                w.handle(5, handle);
+            }
+        },
+    );
+    let src = with_classes(dwg(&[(0x44, style)]), &[(510, b"TABLESTYLE", false)]);
+    let (db, diag) = objects(&src);
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let style = db.get(0x44).unwrap();
+    let rows: Vec<_> = style
+        .values
+        .iter()
+        .filter(|value| matches!(value.code, 7 | 140))
+        .map(|value| (value.code, value.data.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (7, Data::Handle(0)),
+            (140, Data::Real(1.0)),
+            (7, Data::Handle(0x11)),
+            (140, Data::Real(2.0)),
+            (7, Data::Handle(0)),
+            (140, Data::Real(3.0)),
+        ]
+    );
+}
