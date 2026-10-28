@@ -4314,3 +4314,128 @@ fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
         )]
     );
 }
+
+#[test]
+fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions() {
+    let entities = [
+        // 厚さを持つ線分
+        entity(
+            "LINE",
+            &[
+                (39, "2.5"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "10.0"),
+                (21, "0.0"),
+            ],
+        ),
+        // 線種の生成を立て、厚さを持つポリライン
+        entity(
+            "LWPOLYLINE",
+            &[
+                (90, "2"),
+                (70, "128"),
+                (39, "1.0"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "5.0"),
+                (20, "0.0"),
+            ],
+        ),
+        // 厚さが 0 で、線種の生成を立てない図形は、拡張を持たない
+        entity(
+            "CIRCLE",
+            &[(39, "0.0"), (10, "0.0"), (20, "0.0"), (40, "1.0")],
+        ),
+        // 許容差を持つ 1 次のスプライン
+        entity(
+            "SPLINE",
+            &[
+                (70, "8"),
+                (71, "1"),
+                (72, "4"),
+                (73, "2"),
+                (74, "0"),
+                (42, "0.000000001"),
+                (43, "0.0000000001"),
+                (44, "0.0"),
+                (40, "0.0"),
+                (40, "0.0"),
+                (40, "1.0"),
+                (40, "1.0"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (30, "0.0"),
+                (10, "5.0"),
+                (20, "5.0"),
+                (30, "0.0"),
+            ],
+        ),
+    ]
+    .concat();
+    let src = dxf(
+        &[(9, "$ACADVER"), (1, "AC1027"), (9, "$INSUNITS"), (70, "4")],
+        &entities,
+    );
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let elements = &drawing.spaces[0].elements;
+    let kept: Vec<_> = drawing
+        .extensions
+        .iter()
+        .map(|extension| {
+            assert_eq!(extension.namespace, "dxf.entity");
+            assert_eq!(extension.schema, 1);
+            assert!(extension.is_current(&drawing));
+            (extension.target, extension.fields.clone())
+        })
+        .collect();
+    let at = |index| Target::Model {
+        space: MODEL,
+        index,
+    };
+    assert_eq!(
+        kept,
+        [
+            (
+                at(0),
+                vec![Field {
+                    key: "thickness",
+                    value: FieldValue::Real(2.5),
+                }]
+            ),
+            (
+                at(1),
+                vec![
+                    Field {
+                        key: "thickness",
+                        value: FieldValue::Real(1.0),
+                    },
+                    Field {
+                        key: "line_type_generation",
+                        value: FieldValue::Integer(1),
+                    },
+                ]
+            ),
+            (
+                at(3),
+                vec![
+                    Field {
+                        key: "knot_tolerance",
+                        value: FieldValue::Real(1e-9),
+                    },
+                    Field {
+                        key: "control_tolerance",
+                        value: FieldValue::Real(1e-10),
+                    },
+                    Field {
+                        key: "fit_tolerance",
+                        value: FieldValue::Real(0.0),
+                    },
+                ]
+            ),
+        ]
+    );
+    assert_eq!(elements.len(), 4);
+}
