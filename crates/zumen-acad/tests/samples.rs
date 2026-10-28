@@ -2280,12 +2280,12 @@ fn header_variables_are_taken_back(version: &[u8]) {
     }
 }
 
-/// 図面モデルで動かした円弧・楕円・軽量の折れ線を、DWG と DXF に書き戻して読み直すと、同じ所に動いている
+/// 図面モデルで動かした円弧・楕円・軽量の折れ線・文字を、DWG と DXF に書き戻して読み直すと、同じ所に動いている
 /// （決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
-    use zumen_drawing::{Changes, Drawing2D, Edge, Edit, Element, ModelPoint, Shape};
+    use zumen_drawing::{Changes, Drawing2D, Edge, Edit, Element, ModelPoint, Placement, Shape};
     use zumen_sdk::{Apply, Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Vec<Element<ModelPoint>> {
         let mut diag = Diagnostics::new();
@@ -2311,6 +2311,13 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
                 by(major);
             }
             Shape::Polyline(line) => line.vertices.iter_mut().for_each(|v| by(&mut v.point)),
+            Shape::Text(text) => match &mut text.placement {
+                Placement::Anchor { point, .. } => by(point),
+                Placement::Between { first, second, .. } => {
+                    by(first);
+                    by(second);
+                }
+            },
             _ => return None,
         }
         Some(shape)
@@ -2324,12 +2331,13 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         let elements = lift(&file);
         let mut edits = Vec::new();
         let mut expected = Vec::new();
-        for kind in ["arc", "ellipse", "polyline"] {
+        for kind in ["arc", "ellipse", "polyline", "text"] {
             let found = elements.iter().enumerate().find_map(|(index, element)| {
                 let name = match element.shape {
                     Shape::Curve(Edge::Arc { .. }) => "arc",
                     Shape::Curve(Edge::Elliptic { .. }) => "ellipse",
                     Shape::Polyline(_) => "polyline",
+                    Shape::Text(_) => "text",
                     _ => return None,
                 };
                 (name == kind).then(|| (index, moved(&element.shape)))
@@ -2363,5 +2371,5 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         check::<Dwg>(&dwg, &mut kinds);
         check::<Dxf>(&dxf, &mut kinds);
     }
-    assert!(pairs().is_empty() || kinds.len() == 3, "{kinds:?}");
+    assert!(pairs().is_empty() || kinds.len() == 4, "{kinds:?}");
 }
