@@ -399,6 +399,17 @@ pub const DXF_BLOCK_MISSING: Code = Code::new(
     &["name"],
 );
 
+/// 表のセルの値のうち、図面モデルが持たない型（オブジェクトの参照・バイト列・結果の並び・一般の値）の値を移さなかった。表示する文字は移した
+///
+/// `dxf.cell-value.dropped`（0.0.0 から）
+pub const DXF_CELL_VALUE_DROPPED: Code = Code::new(
+    "dxf.cell-value.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("type", ParamType::Int)],
+    &["type"],
+);
+
 /// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。今は、LINE・CIRCLE の形の置き換えと、続くレコードを持たない図形の除去だけを扱う（決定 0139）
 ///
 /// `dxf.change.unsupported`（0.0.0 から）
@@ -962,6 +973,7 @@ pub const ALL: &[Code] = &[
     DXF_BINARY_UNSUPPORTED,
     DXF_BLOCK_CYCLE_INVALID,
     DXF_BLOCK_MISSING,
+    DXF_CELL_VALUE_DROPPED,
     DXF_CHANGE_UNSUPPORTED,
     DXF_CODE_PAGE_UNSUPPORTED,
     DXF_ELEMENT_MISSING,

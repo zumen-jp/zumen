@@ -237,9 +237,21 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             if let Some(start) = values.iter().position(|v| v.code == 1001) {
                 values.truncate(start);
             }
+            let mut cell_value = false;
             for value in values {
                 if matches!(value.code, 5 | 105 | 330) {
                     continue;
+                }
+                // 表のセルの値（301〜304）の型のある値は、表の上書きと同じコードを使うので、並びの何番目かで比べられない。
+                // 表示する文字（302）だけを比べ、値は図面モデルの値として比べる（tests/cell_value_samples.rs）
+                if object.kind == b"ACAD_TABLE" {
+                    match value.code {
+                        301 => cell_value = true,
+                        304 => cell_value = false,
+                        302 => {}
+                        _ if cell_value => continue,
+                        _ => {}
+                    }
                 }
                 // SPLINE の 70 は、DXF を書くときに平らかどうかから決まるので比べない
                 if object.kind == b"SPLINE" && value.code == 70 {
