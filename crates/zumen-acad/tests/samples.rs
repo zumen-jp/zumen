@@ -539,6 +539,24 @@ fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
     assert!(pairs().is_empty() || checked > 0);
 }
 
+/// DWG の見出しから読んだ変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE）は、同じ図面の DXF の HEADER と同じ値を持つ
+#[test]
+fn dwg_header_variables_match_the_dxf_of_the_same_drawing() {
+    let names: [&[u8]; 4] = [b"$INSUNITS", b"$PLIMMIN", b"$PLIMMAX", b"$PDMODE"];
+    for (dwg, dxf) in pairs() {
+        let (ours, theirs) = (table(&dwg), table(&dxf));
+        for name in names {
+            let at = format!("{} {}", dwg.display(), String::from_utf8_lossy(name));
+            assert!(ours.variable(name).is_some(), "{at}");
+            let (ours, theirs) = (
+                format!("{:?}", ours.variable(name)),
+                format!("{:?}", theirs.variable(name)),
+            );
+            assert!(nearly(&ours, &theirs), "{at}\n{ours}\n{theirs}");
+        }
+    }
+}
+
 #[cfg(feature = "drawing")]
 #[test]
 fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {

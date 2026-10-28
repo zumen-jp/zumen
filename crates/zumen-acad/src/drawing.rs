@@ -52,6 +52,8 @@ const BLOCK: &str = "dxf.block";
 
 /// XDATA の形式固有の情報の名前空間と、値の型の契約の版（決定 0115）
 const XDATA: &str = "dxf.xdata";
+
+const POINT: &str = "dxf.point";
 const XDATA_SCHEMA: u32 = 1;
 
 impl Lift<Drawing2D> for DxfFile {
@@ -87,6 +89,13 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         mm: unit.millimeters(),
         unit,
         origin: limits(b"$PLIMMIN").unwrap_or_default(),
+        point_mode: db
+            .variable(b"$PDMODE")
+            .and_then(|values| match values.first().map(|v| &v.data) {
+                Some(Data::Int(mode)) => Some(*mode),
+                _ => None,
+            })
+            .unwrap_or(0),
     };
     let mut out = Out::default();
     // 画層が線種を指すので、線種の表を先に移す
@@ -294,7 +303,8 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
         .map(|(key, at)| (key.clone(), at));
     for (key, at) in placements.chain(others) {
         work(cx, 1, at)?;
-        if !by_name.contains_key(&key) {
+        // 点の記号（`dxf.point`）は、ブロックの定義を指さない
+        if key.namespace == BLOCK && !by_name.contains_key(&key) {
             cx.report(
                 Diagnostic::new(codes::DXF_BLOCK_MISSING)
                     .with("name", key.name.clone())
@@ -488,6 +498,8 @@ struct Lifter {
     mm: Option<f64>,
     /// 用紙の原点（`$PLIMMIN`、図面の単位）
     origin: [f64; 2],
+    /// 点の表し方（`$PDMODE`）。なければ 0
+    point_mode: i64,
 }
 
 impl Lifter {
@@ -525,7 +537,8 @@ impl Lifter {
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
             | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"INSERT" | b"HATCH" | b"ACAD_TABLE"
-            | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
+            | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY" | b"SOLID" | b"TRACE"
+            | b"POINT"
                 if paper =>
             {
                 let mm = self.paper_mm(kind)?;
@@ -550,7 +563,7 @@ impl Lifter {
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
             | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
             | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
-            | b"POLYLINE" => {
+            | b"POLYLINE" | b"SOLID" | b"TRACE" | b"POINT" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -821,7 +834,7 @@ impl Lifter {
                 b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
                 | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
                 | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
-                | b"POLYLINE" => {
+                | b"POLYLINE" | b"SOLID" | b"TRACE" | b"POINT" => {
                     let inserted: Vec<&Object> = attached
                         .get(&index)
                         .map_or(&[][..], Vec::as_slice)
@@ -1260,6 +1273,8 @@ impl Lifter {
             b"INSERT" => Ok(Shape::Symbol(self.symbol(object, point, length)?)),
             b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
             b"LINE" => self.line(object, point),
+            b"SOLID" | b"TRACE" => Ok(Shape::Hatch(self.solid(object, point)?)),
+            b"POINT" => Ok(Shape::Symbol(self.point(object, point)?)),
             b"CIRCLE" => Ok(Shape::Circle {
                 center: self.planar_point(object, 10, point)?,
                 radius: length(self.radius(object)?),
@@ -1287,6 +1302,66 @@ impl Lifter {
                 "dxf.TEXT.40",
             )?)),
         }
+    }
+
+    /// SOLID と TRACE（DXF Reference「SOLID」「TRACE」）。4 つの角（10〜13）を 1・2・4・3 の順に結んだ輪を
+    /// 塗る。3 つ目と 4 つ目の角が同じなら三角形とする。厚さ（39）は、まだ移さない（決定 0140）
+    fn solid<P>(&self, object: &Object, point: &impl Fn(f64, f64) -> P) -> Lifted<Hatch<P>> {
+        let corner = |x: i16| self.planar_point(object, x, &|x, y| [x, y]);
+        let [first, second, third] = [corner(10)?, corner(11)?, corner(12)?];
+        let fourth = if object.first(13).is_some() {
+            corner(13)?
+        } else {
+            third
+        };
+        let corners = if fourth == third {
+            vec![first, second, third]
+        } else {
+            vec![first, second, fourth, third]
+        };
+        Ok(Hatch {
+            loops: vec![HatchLoop {
+                boundary: Boundary::Polyline {
+                    vertices: corners
+                        .into_iter()
+                        .map(|[x, y]| Vertex {
+                            point: point(x, y),
+                            bulge: 0.0,
+                        })
+                        .collect(),
+                    closed: true,
+                },
+                external: true,
+                outermost: true,
+                derived: false,
+                text_box: false,
+                sources: Vec::new(),
+            }],
+            islands: Islands::Nested,
+            fill: Fill::Solid,
+            associative: false,
+            seeds: Vec::new(),
+        })
+    }
+
+    /// POINT（DXF Reference「POINT」）。名前空間 `dxf.point` の記号として置き、点の表し方（`$PDMODE`）が 0 なら
+    /// `point` を、ほかはその番号を名前にする。角度（50）は X 軸の角度（度）で、記号の回転にする。点の大きさ
+    /// （`$PDSIZE`）は、まだ移さない（決定 0140）
+    fn point<P>(&self, object: &Object, point: &impl Fn(f64, f64) -> P) -> Lifted<Symbol<P>> {
+        Ok(Symbol {
+            key: SymbolKey {
+                namespace: POINT,
+                name: match self.point_mode {
+                    0 => "point".to_owned(),
+                    mode => mode.to_string(),
+                },
+            },
+            position: self.planar_point(object, 10, point)?,
+            scale: [1.0; 2],
+            rotation: self.real(object, 50, Some(0.0))?,
+            grid: None,
+            attributes: Vec::new(),
+        })
     }
 
     /// LINE（DXF Reference「LINE」）。Z のないものは 0 とみなす（推定。docs/formats/dxf.md）
