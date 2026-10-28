@@ -342,10 +342,13 @@ fn to_blocks(objects: &mut [Object]) {
         let Some(handle) = object.handle() else {
             continue;
         };
-        let (block, own) = object
-            .values
-            .drain(..)
-            .partition(|value| BLOCK_FIELDS.contains(&value.code));
+        // 70 は、最初のもの（印）だけを移す。後の 70 は挿入の単位で、BLOCK_RECORD に残す
+        let mut flags = false;
+        let (block, own) = object.values.drain(..).partition(|value| {
+            let first = value.code != 70 || !flags;
+            flags |= value.code == 70;
+            first && BLOCK_FIELDS.contains(&value.code)
+        });
         object.values = own;
         moved.insert(handle, block);
     }
@@ -1936,6 +1939,18 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             let description = bits.text()?;
             if !description.is_empty() {
                 values.push(text_value(4, &description));
+            }
+            // R2000 からは、絵の大きさ（BL）と絵のバイト列が続き、R2007 から（読める版では R2010 から）は、挿入の単位（BS）・
+            // 分解できるか（B）・縮尺を揃えるか（RC）が続く（ODS の BLOCK_HEADER の節）。挿入の単位は、
+            // DXF と同じく BLOCK_RECORD の 70 に置く。印の 70 より後に置くので、BLOCK へは移らない
+            if bits.release() >= Release::R2000 {
+                let size = usize::try_from(bits.bl()?).ok()?;
+                bits.skip_bytes(size)?;
+            }
+            if bits.release() >= Release::R2010 {
+                values.push(int(70, i64::from(bits.bs()?)));
+                values.push(int(280, i64::from(bits.bit()?)));
+                values.push(int(281, i64::from(bits.rc()?)));
             }
         }
         _ => {

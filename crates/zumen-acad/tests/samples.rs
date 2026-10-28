@@ -2143,6 +2143,12 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                     (2, Data::Text(name.to_vec())),
                 ]
                 .into_iter()
+                // 挿す単位（mm）・分解できるか・尺度を揃えるか。DWG は R2010 から持つ
+                .chain(
+                    [(70, Data::Int(4)), (280, Data::Int(0)), (281, Data::Int(1))]
+                        .into_iter()
+                        .filter(|_| version >= b"AC1024".as_slice()),
+                )
                 .map(|(code, data)| Value { code, data })
                 .collect(),
                 origin: Origin::New,
