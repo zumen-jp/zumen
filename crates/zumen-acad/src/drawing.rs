@@ -53,6 +53,9 @@ const BLOCK: &str = "dxf.block";
 /// XDATA の形式固有の情報の名前空間と、値の型の契約の版（決定 0115）
 const XDATA: &str = "dxf.xdata";
 const XDATA_SCHEMA: u32 = 1;
+/// 図形の拡張辞書の XRECORD の形式固有の情報の名前空間と、値の型の契約の版（決定 0148）
+const XRECORD: &str = "dxf.xrecord";
+const XRECORD_SCHEMA: u32 = 1;
 
 impl Lift<Drawing2D> for DxfFile {
     /// 表を作ってから変換する。型どおりに読めない値は、変換がその値を使うときに診断を返す
@@ -542,7 +545,14 @@ impl Lifter {
                     sheet: SHEET,
                     index: out.paper.len(),
                 };
-                self.extend(object, target, || Basis::Paper(element.clone()), out, cx);
+                self.extend(
+                    db,
+                    object,
+                    target,
+                    || Basis::Paper(element.clone()),
+                    out,
+                    cx,
+                );
                 out.sheet
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(element);
@@ -564,7 +574,14 @@ impl Lifter {
                     space: MODEL,
                     index: out.model.len(),
                 };
-                self.extend(object, target, || Basis::Model(element.clone()), out, cx);
+                self.extend(
+                    db,
+                    object,
+                    target,
+                    || Basis::Model(element.clone()),
+                    out,
+                    cx,
+                );
                 out.model_handles.push(object.handle());
                 out.model.push(element);
             }
@@ -582,6 +599,7 @@ impl Lifter {
     /// 名前の分は移さず、診断する
     fn extend(
         &self,
+        db: &AcadDb,
         object: &Object,
         target: Target,
         basis: impl Fn() -> Basis,
@@ -615,6 +633,116 @@ impl Lifter {
                 Err(diagnostic) => cx.report((*diagnostic).at(source(object))),
             }
         }
+        self.dictionary(db, object, target, &basis, out, cx);
+    }
+
+    /// 図形の拡張辞書（`{ACAD_XDICTIONARY` の組の 360 が指す DICTIONARY。DXF Reference「Extension
+    /// Dictionary and Persistent Reactors」、決定 0148）の XRECORD の項目を、項目の名前ごとの形式固有の
+    /// 情報にして、図形の値とともに控える。値は、グループ・コード（`code`）と、その型の値の組を順に並べる。
+    /// XRECORD でない項目と、読めない値を持つ XRECORD は移さず、診断する
+    fn dictionary(
+        &self,
+        db: &AcadDb,
+        object: &Object,
+        target: Target,
+        basis: &impl Fn() -> Basis,
+        out: &mut Out,
+        cx: &mut Cx,
+    ) {
+        let Some(dictionary) = xdictionary(object)
+            .and_then(|handle| db.get(handle))
+            .filter(|found| found.kind == b"DICTIONARY")
+        else {
+            return;
+        };
+        let mut values = dictionary.values.iter().peekable();
+        while let Some(value) = values.next() {
+            let (
+                Value {
+                    code: 3,
+                    data: name,
+                },
+                Some(Value {
+                    code: 350 | 360,
+                    data: Data::Handle(handle),
+                }),
+            ) = (value, values.peek())
+            else {
+                continue;
+            };
+            values.next();
+            // 項目のオブジェクトがなければ、移すものはない
+            let Some(item) = db.get(*handle) else {
+                continue;
+            };
+            let named =
+                self.decode(b"DICTIONARY", 3, name)
+                    .and_then(|name| match item.kind.as_slice() {
+                        b"XRECORD" => Ok((name.clone(), self.xrecord(item)?)),
+                        kind => Err(Box::new(
+                            Diagnostic::new(codes::DXF_EXTENSION_DICTIONARY_DROPPED)
+                                .with("key", text(name.as_bytes()))
+                                .with("kind", text(kind)),
+                        )),
+                    });
+            match named {
+                Ok((name, fields)) => out.extensions.push(Extension {
+                    namespace: XRECORD,
+                    name,
+                    version: self.version.clone(),
+                    schema: XRECORD_SCHEMA,
+                    target,
+                    basis: basis(),
+                    fields,
+                    source: source(object),
+                }),
+                Err(diagnostic) => cx.report((*diagnostic).at(source(object))),
+            }
+        }
+    }
+
+    /// XRECORD のデータの値。所有者などの共通の値と、複製の扱い（280）の後に並ぶ
+    fn xrecord(&self, item: &Object) -> Lifted<Vec<Field>> {
+        let mut depth = 0usize;
+        let mut values = item.values.iter().skip_while(|value| {
+            match (value.code, &value.data) {
+                (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
+                (102, Data::Text(text)) if text.starts_with(b"}") => {
+                    depth = depth.saturating_sub(1);
+                    return true;
+                }
+                _ => {}
+            }
+            depth > 0 || matches!(value.code, 5 | 100 | 330)
+        });
+        let mut fields = Vec::new();
+        let mut first = true;
+        for Value { code, data } in values.by_ref() {
+            if core::mem::take(&mut first) && *code == 280 {
+                continue;
+            }
+            let value = match data {
+                Data::Text(_) => FieldValue::Text(self.decode(&item.kind, *code, data)?),
+                Data::Int(value) => FieldValue::Integer(*value),
+                Data::Real(value) => FieldValue::Real(*value),
+                Data::Bool(value) => FieldValue::Integer(i64::from(*value)),
+                Data::Handle(handle) => FieldValue::Handle(*handle),
+                Data::Binary(bytes) => FieldValue::Bytes(bytes.clone()),
+            };
+            let key = match value {
+                FieldValue::Text(_) => "text",
+                FieldValue::Integer(_) => "integer",
+                FieldValue::Real(_) => "real",
+                FieldValue::Handle(_) => "handle",
+                _ => "binary",
+            };
+            fields.push(Field {
+                key: "code",
+                value: FieldValue::Integer(i64::from(*code)),
+            });
+            fields.push(Field { key, value });
+        }
+        Ok(fields)
     }
 
     /// 1 つの登録アプリケーション名の XDATA。点（1010〜1013）は、続く Y（+10）と Z（+20）と合わせる
@@ -843,7 +971,14 @@ impl Lifter {
                             space,
                             index: elements.len(),
                         };
-                        self.extend(object, target, || Basis::Model(element.clone()), out, cx);
+                        self.extend(
+                            db,
+                            object,
+                            target,
+                            || Basis::Model(element.clone()),
+                            out,
+                            cx,
+                        );
                         elements.push(element);
                         handles.push(object.handle());
                     })
@@ -3219,6 +3354,20 @@ fn aci(index: i64) -> ColorCode {
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// 図形の拡張辞書のハンドル（`{ACAD_XDICTIONARY` の組の 360）
+fn xdictionary(object: &Object) -> Option<u64> {
+    let mut inside = false;
+    for value in &object.values {
+        match (value.code, &value.data) {
+            (102, Data::Text(text)) if text == b"{ACAD_XDICTIONARY" => inside = true,
+            (102, Data::Text(text)) if text.starts_with(b"}") => inside = false,
+            (360, Data::Handle(handle)) if inside => return Some(*handle),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn invalid(kind: &[u8], code: i16) -> Box<Diagnostic> {

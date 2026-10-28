@@ -43,6 +43,7 @@
     "dxf.code-page.unsupported": "コード・ページの版の ASCII でない文字をまだ読めないので、「{kind}」を図面モデルに移しませんでした（{count} 件）。",
     "dxf.element.missing": "変更が指す要素が、図面にありません。変更を反映しませんでした。",
     "dxf.entity.dropped": "出力先の DXF の版にない種類の図形「{kind}」を、書きませんでした（{count} 件）。",
+    "dxf.extension-dictionary.dropped": "図形の拡張辞書の項目「{key}」（{kind}）を、図面モデルに移しませんでした（{count} 件）。",
     "dxf.group-code.dropped": "出力先の DXF の版にない、「{kind}」のグループ・コード {code} のタグを、書きませんでした（{count} 件）。",
     "dxf.group-code.missing": "DXF の {record} 番目のレコードに、グループ・コード {code} のタグがありません。変更を反映しませんでした。",
     "dxf.handle-seed.missing": "DXF の見出しに読める $HANDSEED がないので、新しいハンドルを決められません。変更を反映しませんでした。",

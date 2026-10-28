@@ -438,6 +438,20 @@ pub const DXF_ENTITY_DROPPED: Code = Code::new(
     &["kind"],
 );
 
+/// 図形の拡張辞書の、XRECORD でない項目を、図面モデルに移さなかった
+///
+/// `dxf.extension-dictionary.dropped`（0.0.0 から）
+pub const DXF_EXTENSION_DICTIONARY_DROPPED: Code = Code::new(
+    "dxf.extension-dictionary.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("key", ParamType::Text),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["key", "kind"],
+);
+
 /// 出力先の DXF の版にないグループ・コードのタグを、書かなかった
 ///
 /// `dxf.group-code.dropped`（0.0.0 から）
@@ -966,6 +980,7 @@ pub const ALL: &[Code] = &[
     DXF_CODE_PAGE_UNSUPPORTED,
     DXF_ELEMENT_MISSING,
     DXF_ENTITY_DROPPED,
+    DXF_EXTENSION_DICTIONARY_DROPPED,
     DXF_GROUP_CODE_DROPPED,
     DXF_GROUP_CODE_MISSING,
     DXF_HANDLE_SEED_MISSING,

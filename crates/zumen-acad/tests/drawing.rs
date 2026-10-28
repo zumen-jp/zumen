@@ -3922,6 +3922,127 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
     assert_eq!(drawing.current_extensions().count(), 0);
 }
 
+/// 図形の拡張辞書の XRECORD は、項目の名前ごとの形式固有の情報になり、値はグループ・コードと値の組で並ぶ。
+/// XRECORD でない項目と、辞書でないものを指す拡張辞書は移さない（決定 0148）
+#[test]
+fn e5_xrecords_in_extension_dictionaries_become_extensions() {
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1027")]].concat();
+    let entities = [
+        entity(
+            "LINE",
+            &[
+                (5, "A0"),
+                (102, "{ACAD_XDICTIONARY"),
+                (360, "B0"),
+                (102, "}"),
+                (330, "1F"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "10.0"),
+                (21, "0.0"),
+            ],
+        ),
+        // 拡張辞書がないもの
+        entity(
+            "LINE",
+            &[
+                (5, "A1"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "1.0"),
+                (21, "0.0"),
+            ],
+        ),
+    ]
+    .concat();
+    let objects = [
+        (0, "DICTIONARY"),
+        (5, "B0"),
+        (330, "A0"),
+        (100, "AcDbDictionary"),
+        (280, "1"),
+        (3, "ROOM"),
+        (360, "B1"),
+        (3, "ACAD_DIMASSOC"),
+        (360, "B2"),
+        (3, "GONE"),
+        (360, "BF"),
+        (0, "XRECORD"),
+        (5, "B1"),
+        (102, "{ACAD_REACTORS"),
+        (330, "B0"),
+        (102, "}"),
+        (330, "B0"),
+        (100, "AcDbXrecord"),
+        (280, "1"),
+        (1, "居間"),
+        (70, "3"),
+        (10, "1.0"),
+        (20, "2.0"),
+        (30, "0.0"),
+        (40, "0.5"),
+        (280, "1"),
+        (330, "A1"),
+        (310, "0AFF"),
+        (0, "DIMASSOC"),
+        (5, "B2"),
+        (330, "B0"),
+        (100, "AcDbDimAssoc"),
+    ];
+    let src = sections(&[
+        ("HEADER", &header),
+        ("ENTITIES", &entities),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let line = drawing.as_ref().unwrap().spaces[0].elements[0].clone();
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_EXTENSION_DICTIONARY_DROPPED,
+            "Text(\"ACAD_DIMASSOC\") Text(\"DIMASSOC\")".to_owned(),
+            1,
+            vec![line.source.clone()],
+        )]
+    );
+    let code = |code: i64| field("code", FieldValue::Integer(code));
+    assert_eq!(
+        drawing.unwrap().extensions,
+        [Extension {
+            namespace: "dxf.xrecord",
+            name: "ROOM".to_owned(),
+            version: Some("AC1027".to_owned()),
+            schema: 1,
+            target: Target::Model {
+                space: MODEL,
+                index: 0,
+            },
+            basis: Basis::Model(line.clone()),
+            fields: vec![
+                code(1),
+                field("text", FieldValue::Text("居間".to_owned())),
+                code(70),
+                field("integer", FieldValue::Integer(3)),
+                code(10),
+                field("real", FieldValue::Real(1.0)),
+                code(20),
+                field("real", FieldValue::Real(2.0)),
+                code(30),
+                field("real", FieldValue::Real(0.0)),
+                code(40),
+                field("real", FieldValue::Real(0.5)),
+                code(280),
+                field("integer", FieldValue::Integer(1)),
+                code(330),
+                field("handle", FieldValue::Handle(0xA1)),
+                code(310),
+                field("binary", FieldValue::Bytes(vec![0x0A, 0xFF])),
+            ],
+            source: line.source.clone(),
+        }]
+    );
+}
+
 #[test]
 fn e9_xdata_that_cannot_be_read_is_reported() {
     let entities = [entity(

@@ -178,26 +178,25 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 other
             };
             // R2000 の DXF は、代わりの図形のバイト数を 92 に置き、続けて図形（310）を置く。DWG は置かない
-            let proxyless;
             let proxy = other
                 .values
                 .windows(2)
                 .position(|pair| pair[0].code == 92 && pair[1].code == 310);
-            let other = match proxy {
-                Some(at) => {
-                    let mut copy = other.clone();
-                    copy.values.remove(at);
-                    proxyless = copy;
-                    &proxyless
-                }
-                None => other,
-            };
+            let mut copy = other.clone();
+            if let Some(at) = proxy {
+                copy.values.remove(at);
+            }
+            // 拡張辞書（`{ACAD_XDICTIONARY` の組）は、DXF を書くときに作り直されて別のハンドルになることが
+            // あるので比べない
+            copy.values = without_xdictionary(&copy.values);
+            let other = &copy;
+            let ours = without_xdictionary(&object.values);
             let mut seen: BTreeMap<i16, usize> = BTreeMap::new();
             // 辞書の項目（名前 3 と指すオブジェクト 350・360 の組）は、組で比べる。DXF にない
             // オブジェクトを指す項目は、DXF を書くときに落とされたか作り直されたものなので比べない
             // （R2000 の DXF は、新しい版の見出しの変数の辞書を別のハンドルで書き、版の往復のための
             // XRECORD を書かない）
-            let mut values: Vec<&Value> = object.values.iter().collect();
+            let mut values: Vec<&Value> = ours.iter().collect();
             if matches!(
                 object.kind.as_slice(),
                 b"DICTIONARY" | b"ACDBDICTIONARYWDFLT"
@@ -386,6 +385,21 @@ fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
         .filter(|c| c.name().starts_with("dxf."))
         .collect();
     (format!("{drawing:?}"), codes)
+}
+
+/// 拡張辞書の組（`102 {ACAD_XDICTIONARY`・360・`102 }`）を除いた値
+fn without_xdictionary(values: &[Value]) -> Vec<Value> {
+    let mut out = Vec::with_capacity(values.len());
+    let mut inside = false;
+    for value in values {
+        match (value.code, &value.data) {
+            (102, Data::Text(text)) if text == b"{ACAD_XDICTIONARY" => inside = true,
+            (102, Data::Text(text)) if inside && text.starts_with(b"}") => inside = false,
+            _ if inside => {}
+            _ => out.push(value.clone()),
+        }
+    }
+    out
 }
 
 /// 拡張データの、登録アプリケーションの名前（1001）ごとの組
