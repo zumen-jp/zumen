@@ -4943,6 +4943,25 @@ fn e3_rectangular_block_clips_keep_transformed_corners() {
                 vec![(codes::DXF_CLIP_DROPPED, "Int(40)".to_owned(), 1)]
             }
         );
+        // 辞書の探索ができても、境界の値の複製と変換が上限に入る前に止まる。
+        let plain: Vec<_> = entities
+            .iter()
+            .copied()
+            .filter(|(code, _)| !matches!(code, 102 | 360))
+            .collect();
+        let control = sections(&[("HEADER", MM), ("ENTITIES", &plain), ("OBJECTS", &objects)]);
+        let mut control_budget = Budget::default();
+        assert!(lift(&control, &mut control_budget).0.is_ok());
+        let mut budget = Budget::new(Limits::default().with(
+            Kind::Work,
+            Limit::Finite(control_budget.used(Kind::Work) + 10),
+        ));
+        let (drawing, diag) = lift(&src, &mut budget);
+        assert!(matches!(drawing, Err(Error::Stopped(_))));
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::BUDGET_WORK_EXCEEDED]
+        );
     }
 }
 

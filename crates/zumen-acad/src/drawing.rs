@@ -294,19 +294,36 @@ fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Result<(), Error
     for pair in dictionary.values.windows(2) {
         work(cx, 1, &source)?;
         if let [
-            Value { code: 3, .. },
+            Value {
+                code: 3,
+                data: name,
+            },
             Value {
                 code: 350 | 360,
                 data: Data::Handle(handle),
             },
         ] = pair
-            && let Some(item) = db.get(*handle).filter(|item| item.kind == b"XRECORD")
+            && let Some(item) = db.get(*handle)
         {
-            work(
-                cx,
-                (item.values.len() as u64).saturating_add(amount(object)),
-                &source,
-            )?;
+            if item.kind == b"XRECORD" {
+                work(
+                    cx,
+                    (item.values.len() as u64).saturating_add(amount(object)),
+                    &source,
+                )?;
+            } else if object.kind == b"INSERT"
+                && item.kind == b"DICTIONARY"
+                && matches!(name, Data::Text(name) if name == b"ACAD_FILTER")
+            {
+                // 共有する切り抜きも、配置ごとに辞書の探索と境界の値の複製・変換を数える。
+                work(cx, item.values.len() as u64, &source)?;
+                if let Some(filter) = entry(db, *handle, b"SPATIAL")
+                    .and_then(|handle| db.get(handle))
+                    .filter(|filter| filter.kind == b"SPATIAL_FILTER")
+                {
+                    work(cx, filter.values.len() as u64, &source)?;
+                }
+            }
         }
     }
     Ok(())
