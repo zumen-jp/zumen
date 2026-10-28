@@ -3,6 +3,9 @@
 //!
 //! `名前.dwg` と `名前_ascii.dxf` の組を探す。
 
+#[cfg(feature = "drawing")]
+mod support;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Origin, Section, Value};
@@ -369,16 +372,7 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
     } else {
         Dxf::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
     };
-    // 拡張辞書の XRECORD が指すオブジェクトは、DXF を書くときに別のハンドルで作り直されることがある
-    for extension in &mut drawing.extensions {
-        if extension.namespace == "dxf.xrecord" {
-            for field in &mut extension.fields {
-                if let zumen_drawing::FieldValue::Handle(handle) = &mut field.value {
-                    *handle = 0;
-                }
-            }
-        }
-    }
+    support::normalize_extensions(&mut drawing);
     let nowhere = Ref::at_record(0);
     for space in &mut drawing.spaces {
         space
@@ -413,21 +407,7 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
 fn comparable(text: &str) -> String {
     const ACI: &str = "code: Some(ColorCode { system: Aci, value: ";
     let digit = |c: char| c.is_ascii_digit();
-    let text = rewrite(text, "Ref { ", |rest| {
-        let mut depth = 1;
-        let end = rest
-            .char_indices()
-            .find_map(|(i, c)| {
-                match c {
-                    '{' => depth += 1,
-                    '}' => depth -= 1,
-                    _ => {}
-                }
-                (depth == 0).then_some(i + c.len_utf8())
-            })
-            .unwrap_or(rest.len());
-        ("Ref".into(), rest.split_at(end).1)
-    });
+    let text = support::without_source_refs(text);
     // DXF は、表のセルが指す名前のないブロック（`*U`）を別のハンドルで書き直し、名前の番号も変わる
     let text = rewrite(&text, "name: \"*U", |rest| {
         ("name: \"*U".into(), rest.trim_start_matches(digit))
@@ -687,6 +667,7 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
                     .iter()
                     .any(|their| their.name == ext.name && their.target == ext.target)
         });
+        support::without_unpaired_record_roundtrips(&mut ours, &mut theirs);
         for (ours, theirs) in ours.spaces.iter().zip(&mut theirs.spaces) {
             without_hooks(&ours.elements, &mut theirs.elements);
         }
