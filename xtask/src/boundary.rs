@@ -220,7 +220,7 @@ pub fn render_header(boundary: &Boundary) -> String {
         " * zumen の境界（決定 0012）。\n",
         " *\n",
         " * - 文字列は UTF-8。要求と応答は JSON で、形は schema/messages.json にある\n",
-        " * - 入力のバッファーは呼び出しの間だけ借りる。核が返したバッファーは zm_free で返す\n",
+        " * - 入力のバッファーは呼び出しの間だけ借りる。コアが返したバッファーは zm_free で返す\n",
         " * - 1 つのセッションは、一度に 1 つのスレッドだけが使う。zm_cancel だけは、どのスレッドからも呼べる\n",
         " * - 関数・状態コードは足すだけにし、消さず、名前・値・引数・意味を変えない（決定 0015）\n",
         " */\n\n",
@@ -266,9 +266,9 @@ pub fn render_header(boundary: &Boundary) -> String {
         );
     }
     out.push_str(concat!(
-        "\n/* セッション。中身は核だけが知る */\n",
+        "\n/* セッション。中身はコアだけが知る */\n",
         "typedef struct zm_session zm_session;\n\n",
-        "/* 核が返すバッファー。zm_free で返す */\n",
+        "/* コアが返すバッファー。zm_free で返す */\n",
         "typedef struct zm_buf {\n",
         "    uint8_t *ptr;\n",
         "    size_t len;\n",

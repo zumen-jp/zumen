@@ -61,12 +61,12 @@ disallowed-methods = [
     { path = "f32::hypot", reason = "libm::hypotf を使う（決定 0007）" },
     { path = "f32::cbrt", reason = "libm::cbrtf を使う（決定 0007）" },
     # 時計と環境変数は、結果に効く所で読まない（決定 0007）。時間の上限は、境界の側が伝える（決定 0010）。
-    { path = "std::time::Instant::now", reason = "核は時計を読まない（決定 0007・0010）" },
-    { path = "std::time::SystemTime::now", reason = "核は時計を読まない。日時は呼び出し側から受け取る（決定 0007）" },
-    { path = "std::env::var", reason = "核は環境変数を読まない（決定 0007）" },
-    { path = "std::env::var_os", reason = "核は環境変数を読まない（決定 0007）" },
-    { path = "std::env::vars", reason = "核は環境変数を読まない（決定 0007）" },
-    { path = "std::env::vars_os", reason = "核は環境変数を読まない（決定 0007）" },
+    { path = "std::time::Instant::now", reason = "コアは時計を読まない（決定 0007・0010）" },
+    { path = "std::time::SystemTime::now", reason = "コアは時計を読まない。日時は呼び出し側から受け取る（決定 0007）" },
+    { path = "std::env::var", reason = "コアは環境変数を読まない（決定 0007）" },
+    { path = "std::env::var_os", reason = "コアは環境変数を読まない（決定 0007）" },
+    { path = "std::env::vars", reason = "コアは環境変数を読まない（決定 0007）" },
+    { path = "std::env::vars_os", reason = "コアは環境変数を読まない（決定 0007）" },
 ]
 
 # 反復の順が実行ごとに変わる表は使わない。BTreeMap か、挿入の順を保つ表を使う（決定 0007）。

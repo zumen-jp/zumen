@@ -1,6 +1,6 @@
 //! 生成したヘッダーで、C と C++ から境界の関数を呼ぶ。
 //!
-//! 32 bit の Windows では、ヘッダーの呼び出し規約（stdcall）が核と合わないと、リンクできない。
+//! 32 bit の Windows では、ヘッダーの呼び出し規約（stdcall）がコアと合わないと、リンクできない。
 
 #[test]
 fn c_calls_the_boundary_through_the_header() {

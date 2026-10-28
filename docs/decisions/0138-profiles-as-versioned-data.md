@@ -12,7 +12,7 @@
 これまでの決定は次を求めている。
 
 - プロファイルは、当面 `zumen/profiles/` に置く（[決定 0004](0004-repositories.md)）。データは CC BY 4.0 にし、フォルダーにライセンスを置く（[決定 0002](0002-dual-license.md)）。
-- 核は人向けの文を返さない（[決定 0009](0009-diagnostics-and-catalog.md)）。
+- コアは人向けの文を返さない（[決定 0009](0009-diagnostics-and-catalog.md)）。
 - 符号表と新規作成の既定値はプロファイルに置き、解決に使ったプロファイルの版を残す（[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0106](0106-drawing-color-line-type-weight.md)）。
 - プロファイルの版は、それぞれの記録で決める（[決定 0015](0015-add-only-boundary-and-version-floors.md)）。
 

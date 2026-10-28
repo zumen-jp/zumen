@@ -25,7 +25,7 @@ const CATALOG_JA: &str = "catalog/ja.json";
 const CATALOG_EN: &str = "catalog/en.json";
 const FORMATS_MD: &str = "docs/formats/README.md";
 
-/// パッケージの版。カタログは核と同じ版で出す（決定 0009）
+/// パッケージの版。カタログはコアと同じ版で出す（決定 0009）
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone, Copy, PartialEq, Eq)]

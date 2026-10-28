@@ -1,6 +1,6 @@
 # 形式の権利の台帳
 
-形式ごとの仕様の入手先・権利・実装の根拠を、`ledger.toml` に置きます（[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)）。公開に第三者の許諾が要る形式と、権利が分からない形式は、このリポジトリの核に入れず、外部のプラグインにします。
+形式ごとの仕様の入手先・権利・実装の根拠を、`ledger.toml` に置きます（[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)）。公開に第三者の許諾が要る形式と、権利が分からない形式は、このリポジトリのコアに入れず、外部のプラグインにします。
 
 ## 形式を足す
 
@@ -37,7 +37,7 @@ ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など
 | `rights` | 要る | 下の 3 つの値 |
 | `rights-note` | 要る | 権利の根拠の要約 |
 | `evidence` | | 仕様のほかに、権利の根拠にした文書（`title`・`url`・`checked`・`note`） |
-| `place` | 要る | `core`（このリポジトリの核）・`plugin`（外部のリポジトリのプラグイン）・`none`（実装しない） |
+| `place` | 要る | `core`（このリポジトリのコア）・`plugin`（外部のリポジトリのプラグイン）・`none`（実装しない） |
 | `repository` | `plugin` なら要る | プラグインのリポジトリ |
 | `basis` | `none` でなければ要る | 実装の根拠: `spec`（仕様）・`inferred`（推定）・`reference`（参照した実装） |
 | `references` | `reference` なら要る | 参照した実装（`name`・`license`・`url`）。GPL などの実装のソースは読まない |

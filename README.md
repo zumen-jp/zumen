@@ -1,6 +1,6 @@
 # zumen
 
-日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つの核を、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
+日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
 
 > 状態: 作り直しを始めたところで、まだ図面は読めません。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) にあり、決めることを子 issue に分けています。SXF・JWW・DXF・DWG・PDF を今すぐ読み書きしたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
 
@@ -23,7 +23,7 @@
 - 表記と用語の基準: [docs/style.md](docs/style.md)
 - 開発への参加: [CONTRIBUTING.md](CONTRIBUTING.md)（エージェント向けの規則は [AGENTS.md](AGENTS.md)）
 - 旧版: [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy)
-- サイト: <https://zumen.dev>（準備中）
+- サイト: <https://zumen.dev>（準備中。元は [site](site/README.md)）
 
 ## ライセンス
 

@@ -34,4 +34,4 @@ if (zm_session_new(NULL, 0, &session) == ZM_OK) {
 cargo test -p zumen-c
 ```
 
-32 bit の Windows では、ヘッダーの呼び出し規約が核と合わないと、リンクできません。CI は、`i686-pc-windows-msvc` でもこの試験を流し、DLL が飾りのない名前（`zm_call` など）で関数を出すことも確かめます。
+32 bit の Windows では、ヘッダーの呼び出し規約がコアと合わないと、リンクできません。CI は、`i686-pc-windows-msvc` でもこの試験を流し、DLL が飾りのない名前（`zm_call` など）で関数を出すことも確かめます。

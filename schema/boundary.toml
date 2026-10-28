@@ -37,7 +37,7 @@ description = "別のスレッドが、同じセッションを使っている"
 [[status]]
 name = "panicked"
 value = 4
-description = "核の不具合で止まった。セッションは閉じるしかない"
+description = "コアの不具合で止まった。セッションは閉じるしかない"
 
 # 関数。targets を書かないものは、ネイティブのライブラリと wasm のモジュールの両方が出す
 
@@ -119,7 +119,7 @@ params = [
 [[functions]]
 name = "zm_free"
 returns = "void"
-description = "核が返したバッファーを返す。返したあとの buf は空になる。空のバッファーと NULL には何もしない"
+description = "コアが返したバッファーを返す。返したあとの buf は空になる。空のバッファーと NULL には何もしない"
 params = [
     { name = "buf", type = "buf", description = "zm_call・zm_take が書いたバッファー" },
 ]

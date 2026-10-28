@@ -1,0 +1,87 @@
+---
+import PageHeader from '../components/PageHeader.astro';
+import SectionHead from '../components/SectionHead.astro';
+import { decision, hostApps, repo } from '../data/site';
+import Base from '../layouts/Base.astro';
+
+const os = [
+  ['Windows', 'Windows 10、Windows Server 2016（x64・x86・ARM64）'],
+  ['macOS', 'macOS 11（arm64）、macOS 10.12（x64）'],
+  ['Linux', 'glibc 2.28（x64・arm64）。それより古いものは musl の静的な CLI'],
+  ['iOS・iPadOS', 'iOS 15'],
+  ['Android', 'Android 7.0（API 24）'],
+  ['ブラウザー', 'Chrome・Edge 96、Firefox 79、Safari 15'],
+  ['Node.js', '22'],
+  ['Python', '3.9（Rhino 8・Dynamo 3.x に合わせる）'],
+  ['.NET', '.NET Framework 4.8、.NET 8 以降（Revit・AutoCAD 2024 に合わせる）'],
+];
+
+const packages = [
+  ['crates.io', 'zumen・zumen-*'],
+  ['PyPI', 'zumen'],
+  ['npm', '@zumen-jp/*'],
+  ['NuGet', 'Zumen・Zumen.*'],
+  ['Maven', 'dev.zumen'],
+  ['Go', 'zumen.dev/go'],
+  ['CLI', 'zumen（Homebrew は zumen-jp/tap/zumen）'],
+];
+---
+
+<Base title="対応環境" description="言語の階層、OS とブラウザーの下限、使えるホストアプリ、配布の名前です。">
+  <PageHeader title="対応環境" lead="言語ごとの約束、OS とブラウザーの下限、使えるホストアプリです。" />
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead title="言語の階層" en="Languages" />
+      <div class="cards">
+        <div class="card">
+          <h3>階層 1</h3>
+          <p>その言語らしいパッケージを作り、PR ごとに適合試験を走らせ、コアと同じ日に公開します。</p>
+          <ul class="chips"><li>Rust</li><li>TypeScript・JavaScript</li><li>Python</li><li>.NET</li><li>C・C++</li><li>CLI・MCP</li></ul>
+        </div>
+        <div class="card">
+          <h3>階層 2</h3>
+          <p>生成したパッケージを作り、適合試験を毎晩走らせます。</p>
+          <ul class="chips"><li>Java・Kotlin</li><li>Swift</li><li>Go</li><li>Dart</li><li>VBA</li></ul>
+        </div>
+        <div class="card">
+          <h3>階層 3</h3>
+          <p>C ABI・wasm・CLI・HTTP を使う手順とサンプルを用意します。</p>
+          <ul class="chips"><li>Ruby</li><li>PHP</li><li>R</li><li>Julia</li><li>MATLAB</li><li>AutoLISP</li><li>PowerShell</li><li>ほか</li></ul>
+        </div>
+      </div>
+      <p class="note">階層の決め方は<a href={decision('0006-language-tiers.md')}>決定 0006</a>にあります。</p>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead title="OS とブラウザー" en="Requirements" />
+      <div class="table-scroll">
+        <table class="table spec">
+          <tbody>{os.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <p class="note">詳しい下限と確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <SectionHead title="使えるホストアプリ（予定）" en="Host apps" />
+      <ul class="chips chips-lg">{hostApps.map((a) => <li>{a}</li>)}</ul>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <SectionHead title="配布の名前（予定）" en="Packages" />
+      <div class="table-scroll">
+        <table class="table spec">
+          <tbody>{packages.map(([k, v]) => <tr><th scope="row">{k}</th><td><code>{v}</code></td></tr>)}</tbody>
+        </table>
+      </div>
+      <p class="note">まだどれも公開していません。npm の素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
+    </div>
+  </section>
+</Base>

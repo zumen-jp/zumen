@@ -4,7 +4,7 @@
 //! （JSON Pointer で指す）を確かめる。あわせて、応答とバイナリの結果のハッシュ（SHA-256）の一覧を作る。
 //! 一覧は `hashes.txt` と一致しなければならない（決定 0007）。
 //!
-//! この crate は、Rust の 2 つの形を受け持つ。核を直接呼ぶ [`Direct`] と、C ABI の関数を呼ぶ [`CAbi`]。
+//! この crate は、Rust の 2 つの形を受け持つ。コアを直接呼ぶ [`Direct`] と、C ABI の関数を呼ぶ [`CAbi`]。
 //! wasm のモジュールは `wasm.mjs` が流す。試験の組の書き方は `README.md` にある。
 
 use std::fs;
@@ -43,7 +43,7 @@ pub trait Engine {
     fn take(&mut self, blob: u32) -> (i32, Option<Vec<u8>>);
 }
 
-/// 核を Rust から直接呼ぶ形
+/// コアを Rust から直接呼ぶ形
 #[derive(Debug, Default)]
 pub struct Direct {
     session: Option<Session>,
@@ -111,7 +111,7 @@ impl Drop for CAbi {
     }
 }
 
-/// 核が書いたバッファーを写して返す。状態が成功でなければ、何も書かれていない
+/// コアが書いたバッファーを写して返す。状態が成功でなければ、何も書かれていない
 fn take_buf(status: i32, buf: &mut ffi::Buf) -> Option<Vec<u8>> {
     if buf.ptr.is_null() {
         return (status == Status::Ok.code()).then(Vec::new);

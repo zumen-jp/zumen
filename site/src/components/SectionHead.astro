@@ -1,0 +1,15 @@
+---
+// 小さい英語の肩書きを載せた、セクションの見出し。
+interface Props {
+  title: string;
+  en: string;
+  id?: string;
+}
+
+const { title, en, id } = Astro.props;
+---
+
+<div class="section-head">
+  <span class="shoulder" lang="en">{en}</span>
+  <h2 id={id}>{title}</h2>
+</div>

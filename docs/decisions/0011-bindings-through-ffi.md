@@ -7,7 +7,7 @@
 
 ## 背景
 
-- 各言語へは、10 個ほどの関数と、スキーマで定めたメッセージからなる 1 本の細い境界で届ける（[#13](https://github.com/zumen-jp/zumen/issues/13)）。境界は、C ABI・wasm・プロセスの外・HTTP の形で出す（[#14](https://github.com/zumen-jp/zumen/issues/14)）。言語の段は [0006](0006-language-tiers.md) で決めた。
+- 各言語へは、10 個ほどの関数と、スキーマで定めたメッセージからなる 1 本の細い境界で届ける（[#13](https://github.com/zumen-jp/zumen/issues/13)）。境界は、C ABI・wasm・プロセスの外・HTTP の形で出す（[#14](https://github.com/zumen-jp/zumen/issues/14)）。言語の階層は [0006](0006-language-tiers.md) で決めた。
 - 境界は粗い粒度で呼ぶ。図形 1 つごとに境界を越えないので、1 回の呼び出しの費用は問題にならない。
 - 旧版の Python の結合は、手書きで約 5,400 行あった。wasm の結合は、2 つの関数しかなかった。
 - 使えそうな道具と、そのライセンス（2026-10-24 に crates.io と GitHub で確かめた）:
@@ -52,7 +52,7 @@
 | Go | wasm | wazero。cgo を使わない |
 | Dart | C ABI | dart:ffi |
 | VBA | C ABI | `Declare PtrSafe`。32 bit の Windows のために、関数を stdcall で出す |
-| 段 3 の言語 | C ABI・wasm・CLI・HTTP | 各言語の FFI・wasm のランタイム・プロセスの起動・HTTP の手順を書く |
+| 階層 3 の言語 | C ABI・wasm・CLI・HTTP | 各言語の FFI・wasm のランタイム・プロセスの起動・HTTP の手順を書く |
 
 - ネイティブで呼ぶ言語は、同じ C ABI のライブラリを使う。プラットフォームごとに 1 度作れば、どの言語のパッケージにも同じファイルが入る。
 - wasm で呼ぶ言語は、ブラウザーに配るのと同じモジュールを使う。

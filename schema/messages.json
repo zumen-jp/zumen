@@ -67,7 +67,7 @@
       ]
     },
     "capabilities_request": {
-      "description": "核の版と、使える op・形式を尋ねる",
+      "description": "コアの版と、使える op・形式を尋ねる",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/request_common" }],
       "properties": {
@@ -77,14 +77,14 @@
       "unevaluatedProperties": false
     },
     "capabilities_result": {
-      "description": "核の版と、使える op・形式（決定 0015）",
+      "description": "コアの版と、使える op・形式（決定 0015）",
       "type": "object",
       "properties": {
         "package": { "description": "パッケージの版（semver）", "type": "string" },
         "abi": { "description": "ABI の大版。zm_abi_version と同じ", "type": "integer", "minimum": 1 },
         "schema": { "description": "メッセージのスキーマの版", "$ref": "#/$defs/schema_version" },
         "ops": {
-          "description": "この核（wasm ではこのモジュール）で使える op の名前",
+          "description": "このコア（wasm ではこのモジュール）で使える op の名前",
           "type": "array",
           "items": { "type": "string" }
         },
@@ -509,7 +509,7 @@
       "additionalProperties": false
     },
     "engine": {
-      "description": "実行の形（決定 0013）。`native` はプロセスの中で核を動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす",
+      "description": "実行の形（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす",
       "type": "string",
       "enum": ["native", "process", "wasm"]
     },
@@ -519,7 +519,7 @@
       "properties": {
         "v": { "description": "カタログの形の大版。今は 1", "type": "integer", "minimum": 1 },
         "lang": { "description": "言語（ja・en）", "type": "string" },
-        "package": { "description": "パッケージの版。核と同じ版で出す", "type": "string" },
+        "package": { "description": "パッケージの版。コアと同じ版で出す", "type": "string" },
         "number": { "description": "数の書き方", "$ref": "#/$defs/number_format" },
         "codes": {
           "description": "code ごとの文のひな形。{名前} に値が、{count} にまとめた件数が入る",

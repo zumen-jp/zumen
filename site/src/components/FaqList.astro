@@ -1,0 +1,27 @@
+---
+// 質問を開け閉めできる一覧。JavaScript を使わず details で作る。
+import type { Faq } from '../data/site';
+
+interface Props {
+  items: Faq[];
+}
+
+const { items } = Astro.props;
+---
+
+<div class="faq">
+  {
+    items.map((item) => (
+      <details>
+        <summary>
+          <span class="faq-mark" aria-hidden="true">Q</span>
+          <span class="faq-q">{item.q}</span>
+        </summary>
+        <div class="faq-answer">
+          <span class="faq-mark" aria-hidden="true">A</span>
+          <p set:html={item.a} />
+        </div>
+      </details>
+    ))
+  }
+</div>

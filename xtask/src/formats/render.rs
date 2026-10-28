@@ -56,7 +56,7 @@ fn optional(out: &mut String, label: &str, value: Option<&str>) {
 
 pub(super) fn render(ledger: &Ledger, decisions: &Decisions) -> String {
     let mut out = String::from(
-        "<!-- formats/ledger.toml から cargo xtask codegen で生成。直接編集しない。 -->\n\n# 形式と権利の一覧\n\n[権利の台帳](../../formats/ledger.toml)から生成しています。ここにあるのは実装を置く方針であり、読み書きできる形式の一覧ではありません。変更の手順は [台帳の書き方](../../formats/README.md)、図面の要素の対応は [Drawing2D の対応表](drawing2d-mapping.md)を参照してください。\n\n- 権利: `public` は実装の公開に第三者の許諾が不要、`permission` は契約・会員・許諾が必要、`unknown` は条件が未確認です。\n- 置き場所: `core` は核、`plugin` は外部のプラグイン、`none` は実装しない方針です。\n- 台帳は判断した時点の記録です。URL の到達や権利の変更は、生成時に再確認していません。\n\n## 一覧\n\n| キー | 名前 | 系統 | 領域 | 権利 | 置き場所 |\n| --- | --- | --- | --- | --- | --- |\n",
+        "<!-- formats/ledger.toml から cargo xtask codegen で生成。直接編集しない。 -->\n\n# 形式と権利の一覧\n\n[権利の台帳](../../formats/ledger.toml)から生成しています。ここにあるのは実装を置く方針であり、読み書きできる形式の一覧ではありません。変更の手順は [台帳の書き方](../../formats/README.md)、図面の要素の対応は [Drawing2D の対応表](drawing2d-mapping.md)を参照してください。\n\n- 権利: `public` は実装の公開に第三者の許諾が不要、`permission` は契約・会員・許諾が必要、`unknown` は条件が未確認です。\n- 置き場所: `core` はコア、`plugin` は外部のプラグイン、`none` は実装しない方針です。\n- 台帳は判断した時点の記録です。URL の到達や権利の変更は、生成時に再確認していません。\n\n## 一覧\n\n| キー | 名前 | 系統 | 領域 | 権利 | 置き場所 |\n| --- | --- | --- | --- | --- | --- |\n",
     );
     for (id, f) in &ledger.formats {
         let _ = writeln!(

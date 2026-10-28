@@ -8,7 +8,7 @@ use zumen_bench_transfer as bench;
 /// 形式の名前と符号化の関数。
 type Format = (&'static str, fn(&bench::Scene) -> Vec<u8>);
 
-// 測定の道具なので、核では禁じている時計を使う。
+// 測定の道具なので、コアでは禁じている時計を使う。
 #[allow(clippy::disallowed_methods)]
 fn main() -> std::io::Result<()> {
     let mut args = std::env::args().skip(1);

@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/zumen-jp/zumen"
 publish = false
 
-# 核の crate の規則（決定 0007・0009・0010）。試験の中の unwrap などは clippy.toml で許す。
+# コアの crate の規則（決定 0007・0009・0010）。試験の中の unwrap などは clippy.toml で許す。
 [workspace.lints.rust]
 unsafe_code = "deny"
 missing_docs = "warn"

@@ -10,7 +10,7 @@ use zumen_json::{Object, Value};
 /// JSON Schema の版
 const DIALECT: &str = "https://json-schema.org/draft/2020-12/schema";
 
-/// 生成せず、核が手で書く定義
+/// 生成せず、コアが手で書く定義
 const HANDWRITTEN: &[&str] = &["response"];
 
 /// Rust の予約語。欄の名前に使わない
@@ -53,7 +53,7 @@ pub enum Shape {
     Union { variants: Vec<String> },
     /// JSON の型で見分けられる、スカラーの共用体
     Scalars { members: Vec<Member> },
-    /// 核が手で書く
+    /// コアが手で書く
     Handwritten,
 }
 

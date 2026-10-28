@@ -299,7 +299,7 @@ fn quoted(text: &str) -> String {
     String::from_utf8_lossy(&writer.into_bytes()).into_owned()
 }
 
-/// 核に `zm_push` で渡すカタログの JSON（`catalog/<言語>.json`）を作る。
+/// コアに `zm_push` で渡すカタログの JSON（`catalog/<言語>.json`）を作る。
 ///
 /// 形は `schema/messages.json` の `catalog`。差分を読みやすくするため、code ごとに 1 行にする。
 pub fn render_json(lang: &str, package: &str, messages: &Messages) -> String {

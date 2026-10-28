@@ -1,0 +1,94 @@
+---
+import '@digital-go-jp/design-tokens/dist/tokens.css';
+import '@fontsource-variable/noto-sans-jp/wght.css';
+import '@fontsource/noto-sans-mono/400.css';
+import '../styles/global.css';
+import { nav, repo } from '../data/site';
+
+interface Props {
+  // 下層のページの名前。トップでは渡さない。
+  title?: string;
+  description?: string;
+}
+
+const site = '日本の建設のデータを読み書きするライブラリ群';
+const { title, description = 'zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きする、寛容なライセンスのライブラリ群です。' } = Astro.props;
+const fullTitle = title ? `${title}｜zumen` : `zumen｜${site}`;
+const path = Astro.url.pathname;
+const canonical = new URL(path, Astro.site);
+---
+
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0017c1" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content="ja_JP" />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <a class="skip" href="#main">本文へ移動</a>
+
+    <p class="notice">
+      <span class="wrap"><strong>開発中</strong>パッケージはまだ公開していません。進み具合は <a href={repo}>GitHub</a> で公開しています。</span>
+    </p>
+
+    <header class="masthead">
+      <div class="wrap">
+        <a class="logo" href="/" aria-label="zumen トップ">
+          <span class="logo-mark" aria-hidden="true">図</span>
+          <span class="logo-text"><strong>zumen</strong><span>図面の読み書きの基盤</span></span>
+        </a>
+        <nav class="gnav" aria-label="サイト内">
+          <ul>
+            {
+              nav.map((item) => (
+                <li>
+                  <a href={item.href} aria-current={path.startsWith(item.href) ? 'page' : undefined}>
+                    {item.label}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </nav>
+        <a class="btn btn-secondary header-cta" href={repo}>GitHub で見る</a>
+      </div>
+    </header>
+
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer class="footer">
+      <div class="wrap">
+        <div class="footer-grid">
+          <a class="logo" href="/">
+            <span class="logo-mark" aria-hidden="true">図</span>
+            <span class="logo-text"><strong>zumen</strong><span>図面の読み書きの基盤</span></span>
+          </a>
+          <ul>
+            {nav.map((item) => <li><a href={item.href}>{item.label}</a></li>)}
+          </ul>
+          <ul>
+            <li><a href={repo}>GitHub</a></li>
+            <li><a href={`${repo}/blob/main/SECURITY.md`}>脆弱性の報告</a></li>
+            <li><a href={`${repo}/blob/main/CODE_OF_CONDUCT.md`}>行動規範</a></li>
+          </ul>
+        </div>
+        <div class="footer-note">
+          <p>zumen は MIT License または Apache License 2.0 で提供します。</p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
