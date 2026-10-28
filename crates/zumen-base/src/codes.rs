@@ -447,6 +447,17 @@ pub const DXF_CHANGE_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 記号の切り抜き（SPATIAL_FILTER）を読めず、切り抜かずに移した
+///
+/// `dxf.clip.dropped`（0.0.0 から）
+pub const DXF_CLIP_DROPPED: Code = Code::new(
+    "dxf.clip.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("code", ParamType::Int)],
+    &["code"],
+);
+
 /// コード・ページの版の ASCII でない文字を、まだ読めないので、その文字の図形を図面モデルに移さなかった
 ///
 /// `dxf.code-page.unsupported`（0.0.0 から）
@@ -1028,6 +1039,7 @@ pub const ALL: &[Code] = &[
     DXF_BLOCK_MISSING,
     DXF_CELL_VALUE_DROPPED,
     DXF_CHANGE_UNSUPPORTED,
+    DXF_CLIP_DROPPED,
     DXF_CODE_PAGE_UNSUPPORTED,
     DXF_ELEMENT_MISSING,
     DXF_ENTITY_DROPPED,

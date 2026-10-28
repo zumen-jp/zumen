@@ -178,3 +178,4 @@
 - [0146: 引出線つきの注記の線と注記の色・線種・線幅を、注記の要素に従う指定として持つ](0146-drawing-callout-line-style.md)（2026-10-29、提案）
 - [0147: 表のセルの型のある値を、単位と元の表示の書式とともに持つ](0147-drawing-table-cell-values.md)（2026-10-29、提案）
 - [0148: 図形の拡張辞書の XRECORD を、形式固有の情報にする](0148-drawing-extension-dictionary-xrecords.md)（2026-10-29、提案）
+- [0149: 記号の切り抜きを、定義の空間の境界で持つ](0149-drawing-symbol-clips.md)（2026-10-29、提案）

@@ -862,7 +862,7 @@ pub enum UnderlayFrame<P> {
     },
 }
 
-/// 下敷きの切り抜き。頂点は、元の形式の下敷きの座標のまま持つ
+/// 下敷きと記号の切り抜き。頂点の座標は、使う側（下敷きは元の形式の下敷きの座標、記号は定義の空間の座標）が決める
 #[derive(Clone, Debug, PartialEq)]
 pub struct Clip {
     /// 境界の頂点。2 つなら、向かい合う角の長方形
@@ -1130,6 +1130,8 @@ pub struct Symbol<P> {
     pub grid: Option<Grid>,
     /// 属性。順序は入力の順
     pub attributes: Vec<Attribute<P>>,
+    /// 切り抜き（決定 0149）。頂点は、記号の定義の空間の座標で持つ。切り抜かなければ `None`
+    pub clip: Option<Clip>,
 }
 
 /// 記号を格子に並べる列と行。間隔は、記号を回転する前の向きに測る
