@@ -63,13 +63,13 @@ export interface Format {
 }
 
 export const formats: Format[] = [
-  { name: 'SXF', about: '電子納品の CAD データ（SFC・P21）', read: '△', write: '△', place: '核', top: true },
-  { name: 'JWW', about: 'Jw_cad for Windows の図面', read: '△', write: '―', place: '核', top: true },
-  { name: 'JWC・JWS', about: 'Jw_cad for DOS の図面、Jw_cad の図形', read: '―', write: '―', place: '核' },
-  { name: 'DXF', about: 'AutoCAD の交換形式', read: '△', write: '△', place: '核', top: true },
-  { name: 'DWG', about: 'AutoCAD の図面', read: '△', write: '△', place: '核', top: true },
-  { name: 'PDF', about: '図面の PDF', read: '―', write: '―', place: '核', top: true },
-  { name: 'IFC', about: 'BIM・土木のモデル', read: '―', write: '―', place: '核', top: true },
+  { name: 'SXF', about: '電子納品の CAD データ（SFC・P21）', read: '△', write: '△', place: 'コア', top: true },
+  { name: 'JWW', about: 'Jw_cad for Windows の図面', read: '△', write: '―', place: 'コア', top: true },
+  { name: 'JWC・JWS', about: 'Jw_cad for DOS の図面、Jw_cad の図形', read: '―', write: '―', place: 'コア' },
+  { name: 'DXF', about: 'AutoCAD の交換形式', read: '△', write: '△', place: 'コア', top: true },
+  { name: 'DWG', about: 'AutoCAD の図面', read: '△', write: '△', place: 'コア', top: true },
+  { name: 'PDF', about: '図面の PDF', read: '―', write: '―', place: 'コア', top: true },
+  { name: 'IFC', about: 'BIM・土木のモデル', read: '―', write: '―', place: 'コア', top: true },
   { name: 'ST-Bridge', about: '構造のモデル', read: '―', write: '―', place: '外部のプラグイン' },
   {
     name: 'BE-Bridge・CEDXM・Stem',

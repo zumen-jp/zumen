@@ -542,7 +542,7 @@ caption.skip {
   margin-bottom: 16px;
 }
 
-/* 特長・方針・段の並び。囲みを付けず、上の線と番号で区切る */
+/* 特長・方針・階層の並び。囲みを付けず、上の線と番号で区切る */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
