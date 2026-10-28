@@ -2904,13 +2904,15 @@ impl Lifter {
     }
 
     /// 画層の表のレコード（DXF Reference「LAYER」）。凍結（70 の 1）か色（62）が負なら表示せず、290 が偽なら
-    /// 印刷せず、ロック（70 の 4）なら編集できないとする。凍結と非表示の違いは移さない
+    /// 印刷せず、ロック（70 の 4）なら編集できないとする。凍結は、表示しないこととは別にも持つ（決定 0141）。
+    /// 新しいビューポートで凍結（70 の 2）は、これから作るビューのための値なので移さない
     fn layer_record(&self, object: &Object, source: Ref, out: &mut Out) -> Lifted<()> {
         let kind = object.kind.as_slice();
         let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
         let flags = self.int(object, 70, 0)?;
         let state = LayerState {
             visible: flags & 1 == 0 && self.int(object, 62, 7)? >= 0,
+            frozen: flags & 1 != 0,
             printable: match object.first(290) {
                 Some(Data::Bool(printable)) => *printable,
                 Some(_) => return Err(invalid(kind, 290)),

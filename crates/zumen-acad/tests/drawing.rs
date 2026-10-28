@@ -651,11 +651,12 @@ fn layers_keep_their_table_and_views_hide_layers() {
         )]
     );
 
-    let state = |visible: bool, printable: bool, editable: bool| {
+    let state = |visible: bool, printable: bool, editable: bool, frozen: bool| {
         Some(LayerState {
             visible,
             printable,
             editable,
+            frozen,
         })
     };
     let states: Vec<_> = drawing
@@ -666,10 +667,11 @@ fn layers_keep_their_table_and_views_hide_layers() {
     assert_eq!(
         states,
         [
-            (LayerId(0), "0", state(true, true, true)),
-            (LayerId(1), "Hidden", state(false, true, true)),
-            (LayerId(2), "Off", state(false, false, true)),
-            (LayerId(3), "Locked", state(true, true, false)),
+            (LayerId(0), "0", state(true, true, true, false)),
+            // 凍結は、表示しないことと分けて持つ
+            (LayerId(1), "Hidden", state(false, true, true, true)),
+            (LayerId(2), "Off", state(false, false, true, false)),
+            (LayerId(3), "Locked", state(true, true, false, false)),
             // 表にない名前は、定義のない画層にする
             (LayerId(4), "Extra", None),
         ]
