@@ -11,7 +11,8 @@
 //!
 //! 色・線種・線幅は、要素ごとに指定値か継承元（[`Inherit`]）で持ち、元の符号（[`ColorCode`]）を残す。
 //! 符号から RGB への表はプロファイル（#9）に置くので、ここでは引かない。レイヤからの継承は
-//! [`Drawing2D::color_of`] などで解き、解けない継承は継承のまま返す。
+//! [`Drawing2D::color_of`] などで解き、解けない継承は継承のまま返す。記号の定義の中の要素の継承は、
+//! 配置の並びを渡して [`Drawing2D::color_placed`] などで解く（決定 0143）。
 //!
 //! 要素は、いまは線分・円・曲線・折れ線・文字・寸法・引出線・記号・ハッチング・表・下敷きだけ。寸法は、種類と定義点・保存された測定値・
 //! 文字の上書きを別に持つ（[`Dimension`]）。引出線は経路を持ち、注記の要素を出所で指す（[`Leader`]）。
@@ -127,6 +128,59 @@ impl Drawing2D {
         Some(self.through_layer(own, element.layer, |style| style.line_weight))
     }
 
+    /// 記号の定義の中の要素の色。`chain` は要素と、それを置いた配置を内側から外側へ並べたもの。
+    /// ブロックからの継承を配置で、レイヤからの継承をレイヤで解く（決定 0143）。並びが尽きても
+    /// ブロックから継承するなら `Inherit::Block`、レイヤが値を持たなければ `Inherit::Layer` のまま
+    pub fn color_placed(&self, chain: &[Inheritor<'_>]) -> Inherit<Color> {
+        self.placed(chain, |style| Some(style.color), |style| style.color)
+            .unwrap_or(Inherit::Block)
+    }
+
+    /// 記号の定義の中の要素の線種。解き方は [`Self::color_placed`] と同じ
+    pub fn line_type_placed(&self, chain: &[Inheritor<'_>]) -> Inherit<LineTypeId> {
+        self.placed(
+            chain,
+            |style| Some(style.line_type),
+            |style| style.line_type,
+        )
+        .unwrap_or(Inherit::Block)
+    }
+
+    /// 記号の定義の中の要素の線幅。解き方は [`Self::color_placed`] と同じ。継承をたどる途中で、
+    /// 元の形式から読めていない線幅に当たれば `None`
+    pub fn line_weight_placed(&self, chain: &[Inheritor<'_>]) -> Option<Inherit<LineWeight>> {
+        self.placed(chain, |style| style.line_weight, |style| style.line_weight)
+    }
+
+    fn placed<T>(
+        &self,
+        chain: &[Inheritor<'_>],
+        own: impl Fn(&Style) -> Option<Inherit<T>>,
+        get: impl Fn(&LayerStyle) -> Option<T> + Copy,
+    ) -> Option<Inherit<T>> {
+        for (at, placement) in chain.iter().enumerate() {
+            match own(placement.style)? {
+                Inherit::Block => continue,
+                Inherit::Layer => {
+                    // 配置のレイヤに従うレイヤなら、外側の配置のレイヤで解く
+                    let follows = |p: &&Inheritor<'_>| {
+                        self.layer(p.layer)
+                            .is_some_and(|layer| layer.follows_placement)
+                    };
+                    let rest = chain.get(at..).unwrap_or_default();
+                    let layer = rest
+                        .iter()
+                        .find(|p| !follows(p))
+                        .or(rest.last())
+                        .map_or(placement.layer, |p| p.layer);
+                    return Some(self.through_layer(Inherit::Layer, layer, get));
+                }
+                own => return Some(own),
+            }
+        }
+        Some(Inherit::Block)
+    }
+
     fn through_layer<T>(
         &self,
         own: Inherit<T>,
@@ -167,6 +221,8 @@ pub struct Layer {
     pub state: Option<LayerState>,
     /// 色・線種・線幅。ファイルに定義がなければ `None`
     pub style: Option<LayerStyle>,
+    /// 記号の定義の中の要素がこのレイヤにあれば、レイヤからの継承を配置のレイヤで解く（決定 0143）
+    pub follows_placement: bool,
     /// 定義の出所。定義がなければ既定の値
     pub source: Ref,
 }
@@ -204,6 +260,24 @@ pub struct Style {
     pub line_type_scale: f64,
     /// 線幅。元の形式から読めていなければ `None`
     pub line_weight: Option<Inherit<LineWeight>>,
+}
+
+/// 継承を解くための、要素か配置の色・線種・線幅とレイヤ（[`Drawing2D::color_placed`]）
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Inheritor<'a> {
+    /// 色・線種・線幅
+    pub style: &'a Style,
+    /// レイヤ
+    pub layer: LayerId,
+}
+
+impl<'a, P> From<&'a Element<P>> for Inheritor<'a> {
+    fn from(element: &'a Element<P>) -> Self {
+        Inheritor {
+            style: &element.style,
+            layer: element.layer,
+        }
+    }
 }
 
 /// 指定値か、継承元
@@ -1690,6 +1764,128 @@ mod tests {
             clip: Vec::new(),
             hidden_layers: Vec::new(),
             source: Ref::default(),
+        }
+    }
+
+    fn aci(value: u32) -> Color {
+        Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value,
+            }),
+            rgb: None,
+        }
+    }
+
+    /// ID が位置のレイヤ。`follows` なら配置のレイヤに従う
+    fn layers(colors: &[(Option<u32>, bool)]) -> Drawing2D {
+        let layers = colors
+            .iter()
+            .enumerate()
+            .map(|(id, &(color, follows))| Layer {
+                id: LayerId(id as u32),
+                name: id.to_string(),
+                state: None,
+                style: Some(LayerStyle {
+                    color: color.map(aci),
+                    line_type: None,
+                    line_weight: Some(LineWeight::Default),
+                }),
+                follows_placement: follows,
+                source: Ref::default(),
+            })
+            .collect();
+        Drawing2D {
+            layers,
+            ..Drawing2D::default()
+        }
+    }
+
+    fn style(color: Inherit<Color>) -> Style {
+        Style {
+            color,
+            line_type: Inherit::Block,
+            line_type_scale: 1.0,
+            line_weight: Some(Inherit::Block),
+        }
+    }
+
+    #[test]
+    fn byblock_is_resolved_through_the_placements() {
+        // レイヤ 0 は配置のレイヤに従う。レイヤ 1 は色 1、レイヤ 2 は色 2、レイヤ 3 は色を持たない
+        let drawing = layers(&[
+            (Some(7), true),
+            (Some(1), false),
+            (Some(2), false),
+            (None, false),
+        ]);
+        let block = style(Inherit::Block);
+        let layer = Style {
+            line_type: Inherit::Layer,
+            line_weight: Some(Inherit::Layer),
+            ..style(Inherit::Layer)
+        };
+        let own = style(Inherit::Own(aci(5)));
+        // 配置の色
+        let chain = [placed(&block, 1), placed(&own, 2)];
+        assert_eq!(drawing.color_placed(&chain), Inherit::Own(aci(5)));
+        // 内側の配置もブロックから継承するなら、外側の配置まで進む。そこでレイヤから継承する
+        let chain = [placed(&block, 1), placed(&block, 1), placed(&layer, 2)];
+        assert_eq!(drawing.color_placed(&chain), Inherit::Own(aci(2)));
+        // 要素が値を持てば、配置を見ない
+        let chain = [placed(&own, 1), placed(&layer, 2)];
+        assert_eq!(drawing.color_placed(&chain), Inherit::Own(aci(5)));
+        // 並びが尽きれば、ブロックからの継承のまま
+        assert_eq!(drawing.color_placed(&[placed(&block, 1)]), Inherit::Block);
+        assert_eq!(drawing.color_placed(&[]), Inherit::Block);
+        // 配置のレイヤに従うレイヤの要素は、配置のレイヤで解く。入れ子でも外へ進む
+        let chain = [placed(&layer, 0), placed(&own, 0), placed(&own, 2)];
+        assert_eq!(drawing.color_placed(&chain), Inherit::Own(aci(2)));
+        // 一番外まで従うレイヤなら、そのレイヤで解く
+        assert_eq!(
+            drawing.color_placed(&[placed(&layer, 0)]),
+            Inherit::Own(aci(7))
+        );
+        // 従わないレイヤは、そのレイヤで解く。値がなければレイヤからの継承のまま
+        let chain = [placed(&layer, 1), placed(&own, 2)];
+        assert_eq!(drawing.color_placed(&chain), Inherit::Own(aci(1)));
+        let chain = [placed(&layer, 3), placed(&own, 2)];
+        assert_eq!(drawing.color_placed(&chain), Inherit::Layer);
+        // 線種と線幅も同じに解く。読めていない線幅に当たれば `None`
+        let chain = [placed(&block, 1), placed(&layer, 2)];
+        assert_eq!(drawing.line_type_placed(&chain), Inherit::Layer);
+        assert_eq!(
+            drawing.line_weight_placed(&chain),
+            Some(Inherit::Own(LineWeight::Default))
+        );
+        let unknown = Style {
+            line_weight: None,
+            ..block
+        };
+        assert_eq!(
+            drawing.line_weight_placed(&[placed(&block, 1), placed(&unknown, 2)]),
+            None
+        );
+        // 要素から作る
+        let element = Element {
+            source: Ref::default(),
+            layer: LayerId(2),
+            style: own,
+            shape: Shape::Line {
+                start: at(MODEL, 0.0, 0.0),
+                end: at(MODEL, 0.0, 0.0),
+            },
+        };
+        assert_eq!(
+            drawing.color_placed(&[(&element).into()]),
+            Inherit::Own(aci(5))
+        );
+    }
+
+    fn placed(style: &Style, layer: u32) -> Inheritor<'_> {
+        Inheritor {
+            style,
+            layer: LayerId(layer),
         }
     }
 

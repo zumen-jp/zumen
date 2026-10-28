@@ -553,6 +553,7 @@ impl Lifter<'_> {
                     name,
                     state,
                     style: None,
+                    follows_placement: false,
                     source: Ref::at_record(0),
                 });
             }

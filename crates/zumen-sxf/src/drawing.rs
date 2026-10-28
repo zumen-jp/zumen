@@ -556,6 +556,7 @@ impl<'f> Lifter<'f> {
                 editable: true,
             }),
             style: None,
+            follows_placement: false,
             source: feature.source(),
         });
         Some(())
@@ -1966,6 +1967,7 @@ impl<'f> Lifter<'f> {
                     name: code.to_string(),
                     state: None,
                     style: None,
+                    follows_placement: false,
                     source: Ref::default(),
                 });
             }
