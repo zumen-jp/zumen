@@ -757,6 +757,24 @@ fn each_layout_becomes_a_sheet_with_its_name_and_limits() {
     assert_eq!(first.order, [SheetItem::Element(0), SheetItem::View(0)]);
 }
 
+/// レイアウトを探す準備も作業に数え、用紙のない図面でも上限で止める
+#[test]
+fn layout_lookup_stops_at_the_work_limit() {
+    let objects = [
+        layout("L1", "First", "1", ["0.0", "0.0", "420.0", "297.0"], "B1"),
+        layout("L2", "Second", "2", ["0.0", "0.0", "420.0", "297.0"], "C1"),
+        layout("L3", "Third", "3", ["0.0", "0.0", "420.0", "297.0"], "D1"),
+    ]
+    .concat();
+    let src = sections(&[("HEADER", MM), ("OBJECTS", &objects)]);
+    // 表を作る 8 レコードを読んだ後、レイアウトの索引を作る最初のレコードで止まる
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(8)));
+    let (result, diag) = lift(&src, &mut budget);
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    let places: Vec<_> = diag.iter().flat_map(|d| d.places().to_vec()).collect();
+    assert_eq!(places, [Ref::at_record(3)]);
+}
+
 /// 図形のないレイアウトも、名前と大きさだけの用紙になる（決定 0153）。今のレイアウトに図形がなければ、
 /// そのペーパー空間のブロックから中身のない用紙を作る。中身のない用紙の ID は、中身のある用紙の後に付く
 #[test]

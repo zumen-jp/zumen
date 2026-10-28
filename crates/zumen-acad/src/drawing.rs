@@ -91,7 +91,9 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
                 Some(Data::Text(text)) => Some(text.trim_ascii()),
                 _ => None,
             });
+    let layouts = layout_index(db, cx)?;
     let lifter = Lifter {
+        layouts: &layouts,
         sheet: SHEET,
         unicode: version.is_some_and(|v| v >= UTF8),
         fit_data: version.is_some_and(|v| v >= FIT_DATA),
@@ -209,7 +211,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
         .iter()
         .find(|object| matches!(object.first(67), Some(Data::Int(1))))
         .and_then(|object| object.owner())
-        .and_then(|handle| layout_of(db, handle));
+        .and_then(|handle| lifter.layout_of(db, handle));
     let has_paper = !out.paper.is_empty() || !out.views.is_empty();
     if has_paper {
         let size = match (limits(b"$PLIMMAX"), lifter.mm) {
@@ -221,7 +223,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
             _ => None,
         };
         let order = arrange(paper_keys.as_ref(), out.sheet, cx);
-        let name = current.and_then(|layout| lifter.layout_info(layout).name);
+        let name = current.and_then(|(_, layout)| lifter.layout_info(layout).name);
         drawing.sheets.push(Sheet {
             id: SHEET,
             name,
@@ -234,7 +236,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     // ほかのレイアウトの用紙は、今のレイアウトの後に、タブの順で並べる。今のレイアウトのペーパー空間の
     // ブロックは中身を持たないので、今のレイアウトの用紙を作ったなら、そのブロックからの空の用紙は除く。
     // 中身のない用紙の ID は、中身のある用紙の後から、タブの順に付ける
-    let current = current.and_then(|layout| position(db, layout));
+    let current = current.map(|(index, _)| index);
     out.layouts
         .retain(|(_, layout, _)| !(has_paper && layout.is_some() && *layout == current));
     out.layouts.sort_by_key(|(tab, _, _)| *tab);
@@ -322,25 +324,27 @@ fn paper_layout(name: &str) -> bool {
     name.to_ascii_lowercase().starts_with("*paper_space")
 }
 
-/// ブロックのレコード `record` を用紙空間に持つ LAYOUT（DXF Reference「LAYOUT」）。レイアウトの欄の
-/// 330 で指す。初めの 330 は所有者なので見ない
-fn layout_of(db: &AcadDb, record: u64) -> Option<&Object> {
-    db.objects().iter().find(|object| {
-        object.kind == b"LAYOUT"
-            && object
-                .values
-                .iter()
-                .filter(|value| value.code == 330)
-                .skip(1)
-                .any(|value| value.data == Data::Handle(record))
-    })
-}
-
-/// オブジェクトの並びの中の位置。ハンドルを持たないオブジェクトも見分ける
-fn position(db: &AcadDb, object: &Object) -> Option<usize> {
-    db.objects()
-        .iter()
-        .position(|candidate| std::ptr::eq(candidate, object))
+/// 用紙空間のブロックのレコードから LAYOUT の位置を引く索引。レイアウトごとに表全体を探し直さない。
+/// LAYOUT の欄の 330 で指す。初めの 330 は所有者なので見ない（DXF Reference「LAYOUT」）
+fn layout_index(db: &AcadDb, cx: &mut Cx) -> Result<BTreeMap<u64, usize>, Error> {
+    let mut layouts = BTreeMap::new();
+    for (index, object) in db.objects().iter().enumerate() {
+        if object.kind != b"LAYOUT" {
+            continue;
+        }
+        work(cx, 1, &source(object))?;
+        for value in object
+            .values
+            .iter()
+            .filter(|value| value.code == 330)
+            .skip(1)
+        {
+            if let Data::Handle(record) = value.data {
+                layouts.entry(record).or_insert(index);
+            }
+        }
+    }
+    Ok(layouts)
 }
 
 /// LAYOUT の名前（2 つ目の 1。初めの 1 はページ設定の名前）・タブの順（71）・範囲（10・20 と 11・21）
@@ -636,6 +640,8 @@ struct Out {
     /// ほかのレイアウトの用紙と、そのタブの順と LAYOUT の位置（オブジェクトの並びの中）。中身のない用紙の ID は、
     /// 最後に付ける
     layouts: Vec<(i64, Option<usize>, Sheet)>,
+    /// 中身のあるほかのレイアウトの用紙の数。ID を決めるために毎回並びを探し直さない
+    filled_layouts: u32,
     layers: Vec<Layer>,
     /// ASCII の大文字を小文字にした画層の名前。DXF の名前は大文字と小文字を区別しない（推定。docs/formats/dxf.md）
     by_name: BTreeMap<String, LayerId>,
@@ -651,7 +657,9 @@ struct Out {
 }
 
 #[derive(Clone)]
-struct Lifter {
+struct Lifter<'a> {
+    /// ペーパー空間のブロックのレコードのハンドルから、LAYOUT の位置を引く索引
+    layouts: &'a BTreeMap<u64, usize>,
     /// ペーパー空間の図形を置く用紙
     sheet: SheetId,
     /// 2007 以降の版なら、文字の値を UTF-8 として読む
@@ -670,7 +678,12 @@ struct Lifter {
     point_mode: i64,
 }
 
-impl Lifter {
+impl Lifter<'_> {
+    fn layout_of<'a>(&self, db: &'a AcadDb, record: u64) -> Option<(usize, &'a Object)> {
+        let index = *self.layouts.get(&record)?;
+        Some((index, db.objects().get(index)?))
+    }
+
     fn entity(
         &self,
         db: &AcadDb,
@@ -1232,15 +1245,10 @@ impl Lifter {
         cx: &mut Cx,
     ) -> Result<(), Error> {
         let handle = record.and_then(Object::handle);
-        let layout = handle.and_then(|handle| layout_of(db, handle));
-        let info = layout.map(|layout| self.layout_info(layout));
+        let layout = handle.and_then(|handle| self.layout_of(db, handle));
+        let info = layout.map(|(_, layout)| self.layout_info(layout));
         let limits = info.as_ref().and_then(|info| info.limits);
-        let filled = out
-            .layouts
-            .iter()
-            .filter(|(_, _, sheet)| sheet.id != EMPTY)
-            .count();
-        let id = SheetId(u32::try_from(filled).unwrap_or(u32::MAX).saturating_add(1));
+        let id = SheetId(out.filled_layouts.saturating_add(1));
         let lifter = Lifter {
             sheet: id,
             origin: limits.map_or([0.0, 0.0], |[min, _]| min),
@@ -1285,9 +1293,12 @@ impl Lifter {
         };
         let order = arrange(handle.and_then(|handle| keys.get(&handle)), items, cx);
         let (name, tab) = info.map_or((None, 0), |info| (info.name, info.tab));
+        if !empty {
+            out.filled_layouts = id.0;
+        }
         out.layouts.push((
             tab,
-            layout.and_then(|layout| position(db, layout)),
+            layout.map(|(index, _)| index),
             Sheet {
                 id: if empty { EMPTY } else { id },
                 name,
