@@ -4,7 +4,7 @@ import FormatTable from '../components/FormatTable.astro';
 import NewsList from '../components/NewsList.astro';
 import PlanDrawing from '../components/PlanDrawing.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { faqs, formats, hostApps, legacy, news, repo } from '../data/site';
+import { faqs, formats, hostApps, news, repo } from '../data/site';
 import Base from '../layouts/Base.astro';
 
 const points = [
@@ -101,10 +101,9 @@ const points = [
     <div class="wrap">
       <div class="cta">
         <h2 id="cta-title">開発の進み具合は、GitHub で公開しています</h2>
-        <p>設計・決めたこと・次の作業を、すべて GitHub で見られます。今すぐ図面を読み書きしたい場合は、旧版を使ってください。</p>
+        <p>設計・決めたこと・次の作業を、すべて GitHub で見られます。不具合の報告や提案も、GitHub で受け付けています。</p>
         <div class="actions">
           <a class="btn btn-primary btn-lg" href={repo}>GitHub で見る</a>
-          <a class="btn btn-secondary btn-lg" href={legacy}>旧版を使う</a>
         </div>
       </div>
     </div>

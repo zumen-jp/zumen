@@ -48,7 +48,7 @@ body {
   font-size: 16px;
   line-height: 1.7;
   letter-spacing: 0.02em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 h1,
@@ -928,6 +928,54 @@ caption.skip {
 
   .spec tbody th {
     width: auto;
+  }
+
+  /* 対応形式の表は、1 つの形式を 1 つの塊に積む */
+  .format-table thead {
+    display: none;
+  }
+
+  .format-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 20px;
+    padding: 16px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .format-table th,
+  .format-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .format-table tbody th {
+    font-size: 17px;
+  }
+
+  .format-table td:nth-child(2) {
+    flex-basis: 100%;
+    order: -1;
+    margin-top: -4px;
+  }
+
+  .format-table tbody th {
+    order: -2;
+    flex-basis: 100%;
+  }
+
+  .format-table td[data-label] {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .format-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--ink-sub);
+    font-size: 13px;
+    font-weight: 400;
   }
 
   .spec tr {

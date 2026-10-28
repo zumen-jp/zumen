@@ -3,7 +3,7 @@ import '@digital-go-jp/design-tokens/dist/tokens.css';
 import '@fontsource-variable/noto-sans-jp/wght.css';
 import '@fontsource/noto-sans-mono/400.css';
 import '../styles/global.css';
-import { legacy, nav, repo } from '../data/site';
+import { nav, repo } from '../data/site';
 
 interface Props {
   // 下層のページの名前。トップでは渡さない。
@@ -38,7 +38,7 @@ const canonical = new URL(path, Astro.site);
     <a class="skip" href="#main">本文へ移動</a>
 
     <p class="notice">
-      <span class="wrap"><strong>開発中</strong>パッケージはまだ公開していません。今すぐ使う場合は<a href={legacy}>旧版の zumen-legacy</a> をどうぞ。</span>
+      <span class="wrap"><strong>開発中</strong>パッケージはまだ公開していません。進み具合は <a href={repo}>GitHub</a> で公開しています。</span>
     </p>
 
     <header class="masthead">
@@ -81,7 +81,6 @@ const canonical = new URL(path, Astro.site);
           </ul>
           <ul>
             <li><a href={repo}>GitHub</a></li>
-            <li><a href={legacy}>旧版</a></li>
             <li><a href={`${repo}/blob/main/SECURITY.md`}>脆弱性の報告</a></li>
             <li><a href={`${repo}/blob/main/CODE_OF_CONDUCT.md`}>行動規範</a></li>
           </ul>

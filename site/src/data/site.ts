@@ -1,7 +1,6 @@
 // サイトの中で使い回す文と表。お知らせ・対応形式は、ここを直す。
 
 export const repo = 'https://github.com/zumen-jp/zumen';
-export const legacy = 'https://github.com/zumen-jp/zumen-legacy';
 export const decision = (file: string) => `${repo}/blob/main/docs/decisions/${file}`;
 
 export const nav = [
@@ -106,7 +105,7 @@ export interface Faq {
 export const faqs: Faq[] = [
   {
     q: '今すぐ使えますか。',
-    a: `作り直しの開発中で、パッケージはまだ公開していません。SXF・JWW・DXF・DWG・PDF を今すぐ読み書きしたい場合は、<a href="${legacy}">旧版の zumen-legacy</a> を使ってください。`,
+    a: `開発中で、パッケージはまだ公開していません。公開したら、このサイトのお知らせで知らせます。`,
     top: true,
   },
   {

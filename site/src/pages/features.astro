@@ -1,7 +1,7 @@
 ---
 import PageHeader from '../components/PageHeader.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { decision, legacy, repo } from '../data/site';
+import { decision, repo } from '../data/site';
 import Base from '../layouts/Base.astro';
 
 const policies = [
@@ -28,7 +28,7 @@ const policies = [
             <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
             <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
             <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
-            <tr><th scope="row">状態</th><td>作り直しの開発中です。パッケージはまだ公開していません。今すぐ使う場合は、<a href={legacy}>旧版の zumen-legacy</a> を使ってください。</td></tr>
+            <tr><th scope="row">状態</th><td>開発中です。パッケージはまだ公開していません。</td></tr>
             <tr><th scope="row">リポジトリ</th><td><a href={repo}>github.com/zumen-jp/zumen</a></td></tr>
           </tbody>
         </table>
