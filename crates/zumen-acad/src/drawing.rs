@@ -4622,9 +4622,7 @@ mod tests {
             values,
             origin: Origin::New,
         };
-        let layouts = BTreeMap::new();
         let lifter = Lifter {
-            layouts: &layouts,
             sheet: SHEET,
             unicode: true,
             fit_data: true,
