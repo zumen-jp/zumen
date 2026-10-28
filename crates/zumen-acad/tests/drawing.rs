@@ -428,7 +428,7 @@ fn e9_what_cannot_be_lifted_is_reported_per_record() {
         (1, "A"),
         (230, "-1.0"),
         // 5: まだ移さない種類
-        (0, "POINT"),
+        (0, "XLINE"),
         (8, "0"),
         // 6: 画層のない線分
         (0, "LINE"),
@@ -476,7 +476,7 @@ fn e9_what_cannot_be_lifted_is_reported_per_record() {
     let expected = [
         (codes::DXF_NON_PLANAR_DROPPED, text("LINE"), 1, vec![3]),
         (codes::DXF_NON_PLANAR_DROPPED, text("TEXT"), 1, vec![4]),
-        (codes::DXF_LIFT_DROPPED, text("POINT"), 1, vec![5]),
+        (codes::DXF_LIFT_DROPPED, text("XLINE"), 1, vec![5]),
         (
             codes::DXF_LIFT_INVALID,
             format!("{} Int(8)", text("LINE")),
@@ -3112,7 +3112,7 @@ fn e9_symbol_definitions_that_cannot_be_read_are_reported() {
         entity("ENDBLK", &[]),
         // まだ移さない種類の中身は、定義を残して落とす
         entity("BLOCK", &[(2, "MARK"), (70, "0"), (10, "0.0"), (20, "0.0")]),
-        entity("POINT", &[(10, "0.0"), (20, "0.0")]),
+        entity("XLINE", &[(10, "0.0"), (20, "0.0")]),
         entity("ENDBLK", &[]),
     ]
     .concat();
@@ -3139,7 +3139,7 @@ fn e9_symbol_definitions_that_cannot_be_read_are_reported() {
             ),
             (
                 codes::DXF_LIFT_DROPPED,
-                r#"Text("POINT")"#.to_owned(),
+                r#"Text("XLINE")"#.to_owned(),
                 1,
                 record(7)
             ),
@@ -4202,5 +4202,113 @@ fn e9_cyclic_and_missing_definitions_are_reported_and_placements_are_not_expande
             named(codes::DXF_BLOCK_CYCLE_INVALID, "B", at("B")),
             named(codes::DXF_BLOCK_CYCLE_INVALID, "C", at("C")),
         ]
+    );
+}
+
+#[test]
+fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
+    use zumen_drawing::{Boundary, Fill, Hatch, Symbol, SymbolKey, Vertex};
+    let entities = [
+        // 4 つの角は 1・2・4・3 の順に結ぶ
+        entity(
+            "SOLID",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "2.0"),
+                (21, "0.0"),
+                (12, "0.0"),
+                (22, "1.0"),
+                (13, "2.0"),
+                (23, "1.0"),
+            ],
+        ),
+        // 3 つ目と 4 つ目が同じなら三角形
+        entity(
+            "TRACE",
+            &[
+                (10, "5.0"),
+                (20, "0.0"),
+                (11, "6.0"),
+                (21, "0.0"),
+                (12, "5.0"),
+                (22, "1.0"),
+                (13, "5.0"),
+                (23, "1.0"),
+            ],
+        ),
+        entity("POINT", &[(10, "3.0"), (20, "4.0"), (50, "30.0")]),
+        // 押し出しの向きが既定でないものは平面に移さない
+        entity(
+            "SOLID",
+            &[
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "1.0"),
+                (21, "0.0"),
+                (12, "0.0"),
+                (22, "1.0"),
+                (230, "-1.0"),
+            ],
+        ),
+    ]
+    .concat();
+    let header = [MM, &[(9, "$PDMODE"), (70, "34")]].concat();
+    let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
+    let drawing = drawing.unwrap();
+    let at = |x: f64, y: f64| Vertex {
+        point: ModelPoint {
+            space: SpaceId(0),
+            x,
+            y,
+        },
+        bulge: 0.0,
+    };
+    let shapes = model_shapes(&drawing);
+    assert_eq!(shapes.len(), 3);
+    let boundary = |shape: &Shape<ModelPoint>| match shape {
+        Shape::Hatch(Hatch { loops, fill, .. }) => {
+            assert_eq!(*fill, Fill::Solid);
+            assert_eq!(loops.len(), 1);
+            loops[0].boundary.clone()
+        }
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        boundary(&shapes[0]),
+        Boundary::Polyline {
+            vertices: vec![at(0.0, 0.0), at(2.0, 0.0), at(2.0, 1.0), at(0.0, 1.0)],
+            closed: true,
+        }
+    );
+    assert_eq!(
+        boundary(&shapes[1]),
+        Boundary::Polyline {
+            vertices: vec![at(5.0, 0.0), at(6.0, 0.0), at(5.0, 1.0)],
+            closed: true,
+        }
+    );
+    assert_eq!(
+        shapes[2],
+        Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.point",
+                name: "34".to_owned(),
+            },
+            position: at(3.0, 4.0).point,
+            scale: [1.0; 2],
+            rotation: 30.0,
+            grid: None,
+            attributes: Vec::new(),
+        })
+    );
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_NON_PLANAR_DROPPED,
+            r#"Text("SOLID")"#.to_owned(),
+            1,
+            vec![Ref::at_record(6)]
+        )]
     );
 }
