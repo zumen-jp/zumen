@@ -509,6 +509,7 @@ impl<'f> Lifter<'f> {
             spaces,
             sheets: vec![Sheet {
                 id: SHEET,
+                name: None,
                 size,
                 elements: out.paper,
                 views: out.views,
