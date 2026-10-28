@@ -11,7 +11,8 @@ export const nav = [
   { href: '/faq/', label: 'よくある質問' },
 ];
 
-export type Tag = '開発' | '決定' | 'お知らせ';
+// お知らせは、リリースと大きな節目だけを書く。日々の変更は GitHub の PR とリリースノートに任せる。
+export type Tag = 'リリース' | 'お知らせ';
 
 export interface News {
   date: string;
@@ -22,29 +23,9 @@ export interface News {
 
 export const news: News[] = [
   {
-    date: '2026-10-28',
-    tag: '開発',
-    html: `図面モデルの変更を DXF・DWG に書き戻す apply を加えました（<a href="${repo}/pull/223">#223</a>）。`,
-  },
-  {
-    date: '2026-10-28',
-    tag: '開発',
-    html: `SXF の SFC と Jw_cad の JWW を、図面モデルへ移せるようになりました（<a href="${repo}/pull/181">#181</a>・<a href="${repo}/pull/201">#201</a>）。`,
-  },
-  {
-    date: '2026-10-27',
-    tag: '決定',
-    html: `DWG への書き戻しと、R2004 の入れ物の書き方を決めました（<a href="${repo}/blob/main/docs/decisions/README.md">決定 0052〜0070</a>）。`,
-  },
-  {
-    date: '2026-10-26',
-    tag: '開発',
-    html: `DXF と DWG（R2000）を読む最初の経路を置きました（<a href="${repo}/pull/31">#31</a>・<a href="${repo}/pull/38">#38</a>）。`,
-  },
-  {
     date: '2026-10-24',
     tag: 'お知らせ',
-    html: `新しい org の zumen-jp で、zumen の作り直しを始めました（<a href="${decision('0001-rebuild-in-zumen-jp.md')}">決定 0001</a>）。`,
+    html: `新しい zumen の開発を、GitHub の <a href="${repo}">zumen-jp/zumen</a> で始めました。最初のリリースは、このお知らせで知らせます。`,
   },
 ];
 

@@ -509,14 +509,9 @@ caption.skip {
   text-align: center;
 }
 
-.tag-notice {
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
-.tag-decision {
-  border-color: var(--ok);
-  color: var(--ok);
+.tag-release {
+  background: var(--key);
+  color: var(--paper);
 }
 
 .news-box-head .section-head {
