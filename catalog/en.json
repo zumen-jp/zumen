@@ -36,6 +36,8 @@
     "dwg.type.unsupported": "Kept {count} DWG objects of type {type}, which is not supported yet, with an empty kind.",
     "dwg.version.unsupported": "DWG version {version} cannot be read yet.",
     "dwg.xdata.invalid": "Left out the extended data of one registered application on {count} DWG objects of type {type}, because it cannot be read.",
+    "dxf.binary-value.unsupported": "Did not change group code {code} of record {record} in the binary DXF, because the value cannot be written as that code's type.",
+    "dxf.binary.invalid": "Cannot read the binary DXF, because the tag at byte {offset} is cut short or has a real value that is not finite.",
     "dxf.binary.unsupported": "Binary DXF cannot be read yet.",
     "dxf.block-cycle.invalid": "Kept {count} definitions of block \"{name}\" without expanding them, because the block places itself directly or indirectly.",
     "dxf.block.missing": "Kept only the placement of {count} references to block \"{name}\", because the block is not defined.",

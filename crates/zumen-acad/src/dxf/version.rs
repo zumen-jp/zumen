@@ -70,7 +70,7 @@ impl DxfFile {
 
 impl Dxf {
     /// 版を `version`（`$ACADVER` の値）に変えて書く。元と同じ版なら [`Codec::write`] と同じ。
-    /// 扱えない組なら `dxf.version.unsupported` を返し、`out` には何も足さない
+    /// バイナリの DXF の版は変えない。扱えない組なら `dxf.version.unsupported` を返し、`out` には何も足さない
     pub fn write_as(
         file: &DxfFile,
         version: &[u8],
@@ -81,7 +81,8 @@ impl Dxf {
         if from == version {
             return Dxf::write(file, out, cx);
         }
-        if version != R12 || !FROM.contains(&from) {
+        // バイナリの DXF の版の変更は、まだ扱わない（docs/formats/dxf.md）
+        if version != R12 || !FROM.contains(&from) || file.is_binary() {
             cx.report(
                 Diagnostic::new(codes::DXF_VERSION_UNSUPPORTED)
                     .with("from", text(from))
