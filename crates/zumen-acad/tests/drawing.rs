@@ -4204,3 +4204,87 @@ fn e9_cyclic_and_missing_definitions_are_reported_and_placements_are_not_expande
         ]
     );
 }
+
+#[test]
+fn thickness_and_line_type_generation_are_kept_as_extensions() {
+    let entities = [
+        // 厚さを持つ線分
+        entity(
+            "LINE",
+            &[
+                (39, "2.5"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (11, "10.0"),
+                (21, "0.0"),
+            ],
+        ),
+        // 線種の生成を立て、厚さを持つポリライン
+        entity(
+            "LWPOLYLINE",
+            &[
+                (90, "2"),
+                (70, "128"),
+                (39, "1.0"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (10, "5.0"),
+                (20, "0.0"),
+            ],
+        ),
+        // 厚さが 0 で、線種の生成を立てない図形は、拡張を持たない
+        entity(
+            "CIRCLE",
+            &[(39, "0.0"), (10, "0.0"), (20, "0.0"), (40, "1.0")],
+        ),
+    ]
+    .concat();
+    let src = dxf(
+        &[(9, "$ACADVER"), (1, "AC1027"), (9, "$INSUNITS"), (70, "4")],
+        &entities,
+    );
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let elements = &drawing.spaces[0].elements;
+    let kept: Vec<_> = drawing
+        .extensions
+        .iter()
+        .map(|extension| {
+            assert_eq!(extension.namespace, "dxf.entity");
+            assert_eq!(extension.schema, 1);
+            assert!(extension.is_current(&drawing));
+            (extension.target, extension.fields.clone())
+        })
+        .collect();
+    let at = |index| Target::Model {
+        space: MODEL,
+        index,
+    };
+    assert_eq!(
+        kept,
+        [
+            (
+                at(0),
+                vec![Field {
+                    key: "thickness",
+                    value: FieldValue::Real(2.5),
+                }]
+            ),
+            (
+                at(1),
+                vec![
+                    Field {
+                        key: "thickness",
+                        value: FieldValue::Real(1.0),
+                    },
+                    Field {
+                        key: "line_type_generation",
+                        value: FieldValue::Integer(1),
+                    },
+                ]
+            ),
+        ]
+    );
+    assert_eq!(elements.len(), 3);
+}
