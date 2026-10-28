@@ -1,0 +1,23 @@
+---
+import type { News } from '../data/site';
+
+interface Props {
+  items: News[];
+}
+
+const { items } = Astro.props;
+---
+
+<ul class="news">
+  {
+    items.map((item) => (
+      <li>
+        <time datetime={item.date}>{item.date}</time>
+        <span>
+          <span class:list={['tag', { 'tag-release': item.tag === 'リリース' }]}>{item.tag}</span>
+        </span>
+        <span set:html={item.html} />
+      </li>
+    ))
+  }
+</ul>

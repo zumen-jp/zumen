@@ -1,0 +1,22 @@
+---
+// 下層のページの、パンくずと見出し。
+interface Props {
+  title: string;
+  lead?: string;
+}
+
+const { title, lead } = Astro.props;
+---
+
+<div class="page-header">
+  <div class="wrap">
+    <nav class="breadcrumbs" aria-label="現在の位置">
+      <ol>
+        <li><a href="/">トップ</a></li>
+        <li aria-current="page">{title}</li>
+      </ol>
+    </nav>
+    <h1>{title}</h1>
+    {lead && <p class="page-lead">{lead}</p>}
+  </div>
+</div>
