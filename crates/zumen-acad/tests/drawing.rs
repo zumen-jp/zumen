@@ -684,9 +684,18 @@ fn layers_keep_their_table_and_views_hide_layers() {
             name: "Extra".to_owned(),
             state: None,
             style: None,
+            follows_placement: false,
             source: Ref::default(),
         }
     );
+    // レイヤ 0 だけが、ブロックの中で配置のレイヤに従う（決定 0143）
+    let follows: Vec<_> = drawing
+        .layers
+        .iter()
+        .map(|layer| (layer.name.as_str(), layer.follows_placement))
+        .filter(|(_, follows)| *follows)
+        .collect();
+    assert_eq!(follows, [("0", true)]);
     // 名前は大文字と小文字を区別せずに引く
     let layers: Vec<_> = drawing.spaces[0].elements.iter().map(|e| e.layer).collect();
     assert_eq!(layers, [LayerId(1), LayerId(4)]);

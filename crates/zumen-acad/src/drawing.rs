@@ -3117,6 +3117,8 @@ impl Lifter {
         out.by_name.entry(name.to_ascii_lowercase()).or_insert(id);
         out.layers.push(Layer {
             id,
+            // ブロックの中のレイヤ 0 の図形は、配置のレイヤに従う（決定 0143）
+            follows_placement: name == "0",
             name,
             state: defined.map(|(state, _)| state),
             style: defined.map(|(_, style)| style),

@@ -172,3 +172,4 @@
 - [0140: DXF の SOLID・TRACE は塗りのハッチングにし、POINT は点の記号にして図面モデルへ移す](0140-dxf-solids-and-points.md)（2026-10-28、提案）
 - [0141: 図面モデルのレイヤは、凍結を表示しないことと分けて持つ](0141-drawing-layer-frozen.md)（2026-10-28、提案）
 - [0142: DXF・DWG の厚さ・線種の生成・スプラインの許容差は、図面モデルの拡張 `dxf.entity` に控える](0142-dxf-entity-extension.md)（2026-10-28、提案）
+- [0143: 記号の定義の中の要素の継承は、配置の並びで解く](0143-drawing-inherit-through-placements.md)（2026-10-28、提案）
