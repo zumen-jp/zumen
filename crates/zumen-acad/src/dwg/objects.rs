@@ -962,19 +962,12 @@ fn read(
             }
             for code in handles {
                 let handle = bits.handle()?.resolve(entry.handle)?;
-                if code == 7 && kind == b"TABLESTYLE" && handle == 0 {
-                    let at = values
-                        .iter()
-                        .position(|value| value.code == 7 && value.data == Data::Handle(SLOT))?;
-                    values.remove(at);
-                    continue;
-                }
                 let slot = values
                     .iter_mut()
                     .find(|value| value.code == code && value.data == Data::Handle(SLOT));
                 match (code, slot) {
                     (0, _) => {}
-                    // LTYPE の要素の 340 は、DXF と同じく 0 でも置く
+                    // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でも区切りとして残す
                     (_, Some(slot)) => slot.data = Data::Handle(handle),
                     (6, None) if handle != 0 => records.push(RecordRef {
                         code,
