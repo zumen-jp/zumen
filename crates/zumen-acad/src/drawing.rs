@@ -1556,8 +1556,8 @@ impl Lifter {
     }
 
     /// ATTRIB（DXF Reference「ATTRIB」）。タグ（2）と、TEXT と同じ欄の値を移し、70 の 1 なら表示しないとする。
-    /// 複数行の属性は、埋め込みのオブジェクトの印（101）の後の MTEXT の値も移す。印の直前の 71（属性の種類）と
-    /// 72 は、TEXT の欄と取り違えないよう、1 行の値から除く（決定 0102）
+    /// 複数行の属性は、埋め込みのオブジェクトの印（101）の後の MTEXT の値も移す。印の前の、最後の 71（属性の
+    /// 種類）と 72 の組は、TEXT の欄と取り違えないよう、1 行の値から除く（決定 0102）
     fn attribute<P: Copy>(
         &self,
         object: &Object,
@@ -1575,11 +1575,13 @@ impl Lifter {
         let (single, formatted) = match embedded {
             None => (None, None),
             Some((before, marked)) => {
+                // DXF は 71 と 72 の後に、もう一度位置合わせの点（11・21・31）を書く
                 let mut values = before.to_vec();
-                for code in [72, 71] {
-                    if values.last().is_some_and(|value| value.code == code) {
-                        values.pop();
-                    }
+                let kind_at = values
+                    .windows(2)
+                    .rposition(|pair| matches!(pair, [a, b] if a.code == 71 && b.code == 72));
+                if let Some(at) = kind_at {
+                    values.drain(at..at + 2);
                 }
                 let single = Object {
                     values,

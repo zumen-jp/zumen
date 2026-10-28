@@ -122,20 +122,6 @@ fn same(a: &Data, b: &Data) -> bool {
     }
 }
 
-/// DXF は、名前のないブロック（`*` で始まる名前）に番号を付ける（DWG の `*Paper_Space` が
-/// `*Paper_Space0`、`*D` が `*D3` など）
-#[cfg(test)]
-fn numbered(dwg: &Data, dxf: &Data) -> bool {
-    match (dwg, dxf) {
-        (Data::Text(a), Data::Text(b)) => {
-            a.starts_with(b"*")
-                && b.strip_prefix(a.as_slice())
-                    .is_some_and(|n| !n.is_empty() && n.iter().all(u8::is_ascii_digit))
-        }
-        _ => false,
-    }
-}
-
 #[test]
 fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
     for (dwg, dxf) in pairs() {
@@ -237,7 +223,9 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             if let Some(start) = values.iter().position(|v| v.code == 1001) {
                 values.truncate(start);
             }
+            let mut embedded = false;
             for value in values {
+                embedded |= value.code == 101;
                 if matches!(value.code, 5 | 105 | 330) {
                     continue;
                 }
@@ -275,12 +263,19 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     matches!((name(&dwg_objects, data), name(&dxf_objects, theirs)),
                         (Some(Data::Text(a)), Some(Data::Text(b))) if a.starts_with(b"*U") && b.starts_with(b"*U"))
                 };
+                // 書き直したブロックは、名前の番号も変わる。表の ACAD_TABLE と、表のブロックの中の INSERT が指す
+                let rewritten = |data: &Data, theirs: &Data| {
+                    matches!((data, theirs), (Data::Text(a), Data::Text(b))
+                        if a.starts_with(b"*U") && b.starts_with(b"*U"))
+                };
                 assert!(
                     theirs.is_some_and(|theirs| same(&value.data, theirs)
-                        || numbered(&value.data, theirs)
                         || (object.kind == b"ACAD_TABLE"
                             && value.code == 340
                             && anonymous(&value.data, theirs))
+                        || (value.code == 2 && rewritten(&value.data, theirs))
+                        // DXF は段組みの MTEXT の段ごとの高さを 0.0 と書く
+                        || (object.kind == b"MTEXT" && value.code == 46 && embedded)
                         || (object.kind == b"MULTILEADER" && nearest(&value.data, theirs))),
                     "{at} {}: {:?} {theirs:?}",
                     value.code,
@@ -346,11 +341,11 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
     }
 }
 
-/// 図面モデルの値を、実数の誤差を許して比べるための文字列。図形とビューの元のレコードは、
-/// DWG（バイトの範囲）と DXF（レコードの番号）で違うので消す
+/// 図面モデルと、変換で返した DXF の診断のコード。図形とビューの元のレコードは、DWG（バイトの範囲）と
+/// DXF（レコードの番号）で違うので消す
 #[cfg(test)]
 #[cfg(feature = "drawing")]
-fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
+fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
     use zumen_base::Ref;
     use zumen_sdk::Lift;
     let src = std::fs::read(path).unwrap();
@@ -385,7 +380,83 @@ fn lifted(path: &Path) -> (String, Vec<zumen_base::Code>) {
         .map(|d| d.code())
         .filter(|c| c.name().starts_with("dxf."))
         .collect();
-    (format!("{drawing:?}"), codes)
+    (drawing, codes)
+}
+
+/// 図面モデルの、DWG と DXF で比べられる文字列。元の場所（`Ref { .. }`）と、名前のないブロック `*U` の番号と、
+/// 真の色の近い色の番号を除く。元の場所は、
+/// DWG（バイトの範囲）と DXF（レコードの番号）で違う。図形の元のほか、ハッチングの輪の元・引出線の注釈・
+/// 寸法の体裁なども元の場所で指す
+#[cfg(test)]
+#[cfg(feature = "drawing")]
+fn comparable(text: &str) -> String {
+    const ACI: &str = "code: Some(ColorCode { system: Aci, value: ";
+    let digit = |c: char| c.is_ascii_digit();
+    let text = rewrite(text, "Ref { ", |rest| {
+        let mut depth = 1;
+        let end = rest
+            .char_indices()
+            .find_map(|(i, c)| {
+                match c {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+                (depth == 0).then_some(i + c.len_utf8())
+            })
+            .unwrap_or(rest.len());
+        ("Ref".into(), rest.split_at(end).1)
+    });
+    // DXF は、表のセルが指す名前のないブロック（`*U`）を別のハンドルで書き直し、名前の番号も変わる
+    let text = rewrite(&text, "name: \"*U", |rest| {
+        ("name: \"*U".into(), rest.trim_start_matches(digit))
+    });
+    // DWG は真の色の RGB だけを持ち、DXF の近い色の番号を持たない（docs/formats/dwg.md）
+    rewrite(&text, ACI, |rest| {
+        match rest
+            .trim_start_matches(digit)
+            .strip_prefix(" }), rgb: Some(")
+        {
+            Some(after) => ("code: None, rgb: Some(".into(), after),
+            None => (ACI.into(), rest),
+        }
+    })
+}
+
+/// `text` の `marker` ごとに、その前を写し、後ろを `f` で置き換えるものと続きに分ける
+#[cfg(test)]
+#[cfg(feature = "drawing")]
+fn rewrite<'a>(
+    text: &'a str,
+    marker: &str,
+    mut f: impl FnMut(&'a str) -> (String, &'a str),
+) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some((before, after)) = rest.split_once(marker) {
+        out.push_str(before);
+        let (with, next) = f(after);
+        out.push_str(&with);
+        rest = next;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// DXF は、鉤の線を持つ LEADER の終わりの前に鉤の線の点を足して書くが、DWG はこの点を持たない
+/// （docs/formats/dwg.md）。DWG から作った引出線より頂点が 1 つ多い、DXF から作った引出線のその点を除く
+#[cfg(test)]
+#[cfg(feature = "drawing")]
+fn without_hooks<P>(ours: &[zumen_drawing::Element<P>], theirs: &mut [zumen_drawing::Element<P>]) {
+    use zumen_drawing::Shape;
+    for (ours, theirs) in ours.iter().zip(theirs) {
+        if let (Shape::Leader(ours), Shape::Leader(theirs)) = (&ours.shape, &mut theirs.shape)
+            && theirs.path.len() == ours.path.len() + 1
+            && ours.path.len() >= 2
+        {
+            theirs.path.remove(ours.path.len() - 1);
+        }
+    }
 }
 
 /// 拡張データの、登録アプリケーションの名前（1001）ごとの組
@@ -543,8 +614,38 @@ fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
 #[test]
 fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
     for (dwg, dxf) in pairs() {
-        let (ours, our_codes) = lifted(&dwg);
-        let (theirs, their_codes) = lifted(&dxf);
+        let (mut ours, our_codes) = lifted(&dwg);
+        let (mut theirs, their_codes) = lifted(&dxf);
+        // AutoCAD の往復のための拡張データ（ACAD の RTTcAl などと ACAD_SPLINE_DATA）は、DXF に書かれない
+        // ACAD の拡張データの初めの RTTcAl・2 つの数・名前の 4 つの値も、DXF に書かれない
+        for ext in &mut ours.extensions {
+            if ext.name == "ACAD"
+                && ext.fields.first().map(|f| &f.value)
+                    == Some(&zumen_drawing::FieldValue::Text("RTTcAl".into()))
+            {
+                ext.fields.drain(..ext.fields.len().min(4));
+            }
+        }
+        ours.extensions.retain(|ext| {
+            !matches!(ext.name.as_str(), "ACAD" | "ACAD_SPLINE_DATA")
+                || theirs
+                    .extensions
+                    .iter()
+                    .any(|their| their.name == ext.name && their.target == ext.target)
+        });
+        for (ours, theirs) in ours.spaces.iter().zip(&mut theirs.spaces) {
+            without_hooks(&ours.elements, &mut theirs.elements);
+        }
+        for (ours, theirs) in ours.sheets.iter().zip(&mut theirs.sheets) {
+            without_hooks(&ours.elements, &mut theirs.elements);
+        }
+        for (ours, theirs) in ours.symbols.iter().zip(&mut theirs.symbols) {
+            without_hooks(&ours.space.elements, &mut theirs.space.elements);
+        }
+        let (ours, theirs) = (
+            comparable(&format!("{ours:?}")),
+            comparable(&format!("{theirs:?}")),
+        );
         assert!(
             nearly(&ours, &theirs),
             "{}\n{ours}\n{theirs}",
@@ -883,6 +984,10 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                 // HATCH の初めの 10・20 は 0 と決まっているので動かさない
                 let mut fixed = if kind == b"HATCH" { 2 } else { 0 };
                 for value in object.values.iter_mut() {
+                    // 段組みの MTEXT の段組みの欄（101 から後）は、元のビットを写すので変えない
+                    if kind == b"MTEXT" && value.code == 101 {
+                        break;
+                    }
                     match (value.code, &mut value.data) {
                         // 2 倍で既定の 1 になる尺度は、読み直すと値に置かれないので変えない
                         (48, Data::Real(v)) if *v != 0.5 => *v *= 2.0,
