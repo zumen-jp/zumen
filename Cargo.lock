@@ -248,6 +248,7 @@ dependencies = [
 name = "zumen-acad"
 version = "0.0.0"
 dependencies = [
+ "libm",
  "zumen-base",
  "zumen-drawing",
  "zumen-sdk",

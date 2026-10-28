@@ -21,6 +21,7 @@ default = ["drawing"]
 drawing = ["dep:zumen-drawing"]
 
 [dev-dependencies]
+libm = { version = "0.2.16", default-features = false }
 zumen-drawing = { path = "../zumen-drawing" }
 
 [lints]
