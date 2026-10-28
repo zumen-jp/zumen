@@ -23,7 +23,7 @@
 - 表記と用語の基準: [docs/style.md](docs/style.md)
 - 開発への参加: [CONTRIBUTING.md](CONTRIBUTING.md)（エージェント向けの規則は [AGENTS.md](AGENTS.md)）
 - 旧版: [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy)
-- サイト: <https://zumen.dev>（準備中）
+- サイト: <https://zumen.dev>（準備中。元は [site](site/README.md)）
 
 ## ライセンス
 
