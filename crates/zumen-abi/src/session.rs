@@ -34,7 +34,7 @@ const BUILT: Engine = if cfg!(target_family = "wasm") {
 /// 名前のついた入力を持つセッション。
 ///
 /// 1 つのファイルを読むときも、セッションを作り、[`Session::push`] で入力を渡し、`open` の要求を送る。
-/// 入力は、ホストが読んで渡す。核はファイルシステムを読まない（決定 0007）。
+/// 入力は、ホストが読んで渡す。コアはファイルシステムを読まない（決定 0007）。
 #[derive(Debug)]
 pub struct Session {
     engine: Engine,
@@ -185,7 +185,7 @@ impl Session {
         slot.take().map(|blob| blob.bytes)
     }
 
-    /// 核の不具合で止まったときの応答。`internal.panic.caught` の診断だけを持つ
+    /// コアの不具合で止まったときの応答。`internal.panic.caught` の診断だけを持つ
     pub fn panic_response() -> Vec<u8> {
         let mut diagnostics = Diagnostics::new();
         diagnostics.report(Diagnostic::new(codes::INTERNAL_PANIC_CAUGHT));
@@ -736,7 +736,7 @@ fn respond(
     out.into_bytes()
 }
 
-/// 核の診断を、メッセージの診断にする
+/// コアの診断を、メッセージの診断にする
 fn message_of(diagnostic: &Diagnostic) -> messages::Diagnostic {
     messages::Diagnostic {
         code: diagnostic.code().name().to_string(),

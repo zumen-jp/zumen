@@ -5,7 +5,7 @@
  * zumen の境界（決定 0012）。
  *
  * - 文字列は UTF-8。要求と応答は JSON で、形は schema/messages.json にある
- * - 入力のバッファーは呼び出しの間だけ借りる。核が返したバッファーは zm_free で返す
+ * - 入力のバッファーは呼び出しの間だけ借りる。コアが返したバッファーは zm_free で返す
  * - 1 つのセッションは、一度に 1 つのスレッドだけが使う。zm_cancel だけは、どのスレッドからも呼べる
  * - 関数・状態コードは足すだけにし、消さず、名前・値・引数・意味を変えない（決定 0015）
  */
@@ -43,13 +43,13 @@ typedef int32_t zm_status;
 #define ZM_INVALID 2
 /* 別のスレッドが、同じセッションを使っている */
 #define ZM_BUSY 3
-/* 核の不具合で止まった。セッションは閉じるしかない */
+/* コアの不具合で止まった。セッションは閉じるしかない */
 #define ZM_PANICKED 4
 
-/* セッション。中身は核だけが知る */
+/* セッション。中身はコアだけが知る */
 typedef struct zm_session zm_session;
 
-/* 核が返すバッファー。zm_free で返す */
+/* コアが返すバッファー。zm_free で返す */
 typedef struct zm_buf {
     uint8_t *ptr;
     size_t len;
@@ -171,7 +171,7 @@ void ZM_CALL zm_cancel(zm_session *session);
 void ZM_CALL zm_session_close(zm_session *session);
 
 /*
- * 核が返したバッファーを返す。返したあとの buf は空になる。空のバッファーと NULL には何もしない
+ * コアが返したバッファーを返す。返したあとの buf は空になる。空のバッファーと NULL には何もしない
  *
  * buf: zm_call・zm_take が書いたバッファー
  */

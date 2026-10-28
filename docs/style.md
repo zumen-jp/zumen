@@ -81,11 +81,10 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 
 | この文書群での言い方 | 一般の言い方 | 意味 |
 | --- | --- | --- |
-| 核 | コア | 読み書きと解析をする Rust の実装 |
-| 境界 | API・ABI | 各言語から核を呼ぶ、数個の関数とメッセージ（[決定 0012](decisions/0012-boundary-functions-and-messages.md)） |
+| 境界 | API・ABI | 各言語からコアを呼ぶ、数個の関数とメッセージ（[決定 0012](decisions/0012-boundary-functions-and-messages.md)） |
 | 結合 | バインディング | 各言語から境界を呼ぶための層 |
 | 包み | ラッパー | 結合のうち、手で書く薄い層 |
-| 段 | ティア | 言語ごとの対応の約束（[決定 0006](decisions/0006-language-tiers.md)） |
+| 階層 | ティア | 言語ごとの対応の約束（[決定 0006](decisions/0006-language-tiers.md)） |
 | 形 | 実行の形態 | 境界の出し方。ネイティブ・wasm・プロセスの外・HTTP（[決定 0013](decisions/0013-boundary-in-four-forms.md)） |
 | 予算 | 処理量の上限 | 利用者向けの文では「上限」と書く（[決定 0010](decisions/0010-budget-by-work.md)） |
 | 診断 | 警告・エラーの知らせ | code・場所・値で返す知らせ（[決定 0009](decisions/0009-diagnostics-and-catalog.md)） |

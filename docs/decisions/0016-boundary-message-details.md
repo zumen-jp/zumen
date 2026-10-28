@@ -88,7 +88,7 @@ JSON の読み書きは 2、浮動小数の表記は 3、スキーマは 2、状
 
 ### カタログのファイル
 
-- `catalog/<言語>.toml` から、`catalog/<言語>.json` を生成してコミットする。形は `schema/messages.json` の `catalog`。核はすでに JSON を読むので、TOML を読むものを核に入れずに済む。
+- `catalog/<言語>.toml` から、`catalog/<言語>.json` を生成してコミットする。形は `schema/messages.json` の `catalog`。コアはすでに JSON を読むので、TOML を読むものをコアに入れずに済む。
 - 数の書き方（3 桁ごとの区切りと小数点の文字）を、カタログの `[number]` に置く（[0009](0009-diagnostics-and-catalog.md) の「カタログの規則」）。
 - カタログがないか、カタログにない code は、`code (名前=値, …, count=件数)` と書く。
 

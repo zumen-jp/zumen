@@ -2,7 +2,7 @@
 
 [#6](https://github.com/zumen-jp/zumen/issues/6) の試作です。合成した 2D のシーンを、JSON・独自の列指向・FlatBuffers・Arrow IPC で符号化し、Worker からページまでの時間、ページ側の時間、メモリ、wasm の増分を比べます。結果と判断は [決定 0137](../../docs/decisions/0137-columnar-scene-transfer.md) にあります。
 
-核のワークスペースには入れていません。依存（`flatbuffers`・`arrow-*`・`apache-arrow`）は、どれも Apache-2.0 で、この測定のためだけに使います。
+コアのワークスペースには入れていません。依存（`flatbuffers`・`arrow-*`・`apache-arrow`）は、どれも Apache-2.0 で、この測定のためだけに使います。
 
 ## 流し方
 

@@ -35,7 +35,7 @@
 ### 台帳の置き場所
 
 1. **`schema/`**（[#1](https://github.com/zumen-jp/zumen/issues/1) の素案）。今は、境界のスキーマの置き場所になっている（[0012](0012-boundary-functions-and-messages.md)）。
-2. **`catalog/`。** 診断の code の台帳と文言で、核と一緒に配る（[0009](0009-diagnostics-and-catalog.md)）。配らない台帳が混ざる。
+2. **`catalog/`。** 診断の code の台帳と文言で、コアと一緒に配る（[0009](0009-diagnostics-and-catalog.md)）。配らない台帳が混ざる。
 3. **新しい `formats/`。** 形式の台帳だけを置く。
 
 ### 外部のプラグインの束ね方
@@ -72,7 +72,7 @@
   - `permission`: 持ち主が、仕様の入手か実装の公開に、契約・会員・許諾を求めている
   - `unknown`: 持ち主か、その条件を確かめられていない
 - **置き場所**
-  - `core`: このリポジトリの核のワークスペース。`public` の形式だけを置ける
+  - `core`: このリポジトリのコアのワークスペース。`public` の形式だけを置ける
   - `plugin`: 外部のリポジトリのプラグイン
   - `none`: 実装しない
 - 形式のキーは、英小文字と数字だけにする（`sxf`・`stbridge` など）。境界の列挙の値（[0012](0012-boundary-functions-and-messages.md)）にも、診断の code の範囲（[0009](0009-diagnostics-and-catalog.md)）にも、そのまま使える。仕様の ID は、英小文字・数字・`_` にする。
@@ -113,10 +113,10 @@
   | ID の契約試験 | 同じバイト列から、記録した一覧と同じ ID が出ることを確かめる。ID を変えるには、先に決定の記録が要る（AGENTS.md） |
   | fuzz | バイト列を受けて、パニックしない・予算の中で止まる・2 回読んで同じ結果になる、を確かめる関数。cargo-fuzz の target から呼ぶ（[0010](0010-budget-by-work.md)） |
 
-- **核の形式も、同じ SDK で書く。** 核のコーデックと外部のプラグインで、書き方と試験を分けない。SDK は、核の形式を書きながら育てる。
+- **コアの形式も、同じ SDK で書く。** コアのコーデックと外部のプラグインで、書き方と試験を分けない。SDK は、コアの形式を書きながら育てる。
 - プラグインも、どこでも同じ結果の規則（[0007](0007-single-rust-implementation.md)）と、予算とパニックしない約束（[0010](0010-budget-by-work.md)）に従う。
-- プラグインは、自分の診断の code の台帳と文言を持つ。code の範囲は形式のキーにし、核の code とぶつからないようにする（[0009](0009-diagnostics-and-catalog.md)）。
-- SDK の版は、核と同じにする（[0015](0015-add-only-boundary-and-version-floors.md) のパッケージの版）。trait を変えることは Rust の API を壊すことなので、1.0 からは大版を上げる。
+- プラグインは、自分の診断の code の台帳と文言を持つ。code の範囲は形式のキーにし、コアの code とぶつからないようにする（[0009](0009-diagnostics-and-catalog.md)）。
+- SDK の版は、コアと同じにする（[0015](0015-add-only-boundary-and-version-floors.md) のパッケージの版）。trait を変えることは Rust の API を壊すことなので、1.0 からは大版を上げる。
 
 ### 束ね方
 
@@ -124,14 +124,14 @@
 | --- | --- |
 | Rust | プラグインの crate を依存に足し、窓口に登録する（ビルドの時に束ねる） |
 | wasm（ブラウザー・Node.js・Go） | プラグインの形式を持つ、別のモジュールにする。同じ境界の関数を出し（[0012](0012-boundary-functions-and-messages.md)）、公式のモジュールとは L2 のバイナリ（[#6](https://github.com/zumen-jp/zumen/issues/6)）でやり取りする |
-| ネイティブで呼ぶ言語 | プラグインのリポジトリが、核とプラグインを束ねた CLI を作る。各言語からは、その CLI を `process` の形（[0013](0013-boundary-in-four-forms.md)）で使う |
+| ネイティブで呼ぶ言語 | プラグインのリポジトリが、コアとプラグインを束ねた CLI を作る。各言語からは、その CLI を `process` の形（[0013](0013-boundary-in-four-forms.md)）で使う |
 
-- 公式の成果物（crates.io の `zumen`、C ABI のライブラリ、npm の wasm のモジュール、CLI）は、核のワークスペースの形式だけを持つ。プラグインを実行時に読み込む仕組みは持たない。
+- 公式の成果物（crates.io の `zumen`、C ABI のライブラリ、npm の wasm のモジュール、CLI）は、コアのワークスペースの形式だけを持つ。プラグインを実行時に読み込む仕組みは持たない。
   - Rust には安定した ABI がない。
   - 実行時に読み込むと、どこでも同じ結果と、受け取ったファイルを信用しない約束を、読み込んだコードに預けることになる。
   - wasm のモジュールは import を持たない（[0011](0011-bindings-through-ffi.md)）ので、ほかのモジュールを読み込めない。
 - JavaScript の包みは、アプリが渡したプラグインのモジュールを、その判定の規則と op の表（データ）と一緒に受け付ける。形式を判定してから、要るモジュールだけを読み込む（[0013](0013-boundary-in-four-forms.md)）。
-- 核とプラグインを束ねたネイティブのライブラリを、ホストのプロセスに読み込む形は、当面は作らない。公式のライブラリとファイル名と版がぶつかる（[0015](0015-add-only-boundary-and-version-floors.md) の「同じプロセスに並べる」）。要るときは記録を書く。
+- コアとプラグインを束ねたネイティブのライブラリを、ホストのプロセスに読み込む形は、当面は作らない。公式のライブラリとファイル名と版がぶつかる（[0015](0015-add-only-boundary-and-version-floors.md) の「同じプロセスに並べる」）。要るときは記録を書く。
 
 ### 外部のリポジトリに置くもの
 
@@ -146,7 +146,7 @@
 
 - 新しい形式を足す PR は、台帳の項目と形式の文書を一緒に入れる。判断を伴うなら、決定の記録も書く。
 - 台帳の検査と文書の生成は、xtask に入れる。xtask は境界の crate の PR（[#23](https://github.com/zumen-jp/zumen/pull/23)）が変えているので、#23 のあとの PR で入れる。それまでは、レビューで台帳を確かめる。`deny.toml` の禁止は、この記録と同じ PR で入れる。
-- `zumen-sdk` は、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）で、核のコーデックと一緒に作る。素案の trait の形（[0008](0008-model-layers-and-codecs.md)）も、そこで決まる。
+- `zumen-sdk` は、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）で、コアのコーデックと一緒に作る。素案の trait の形（[0008](0008-model-layers-and-codecs.md)）も、そこで決まる。
 - 旧版の `docs/formats/` を移すときに、台帳の各形式に文書のパスを足す。
 - fuzz の crate が使う libfuzzer-sys のライセンスは `(MIT OR Apache-2.0) AND NCSA`。NCSA は寛容なライセンスだが、`deny.toml` の許可リストにない。fuzz を入れる PR で、理由を記録して許可リストに足す（[0011](0011-bindings-through-ffi.md)）。
 - ST-Bridge・CEDXM・BE-Bridge・Stem の権利は、持ち主に問い合わせて確かめる（[zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)・[zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141) を続ける）。答えが出たら台帳を直し、扱いを変えるなら記録を書く。
