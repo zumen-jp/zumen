@@ -4851,6 +4851,54 @@ fn e3_rectangular_block_clips_keep_transformed_corners() {
     }
 }
 
+/// 画層と線種に控える XRECORD にも、図形と同じ作業量の上限を適用する。
+#[test]
+fn e5_layer_and_line_type_xrecords_obey_the_work_budget() {
+    for kind in ["LAYER", "LTYPE"] {
+        let tables = [
+            (0, "TABLE"),
+            (2, kind),
+            (0, kind),
+            (2, "VALUES"),
+            (102, "{ACAD_XDICTIONARY"),
+            (360, "B0"),
+            (102, "}"),
+            (0, "ENDTAB"),
+        ];
+        let objects = [
+            (0, "DICTIONARY"),
+            (5, "B0"),
+            (3, "VALUES"),
+            (360, "C0"),
+            (0, "XRECORD"),
+            (5, "C0"),
+            (100, "AcDbXrecord"),
+            (280, "1"),
+            (1, "FIRST"),
+            (1, "SECOND"),
+            (1, "THIRD"),
+        ];
+        let src = sections(&[("HEADER", MM), ("TABLES", &tables), ("OBJECTS", &objects)]);
+        let plain: Vec<_> = tables
+            .iter()
+            .copied()
+            .filter(|(code, _)| !matches!(code, 102 | 360))
+            .collect();
+        let control = sections(&[("HEADER", MM), ("TABLES", &plain), ("OBJECTS", &objects)]);
+        let mut control_budget = Budget::default();
+        assert!(lift(&control, &mut control_budget).0.is_ok());
+        let mut budget = Budget::new(
+            Limits::default().with(Kind::Work, Limit::Finite(control_budget.used(Kind::Work))),
+        );
+        let (drawing, diag) = lift(&src, &mut budget);
+        assert!(matches!(drawing, Err(Error::Stopped(_))), "{kind}");
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::BUDGET_WORK_EXCEEDED]
+        );
+    }
+}
+
 /// 図形の拡張辞書の XRECORD は、項目の名前ごとの形式固有の情報になり、値はグループ・コードと値の組で並ぶ。
 /// XRECORD でない項目と、辞書でないものを指す拡張辞書は移さない（決定 0148）
 #[test]

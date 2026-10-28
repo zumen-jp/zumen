@@ -138,6 +138,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
                 },
                 _ => continue,
             };
+            extension_work(db, object, cx)?;
             lifter.dictionary(db, object, target, &|| basis.clone(), &mut out, cx);
         }
     }
@@ -236,7 +237,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
 }
 
 /// 図形 1 つの作業量。書式つきの文字は、内容の 250 バイトの区切り（3）ごとにも数える。曲線は、頂点・制御点・
-/// 当てはめる点・節点（10・11・40）ごとにも数える
+/// 当てはめる点・節点（10・11・40）ごとにも数える。線種は、列の要素（49）ごとにも数える
 fn amount(object: &Object) -> u64 {
     let count = |codes: &[i16]| {
         object
@@ -249,6 +250,7 @@ fn amount(object: &Object) -> u64 {
         b"MTEXT" | b"ATTRIB" | b"ATTDEF" => count(&[3]),
         b"LWPOLYLINE" | b"SPLINE" => count(&[10, 11, 40]),
         b"ACAD_TABLE" => count(&[141, 142, 171]),
+        b"LTYPE" => count(&[49]),
         _ => 0,
     } + object
         .values
