@@ -1,5 +1,5 @@
 //! 見出しの変数の区切り（ODS 5.4.1 の 9）。今は、用紙空間とモデル空間のブロックのレコードの
-//! ハンドルと、図面モデルへの変換に使う変数（INSUNITS・PLIMMIN・PLIMMAX・LTSCALE）だけを取り出す。
+//! ハンドルと、図面モデルへの変換に使う変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE・LTSCALE）だけを取り出す。
 //! どちらの空間の図形も、所有者のハンドルを持たない（entmode が 1・2）ので、所有者はこのハンドルで決まる。
 
 use super::bits::{BitWriter, Bits, crc16};
@@ -40,6 +40,8 @@ pub(super) struct Header {
     pub(super) limits: [f64; 4],
     /// LTSCALE（線種の尺度）
     pub(super) line_type_scale: f64,
+    /// PDMODE（点の表し方）
+    pub(super) point_mode: i16,
     /// データの中の、PLIMMIN と INSUNITS のビットの位置
     limits_at: usize,
     units_at: usize,
@@ -313,6 +315,15 @@ fn variables(bits: &mut Bits) -> Option<Header> {
         Release::R2000 => &FIRST,
         _ => &FIRST_R2004,
     };
+    // PROXYGRAPHICS から始まる BS の並びの 8 つ目が PDMODE（ODS 5.4.1 の 9。R2000 からは
+    // PROXYGRAPHICS・TREEDEPTH・LUNITS・LUPREC・AUNITS・AUPREC・ATTMODE の後）
+    let at = first.iter().position(|(field, _)| matches!(field, Bs))?;
+    skip_all(bits, first.get(..at)?)?;
+    skip_all(bits, &[(Bs, 7)])?;
+    let point_mode = bits.bs()?;
+    let (_, rest) = first.get(at)?;
+    skip_all(bits, &[(Bs, rest.checked_sub(8)?)])?;
+    let first = first.get(at + 1..)?;
     // LTSCALE から CELTSCALE までの 21 の BD の初めが LTSCALE（ODS 5.4.1 の 9）
     let at = first
         .iter()
@@ -363,6 +374,7 @@ fn variables(bits: &mut Bits) -> Option<Header> {
         units,
         limits,
         line_type_scale,
+        point_mode,
         limits_at,
         units_at,
     })
