@@ -37,9 +37,10 @@
 - 使い手は、足した要素を、書き戻したファイルを読み直した図面モデルで指す。足した要素は、モデル空間の要素の終わりに並ぶ（描く順の表がなければ）。
 - 背景を持つ MTEXT、寸法・ハッチングなどほかの形、複数行の属性、記号の定義の中の要素の追加は、のちに広げる。DWG の線幅と RGB の色は、DWG の足しが書けるようになってから足す。
 - 図面モデルから新しいファイルを作ること（lower）は、この足し方を土台に、別に決める。
+- [決定 0139](0139-drawing-apply.md) の書き直した案（提案）は、`Add` の足す先を空間か用紙の ID で指し、足した要素の ID を読み直さずに返す。書き方と足せる形は、この決定のまま使う。用紙の ID を LAYOUT のハンドルにする案（[決定 0153](0153-drawing-empty-layout-sheets.md)・[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、提案）では、図形を持たない用紙に足しても、用紙の ID は変わらない。
 
 ## 参照
 
-- [決定 0139](0139-drawing-apply.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0079](0079-dwg-r2004-write-back-entity-addition.md)、[決定 0092](0092-dwg-r2010-write-back-entity-addition.md)
+- [決定 0139](0139-drawing-apply.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0079](0079-dwg-r2004-write-back-entity-addition.md)、[決定 0092](0092-dwg-r2010-write-back-entity-addition.md)、[決定 0153](0153-drawing-empty-layout-sheets.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)
 - DXF Reference「Common Group Codes for Entities」「LINE」「CIRCLE」「ARC」「ELLIPSE」「LWPOLYLINE」「TEXT」「MTEXT」「INSERT」「ATTRIB」
 - #170

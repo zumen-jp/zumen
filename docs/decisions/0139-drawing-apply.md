@@ -1,4 +1,4 @@
-# 0139: 図面モデルの変更は、出所で要素を指す変更の一覧にし、共有の表を通して元の形式へ書き戻す
+# 0139: 図面モデルの変更は、ID と前提条件で要素を指す変更の一覧にし、共有の表を通して元の形式へ書き戻す
 
 | 項目 | 内容 |
 | --- | --- |
@@ -9,13 +9,24 @@
 
 [#170](https://github.com/zumen-jp/zumen/issues/170) で、図面モデル（Drawing2D）の変更を、元の系統の L1 へ書き戻す（apply）。これまでの決定は次のとおり。
 
-- L2 から L1 への向きは `lower`（別の形式への変換と新規作成）と `apply`（その場の編集）に分け、形は AutoCAD の系統の試作で決める（[決定 0008](0008-model-layers-and-codecs.md)）。
-- 図面モデルの要素は、元のレコードを指す出所（`Ref`）を持つ（[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)）。DXF ではレコードの番号、DWG ではバイトの範囲で指す。
+- L2 から L1 への向きは `lower`（別の形式への変換と新規作成）と `apply`（その場の編集）に分け、形は AutoCAD の系統の試作で決める（[決定 0008](0008-model-layers-and-codecs.md)）。中水準の変更セットは、元のハッシュを前提条件に持つ。
+- 図面モデルの要素は、元のレコードを指す出所（`Ref`）を持つ（[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)）。
 - DXF と DWG は、共有のオブジェクトの表 `AcadDb` を持つ。表の変更は `write_back` が元のレコードと比べて、違うレコードだけを 1 つのトランザクションで書き戻す。書き戻せない変更が 1 つでもあれば、何も反映しない（[決定 0024](0024-acad-table-write-back.md)・[決定 0025](0025-acad-object-add-remove-write-back.md)）。
+
+この決定の最初の案は、要素を出所で指す置き換えと除去の一覧だった。main には、実寸の空間と用紙の LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・TEXT・MTEXT・INSERT の形の置き換えと、続くレコードを持たない図形の除去と、図形とともに動く XDATA の扱い（[決定 0154](0154-drawing-apply-keeps-format-data.md)、提案）と、要素の追加（`Edit::Add`・`Edit::AddOnSheet`。[決定 0155](0155-drawing-apply-additions.md)、提案）がある。作ってみて、次のことが分かった。
+
+- 出所（レコードの番号・バイトの位置）は、書き戻すとずれる。使い手は、変更のたびに読み直す必要がある。
+- 変更は、使い手が読んだときと要素が同じかを確かめない。
+- 置き換えは、レイヤとスタイルが同じことを求める。レイヤや色だけを変える変更を表せない。
+- 図形を動かす変更は、形の置き換えとして渡すので、図形とともに動く XDATA の変換を一意に決められない（0154）。
+- 用紙の要素の置き換えと追加に、別の種類の変更（`ReplaceOnSheet`・`AddOnSheet`）が要った。記号の定義の中の要素は指せない。
+- 足した要素の出所は、書き戻したファイルを読み直すまで決まらない（0155）。足した直後の要素を、同じ変更の一覧で直せない。
+- 記号（INSERT）を置き換えても、続く属性（ATTRIB）は動かない。
+- 指せない変更の診断が、形式ごと（`dxf.*`・`dwg.*`）に分かれている。変更そのものは形式によらない。
 
 ## 選択肢
 
-1. 変更の一覧。要素を出所で指し、置き換え・除去を並べる。apply は一覧の変更だけを書き戻す。
+1. 変更の一覧。要素を ID（[決定 0156](0156-drawing-stable-ids-and-preconditions.md)）と読んだときのハッシュで指し、置き換え・スタイルの変更・移動・追加・除去を並べる。apply は一覧の変更だけを書き戻し、足した要素の ID を返す。
 2. 編集した図面モデル全体を渡し、apply が元の図面モデルと比べて変更を見つける。
 3. 図面モデルの型ごとに、L1 を直接変える関数（線の端点を動かす、など）を置く。
 
@@ -25,21 +36,35 @@
 
 選択肢 1 を提案する。
 
-- **trait。** `zumen_sdk::Apply<C>` を置く。`apply(&mut self, changes: &C, cx)` は、すべての変更を確かめてから反映し、1 つでも書き戻せなければ何も反映せずに `Error::Rejected` を返す。0008 の素案の `Lower` は、別の形式への変換を作るときに足す。
-- **変更の型。** `zumen_drawing::Changes` は、`Edit` の一覧を持つ。`Edit::Replace` は出所を持つ要素で、同じ出所の要素を置き換える。`Edit::Remove` は出所で要素を除く。足すことは、新しい出所の決め方と合わせて次に決める。
-- **AutoCAD の系統。** DXF と DWG は、今のファイルから表を作り、変更を表のオブジェクトに当ててから `write_back` で書く。どちらの符号化でも同じ当て方を使う。
-- **確かめること。** 置き換えは、同じ出所の要素が今の図面モデルにあり、レイヤ・色・線種・線幅が同じで、形の種類が元のレコードの種類で表せるときだけ当てる。当てられない変更は、要素の出所を指す診断（`dxf.element.missing`・`dxf.change.unsupported`）を返す。
-- **最初の範囲。** 実寸の空間の LINE と CIRCLE の形（端点、中心と半径）の置き換えと、続くレコード（VERTEX・ATTRIB・SEQEND）を持たない図形の除去から始める。
+- **trait。** `zumen_sdk::Apply<C>` を置く。`apply(&mut self, changes: &C, cx)` は、すべての変更を確かめてから反映する。1 つでも当てられなければ何も反映せず、当てられない変更ごとの診断と一緒に `Error::Rejected` を返す。最初の 1 つで止めない。当てたときは、変更ごとの新しい ID とハッシュ（0156）を返す。0008 の素案の `Lower` は、別の形式への変換を作るときに足す。
+- **変更の一覧。** `zumen_drawing::Changes` は、`Edit` の一覧と、あれば読んだときの文書のハッシュを持つ。どの変更も、指す要素の ID と、読んだときの要素のハッシュを持つ。
+- **変更の種類。**
+  - `Replace`: 要素の値（レイヤ・スタイル・形）を置き換える。形の種類は変えない。種類を変えるときは、除去と追加にする。
+  - `Restyle`: 要素の並びの、レイヤ・色・線種・線幅・文字スタイル（[決定 0158](0158-drawing-text-styles.md)）のうち、指したものだけを変える。形は変えない。
+  - `Transform`: 要素の並びを、使い手が渡す変換（`Affine`）で動かす。AutoCAD の系統では、図形とともに動く XDATA を、AutoCAD と同じ規則で直す。位置（1011）は移動・尺度・回転・鏡映、変位（1012）は尺度・回転・鏡映、向き（1013）は回転・鏡映、距離（1041）と倍率（1042）は尺度で直す。記号の属性も一緒に動かす。変換が渡されるので、0154 の選択肢 4 の「変換を一意に決められない」はなくなる。変換した形を元の種類で表せないもの（円の非一様な尺度など）と、非一様な尺度で 1041・1042 を持つものは、当てない。
+  - `Add`: 空間・用紙・記号の定義の空間に要素を足す。足す先は、空間か用紙の ID で指す。AutoCAD の系統では、`$HANDSEED` から振ったハンドルを ID にし、空間のブロックのレコードを所有者にする。ハンドルは apply が決めるので、読み直さずに足した要素の ID を返す。書き方と足せる形は、0155 に従う。
+  - `Remove`: 要素を除く。続くレコード（VERTEX・ATTRIB・SEQEND）も一緒に除く。
+- **指せるもの。** 実寸の空間・用紙・記号の定義の空間の要素を、同じ変更の種類で指す。ID が空間か用紙かを表すので、用紙のための別の種類を置かない。レイヤ・線種などの表の項目の変更は、のちに足す。
+- **形式の系統。** DXF と DWG は、今のファイルから表を作り、変更を表のオブジェクトに当ててから `write_back` で書く。どちらの符号化でも同じ当て方を使う。JWW と SXF も、同じ `Changes` を受け取る apply を、それぞれの L1 の上に作る。
+- **確かめること。** 当てる前に、すべての変更を次の順で確かめる。
+  - 文書のハッシュがあれば、今の文書と同じか（`change.document.stale`）。
+  - ID の要素があるか（`change.element.missing`）と、ハッシュが同じか（`change.element.stale`）。
+  - 変更を元の形式のレコードで表せるか（`change.edit.unsupported`。変更の種類・要素の種類・形式を値に持つ）。
+  - 形を変える `Replace` で、元の図形が図形とともに動く XDATA を持たないか（0154 の規則。`change.xdata.unsupported`）。形を動かすときは `Transform` を使う。
+- **診断の名前空間。** 変更の診断は、形式によらない名前空間 `change` にする。`dxf.element.missing`・`dxf.change.unsupported`・`dwg.change.unsupported` は、台帳で廃止にする（[決定 0009](0009-diagnostics-and-catalog.md)）。0154 の `dxf.xdata.unsupported` も、`change.xdata.unsupported` に移して廃止にする。
+- **手間。** apply は、ID から要素への索引を 1 回だけ作る。図面モデルへの変換も、1 回の apply で 1 回にする。手間は、文書の大きさと変更の数の和に比例する。
+- **今の範囲。** main は、実寸の空間と用紙の LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・TEXT・MTEXT・INSERT の形の置き換えと、続くレコードを持たない図形の除去を、出所で指して当てる。同じ形の追加は、足す先を要素の点で決め、足した要素の出所は読み直して決める（0155）。ID・前提条件・`Restyle`・`Transform`・ID を返す `Add`・記号の定義の要素は、この決定を採ってから作る。
 
 ## 影響
 
-- 置き換えられる種類・欄、用紙の要素、要素の追加は、試料で確かめながら広げる。
-  - 用紙の要素は、`Edit::ReplaceOnSheet` で置き換える。除去は、`Edit::Remove` が実寸の空間と用紙の要素の両方を指す。
-  - 実寸の空間の要素は `Edit::Add` で、用紙の要素は `Edit::AddOnSheet` で足す。出所は、書き戻したファイルを読み直して決める（[決定 0155](0155-drawing-apply-additions.md)）。
-- 対応表の E1・E4・E5・E10（[対応表](../formats/drawing2d-mapping.md)）と、書けない拡張の診断は、置き換えの範囲を広げるときに扱う。形式固有の情報（[決定 0115](0115-drawing-format-extensions.md)）は、今は書き戻さない。
-- 境界の op として変更を受けるときは、`Changes` の形をメッセージのスキーマに写す。
+- 今の `Edit::ReplaceOnSheet`・`Edit::Add`・`Edit::AddOnSheet` は、ID で指す `Replace` と、足す先を ID で指す `Add` にまとめる。0155 の「出所は読み直して決める」は、ID を返す形に替わる。書き方・足せる形・名前で指す定義の扱いは、0155 のまま使う。
+- 境界の op として変更を受けるときは、`Changes` の形をメッセージのスキーマに写す。ID とハッシュは、`entities` の op が返す文字列をそのまま使う。
+- 対応表の E1・E4・E10（[対応表](../formats/drawing2d-mapping.md)）は、置き換えの範囲を広げるときに扱う。E5 は、0154 と `Transform` で扱う。形式固有の情報（[決定 0115](0115-drawing-format-extensions.md)）は、書き戻しが L1 の値を残すので、図面モデルから書かない。
+- SXF の apply は、インスタンスの番号を保って書く（0156）。
+- 変更の診断の code が変わるので、診断で分岐する使い手は、`change` の code に合わせる。
 
 ## 参照
 
-- [決定 0008](0008-model-layers-and-codecs.md)、[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0024](0024-acad-table-write-back.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0115](0115-drawing-format-extensions.md)
+- [決定 0008](0008-model-layers-and-codecs.md)、[決定 0009](0009-diagnostics-and-catalog.md)、[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0024](0024-acad-table-write-back.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0115](0115-drawing-format-extensions.md)、[決定 0154](0154-drawing-apply-keeps-format-data.md)、[決定 0155](0155-drawing-apply-additions.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、[決定 0158](0158-drawing-text-styles.md)
+- DXF Reference「Group Codes That Apply to Extended Data」
 - #170
