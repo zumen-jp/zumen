@@ -623,7 +623,7 @@ fn changes(
                     .map_err(|stop| stopped(cx, stop))?;
             }
         }
-        
+
         if let Some(messages::Geometry::Symbol(symbol)) = value {
             for item in symbol.attributes.iter().flatten() {
                 let size = 1_usize

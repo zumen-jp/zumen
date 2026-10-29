@@ -8,9 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
-    Affine, Attribute, Drawing2D, Edge, Flow, FormattedText, Grid, HeightMeaning, Horizontal,
-    Length, LineSpacing, ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline,
-    Rotation, Shape, Spline, Symbol, SymbolKey, Text, Vertex, Vertical,
+    Affine, Attribute, Edge, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Length,
+    LineSpacing, ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation,
+    Shape, Spline, Symbol, SymbolKey, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
