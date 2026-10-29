@@ -64,6 +64,7 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
     let mut replaced = Vec::new();
     let mut removed = Vec::new();
     let mut added = Vec::new();
+    let mut added_records = 0u64;
     let mut rejected = false;
     for change in &changes.edits {
         let (at, found) = match change {
@@ -73,15 +74,15 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
             Edit::Add(_) | Edit::AddOnSheet(_) => {
                 let (record, kind, at) = match change {
                     Edit::Add(element) => {
-                        work(cx, add::amount(&element.shape), &element.source)?;
+                        add::work(&element.shape, cx, &element.source)?;
                         (
-                            born.record(element, &InSpace(MODEL), born.model(), added.len()),
+                            born.record(element, &InSpace(MODEL), born.model(), added_records),
                             kind_of(&element.shape),
                             &element.source,
                         )
                     }
                     Edit::AddOnSheet(element) => {
-                        work(cx, add::amount(&element.shape), &element.source)?;
+                        add::work(&element.shape, cx, &element.source)?;
                         (
                             anchor(&element.shape).and_then(|at| {
                                 let frame = *frames.get(&at.sheet)?;
@@ -89,7 +90,7 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
                                     element,
                                     &OnSheet(at.sheet, frame),
                                     frame.home,
-                                    added.len(),
+                                    added_records,
                                 )
                             }),
                             kind_of(&element.shape),
@@ -99,7 +100,10 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
                     _ => continue,
                 };
                 match record {
-                    Some(record) => added.push(record),
+                    Some(record) => {
+                        added_records += record.count();
+                        added.push(record);
+                    }
                     None => {
                         cx.report(
                             Diagnostic::new(codes::DXF_CHANGE_UNSUPPORTED)
