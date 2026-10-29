@@ -1290,7 +1290,7 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
     pub geometry: Option<Geometry>,
 }
 
@@ -1451,6 +1451,8 @@ pub enum Geometry {
     FormattedText(FormattedTextGeometry),
     /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。属性・切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは属性も切り抜きも持たない。小版 14 から
     Symbol(SymbolGeometry),
+    /// 制御点で決まるスプライン（NURBS）。当てはめる点か接線を持つスプラインは、まだ形の値を持たない。小版 15 から
+    Spline(SplineGeometry),
 }
 
 impl Geometry {
@@ -1464,6 +1466,7 @@ impl Geometry {
         "text",
         "formatted_text",
         "symbol",
+        "spline",
     ];
 
     /// 目印の欄（`shape`）の値
@@ -1477,6 +1480,7 @@ impl Geometry {
             Self::Text(_) => "text",
             Self::FormattedText(_) => "formatted_text",
             Self::Symbol(_) => "symbol",
+            Self::Spline(_) => "spline",
         }
     }
 }
@@ -1495,6 +1499,7 @@ impl FromJson for Geometry {
                 Self::FormattedText(FormattedTextGeometry::read_fields(&mut object)?)
             }
             "symbol" => Self::Symbol(SymbolGeometry::read_fields(&mut object)?),
+            "spline" => Self::Spline(SplineGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -1513,6 +1518,7 @@ impl ToJson for Geometry {
             Self::Text(value) => value.to_json(out),
             Self::FormattedText(value) => value.to_json(out),
             Self::Symbol(value) => value.to_json(out),
+            Self::Spline(value) => value.to_json(out),
         }
     }
 }
@@ -1931,6 +1937,83 @@ impl FromJson for FormattedTextGeometry {
 }
 
 impl ToJson for FormattedTextGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 制御点で決まるスプライン（NURBS）。当てはめる点か接線を持つスプラインは、まだ形の値を持たない。小版 15 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplineGeometry {
+    /// 次数。1 以上
+    pub degree: u64,
+    /// 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数
+    pub knots: Vec<f64>,
+    /// 制御点の [X, Y] の並び。次数より多い
+    pub control: Vec<Vec<f64>>,
+    /// 制御点ごとの重み。0 より大きい。有理のスプラインだけが持ち、書かなければ有理でない
+    pub weights: Option<Vec<f64>>,
+    /// 閉じている
+    pub closed: bool,
+    /// 周期的
+    pub periodic: bool,
+}
+
+impl SplineGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "spline")?;
+        let degree = object.required("degree", |value| json::uint(value, 1, 32767))?;
+        let knots = object.required("knots", |value| json::array(value, json::number))?;
+        let control = object.required("control", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let weights = object.optional("weights", |value| json::array(value, json::number))?;
+        let closed = object.required("closed", json::boolean)?;
+        let periodic = object.required("periodic", json::boolean)?;
+        Ok(Self {
+            degree,
+            knots,
+            control,
+            weights,
+            closed,
+            periodic,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("spline");
+        out.key("degree");
+        out.uint(self.degree);
+        out.key("knots");
+        out.array(&self.knots, |out, item| out.float(*item));
+        out.key("control");
+        out.array(&self.control, |out, item| {
+            out.array(item, |out, item| out.float(*item))
+        });
+        if let Some(value) = &self.weights {
+            out.key("weights");
+            out.array(value, |out, item| out.float(*item));
+        }
+        out.key("closed");
+        out.bool(self.closed);
+        out.key("periodic");
+        out.bool(self.periodic);
+    }
+}
+
+impl FromJson for SplineGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SplineGeometry {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

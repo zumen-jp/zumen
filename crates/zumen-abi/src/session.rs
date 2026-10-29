@@ -1764,7 +1764,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":14}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":15}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2696,6 +2696,66 @@ mod tests {
         );
         assert_eq!(status, Status::Failed);
         assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+    }
+
+    #[test]
+    fn adds_and_replaces_splines_by_their_geometry() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let added = r#"{"shape":"spline","degree":3,"knots":[0,0,0,0,1,2,2,2,2],"control":[[0,0],[1,2],[3,3],[5,1],[6,0]],"closed":false,"periodic":false}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
+        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        // 次数・制御点・節点・重みの数が合わない値は受けない
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"spline","degree":0,"knots":[0,1],"control":[[0,0],[1,1]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/degree",
+            ),
+            (
+                r#"{"shape":"spline","degree":3,"knots":[0,0,0,1,1,1],"control":[[0,0],[1,1],[2,0]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/control",
+            ),
+            (
+                r#"{"shape":"spline","degree":2,"knots":[0,0,1,1,1],"control":[[0,0],[1,1],[2,0]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/knots",
+            ),
+            (
+                r#"{"shape":"spline","degree":2,"knots":[0,0,0,1,1,1],"control":[[0,0],[1,1],[2,0]],"weights":[1,0],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/weights",
+            ),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        // 有理の 2 次のスプライン（円弧）に置き換える
+        let replaced = r#"{"shape":"spline","degree":2,"knots":[0,0,0,1,1,1],"control":[[10,0],[10,10],[0,10]],"weights":[1,0.5,1],"closed":false,"periodic":false}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(shapes(&mut session, "a.dxf")[3], replaced);
+        let (id, hash) = seen(&mut session, "a.dxf")[3].clone();
+        assert_eq!(id, text(&response, "/result/applied/0/id"));
+        assert_eq!(hash, text(&response, "/result/applied/0/hash"));
     }
 
     #[test]

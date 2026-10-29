@@ -786,3 +786,98 @@ fn drawings_take_back_symbols_through_the_boundary() {
         "{replaced:?} {added:?} {attributed}"
     );
 }
+
+/// 試料の実寸の空間の、制御点で決まるスプラインを、境界の `replace` で有理のスプラインに置き換え、`add` で
+/// スプラインを足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。
+/// R12 の DXF は SPLINE を持たないので、足すと `change.edit.unsupported` になる
+#[test]
+fn drawings_take_back_splines_through_the_boundary() {
+    let budget = r#""budget":{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}"#;
+    let replacing = r#"{"shape":"spline","degree":2,"knots":[0,0,0,1,1,1],"control":[[10,0],[10,10],[0,10]],"weights":[1,0.7071067811865476,1],"closed":false,"periodic":false}"#;
+    let adding = r#"{"shape":"spline","degree":3,"knots":[0,0,0,0,0.5,1,1,1,1],"control":[[0,0],[2,4],[5,5],[8,1],[12,0]],"closed":false,"periodic":false}"#;
+    let (mut replaced, mut added) = ([0, 0], [0, 0]);
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let check = |session: &mut Session, doc: &str, response: &Value, geometry: &str| {
+            let file = session.take(0).unwrap();
+            let id = text(response, "/result/applied/0/id").unwrap().to_string();
+            let hash = text(response, "/result/applied/0/hash")
+                .unwrap()
+                .to_string();
+            session.push(doc.as_bytes(), &file).unwrap();
+            assert!(open(session, doc), "{name}");
+            assert!(
+                entities(session, doc)
+                    .iter()
+                    .any(|(found, _, found_hash)| *found == id && *found_hash == hash),
+                "{name}: {id}"
+            );
+            let found = shapes(session, doc)
+                .into_iter()
+                .find(|(found, _)| *found == id)
+                .and_then(|(_, geometry)| geometry);
+            let expected = zumen_json::parse(geometry.as_bytes()).unwrap();
+            assert!(
+                found.as_ref().is_some_and(|found| close(found, &expected)),
+                "{name}: {id}: {found:?}"
+            );
+        };
+        let spline = shapes(&mut session, &name)
+            .into_iter()
+            .find(|(id, geometry)| {
+                id.starts_with("space/0/h")
+                    && id.matches('/').count() == 2
+                    && geometry
+                        .as_ref()
+                        .is_some_and(|g| text(g, "/shape") == Some("spline"))
+            });
+        if let Some((id, _)) = spline {
+            let (_, _, hash) = entities(&mut session, &name)
+                .into_iter()
+                .find(|(found, _, _)| *found == id)
+                .unwrap();
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replacing}}}],{budget}}}"#
+                ),
+            );
+            assert_eq!(status, Status::Ok, "{name}: {response:?}");
+            check(&mut session, "replaced", &response, replacing);
+            replaced[dwg] += 1;
+        }
+        let table = tables(&mut session, &name);
+        let layer_id = text(&table, "/layers/0/id").unwrap().to_string();
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{adding}}}],{budget}}}"#
+            ),
+        );
+        if status != Status::Ok {
+            assert!(
+                format!("{response:?}").contains("change.edit.unsupported"),
+                "{name}: {response:?}"
+            );
+            continue;
+        }
+        check(&mut session, "added", &response, adding);
+        added[dwg] += 1;
+    }
+    assert!(
+        drawings().is_empty() || (replaced.iter().all(|n| *n > 0) && added.iter().all(|n| *n > 0)),
+        "{replaced:?} {added:?}"
+    );
+}
