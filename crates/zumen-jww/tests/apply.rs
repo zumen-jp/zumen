@@ -419,3 +419,45 @@ fn a_stale_document_or_element_is_refused() {
     assert_eq!(diagnostics, [codes::CHANGE_ELEMENT_STALE]);
     assert_eq!(write(&file), src);
 }
+
+#[test]
+fn writing_counts_copied_bytes_and_stops_without_changes() {
+    use zumen_base::{Kind, Limit, Limits};
+    let mut large = src();
+    large.extend(vec![0u8; 1024 * 1024]);
+    let run = |input: &[u8], remove: bool, limit: Option<u64>| {
+        let mut file = read(input);
+        let drawing = lift(&file);
+        let mut budget = Budget::new(limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        }));
+        let mut diagnostics = Diagnostics::new();
+        let changes = Changes {
+            edits: if remove {
+                vec![Edit::Remove {
+                    target: seen(&drawing, 0),
+                }]
+            } else {
+                Vec::new()
+            },
+            document: None,
+        };
+        let result = file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (result, budget.used(Kind::Work), write(&file))
+    };
+    for remove in [false, true] {
+        let (_, small_work, _) = run(&src(), remove, None);
+        let (result, large_work, _) = run(&large, remove, None);
+        assert!(result.is_ok());
+        assert!(
+            large_work >= small_work + 1024,
+            "{small_work}, {large_work}"
+        );
+        let (result, _, written) = run(&large, remove, Some(small_work + 100));
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(written, large);
+    }
+}

@@ -216,6 +216,8 @@ impl Apply<Changes> for JwwFile {
             cx.report(unsupported("apply", "round_trip"));
             return Err(Error::Rejected);
         };
+        // 読み直しは、書いたバイト列をもう一度写して保持する。
+        work(cx, (written.src.len() as u64).div_ceil(1024))?;
         let updated = match quietly(cx, |cx| Jww::read(&written.src, cx)) {
             Ok(updated) => updated,
             Err(Error::Stopped(stop)) => return Err(Error::Stopped(stop)),
@@ -833,6 +835,7 @@ impl Plan<'_> {
 
     /// 書き直したバイト列。一覧を読めなければ `None`
     fn bytes(self, cx: &mut Cx) -> Result<Option<Written>, Error> {
+        work(cx, (self.file.src.len() as u64).div_ceil(1024))?;
         let mut src = self.file.src.clone();
         for (at, bytes) in &self.patches {
             work(cx, 1)?;
@@ -850,6 +853,11 @@ impl Plan<'_> {
                 added: Vec::new(),
             }));
         }
+        // 一覧の再構築でも元のバイトを写す。足した図形の中身も数える。
+        let added = self.added.iter().fold(0u64, |total, (_, body)| {
+            total.saturating_add(body.len() as u64)
+        });
+        work(cx, (src.len() as u64).saturating_add(added).div_ceil(1024))?;
         Ok(Lists {
             plan: &self,
             src: &src,
