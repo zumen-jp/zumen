@@ -4245,8 +4245,8 @@ fn drawings_name_the_fonts_of_their_text_styles() {
 }
 
 /// 試料のレイヤの名前・色・状態を変え、レイヤを 1 つ足して書き戻すと、読み直したレイヤは変えたものと同じに
-/// なり、図形は名前を変えたレイヤにとどまる。R2010 から後の DWG は名前を書き直せないので、何も変えずに断り、
-/// 名前を変えなければ書き戻す（決定 0162）
+/// なり、図形は名前を変えたレイヤにとどまる。R2010 から後の DWG は、名前を文字列の流れに UTF-16 で書くので、
+/// 日本語の名前にも変える（決定 0162）
 #[cfg(feature = "drawing")]
 #[test]
 #[allow(
@@ -4302,8 +4302,8 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
             .collect();
         (result, found)
     }
-    /// 名前を変えたか（`renamed`）。書き戻せなければ `None`
-    fn check<C: Codec>(path: &Path, src: &[u8], rename: bool) -> Option<bool>
+    /// 名前の後ろに `suffix` を足して書き戻す。書き戻せなければ `None`
+    fn check<C: Codec>(path: &Path, src: &[u8], suffix: &str) -> Option<()>
     where
         C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
     {
@@ -4330,9 +4330,7 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
             rgb: None,
         });
         let mut changed = was.clone();
-        if rename {
-            changed.name = format!("{}-ZUMEN", was.name);
-        }
+        changed.name = format!("{}{suffix}", was.name);
         changed.state = Some(LayerState {
             printable: false,
             editable: false,
@@ -4394,7 +4392,7 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
             })
             .collect();
         assert_eq!(layer_names(&after), expected, "{}", path.display());
-        Some(rename)
+        Some(())
     }
     let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
         return;
@@ -4409,19 +4407,15 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
     for path in paths {
         let src = std::fs::read(&path).unwrap();
         if path.extension().is_some_and(|e| e == "dxf") {
-            dxf += usize::from(check::<Dxf>(&path, &src, true).is_some());
+            dxf += usize::from(check::<Dxf>(&path, &src, "-ZUMEN").is_some());
         } else if path.extension().is_some_and(|e| e == "dwg") {
-            // R2010 から後は、名前を変えなければ書き戻せる
             let late = src
                 .get(..6)
                 .is_some_and(|version| version >= b"AC1024".as_slice());
-            match check::<Dwg>(&path, &src, true) {
-                Some(_) => {
-                    assert!(!late, "{}", path.display());
-                    dwg += 1;
-                }
-                None if late => modern += usize::from(check::<Dwg>(&path, &src, false).is_some()),
-                None => {}
+            if late {
+                modern += usize::from(check::<Dwg>(&path, &src, "-図面").is_some());
+            } else {
+                dwg += usize::from(check::<Dwg>(&path, &src, "-ZUMEN").is_some());
             }
         }
     }
@@ -4430,8 +4424,8 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
     }
 }
 
-/// 試料の図面から、要素が使わない画層を除いて書き戻すと、開き直した図面にその画層がなく、ほかの画層の ID と
-/// ハッシュと、要素の画層は変わらない（決定 0162）
+/// 試料の図面から、要素が使わない画層を除いて書き戻すと、開き直した図面にその画層がなく、ほかの画層の ID・
+/// 名前・状態・スタイルと、要素の画層は変わらない（決定 0162）
 #[test]
 #[allow(
     clippy::disallowed_methods,

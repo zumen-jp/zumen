@@ -2687,7 +2687,7 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         b"DIMSTYLE" => &dimstyle_codes,
         _ => return None,
     };
-    // LAYER の名前は、R2010 より前なら書き直せる（決定 0162。[`record_fields`]）
+    // LAYER の名前は書き直せる（決定 0162。[`record_fields`]）
     let renamable = new.kind == b"LAYER";
     let rest = |object: &Object| -> Vec<_> {
         object
@@ -2701,8 +2701,8 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
 }
 
 /// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
-/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、R2010 より前の LAYER は
-/// 名前を書き直せる（決定 0162）。R2010 からは、名前が文字列の流れにあるので書き直さない
+/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER は名前を書き直せる
+/// （決定 0162）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
 fn record_fields(
     fields: &mut BitWriter,
     old: &Object,
@@ -2725,7 +2725,7 @@ fn record_fields(
     if text_of(old, 2) == text_of(new, 2) {
         fields.copy(data, start..own_at)?;
     } else {
-        (new.kind == b"LAYER" && release < Release::R2010 && !xdep).then_some(())?;
+        (new.kind == b"LAYER" && !xdep).then_some(())?;
         string(fields, new, 2)?;
         fields.copy(data, named_at..own_at)?;
     }
@@ -2741,7 +2741,8 @@ fn record_fields(
 }
 
 /// R2010 から後の表のレコードを符号化し直したデータ（決定 0089）。`data` はハンドルの流れの大きさ（MC）の後の
-/// データ、`handles_at` はハンドルの流れの始まり。文字列の流れは、初めの名前を写し、型ごとの欄の文字列を続ける
+/// データ、`handles_at` はハンドルの流れの始まり。文字列の流れは、初めの名前を写し、型ごとの欄の文字列を続ける。
+/// 名前を変えた LAYER は、初めに新しい名前を書く（決定 0162）
 fn encode_record_r2010(
     data: &[u8],
     handles_at: usize,
@@ -2758,7 +2759,10 @@ fn encode_record_r2010(
         let mut bits = Bits::with_release(data, release);
         bits.seek(end);
         let units = usize::try_from(bits.bs()?).ok()?;
-        fields.copy_strings(data, end..bits.pos() + units * 16)?;
+        // 名前を変えたら、`record_fields` が新しい名前を流れの初めに書く
+        if text_of(old, 2) == text_of(object, 2) {
+            fields.copy_strings(data, end..bits.pos() + units * 16)?;
+        }
         let own_end = record_fields(&mut fields, old, object, data, start, release)?;
         fields.copy(data, own_end..end)?;
         Some(fields)
@@ -5868,5 +5872,130 @@ fn integer(object: &Object, code: i16) -> Option<Option<i64>> {
     match (&value.data, found.next()) {
         (Data::Int(value), None) => Some(Some(*value)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod layer_name_tests {
+    use super::*;
+
+    /// 文字列とハンドルの流れを分けた LAYER のデータを、試験の中で作る。
+    fn layer_data(release: Release, name: &str, external: bool) -> Vec<u8> {
+        let mut head = BitWriter::default();
+        head.bot(LAYER_TYPE);
+        head.handle(0, 0x10);
+        head.bs(0); // 拡張データなし
+        head.bl(0); // 反応子なし
+        head.bit(true); // 拡張辞書なし
+        if release >= Release::R2013 {
+            head.bit(false); // DS なし
+        }
+        let mut fields = BitWriter::with_strings();
+        fields.text(name.as_bytes()).unwrap();
+        fields.bit(false); // 参照される印
+        fields.bit(external);
+        fields.bs(16 | (31 << 5)); // 印刷し、既定の線幅
+        cmc(&mut fields, 7, release).unwrap();
+        fields.rc(0xA5); // 型の残りはそのまま写す
+        let mut handles = BitWriter::default();
+        handles.handle(4, 2); // 所有者
+        handles.handle(5, 0x42); // 型ごとの参照
+        r2010_assemble(head, fields, handles).unwrap()
+    }
+
+    fn split(data: &[u8]) -> (&[u8], usize) {
+        let mut at = 0;
+        let handle_bits = usize::try_from(modular_char(data, &mut at, false).unwrap()).unwrap();
+        let data = data.get(at..).unwrap();
+        (data, data.len() * 8 - handle_bits)
+    }
+
+    fn layer_object(name: &str, external: bool) -> Object {
+        Object {
+            kind: b"LAYER".to_vec(),
+            section: Section::Tables,
+            origin: Origin::New,
+            values: vec![
+                Value {
+                    code: 2,
+                    data: Data::Text(name.as_bytes().to_vec()),
+                },
+                Value {
+                    code: 70,
+                    data: Data::Int(if external { 16 } else { 0 }),
+                },
+                Value {
+                    code: 62,
+                    data: Data::Int(7),
+                },
+                Value {
+                    code: 290,
+                    data: Data::Bool(true),
+                },
+                Value {
+                    code: 370,
+                    data: Data::Int(-3),
+                },
+            ],
+        }
+    }
+
+    /// 文字列の長さが変わっても、名前・色・後ろの欄・ハンドルを読み直せる。
+    #[test]
+    fn r2010_layer_names_are_rewritten_in_the_string_stream() {
+        for release in [Release::R2010, Release::R2013, Release::R2018] {
+            for (old_name, new_name) in [
+                ("A", "図面🧱"),
+                ("長いレイヤ名", "B"),
+                ("Walls", "Doors"),
+                ("Walls", "Walls"),
+            ] {
+                let encoded = layer_data(release, old_name, false);
+                let (data, handles_at) = split(&encoded);
+                let old = layer_object(old_name, false);
+                let mut new = layer_object(new_name, false);
+                new.values
+                    .iter_mut()
+                    .find(|value| value.code == 62)
+                    .unwrap()
+                    .data = Data::Int(3);
+                let rewritten = encode_record_r2010(data, handles_at, &old, &new, release).unwrap();
+                let (data, handles_at) = split(&rewritten);
+                let mut bits = Bits::with_release(data, release);
+                assert_eq!(bits.bot(), Some(LAYER_TYPE));
+                let header = bits.pos();
+                let fields_end = bits.split_strings(handles_at).unwrap();
+                bits.seek(header);
+                assert_eq!(bits.handle().unwrap().value, 0x10);
+                assert_eq!(bits.bs(), Some(0));
+                assert_eq!(bits.bl(), Some(0));
+                assert_eq!(bits.bit(), Some(true));
+                if release >= Release::R2013 {
+                    assert_eq!(bits.bit(), Some(false));
+                }
+                assert_eq!(bits.text().unwrap(), new_name.as_bytes());
+                assert_eq!(bits.bit(), Some(false));
+                assert_eq!(bits.bit(), Some(false));
+                assert_eq!(bits.bs(), Some(16 | (31 << 5)));
+                assert_eq!(bits.cmc().unwrap().index, 3);
+                assert_eq!(bits.rc(), Some(0xA5));
+                assert_eq!(bits.pos(), fields_end);
+                bits.seek(handles_at);
+                let owner = bits.handle().unwrap();
+                let other = bits.handle().unwrap();
+                assert_eq!((owner.code, owner.value), (4, 2));
+                assert_eq!((other.code, other.value), (5, 0x42));
+            }
+        }
+    }
+
+    #[test]
+    fn r2010_external_layer_names_cannot_be_changed() {
+        let release = Release::R2010;
+        let encoded = layer_data(release, "xref|old", true);
+        let (data, handles_at) = split(&encoded);
+        let old = layer_object("xref|old", true);
+        let new = layer_object("xref|new", true);
+        assert!(encode_record_r2010(data, handles_at, &old, &new, release).is_none());
     }
 }
