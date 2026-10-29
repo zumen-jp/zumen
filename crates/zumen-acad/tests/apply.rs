@@ -2198,3 +2198,37 @@ fn applied_changes_return_the_ids_and_hashes_that_reading_again_gives() {
     // 触れていない要素のハッシュは変わらない
     assert_eq!(again[1].0, circle);
 }
+
+#[test]
+fn multiple_changes_to_one_element_are_rejected_without_writing() {
+    use zumen_drawing::{Edit as Change, Placed};
+    let src = src();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let (line, mut moved) = seen(&lift(&file)).remove(0);
+    if let Shape::Line { end, .. } = &mut moved.shape {
+        end.x = 3.5;
+    }
+    let changes = zumen_drawing::Changes {
+        edits: vec![
+            Change::Replace {
+                target: line.clone(),
+                element: Box::new(Placed::Model(moved)),
+            },
+            Change::Remove { target: line },
+        ],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert!(
+        diag.iter()
+            .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}

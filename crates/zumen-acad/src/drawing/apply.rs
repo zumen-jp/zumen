@@ -200,6 +200,7 @@ fn edit(
     let mut added = Vec::new();
     let mut added_records = 0u64;
     let mut rejected = false;
+    let mut targets = BTreeSet::new();
     let missing = |id: &str, cx: &mut Cx| {
         cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
     };
@@ -264,6 +265,15 @@ fn edit(
             Found::Model(element) => &element.source,
             Found::Paper(element) => &element.source,
         };
+        if !targets.insert(target_of.id.as_str()) {
+            let kind = match found {
+                Found::Model(element) => kind_of(&element.shape),
+                Found::Paper(element) => kind_of(&element.shape),
+            };
+            cx.report(unsupported(edit, kind, target).at(at.clone()));
+            rejected = true;
+            continue;
+        }
         let object = (!index.shared.contains(at))
             .then(|| entity(db, at))
             .flatten()
