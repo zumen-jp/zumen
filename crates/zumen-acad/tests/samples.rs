@@ -2723,8 +2723,44 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                         source: zumen_base::Ref::default(),
                     });
                 }
+                // 複数行の属性（埋め込みの MTEXT）は、R2018 からの版にだけ足せる（決定 0102）
+                let mut multiline = attributed.clone();
+                if let (Shape::Symbol(placed), Shape::Formatted(formatted)) =
+                    (&mut multiline, &shapes[6])
+                {
+                    let mut attribute = placed.attributes[0].clone();
+                    attribute.tag = "ZUMEN-LINES".to_owned();
+                    attribute.hidden = false;
+                    attribute.formatted = Some(formatted.clone());
+                    placed.attributes.push(attribute);
+                }
                 shapes.push(symbol);
                 shapes.push(attributed);
+                if path.to_string_lossy().contains("AC1032") {
+                    shapes.push(multiline);
+                } else {
+                    let mut file = read::<C>(&src);
+                    let mut diag = Diagnostics::new();
+                    let mut budget = Budget::default();
+                    let cancel = CancelToken::new();
+                    let result = file.apply(
+                        &Changes {
+                            edits: vec![Edit::Add(Box::new(Element {
+                                source: zumen_base::Ref::default(),
+                                layer,
+                                style: Style {
+                                    color: Inherit::Layer,
+                                    line_type: Inherit::Layer,
+                                    line_type_scale: 1.0,
+                                    line_weight: Some(Inherit::Layer),
+                                },
+                                shape: multiline,
+                            }))],
+                        },
+                        &mut Cx::new(&mut budget, &mut diag, &cancel),
+                    );
+                    assert_eq!(result, Err(Error::Rejected), "{}", path.display());
+                }
                 *symbols += 1;
             }
             let edits = shapes
@@ -2781,6 +2817,11 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                         {
                             assert!(found.text.style.eq_ignore_ascii_case(&attribute.text.style));
                             attribute.text.style.clone_from(&found.text.style);
+                            if let (Some(found), Some(formatted)) =
+                                (&found.formatted, &mut attribute.formatted)
+                            {
+                                formatted.style.clone_from(&found.style);
+                            }
                             attribute.source = found.source.clone();
                         }
                     }

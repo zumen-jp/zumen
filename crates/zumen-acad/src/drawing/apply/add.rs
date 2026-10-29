@@ -597,18 +597,19 @@ impl Born {
         Some(followers)
     }
 
-    /// ATTRIB（DXF Reference「ATTRIB」）の値。高さの意味が属性の高さ（`dxf.ATTRIB.40`）で、複数行の値を持たない
-    /// ものに限る。R2010 からの DWG には、属性の版（280）をタグの前に、位置を固定するか（280）を終わりに、どちらも
-    /// 0 として書く（決定 0093）
+    /// ATTRIB（DXF Reference「ATTRIB」）の値。高さの意味が属性の高さ（`dxf.ATTRIB.40`）のものに限る。複数行の
+    /// 属性は、R2018 からの版にだけ、1 行の値の後に埋め込みの MTEXT として書く。R2010 からの DWG には、属性の
+    /// 版（280）をタグの前に、位置を固定するか（280）を値の終わりに、どちらも 0 として書く（決定 0093）
     fn attribute<P>(
         &self,
         frame: &impl Frame<P>,
         attribute: &Attribute<P>,
         paper: bool,
     ) -> Option<Vec<Value>> {
-        if attribute.formatted.is_some() {
-            return None;
-        }
+        let embedded = match &attribute.formatted {
+            Some(formatted) => Some(self.embedded(frame, formatted, &attribute.text.style)?),
+            None => None,
+        };
         let mut values = self.entity(attribute.layer, &attribute.style, paper)?;
         let vertical = self.lettering(&mut values, frame, &attribute.text, "dxf.ATTRIB.40")?;
         values.push(text(100, "AcDbAttribute"));
@@ -623,6 +624,36 @@ impl Born {
         }
         if versions {
             values.push(int(280, 0));
+        }
+        if let Some(embedded) = embedded {
+            // 属性の種類（71 = 2、複数行）・72・埋め込みのオブジェクトの印（101）の後に、MTEXT の値を続ける
+            values.extend([int(71, 2), int(72, 0), text(101, "Embedded Object")]);
+            values.extend(embedded);
+        }
+        Some(values)
+    }
+
+    /// 複数行の属性の、埋め込みの MTEXT の値（決定 0102）。R2018 からの版に限り、MTEXT と同じ欄を書き、区切り・
+    /// 文字の体裁（7）・角度（50）を持たない。文字の体裁は属性のものになるので、属性と同じ体裁のものに限る。
+    /// 枠の高さ（46）は、なくても 0 を書く
+    fn embedded<P>(
+        &self,
+        frame: &impl Frame<P>,
+        formatted: &FormattedText<P>,
+        style: &str,
+    ) -> Option<Vec<Value>> {
+        if !self.since(b"AC1032") || !formatted.style.eq_ignore_ascii_case(style) {
+            return None;
+        }
+        let mut values = Vec::new();
+        self.formatting(&mut values, frame, formatted)?;
+        if values.iter().any(|value| value.code == 50) {
+            return None;
+        }
+        values.retain(|value| !matches!(value.code, 100 | 7));
+        if !values.iter().any(|value| value.code == 46) {
+            let at = values.iter().position(|value| value.code == 41)? + 1;
+            values.insert(at, real(46, 0.0)?);
         }
         Some(values)
     }
