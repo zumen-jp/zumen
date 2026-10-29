@@ -627,11 +627,11 @@ fn changes(
                 // 指した要素がなければ、除くときと同じく `change.element.missing` にする
                 let element = match elements.as_ref().and_then(|index| index.get(&edit.id)) {
                     Some(FoundElement::Model(element)) => {
-                        count_old_text(&element.shape, cx)?;
+                        count_old_element(element, cx)?;
                         reshaped(element, &edit.geometry).map(Placed::Model)
                     }
                     Some(FoundElement::Paper(element)) => {
-                        count_old_text(&element.shape, cx)?;
+                        count_old_element(element, cx)?;
                         reshaped(element, &edit.geometry).map(Placed::Paper)
                     }
                     None => {
@@ -831,14 +831,17 @@ fn layer_of(
 }
 
 /// 形を形の値で置き換えた要素。合わない欄があれば、その欄の名前を返す
-fn count_old_text<P>(shape: &Shape<P>, cx: &mut Cx<'_>) -> Result<(), Failed> {
-    if let Shape::Text(text) = shape {
-        cx.check(
-            Kind::Work,
-            u64::try_from(text.content.len()).unwrap_or(u64::MAX),
-        )
-        .map_err(|stop| stopped(cx, stop))?;
-    }
+fn count_old_element<P>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    let source = element.source.id().map_or(0, str::len);
+    let style = match &element.shape {
+        Shape::Text(text) => text.style.len(),
+        _ => 0,
+    };
+    cx.check(
+        Kind::Work,
+        u64::try_from(source.saturating_add(style)).unwrap_or(u64::MAX),
+    )
+    .map_err(|stop| stopped(cx, stop))?;
     Ok(())
 }
 

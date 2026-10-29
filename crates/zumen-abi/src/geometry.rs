@@ -185,7 +185,11 @@ pub(crate) fn shape_of<P: Spot>(
                     meaning: old.height.meaning.clone(),
                 },
                 rotation: finite(text.rotation, "rotation")?,
-                ..old.clone()
+                width_factor: old.width_factor,
+                oblique: old.oblique,
+                backward: old.backward,
+                upside_down: old.upside_down,
+                style: old.style.clone(),
             })
         }
         _ => return mismatch(),
