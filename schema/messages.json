@@ -247,6 +247,10 @@
       "description": "用紙の要約",
       "type": "object",
       "properties": {
+        "name": {
+          "description": "元の形式の用紙の名前（DXF・DWG のレイアウトの名前）。翻訳しない。なければ持たない",
+          "type": "string"
+        },
         "size": {
           "description": "用紙の幅と高さ（mm）。分からなければ持たない",
           "type": "array",
