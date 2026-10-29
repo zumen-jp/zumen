@@ -465,6 +465,20 @@ impl Session {
     /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
     fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
+        // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを境界で判定できないため、
+        // 安全に属性を作れない記号の追加は拒否する。
+        if let Some(index) = request.edits.iter().position(|edit| {
+            matches!(edit, messages::Edit::Add(edit) if matches!(edit.geometry, messages::Geometry::Symbol(_)))
+        }) {
+            let diagnostics = u64::try_from(cx.diag.iter().len()).unwrap_or(u64::MAX);
+            cx.check(Kind::Work, diagnostics).map_err(|stop| stopped(cx, stop))?;
+            let invalid_definitions = cx.diag.iter().any(|diagnostic| {
+                matches!(diagnostic.param("kind"), Some(zumen_base::Value::Text(kind)) if kind == "ATTDEF")
+            });
+            if invalid_definitions {
+                return Err(fail(cx, invalid_value(format!("/edits/{index}/geometry/attributes"))));
+            }
+        }
         if let Some(doc @ (Doc::Sxf(_) | Doc::Jww(_))) = self.docs.get(&request.doc) {
             return Err(fail(
                 cx,
@@ -2957,6 +2971,23 @@ mod tests {
             0\nATTDEF\n5\n24\n8\n0\n10\n0\n20\n-1\n40\n0.25\n1\nACME\n3\nMaker\n2\nMAKER\n70\n2\n\
             0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n\
             0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+        // 読めない ATTDEF があれば、属性を省いた記号を足さない。
+        let broken = String::from_utf8(file.to_vec())
+            .unwrap()
+            .replace("2\nNO\n70\n0", "70\n0");
+        let mut rejected = Session::new(b"").unwrap();
+        rejected.push(b"broken.dxf", broken.as_bytes()).unwrap();
+        call(&mut rejected, r#"{"v":1,"op":"open","input":"broken.dxf"}"#);
+        let (status, response) = call(
+            &mut rejected,
+            r#"{"v":1,"op":"apply","doc":"broken.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,1],"rotation":0}}]}"#,
+        );
+        assert_eq!(status, Status::Failed, "{response:?}");
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/attributes"
+        );
+
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", file).unwrap();
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
