@@ -3342,3 +3342,93 @@ fn elements_of_symbol_definitions_are_changed_by_id() {
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].0.id, "space/h30/h31");
 }
+
+#[test]
+fn mirror_symbols_preserves_world_geometry_for_rotations_scales_and_block_bases() {
+    use zumen_drawing::{Affine, Shape};
+    let template = String::from_utf8(defined()).unwrap();
+    let original = "  2\nB\n 70\n0\n 10\n0.0\n 20\n0.0\n";
+    let with_base = "  2\nB\n 70\n0\n 10\n1.25\n 20\n-2.5\n";
+    assert!(template.contains(original));
+    let template = template.replacen(original, with_base, 1);
+    let insert = "  0\nINSERT\n  5\n1A\n  8\n0\n  2\nB\n 10\n5.0\n 20\n5.0\n 30\n0.0\n";
+    assert!(template.contains(insert));
+    let matrix = Affine {
+        m: [1.5, 2.0, 7.0, 2.0, -1.5, -2.0],
+    };
+    for (angle, sx, sy) in [
+        (30.0, 2.0, 3.0),
+        (123.0, -2.0, 3.0),
+        (270.0, 2.0, -3.0),
+        (315.0, -2.0, -3.0),
+    ] {
+        let extra = format!("{insert} 41\n{sx}\n 42\n{sy}\n 50\n{angle}\n");
+        let src = template.replacen(insert, &extra, 1);
+        let mut file = testkit::read::<Dxf>(src.as_bytes()).0.unwrap();
+        let before_drawing = lift(&file);
+        let before = &before_drawing.spaces[0].elements[0];
+        let before_symbol = match &before.shape {
+            Shape::Symbol(symbol) => symbol,
+            other => panic!("{other:?}"),
+        };
+        let before_base = before_drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key == before_symbol.key)
+            .unwrap()
+            .base
+            .unwrap();
+        let target = seen(&before_drawing).remove(0).0;
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let applied = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![zumen_drawing::Edit::Transform {
+                    target: target.clone(),
+                    transform: matrix,
+                }],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after_drawing = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+        let after = &after_drawing.spaces[0].elements[0];
+        let after_symbol = match &after.shape {
+            Shape::Symbol(symbol) => symbol,
+            other => panic!("{other:?}"),
+        };
+        let after_base = after_drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key == after_symbol.key)
+            .unwrap()
+            .base
+            .unwrap();
+        let world =
+            |symbol: &zumen_drawing::Symbol<ModelPoint>, base: ModelPoint, [x, y]: [f64; 2]| {
+                let theta = symbol.rotation.to_radians();
+                let (sin, cos) = (libm::sin(theta), libm::cos(theta));
+                let x = (x - base.x) * symbol.scale[0];
+                let y = (y - base.y) * symbol.scale[1];
+                [
+                    symbol.position.x + cos * x - sin * y,
+                    symbol.position.y + sin * x + cos * y,
+                ]
+            };
+        for point in [[1.25, -2.5], [0.0, 0.0], [1.0, 0.0], [3.0, -4.0]] {
+            let [x, y] = world(before_symbol, before_base, point);
+            let expected = matrix.apply(x, y);
+            let found = world(after_symbol, after_base, point);
+            assert!(
+                (found[0] - expected.0).abs() < 1e-9 && (found[1] - expected.1).abs() < 1e-9,
+                "angle={angle} scale=({sx},{sy}) point={point:?} found={found:?} expected={expected:?}"
+            );
+        }
+        assert_eq!(applied[0].id.as_deref(), Some(target.id.as_str()));
+        assert_eq!(applied[0].hash, Some(seen(&after_drawing)[0].0.hash));
+    }
+}

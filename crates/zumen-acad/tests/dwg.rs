@@ -8805,3 +8805,22 @@ fn snapshots_preserve_r2000_and_expanded_r2004_and_stop_on_budget() {
         ));
     }
 }
+
+#[test]
+fn dwg_insert_keeps_negative_scales_and_rotation_after_write() {
+    let src = sample_with_more_kinds();
+    for (sx, sy, angle) in [(2.0, -3.0, 30.0), (-2.0, 3.0, 123.0), (-2.0, -3.0, 270.0)] {
+        let (mut db, _) = objects(&src);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        set_value(&mut db, 0x3B, 41, Data::Real(sx));
+        set_value(&mut db, 0x3B, 42, Data::Real(sy));
+        set_value(&mut db, 0x3B, 50, Data::Real(angle));
+        let (written, diagnostics) = written_back(&mut file, &db);
+        assert!(diagnostics.is_empty(), "{:?}", codes_of(&diagnostics));
+        let (again, _) = objects(&written.unwrap());
+        let insert = again.get(0x3B).unwrap();
+        assert_eq!(insert.real(41), Some(Some(sx)));
+        assert_eq!(insert.real(42), Some(Some(sy)));
+        assert!((insert.real(50).unwrap().unwrap() - angle).abs() < 1e-9);
+    }
+}
