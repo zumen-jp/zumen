@@ -1445,7 +1445,7 @@ pub enum Geometry {
     Ellipse(EllipseGeometry),
     /// 頂点を結んだ折れ線。幅は持たない
     Polyline(PolylineGeometry),
-    /// 1 点に置く文字。位置合わせ・幅の倍率・斜体・反転・文字スタイルは、置き換える前の値のまま
+    /// 1 点に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
     Text(TextGeometry),
 }
 
@@ -1767,7 +1767,7 @@ impl ToJson for PolylineGeometry {
     }
 }
 
-/// 1 点に置く文字。位置合わせ・幅の倍率・斜体・反転・文字スタイルは、置き換える前の値のまま
+/// 1 点に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextGeometry {
     /// 内容。1 行
@@ -1778,6 +1778,8 @@ pub struct TextGeometry {
     pub height: f64,
     /// 回転（度）
     pub rotation: f64,
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から
+    pub style: Option<String>,
 }
 
 impl TextGeometry {
@@ -1787,11 +1789,13 @@ impl TextGeometry {
         let position = object.required("position", |value| json::array(value, json::number))?;
         let height = object.required("height", json::number)?;
         let rotation = object.required("rotation", json::number)?;
+        let style = object.optional("style", json::string)?;
         Ok(Self {
             content,
             position,
             height,
             rotation,
+            style,
         })
     }
 
@@ -1806,6 +1810,10 @@ impl TextGeometry {
         out.float(self.height);
         out.key("rotation");
         out.float(self.rotation);
+        if let Some(value) = &self.style {
+            out.key("style");
+            out.string(value);
+        }
     }
 }
 

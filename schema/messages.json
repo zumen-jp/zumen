@@ -468,14 +468,15 @@
       "additionalProperties": false
     },
     "text_geometry": {
-      "description": "1 点に置く文字。位置合わせ・幅の倍率・斜体・反転・文字スタイルは、置き換える前の値のまま",
+      "description": "1 点に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする",
       "type": "object",
       "properties": {
         "shape": { "description": "形の種類", "const": "text" },
         "content": { "description": "内容。1 行", "type": "string" },
         "position": { "description": "基点 [X, Y]", "type": "array", "items": { "type": "number" } },
         "height": { "description": "高さ。0 より大きい", "type": "number" },
-        "rotation": { "description": "回転（度）", "type": "number" }
+        "rotation": { "description": "回転（度）", "type": "number" },
+        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false
