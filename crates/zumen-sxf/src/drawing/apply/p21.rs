@@ -830,7 +830,7 @@ impl P21<'_> {
         Some(id)
     }
 
-    fn finish(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+    fn finish(&self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
         let mut patches = Vec::new();
         let records = self.file.records();
         for record in &self.removed {
