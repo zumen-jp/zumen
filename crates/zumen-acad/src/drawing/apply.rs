@@ -256,6 +256,7 @@ fn edit(
     let mut added_records = 0u64;
     let mut rejected = false;
     let mut targets = BTreeSet::new();
+    let mut attribute_counts = None;
     let missing = |id: &str, cx: &mut Cx| {
         cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
     };
@@ -377,22 +378,30 @@ fn edit(
             }
             _ => false,
         };
-        let unread_attributes = match (change, found) {
+        let lifted_count = match (change, found) {
             (Edit::Transform { .. }, Found::Model(was)) => match &was.shape {
-                Shape::Symbol(symbol) => {
-                    attribute_count(db, object, at, cx)? != symbol.attributes.len()
-                }
-                _ => false,
+                Shape::Symbol(symbol) => Some(symbol.attributes.len()),
+                _ => None,
             },
             (Edit::Transform { .. }, Found::Paper(was)) => match &was.shape {
-                Shape::Symbol(symbol) => {
-                    attribute_count(db, object, at, cx)? != symbol.attributes.len()
-                }
-                _ => false,
+                Shape::Symbol(symbol) => Some(symbol.attributes.len()),
+                _ => None,
             },
-            _ => false,
+            _ => None,
         };
-        if unread_attributes || (moved_symbol && attribute_count(db, object, at, cx)? > 0) {
+        let count = if moved_symbol || lifted_count.is_some() {
+            if attribute_counts.is_none() {
+                attribute_counts = Some(attribute_counts_for(db, at, cx)?);
+            }
+            attribute_counts
+                .as_ref()
+                .and_then(|counts| counts.get(&position))
+                .copied()
+                .unwrap_or_default()
+        } else {
+            0
+        };
+        if lifted_count.is_some_and(|lifted| count != lifted) || (moved_symbol && count > 0) {
             cx.report(unsupported(edit, &text(&object.kind), target).at(at.clone()));
             rejected = true;
             continue;
@@ -493,32 +502,40 @@ fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) -> bool {
         if a.position != b.position || a.scale != b.scale || a.rotation != b.rotation)
 }
 
-/// 元の ATTRIB を、読み込みと同じ所有者・並びの規則で探す。
-fn attribute_count(
+/// 元の ATTRIB の数を、読み込みと同じ所有者・並びの規則でまとめて調べる。
+/// 添字は元の表の位置。変更が多くても表の走査は一度だけ。
+fn attribute_counts_for(
     db: &AcadDb,
-    object: &Object,
     at: &Ref,
     cx: &mut Cx<'_>,
-) -> Result<usize, Error> {
-    let mut objects = Vec::new();
-    let mut index = None;
-    for candidate in db.objects() {
+) -> Result<BTreeMap<usize, usize>, Error> {
+    let mut entities = Vec::new();
+    let mut blocks = Vec::new();
+    for (position, candidate) in db.objects().iter().enumerate() {
         work(cx, 1, at)?;
-        if candidate.section != object.section {
-            continue;
+        if matches!(candidate.section, Section::Entities | Section::Blocks) {
+            for _ in &candidate.values {
+                work(cx, 1, at)?;
+            }
+            let group = if candidate.section == Section::Entities {
+                &mut entities
+            } else {
+                &mut blocks
+            };
+            group.push((position, candidate));
         }
-        for _ in &candidate.values {
-            work(cx, 1, at)?;
-        }
-        if std::ptr::eq(candidate, object) {
-            index = Some(objects.len());
-        }
-        objects.push(candidate);
     }
-    let (attributes, _) = attached(&objects);
-    Ok(index
-        .and_then(|index| attributes.get(&index))
-        .map_or(0, Vec::len))
+    let mut counts = BTreeMap::new();
+    for group in [entities, blocks] {
+        let objects: Vec<_> = group.iter().map(|(_, object)| *object).collect();
+        let (attributes, _) = attached(&objects);
+        for (index, items) in attributes {
+            if let Some((position, _)) = group.get(index) {
+                counts.insert(*position, items.len());
+            }
+        }
+    }
+    Ok(counts)
 }
 
 /// 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める
@@ -1561,6 +1578,78 @@ mod duplicate_handle_tests {
     use super::*;
     use crate::db::Origin;
     use zumen_base::{Budget, CancelToken, Kind, Limit, Limits};
+
+    #[test]
+    fn attribute_counts_are_indexed_once_and_obey_work_and_cancellation() {
+        let mut db = AcadDb::default();
+        for (section, kind, values) in [
+            (
+                Section::Entities,
+                b"INSERT".as_slice(),
+                vec![
+                    Value {
+                        code: 5,
+                        data: Data::Handle(10),
+                    },
+                    Value {
+                        code: 66,
+                        data: Data::Int(1),
+                    },
+                ],
+            ),
+            (Section::Entities, b"ATTRIB".as_slice(), vec![]),
+            (Section::Entities, b"SEQEND".as_slice(), vec![]),
+            (
+                Section::Blocks,
+                b"INSERT".as_slice(),
+                vec![Value {
+                    code: 5,
+                    data: Data::Handle(20),
+                }],
+            ),
+            (
+                Section::Blocks,
+                b"ATTRIB".as_slice(),
+                vec![Value {
+                    code: 330,
+                    data: Data::Handle(20),
+                }],
+            ),
+        ] {
+            db.push(Object {
+                kind: kind.to_vec(),
+                section,
+                values,
+                origin: Origin::New,
+            });
+        }
+        let at = Ref::default();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let counts =
+            attribute_counts_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+        assert_eq!(counts.get(&0), Some(&1));
+        assert_eq!(counts.get(&3), Some(&1));
+        let spent = budget.used(Kind::Work);
+        for _ in 0..100 {
+            assert_eq!(counts.get(&0), Some(&1));
+            assert_eq!(counts.get(&3), Some(&1));
+        }
+        assert_eq!(budget.used(Kind::Work), spent);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        assert!(matches!(
+            attribute_counts_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        let mut budget = Budget::default();
+        cancel.cancel();
+        assert!(matches!(
+            attribute_counts_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 0);
+    }
 
     #[test]
     fn checking_handles_obeys_work_budget_and_cancellation() {
