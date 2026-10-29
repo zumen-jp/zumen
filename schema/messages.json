@@ -13,7 +13,8 @@
         { "$ref": "#/$defs/describe_request" },
         { "$ref": "#/$defs/drawing_request" },
         { "$ref": "#/$defs/entities_request" },
-        { "$ref": "#/$defs/apply_request" }
+        { "$ref": "#/$defs/apply_request" },
+        { "$ref": "#/$defs/tables_request" }
       ]
     },
     "request_common": {
@@ -468,7 +469,8 @@
         "kind": { "description": "変更の種類", "const": "restyle" },
         "id": { "description": "変える要素の ID。entities が返したもの", "type": "string" },
         "hash": { "description": "読んだときの要素のハッシュ。entities が返したもの", "type": "string" },
-        "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの", "type": "string" },
+        "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない", "type": "string" },
+        "layer_id": { "description": "レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から", "type": "string" },
         "color": { "description": "色", "$ref": "#/$defs/color_change" },
         "line_type": { "description": "線種", "$ref": "#/$defs/line_type_change" },
         "line_type_scale": { "description": "要素の線種の倍率", "type": "number" },
@@ -524,11 +526,12 @@
       "additionalProperties": false
     },
     "line_type_change": {
-      "description": "新しい線種。inherit か name のどちらかを書く",
+      "description": "新しい線種。inherit・name・id のどれか 1 つを書く",
       "type": "object",
       "properties": {
         "inherit": { "description": "継承する先", "$ref": "#/$defs/inherit" },
-        "name": { "description": "線種の元の名前。図面にある線種で、名前が 1 つに決まるもの", "type": "string" }
+        "name": { "description": "線種の元の名前。図面にある線種で、名前が 1 つに決まるもの", "type": "string" },
+        "id": { "description": "線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から", "type": "string" }
       },
       "additionalProperties": false
     },
@@ -540,6 +543,49 @@
         "mm": { "description": "用紙の上の幅（mm）。0 以上", "type": "number" },
         "default": { "description": "true なら、文書の既定の線幅", "type": "boolean" }
       },
+      "additionalProperties": false
+    },
+    "tables_request": {
+      "description": "開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "tables" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "tables_result": {
+      "description": "表の項目。図面モデルの順",
+      "type": "object",
+      "properties": {
+        "layers": {
+          "description": "レイヤ",
+          "type": "array",
+          "items": { "$ref": "#/$defs/table_item" }
+        },
+        "line_types": {
+          "description": "線種",
+          "type": "array",
+          "items": { "$ref": "#/$defs/table_item" }
+        }
+      },
+      "required": ["layers", "line_types"],
+      "additionalProperties": false
+    },
+    "table_item": {
+      "description": "表の項目",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）",
+          "type": "string"
+        },
+        "name": { "description": "元の名前。翻訳しない", "type": "string" },
+        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" }
+      },
+      "required": ["id", "name", "hash"],
       "additionalProperties": false
     },
     "source": {

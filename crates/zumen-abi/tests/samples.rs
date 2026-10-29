@@ -73,6 +73,31 @@ fn entities(session: &mut Session, doc: &str) -> Vec<(String, String, String)> {
     }
 }
 
+/// 文書を開く。この境界で読めない版（R2000 でない DWG など）は `false`
+#[cfg(test)]
+fn open(session: &mut Session, input: &str) -> bool {
+    let (status, _) = call(
+        session,
+        &format!(
+            r#"{{"v":1,"op":"open","input":"{input}","budget":{{"input_bytes":"unlimited","decoded_bytes":"unlimited","records":"unlimited","work":"unlimited"}}}}"#
+        ),
+    );
+    status == Status::Ok
+}
+
+/// 表の項目の応答
+#[cfg(test)]
+fn tables(session: &mut Session, doc: &str) -> Value {
+    let (status, response) = call(
+        session,
+        &format!(
+            r#"{{"v":1,"op":"tables","doc":"{doc}","budget":{{"work":"unlimited","elements":"unlimited"}}}}"#
+        ),
+    );
+    assert_eq!(status, Status::Ok, "{doc}: {response:?}");
+    response.pointer("/result").unwrap().clone()
+}
+
 /// 試料の実寸の空間の線を `apply` で動かすと、書き戻したファイルを開き直した要素の ID とハッシュが、
 /// `apply` が返したものと同じになり、ほかの要素は変わらない（決定 0139・0156）
 #[test]
@@ -88,17 +113,12 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
         session
             .push(name.as_bytes(), &std::fs::read(&path).unwrap())
             .unwrap();
-        let (status, _) = call(
-            &mut session,
-            &format!(
-                r#"{{"v":1,"op":"open","input":"{name}","budget":{{"input_bytes":"unlimited","decoded_bytes":"unlimited","records":"unlimited","work":"unlimited"}}}}"#
-            ),
-        );
-        if status != Status::Ok {
-            // この境界で読めない版（R2000 でない DWG など）は、読む試験が扱う
+        if !open(&mut session, &name) {
+            // この境界で読めない版は、読む試験が扱う
             continue;
         }
         let before = entities(&mut session, &name);
+        let tables_before = tables(&mut session, &name);
         // 1 つのレコードが 1 つの要素を作る、ハンドルを持つ線
         let Some((id, _, hash)) = before.iter().find(|(id, kind, _)| {
             kind == "line" && id.starts_with("space/0/h") && id.matches('/').count() == 2
@@ -121,12 +141,10 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
         assert_ne!(&applied.1, hash, "{name}");
         // 書き戻したファイルを開き直す
         session.push(b"again", &file).unwrap();
-        let (status, response) = call(
-            &mut session,
-            r#"{"v":1,"op":"open","input":"again","budget":{"input_bytes":"unlimited","decoded_bytes":"unlimited","records":"unlimited","work":"unlimited"}}"#,
-        );
-        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        assert!(open(&mut session, "again"), "{name}");
         let after = entities(&mut session, "again");
+        // 表の項目の ID とハッシュも変わらない
+        assert_eq!(tables(&mut session, "again"), tables_before, "{name}");
         assert_eq!(after.len(), before.len(), "{name}");
         for ((was_id, _, was_hash), (id, _, hash)) in before.iter().zip(&after) {
             assert_eq!(was_id, id, "{name}");
@@ -136,6 +154,98 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
                 assert_eq!(was_hash, hash, "{name}: {id}");
             }
         }
+        checked += 1;
+    }
+    assert!(drawings().is_empty() || checked > 0);
+}
+
+/// 試料の DXF の実寸の空間の線を、`tables` が返したレイヤの ID で別のレイヤに移すと、開き直した線が
+/// そのレイヤにある（決定 0139・0156）。DWG はレイヤを書き戻せないので、`change.edit.unsupported` になる
+#[test]
+fn drawings_move_lines_to_layers_named_by_id() {
+    let mut checked = 0;
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let Some((id, _, hash)) =
+            entities(&mut session, &name)
+                .into_iter()
+                .find(|(id, kind, _)| {
+                    kind == "line" && id.starts_with("space/0/h") && id.matches('/').count() == 2
+                })
+        else {
+            continue;
+        };
+        let (_, listed) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"entities","doc":"{name}","fields":["layer"],"limit":10000,"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
+            ),
+        );
+        let Some(Value::Array(items)) = listed.pointer("/result/items") else {
+            panic!("{name}");
+        };
+        let current = items
+            .iter()
+            .find(|item| text(item, "/id") == Some(id.as_str()))
+            .and_then(|item| text(item, "/layer"))
+            .map(str::to_string);
+        let table = tables(&mut session, &name);
+        let Some(Value::Array(layers)) = table.pointer("/layers") else {
+            panic!("{name}");
+        };
+        // ハンドルを持ち、今のレイヤと違うレイヤ
+        let Some(layer) = layers.iter().find(|layer| {
+            text(layer, "/id").is_some_and(|id| id.starts_with("layer/h"))
+                && text(layer, "/name").map(str::to_string) != current
+        }) else {
+            continue;
+        };
+        let (layer_id, layer_name) = (text(layer, "/id").unwrap(), text(layer, "/name").unwrap());
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"restyle","id":"{id}","hash":"{hash}","layer_id":"{layer_id}"}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}}}}"#
+            ),
+        );
+        if name.to_ascii_lowercase().ends_with(".dwg") {
+            assert_eq!(status, Status::Failed, "{name}");
+            assert!(
+                format!("{response:?}").contains("change.edit.unsupported"),
+                "{name}: {response:?}"
+            );
+            continue;
+        }
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let (_, listed) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"entities","doc":"{name}","fields":["layer","hash"],"limit":10000,"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
+            ),
+        );
+        let Some(Value::Array(items)) = listed.pointer("/result/items") else {
+            panic!("{name}");
+        };
+        let moved = items
+            .iter()
+            .find(|item| text(item, "/id") == Some(id.as_str()))
+            .unwrap();
+        assert_eq!(text(moved, "/layer"), Some(layer_name), "{name}");
+        assert_eq!(
+            text(moved, "/hash"),
+            text(&response, "/result/applied/0/hash"),
+            "{name}"
+        );
         checked += 1;
     }
     assert!(drawings().is_empty() || checked > 0);
