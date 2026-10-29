@@ -375,7 +375,7 @@
           "type": "string"
         },
         "geometry": {
-          "description": "形の値。線分・円・円弧・幅を持たない折れ線・1 点に置く文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
+          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
           "$ref": "#/$defs/geometry"
         }
       },
@@ -395,7 +395,8 @@
         { "$ref": "#/$defs/arc_geometry" },
         { "$ref": "#/$defs/ellipse_geometry" },
         { "$ref": "#/$defs/polyline_geometry" },
-        { "$ref": "#/$defs/text_geometry" }
+        { "$ref": "#/$defs/text_geometry" },
+        { "$ref": "#/$defs/formatted_text_geometry" }
       ]
     },
     "line_geometry": {
@@ -480,6 +481,27 @@
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false
+    },
+    "formatted_text_geometry": {
+      "description": "書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "formatted_text" },
+        "content": { "description": "内容。書式の符号（\\P の改行など）を含めた、元の形式の内容のまま", "type": "string" },
+        "position": { "description": "基点 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "height": { "description": "高さ。0 より大きい", "type": "number" },
+        "rotation": { "description": "回転（度）", "type": "number" },
+        "attachment": { "description": "基点に合わせる枠の位置", "$ref": "#/$defs/attachment" },
+        "width": { "description": "折り返す枠の幅。0 より大きい。書かなければ折り返さない", "type": "number" },
+        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける", "type": "string" }
+      },
+      "required": ["shape", "content", "position", "height", "rotation"],
+      "additionalProperties": false
+    },
+    "attachment": {
+      "description": "基点に合わせる枠の位置。entities は返し、足すときに書かなければ左上、置き換えるときに書かなければ元のまま",
+      "type": "string",
+      "enum": ["top_left", "top_center", "top_right", "middle_left", "middle_center", "middle_right", "bottom_left", "bottom_center", "bottom_right"]
     },
     "entity_kind": {
       "description": "要素の形の種類（決定 0022）",
@@ -619,7 +641,7 @@
       "additionalProperties": false
     },
     "add_edit": {
-      "description": "空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は線分・円・円弧・折れ線。小版 10 から",
+      "description": "空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から",
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "add" },

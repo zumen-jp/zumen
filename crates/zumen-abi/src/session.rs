@@ -571,6 +571,8 @@ fn changes(
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let at = |field: &str| format!("/edits/{index}/{field}");
         let seen = |id: &str, text: &str, cx: &mut Cx<'_>| {
+            cx.check(Kind::Work, u64::try_from(id.len()).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
             Ok(Seen {
                 id: id.to_string(),
                 hash: hash(text, at("hash"), cx)?,
@@ -583,7 +585,13 @@ fn changes(
         };
         let size = match value {
             Some(messages::Geometry::Polyline(line)) => line.points.len(),
-            Some(messages::Geometry::Text(text)) => text.content.len(),
+            Some(messages::Geometry::Text(text)) => text
+                .content
+                .len()
+                .saturating_add(text.style.as_ref().map_or(0, String::len)),
+            Some(messages::Geometry::FormattedText(text)) => {
+                text.style.as_ref().map_or(0, String::len)
+            }
             _ => 0,
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -621,6 +629,7 @@ fn changes(
             },
             messages::Edit::Replace(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
+                count_formatted_geometry(&edit.geometry, cx)?;
                 if elements.is_none() {
                     elements = Some(ElementLookup::new(drawing, cx)?);
                 }
@@ -647,6 +656,12 @@ fn changes(
                 }
             }
             messages::Edit::Add(edit) => {
+                cx.check(
+                    Kind::Work,
+                    u64::try_from(edit.place.len()).unwrap_or(u64::MAX),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
+                count_formatted_geometry(&edit.geometry, cx)?;
                 if tables.is_none() {
                     tables = Some(TableLookup::new(drawing, cx)?);
                 }
@@ -756,6 +771,27 @@ impl PlaceLookup {
     }
 }
 
+/// MTEXT の解析は、入れ子や区間ごとにフォント名を複製する。内容の長さと、複製を起こし得る
+/// 符号の数から上限を求め、解析より先に作業量を数える。
+fn count_formatted_geometry(value: &messages::Geometry, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    if let messages::Geometry::FormattedText(text) = value {
+        let bytes = u64::try_from(text.content.len()).unwrap_or(u64::MAX);
+        cx.check(Kind::Work, bytes)
+            .map_err(|stop| stopped(cx, stop))?;
+        if text.content.contains("\\f") || text.content.contains("\\F") {
+            let signs = text
+                .content
+                .bytes()
+                .filter(|b| matches!(b, b'{' | b'}' | b'\\'))
+                .count();
+            let signs = u64::try_from(signs).unwrap_or(u64::MAX);
+            cx.check(Kind::Work, bytes.saturating_mul(signs))
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+    }
+    Ok(())
+}
+
 /// 表の検索を変更ごとに繰り返さないための索引。同じ名前は 1 つに決まらない
 struct TableLookup<'a> {
     layers: BTreeMap<&'a str, Option<LayerId>>,
@@ -833,13 +869,14 @@ fn layer_of(
 /// 形を形の値で置き換えた要素。合わない欄があれば、その欄の名前を返す
 fn count_old_element<P>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<(), Failed> {
     let source = element.source.id().map_or(0, str::len);
-    let style = match &element.shape {
+    let size = match &element.shape {
         Shape::Text(text) => text.style.len(),
+        Shape::Formatted(text) => text.style.len(),
         _ => 0,
     };
     cx.check(
         Kind::Work,
-        u64::try_from(source.saturating_add(style)).unwrap_or(u64::MAX),
+        u64::try_from(source.saturating_add(size)).unwrap_or(u64::MAX),
     )
     .map_err(|stop| stopped(cx, stop))?;
     Ok(())
@@ -1115,11 +1152,12 @@ impl Page {
             } else {
                 None
             };
-            // 形の値は、折れ線の頂点の数に比例して作る
+            // 形の値に複製する頂点と文字列の大きさを数える
             let geometry = if has(EntityField::Geometry) {
                 let size = match &element.shape {
                     Shape::Polyline(line) => line.vertices.len(),
-                    Shape::Text(text) => text.content.len(),
+                    Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
+                    Shape::Formatted(text) => text.content.len().saturating_add(text.style.len()),
                     _ => 0,
                 };
                 cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -1478,12 +1516,154 @@ mod tests {
     }
 
     #[test]
+    fn formatted_geometry_checks_work_before_parsing() {
+        // フォント名を入れ子ごとに複製する内容。追加と置き換えのどちらも解析前に止める。
+        let content = format!("\\f{};{}", "A".repeat(80), "{".repeat(80));
+        let geometry = format!(
+            r#"{{"shape":"formatted_text","content":{},"position":[0,0],"height":1,"rotation":0}}"#,
+            {
+                let mut out = Writer::new();
+                out.string(&content);
+                String::from_utf8(out.into_bytes()).unwrap()
+            }
+        );
+        for edit in [
+            format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
+            format!(
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+            ),
+        ] {
+            let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);
+            let value = zumen_json::parse(json.as_bytes()).unwrap();
+            let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+                panic!();
+            };
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(500)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(changes(&request, &Drawing2D::default(), &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+    }
+
+    #[test]
+    fn geometry_copies_obey_work_budget() {
+        use zumen_drawing::{
+            Flow, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, ModelLength,
+            Piece, Rotation, SpaceId, Span, Vertical,
+        };
+        let point = ModelPoint {
+            space: SpaceId(0),
+            x: 0.0,
+            y: 0.0,
+        };
+        let formatted = FormattedText {
+            content: "x".repeat(100),
+            spans: vec![Span {
+                piece: Piece::Text("x".repeat(100)),
+                format: Default::default(),
+            }],
+            height: Height {
+                value: zumen_drawing::Length::Model(ModelLength {
+                    space: SpaceId(0),
+                    value: 1.0,
+                }),
+                meaning: HeightMeaning::Frame,
+            },
+            point,
+            horizontal: Horizontal::Left,
+            vertical: Vertical::Top,
+            rotation: Rotation::Angle(0.0),
+            width: None,
+            frame_height: None,
+            flow: Flow::LeftToRight,
+            line_spacing: LineSpacing {
+                factor: 1.0,
+                exact: false,
+            },
+            background: None,
+            style: "style".repeat(30),
+        };
+        let shapes = [Shape::Formatted(formatted)];
+        for shape in shapes {
+            let element = Element {
+                source: Ref::default(),
+                layer: LayerId(0),
+                style: Style::BLOCK,
+                shape,
+            };
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(count_old_element(&element, &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+            let mut page = Page {
+                start: 0,
+                end: 1,
+                fields: vec![EntityField::Geometry],
+                region: None,
+                position: 0,
+                items: vec![],
+            };
+            let mut diagnostics = Diagnostics::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(
+                page.collect(&Drawing2D::default(), "space/0", &[element], &mut cx)
+                    .is_err()
+            );
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+    }
+
+    #[test]
+    fn request_geometry_strings_obey_work_budget() {
+        let long = "x".repeat(100);
+        for geometry in [
+            format!(
+                r#"{{"shape":"text","content":"x","position":[0,0],"height":1,"rotation":0,"style":"{long}"}}"#
+            ),
+            format!(
+                r#"{{"shape":"formatted_text","content":"x","position":[0,0],"height":1,"rotation":0,"style":"{long}"}}"#
+            ),
+        ] {
+            let json = format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+            );
+            let value = zumen_json::parse(json.as_bytes()).unwrap();
+            let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+                panic!()
+            };
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(changes(&request, &Drawing2D::default(), &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+    }
+
+    #[test]
     fn answers_capabilities() {
         let mut session = Session::new(b"").unwrap();
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":12}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":13}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2212,6 +2392,74 @@ mod tests {
         assert_eq!(
             shapes(&mut session, "a.dxf")[3],
             r#"{"shape":"text","content":"X2","position":[4,5],"height":3,"rotation":0,"style":"Standard"}"#
+        );
+    }
+
+    #[test]
+    fn adds_and_replaces_formatted_texts_by_their_geometry() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let added = r#"{"shape":"formatted_text","content":"{\\H2x;GRID}\\PX1","position":[2,3],"height":2.5,"rotation":0,"attachment":"top_left","style":"Standard"}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
+        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        // 生の改行と、違う文字スタイルは受けない
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"formatted_text","content":"A\nB","position":[2,3],"height":2.5,"rotation":0}"#,
+                "/edits/0/geometry/content",
+            ),
+            (
+                r#"{"shape":"formatted_text","content":"A","position":[2,3],"height":2.5,"rotation":0,"style":"Other"}"#,
+                "/edits/0/geometry/style",
+            ),
+            (
+                r#"{"shape":"formatted_text","content":"A","position":[2,3],"height":2.5,"rotation":0,"width":0}"#,
+                "/edits/0/geometry/width",
+            ),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        // 位置合わせを書かなければ元のまま。枠の幅を足す
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"width":20}}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            shapes(&mut session, "a.dxf")[3],
+            r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"top_left","width":20,"style":"Standard"}"#
+        );
+        let hash = text(&response, "/result/applied/0/hash");
+        let id = text(&response, "/result/applied/0/id");
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"middle_center"}}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            shapes(&mut session, "a.dxf")[3],
+            r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"middle_center","style":"Standard"}"#
         );
     }
 

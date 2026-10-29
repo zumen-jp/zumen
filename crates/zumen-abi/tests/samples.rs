@@ -534,3 +534,146 @@ fn drawings_take_back_texts_added_through_the_boundary() {
         "{japanese:?}"
     );
 }
+
+/// 試料の実寸の空間の書式つきの文字を、境界の `replace` で内容と位置だけ替え、`add` で書式つきの文字を足すと、
+/// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。2007 より前の版は
+/// ASCII の文字だけを書くので、日本語の内容は `change.edit.unsupported` になり、ASCII の内容なら足せる
+#[test]
+fn drawings_take_back_formatted_texts_through_the_boundary() {
+    let number = |value: &Value, pointer: &str| zumen_json::number(value.pointer(pointer)?).ok();
+    let budget = r#""budget":{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}"#;
+    let (mut replaced, mut japanese) = ([0, 0], [0, 0]);
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        // 置き換え。位置合わせ・枠の幅・回転・文字スタイルは読んだ値のまま送る
+        let formatted = shapes(&mut session, &name)
+            .into_iter()
+            .find(|(id, geometry)| {
+                id.starts_with("space/0/h")
+                    && id.matches('/').count() == 2
+                    && geometry
+                        .as_ref()
+                        .is_some_and(|g| text(g, "/shape") == Some("formatted_text"))
+            });
+        if let Some((id, Some(was))) = formatted {
+            let (_, _, hash) = entities(&mut session, &name)
+                .into_iter()
+                .find(|(found, _, _)| *found == id)
+                .unwrap();
+            let width =
+                number(&was, "/width").map_or(String::new(), |w| format!(r#","width":{w}"#));
+            let geometry = format!(
+                r#"{{"shape":"formatted_text","content":"GRID\\PX2","position":[7.5,-2],"height":{},"rotation":{},"attachment":"{}"{width},"style":"{}"}}"#,
+                number(&was, "/height").unwrap(),
+                number(&was, "/rotation").unwrap(),
+                text(&was, "/attachment").unwrap(),
+                text(&was, "/style").unwrap(),
+            );
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}],{budget}}}"#
+                ),
+            );
+            assert_eq!(status, Status::Ok, "{name}: {response:?}");
+            let file = session.take(0).unwrap();
+            let applied = text(&response, "/result/applied/0/hash")
+                .unwrap()
+                .to_string();
+            session.push(b"again", &file).unwrap();
+            assert!(open(&mut session, "again"), "{name}");
+            assert!(
+                entities(&mut session, "again")
+                    .iter()
+                    .any(|(found, _, found_hash)| *found == id && *found_hash == applied),
+                "{name}: {id}"
+            );
+            let found = shapes(&mut session, "again")
+                .into_iter()
+                .find(|(found, _)| *found == id)
+                .and_then(|(_, geometry)| geometry);
+            let expected = zumen_json::parse(geometry.as_bytes()).unwrap();
+            assert!(
+                found.as_ref().is_some_and(|found| close(found, &expected)),
+                "{name}: {id}: {found:?}"
+            );
+            replaced[dwg] += 1;
+        }
+        // 追加。足す先のレイヤは、表の最初のレイヤを ID で指す
+        let table = tables(&mut session, &name);
+        let layer_id = text(&table, "/layers/0/id").unwrap().to_string();
+        let add = |session: &mut Session, content: &str| {
+            let geometry = format!(
+                r#"{{"shape":"formatted_text","content":"{content}","position":[12.5,-4],"height":3.5,"rotation":15,"attachment":"middle_center","width":40}}"#
+            );
+            let (status, response) = call(
+                session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{geometry}}}],{budget}}}"#
+                ),
+            );
+            (status, response, geometry)
+        };
+        let (status, response, geometry) = match add(&mut session, r"通り芯\\PX1") {
+            (Status::Ok, response, geometry) => {
+                japanese[dwg] += 1;
+                (Status::Ok, response, geometry)
+            }
+            (_, response, _) => {
+                assert!(
+                    format!("{response:?}").contains("change.edit.unsupported"),
+                    "{name}: {response:?}"
+                );
+                add(&mut session, r"GRID\\PX1")
+            }
+        };
+        // R12 の DXF は MTEXT を持たない
+        if status != Status::Ok {
+            assert!(
+                format!("{response:?}").contains("change.edit.unsupported"),
+                "{name}: {response:?}"
+            );
+            continue;
+        }
+        let file = session.take(0).unwrap();
+        let id = text(&response, "/result/applied/0/id").unwrap().to_string();
+        let hash = text(&response, "/result/applied/0/hash")
+            .unwrap()
+            .to_string();
+        session.push(b"added", &file).unwrap();
+        assert!(open(&mut session, "added"), "{name}");
+        assert!(
+            entities(&mut session, "added")
+                .iter()
+                .any(|(found, _, found_hash)| *found == id && *found_hash == hash),
+            "{name}: {id}"
+        );
+        let found = shapes(&mut session, "added")
+            .into_iter()
+            .find(|(found, _)| *found == id)
+            .and_then(|(_, geometry)| geometry)
+            .unwrap_or_else(|| panic!("{name}: {id}"));
+        let style = text(&found, "/style").unwrap_or_else(|| panic!("{name}: {found:?}"));
+        assert!(style.eq_ignore_ascii_case("Standard"), "{name}: {style}");
+        let expected = format!(r#"{},"style":"{style}"}}"#, geometry.trim_end_matches('}'));
+        let expected = zumen_json::parse(expected.as_bytes()).unwrap();
+        assert!(close(&found, &expected), "{name}: {found:?}");
+    }
+    assert!(
+        drawings().is_empty()
+            || (japanese.iter().all(|n| *n > 0) && replaced.iter().all(|n| *n > 0)),
+        "{replaced:?} {japanese:?}"
+    );
+}
