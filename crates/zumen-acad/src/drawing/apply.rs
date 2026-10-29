@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{MODEL, PaperFrame, framed, mtext, source, text, work};
+use super::{MODEL, PaperFrame, attached, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
@@ -367,6 +367,36 @@ fn edit(
             rejected = true;
             continue;
         }
+        // 図面モデルに移せなかった ATTRIB も元のファイルには残る。INSERT だけを動かさない。
+        let moved_symbol = match (change, found) {
+            (Edit::Replace { element, .. }, Found::Model(was)) => {
+                matches!(element.as_ref(), Placed::Model(element) if symbol_moved(&was.shape, &element.shape))
+            }
+            (Edit::Replace { element, .. }, Found::Paper(was)) => {
+                matches!(element.as_ref(), Placed::Paper(element) if symbol_moved(&was.shape, &element.shape))
+            }
+            _ => false,
+        };
+        let unread_attributes = match (change, found) {
+            (Edit::Transform { .. }, Found::Model(was)) => match &was.shape {
+                Shape::Symbol(symbol) => {
+                    attribute_count(db, object, at, cx)? != symbol.attributes.len()
+                }
+                _ => false,
+            },
+            (Edit::Transform { .. }, Found::Paper(was)) => match &was.shape {
+                Shape::Symbol(symbol) => {
+                    attribute_count(db, object, at, cx)? != symbol.attributes.len()
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if unread_attributes || (moved_symbol && attribute_count(db, object, at, cx)? > 0) {
+            cx.report(unsupported(edit, &text(&object.kind), target).at(at.clone()));
+            rejected = true;
+            continue;
+        }
         let planned = match (change, found) {
             (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
                 Placed::Model(element) => anchor(&was.shape)
@@ -456,6 +486,39 @@ fn edit(
             Edit::Remove { .. } => None,
         })
         .collect())
+}
+
+fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) -> bool {
+    matches!((before, after), (Shape::Symbol(a), Shape::Symbol(b))
+        if a.position != b.position || a.scale != b.scale || a.rotation != b.rotation)
+}
+
+/// 元の ATTRIB を、読み込みと同じ所有者・並びの規則で探す。
+fn attribute_count(
+    db: &AcadDb,
+    object: &Object,
+    at: &Ref,
+    cx: &mut Cx<'_>,
+) -> Result<usize, Error> {
+    let mut objects = Vec::new();
+    let mut index = None;
+    for candidate in db.objects() {
+        work(cx, 1, at)?;
+        if candidate.section != object.section {
+            continue;
+        }
+        for _ in &candidate.values {
+            work(cx, 1, at)?;
+        }
+        if std::ptr::eq(candidate, object) {
+            index = Some(objects.len());
+        }
+        objects.push(candidate);
+    }
+    let (attributes, _) = attached(&objects);
+    Ok(index
+        .and_then(|index| attributes.get(&index))
+        .map_or(0, Vec::len))
 }
 
 /// 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める

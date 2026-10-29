@@ -2464,6 +2464,46 @@ mod tests {
     }
 
     #[test]
+    fn symbol_replace_does_not_move_unreadable_attributes() {
+        // タグのない ATTRIB はモデルへ移せないが、元のファイルには残る。
+        // 続く印と所有者のどちらで結び付いた場合も INSERT だけを動かさない。
+        for (flag, owner) in [("66\n1\n", ""), ("", "330\n40\n")] {
+            let file = format!(
+                "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+                 0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n5\n20\n8\n0\n2\nDOOR\n70\n0\n10\n0\n20\n0\n3\nDOOR\n\
+                 0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n\
+                 0\nINSERT\n5\n40\n8\n0\n2\nDOOR\n{flag}10\n5\n20\n5\n\
+                 0\nATTRIB\n5\n41\n{owner}8\n0\n10\n5\n20\n5\n40\n1\n1\nvalue\n\
+                 0\nSEQEND\n5\n42\n0\nENDSEC\n0\nEOF\n"
+            );
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"a.dxf", file.as_bytes()).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+            let (id, hash) = seen(&mut session, "a.dxf")
+                .into_iter()
+                .find(|(id, _)| id == "space/0/h40")
+                .unwrap();
+            let before = shapes(&mut session, "a.dxf");
+            for edit in [
+                format!(
+                    r#"{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"symbol","name":"DOOR","position":[7,8],"scale":[1,1],"rotation":0}}}}"#
+                ),
+                format!(
+                    r#"{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,0,1,2,3]}}"#
+                ),
+            ] {
+                let (status, response) = call(
+                    &mut session,
+                    &format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#),
+                );
+                assert_eq!(status, Status::Failed, "{response:?}");
+                assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+                assert_eq!(shapes(&mut session, "a.dxf"), before);
+            }
+        }
+    }
+
+    #[test]
     fn adds_and_replaces_symbols_by_their_geometry() {
         let file =
             b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
