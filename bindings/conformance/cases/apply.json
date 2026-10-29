@@ -591,16 +591,44 @@
         "doc": "b.sfc",
         "edits": [
           {
-            "kind": "remove",
+            "kind": "transform",
             "id": "sheet/0/i20",
-            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44"
+            "hash": "v1:bfeedbfbacae7a53b08e9e193e7b5fc8",
+            "matrix": [1, 0, 5, 0, 1, 7]
           }
         ]
+      },
+      "expect": {
+        "/result/applied/0/id": "sheet/0/i20"
+      }
+    },
+    {
+      "push": {
+        "name": "c.p21",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=CARTESIAN_POINT('',(0.,0.));\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "c.p21"
+      },
+      "expect": {
+        "/result/format": "sxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "c.p21",
+        "edits": []
       },
       "status": "failed",
       "expect": {
         "/diagnostics/0/code": "change.format.unsupported",
-        "/diagnostics/0/params/format": "sxf"
+        "/diagnostics/0/params/format": "sxf (P21)"
       },
       "absent": [
         "/result"

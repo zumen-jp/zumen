@@ -3060,7 +3060,7 @@ pub enum Edit {
     Remove(RemoveEdit),
     /// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から
     Replace(ReplaceEdit),
-    /// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
+    /// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
     Add(AddEdit),
     /// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から
     Layer(LayerEdit),
@@ -3433,7 +3433,7 @@ impl ToJson for ReplaceEdit {
     }
 }
 
-/// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
+/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct AddEdit {
     /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分
@@ -3442,6 +3442,12 @@ pub struct AddEdit {
     pub layer: Option<String>,
     /// レイヤの ID。tables が返したもの
     pub layer_id: Option<String>,
+    /// 色。SXF はレイヤに従う色を書けないので、書く。小版 29 から
+    pub color: Option<ColorChange>,
+    /// 線種。小版 29 から
+    pub line_type: Option<LineTypeChange>,
+    /// 線幅。小版 29 から
+    pub line_weight: Option<LineWeightChange>,
     /// 足す形
     pub geometry: Geometry,
 }
@@ -3452,11 +3458,17 @@ impl AddEdit {
         let place = object.required("place", json::string)?;
         let layer = object.optional("layer", json::string)?;
         let layer_id = object.optional("layer_id", json::string)?;
+        let color = object.optional("color", ColorChange::from_json)?;
+        let line_type = object.optional("line_type", LineTypeChange::from_json)?;
+        let line_weight = object.optional("line_weight", LineWeightChange::from_json)?;
         let geometry = object.required("geometry", Geometry::from_json)?;
         Ok(Self {
             place,
             layer,
             layer_id,
+            color,
+            line_type,
+            line_weight,
             geometry,
         })
     }
@@ -3473,6 +3485,18 @@ impl AddEdit {
         if let Some(value) = &self.layer_id {
             out.key("layer_id");
             out.string(value);
+        }
+        if let Some(value) = &self.color {
+            out.key("color");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_type {
+            out.key("line_type");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_weight {
+            out.key("line_weight");
+            value.to_json(out);
         }
         out.key("geometry");
         self.geometry.to_json(out);
@@ -4451,13 +4475,15 @@ impl ToJson for Inherit {
     }
 }
 
-/// 新しい色。inherit か、aci と rgb の少なくとも一方のどちらかを書く
+/// 新しい色。inherit か、aci・sxf・rgb の少なくとも 1 つのどちらかを書く。aci と sxf は一緒に書かない
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ColorChange {
     /// 継承する先
     pub inherit: Option<Inherit>,
     /// AutoCAD の色の番号（1〜255）
     pub aci: Option<u64>,
+    /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から
+    pub sxf: Option<u64>,
     /// [赤, 緑, 青]。それぞれ 0〜255
     pub rgb: Option<Vec<u64>>,
 }
@@ -4466,10 +4492,16 @@ impl ColorChange {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let inherit = object.optional("inherit", Inherit::from_json)?;
         let aci = object.optional("aci", |value| json::uint(value, 1, 255))?;
+        let sxf = object.optional("sxf", |value| json::uint(value, 1, 9007199254740991))?;
         let rgb = object.optional("rgb", |value| {
             json::array(value, |value| json::uint(value, 0, 255))
         })?;
-        Ok(Self { inherit, aci, rgb })
+        Ok(Self {
+            inherit,
+            aci,
+            sxf,
+            rgb,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -4479,6 +4511,10 @@ impl ColorChange {
         }
         if let Some(value) = &self.aci {
             out.key("aci");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.sxf {
+            out.key("sxf");
             out.uint(*value);
         }
         if let Some(value) = &self.rgb {

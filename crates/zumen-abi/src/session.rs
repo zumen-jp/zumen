@@ -493,6 +493,18 @@ impl Session {
 
     /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
     fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
+        // SXF は SFC だけに書き戻す（決定 0167）。変換の診断より先に断る
+        let unsupported = match self.docs.get(&request.doc) {
+            Some(Doc::Jww(_)) => Some("jww"),
+            Some(Doc::Sxf(file)) if file.mode() != zumen_sxf::Mode::Sfc => Some("sxf (P21)"),
+            _ => None,
+        };
+        if let Some(format) = unsupported {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CHANGE_FORMAT_UNSUPPORTED).with("format", format),
+            ));
+        }
         let drawing = self.lift(&request.doc, cx)?;
         // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを境界で判定できないため、
         // 安全に属性を作れない記号の追加は拒否する。
@@ -518,12 +530,6 @@ impl Session {
                     invalid_value(format!("/edits/{index}/geometry/attributes")),
                 ));
             }
-        }
-        if let Some(doc @ (Doc::Sxf(_) | Doc::Jww(_))) = self.docs.get(&request.doc) {
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CHANGE_FORMAT_UNSUPPORTED).with("format", doc.format()),
-            ));
         }
         let changes = changes(request, &drawing, cx)?;
         let Some(doc) = self.docs.get_mut(&request.doc) else {
@@ -551,7 +557,15 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Sxf(_) | Doc::Jww(_) => return Err(Failed),
+            Doc::Sxf(file) => {
+                let mut updated = file.clone();
+                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                *file = updated;
+                (applied, hash)
+            }
+            Doc::Jww(_) => return Err(Failed),
         };
         self.hashes.insert(request.doc.clone(), hash);
         self.blobs.push(Some(Blob {
@@ -616,6 +630,10 @@ fn layer_item(
                 aci: color
                     .code
                     .filter(|code| code.system == ColorSystem::Aci)
+                    .map(|code| u64::from(code.value)),
+                sxf: color
+                    .code
+                    .filter(|code| code.system == ColorSystem::Sxf)
                     .map(|code| u64::from(code.value)),
                 rgb: color
                     .rgb
@@ -1740,11 +1758,21 @@ fn added(
         Some(layer) => layer,
         None => layer_of(Some("0"), None, tables)?.ok_or("layer")?,
     };
+    // 書かない色・線種・線幅は、レイヤに従う
     let style = Style {
-        color: Inherit::Layer,
-        line_type: Inherit::Layer,
+        color: match &edit.color {
+            Some(change) => color_change(change).map_err(|()| "color")?,
+            None => Inherit::Layer,
+        },
+        line_type: match &edit.line_type {
+            Some(change) => line_type_change(change, tables).map_err(|()| "line_type")?,
+            None => Inherit::Layer,
+        },
         line_type_scale: 1.0,
-        line_weight: Some(Inherit::Layer),
+        line_weight: Some(match &edit.line_weight {
+            Some(change) => line_weight_change(change).map_err(|()| "line_weight")?,
+            None => Inherit::Layer,
+        }),
     };
     if let Some(&origin) = places.spaces.get(&edit.place) {
         return Ok(Placed::Model(Element {
@@ -1828,10 +1856,16 @@ fn restyle(
 
 /// 新しい色。合わなければ `Err`
 fn color_change(change: &messages::ColorChange) -> Result<Inherit<Color>, ()> {
-    Ok(match (change.inherit, change.aci, change.rgb.as_deref()) {
+    let code = match (change.aci, change.sxf) {
+        (Some(_), Some(_)) => return Err(()),
+        (Some(value), None) => Some((ColorSystem::Aci, value)),
+        (None, Some(value)) => Some((ColorSystem::Sxf, value)),
+        (None, None) => None,
+    };
+    Ok(match (change.inherit, code, change.rgb.as_deref()) {
         (Some(to), None, None) => inherit(to),
         (None, None, None) | (Some(_), _, _) => return Err(()),
-        (None, aci, rgb) => {
+        (None, code, rgb) => {
             let rgb = match rgb {
                 None => None,
                 Some(&[r, g, b]) => {
@@ -1839,10 +1873,10 @@ fn color_change(change: &messages::ColorChange) -> Result<Inherit<Color>, ()> {
                 }
                 Some(_) => return Err(()),
             };
-            let code = match aci {
+            let code = match code {
                 None => None,
-                Some(value) => Some(ColorCode {
-                    system: ColorSystem::Aci,
+                Some((system, value)) => Some(ColorCode {
+                    system,
                     value: u32::try_from(value).map_err(|_| ())?,
                 }),
             };
@@ -2201,11 +2235,11 @@ fn capabilities() -> CapabilitiesResult {
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
         // ID の規則の版。AutoCAD の系統はハンドルで、SXF はインスタンスの番号で ID を作る 2（決定 0156）
-        // 書けるのは、apply で書き戻せる形式（決定 0139）
+        // 書けるのは、apply で書き戻せる形式（決定 0139）。SXF は SFC だけに書き戻す（決定 0167）
         formats: [
             (Dxf::FORMAT, "acad", true, 2),
             (Dwg::FORMAT, "acad", true, 2),
-            (Sxf::FORMAT, "sxf", false, 2),
+            (Sxf::FORMAT, "sxf", true, 2),
             (Jww::FORMAT, "jww", false, 1),
         ]
         .into_iter()
@@ -2995,7 +3029,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":28}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":29}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3486,6 +3520,78 @@ mod tests {
         assert_eq!(removed.pointer("/result/applied/0/id"), None);
         let (_, last) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
         assert_eq!(last.pointer("/result/text_styles/2"), None);
+    }
+
+    /// レイヤ A・B、利用者定義色（10, 20, 30）、利用者定義線幅 0.3 と線分を持つ SFC
+    const SFC: &str = concat!(
+        "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n",
+        "/*SXF\n#10 = layer_feature(\\'A\\','1')\nSXF*/\n",
+        "/*SXF\n#20 = layer_feature(\\'B\\','1')\nSXF*/\n",
+        "/*SXF\n#30 = user_defined_colour_feature('10','20','30')\nSXF*/\n",
+        "/*SXF\n#40 = width_feature('0.3')\nSXF*/\n",
+        "/*SXF\n#50 = line_feature('1','1','1','1','0','0','10','0')\nSXF*/\n",
+        "/*SXF\n#60 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF*/\n",
+        "ENDSEC;\nEND-ISO-10303-21;\n",
+    );
+
+    #[test]
+    fn applies_changes_to_sfc() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.sfc", SFC.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.sfc"}"#);
+        let before = seen(&mut session, "a.sfc");
+        let (id, hash) = &before[0];
+        assert_eq!(id, "sheet/0/i50");
+        let apply =
+            |edits: &str| format!(r#"{{"v":1,"op":"apply","doc":"a.sfc","edits":[{edits}]}}"#);
+        // aci と sxf は一緒に書かない。SXF はレイヤに従う色を書けない
+        for (request, code) in [
+            (
+                apply(&format!(
+                    r#"{{"kind":"restyle","id":"{id}","hash":"{hash}","color":{{"aci":1,"sxf":1}}}}"#
+                )),
+                "call.value.invalid",
+            ),
+            (
+                apply(&format!(
+                    r#"{{"kind":"restyle","id":"{id}","hash":"{hash}","color":{{"aci":1}}}}"#
+                )),
+                "change.edit.unsupported",
+            ),
+            (
+                apply(
+                    r#"{"kind":"add","place":"sheet/0","layer":"A","geometry":{"shape":"line","start":[0,1],"end":[10,1]}}"#,
+                ),
+                "change.edit.unsupported",
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&error(&response), "/code"), code, "{request}");
+        }
+        let edits = [
+            format!(
+                r#"{{"kind":"restyle","id":"{id}","hash":"{hash}","layer":"B","color":{{"sxf":17}},"line_weight":{{"mm":0.3}}}}"#
+            ),
+            concat!(
+                r#"{"kind":"add","place":"sheet/0","layer":"A","color":{"rgb":[10,20,30]},"#,
+                r#""line_type":{"name":"continuous"},"line_weight":{"mm":0.25},"#,
+                r#""geometry":{"shape":"circle","center":[5,5],"radius":2}}"#
+            )
+            .to_owned(),
+        ];
+        let (status, response) = call(&mut session, &apply(&edits.join(",")));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/applied/0/id"), "sheet/0/i50");
+        assert_eq!(text(&response, "/result/applied/1/id"), "sheet/0/i61");
+        let file = String::from_utf8(session.take(0).unwrap()).unwrap();
+        assert!(file.contains("#50 = line_feature('2','17','1','11','0','0','10','0')"));
+        assert!(file.contains(
+            "/*SXF\n#61 = circle_feature('1','17','1','3','5','5','2')\nSXF*/\n/*SXF\n#60 ="
+        ));
+        let after = seen(&mut session, "a.sfc");
+        assert_eq!(after[0].1, text(&response, "/result/applied/0/hash"));
+        assert_eq!(after[1].1, text(&response, "/result/applied/1/hash"));
     }
 
     #[test]
