@@ -396,3 +396,32 @@ fn a_stale_document_and_p21_are_refused() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(diag, vec![codes::CHANGE_FORMAT_UNSUPPORTED]);
 }
+
+#[test]
+fn consecutive_composites_keep_their_members_protected() {
+    let original = String::from_utf8(src()).unwrap();
+    let extra: String = (1000..1032)
+        .map(|id| {
+            format!("/*SXF\r\n#{id} = composite_curve_org_feature('1','1','1','1')\r\nSXF*/\r\n")
+        })
+        .collect();
+    let input = original.replace("/*SXF\r\n#60 =", &format!("{extra}/*SXF\r\n#60 ="));
+    let mut file = read(input.as_bytes());
+    let drawing = lift(&file);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Remove {
+            target: seen(&drawing, 50).0,
+        }],
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert!(diagnostics.contains(&codes::CHANGE_EDIT_UNSUPPORTED));
+    assert_eq!(write(&file), input.as_bytes());
+    let (result, _) = apply(
+        &mut file,
+        vec![Edit::Remove {
+            target: seen(&drawing, 70).0,
+        }],
+    );
+    assert!(result.is_ok());
+}

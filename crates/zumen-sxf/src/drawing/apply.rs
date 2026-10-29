@@ -749,7 +749,6 @@ fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet<usize>, Er
         "drawing_attribute",
     ];
     let mut pending: Vec<usize> = Vec::new();
-    let mut composites = BTreeSet::new();
     let mut grouped = BTreeSet::new();
     for (index, record) in records.iter().enumerate() {
         work(cx, 1, &Ref::default())?;
@@ -760,15 +759,12 @@ fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet<usize>, Er
         if is("drawing_sheet") || is("sfig_org") {
             pending.clear();
         } else if is("composite_curve_org") {
-            pending.retain(|at| {
-                let composite = composites.contains(at);
-                if !composite && let Some(member) = records.get(*at) {
+            // 複合曲線自身は変更できないので保留せず、各構成要素を一度だけ処理する。
+            for at in pending.drain(..) {
+                if let Some(member) = records.get(at) {
                     grouped.insert(member.record);
                 }
-                composite
-            });
-            composites.insert(index);
-            pending.push(index);
+            }
         } else {
             pending.push(index);
         }
