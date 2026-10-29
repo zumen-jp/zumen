@@ -236,6 +236,63 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
+/// 変更の一覧が持つ文書のハッシュが、今の文書のハッシュと違う（決定 0156）
+///
+/// `change.document.stale`（0.0.0 から）
+pub const CHANGE_DOCUMENT_STALE: Code =
+    Code::new("change.document.stale", Severity::Error, None, &[], &[]);
+
+/// この種類の変更を、この種類の要素について、元の形式のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く
+///
+/// `change.edit.unsupported`（0.0.0 から）
+pub const CHANGE_EDIT_UNSUPPORTED: Code = Code::new(
+    "change.edit.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edit", ParamType::Text),
+        Param::new("format", ParamType::Text),
+        Param::new("kind", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 変更が指す ID の要素か、足す先の空間・用紙が、今の図面にない（決定 0156）
+///
+/// `change.element.missing`（0.0.0 から）
+pub const CHANGE_ELEMENT_MISSING: Code = Code::new(
+    "change.element.missing",
+    Severity::Error,
+    None,
+    &[Param::new("id", ParamType::Text)],
+    &["id"],
+);
+
+/// 変更が持つ要素のハッシュが、今の要素のハッシュと違う（決定 0156）
+///
+/// `change.element.stale`（0.0.0 から）
+pub const CHANGE_ELEMENT_STALE: Code = Code::new(
+    "change.element.stale",
+    Severity::Error,
+    None,
+    &[Param::new("id", ParamType::Text)],
+    &["id"],
+);
+
+/// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）
+///
+/// `change.xdata.unsupported`（0.0.0 から）
+pub const CHANGE_XDATA_UNSUPPORTED: Code = Code::new(
+    "change.xdata.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("kind", ParamType::Text),
+    ],
+    &[],
+);
+
 /// この DWG から読んでいないオブジェクトの変更や、まだ符号化できない値の変更は、DWG に書き戻せない
 ///
 /// `dwg.change.unsupported`（0.0.0 から）
@@ -436,9 +493,10 @@ pub const DXF_CELL_VALUE_DROPPED: Code = Code::new(
     &["type"],
 );
 
-/// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）
+/// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）（change.edit.unsupported に移したので使わない）
 ///
 /// `dxf.change.unsupported`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const DXF_CHANGE_UNSUPPORTED: Code = Code::new(
     "dxf.change.unsupported",
     Severity::Error,
@@ -469,9 +527,10 @@ pub const DXF_CODE_PAGE_UNSUPPORTED: Code = Code::new(
     &["kind"],
 );
 
-/// 図面モデルの変更が指す出所の要素が、今のファイルの実寸の空間の図形にない（決定 0139）
+/// 図面モデルの変更が指す出所の要素が、今のファイルの実寸の空間の図形にない（決定 0139）（change.element.missing に移したので使わない）
 ///
 /// `dxf.element.missing`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const DXF_ELEMENT_MISSING: Code =
     Code::new("dxf.element.missing", Severity::Error, None, &[], &[]);
 
@@ -805,9 +864,10 @@ pub const DXF_VIEWPORT_UNSUPPORTED: Code = Code::new(
     &["code"],
 );
 
-/// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）
+/// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）（change.xdata.unsupported に移したので使わない）
 ///
 /// `dxf.xdata.unsupported`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const DXF_XDATA_UNSUPPORTED: Code = Code::new(
     "dxf.xdata.unsupported",
     Severity::Error,
@@ -1034,6 +1094,11 @@ pub const ALL: &[Code] = &[
     CALL_VALUE_INVALID,
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
+    CHANGE_DOCUMENT_STALE,
+    CHANGE_EDIT_UNSUPPORTED,
+    CHANGE_ELEMENT_MISSING,
+    CHANGE_ELEMENT_STALE,
+    CHANGE_XDATA_UNSUPPORTED,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,
     DWG_DATA_INVALID,

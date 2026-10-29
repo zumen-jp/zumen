@@ -19,6 +19,7 @@ cancelled = "中断の合図で止めた"
 caught = "境界で捕まえた"
 missing = "名指ししたものがない"
 exists = "名指しした名前が、もう使われている"
+stale = "読んだときと今とで、名指ししたものが違う"
 
 # 予算（決定 0010）
 
@@ -161,6 +162,44 @@ status = "active"
 [codes."internal.panic.caught"]
 description = "ネイティブの境界でパニックを捕まえた。不具合なので直す"
 severity = "error"
+since = "0.0.0"
+status = "active"
+
+# 図面モデルの変更（決定 0139）。どれも、変更を何も反映しない
+
+[codes."change.document.stale"]
+description = "変更の一覧が持つ文書のハッシュが、今の文書のハッシュと違う（決定 0156）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."change.element.missing"]
+description = "変更が指す ID の要素か、足す先の空間・用紙が、今の図面にない（決定 0156）"
+severity = "error"
+params = { id = "text" }
+group-by = ["id"]
+since = "0.0.0"
+status = "active"
+
+[codes."change.element.stale"]
+description = "変更が持つ要素のハッシュが、今の要素のハッシュと違う（決定 0156）"
+severity = "error"
+params = { id = "text" }
+group-by = ["id"]
+since = "0.0.0"
+status = "active"
+
+[codes."change.edit.unsupported"]
+description = "この種類の変更を、この種類の要素について、元の形式のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く"
+severity = "error"
+params = { edit = "text", kind = "text", format = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."change.xdata.unsupported"]
+description = "置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）"
+severity = "error"
+params = { kind = "text", code = "int" }
 since = "0.0.0"
 status = "active"
 
@@ -318,24 +357,24 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.element.missing"]
-description = "図面モデルの変更が指す出所の要素が、今のファイルの実寸の空間の図形にない（決定 0139）"
+description = "図面モデルの変更が指す出所の要素が、今のファイルの実寸の空間の図形にない（決定 0139）（change.element.missing に移したので使わない）"
 severity = "error"
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."dxf.change.unsupported"]
-description = "図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）"
+description = "図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）（change.edit.unsupported に移したので使わない）"
 severity = "error"
 params = { kind = "text" }
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."dxf.xdata.unsupported"]
-description = "置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）"
+description = "置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）（change.xdata.unsupported に移したので使わない）"
 severity = "error"
 params = { kind = "text", code = "int" }
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."dxf.handle-seed.missing"]
 description = "DXF の見出しに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない"

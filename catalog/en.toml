@@ -7,6 +7,11 @@ group-separator = ","
 decimal-separator = "."
 
 [codes]
+"change.document.stale" = "The document has changed since the changes were made. No change was applied."
+"change.element.missing" = "\"{id}\" is not in the drawing. No change was applied."
+"change.element.stale" = "The element \"{id}\" has changed since the changes were made. No change was applied."
+"change.edit.unsupported" = "{edit} of a \"{kind}\" element cannot be written back to {format} yet. No change was applied."
+"change.xdata.unsupported" = "Cannot write back a change to the shape of a \"{kind}\" element, because it has XDATA that moves with the entity (group code {code}). No change was applied."
 "budget.decoded-bytes.exceeded" = "Stopped: the decoded data exceeds the limit ({limit} bytes)."
 "budget.depth.exceeded" = "Stopped: the nesting depth exceeds the limit ({limit})."
 "budget.elements.exceeded" = "Stopped: the number of elements created exceeds the limit ({limit})."

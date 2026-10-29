@@ -648,9 +648,11 @@ impl Born {
     /// 足す図形を表に足す。ハンドルを順に付け、所有者を置き場所のブロックのレコードにする。DXF の BLOCKS の
     /// 所の図形は、所有者のブロックの ENDBLK の前に置く。DWG は、足したオブジェクトを表の終わりにだけ置け、
     /// 所有者のブロックの図形の列には書き戻しがつなぐ（決定 0079）
-    pub(super) fn push(&self, db: &mut AcadDb, added: Vec<Record>) {
+    /// 足した図形ごとのハンドルを、足した順に返す。ハンドルを付けられない図面なら、どれも `None`
+    pub(super) fn push(&self, db: &mut AcadDb, added: Vec<Record>) -> Vec<Option<u64>> {
+        let mut handles = Vec::with_capacity(added.len());
         let Some(mut next) = self.next else {
-            return;
+            return vec![None; added.len()];
         };
         for Record {
             kind,
@@ -661,6 +663,7 @@ impl Born {
         {
             // ATTRIB と SEQEND は、図形のすぐ後に置き、所有者を図形とする
             let parent = next;
+            handles.push(Some(parent));
             let objects = std::iter::once((kind, home.owner, values)).chain(
                 followers
                     .into_iter()
@@ -703,6 +706,7 @@ impl Born {
                 next += 1;
             }
         }
+        handles
     }
 }
 

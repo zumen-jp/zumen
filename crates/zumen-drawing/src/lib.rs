@@ -2185,25 +2185,62 @@ mod tests {
     }
 }
 
-/// 図面モデルへの変更の一覧（決定 0139）。要素を出所で指し、並べた順に当てる
+/// 図面モデルへの変更の一覧（決定 0139）。要素を ID と読んだときのハッシュで指し（決定 0156）、並べた順に当てる
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Changes {
     /// 変更
     pub edits: Vec<Edit>,
+    /// 読んだときの文書のハッシュ。あれば、今の文書と同じときだけ当てる
+    pub document: Option<Hash>,
+}
+
+/// 変更が指す、読んだときの要素。ID は `entities` が返す文字列（[`id`]）、ハッシュは [`Hash::element`]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Seen {
+    /// 要素の ID
+    pub id: String,
+    /// 読んだときの要素のハッシュ
+    pub hash: Hash,
+}
+
+/// 空間か用紙に置く要素
+#[derive(Clone, Debug, PartialEq)]
+pub enum Placed {
+    /// 実寸の空間の要素
+    Model(Element<ModelPoint>),
+    /// 用紙の要素
+    Paper(Element<PaperPoint>),
 }
 
 /// 図面モデルの要素 1 つへの変更
 #[derive(Clone, Debug, PartialEq)]
 pub enum Edit {
-    /// 同じ出所を持つ実寸の空間の要素を、この要素で置き換える
-    Replace(Box<Element<ModelPoint>>),
-    /// 同じ出所を持つ用紙の要素を、この要素で置き換える
-    ReplaceOnSheet(Box<Element<PaperPoint>>),
-    /// この出所の要素（実寸の空間か用紙の要素）を除く
-    Remove(Ref),
-    /// 実寸の空間に、この要素を足す。要素の出所は使わない。書き戻したファイルを読み直すと、足した要素は
-    /// 新しい出所を持つ
-    Add(Box<Element<ModelPoint>>),
-    /// 用紙に、この要素を足す。用紙は要素の点が決め、出所は使わない
-    AddOnSheet(Box<Element<PaperPoint>>),
+    /// 指した要素の値（レイヤ・スタイル・形）を、この要素で置き換える。形の種類は変えない。要素の出所は使わない
+    Replace {
+        /// 置き換える要素
+        target: Seen,
+        /// 新しい値
+        element: Box<Placed>,
+    },
+    /// 空間か用紙に、この要素を足す。要素の出所は使わない
+    Add {
+        /// 足す先の空間か用紙の ID（[`id::space`]・[`id::sheet`]）
+        place: String,
+        /// 足す要素。点は足す先の空間か用紙のもの
+        element: Box<Placed>,
+    },
+    /// 指した要素を除く
+    Remove {
+        /// 除く要素
+        target: Seen,
+    },
+}
+
+/// 当てた変更 1 つの結果
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Applied {
+    /// 置き換えた要素か足した要素の、書き戻した後の ID。除いたときと、ID を決められないときは `None`
+    pub id: Option<String>,
+    /// 書き戻した後の要素のハッシュ。`id` と同じときにある
+    pub hash: Option<Hash>,
 }

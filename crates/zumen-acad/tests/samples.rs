@@ -4,6 +4,8 @@
 //! `名前.dwg` と `名前_ascii.dxf` の組を探す。
 
 #[cfg(feature = "drawing")]
+mod by_source;
+#[cfg(feature = "drawing")]
 mod support;
 
 use std::collections::BTreeMap;
@@ -656,12 +658,132 @@ fn r2010_and_later_table_cell_values_end_with_the_displayed_text() {
     assert!(pairs().is_empty() || checked > 0);
 }
 
+/// 試料の線を ID と読んだときのハッシュで指して動かし、図形を 1 つ足すと、apply が返す ID とハッシュは、
+/// 書き戻したファイルを読み直したときと同じになる。文書のハッシュは、読んだバイト列のハッシュで通る
+/// （決定 0139・0156）。DWG と DXF の組と、バイナリの DXF で確かめる
+#[cfg(feature = "drawing")]
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
+    use std::collections::BTreeMap;
+    use zumen_drawing::{Applied, Changes, Drawing2D, Edit, Hash, Placed, Seen, Shape, id};
+    use zumen_sdk::{Apply, Codec, Lift, testkit};
+    fn seen<F: Lift<Drawing2D>>(
+        file: &F,
+    ) -> Vec<(Seen, zumen_drawing::Element<zumen_drawing::ModelPoint>)> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let drawing = file
+            .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        let space = drawing.spaces.into_iter().next().unwrap();
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        let ids: Vec<_> = space
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| Seen {
+                id: namer.next(index, element),
+                hash: Hash::element(element),
+            })
+            .collect();
+        ids.into_iter().zip(space.elements).collect()
+    }
+    fn check<C: Codec>(path: &Path) -> bool
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let before = seen(&file);
+        let Some((target, line)) = before
+            .iter()
+            .find(|(seen, element)| {
+                matches!(element.shape, Shape::Line { .. })
+                    && seen.id.starts_with("space/0/h")
+                    && seen.id.matches('/').count() == 2
+            })
+            .cloned()
+        else {
+            return false;
+        };
+        let mut moved = line.clone();
+        if let Shape::Line { end, .. } = &mut moved.shape {
+            end.x += 1.5;
+            end.y -= 0.25;
+        }
+        let changes = Changes {
+            edits: vec![
+                Edit::Replace {
+                    target: target.clone(),
+                    element: Box::new(Placed::Model(moved.clone())),
+                },
+                Edit::Add {
+                    place: "space/0".into(),
+                    element: Box::new(Placed::Model(line)),
+                },
+            ],
+            document: Some(Hash::document(&src)),
+        };
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let applied = file
+            .apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{}: {error:?} {:?}",
+                    path.display(),
+                    diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+                )
+            });
+        let written = testkit::write::<C>(&file).unwrap();
+        let again: BTreeMap<_, _> = seen(&testkit::read::<C>(&written).0.unwrap())
+            .into_iter()
+            .map(|(seen, _)| (seen.id, seen.hash))
+            .collect();
+        assert_eq!(again.len(), before.len() + 1, "{}", path.display());
+        for (applied, expected_id) in applied.iter().zip([Some(&target.id), None]) {
+            let id = applied.id.as_ref().unwrap();
+            if let Some(expected) = expected_id {
+                assert_eq!(id, expected, "{}", path.display());
+            }
+            assert_eq!(
+                applied.hash.as_ref(),
+                again.get(id),
+                "{}: {id}",
+                path.display()
+            );
+        }
+        assert_ne!(applied[0].hash, Some(target.hash), "{}", path.display());
+        true
+    }
+    let mut checked = 0;
+    for (dwg, dxf) in pairs() {
+        checked += usize::from(check::<Dwg>(&dwg));
+        checked += usize::from(check::<Dxf>(&dxf));
+    }
+    if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
+        let binary = PathBuf::from(dir).join("features-r2018-binary.dxf");
+        if binary.exists() {
+            assert!(check::<Dxf>(&binary));
+        }
+    }
+    assert!(pairs().is_empty() || checked > 0);
+}
+
 /// 図面モデルで動かした線を、DWG に書き戻して読み直すと、同じ所に動いている（決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
 fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
-    use zumen_drawing::{Changes, Drawing2D, Edit, Shape};
-    use zumen_sdk::{Apply, Lift, testkit};
+    use crate::by_source::{Apply, Changes, Edit};
+    use zumen_drawing::{Drawing2D, Shape};
+    use zumen_sdk::{Lift, testkit};
     let lift = |file: &zumen_acad::DwgFile| -> Drawing2D {
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -2409,8 +2531,9 @@ fn header_variables_are_taken_back(version: &[u8]) {
 #[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
-    use zumen_drawing::{Changes, Drawing2D, Edge, Edit, Element, ModelPoint, Placement, Shape};
-    use zumen_sdk::{Apply, Lift, testkit};
+    use crate::by_source::{Apply, Changes, Edit};
+    use zumen_drawing::{Drawing2D, Edge, Element, ModelPoint, Placement, Shape};
+    use zumen_sdk::{Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Vec<Element<ModelPoint>> {
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -2464,7 +2587,7 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
     }
     fn check<C: Codec>(path: &Path, kinds: &mut BTreeMap<&'static str, usize>)
     where
-        C::File: Lift<Drawing2D> + Apply<Changes>,
+        C::File: Lift<Drawing2D> + Apply,
     {
         let src = std::fs::read(path).unwrap();
         let mut file = testkit::read::<C>(&src).0.unwrap();
@@ -2537,13 +2660,13 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
 #[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_elements_added_in_the_drawing_model() {
+    use crate::by_source::{Apply, Changes, Edit};
     use zumen_drawing::{
-        Attribute, Changes, Drawing2D, Edge, Edit, Element, Flow, Format, FormattedText, Height,
-        HeightMeaning, Horizontal, Inherit, Length, LineSpacing, LineWeight, ModelLength,
-        ModelPoint, PaperLength, Piece, Placement, Polyline, Rotation, Shape, SpaceId, Span, Style,
-        Text, Vertex, Vertical,
+        Attribute, Drawing2D, Edge, Element, Flow, Format, FormattedText, Height, HeightMeaning,
+        Horizontal, Inherit, Length, LineSpacing, LineWeight, ModelLength, ModelPoint, PaperLength,
+        Piece, Placement, Polyline, Rotation, Shape, SpaceId, Span, Style, Text, Vertex, Vertical,
     };
-    use zumen_sdk::{Apply, Error, Lift, testkit};
+    use zumen_sdk::{Error, Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -2659,7 +2782,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
         }
         fn run<C: Codec>(path: &Path, dwg: bool, shapes: &[Shape<ModelPoint>], symbols: &mut usize)
         where
-            C::File: Lift<Drawing2D> + Apply<Changes>,
+            C::File: Lift<Drawing2D> + Apply,
         {
             let src = std::fs::read(path).unwrap();
             let mut file = read::<C>(&src);
@@ -2864,11 +2987,12 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
 #[cfg(feature = "drawing")]
 #[test]
 fn drawings_refuse_to_move_entities_with_moving_xdata() {
-    use zumen_drawing::{Changes, Drawing2D, Edit, Placement, Shape, Target};
-    use zumen_sdk::{Apply, Error, Lift, testkit};
+    use crate::by_source::{Apply, Changes, Edit};
+    use zumen_drawing::{Drawing2D, Placement, Shape, Target};
+    use zumen_sdk::{Error, Lift, testkit};
     fn check<C: Codec>(path: &Path) -> usize
     where
-        C::File: Lift<Drawing2D> + Apply<Changes>,
+        C::File: Lift<Drawing2D> + Apply,
     {
         let src = std::fs::read(path).unwrap();
         let mut file = testkit::read::<C>(&src).0.unwrap();
@@ -2913,7 +3037,7 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
             .collect();
         assert_eq!(
             found,
-            [(codes::DXF_XDATA_UNSUPPORTED, vec![at])],
+            [(codes::CHANGE_XDATA_UNSUPPORTED, vec![at])],
             "{}",
             path.display()
         );
@@ -2941,10 +3065,11 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
     reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
+    use crate::by_source::{Apply, Changes, Edit};
     use zumen_drawing::{
-        Changes, Drawing2D, Edit, Inherit, Length, PaperLength, PaperPoint, Placement, Shape, Style,
+        Drawing2D, Inherit, Length, PaperLength, PaperPoint, Placement, Shape, Style,
     };
-    use zumen_sdk::{Apply, Lift, testkit};
+    use zumen_sdk::{Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
@@ -2979,7 +3104,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
     }
     fn check<C: Codec>(path: &Path) -> usize
     where
-        C::File: Lift<Drawing2D> + Apply<Changes>,
+        C::File: Lift<Drawing2D> + Apply,
     {
         let src = std::fs::read(path).unwrap();
         let mut file = testkit::read::<C>(&src).0.unwrap();
@@ -3140,7 +3265,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
     /// 名前で引く（決定 0155）。要素を持たない用紙の数を返す
     fn empty_sheets<C: Codec>(path: &Path) -> usize
     where
-        C::File: Lift<Drawing2D> + Apply<Changes>,
+        C::File: Lift<Drawing2D> + Apply,
     {
         let src = std::fs::read(path).unwrap();
         let mut file = testkit::read::<C>(&src).0.unwrap();
