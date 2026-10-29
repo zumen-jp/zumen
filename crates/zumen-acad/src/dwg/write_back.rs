@@ -1597,12 +1597,19 @@ impl NewEntity<'_> {
         common.bb(0);
         common.bs(small(object, 60)?.unwrap_or(0));
         common.rc(lineweight_index(-1)?.try_into().ok()?);
-        let mut fields = own_fields(BitWriter::default(), object, object, self.type_code, &[], 0)?;
+        let mut fields = if r2004 && self.type_code == MINSERT_TYPE {
+            self.minsert()?
+        } else {
+            own_fields(BitWriter::default(), object, object, self.type_code, &[], 0)?
+        };
         if r2004 && object.kind == b"MTEXT" {
             fields.bl(0);
         }
         // R2004 の属性を持つ INSERT は、型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0080）
-        if r2004 && let Some((attribs, _)) = &self.children {
+        if r2004
+            && self.type_code != MINSERT_TYPE
+            && let Some((attribs, _)) = &self.children
+        {
             fields.bl(i32::try_from(attribs.len()).ok()?);
         }
         let mut handles = BitWriter::default();
@@ -1643,6 +1650,18 @@ impl NewEntity<'_> {
         }
         Some(out.into_bytes())
     }
+    /// R2004 から後の、足す MINSERT の型ごとの欄。属性を持てば、属性が続く印の後、列と行の欄の前に ATTRIB の
+    /// 数（BL）を書く（ODS 5.4.1 の 20.4.9）
+    fn minsert(&self) -> Option<BitWriter> {
+        let mut fields = BitWriter::default();
+        insert(&mut fields, self.object, false, None)?;
+        if let Some((attribs, _)) = &self.children {
+            fields.bl(i32::try_from(attribs.len()).ok()?);
+        }
+        grid_fields(&mut fields, self.object)?;
+        Some(fields)
+    }
+
     /// R2010 から後の形で符号化したデータ（決定 0092）。ハンドルの流れの大きさ（MC）から始まる。材質は画層の
     /// もので、影の印は 0、表示スタイルは持たない
     fn encode_r2010(&self, release: Release) -> Option<Vec<u8>> {
@@ -1677,10 +1696,17 @@ impl NewEntity<'_> {
             b"ATTRIB" => r2010_attribute(&mut fields, object, &[], [0, 0], release)?,
             b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
+            _ if self.type_code == MINSERT_TYPE => {
+                let minsert = self.minsert()?;
+                let len = minsert.len();
+                fields.copy(&minsert.into_bytes(), 0..len)?;
+            }
             _ => fields = own_fields(fields, object, object, self.type_code, &[], 0)?,
         }
         // 属性を持つ INSERT は、R2004 と同じく型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0093）
-        if let Some((attribs, _)) = &self.children {
+        if self.type_code != MINSERT_TYPE
+            && let Some((attribs, _)) = &self.children
+        {
             fields.bl(i32::try_from(attribs.len()).ok()?);
         }
         let mut handles = BitWriter::default();
@@ -1847,7 +1873,7 @@ fn disown_r2010(
 
 /// R2004 の DWG に足せるものか（決定 0079〜0081）。型ごとの欄が R2000 と同じ形の図形か、MTEXT か、
 /// 属性を持つ INSERT とその ATTRIB・SEQEND か、表のレコードと、足したブロックの BLOCK・ENDBLK だけを
-/// 足せる。MINSERT は、まだ足せない
+/// 足せる。格子を持つもの（MINSERT）も足せる
 fn r2004_addable(object: &Object) -> bool {
     const RECORDS: [&[u8]; 8] = [
         b"LAYER",
@@ -1886,11 +1912,6 @@ fn r2004_addable(object: &Object) -> bool {
     ];
     matches!(object.section, Section::Entities | Section::Blocks)
         && KINDS.contains(&object.kind.as_slice())
-        && (object.kind != b"INSERT"
-            || object
-                .values
-                .iter()
-                .all(|value| !matches!(value.code, 70 | 71 | 44 | 45)))
 }
 
 /// ハンドル `block` の R2004 のブロックのレコードのデータ `data` の、持つ図形の終わりに `handles` を加えた
@@ -1940,7 +1961,7 @@ fn adopt_r2010(
 /// R2010 から後の DWG に足せるものか（決定 0092〜0102）。型ごとの欄と文字列の流れが R2000 と同じ形に
 /// 書ける図形と、MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
 /// 制御点のものだけ）と、
-/// UCS のほかの表のレコードと、足したブロックを足せる。MINSERT は、まだ足せない
+/// UCS のほかの表のレコードと、足したブロックを足せる。格子を持つもの（MINSERT）も足せる
 fn r2010_addable(object: &Object) -> bool {
     // 表のレコードは、LAYER・STYLE・LTYPE・APPID（決定 0094）と、DIMSTYLE・VIEW・ブロックのレコード
     // （決定 0095）を足せる
@@ -1981,13 +2002,7 @@ fn r2010_addable(object: &Object) -> bool {
         b"ATTRIB",
         b"SEQEND",
     ];
-    matches!(object.section, Section::Entities | Section::Blocks)
-        && KINDS.contains(&kind)
-        && (kind != b"INSERT"
-            || object
-                .values
-                .iter()
-                .all(|value| !matches!(value.code, 70 | 71 | 44 | 45)))
+    matches!(object.section, Section::Entities | Section::Blocks) && KINDS.contains(&kind)
 }
 
 fn offset(object: &Object) -> Option<usize> {
@@ -2064,9 +2079,16 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
         fields.copy(data, start..bits.pos())?;
         hatch(&mut fields, old, new)?;
         fields
+    } else if release == Release::R2004 && type_code == MINSERT_TYPE {
+        r2004_minsert_fields(
+            BitWriter::default,
+            old,
+            new,
+            data,
+            [start, handles_at],
+            release,
+        )?
     } else if release == Release::R2004 && matches!(new.kind.as_slice(), b"INSERT" | b"MTEXT") {
-        // MINSERT は、持つオブジェクトの数が列と行の欄の前に入るので、まだ扱わない
-        (type_code != MINSERT_TYPE).then_some(())?;
         r2004_own_fields(
             BitWriter::default,
             old,
@@ -2356,8 +2378,16 @@ fn r2010_own_fields(
         let mut fields = BitWriter::with_strings();
         spline(&mut fields, new, data, start, release)?;
         Some(fields)
+    } else if type_code == MINSERT_TYPE {
+        r2004_minsert_fields(
+            BitWriter::with_strings,
+            old,
+            new,
+            data,
+            [start, end],
+            release,
+        )
     } else if new.kind == b"INSERT" {
-        (type_code != MINSERT_TYPE).then_some(())?;
         r2004_own_fields(
             BitWriter::with_strings,
             old,
@@ -5420,14 +5450,62 @@ fn insert(fields: &mut BitWriter, object: &Object, grid: bool, kept: Option<f64>
     };
     fields.bit(small(object, 66)?.is_some());
     if grid {
-        for code in [70, 71] {
-            fields.bs(small(object, code)?.unwrap_or(1));
-        }
-        for code in [44, 45] {
-            fields.bd(real(object, code)?.unwrap_or(0.0));
-        }
+        grid_fields(fields, object)?;
     }
     Some(())
+}
+
+/// MINSERT の列と行の数（70・71、なければ 1）と間隔（44・45、なければ 0）の欄
+fn grid_fields(fields: &mut BitWriter, object: &Object) -> Option<()> {
+    for code in [70, 71] {
+        fields.bs(small(object, code)?.unwrap_or(1));
+    }
+    for code in [44, 45] {
+        fields.bd(real(object, code)?.unwrap_or(0.0));
+    }
+    Some(())
+}
+
+/// R2004 から後の MINSERT の型ごとの欄（`start` から `end` まで）。属性を持てば、属性が続く印の後、列と行の
+/// 欄の前に、持つオブジェクトの数（BL）が入る（ODS 5.4.1 の 20.4.9）。元のビットが `old` の値から書いたものと
+/// 合うかを確かめ、持つオブジェクトの数と、列と行の欄の後ろは元のビットを写す。属性の有無は変えない
+fn r2004_minsert_fields(
+    writer: fn() -> BitWriter,
+    old: &Object,
+    new: &Object,
+    data: &[u8],
+    [start, end]: [usize; 2],
+    release: Release,
+) -> Option<BitWriter> {
+    let attribs = small(old, 66)?.is_some();
+    (small(new, 66)?.is_some() == attribs).then_some(())?;
+    let was = insert_rotation(data, start);
+    let kept = (real(old, 50) == real(new, 50)).then_some(was).flatten();
+    // 元のビットが、元の値から書いたものと合うか
+    let matches = |from: usize, written: BitWriter| -> Option<usize> {
+        let to = from.checked_add(written.len()).filter(|&to| to <= end)?;
+        let mut found = BitWriter::default();
+        found.copy(data, from..to)?;
+        (found.into_bytes() == written.into_bytes()).then_some(to)
+    };
+    let mut head = BitWriter::default();
+    insert(&mut head, old, false, was)?;
+    let count_at = matches(start, head)?;
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(count_at);
+    if attribs {
+        bits.bl()?;
+    }
+    let count_end = bits.pos();
+    let mut grid = BitWriter::default();
+    grid_fields(&mut grid, old)?;
+    let grid_end = matches(count_end, grid)?;
+    let mut fields = writer();
+    insert(&mut fields, new, false, kept)?;
+    fields.copy(data, count_at..count_end)?;
+    grid_fields(&mut fields, new)?;
+    fields.copy(data, grid_end..end)?;
+    Some(fields)
 }
 
 /// TOLERANCE の欄（決定 0040）。X 軸の向き（11）がなければ (1, 0, 0)、押し出しの向きがなければ (0, 0, 1) を
