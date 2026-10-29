@@ -298,7 +298,10 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     drawing
         .sheets
         .extend(out.layouts.into_iter().map(|(_, _, sheet, _)| sheet));
-    drawing.add_named_text_styles();
+    drawing.add_named_text_styles(cx).map_err(|(stop, place)| {
+        cx.report(stop.to_diagnostic().at(place));
+        Error::Stopped(stop)
+    })?;
     Ok((drawing, out.frames))
 }
 

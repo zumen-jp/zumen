@@ -40,14 +40,25 @@ pub(super) fn value_name(values: &[Value]) -> Option<&[u8]> {
 }
 
 /// DXF の OBJECTS のオブジェクト（画層の状態など）が、画層を名前（8）で指すか
-pub(super) fn named_in_objects(db: &AcadDb, name: &[u8]) -> bool {
-    db.objects().iter().any(|object| {
-        object.section == Section::Objects
-            && object.values.iter().any(|value| {
+pub(super) fn named_in_objects(
+    db: &AcadDb,
+    name: &[u8],
+    cx: &mut Cx,
+    at: &Ref,
+) -> Result<bool, Error> {
+    for object in db.objects() {
+        work(cx, 1, at)?;
+        if object.section == Section::Objects {
+            count_transform_values(object, at, cx)?;
+            if object.values.iter().any(|value| {
                 value.code == 8
                     && matches!(&value.data, Data::Text(text) if text.eq_ignore_ascii_case(name))
-            })
-    })
+            }) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// 名前が、AutoCAD の画層の名前に使えるか
@@ -234,12 +245,21 @@ fn set(values: &mut Vec<Value>, code: i16, value: Option<Value>) {
 /// 名前を変えた画層 `old` を、名前 `new` で指すように書き直す。DXF は、図形の画層（8）、XDATA の画層の名前
 /// （1003）、`$CLAYER` を書き直す。DWG は、足した図形の画層だけを書き直す。OBJECTS のオブジェクトが名前で指せば
 /// （画層の状態など）なら、呼ぶ側が先に拒む（[`named_in_objects`]）
-pub(super) fn rename(db: &mut AcadDb, old: &[u8], new: &Value, target: Target) {
+pub(super) fn rename(
+    db: &mut AcadDb,
+    old: &[u8],
+    new: &Value,
+    target: Target,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let at = Ref::default();
     let same = |data: &Data| matches!(data, Data::Text(name) if name.eq_ignore_ascii_case(old));
     for position in 0..db.objects().len() {
         let Some(object) = db.object_mut(position) else {
             continue;
         };
+        work(cx, 1, &at)?;
+        count_transform_values(object, &at, cx)?;
         let entity = matches!(object.section, Section::Entities | Section::Blocks);
         let rewrite = match target {
             Target::Dxf => true,
@@ -252,8 +272,20 @@ pub(super) fn rename(db: &mut AcadDb, old: &[u8], new: &Value, target: Target) {
             let named =
                 (value.code == 8 && entity) || (value.code == 1003 && target == Target::Dxf);
             if named && same(&value.data) {
+                if let Data::Text(text) = &new.data {
+                    work(cx, 1 + (text.len() as u64 / 1024), &at)?;
+                }
                 value.data = new.data.clone();
             }
+        }
+    }
+    if let Some(values) = db.variable(b"$CLAYER") {
+        for value in values {
+            let bytes = match &value.data {
+                Data::Text(bytes) | Data::Binary(bytes) => bytes.len(),
+                _ => 0,
+            };
+            work(cx, 1 + bytes as u64 / 1024, &at)?;
         }
     }
     if target == Target::Dxf
@@ -272,6 +304,7 @@ pub(super) fn rename(db: &mut AcadDb, old: &[u8], new: &Value, target: Target) {
             .collect();
         db.set_variable(b"$CLAYER", values);
     }
+    Ok(())
 }
 
 /// 除く画層のレコード `record`（表の `position`）を、ほかが指しているか。要素の画層（DXF は名前の 8、DWG はハンドル）、
