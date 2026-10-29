@@ -636,6 +636,10 @@ fn extension_dictionaries_that_others_point_to_keep_their_layers() {
         ),
         // 拡張辞書がない
         original.replacen("360\nD1\n102\n}\n", "360\nD9\n102\n}\n", 1),
+        // 拡張辞書の参照がない、組が閉じない、参照先が辞書でない
+        original.replacen("360\nD1\n102\n}\n", "102\n}\n", 1),
+        original.replacen("360\nD1\n102\n}\n", "360\nD1\n", 1),
+        original.replacen("  0\nDICTIONARY\n  5\nD1\n", "  0\nXRECORD\n  5\nD1\n", 1),
         // 画層が反応子を持つ
         original.replacen(
             "  5\n12\n102\n",
@@ -656,4 +660,61 @@ fn extension_dictionaries_that_others_point_to_keep_their_layers() {
         assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{input}");
         assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
     }
+}
+
+#[test]
+fn removing_dictionary_children_counts_each_removal_and_stops_safely() {
+    use zumen_base::{Kind, Limit, Limits};
+
+    let mut entries = String::new();
+    let mut objects = String::new();
+    for n in 0..40 {
+        let handle = 0x100 + n;
+        entries.push_str(&format!("  3\nCHILD{n}\n360\n{handle:X}\n"));
+        objects.push_str(&format!(
+            "  0\nXRECORD\n  5\n{handle:X}\n330\nD1\n100\nAcDbXrecord\n 90\n{n}\n"
+        ));
+    }
+    let input = with_dictionary("")
+        .replacen(
+            "  3\nASDK_XREC_ANNO_SCALE_INFO",
+            &format!("{entries}  3\nASDK_XREC_ANNO_SCALE_INFO"),
+            1,
+        )
+        .replacen(
+            "  0\nENDSEC\n  0\nEOF\n",
+            &format!("{objects}  0\nENDSEC\n  0\nEOF\n"),
+            1,
+        );
+    let run = |limit: Option<u64>| {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let changes = Changes {
+            edits: vec![Edit::RemoveLayer {
+                target: seen(layer(&drawing, "Unused")),
+            }],
+            document: None,
+        };
+        let limits = limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        });
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let result = file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (
+            result,
+            budget.used(Kind::Work),
+            testkit::write::<Dxf>(&file).unwrap(),
+        )
+    };
+    let (result, used, _) = run(None);
+    assert!(result.is_ok(), "{result:?}");
+    // 40 個の子はそれぞれ残りの全レコードを走査する。
+    assert!(used > 40 * 200, "{used}");
+    let (result, _, written) = run(Some(used / 2));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, input.as_bytes());
 }

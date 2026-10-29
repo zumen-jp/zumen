@@ -1582,6 +1582,26 @@ fn edit(
     if rejected {
         return Err(Error::Rejected);
     }
+    // remove は毎回、残る全オブジェクトを再索引し、値から参照を除く。
+    // 拡張辞書の子をまとめて除く場合も、変更する前に全回数分の作業を数える。
+    if !removed.is_empty() {
+        let mut values = 0u64;
+        for object in db.objects() {
+            work(cx, 1, &Ref::default())?;
+            values = values.saturating_add(object.values.len() as u64);
+        }
+        for (_, replacement) in &replaced {
+            values = values.saturating_add(replacement.len() as u64);
+        }
+        let per_remove = (db.objects().len() as u64)
+            .saturating_add(values)
+            .saturating_mul(2);
+        work(
+            cx,
+            per_remove.saturating_mul(removed.len() as u64),
+            &Ref::default(),
+        )?;
+    }
     let insertion_work = born.insertion_work(&added, db.objects().len());
     if insertion_work > 0 {
         work(cx, insertion_work, &Ref::default())?;

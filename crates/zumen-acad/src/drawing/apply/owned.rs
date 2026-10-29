@@ -29,7 +29,7 @@ pub(super) fn owned(
     };
     let mut parents: Vec<u64> = vec![handle; next.len()];
     let mut seen = BTreeSet::from([handle]);
-    while let (Some(child), Some(parent)) = (next.pop(), parents.pop()) {
+    while let (Some((child, dictionary)), Some(parent)) = (next.pop(), parents.pop()) {
         work(cx, 1, place)?;
         if !seen.insert(child) {
             return Ok(None);
@@ -41,7 +41,10 @@ pub(super) fn owned(
             return Ok(None);
         };
         count_transform_values(object, place, cx)?;
-        if object.section != Section::Objects || object.owner() != Some(parent) {
+        if object.section != Section::Objects
+            || object.owner() != Some(parent)
+            || (dictionary && object.kind != b"DICTIONARY")
+        {
             return Ok(None);
         }
         let Some(more) = children(object, false) else {
@@ -56,11 +59,12 @@ pub(super) fn owned(
 
 /// オブジェクトが所有を示すハンドル。辞書の項目（350・360）、組の外の 360、拡張辞書の組の 360。
 /// `record` なら、拡張辞書の組のほかの組か、組の外の 360 があれば `None`
-fn children(object: &Object, record: bool) -> Option<Vec<u64>> {
+fn children(object: &Object, record: bool) -> Option<Vec<(u64, bool)>> {
     let dictionary = object.kind == b"DICTIONARY";
     let mut out = Vec::new();
     // 開いている組が、拡張辞書の組か
-    let mut groups: Vec<bool> = Vec::new();
+    let mut groups: Vec<(bool, usize)> = Vec::new();
+    let mut has_xdictionary = false;
     for value in &object.values {
         match (value.code, &value.data) {
             (102, Data::Text(text)) if text.starts_with(b"{") => {
@@ -68,19 +72,39 @@ fn children(object: &Object, record: bool) -> Option<Vec<u64>> {
                 if record && !xdictionary {
                     return None;
                 }
-                groups.push(xdictionary);
+                if xdictionary && (has_xdictionary || !groups.is_empty()) {
+                    return None;
+                }
+                has_xdictionary |= xdictionary;
+                groups.push((xdictionary, 0));
             }
             (102, Data::Text(text)) if text.starts_with(b"}") => {
-                groups.pop();
+                let (xdictionary, count) = groups.pop()?;
+                if xdictionary && count != 1 {
+                    return None;
+                }
             }
-            (360, Data::Handle(handle)) if groups.last().is_some_and(|&x| x) => out.push(*handle),
+            (360, data) if groups.last().is_some_and(|&(x, _)| x) => {
+                let Data::Handle(handle) = data else {
+                    return None;
+                };
+                if *handle == 0 {
+                    return None;
+                }
+                groups.last_mut()?.1 += 1;
+                out.push((*handle, true));
+            }
             (360, _) if record && groups.is_empty() => return None,
-            (360, Data::Handle(handle)) if groups.is_empty() => out.push(*handle),
-            (350, Data::Handle(handle)) if dictionary && groups.is_empty() => out.push(*handle),
+            (360, Data::Handle(handle)) if groups.is_empty() => out.push((*handle, false)),
+            (350, Data::Handle(handle)) if dictionary && groups.is_empty() => {
+                out.push((*handle, false))
+            }
+            (360, _) if groups.is_empty() => return None,
+            (350, _) if dictionary && groups.is_empty() => return None,
             _ => {}
         }
     }
-    Some(out)
+    groups.is_empty().then_some(out)
 }
 
 /// 位置 `skip` のほかのオブジェクトか見出しの変数が、ハンドル `handles` のどれかを指すか
