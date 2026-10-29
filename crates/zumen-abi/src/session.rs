@@ -423,20 +423,22 @@ impl Session {
     /// レイヤと線種の表の項目を、ID・名前・ハッシュで返す（決定 0156）
     fn tables(&self, request: &TablesRequest, cx: &mut Cx<'_>) -> Result<TablesResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
+        let mut seen = BTreeMap::new();
         let mut layers = Vec::with_capacity(drawing.layers.len());
         for layer in &drawing.layers {
             let hash = Hash::layer_checked(layer, cx).map_err(|stop| stopped(cx, stop))?;
             layers.push(TableItem {
-                id: id::layer(layer),
+                id: table_id(id::layer(layer), &mut seen),
                 name: layer.name.clone(),
                 hash: hash.to_string(),
             });
         }
+        seen.clear();
         let mut line_types = Vec::with_capacity(drawing.line_types.len());
         for line_type in &drawing.line_types {
             let hash = Hash::line_type_checked(line_type, cx).map_err(|stop| stopped(cx, stop))?;
             line_types.push(TableItem {
-                id: id::line_type(line_type),
+                id: table_id(id::line_type(line_type), &mut seen),
                 name: line_type.name.clone(),
                 hash: hash.to_string(),
             });
@@ -519,6 +521,18 @@ impl Session {
     }
 }
 
+/// 同じ表の ID が重なるときは、2 つ目から番号を足す
+fn table_id(base: String, seen: &mut BTreeMap<String, u64>) -> String {
+    let count = seen.entry(base.clone()).or_default();
+    let result = if *count == 0 {
+        base
+    } else {
+        format!("{base}/{count}")
+    };
+    *count = count.saturating_add(1);
+    result
+}
+
 /// 要求の変更を、図面モデルの変更の一覧にする。レイヤと線種は、ID か、名前が 1 つに決まるものを図面から引く
 fn changes(
     request: &ApplyRequest,
@@ -596,6 +610,7 @@ impl<'a> TableLookup<'a> {
             line_types: BTreeMap::new(),
             line_type_ids: BTreeMap::new(),
         };
+        let mut seen = BTreeMap::new();
         for layer in &drawing.layers {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
             result
@@ -605,10 +620,11 @@ impl<'a> TableLookup<'a> {
                 .or_insert(Some(layer.id));
             result
                 .layer_ids
-                .entry(id::layer(layer))
+                .entry(table_id(id::layer(layer), &mut seen))
                 .and_modify(|v| *v = None)
                 .or_insert(Some((&layer.name, layer.id)));
         }
+        seen.clear();
         for line_type in &drawing.line_types {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
             result
@@ -618,7 +634,7 @@ impl<'a> TableLookup<'a> {
                 .or_insert(Some(line_type.id));
             result
                 .line_type_ids
-                .entry(id::line_type(line_type))
+                .entry(table_id(id::line_type(line_type), &mut seen))
                 .and_modify(|v| *v = None)
                 .or_insert(Some((&line_type.name, line_type.id)));
         }
@@ -1694,6 +1710,22 @@ mod tests {
             assert_eq!(text(&summary, "/result/hash"), document, "work={limit}");
         }
         assert!(failed > 0 && succeeded);
+    }
+
+    #[test]
+    fn tables_keep_ids_unique_when_handles_repeat() {
+        let source = TABLED
+            .replace("5\n13\n2\nWall\n", "5\n10\n2\nWall\n")
+            .replace("5\n12\n2\nDashed\n", "5\n11\n2\nDashed\n");
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", source.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, tables) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok, "{tables:?}");
+        assert_eq!(text(&tables, "/result/layers/0/id"), "layer/h10");
+        assert_eq!(text(&tables, "/result/layers/1/id"), "layer/h10/1");
+        assert_eq!(text(&tables, "/result/line_types/0/id"), "line-type/h11");
+        assert_eq!(text(&tables, "/result/line_types/1/id"), "line-type/h11/1");
     }
 
     #[test]

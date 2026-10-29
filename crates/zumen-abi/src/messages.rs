@@ -2200,7 +2200,7 @@ impl ToJson for TablesResult {
 /// 表の項目
 #[derive(Clone, Debug, PartialEq)]
 pub struct TableItem {
-    /// ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。書き戻しても変わらない（決定 0156）
+    /// ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）
     pub id: String,
     /// 元の名前。翻訳しない
     pub name: String,
