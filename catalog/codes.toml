@@ -196,6 +196,13 @@ params = { edit = "text", kind = "text", format = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."change.format.unsupported"]
+description = "この形式の文書には、まだ変更を当てられない。今は DXF と DWG だけに当てる（決定 0139）"
+severity = "error"
+params = { format = "text" }
+since = "0.0.0"
+status = "active"
+
 [codes."change.xdata.unsupported"]
 description = "置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）"
 severity = "error"

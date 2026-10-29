@@ -12,7 +12,8 @@
         { "$ref": "#/$defs/close_request" },
         { "$ref": "#/$defs/describe_request" },
         { "$ref": "#/$defs/drawing_request" },
-        { "$ref": "#/$defs/entities_request" }
+        { "$ref": "#/$defs/entities_request" },
+        { "$ref": "#/$defs/apply_request" }
       ]
     },
     "request_common": {
@@ -399,6 +400,147 @@
         "symbol",
         "hatch"
       ]
+    },
+    "apply_request": {
+      "description": "開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "apply" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" },
+        "hash": {
+          "description": "読んだときの文書のハッシュ（drawing の hash）。書けば、今の文書と同じときだけ当てる",
+          "type": "string"
+        },
+        "edits": {
+          "description": "変更。並べた順に当てる",
+          "type": "array",
+          "items": { "$ref": "#/$defs/edit" }
+        }
+      },
+      "required": ["op", "doc", "edits"],
+      "unevaluatedProperties": false
+    },
+    "apply_result": {
+      "description": "当てた変更の結果。書き戻したファイルは blobs の file で返す",
+      "type": "object",
+      "properties": {
+        "applied": {
+          "description": "変更ごとの結果。要求の edits と同じ順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/applied" }
+        },
+        "hash": {
+          "description": "書き戻した文書のハッシュ。次の apply の前提条件に使う",
+          "type": "string"
+        }
+      },
+      "required": ["applied", "hash"],
+      "additionalProperties": false
+    },
+    "applied": {
+      "description": "当てた変更 1 つの結果",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "変えた要素の、書き戻した後の ID。除いたときと、ID を決められないときは持たない",
+          "type": "string"
+        },
+        "hash": {
+          "description": "変えた要素の、書き戻した後のハッシュ。id があるときに持つ",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "edit": {
+      "description": "要素 1 つへの変更。kind の値で形が決まる",
+      "oneOf": [
+        { "$ref": "#/$defs/restyle_edit" },
+        { "$ref": "#/$defs/transform_edit" },
+        { "$ref": "#/$defs/remove_edit" }
+      ]
+    },
+    "restyle_edit": {
+      "description": "要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "restyle" },
+        "id": { "description": "変える要素の ID。entities が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの要素のハッシュ。entities が返したもの", "type": "string" },
+        "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの", "type": "string" },
+        "color": { "description": "色", "$ref": "#/$defs/color_change" },
+        "line_type": { "description": "線種", "$ref": "#/$defs/line_type_change" },
+        "line_type_scale": { "description": "要素の線種の倍率", "type": "number" },
+        "line_weight": { "description": "線幅", "$ref": "#/$defs/line_weight_change" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "transform_edit": {
+      "description": "要素を、アフィン変換で動かす。AutoCAD の系統では、図形とともに動く XDATA と記号の属性も同じ変換で直す。変換した形を元の種類で表せなければ当てない",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "transform" },
+        "id": { "description": "動かす要素の ID。entities が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの要素のハッシュ。entities が返したもの", "type": "string" },
+        "matrix": {
+          "description": "[a, b, c, d, e, f]。要素の空間か用紙の点 (x, y) を (a x + b y + c, d x + e y + f) に写す",
+          "type": "array",
+          "items": { "type": "number" }
+        }
+      },
+      "required": ["kind", "id", "hash", "matrix"],
+      "additionalProperties": false
+    },
+    "remove_edit": {
+      "description": "要素を除く",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "remove" },
+        "id": { "description": "除く要素の ID。entities が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの要素のハッシュ。entities が返したもの", "type": "string" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "inherit": {
+      "description": "値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から",
+      "type": "string",
+      "enum": ["layer", "block"]
+    },
+    "color_change": {
+      "description": "新しい色。inherit か、aci と rgb の少なくとも一方のどちらかを書く",
+      "type": "object",
+      "properties": {
+        "inherit": { "description": "継承する先", "$ref": "#/$defs/inherit" },
+        "aci": { "description": "AutoCAD の色の番号（1〜255）", "type": "integer", "minimum": 1, "maximum": 255 },
+        "rgb": {
+          "description": "[赤, 緑, 青]。それぞれ 0〜255",
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "line_type_change": {
+      "description": "新しい線種。inherit か name のどちらかを書く",
+      "type": "object",
+      "properties": {
+        "inherit": { "description": "継承する先", "$ref": "#/$defs/inherit" },
+        "name": { "description": "線種の元の名前。図面にある線種で、名前が 1 つに決まるもの", "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "line_weight_change": {
+      "description": "新しい線幅。inherit・mm・default のどれか 1 つを書く",
+      "type": "object",
+      "properties": {
+        "inherit": { "description": "継承する先", "$ref": "#/$defs/inherit" },
+        "mm": { "description": "用紙の上の幅（mm）。0 以上", "type": "number" },
+        "default": { "description": "true なら、文書の既定の線幅", "type": "boolean" }
+      },
+      "additionalProperties": false
     },
     "source": {
       "description": "要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない",

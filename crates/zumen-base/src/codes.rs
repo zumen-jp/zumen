@@ -279,6 +279,17 @@ pub const CHANGE_ELEMENT_STALE: Code = Code::new(
     &["id"],
 );
 
+/// この形式の文書には、まだ変更を当てられない。今は DXF と DWG だけに当てる（決定 0139）
+///
+/// `change.format.unsupported`（0.0.0 から）
+pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(
+    "change.format.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("format", ParamType::Text)],
+    &[],
+);
+
 /// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）
 ///
 /// `change.xdata.unsupported`（0.0.0 から）
@@ -1098,6 +1109,7 @@ pub const ALL: &[Code] = &[
     CHANGE_EDIT_UNSUPPORTED,
     CHANGE_ELEMENT_MISSING,
     CHANGE_ELEMENT_STALE,
+    CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_XDATA_UNSUPPORTED,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,

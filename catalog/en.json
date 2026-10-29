@@ -28,6 +28,7 @@
     "change.edit.unsupported": "{edit} of a \"{kind}\" element cannot be written back to {format} yet. No change was applied.",
     "change.element.missing": "\"{id}\" is not in the drawing. No change was applied.",
     "change.element.stale": "The element \"{id}\" has changed since the changes were made. No change was applied.",
+    "change.format.unsupported": "Changes cannot be applied to {format} documents yet. No change was applied.",
     "change.xdata.unsupported": "Cannot write back a change to the shape of a \"{kind}\" element, because it has XDATA that moves with the entity (group code {code}). No change was applied.",
     "dwg.change.unsupported": "Cannot write back the change to \"{kind}\" to DWG yet. The changes were not applied.",
     "dwg.crc.invalid": "The CRC of the DWG {part} does not match in {count} places. Reading continued.",
