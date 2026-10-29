@@ -300,6 +300,24 @@
               ],
               "closed": true
             }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "ellipse",
+              "center": [
+                2,
+                3
+              ],
+              "major": [
+                6,
+                3
+              ],
+              "ratio": 0.5,
+              "start_angle": 0,
+              "end_angle": 360
+            }
           }
         ]
       },
@@ -322,7 +340,7 @@
         ]
       },
       "expect": {
-        "/result/total": 4,
+        "/result/total": 5,
         "/result/items/0/geometry": {
           "shape": "line",
           "start": [
@@ -351,6 +369,20 @@
             ]
           ],
           "closed": true
+        },
+        "/result/items/4/geometry": {
+          "shape": "ellipse",
+          "center": [
+            2,
+            3
+          ],
+          "major": [
+            6,
+            3
+          ],
+          "ratio": 0.5,
+          "start_angle": 0,
+          "end_angle": 360
         }
       }
     },

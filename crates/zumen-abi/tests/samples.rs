@@ -386,3 +386,72 @@ fn close(a: &Value, b: &Value) -> bool {
         _ => a == b,
     }
 }
+
+/// 試料の実寸の空間の楕円の形を、境界の `replace` で置き換えると、開き直した楕円の形とハッシュが、送った形と
+/// `apply` が返したものと同じになる（決定 0139）
+#[test]
+fn drawings_take_back_ellipses_replaced_through_the_boundary() {
+    let mut checked = [0, 0];
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let ellipse = shapes(&mut session, &name)
+            .into_iter()
+            .find(|(id, geometry)| {
+                id.starts_with("space/0/h")
+                    && id.matches('/').count() == 2
+                    && geometry
+                        .as_ref()
+                        .is_some_and(|g| text(g, "/shape") == Some("ellipse"))
+            });
+        let Some((id, _)) = ellipse else {
+            continue;
+        };
+        let (_, _, hash) = entities(&mut session, &name)
+            .into_iter()
+            .find(|(was, _, _)| *was == id)
+            .unwrap();
+        let replaced = r#"{"shape":"ellipse","center":[10,20],"major":[13,24],"ratio":0.4,"start_angle":45,"end_angle":300}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let file = session.take(0).unwrap();
+        session.push(b"again", &file).unwrap();
+        assert!(open(&mut session, "again"), "{name}");
+        let applied = text(&response, "/result/applied/0/hash").unwrap();
+        assert!(
+            entities(&mut session, "again")
+                .iter()
+                .any(|(was, _, was_hash)| *was == id && was_hash == applied),
+            "{name}: {id}"
+        );
+        let found = shapes(&mut session, "again")
+            .into_iter()
+            .find(|(was, _)| *was == id)
+            .and_then(|(_, geometry)| geometry);
+        let expected = zumen_json::parse(replaced.as_bytes()).unwrap();
+        assert!(
+            found.as_ref().is_some_and(|found| close(found, &expected)),
+            "{name}: {id}: {found:?}"
+        );
+        checked[usize::from(name.to_ascii_lowercase().ends_with(".dwg"))] += 1;
+    }
+    assert!(
+        drawings().is_empty() || checked.iter().all(|n| *n > 0),
+        "{checked:?}"
+    );
+}

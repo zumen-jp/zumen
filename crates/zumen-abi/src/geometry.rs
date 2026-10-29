@@ -1,7 +1,7 @@
 //! 形の値（`geometry`）と図面モデルの形の行き来（決定 0139）。
 //!
-//! 線分・円・円弧・幅を持たない折れ線・1 点に置く文字だけを扱う。点は要素の空間か用紙の座標、長さは同じ単位、
-//! 角度は度で反時計回り。円弧は、反時計回りにたどる形で返す。
+//! 線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字だけを扱う。点は要素の空間か用紙の座標、長さは同じ
+//! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use zumen_drawing::transform::Point;
 use zumen_drawing::{
@@ -11,7 +11,8 @@ use zumen_drawing::{
 
 use crate::bounds::Planar;
 use crate::messages::{
-    ArcGeometry, CircleGeometry, Geometry, LineGeometry, PolylineGeometry, TextGeometry,
+    ArcGeometry, CircleGeometry, EllipseGeometry, Geometry, LineGeometry, PolylineGeometry,
+    TextGeometry,
 };
 
 /// 形の値と行き来できる点
@@ -62,6 +63,28 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             Geometry::Arc(ArcGeometry {
                 center: xy(*center),
                 radius: center.length(*radius)?,
+                start_angle: start,
+                end_angle: end,
+            })
+        }
+        Shape::Curve(Edge::Elliptic {
+            center,
+            major,
+            ratio,
+            start,
+            end,
+            counterclockwise,
+        }) => {
+            // 時計回りの弧は、同じ点をたどる反時計回りの弧にする
+            let (start, end) = if *counterclockwise {
+                (*start, *end)
+            } else {
+                (*end, *start)
+            };
+            Geometry::Ellipse(EllipseGeometry {
+                center: xy(*center),
+                major: xy(*major),
+                ratio: *ratio,
                 start_angle: start,
                 end_angle: end,
             })
@@ -128,6 +151,24 @@ pub(crate) fn shape_of<P: Spot>(
                 radius: positive(arc.radius, "radius")?,
                 start: finite(arc.start_angle, "start_angle")?,
                 end: finite(arc.end_angle, "end_angle")?,
+                counterclockwise: true,
+            })
+        }
+        (Geometry::Ellipse(ellipse), None | Some(Shape::Curve(Edge::Elliptic { .. }))) => {
+            let center = point(&ellipse.center, "center")?;
+            let major = point(&ellipse.major, "major")?;
+            if Point::xy(major) == Point::xy(center) {
+                return Err("geometry/major".to_string());
+            }
+            if !(ellipse.ratio > 0.0 && ellipse.ratio <= 1.0) {
+                return Err("geometry/ratio".to_string());
+            }
+            Shape::Curve(Edge::Elliptic {
+                center,
+                major,
+                ratio: ellipse.ratio,
+                start: finite(ellipse.start_angle, "start_angle")?,
+                end: finite(ellipse.end_angle, "end_angle")?,
                 counterclockwise: true,
             })
         }
@@ -200,7 +241,8 @@ pub(crate) fn shape_of<P: Spot>(
 pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
     match shape {
         Shape::Line { start, .. } => Some(*start),
-        Shape::Circle { center, .. } | Shape::Curve(Edge::Arc { center, .. }) => Some(*center),
+        Shape::Circle { center, .. }
+        | Shape::Curve(Edge::Arc { center, .. } | Edge::Elliptic { center, .. }) => Some(*center),
         Shape::Polyline(line) => line.vertices.first().map(|v| v.point),
         Shape::Text(text) => match text.placement {
             Placement::Anchor { point, .. } => Some(point),
