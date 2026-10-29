@@ -5,12 +5,16 @@
 //! レコードの番号（`r`）、バイトの位置（`b`）、要素の順（`e`）で作る。1 つのレコードから作った 2 つ目からの
 //! 要素には、`/1`・`/2` を足す。用紙は、元の形式の用紙のレコード（LAYOUT）がハンドルを持てば `sheet/h22`、
 //! なければ読んだ順の番号で作る。同じ用紙 ID が重複するときは、2 つ目から `/1`・`/2` を足す。
+//!
+//! 記号の定義の空間は、定義（BLOCK）がハンドルを持てば `space/h1F`、なければ `space/` と空間の番号で作る。
+//! レイヤと線種の表の項目は、表のレコードがハンドルを持てば `layer/h10`・`line-type/h14`、なければ `layer/` と
+//! `line-type/` に読んだ順の番号を足して作る。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Key, Ref};
 
-use crate::{Element, Sheet, SpaceId};
+use crate::{Element, Layer, LineType, Sheet, SpaceId, SymbolDefinition};
 
 /// 空間の ID の文字列
 pub fn space(id: SpaceId) -> String {
@@ -43,6 +47,32 @@ impl SheetNamer {
         } else {
             format!("{id}/{repeat}")
         }
+    }
+}
+
+/// 記号の定義の空間の ID の文字列
+pub fn definition(definition: &SymbolDefinition) -> String {
+    match definition.source.key() {
+        Some(Key::Handle(handle)) => format!("space/h{handle:X}"),
+        _ => space(definition.space.id),
+    }
+}
+
+/// レイヤの ID の文字列
+pub fn layer(layer: &Layer) -> String {
+    keyed("layer", &layer.source, layer.id.0)
+}
+
+/// 線種の ID の文字列
+pub fn line_type(line_type: &LineType) -> String {
+    keyed("line-type", &line_type.source, line_type.id.0)
+}
+
+/// 表の項目の ID の文字列。ハンドルがなければ、読んだ順の番号で作る
+fn keyed(table: &str, source: &Ref, number: u32) -> String {
+    match source.key() {
+        Some(Key::Handle(handle)) => format!("{table}/h{handle:X}"),
+        _ => format!("{table}/{number}"),
     }
 }
 
@@ -153,5 +183,48 @@ mod tests {
         assert_eq!(sheet(&paper), "sheet/2");
         paper.source = paper.source.with_key(Key::Handle(0x22));
         assert_eq!(sheet(&paper), "sheet/h22");
+    }
+
+    #[test]
+    fn definitions_and_table_items_are_named_by_handles() {
+        use crate::{LayerId, LineTypeId, ModelSpace, SymbolKey, Unit};
+        let mut symbol = SymbolDefinition {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: "B".to_owned(),
+            },
+            space: ModelSpace {
+                id: SpaceId(3),
+                unit: Unit::Millimeter,
+                elements: Vec::new(),
+                order: Vec::new(),
+            },
+            base: None,
+            attributes: Vec::new(),
+            anonymous: false,
+            external: None,
+            source: Ref::at_record(4),
+        };
+        assert_eq!(definition(&symbol), "space/3");
+        symbol.source = symbol.source.with_key(Key::Handle(0x1f));
+        assert_eq!(definition(&symbol), "space/h1F");
+        let mut wall = Layer {
+            id: LayerId(2),
+            name: "Wall".to_owned(),
+            state: None,
+            style: None,
+            follows_placement: false,
+            source: Ref::default(),
+        };
+        assert_eq!(layer(&wall), "layer/2");
+        wall.source = Ref::at_record(8).with_key(Key::Handle(0x10));
+        assert_eq!(layer(&wall), "layer/h10");
+        let dashed = LineType {
+            id: LineTypeId(1),
+            name: "Dashed".to_owned(),
+            definition: None,
+            source: Ref::default().with_key(Key::Handle(0x14)),
+        };
+        assert_eq!(line_type(&dashed), "line-type/h14");
     }
 }

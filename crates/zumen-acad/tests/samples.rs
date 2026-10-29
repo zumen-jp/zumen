@@ -1082,6 +1082,92 @@ fn drawings_take_back_transformed_elements() {
     assert!(pairs().is_empty() || lines > 0);
 }
 
+/// 試料の記号の定義の中の線を ID で動かすと、読み直した線は動いていて、ID は変わらない（決定 0139・0156）
+#[cfg(feature = "drawing")]
+#[test]
+fn drawings_take_back_lines_moved_inside_symbol_definitions() {
+    use zumen_drawing::{
+        Affine, Applied, Changes, Drawing2D, Edit, Element, Hash, ModelPoint, Seen, Shape, id,
+        transform::transform,
+    };
+    use zumen_sdk::{Apply, Codec, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+    }
+    /// 名前を持つ定義の中の、ハンドルで指す要素
+    fn named(drawing: &Drawing2D) -> Vec<(String, Element<ModelPoint>)> {
+        let mut found = Vec::new();
+        for definition in drawing.symbols.iter().filter(|d| !d.anonymous) {
+            let place = id::definition(definition);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in definition.space.elements.iter().enumerate() {
+                let id = namer.next(index, element);
+                if id.matches('/').count() == 2 && id.contains("/h") {
+                    found.push((id, element.clone()));
+                }
+            }
+        }
+        found
+    }
+    fn check<C: Codec>(path: &Path) -> bool
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let Some((target, line)) = named(&lift(&file))
+            .into_iter()
+            .find(|(_, element)| matches!(element.shape, Shape::Line { .. }))
+        else {
+            return false;
+        };
+        let moved = Affine::translation(7.0, -3.0);
+        let changes = Changes {
+            edits: vec![Edit::Transform {
+                target: Seen {
+                    id: target.clone(),
+                    hash: Hash::element(&line),
+                },
+                transform: moved,
+            }],
+            document: Some(Hash::document(&src)),
+        };
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let applied = file
+            .apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap_or_else(|error| panic!("{} {target}: {error:?}", path.display()));
+        let written = testkit::write::<C>(&file).unwrap();
+        let after = named(&lift(&testkit::read::<C>(&written).0.unwrap()));
+        let (_, now) = after.iter().find(|(id, _)| *id == target).unwrap();
+        assert_eq!(
+            now.shape,
+            transform(&line.shape, &moved).unwrap(),
+            "{}",
+            path.display()
+        );
+        assert_eq!(applied[0].id.as_deref(), Some(target.as_str()));
+        assert_eq!(
+            applied[0].hash,
+            Some(Hash::element(now)),
+            "{}",
+            path.display()
+        );
+        true
+    }
+    let mut checked = 0;
+    for (dwg, dxf) in pairs() {
+        checked += usize::from(check::<Dwg>(&dwg));
+        checked += usize::from(check::<Dxf>(&dxf));
+    }
+    assert!(pairs().is_empty() || checked > 0);
+}
+
 /// 図面モデルで動かした線を、DWG に書き戻して読み直すと、同じ所に動いている（決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
@@ -3699,7 +3785,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
     }
 }
 
-/// 空間と用紙ごとの、要素の ID（決定 0156）
+/// 空間・記号の定義の空間・用紙ごとの、要素の ID（決定 0156）
 #[cfg(feature = "drawing")]
 fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
     use zumen_drawing::id;
@@ -3713,11 +3799,39 @@ fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
         .spaces
         .iter()
         .map(|space| named(&id::space(space.id), &space.elements));
+    // 名前のない定義（*U・*D など）は、CAD が保存するたびに作り直し、ハンドルも変わりうるので比べない
+    let definitions = drawing
+        .symbols
+        .iter()
+        .filter(|d| !d.anonymous)
+        .map(|definition| named(&id::definition(definition), &definition.space.elements));
     let sheets = drawing
         .sheets
         .iter()
         .map(|sheet| named(&id::sheet(sheet), &sheet.elements));
-    spaces.chain(sheets).collect()
+    spaces.chain(definitions).chain(sheets).collect()
+}
+
+/// 記号の定義の空間・レイヤ・線種の ID（決定 0156）
+#[cfg(feature = "drawing")]
+fn table_ids(drawing: &zumen_drawing::Drawing2D) -> [Vec<String>; 3] {
+    use zumen_drawing::id;
+    [
+        drawing
+            .symbols
+            .iter()
+            .filter(|d| !d.anonymous)
+            .map(id::definition)
+            .collect(),
+        // 注釈尺度を分けて書いたレイヤ（`0 @ 1` など）も、保存するたびに作り直す
+        drawing
+            .layers
+            .iter()
+            .filter(|layer| !layer.name.contains(" @ "))
+            .map(id::layer)
+            .collect(),
+        drawing.line_types.iter().map(id::line_type).collect(),
+    ]
 }
 
 #[test]
@@ -3727,6 +3841,7 @@ fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
     reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
+    use zumen_drawing::id;
     use zumen_sdk::Lift;
     let lift = |path: &Path| {
         let src = std::fs::read(path).unwrap();
@@ -3754,6 +3869,20 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
         // どの要素もハンドルで指し、レコードの番号やバイトの位置で指さない
         let keyed = |id: &String| id.rsplit('/').any(|part| part.starts_with('h'));
         assert!(ids.iter().flatten().all(keyed), "{}", dwg.display());
+        // 記号の定義の空間・レイヤ・線種も、同じ ID になり、定義を持つものはハンドルで指す
+        let tables = table_ids(&ours);
+        assert_eq!(tables, table_ids(&theirs), "{}", dwg.display());
+        let defined = ours.symbols.iter().map(|d| (&d.source, id::definition(d)));
+        let layers = ours.layers.iter().map(|l| (&l.source, id::layer(l)));
+        let line_types = ours
+            .line_types
+            .iter()
+            .map(|l| (&l.source, id::line_type(l)));
+        for (source, id) in defined.chain(layers).chain(line_types) {
+            if *source != zumen_base::Ref::default() {
+                assert!(id.contains("/h"), "{id} {}", dwg.display());
+            }
+        }
         // 用紙は、LAYOUT のハンドルで指す
         for sheet in &ours.sheets {
             let id = zumen_drawing::id::sheet(sheet);

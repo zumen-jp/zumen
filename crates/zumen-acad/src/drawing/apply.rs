@@ -117,6 +117,16 @@ impl<'a> Index<'a> {
             }
             places.insert(place, Place::Space(space.id));
         }
+        // 記号の定義の中の要素も ID で指せる。定義の空間に足すことは、まだしない
+        for definition in &drawing.symbols {
+            let place = id::definition(definition);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in definition.space.elements.iter().enumerate() {
+                note(&element.source);
+                elements.insert(namer.next(index, element), Found::Model(element));
+            }
+            places.insert(place, Place::Space(definition.space.id));
+        }
         let mut sheet_namer = id::SheetNamer::default();
         for sheet in &drawing.sheets {
             work(cx, 1, &sheet.source)?;

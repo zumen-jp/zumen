@@ -3120,3 +3120,170 @@ fn transforms_count_attribute_searches_and_xdata_before_writing() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(written, enlarged);
 }
+
+/// ハンドルを持つブロック B（LINE と CIRCLE）を定義し、配置する DXF
+#[cfg(test)]
+fn defined() -> Vec<u8> {
+    let tags: &[(i16, &str)] = &[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, "AC1015"),
+        (9, "$INSUNITS"),
+        (70, "4"),
+        (9, "$HANDSEED"),
+        (5, "40"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (5, "30"),
+        (8, "0"),
+        (2, "B"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (0, "LINE"),
+        (5, "31"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "0.0"),
+        (31, "0.0"),
+        (0, "CIRCLE"),
+        (5, "32"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (40, "1.0"),
+        (0, "ENDBLK"),
+        (5, "33"),
+        (8, "0"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "INSERT"),
+        (5, "1A"),
+        (8, "0"),
+        (2, "B"),
+        (10, "5.0"),
+        (20, "5.0"),
+        (30, "0.0"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ];
+    tags.iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+/// 記号の定義の要素の ID とハッシュ
+#[cfg(test)]
+fn defined_elements(drawing: &Drawing2D) -> Vec<(zumen_drawing::Seen, Element<ModelPoint>)> {
+    use zumen_drawing::{Hash, Seen, id};
+    let definition = drawing.symbols.first().unwrap();
+    let place = id::definition(definition);
+    let mut namer = id::Namer::new(&place);
+    definition
+        .space
+        .elements
+        .iter()
+        .enumerate()
+        .map(|(index, element)| {
+            let seen = Seen {
+                id: namer.next(index, element),
+                hash: Hash::element(element),
+            };
+            (seen, element.clone())
+        })
+        .collect()
+}
+
+#[test]
+fn elements_of_symbol_definitions_are_changed_by_id() {
+    use zumen_drawing::{Affine, Inherit, Restyle, id, transform::transform};
+    let file = testkit::read::<Dxf>(&defined()).0.unwrap();
+    let drawing = lift(&file);
+    assert_eq!(id::definition(&drawing.symbols[0]), "space/h30");
+    let [(line, line_before), (circle, _)] =
+        <[_; 2]>::try_from(defined_elements(&drawing)).unwrap();
+    assert_eq!(line.id, "space/h30/h31");
+    let moved = Affine::translation(2.0, 3.0);
+    let mut file = testkit::read::<Dxf>(&defined()).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &zumen_drawing::Changes {
+            edits: vec![
+                zumen_drawing::Edit::Transform {
+                    target: line.clone(),
+                    transform: moved,
+                },
+                zumen_drawing::Edit::Restyle {
+                    target: circle.clone(),
+                    style: Restyle {
+                        color: Some(Inherit::Block),
+                        ..Restyle::default()
+                    },
+                },
+            ],
+            document: None,
+        },
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = defined_elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    let [(line_id, line_after), (circle_id, circle_after)] = <[_; 2]>::try_from(after).unwrap();
+    assert_eq!(
+        line_after.shape,
+        transform(&line_before.shape, &moved).unwrap()
+    );
+    assert_eq!(circle_after.style.color, Inherit::Block);
+    assert_eq!(applied[0].id.as_deref(), Some(line.id.as_str()));
+    assert_eq!(applied[0].hash, Some(line_id.hash));
+    assert_eq!(applied[1].hash, Some(circle_id.hash));
+
+    // 定義の要素は除ける。定義の空間に足すことは、まだしない
+    let mut file = testkit::read::<Dxf>(&defined()).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let refused = zumen_sdk::Apply::apply(
+        &mut file,
+        &zumen_drawing::Changes {
+            edits: vec![zumen_drawing::Edit::Add {
+                place: "space/h30".to_owned(),
+                element: Box::new(zumen_drawing::Placed::Model(line_before.clone())),
+            }],
+            document: None,
+        },
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    );
+    assert_eq!(refused.unwrap_err(), Error::Rejected);
+    assert_eq!(
+        diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+        [codes::CHANGE_EDIT_UNSUPPORTED]
+    );
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    zumen_sdk::Apply::apply(
+        &mut file,
+        &zumen_drawing::Changes {
+            edits: vec![zumen_drawing::Edit::Remove { target: circle }],
+            document: None,
+        },
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = defined_elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].0.id, "space/h30/h31");
+}
