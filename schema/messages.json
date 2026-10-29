@@ -470,7 +470,7 @@
         "id": { "description": "変える要素の ID。entities が返したもの", "type": "string" },
         "hash": { "description": "読んだときの要素のハッシュ。entities が返したもの", "type": "string" },
         "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない", "type": "string" },
-        "layer_id": { "description": "レイヤの ID。tables が返したもの。小版 8 から", "type": "string" },
+        "layer_id": { "description": "レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から", "type": "string" },
         "color": { "description": "色", "$ref": "#/$defs/color_change" },
         "line_type": { "description": "線種", "$ref": "#/$defs/line_type_change" },
         "line_type_scale": { "description": "要素の線種の倍率", "type": "number" },
@@ -531,7 +531,7 @@
       "properties": {
         "inherit": { "description": "継承する先", "$ref": "#/$defs/inherit" },
         "name": { "description": "線種の元の名前。図面にある線種で、名前が 1 つに決まるもの", "type": "string" },
-        "id": { "description": "線種の ID。tables が返したもの。小版 8 から", "type": "string" }
+        "id": { "description": "線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から", "type": "string" }
       },
       "additionalProperties": false
     },

@@ -1724,7 +1724,7 @@ pub struct RestyleEdit {
     pub hash: String,
     /// レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない
     pub layer: Option<String>,
-    /// レイヤの ID。tables が返したもの。小版 8 から
+    /// レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
     pub layer_id: Option<String>,
     /// 色
     pub color: Option<ColorChange>,
@@ -2007,7 +2007,7 @@ pub struct LineTypeChange {
     pub inherit: Option<Inherit>,
     /// 線種の元の名前。図面にある線種で、名前が 1 つに決まるもの
     pub name: Option<String>,
-    /// 線種の ID。tables が返したもの。小版 8 から
+    /// 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
     pub id: Option<String>,
 }
 

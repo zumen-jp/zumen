@@ -1699,6 +1699,30 @@ mod tests {
     }
 
     #[test]
+    fn rejects_table_ids_when_names_cannot_be_written_unambiguously() {
+        let source = TABLED
+            .replace("5\n13\n2\nWall\n", "5\n13\n2\n0\n")
+            .replace("5\n12\n2\nDashed\n", "5\n12\n2\nCONTINUOUS\n");
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", source.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = seen(&mut session, "a.dxf");
+        let (id, hash) = &before[0];
+        for fields in [
+            r#""layer_id":"layer/h13""#,
+            r#""line_type":{"id":"line-type/h12"}"#,
+        ] {
+            let request = format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"restyle","id":"{id}","hash":"{hash}",{fields}}}]}}"#
+            );
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{response:?}");
+            assert_eq!(text(&error(&response), "/code"), "call.value.invalid");
+            assert_eq!(seen(&mut session, "a.dxf"), before);
+        }
+    }
+
+    #[test]
     fn checks_the_changes_before_applying_them() {
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", EDITABLE).unwrap();
