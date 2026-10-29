@@ -2,12 +2,13 @@
 
 use std::collections::BTreeMap;
 
-use super::{lift, source, text};
+use super::{lift, mtext, source, text};
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    Changes, Edge, Edit, Element, Length, ModelPoint, Placement, Polyline, Shape, SpaceId, Text,
+    Changes, Edge, Edit, Element, FormattedText, Horizontal, Length, ModelLength, ModelPoint,
+    Placement, Polyline, Rotation, Shape, SpaceId, Text, Vertical,
 };
 use zumen_sdk::{Apply, Error};
 
@@ -186,6 +187,9 @@ fn replacement(
         (Shape::Polyline(line), _, b"LWPOLYLINE") => values = lwpolyline(&values, line, space)?,
         (Shape::Text(text), Shape::Text(was), b"TEXT") => {
             lettering(&mut values, text, was, space, unicode)?;
+        }
+        (Shape::Formatted(text), Shape::Formatted(was), b"MTEXT") => {
+            formatting(&mut values, text, was, space, unicode)?;
         }
         _ => return None,
     }
@@ -385,6 +389,140 @@ fn lettering(
     Some(())
 }
 
+/// MTEXT（DXF Reference「MTEXT」）の欄を直す。内容（250 バイトずつの 3 と、最後の 1）・基点（10）・高さ（40）・
+/// 向き（50 のラジアンか、11・21 の向き）・枠の幅（41）と高さ（46）・位置合わせ（71）・行送り（44・73）を書く。
+/// 文字スタイル・書き進める向き・背景・高さの意味は変えられない。向きは、元と同じ形（角度か向き）のときだけ
+/// 書く。省いた欄は、DXF Reference の並び（内容の後に 50・73・44）で足す。区間は内容から決まるので、内容を解釈し直した区間と合わなければ受け付けない
+fn formatting(
+    values: &mut Vec<Value>,
+    text: &FormattedText<ModelPoint>,
+    was: &FormattedText<ModelPoint>,
+    space: SpaceId,
+    unicode: bool,
+) -> Option<()> {
+    if text.style != was.style
+        || text.flow != was.flow
+        || text.background != was.background
+        || text.height.meaning != was.height.meaning
+    {
+        return None;
+    }
+    let length = |value: f64| Length::Model(ModelLength { space, value });
+    if text.spans != mtext::spans(&text.content, &length) {
+        return None;
+    }
+    within(space, &[&text.point])?;
+    if text.point != was.point {
+        put(values, 10, text.point.x, &[])?;
+        put(values, 20, text.point.y, &[])?;
+    }
+    if text.content != was.content {
+        contents(values, &text.content, unicode)?;
+    }
+    if text.height.value != was.height.value {
+        put(values, 40, positive(&text.height.value, space)?, &[])?;
+    }
+    if text.rotation != was.rotation {
+        match (text.rotation, was.rotation) {
+            (Rotation::Angle(angle), Rotation::Angle(_)) => {
+                put(values, 50, angle.to_radians(), &[43, 42, 7, 1])?;
+            }
+            (Rotation::Direction([x, y]), Rotation::Direction(_)) if [x, y] != [0.0, 0.0] => {
+                put(values, 11, x, &[])?;
+                put(values, 21, y, &[11])?;
+                // 角度と方向の両方があると、後の指定が優先される（DXF Reference「MTEXT」）。
+                // 古い角度が新しい方向を上書きしないよう、方向だけを残す
+                values.retain(|value| value.code != 50);
+            }
+            _ => return None,
+        }
+    }
+    for (code, frame, was_frame) in [
+        (41, &text.width, &was.width),
+        (46, &text.frame_height, &was.frame_height),
+    ] {
+        if frame != was_frame {
+            let size = match frame {
+                Some(size) => positive(size, space)?,
+                None => 0.0,
+            };
+            optional(values, code, size, 0.0, &[40])?;
+        }
+    }
+    if (text.horizontal, text.vertical) != (was.horizontal, was.vertical) {
+        let row = match text.vertical {
+            Vertical::Top => 0,
+            Vertical::Middle => 1,
+            Vertical::Bottom => 2,
+            _ => return None,
+        };
+        let column = match text.horizontal {
+            Horizontal::Left => 1,
+            Horizontal::Center => 2,
+            Horizontal::Right => 3,
+            _ => return None,
+        };
+        let attachment = Data::Int(row * 3 + column);
+        match values.iter_mut().find(|v| v.code == 71) {
+            Some(slot) => slot.data = attachment,
+            None => insert(values, 71, attachment, &[41, 40])?,
+        }
+    }
+    if text.line_spacing != was.line_spacing {
+        let factor = text.line_spacing.factor;
+        if !(0.25..=4.0).contains(&factor) {
+            return None;
+        }
+        let exact = Data::Int(if text.line_spacing.exact { 2 } else { 1 });
+        match values.iter_mut().find(|v| v.code == 73) {
+            Some(slot) => slot.data = exact,
+            None if text.line_spacing.exact => insert(values, 73, exact, &[50, 43, 42, 7, 1])?,
+            None => {}
+        }
+        optional(values, 44, factor, 1.0, &[73, 50, 43, 42, 7, 1])?;
+    }
+    Some(())
+}
+
+/// MTEXT の内容を、250 バイトずつの区切り（3）と最後の値（1）にして、元の内容の値の場所に置く。区切りは
+/// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）
+fn contents(values: &mut Vec<Value>, content: &str, unicode: bool) -> Option<()> {
+    if !(unicode || content.is_ascii()) || content.contains(['\n', '\r']) {
+        return None;
+    }
+    let at = values.iter().position(|v| matches!(v.code, 1 | 3))?;
+    values.retain(|v| !matches!(v.code, 1 | 3));
+    let mut chunks = Vec::new();
+    let mut rest = content;
+    while rest.len() > 250 {
+        let mut cut = (0..=250).rev().find(|at| rest.is_char_boundary(*at))?;
+        // バイナリの DXF と DWG は、区切りごとに `^ ` や `^J` を戻す。末尾の `^` が対を持たなければ
+        // 次の区切りへ送る。`^^` は 1 組の表記なので、その間では切らない
+        let carets = rest
+            .as_bytes()
+            .get(..cut)?
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == b'^')
+            .count();
+        if !carets.is_multiple_of(2) {
+            cut = cut.checked_sub(1)?;
+        }
+        let (chunk, tail) = rest.split_at(cut);
+        chunks.push(Value {
+            code: 3,
+            data: Data::Text(chunk.as_bytes().to_vec()),
+        });
+        rest = tail;
+    }
+    chunks.push(Value {
+        code: 1,
+        data: Data::Text(rest.as_bytes().to_vec()),
+    });
+    values.splice(at..at, chunks);
+    Some(())
+}
+
 /// `code` の最初の有限の実数
 fn first_real(values: &[Value], code: i16) -> Option<f64> {
     values.iter().find_map(|v| match v.data {
@@ -476,6 +614,7 @@ fn space(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
             Placement::Anchor { point, .. } => Some(point.space),
             Placement::Between { first, .. } => Some(first.space),
         },
+        Shape::Formatted(text) => Some(text.point.space),
         _ => None,
     }
 }

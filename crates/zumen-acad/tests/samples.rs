@@ -2369,7 +2369,7 @@ fn header_variables_are_taken_back(version: &[u8]) {
     }
 }
 
-/// 図面モデルで動かした円弧・楕円・軽量の折れ線・文字を、DWG と DXF に書き戻して読み直すと、同じ所に動いている
+/// 図面モデルで動かした円弧・楕円・軽量の折れ線・文字・MTEXT を、DWG と DXF に書き戻して読み直すと、同じ所に動いている
 /// （決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
@@ -2407,9 +2407,20 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
                     by(second);
                 }
             },
+            Shape::Formatted(text) => by(&mut text.point),
             _ => return None,
         }
         Some(shape)
+    }
+    /// 書式のない内容 `content` の MTEXT を読んで得る区間
+    fn plain(content: &str) -> Vec<zumen_drawing::Span> {
+        let src = format!(
+            "  0\nSECTION\n  2\nENTITIES\n  0\nMTEXT\n  5\n1A\n  8\n0\n 10\n0.0\n 20\n0.0\n 40\n2.5\n  1\n{content}\n  0\nENDSEC\n  0\nEOF\n"
+        );
+        match &lift(&testkit::read::<Dxf>(src.as_bytes()).0.unwrap())[0].shape {
+            Shape::Formatted(text) => text.spans.clone(),
+            shape => panic!("{shape:?}"),
+        }
     }
     fn check<C: Codec>(path: &Path, kinds: &mut BTreeMap<&'static str, usize>)
     where
@@ -2420,13 +2431,14 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         let elements = lift(&file);
         let mut edits = Vec::new();
         let mut expected = Vec::new();
-        for kind in ["arc", "ellipse", "polyline", "text"] {
+        for kind in ["arc", "ellipse", "polyline", "text", "mtext"] {
             let found = elements.iter().enumerate().find_map(|(index, element)| {
                 let name = match element.shape {
                     Shape::Curve(Edge::Arc { .. }) => "arc",
                     Shape::Curve(Edge::Elliptic { .. }) => "ellipse",
                     Shape::Polyline(_) => "polyline",
                     Shape::Text(_) => "text",
+                    Shape::Formatted(_) => "mtext",
                     _ => return None,
                 };
                 (name == kind).then(|| (index, moved(&element.shape)))
@@ -2436,6 +2448,11 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
             };
             let mut element = elements[index].clone();
             element.shape = shape;
+            if let Shape::Formatted(text) = &mut element.shape {
+                // 内容も書き換える。区間は内容から決まるので、同じ内容を読んだ区間に合わせる
+                text.content = "ZUMEN".to_owned();
+                text.spans = plain(&text.content);
+            }
             edits.push(Edit::Replace(Box::new(element.clone())));
             expected.push((index, element.shape));
             *kinds.entry(kind).or_default() += 1;
@@ -2460,5 +2477,5 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         check::<Dwg>(&dwg, &mut kinds);
         check::<Dxf>(&dxf, &mut kinds);
     }
-    assert!(pairs().is_empty() || kinds.len() == 4, "{kinds:?}");
+    assert!(pairs().is_empty() || kinds.len() == 5, "{kinds:?}");
 }
