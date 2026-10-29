@@ -3148,8 +3148,13 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
                     Shape::Polyline(_) => "polyline",
                     Shape::Text(_) => "text",
                     Shape::Formatted(_) => "mtext",
-                    // POINT も記号になるので、ブロックを置く INSERT だけを選ぶ
-                    Shape::Symbol(ref symbol) if symbol.key.namespace == "dxf.block" => "symbol",
+                    // POINT も記号になるので、ブロックを置く INSERT だけを選ぶ。属性を持つ記号は、置き換えでは
+                    // 属性を動かせないので動かさない（`Transform` で動かす）
+                    Shape::Symbol(ref symbol)
+                        if symbol.key.namespace == "dxf.block" && symbol.attributes.is_empty() =>
+                    {
+                        "symbol"
+                    }
                     _ => return None,
                 };
                 (name == kind).then(|| (index, moved(&element.shape)))
