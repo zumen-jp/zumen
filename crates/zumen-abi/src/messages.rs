@@ -1290,7 +1290,7 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
     pub geometry: Option<Geometry>,
 }
 
@@ -1451,7 +1451,7 @@ pub enum Geometry {
     FormattedText(FormattedTextGeometry),
     /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から
     Symbol(SymbolGeometry),
-    /// 制御点で決まるスプライン（NURBS）。当てはめる点か接線を持つスプラインは、まだ形の値を持たない。小版 15 から
+    /// スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない
     Spline(SplineGeometry),
 }
 
@@ -2003,17 +2003,23 @@ impl ToJson for FormattedTextGeometry {
     }
 }
 
-/// 制御点で決まるスプライン（NURBS）。当てはめる点か接線を持つスプラインは、まだ形の値を持たない。小版 15 から
+/// スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない
 #[derive(Clone, Debug, PartialEq)]
 pub struct SplineGeometry {
     /// 次数。1 以上
     pub degree: u64,
-    /// 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数
+    /// 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数。当てはめる点で決まるものは空
     pub knots: Vec<f64>,
-    /// 制御点の [X, Y] の並び。次数より多い
+    /// 制御点の [X, Y] の並び。次数より多い。当てはめる点で決まるものは空
     pub control: Vec<Vec<f64>>,
     /// 制御点ごとの重み。0 より大きい。有理のスプラインだけが持ち、書かなければ有理でない
     pub weights: Option<Vec<f64>>,
+    /// 当てはめる点の [X, Y] の並び。2 つ以上。書けば、節点と制御点は空で、重みは書かない。小版 18 から
+    pub fit: Option<Vec<Vec<f64>>>,
+    /// 当てはめる点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+    pub start_tangent: Option<Vec<f64>>,
+    /// 当てはめる点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+    pub end_tangent: Option<Vec<f64>>,
     /// 閉じている
     pub closed: bool,
     /// 周期的
@@ -2029,6 +2035,13 @@ impl SplineGeometry {
             json::array(value, |value| json::array(value, json::number))
         })?;
         let weights = object.optional("weights", |value| json::array(value, json::number))?;
+        let fit = object.optional("fit", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let start_tangent =
+            object.optional("start_tangent", |value| json::array(value, json::number))?;
+        let end_tangent =
+            object.optional("end_tangent", |value| json::array(value, json::number))?;
         let closed = object.required("closed", json::boolean)?;
         let periodic = object.required("periodic", json::boolean)?;
         Ok(Self {
@@ -2036,6 +2049,9 @@ impl SplineGeometry {
             knots,
             control,
             weights,
+            fit,
+            start_tangent,
+            end_tangent,
             closed,
             periodic,
         })
@@ -2054,6 +2070,20 @@ impl SplineGeometry {
         });
         if let Some(value) = &self.weights {
             out.key("weights");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.fit {
+            out.key("fit");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.start_tangent {
+            out.key("start_tangent");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.end_tangent {
+            out.key("end_tangent");
             out.array(value, |out, item| out.float(*item));
         }
         out.key("closed");

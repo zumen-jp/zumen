@@ -375,7 +375,7 @@
           "type": "string"
         },
         "geometry": {
-          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
+          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
           "$ref": "#/$defs/geometry"
         }
       },
@@ -508,14 +508,17 @@
       "additionalProperties": false
     },
     "spline_geometry": {
-      "description": "制御点で決まるスプライン（NURBS）。当てはめる点か接線を持つスプラインは、まだ形の値を持たない。小版 15 から",
+      "description": "スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない",
       "type": "object",
       "properties": {
         "shape": { "description": "形の種類", "const": "spline" },
         "degree": { "description": "次数。1 以上", "type": "integer", "minimum": 1, "maximum": 32767 },
-        "knots": { "description": "節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数", "type": "array", "items": { "type": "number" } },
-        "control": { "description": "制御点の [X, Y] の並び。次数より多い", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "knots": { "description": "節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数。当てはめる点で決まるものは空", "type": "array", "items": { "type": "number" } },
+        "control": { "description": "制御点の [X, Y] の並び。次数より多い。当てはめる点で決まるものは空", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
         "weights": { "description": "制御点ごとの重み。0 より大きい。有理のスプラインだけが持ち、書かなければ有理でない", "type": "array", "items": { "type": "number" } },
+        "fit": { "description": "当てはめる点の [X, Y] の並び。2 つ以上。書けば、節点と制御点は空で、重みは書かない。小版 18 から", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "start_tangent": { "description": "当てはめる点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から", "type": "array", "items": { "type": "number" } },
+        "end_tangent": { "description": "当てはめる点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から", "type": "array", "items": { "type": "number" } },
         "closed": { "description": "閉じている", "type": "boolean" },
         "periodic": { "description": "周期的", "type": "boolean" }
       },
