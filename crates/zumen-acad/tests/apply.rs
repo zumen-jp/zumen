@@ -1001,7 +1001,12 @@ fn model(value: f64) -> Length {
 #[cfg(test)]
 fn newcomers() -> Vec<Shape<ModelPoint>> {
     use zumen_drawing::{
-        Edge, Height, HeightMeaning, Horizontal, Placement, Polyline, Text, Vertex, Vertical,
+        Edge, Flow, Format, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, Piece,
+        Placement, Polyline, Rotation, Span, Text, Vertex, Vertical,
+    };
+    let span = |piece| Span {
+        piece,
+        format: Format::default(),
     };
     vec![
         Shape::Line {
@@ -1060,6 +1065,31 @@ fn newcomers() -> Vec<Shape<ModelPoint>> {
             upside_down: false,
             style: "STANDARD".to_owned(),
         }),
+        Shape::Formatted(FormattedText {
+            content: "zumen\\Pdrawing".to_owned(),
+            spans: vec![
+                span(Piece::Text("zumen".to_owned())),
+                span(Piece::Paragraph),
+                span(Piece::Text("drawing".to_owned())),
+            ],
+            height: Height {
+                value: model(2.5),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+            },
+            point: at(6.0, 1.0),
+            horizontal: Horizontal::Center,
+            vertical: Vertical::Top,
+            rotation: Rotation::Angle(0.0),
+            width: Some(model(10.0)),
+            frame_height: None,
+            flow: Flow::LeftToRight,
+            line_spacing: LineSpacing {
+                factor: 1.5,
+                exact: true,
+            },
+            background: None,
+            style: "STANDARD".to_owned(),
+        }),
     ]
 }
 
@@ -1109,7 +1139,8 @@ fn elements_are_added_with_new_handles() {
     let text = String::from_utf8(written).unwrap();
     assert!(text.contains("  0\nLINE\n  5\n20\n  8\n0\n 62\n3\n 10\n0.0\n"));
     assert!(text.contains("  0\nTEXT\n  5\n24\n"));
-    assert!(text.contains("$HANDSEED\n  5\n25\n"));
+    assert!(text.contains("  0\nMTEXT\n  5\n25\n"));
+    assert!(text.contains("$HANDSEED\n  5\n26\n"));
     assert!(!text.contains("AcDb"));
 }
 
@@ -1127,7 +1158,8 @@ fn elements_that_cannot_be_added_change_nothing() {
         element.layer = layer;
         Edit::Add(Box::new(element))
     };
-    // 図面にないレイヤ、半径が 0 の円、ほかの空間の線分、改行を持つ文字は足せない
+    // 図面にないレイヤ、半径が 0 の円、ほかの空間の線分、改行を持つ文字、内容と合わない区間を持つ書式つきの
+    // 文字は足せない
     let mut elsewhere = shapes[0].clone();
     if let Shape::Line { end, .. } = &mut elsewhere {
         end.space = SpaceId(1);
@@ -1138,6 +1170,10 @@ fn elements_that_cannot_be_added_change_nothing() {
         if let Placement::Anchor { point, .. } = &mut text.placement {
             point.x = 1.0;
         }
+    }
+    let mut stale = shapes[5].clone();
+    if let Shape::Formatted(text) = &mut stale {
+        text.content = "zumen".to_owned();
     }
     let edits = vec![
         add(901, shapes[0].clone(), LayerId(99)),
@@ -1151,7 +1187,8 @@ fn elements_that_cannot_be_added_change_nothing() {
         ),
         add(903, elsewhere, template.layer),
         add(904, broken, template.layer),
-        add(905, shapes[1].clone(), template.layer),
+        add(905, stale, template.layer),
+        add(906, shapes[1].clone(), template.layer),
     ];
     let (result, found) = apply(&mut file, edits);
     assert_eq!(result, Err(Error::Rejected));
@@ -1159,7 +1196,7 @@ fn elements_that_cannot_be_added_change_nothing() {
         found,
         [(
             codes::DXF_CHANGE_UNSUPPORTED,
-            (901..=904).map(Ref::at_record).collect()
+            (901..=905).map(Ref::at_record).collect()
         )]
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
