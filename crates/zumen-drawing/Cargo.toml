@@ -8,6 +8,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# 要素のハッシュ（決定 0156）。CC0-1.0 OR Apache-2.0。C と asm を使わない pure で、どの対象でも同じ値になる
+blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
 zumen-base = { path = "../zumen-base" }
 
 [lints]

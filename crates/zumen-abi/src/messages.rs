@@ -778,6 +778,8 @@ impl ToJson for DrawingRequest {
 /// 図面モデルの要約。移さなかった図形と値は、診断で返す
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawingResult {
+    /// 文書のハッシュ。open に渡したバイト列から作る。変更の一覧の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: Option<String>,
     /// 実寸の空間。モデルの順
     pub spaces: Vec<SpaceSummary>,
     /// 用紙。モデルの順
@@ -786,16 +788,25 @@ pub struct DrawingResult {
 
 impl DrawingResult {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.optional("hash", json::string)?;
         let spaces = object.required("spaces", |value| {
             json::array(value, SpaceSummary::from_json)
         })?;
         let sheets = object.required("sheets", |value| {
             json::array(value, SheetSummary::from_json)
         })?;
-        Ok(Self { spaces, sheets })
+        Ok(Self {
+            hash,
+            spaces,
+            sheets,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
         out.key("spaces");
         out.array(&self.spaces, |out, item| item.to_json(out));
         out.key("sheets");
@@ -823,6 +834,8 @@ impl ToJson for DrawingResult {
 /// 実寸の空間の要約
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpaceSummary {
+    /// 空間の ID（space/0）。entities の要素の ID の始まりと同じ（決定 0156）
+    pub id: Option<String>,
     /// 文書の単位
     pub unit: Unit,
     /// 要素の数
@@ -833,10 +846,12 @@ pub struct SpaceSummary {
 
 impl SpaceSummary {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.optional("id", json::string)?;
         let unit = object.required("unit", Unit::from_json)?;
         let elements = object.required("elements", ElementCounts::from_json)?;
         let extent = object.optional("extent", Extent::from_json)?;
         Ok(Self {
+            id,
             unit,
             elements,
             extent,
@@ -844,6 +859,10 @@ impl SpaceSummary {
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
         out.key("unit");
         self.unit.to_json(out);
         out.key("elements");
@@ -875,6 +894,8 @@ impl ToJson for SpaceSummary {
 /// 用紙の要約
 #[derive(Clone, Debug, PartialEq)]
 pub struct SheetSummary {
+    /// 用紙の ID。LAYOUT がハンドルを持てば sheet/h22、なければ読んだ順の番号（sheet/0）。entities の要素の ID の始まりと同じ（決定 0156）
+    pub id: Option<String>,
     /// 元の形式の用紙の名前（DXF・DWG のレイアウトの名前）。翻訳しない。なければ持たない
     pub name: Option<String>,
     /// 用紙の幅と高さ（mm）。分からなければ持たない
@@ -889,12 +910,14 @@ pub struct SheetSummary {
 
 impl SheetSummary {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.optional("id", json::string)?;
         let name = object.optional("name", json::string)?;
         let size = object.optional("size", |value| json::array(value, json::number))?;
         let elements = object.required("elements", ElementCounts::from_json)?;
         let views = object.required("views", |value| json::uint(value, 0, 9007199254740991))?;
         let extent = object.optional("extent", Extent::from_json)?;
         Ok(Self {
+            id,
             name,
             size,
             elements,
@@ -904,6 +927,10 @@ impl SheetSummary {
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
         if let Some(value) = &self.name {
             out.key("name");
             out.string(value);
@@ -1239,7 +1266,7 @@ impl ToJson for EntitiesResult {
 /// 図面モデルの要素
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entity {
-    /// 空間か用紙と、出所で作る ID（space/0/r12、sheet/1/b4096 など）。同じバイト列には、どの版でも同じ ID を返す（決定 0117）
+    /// 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つ鍵（ハンドル）があれば鍵で作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どの版でも同じ ID を返す（決定 0117・0156）
     pub id: String,
     /// 形の種類
     pub kind: Option<EntityKind>,
@@ -1249,6 +1276,8 @@ pub struct Entity {
     pub source: Option<Source>,
     /// 形の定義から求めた範囲。文字の字形・線の太さ・記号の中身は含めない。囲む点がなければ持たない（決定 0118）
     pub bbox: Option<Extent>,
+    /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: Option<String>,
 }
 
 impl Entity {
@@ -1258,12 +1287,14 @@ impl Entity {
         let layer = object.optional("layer", json::string)?;
         let source = object.optional("source", Source::from_json)?;
         let bbox = object.optional("bbox", Extent::from_json)?;
+        let hash = object.optional("hash", json::string)?;
         Ok(Self {
             id,
             kind,
             layer,
             source,
             bbox,
+            hash,
         })
     }
 
@@ -1285,6 +1316,10 @@ impl Entity {
         if let Some(value) = &self.bbox {
             out.key("bbox");
             value.to_json(out);
+        }
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
         }
     }
 }
@@ -1319,11 +1354,20 @@ pub enum EntityField {
     Source,
     /// `bbox`
     Bbox,
+    /// `hash`
+    Hash,
 }
 
 impl EntityField {
     /// すべての値（スキーマの順）
-    pub const ALL: &[Self] = &[Self::Id, Self::Kind, Self::Layer, Self::Source, Self::Bbox];
+    pub const ALL: &[Self] = &[
+        Self::Id,
+        Self::Kind,
+        Self::Layer,
+        Self::Source,
+        Self::Bbox,
+        Self::Hash,
+    ];
 
     /// JSON での名前
     pub const fn name(self) -> &'static str {
@@ -1333,6 +1377,7 @@ impl EntityField {
             Self::Layer => "layer",
             Self::Source => "source",
             Self::Bbox => "bbox",
+            Self::Hash => "hash",
         }
     }
 
@@ -1344,6 +1389,7 @@ impl EntityField {
             "layer" => Some(Self::Layer),
             "source" => Some(Self::Source),
             "bbox" => Some(Self::Bbox),
+            "hash" => Some(Self::Hash),
             _ => None,
         }
     }
@@ -1462,20 +1508,27 @@ impl ToJson for EntityKind {
     }
 }
 
-/// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）。ファイルから読んでいない要素は、どちらも持たない
+/// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Source {
     /// L1 のレコードの番号
     pub record: Option<u64>,
     /// L1 のバイト範囲
     pub bytes: Option<ByteRange>,
+    /// AutoCAD の系統のハンドル。大文字の 16 進。書き戻しても変わらない
+    pub handle: Option<String>,
 }
 
 impl Source {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let record = object.optional("record", |value| json::uint(value, 0, 9007199254740991))?;
         let bytes = object.optional("bytes", ByteRange::from_json)?;
-        Ok(Self { record, bytes })
+        let handle = object.optional("handle", json::string)?;
+        Ok(Self {
+            record,
+            bytes,
+            handle,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -1486,6 +1539,10 @@ impl Source {
         if let Some(value) = &self.bytes {
             out.key("bytes");
             value.to_json(out);
+        }
+        if let Some(value) = &self.handle {
+            out.key("handle");
+            out.string(value);
         }
     }
 }

@@ -5,7 +5,9 @@
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
+use zumen_base::{
+    Budget, CancelToken, Code, Cx, Diagnostics, Key, Kind, Limit, Limits, Ref, codes,
+};
 use zumen_drawing::{
     Arrowhead, Axis, Background, BackgroundFill, Basis, Border, Borders, Boundary, Branch,
     CalloutContent, Cell, CellContent, CellData, CellFormat, CellValue, Clip, Color, ColorCode,
@@ -898,7 +900,7 @@ fn layers_keep_their_table_and_views_hide_layers() {
             codes::DXF_LIFT_INVALID,
             r#"Text("VIEWPORT") Int(341)"#.to_owned(),
             1,
-            vec![Ref::at_record(13)],
+            vec![Ref::at_record(13).with_key(Key::Handle(0x22))],
         )]
     );
 
@@ -1153,7 +1155,7 @@ fn sortents_tables_order_the_model_and_the_sheet() {
             codes::DXF_LIFT_INVALID,
             r#"Text("SORTENTSTABLE") Int(5)"#.to_owned(),
             1,
-            vec![Ref::at_record(21)],
+            vec![Ref::at_record(21).with_key(Key::Handle(0x53))],
         )]
     );
     // 要素は入力の順のまま
@@ -1227,7 +1229,7 @@ fn elements_without_handles_are_not_sorted() {
             codes::DXF_LIFT_INVALID,
             r#"Text("SORTENTSTABLE") Int(331)"#.to_owned(),
             1,
-            vec![Ref::at_record(12)],
+            vec![Ref::at_record(12).with_key(Key::Handle(0x50))],
         )]
     );
     assert_eq!(drawing.unwrap().spaces[0].order, [0, 1]);
@@ -1323,19 +1325,19 @@ fn colors_line_types_and_line_weights_keep_their_source_and_inheritance() {
                 codes::DXF_LINE_TYPE_ELEMENT_DROPPED,
                 r#"Text("Gas")"#.to_owned(),
                 1,
-                vec![Ref::at_record(6)],
+                vec![Ref::at_record(6).with_key(Key::Handle(0x16))],
             ),
             (
                 codes::DXF_LIFT_INVALID,
                 r#"Text("LINE") Int(62)"#.to_owned(),
                 1,
-                vec![Ref::at_record(18)],
+                vec![Ref::at_record(18).with_key(Key::Handle(0x24))],
             ),
             (
                 codes::DXF_LIFT_INVALID,
                 r#"Text("LINE") Int(370)"#.to_owned(),
                 1,
-                vec![Ref::at_record(19)],
+                vec![Ref::at_record(19).with_key(Key::Handle(0x25))],
             ),
         ]
     );
@@ -4452,7 +4454,7 @@ fn e7_underlays_keep_their_resource_page_frame_clip_and_order() {
             kind: UnderlayKind::Image,
             resource: Resource {
                 path: "site.png".to_owned(),
-                definition: Ref::at_record(9),
+                definition: Ref::at_record(9).with_key(Key::Handle(0xD1)),
             },
             page: None,
             frame: UnderlayFrame::Pixels {
@@ -4474,7 +4476,7 @@ fn e7_underlays_keep_their_resource_page_frame_clip_and_order() {
             kind: UnderlayKind::Pdf,
             resource: Resource {
                 path: "plan.pdf".to_owned(),
-                definition: Ref::at_record(10),
+                definition: Ref::at_record(10).with_key(Key::Handle(0xD2)),
             },
             page: Some("2".to_owned()),
             frame: UnderlayFrame::Scaled {

@@ -3268,3 +3268,66 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
         }
     }
 }
+
+/// 空間と用紙ごとの、要素の ID（決定 0156）
+#[cfg(feature = "drawing")]
+fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
+    use zumen_drawing::id;
+    fn named<P>(place: &str, elements: &[zumen_drawing::Element<P>]) -> Vec<String> {
+        let mut namer = id::Namer::new(place);
+        let ids = elements.iter().enumerate();
+        ids.map(|(index, element)| namer.next(index, element))
+            .collect()
+    }
+    let spaces = drawing
+        .spaces
+        .iter()
+        .map(|space| named(&id::space(space.id), &space.elements));
+    let sheets = drawing
+        .sheets
+        .iter()
+        .map(|sheet| named(&id::sheet(sheet), &sheet.elements));
+    spaces.chain(sheets).collect()
+}
+
+#[test]
+#[cfg(feature = "drawing")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
+    use zumen_sdk::Lift;
+    let lift = |path: &Path| {
+        let src = std::fs::read(path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        if path.extension().is_some_and(|e| e == "dwg") {
+            Dwg::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
+        } else {
+            Dxf::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
+        }
+    };
+    let mut found = pairs();
+    if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
+        let dwg = Path::new(&dir).join("jp-yokosuka-minami-survey-plan.dwg");
+        if dwg.exists() {
+            found.push((dwg.clone(), dwg.with_extension("dxf")));
+        }
+    }
+    for (dwg, dxf) in found {
+        let (ours, theirs) = (lift(&dwg), lift(&dxf));
+        let ids = element_ids(&ours);
+        assert_eq!(ids, element_ids(&theirs), "{}", dwg.display());
+        // どの要素もハンドルで指し、レコードの番号やバイトの位置で指さない
+        let keyed = |id: &String| id.rsplit('/').any(|part| part.starts_with('h'));
+        assert!(ids.iter().flatten().all(keyed), "{}", dwg.display());
+        // 用紙は、LAYOUT のハンドルで指す
+        for sheet in &ours.sheets {
+            let id = zumen_drawing::id::sheet(sheet);
+            assert!(id.starts_with("sheet/h"), "{id} {}", dwg.display());
+        }
+    }
+}

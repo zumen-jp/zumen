@@ -514,6 +514,7 @@ impl<'f> Lifter<'f> {
                 elements: out.paper,
                 views: out.views,
                 order: out.order,
+                source: Ref::default(),
             }],
             layers: self.layers,
             line_types: self.line_types,

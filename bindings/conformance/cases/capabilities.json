@@ -9,8 +9,8 @@
         "/result/schema/major": 1,
         "/result/ops": ["capabilities", "open", "close", "describe", "drawing", "entities"],
         "/result/formats": [
-          { "id": "dxf", "family": "acad", "read": true, "write": false, "id_rules": 1 },
-          { "id": "dwg", "family": "acad", "read": true, "write": false, "id_rules": 1 },
+          { "id": "dxf", "family": "acad", "read": true, "write": false, "id_rules": 2 },
+          { "id": "dwg", "family": "acad", "read": true, "write": false, "id_rules": 2 },
           { "id": "sxf", "family": "sxf", "read": true, "write": false, "id_rules": 1 },
           { "id": "jww", "family": "jww", "read": true, "write": false, "id_rules": 1 }
         ],

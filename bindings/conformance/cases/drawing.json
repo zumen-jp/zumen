@@ -52,8 +52,10 @@
       },
       "expect": {
         "/result": {
+          "hash": "v1:39c62575cf1c4daf9e7de3b29ade5d62",
           "spaces": [
             {
+              "id": "space/0",
               "unit": "millimeter",
               "elements": {
                 "lines": 1,
@@ -69,6 +71,7 @@
           ],
           "sheets": [
             {
+              "id": "sheet/0",
               "size": [
                 420,
                 297
@@ -136,7 +139,7 @@
         "op": "drawing",
         "doc": "a.dxf",
         "budget": {
-          "work": 13
+          "work": 14
         }
       },
       "expect": {

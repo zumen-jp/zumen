@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
-use zumen_base::{Ref, codes, name};
-use zumen_drawing::{Drawing2D, Element, Placement, Shape, Unit};
+use zumen_base::{Key, Ref, codes, name};
+use zumen_drawing::{Drawing2D, Element, Encode, Hash, Placement, Shape, Unit, id};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Codec, Lift};
@@ -41,6 +41,8 @@ pub struct Session {
     inputs: BTreeMap<String, Vec<u8>>,
     /// `open` で作った文書
     docs: BTreeMap<String, Doc>,
+    /// `open` で作った文書の、元のバイト列のハッシュ（決定 0156）
+    hashes: BTreeMap<String, Hash>,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
     blobs: Vec<Option<Blob>>,
 }
@@ -142,6 +144,7 @@ impl Session {
             engine,
             inputs: BTreeMap::new(),
             docs: BTreeMap::new(),
+            hashes: BTreeMap::new(),
             blobs: Vec::new(),
         })
     }
@@ -302,6 +305,8 @@ impl Session {
             doc: name.clone(),
             format: doc.format().to_string(),
         };
+        let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        self.hashes.insert(name.clone(), hash);
         self.docs.insert(name.clone(), doc);
         Ok(result)
     }
@@ -337,6 +342,7 @@ impl Session {
         }
         for doc in docs {
             self.docs.remove(doc);
+            self.hashes.remove(doc);
         }
         for input in inputs {
             self.inputs.remove(input);
@@ -346,7 +352,8 @@ impl Session {
 
     fn drawing(&self, request: &DrawingRequest, cx: &mut Cx<'_>) -> Result<DrawingResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
-        Ok(summary(&drawing))
+        let hash = self.hashes.get(&request.doc).map(Hash::to_string);
+        summary(&drawing, hash, cx)
     }
 
     fn entities(
@@ -390,12 +397,13 @@ impl Session {
             items: Vec::new(),
         };
         for space in &drawing.spaces {
-            let place = format!("space/{}", space.id.0);
-            page.collect(&drawing, &place, &space.elements, cx)?;
+            page.collect(&drawing, &id::space(space.id), &space.elements, cx)?;
         }
+        let mut sheets = id::SheetNamer::default();
         for sheet in &drawing.sheets {
-            let place = format!("sheet/{}", sheet.id.0);
-            page.collect(&drawing, &place, &sheet.elements, cx)?;
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| fail(cx, stop.to_diagnostic()))?;
+            page.collect(&drawing, &sheets.next(sheet), &sheet.elements, cx)?;
         }
         let total = page.position;
         Ok(EntitiesResult {
@@ -435,31 +443,39 @@ fn capabilities() -> CapabilitiesResult {
             minor: SCHEMA_MINOR,
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
+        // ID の規則の版。AutoCAD の系統は、ハンドルで ID を作る 2（決定 0156）
         formats: [
-            (Dxf::FORMAT, "acad"),
-            (Dwg::FORMAT, "acad"),
-            (Sxf::FORMAT, "sxf"),
-            (Jww::FORMAT, "jww"),
+            (Dxf::FORMAT, "acad", 2),
+            (Dwg::FORMAT, "acad", 2),
+            (Sxf::FORMAT, "sxf", 1),
+            (Jww::FORMAT, "jww", 1),
         ]
         .into_iter()
-        .map(|(id, family)| Format {
+        .map(|(id, family, id_rules)| Format {
             id: id.to_string(),
             family: family.to_string(),
             read: true,
             write: false,
-            id_rules: 1,
+            id_rules,
         })
         .collect(),
     }
 }
 
 /// 図面モデルの要約。空間と用紙は、モデルの順に並べる
-fn summary(drawing: &Drawing2D) -> DrawingResult {
-    DrawingResult {
+fn summary(
+    drawing: &Drawing2D,
+    hash: Option<String>,
+    cx: &mut Cx<'_>,
+) -> Result<DrawingResult, Failed> {
+    let mut sheet_names = id::SheetNamer::default();
+    Ok(DrawingResult {
+        hash,
         spaces: drawing
             .spaces
             .iter()
             .map(|space| SpaceSummary {
+                id: Some(id::space(space.id)),
                 unit: unit_of(space.unit),
                 elements: counts(&space.elements),
                 extent: extent(&space.elements, |p| (p.x, p.y)),
@@ -468,15 +484,20 @@ fn summary(drawing: &Drawing2D) -> DrawingResult {
         sheets: drawing
             .sheets
             .iter()
-            .map(|sheet| SheetSummary {
-                name: sheet.name.clone(),
-                size: sheet.size.map(|size| size.iter().map(|l| l.0).collect()),
-                elements: counts(&sheet.elements),
-                views: sheet.views.len() as u64,
-                extent: extent(&sheet.elements, |p| (p.x, p.y)),
+            .map(|sheet| {
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| fail(cx, stop.to_diagnostic()))?;
+                Ok(SheetSummary {
+                    id: Some(sheet_names.next(sheet)),
+                    name: sheet.name.clone(),
+                    size: sheet.size.map(|size| size.iter().map(|l| l.0).collect()),
+                    elements: counts(&sheet.elements),
+                    views: sheet.views.len() as u64,
+                    extent: extent(&sheet.elements, |p| (p.x, p.y)),
+                })
             })
-            .collect(),
-    }
+            .collect::<Result<_, Failed>>()?,
+    })
 }
 
 /// entities の op で返す範囲と、そこまでに数えた要素
@@ -496,28 +517,16 @@ struct Page {
 
 impl Page {
     /// 空間か用紙の要素を数え、返す範囲にあるものを足す
-    fn collect<P: Planar>(
+    fn collect<P: Planar + Encode>(
         &mut self,
         drawing: &Drawing2D,
         place: &str,
         elements: &[Element<P>],
         cx: &mut Cx<'_>,
     ) -> Result<(), Failed> {
-        // 出所ごとの、これまでに出てきた要素の数
-        let mut seen = BTreeMap::<Ref, u64>::new();
+        let mut namer = id::Namer::new(place);
         for (index, element) in elements.iter().enumerate() {
-            let origin = match (element.source.record(), element.source.bytes()) {
-                (Some(record), _) => format!("r{record}"),
-                (None, Some(bytes)) => format!("b{}", bytes.start),
-                (None, None) => format!("e{index}"),
-            };
-            let repeat = if element.source == Ref::default() {
-                0
-            } else {
-                let count = seen.entry(element.source.clone()).or_insert(0);
-                *count += 1;
-                *count - 1
-            };
+            let id = namer.next(index, element);
             let mut bbox = None;
             // 止めたら、扱っていた要素の出所を場所に入れる（決定 0119）
             let stop_at = |cx: &mut Cx<'_>, stop: Stop| {
@@ -543,14 +552,19 @@ impl Page {
                 continue;
             }
             cx.check(Kind::Work, 1).map_err(|stop| stop_at(cx, stop))?;
-            let id = match repeat {
-                0 => format!("{place}/{origin}"),
-                n => format!("{place}/{origin}/{n}"),
-            };
             let has = |field| self.fields.contains(&field);
             if has(EntityField::Bbox) && self.region.is_none() {
                 bbox = bounds::bbox(&element.shape);
             }
+            let hash = if has(EntityField::Hash) {
+                Some(
+                    Hash::element_checked(element, cx)
+                        .map_err(|stop| stop_at(cx, stop))?
+                        .to_string(),
+                )
+            } else {
+                None
+            };
             self.items.push(Entity {
                 id,
                 kind: has(EntityField::Kind).then(|| kind_of(&element.shape)),
@@ -564,8 +578,13 @@ impl Page {
                         start: bytes.start,
                         end: bytes.end,
                     }),
+                    handle: match element.source.key() {
+                        Some(Key::Handle(handle)) => Some(format!("{handle:X}")),
+                        _ => None,
+                    },
                 }),
                 bbox: bbox.filter(|_| has(EntityField::Bbox)),
+                hash,
             });
         }
         Ok(())
@@ -894,7 +913,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":4}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":5}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -996,6 +1015,9 @@ mod tests {
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
         let (status, response) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
         assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/spaces/0/id"), "space/0");
+        assert_eq!(text(&response, "/result/sheets/0/id"), "sheet/0");
+        assert!(text(&response, "/result/hash").starts_with("v1:"));
         assert_eq!(text(&response, "/result/spaces/0/unit"), "millimeter");
         assert_eq!(number(&response, "/result/spaces/0/elements/lines"), "1");
         assert_eq!(number(&response, "/result/spaces/0/elements/texts"), "1");
@@ -1005,22 +1027,127 @@ mod tests {
         assert_eq!(number(&response, "/result/sheets/0/elements/lines"), "1");
         assert_eq!(number(&response, "/result/sheets/0/extent/max_x"), "410");
         assert_eq!(text(&response, "/diagnostics/0/code"), "dxf.lift.dropped");
-        // 表を作るときに 9 つのレコードごと、変換で 4 つの図形ごとに、作業を 1 つ使う
+        // 表の 9 レコード、変換の 4 図形、要約の 1 用紙に、それぞれ作業を 1 つ使う
         let (status, response) = call(
-            &mut session,
-            r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":12}}"#,
-        );
-        assert_eq!(status, Status::Failed);
-        assert_eq!(
-            text(&response, "/diagnostics/0/code"),
-            "budget.work.exceeded"
-        );
-        assert_eq!(number(&response, "/diagnostics/0/params/requested"), "13");
-        let (status, _) = call(
             &mut session,
             r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":13}}"#,
         );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&response, "/diagnostics/1/code"),
+            "budget.work.exceeded"
+        );
+        assert_eq!(number(&response, "/diagnostics/1/params/requested"), "14");
+        let (status, _) = call(
+            &mut session,
+            r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":14}}"#,
+        );
         assert_eq!(status, Status::Ok);
+    }
+
+    #[test]
+    fn duplicate_layout_handles_have_consistent_ids_across_ops() {
+        let file = |extra: &str| {
+            format!(concat!(
+            "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n",
+            "0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nBLOCK_RECORD\n",
+            "0\nBLOCK_RECORD\n5\nB1\n2\n*Paper_Space\n",
+            "0\nBLOCK_RECORD\n5\nC1\n2\n*Paper_Space0\n0\nENDTAB\n0\nENDSEC\n",
+            "0\nSECTION\n2\nBLOCKS\n",
+            "0\nBLOCK\n5\nB2\n330\nB1\n2\n*Paper_Space\n70\n0\n10\n0\n20\n0\n0\nENDBLK\n5\nB3\n330\nB1\n",
+            "0\nBLOCK\n5\nC2\n330\nC1\n2\n*Paper_Space0\n70\n0\n10\n0\n20\n0\n",
+            "0\nLINE\n5\nC3\n330\nC1\n8\n0\n67\n1\n10\n0\n20\n0\n11\n1\n21\n1\n",
+            "0\nENDBLK\n5\nC4\n330\nC1\n0\nENDSEC\n",
+            "0\nSECTION\n2\nENTITIES\n{extra}",
+            "0\nLINE\n5\nB4\n330\nB1\n8\n0\n67\n1\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n",
+            "0\nSECTION\n2\nOBJECTS\n",
+            "0\nLAYOUT\n5\nF1\n330\n1A\n100\nAcDbPlotSettings\n1\n\n100\nAcDbLayout\n1\nMain\n71\n1\n10\n0\n20\n0\n11\n10\n21\n10\n330\nB1\n",
+            "0\nLAYOUT\n5\nF1\n330\n1A\n100\nAcDbPlotSettings\n1\n\n100\nAcDbLayout\n1\nOther\n71\n2\n10\n0\n20\n0\n11\n10\n21\n10\n330\nC1\n",
+            "0\nENDSEC\n0\nEOF\n"
+        ), extra = extra).into_bytes()
+        };
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", &file("")).unwrap();
+        session
+            .push(
+                b"b.dxf",
+                &file("0\nCIRCLE\n5\nD4\n8\n0\n10\n0\n20\n0\n40\n1\n"),
+            )
+            .unwrap();
+        for doc in ["a.dxf", "b.dxf"] {
+            call(
+                &mut session,
+                &format!(r#"{{"v":1,"op":"open","input":"{doc}"}}"#),
+            );
+            let (status, drawing) = call(
+                &mut session,
+                &format!(r#"{{"v":1,"op":"drawing","doc":"{doc}"}}"#),
+            );
+            assert_eq!(status, Status::Ok);
+            assert_eq!(text(&drawing, "/result/sheets/0/id"), "sheet/hF1");
+            assert_eq!(text(&drawing, "/result/sheets/1/id"), "sheet/hF1/1");
+            let (status, entities) = call(
+                &mut session,
+                &format!(r#"{{"v":1,"op":"entities","doc":"{doc}"}}"#),
+            );
+            assert_eq!(status, Status::Ok);
+            let offset = usize::from(doc == "b.dxf");
+            assert_eq!(
+                text(&entities, &format!("/result/items/{offset}/id")),
+                "sheet/hF1/hB4"
+            );
+            assert_eq!(
+                text(&entities, &format!("/result/items/{}/id", offset + 1)),
+                "sheet/hF1/1/hC3"
+            );
+        }
+    }
+
+    #[test]
+    fn handles_keep_ids_and_hashes_when_an_element_is_added_before() {
+        const LINE: &str = "0\nLINE\n5\n2F\n8\n0\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n";
+        let drawing = |before: &str| {
+            format!("0\nSECTION\n2\nENTITIES\n{before}{LINE}0\nENDSEC\n0\nEOF\n").into_bytes()
+        };
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", &drawing("")).unwrap();
+        let circle = "0\nCIRCLE\n5\n30\n8\n0\n10\n0.0\n20\n0.0\n40\n1.0\n";
+        session.push(b"b.dxf", &drawing(circle)).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        call(&mut session, r#"{"v":1,"op":"open","input":"b.dxf"}"#);
+        let request = |doc: &str| {
+            format!(r#"{{"v":1,"op":"entities","doc":"{doc}","fields":["source","hash"]}}"#)
+        };
+        let (status, a) = call(&mut session, &request("a.dxf"));
+        assert_eq!(status, Status::Ok);
+        let (_, b) = call(&mut session, &request("b.dxf"));
+        assert_eq!(text(&a, "/result/items/0/id"), "space/0/h2F");
+        assert_eq!(text(&a, "/result/items/0/source/handle"), "2F");
+        assert_eq!(text(&b, "/result/items/0/id"), "space/0/h30");
+        assert_eq!(text(&b, "/result/items/1/id"), "space/0/h2F");
+        // 前に要素が増えて、レコードの番号がずれても、ハッシュは変わらない
+        assert_ne!(
+            number(&a, "/result/items/0/source/record"),
+            number(&b, "/result/items/1/source/record")
+        );
+        let hash = text(&a, "/result/items/0/hash");
+        assert!(hash.starts_with("v1:") && hash.len() == 35, "{hash}");
+        assert_eq!(hash, text(&b, "/result/items/1/hash"));
+        assert_ne!(hash, text(&b, "/result/items/0/hash"));
+        assert!(a.pointer("/result/items/0/kind").is_none());
+        // 文書のハッシュは、バイト列が違えば違う
+        let summary = |session: &mut Session, doc: &str| {
+            let (_, response) = call(
+                session,
+                &format!(r#"{{"v":1,"op":"drawing","doc":"{doc}"}}"#),
+            );
+            text(&response, "/result/hash")
+        };
+        let (a, b) = (
+            summary(&mut session, "a.dxf"),
+            summary(&mut session, "b.dxf"),
+        );
+        assert!(a.starts_with("v1:") && a != b, "{a} {b}");
     }
 
     #[test]
@@ -1062,15 +1189,15 @@ mod tests {
         // 返す要素 1 つごとに、作業を 1 つ使う
         let (status, response) = call(
             &mut session,
-            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":15}}"#,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":16}}"#,
         );
         assert_eq!(status, Status::Failed);
-        assert_eq!(number(&response, "/diagnostics/1/params/requested"), "16");
+        assert_eq!(number(&response, "/diagnostics/1/params/requested"), "17");
         // 止めた診断は、返そうとしていた要素の出所を場所に持つ（決定 0119）
         assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "5");
         let (status, _) = call(
             &mut session,
-            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":16}}"#,
+            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":17}}"#,
         );
         assert_eq!(status, Status::Ok);
         for request in [
