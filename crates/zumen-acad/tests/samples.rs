@@ -2538,9 +2538,10 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
 #[test]
 fn drawings_take_back_elements_added_in_the_drawing_model() {
     use zumen_drawing::{
-        Changes, Drawing2D, Edge, Edit, Element, Height, HeightMeaning, Horizontal, Inherit,
-        Length, LineWeight, ModelLength, ModelPoint, PaperLength, Placement, Polyline, Shape,
-        SpaceId, Style, Text, Vertex, Vertical,
+        Changes, Drawing2D, Edge, Edit, Element, Flow, Format, FormattedText, Height,
+        HeightMeaning, Horizontal, Inherit, Length, LineSpacing, LineWeight, ModelLength,
+        ModelPoint, PaperLength, Piece, Placement, Polyline, Rotation, Shape, SpaceId, Span, Style,
+        Text, Vertex, Vertical,
     };
     use zumen_sdk::{Apply, Error, Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
@@ -2614,6 +2615,43 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             upside_down: false,
             style: "Standard".to_owned(),
         }),
+        Shape::Formatted(FormattedText {
+            content: "zumen\\P{\\Ldrawing}".to_owned(),
+            spans: vec![
+                Span {
+                    piece: Piece::Text("zumen".to_owned()),
+                    format: Format::default(),
+                },
+                Span {
+                    piece: Piece::Paragraph,
+                    format: Format::default(),
+                },
+                Span {
+                    piece: Piece::Text("drawing".to_owned()),
+                    format: Format {
+                        underline: true,
+                        ..Format::default()
+                    },
+                },
+            ],
+            height: Height {
+                value: length(2.5),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+            },
+            point: at(6.0, 1.0),
+            horizontal: Horizontal::Right,
+            vertical: Vertical::Bottom,
+            rotation: Rotation::Direction([0.0, 1.0]),
+            width: Some(length(12.0)),
+            frame_height: None,
+            flow: Flow::LeftToRight,
+            line_spacing: LineSpacing {
+                factor: 1.5,
+                exact: true,
+            },
+            background: None,
+            style: "Standard".to_owned(),
+        }),
     ];
     let check = |path: &Path, dwg: bool, symbols: &mut usize| {
         fn read<C: Codec>(src: &[u8]) -> C::File {
@@ -2682,11 +2720,17 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             let mut diag = Diagnostics::new();
             let mut budget = Budget::default();
             let cancel = CancelToken::new();
-            file.apply(
+            let result = file.apply(
                 &Changes { edits },
                 &mut Cx::new(&mut budget, &mut diag, &cancel),
-            )
-            .unwrap();
+            );
+            assert_eq!(
+                result,
+                Ok(()),
+                "{}: {:?}",
+                path.display(),
+                diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+            );
             let written = testkit::write::<C>(&file).unwrap();
             let after = lift(&read::<C>(&written));
             let elements = &after.spaces[0].elements;
@@ -2694,9 +2738,16 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             for (found, shape) in elements[before..].iter().zip(&shapes) {
                 // 文字の体裁は、大文字と小文字を区別せずに引いた定義の名前で書く
                 let mut shape = shape.clone();
-                if let (Shape::Text(found), Shape::Text(text)) = (&found.shape, &mut shape) {
-                    assert!(found.style.eq_ignore_ascii_case(&text.style));
-                    text.style.clone_from(&found.style);
+                match (&found.shape, &mut shape) {
+                    (Shape::Text(found), Shape::Text(text)) => {
+                        assert!(found.style.eq_ignore_ascii_case(&text.style));
+                        text.style.clone_from(&found.style);
+                    }
+                    (Shape::Formatted(found), Shape::Formatted(text)) => {
+                        assert!(found.style.eq_ignore_ascii_case(&text.style));
+                        text.style.clone_from(&found.style);
+                    }
+                    _ => {}
                 }
                 assert!(
                     close(&format!("{:?}", found.shape), &format!("{shape:?}")),

@@ -8,12 +8,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Frame, nonnegative, positive, real, turned};
+use super::{Frame, contents, nonnegative, positive, real, turned};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
-use crate::drawing::{BLOCK, Home};
+use crate::drawing::{BLOCK, Home, mtext};
 use zumen_drawing::{
-    ColorSystem, Drawing2D, Edge, Element, Fit, HeightMeaning, Horizontal, Inherit, LayerId,
-    LineTypeId, LineWeight, Placement, Polyline, Shape, Symbol, Text, Vertical,
+    ColorSystem, Drawing2D, Edge, Element, Fit, Flow, FormattedText, HeightMeaning, Horizontal,
+    Inherit, LayerId, LineTypeId, LineWeight, Placement, Polyline, Rotation, Shape, Symbol, Text,
+    Vertical,
 };
 
 /// 足す図形
@@ -292,6 +293,10 @@ impl Born {
                 self.lettering(&mut values, frame, text)?;
                 b"TEXT"
             }
+            Shape::Formatted(text) => {
+                self.formatting(&mut values, frame, text)?;
+                b"MTEXT"
+            }
             Shape::Symbol(symbol) => {
                 self.placing(&mut values, frame, symbol)?;
                 b"INSERT"
@@ -379,6 +384,86 @@ impl Born {
         if vertical != 0 {
             values.push(int(73, vertical));
         }
+        Some(())
+    }
+
+    /// MTEXT（DXF Reference「MTEXT」）の値。高さの意味が MTEXT の高さ（`dxf.MTEXT.40`）で、背景を持たず、
+    /// 区間が内容を解釈し直した区間と合うものに限る。向きは、DXF では元の形（50 のラジアンか、11・21 の向き）で、
+    /// DWG では 11・21 の向きで書く。DWG に足す MTEXT は角度（50）を持てないので、0 でない角度の MTEXT は DWG に
+    /// 足さない。DWG から読む MTEXT は、どれも向きを持つ。
+    /// 枠の高さ（46）は、DWG には R2010 からだけ書き、R2010 からは、なくても 0 を書く
+    fn formatting<P>(
+        &self,
+        values: &mut Vec<Value>,
+        frame: &impl Frame<P>,
+        lettering: &FormattedText<P>,
+    ) -> Option<()> {
+        if lettering.height.meaning != HeightMeaning::Declared("dxf.MTEXT.40")
+            || lettering.background.is_some()
+            || lettering.spans != mtext::spans(&lettering.content, &|value| frame.lifted(value))
+        {
+            return None;
+        }
+        let dwg = matches!(self.target, Target::Dwg(_));
+        let style = self.named(7, b"STYLE", &lettering.style)?;
+        let row = match lettering.vertical {
+            Vertical::Top => 0,
+            Vertical::Middle => 1,
+            Vertical::Bottom => 2,
+            Vertical::Baseline => return None,
+        };
+        let column = match lettering.horizontal {
+            Horizontal::Left => 1,
+            Horizontal::Center => 2,
+            Horizontal::Right => 3,
+            Horizontal::Middle => return None,
+        };
+        let flow = match lettering.flow {
+            Flow::LeftToRight => 1,
+            Flow::TopToBottom => 3,
+            Flow::ByStyle => 5,
+        };
+        let spacing = nonzero_positive(lettering.line_spacing.factor)?;
+        values.push(text(100, "AcDbMText"));
+        point(values, frame, 10, &lettering.point)?;
+        values.push(real(40, positive(frame, &lettering.height.value)?)?);
+        let width = match &lettering.width {
+            Some(width) => positive(frame, width)?,
+            None => 0.0,
+        };
+        values.push(real(41, width)?);
+        // R2010 からの DWG は、枠の高さを必ず持ち、内容に合わせるなら 0 とする
+        let since_r2010 = self.since(b"AC1024");
+        match &lettering.frame_height {
+            Some(_) if dwg && !since_r2010 => return None,
+            Some(height) => values.push(real(46, positive(frame, height)?)?),
+            None if dwg && since_r2010 => values.push(real(46, 0.0)?),
+            None => {}
+        }
+        values.push(int(71, row * 3 + column));
+        values.push(int(72, flow));
+        values.push(text(1, ""));
+        contents(values, &lettering.content, self.unicode)?;
+        values.push(style);
+        let direction = match lettering.rotation {
+            Rotation::Direction(direction) => Some(direction),
+            // 角度を向きにするには三角関数が要るので、DWG には 0 の角度だけを、X 軸の向きとして書く
+            Rotation::Angle(angle) if dwg => (angle == 0.0).then_some([1.0, 0.0]),
+            Rotation::Angle(angle) => {
+                if angle != 0.0 {
+                    values.push(real(50, angle.to_radians())?);
+                }
+                None
+            }
+        };
+        if let Some([x, y]) = direction {
+            if [x, y] == [0.0, 0.0] {
+                return None;
+            }
+            values.extend([real(11, x)?, real(21, y)?, real(31, 0.0)?]);
+        }
+        values.push(int(73, if lettering.line_spacing.exact { 2 } else { 1 }));
+        values.push(real(44, spacing)?);
         Some(())
     }
 
