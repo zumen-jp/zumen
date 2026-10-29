@@ -420,18 +420,31 @@ fn edit(
             (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
                 Placed::Model(element) => anchor(&was.shape)
                     .and_then(|anchor| {
-                        replacement(was, element, object, unicode, &InSpace(anchor.space))
+                        let frame = InSpace(anchor.space);
+                        let (written, followers) =
+                            revalued(db, &positions, was, element, unicode, &frame)?;
+                        let values = replacement(was, &written, object, unicode, &frame)?;
+                        Some((values, followers))
                     })
-                    .map(|values| replaced.push((position, values))),
+                    .map(|(values, followers)| {
+                        replaced.push((position, values));
+                        replaced.extend(followers);
+                    }),
                 Placed::Paper(_) => None,
             },
             (Edit::Replace { element, .. }, Found::Paper(was)) => match element.as_ref() {
                 Placed::Paper(element) => anchor(&was.shape)
                     .and_then(|anchor| {
                         let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
-                        replacement(was, element, object, unicode, &frame)
+                        let (written, followers) =
+                            revalued(db, &positions, was, element, unicode, &frame)?;
+                        let values = replacement(was, &written, object, unicode, &frame)?;
+                        Some((values, followers))
                     })
-                    .map(|values| replaced.push((position, values))),
+                    .map(|(values, followers)| {
+                        replaced.push((position, values));
+                        replaced.extend(followers);
+                    }),
                 Placed::Model(_) => None,
             },
             (Edit::Restyle { style, .. }, found) => {
@@ -681,8 +694,11 @@ fn copy_value(value: &Value, cx: &mut Cx<'_>, at: &Ref) -> Result<Value, Error> 
 /// 動かした図形と、続く ATTRIB の値
 struct Moved {
     object: Vec<Value>,
-    followers: Vec<(usize, Vec<Value>)>,
+    followers: Followers,
 }
+
+/// 書き直す続くレコード（ATTRIB）の位置と値
+type Followers = Vec<(usize, Vec<Value>)>;
 
 /// 変換前に、値の走査・複製と属性のレコードの探索に必要な作業を数える。
 fn transform_work<P>(
@@ -811,6 +827,62 @@ fn moved<P: Copy + PartialEq + transform::Point>(
         object: values,
         followers,
     })
+}
+
+/// 記号の属性の値の変更を、続く ATTRIB の値（1）に書く（表題欄の項目の書き換えなど）。値のほかの欄・数・順は
+/// 変えられない。書式つきの値（複数行の属性）を持つ属性の値も変えられない。INSERT は元の属性のまま書くので、
+/// 元の属性に戻した要素と、書き直す ATTRIB を返す。属性の値が変わらなければ、要素をそのまま返す
+fn revalued<P: Clone + PartialEq>(
+    db: &AcadDb,
+    positions: &BTreeMap<Ref, usize>,
+    was: &Element<P>,
+    element: &Element<P>,
+    unicode: bool,
+    frame: &impl Frame<P>,
+) -> Option<(Element<P>, Followers)> {
+    let (Shape::Symbol(symbol), Shape::Symbol(original)) = (&element.shape, &was.shape) else {
+        return Some((element.clone(), Vec::new()));
+    };
+    if symbol.attributes == original.attributes {
+        return Some((element.clone(), Vec::new()));
+    }
+    if symbol.attributes.len() != original.attributes.len() {
+        return None;
+    }
+    let mut followers = Vec::new();
+    for (attribute, before) in symbol.attributes.iter().zip(&original.attributes) {
+        if attribute == before {
+            continue;
+        }
+        let mut same = attribute.clone();
+        same.text.content.clone_from(&before.text.content);
+        if same != *before || before.formatted.is_some() {
+            return None;
+        }
+        let position = *positions.get(&before.source)?;
+        let follower = db.objects().get(position)?;
+        if follower.kind != b"ATTRIB" {
+            return None;
+        }
+        let mut values = follower.values.clone();
+        lettering(
+            &mut values,
+            &attribute.text,
+            &before.text,
+            frame,
+            unicode,
+            74,
+        )?;
+        followers.push((position, values));
+    }
+    let written = Element {
+        shape: Shape::Symbol(Symbol {
+            attributes: original.attributes.clone(),
+            ..symbol.clone()
+        }),
+        ..element.clone()
+    };
+    Some((written, followers))
 }
 
 /// 位置合わせされた文字の、基点からの相対位置を保つ第1点も変換する。

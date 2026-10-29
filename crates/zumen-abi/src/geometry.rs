@@ -986,14 +986,25 @@ pub(crate) fn shape_of<P: Spot>(
                     if counts(&grid) != counts(&old.grid) {
                         return Err("geometry/grid".to_string());
                     }
-                    // 属性の値は、置き換えでは変えられない
-                    if let Some(attributes) = &symbol.attributes
-                        && (attributes.len() != old.attributes.len()
-                            || attributes.iter().zip(&old.attributes).any(|(new, was)| {
-                                new.tag != was.tag || new.value != was.text.content
-                            }))
-                    {
-                        return Err("geometry/attributes".to_string());
+                    // 属性は、数・順・タグを変えず、値だけを変えられる（表題欄の項目の書き換えなど）。
+                    // 値は 1 行で、書式つきの値（複数行の属性）を持つ属性の値は変えない
+                    let mut attributes = old.attributes.clone();
+                    if let Some(given) = &symbol.attributes {
+                        if given.len() != old.attributes.len() {
+                            return Err("geometry/attributes".to_string());
+                        }
+                        for (index, (new, was)) in given.iter().zip(&mut attributes).enumerate() {
+                            if new.tag != was.tag {
+                                return Err(format!("geometry/attributes/{index}/tag"));
+                            }
+                            if new.value == was.text.content {
+                                continue;
+                            }
+                            if new.value.contains(['\n', '\r']) || was.formatted.is_some() {
+                                return Err(format!("geometry/attributes/{index}/value"));
+                            }
+                            was.text.content.clone_from(&new.value);
+                        }
                     }
                     if !old.attributes.is_empty()
                         && (position != old.position
@@ -1007,6 +1018,7 @@ pub(crate) fn shape_of<P: Spot>(
                         scale,
                         rotation,
                         grid,
+                        attributes,
                         ..old.clone()
                     }
                 }
