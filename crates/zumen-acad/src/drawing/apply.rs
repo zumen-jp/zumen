@@ -14,9 +14,9 @@ use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
-    Inherit, Layer, LayerId, Length, LineType, ModelLength, ModelPoint, PaperLength, PaperPoint,
-    Placed, Placement, Polyline, Restyle, Rotation, Shape, SheetId, SpaceId, Spline, Style, Symbol,
-    Text, TextStyle, Vertical, id, transform,
+    Inherit, Layer, LayerId, Length, LineType, MarkContent, ModelLength, ModelPoint, PaperLength,
+    PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Shape, SheetId, SpaceId, Spline,
+    Style, Symbol, Text, TextStyle, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -662,6 +662,7 @@ fn edit(
                 line_type: new,
             } => {
                 work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                count_line_type_change(new, cx)?;
                 let Some(&was) = index.line_types.get(&target_of.id) else {
                     missing(&target_of.id, cx);
                     rejected = true;
@@ -804,6 +805,7 @@ fn edit(
             }
             Edit::AddLineType { line_type: new } => {
                 work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                count_line_type_change(new, cx)?;
                 // 定義のない線種は表の後に並ぶため、表への追加でその ID がずれる。
                 work(cx, drawing.line_types.len() as u64, &Ref::default())?;
                 let unstable = drawing
@@ -1657,6 +1659,33 @@ fn count_transform_values(object: &Object, at: &Ref, cx: &mut Cx<'_>) -> Result<
         };
         for _ in (0..bytes).step_by(1024) {
             work(cx, 1, at)?;
+        }
+    }
+    Ok(())
+}
+
+/// 呼び出し側が渡した線種の、列と文字列を検査・複製する作業を数える。
+fn count_line_type_change(line_type: &LineType, cx: &mut Cx<'_>) -> Result<(), Error> {
+    let at = Ref::default();
+    let Some(definition) = &line_type.definition else {
+        return Ok(());
+    };
+    work(cx, 1 + definition.description.len() as u64 / 1024, &at)?;
+    work(cx, definition.pattern.len() as u64, &at)?;
+    for mark in &definition.marks {
+        work(cx, 1, &at)?;
+        match &mark.content {
+            MarkContent::Text { content, style } => {
+                work(cx, 1 + content.len() as u64 / 1024, &at)?;
+                if let Some(style) = style {
+                    work(cx, 1 + style.len() as u64 / 1024, &at)?;
+                }
+            }
+            MarkContent::Shape { font, .. } => {
+                if let Some(font) = font {
+                    work(cx, 1 + font.name.len() as u64 / 1024, &at)?;
+                }
+            }
         }
     }
     Ok(())

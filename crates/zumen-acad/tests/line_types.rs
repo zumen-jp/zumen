@@ -464,3 +464,87 @@ fn line_type_renames_count_record_values_and_stop_without_changing_the_file() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(written, enlarged.as_bytes());
 }
+
+#[test]
+fn line_type_changes_count_input_before_writing_and_stop_without_changes() {
+    use zumen_base::{Kind, Limit, Limits};
+
+    let input = src();
+    let drawing = lift(&testkit::read::<Dxf>(&input).0.unwrap());
+    let mut base = line_type(&drawing, "Dashed").clone();
+    base.name = "Added".to_owned();
+    let mut missing = seen(&drawing, "Dashed");
+    missing.id = "line-type/hFFFF".to_owned();
+    let run = |item: LineType, limit: Option<u64>| {
+        let mut file = testkit::read::<Dxf>(&input).0.unwrap();
+        let changes = Changes {
+            edits: vec![
+                Edit::AddLineType {
+                    line_type: Box::new(item),
+                },
+                Edit::RemoveLineType {
+                    target: missing.clone(),
+                },
+            ],
+            document: None,
+        };
+        let limits = limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        });
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let result = file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (
+            result,
+            budget.used(Kind::Work),
+            testkit::write::<Dxf>(&file).unwrap(),
+        )
+    };
+    let (result, small, _) = run(base.clone(), None);
+    assert!(matches!(result, Err(Error::Rejected)));
+    for large in [
+        {
+            let mut item = base.clone();
+            item.definition.as_mut().unwrap().pattern = vec![1.0; 8192];
+            item
+        },
+        {
+            let mut item = base.clone();
+            item.definition.as_mut().unwrap().description = "A".repeat(8192);
+            item
+        },
+    ] {
+        let (result, used, _) = run(large.clone(), None);
+        assert!(matches!(result, Err(Error::Rejected)));
+        assert!(used >= small + 8, "{small}, {used}");
+        let (result, _, written) = run(large, Some(small + 1));
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(written, input);
+    }
+}
+
+#[test]
+fn line_type_changes_preserve_unread_dash_values() {
+    let input = String::from_utf8(src()).unwrap().replacen(
+        " 49\n0.5\n 74\n0\n",
+        " 49\n0.5\n 74\n0\n  9\nKEEP\n",
+        1,
+    );
+    let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let mut changed = line_type(&drawing, "Dashed").clone();
+    changed.definition.as_mut().unwrap().pattern = vec![0.75, -0.25];
+    let (result, _) = apply(&mut file, vec![Edit::ReplaceLineType {
+        target: seen(&drawing, "Dashed"), line_type: Box::new(changed),
+    }]);
+    if result.is_ok() {
+        let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+        assert!(written.contains("  9\nKEEP\n"));
+    } else {
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
+    }
+}
