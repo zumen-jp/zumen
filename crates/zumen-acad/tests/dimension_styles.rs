@@ -206,6 +206,33 @@ fn dimension_styles_are_renamed_and_redefined() {
 }
 
 #[test]
+fn dimension_style_changes_do_not_bind_existing_undefined_references() {
+    let input = String::from_utf8(src())
+        .unwrap()
+        .replace("  3\nArch\n 10\n", "  3\nMissing\n 10\n");
+    let drawing = lift(&testkit::read::<Dxf>(input.as_bytes()).0.unwrap());
+    let mut renamed = style(&drawing, "Unused").1.clone();
+    renamed.name = "Missing".to_owned();
+    let mut added = style(&drawing, "Standard").1.clone();
+    added.name = "Missing".to_owned();
+    for edit in [
+        Edit::ReplaceDimensionStyle {
+            target: seen(&drawing, "Unused"),
+            style: Box::new(renamed),
+        },
+        Edit::AddDimensionStyle {
+            style: Box::new(added),
+        },
+    ] {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let (result, found) = apply(&mut file, vec![edit]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(found, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
+    }
+}
+
+#[test]
 fn dimension_styles_are_added_and_removed() {
     let mut file = testkit::read::<Dxf>(&src()).0.unwrap();
     let drawing = lift(&file);

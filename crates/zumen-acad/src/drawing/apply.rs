@@ -962,6 +962,23 @@ fn edit(
                     }
                     None => false,
                 };
+                let new_name_used = match found {
+                    Some((_, object)) if target == Target::Dxf => {
+                        match (object.first(2), born.text_value(2, &new.name)) {
+                            (
+                                Some(Data::Text(old)),
+                                Some(Value {
+                                    data: Data::Text(name),
+                                    ..
+                                }),
+                            ) if !old.eq_ignore_ascii_case(&name) => {
+                                dimension_style::name_in_use(db, &name, cx, &was.source)?
+                            }
+                            _ => false,
+                        }
+                    }
+                    _ => false,
+                };
                 let planned = found.and_then(|(position, object)| {
                     let mut values = object.values.clone();
                     dimension_style::write(&born, &mut values, new, Some((object, was)), blocks)?;
@@ -976,7 +993,8 @@ fn edit(
                         // 寸法などでないオブジェクトが名前で指していないこと
                         let free = !dimension_style_names.contains(&name.to_ascii_lowercase())
                             && !dimension_style::has_children(dimension_style_names.iter(), old)
-                            && !named;
+                            && !named
+                            && !new_name_used;
                         free.then_some(())?;
                         dimension_style_names.remove(&old.to_ascii_lowercase());
                         dimension_style_names.insert(name.to_ascii_lowercase());
@@ -1061,6 +1079,17 @@ fn edit(
             }
             Edit::AddDimensionStyle { style: new } => {
                 work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                let new_name_used = if target == Target::Dxf {
+                    match born.text_value(2, &new.name) {
+                        Some(Value {
+                            data: Data::Text(name),
+                            ..
+                        }) => dimension_style::name_in_use(db, &name, cx, &Ref::default())?,
+                        _ => false,
+                    }
+                } else {
+                    false
+                };
                 count_table_records(db, dimension_styles, &Ref::default(), cx)?;
                 // Standard を写す。なければ、表の初めの子でない寸法スタイルを写す
                 let named = |want: &dyn Fn(&[u8]) -> bool| {
@@ -1085,7 +1114,8 @@ fn edit(
                         return None;
                     };
                     let name = name.to_ascii_lowercase();
-                    ((target != Target::Dxf || layer::table_end(db, b"DIMSTYLE").is_some())
+                    (!new_name_used
+                        && (target != Target::Dxf || layer::table_end(db, b"DIMSTYLE").is_some())
                         && dimension_style_names.insert(name))
                     .then_some(values)
                 });

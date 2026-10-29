@@ -161,6 +161,34 @@ fn may_name(object: &Object) -> bool {
     !is_dimension_style(object) && object.kind != b"DICTIONARY"
 }
 
+/// まだ表にない名前を図形や見出しが指しているか。新しい定義で既存の参照を変えないために調べる。
+pub(super) fn name_in_use(db: &AcadDb, name: &[u8], cx: &mut Cx, at: &Ref) -> Result<bool, Error> {
+    for object in db.objects() {
+        work(cx, 1, at)?;
+        if may_name(object) {
+            count_transform_values(object, at, cx)?;
+            if object.values.iter().any(|value| names(value, 3, name)) {
+                return Ok(true);
+            }
+        }
+    }
+    for (variable, values) in db.variables() {
+        for value in values {
+            let bytes = match &value.data {
+                Data::Text(bytes) | Data::Binary(bytes) => bytes.len(),
+                _ => 0,
+            };
+            work(cx, 1 + bytes as u64 / 1024, at)?;
+        }
+        if variable.eq_ignore_ascii_case(b"$DIMSTYLE")
+            && values.iter().any(|value| names(value, 2, name))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// DXF の寸法・引出線・公差と寸法スタイルのレコードでないオブジェクトが、寸法スタイルの名前と同じ文字列（3）を
 /// 持つか。3 はほかの意味にも使われるので、名前で指すかどうか分からないものも、指すとみなす
 pub(super) fn named_elsewhere(
