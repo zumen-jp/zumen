@@ -493,17 +493,6 @@ impl Session {
 
     /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
     fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
-        // SXF は SFC だけに書き戻す（決定 0167）。変換の診断より先に断る
-        let unsupported = match self.docs.get(&request.doc) {
-            Some(Doc::Sxf(file)) if file.mode() != zumen_sxf::Mode::Sfc => Some("sxf (P21)"),
-            _ => None,
-        };
-        if let Some(format) = unsupported {
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CHANGE_FORMAT_UNSUPPORTED).with("format", format),
-            ));
-        }
         let drawing = self.lift(&request.doc, cx)?;
         // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを境界で判定できないため、
         // 安全に属性を作れない記号の追加は拒否する。
@@ -2249,7 +2238,7 @@ fn capabilities() -> CapabilitiesResult {
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
         // ID の規則の版。AutoCAD の系統はハンドルで、SXF はインスタンスの番号で ID を作る 2（決定 0156）
-        // 書けるのは、apply で書き戻せる形式（決定 0139）。SXF は SFC だけに書き戻す（決定 0167）
+        // 書けるのは、apply で書き戻せる形式（決定 0139）。SXF は SFC と P21 に書き戻す（決定 0167・0169）
         formats: [
             (Dxf::FORMAT, "acad", true, 2),
             (Dwg::FORMAT, "acad", true, 2),

@@ -564,7 +564,7 @@ fn edits_that_cannot_be_written_change_nothing() {
 }
 
 #[test]
-fn a_stale_document_and_p21_are_refused() {
+fn a_stale_document_is_refused() {
     let src = src();
     let mut file = read(&src);
     let drawing = lift(&file);
@@ -584,12 +584,6 @@ fn a_stale_document_and_p21_are_refused() {
             .any(|d| d.code() == codes::CHANGE_DOCUMENT_STALE)
     );
     assert_eq!(write(&file), src);
-
-    let p21 = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=CARTESIAN_POINT('',(0.,0.));\nENDSEC;\nEND-ISO-10303-21;\n";
-    let mut file = read(p21);
-    let (result, diag) = apply(&mut file, Vec::new());
-    assert_eq!(result, Err(Error::Rejected));
-    assert_eq!(diag, vec![codes::CHANGE_FORMAT_UNSUPPORTED]);
 }
 
 #[test]

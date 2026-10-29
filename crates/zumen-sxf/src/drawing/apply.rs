@@ -15,14 +15,14 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift};
 
+mod p21;
+
 use super::{
     Args, FeatureRecord, LINE_TYPES, PREDEFINED_COLORS, USER_LINE_TYPE, USER_WIDTH, WIDTHS,
     sfc_records, work,
 };
+use crate::p21::records as p21_records;
 use crate::{Marker, Mode, Quote, Sxf, SxfFile, Value};
-
-/// 診断に書く形式の名前
-const FORMAT: &str = "SFC";
 
 /// レイヤ・色・線種・線幅のコードを引数の 0〜3 に持ち、スタイルを変えられるフィーチャ
 const STYLED: [&str; 8] = [
@@ -66,14 +66,12 @@ const REMOVABLE: [&str; 20] = [
 impl Apply<Changes> for SxfFile {
     type Output = Vec<Applied>;
 
-    /// SFC だけに当てる。P21 は、実体が互いを参照で指すので、まだ書き戻さない
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
-        if self.mode() != Mode::Sfc {
-            cx.report(
-                Diagnostic::new(codes::CHANGE_FORMAT_UNSUPPORTED).with("format", "sxf (P21)"),
-            );
-            return Err(Error::Rejected);
-        }
+        // 診断に書く形式の名前
+        let format = match self.mode() {
+            Mode::Sfc => "SFC",
+            Mode::P21 => "P21",
+        };
         // 変えていないファイルは元のバイトのまま書くので、元のバイト列のハッシュと比べる
         let current = match changes.document {
             None => true,
@@ -88,18 +86,31 @@ impl Apply<Changes> for SxfFile {
                 same
             }
         };
-        // フィーチャの引数を取り出す作業を、バイト数に応じて数える。
-        work(cx, (self.src.len() as u64).div_ceil(1024), &Ref::default())?;
-        let records = sfc_records(self);
+        // SFC のフィーチャの引数を取り出す作業を、バイト数に応じて数える。
+        if self.mode() == Mode::Sfc {
+            work(cx, (self.src.len() as u64).div_ceil(1024), &Ref::default())?;
+        }
         // 変換の診断は、書き戻しの診断に混ぜない
         let mut quiet = Diagnostics::new();
+        let records = match self.mode() {
+            Mode::Sfc => sfc_records(self),
+            Mode::P21 => p21_records(self, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?,
+        };
         let drawing = self.lift(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
         let before = Index::new(&drawing, cx)?;
         let tables = Tables::new(&records, &drawing, cx)?;
         let grouped = grouped(&records, cx)?;
         // 改行の種類を調べるため、元のバイト列を走査する。
         work(cx, (self.src.len() as u64).div_ceil(1024), &Ref::default())?;
-        let mut plan = Plan::new(self, &records);
+        let writer: Box<dyn Writer> = match self.mode() {
+            Mode::Sfc => Box::new(Sfc::new(self, &records)),
+            Mode::P21 => Box::new(p21::P21::new(
+                self,
+                crate::p21::codes(self, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?,
+                tables.widths.clone(),
+            )),
+        };
+        let mut plan = Plan::new(&records, writer);
         let mut expected = Vec::new();
         let mut targets = BTreeSet::new();
         let mut rejected = false;
@@ -107,29 +118,31 @@ impl Apply<Changes> for SxfFile {
             work(cx, 1, &Ref::default())?;
             let result = match change {
                 Edit::Remove { target } => {
-                    let Some(found) = target_of(&before, target, &mut targets, "remove", cx)?
+                    let Some(found) =
+                        target_of(&before, target, &mut targets, (format, "remove"), cx)?
                     else {
                         rejected = true;
                         continue;
                     };
                     let record = plan.record(found.record);
                     let name = record.map(|record| record.name.to_ascii_lowercase());
-                    match name {
-                        Some(name)
-                            if REMOVABLE.contains(&name.as_str())
-                                && !grouped.contains(&found.record) =>
-                        {
-                            plan.remove(found.record);
-                            Some(Expected::Removed(found.instance))
-                        }
-                        _ => {
-                            cx.report(unsupported("remove", &found.kind(&plan)).at(found.source()));
+                    let removed = name.filter(|name| {
+                        REMOVABLE.contains(&name.as_str()) && !grouped.contains(&found.record)
+                    });
+                    match removed.and_then(|_| plan.remove(found.record)) {
+                        Some(()) => Some(Expected::Removed(found.instance)),
+                        None => {
+                            cx.report(
+                                unsupported(format, "remove", &found.kind(&plan))
+                                    .at(found.source()),
+                            );
                             None
                         }
                     }
                 }
                 Edit::Restyle { target, style } => {
-                    let Some(found) = target_of(&before, target, &mut targets, "restyle", cx)?
+                    let Some(found) =
+                        target_of(&before, target, &mut targets, (format, "restyle"), cx)?
                     else {
                         rejected = true;
                         continue;
@@ -145,13 +158,15 @@ impl Apply<Changes> for SxfFile {
                         .map(|()| Expected::Element(found.instance, Box::new(element)))
                         .or_else(|| {
                             cx.report(
-                                unsupported("restyle", &found.kind(&plan)).at(found.source()),
+                                unsupported(format, "restyle", &found.kind(&plan))
+                                    .at(found.source()),
                             );
                             None
                         })
                 }
                 Edit::Replace { target, element } => {
-                    let Some(found) = target_of(&before, target, &mut targets, "replace", cx)?
+                    let Some(found) =
+                        target_of(&before, target, &mut targets, (format, "replace"), cx)?
                     else {
                         rejected = true;
                         continue;
@@ -181,13 +196,15 @@ impl Apply<Changes> for SxfFile {
                         })
                         .or_else(|| {
                             cx.report(
-                                unsupported("replace", &found.kind(&plan)).at(found.source()),
+                                unsupported(format, "replace", &found.kind(&plan))
+                                    .at(found.source()),
                             );
                             None
                         })
                 }
                 Edit::Transform { target, transform } => {
-                    let Some(found) = target_of(&before, target, &mut targets, "transform", cx)?
+                    let Some(found) =
+                        target_of(&before, target, &mut targets, (format, "transform"), cx)?
                     else {
                         rejected = true;
                         continue;
@@ -202,7 +219,8 @@ impl Apply<Changes> for SxfFile {
                         })
                         .or_else(|| {
                             cx.report(
-                                unsupported("transform", &found.kind(&plan)).at(found.source()),
+                                unsupported(format, "transform", &found.kind(&plan))
+                                    .at(found.source()),
                             );
                             None
                         })
@@ -223,30 +241,34 @@ impl Apply<Changes> for SxfFile {
                             Expected::Element(instance, Box::new(Placed::Paper(element)))
                         })
                         .or_else(|| {
-                            cx.report(unsupported("add", kind_of(element)));
+                            cx.report(unsupported(format, "add", kind_of(element)));
                             None
                         })
                 }
                 Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
-                    cx.report(unsupported(edit_name(change), "layer_feature"));
+                    cx.report(unsupported(format, edit_name(change), "layer_feature"));
                     None
                 }
                 Edit::ReplaceTextStyle { .. }
                 | Edit::AddTextStyle { .. }
                 | Edit::RemoveTextStyle { .. } => {
-                    cx.report(unsupported(edit_name(change), "text_font_feature"));
+                    cx.report(unsupported(format, edit_name(change), "text_font_feature"));
                     None
                 }
                 Edit::ReplaceLineType { .. }
                 | Edit::AddLineType { .. }
                 | Edit::RemoveLineType { .. } => {
-                    cx.report(unsupported(edit_name(change), "user_defined_font_feature"));
+                    cx.report(unsupported(
+                        format,
+                        edit_name(change),
+                        "user_defined_font_feature",
+                    ));
                     None
                 }
                 Edit::ReplaceDimensionStyle { .. }
                 | Edit::AddDimensionStyle { .. }
                 | Edit::RemoveDimensionStyle { .. } => {
-                    cx.report(unsupported(edit_name(change), "dimension_style"));
+                    cx.report(unsupported(format, edit_name(change), "dimension_style"));
                     None
                 }
             };
@@ -266,7 +288,7 @@ impl Apply<Changes> for SxfFile {
             Ok(updated) => updated,
             Err(Error::Stopped(stop)) => return Err(Error::Stopped(stop)),
             Err(_) => {
-                cx.report(unsupported("apply", "round_trip"));
+                cx.report(unsupported(format, "apply", "round_trip"));
                 return Err(Error::Rejected);
             }
         };
@@ -278,7 +300,7 @@ impl Apply<Changes> for SxfFile {
             let found = match expected {
                 Expected::Removed(instance) => {
                     if after.instances.contains_key(instance) {
-                        cx.report(unsupported(edit, "round_trip"));
+                        cx.report(unsupported(format, edit, "round_trip"));
                         return Err(Error::Rejected);
                     }
                     applied.push(Applied {
@@ -287,12 +309,14 @@ impl Apply<Changes> for SxfFile {
                     });
                     continue;
                 }
-                Expected::Element(instance, element) => after
-                    .found(*instance)
-                    .filter(|found| found.element.same(element)),
+                Expected::Element(instance, element) => after.found(*instance).filter(|found| {
+                    // P21 の円弧の角度は、ラジアンで書いて度で読むので、最後の桁が違いうる
+                    found.element.same(element)
+                        || (self.mode() == Mode::P21 && found.element.near(element))
+                }),
             };
             let Some(found) = found else {
-                cx.report(unsupported(edit, "round_trip"));
+                cx.report(unsupported(format, edit, "round_trip"));
                 return Err(Error::Rejected);
             };
             applied.push(Applied {
@@ -321,7 +345,7 @@ impl Apply<Changes> for SxfFile {
             };
             if !kept {
                 let at = before.found(*instance).map(|was| was.source());
-                cx.report(unsupported("apply", "round_trip").at(at.unwrap_or_default()));
+                cx.report(unsupported(format, "apply", "round_trip").at(at.unwrap_or_default()));
                 return Err(Error::Rejected);
             }
         }
@@ -372,11 +396,11 @@ fn edit_name(edit: &Edit) -> &'static str {
 }
 
 /// 当てられない変更の診断
-fn unsupported(edit: &str, kind: &str) -> Diagnostic {
+fn unsupported(format: &str, edit: &str, kind: &str) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
         .with("edit", edit)
         .with("kind", kind)
-        .with("format", FORMAT)
+        .with("format", format)
 }
 
 /// 足す要素のフィーチャの種類
@@ -404,7 +428,7 @@ fn target_of<'a>(
     index: &Index<'a>,
     seen: &Seen,
     targets: &mut BTreeSet<u64>,
-    edit: &str,
+    (format, edit): (&str, &str),
     cx: &mut Cx,
 ) -> Result<Option<Found<'a>>, Error> {
     let Some(&element) = index.elements.get(&seen.id) else {
@@ -425,7 +449,7 @@ fn target_of<'a>(
     };
     // 1 つのフィーチャから複数の要素ができたもの（作図グループの展開など）は、1 つだけを書き戻せない
     let Some((found, record)) = found.filter(|(found, _)| targets.insert(found.instance)) else {
-        cx.report(unsupported(edit, "shared").at(source.clone()));
+        cx.report(unsupported(format, edit, "shared").at(source.clone()));
         return Ok(None);
     };
     Ok(Some(Found { record, ..found }))
@@ -479,6 +503,47 @@ impl<'a> Any<'a> {
         match (self, placed) {
             (Any::Model(a), Placed::Model(b)) => same(a, b),
             (Any::Paper(a), Placed::Paper(b)) => same(a, b),
+            _ => false,
+        }
+    }
+
+    /// 出所を除いて、円弧の角度のほかは同じ値で、角度が近いか
+    fn near(&self, placed: &Placed) -> bool {
+        fn near<P: PartialEq>(a: &Element<P>, b: &Element<P>) -> bool {
+            let shape = match (&a.shape, &b.shape) {
+                (
+                    Shape::Curve(Edge::Arc {
+                        center,
+                        radius,
+                        start,
+                        end,
+                        counterclockwise,
+                    }),
+                    Shape::Curve(Edge::Arc {
+                        center: center_b,
+                        radius: radius_b,
+                        start: start_b,
+                        end: end_b,
+                        counterclockwise: counterclockwise_b,
+                    }),
+                ) => {
+                    let angle = |a: f64, b: f64| {
+                        let turn = (a - b).rem_euclid(360.0);
+                        turn.min(360.0 - turn) <= 1e-9 * a.abs().max(b.abs()).max(1.0)
+                    };
+                    center == center_b
+                        && radius == radius_b
+                        && counterclockwise == counterclockwise_b
+                        && angle(*start, *start_b)
+                        && angle(*end, *end_b)
+                }
+                (a, b) => a == b,
+            };
+            a.layer == b.layer && a.style == b.style && shape
+        }
+        match (self, placed) {
+            (Any::Model(a), Placed::Model(b)) => near(a, b),
+            (Any::Paper(a), Placed::Paper(b)) => near(a, b),
             _ => false,
         }
     }
@@ -829,53 +894,35 @@ fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet<usize>, Er
     Ok(grouped)
 }
 
+/// 書き方。SFC はフィーチャのコメントを、P21 は実体を書き直す
+trait Writer {
+    /// レイヤ・色・線種・線幅のうち、変わったもののコード（引数の 0〜3）を書く
+    fn codes(&mut self, record: usize, codes: &[(usize, i64)]) -> Option<()>;
+    /// 形を書く。種類は変えない
+    fn shape(&mut self, record: usize, args: &Arguments) -> Option<()>;
+    /// 要素を除く
+    fn remove(&mut self, record: usize) -> Option<()>;
+    /// 用紙に要素を足し、足したインスタンスの番号を返す。引数は、レイヤ・色・線種・線幅のコードも持つ
+    fn add(&mut self, args: &Arguments) -> Option<u64>;
+    /// 書き直したバイト列
+    fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error>;
+}
+
 /// 元のバイト列への書き直し
 struct Plan<'f> {
-    file: &'f SxfFile,
     /// レコードの番号から、そのフィーチャ
     records: BTreeMap<usize, &'f FeatureRecord>,
-    /// 書き直す範囲と、新しいバイト列。足すものは空の範囲
-    patches: Vec<(Range<usize>, Vec<u8>)>,
-    /// 次に足すインスタンスの番号
-    next: u64,
-    /// 足す所と、その印。用紙のフィーチャの前か、最後のフィーチャの後
-    insert: Option<(usize, Marker, bool)>,
-    newline: &'static str,
+    writer: Box<dyn Writer + 'f>,
 }
 
 impl<'f> Plan<'f> {
-    fn new(file: &'f SxfFile, records: &'f [FeatureRecord]) -> Self {
-        let next = file
-            .records()
-            .iter()
-            .filter_map(|record| record.id())
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
-        let sheet = records
-            .iter()
-            .find(|record| record.name.eq_ignore_ascii_case("drawing_sheet"))
-            .and_then(|record| file.records().get(record.record))
-            .and_then(|record| Some((record.span().start, record.marker()?, true)));
-        let last = records
-            .last()
-            .and_then(|record| file.records().get(record.record))
-            .and_then(|record| Some((record.span().end, record.marker()?, false)));
-        let newline = if file.src.windows(2).any(|pair| pair == b"\r\n") {
-            "\r\n"
-        } else {
-            "\n"
-        };
+    fn new(records: &'f [FeatureRecord], writer: Box<dyn Writer + 'f>) -> Self {
         Plan {
-            file,
             records: records
                 .iter()
                 .map(|record| (record.record, record))
                 .collect(),
-            patches: Vec::new(),
-            next,
-            insert: sheet.or(last),
-            newline,
+            writer,
         }
     }
 
@@ -883,37 +930,11 @@ impl<'f> Plan<'f> {
         self.records.get(&record).copied()
     }
 
-    /// フィーチャのコメントを、後の改行とともに除く
-    fn remove(&mut self, record: usize) {
-        let Some(span) = self.file.records().get(record).map(crate::Record::span) else {
-            return;
-        };
-        let rest = self.file.bytes(span.end..self.file.src.len());
-        let end = span.end
-            + if rest.starts_with(b"\r\n") {
-                2
-            } else {
-                usize::from(rest.starts_with(b"\n"))
-            };
-        self.patches.push((span.start..end, Vec::new()));
+    fn remove(&mut self, record: usize) -> Option<()> {
+        self.writer.remove(record)
     }
 
-    /// 引数の値の範囲を書き直す。囲まない値か、`'…'` で囲んだ値だけ
-    fn argument(&mut self, record: usize, at: usize, text: &str) -> Option<()> {
-        let part = self.file.records().get(record)?.parts().first()?;
-        let range = match part.args().get(at)? {
-            Value::Text {
-                raw,
-                quote: Quote::Plain,
-            }
-            | Value::Token(raw) => raw.clone(),
-            _ => return None,
-        };
-        self.patches.push((range, text.as_bytes().to_vec()));
-        Some(())
-    }
-
-    /// レイヤとスタイルのうち、変わったものの引数（0〜3）を書き直す
+    /// レイヤとスタイルのうち、変わったもののコードを書く
     fn styled(
         &mut self,
         found: &Found,
@@ -951,13 +972,13 @@ impl<'f> Plan<'f> {
         if style.line_weight != was.line_weight {
             codes.push((3, tables.width(style.line_weight?)?));
         }
-        for (at, code) in codes {
-            self.argument(found.record, at, &code.to_string())?;
+        if codes.is_empty() {
+            return Some(());
         }
-        Some(())
+        self.writer.codes(found.record, &codes)
     }
 
-    /// 形の引数を書き直す。種類は変えない
+    /// 形を書く。種類は変えない
     fn shaped(&mut self, found: &Found, element: &Placed, grouped: &BTreeSet<usize>) -> Option<()> {
         let name = self.record(found.record)?.name.to_ascii_lowercase();
         if !SHAPED.contains(&name.as_str()) || grouped.contains(&found.record) {
@@ -970,10 +991,7 @@ impl<'f> Plan<'f> {
         if args.name != name {
             return None;
         }
-        for (at, text) in args.values.iter().enumerate().skip(4) {
-            self.argument(found.record, at, text)?;
-        }
-        Some(())
+        self.writer.shape(found.record, &args)
     }
 
     /// 用紙に要素を足す。足したインスタンスの番号と、読み直したときの要素を返す
@@ -999,6 +1017,94 @@ impl<'f> Plan<'f> {
         for (at, code) in codes.iter().enumerate() {
             *args.values.get_mut(at)? = code.to_string();
         }
+        let instance = self.writer.add(&args)?;
+        Some((instance, element))
+    }
+
+    fn bytes(self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        self.writer.bytes(src, cx)
+    }
+}
+
+/// SFC の書き方。引数の値の範囲を書き直し、フィーチャのコメントを除くか足す
+struct Sfc<'f> {
+    file: &'f SxfFile,
+    /// 書き直す範囲と、新しいバイト列。足すものは空の範囲
+    patches: Vec<(Range<usize>, Vec<u8>)>,
+    /// 次に足すインスタンスの番号
+    next: u64,
+    /// 足す所と、その印。用紙のフィーチャの前か、最後のフィーチャの後
+    insert: Option<(usize, Marker, bool)>,
+    newline: &'static str,
+}
+
+impl<'f> Sfc<'f> {
+    fn new(file: &'f SxfFile, records: &[FeatureRecord]) -> Self {
+        let next = file
+            .records()
+            .iter()
+            .filter_map(|record| record.id())
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let sheet = records
+            .iter()
+            .find(|record| record.name.eq_ignore_ascii_case("drawing_sheet"))
+            .and_then(|record| file.records().get(record.record))
+            .and_then(|record| Some((record.span().start, record.marker()?, true)));
+        let last = records
+            .last()
+            .and_then(|record| file.records().get(record.record))
+            .and_then(|record| Some((record.span().end, record.marker()?, false)));
+        Sfc {
+            file,
+            patches: Vec::new(),
+            next,
+            insert: sheet.or(last),
+            newline: newline(&file.src),
+        }
+    }
+
+    /// 引数の値の範囲を書き直す。囲まない値か、`'…'` で囲んだ値だけ
+    fn argument(&mut self, record: usize, at: usize, text: &str) -> Option<()> {
+        let part = self.file.records().get(record)?.parts().first()?;
+        let range = match part.args().get(at)? {
+            Value::Text {
+                raw,
+                quote: Quote::Plain,
+            }
+            | Value::Token(raw) => raw.clone(),
+            _ => return None,
+        };
+        self.patches.push((range, text.as_bytes().to_vec()));
+        Some(())
+    }
+}
+
+impl Writer for Sfc<'_> {
+    fn codes(&mut self, record: usize, codes: &[(usize, i64)]) -> Option<()> {
+        for (at, code) in codes {
+            self.argument(record, *at, &code.to_string())?;
+        }
+        Some(())
+    }
+
+    fn shape(&mut self, record: usize, args: &Arguments) -> Option<()> {
+        for (at, text) in args.values.iter().enumerate().skip(4) {
+            self.argument(record, at, text)?;
+        }
+        Some(())
+    }
+
+    /// フィーチャのコメントを、後の改行とともに除く
+    fn remove(&mut self, record: usize) -> Option<()> {
+        let span = self.file.records().get(record).map(crate::Record::span)?;
+        self.patches
+            .push((span.start..line_end(&self.file.src, span.end), Vec::new()));
+        Some(())
+    }
+
+    fn add(&mut self, args: &Arguments) -> Option<u64> {
         let (at, marker, before) = self.insert?;
         let (_, open, close) = Marker::ALL
             .iter()
@@ -1025,31 +1131,58 @@ impl<'f> Plan<'f> {
             format!("{nl}{feature}")
         };
         self.patches.push((at..at, text.into_bytes()));
-        Some((instance, element))
+        Some(instance)
     }
 
-    /// 書き直したバイト列
-    fn bytes(mut self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
-        let added = self.patches.iter().fold(0u64, |total, (_, bytes)| {
-            total.saturating_add(bytes.len() as u64)
-        });
-        work(
-            cx,
-            (src.len() as u64).saturating_add(added).div_ceil(1024),
-            &Ref::default(),
-        )?;
-        self.patches.sort_by_key(|(range, _)| range.start);
-        let mut out = Vec::with_capacity(src.len());
-        let mut end = 0;
-        for (range, bytes) in &self.patches {
-            work(cx, 1, &Ref::default())?;
-            out.extend_from_slice(src.get(end..range.start).unwrap_or_default());
-            out.extend_from_slice(bytes);
-            end = range.end;
-        }
-        out.extend_from_slice(src.get(end..).unwrap_or_default());
-        Ok(out)
+    fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        patched(self.patches, src, cx)
     }
+}
+
+/// ファイルの改行
+fn newline(src: &[u8]) -> &'static str {
+    if src.windows(2).any(|pair| pair == b"\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+/// 範囲の終わりの後に改行があれば、その後の位置
+fn line_end(src: &[u8], end: usize) -> usize {
+    let rest = src.get(end..).unwrap_or_default();
+    end + if rest.starts_with(b"\r\n") {
+        2
+    } else {
+        usize::from(rest.starts_with(b"\n"))
+    }
+}
+
+/// 範囲を書き直したバイト列。範囲は重ならない
+fn patched(
+    mut patches: Vec<(Range<usize>, Vec<u8>)>,
+    src: &[u8],
+    cx: &mut Cx,
+) -> Result<Vec<u8>, Error> {
+    let added = patches.iter().fold(0u64, |total, (_, bytes)| {
+        total.saturating_add(bytes.len() as u64)
+    });
+    work(
+        cx,
+        (src.len() as u64).saturating_add(added).div_ceil(1024),
+        &Ref::default(),
+    )?;
+    patches.sort_by_key(|(range, _)| range.start);
+    let mut out = Vec::with_capacity(src.len());
+    let mut end = 0;
+    for (range, bytes) in &patches {
+        work(cx, 1, &Ref::default())?;
+        out.extend_from_slice(src.get(end..range.start).unwrap_or_default());
+        out.extend_from_slice(bytes);
+        end = range.end;
+    }
+    out.extend_from_slice(src.get(end..).unwrap_or_default());
+    Ok(out)
 }
 
 /// フィーチャの名前と引数。レイヤ・色・線種・線幅（0〜3）は空にしておく
