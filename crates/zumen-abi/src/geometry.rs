@@ -5,17 +5,18 @@
 
 use std::cell::Cell;
 
-use zumen_drawing::transform::Point;
+use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
-    Edge, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Length, LineSpacing, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Spline, Symbol,
-    SymbolKey, Text, Vertex, Vertical,
+    Affine, Attribute, Drawing2D, Edge, Flow, FormattedText, Grid, HeightMeaning, Horizontal,
+    Length, LineSpacing, ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline,
+    Rotation, Shape, Spline, Symbol, SymbolKey, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
 use crate::messages::{
     ArcGeometry, Attachment, CircleGeometry, EllipseGeometry, FormattedTextGeometry, Geometry,
-    LineGeometry, PolylineGeometry, SplineGeometry, SymbolGeometry, SymbolGrid, TextGeometry,
+    LineGeometry, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid,
+    TextGeometry,
 };
 
 /// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
@@ -163,6 +164,16 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                     }),
                     None => None,
                 },
+                attributes: (!symbol.attributes.is_empty()).then(|| {
+                    symbol
+                        .attributes
+                        .iter()
+                        .map(|attribute| SymbolAttribute {
+                            tag: attribute.tag.clone(),
+                            value: attribute.text.content.clone(),
+                        })
+                        .collect()
+                }),
             })
         }
         _ => return None,
@@ -503,6 +514,15 @@ pub(crate) fn shape_of<P: Spot>(
                     if counts(&grid) != counts(&old.grid) {
                         return Err("geometry/grid".to_string());
                     }
+                    // 属性の値は、置き換えでは変えられない
+                    if let Some(attributes) = &symbol.attributes
+                        && (attributes.len() != old.attributes.len()
+                            || attributes.iter().zip(&old.attributes).any(|(new, was)| {
+                                new.tag != was.tag || new.value != was.text.content
+                            }))
+                    {
+                        return Err("geometry/attributes".to_string());
+                    }
                     if !old.attributes.is_empty()
                         && (position != old.position
                             || scale != old.scale
@@ -533,6 +553,129 @@ pub(crate) fn shape_of<P: Spot>(
             })
         }
         _ => return mismatch(),
+    })
+}
+
+/// 足す記号の属性。AutoCAD が挿入するときと同じく、定義の属性の定義のうち値が決まっていないものを、記号の
+/// 置く点・尺度・回転で写して作り、`given` のタグの値で既定の値を替える。実寸の空間に、X と Y の尺度の大きさが
+/// 同じで置く記号だけに作る。用紙では、定義の長さを mm に直す倍率を書き戻す側しか知らず、尺度の大きさが違えば
+/// 文字の形を保って写せないため。作れないときは、値を渡されていれば失敗し、渡されていなければ属性なしで足す
+pub(crate) fn attributes_of<P: Spot>(
+    drawing: &Drawing2D,
+    symbol: &Symbol<P>,
+    given: Option<&[SymbolAttribute]>,
+) -> Result<Vec<Attribute<P>>, String> {
+    let given = given.unwrap_or_default();
+    for (index, attribute) in given.iter().enumerate() {
+        if attribute.value.contains(['\n', '\r']) {
+            return Err(format!("geometry/attributes/{index}/value"));
+        }
+    }
+    let Some(definition) = drawing.symbols.iter().find(|definition| {
+        definition.key.namespace == BLOCK
+            && definition.key.name.eq_ignore_ascii_case(&symbol.key.name)
+    }) else {
+        // 図面にない定義は、書き戻す側が足さない
+        return Ok(Vec::new());
+    };
+    let defined: Vec<_> = definition
+        .attributes
+        .iter()
+        .filter(|definition| !definition.constant)
+        .map(|definition| &definition.attribute)
+        .collect();
+    for (index, attribute) in given.iter().enumerate() {
+        if !defined
+            .iter()
+            .any(|defined| defined.tag.eq_ignore_ascii_case(&attribute.tag))
+        {
+            return Err(format!("geometry/attributes/{index}/tag"));
+        }
+    }
+    let [sx, sy] = symbol.scale;
+    let made = (!P::PAPER && sx.abs() == sy.abs())
+        .then(|| {
+            let [bx, by] = definition.base.map_or([0.0, 0.0], |base| [base.x, base.y]);
+            let [px, py] = Point::xy(symbol.position);
+            let radians = symbol.rotation.to_radians();
+            let (sin, cos) = (libm::sin(radians), libm::cos(radians));
+            let [a, b, d, e] = [cos * sx, -sin * sy, sin * sx, cos * sy];
+            let affine = Affine {
+                m: [a, b, px - (a * bx + b * by), d, e, py - (d * bx + e * by)],
+            };
+            defined
+                .iter()
+                .map(|defined| {
+                    if defined.formatted.is_some() {
+                        return None;
+                    }
+                    let Shape::Text(mut text) = transform(
+                        &Shape::Text(lifted(&defined.text, symbol.position)?),
+                        &affine,
+                    )?
+                    else {
+                        return None;
+                    };
+                    if let Some(value) = given
+                        .iter()
+                        .find(|value| value.tag.eq_ignore_ascii_case(&defined.tag))
+                    {
+                        text.content = value.value.clone();
+                    }
+                    Some(Attribute {
+                        tag: defined.tag.clone(),
+                        text,
+                        formatted: None,
+                        hidden: defined.hidden,
+                        layer: defined.layer,
+                        style: defined.style,
+                        source: defined.source.clone(),
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
+        })
+        .flatten();
+    match made {
+        Some(attributes) => Ok(attributes),
+        None if given.is_empty() => Ok(Vec::new()),
+        None => Err("geometry/attributes".to_string()),
+    }
+}
+
+/// 定義の空間の文字を、座標を変えずに `origin` の空間に移す
+fn lifted<P: Spot>(text: &Text<ModelPoint>, origin: P) -> Option<Text<P>> {
+    let at = |point: ModelPoint| origin.at([point.x, point.y]);
+    let Length::Model(height) = text.height.value else {
+        return None;
+    };
+    Some(Text {
+        content: text.content.clone(),
+        placement: match text.placement {
+            Placement::Anchor {
+                point,
+                horizontal,
+                vertical,
+            } => Placement::Anchor {
+                point: at(point),
+                horizontal,
+                vertical,
+            },
+            Placement::Between { first, second, fit } => Placement::Between {
+                first: at(first),
+                second: at(second),
+                fit,
+            },
+        },
+        height: zumen_drawing::Height {
+            value: origin.length_of(height.value),
+            meaning: text.height.meaning.clone(),
+        },
+        rotation: text.rotation,
+        width_factor: text.width_factor,
+        oblique: text.oblique,
+        backward: text.backward,
+        upside_down: text.upside_down,
+        style: text.style.clone(),
     })
 }
 

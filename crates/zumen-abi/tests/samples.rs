@@ -680,11 +680,12 @@ fn drawings_take_back_formatted_texts_through_the_boundary() {
 
 /// 試料の実寸の空間の記号を、境界の `replace` で置く点・尺度・回転だけ替え、同じ定義の記号を `add` で足すと、
 /// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。属性を持つ記号の
-/// 置く点などは、属性が付いてこないので、`call.value.invalid` で `/edits/0/geometry` を指して変えない
+/// 置く点などは、属性が付いてこないので、`call.value.invalid` で `/edits/0/geometry` を指して変えない。属性の
+/// 定義を持つ定義の記号を足すと、定義から属性が作られ、渡したタグの値はその値になる
 #[test]
 fn drawings_take_back_symbols_through_the_boundary() {
     let budget = r#""budget":{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}"#;
-    let (mut replaced, mut added, mut attributed) = ([0, 0], [0, 0], 0);
+    let (mut replaced, mut added, mut attributed, mut valued) = ([0, 0], [0, 0], 0, [0, 0]);
     for path in drawings() {
         let name = path
             .file_name()
@@ -730,10 +731,23 @@ fn drawings_take_back_symbols_through_the_boundary() {
                     .find(|(found, _)| *found == id)
                     .and_then(|(_, geometry)| geometry);
                 let expected = zumen_json::parse(geometry.as_bytes()).unwrap();
-                assert!(
-                    found.as_ref().is_some_and(|found| close(found, &expected)),
-                    "{name}: {id}: {found:?}"
-                );
+                // 送らなかった属性は、定義から作られたものとして比べない
+                let same = match (&found, &expected) {
+                    (Some(Value::Object(found)), Value::Object(expected)) => {
+                        let kept: Vec<_> = found
+                            .iter()
+                            .filter(|(key, _)| *key != "attributes" || expected.get(key).is_some())
+                            .collect();
+                        kept.len() == expected.len()
+                            && kept
+                                .iter()
+                                .zip(expected.iter())
+                                .all(|((ka, a), (kb, b))| *ka == kb && close(a, b))
+                    }
+                    _ => false,
+                };
+                assert!(same, "{name}: {id}: {found:?}");
+                found.unwrap()
             };
         for (id, definition) in &symbols {
             let hash = &hashes.iter().find(|(found, _, _)| found == id).unwrap().2;
@@ -777,13 +791,45 @@ fn drawings_take_back_symbols_through_the_boundary() {
         );
         assert_eq!(status, Status::Ok, "{name}: {response:?}");
         let id = text(&response, "/result/applied/0/id").unwrap().to_string();
-        check(&mut session, "added", &response, &id, &geometry);
+        let found = check(&mut session, "added", &response, &id, &geometry);
         added[dwg] += 1;
+        // 属性の定義を持つ定義なら、1 つ目のタグの値を替えて足す
+        let Some(tag) = text(&found, "/attributes/0/tag") else {
+            continue;
+        };
+        let valued_geometry = geometry.replacen(
+            "\"rotation\"",
+            &format!(r#""attributes":[{{"tag":"{tag}","value":"T1"}}],"rotation""#),
+            1,
+        );
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","geometry":{valued_geometry}}}],{budget}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let id = text(&response, "/result/applied/0/id").unwrap().to_string();
+        let found = check(&mut session, "valued", &response, &id, &geometry);
+        let Some(Value::Array(attributes)) = found.pointer("/attributes") else {
+            panic!("{name}: {found:?}");
+        };
+        assert!(
+            attributes
+                .iter()
+                .any(|attribute| text(attribute, "/tag") == Some(tag)
+                    && text(attribute, "/value") == Some("T1")),
+            "{name}: {found:?}"
+        );
+        valued[dwg] += 1;
     }
     assert!(
         drawings().is_empty()
-            || (replaced.iter().all(|n| *n > 0) && added.iter().all(|n| *n > 0) && attributed > 0),
-        "{replaced:?} {added:?} {attributed}"
+            || (replaced.iter().all(|n| *n > 0)
+                && added.iter().all(|n| *n > 0)
+                && valued.iter().all(|n| *n > 0)
+                && attributed > 0),
+        "{replaced:?} {added:?} {valued:?} {attributed}"
     );
 }
 
