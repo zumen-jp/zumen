@@ -2969,13 +2969,20 @@ pub struct ApplyResult {
     pub applied: Vec<Applied>,
     /// 書き戻した文書のハッシュ。次の apply の前提条件に使う
     pub hash: String,
+    /// true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から
+    pub ids_shifted: Option<bool>,
 }
 
 impl ApplyResult {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let applied = object.required("applied", |value| json::array(value, Applied::from_json))?;
         let hash = object.required("hash", json::string)?;
-        Ok(Self { applied, hash })
+        let ids_shifted = object.optional("ids_shifted", json::boolean)?;
+        Ok(Self {
+            applied,
+            hash,
+            ids_shifted,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -2983,6 +2990,10 @@ impl ApplyResult {
         out.array(&self.applied, |out, item| item.to_json(out));
         out.key("hash");
         out.string(&self.hash);
+        if let Some(value) = &self.ids_shifted {
+            out.key("ids_shifted");
+            out.bool(*value);
+        }
     }
 }
 
@@ -4475,7 +4486,7 @@ impl ToJson for Inherit {
     }
 }
 
-/// 新しい色。inherit か、aci・sxf・rgb の少なくとも 1 つのどちらかを書く。aci と sxf は一緒に書かない
+/// 新しい色。inherit か、aci・sxf・jww・rgb の少なくとも 1 つのどちらかを書く。aci・sxf・jww は 1 つだけ書く
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ColorChange {
     /// 継承する先
@@ -4484,6 +4495,8 @@ pub struct ColorChange {
     pub aci: Option<u64>,
     /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から
     pub sxf: Option<u64>,
+    /// Jw_cad のペンの番号。0〜9 と、版 420 からの SXF の拡張色 100〜356。小版 30 から
+    pub jww: Option<u64>,
     /// [赤, 緑, 青]。それぞれ 0〜255
     pub rgb: Option<Vec<u64>>,
 }
@@ -4493,6 +4506,7 @@ impl ColorChange {
         let inherit = object.optional("inherit", Inherit::from_json)?;
         let aci = object.optional("aci", |value| json::uint(value, 1, 255))?;
         let sxf = object.optional("sxf", |value| json::uint(value, 1, 9007199254740991))?;
+        let jww = object.optional("jww", |value| json::uint(value, 0, 356))?;
         let rgb = object.optional("rgb", |value| {
             json::array(value, |value| json::uint(value, 0, 255))
         })?;
@@ -4500,6 +4514,7 @@ impl ColorChange {
             inherit,
             aci,
             sxf,
+            jww,
             rgb,
         })
     }
@@ -4515,6 +4530,10 @@ impl ColorChange {
         }
         if let Some(value) = &self.sxf {
             out.key("sxf");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.jww {
+            out.key("jww");
             out.uint(*value);
         }
         if let Some(value) = &self.rgb {

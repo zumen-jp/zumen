@@ -31,7 +31,7 @@ extern "C" {
 #define ZM_ABI_VERSION 1
 /* メッセージのスキーマの版。大版は要求と応答の v、小版は capabilities が返す */
 #define ZM_SCHEMA_VERSION_MAJOR 1
-#define ZM_SCHEMA_VERSION_MINOR 29
+#define ZM_SCHEMA_VERSION_MINOR 30
 
 /* 状態コード。理由は応答の診断で返す */
 typedef int32_t zm_status;

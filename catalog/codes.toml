@@ -197,7 +197,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."change.format.unsupported"]
-description = "この形式の文書には、まだ変更を当てられない。今は DXF・DWG と SXF の SFC だけに当てる（決定 0139・0167）"
+description = "この形式の文書には、まだ変更を当てられない。今は DXF・DWG・JWW と SXF の SFC だけに当てる（決定 0139・0167・0168）"
 severity = "error"
 params = { format = "text" }
 since = "0.0.0"

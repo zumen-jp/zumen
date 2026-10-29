@@ -675,6 +675,10 @@
         "hash": {
           "description": "書き戻した文書のハッシュ。次の apply の前提条件に使う",
           "type": "string"
+        },
+        "ids_shifted": {
+          "description": "true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から",
+          "type": "boolean"
         }
       },
       "required": ["applied", "hash"],
@@ -1038,12 +1042,13 @@
       "enum": ["layer", "block"]
     },
     "color_change": {
-      "description": "新しい色。inherit か、aci・sxf・rgb の少なくとも 1 つのどちらかを書く。aci と sxf は一緒に書かない",
+      "description": "新しい色。inherit か、aci・sxf・jww・rgb の少なくとも 1 つのどちらかを書く。aci・sxf・jww は 1 つだけ書く",
       "type": "object",
       "properties": {
         "inherit": { "description": "継承する先", "$ref": "#/$defs/inherit" },
         "aci": { "description": "AutoCAD の色の番号（1〜255）", "type": "integer", "minimum": 1, "maximum": 255 },
         "sxf": { "description": "SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から", "type": "integer", "minimum": 1 },
+        "jww": { "description": "Jw_cad のペンの番号。0〜9 と、版 420 からの SXF の拡張色 100〜356。小版 30 から", "type": "integer", "minimum": 0, "maximum": 356 },
         "rgb": {
           "description": "[赤, 緑, 青]。それぞれ 0〜255",
           "type": "array",
