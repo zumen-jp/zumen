@@ -3592,3 +3592,41 @@ fn reflection_of_an_already_flipped_rotated_text_preserves_other_flags() {
     assert!(!text.upside_down);
     assert_eq!(text.oblique, 12.0);
 }
+
+#[test]
+fn additions_reject_grid_counts_that_cannot_round_trip() {
+    use zumen_drawing::{Grid, Symbol, SymbolKey};
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "30"),
+        (2, "PART"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "ENDBLK"),
+    ];
+    for (columns, rows) in [(0, 2), (2, 0), (1, 1)] {
+        let src = addition_source("AC1009", "40", &blocks);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: "PART".into(),
+            },
+            position: at(0.0, 0.0),
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            grid: Some(Grid {
+                columns,
+                rows,
+                column_spacing: model(3.0),
+                row_spacing: model(4.0),
+            }),
+            attributes: vec![],
+            clip: None,
+        }));
+        let (result, _) = apply(&mut file, vec![Edit::Add(Box::new(element))]);
+        assert_eq!(result, Err(Error::Rejected), "{columns} x {rows}");
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+}

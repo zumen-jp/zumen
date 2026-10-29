@@ -600,6 +600,10 @@ impl Born {
             values.push(real(50, symbol.rotation)?);
         }
         if let Some(grid) = &symbol.grid {
+            // 読み直すと、0 は不正、1×1 は格子なしになる。
+            if grid.columns == 0 || grid.rows == 0 || (grid.columns, grid.rows) == (1, 1) {
+                return None;
+            }
             for (code, count) in [(70, grid.columns), (71, grid.rows)] {
                 values.push(int(code, i64::from(i16::try_from(count).ok()?)));
             }
