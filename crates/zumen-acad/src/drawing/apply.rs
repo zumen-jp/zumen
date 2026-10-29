@@ -9,7 +9,7 @@ mod add;
 mod layer;
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
-use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
     Layer, LayerId, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement,
@@ -379,6 +379,7 @@ fn edit(
                     continue;
                 }
                 // 同じ一覧で足す要素とスタイルを変える要素も、除くレイヤを指せない
+                work(cx, changes.edits.len() as u64, &was.source)?;
                 let pointed = changes.edits.iter().any(|other| match other {
                     Edit::Add { element, .. } => match element.as_ref() {
                         Placed::Model(element) => element.layer == was.id,
@@ -387,9 +388,21 @@ fn edit(
                     Edit::Restyle { style, .. } => style.layer == Some(was.id),
                     _ => false,
                 });
+                // 後ろのハンドルなしレイヤは並びの番号が ID なので、除くと別の ID になる
+                work(cx, drawing.layers.len() as u64, &was.source)?;
+                let unstable = drawing.layers.iter().any(|layer| {
+                    layer.id.0 > was.id.0 && !matches!(layer.source.key(), Some(Key::Handle(_)))
+                });
+                for &position in records {
+                    work(cx, 1, &was.source)?;
+                    if let Some(object) = db.objects().get(position) {
+                        count_transform_values(object, &was.source, cx)?;
+                    }
+                }
                 let found = (targets.insert(target_of.id.as_str())
                     && was.source != Ref::default()
-                    && !pointed)
+                    && !pointed
+                    && !unstable)
                     .then(|| {
                         records.iter().copied().find(|&position| {
                             db.objects()
@@ -398,14 +411,20 @@ fn edit(
                         })
                     })
                     .flatten();
-                if found.is_some() {
-                    work(cx, db.objects().len() as u64, &was.source)?;
-                }
-                let planned = found.filter(|&position| {
-                    db.objects().get(position).is_some_and(|object| {
-                        layer::removable(object) && !layer::referenced(db, position, object)
-                    })
-                });
+                let planned = if let Some((position, object)) = found.and_then(|position| {
+                    db.objects().get(position).map(|object| (position, object))
+                }) {
+                    count_transform_values(object, &was.source, cx)?;
+                    if layer::removable(object)
+                        && !layer::referenced(db, position, object, cx, &was.source)?
+                    {
+                        Some(position)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 match planned {
                     Some(position) => {
                         if let Some(name) = db.objects().get(position).and_then(layer::name_of) {
