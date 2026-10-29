@@ -12,9 +12,9 @@ use super::{Frame, contents, nonnegative, positive, real, turned};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::drawing::{BLOCK, Home, mtext};
 use zumen_drawing::{
-    ColorSystem, Drawing2D, Edge, Element, Fit, Flow, FormattedText, HeightMeaning, Horizontal,
-    Inherit, LayerId, LineTypeId, LineWeight, Placement, Polyline, Rotation, Shape, Symbol, Text,
-    Vertical,
+    Attribute, ColorSystem, Drawing2D, Edge, Element, Fit, Flow, FormattedText, HeightMeaning,
+    Horizontal, Inherit, LayerId, LineTypeId, LineWeight, Placement, Polyline, Rotation, Shape,
+    Style, Symbol, Text, Vertical,
 };
 
 /// 足す図形
@@ -24,6 +24,8 @@ pub(super) struct Record {
     values: Vec<Value>,
     /// 置き場所
     home: Home,
+    /// 図形の後に続き、図形が所有するレコード（ATTRIB と SEQEND）。種類と、ハンドルと所有者の後の値
+    followers: Vec<(&'static [u8], Vec<Value>)>,
 }
 
 /// 書き戻す先
@@ -183,55 +185,9 @@ impl Born {
         if home.blocks && !home.owner.is_some_and(|owner| self.ends.contains(&owner)) {
             return None;
         }
-        let mut values = vec![text(100, "AcDbEntity")];
-        if home.paper && !(home.blocks && matches!(self.target, Target::Dwg(_))) {
-            values.push(int(67, 1));
-        }
-        let layer = self.layers.get(&element.layer)?;
-        values.push(self.named(8, b"LAYER", layer)?);
-        let style = &element.style;
-        match style.line_type {
-            Inherit::Layer => {}
-            Inherit::Block => values.push(text(6, "ByBlock")),
-            Inherit::Own(id) => {
-                let name = self.line_types.get(&id)?;
-                values.push(self.named(6, b"LTYPE", name)?);
-            }
-        }
-        let mut rgb = None;
-        match style.color {
-            Inherit::Layer => {}
-            Inherit::Block => values.push(int(62, 0)),
-            Inherit::Own(color) => {
-                match color.code {
-                    Some(code)
-                        if code.system == ColorSystem::Aci && (1..=255).contains(&code.value) =>
-                    {
-                        values.push(int(62, i64::from(code.value)));
-                    }
-                    Some(_) => return None,
-                    None if color.rgb.is_none() => return None,
-                    None => {}
-                }
-                rgb = color.rgb;
-            }
-        }
-        match style.line_weight {
-            None | Some(Inherit::Layer) => {}
-            Some(weight) if self.target == Target::Dxf && self.since(b"AC1015") => {
-                values.push(int(370, line_weight(weight)?));
-            }
-            Some(_) => return None,
-        }
-        if style.line_type_scale != 1.0 {
-            values.push(real(48, nonzero_positive(style.line_type_scale)?)?);
-        }
-        if let Some([r, g, b]) = rgb {
-            if !(self.target == Target::Dxf && self.since(b"AC1018")) {
-                return None;
-            }
-            values.push(int(420, i64::from(u32::from_be_bytes([0, r, g, b]))));
-        }
+        let paper = home.paper && !(home.blocks && self.dwg());
+        let mut values = self.entity(element.layer, &element.style, paper)?;
+        let mut followers = Vec::new();
         let kind = match &element.shape {
             Shape::Line { start, end } | Shape::Curve(Edge::Line { start, end }) => {
                 values.push(text(100, "AcDbLine"));
@@ -289,8 +245,12 @@ impl Born {
                 lwpolyline(&mut values, frame, line)?;
                 b"LWPOLYLINE"
             }
-            Shape::Text(text) => {
-                self.lettering(&mut values, frame, text)?;
+            Shape::Text(lettering) => {
+                let vertical = self.lettering(&mut values, frame, lettering, "dxf.TEXT.40")?;
+                values.push(text(100, "AcDbText"));
+                if vertical != 0 {
+                    values.push(int(73, vertical));
+                }
                 b"TEXT"
             }
             Shape::Formatted(text) => {
@@ -298,7 +258,7 @@ impl Born {
                 b"MTEXT"
             }
             Shape::Symbol(symbol) => {
-                self.placing(&mut values, frame, symbol)?;
+                followers = self.placing(&mut values, frame, symbol, element.layer, home)?;
                 b"INSERT"
             }
             _ => return None,
@@ -306,18 +266,90 @@ impl Born {
         if !self.markers {
             values.retain(|value| value.code != 100);
         }
-        Some(Record { kind, values, home })
+        if !self.markers {
+            for (_, values) in &mut followers {
+                values.retain(|value| value.code != 100);
+            }
+        }
+        Some(Record {
+            kind,
+            values,
+            home,
+            followers,
+        })
     }
 
-    /// TEXT（DXF Reference「TEXT」）の値。位置合わせが左の基準線でなければ、11 を基点とし、10 も同じ点にする。
-    /// 10 は位置合わせから決まる点で、読み直すときに使わず、AutoCAD は図面を開き直すと決め直す
+    /// DWG に書き戻すか
+    fn dwg(&self) -> bool {
+        matches!(self.target, Target::Dwg(_))
+    }
+
+    /// 図形に共通の値（DXF Reference「Common Group Codes for Entities」）。区切り・ペーパー空間の印（`paper`
+    /// なら 67 = 1）・レイヤ・線種・色・線幅・線種の倍率
+    fn entity(&self, layer: LayerId, style: &Style, paper: bool) -> Option<Vec<Value>> {
+        let mut values = vec![text(100, "AcDbEntity")];
+        if paper {
+            values.push(int(67, 1));
+        }
+        let layer = self.layers.get(&layer)?;
+        values.push(self.named(8, b"LAYER", layer)?);
+        match style.line_type {
+            Inherit::Layer => {}
+            Inherit::Block => values.push(text(6, "ByBlock")),
+            Inherit::Own(id) => {
+                let name = self.line_types.get(&id)?;
+                values.push(self.named(6, b"LTYPE", name)?);
+            }
+        }
+        let mut rgb = None;
+        match style.color {
+            Inherit::Layer => {}
+            Inherit::Block => values.push(int(62, 0)),
+            Inherit::Own(color) => {
+                match color.code {
+                    Some(code)
+                        if code.system == ColorSystem::Aci && (1..=255).contains(&code.value) =>
+                    {
+                        values.push(int(62, i64::from(code.value)));
+                    }
+                    Some(_) => return None,
+                    None if color.rgb.is_none() => return None,
+                    None => {}
+                }
+                rgb = color.rgb;
+            }
+        }
+        match style.line_weight {
+            None | Some(Inherit::Layer) => {}
+            Some(weight) if self.target == Target::Dxf && self.since(b"AC1015") => {
+                values.push(int(370, line_weight(weight)?));
+            }
+            Some(_) => return None,
+        }
+        if style.line_type_scale != 1.0 {
+            values.push(real(48, nonzero_positive(style.line_type_scale)?)?);
+        }
+        if let Some([r, g, b]) = rgb {
+            if !(self.target == Target::Dxf && self.since(b"AC1018")) {
+                return None;
+            }
+            values.push(int(420, i64::from(u32::from_be_bytes([0, r, g, b]))));
+        }
+        Some(values)
+    }
+
+    /// TEXT と ATTRIB（DXF Reference「TEXT」「ATTRIB」）の、文字の区切り（AcDbText）の値。高さの意味が `meaning`
+    /// のものに限る。位置合わせが左の基準線でなければ、11 を基点とし、10 も同じ点にする。10 は位置合わせから
+    /// 決まる点で、読み直すときに使わず、AutoCAD は図面を開き直すと決め直す。垂直の位置合わせ（TEXT は 73、
+    /// ATTRIB は 74）は、後の区切りに書くので、値を返す
     fn lettering<P>(
         &self,
         values: &mut Vec<Value>,
         frame: &impl Frame<P>,
         lettering: &Text<P>,
-    ) -> Option<()> {
-        if lettering.height.meaning != HeightMeaning::Declared("dxf.TEXT.40") {
+        meaning: &'static str,
+    ) -> Option<i64> {
+        if lettering.height.meaning != HeightMeaning::Declared(meaning) {
             return None;
         }
         let style = self.named(7, b"STYLE", &lettering.style)?;
@@ -380,11 +412,7 @@ impl Born {
         if let Some(second) = second {
             point(values, frame, 11, second)?;
         }
-        values.push(text(100, "AcDbText"));
-        if vertical != 0 {
-            values.push(int(73, vertical));
-        }
-        Some(())
+        Some(vertical)
     }
 
     /// MTEXT（DXF Reference「MTEXT」）の値。高さの意味が MTEXT の高さ（`dxf.MTEXT.40`）で、背景を持たず、
@@ -404,7 +432,7 @@ impl Born {
         {
             return None;
         }
-        let dwg = matches!(self.target, Target::Dwg(_));
+        let dwg = self.dwg();
         let style = self.named(7, b"STYLE", &lettering.style)?;
         let row = match lettering.vertical {
             Vertical::Top => 0,
@@ -467,18 +495,21 @@ impl Born {
         Some(())
     }
 
-    /// INSERT（DXF Reference「INSERT」）の値。格子・属性・切り抜きを持つ記号と、空間のブロックは足さない
+    /// INSERT（DXF Reference「INSERT」）の値と、続く ATTRIB と SEQEND。格子・切り抜きを持つ記号と、空間の
+    /// ブロックは足さない。属性を持てば、属性が続く印（66 = 1）を書き、属性ごとの ATTRIB と、記号のレイヤの
+    /// SEQEND を続ける
     fn placing<P>(
         &self,
         values: &mut Vec<Value>,
         frame: &impl Frame<P>,
         symbol: &Symbol<P>,
-    ) -> Option<()> {
+        layer: LayerId,
+        home: Home,
+    ) -> Option<Vec<(&'static [u8], Vec<Value>)>> {
         let name = &symbol.key.name;
         let space = name.to_lowercase();
         if symbol.key.namespace != BLOCK
             || symbol.grid.is_some()
-            || !symbol.attributes.is_empty()
             || symbol.clip.is_some()
             || space.starts_with("*model_space")
             || space.starts_with("*paper_space")
@@ -486,6 +517,10 @@ impl Born {
             return None;
         }
         values.push(text(100, "AcDbBlockReference"));
+        let attributed = !symbol.attributes.is_empty();
+        if attributed {
+            values.push(int(66, 1));
+        }
         values.push(self.named(2, b"BLOCK_RECORD", name)?);
         point(values, frame, 10, &symbol.position)?;
         let [x, y] = symbol.scale;
@@ -500,7 +535,55 @@ impl Born {
         if symbol.rotation != 0.0 {
             values.push(real(50, symbol.rotation)?);
         }
-        Some(())
+        let mut followers = Vec::new();
+        if attributed {
+            // DWG の ATTRIB と SEQEND は、所有者を INSERT とし、ペーパー空間の印を持たない
+            let paper = home.paper && !self.dwg();
+            for attribute in &symbol.attributes {
+                followers.push((
+                    b"ATTRIB".as_slice(),
+                    self.attribute(frame, attribute, paper)?,
+                ));
+            }
+            let by_layer = Style {
+                color: Inherit::Layer,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            };
+            followers.push((b"SEQEND", self.entity(layer, &by_layer, paper)?));
+        }
+        Some(followers)
+    }
+
+    /// ATTRIB（DXF Reference「ATTRIB」）の値。高さの意味が属性の高さ（`dxf.ATTRIB.40`）で、複数行の値を持たない
+    /// ものに限る。R2010 からの DWG には、属性の版（280）をタグの前に、位置を固定するか（280）を終わりに、どちらも
+    /// 0 として書く（決定 0093）
+    fn attribute<P>(
+        &self,
+        frame: &impl Frame<P>,
+        attribute: &Attribute<P>,
+        paper: bool,
+    ) -> Option<Vec<Value>> {
+        if attribute.formatted.is_some() {
+            return None;
+        }
+        let mut values = self.entity(attribute.layer, &attribute.style, paper)?;
+        let vertical = self.lettering(&mut values, frame, &attribute.text, "dxf.ATTRIB.40")?;
+        values.push(text(100, "AcDbAttribute"));
+        let versions = self.dwg() && self.since(b"AC1024");
+        if versions {
+            values.push(int(280, 0));
+        }
+        values.push(self.string(2, &attribute.tag)?);
+        values.push(int(70, i64::from(attribute.hidden)));
+        if vertical != 0 {
+            values.push(int(74, vertical));
+        }
+        if versions {
+            values.push(int(280, 0));
+        }
+        Some(values)
     }
 
     /// 足す図形を表に足す。ハンドルを順に付け、所有者を置き場所のブロックのレコードにする。DXF の BLOCKS の
@@ -512,42 +595,52 @@ impl Born {
         };
         for Record {
             kind,
-            values: own,
+            values,
             home,
+            followers,
         } in added
         {
-            let mut values = vec![Value {
-                code: 5,
-                data: Data::Handle(next),
-            }];
-            if let Some(owner) = home.owner {
-                values.push(Value {
-                    code: 330,
-                    data: Data::Handle(owner),
+            // ATTRIB と SEQEND は、図形のすぐ後に置き、所有者を図形とする
+            let parent = next;
+            let objects = std::iter::once((kind, home.owner, values)).chain(
+                followers
+                    .into_iter()
+                    .map(|(kind, values)| (kind, Some(parent), values)),
+            );
+            for (kind, owner, own) in objects {
+                let mut values = vec![Value {
+                    code: 5,
+                    data: Data::Handle(next),
+                }];
+                if let Some(owner) = owner {
+                    values.push(Value {
+                        code: 330,
+                        data: Data::Handle(owner),
+                    });
+                }
+                values.extend(own);
+                let object = Object {
+                    kind: kind.to_vec(),
+                    section: if home.blocks {
+                        Section::Blocks
+                    } else {
+                        Section::Entities
+                    },
+                    values,
+                    origin: Origin::New,
+                };
+                let end = db.objects().iter().position(|object| {
+                    object.kind == b"ENDBLK"
+                        && home.blocks
+                        && self.target == Target::Dxf
+                        && object.owner() == home.owner
                 });
+                match end {
+                    Some(index) => db.insert(index, object),
+                    None => db.push(object),
+                }
+                next = next.saturating_add(1);
             }
-            values.extend(own);
-            let object = Object {
-                kind: kind.to_vec(),
-                section: if home.blocks {
-                    Section::Blocks
-                } else {
-                    Section::Entities
-                },
-                values,
-                origin: Origin::New,
-            };
-            let end = db.objects().iter().position(|object| {
-                object.kind == b"ENDBLK"
-                    && home.blocks
-                    && self.target == Target::Dxf
-                    && object.owner() == home.owner
-            });
-            match end {
-                Some(index) => db.insert(index, object),
-                None => db.push(object),
-            }
-            next = next.saturating_add(1);
         }
     }
 }

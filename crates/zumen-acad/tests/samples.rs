@@ -2538,7 +2538,7 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
 #[test]
 fn drawings_take_back_elements_added_in_the_drawing_model() {
     use zumen_drawing::{
-        Changes, Drawing2D, Edge, Edit, Element, Flow, Format, FormattedText, Height,
+        Attribute, Changes, Drawing2D, Edge, Edit, Element, Flow, Format, FormattedText, Height,
         HeightMeaning, Horizontal, Inherit, Length, LineSpacing, LineWeight, ModelLength,
         ModelPoint, PaperLength, Piece, Placement, Polyline, Rotation, Shape, SpaceId, Span, Style,
         Text, Vertex, Vertical,
@@ -2698,7 +2698,33 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                         _ => None,
                     });
             if let Some(symbol) = symbol {
+                // 属性を 1 つ持つ、同じ定義の記号も足す
+                let mut attributed = symbol.clone();
+                let (Shape::Symbol(placed), Shape::Text(text)) = (&mut attributed, &shapes[5])
+                else {
+                    panic!("the template is a symbol and a text")
+                };
+                {
+                    let mut text = text.clone();
+                    text.height.meaning = HeightMeaning::Declared("dxf.ATTRIB.40");
+                    text.content = "zumen-attribute".to_owned();
+                    placed.attributes.push(Attribute {
+                        tag: "ZUMEN".to_owned(),
+                        text,
+                        formatted: None,
+                        hidden: true,
+                        layer,
+                        style: Style {
+                            color: Inherit::Layer,
+                            line_type: Inherit::Layer,
+                            line_type_scale: 1.0,
+                            line_weight: Some(Inherit::Layer),
+                        },
+                        source: zumen_base::Ref::default(),
+                    });
+                }
                 shapes.push(symbol);
+                shapes.push(attributed);
                 *symbols += 1;
             }
             let edits = shapes
@@ -2746,6 +2772,17 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                     (Shape::Formatted(found), Shape::Formatted(text)) => {
                         assert!(found.style.eq_ignore_ascii_case(&text.style));
                         text.style.clone_from(&found.style);
+                    }
+                    // 属性の出所は、書き戻したファイルの ATTRIB を指す
+                    (Shape::Symbol(found), Shape::Symbol(symbol)) => {
+                        assert_eq!(found.attributes.len(), symbol.attributes.len());
+                        for (found, attribute) in
+                            found.attributes.iter().zip(&mut symbol.attributes)
+                        {
+                            assert!(found.text.style.eq_ignore_ascii_case(&attribute.text.style));
+                            attribute.text.style.clone_from(&found.text.style);
+                            attribute.source = found.source.clone();
+                        }
                     }
                     _ => {}
                 }
