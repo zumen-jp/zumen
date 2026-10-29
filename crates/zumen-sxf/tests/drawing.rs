@@ -1494,3 +1494,25 @@ fn element_ids_keep_instance_numbers_when_a_feature_is_added_before() {
     assert_eq!(after[0].0, "sheet/0/i15");
     assert_eq!(after[1..], before);
 }
+
+#[test]
+fn repeated_sfc_instance_numbers_do_not_produce_duplicate_ids() {
+    use zumen_drawing::id;
+    let src = numbered(&[
+        (10, r"layer_feature(\'L\','1')"),
+        (20, "line_feature('1','1','1','1','0.0','0.0','10.0','0.0')"),
+        (20, "circle_feature('1','1','1','1','5.0','5.0','3.0')"),
+        (90, r"drawing_sheet_feature(\'S\','3','1','0','0')"),
+    ]);
+    let (drawing, _) = lift(&src);
+    let sheet = &drawing.sheets[0];
+    let place = id::sheet(sheet);
+    let mut namer = id::Namer::new(&place);
+    let ids: Vec<_> = sheet
+        .elements
+        .iter()
+        .enumerate()
+        .map(|(index, element)| namer.next(index, element))
+        .collect();
+    assert_eq!(ids, ["sheet/0/i20", "sheet/0/i20/1"]);
+}
