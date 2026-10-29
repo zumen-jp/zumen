@@ -315,7 +315,7 @@ impl Born {
 
     /// 図形に共通の値（DXF Reference「Common Group Codes for Entities」）。区切り・ペーパー空間の印（`paper`
     /// なら 67 = 1）・レイヤ・線種・色・線幅・線種の倍率
-    fn entity(&self, layer: LayerId, style: &Style, paper: bool) -> Option<Vec<Value>> {
+    pub(super) fn entity(&self, layer: LayerId, style: &Style, paper: bool) -> Option<Vec<Value>> {
         let mut values = vec![text(100, "AcDbEntity")];
         if paper {
             values.push(int(67, 1));

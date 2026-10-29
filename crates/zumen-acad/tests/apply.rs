@@ -2314,3 +2314,217 @@ fn duplicate_handles_in_definitions_and_tables_reject_apply() {
         assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
     }
 }
+
+/// 2 つのレイヤと 2 つの線種を持ち、区切り（100）と XDATA を持つ LINE と、区切りを持たない CIRCLE を持つ
+/// R2004 の DXF
+#[cfg(test)]
+fn styled() -> Vec<u8> {
+    let tags: &[(i16, &str)] = &[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, "AC1018"),
+        (9, "$INSUNITS"),
+        (70, "4"),
+        (9, "$HANDSEED"),
+        (5, "40"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "LTYPE"),
+        (0, "LTYPE"),
+        (5, "11"),
+        (2, "CONTINUOUS"),
+        (70, "0"),
+        (0, "LTYPE"),
+        (5, "12"),
+        (2, "Dashed"),
+        (70, "0"),
+        (0, "ENDTAB"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        (6, "CONTINUOUS"),
+        (0, "LAYER"),
+        (5, "13"),
+        (2, "Wall"),
+        (70, "0"),
+        (62, "1"),
+        (6, "CONTINUOUS"),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "LINE"),
+        (5, "1A"),
+        (100, "AcDbEntity"),
+        (8, "0"),
+        (62, "5"),
+        (100, "AcDbLine"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+        (31, "0.0"),
+        (1001, "ZUMEN"),
+        (1000, "kept"),
+        (0, "CIRCLE"),
+        (5, "1B"),
+        (8, "0"),
+        (10, "5.0"),
+        (20, "5.0"),
+        (30, "0.0"),
+        (40, "2.0"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ];
+    tags.iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+#[test]
+fn restyles_change_only_the_named_style_fields_and_keep_the_shape() {
+    use zumen_drawing::{Color, ColorCode, ColorSystem, Inherit, LineWeight, Restyle, Seen};
+    let mut file = testkit::read::<Dxf>(&styled()).0.unwrap();
+    let drawing = lift(&file);
+    let wall = drawing
+        .layers
+        .iter()
+        .position(|layer| layer.name == "Wall")
+        .map(|index| LayerId(index as u32))
+        .unwrap();
+    let dashed = drawing
+        .line_types
+        .iter()
+        .position(|line_type| line_type.name == "Dashed")
+        .map(|index| zumen_drawing::LineTypeId(index as u32))
+        .unwrap();
+    let [(line, line_before), (circle, circle_before)] =
+        <[_; 2]>::try_from(seen(&drawing)).unwrap();
+    let red = Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value: 1,
+        }),
+        rgb: Some([255, 0, 0]),
+    };
+    let restyle = |target: Seen, style: Restyle| zumen_drawing::Edit::Restyle { target, style };
+    let changes = zumen_drawing::Changes {
+        edits: vec![
+            restyle(
+                line.clone(),
+                Restyle {
+                    layer: Some(wall),
+                    color: Some(Inherit::Layer),
+                    line_type: Some(Inherit::Own(dashed)),
+                    line_weight: Some(Inherit::Own(LineWeight::Width(zumen_drawing::PaperLength(
+                        0.35,
+                    )))),
+                    ..Restyle::default()
+                },
+            ),
+            restyle(
+                circle.clone(),
+                Restyle {
+                    color: Some(Inherit::Own(red)),
+                    line_type_scale: Some(2.5),
+                    ..Restyle::default()
+                },
+            ),
+        ],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let again = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    let [(line_id, line_after), (circle_id, circle_after)] = <[_; 2]>::try_from(again).unwrap();
+    assert_eq!(line_after.shape, line_before.shape);
+    assert_eq!(line_after.layer, wall);
+    assert_eq!(line_after.style.color, Inherit::Layer);
+    assert_eq!(line_after.style.line_type, Inherit::Own(dashed));
+    assert_eq!(
+        line_after.style.line_weight,
+        Some(Inherit::Own(LineWeight::Width(zumen_drawing::PaperLength(
+            0.35
+        ))))
+    );
+    assert_eq!(circle_after.shape, circle_before.shape);
+    assert_eq!(circle_after.layer, circle_before.layer);
+    assert_eq!(circle_after.style.color, Inherit::Own(red));
+    assert_eq!(circle_after.style.line_type_scale, 2.5);
+    // ID は変わらず、返すハッシュは読み直したときと同じ
+    assert_eq!(applied[0].id.as_deref(), Some(line.id.as_str()));
+    assert_eq!(applied[0].hash, Some(line_id.hash));
+    assert_eq!(applied[1].hash, Some(circle_id.hash));
+    assert_eq!(circle_id.id, circle.id);
+    // 変えた欄だけを AcDbEntity の区切りの中に書き、XDATA と形の値は元の書き方のまま残す
+    let text = String::from_utf8(written).unwrap();
+    assert!(text.contains(
+        "  0\nLINE\n  5\n1A\n100\nAcDbEntity\n  8\nWall\n  6\nDashed\n370\n35\n100\nAcDbLine\n 10\n0.0\n"
+    ));
+    assert!(text.contains("1001\nZUMEN\n1000\nkept\n"));
+    assert!(
+        text.contains("  0\nCIRCLE\n  5\n1B\n  8\n0\n 62\n1\n 48\n2.5\n420\n16711680\n 10\n5.0\n")
+    );
+}
+
+#[test]
+fn restyles_the_records_cannot_hold_change_nothing() {
+    use zumen_drawing::{Inherit, LineWeight, Restyle};
+    let src = styled();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(line, _), (circle, _)] = <[_; 2]>::try_from(seen(&lift(&file))).unwrap();
+    let changes = zumen_drawing::Changes {
+        edits: vec![
+            // 表にないレイヤ
+            zumen_drawing::Edit::Restyle {
+                target: line,
+                style: Restyle {
+                    layer: Some(LayerId(99)),
+                    ..Restyle::default()
+                },
+            },
+            // 線幅の値の範囲の外
+            zumen_drawing::Edit::Restyle {
+                target: circle,
+                style: Restyle {
+                    line_weight: Some(Inherit::Own(LineWeight::Width(zumen_drawing::PaperLength(
+                        9.99,
+                    )))),
+                    ..Restyle::default()
+                },
+            },
+        ],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+        [codes::CHANGE_EDIT_UNSUPPORTED]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}

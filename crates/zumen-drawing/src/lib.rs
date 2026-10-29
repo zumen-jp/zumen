@@ -2222,6 +2222,13 @@ pub enum Edit {
         /// 新しい値
         element: Box<Placed>,
     },
+    /// 指した要素のレイヤ・色・線種・線種の倍率・線幅のうち、[`Restyle`] が持つものだけを変える。形は変えない
+    Restyle {
+        /// 変える要素
+        target: Seen,
+        /// 新しい値
+        style: Restyle,
+    },
     /// 空間か用紙に、この要素を足す。要素の出所は使わない
     Add {
         /// 足す先の空間か用紙の ID（[`id::space`]・[`id::sheet`]）
@@ -2234,6 +2241,34 @@ pub enum Edit {
         /// 除く要素
         target: Seen,
     },
+}
+
+/// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` の欄は変えない
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Restyle {
+    /// レイヤ
+    pub layer: Option<LayerId>,
+    /// 色
+    pub color: Option<Inherit<Color>>,
+    /// 線種
+    pub line_type: Option<Inherit<LineTypeId>>,
+    /// 要素の線種の倍率
+    pub line_type_scale: Option<f64>,
+    /// 線幅
+    pub line_weight: Option<Inherit<LineWeight>>,
+}
+
+impl Restyle {
+    /// 元のレイヤとスタイルに、この変更を重ねたもの
+    pub fn over(&self, layer: LayerId, style: &Style) -> (LayerId, Style) {
+        let style = Style {
+            color: self.color.unwrap_or(style.color),
+            line_type: self.line_type.unwrap_or(style.line_type),
+            line_type_scale: self.line_type_scale.unwrap_or(style.line_type_scale),
+            line_weight: self.line_weight.or(style.line_weight),
+        };
+        (self.layer.unwrap_or(layer), style)
+    }
 }
 
 /// 当てた変更 1 つの結果

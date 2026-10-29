@@ -53,7 +53,7 @@
   - 形を変える `Replace` で、元の図形が図形とともに動く XDATA を持たないか（0154 の規則。`change.xdata.unsupported`）。形を動かすときは `Transform` を使う。
 - **診断の名前空間。** 変更の診断は、形式によらない名前空間 `change` にする。`dxf.element.missing`・`dxf.change.unsupported`・`dwg.change.unsupported` は、台帳で廃止にする（[決定 0009](0009-diagnostics-and-catalog.md)）。0154 の `dxf.xdata.unsupported` も、`change.xdata.unsupported` に移して廃止にする。
 - **手間。** apply は、ID から要素への索引を 1 回だけ作る。図面モデルへの変換も、1 回の apply で 1 回にする。手間は、文書の大きさと変更の数の和に比例する。
-- **今の範囲。** 変更の一覧は、ID と読んだときのハッシュで要素を指し、文書のハッシュを持てる。DXF と DWG は、実寸の空間と用紙の LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・TEXT・MTEXT・INSERT の形の置き換えと、続くレコードを持たない図形の除去と、同じ形の追加（足す先を空間か用紙の ID で指す。0155）を当て、変更ごとに新しい ID とハッシュを返す。`Restyle`・`Transform`・記号の定義の要素・続くレコードの除去は、まだない。
+- **今の範囲。** 変更の一覧は、ID と読んだときのハッシュで要素を指し、文書のハッシュを持てる。DXF と DWG は、実寸の空間と用紙の LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・TEXT・MTEXT・INSERT の形の置き換えと、続くレコードを持たない図形の除去と、同じ形の追加（足す先を空間か用紙の ID で指す。0155）と、`Restyle`（DWG は色と線種の倍率だけ）を当て、変更ごとに新しい ID とハッシュを返す。`Transform`・記号の定義の要素・続くレコードの除去・文字スタイルの変更（0158）は、まだない。
 
 ## 影響
 
@@ -68,6 +68,7 @@
 - 同じ要素を 1 回の変更の一覧で複数回指すと、`change.edit.unsupported` にして一覧全体を当てない。各変更は読んだときの要素に対して計画するため、後の変更が前の変更を消さないようにする。
 - 2 つ以上の要素を作ったレコード（ID の終わりに `/1` などを持つもの）の要素は、1 つだけを書き戻せないので、`change.edit.unsupported` にする。
 - ハンドルが重複する DXF・DWG は、参照先が一意に決まらないため、変更を当てず `change.edit.unsupported` を返す。
+- `Restyle` と `Transform` は、要素の並びでなく 1 つの要素を指す。並びは、変更を並べて表す。apply が変更ごとに 1 つの新しい ID とハッシュを返す形と合わせるためで、手間は同じ。
 
 ## 参照
 

@@ -10,9 +10,9 @@ use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal, Length,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Rotation, Shape,
-    SheetId, SpaceId, Symbol, Text, Vertical, id,
+    Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal, LayerId,
+    Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle,
+    Rotation, Shape, SheetId, SpaceId, Style, Symbol, Text, Vertical, id,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -280,6 +280,9 @@ fn edit(
             Edit::Replace {
                 target: target_of, ..
             } => ("replace", target_of),
+            Edit::Restyle {
+                target: target_of, ..
+            } => ("restyle", target_of),
             Edit::Remove { target: target_of } => ("remove", target_of),
         };
         let Some(&found) = index.elements.get(&target_of.id) else {
@@ -357,6 +360,14 @@ fn edit(
                     .map(|values| replaced.push((position, values))),
                 Placed::Model(_) => None,
             },
+            (Edit::Restyle { style, .. }, found) => {
+                let (layer, was) = match found {
+                    Found::Model(element) => (element.layer, &element.style),
+                    Found::Paper(element) => (element.layer, &element.style),
+                };
+                restyled(&born, object, layer, was, style, target)
+                    .map(|values| replaced.push((position, values)))
+            }
             (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
             (Edit::Add { .. }, _) => None,
         };
@@ -390,7 +401,9 @@ fn edit(
         .edits
         .iter()
         .map(|change| match change {
-            Edit::Replace { target, .. } => applied(&after, Some(target.id.clone()), cx),
+            Edit::Replace { target, .. } | Edit::Restyle { target, .. } => {
+                applied(&after, Some(target.id.clone()), cx)
+            }
             Edit::Add { place, .. } => applied(
                 &after,
                 handles
@@ -402,6 +415,86 @@ fn edit(
             Edit::Remove { .. } => applied(&after, None, cx),
         })
         .collect()
+}
+
+/// スタイルを変えた図形の値。変わった欄（レイヤ 8・線種 6・色 62 と 420 と 430・線幅 370・線種の倍率 48）
+/// だけを、図形に共通の値の中で除いてから、足すときと同じ書き方（[`Born::entity`]）でレイヤの後に書く。
+/// ほかの値は元のまま写す。DWG は、今ある図形のレイヤと線種を書き戻せないので扱わない
+fn restyled(
+    born: &Born,
+    object: &Object,
+    layer: LayerId,
+    style: &Style,
+    change: &Restyle,
+    target: Target,
+) -> Option<Vec<Value>> {
+    let (new_layer, new) = change.over(layer, style);
+    let mut changed = Vec::new();
+    if new_layer != layer {
+        changed.push(8);
+    }
+    if new.line_type != style.line_type {
+        changed.push(6);
+    }
+    if new.color != style.color {
+        changed.extend([62, 420, 430]);
+    }
+    if new.line_weight != style.line_weight {
+        changed.push(370);
+    }
+    if new.line_type_scale != style.line_type_scale {
+        changed.push(48);
+    }
+    if changed.is_empty() {
+        return Some(object.values.clone());
+    }
+    if matches!(target, Target::Dwg(_)) && changed.iter().any(|code| matches!(code, 6 | 8)) {
+        return None;
+    }
+    let written: Vec<Value> = born
+        .entity(new_layer, &new, false)?
+        .into_iter()
+        .filter(|value| changed.contains(&value.code))
+        .collect();
+    // 図形に共通の値の範囲。区切り（100）を持てば AcDbEntity の区切りの中、持たなければ XDATA の前まで
+    let common = match object
+        .values
+        .iter()
+        .position(|value| value.code == 100 && value.data == Data::Text(b"AcDbEntity".to_vec()))
+    {
+        Some(marker) => {
+            let end = object
+                .values
+                .iter()
+                .skip(marker + 1)
+                .position(|value| matches!(value.code, 100 | 1001))
+                .map_or(object.values.len(), |n| marker + 1 + n);
+            marker + 1..end
+        }
+        None => {
+            0..object
+                .values
+                .iter()
+                .position(|value| value.code == 1001)
+                .unwrap_or(object.values.len())
+        }
+    };
+    let mut values = Vec::with_capacity(object.values.len() + written.len());
+    let mut at = None;
+    for (index, value) in object.values.iter().enumerate() {
+        let inside = common.contains(&index);
+        if inside && value.code == 8 && at.is_none() {
+            if !changed.contains(&8) {
+                values.push(value.clone());
+            }
+            at = Some(values.len());
+        } else if !(inside && changed.contains(&value.code)) {
+            values.push(value.clone());
+        }
+    }
+    let at = at?;
+    values.splice(at..at, written);
+    Some(values)
 }
 
 /// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある

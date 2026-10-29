@@ -777,6 +777,166 @@ fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
     assert!(pairs().is_empty() || checked > 0);
 }
 
+/// 試料の線のスタイルを ID で変えると、形は変わらず、変えた欄だけが読み直したときに変わっている。DWG は
+/// 色と線種の倍率を、DXF はレイヤも変える（決定 0139）
+#[cfg(feature = "drawing")]
+#[test]
+fn drawings_take_back_restyled_lines() {
+    use zumen_drawing::{
+        Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Hash, Inherit, LayerId,
+        Restyle, Seen, Shape, id,
+    };
+    use zumen_sdk::{Apply, Codec, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+    }
+    fn check<C: Codec>(path: &Path, relayer: bool) -> bool
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let drawing = lift(&file);
+        let space = &drawing.spaces[0];
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        let found = space
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| (namer.next(index, element), element))
+            .find(|(id, element)| {
+                matches!(element.shape, Shape::Line { .. })
+                    && id.starts_with("space/0/h")
+                    && id.matches('/').count() == 2
+            });
+        let Some((target, line)) = found else {
+            return false;
+        };
+        let layer = relayer
+            .then(|| {
+                (0..drawing.layers.len() as u32)
+                    .map(LayerId)
+                    .find(|layer| *layer != line.layer)
+            })
+            .flatten();
+        let green = Inherit::Own(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: 3,
+            }),
+            rgb: None,
+        });
+        // DWG は、今ある図形のレイヤを書き戻せないので、何も変えずに断る
+        if !relayer && drawing.layers.len() > 1 {
+            let other = (0..drawing.layers.len() as u32)
+                .map(LayerId)
+                .find(|layer| *layer != line.layer);
+            let refused = Changes {
+                edits: vec![Edit::Restyle {
+                    target: Seen {
+                        id: target.clone(),
+                        hash: Hash::element(line),
+                    },
+                    style: Restyle {
+                        layer: other,
+                        ..Restyle::default()
+                    },
+                }],
+                document: None,
+            };
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let result = file.apply(&refused, &mut Cx::new(&mut budget, &mut diag, &cancel));
+            assert!(result.is_err(), "{}", path.display());
+            assert_eq!(
+                diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+                [codes::CHANGE_EDIT_UNSUPPORTED],
+                "{}",
+                path.display()
+            );
+            assert_eq!(
+                testkit::write::<C>(&file).unwrap(),
+                src,
+                "{}",
+                path.display()
+            );
+        }
+        let changes = Changes {
+            edits: vec![Edit::Restyle {
+                target: Seen {
+                    id: target.clone(),
+                    hash: Hash::element(line),
+                },
+                style: Restyle {
+                    layer,
+                    color: Some(green),
+                    line_type_scale: Some(line.style.line_type_scale * 2.0),
+                    ..Restyle::default()
+                },
+            }],
+            document: Some(Hash::document(&src)),
+        };
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let applied = file
+            .apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{}: {error:?} {:?}",
+                    path.display(),
+                    diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+                )
+            });
+        let written = testkit::write::<C>(&file).unwrap();
+        let after = lift(&testkit::read::<C>(&written).0.unwrap());
+        let space = &after.spaces[0];
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        let (_, restyled) = space
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| (namer.next(index, element), element))
+            .find(|(id, _)| *id == target)
+            .unwrap();
+        assert_eq!(restyled.shape, line.shape, "{}", path.display());
+        assert_eq!(restyled.style.color, green, "{}", path.display());
+        assert_eq!(
+            restyled.style.line_type_scale,
+            line.style.line_type_scale * 2.0,
+            "{}",
+            path.display()
+        );
+        assert_eq!(
+            restyled.layer,
+            layer.unwrap_or(line.layer),
+            "{}",
+            path.display()
+        );
+        assert_eq!(applied[0].id.as_deref(), Some(target.as_str()));
+        assert_eq!(
+            applied[0].hash,
+            Some(Hash::element(restyled)),
+            "{}",
+            path.display()
+        );
+        true
+    }
+    let mut checked = 0;
+    for (dwg, dxf) in pairs() {
+        checked += usize::from(check::<Dwg>(&dwg, false));
+        checked += usize::from(check::<Dxf>(&dxf, true));
+    }
+    assert!(pairs().is_empty() || checked > 0);
+}
+
 /// 図面モデルで動かした線を、DWG に書き戻して読み直すと、同じ所に動いている（決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
