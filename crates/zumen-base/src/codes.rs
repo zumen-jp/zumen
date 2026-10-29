@@ -406,7 +406,7 @@ pub const DWG_RECORD_MISSING: Code = Code::new(
     &["type", "code"],
 );
 
-/// R2010 からの DWG の表のスタイル・セルのスタイル・内容の書式は、まだ読めないので、表とセルの書式と文字の回転を図面モデルに移さなかった。セルの内容と値と、表を描いたブロックは移した
+/// R2010 からの DWG の表のスタイル・セルのスタイル・内容の書式は、まだ読めないので、表とセルの書式と文字の回転を図面モデルに移さなかった
 ///
 /// `dwg.table-format.unsupported`（0.0.0 から）
 pub const DWG_TABLE_FORMAT_UNSUPPORTED: Code = Code::new(

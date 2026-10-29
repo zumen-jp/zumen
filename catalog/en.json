@@ -39,7 +39,7 @@
     "dwg.object.invalid": "Kept only the handle of {count} DWG objects of type {type}, because their fields cannot be read.",
     "dwg.object.missing": "DWG has no object {record}. The changes were not applied.",
     "dwg.record.missing": "Left out group code {code} of {count} DWG entities of type {type}, because the table record they point to is missing.",
-    "dwg.table-format.unsupported": "Did not lift the table and cell formats or the text rotation of {count} tables in DWG R2010 or later, because their table styles, cell styles and content formats cannot be read yet; the cell contents and values and the blocks that draw the tables were lifted.",
+    "dwg.table-format.unsupported": "Did not lift the table and cell formats or the text rotation of {count} tables in DWG R2010 or later, because their table styles, cell styles and content formats cannot be read yet.",
     "dwg.type.unsupported": "Kept {count} DWG objects of type {type}, which is not supported yet, with an empty kind.",
     "dwg.version.unsupported": "DWG version {version} cannot be read yet.",
     "dwg.xdata.invalid": "Left out the extended data of one registered application on {count} DWG objects of type {type}, because it cannot be read.",
