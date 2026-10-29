@@ -4,7 +4,7 @@
 //! 先頭から読む（空間の図形は、見出しの変数が指す空間のブロックのレコード）。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
 //! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
 //! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、名前（2）と LAYER・STYLE・LTYPE・APPID・VIEW・UCS・VPORT・DIMSTYLE の欄を読む。
-//! オブジェクトは、今は MLINESTYLE・DICTIONARY・ACDBDICTIONARYWDFLT・XRECORD・GROUP・DICTIONARYVAR・SCALE・LAYOUT の欄を読む。
+//! オブジェクトは、今は MLINESTYLE・DICTIONARY・ACDBDICTIONARYWDFLT・XRECORD・GROUP・DICTIONARYVAR・SCALE・LAYOUT・SPATIAL_FILTER などの欄を読む。
 //! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
@@ -899,6 +899,8 @@ fn read(
             ]
         } else if kind == b"SCALE" {
             scale(&mut bits)?
+        } else if kind == b"SPATIAL_FILTER" {
+            spatial_filter(&mut bits)?
         } else if kind == b"IMAGEDEF" {
             imagedef(&mut bits)?
         } else if kind == b"IMAGEDEF_REACTOR" {
@@ -3182,6 +3184,31 @@ fn imagedef(bits: &mut Bits) -> Option<Vec<Value>> {
     values.extend(size);
     values.extend(pixel);
     values.extend([loaded, units]);
+    Some(values)
+}
+
+/// SPATIAL_FILTER の欄（ODS 5.4.1 の SPATIAL_FILTER の節、決定 0149）。DXF と同じく、境界の点の数（70）・点（10・20）・
+/// 押し出しの向き（210〜230）・境界の原点（11〜31）・境界を表示するか（71）・前と後ろで切るか（72・73）と、
+/// 切るならその距離（40・41）、挿入の逆の変換と境界の変換の 12 ずつの値（40）の順に置く
+fn spatial_filter(bits: &mut Bits) -> Option<Vec<Value>> {
+    let count = bits.bs()?;
+    let mut values = vec![int(70, i64::from(count))];
+    for _ in 0..count {
+        values.extend(point2(bits, 10)?);
+    }
+    values.extend(point3(bits, 210)?);
+    values.extend(point3(bits, 11)?);
+    values.push(int(71, i64::from(bits.bs()?)));
+    for (flag, distance) in [(72, 40), (73, 41)] {
+        let on = bits.bs()?;
+        values.push(int(flag, i64::from(on)));
+        if on != 0 {
+            values.push(real(distance, bits.bd()?));
+        }
+    }
+    for _ in 0..24 {
+        values.push(real(40, bits.bd()?));
+    }
     Some(values)
 }
 

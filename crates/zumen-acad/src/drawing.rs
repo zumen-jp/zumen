@@ -252,19 +252,36 @@ fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Result<(), Error
     for pair in dictionary.values.windows(2) {
         work(cx, 1, &source)?;
         if let [
-            Value { code: 3, .. },
+            Value {
+                code: 3,
+                data: name,
+            },
             Value {
                 code: 350 | 360,
                 data: Data::Handle(handle),
             },
         ] = pair
-            && let Some(item) = db.get(*handle).filter(|item| item.kind == b"XRECORD")
+            && let Some(item) = db.get(*handle)
         {
-            work(
-                cx,
-                (item.values.len() as u64).saturating_add(amount(object)),
-                &source,
-            )?;
+            if item.kind == b"XRECORD" {
+                work(
+                    cx,
+                    (item.values.len() as u64).saturating_add(amount(object)),
+                    &source,
+                )?;
+            } else if object.kind == b"INSERT"
+                && item.kind == b"DICTIONARY"
+                && matches!(name, Data::Text(name) if name == b"ACAD_FILTER")
+            {
+                // 共有する切り抜きも、配置ごとに辞書の探索と境界の値の複製・変換を数える。
+                work(cx, item.values.len() as u64, &source)?;
+                if let Some(filter) = entry(db, *handle, b"SPATIAL")
+                    .and_then(|handle| db.get(handle))
+                    .filter(|filter| filter.kind == b"SPATIAL_FILTER")
+                {
+                    work(cx, filter.values.len() as u64, &source)?;
+                }
+            }
         }
     }
     Ok(())
@@ -830,6 +847,12 @@ impl Lifter {
                 continue;
             };
             values.next();
+            // 記号の切り抜きは、記号が持つ（決定 0149）
+            if object.kind == b"INSERT"
+                && matches!(name, Data::Text(text) if text == b"ACAD_FILTER")
+            {
+                continue;
+            }
             // 項目のオブジェクトがなければ、移すものはない
             let Some(item) = db.get(*handle) else {
                 continue;
@@ -858,6 +881,119 @@ impl Lifter {
                 Err(diagnostic) => cx.report((*diagnostic).at(source(object))),
             }
         }
+    }
+
+    /// INSERT の切り抜き（XCLIP、決定 0149）。拡張辞書の `ACAD_FILTER` の辞書の `SPATIAL` が指す SPATIAL_FILTER の、
+    /// 境界の点（10・20）を、境界の変換と挿入の逆の変換（40 の 12 ずつ。3 行 4 列を行の順）で、記号の定義の空間に
+    /// 写す（推定。試料の図面で、挿入の逆の変換が挿入点と尺度の逆になることを確かめた）。境界の向き（210〜230）が
+    /// Z でないもの、境界の原点（11〜31）が 0 でないもの、点が 2 つより少ないものは読めないとする。前と後ろで切るか
+    /// （72・73）は平面の形を変えず、境界を表示するか（71）は移さない
+    fn symbol_clip(&self, db: &AcadDb, object: &Object) -> Lifted<Option<Clip>> {
+        let Some(filter) = xdictionary(object)
+            .and_then(|handle| entry(db, handle, b"ACAD_FILTER"))
+            .and_then(|handle| entry(db, handle, b"SPATIAL"))
+            .and_then(|handle| db.get(handle))
+            .filter(|filter| filter.kind == b"SPATIAL_FILTER")
+        else {
+            return Ok(None);
+        };
+        let dropped = |code: i16| {
+            Box::new(Diagnostic::new(codes::DXF_CLIP_DROPPED).with("code", i64::from(code)))
+        };
+        let start = filter
+            .values
+            .iter()
+            .position(|value| value.code == 70)
+            .ok_or_else(|| dropped(70))?;
+        let mut values = filter
+            .values
+            .get(start..)
+            .unwrap_or_default()
+            .iter()
+            .peekable();
+        let mut take = |code: i16| -> Lifted<&Data> {
+            values
+                .next_if(|value| value.code == code)
+                .map(|value| &value.data)
+                .ok_or_else(|| dropped(code))
+        };
+        let int = |data: &Data, code: i16| match data {
+            Data::Int(value) => Ok(*value),
+            _ => Err(dropped(code)),
+        };
+        let real = |data: &Data, code: i16| match data {
+            Data::Real(value) if value.is_finite() => Ok(*value),
+            _ => Err(dropped(code)),
+        };
+        let count = int(take(70)?, 70)?;
+        if count < 2 {
+            return Err(dropped(70));
+        }
+        let mut points = Vec::new();
+        for _ in 0..count {
+            points.push([real(take(10)?, 10)?, real(take(20)?, 20)?]);
+        }
+        let normal = [
+            real(take(210)?, 210)?,
+            real(take(220)?, 220)?,
+            real(take(230)?, 230)?,
+        ];
+        if !matches!(normal, [x, y, z] if x.abs() < 1e-9 && y.abs() < 1e-9 && z > 0.0) {
+            return Err(dropped(210));
+        }
+        for code in [11, 21, 31] {
+            if real(take(code)?, code)? != 0.0 {
+                return Err(dropped(code));
+            }
+        }
+        int(take(71)?, 71)?;
+        for (flag, distance) in [(72, 40), (73, 41)] {
+            if int(take(flag)?, flag)? != 0 {
+                real(take(distance)?, distance)?;
+            }
+        }
+        let mut matrix = || -> Lifted<[[f64; 4]; 3]> {
+            let mut rows = [[0.0; 4]; 3];
+            for slot in rows.iter_mut().flatten() {
+                *slot = real(take(40)?, 40)?;
+            }
+            Ok(rows)
+        };
+        let inverse = matrix()?;
+        let bound = matrix()?;
+        let apply = |m: &[[f64; 4]; 3], [x, y, z]: [f64; 3]| {
+            m.map(|[a, b, c, d]| a * x + b * y + c * z + d)
+        };
+        // 2 点の長方形も、回転やせん断の後は軸に平行とは限らないので、四隅を写す。
+        let rectangular = points.len() == 2;
+        if let [[x0, y0], [x1, y1]] = points.as_slice() {
+            points = vec![[*x0, *y0], [*x1, *y0], [*x1, *y1], [*x0, *y1]];
+        }
+        let mut vertices = points
+            .into_iter()
+            .map(|[x, y]| {
+                let [x, y, z] = apply(&inverse, apply(&bound, [x, y, 0.0]));
+                if ![x, y, z].iter().all(|value| value.is_finite()) || z != 0.0 {
+                    return Err(dropped(40));
+                }
+                Ok([x, y])
+            })
+            .collect::<Lifted<Vec<_>>>()?;
+        // 軸に平行な長方形なら、元と同じく向かい合う 2 点で持つ。
+        if rectangular {
+            let [a, b, c, d] = vertices.as_slice() else {
+                return Err(dropped(70));
+            };
+            if (a[1] == b[1] && b[0] == c[0] && c[1] == d[1] && d[0] == a[0])
+                || (a[0] == b[0] && b[1] == c[1] && c[0] == d[0] && d[1] == a[1])
+            {
+                vertices = vec![*a, *c];
+            }
+        }
+        Ok(Some(Clip {
+            vertices,
+            inverted: false,
+        }))
     }
 
     /// XRECORD のデータの値。所有者などの共通の値と、複製の扱い（280）の後に並ぶ
@@ -1697,6 +1833,11 @@ impl Lifter {
             report_cell_values(object, cx);
         }
         if let Shape::Symbol(symbol) = &mut shape {
+            // 切り抜きを読めなければ、切り抜かずに移す
+            match self.symbol_clip(db, object) {
+                Ok(clip) => symbol.clip = clip,
+                Err(diagnostic) => cx.report((*diagnostic).at(source.clone())),
+            }
             for attribute in attributes {
                 match self.attribute(attribute, &point, &length, out) {
                     Ok(lifted) => symbol.attributes.push(lifted),
@@ -1823,6 +1964,7 @@ impl Lifter {
             rotation: self.real(object, 50, Some(0.0))?,
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         })
     }
 
@@ -2089,6 +2231,7 @@ impl Lifter {
             rotation: self.real(object, 50, Some(0.0))?,
             grid,
             attributes: Vec::new(),
+            clip: None,
         })
     }
 
@@ -2943,6 +3086,7 @@ impl Lifter {
             rotation: self.real(context, 46, Some(0.0))?.to_degrees(),
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         })
     }
 
@@ -3920,6 +4064,24 @@ fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// DICTIONARY（`handle`）の、名前が `name` の項目のハンドル
+fn entry(db: &AcadDb, handle: u64, name: &[u8]) -> Option<u64> {
+    let dictionary = db.get(handle).filter(|found| found.kind == b"DICTIONARY")?;
+    dictionary.values.windows(2).find_map(|pair| match pair {
+        [
+            Value {
+                code: 3,
+                data: Data::Text(text),
+            },
+            Value {
+                code: 350 | 360,
+                data: Data::Handle(item),
+            },
+        ] if text == name => Some(*item),
+        _ => None,
+    })
 }
 
 /// 図形の拡張辞書のハンドル（`{ACAD_XDICTIONARY` の組の 360）

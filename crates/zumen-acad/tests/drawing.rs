@@ -4497,6 +4497,208 @@ fn e5_xrecords_stop_before_copying_values_over_the_work_budget() {
     );
 }
 
+/// 記号の切り抜き（XCLIP）の SPATIAL_FILTER の境界は、境界の変換と挿入の逆の変換で、記号の定義の空間の頂点に
+/// なる。読めない切り抜きは、診断して切り抜かずに移す（決定 0149）
+#[test]
+fn e3_block_clips_become_the_clip_of_the_symbol() {
+    // 切り抜く INSERT の拡張辞書（A0・A1）、ACAD_FILTER の辞書（B0・B1）、SPATIAL_FILTER（C0・C1）
+    let insert = |handle: &'static str, xdict: &'static str| {
+        entity(
+            "INSERT",
+            &[
+                (5, handle),
+                (102, "{ACAD_XDICTIONARY"),
+                (360, xdict),
+                (102, "}"),
+                (2, "部品"),
+                (10, "10.0"),
+                (20, "20.0"),
+                (41, "2.0"),
+                (42, "2.0"),
+            ],
+        )
+    };
+    let entities = [insert("10", "A0"), insert("11", "A1")].concat();
+    let dictionary = |handle: &'static str, name: &'static str, item: &'static str| {
+        vec![
+            (0, "DICTIONARY"),
+            (5, handle),
+            (100, "AcDbDictionary"),
+            (280, "1"),
+            (3, name),
+            (360, item),
+        ]
+    };
+    let filter = |handle: &'static str, origin: &'static str| {
+        let mut tags = vec![
+            (0, "SPATIAL_FILTER"),
+            (5, handle),
+            (100, "AcDbFilter"),
+            (100, "AcDbSpatialFilter"),
+            (70, "3"),
+            (10, "12.0"),
+            (20, "22.0"),
+            (10, "14.0"),
+            (20, "22.0"),
+            (10, "14.0"),
+            (20, "26.0"),
+            (210, "0.0"),
+            (220, "0.0"),
+            (230, "1.0"),
+            (11, origin),
+            (21, "0.0"),
+            (31, "0.0"),
+            (71, "1"),
+            (72, "1"),
+            (40, "5.0"),
+            (73, "0"),
+        ];
+        // 挿入の逆の変換（尺度 1/2 と、挿入点を戻す移動）と、境界の変換（単位）
+        for value in [
+            "0.5", "0.0", "0.0", "-5.0", "0.0", "0.5", "0.0", "-10.0", "0.0", "0.0", "0.5", "0.0",
+            "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0",
+        ] {
+            tags.push((40, value));
+        }
+        tags
+    };
+    let objects = [
+        dictionary("A0", "ACAD_FILTER", "B0"),
+        dictionary("B0", "SPATIAL", "C0"),
+        filter("C0", "0.0"),
+        dictionary("A1", "ACAD_FILTER", "B1"),
+        dictionary("B1", "SPATIAL", "C1"),
+        filter("C1", "1.0"),
+    ]
+    .concat();
+    let header = [MM, &[(9, "$ACADVER"), (1, "AC1027")]].concat();
+    let src = sections(&[
+        ("HEADER", &header),
+        ("ENTITIES", &entities),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let found: Vec<_> = found_but_missing_blocks(&diag)
+        .into_iter()
+        .map(|(c, p, n, _)| (c, p, n))
+        .collect();
+    assert_eq!(found, [(codes::DXF_CLIP_DROPPED, "Int(11)".to_owned(), 1)]);
+    let shapes = model_shapes(&drawing.unwrap());
+    let [Shape::Symbol(clipped), Shape::Symbol(unclipped)] = shapes.as_slice() else {
+        panic!("{shapes:?}");
+    };
+    assert_eq!(
+        clipped.clip,
+        Some(Clip {
+            vertices: vec![[1.0, 1.0], [2.0, 1.0], [2.0, 3.0]],
+            inverted: false,
+        })
+    );
+    assert_eq!(unclipped.clip, None);
+}
+
+/// 2 点で記録した長方形も、定義の空間への変換で傾けば四隅を持つ。
+/// 有限な入力の積が有限でなくなるときは、診断して切り抜かずに移す。
+#[test]
+fn e3_rectangular_block_clips_keep_transformed_corners() {
+    for (diagonal, expected) in [
+        (
+            "1.0",
+            Some(vec![[0.0, 0.0], [2.0, -2.0], [5.0, 1.0], [3.0, 3.0]]),
+        ),
+        ("1e308", None),
+    ] {
+        let entities = entity(
+            "INSERT",
+            &[
+                (102, "{ACAD_XDICTIONARY"),
+                (360, "A0"),
+                (102, "}"),
+                (2, "PART"),
+                (10, "0.0"),
+                (20, "0.0"),
+            ],
+        );
+        let mut objects = vec![
+            (0, "DICTIONARY"),
+            (5, "A0"),
+            (3, "ACAD_FILTER"),
+            (360, "B0"),
+            (0, "DICTIONARY"),
+            (5, "B0"),
+            (3, "SPATIAL"),
+            (360, "C0"),
+            (0, "SPATIAL_FILTER"),
+            (5, "C0"),
+            (70, "2"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (10, "2.0"),
+            (20, "3.0"),
+            (210, "0.0"),
+            (220, "0.0"),
+            (230, "1.0"),
+            (11, "0.0"),
+            (21, "0.0"),
+            (31, "0.0"),
+            (71, "1"),
+            (72, "0"),
+            (73, "0"),
+        ];
+        for value in [
+            diagonal, "1.0", "0.0", "0.0", "-1.0", "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0",
+            "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0", "0.0", "0.0", "0.0", "1.0", "0.0",
+        ] {
+            objects.push((40, value));
+        }
+        let src = sections(&[
+            ("HEADER", MM),
+            ("ENTITIES", &entities),
+            ("OBJECTS", &objects),
+        ]);
+        let (drawing, diag) = lift(&src, &mut Budget::default());
+        let shapes = model_shapes(&drawing.unwrap());
+        let [Shape::Symbol(symbol)] = shapes.as_slice() else {
+            panic!("{shapes:?}");
+        };
+        assert_eq!(
+            symbol.clip.as_ref().map(|clip| clip.vertices.clone()),
+            expected
+        );
+        let found: Vec<_> = found_but_missing_blocks(&diag)
+            .into_iter()
+            .map(|(code, params, count, _)| (code, params, count))
+            .collect();
+        assert_eq!(
+            found,
+            if expected.is_some() {
+                vec![]
+            } else {
+                vec![(codes::DXF_CLIP_DROPPED, "Int(40)".to_owned(), 1)]
+            }
+        );
+        // 辞書の探索ができても、境界の値の複製と変換が上限に入る前に止まる。
+        let plain: Vec<_> = entities
+            .iter()
+            .copied()
+            .filter(|(code, _)| !matches!(code, 102 | 360))
+            .collect();
+        let control = sections(&[("HEADER", MM), ("ENTITIES", &plain), ("OBJECTS", &objects)]);
+        let mut control_budget = Budget::default();
+        assert!(lift(&control, &mut control_budget).0.is_ok());
+        let mut budget = Budget::new(Limits::default().with(
+            Kind::Work,
+            Limit::Finite(control_budget.used(Kind::Work) + 10),
+        ));
+        let (drawing, diag) = lift(&src, &mut budget);
+        assert!(matches!(drawing, Err(Error::Stopped(_))));
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::BUDGET_WORK_EXCEEDED]
+        );
+    }
+}
+
 /// 図形の拡張辞書の XRECORD は、項目の名前ごとの形式固有の情報になり、値はグループ・コードと値の組で並ぶ。
 /// XRECORD でない項目と、辞書でないものを指す拡張辞書は移さない（決定 0148）
 #[test]
@@ -4996,6 +5198,7 @@ fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
             rotation: 30.0,
             grid: None,
             attributes: Vec::new(),
+            clip: None,
         })
     );
     assert_eq!(
