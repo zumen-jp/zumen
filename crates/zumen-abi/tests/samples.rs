@@ -987,6 +987,162 @@ fn drawings_take_back_symbols_through_the_boundary() {
     );
 }
 
+/// 試料の実寸の空間の、当てはめる点で決まるスプラインを、境界の `replace` で当てはめる点を動かして置き換え、
+/// `add` で当てはめる点のスプラインを足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じに
+/// なる（決定 0139）。R12 の DXF には足せず `change.edit.unsupported` に、R2013 から後の DWG には足せず
+/// `dwg.change.unsupported` になる
+#[test]
+fn drawings_take_back_splines_fitted_through_points() {
+    let budget = r#""budget":{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}"#;
+    let adding = r#"{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[[0,0],[2,3],[5,1],[8,4]],"start_tangent":[1,1],"end_tangent":[1,-0.5],"closed":false,"periodic":false}"#;
+    let moving = r#"{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[[1,-1],[3,2],[7,0]],"closed":false,"periodic":false}"#;
+    let (mut replaced, mut added, mut moved, mut refused) = ([0, 0], [0, 0], [0, 0], [0, 0]);
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let check = |session: &mut Session, doc: &str, response: &Value, geometry: &str| {
+            let file = session.take(0).unwrap();
+            let id = text(response, "/result/applied/0/id").unwrap().to_string();
+            let hash = text(response, "/result/applied/0/hash")
+                .unwrap()
+                .to_string();
+            session.push(doc.as_bytes(), &file).unwrap();
+            assert!(open(session, doc), "{name}");
+            assert!(
+                entities(session, doc)
+                    .iter()
+                    .any(|(found, _, found_hash)| *found == id && *found_hash == hash),
+                "{name}: {id}"
+            );
+            let found = shapes(session, doc)
+                .into_iter()
+                .find(|(found, _)| *found == id)
+                .and_then(|(_, geometry)| geometry);
+            let expected = zumen_json::parse(geometry.as_bytes()).unwrap();
+            assert!(
+                found.as_ref().is_some_and(|found| close(found, &expected)),
+                "{name}: {id}: {found:?}"
+            );
+        };
+        let fitted = shapes(&mut session, &name)
+            .into_iter()
+            .find(|(id, geometry)| {
+                id.starts_with("space/0/h")
+                    && id.matches('/').count() == 2
+                    && geometry.as_ref().is_some_and(|g| {
+                        text(g, "/shape") == Some("spline") && g.pointer("/fit").is_some()
+                    })
+            });
+        if let Some((id, Some(geometry))) = fitted {
+            let (_, _, hash) = entities(&mut session, &name)
+                .into_iter()
+                .find(|(found, _, _)| *found == id)
+                .unwrap();
+            // 当てはめる点を動かし、ほかの値は元のまま送る
+            let Some(Value::Array(points)) = geometry.pointer("/fit") else {
+                panic!("{name}: {geometry:?}");
+            };
+            let fit: Vec<String> = points
+                .iter()
+                .map(|point| {
+                    let at = |index: usize| {
+                        zumen_json::number(point.pointer(&format!("/{index}")).unwrap()).unwrap()
+                    };
+                    format!("[{},{}]", at(0) + 3.0, at(1) - 2.0)
+                })
+                .collect();
+            let tangent = |key: &str| {
+                geometry
+                    .pointer(&format!("/{key}"))
+                    .map_or(String::new(), |_| {
+                        let at = |index: usize| {
+                            zumen_json::number(
+                                geometry.pointer(&format!("/{key}/{index}")).unwrap(),
+                            )
+                            .unwrap()
+                        };
+                        format!(r#","{key}":[{},{}]"#, at(0), at(1))
+                    })
+            };
+            let flag = |key: &str| geometry.pointer(&format!("/{key}")) == Some(&Value::Bool(true));
+            let moved = format!(
+                r#"{{"shape":"spline","degree":{},"knots":[],"control":[],"fit":[{}]{}{},"closed":{},"periodic":{}}}"#,
+                zumen_json::number(geometry.pointer("/degree").unwrap()).unwrap(),
+                fit.join(","),
+                tangent("start_tangent"),
+                tangent("end_tangent"),
+                flag("closed"),
+                flag("periodic"),
+            );
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{moved}}}],{budget}}}"#
+                ),
+            );
+            assert_eq!(status, Status::Ok, "{name}: {response:?}");
+            check(&mut session, "replaced", &response, &moved);
+            replaced[dwg] += 1;
+        }
+        let table = tables(&mut session, &name);
+        let layer_id = text(&table, "/layers/0/id").unwrap().to_string();
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{adding}}}],{budget}}}"#
+            ),
+        );
+        if status != Status::Ok {
+            let code = if dwg == 1 {
+                "dwg.change.unsupported"
+            } else {
+                "change.edit.unsupported"
+            };
+            assert!(
+                format!("{response:?}").contains(code),
+                "{name}: {response:?}"
+            );
+            refused[dwg] += 1;
+            continue;
+        }
+        check(&mut session, "added", &response, adding);
+        added[dwg] += 1;
+        // 足したスプラインも、当てはめる点を動かして置き換える。R2013 より前の DWG の試料は、当てはめる点の
+        // スプラインを持たないため
+        let id = text(&response, "/result/applied/0/id").unwrap().to_string();
+        let hash = text(&response, "/result/applied/0/hash")
+            .unwrap()
+            .to_string();
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"added","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{moving}}}],{budget}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        check(&mut session, "moved", &response, moving);
+        moved[dwg] += 1;
+    }
+    assert!(
+        drawings().is_empty()
+            || (replaced.iter().all(|n| *n > 0)
+                && added.iter().all(|n| *n > 0)
+                && moved.iter().all(|n| *n > 0)),
+        "{replaced:?} {added:?} {moved:?} {refused:?}"
+    );
+}
+
 /// 試料の実寸の空間の、制御点で決まるスプラインを、境界の `replace` で有理のスプラインに置き換え、`add` で
 /// スプラインを足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。
 /// R12 の DXF は SPLINE を持たないので、足すと `change.edit.unsupported` になる
@@ -1039,9 +1195,9 @@ fn drawings_take_back_splines_through_the_boundary() {
             .find(|(id, geometry)| {
                 id.starts_with("space/0/h")
                     && id.matches('/').count() == 2
-                    && geometry
-                        .as_ref()
-                        .is_some_and(|g| text(g, "/shape") == Some("spline"))
+                    && geometry.as_ref().is_some_and(|g| {
+                        text(g, "/shape") == Some("spline") && g.pointer("/fit").is_none()
+                    })
             });
         if let Some((id, _)) = spline {
             let (_, _, hash) = entities(&mut session, &name)

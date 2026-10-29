@@ -1464,20 +1464,26 @@ fn placing<P: PartialEq>(
     Some(())
 }
 
-/// SPLINE（DXF Reference「SPLINE」）の、制御点で決まる定義を書き直す。印（70）の閉じている・周期的・有理
+/// SPLINE（DXF Reference「SPLINE」）の定義を書き直す。制御点で決まるものは、印（70）の閉じている・周期的・有理
 /// （1・2・4）と、次数（71）・節点と制御点の数（72・73）・節点（40）・制御点（10・20・30）・重み（41）を書く。
-/// ほかの印と許容差（42〜44）は元のまま。当てはめる点か接線を持つスプラインは、DWG の場合（scenario）が
-/// 変わるので書かない
+/// 当てはめる点で決まるものは、節点と制御点を書かず、当てはめる点の数（74）・当てはめる点（11・21・31）・
+/// 接線（12・13）を書き、制御点は読む側が求め直す。ほかの印と許容差（42〜44）は元のまま。制御点で決まる
+/// ものと当てはめる点で決まるものは、DWG の場合（scenario）が変わるので入れ替えない
 fn splining<P: PartialEq>(
     values: &mut Vec<Value>,
     spline: &Spline<P>,
     was: &Spline<P>,
     frame: &impl Frame<P>,
 ) -> Option<()> {
-    if !(controlled(spline) && controlled(was)) {
+    let fitting = fitted(spline) && !was.fit.is_empty();
+    if !(fitting || controlled(spline) && controlled(was)) {
         return None;
     }
-    let defined = spline_values(frame, spline)?;
+    let defined = if fitting {
+        fit_values(frame, spline)?
+    } else {
+        spline_values(frame, spline)?
+    };
     let flags = values.iter().find_map(|v| match v.data {
         Data::Int(flags) if v.code == 70 => Some(flags),
         _ => None,
@@ -1487,22 +1493,38 @@ fn splining<P: PartialEq>(
     if flags.unwrap_or(0) & 16 != 0 {
         return None;
     }
-    let counts = [
-        (70, spline_flags(flags.unwrap_or(8), spline)),
+    let mut counts = vec![
         (71, i64::from(spline.degree)),
         (72, i64::try_from(spline.knots.len()).ok()?),
         (73, i64::try_from(spline.control.len()).ok()?),
     ];
+    // DWG の当てはめる点のスプラインは、閉じている・周期的の印を書かない。読んだ値に印がなければ足さず、
+    // 閉じている・周期的は変えない
+    if fitting && flags.is_none() && (spline.closed, spline.periodic) != (was.closed, was.periodic)
+    {
+        return None;
+    }
+    if !(fitting && flags.is_none()) {
+        counts.insert(0, (70, spline_flags(flags.unwrap_or(8), spline)));
+    }
+    if fitting {
+        counts.push((74, i64::try_from(spline.fit.len()).ok()?));
+    }
     for (code, count) in counts {
         match values.iter_mut().find(|v| v.code == code) {
             Some(slot) => slot.data = Data::Int(count),
             None => insert(values, code, Data::Int(count), &[code - 1, 100])?,
         }
     }
-    let at = values
-        .iter()
-        .position(|v| matches!(v.code, 10 | 20 | 30 | 40 | 41))?;
-    values.retain(|v| !matches!(v.code, 10 | 20 | 30 | 40 | 41));
+    if fitting && !values.iter().any(|v| v.code == 44) {
+        insert(values, 44, Data::Real(1e-10), &[43, 74])?;
+    }
+    let replaced = |code: i16| {
+        matches!(code, 10 | 20 | 30 | 40 | 41)
+            || fitting && matches!(code, 11 | 21 | 31 | 12 | 22 | 32 | 13 | 23 | 33)
+    };
+    let at = values.iter().position(|v| replaced(v.code))?;
+    values.retain(|v| !replaced(v.code));
     values.splice(at..at, defined);
     Some(())
 }
@@ -1513,6 +1535,30 @@ fn controlled<P>(spline: &Spline<P>) -> bool {
         && spline.fit.is_empty()
         && spline.start_tangent.is_none()
         && spline.end_tangent.is_none()
+}
+
+/// 当てはめる点だけで決まるスプライン。節点・制御点・重みを持たず、当てはめる点を 2 つ以上持つ
+fn fitted<P>(spline: &Spline<P>) -> bool {
+    spline.control.is_empty()
+        && spline.knots.is_empty()
+        && spline.weights.is_empty()
+        && spline.fit.len() >= 2
+}
+
+/// SPLINE の接線（12・22・32、13・23・33）と、当てはめる点（11・21・31）の値。読む側が読めないスプラインは `None`
+fn fit_values<P>(frame: &impl Frame<P>, spline: &Spline<P>) -> Option<Vec<Value>> {
+    super::check_spline(b"SPLINE", spline).ok()?;
+    let mut values = Vec::with_capacity(6 + spline.fit.len() * 3);
+    for (code, tangent) in [(12, spline.start_tangent), (13, spline.end_tangent)] {
+        if let Some([x, y]) = tangent {
+            values.extend([real(code, x)?, real(code + 10, y)?, real(code + 20, 0.0)?]);
+        }
+    }
+    for fit in &spline.fit {
+        let [x, y] = frame.point(fit)?;
+        values.extend([real(11, x)?, real(21, y)?, real(31, 0.0)?]);
+    }
+    Some(values)
 }
 
 /// SPLINE の印（70）。`flags` の閉じている・周期的・有理（1・2・4）を、スプラインに合わせる
@@ -1667,7 +1713,9 @@ fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
         },
         Shape::Formatted(text) => Some(text.point),
         Shape::Symbol(symbol) => Some(symbol.position),
-        Shape::Curve(Edge::Spline(spline)) => spline.control.first().copied(),
+        Shape::Curve(Edge::Spline(spline)) => {
+            spline.control.first().or(spline.fit.first()).copied()
+        }
         _ => None,
     }
 }

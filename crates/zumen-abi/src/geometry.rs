@@ -104,7 +104,6 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 end_angle: end,
             })
         }
-        // 当てはめる点か接線を持つスプラインは、書き戻すと DWG の場合（制御点か当てはめる点か）が変わるので扱わない
         Shape::Curve(Edge::Spline(spline))
             if !spline.control.is_empty()
                 && spline.fit.is_empty()
@@ -116,6 +115,24 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 knots: spline.knots.clone(),
                 control: spline.control.iter().map(|point| xy(*point)).collect(),
                 weights: (!spline.weights.is_empty()).then(|| spline.weights.clone()),
+                fit: None,
+                start_tangent: None,
+                end_tangent: None,
+                closed: spline.closed,
+                periodic: spline.periodic,
+            })
+        }
+        // 当てはめる点で決まるスプライン。制御点は当てはめる点から求めたものなので返さない。書き戻す側は
+        // 制御点を書かず、読む側が求め直す
+        Shape::Curve(Edge::Spline(spline)) if spline.fit.len() >= 2 => {
+            Geometry::Spline(SplineGeometry {
+                degree: spline.degree.into(),
+                knots: Vec::new(),
+                control: Vec::new(),
+                weights: None,
+                fit: Some(spline.fit.iter().map(|point| xy(*point)).collect()),
+                start_tangent: spline.start_tangent.map(Vec::from),
+                end_tangent: spline.end_tangent.map(Vec::from),
                 closed: spline.closed,
                 periodic: spline.periodic,
             })
@@ -290,11 +307,67 @@ pub(crate) fn shape_of<P: Spot>(
                 counterclockwise: true,
             })
         }
-        (Geometry::Spline(spline), None | Some(Shape::Curve(Edge::Spline(_)))) => {
+        (Geometry::Spline(spline), was @ (None | Some(Shape::Curve(Edge::Spline(_))))) => {
             let degree = u32::try_from(spline.degree)
                 .ok()
                 .filter(|degree| *degree >= 1)
                 .ok_or_else(|| "geometry/degree".to_string())?;
+            // 置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない。DWG の場合（scenario）が
+            // 変わるため
+            let fitting = spline.fit.is_some();
+            if let Some(Shape::Curve(Edge::Spline(old))) = was
+                && old.fit.is_empty() == fitting
+            {
+                return Err(if fitting {
+                    "geometry/fit"
+                } else {
+                    "geometry/control"
+                }
+                .to_string());
+            }
+            if let Some(fit) = &spline.fit {
+                if !spline.knots.is_empty() {
+                    return Err("geometry/knots".to_string());
+                }
+                if !spline.control.is_empty() {
+                    return Err("geometry/control".to_string());
+                }
+                if spline.weights.is_some() {
+                    return Err("geometry/weights".to_string());
+                }
+                if fit.len() < 2 {
+                    return Err("geometry/fit".to_string());
+                }
+                let mut points = Vec::with_capacity(fit.len());
+                for (index, xy) in fit.iter().enumerate() {
+                    points.push(point(xy, &format!("fit/{index}"))?);
+                }
+                // 0 の接線は、DWG では接線なしと同じに書かれるので受けない
+                let tangent = |given: &Option<Vec<f64>>, field: &str| match given.as_deref() {
+                    None => Ok(None),
+                    Some(&[x, y]) if x.is_finite() && y.is_finite() && (x != 0.0 || y != 0.0) => {
+                        Ok(Some([x, y]))
+                    }
+                    Some(_) => Err(format!("geometry/{field}")),
+                };
+                return Ok(Shape::Curve(Edge::Spline(Spline {
+                    degree,
+                    knots: Vec::new(),
+                    control: Vec::new(),
+                    weights: Vec::new(),
+                    fit: points,
+                    start_tangent: tangent(&spline.start_tangent, "start_tangent")?,
+                    end_tangent: tangent(&spline.end_tangent, "end_tangent")?,
+                    closed: spline.closed,
+                    periodic: spline.periodic,
+                })));
+            }
+            if spline.start_tangent.is_some() {
+                return Err("geometry/start_tangent".to_string());
+            }
+            if spline.end_tangent.is_some() {
+                return Err("geometry/end_tangent".to_string());
+            }
             let mut control = Vec::with_capacity(spline.control.len());
             for (index, xy) in spline.control.iter().enumerate() {
                 control.push(point(xy, &format!("control/{index}"))?);
@@ -795,7 +868,9 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
         },
         Shape::Formatted(text) => Some(text.point),
         Shape::Symbol(symbol) => Some(symbol.position),
-        Shape::Curve(Edge::Spline(spline)) => spline.control.first().copied(),
+        Shape::Curve(Edge::Spline(spline)) => {
+            spline.control.first().or(spline.fit.first()).copied()
+        }
         _ => None,
     }
 }

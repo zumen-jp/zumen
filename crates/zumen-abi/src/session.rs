@@ -1956,7 +1956,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":17}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":18}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3070,6 +3070,118 @@ mod tests {
         assert_eq!(
             diagnostics.iter().next().unwrap().code(),
             codes::BUDGET_WORK_EXCEEDED
+        );
+    }
+
+    #[test]
+    fn adds_and_replaces_splines_fitted_through_points() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        // 当てはめる点で決まるものは、節点・制御点・重みを持たず、当てはめる点を 2 つ以上と、0 でない接線を持つ
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"spline","degree":3,"knots":[0,1],"control":[],"fit":[[0,0],[1,1]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/knots",
+            ),
+            (
+                r#"{"shape":"spline","degree":3,"knots":[],"control":[[0,0]],"fit":[[0,0],[1,1]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/control",
+            ),
+            (
+                r#"{"shape":"spline","degree":3,"knots":[],"control":[],"weights":[],"fit":[[0,0],[1,1]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/weights",
+            ),
+            (
+                r#"{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[[0,0]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/fit",
+            ),
+            (
+                r#"{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[[0,0],[1,1]],"start_tangent":[0,0],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/start_tangent",
+            ),
+            (
+                r#"{"shape":"spline","degree":1,"knots":[0,0,1,1],"control":[[0,0],[1,1]],"end_tangent":[1,0],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/end_tangent",
+            ),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed, "{geometry}");
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let added = r#"{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[[0,0],[2,3],[5,1],[8,4]],"start_tangent":[1,1],"end_tangent":[1,-0.5],"closed":false,"periodic":false}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
+        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        // 制御点で決まるものには替えない
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"spline","degree":1,"knots":[0,0,1,1],"control":[[0,0],[1,1]],"closed":false,"periodic":false}}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/control"
+        );
+        // 接線をなくし、当てはめる点を替える
+        let replaced = r#"{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[[1,0],[3,2],[6,0]],"closed":false,"periodic":false}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let written = String::from_utf8(session.take(0).unwrap()).unwrap();
+        assert_eq!(shapes(&mut session, "a.dxf")[3], replaced);
+        let (id, hash) = seen(&mut session, "a.dxf")[3].clone();
+        assert_eq!(id, text(&response, "/result/applied/0/id"));
+        assert_eq!(hash, text(&response, "/result/applied/0/hash"));
+        let (_, spline) = written.split_once("SPLINE").unwrap();
+        let (spline, _) = spline.split_once("ENDSEC").unwrap();
+        for field in [" 72\n0\n", " 73\n0\n", " 74\n3\n", " 11\n6.0\n"] {
+            assert!(spline.contains(field), "{field:?}: {spline}");
+        }
+        for code in [" 10\n", " 12\n", " 40\n"] {
+            assert!(!spline.contains(code), "{code:?}: {spline}");
+        }
+        // 制御点で決まるものは、当てはめる点で決まるものに替えない
+        let controlled = r#"{"shape":"spline","degree":1,"knots":[0,0,1,1],"control":[[0,0],[1,1]],"closed":false,"periodic":false}"#;
+        let (_, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{controlled}}}]}}"#
+            ),
+        );
+        let (id, hash) = (
+            text(&response, "/result/applied/0/id"),
+            text(&response, "/result/applied/0/hash"),
+        );
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/fit"
         );
     }
 

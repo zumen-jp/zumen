@@ -4423,6 +4423,77 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
     Some(())
 }
 
+/// R2013 からの、制御点を書かないスプライン（場合が 1 で、印の 1 が立つ）のうち、読む側が当てはめる点の欄と
+/// して置いたものの欄。節点と制御点（10・40〜43）があれば `None`。印・節点の取り方・当てはめる許容差は元の
+/// ビットを写し、次数（71）・接線（12・13。なければ 0）・当てはめる点（11）を書く
+fn fit_points(
+    fields: &mut BitWriter,
+    object: &Object,
+    data: &[u8],
+    start: usize,
+    release: Release,
+) -> Option<()> {
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(start);
+    bits.bl()?;
+    let method_at = bits.pos();
+    bits.bl()?;
+    bits.bl()?;
+    let method_end = bits.pos();
+    bits.bl()?;
+    let tolerance_at = bits.pos();
+    bits.bd()?;
+    let tolerance_end = bits.pos();
+    if object
+        .values
+        .iter()
+        .any(|value| matches!(value.code, 10 | 20 | 30 | 40 | 41 | 42 | 43))
+    {
+        return None;
+    }
+    let mut fit: Vec<[Option<f64>; 3]> = Vec::new();
+    for value in &object.values {
+        let slot = match value.code {
+            11 => {
+                fit.push([None; 3]);
+                0
+            }
+            21 => 1,
+            31 => 2,
+            _ => continue,
+        };
+        let Data::Real(v) = value.data else {
+            return None;
+        };
+        let slot = fit.last_mut()?.get_mut(slot)?;
+        if slot.is_some() {
+            return None;
+        }
+        *slot = Some(v);
+    }
+    if integer(object, 74)?.unwrap_or(0) != i64::try_from(fit.len()).ok()? {
+        return None;
+    }
+    fields.bl(1);
+    fields.copy(data, method_at..method_end)?;
+    fields.bl(i32::try_from(integer(object, 71)??).ok()?);
+    fields.copy(data, tolerance_at..tolerance_end)?;
+    for code in [12, 13] {
+        match [code, code + 10, code + 20].map(|code| real(object, code)) {
+            [Some(None), Some(None), Some(None)] => [0.0; 3].map(|v| fields.bd(v)),
+            [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
+            _ => return None,
+        };
+    }
+    fields.bl(i32::try_from(fit.len()).ok()?);
+    for point in &fit {
+        for v in point {
+            fields.bd((*v)?);
+        }
+    }
+    Some(())
+}
+
 /// R2013 からの、制御点を書かないスプライン（場合が 1 で、印の 1 が立つ）の欄（決定 0103）。読む側は、3 次で
 /// 当てはめる点が 2 つのものを、両端の点と接線から Bézier の制御点に直して置く。その形（3 次・節点が
 /// 0 と 1 の 4 つずつ・重みのない 4 つの制御点・許容差が 1e-9 と 1e-10）の値だけを受け付け、両端の制御点を
@@ -4582,6 +4653,11 @@ fn spline(
             let flags = bits.bl()?;
             bits.bl()?;
             if scenario == 1 && flags & 1 != 0 {
+                // 当てはめる点の欄として読んだものは、当てはめる点で書き、Bézier の制御点に直したものは
+                // 当てはめる点に戻して書く
+                if object.values.iter().any(|value| value.code == 11) {
+                    return fit_points(fields, object, data, start, release);
+                }
                 return fit_bezier(fields, object, data, start, release);
             }
             Some(at..bits.pos())
@@ -4692,6 +4768,10 @@ fn spline(
         }
         2 => {
             if !controls.is_empty() || !knots.is_empty() || present(&[42, 43]) {
+                return None;
+            }
+            // 当てはめる点のスプラインは、閉じている・周期的の印を書けない
+            if integer(object, 70)?.unwrap_or(0) & 3 != 0 {
                 return None;
             }
             fields.bd(real(object, 44)??);
