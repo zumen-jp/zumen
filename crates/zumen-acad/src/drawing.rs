@@ -101,7 +101,8 @@ pub(crate) struct Home {
     pub(crate) paper: bool,
 }
 
-/// 図面モデルと、要素を持つ用紙ごとの座標の対応
+/// 図面モデルと、用紙ごとの座標の対応。中身のない用紙は、LAYOUT のブロックのレコードがあり、単位が
+/// 分かるものだけが持つ
 fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, PaperFrame>), Error> {
     let unit = unit(db, cx);
     let limits = |name: &[u8]| {
@@ -229,7 +230,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         ),
     });
     // 今のレイアウトの LAYOUT は、ペーパー空間の図形の所有者（今のレイアウトのブロックのレコード）を指す
-    // LAYOUT とする。DWG は、どのレイアウトのブロックのレコードも `*Paper_Space` と名付ける
+    // LAYOUT とする。DWG のほかのレイアウトのブロックのレコードには、共有の表を作るときに名前の番号を付ける
     let current = entities
         .iter()
         .find(|object| matches!(object.first(67), Some(Data::Int(1))))
@@ -261,23 +262,26 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     // 中身のない用紙の ID は、中身のある用紙の後から、タブの順に付ける
     let current = current.map(|(index, _)| index);
     out.layouts
-        .retain(|(_, layout, _)| !(has_paper && layout.is_some() && *layout == current));
-    out.layouts.sort_by_key(|(tab, _, _)| *tab);
+        .retain(|(_, layout, _, _)| !(has_paper && layout.is_some() && *layout == current));
+    out.layouts.sort_by_key(|(tab, _, _, _)| *tab);
     let filled = out
         .layouts
         .iter()
-        .filter(|(_, _, sheet)| sheet.id != EMPTY)
+        .filter(|(_, _, sheet, _)| sheet.id != EMPTY)
         .count();
     let mut next = u32::try_from(filled).unwrap_or(u32::MAX).saturating_add(1);
-    for (_, _, sheet) in &mut out.layouts {
+    for (_, _, sheet, frame) in &mut out.layouts {
         if sheet.id == EMPTY {
             sheet.id = SheetId(next);
             next = next.saturating_add(1);
+            if let Some(frame) = frame {
+                out.frames.insert(sheet.id, *frame);
+            }
         }
     }
     drawing
         .sheets
-        .extend(out.layouts.into_iter().map(|(_, _, sheet)| sheet));
+        .extend(out.layouts.into_iter().map(|(_, _, sheet, _)| sheet));
     Ok((drawing, out.frames))
 }
 
@@ -455,7 +459,11 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
     let inner = symbols
         .iter()
         .flat_map(|symbol| placed(&symbol.space.elements));
-    let layouts = || out.layouts.iter().flat_map(|(_, _, sheet)| &sheet.elements);
+    let layouts = || {
+        out.layouts
+            .iter()
+            .flat_map(|(_, _, sheet, _)| &sheet.elements)
+    };
     let others = referenced(&out.model)
         .chain(referenced(&out.paper))
         .chain(layouts().flat_map(|element| referenced(std::slice::from_ref(element))))
@@ -678,8 +686,8 @@ struct Out {
     /// 用紙の上に描くものと、そのハンドル。順序は入力の順
     sheet: Vec<(SheetItem, Option<u64>)>,
     /// ほかのレイアウトの用紙と、そのタブの順と LAYOUT の位置（オブジェクトの並びの中）。中身のない用紙の ID は、
-    /// 最後に付ける
-    layouts: Vec<(i64, Option<usize>, Sheet)>,
+    /// 最後に付ける。中身のない用紙は、要素を足すための座標の対応も持つ
+    layouts: Vec<(i64, Option<usize>, Sheet, Option<PaperFrame>)>,
     /// 中身のあるほかのレイアウトの用紙の数。ID を決めるために毎回並びを探し直さない
     filled_layouts: u32,
     layers: Vec<Layer>,
@@ -694,7 +702,7 @@ struct Out {
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
     extensions: Vec<Extension>,
-    /// 要素を置いた用紙ごとの座標の対応
+    /// 要素を置いた用紙ごとの座標の対応。中身のない用紙のものは、ID を付けるときに足す
     frames: BTreeMap<SheetId, PaperFrame>,
 }
 
@@ -752,6 +760,7 @@ impl Lifter<'_> {
         cx: &mut Cx,
     ) -> Lifted<()> {
         let kind = object.kind.as_slice();
+        let mut paper_mm = None;
         match kind {
             // 69 = 1 は用紙そのものを表すビューポート
             b"VIEWPORT" if paper && self.int(object, 69, 0)? == 1 => {}
@@ -772,6 +781,7 @@ impl Lifter<'_> {
                 out.sheet
                     .push((SheetItem::View(out.views.len()), object.handle()));
                 out.views.push(view);
+                paper_mm = Some(mm);
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
             | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
@@ -789,18 +799,7 @@ impl Lifter<'_> {
                 let length = |value: f64| Length::Paper(PaperLength(value * mm));
                 let element =
                     self.element(db, object, source, attributes, point, length, out, cx)?;
-                out.frames.insert(
-                    self.sheet,
-                    PaperFrame {
-                        origin: self.origin,
-                        mm,
-                        home: Home {
-                            owner: object.owner(),
-                            blocks: object.section == Section::Blocks,
-                            paper: matches!(object.first(67), Some(Data::Int(1))),
-                        },
-                    },
-                );
+                paper_mm = Some(mm);
                 let target = Target::Paper {
                     sheet: self.sheet,
                     index: out.paper.len(),
@@ -850,6 +849,20 @@ impl Lifter<'_> {
                     Diagnostic::new(codes::DXF_LIFT_DROPPED).with("kind", text(kind)),
                 ));
             }
+        }
+        if let Some(mm) = paper_mm {
+            out.frames.insert(
+                self.sheet,
+                PaperFrame {
+                    origin: self.origin,
+                    mm,
+                    home: Home {
+                        owner: object.owner(),
+                        blocks: object.section == Section::Blocks,
+                        paper: matches!(object.first(67), Some(Data::Int(1))),
+                    },
+                },
+            );
         }
         Ok(())
     }
@@ -1350,6 +1363,23 @@ impl Lifter<'_> {
         if !empty {
             out.filled_layouts = id.0;
         }
+        // 中身のない用紙に足す要素は、レイアウトのブロックのレコードを所有者とし、ペーパー空間の印を付ける。
+        // 今のレイアウト（`*Paper_Space`）のものは ENTITIES の所に、ほかのレイアウトのものはそのブロックに置く
+        let frame = match (record, self.mm) {
+            (Some(record), Some(mm)) if empty => {
+                let current = matches!(record.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"*Paper_Space"));
+                Some(PaperFrame {
+                    origin: if current { self.origin } else { lifter.origin },
+                    mm,
+                    home: Home {
+                        owner: handle,
+                        blocks: !current,
+                        paper: true,
+                    },
+                })
+            }
+            _ => None,
+        };
         out.layouts.push((
             tab,
             layout.map(|(index, _)| index),
@@ -1361,6 +1391,7 @@ impl Lifter<'_> {
                 views,
                 order,
             },
+            frame,
         ));
         Ok(())
     }

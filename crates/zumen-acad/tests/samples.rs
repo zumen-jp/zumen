@@ -3136,6 +3136,95 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
         }
         expected.len()
     }
+    /// 要素を持たない用紙にも、LAYOUT の範囲の原点で線分を足せる。足すと要素を持つ用紙になり、ID が変わるので、
+    /// 名前で引く（決定 0155）。要素を持たない用紙の数を返す
+    fn empty_sheets<C: Codec>(path: &Path) -> usize
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let before = lift(&file);
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let layer = before
+            .layers
+            .iter()
+            .find(|layer| layer.name == "0")
+            .unwrap()
+            .id;
+        let empty: Vec<_> = before
+            .sheets
+            .iter()
+            .filter(|sheet| sheet.elements.is_empty() && sheet.views.is_empty())
+            .filter(|sheet| sheet.name.is_some())
+            .collect();
+        let line = |sheet| Shape::Line {
+            start: PaperPoint {
+                sheet,
+                x: 5.0,
+                y: 5.0,
+            },
+            end: PaperPoint {
+                sheet,
+                x: 50.0,
+                y: 30.0,
+            },
+        };
+        let edits = empty
+            .iter()
+            .map(|sheet| {
+                Edit::AddOnSheet(Box::new(zumen_drawing::Element {
+                    source: zumen_base::Ref::default(),
+                    layer,
+                    style: Style {
+                        color: Inherit::Layer,
+                        line_type: Inherit::Layer,
+                        line_type_scale: 1.0,
+                        line_weight: Some(Inherit::Layer),
+                    },
+                    shape: line(sheet.id),
+                }))
+            })
+            .collect();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes { edits },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        );
+        assert_eq!(
+            result,
+            Ok(()),
+            "{}: {:?}",
+            path.display(),
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+        );
+        let grown = lift(
+            &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                .0
+                .unwrap(),
+        );
+        for sheet in &empty {
+            let found = grown.sheets.iter().find(|s| s.name == sheet.name).unwrap();
+            assert_eq!(
+                found.elements.len(),
+                1,
+                "{}: {:?}",
+                path.display(),
+                sheet.name
+            );
+            assert!(
+                close(
+                    &format!("{:?}", found.elements[0].shape),
+                    &format!("{:?}", line(found.id))
+                ),
+                "{}: {:?}",
+                path.display(),
+                found.elements[0].shape
+            );
+        }
+        empty.len()
+    }
     /// 線分と円の点が置かれた用紙
     fn anchor_sheet(shape: &Shape<PaperPoint>) -> Option<zumen_drawing::SheetId> {
         match shape {
@@ -3160,6 +3249,22 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
         let path = dir.join(name);
         if path.exists() {
             assert_eq!(check::<Dxf>(&path), 1, "{}", path.display());
+            assert_eq!(empty_sheets::<Dxf>(&path), 1, "{}", path.display());
+        }
+    }
+    // 要素を持たない 2 つのレイアウトを持つ DWG
+    for name in [
+        "line_2000.dwg",
+        "arc_2000.dwg",
+        "text_2000.dwg",
+        "mtext_2000.dwg",
+        "polyline2d_line_2000.dwg",
+        "BLOCKPOINTPARAMETER.dwg",
+        "jp-yokosuka-minami-survey-plan.dwg",
+    ] {
+        let path = dir.join(name);
+        if path.exists() {
+            assert_eq!(empty_sheets::<Dwg>(&path), 2, "{}", path.display());
         }
     }
 }

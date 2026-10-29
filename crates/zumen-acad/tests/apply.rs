@@ -1249,7 +1249,7 @@ fn sheet_elements_are_added_in_paper_millimeters() {
 }
 
 #[test]
-fn sheet_elements_need_a_sheet_with_elements() {
+fn sheet_elements_need_a_known_sheet() {
     use zumen_drawing::{PaperPoint, SheetId};
     let src = sheet();
     let mut file = testkit::read::<Dxf>(&src).0.unwrap();
@@ -1873,4 +1873,177 @@ fn attributed_additions_count_attribute_content_before_copying() {
     );
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+/// 空の LAYOUT。現在の用紙は見出しの原点、ほかの用紙は LAYOUT の原点を使う。
+#[cfg(test)]
+fn empty_sheet_source(current: bool, units: &str, viewport: bool) -> Vec<u8> {
+    let name = if current {
+        "*Paper_Space"
+    } else {
+        "*Paper_Space0"
+    };
+    let mut tags = vec![
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, "AC1021"),
+        (9, "$INSUNITS"),
+        (70, units),
+        (9, "$HANDSEED"),
+        (5, "1000"),
+        (9, "$PLIMMIN"),
+        (10, "2.0"),
+        (20, "3.0"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        (0, "ENDTAB"),
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "C1"),
+        (2, name),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (5, "C2"),
+        (330, "C1"),
+        (2, name),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+    ];
+    let view = [
+        (0, "VIEWPORT"),
+        (5, "C3"),
+        (330, "C1"),
+        (8, "0"),
+        (67, "1"),
+        (69, "2"),
+        (10, "5.0"),
+        (20, "5.0"),
+        (40, "10.0"),
+        (41, "10.0"),
+        (45, "100.0"),
+    ];
+    if viewport && !current {
+        tags.extend(view);
+    }
+    tags.extend([
+        (0, "ENDBLK"),
+        (5, "C4"),
+        (330, "C1"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+    ]);
+    if viewport && current {
+        tags.extend(view);
+    }
+    tags.extend([
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "OBJECTS"),
+        (0, "LAYOUT"),
+        (5, "D1"),
+        (330, "1A"),
+        (100, "AcDbPlotSettings"),
+        (1, ""),
+        (100, "AcDbLayout"),
+        (1, "Paper"),
+        (71, "1"),
+        (10, "7.0"),
+        (20, "11.0"),
+        (11, "17.0"),
+        (21, "21.0"),
+        (330, "C1"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    tags.into_iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+#[test]
+fn sheet_additions_use_the_layout_origin_and_units_without_elements() {
+    use zumen_drawing::PaperPoint;
+    for (current, viewport, units) in [
+        (true, false, "1"),
+        (false, false, "1"),
+        (true, true, "1"),
+        (false, true, "1"),
+        (true, false, "0"),
+        (false, false, "0"),
+    ] {
+        let src = empty_sheet_source(current, units, viewport);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let before = lift(&file);
+        let sheet = &before.sheets[0];
+        assert!(sheet.elements.is_empty());
+        assert_eq!(sheet.views.len(), usize::from(viewport && units != "0"));
+        let template = addition_element(newcomers().remove(0));
+        let shape = |sheet| Shape::Line {
+            start: PaperPoint {
+                sheet,
+                x: 5.0,
+                y: 10.0,
+            },
+            end: PaperPoint {
+                sheet,
+                x: 50.0,
+                y: 30.0,
+            },
+        };
+        let element = Element {
+            source: Ref::default(),
+            layer: template.layer,
+            style: template.style,
+            shape: shape(sheet.id),
+        };
+        let result = apply(&mut file, vec![Edit::AddOnSheet(Box::new(element))]).0;
+        if units == "0" {
+            assert_eq!(result, Err(Error::Rejected));
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+            continue;
+        }
+        assert_eq!(result, Ok(()), "current={current} viewport={viewport}");
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+        let found = after
+            .sheets
+            .iter()
+            .find(|sheet| sheet.name.as_deref() == Some("Paper"))
+            .unwrap();
+        assert_eq!(found.elements.len(), 1);
+        let Shape::Line { start, end } = &found.elements[0].shape else {
+            panic!()
+        };
+        let Shape::Line {
+            start: expected_start,
+            end: expected_end,
+        } = shape(found.id)
+        else {
+            panic!()
+        };
+        for (found, expected) in [
+            (start.x, expected_start.x),
+            (start.y, expected_start.y),
+            (end.x, expected_end.x),
+            (end.y, expected_end.y),
+        ] {
+            assert!((found - expected).abs() < 1e-10, "{found} != {expected}");
+        }
+    }
 }
