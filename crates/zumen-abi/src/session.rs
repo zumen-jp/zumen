@@ -828,8 +828,13 @@ impl StyleIds {
         }
         seen.clear();
         for (index, style) in drawing.text_styles.iter().enumerate() {
-            let work = style.name.len().saturating_add(1);
-            cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
+            // 2 つの索引は、名前の共通部分を木の高さに応じて繰り返し比べる。
+            let depth = u64::from(result.text.len().max(1).ilog2()) + 1;
+            let length = u64::try_from(style.name.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1);
+            let work = length.saturating_mul(depth).saturating_mul(32);
+            cx.check(Kind::Work, work)
                 .map_err(|stop| stopped(cx, stop))?;
             let id = table_id(id::text_style(style, index), &mut seen);
             let key = style.name.to_ascii_lowercase();
