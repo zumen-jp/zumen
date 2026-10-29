@@ -592,6 +592,7 @@ fn changes(
             Some(messages::Geometry::FormattedText(text)) => {
                 text.style.as_ref().map_or(0, String::len)
             }
+            Some(messages::Geometry::Symbol(symbol)) => symbol.name.len(),
             _ => 0,
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -872,6 +873,42 @@ fn count_old_element<P>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<(), Fai
     let size = match &element.shape {
         Shape::Text(text) => text.style.len(),
         Shape::Formatted(text) => text.style.len(),
+        Shape::Symbol(symbol) => {
+            // 属性と切り抜きは元のまま複製する。内容と区間は、たどる前に予算を確かめる。
+            for attribute in &symbol.attributes {
+                let size = 1usize
+                    .saturating_add(attribute.tag.len())
+                    .saturating_add(attribute.text.content.len())
+                    .saturating_add(attribute.text.style.len())
+                    .saturating_add(attribute.source.id().map_or(0, str::len));
+                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                    .map_err(|stop| stopped(cx, stop))?;
+                if let Some(text) = &attribute.formatted {
+                    let size = text.content.len().saturating_add(text.style.len());
+                    cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                        .map_err(|stop| stopped(cx, stop))?;
+                    for span in &text.spans {
+                        let text = match &span.piece {
+                            zumen_drawing::Piece::Text(text)
+                            | zumen_drawing::Piece::Unparsed(text) => text.len(),
+                            zumen_drawing::Piece::Stack { upper, lower, .. } => {
+                                upper.len().saturating_add(lower.len())
+                            }
+                            _ => 0,
+                        };
+                        let font = span.format.font.as_ref().map_or(0, |font| font.name.len());
+                        let size = 1usize.saturating_add(text).saturating_add(font);
+                        cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                            .map_err(|stop| stopped(cx, stop))?;
+                    }
+                }
+            }
+            symbol
+                .key
+                .name
+                .len()
+                .saturating_add(symbol.clip.as_ref().map_or(0, |clip| clip.vertices.len()))
+        }
         _ => 0,
     };
     cx.check(
@@ -1158,6 +1195,7 @@ impl Page {
                     Shape::Polyline(line) => line.vertices.len(),
                     Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Formatted(text) => text.content.len().saturating_add(text.style.len()),
+                    Shape::Symbol(symbol) => symbol.key.name.len(),
                     _ => 0,
                 };
                 cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -1553,8 +1591,8 @@ mod tests {
     #[test]
     fn geometry_copies_obey_work_budget() {
         use zumen_drawing::{
-            Flow, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, ModelLength,
-            Piece, Rotation, SpaceId, Span, Vertical,
+            Clip, Flow, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, ModelLength,
+            Piece, Rotation, SpaceId, Span, Symbol, SymbolKey, Vertical,
         };
         let point = ModelPoint {
             space: SpaceId(0),
@@ -1588,7 +1626,67 @@ mod tests {
             background: None,
             style: "style".repeat(30),
         };
-        let shapes = [Shape::Formatted(formatted)];
+        let mut nested = formatted.clone();
+        nested.content.clear();
+        nested.style.clear();
+        nested.spans[0].piece = Piece::Text("x".into());
+        nested.spans[0].format.font = Some(zumen_drawing::Font {
+            name: "x".repeat(100),
+            kind: zumen_drawing::FontKind::Shape,
+        });
+        let attribute = zumen_drawing::Attribute {
+            tag: "tag".into(),
+            text: zumen_drawing::Text {
+                content: "value".into(),
+                height: formatted.height.clone(),
+                placement: Placement::Anchor {
+                    point,
+                    horizontal: Horizontal::Left,
+                    vertical: Vertical::Baseline,
+                },
+                rotation: 0.0,
+                width_factor: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                style: "s".into(),
+            },
+            formatted: Some(nested),
+            hidden: false,
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            source: Ref::default(),
+        };
+        let shapes = [
+            Shape::Formatted(formatted),
+            Shape::Symbol(Symbol {
+                key: SymbolKey {
+                    namespace: "dxf.block",
+                    name: "x".repeat(100),
+                },
+                position: point,
+                scale: [1.0, 1.0],
+                rotation: 0.0,
+                grid: None,
+                attributes: vec![],
+                clip: Some(Clip {
+                    vertices: vec![[0.0, 0.0]; 100],
+                    inverted: false,
+                }),
+            }),
+            Shape::Symbol(Symbol {
+                key: SymbolKey {
+                    namespace: "dxf.block",
+                    name: "x".repeat(100),
+                },
+                position: point,
+                scale: [1.0, 1.0],
+                rotation: 0.0,
+                grid: None,
+                attributes: vec![attribute],
+                clip: None,
+            }),
+        ];
         for shape in shapes {
             let element = Element {
                 source: Ref::default(),
@@ -1637,6 +1735,9 @@ mod tests {
             format!(
                 r#"{{"shape":"formatted_text","content":"x","position":[0,0],"height":1,"rotation":0,"style":"{long}"}}"#
             ),
+            format!(
+                r#"{{"shape":"symbol","name":"{long}","position":[0,0],"scale":[1,1],"rotation":0}}"#
+            ),
         ] {
             let json = format!(
                 r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
@@ -1663,7 +1764,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":13}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":14}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2461,6 +2562,140 @@ mod tests {
             shapes(&mut session, "a.dxf")[3],
             r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"middle_center","style":"Standard"}"#
         );
+    }
+
+    #[test]
+    fn symbol_replace_does_not_move_unreadable_attributes() {
+        // タグのない ATTRIB はモデルへ移せないが、元のファイルには残る。
+        // 続く印と所有者のどちらで結び付いた場合も INSERT だけを動かさない。
+        for (flag, owner) in [("66\n1\n", ""), ("", "330\n40\n")] {
+            let file = format!(
+                "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+                 0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n5\n20\n8\n0\n2\nDOOR\n70\n0\n10\n0\n20\n0\n3\nDOOR\n\
+                 0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n\
+                 0\nINSERT\n5\n40\n8\n0\n2\nDOOR\n{flag}10\n5\n20\n5\n\
+                 0\nATTRIB\n5\n41\n{owner}8\n0\n10\n5\n20\n5\n40\n1\n1\nvalue\n\
+                 0\nSEQEND\n5\n42\n0\nENDSEC\n0\nEOF\n"
+            );
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"a.dxf", file.as_bytes()).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+            let (id, hash) = seen(&mut session, "a.dxf")
+                .into_iter()
+                .find(|(id, _)| id == "space/0/h40")
+                .unwrap();
+            let before = shapes(&mut session, "a.dxf");
+            for edit in [
+                format!(
+                    r#"{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"symbol","name":"DOOR","position":[7,8],"scale":[1,1],"rotation":0}}}}"#
+                ),
+                format!(
+                    r#"{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,0,1,2,3]}}"#
+                ),
+            ] {
+                let (status, response) = call(
+                    &mut session,
+                    &format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#),
+                );
+                assert_eq!(status, Status::Failed, "{response:?}");
+                assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+                assert_eq!(shapes(&mut session, "a.dxf"), before);
+            }
+        }
+    }
+
+    #[test]
+    fn adds_and_replaces_symbols_by_their_geometry() {
+        let file =
+            b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+            0\nSECTION\n2\nBLOCKS\n\
+            0\nBLOCK\n5\n20\n8\n0\n2\nDOOR\n70\n0\n10\n0\n20\n0\n3\nDOOR\n\
+            0\nLINE\n5\n21\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n\
+            0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n\
+            0\nSECTION\n2\nENTITIES\n\
+            0\nINSERT\n5\n40\n8\n0\n2\nDOOR\n10\n5.0\n20\n5.0\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", file).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let symbols = |session: &mut Session| {
+            shapes(session, "a.dxf")
+                .into_iter()
+                .filter(|shape| shape.contains(r#""shape":"symbol""#))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            symbols(&mut session),
+            [r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[1,1],"rotation":0}"#]
+        );
+        let (id, hash) = seen(&mut session, "a.dxf")
+            .into_iter()
+            .find(|(id, _)| id == "space/0/h40")
+            .unwrap();
+        let apply = |session: &mut Session, edit: &str| {
+            call(
+                session,
+                &format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#),
+            )
+        };
+        // 定義と格子の列と行の数は変えない。尺度は 0 でない
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"symbol","name":"WINDOW","position":[5,5],"scale":[1,1],"rotation":0}"#,
+                "/edits/0/geometry/name",
+            ),
+            (
+                r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[1,1],"rotation":0,"grid":{"columns":2,"rows":1,"column_spacing":3,"row_spacing":0}}"#,
+                "/edits/0/geometry/grid",
+            ),
+            (
+                r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[0,1],"rotation":0}"#,
+                "/edits/0/geometry/scale",
+            ),
+        ] {
+            let (status, response) = apply(
+                &mut session,
+                &format!(
+                    r#"{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let replaced =
+            r#"{"shape":"symbol","name":"DOOR","position":[7,8],"scale":[2,-1],"rotation":30}"#;
+        let (status, response) = apply(
+            &mut session,
+            &format!(r#"{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}"#),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(symbols(&mut session), [replaced]);
+        // 格子に並べた記号を足す。1×1 の格子は持たない
+        let (status, response) = apply(
+            &mut session,
+            r#"{"kind":"add","place":"space/0","geometry":{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,1],"rotation":0,"grid":{"columns":1,"rows":1,"column_spacing":0,"row_spacing":0}}}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/grid"
+        );
+        let added = r#"{"shape":"symbol","name":"DOOR","position":[1,2],"scale":[1,1],"rotation":90,"grid":{"columns":2,"rows":3,"column_spacing":4,"row_spacing":-5}}"#;
+        let (status, response) = apply(
+            &mut session,
+            &format!(r#"{{"kind":"add","place":"space/0","geometry":{added}}}"#),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert!(seen(&mut session, "a.dxf").contains(&(id, hash)));
+        assert_eq!(symbols(&mut session), [replaced, added]);
+        // 図面にない定義は足せない
+        let (status, response) = apply(
+            &mut session,
+            r#"{"kind":"add","place":"space/0","geometry":{"shape":"symbol","name":"WINDOW","position":[0,0],"scale":[1,1],"rotation":0}}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
     }
 
     #[test]

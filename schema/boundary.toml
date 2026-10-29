@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 13
+schema-minor = 14
 
 # 状態コード。理由は応答の診断で返す
 

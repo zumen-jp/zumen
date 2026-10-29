@@ -375,7 +375,7 @@
           "type": "string"
         },
         "geometry": {
-          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
+          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
           "$ref": "#/$defs/geometry"
         }
       },
@@ -396,7 +396,8 @@
         { "$ref": "#/$defs/ellipse_geometry" },
         { "$ref": "#/$defs/polyline_geometry" },
         { "$ref": "#/$defs/text_geometry" },
-        { "$ref": "#/$defs/formatted_text_geometry" }
+        { "$ref": "#/$defs/formatted_text_geometry" },
+        { "$ref": "#/$defs/symbol_geometry" }
       ]
     },
     "line_geometry": {
@@ -496,6 +497,32 @@
         "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
+      "additionalProperties": false
+    },
+    "symbol_geometry": {
+      "description": "記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。属性・切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは属性も切り抜きも持たない。小版 14 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "symbol" },
+        "name": { "description": "記号の定義（ブロック）の元の名前。足すときは図面にある定義の名前を指す", "type": "string" },
+        "position": { "description": "定義の基点を置く点 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "scale": { "description": "X と Y の尺度 [X, Y]。0 でない。負なら反転する", "type": "array", "items": { "type": "number" } },
+        "rotation": { "description": "回転（度）", "type": "number" },
+        "grid": { "description": "格子に並べて置く列と行。書かなければ 1 つだけ置く", "$ref": "#/$defs/symbol_grid" }
+      },
+      "required": ["shape", "name", "position", "scale", "rotation"],
+      "additionalProperties": false
+    },
+    "symbol_grid": {
+      "description": "記号を格子に並べる列と行。間隔は、記号を回転する前の向きに測る。置き換えるときは、列と行の数を変えない",
+      "type": "object",
+      "properties": {
+        "columns": { "description": "列の数。1 以上", "type": "integer", "minimum": 1, "maximum": 32767 },
+        "rows": { "description": "行の数。1 以上。列と行がどちらも 1 の格子は持たない", "type": "integer", "minimum": 1, "maximum": 32767 },
+        "column_spacing": { "description": "列の間隔", "type": "number" },
+        "row_spacing": { "description": "行の間隔", "type": "number" }
+      },
+      "required": ["columns", "rows", "column_spacing", "row_spacing"],
       "additionalProperties": false
     },
     "attachment": {

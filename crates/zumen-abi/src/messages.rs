@@ -1290,7 +1290,7 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
     pub geometry: Option<Geometry>,
 }
 
@@ -1449,6 +1449,8 @@ pub enum Geometry {
     Text(TextGeometry),
     /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
     FormattedText(FormattedTextGeometry),
+    /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。属性・切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは属性も切り抜きも持たない。小版 14 から
+    Symbol(SymbolGeometry),
 }
 
 impl Geometry {
@@ -1461,6 +1463,7 @@ impl Geometry {
         "polyline",
         "text",
         "formatted_text",
+        "symbol",
     ];
 
     /// 目印の欄（`shape`）の値
@@ -1473,6 +1476,7 @@ impl Geometry {
             Self::Polyline(_) => "polyline",
             Self::Text(_) => "text",
             Self::FormattedText(_) => "formatted_text",
+            Self::Symbol(_) => "symbol",
         }
     }
 }
@@ -1490,6 +1494,7 @@ impl FromJson for Geometry {
             "formatted_text" => {
                 Self::FormattedText(FormattedTextGeometry::read_fields(&mut object)?)
             }
+            "symbol" => Self::Symbol(SymbolGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -1507,6 +1512,7 @@ impl ToJson for Geometry {
             Self::Polyline(value) => value.to_json(out),
             Self::Text(value) => value.to_json(out),
             Self::FormattedText(value) => value.to_json(out),
+            Self::Symbol(value) => value.to_json(out),
         }
     }
 }
@@ -1925,6 +1931,129 @@ impl FromJson for FormattedTextGeometry {
 }
 
 impl ToJson for FormattedTextGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。属性・切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは属性も切り抜きも持たない。小版 14 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolGeometry {
+    /// 記号の定義（ブロック）の元の名前。足すときは図面にある定義の名前を指す
+    pub name: String,
+    /// 定義の基点を置く点 [X, Y]
+    pub position: Vec<f64>,
+    /// X と Y の尺度 [X, Y]。0 でない。負なら反転する
+    pub scale: Vec<f64>,
+    /// 回転（度）
+    pub rotation: f64,
+    /// 格子に並べて置く列と行。書かなければ 1 つだけ置く
+    pub grid: Option<SymbolGrid>,
+}
+
+impl SymbolGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "symbol")?;
+        let name = object.required("name", json::string)?;
+        let position = object.required("position", |value| json::array(value, json::number))?;
+        let scale = object.required("scale", |value| json::array(value, json::number))?;
+        let rotation = object.required("rotation", json::number)?;
+        let grid = object.optional("grid", SymbolGrid::from_json)?;
+        Ok(Self {
+            name,
+            position,
+            scale,
+            rotation,
+            grid,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("symbol");
+        out.key("name");
+        out.string(&self.name);
+        out.key("position");
+        out.array(&self.position, |out, item| out.float(*item));
+        out.key("scale");
+        out.array(&self.scale, |out, item| out.float(*item));
+        out.key("rotation");
+        out.float(self.rotation);
+        if let Some(value) = &self.grid {
+            out.key("grid");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for SymbolGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SymbolGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 記号を格子に並べる列と行。間隔は、記号を回転する前の向きに測る。置き換えるときは、列と行の数を変えない
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolGrid {
+    /// 列の数。1 以上
+    pub columns: u64,
+    /// 行の数。1 以上。列と行がどちらも 1 の格子は持たない
+    pub rows: u64,
+    /// 列の間隔
+    pub column_spacing: f64,
+    /// 行の間隔
+    pub row_spacing: f64,
+}
+
+impl SymbolGrid {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let columns = object.required("columns", |value| json::uint(value, 1, 32767))?;
+        let rows = object.required("rows", |value| json::uint(value, 1, 32767))?;
+        let column_spacing = object.required("column_spacing", json::number)?;
+        let row_spacing = object.required("row_spacing", json::number)?;
+        Ok(Self {
+            columns,
+            rows,
+            column_spacing,
+            row_spacing,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("columns");
+        out.uint(self.columns);
+        out.key("rows");
+        out.uint(self.rows);
+        out.key("column_spacing");
+        out.float(self.column_spacing);
+        out.key("row_spacing");
+        out.float(self.row_spacing);
+    }
+}
+
+impl FromJson for SymbolGrid {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SymbolGrid {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

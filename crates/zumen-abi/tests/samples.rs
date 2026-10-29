@@ -677,3 +677,112 @@ fn drawings_take_back_formatted_texts_through_the_boundary() {
         "{replaced:?} {japanese:?}"
     );
 }
+
+/// 試料の実寸の空間の記号を、境界の `replace` で置く点・尺度・回転だけ替え、同じ定義の記号を `add` で足すと、
+/// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。属性を持つ記号の
+/// 置く点などは、属性が付いてこないので、`call.value.invalid` で `/edits/0/geometry` を指して変えない
+#[test]
+fn drawings_take_back_symbols_through_the_boundary() {
+    let budget = r#""budget":{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}"#;
+    let (mut replaced, mut added, mut attributed) = ([0, 0], [0, 0], 0);
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let symbols: Vec<(String, String)> = shapes(&mut session, &name)
+            .into_iter()
+            .filter(|(id, geometry)| {
+                id.starts_with("space/0/h")
+                    && id.matches('/').count() == 2
+                    && geometry.as_ref().is_some_and(|g| {
+                        text(g, "/shape") == Some("symbol") && g.pointer("/grid").is_none()
+                    })
+            })
+            .filter_map(|(id, geometry)| Some((id, text(&geometry?, "/name")?.to_string())))
+            .collect();
+        let hashes = entities(&mut session, &name);
+        let check =
+            |session: &mut Session, doc: &str, response: &Value, id: &str, geometry: &str| {
+                let file = session.take(0).unwrap();
+                let hash = text(response, "/result/applied/0/hash")
+                    .unwrap()
+                    .to_string();
+                session.push(doc.as_bytes(), &file).unwrap();
+                assert!(open(session, doc), "{name}");
+                assert!(
+                    entities(session, doc)
+                        .iter()
+                        .any(|(found, _, found_hash)| *found == id && *found_hash == hash),
+                    "{name}: {id}"
+                );
+                let found = shapes(session, doc)
+                    .into_iter()
+                    .find(|(found, _)| *found == id)
+                    .and_then(|(_, geometry)| geometry);
+                let expected = zumen_json::parse(geometry.as_bytes()).unwrap();
+                assert!(
+                    found.as_ref().is_some_and(|found| close(found, &expected)),
+                    "{name}: {id}: {found:?}"
+                );
+            };
+        for (id, definition) in &symbols {
+            let hash = &hashes.iter().find(|(found, _, _)| found == id).unwrap().2;
+            let geometry = format!(
+                r#"{{"shape":"symbol","name":"{definition}","position":[12.5,-4],"scale":[1.5,-2],"rotation":15}}"#
+            );
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}],{budget}}}"#
+                ),
+            );
+            if status != Status::Ok {
+                let failed = (0..)
+                    .map_while(|at| response.pointer(&format!("/diagnostics/{at}")))
+                    .find(|d| text(d, "/severity") == Some("error"))
+                    .unwrap();
+                assert_eq!(
+                    (text(failed, "/code"), text(failed, "/params/pointer")),
+                    (Some("call.value.invalid"), Some("/edits/0/geometry")),
+                    "{name}: {failed:?}"
+                );
+                attributed += 1;
+                continue;
+            }
+            check(&mut session, "replaced", &response, id, &geometry);
+            replaced[dwg] += 1;
+            break;
+        }
+        let Some((_, definition)) = symbols.first() else {
+            continue;
+        };
+        let geometry = format!(
+            r#"{{"shape":"symbol","name":"{definition}","position":[-3,7.25],"scale":[0.5,0.5],"rotation":-30}}"#
+        );
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}],{budget}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let id = text(&response, "/result/applied/0/id").unwrap().to_string();
+        check(&mut session, "added", &response, &id, &geometry);
+        added[dwg] += 1;
+    }
+    assert!(
+        drawings().is_empty()
+            || (replaced.iter().all(|n| *n > 0) && added.iter().all(|n| *n > 0) && attributed > 0),
+        "{replaced:?} {added:?} {attributed}"
+    );
+}
