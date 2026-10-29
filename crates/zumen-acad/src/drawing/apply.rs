@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use super::{PaperFrame, framed, mtext, source, text};
+use super::{MODEL, PaperFrame, framed, mtext, source, text, work};
+use add::{Born, Target, kind_of};
+
+mod add;
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
@@ -17,7 +20,7 @@ impl Apply<Changes> for DxfFile {
     /// 今のファイルから表を作り、変更を当ててから書き戻す
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
         let mut db = self.table(cx, false)?;
-        edit(&mut db, changes, cx)?;
+        edit(&mut db, changes, Target::Dxf, cx)?;
         self.write_back(&db, cx)
     }
 }
@@ -26,13 +29,14 @@ impl Apply<Changes> for DwgFile {
     /// 今のファイルから表を作り、変更を当ててから書き戻す
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
         let mut db = self.objects(cx)?;
-        edit(&mut db, changes, cx)?;
+        let seed = self.handle_seed();
+        edit(&mut db, changes, Target::Dwg(seed), cx)?;
         self.write_back(&db, cx)
     }
 }
 
-/// 変更を表に当てる。当てられない変更が 1 つでもあれば、表を変えずに失敗する
-fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
+/// 変更を表に当てる。当てられない変更が 1 つでもあれば、表を変えずに失敗する。`target` は書き戻す先
+fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Result<(), Error> {
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
     let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
@@ -56,19 +60,61 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
             _ => None,
         })
         .unwrap_or(false);
+    let born = Born::new(db, &drawing, unicode, target);
     let mut replaced = Vec::new();
     let mut removed = Vec::new();
+    let mut added = Vec::new();
+    let mut added_records = 0u64;
     let mut rejected = false;
     for change in &changes.edits {
-        let at = match change {
-            Edit::Replace(element) => &element.source,
-            Edit::ReplaceOnSheet(element) => &element.source,
-            Edit::Remove(at) => at,
-        };
-        let found = match change {
-            Edit::Replace(_) => model.contains_key(at),
-            Edit::ReplaceOnSheet(_) => paper.contains_key(at),
-            Edit::Remove(_) => model.contains_key(at) || paper.contains_key(at),
+        let (at, found) = match change {
+            Edit::Replace(element) => (&element.source, model.contains_key(&element.source)),
+            Edit::ReplaceOnSheet(element) => (&element.source, paper.contains_key(&element.source)),
+            Edit::Remove(at) => (at, model.contains_key(at) || paper.contains_key(at)),
+            Edit::Add(_) | Edit::AddOnSheet(_) => {
+                let (record, kind, at) = match change {
+                    Edit::Add(element) => {
+                        add::work(&element.shape, cx, &element.source)?;
+                        (
+                            born.record(element, &InSpace(MODEL), born.model(), added_records),
+                            kind_of(&element.shape),
+                            &element.source,
+                        )
+                    }
+                    Edit::AddOnSheet(element) => {
+                        add::work(&element.shape, cx, &element.source)?;
+                        (
+                            anchor(&element.shape).and_then(|at| {
+                                let frame = *frames.get(&at.sheet)?;
+                                born.record(
+                                    element,
+                                    &OnSheet(at.sheet, frame),
+                                    frame.home,
+                                    added_records,
+                                )
+                            }),
+                            kind_of(&element.shape),
+                            &element.source,
+                        )
+                    }
+                    _ => continue,
+                };
+                match record {
+                    Some(record) => {
+                        added_records += record.count();
+                        added.push(record);
+                    }
+                    None => {
+                        cx.report(
+                            Diagnostic::new(codes::DXF_CHANGE_UNSUPPORTED)
+                                .with("kind", kind)
+                                .at(at.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
         };
         let (true, Some(index)) = (found, entity(db, at)) else {
             cx.report(Diagnostic::new(codes::DXF_ELEMENT_MISSING).at(at.clone()));
@@ -81,7 +127,7 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
             Edit::ReplaceOnSheet(element) => {
                 paper.get(at).is_some_and(|was| element.shape != was.shape)
             }
-            Edit::Remove(_) => false,
+            Edit::Remove(_) | Edit::Add(_) | Edit::AddOnSheet(_) => false,
         };
         if reshaped && let Some(code) = moving_xdata(object) {
             cx.report(
@@ -110,6 +156,7 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
                 })
                 .map(|values| replaced.push((index, values))),
             Edit::Remove(_) => (!followed(object)).then(|| removed.push(index)),
+            Edit::Add(_) | Edit::AddOnSheet(_) => None,
         };
         if planned.is_none() {
             cx.report(
@@ -123,6 +170,20 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
     if rejected {
         return Err(Error::Rejected);
     }
+    let insertion_work = born.insertion_work(&added, db.objects().len());
+    if insertion_work > 0 {
+        let at = changes
+            .edits
+            .iter()
+            .find_map(|edit| match edit {
+                Edit::Add(element) => Some(&element.source),
+                Edit::AddOnSheet(element) => Some(&element.source),
+                _ => None,
+            })
+            .cloned()
+            .unwrap_or_default();
+        work(cx, insertion_work, &at)?;
+    }
     for (index, values) in replaced {
         db.object_mut(index).ok_or(Error::Rejected)?.values = values;
     }
@@ -131,6 +192,7 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
     for index in removed.into_iter().rev() {
         db.remove(index);
     }
+    born.push(db, added);
     Ok(())
 }
 
@@ -179,7 +241,9 @@ struct OnSheet(SheetId, PaperFrame);
 
 impl Frame<PaperPoint> for OnSheet {
     fn point(&self, point: &PaperPoint) -> Option<[f64; 2]> {
-        let PaperFrame { origin: [x, y], mm } = self.1;
+        let PaperFrame {
+            origin: [x, y], mm, ..
+        } = self.1;
         (point.sheet == self.0).then_some([point.x / mm + x, point.y / mm + y])
     }
 
