@@ -365,7 +365,7 @@ fn edit(
                     Found::Model(element) => (element.layer, &element.style),
                     Found::Paper(element) => (element.layer, &element.style),
                 };
-                restyled(&born, object, layer, was, style, target)
+                restyled(&born, object, layer, was, style, target, cx)?
                     .map(|values| replaced.push((position, values)))
             }
             (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
@@ -427,7 +427,9 @@ fn restyled(
     style: &Style,
     change: &Restyle,
     target: Target,
-) -> Option<Vec<Value>> {
+    cx: &mut Cx<'_>,
+) -> Result<Option<Vec<Value>>, Error> {
+    let at = source(object);
     let (new_layer, new) = change.over(layer, style);
     let mut changed = Vec::new();
     if new_layer != layer {
@@ -446,55 +448,91 @@ fn restyled(
         changed.push(48);
     }
     if changed.is_empty() {
-        return Some(object.values.clone());
+        return object
+            .values
+            .iter()
+            .map(|value| copy_value(value, cx, &at))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some);
     }
     if matches!(target, Target::Dwg(_)) && changed.iter().any(|code| matches!(code, 6 | 8)) {
-        return None;
+        return Ok(None);
     }
-    let written: Vec<Value> = born
-        .entity(new_layer, &new, false)?
-        .into_iter()
-        .filter(|value| changed.contains(&value.code))
-        .collect();
-    // 図形に共通の値の範囲。区切り（100）を持てば AcDbEntity の区切りの中、持たなければ XDATA の前まで
-    let common = match object
-        .values
-        .iter()
-        .position(|value| value.code == 100 && value.data == Data::Text(b"AcDbEntity".to_vec()))
-    {
-        Some(marker) => {
-            let end = object
-                .values
-                .iter()
-                .skip(marker + 1)
-                .position(|value| matches!(value.code, 100 | 1001))
-                .map_or(object.values.len(), |n| marker + 1 + n);
-            marker + 1..end
-        }
-        None => {
-            0..object
-                .values
-                .iter()
-                .position(|value| value.code == 1001)
-                .unwrap_or(object.values.len())
-        }
+    let mut written = Vec::new();
+    if changed.contains(&8) {
+        let Some(layer) = born.layer_value(new_layer) else {
+            return Ok(None);
+        };
+        written.push(layer);
+    }
+    let Some(style) = born.style_values(&new, &changed) else {
+        return Ok(None);
     };
+    written.extend(style);
+    // 図形に共通の値の範囲。区切り（100）を持てば AcDbEntity の区切りの中、持たなければ XDATA の前まで
+    let mut marker = None;
+    for (index, value) in object.values.iter().enumerate() {
+        work(cx, 1, &at)?;
+        if value.code == 100 && value.data == Data::Text(b"AcDbEntity".to_vec()) {
+            marker = Some(index);
+            break;
+        }
+    }
+    let start = marker.map_or(0, |index| index + 1);
+    let mut end = object.values.len();
+    for (index, value) in object.values.iter().enumerate().skip(start) {
+        work(cx, 1, &at)?;
+        if value.code == 1001 || (marker.is_some() && value.code == 100) {
+            end = index;
+            break;
+        }
+    }
+    let common = start..end;
     let mut values = Vec::with_capacity(object.values.len() + written.len());
-    let mut at = None;
+    let mut insert_at = None;
     for (index, value) in object.values.iter().enumerate() {
         let inside = common.contains(&index);
-        if inside && value.code == 8 && at.is_none() {
+        if inside && value.code == 8 && insert_at.is_none() {
             if !changed.contains(&8) {
-                values.push(value.clone());
+                values.push(copy_value(value, cx, &at)?);
+            } else {
+                work(cx, 1, &at)?;
             }
-            at = Some(values.len());
+            insert_at = Some(values.len());
         } else if !(inside && changed.contains(&value.code)) {
-            values.push(value.clone());
+            values.push(copy_value(value, cx, &at)?);
+        } else {
+            work(cx, 1, &at)?;
         }
     }
-    let at = at?;
-    values.splice(at..at, written);
-    Some(values)
+    let insert_at = insert_at.unwrap_or(common.start);
+    values.splice(insert_at..insert_at, written);
+    Ok(Some(values))
+}
+
+/// 共通値を写すときも、要素と可変長のバイト列を数える
+fn copy_value(value: &Value, cx: &mut Cx<'_>, at: &Ref) -> Result<Value, Error> {
+    work(cx, 1, at)?;
+    let copy = |data: &[u8], cx: &mut Cx<'_>| -> Result<Vec<u8>, Error> {
+        let mut result = Vec::new();
+        for chunk in data.chunks(1024) {
+            work(cx, 1, at)?;
+            result.extend_from_slice(chunk);
+        }
+        Ok(result)
+    };
+    let data = match &value.data {
+        Data::Text(data) => Data::Text(copy(data, cx)?),
+        Data::Binary(data) => Data::Binary(copy(data, cx)?),
+        Data::Int(value) => Data::Int(*value),
+        Data::Real(value) => Data::Real(*value),
+        Data::Bool(value) => Data::Bool(*value),
+        Data::Handle(value) => Data::Handle(*value),
+    };
+    Ok(Value {
+        code: value.code,
+        data,
+    })
 }
 
 /// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある
@@ -1355,6 +1393,36 @@ mod hash_budget_tests {
             ),
             Err(Error::Stopped(_))
         ));
+    }
+
+    #[test]
+    fn restyle_copy_checks_work_and_preserves_all_bytes() {
+        let value = Value {
+            code: 1000,
+            data: Data::Text(vec![42; 5000]),
+        };
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(3)));
+        assert!(matches!(
+            copy_value(
+                &value,
+                &mut context(&mut budget, &mut diagnostics, &cancel),
+                &Ref::at_record(9)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 3);
+        let mut budget = Budget::default();
+        assert_eq!(
+            copy_value(
+                &value,
+                &mut context(&mut budget, &mut diagnostics, &cancel),
+                &Ref::at_record(9)
+            )
+            .unwrap(),
+            value
+        );
     }
 
     #[test]

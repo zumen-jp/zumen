@@ -2528,3 +2528,105 @@ fn restyles_the_records_cannot_hold_change_nothing() {
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+#[test]
+fn restyle_can_change_color_on_an_undefined_existing_layer() {
+    use zumen_drawing::{Color, ColorCode, ColorSystem, Inherit, Restyle};
+    let src = String::from_utf8(styled())
+        .unwrap()
+        .replacen("  8\n0\n 62\n5\n", "  8\nGhost\n 62\n5\n", 1)
+        .into_bytes();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let line = seen(&lift(&file)).remove(0).0;
+    let color = Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value: 1,
+        }),
+        rgb: None,
+    };
+    let changes = zumen_drawing::Changes {
+        edits: vec![zumen_drawing::Edit::Restyle {
+            target: line,
+            style: Restyle {
+                color: Some(Inherit::Own(color)),
+                ..Restyle::default()
+            },
+        }],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    assert!(
+        zumen_sdk::Apply::apply(
+            &mut file,
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+        )
+        .is_ok(),
+        "{diagnostics:?}"
+    );
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    assert!(String::from_utf8_lossy(&written).contains("  8\nGhost\n"));
+    let reloaded = testkit::read::<Dxf>(&written).0.unwrap();
+    let drawing = lift(&reloaded);
+    let line = &drawing.spaces[0].elements[0];
+    assert_eq!(drawing.layer(line.layer).unwrap().name, "Ghost");
+    assert_eq!(line.style.color, Inherit::Own(color));
+}
+
+#[test]
+fn restyle_keeps_undefined_line_type_and_handles_implicit_layer() {
+    use zumen_drawing::{Color, ColorCode, ColorSystem, Inherit, Restyle};
+    let base = String::from_utf8(styled()).unwrap();
+    let sources = [
+        base.replacen("  8\n0\n 62\n5\n", "  8\n0\n  6\nGhostLine\n 62\n5\n", 1),
+        base.replacen("  8\n0\n 62\n5\n", " 62\n5\n", 1),
+    ];
+    for source in sources {
+        let mut file = testkit::read::<Dxf>(source.as_bytes()).0.unwrap();
+        let before = lift(&file);
+        let line = seen(&before).remove(0).0;
+        let color = Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: 1,
+            }),
+            rgb: None,
+        };
+        let changes = zumen_drawing::Changes {
+            edits: vec![zumen_drawing::Edit::Restyle {
+                target: line,
+                style: Restyle {
+                    color: Some(Inherit::Own(color)),
+                    ..Restyle::default()
+                },
+            }],
+            document: None,
+        };
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        zumen_sdk::Apply::apply(
+            &mut file,
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let reloaded = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+        let old = &before.spaces[0].elements[0];
+        let new = &reloaded.spaces[0].elements[0];
+        assert_eq!(new.shape, old.shape);
+        assert_eq!(new.style.color, Inherit::Own(color));
+        assert_eq!(new.style.line_type, old.style.line_type);
+        if source.contains("GhostLine") {
+            assert!(
+                String::from_utf8(written)
+                    .unwrap()
+                    .contains("  6\nGhostLine\n")
+            );
+        }
+    }
+}
