@@ -346,7 +346,11 @@ pub(crate) fn shape_of<P: Spot>(
                     vertical,
                     rotation,
                     width,
-                    ..old.clone()
+                    frame_height: old.frame_height,
+                    flow: old.flow,
+                    line_spacing: old.line_spacing,
+                    background: old.background,
+                    style: old.style.clone(),
                 },
                 None => FormattedText {
                     content: text.content.clone(),

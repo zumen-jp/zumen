@@ -571,6 +571,8 @@ fn changes(
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let at = |field: &str| format!("/edits/{index}/{field}");
         let seen = |id: &str, text: &str, cx: &mut Cx<'_>| {
+            cx.check(Kind::Work, u64::try_from(id.len()).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
             Ok(Seen {
                 id: id.to_string(),
                 hash: hash(text, at("hash"), cx)?,
@@ -583,7 +585,13 @@ fn changes(
         };
         let size = match value {
             Some(messages::Geometry::Polyline(line)) => line.points.len(),
-            Some(messages::Geometry::Text(text)) => text.content.len(),
+            Some(messages::Geometry::Text(text)) => text
+                .content
+                .len()
+                .saturating_add(text.style.as_ref().map_or(0, String::len)),
+            Some(messages::Geometry::FormattedText(text)) => {
+                text.style.as_ref().map_or(0, String::len)
+            }
             _ => 0,
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -648,6 +656,11 @@ fn changes(
                 }
             }
             messages::Edit::Add(edit) => {
+                cx.check(
+                    Kind::Work,
+                    u64::try_from(edit.place.len()).unwrap_or(u64::MAX),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
                 count_formatted_geometry(&edit.geometry, cx)?;
                 if tables.is_none() {
                     tables = Some(TableLookup::new(drawing, cx)?);
@@ -856,13 +869,14 @@ fn layer_of(
 /// 形を形の値で置き換えた要素。合わない欄があれば、その欄の名前を返す
 fn count_old_element<P>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<(), Failed> {
     let source = element.source.id().map_or(0, str::len);
-    let style = match &element.shape {
+    let size = match &element.shape {
         Shape::Text(text) => text.style.len(),
+        Shape::Formatted(text) => text.style.len(),
         _ => 0,
     };
     cx.check(
         Kind::Work,
-        u64::try_from(source.saturating_add(style)).unwrap_or(u64::MAX),
+        u64::try_from(source.saturating_add(size)).unwrap_or(u64::MAX),
     )
     .map_err(|stop| stopped(cx, stop))?;
     Ok(())
@@ -1138,11 +1152,12 @@ impl Page {
             } else {
                 None
             };
-            // 形の値は、折れ線の頂点の数に比例して作る
+            // 形の値に複製する頂点と文字列の大きさを数える
             let geometry = if has(EntityField::Geometry) {
                 let size = match &element.shape {
                     Shape::Polyline(line) => line.vertices.len(),
-                    Shape::Text(text) => text.content.len(),
+                    Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
+                    Shape::Formatted(text) => text.content.len().saturating_add(text.style.len()),
                     _ => 0,
                 };
                 cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -1524,6 +1539,113 @@ mod tests {
                 panic!();
             };
             let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(500)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(changes(&request, &Drawing2D::default(), &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+    }
+
+    #[test]
+    fn geometry_copies_obey_work_budget() {
+        use zumen_drawing::{
+            Flow, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, ModelLength,
+            Piece, Rotation, SpaceId, Span, Vertical,
+        };
+        let point = ModelPoint {
+            space: SpaceId(0),
+            x: 0.0,
+            y: 0.0,
+        };
+        let formatted = FormattedText {
+            content: "x".repeat(100),
+            spans: vec![Span {
+                piece: Piece::Text("x".repeat(100)),
+                format: Default::default(),
+            }],
+            height: Height {
+                value: zumen_drawing::Length::Model(ModelLength {
+                    space: SpaceId(0),
+                    value: 1.0,
+                }),
+                meaning: HeightMeaning::Frame,
+            },
+            point,
+            horizontal: Horizontal::Left,
+            vertical: Vertical::Top,
+            rotation: Rotation::Angle(0.0),
+            width: None,
+            frame_height: None,
+            flow: Flow::LeftToRight,
+            line_spacing: LineSpacing {
+                factor: 1.0,
+                exact: false,
+            },
+            background: None,
+            style: "style".repeat(30),
+        };
+        let shapes = [Shape::Formatted(formatted)];
+        for shape in shapes {
+            let element = Element {
+                source: Ref::default(),
+                layer: LayerId(0),
+                style: Style::BLOCK,
+                shape,
+            };
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(count_old_element(&element, &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+            let mut page = Page {
+                start: 0,
+                end: 1,
+                fields: vec![EntityField::Geometry],
+                region: None,
+                position: 0,
+                items: vec![],
+            };
+            let mut diagnostics = Diagnostics::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(
+                page.collect(&Drawing2D::default(), "space/0", &[element], &mut cx)
+                    .is_err()
+            );
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+    }
+
+    #[test]
+    fn request_geometry_strings_obey_work_budget() {
+        let long = "x".repeat(100);
+        for geometry in [
+            format!(
+                r#"{{"shape":"text","content":"x","position":[0,0],"height":1,"rotation":0,"style":"{long}"}}"#
+            ),
+            format!(
+                r#"{{"shape":"formatted_text","content":"x","position":[0,0],"height":1,"rotation":0,"style":"{long}"}}"#
+            ),
+        ] {
+            let json = format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+            );
+            let value = zumen_json::parse(json.as_bytes()).unwrap();
+            let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+                panic!()
+            };
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
             let mut diagnostics = Diagnostics::new();
             let cancel = CancelToken::new();
             let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
