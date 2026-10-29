@@ -3068,6 +3068,12 @@ pub enum Edit {
     AddLayer(AddLayerEdit),
     /// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
     RemoveLayer(RemoveLayerEdit),
+    /// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から
+    TextStyle(TextStyleEdit),
+    /// 文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から
+    AddTextStyle(AddTextStyleEdit),
+    /// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から
+    RemoveTextStyle(RemoveTextStyleEdit),
 }
 
 impl Edit {
@@ -3081,6 +3087,9 @@ impl Edit {
         "layer",
         "add_layer",
         "remove_layer",
+        "text_style",
+        "add_text_style",
+        "remove_text_style",
     ];
 
     /// 目印の欄（`kind`）の値
@@ -3094,6 +3103,9 @@ impl Edit {
             Self::Layer(_) => "layer",
             Self::AddLayer(_) => "add_layer",
             Self::RemoveLayer(_) => "remove_layer",
+            Self::TextStyle(_) => "text_style",
+            Self::AddTextStyle(_) => "add_text_style",
+            Self::RemoveTextStyle(_) => "remove_text_style",
         }
     }
 }
@@ -3110,6 +3122,11 @@ impl FromJson for Edit {
             "layer" => Self::Layer(LayerEdit::read_fields(&mut object)?),
             "add_layer" => Self::AddLayer(AddLayerEdit::read_fields(&mut object)?),
             "remove_layer" => Self::RemoveLayer(RemoveLayerEdit::read_fields(&mut object)?),
+            "text_style" => Self::TextStyle(TextStyleEdit::read_fields(&mut object)?),
+            "add_text_style" => Self::AddTextStyle(AddTextStyleEdit::read_fields(&mut object)?),
+            "remove_text_style" => {
+                Self::RemoveTextStyle(RemoveTextStyleEdit::read_fields(&mut object)?)
+            }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -3128,6 +3145,9 @@ impl ToJson for Edit {
             Self::Layer(value) => value.to_json(out),
             Self::AddLayer(value) => value.to_json(out),
             Self::RemoveLayer(value) => value.to_json(out),
+            Self::TextStyle(value) => value.to_json(out),
+            Self::AddTextStyle(value) => value.to_json(out),
+            Self::RemoveTextStyle(value) => value.to_json(out),
         }
     }
 }
@@ -3580,6 +3600,274 @@ impl FromJson for RemoveLayerEdit {
 }
 
 impl ToJson for RemoveLayerEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextStyleEdit {
+    /// 変える文字スタイルの ID。tables が返したもの
+    pub id: String,
+    /// 読んだときの文字スタイルのハッシュ。tables が返したもの
+    pub hash: String,
+    /// 新しい名前。ほかの文字スタイルと重ならず（大文字と小文字を区別しない）、< > / \ " : ; ? * | = ` を含まないもの。Standard の名前は変えられない
+    pub name: Option<String>,
+    /// 主のフォント。形のファイル（shape）か、太字・斜体・文字集合・ピッチを持たない TrueType のファイル（named で、名前が .ttf・.ttc・.otf で終わるもの）。名前を空にすると除く。XDATA の書体の名前で指すフォントは変えられない
+    pub font: Option<Font>,
+    /// 大きいフォント。形のファイル（shape）だけ。名前を空にすると除く
+    pub big_font: Option<Font>,
+    /// 決まった高さ。文書の単位。0 なら決めない。負の数は書けない
+    pub height: Option<f64>,
+    /// 幅の倍率。正の数
+    pub width: Option<f64>,
+    /// 傾き（度）。-85 から 85 まで
+    pub oblique: Option<f64>,
+    /// 左右を裏返す
+    pub backward: Option<bool>,
+    /// 上下を反転する
+    pub upside_down: Option<bool>,
+    /// 縦書き
+    pub vertical: Option<bool>,
+}
+
+impl TextStyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "text_style")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let font = object.optional("font", Font::from_json)?;
+        let big_font = object.optional("big_font", Font::from_json)?;
+        let height = object.optional("height", json::number)?;
+        let width = object.optional("width", json::number)?;
+        let oblique = object.optional("oblique", json::number)?;
+        let backward = object.optional("backward", json::boolean)?;
+        let upside_down = object.optional("upside_down", json::boolean)?;
+        let vertical = object.optional("vertical", json::boolean)?;
+        Ok(Self {
+            id,
+            hash,
+            name,
+            font,
+            big_font,
+            height,
+            width,
+            oblique,
+            backward,
+            upside_down,
+            vertical,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("text_style");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.font {
+            out.key("font");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.big_font {
+            out.key("big_font");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.float(*value);
+        }
+        if let Some(value) = &self.width {
+            out.key("width");
+            out.float(*value);
+        }
+        if let Some(value) = &self.oblique {
+            out.key("oblique");
+            out.float(*value);
+        }
+        if let Some(value) = &self.backward {
+            out.key("backward");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.upside_down {
+            out.key("upside_down");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            out.bool(*value);
+        }
+    }
+}
+
+impl FromJson for TextStyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TextStyleEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddTextStyleEdit {
+    /// 名前。text_style の name と同じ決まり
+    pub name: String,
+    /// 主のフォント。形のファイル（shape）か、太字・斜体・文字集合・ピッチを持たない TrueType のファイル（named で、名前が .ttf・.ttc・.otf で終わるもの）。名前を空にすると除く。XDATA の書体の名前で指すフォントは変えられない
+    pub font: Option<Font>,
+    /// 大きいフォント。形のファイル（shape）だけ。名前を空にすると除く
+    pub big_font: Option<Font>,
+    /// 決まった高さ。文書の単位。0 なら決めない。負の数は書けない
+    pub height: Option<f64>,
+    /// 幅の倍率。正の数
+    pub width: Option<f64>,
+    /// 傾き（度）。-85 から 85 まで
+    pub oblique: Option<f64>,
+    /// 左右を裏返す
+    pub backward: Option<bool>,
+    /// 上下を反転する
+    pub upside_down: Option<bool>,
+    /// 縦書き
+    pub vertical: Option<bool>,
+}
+
+impl AddTextStyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_text_style")?;
+        let name = object.required("name", json::string)?;
+        let font = object.optional("font", Font::from_json)?;
+        let big_font = object.optional("big_font", Font::from_json)?;
+        let height = object.optional("height", json::number)?;
+        let width = object.optional("width", json::number)?;
+        let oblique = object.optional("oblique", json::number)?;
+        let backward = object.optional("backward", json::boolean)?;
+        let upside_down = object.optional("upside_down", json::boolean)?;
+        let vertical = object.optional("vertical", json::boolean)?;
+        Ok(Self {
+            name,
+            font,
+            big_font,
+            height,
+            width,
+            oblique,
+            backward,
+            upside_down,
+            vertical,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_text_style");
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.font {
+            out.key("font");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.big_font {
+            out.key("big_font");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.float(*value);
+        }
+        if let Some(value) = &self.width {
+            out.key("width");
+            out.float(*value);
+        }
+        if let Some(value) = &self.oblique {
+            out.key("oblique");
+            out.float(*value);
+        }
+        if let Some(value) = &self.backward {
+            out.key("backward");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.upside_down {
+            out.key("upside_down");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            out.bool(*value);
+        }
+    }
+}
+
+impl FromJson for AddTextStyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for AddTextStyleEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoveTextStyleEdit {
+    /// 除く文字スタイルの ID。tables が返したもの
+    pub id: String,
+    /// 読んだときの文字スタイルのハッシュ。tables が返したもの
+    pub hash: String,
+}
+
+impl RemoveTextStyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "remove_text_style")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { id, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("remove_text_style");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for RemoveTextStyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RemoveTextStyleEdit {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

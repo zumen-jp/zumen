@@ -705,7 +705,10 @@
         { "$ref": "#/$defs/add_edit" },
         { "$ref": "#/$defs/layer_edit" },
         { "$ref": "#/$defs/add_layer_edit" },
-        { "$ref": "#/$defs/remove_layer_edit" }
+        { "$ref": "#/$defs/remove_layer_edit" },
+        { "$ref": "#/$defs/text_style_edit" },
+        { "$ref": "#/$defs/add_text_style_edit" },
+        { "$ref": "#/$defs/remove_text_style_edit" }
       ]
     },
     "restyle_edit": {
@@ -815,6 +818,70 @@
         "kind": { "description": "変更の種類", "const": "remove_layer" },
         "id": { "description": "除くレイヤの ID。tables が返したもの", "type": "string" },
         "hash": { "description": "読んだときのレイヤのハッシュ。tables が返したもの", "type": "string" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "text_style_edit": {
+      "description": "文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "text_style" },
+        "id": { "description": "変える文字スタイルの ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの文字スタイルのハッシュ。tables が返したもの", "type": "string" },
+        "name": {
+          "description": "新しい名前。ほかの文字スタイルと重ならず（大文字と小文字を区別しない）、< > / \\ \" : ; ? * | = ` を含まないもの。Standard の名前は変えられない",
+          "type": "string"
+        },
+        "font": {
+          "description": "主のフォント。形のファイル（shape）か、太字・斜体・文字集合・ピッチを持たない TrueType のファイル（named で、名前が .ttf・.ttc・.otf で終わるもの）。名前を空にすると除く。XDATA の書体の名前で指すフォントは変えられない",
+          "$ref": "#/$defs/font"
+        },
+        "big_font": {
+          "description": "大きいフォント。形のファイル（shape）だけ。名前を空にすると除く",
+          "$ref": "#/$defs/font"
+        },
+        "height": { "description": "決まった高さ。文書の単位。0 なら決めない。負の数は書けない", "type": "number" },
+        "width": { "description": "幅の倍率。正の数", "type": "number" },
+        "oblique": { "description": "傾き（度）。-85 から 85 まで", "type": "number" },
+        "backward": { "description": "左右を裏返す", "type": "boolean" },
+        "upside_down": { "description": "上下を反転する", "type": "boolean" },
+        "vertical": { "description": "縦書き", "type": "boolean" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "add_text_style_edit": {
+      "description": "文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_text_style" },
+        "name": { "description": "名前。text_style の name と同じ決まり", "type": "string" },
+        "font": {
+          "description": "主のフォント。形のファイル（shape）か、太字・斜体・文字集合・ピッチを持たない TrueType のファイル（named で、名前が .ttf・.ttc・.otf で終わるもの）。名前を空にすると除く。XDATA の書体の名前で指すフォントは変えられない",
+          "$ref": "#/$defs/font"
+        },
+        "big_font": {
+          "description": "大きいフォント。形のファイル（shape）だけ。名前を空にすると除く",
+          "$ref": "#/$defs/font"
+        },
+        "height": { "description": "決まった高さ。文書の単位。0 なら決めない。負の数は書けない", "type": "number" },
+        "width": { "description": "幅の倍率。正の数", "type": "number" },
+        "oblique": { "description": "傾き（度）。-85 から 85 まで", "type": "number" },
+        "backward": { "description": "左右を裏返す", "type": "boolean" },
+        "upside_down": { "description": "上下を反転する", "type": "boolean" },
+        "vertical": { "description": "縦書き", "type": "boolean" }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
+    "remove_text_style_edit": {
+      "description": "文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "remove_text_style" },
+        "id": { "description": "除く文字スタイルの ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの文字スタイルのハッシュ。tables が返したもの", "type": "string" }
       },
       "required": ["kind", "id", "hash"],
       "additionalProperties": false

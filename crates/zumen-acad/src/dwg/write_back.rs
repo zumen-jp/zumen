@@ -1361,8 +1361,9 @@ impl DwgFile {
         Ok(())
     }
 
-    /// 除いた画層のレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から除いたデータを、
-    /// `changes` に足す（決定 0162）。反応子と拡張辞書を持つレコードと、画層のほかの表のレコードは除けない
+    /// 除いた画層か文字スタイルのレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から
+    /// 除いたデータを、`changes` に足す（決定 0162・0163）。反応子と拡張辞書を持つレコードと、ほかの表のレコードは
+    /// 除けない
     fn unlist(
         &self,
         record: usize,
@@ -1370,29 +1371,33 @@ impl DwgFile {
         records: &BTreeMap<u64, usize>,
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Option<()> {
-        (old.kind == b"LAYER"
-            && !old
-                .values
-                .iter()
-                .any(|value| matches!(value.code, 102 | 360)))
+        let (type_code, control_type) = match old.kind.as_slice() {
+            b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE),
+            b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE),
+            _ => return None,
+        };
+        (!old
+            .values
+            .iter()
+            .any(|value| matches!(value.code, 102 | 360)))
         .then_some(())?;
         let handle = self.entries.get(record)?.handle;
         let control = *records.get(&old.owner()?)?;
-        (self.entries.get(control)?.type_code == LAYER_CONTROL_TYPE).then_some(())?;
+        (self.entries.get(control)?.type_code == control_type).then_some(())?;
         let new = if self.release >= Release::R2010 {
             let (data, handles_at) = self.current_r2010(changes, control)?;
             add_entry_r2010(
                 &data,
                 handles_at,
                 Entry::Remove(handle),
-                LAYER_TYPE,
+                type_code,
                 self.release,
             )?
         } else {
             add_entry(
                 &self.current(changes, control)?,
                 Entry::Remove(handle),
-                LAYER_TYPE,
+                type_code,
                 self.release,
             )?
         };
@@ -2687,8 +2692,8 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         b"DIMSTYLE" => &dimstyle_codes,
         _ => return None,
     };
-    // LAYER の名前は書き直せる（決定 0162。[`record_fields`]）
-    let renamable = new.kind == b"LAYER";
+    // LAYER と STYLE の名前は書き直せる（決定 0162・0163。[`record_fields`]）
+    let renamable = renamable(new);
     let rest = |object: &Object| -> Vec<_> {
         object
             .values
@@ -2700,9 +2705,14 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
     (rest(old) == rest(new)).then_some(())
 }
 
+/// 名前を書き直せる表のレコード（LAYER と STYLE。決定 0162・0163）か
+fn renamable(object: &Object) -> bool {
+    matches!(object.kind.as_slice(), b"LAYER" | b"STYLE")
+}
+
 /// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
-/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER は名前を書き直せる
-/// （決定 0162）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
+/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER と STYLE は名前を
+/// 書き直せる（決定 0162・0163）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
 fn record_fields(
     fields: &mut BitWriter,
     old: &Object,
@@ -2725,7 +2735,7 @@ fn record_fields(
     if text_of(old, 2) == text_of(new, 2) {
         fields.copy(data, start..own_at)?;
     } else {
-        (new.kind == b"LAYER" && !xdep).then_some(())?;
+        (renamable(new) && !xdep).then_some(())?;
         string(fields, new, 2)?;
         fields.copy(data, named_at..own_at)?;
     }

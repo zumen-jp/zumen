@@ -206,7 +206,7 @@ fn bool_value(code: i16, value: bool) -> Value {
 }
 
 /// 拡張データの前の、欄 `code` の値
-fn find(values: &[Value], code: i16) -> Option<&Data> {
+pub(super) fn find(values: &[Value], code: i16) -> Option<&Data> {
     values
         .iter()
         .take_while(|value| value.code < 1000)
@@ -216,6 +216,11 @@ fn find(values: &[Value], code: i16) -> Option<&Data> {
 
 /// 拡張データの前の、欄 `code` の値を `value` にする。なければ [`ORDER`] の順で足し、`None` なら除く
 fn set(values: &mut Vec<Value>, code: i16, value: Option<Value>) {
+    set_in(values, code, value, &ORDER);
+}
+
+/// 拡張データの前の、欄 `code` の値を `value` にする。なければ `order` の順で足し、`None` なら除く
+pub(super) fn set_in(values: &mut Vec<Value>, code: i16, value: Option<Value>, order: &[i16]) {
     let end = values
         .iter()
         .position(|value| value.code >= 1000)
@@ -231,7 +236,7 @@ fn set(values: &mut Vec<Value>, code: i16, value: Option<Value>) {
             values.remove(at);
         }
         (None, Some(value)) => {
-            let before = ORDER.iter().take_while(|&&c| c != code);
+            let before = order.iter().take_while(|&&c| c != code);
             let after = before
                 .filter_map(|&c| values.iter().take(end).rposition(|value| value.code == c))
                 .max()
@@ -361,13 +366,13 @@ pub(super) fn removable(record: &Object) -> bool {
             .any(|value| matches!(value.code, 102 | 360))
 }
 
-/// DXF の画層の表の終わり（ENDTAB）の位置。足すレコードは、その前に置く
-pub(super) fn table_end(db: &AcadDb) -> Option<usize> {
+/// DXF の表 `table`（LAYER・STYLE）の終わり（ENDTAB）の位置。足すレコードは、その前に置く
+pub(super) fn table_end(db: &AcadDb, table: &[u8]) -> Option<usize> {
     let objects = db.objects();
     let start = objects.iter().position(|object| {
         object.section == Section::Tables
             && object.kind == b"TABLE"
-            && matches!(object.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"LAYER"))
+            && matches!(object.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(table))
     })?;
     objects
         .iter()
@@ -376,8 +381,8 @@ pub(super) fn table_end(db: &AcadDb) -> Option<usize> {
         .map(|at| start + at)
 }
 
-/// 足すレコード
-pub(super) fn record(values: Vec<Value>, handle: Option<u64>) -> Object {
+/// 足す表のレコード（LAYER・STYLE）
+pub(super) fn record(kind: &[u8], values: Vec<Value>, handle: Option<u64>) -> Object {
     let values = match handle {
         Some(handle) => std::iter::once(Value {
             code: 5,
@@ -388,7 +393,7 @@ pub(super) fn record(values: Vec<Value>, handle: Option<u64>) -> Object {
         None => values,
     };
     Object {
-        kind: b"LAYER".to_vec(),
+        kind: kind.to_vec(),
         section: Section::Tables,
         values,
         origin: Origin::New,
