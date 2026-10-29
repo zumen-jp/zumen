@@ -8,7 +8,7 @@ use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
     Changes, Edge, Edit, Element, FormattedText, Horizontal, Length, ModelLength, ModelPoint,
-    Placement, Polyline, Rotation, Shape, SpaceId, Text, Vertical,
+    Placement, Polyline, Rotation, Shape, SpaceId, Symbol, Text, Vertical,
 };
 use zumen_sdk::{Apply, Error};
 
@@ -190,6 +190,9 @@ fn replacement(
         }
         (Shape::Formatted(text), Shape::Formatted(was), b"MTEXT") => {
             formatting(&mut values, text, was, space, unicode)?;
+        }
+        (Shape::Symbol(symbol), Shape::Symbol(was), b"INSERT") => {
+            placing(&mut values, symbol, was, space)?;
         }
         _ => return None,
     }
@@ -484,6 +487,45 @@ fn formatting(
     Some(())
 }
 
+/// INSERT（DXF Reference「INSERT」）の置く点（10・20）・尺度（41・42）・回転（50、度）を直す。定義（2）・
+/// 格子（70・71・44・45）・属性・切り抜きは変えられない。属性と切り抜きは、続くレコードと拡張辞書にあるため
+fn placing(
+    values: &mut Vec<Value>,
+    symbol: &Symbol<ModelPoint>,
+    was: &Symbol<ModelPoint>,
+    space: SpaceId,
+) -> Option<()> {
+    if symbol.key != was.key
+        || symbol.grid != was.grid
+        || symbol.attributes != was.attributes
+        || symbol.clip != was.clip
+    {
+        return None;
+    }
+    within(space, &[&symbol.position])?;
+    if symbol.position != was.position {
+        put(values, 10, symbol.position.x, &[])?;
+        put(values, 20, symbol.position.y, &[])?;
+    }
+    // 尺度と回転は、省けば既定の値になる。変わったときだけ、欄の並び（10・20・30・41・42・43・50）に合わせて書く
+    let [x, y] = symbol.scale;
+    if x != was.scale[0] {
+        optional(values, 41, nonzero(x)?, 1.0, &[30, 20])?;
+    }
+    if y != was.scale[1] {
+        optional(values, 42, nonzero(y)?, 1.0, &[41, 30, 20])?;
+    }
+    if symbol.rotation != was.rotation {
+        optional(values, 50, symbol.rotation, 0.0, &[43, 42, 41, 30, 20])?;
+    }
+    Some(())
+}
+
+/// 0 でない有限の値
+fn nonzero(value: f64) -> Option<f64> {
+    (value.is_finite() && value != 0.0).then_some(value)
+}
+
 /// MTEXT の内容を、250 バイトずつの区切り（3）と最後の値（1）にして、元の内容の値の場所に置く。区切りは
 /// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）
 fn contents(values: &mut Vec<Value>, content: &str, unicode: bool) -> Option<()> {
@@ -615,6 +657,7 @@ fn space(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
             Placement::Between { first, .. } => Some(first.space),
         },
         Shape::Formatted(text) => Some(text.point.space),
+        Shape::Symbol(symbol) => Some(symbol.position.space),
         _ => None,
     }
 }

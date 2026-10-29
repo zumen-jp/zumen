@@ -2369,7 +2369,7 @@ fn header_variables_are_taken_back(version: &[u8]) {
     }
 }
 
-/// 図面モデルで動かした円弧・楕円・軽量の折れ線・文字・MTEXT を、DWG と DXF に書き戻して読み直すと、同じ所に動いている
+/// 図面モデルで動かした円弧・楕円・軽量の折れ線・文字・MTEXT・記号を、DWG と DXF に書き戻して読み直すと、同じ所に動いている
 /// （決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
@@ -2408,6 +2408,11 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
                 }
             },
             Shape::Formatted(text) => by(&mut text.point),
+            Shape::Symbol(symbol) => {
+                by(&mut symbol.position);
+                symbol.rotation += 15.0;
+                symbol.scale[0] *= 2.0;
+            }
             _ => return None,
         }
         Some(shape)
@@ -2431,7 +2436,7 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         let elements = lift(&file);
         let mut edits = Vec::new();
         let mut expected = Vec::new();
-        for kind in ["arc", "ellipse", "polyline", "text", "mtext"] {
+        for kind in ["arc", "ellipse", "polyline", "text", "mtext", "symbol"] {
             let found = elements.iter().enumerate().find_map(|(index, element)| {
                 let name = match element.shape {
                     Shape::Curve(Edge::Arc { .. }) => "arc",
@@ -2439,6 +2444,8 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
                     Shape::Polyline(_) => "polyline",
                     Shape::Text(_) => "text",
                     Shape::Formatted(_) => "mtext",
+                    // POINT も記号になるので、ブロックを置く INSERT だけを選ぶ
+                    Shape::Symbol(ref symbol) if symbol.key.namespace == "dxf.block" => "symbol",
                     _ => return None,
                 };
                 (name == kind).then(|| (index, moved(&element.shape)))
@@ -2469,7 +2476,17 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         let after = lift(&testkit::read::<C>(&written).0.unwrap());
         assert_eq!(after.len(), elements.len(), "{}", path.display());
         for (index, shape) in expected {
-            assert_eq!(after[index].shape, shape, "{}", path.display());
+            let mut found = after[index].shape.clone();
+            // DWG は記号の回転をラジアンで持つので、度に戻すと最後の桁が違うことがある
+            if let (Shape::Symbol(found), Shape::Symbol(shape)) = (&mut found, &shape) {
+                assert!(
+                    (found.rotation - shape.rotation).abs() < 1e-9,
+                    "{}",
+                    path.display()
+                );
+                found.rotation = shape.rotation;
+            }
+            assert_eq!(found, shape, "{}", path.display());
         }
     }
     let mut kinds = BTreeMap::new();
@@ -2477,5 +2494,5 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         check::<Dwg>(&dwg, &mut kinds);
         check::<Dxf>(&dxf, &mut kinds);
     }
-    assert!(pairs().is_empty() || kinds.len() == 5, "{kinds:?}");
+    assert!(pairs().is_empty() || kinds.len() == 6, "{kinds:?}");
 }

@@ -600,6 +600,136 @@ fn mtexts_that_the_records_cannot_hold_change_nothing() {
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
 
+/// ブロック B を定義し、INSERT を 2 つ持つ DXF。1 つ目は尺度と回転を省き、2 つ目は持つ
+#[cfg(test)]
+fn inserts() -> Vec<u8> {
+    let tags: &[(i16, &str)] = &[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$INSUNITS"),
+        (70, "4"),
+        (9, "$HANDSEED"),
+        (5, "20"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (8, "0"),
+        (2, "B"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (0, "LINE"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "0.0"),
+        (31, "0.0"),
+        (0, "ENDBLK"),
+        (8, "0"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "INSERT"),
+        (5, "1A"),
+        (8, "0"),
+        (2, "B"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (0, "INSERT"),
+        (5, "1B"),
+        (8, "0"),
+        (2, "B"),
+        (10, "5.0"),
+        (20, "5.0"),
+        (30, "0.0"),
+        (41, "2.0"),
+        (42, "2.0"),
+        (43, "2.0"),
+        (50, "30.0"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ];
+    tags.iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+#[test]
+fn inserts_are_moved_scaled_and_turned() {
+    let mut file = testkit::read::<Dxf>(&inserts()).0.unwrap();
+    let [first, second] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
+    let mut placed = first.clone();
+    let mut reset = second.clone();
+    let (Shape::Symbol(symbol), Shape::Symbol(other)) = (&mut placed.shape, &mut reset.shape)
+    else {
+        panic!("{:?}", first.shape);
+    };
+    symbol.position.x = 3.0;
+    symbol.position.y = -1.0;
+    symbol.scale = [-1.0, 0.5];
+    symbol.rotation = 45.0;
+    // 既定の値に戻した欄も、元が持っていれば書く
+    other.scale = [1.0, 1.0];
+    other.rotation = 0.0;
+    let edits = vec![
+        Edit::Replace(Box::new(placed.clone())),
+        Edit::Replace(Box::new(reset.clone())),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Ok(()));
+    assert!(found.is_empty(), "{found:?}");
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let text = String::from_utf8(written.clone()).unwrap();
+    assert!(
+        text.contains(" 10\n3.0\n 20\n-1.0\n 30\n0.0\n 41\n-1.0\n 42\n0.5\n 50\n45.0\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(" 41\n1.0\n 42\n1.0\n 43\n2.0\n 50\n0.0\n"),
+        "{text}"
+    );
+    let after = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(after, [placed, reset]);
+}
+
+#[test]
+fn inserts_that_the_records_cannot_hold_change_nothing() {
+    use zumen_drawing::Grid;
+    let src = inserts();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [first, second] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
+    let mut renamed = first.clone();
+    let mut gridded = second.clone();
+    let mut flattened = second.clone();
+    if let Shape::Symbol(symbol) = &mut renamed.shape {
+        symbol.key.name = "C".to_owned();
+    }
+    if let Shape::Symbol(symbol) = &mut gridded.shape {
+        symbol.grid = Some(Grid {
+            columns: 2,
+            rows: 1,
+            column_spacing: Length::Paper(zumen_drawing::PaperLength(1.0)),
+            row_spacing: Length::Paper(zumen_drawing::PaperLength(1.0)),
+        });
+    }
+    if let Shape::Symbol(symbol) = &mut flattened.shape {
+        symbol.scale = [0.0, 1.0];
+    }
+    for edit in [renamed, gridded, flattened] {
+        let at = edit.source.clone();
+        let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(edit))]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(found, [(codes::DXF_CHANGE_UNSUPPORTED, vec![at])]);
+    }
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
 #[test]
 fn mtext_line_spacing_must_fit_the_dxf_range() {
     let src = mtexts("AC1021", "abc");
