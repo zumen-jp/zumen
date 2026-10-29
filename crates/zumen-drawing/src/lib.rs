@@ -21,7 +21,9 @@
 //! グラデーションの区別を持つ（[`Hatch`]）。表は、行と列の大きさとセルの結合・内容を持つ（[`Table`]）。下敷きは、資源を参照名で指し、置き方と切り抜きを持つ（[`Underlay`]）。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。要素の ID とハッシュは [`id`] と [`Hash`] で作る（決定 0156）。
 
-use zumen_base::Ref;
+use std::collections::BTreeSet;
+
+use zumen_base::{Cx, Kind, Ref, Stop};
 
 mod hash;
 pub mod id;
@@ -74,44 +76,71 @@ impl Drawing2D {
             .find(|style| style.name.eq_ignore_ascii_case(name))
     }
 
-    /// 要素が名前で指すだけで、表にない文字スタイルを、定義のない項目として後ろに足す。空の名前は足さない
-    pub fn add_named_text_styles(&mut self) {
-        let mut names: Vec<String> = Vec::new();
-        let mut note = |name: &str| {
-            let known = |style: &str| style.eq_ignore_ascii_case(name);
-            if !name.is_empty()
-                && !self.text_styles.iter().any(|style| known(&style.name))
-                && !names.iter().any(|style| known(style))
-            {
+    /// 要素が名前で指すだけで、表にない文字スタイルを、定義のない項目として後ろに足す。
+    /// 空の名前は足さない。作業量と中断を確かめ、途中で止まれば追加しない
+    pub fn add_named_text_styles(&mut self, cx: &mut Cx<'_>) -> Result<(), (Stop, Ref)> {
+        let mut known = BTreeSet::new();
+        let mut names = Vec::new();
+        // BTreeSet の比較は共通の先頭部分を繰り返し調べる。名前の長さと木の高さから作業量を数える
+        let mut note = |name: &str, add: bool| -> Result<(), Stop> {
+            if name.is_empty() {
+                return cx.check(Kind::Work, 1);
+            }
+            let height = u64::from(known.len().max(1).ilog2()) + 1;
+            let chunks = u64::try_from(name.len().div_ceil(1024))
+                .unwrap_or(u64::MAX)
+                .max(1);
+            cx.check(Kind::Work, chunks.saturating_mul(height).saturating_mul(16))?;
+            if !name.is_empty() && known.insert(name.to_ascii_lowercase()) && add {
                 names.push(name.to_owned());
             }
+            Ok(())
         };
+        for style in &self.text_styles {
+            note(&style.name, false).map_err(|stop| (stop, style.source.clone()))?;
+        }
         for line_type in &self.line_types {
+            let at = || line_type.source.clone();
+            note("", true).map_err(|stop| (stop, at()))?;
             for mark in line_type.definition.iter().flat_map(|d| &d.marks) {
-                if let MarkContent::Text {
-                    style: Some(style), ..
-                } = &mark.content
-                {
-                    note(style);
-                }
+                let name = match &mark.content {
+                    MarkContent::Text {
+                        style: Some(style), ..
+                    } => style.as_str(),
+                    _ => "",
+                };
+                note(name, true).map_err(|stop| (stop, at()))?;
             }
         }
         for space in &self.spaces {
+            note("", true).map_err(|stop| (stop, Ref::default()))?;
             for element in &space.elements {
-                shape_text_styles(&element.shape, &mut note);
+                let at = || element.source.clone();
+                note("", true).map_err(|stop| (stop, at()))?;
+                shape_text_styles(&element.shape, &mut |name| note(name, true))
+                    .map_err(|stop| (stop, at()))?;
             }
         }
         for sheet in &self.sheets {
+            note("", true).map_err(|stop| (stop, sheet.source.clone()))?;
             for element in &sheet.elements {
-                shape_text_styles(&element.shape, &mut note);
+                let at = || element.source.clone();
+                note("", true).map_err(|stop| (stop, at()))?;
+                shape_text_styles(&element.shape, &mut |name| note(name, true))
+                    .map_err(|stop| (stop, at()))?;
             }
         }
         for symbol in &self.symbols {
+            note("", true).map_err(|stop| (stop, symbol.source.clone()))?;
             for element in &symbol.space.elements {
-                shape_text_styles(&element.shape, &mut note);
+                let at = || element.source.clone();
+                note("", true).map_err(|stop| (stop, at()))?;
+                shape_text_styles(&element.shape, &mut |name| note(name, true))
+                    .map_err(|stop| (stop, at()))?;
             }
             for definition in &symbol.attributes {
-                attribute_text_styles(&definition.attribute, &mut note);
+                attribute_text_styles(&definition.attribute, &mut |name| note(name, true))
+                    .map_err(|stop| (stop, definition.attribute.source.clone()))?;
             }
         }
         self.text_styles
@@ -120,6 +149,7 @@ impl Drawing2D {
                 definition: None,
                 source: Ref::default(),
             }));
+        Ok(())
     }
 
     /// 名前の寸法スタイル。名前は大文字と小文字も含めて比べ、同じ名前があれば先のもの
@@ -1264,20 +1294,23 @@ pub struct AttributeValue {
 }
 
 /// 形が名前で指す文字スタイルを `note` に渡す
-fn shape_text_styles<P>(shape: &Shape<P>, note: &mut impl FnMut(&str)) {
+fn shape_text_styles<P>(
+    shape: &Shape<P>,
+    note: &mut impl FnMut(&str) -> Result<(), Stop>,
+) -> Result<(), Stop> {
     match shape {
-        Shape::Text(text) => note(&text.style),
-        Shape::Formatted(text) => note(&text.style),
+        Shape::Text(text) => note(&text.style)?,
+        Shape::Formatted(text) => note(&text.style)?,
         Shape::Symbol(symbol) => {
             for attribute in &symbol.attributes {
-                attribute_text_styles(attribute, note);
+                attribute_text_styles(attribute, note)?;
             }
         }
         Shape::Callout(callout) => match &callout.content {
-            CalloutContent::Text(text) => note(&text.style),
+            CalloutContent::Text(text) => note(&text.style)?,
             CalloutContent::Symbol { symbol, .. } => {
                 for attribute in &symbol.attributes {
-                    attribute_text_styles(attribute, note);
+                    attribute_text_styles(attribute, note)?;
                 }
             }
             CalloutContent::None => {}
@@ -1291,20 +1324,23 @@ fn shape_text_styles<P>(shape: &Shape<P>, note: &mut impl FnMut(&str)) {
                 ]
             });
             for format in table.cells.iter().map(|cell| &cell.format).chain(formats) {
-                if let Some(style) = &format.text_style {
-                    note(style);
-                }
+                note(format.text_style.as_deref().unwrap_or(""))?;
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
-fn attribute_text_styles<P>(attribute: &Attribute<P>, note: &mut impl FnMut(&str)) {
-    note(&attribute.text.style);
+fn attribute_text_styles<P>(
+    attribute: &Attribute<P>,
+    note: &mut impl FnMut(&str) -> Result<(), Stop>,
+) -> Result<(), Stop> {
+    note(&attribute.text.style)?;
     if let Some(formatted) = &attribute.formatted {
-        note(&formatted.style);
+        note(&formatted.style)?;
     }
+    Ok(())
 }
 
 /// 文字スタイル（決定 0158）。文字・書式つきの文字・表のセルの書式・線種の文字は、今は名前で指す。
@@ -2474,7 +2510,24 @@ mod text_style_tests {
             }],
             ..Drawing2D::default()
         };
-        drawing.add_named_text_styles();
+        let original = drawing.clone();
+        let mut limited = zumen_base::Budget::new(
+            zumen_base::Limits::default().with(Kind::Work, zumen_base::Limit::Finite(50)),
+        );
+        let mut diagnostics = zumen_base::Diagnostics::new();
+        let cancel = zumen_base::CancelToken::new();
+        assert!(
+            drawing
+                .add_named_text_styles(&mut Cx::new(&mut limited, &mut diagnostics, &cancel))
+                .is_err()
+        );
+        assert_eq!(drawing, original);
+
+        let mut budget = zumen_base::Budget::default();
+        let mut diagnostics = zumen_base::Diagnostics::new();
+        let cancel = zumen_base::CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        drawing.add_named_text_styles(&mut cx).unwrap();
         let names: Vec<&str> = drawing
             .text_styles
             .iter()
@@ -2482,5 +2535,51 @@ mod text_style_tests {
             .collect();
         assert_eq!(names, ["standard", "GOTHIC"]);
         assert_eq!(drawing.text_style("Gothic").unwrap().source, Ref::default());
+    }
+
+    #[test]
+    fn collecting_style_names_is_bounded_and_stops_without_changes() {
+        use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+        let drawing_with = |count: usize| Drawing2D {
+            text_styles: (0..count)
+                .map(|i| TextStyle {
+                    name: format!("long-common-prefix-{i:04}"),
+                    definition: None,
+                    source: Ref::default(),
+                })
+                .collect(),
+            ..Drawing2D::default()
+        };
+        let used = |count| {
+            let mut drawing = drawing_with(count);
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            drawing
+                .add_named_text_styles(&mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+                .unwrap();
+            budget.used(Kind::Work)
+        };
+        let small = used(128);
+        let large = used(256);
+        assert!(large < small * 3);
+
+        let mut drawing = drawing_with(128);
+        let original = drawing.clone();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(small - 1)));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        assert!(matches!(
+            drawing.add_named_text_styles(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err((Stop::Exceeded(_), _))
+        ));
+        assert_eq!(drawing, original);
+        cancel.cancel();
+        assert_eq!(
+            drawing.add_named_text_styles(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err((Stop::Cancelled, Ref::default()))
+        );
+        assert_eq!(drawing, original);
     }
 }

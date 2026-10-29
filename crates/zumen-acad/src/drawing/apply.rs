@@ -293,6 +293,7 @@ fn edit(
             for (position, object) in db.objects().iter().enumerate() {
                 work(cx, 1, &Ref::default())?;
                 if layer::is_layer(object) {
+                    count_transform_values(object, &Ref::default(), cx)?;
                     records.push(position);
                     if let Some(name) = layer::name_of(object) {
                         layer_names.insert(name.to_ascii_lowercase());
@@ -307,6 +308,7 @@ fn edit(
                 target: target_of,
                 layer: new,
             } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
                 let Some(&was) = index.layers.get(&target_of.id) else {
                     missing(&target_of.id, cx);
                     rejected = true;
@@ -320,6 +322,7 @@ fn edit(
                     rejected = true;
                     continue;
                 }
+                count_layer_records(db, records, &was.source, cx)?;
                 let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
                     .then(|| {
                         records.iter().copied().find(|&position| {
@@ -330,6 +333,33 @@ fn edit(
                     })
                     .flatten()
                     .and_then(|position| Some((position, db.objects().get(position)?)));
+                let named = if let Some((_, object)) = found {
+                    count_transform_values(object, &was.source, cx)?;
+                    if target == Target::Dxf {
+                        let old = layer::name_of(object);
+                        let requested = born.text_value(2, &new.name);
+                        if let (
+                            Some(old),
+                            Some(Value {
+                                data: Data::Text(name),
+                                ..
+                            }),
+                        ) = (old, requested)
+                        {
+                            if !old.eq_ignore_ascii_case(&name) {
+                                layer::named_in_objects(db, old, cx, &was.source)?
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
                 let planned = found.and_then(|(position, object)| {
                     let mut values = object.values.clone();
                     layer::write(&born, &mut values, new, Some((object, was)))?;
@@ -339,7 +369,7 @@ fn edit(
                         // 名前を変えるなら、ほかの画層と重ならず、DXF の OBJECTS が名前で指していないこと
                         let free = !layer_names.contains(&name.to_ascii_lowercase())
                             && !layer::fixed_name(name)
-                            && !(target == Target::Dxf && layer::named_in_objects(db, old));
+                            && !named;
                         free.then_some(())?;
                         layer_names.remove(&old.to_ascii_lowercase());
                         layer_names.insert(name.to_ascii_lowercase());
@@ -365,11 +395,19 @@ fn edit(
                 continue;
             }
             Edit::AddLayer { layer: new } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                count_layer_records(db, records, &Ref::default(), cx)?;
                 let zero = records.iter().find_map(|&position| {
                     db.objects()
                         .get(position)
                         .filter(|object| layer::name_of(object) == Some(b"0"))
                 });
+                if let Some(zero) = zero {
+                    count_transform_values(zero, &Ref::default(), cx)?;
+                }
+                if target == Target::Dxf {
+                    count_layer_table_search(db, cx)?;
+                }
                 let planned = zero.and_then(|zero| {
                     let mut values = layer::template(zero, target);
                     layer::write(&born, &mut values, new, None)?;
@@ -481,7 +519,12 @@ fn edit(
                 Placed::Model(element) => add::work(&element.shape, cx, at)?,
                 Placed::Paper(element) => add::work(&element.shape, cx, at)?,
             }
-            count_transform_values(object, at, cx)?;
+            // 属性の値を置き換えるときは、続く ATTRIB の値も複製する。
+            // その走査と複製を、実行する前に予算に含める。
+            match found {
+                Found::Model(was) => transform_work(db, &positions, was, object, cx)?,
+                Found::Paper(was) => transform_work(db, &positions, was, object, cx)?,
+            }
         }
         let reshaped = match (change, found) {
             (Edit::Replace { element, .. }, Found::Model(was)) => {
@@ -633,6 +676,10 @@ fn edit(
     let mut handles = born.push(db, added).into_iter();
     let mut layer_handles = Vec::with_capacity(added_layers.len());
     for values in added_layers {
+        for object in db.objects() {
+            work(cx, 1, &Ref::default())?;
+            count_transform_values(object, &Ref::default(), cx)?;
+        }
         let handle = add::next_free_handle(db, target);
         let record = layer::record(values, handle);
         match target {
@@ -645,8 +692,7 @@ fn edit(
         layer_handles.push(handle);
     }
     for (old, new) in &renames {
-        work(cx, db.objects().len() as u64, &Ref::default())?;
-        layer::rename(db, old, new, target);
+        layer::rename(db, old, new, target, cx)?;
     }
     let mut layer_handles = layer_handles.into_iter();
     // ID はハンドルで作るので、読み直したファイルと同じになる
@@ -669,6 +715,29 @@ fn edit(
                 .map(|handle| format!("layer/h{handle:X}")),
         })
         .collect())
+}
+
+/// 画層のレコードを探す前に、名前と出所の探索に掛かる作業を数える。
+fn count_layer_records(db: &AcadDb, records: &[usize], at: &Ref, cx: &mut Cx) -> Result<(), Error> {
+    for &position in records {
+        work(cx, 1, at)?;
+        if let Some(object) = db.objects().get(position) {
+            count_transform_values(object, at, cx)?;
+        }
+    }
+    Ok(())
+}
+
+/// 表の終わりを探す前に、表の名前を調べる作業を数える。
+fn count_layer_table_search(db: &AcadDb, cx: &mut Cx) -> Result<(), Error> {
+    let at = Ref::default();
+    for object in db.objects() {
+        work(cx, 1, &at)?;
+        if object.kind == b"TABLE" {
+            count_transform_values(object, &at, cx)?;
+        }
+    }
+    Ok(())
 }
 
 fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) -> bool {

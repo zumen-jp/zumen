@@ -3118,6 +3118,54 @@ fn transforms_count_attribute_searches_and_xdata_before_writing() {
     assert_eq!(written, enlarged);
 }
 
+#[test]
+fn replacing_attribute_values_counts_follower_records_before_copying() {
+    use zumen_base::{Kind, Limit, Limits};
+    use zumen_drawing::{Edit as Change, Placed};
+
+    let source = String::from_utf8(movable()).unwrap();
+    let marker = " 70\n0\n  0\nSEQEND\n";
+    let payload = format!(
+        " 70\n0\n1001\nAPP\n{}  0\nSEQEND\n",
+        "1000\nx\n".repeat(300)
+    );
+    let source = source.replacen(marker, &payload, 1).into_bytes();
+    let mut file = testkit::read::<Dxf>(&source).0.unwrap();
+    let drawing = lift(&file);
+    let mut element = drawing.spaces[0].elements.last().unwrap().clone();
+    let target = seen(&drawing).last().unwrap().0.clone();
+    let Shape::Symbol(symbol) = &mut element.shape else {
+        panic!()
+    };
+    symbol.attributes[0].text.content = "changed".into();
+    let changes = zumen_drawing::Changes {
+        edits: vec![Change::Replace {
+            target,
+            element: Box::new(Placed::Model(element)),
+        }],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+    )
+    .unwrap();
+    let mut file = testkit::read::<Dxf>(&source).0.unwrap();
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1400)));
+    assert!(matches!(
+        zumen_sdk::Apply::apply(
+            &mut file,
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new())
+        ),
+        Err(Error::Stopped(_))
+    ));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), source);
+}
+
 /// ハンドルを持つブロック B（LINE と CIRCLE）を定義し、配置する DXF
 #[cfg(test)]
 fn defined() -> Vec<u8> {

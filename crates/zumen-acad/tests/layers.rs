@@ -333,3 +333,89 @@ fn layer_changes_that_cannot_be_written_change_nothing() {
         assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
     }
 }
+
+#[test]
+fn layer_renames_count_record_values_and_stop_without_changing_the_file() {
+    use zumen_base::{Kind, Limit, Limits};
+    let original = String::from_utf8(src()).unwrap();
+    let marker = "  2\nA\n 70\n0\n";
+    let enlarged = original.replacen(
+        marker,
+        &format!("  2\nA\n{} 70\n0\n", "999\ncomment\n".repeat(300)),
+        1,
+    );
+    let run = |input: &str, limit: Option<u64>| {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let was = layer(&drawing, "A");
+        let mut new = was.clone();
+        new.name = "Walls".to_owned();
+        let changes = Changes {
+            edits: vec![Edit::ReplaceLayer {
+                target: seen(was),
+                layer: Box::new(new),
+            }],
+            document: None,
+        };
+        let limits = limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        });
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let result = file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (
+            result,
+            budget.used(Kind::Work),
+            testkit::write::<Dxf>(&file).unwrap(),
+        )
+    };
+    let (result, baseline, _) = run(&original, None);
+    assert!(result.is_ok());
+    let (result, larger, _) = run(&enlarged, None);
+    assert!(result.is_ok());
+    assert!(larger > baseline + 300, "{baseline}, {larger}");
+    let (result, _, written) = run(&enlarged, Some(larger - 1));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, enlarged.as_bytes());
+}
+
+#[test]
+fn layer_rename_counts_values_examined_in_objects() {
+    use zumen_base::Kind;
+    let original = String::from_utf8(src()).unwrap();
+    let payload = format!(
+        "  0\nSECTION\n  2\nOBJECTS\n  0\nXRECORD\n  5\n35\n{}  0\nENDSEC\n  0\nEOF\n",
+        "  1\nvalue\n".repeat(300)
+    );
+    let input = original.replace("  0\nEOF\n", &payload);
+    let run = |rename: bool| {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let was = layer(&drawing, "A");
+        let mut new = was.clone();
+        if rename {
+            new.name = "Walls".to_owned();
+        }
+        let changes = Changes {
+            edits: vec![Edit::ReplaceLayer {
+                target: seen(was),
+                layer: Box::new(new),
+            }],
+            document: None,
+        };
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        )
+        .unwrap();
+        budget.used(Kind::Work)
+    };
+    let unchanged = run(false);
+    let renamed = run(true);
+    assert!(renamed >= unchanged + 300, "{unchanged}, {renamed}");
+}
