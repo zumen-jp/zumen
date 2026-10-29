@@ -509,6 +509,15 @@ status = "active"
 
 # DXF から図面の領域モデルへの変換（決定 0022）
 
+[codes."drawing.mark-height.dropped"]
+description = "線種に添える文字の高さが有限の実数で表せず、結果に含めなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.code-page.unsupported"]
 description = "コード・ページの版の ASCII でない文字を、まだ読めないので、その文字の図形を図面モデルに移さなかった"
 severity = "warning"

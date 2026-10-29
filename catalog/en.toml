@@ -7,6 +7,7 @@ group-separator = ","
 decimal-separator = "."
 
 [codes]
+"drawing.mark-height.dropped" = "Omitted the height of text in line type \"{name}\" because it cannot be represented as a finite number ({count})."
 "change.document.stale" = "The document has changed since the changes were made. No change was applied."
 "change.element.missing" = "\"{id}\" is not in the drawing. No change was applied."
 "change.element.stale" = "The element \"{id}\" has changed since the changes were made. No change was applied."

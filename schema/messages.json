@@ -1185,6 +1185,11 @@
         "marked": {
           "description": "列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から",
           "type": "boolean"
+        },
+        "marks": {
+          "description": "列の要素に添える形と文字（決定 0150・0166）。添えなければ空。小版 28 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/line_type_mark" }
         }
       },
       "required": ["id", "name", "hash", "defined"],
@@ -1212,6 +1217,46 @@
       },
       "required": ["id", "name", "hash"],
       "additionalProperties": false
+    },
+    "line_type_mark": {
+      "description": "線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。小版 28 から",
+      "type": "object",
+      "properties": {
+        "index": { "description": "添える列の要素の番号（pattern の添字）", "type": "integer", "minimum": 0 },
+        "kind": { "description": "形（shape）か文字（text）", "$ref": "#/$defs/line_type_mark_kind" },
+        "font": { "description": "形の形のファイル。元の形式が指す文字スタイルがなければ書かない", "$ref": "#/$defs/font" },
+        "number": { "description": "形の番号", "type": "integer", "minimum": 0 },
+        "text": { "description": "文字の文字列", "type": "string" },
+        "style": { "description": "文字の文字スタイルの元の名前。元の形式が指す文字スタイルがなければ書かない", "type": "string" },
+        "style_id": {
+          "description": "文字の文字スタイルの ID。tables の text_styles の ID で、名前で引いたもの（大文字と小文字を区別せず、同じ名前があれば先の項目）",
+          "type": "string"
+        },
+        "height": {
+          "description": "文字の高さ。文字スタイルが決まった高さを持てば、それに scale を掛けたもの。持たなければ scale。単位は pattern と同じ",
+          "type": "number"
+        },
+        "scale": { "description": "倍率。文字なら、文字スタイルの高さへの倍率", "type": "number" },
+        "rotation": { "description": "回転（度、反時計回り）", "type": "number" },
+        "rotation_basis": { "description": "回転の基準", "$ref": "#/$defs/mark_rotation" },
+        "offset": {
+          "description": "置く位置のずれ（x・y）。線の向きを x とする。単位は pattern と同じ",
+          "type": "array",
+          "items": { "type": "number" }
+        }
+      },
+      "required": ["index", "kind", "scale", "rotation", "rotation_basis", "offset"],
+      "additionalProperties": false
+    },
+    "line_type_mark_kind": {
+      "description": "線種に添えるものの種類。shape は形のファイルの形、text は文字",
+      "type": "string",
+      "enum": ["shape", "text"]
+    },
+    "mark_rotation": {
+      "description": "回転の基準。relative は線の向きから、absolute は文書の x 軸から測る。upright は線の向きから測り、文字が逆さに見えるなら半回転する",
+      "type": "string",
+      "enum": ["relative", "absolute", "upright"]
     },
     "text_style_item": {
       "description": "文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から",

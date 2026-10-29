@@ -304,6 +304,17 @@ pub const CHANGE_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
+///
+/// `drawing.mark-height.dropped`（0.0.0 から）
+pub const DRAWING_MARK_HEIGHT_DROPPED: Code = Code::new(
+    "drawing.mark-height.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
 /// この DWG から読んでいないオブジェクトの変更や、まだ符号化できない値の変更は、DWG に書き戻せない
 ///
 /// `dwg.change.unsupported`（0.0.0 から）
@@ -1122,6 +1133,7 @@ pub const ALL: &[Code] = &[
     CHANGE_ELEMENT_STALE,
     CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_XDATA_UNSUPPORTED,
+    DRAWING_MARK_HEIGHT_DROPPED,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,
     DWG_DATA_INVALID,
