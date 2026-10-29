@@ -711,7 +711,10 @@
         { "$ref": "#/$defs/remove_text_style_edit" },
         { "$ref": "#/$defs/line_type_edit" },
         { "$ref": "#/$defs/add_line_type_edit" },
-        { "$ref": "#/$defs/remove_line_type_edit" }
+        { "$ref": "#/$defs/remove_line_type_edit" },
+        { "$ref": "#/$defs/dimension_style_edit" },
+        { "$ref": "#/$defs/add_dimension_style_edit" },
+        { "$ref": "#/$defs/remove_dimension_style_edit" }
       ]
     },
     "restyle_edit": {
@@ -937,6 +940,66 @@
       "required": ["kind", "id", "hash"],
       "additionalProperties": false
     },
+    "dimension_style_edit": {
+      "description": "寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "dimension_style" },
+        "id": { "description": "変える寸法スタイルの ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの寸法スタイルのハッシュ。tables が返したもの", "type": "string" },
+        "name": {
+          "description": "新しい名前。ほかの寸法スタイルと重ならず（大文字と小文字を区別しない）、$ と < > / \\ \" : ; ? * | = ` を含まないもの。Standard・子の寸法スタイル（名前に $ を持つもの）・子を持つ寸法スタイル・外部参照に依る寸法スタイルの名前は変えられない",
+          "type": "string"
+        },
+        "ends": {
+          "description": "寸法線の 1 本目と 2 本目の補助線の側の端部記号。2 つのブロックの名前で、空の名前は既定の矢印（塗りつぶした閉じた矢印）。DXF は R2000 から変えられる。DWG の端部記号は変えられない",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "leader": {
+          "description": "引出線の端部記号。ブロックの名前で、空の名前は既定の矢印。ends と同じ決まり",
+          "type": "string"
+        },
+        "size": { "description": "端部記号の大きさ（DIMASZ）。文書の単位で、scale を掛ける前の値。負の数は書けない", "type": "number" },
+        "tick": { "description": "端部記号の代わりに描く斜線の大きさ（DIMTSZ）。0 なら斜線を描かない。負の数は書けない", "type": "number" },
+        "scale": { "description": "大きさに掛ける倍率（DIMSCALE）。0 はビューの縮尺から決める。負の数は書けない", "type": "number" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "add_dimension_style_edit": {
+      "description": "寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_dimension_style" },
+        "name": { "description": "名前。dimension_style の name と同じ決まり", "type": "string" },
+        "ends": {
+          "description": "寸法線の 1 本目と 2 本目の補助線の側の端部記号。2 つのブロックの名前で、空の名前は既定の矢印（塗りつぶした閉じた矢印）。DXF は R2000 から変えられる。DWG の端部記号は変えられない",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "leader": {
+          "description": "引出線の端部記号。ブロックの名前で、空の名前は既定の矢印。ends と同じ決まり",
+          "type": "string"
+        },
+        "size": { "description": "端部記号の大きさ（DIMASZ）。文書の単位で、scale を掛ける前の値。負の数は書けない", "type": "number" },
+        "tick": { "description": "端部記号の代わりに描く斜線の大きさ（DIMTSZ）。0 なら斜線を描かない。負の数は書けない", "type": "number" },
+        "scale": { "description": "大きさに掛ける倍率（DIMSCALE）。0 はビューの縮尺から決める。負の数は書けない", "type": "number" }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
+    "remove_dimension_style_edit": {
+      "description": "寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "remove_dimension_style" },
+        "id": { "description": "除く寸法スタイルの ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの寸法スタイルのハッシュ。tables が返したもの", "type": "string" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
     "add_layer_edit": {
       "description": "レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から",
       "type": "object",
@@ -1031,9 +1094,9 @@
           "items": { "$ref": "#/$defs/line_type_item" }
         },
         "dimension_styles": {
-          "description": "寸法スタイル",
+          "description": "寸法スタイル。小版 27 から、端部記号と大きさを持つ",
           "type": "array",
-          "items": { "$ref": "#/$defs/table_item" }
+          "items": { "$ref": "#/$defs/dimension_style_item" }
         },
         "text_styles": {
           "description": "文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から",
@@ -1125,6 +1188,29 @@
         }
       },
       "required": ["id", "name", "hash", "defined"],
+      "additionalProperties": false
+    },
+    "dimension_style_item": {
+      "description": "寸法スタイルの表の項目（決定 0165）。小版 27 から、端部記号と大きさを持つ",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID。寸法スタイルのレコードがハンドルを持てば dimension-style/h1A、なければ寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）",
+          "type": "string"
+        },
+        "name": { "description": "元の名前。翻訳しない", "type": "string" },
+        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" },
+        "ends": {
+          "description": "寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "leader": { "description": "引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から", "type": "string" },
+        "size": { "description": "端部記号の大きさ。文書の単位で、scale を掛ける前の値。小版 27 から", "type": "number" },
+        "tick": { "description": "端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。小版 27 から", "type": "number" },
+        "scale": { "description": "大きさに掛ける倍率。0 はビューの縮尺から決める。小版 27 から", "type": "number" }
+      },
+      "required": ["id", "name", "hash"],
       "additionalProperties": false
     },
     "text_style_item": {

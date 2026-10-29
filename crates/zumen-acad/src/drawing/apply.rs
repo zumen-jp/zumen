@@ -6,6 +6,7 @@ use super::{MODEL, PaperFrame, attached, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
+mod dimension_style;
 mod layer;
 mod line_type;
 mod text_style;
@@ -13,8 +14,9 @@ use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
-    Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
-    Inherit, Layer, LayerId, Length, LineType, MarkContent, ModelLength, ModelPoint, PaperLength,
+    Affine, Applied, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element, FormattedText, Hash,
+    Horizontal, Inherit, Layer, LayerId, Length, LineType, MarkContent, ModelLength, ModelPoint,
+    PaperLength,
     PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Shape, SheetId, SpaceId, Spline,
     Style, Symbol, Text, TextStyle, Vertical, id, transform,
 };
@@ -111,6 +113,8 @@ struct Index<'a> {
     text_styles: BTreeMap<String, &'a TextStyle>,
     /// 線種（決定 0164）
     line_types: BTreeMap<String, &'a LineType>,
+    /// 寸法スタイル（決定 0165）
+    dimension_styles: BTreeMap<String, &'a DimensionStyle>,
     places: BTreeMap<String, Place>,
     /// 2 つ以上の要素を作った出所。1 つの要素だけを書き戻せない
     shared: BTreeSet<&'a Ref>,
@@ -189,12 +193,20 @@ impl<'a> Index<'a> {
                 .entry(id::line_type(line_type))
                 .or_insert(line_type);
         }
+        let mut dimension_styles = BTreeMap::new();
+        for (index, style) in drawing.dimension_styles.iter().enumerate() {
+            work(cx, 1, &style.source)?;
+            dimension_styles
+                .entry(id::dimension_style(style, index))
+                .or_insert(style);
+        }
         Ok(Self {
             elements,
             element_handles,
             layers,
             text_styles,
             line_types,
+            dimension_styles,
             places,
             shared,
         })
@@ -206,6 +218,14 @@ impl<'a> Index<'a> {
             if let Some(style) = self.text_styles.get(id) {
                 work(cx, 1, &style.source)?;
                 return Ok(Some(Hash::text_style(style)));
+            }
+            if let Some(style) = self.dimension_styles.get(id) {
+                return Hash::dimension_style_checked(style, cx)
+                    .map(Some)
+                    .map_err(|stop| {
+                        cx.report(stop.to_diagnostic().at(style.source.clone()));
+                        Error::Stopped(stop)
+                    });
             }
             if let Some(line_type) = self.line_types.get(id) {
                 return Hash::line_type_checked(line_type, cx)
@@ -277,6 +297,10 @@ fn applied(index: &Index, id: Option<String>, cx: &mut Cx<'_>) -> Result<Applied
                 .line_types
                 .get(id)
                 .is_some_and(|line_type| line_type.source.key().is_some())
+            || index
+                .dimension_styles
+                .get(id)
+                .is_some_and(|style| style.source.key().is_some())
     };
     let Some(id) = id.filter(keyed) else {
         return Ok(Applied {
@@ -369,7 +393,61 @@ fn edit(
     let mut added_line_types = Vec::new();
     let mut line_type_renames = Vec::new();
     let mut removed_line_types = Vec::new();
+    // 寸法スタイルの変更（決定 0165）。表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
+    let mut dimension_style_records: Option<Vec<usize>> = None;
+    let mut dimension_style_names: BTreeSet<Vec<u8>> = BTreeSet::new();
+    let mut added_dimension_styles = Vec::new();
+    let mut dimension_style_renames: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+    // ブロックのレコードのハンドルは、R2000 からの DXF だけが寸法スタイルに書ける。小文字の名前から引く
+    let mut block_handles: Option<BTreeMap<Vec<u8>, Option<u64>>> = None;
+    let block_handled = target == Target::Dxf
+        && db
+            .variable(b"$ACADVER")
+            .and_then(|values| match values.first().map(|v| &v.data) {
+                Some(Data::Text(text)) => Some(text.trim_ascii() >= b"AC1015".as_slice()),
+                _ => None,
+            })
+            .unwrap_or(false);
     for change in &changes.edits {
+        if let Edit::ReplaceDimensionStyle { .. }
+        | Edit::AddDimensionStyle { .. }
+        | Edit::RemoveDimensionStyle { .. } = change
+            && dimension_style_records.is_none()
+        {
+            let mut records = Vec::new();
+            let mut blocks = BTreeMap::new();
+            for (position, object) in db.objects().iter().enumerate() {
+                work(cx, 1, &Ref::default())?;
+                if dimension_style::is_dimension_style(object) {
+                    count_transform_values(object, &Ref::default(), cx)?;
+                    records.push(position);
+                    if let Some(Data::Text(name)) = object.first(2) {
+                        dimension_style_names.insert(name.to_ascii_lowercase());
+                    }
+                }
+                if block_handled
+                    && object.kind == b"BLOCK_RECORD"
+                    && let (Some(Data::Text(name)), Some(handle)) =
+                        (object.first(2), object.handle())
+                {
+                    blocks
+                        .entry(name.to_ascii_lowercase())
+                        .and_modify(|found| *found = None)
+                        .or_insert(Some(handle));
+                }
+            }
+            dimension_style_records = Some(records);
+            block_handles = Some(blocks);
+        }
+        let dimension_styles = dimension_style_records.as_deref().unwrap_or_default();
+        let block_of = |name: &str| -> Option<u64> {
+            block_handles
+                .as_ref()?
+                .get(name.as_bytes().to_ascii_lowercase().as_slice())
+                .copied()
+                .flatten()
+        };
+        let blocks: Option<dimension_style::Blocks<'_>> = block_handled.then_some(&block_of);
         if let Edit::ReplaceLineType { .. } | Edit::AddLineType { .. } | Edit::RemoveLineType { .. } =
             change
             && line_type_records.is_none()
@@ -843,6 +921,183 @@ fn edit(
                 }
                 continue;
             }
+            Edit::ReplaceDimensionStyle {
+                target: target_of,
+                style: new,
+            } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                let Some(&was) = index.dimension_styles.get(&target_of.id) else {
+                    missing(&target_of.id, cx);
+                    rejected = true;
+                    continue;
+                };
+                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
+                            .with("id", target_of.id.as_str()),
+                    );
+                    rejected = true;
+                    continue;
+                }
+                count_table_records(db, dimension_styles, &was.source, cx)?;
+                let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
+                    .then(|| record_at(db, dimension_styles, &was.source))
+                    .flatten();
+                // DXF で名前を変えるなら、寸法などでないオブジェクトが名前で指していないかを先に調べる
+                let named = match found {
+                    Some((_, object)) => {
+                        count_transform_values(object, &was.source, cx)?;
+                        match (object.first(2), born.text_value(2, &new.name)) {
+                            (
+                                Some(Data::Text(old)),
+                                Some(Value {
+                                    data: Data::Text(name),
+                                    ..
+                                }),
+                            ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
+                                dimension_style::named_elsewhere(db, old, cx, &was.source)?
+                            }
+                            _ => false,
+                        }
+                    }
+                    None => false,
+                };
+                let planned = found.and_then(|(position, object)| {
+                    let mut values = object.values.clone();
+                    dimension_style::write(&born, &mut values, new, Some((object, was)), blocks)?;
+                    let Some(Data::Text(old)) = object.first(2) else {
+                        return None;
+                    };
+                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
+                        return None;
+                    };
+                    if !old.eq_ignore_ascii_case(name) {
+                        // 名前を変えるなら、ほかの寸法スタイルと重ならず、子の寸法スタイルを持たず、DXF の
+                        // 寸法などでないオブジェクトが名前で指していないこと
+                        let free = !dimension_style_names.contains(&name.to_ascii_lowercase())
+                            && !dimension_style::has_children(dimension_style_names.iter(), old)
+                            && !named;
+                        free.then_some(())?;
+                        dimension_style_names.remove(&old.to_ascii_lowercase());
+                        dimension_style_names.insert(name.to_ascii_lowercase());
+                    }
+                    if old != name {
+                        dimension_style_renames.push((old.clone(), name.clone()));
+                    }
+                    Some((position, values))
+                });
+                match planned {
+                    Some(planned) => replaced.push(planned),
+                    None => {
+                        cx.report(
+                            unsupported("replace_dimension_style", "DIMSTYLE", target)
+                                .at(was.source.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::RemoveDimensionStyle { target: target_of } => {
+                let Some(&was) = index.dimension_styles.get(&target_of.id) else {
+                    missing(&target_of.id, cx);
+                    rejected = true;
+                    continue;
+                };
+                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
+                            .with("id", target_of.id.as_str()),
+                    );
+                    rejected = true;
+                    continue;
+                }
+                // 後ろのハンドルなし寸法スタイルは並びの番号が ID なので、除くと別の ID になる
+                work(cx, drawing.dimension_styles.len() as u64, &was.source)?;
+                let unstable = drawing
+                    .dimension_styles
+                    .iter()
+                    .skip_while(|style| !std::ptr::eq(*style, was))
+                    .skip(1)
+                    .any(|style| !matches!(style.source.key(), Some(Key::Handle(_))));
+                count_table_records(db, dimension_styles, &was.source, cx)?;
+                let found = (targets.insert(target_of.id.as_str())
+                    && was.source != Ref::default()
+                    && !unstable)
+                    .then(|| record_at(db, dimension_styles, &was.source))
+                    .flatten();
+                let planned = match found {
+                    Some((position, object)) => {
+                        count_transform_values(object, &was.source, cx)?;
+                        let children = match object.first(2) {
+                            Some(Data::Text(name)) => {
+                                dimension_style::has_children(dimension_style_names.iter(), name)
+                            }
+                            _ => true,
+                        };
+                        (dimension_style::removable(object)
+                            && !children
+                            && !dimension_style::referenced(db, position, object, cx, &was.source)?)
+                        .then_some((position, object))
+                    }
+                    None => None,
+                };
+                match planned {
+                    Some((position, object)) => {
+                        if let Some(Data::Text(name)) = object.first(2) {
+                            dimension_style_names.remove(&name.to_ascii_lowercase());
+                        }
+                        removed.push(position);
+                    }
+                    None => {
+                        cx.report(
+                            unsupported("remove_dimension_style", "DIMSTYLE", target)
+                                .at(was.source.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::AddDimensionStyle { style: new } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                count_table_records(db, dimension_styles, &Ref::default(), cx)?;
+                // Standard を写す。なければ、表の初めの子でない寸法スタイルを写す
+                let named = |want: &dyn Fn(&[u8]) -> bool| {
+                    dimension_styles.iter().find_map(|&position| {
+                        db.objects().get(position).filter(|object| {
+                            matches!(object.first(2), Some(Data::Text(name)) if want(name))
+                        })
+                    })
+                };
+                let standard = named(&|name| name.eq_ignore_ascii_case(b"Standard"))
+                    .or_else(|| named(&|name| !name.is_empty() && !name.contains(&b'$')));
+                if let Some(standard) = standard {
+                    count_transform_values(standard, &Ref::default(), cx)?;
+                }
+                if target == Target::Dxf {
+                    count_table_search(db, cx)?;
+                }
+                let planned = standard.and_then(|standard| {
+                    let mut values = dimension_style::template(standard);
+                    dimension_style::write(&born, &mut values, new, None, blocks)?;
+                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
+                        return None;
+                    };
+                    let name = name.to_ascii_lowercase();
+                    ((target != Target::Dxf || layer::table_end(db, b"DIMSTYLE").is_some())
+                        && dimension_style_names.insert(name))
+                    .then_some(values)
+                });
+                match planned {
+                    Some(values) => added_dimension_styles.push(values),
+                    None => {
+                        cx.report(unsupported("add_dimension_style", "DIMSTYLE", target));
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
             Edit::ReplaceTextStyle {
                 target: target_of,
                 style: new,
@@ -1253,7 +1508,10 @@ fn edit(
                 | Edit::RemoveTextStyle { .. }
                 | Edit::ReplaceLineType { .. }
                 | Edit::AddLineType { .. }
-                | Edit::RemoveLineType { .. },
+                | Edit::RemoveLineType { .. }
+                | Edit::ReplaceDimensionStyle { .. }
+                | Edit::AddDimensionStyle { .. }
+                | Edit::RemoveDimensionStyle { .. },
                 _,
             ) => None,
         };
@@ -1352,6 +1610,33 @@ fn edit(
             return Err(Error::Rejected);
         }
     }
+    let mut dimension_style_handles = Vec::with_capacity(added_dimension_styles.len());
+    for values in added_dimension_styles {
+        for object in db.objects() {
+            work(cx, 1, &Ref::default())?;
+            count_transform_values(object, &Ref::default(), cx)?;
+        }
+        let handle = add::next_free_handle(db, target);
+        let mut record = layer::record(b"DIMSTYLE", values, handle);
+        // 寸法スタイルのハンドルは 105 に置く（5 は DIMBLK の名前）
+        if handle.is_some()
+            && let Some(first) = record.values.first_mut()
+        {
+            first.code = 105;
+        }
+        match target {
+            Target::Dxf => {
+                let at = layer::table_end(db, b"DIMSTYLE").ok_or(Error::Rejected)?;
+                db.insert(at, record);
+            }
+            Target::Dwg(_) => db.push(record),
+        }
+        dimension_style_handles.push(handle);
+    }
+    for (old, new) in &dimension_style_renames {
+        dimension_style::rename(db, old, new, target, cx)?;
+    }
+    let mut dimension_style_handles = dimension_style_handles.into_iter();
     let mut style_handles = style_handles.into_iter();
     let mut line_type_handles = line_type_handles.into_iter();
     let mut layer_handles = layer_handles.into_iter();
@@ -1379,7 +1664,17 @@ fn edit(
             Edit::Remove { .. }
             | Edit::RemoveLayer { .. }
             | Edit::RemoveTextStyle { .. }
-            | Edit::RemoveLineType { .. } => ResultTarget::Removed,
+            | Edit::RemoveLineType { .. }
+            | Edit::RemoveDimensionStyle { .. } => ResultTarget::Removed,
+            Edit::ReplaceDimensionStyle { target, .. } => {
+                ResultTarget::Table(Some(target.id.clone()))
+            }
+            Edit::AddDimensionStyle { .. } => ResultTarget::Table(
+                dimension_style_handles
+                    .next()
+                    .flatten()
+                    .map(|handle| format!("dimension-style/h{handle:X}")),
+            ),
             Edit::ReplaceLineType { target, .. } => ResultTarget::Table(Some(target.id.clone())),
             Edit::AddLineType { .. } => ResultTarget::Table(
                 line_type_handles

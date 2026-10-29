@@ -7,10 +7,11 @@ use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
-    Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Element, Encode,
-    Hash, Inherit, Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeDefinition,
-    LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, PatternBasis, Placed, Placement,
-    Restyle, Seen, Shape, Style, TextStyle, TextStyleDefinition, Unit, id,
+    Affine, Applied, Arrowhead, Changes, Color, ColorCode, ColorSystem, DimensionStyle, Drawing2D,
+    Edit, Element, Encode, Hash, Inherit, Layer, LayerId, LayerState, LayerStyle, LineType,
+    LineTypeDefinition, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, PatternBasis,
+    Placed, Placement, Restyle, Seen, Shape, Style, SymbolKey, TextStyle, TextStyleDefinition,
+    Unit, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -23,10 +24,11 @@ use crate::describe;
 use crate::geometry;
 use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
-    CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
-    EntitiesResult, Entity, EntityField, EntityKind, Extent, Font, FontKind, Format, LayerItem,
-    LineTypeItem, OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions,
-    SheetSummary, Source, SpaceSummary, TableItem, TablesRequest, TablesResult, TextStyleItem,
+    CloseResult, DimensionStyleItem, DrawingRequest, DrawingResult, ElementCounts, Engine,
+    EntitiesRequest, EntitiesResult, Entity, EntityField, EntityKind, Extent, Font, FontKind,
+    Format, LayerItem, LineTypeItem, OpenRequest, OpenResult, Request, RequestCommon,
+    SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
+    TextStyleItem,
 };
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
@@ -454,11 +456,11 @@ impl Session {
         for (index, style) in drawing.dimension_styles.iter().enumerate() {
             let hash =
                 Hash::dimension_style_checked(style, cx).map_err(|stop| stopped(cx, stop))?;
-            dimension_styles.push(TableItem {
-                id: table_id(id::dimension_style(style, index), &mut seen),
-                name: style.name.clone(),
-                hash: hash.to_string(),
-            });
+            dimension_styles.push(dimension_style_item(
+                table_id(id::dimension_style(style, index), &mut seen),
+                style,
+                hash,
+            ));
         }
         seen.clear();
         let mut text_styles = Vec::with_capacity(drawing.text_styles.len());
@@ -625,6 +627,27 @@ fn layer_item(
                     default: Some(true),
                 },
             }),
+    }
+}
+
+fn dimension_style_item(id: String, style: &DimensionStyle, hash: Hash) -> DimensionStyleItem {
+    DimensionStyleItem {
+        id,
+        name: style.name.clone(),
+        hash: hash.to_string(),
+        ends: Some(style.ends.iter().map(arrowhead_name).collect()),
+        leader: Some(arrowhead_name(&style.leader)),
+        size: Some(style.size),
+        tick: Some(style.tick.unwrap_or(0.0)),
+        scale: Some(style.scale),
+    }
+}
+
+/// 端部記号の、ブロックの名前。既定の矢印は空の名前（決定 0165）
+fn arrowhead_name(arrow: &Arrowhead) -> String {
+    match arrow {
+        Arrowhead::Default => String::new(),
+        Arrowhead::Symbol(key) => key.name.clone(),
     }
 }
 
@@ -934,6 +957,77 @@ fn changes(
                 let style = text_style_change(&base, &fields)
                     .map_err(|field| fail(cx, invalid_value(at(field))))?;
                 Edit::AddTextStyle {
+                    style: Box::new(style),
+                }
+            }
+            messages::Edit::RemoveDimensionStyle(edit) => Edit::RemoveDimensionStyle {
+                target: seen(&edit.id, &edit.hash, cx)?,
+            },
+            messages::Edit::DimensionStyle(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                let fields = DimensionStyleFields {
+                    name: edit.name.as_deref(),
+                    ends: edit.ends.as_deref(),
+                    leader: edit.leader.as_deref(),
+                    size: edit.size,
+                    tick: edit.tick,
+                    scale: edit.scale,
+                };
+                cx.check(Kind::Work, fields.work())
+                    .map_err(|stop| stopped(cx, stop))?;
+                // 指した寸法スタイルがなければ、要素と同じく `change.element.missing` にする
+                let Some(base) = tables.dimension_styles.get(&edit.id).copied() else {
+                    let missing =
+                        Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", edit.id.as_str());
+                    return Err(fail(cx, missing));
+                };
+                let style = dimension_style_edit(base, &fields)
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::ReplaceDimensionStyle {
+                    target,
+                    style: Box::new(style),
+                }
+            }
+            messages::Edit::AddDimensionStyle(edit) => {
+                let fields = DimensionStyleFields {
+                    name: Some(&edit.name),
+                    ends: edit.ends.as_deref(),
+                    leader: edit.leader.as_deref(),
+                    size: edit.size,
+                    tick: edit.tick,
+                    scale: edit.scale,
+                };
+                cx.check(Kind::Work, fields.work())
+                    .map_err(|stop| stopped(cx, stop))?;
+                // 書かない欄は、Standard と同じにする。なければ初めの子でない寸法スタイル、それもなければ DXF の
+                // 既定の値。apply が写すレコードと同じ
+                let styles = &drawing.dimension_styles;
+                let standard = styles
+                    .iter()
+                    .find(|style| style.name.eq_ignore_ascii_case("Standard"))
+                    .or_else(|| {
+                        styles
+                            .iter()
+                            .find(|style| !style.name.is_empty() && !style.name.contains('$'))
+                    });
+                let base = standard.cloned().unwrap_or(DimensionStyle {
+                    name: String::new(),
+                    ends: [Arrowhead::Default, Arrowhead::Default],
+                    leader: Arrowhead::Default,
+                    size: 0.18,
+                    tick: None,
+                    scale: 1.0,
+                    source: Ref::default(),
+                });
+                let style = dimension_style_edit(&base, &fields)
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::AddDimensionStyle {
                     style: Box::new(style),
                 }
             }
@@ -1309,6 +1403,8 @@ struct TableLookup<'a> {
     text_style_ids: BTreeMap<String, Option<&'a str>>,
     /// 文字スタイルの ID から項目（決定 0163）
     text_styles: BTreeMap<String, &'a TextStyle>,
+    /// 寸法スタイルの ID から項目（決定 0165）
+    dimension_styles: BTreeMap<String, &'a DimensionStyle>,
 }
 
 impl<'a> TableLookup<'a> {
@@ -1321,6 +1417,7 @@ impl<'a> TableLookup<'a> {
             line_type_items: BTreeMap::new(),
             text_style_ids: BTreeMap::new(),
             text_styles: BTreeMap::new(),
+            dimension_styles: BTreeMap::new(),
         };
         let mut seen = BTreeMap::new();
         for layer in &drawing.layers {
@@ -1368,6 +1465,12 @@ impl<'a> TableLookup<'a> {
             result
                 .text_style_ids
                 .insert(id, unique.then_some(style.name.as_str()));
+        }
+        seen.clear();
+        for (index, style) in drawing.dimension_styles.iter().enumerate() {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let id = table_id(id::dimension_style(style, index), &mut seen);
+            result.dimension_styles.insert(id, style);
         }
         Ok(result)
     }
@@ -1786,6 +1889,74 @@ fn text_style_change(
         definition: Some(definition),
         source: base.source.clone(),
     })
+}
+
+/// 寸法スタイルの変更で書いた欄（決定 0165）
+struct DimensionStyleFields<'e> {
+    name: Option<&'e str>,
+    ends: Option<&'e [String]>,
+    leader: Option<&'e str>,
+    size: Option<f64>,
+    tick: Option<f64>,
+    scale: Option<f64>,
+}
+
+impl DimensionStyleFields<'_> {
+    /// 名前と端部記号の名前の長さと、端部記号の数
+    fn work(&self) -> u64 {
+        let ends = self.ends.unwrap_or_default();
+        [self.name, self.leader]
+            .iter()
+            .flatten()
+            .map(|text| text.len() as u64)
+            .chain(ends.iter().map(|end| end.len() as u64))
+            .fold(ends.len() as u64, u64::saturating_add)
+    }
+}
+
+/// `base` に、書いた欄を重ねた寸法スタイル（決定 0165）。端部記号は DXF のブロックの名前で、空の名前は既定の矢印。
+/// 合わなければ、その欄の名前を返す。書けるかどうか（ブロックがあるか・名前の決まり）は、apply が形式ごとに確かめる
+fn dimension_style_edit(
+    base: &DimensionStyle,
+    fields: &DimensionStyleFields<'_>,
+) -> Result<DimensionStyle, &'static str> {
+    let arrow = |name: &str| {
+        if name.is_empty() {
+            Arrowhead::Default
+        } else {
+            Arrowhead::Symbol(SymbolKey {
+                namespace: "dxf.block",
+                name: name.to_owned(),
+            })
+        }
+    };
+    let length = |value: Option<f64>, field| match value {
+        Some(value) if !(value.is_finite() && value >= 0.0) => Err(field),
+        _ => Ok(value),
+    };
+    let mut style = base.clone();
+    if let Some(name) = fields.name {
+        name.clone_into(&mut style.name);
+    }
+    if let Some(ends) = fields.ends {
+        let [first, second] = ends else {
+            return Err("ends");
+        };
+        style.ends = [arrow(first), arrow(second)];
+    }
+    if let Some(leader) = fields.leader {
+        style.leader = arrow(leader);
+    }
+    if let Some(size) = length(fields.size, "size")? {
+        style.size = size;
+    }
+    if let Some(tick) = length(fields.tick, "tick")? {
+        style.tick = (tick > 0.0).then_some(tick);
+    }
+    if let Some(scale) = length(fields.scale, "scale")? {
+        style.scale = scale;
+    }
+    Ok(style)
 }
 
 /// 線種の変更の名前・説明の長さと列の要素の数
@@ -2714,7 +2885,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":26}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":27}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3204,6 +3375,101 @@ mod tests {
         assert_eq!(removed.pointer("/result/applied/0/id"), None);
         let (_, last) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
         assert_eq!(last.pointer("/result/text_styles/2"), None);
+    }
+
+    #[test]
+    fn changes_adds_and_removes_dimension_styles() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", TABLED.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (_, tables) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let standard = text(&tables, "/result/dimension_styles/0/hash");
+        let apply =
+            |edits: &str| format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edits}]}}"#);
+        // Standard の名前は変えず、除かない。ブロックのない端部記号・2 つでない端部記号・負の大きさは書けない
+        for (request, code) in [
+            (
+                apply(&format!(
+                    r#"{{"kind":"dimension_style","id":"dimension-style/h1D","hash":"{standard}","name":"Main"}}"#
+                )),
+                "change.edit.unsupported",
+            ),
+            (
+                apply(&format!(
+                    r#"{{"kind":"remove_dimension_style","id":"dimension-style/h1D","hash":"{standard}"}}"#
+                )),
+                "change.edit.unsupported",
+            ),
+            (
+                apply(r#"{"kind":"add_dimension_style","name":"Dot","leader":"_DOT"}"#),
+                "change.edit.unsupported",
+            ),
+            (
+                apply(r#"{"kind":"add_dimension_style","name":"Dot","ends":["_DOT"]}"#),
+                "call.value.invalid",
+            ),
+            (
+                apply(&format!(
+                    r#"{{"kind":"dimension_style","id":"dimension-style/h1D","hash":"{standard}","size":-1}}"#
+                )),
+                "call.value.invalid",
+            ),
+            (
+                apply(&format!(
+                    r#"{{"kind":"dimension_style","id":"dimension-style/h99","hash":"{standard}"}}"#
+                )),
+                "change.element.missing",
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&error(&response), "/code"), code, "{request}");
+        }
+        // 足す寸法スタイルの書かない欄は、Standard と同じ
+        let edits = [
+            format!(
+                r#"{{"kind":"dimension_style","id":"dimension-style/h1D","hash":"{standard}","size":3.5,"scale":100}}"#
+            ),
+            r#"{"kind":"add_dimension_style","name":"Plan","tick":1.5}"#.to_owned(),
+        ];
+        let (status, response) = call(&mut session, &apply(&edits.join(",")));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            text(&response, "/result/applied/0/id"),
+            "dimension-style/h1D"
+        );
+        assert_eq!(
+            text(&response, "/result/applied/1/id"),
+            "dimension-style/h40"
+        );
+        let (_, after) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let mut out = zumen_json::Writer::new();
+        out.value(after.pointer("/result/dimension_styles").unwrap());
+        assert_eq!(
+            String::from_utf8(out.into_bytes()).unwrap(),
+            format!(
+                concat!(
+                    r#"[{{"id":"dimension-style/h1D","name":"Standard","hash":"{}","ends":["",""],"#,
+                    r#""leader":"","size":3.5,"tick":0,"scale":100}},"#,
+                    r#"{{"id":"dimension-style/h40","name":"Plan","hash":"{}","ends":["",""],"#,
+                    r#""leader":"","size":2.5,"tick":1.5,"scale":1}}]"#
+                ),
+                text(&response, "/result/applied/0/hash"),
+                text(&response, "/result/applied/1/hash"),
+            )
+        );
+        // 足した寸法スタイルは、次の apply で除ける
+        let plan = text(&response, "/result/applied/1/hash");
+        let (status, removed) = call(
+            &mut session,
+            &apply(&format!(
+                r#"{{"kind":"remove_dimension_style","id":"dimension-style/h40","hash":"{plan}"}}"#
+            )),
+        );
+        assert_eq!(status, Status::Ok, "{removed:?}");
+        assert_eq!(removed.pointer("/result/applied/0/id"), None);
+        let (_, last) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        assert_eq!(last.pointer("/result/dimension_styles/1"), None);
     }
 
     #[test]
