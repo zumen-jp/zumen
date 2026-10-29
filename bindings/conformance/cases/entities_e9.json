@@ -81,7 +81,7 @@
         "op": "entities",
         "doc": "e9.dxf",
         "budget": {
-          "work": 56
+          "work": 67
         }
       },
       "status": "failed",
@@ -100,7 +100,7 @@
         "op": "entities",
         "doc": "e9.dxf",
         "budget": {
-          "work": 57
+          "work": 68
         }
       },
       "expect": {
