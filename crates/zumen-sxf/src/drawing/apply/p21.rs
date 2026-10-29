@@ -7,9 +7,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use zumen_base::Ref;
 use zumen_sdk::{Cx, Error};
 
-use super::{Arguments, Writer, line_end, newline, patched};
+use super::{Arguments, Writer, line_end, newline, patched, work};
 use crate::drawing::{LINE_TYPES, WIDTHS};
 use crate::p21::{COLORS, Codes};
 use crate::{Form, SxfFile, Value};
@@ -72,18 +73,27 @@ pub(super) struct P21<'f> {
 }
 
 impl<'f> P21<'f> {
-    pub(super) fn new(file: &'f SxfFile, codes: Codes, widths: Vec<Option<f64>>) -> Self {
+    pub(super) fn new(
+        file: &'f SxfFile,
+        codes: Codes,
+        widths: Vec<Option<f64>>,
+        cx: &mut Cx,
+    ) -> Result<Self, Error> {
         let mut instances = BTreeMap::new();
         let mut referrers: BTreeMap<u64, BTreeSet<usize>> = BTreeMap::new();
         for (record, entry) in file.records().iter().enumerate() {
+            work(cx, 1, &Ref::default())?;
             if let Some(id) = entry.id() {
                 instances.entry(id).or_insert(record);
             }
             let mut refs = Vec::new();
             for part in entry.parts() {
+                work(cx, 1, &Ref::default())?;
+                count_values(part.args(), cx)?;
                 collect(part.args(), &mut refs);
             }
             for id in refs {
+                work(cx, 1, &Ref::default())?;
                 referrers.entry(id).or_default().insert(record);
             }
         }
@@ -93,7 +103,8 @@ impl<'f> P21<'f> {
             .copied()
             .unwrap_or(0)
             .saturating_add(1);
-        P21 {
+        work(cx, 1 + file.src.len() as u64 / 1024, &Ref::default())?;
+        Ok(P21 {
             file,
             instances,
             referrers,
@@ -107,7 +118,7 @@ impl<'f> P21<'f> {
             loose: Vec::new(),
             predefined: BTreeMap::new(),
             newline: newline(&file.src),
-        }
+        })
     }
 
     fn name(&self, record: usize, part: usize) -> &'f [u8] {
@@ -434,7 +445,7 @@ impl<'f> P21<'f> {
     }
 
     /// どこからも指されなくなった幾何と見え方の実体を除く
-    fn collect_garbage(&mut self) {
+    fn collect_garbage(&mut self, cx: &mut Cx) -> Result<(), Error> {
         let mut counts: BTreeMap<u64, usize> = BTreeMap::new();
         let mut count = |refs: Vec<u64>| {
             for id in refs {
@@ -442,28 +453,38 @@ impl<'f> P21<'f> {
             }
         };
         for (record, entry) in self.file.records().iter().enumerate() {
+            work(cx, 1, &Ref::default())?;
             if self.removed.contains(&record) {
                 continue;
             }
             let mut refs = Vec::new();
             for (index, part) in entry.parts().iter().enumerate() {
+                work(cx, 1, &Ref::default())?;
                 for (at, value) in part.args().iter().enumerate() {
                     let slot = (record, index, at);
                     if let Some(text) = self.args.get(&slot) {
+                        work(cx, 1 + text.len() as u64, &Ref::default())?;
                         refs.extend(scan(text));
                     } else if let Some(list) = self.lists.get(&slot) {
+                        work(cx, 1 + list.len() as u64, &Ref::default())?;
                         refs.extend(list);
                     } else {
+                        count_values(core::slice::from_ref(value), cx)?;
                         collect(core::slice::from_ref(value), &mut refs);
                     }
                 }
             }
+            work(cx, refs.len() as u64, &Ref::default())?;
             count(refs);
         }
         for (_, body) in &self.added {
-            count(scan(body));
+            work(cx, 1 + body.len() as u64, &Ref::default())?;
+            let refs = scan(body);
+            work(cx, refs.len() as u64, &Ref::default())?;
+            count(refs);
         }
         while let Some(id) = self.loose.pop() {
+            work(cx, 1, &Ref::default())?;
             let Some(&record) = self.instances.get(&id) else {
                 continue;
             };
@@ -485,21 +506,229 @@ impl<'f> P21<'f> {
             let mut refs = Vec::new();
             if let Some(entry) = self.file.records().get(record) {
                 for part in entry.parts() {
+                    work(cx, 1, &Ref::default())?;
+                    count_values(part.args(), cx)?;
                     collect(part.args(), &mut refs);
                 }
             }
             for child in refs {
+                work(cx, 1, &Ref::default())?;
                 if let Some(count) = counts.get_mut(&child) {
                     *count = count.saturating_sub(1);
                 }
                 self.loose.push(child);
             }
         }
+        Ok(())
     }
 }
 
 impl Writer for P21<'_> {
-    fn codes(&mut self, record: usize, codes: &[(usize, i64)]) -> Option<()> {
+    fn codes(
+        &mut self,
+        record: usize,
+        codes: &[(usize, i64)],
+        cx: &mut Cx,
+    ) -> Result<Option<()>, Error> {
+        self.count_codes(record, codes, cx)?;
+        Ok(self.codes_inner(record, codes))
+    }
+
+    fn shape(&mut self, record: usize, args: &Arguments, cx: &mut Cx) -> Result<Option<()>, Error> {
+        self.count_part_search(record, cx)?;
+        count_arguments(args, cx)?;
+        Ok((|| {
+            let (_, item) = self.occurrence(record)?;
+            let was = self.reference(item)?;
+            let geometry = self.geometry(args)?;
+            self.args.insert(item, format!("#{geometry}"));
+            self.loose.push(was);
+            Some(())
+        })())
+    }
+
+    fn remove(&mut self, record: usize, cx: &mut Cx) -> Result<Option<()>, Error> {
+        // 参照元と並びは、実際に触るものだけを、複製や走査の前に数える。
+        if let Some(entry) = self.file.records().get(record) {
+            for part in entry.parts() {
+                work(cx, 1, &Ref::default())?;
+                count_values(part.args(), cx)?;
+            }
+            if let Some(referrers) = entry.id().and_then(|id| self.referrers.get(&id)) {
+                work(cx, referrers.len() as u64, &Ref::default())?;
+                for referrer in referrers {
+                    let Some(entry) = self.file.records().get(*referrer) else {
+                        continue;
+                    };
+                    work(cx, entry.parts().len() as u64, &Ref::default())?;
+                    for (index, part) in entry.parts().iter().enumerate() {
+                        count_values(part.args(), cx)?;
+                        for (at, value) in part.args().iter().enumerate() {
+                            let slot = (*referrer, index, at);
+                            if let Some(list) = self.lists.get(&slot) {
+                                work(cx, (list.len() as u64).saturating_mul(2), &Ref::default())?;
+                            } else if let Value::List(items) = value {
+                                work(cx, (items.len() as u64).saturating_mul(2), &Ref::default())?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(self.remove_inner(record))
+    }
+
+    fn add(&mut self, args: &Arguments, cx: &mut Cx) -> Result<Option<u64>, Error> {
+        count_arguments(args, cx)?;
+        for (id, record) in &self.instances {
+            work(cx, 1, &Ref::default())?;
+            self.count_part_search(*record, cx)?;
+            if let Some(slot) = self.slot(*id, "DRAWING_SHEET_REVISION", 1) {
+                self.count_list(slot, cx)?;
+                break;
+            }
+        }
+        let codes: Vec<_> = args
+            .values
+            .iter()
+            .take(4)
+            .enumerate()
+            .filter_map(|(at, value)| value.parse().ok().map(|code| (at, code)))
+            .collect();
+        self.count_codes(usize::MAX, &codes, cx)?;
+        Ok(self.add_inner(args))
+    }
+
+    fn bytes(mut self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        self.collect_garbage(cx)?;
+        self.finish(src, cx)
+    }
+}
+
+impl P21<'_> {
+    fn count_part_search(&self, record: usize, cx: &mut Cx) -> Result<(), Error> {
+        if let Some(entry) = self.file.records().get(record) {
+            work(cx, entry.parts().len() as u64, &Ref::default())?;
+        }
+        Ok(())
+    }
+
+    fn count_list(&self, slot: Slot, cx: &mut Cx) -> Result<(), Error> {
+        let len = if let Some(list) = self.lists.get(&slot) {
+            list.len()
+        } else if let Some(Value::List(items)) = self.value(slot) {
+            items.len()
+        } else {
+            0
+        };
+        work(
+            cx,
+            (len as u64).saturating_mul(3).saturating_add(1),
+            &Ref::default(),
+        )
+    }
+
+    fn count_codes(&self, record: usize, codes: &[(usize, i64)], cx: &mut Cx) -> Result<(), Error> {
+        self.count_part_search(record, cx)?;
+        if codes.iter().any(|(at, _)| *at == 0) {
+            work(cx, self.codes.layers.len() as u64, &Ref::default())?;
+            for layer in &self.codes.layers {
+                if let Some(&layer_record) = self.instances.get(layer) {
+                    self.count_part_search(layer_record, cx)?;
+                    if let Some(slot) = self.slot(*layer, "PRESENTATION_LAYER_ASSIGNMENT", 2) {
+                        self.count_list(slot, cx)?;
+                    }
+                }
+            }
+        }
+        if codes.iter().any(|(at, _)| *at > 0) {
+            if let Some((styles, _)) = self.occurrence(record) {
+                self.count_list(styles, cx)?;
+                if let Some(assignments) = self.list(styles) {
+                    for assignment in assignments {
+                        if let Some(&assignment_record) = self.instances.get(&assignment) {
+                            self.count_part_search(assignment_record, cx)?;
+                            if let Some(slot) =
+                                self.slot(assignment, "PRESENTATION_STYLE_ASSIGNMENT", 0)
+                            {
+                                self.count_list(slot, cx)?;
+                                if let Some(styles) = self.list(slot) {
+                                    for style in styles {
+                                        if let Some(&style_record) = self.instances.get(&style) {
+                                            self.count_part_search(style_record, cx)?;
+                                            if let Some(entry) =
+                                                self.file.records().get(style_record)
+                                            {
+                                                for part in entry.parts() {
+                                                    count_values(part.args(), cx)?;
+                                                }
+                                                let span = entry.span();
+                                                work(
+                                                    cx,
+                                                    span.end.saturating_sub(span.start) as u64,
+                                                    &Ref::default(),
+                                                )?;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((_, code)) = codes.iter().find(|(at, _)| *at == 1) {
+                for known in self.codes.colors.values() {
+                    work(cx, 1, &Ref::default())?;
+                    if known == code {
+                        break;
+                    }
+                }
+            }
+            if let Some((_, code)) = codes.iter().find(|(at, _)| *at == 2) {
+                for known in self.codes.line_types.values() {
+                    work(cx, 1, &Ref::default())?;
+                    if known == code {
+                        break;
+                    }
+                }
+            }
+            if let Some((_, code)) = codes.iter().find(|(at, _)| *at == 3) {
+                let mm = code
+                    .checked_sub(1)
+                    .and_then(|at| usize::try_from(at).ok())
+                    .and_then(|at| {
+                        if at < WIDTHS.len() {
+                            WIDTHS.get(at).copied()
+                        } else {
+                            code.checked_sub(11)
+                                .and_then(|at| usize::try_from(at).ok())
+                                .and_then(|at| self.widths.get(at).copied().flatten())
+                        }
+                    });
+                if mm.is_none() {
+                    return Ok(());
+                }
+                for record in self.instances.values() {
+                    work(cx, 1, &Ref::default())?;
+                    self.count_part_search(*record, cx)?;
+                    if let Some(part) = self.part(*record, "LENGTH_MEASURE_WITH_UNIT")
+                        && let Some(value) = self.value((*record, part, 0))
+                    {
+                        count_values(core::slice::from_ref(value), cx)?;
+                        count_number(value, cx)?;
+                        count_number(value, cx)?;
+                        if self.number(value) == mm && mm.is_some() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn codes_inner(&mut self, record: usize, codes: &[(usize, i64)]) -> Option<()> {
         let (styles, _) = self.occurrence(record)?;
         let id = self.file.records().get(record)?.id()?;
         for (at, code) in codes {
@@ -511,7 +740,6 @@ impl Writer for P21<'_> {
         if style.is_empty() {
             return Some(());
         }
-        // 曲線の見え方を持つ割り当てを、新しい割り当てに替える
         let mut list = self.list(styles)?;
         let (index, was, curve) = list.iter().enumerate().find_map(|(index, assignment)| {
             let slot = self.slot(*assignment, "PRESENTATION_STYLE_ASSIGNMENT", 0)?;
@@ -521,7 +749,6 @@ impl Writer for P21<'_> {
                 .find(|style| self.slot(*style, "CURVE_STYLE", 0).is_some())?;
             Some((index, *assignment, curve))
         })?;
-        // 割り当てがほかの見え方も持てば、書き直せない
         if self
             .list(self.slot(was, "PRESENTATION_STYLE_ASSIGNMENT", 0)?)?
             .len()
@@ -535,17 +762,7 @@ impl Writer for P21<'_> {
         self.loose.push(was);
         Some(())
     }
-
-    fn shape(&mut self, record: usize, args: &Arguments) -> Option<()> {
-        let (_, item) = self.occurrence(record)?;
-        let was = self.reference(item)?;
-        let geometry = self.geometry(args)?;
-        self.args.insert(item, format!("#{geometry}"));
-        self.loose.push(was);
-        Some(())
-    }
-
-    fn remove(&mut self, record: usize) -> Option<()> {
+    fn remove_inner(&mut self, record: usize) -> Option<()> {
         let id = self.file.records().get(record)?.id()?;
         if self.instances.get(&id) != Some(&record) {
             return None;
@@ -590,7 +807,7 @@ impl Writer for P21<'_> {
         Some(())
     }
 
-    fn add(&mut self, args: &Arguments) -> Option<u64> {
+    fn add_inner(&mut self, args: &Arguments) -> Option<u64> {
         let code = |at: usize| args.values.get(at)?.parse::<i64>().ok();
         let (layer, color, line_type, width) = (code(0)?, code(1)?, code(2)?, code(3)?);
         let sheet = self
@@ -613,16 +830,21 @@ impl Writer for P21<'_> {
         Some(id)
     }
 
-    fn bytes(mut self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
-        self.collect_garbage();
+    fn finish(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
         let mut patches = Vec::new();
         let records = self.file.records();
         for record in &self.removed {
+            work(cx, 1, &Ref::default())?;
             if let Some(entry) = records.get(*record) {
                 let span = entry.span();
                 patches.push((span.start..line_end(src, span.end), Vec::new()));
             }
         }
+        work(
+            cx,
+            (self.args.len() as u64).saturating_add(self.lists.len() as u64),
+            &Ref::default(),
+        )?;
         let rewritten: BTreeSet<usize> = self
             .args
             .keys()
@@ -631,13 +853,36 @@ impl Writer for P21<'_> {
             .filter(|record| !self.removed.contains(record))
             .collect();
         for record in rewritten {
-            let (Some(entry), Some(text)) = (records.get(record), self.render(record)) else {
+            let Some(entry) = records.get(record) else {
+                return Err(Error::Rejected);
+            };
+            for (index, part) in entry.parts().iter().enumerate() {
+                work(cx, 1, &Ref::default())?;
+                count_values(part.args(), cx)?;
+                for (at, _) in part.args().iter().enumerate() {
+                    let slot = (record, index, at);
+                    if let Some(list) = self.lists.get(&slot) {
+                        work(cx, list.len() as u64, &Ref::default())?;
+                    }
+                    if let Some(text) = self.args.get(&slot) {
+                        work(cx, 1 + text.len() as u64 / 1024, &Ref::default())?;
+                    }
+                }
+            }
+            let span = entry.span();
+            work(
+                cx,
+                span.end.saturating_sub(span.start) as u64,
+                &Ref::default(),
+            )?;
+            let Some(text) = self.render(record) else {
                 return Err(Error::Rejected);
             };
             patches.push((entry.span(), text));
         }
         if !self.added.is_empty() {
             // 最後の実体の後に足す
+            work(cx, records.len() as u64, &Ref::default())?;
             let Some(end) = records
                 .iter()
                 .filter(|entry| entry.id().is_some())
@@ -647,6 +892,9 @@ impl Writer for P21<'_> {
                 return Err(Error::Rejected);
             };
             let nl = self.newline;
+            for (_, body) in &self.added {
+                work(cx, 1 + body.len() as u64, &Ref::default())?;
+            }
             let text: String = self
                 .added
                 .iter()
@@ -655,6 +903,48 @@ impl Writer for P21<'_> {
             patches.push((end..end, text.into_bytes()));
         }
         patched(patches, src, cx)
+    }
+}
+
+/// 値の入れ子をたどる作業を、参照を集める前に数える。
+fn count_values(values: &[Value], cx: &mut Cx) -> Result<(), Error> {
+    for value in values {
+        work(cx, 1, &Ref::default())?;
+        match value {
+            Value::List(items) => count_values(items, cx)?,
+            Value::Typed(part) => count_values(part.args(), cx)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn count_arguments(args: &Arguments, cx: &mut Cx) -> Result<(), Error> {
+    for text in &args.values {
+        work(cx, 1 + text.len() as u64, &Ref::default())?;
+    }
+    Ok(())
+}
+
+/// 線幅の数値は文字列から解析するので、その長さも数える。
+fn count_number(mut value: &Value, cx: &mut Cx) -> Result<(), Error> {
+    loop {
+        work(cx, 1, &Ref::default())?;
+        match value {
+            Value::Number(range) => {
+                work(
+                    cx,
+                    1 + range.end.saturating_sub(range.start) as u64 / 1024,
+                    &Ref::default(),
+                )?;
+                return Ok(());
+            }
+            Value::Typed(part) => match part.args().first() {
+                Some(inner) => value = inner,
+                None => return Ok(()),
+            },
+            _ => return Ok(()),
+        }
     }
 }
 
@@ -717,4 +1007,93 @@ fn real(value: f64) -> Option<String> {
         text.push('.');
     }
     Some(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Sxf;
+    use zumen_base::{Budget, CancelToken, Diagnostics, Kind, Limit, Limits};
+    use zumen_sdk::testkit;
+
+    #[test]
+    fn indexing_and_garbage_collection_count_work() {
+        let src = b"ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=POLYLINE(' ',(#2,#3));\n#2=CARTESIAN_POINT(' ',(0.,0.));\n#3=CARTESIAN_POINT(' ',(1.,1.));\nENDSEC;\nEND-ISO-10303-21;\n";
+        let file = testkit::read::<Sxf>(src).0.unwrap();
+        let codes = || Codes {
+            layers: Vec::new(),
+            colors: BTreeMap::new(),
+            line_types: BTreeMap::new(),
+        };
+        let cancel = CancelToken::new();
+        let mut diagnostics = Diagnostics::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        assert!(matches!(
+            P21::new(
+                &file,
+                codes(),
+                Vec::new(),
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let mut writer = P21::new(
+            &file,
+            codes(),
+            Vec::new(),
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        let record = *writer.instances.get(&2).unwrap();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(matches!(
+            writer.remove(record, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        assert!(writer.removed.is_empty());
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(matches!(
+            writer.codes(
+                record,
+                &[(3, 1)],
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert!(writer.args.is_empty() && writer.lists.is_empty() && writer.added.is_empty());
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut diagnostics = Diagnostics::new();
+        let args = Arguments {
+            name: "line",
+            values: vec!["1".to_owned(); 8],
+        };
+        assert!(matches!(
+            writer.add(&args, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        assert!(writer.args.is_empty() && writer.lists.is_empty() && writer.added.is_empty());
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(matches!(
+            writer.collect_garbage(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+    }
+
+    #[test]
+    fn parsing_a_long_number_counts_its_length() {
+        let value = Value::Number(0..8192);
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(2)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(matches!(
+            count_number(&value, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+    }
 }

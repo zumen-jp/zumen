@@ -7,11 +7,11 @@
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Diagnostic, Diagnostics, Key, Ref, codes};
+use zumen_base::{Diagnostic, Diagnostics, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Hash, Inherit,
-    LayerId, Length, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, Placed, Polyline,
-    Seen, Shape, Style, id, transform,
+    Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Encode, Hash,
+    Inherit, LayerId, Length, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, Placed,
+    Polyline, Seen, Shape, Style, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift};
 
@@ -108,7 +108,8 @@ impl Apply<Changes> for SxfFile {
                 self,
                 crate::p21::codes(self, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?,
                 tables.widths.clone(),
-            )),
+                cx,
+            )?),
         };
         let mut plan = Plan::new(&records, writer);
         let mut expected = Vec::new();
@@ -129,7 +130,12 @@ impl Apply<Changes> for SxfFile {
                     let removed = name.filter(|name| {
                         REMOVABLE.contains(&name.as_str()) && !grouped.contains(&found.record)
                     });
-                    match removed.and_then(|_| plan.remove(found.record)) {
+                    let result = if removed.is_some() {
+                        plan.remove(found.record, cx)?
+                    } else {
+                        None
+                    };
+                    match result {
                         Some(()) => Some(Expected::Removed(found.instance)),
                         None => {
                             cx.report(
@@ -153,8 +159,9 @@ impl Apply<Changes> for SxfFile {
                         tables.style_work(&new, Some(found.element.style())),
                         &Ref::default(),
                     )?;
+                    found.element.count_copy(cx, 1)?;
                     let mut element = found.element.with(layer, new, None);
-                    plan.styled(&found, &mut element, &tables, &grouped)
+                    plan.styled(&found, &mut element, &tables, &grouped, cx)?
                         .map(|()| Expected::Element(found.instance, Box::new(element)))
                         .or_else(|| {
                             cx.report(
@@ -171,11 +178,10 @@ impl Apply<Changes> for SxfFile {
                         rejected = true;
                         continue;
                     };
-                    // 渡された形を複製して書式化する前に、可変長の内容を予算で数える。
                     match element.as_ref() {
-                        Placed::Model(element) => Any::Model(element).hash(cx)?,
-                        Placed::Paper(element) => Any::Paper(element).hash(cx)?,
-                    };
+                        Placed::Model(element) => count_element_copy(element, cx, 1)?,
+                        Placed::Paper(element) => count_element_copy(element, cx, 1)?,
+                    }
                     let element = found.element.replaced(element);
                     if let Some(element) = &element {
                         let style = match element {
@@ -188,19 +194,25 @@ impl Apply<Changes> for SxfFile {
                             &Ref::default(),
                         )?;
                     }
-                    element
-                        .and_then(|mut element| {
-                            plan.styled(&found, &mut element, &tables, &grouped)?;
-                            plan.shaped(&found, &element, &grouped)?;
+                    let element = if let Some(mut element) = element {
+                        if plan
+                            .styled(&found, &mut element, &tables, &grouped, cx)?
+                            .is_some()
+                            && plan.shaped(&found, &element, &grouped, cx)?.is_some()
+                        {
                             Some(Expected::Element(found.instance, Box::new(element)))
-                        })
-                        .or_else(|| {
-                            cx.report(
-                                unsupported(format, "replace", &found.kind(&plan))
-                                    .at(found.source()),
-                            );
+                        } else {
                             None
-                        })
+                        }
+                    } else {
+                        None
+                    };
+                    element.or_else(|| {
+                        cx.report(
+                            unsupported(format, "replace", &found.kind(&plan)).at(found.source()),
+                        );
+                        None
+                    })
                 }
                 Edit::Transform { target, transform } => {
                     let Some(found) =
@@ -209,30 +221,28 @@ impl Apply<Changes> for SxfFile {
                         rejected = true;
                         continue;
                     };
-                    // 変換は元の形を走査し、結果を複製して書式化する。
-                    found.element.hash(cx)?;
+                    found.element.count_copy(cx, 2)?;
                     let element = found.element.transformed(transform);
-                    element
-                        .and_then(|element| {
-                            plan.shaped(&found, &element, &grouped)?;
-                            Some(Expected::Element(found.instance, Box::new(element)))
-                        })
-                        .or_else(|| {
-                            cx.report(
-                                unsupported(format, "transform", &found.kind(&plan))
-                                    .at(found.source()),
-                            );
-                            None
-                        })
+                    let element = if let Some(element) = element {
+                        plan.shaped(&found, &element, &grouped, cx)?
+                            .map(|()| Expected::Element(found.instance, Box::new(element)))
+                    } else {
+                        None
+                    };
+                    element.or_else(|| {
+                        cx.report(
+                            unsupported(format, "transform", &found.kind(&plan)).at(found.source()),
+                        );
+                        None
+                    })
                 }
                 Edit::Add { place, element } => {
                     let added = match element.as_ref() {
                         Placed::Paper(element)
                             if before.sheets.get(place) == Some(&element.shape_sheet()) =>
                         {
-                            Any::Paper(element).hash(cx)?;
                             work(cx, tables.style_work(&element.style, None), &Ref::default())?;
-                            plan.add(element, &tables)
+                            plan.add(element, &tables, cx)?
                         }
                         _ => None,
                     };
@@ -309,11 +319,17 @@ impl Apply<Changes> for SxfFile {
                     });
                     continue;
                 }
-                Expected::Element(instance, element) => after.found(*instance).filter(|found| {
-                    // P21 の円弧の角度は、ラジアンで書いて度で読むので、最後の桁が違いうる
-                    found.element.same(element)
-                        || (self.mode() == Mode::P21 && found.element.near(element))
-                }),
+                Expected::Element(instance, element) => {
+                    if let Some(found) = after.found(*instance) {
+                        found.element.count_copy(cx, 2)?;
+                        // P21 の円弧の角度は、ラジアンで書いて度で読むので、最後の桁が違いうる
+                        (found.element.same(element)
+                            || (self.mode() == Mode::P21 && found.element.near(element)))
+                        .then_some(found)
+                    } else {
+                        None
+                    }
+                }
             };
             let Some(found) = found else {
                 cx.report(unsupported(format, edit, "round_trip"));
@@ -337,9 +353,12 @@ impl Apply<Changes> for SxfFile {
                 continue;
             }
             let kept = match (id, before.found(*instance), after.instances.get(instance)) {
-                (Some(_), Some(was), Some(Some(_))) => after
-                    .found(*instance)
-                    .is_some_and(|now| now.id == was.id && now.element.same(&was.element.placed())),
+                (Some(_), Some(was), Some(Some(_))) => {
+                    was.element.count_copy(cx, 2)?;
+                    after.found(*instance).is_some_and(|now| {
+                        now.id == was.id && now.element.same(&was.element.placed())
+                    })
+                }
                 (None, _, Some(None)) => true,
                 _ => false,
             };
@@ -470,6 +489,12 @@ impl<'a> Any<'a> {
         }
     }
 
+    fn count_copy(&self, cx: &mut Cx, copies: u64) -> Result<(), Error> {
+        match self {
+            Any::Model(element) => count_element_copy(element, cx, copies),
+            Any::Paper(element) => count_element_copy(element, cx, copies),
+        }
+    }
     fn source(&self) -> &'a Ref {
         match self {
             Any::Model(element) => &element.source,
@@ -897,13 +922,18 @@ fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet<usize>, Er
 /// 書き方。SFC はフィーチャのコメントを、P21 は実体を書き直す
 trait Writer {
     /// レイヤ・色・線種・線幅のうち、変わったもののコード（引数の 0〜3）を書く
-    fn codes(&mut self, record: usize, codes: &[(usize, i64)]) -> Option<()>;
+    fn codes(
+        &mut self,
+        record: usize,
+        codes: &[(usize, i64)],
+        cx: &mut Cx,
+    ) -> Result<Option<()>, Error>;
     /// 形を書く。種類は変えない
-    fn shape(&mut self, record: usize, args: &Arguments) -> Option<()>;
+    fn shape(&mut self, record: usize, args: &Arguments, cx: &mut Cx) -> Result<Option<()>, Error>;
     /// 要素を除く
-    fn remove(&mut self, record: usize) -> Option<()>;
+    fn remove(&mut self, record: usize, cx: &mut Cx) -> Result<Option<()>, Error>;
     /// 用紙に要素を足し、足したインスタンスの番号を返す。引数は、レイヤ・色・線種・線幅のコードも持つ
-    fn add(&mut self, args: &Arguments) -> Option<u64>;
+    fn add(&mut self, args: &Arguments, cx: &mut Cx) -> Result<Option<u64>, Error>;
     /// 書き直したバイト列
     fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error>;
 }
@@ -930,8 +960,8 @@ impl<'f> Plan<'f> {
         self.records.get(&record).copied()
     }
 
-    fn remove(&mut self, record: usize) -> Option<()> {
-        self.writer.remove(record)
+    fn remove(&mut self, record: usize, cx: &mut Cx) -> Result<Option<()>, Error> {
+        self.writer.remove(record, cx)
     }
 
     /// レイヤとスタイルのうち、変わったもののコードを書く
@@ -941,57 +971,94 @@ impl<'f> Plan<'f> {
         element: &mut Placed,
         tables: &Tables,
         grouped: &BTreeSet<usize>,
-    ) -> Option<()> {
-        let name = self.record(found.record)?.name.to_ascii_lowercase();
-        if !STYLED.contains(&name.as_str()) || grouped.contains(&found.record) {
-            return None;
+        cx: &mut Cx,
+    ) -> Result<Option<()>, Error> {
+        let mut result = None;
+        let computed = (|| -> Option<()> {
+            let name = self.record(found.record)?.name.to_ascii_lowercase();
+            if !STYLED.contains(&name.as_str()) || grouped.contains(&found.record) {
+                return None;
+            }
+            let (layer, style) = match element {
+                Placed::Model(element) => (element.layer, &mut element.style),
+                Placed::Paper(element) => (element.layer, &mut element.style),
+            };
+            let (was_layer, was) = match found.element {
+                Any::Model(element) => (element.layer, element.style),
+                Any::Paper(element) => (element.layer, element.style),
+            };
+            if style.line_type_scale != 1.0 {
+                return None;
+            }
+            let mut codes = Vec::new();
+            if layer != was_layer {
+                codes.push((0, tables.layer(layer)?));
+            }
+            if style.color != was.color {
+                let (code, color) = tables.color(style.color)?;
+                style.color = Inherit::Own(color);
+                codes.push((1, code));
+            }
+            if style.line_type != was.line_type {
+                codes.push((2, tables.line_type(style.line_type)?));
+            }
+            if style.line_weight != was.line_weight {
+                codes.push((3, tables.width(style.line_weight?)?));
+            }
+            if codes.is_empty() {
+                return Some(());
+            }
+            match self.writer.codes(found.record, &codes, cx) {
+                Ok(value) => value,
+                Err(error) => {
+                    result = Some(error);
+                    None
+                }
+            }
+        })();
+        match result {
+            Some(error) => Err(error),
+            None => Ok(computed),
         }
-        let (layer, style) = match element {
-            Placed::Model(element) => (element.layer, &mut element.style),
-            Placed::Paper(element) => (element.layer, &mut element.style),
-        };
-        let (was_layer, was) = match found.element {
-            Any::Model(element) => (element.layer, element.style),
-            Any::Paper(element) => (element.layer, element.style),
-        };
-        if style.line_type_scale != 1.0 {
-            return None;
-        }
-        let mut codes = Vec::new();
-        if layer != was_layer {
-            codes.push((0, tables.layer(layer)?));
-        }
-        if style.color != was.color {
-            let (code, color) = tables.color(style.color)?;
-            style.color = Inherit::Own(color);
-            codes.push((1, code));
-        }
-        if style.line_type != was.line_type {
-            codes.push((2, tables.line_type(style.line_type)?));
-        }
-        if style.line_weight != was.line_weight {
-            codes.push((3, tables.width(style.line_weight?)?));
-        }
-        if codes.is_empty() {
-            return Some(());
-        }
-        self.writer.codes(found.record, &codes)
     }
 
     /// 形を書く。種類は変えない
-    fn shaped(&mut self, found: &Found, element: &Placed, grouped: &BTreeSet<usize>) -> Option<()> {
-        let name = self.record(found.record)?.name.to_ascii_lowercase();
-        if !SHAPED.contains(&name.as_str()) || grouped.contains(&found.record) {
-            return None;
+    fn shaped(
+        &mut self,
+        found: &Found,
+        element: &Placed,
+        grouped: &BTreeSet<usize>,
+        cx: &mut Cx,
+    ) -> Result<Option<()>, Error> {
+        match element {
+            Placed::Model(element) => count_shape(&element.shape, cx)?,
+            Placed::Paper(element) => count_shape(&element.shape, cx)?,
         }
-        let args = match element {
-            Placed::Model(element) => arguments(&element.shape)?,
-            Placed::Paper(element) => arguments(&element.shape)?,
-        };
-        if args.name != name {
-            return None;
+        let mut error = None;
+        let computed = (|| -> Option<()> {
+            let name = self.record(found.record)?.name.to_ascii_lowercase();
+            if !SHAPED.contains(&name.as_str()) || grouped.contains(&found.record) {
+                return None;
+            }
+            let args = match element {
+                Placed::Model(element) => arguments(&element.shape)?,
+                Placed::Paper(element) => arguments(&element.shape)?,
+            };
+            if args.name != name {
+                return None;
+            }
+            match self.writer.shape(found.record, &args, cx) {
+                Ok(value) => value,
+                Err(stop) => {
+                    error = Some(stop);
+                    None
+                }
+            }
+        })();
+        match error {
+            Some(error) => Err(error),
+            None => Ok(computed),
         }
-        self.writer.shape(found.record, &args)
     }
 
     /// 用紙に要素を足す。足したインスタンスの番号と、読み直したときの要素を返す
@@ -999,26 +1066,42 @@ impl<'f> Plan<'f> {
         &mut self,
         element: &Element<PaperPoint>,
         tables: &Tables,
-    ) -> Option<(u64, Element<PaperPoint>)> {
-        let mut element = element.clone();
-        let style = element.style;
-        if style.line_type_scale != 1.0 {
-            return None;
+        cx: &mut Cx,
+    ) -> Result<Option<(u64, Element<PaperPoint>)>, Error> {
+        count_element_copy(element, cx, 1)?;
+        count_shape(&element.shape, cx)?;
+        let mut error = None;
+        let computed = (|| -> Option<(u64, Element<PaperPoint>)> {
+            let mut element = element.clone();
+            let style = element.style;
+            if style.line_type_scale != 1.0 {
+                return None;
+            }
+            let mut args = arguments(&element.shape)?;
+            let (color, read) = tables.color(style.color)?;
+            element.style.color = Inherit::Own(read);
+            let codes = [
+                tables.layer(element.layer)?,
+                color,
+                tables.line_type(style.line_type)?,
+                tables.width(style.line_weight?)?,
+            ];
+            for (at, code) in codes.iter().enumerate() {
+                *args.values.get_mut(at)? = code.to_string();
+            }
+            let instance = match self.writer.add(&args, cx) {
+                Ok(value) => value?,
+                Err(stop) => {
+                    error = Some(stop);
+                    return None;
+                }
+            };
+            Some((instance, element))
+        })();
+        match error {
+            Some(error) => Err(error),
+            None => Ok(computed),
         }
-        let mut args = arguments(&element.shape)?;
-        let (color, read) = tables.color(style.color)?;
-        element.style.color = Inherit::Own(read);
-        let codes = [
-            tables.layer(element.layer)?,
-            color,
-            tables.line_type(style.line_type)?,
-            tables.width(style.line_weight?)?,
-        ];
-        for (at, code) in codes.iter().enumerate() {
-            *args.values.get_mut(at)? = code.to_string();
-        }
-        let instance = self.writer.add(&args)?;
-        Some((instance, element))
     }
 
     fn bytes(self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
@@ -1082,56 +1165,74 @@ impl<'f> Sfc<'f> {
 }
 
 impl Writer for Sfc<'_> {
-    fn codes(&mut self, record: usize, codes: &[(usize, i64)]) -> Option<()> {
-        for (at, code) in codes {
-            self.argument(record, *at, &code.to_string())?;
-        }
-        Some(())
+    fn codes(
+        &mut self,
+        record: usize,
+        codes: &[(usize, i64)],
+        _cx: &mut Cx,
+    ) -> Result<Option<()>, Error> {
+        Ok((|| {
+            for (at, code) in codes {
+                self.argument(record, *at, &code.to_string())?;
+            }
+            Some(())
+        })())
     }
 
-    fn shape(&mut self, record: usize, args: &Arguments) -> Option<()> {
-        for (at, text) in args.values.iter().enumerate().skip(4) {
-            self.argument(record, at, text)?;
-        }
-        Some(())
+    fn shape(
+        &mut self,
+        record: usize,
+        args: &Arguments,
+        _cx: &mut Cx,
+    ) -> Result<Option<()>, Error> {
+        Ok((|| {
+            for (at, text) in args.values.iter().enumerate().skip(4) {
+                self.argument(record, at, text)?;
+            }
+            Some(())
+        })())
     }
 
     /// フィーチャのコメントを、後の改行とともに除く
-    fn remove(&mut self, record: usize) -> Option<()> {
-        let span = self.file.records().get(record).map(crate::Record::span)?;
+    fn remove(&mut self, record: usize, _cx: &mut Cx) -> Result<Option<()>, Error> {
+        let Some(span) = self.file.records().get(record).map(crate::Record::span) else {
+            return Ok(None);
+        };
         self.patches
             .push((span.start..line_end(&self.file.src, span.end), Vec::new()));
-        Some(())
+        Ok(Some(()))
     }
 
-    fn add(&mut self, args: &Arguments) -> Option<u64> {
-        let (at, marker, before) = self.insert?;
-        let (_, open, close) = Marker::ALL
-            .iter()
-            .find(|(found, _, _)| *found == marker)
-            .copied()?;
-        let instance = self.next;
-        self.next = self.next.checked_add(1)?;
-        let nl = self.newline;
-        let values: Vec<String> = args
-            .values
-            .iter()
-            .map(|value| format!("'{value}'"))
-            .collect();
-        let feature = format!(
-            "{open}{nl}#{instance} = {}_feature({}){nl}{close}",
-            args.name,
-            values.join(","),
-            open = String::from_utf8_lossy(open),
-            close = String::from_utf8_lossy(close),
-        );
-        let text = if before {
-            format!("{feature}{nl}")
-        } else {
-            format!("{nl}{feature}")
-        };
-        self.patches.push((at..at, text.into_bytes()));
-        Some(instance)
+    fn add(&mut self, args: &Arguments, _cx: &mut Cx) -> Result<Option<u64>, Error> {
+        Ok((|| {
+            let (at, marker, before) = self.insert?;
+            let (_, open, close) = Marker::ALL
+                .iter()
+                .find(|(found, _, _)| *found == marker)
+                .copied()?;
+            let instance = self.next;
+            self.next = self.next.checked_add(1)?;
+            let nl = self.newline;
+            let values: Vec<String> = args
+                .values
+                .iter()
+                .map(|value| format!("'{value}'"))
+                .collect();
+            let feature = format!(
+                "{open}{nl}#{instance} = {}_feature({}){nl}{close}",
+                args.name,
+                values.join(","),
+                open = String::from_utf8_lossy(open),
+                close = String::from_utf8_lossy(close),
+            );
+            let text = if before {
+                format!("{feature}{nl}")
+            } else {
+                format!("{nl}{feature}")
+            };
+            self.patches.push((at..at, text.into_bytes()));
+            Some(instance)
+        })())
     }
 
     fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
@@ -1164,14 +1265,10 @@ fn patched(
     src: &[u8],
     cx: &mut Cx,
 ) -> Result<Vec<u8>, Error> {
-    let added = patches.iter().fold(0u64, |total, (_, bytes)| {
-        total.saturating_add(bytes.len() as u64)
-    });
-    work(
-        cx,
-        (src.len() as u64).saturating_add(added).div_ceil(1024),
-        &Ref::default(),
-    )?;
+    work(cx, 1 + src.len() as u64 / 1024, &Ref::default())?;
+    for (_, bytes) in &patches {
+        work(cx, 1 + bytes.len() as u64 / 1024, &Ref::default())?;
+    }
     patches.sort_by_key(|(range, _)| range.start);
     let mut out = Vec::with_capacity(src.len());
     let mut end = 0;
@@ -1189,6 +1286,40 @@ fn patched(
 struct Arguments {
     name: &'static str,
     values: Vec<String>,
+}
+
+/// 全種類の形を予算付きでたどり、その量に応じて複製・変換の作業も先に数える。
+fn count_element_copy<P: Encode>(
+    element: &Element<P>,
+    cx: &mut Cx,
+    copies: u64,
+) -> Result<(), Error> {
+    let before = cx.budget.used(Kind::Work);
+    Hash::element_checked(element, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(element.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    let traversed = cx.budget.used(Kind::Work).saturating_sub(before);
+    let source = element.source.id().map_or(0, str::len) as u64;
+    work(
+        cx,
+        traversed
+            .saturating_mul(copies)
+            .saturating_add(source / 1024),
+        &element.source,
+    )
+}
+
+/// 折線を複製し、座標を文字列にする前に点の走査を数える。
+fn count_shape<P>(shape: &Shape<P>, cx: &mut Cx) -> Result<(), Error> {
+    if let Shape::Polyline(line) = shape {
+        work(
+            cx,
+            (line.vertices.len() as u64).saturating_mul(3),
+            &Ref::default(),
+        )?;
+    }
+    Ok(())
 }
 
 /// 形を書く引数。数は、読み直すと同じ値になる最短の 10 進で書く
@@ -1253,4 +1384,72 @@ fn arguments<P: transform::Point>(shape: &Shape<P>) -> Option<Arguments> {
         _ => return None,
     };
     Some(Arguments { name, values })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Limit, Limits};
+    use zumen_drawing::{SheetId, Vertex};
+
+    #[test]
+    fn copying_large_shapes_is_checked_before_copying() {
+        let point = PaperPoint {
+            sheet: SheetId(0),
+            x: 1.0,
+            y: 2.0,
+        };
+        let element = Element {
+            layer: LayerId(0),
+            style: Style {
+                color: Inherit::Layer,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+            },
+            shape: Shape::Polyline(Polyline {
+                vertices: vec![Vertex { point, bulge: 0.0 }; 100],
+                closed: false,
+                width: None,
+                vertex_widths: Vec::new(),
+            }),
+            source: Ref::default(),
+        };
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        count_element_copy(
+            &element,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            2,
+        )
+        .unwrap();
+        let amount = budget.used(Kind::Work);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(amount - 1)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(matches!(
+            count_element_copy(
+                &element,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                2
+            ),
+            Err(Error::Stopped(_))
+        ));
+    }
+
+    #[test]
+    fn copying_a_large_unmodified_range_is_checked() {
+        let src = vec![b'x'; 8192];
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        assert!(matches!(
+            patched(
+                Vec::new(),
+                &src,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+    }
 }

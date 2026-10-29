@@ -231,6 +231,29 @@ fn read_with(src: &[u8], kind: Kind, limit: u64) -> (Result<SxfFile, Error>, Dia
 }
 
 #[test]
+fn copying_a_large_source_counts_work() {
+    let make = |length| {
+        format!(
+            "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\n/*{}*/\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+            "x".repeat(length)
+        )
+    };
+    let short = make(1);
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    Sxf::read(
+        short.as_bytes(),
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    let used = budget.used(Kind::Work);
+    let long = make(100_000);
+    let (result, _) = read_with(long.as_bytes(), Kind::Work, used);
+    assert!(matches!(result, Err(Error::Stopped(_))));
+}
+
+#[test]
 fn stopping_for_the_budget_names_the_record() {
     let (result, diag) = read_with(SFC, Kind::Records, 7);
     assert!(matches!(result, Err(Error::Stopped(Stop::Exceeded(_)))));

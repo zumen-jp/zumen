@@ -153,6 +153,41 @@ fn sxf_color(value: u32) -> Inherit<Color> {
 }
 
 #[test]
+fn comparing_unchanged_elements_counts_their_contents() {
+    use zumen_base::{Kind, Limit, Limits};
+    let points = (0..512)
+        .map(|i| if i % 2 == 0 { "#400" } else { "#410" })
+        .collect::<Vec<_>>()
+        .join(",");
+    let input = String::from_utf8(src()).unwrap().replace(
+        "#430=POLYLINE(' ',(#400,#410,#420));",
+        &format!("#430=POLYLINE(' ',({points}));"),
+    );
+    let run = |limit: Option<u64>| {
+        let mut file = read(input.as_bytes());
+        let mut budget = Budget::new(limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        }));
+        let mut diagnostics = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                edits: Vec::new(),
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (result, budget.used(Kind::Work), write(&file))
+    };
+    let (result, used, _) = run(None);
+    assert!(result.is_ok(), "{result:?}");
+    // 読み直し後の、変更しない折線の複製と比較も数える。
+    assert!(used > 8_000, "{used}");
+    let (result, _, written) = run(Some(4_000));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, input.as_bytes());
+}
+
+#[test]
 fn edits_are_written_into_the_instances() {
     let src = src();
     let mut file = read(&src);
