@@ -3874,3 +3874,372 @@ fn spline_replacement_keeps_existing_control_points_and_fit_points() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+#[test]
+fn additions_return_ids_after_unkeyed_sheet_numbers_change() {
+    use zumen_drawing::{Changes as ChangesById, Edit as EditById, Hash, PaperPoint, Placed, id};
+    let input = String::from_utf8(empty_sheet_source(true, "1", false)).unwrap();
+    let input = input
+        .replace("  0\nLAYOUT\n  5\nD1\n", "  0\nLAYOUT\n")
+        .into_bytes();
+    let mut file = testkit::read::<Dxf>(&input).0.unwrap();
+    let before = lift(&file);
+    let sheet = &before.sheets[0];
+    let place = id::sheet(sheet);
+    assert_eq!(place, "sheet/1");
+    let template = addition_element(newcomers().remove(0));
+    let element = |x| Element {
+        source: Ref::default(),
+        layer: template.layer,
+        style: template.style,
+        shape: Shape::Line {
+            start: PaperPoint {
+                sheet: sheet.id,
+                x,
+                y: 10.0,
+            },
+            end: PaperPoint {
+                sheet: sheet.id,
+                x: x + 5.0,
+                y: 30.0,
+            },
+        },
+    };
+    let edits = [5.0, 10.0]
+        .into_iter()
+        .map(|x| EditById::Add {
+            place: place.clone(),
+            element: Box::new(Placed::Paper(element(x))),
+        })
+        .collect();
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let changes = ChangesById {
+        document: None,
+        edits,
+    };
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    let sheet = &after.sheets[0];
+    let actual_place = id::sheet(sheet);
+    assert_eq!(actual_place, "sheet/0");
+    let mut namer = id::Namer::new(&actual_place);
+    assert_eq!(result.len(), 2);
+    for (index, (applied, element)) in result.iter().zip(&sheet.elements).enumerate() {
+        assert_eq!(
+            applied.id.as_deref(),
+            Some(namer.next(index, element).as_str())
+        );
+        assert_eq!(applied.hash, Some(Hash::element(element)));
+    }
+    // 返された ID とハッシュを、読み直さずに次の変更の前提に使える
+    let target = zumen_drawing::Seen {
+        id: result[0].id.clone().unwrap(),
+        hash: result[0].hash.unwrap(),
+    };
+    let mut next_budget = Budget::default();
+    let mut next_diagnostics = Diagnostics::new();
+    let next = zumen_sdk::Apply::apply(
+        &mut file,
+        &ChangesById {
+            document: None,
+            edits: vec![EditById::Transform {
+                target,
+                transform: zumen_drawing::Affine {
+                    m: [1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
+                },
+            }],
+        },
+        &mut Cx::new(&mut next_budget, &mut next_diagnostics, &cancel),
+    )
+    .unwrap();
+    assert_eq!(next[0].id, result[0].id);
+    assert!(next[0].hash.is_some());
+    assert_ne!(next[0].hash, result[0].hash);
+
+    // 索引を作る途中を含め、どの作業量で止まっても元のファイルを変えない
+    for limit in 0..budget.used(zumen_base::Kind::Work) {
+        let mut stopped = testkit::read::<Dxf>(&input).0.unwrap();
+        let mut limited = Budget::new(
+            zumen_base::Limits::default()
+                .with(zumen_base::Kind::Work, zumen_base::Limit::Finite(limit)),
+        );
+        let mut stopped_diagnostics = Diagnostics::new();
+        let stopped_result = zumen_sdk::Apply::apply(
+            &mut stopped,
+            &changes,
+            &mut Cx::new(&mut limited, &mut stopped_diagnostics, &cancel),
+        );
+        assert!(
+            matches!(stopped_result, Err(Error::Stopped(_))),
+            "work={limit}"
+        );
+        assert_eq!(
+            testkit::write::<Dxf>(&stopped).unwrap(),
+            input,
+            "work={limit}"
+        );
+    }
+}
+
+#[test]
+fn changed_elements_return_ids_after_another_sheet_is_emptied() {
+    use zumen_drawing::{Affine, Changes as ChangesById, Edit as EditById, Hash, Seen, id};
+    let tags = |values: &[(i16, &str)]| {
+        values
+            .iter()
+            .map(|(c, v)| format!("{c:>3}\n{v}\n"))
+            .collect::<String>()
+    };
+    let mut input = String::from_utf8(empty_sheet_source(false, "1", false)).unwrap();
+    let end_record = tags(&[(2, "*Paper_Space0"), (0, "ENDTAB")]);
+    let second_record = tags(&[
+        (2, "*Paper_Space0"),
+        (0, "BLOCK_RECORD"),
+        (5, "C6"),
+        (2, "*Paper_Space1"),
+        (0, "ENDTAB"),
+    ]);
+    assert!(input.contains(&end_record));
+    input = input.replacen(&end_record, &second_record, 1);
+    let end_block = tags(&[(0, "ENDBLK"), (5, "C4"), (330, "C1"), (0, "ENDSEC")]);
+    let blocks = tags(&[
+        (0, "LINE"),
+        (5, "C7"),
+        (330, "C1"),
+        (8, "0"),
+        (67, "1"),
+        (10, "1"),
+        (20, "1"),
+        (11, "2"),
+        (21, "2"),
+        (0, "ENDBLK"),
+        (5, "C4"),
+        (330, "C1"),
+        (0, "BLOCK"),
+        (5, "C9"),
+        (330, "C6"),
+        (2, "*Paper_Space1"),
+        (70, "0"),
+        (10, "0"),
+        (20, "0"),
+        (0, "LINE"),
+        (5, "C8"),
+        (330, "C6"),
+        (8, "0"),
+        (67, "1"),
+        (10, "2"),
+        (20, "2"),
+        (11, "3"),
+        (21, "3"),
+        (0, "ENDBLK"),
+        (5, "CA"),
+        (330, "C6"),
+        (0, "ENDSEC"),
+    ]);
+    assert!(input.contains(&end_block));
+    input = input.replacen(&end_block, &blocks, 1);
+    let end_layout = tags(&[(330, "C1"), (0, "ENDSEC"), (0, "EOF")]);
+    let layouts = tags(&[
+        (330, "C1"),
+        (0, "LAYOUT"),
+        (330, "1A"),
+        (100, "AcDbPlotSettings"),
+        (1, ""),
+        (100, "AcDbLayout"),
+        (1, "Other"),
+        (71, "2"),
+        (10, "7.0"),
+        (20, "11.0"),
+        (11, "17.0"),
+        (21, "21.0"),
+        (330, "C6"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    assert!(input.contains(&end_layout));
+    input = input.replacen(&end_layout, &layouts, 1);
+    input = input.replace("  0\nLAYOUT\n  5\nD1\n", "  0\nLAYOUT\n");
+    let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+    let before = lift(&file);
+    let sheet_a = before
+        .sheets
+        .iter()
+        .find(|s| s.name.as_deref() == Some("Paper"))
+        .unwrap();
+    let sheet_b = before
+        .sheets
+        .iter()
+        .find(|s| s.name.as_deref() == Some("Other"))
+        .unwrap();
+    let target = |sheet: &zumen_drawing::Sheet| {
+        let id = id::Namer::new(&id::sheet(sheet)).next(0, &sheet.elements[0]);
+        Seen {
+            id,
+            hash: Hash::element(&sheet.elements[0]),
+        }
+    };
+    let first = target(sheet_a);
+    let second = target(sheet_b);
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &ChangesById {
+            document: None,
+            edits: vec![
+                EditById::Remove { target: first },
+                EditById::Transform {
+                    target: second.clone(),
+                    transform: Affine {
+                        m: [1.0, 0.0, 2.0, 0.0, 1.0, 3.0],
+                    },
+                },
+            ],
+        },
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    let sheet = after
+        .sheets
+        .iter()
+        .find(|s| s.name.as_deref() == Some("Other"))
+        .unwrap();
+    let updated = target(sheet);
+    assert_ne!(updated.id, second.id);
+    assert_eq!(result[0].id, None);
+    assert_eq!(result[1].id.as_deref(), Some(updated.id.as_str()));
+    assert_eq!(result[1].hash, Some(updated.hash));
+}
+
+#[test]
+fn additions_to_two_unkeyed_empty_sheets_return_their_new_ids() {
+    use zumen_drawing::{Changes as ChangesById, Edit as EditById, Hash, PaperPoint, Placed, id};
+    let tags = |values: &[(i16, &str)]| {
+        values
+            .iter()
+            .map(|(c, v)| format!("{c:>3}\n{v}\n"))
+            .collect::<String>()
+    };
+    let mut input = String::from_utf8(empty_sheet_source(true, "1", false)).unwrap();
+    let old = tags(&[(2, "*Paper_Space"), (0, "ENDTAB")]);
+    let new = tags(&[
+        (2, "*Paper_Space"),
+        (0, "BLOCK_RECORD"),
+        (5, "C6"),
+        (2, "*Paper_Space0"),
+        (0, "ENDTAB"),
+    ]);
+    assert!(input.contains(&old));
+    input = input.replacen(&old, &new, 1);
+    let old = tags(&[(0, "ENDBLK"), (5, "C4"), (330, "C1"), (0, "ENDSEC")]);
+    let new = tags(&[
+        (0, "ENDBLK"),
+        (5, "C4"),
+        (330, "C1"),
+        (0, "BLOCK"),
+        (5, "C9"),
+        (330, "C6"),
+        (2, "*Paper_Space0"),
+        (70, "0"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ENDBLK"),
+        (5, "CA"),
+        (330, "C6"),
+        (0, "ENDSEC"),
+    ]);
+    assert!(input.contains(&old));
+    input = input.replacen(&old, &new, 1);
+    let old = tags(&[(330, "C1"), (0, "ENDSEC"), (0, "EOF")]);
+    let new = tags(&[
+        (330, "C1"),
+        (0, "LAYOUT"),
+        (330, "1A"),
+        (100, "AcDbPlotSettings"),
+        (1, ""),
+        (100, "AcDbLayout"),
+        (1, "Other"),
+        (71, "2"),
+        (10, "7.0"),
+        (20, "11.0"),
+        (11, "17.0"),
+        (21, "21.0"),
+        (330, "C6"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    assert!(input.contains(&old));
+    input = input
+        .replacen(&old, &new, 1)
+        .replace("  0\nLAYOUT\n  5\nD1\n", "  0\nLAYOUT\n");
+    let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+    let before = lift(&file);
+    let template = addition_element(newcomers().remove(0));
+    let edits = ["Paper", "Other"]
+        .into_iter()
+        .map(|name| {
+            let sheet = before
+                .sheets
+                .iter()
+                .find(|s| s.name.as_deref() == Some(name))
+                .unwrap();
+            let element = Element {
+                source: Ref::default(),
+                layer: template.layer,
+                style: template.style,
+                shape: Shape::Line {
+                    start: PaperPoint {
+                        sheet: sheet.id,
+                        x: 5.0,
+                        y: 10.0,
+                    },
+                    end: PaperPoint {
+                        sheet: sheet.id,
+                        x: 10.0,
+                        y: 30.0,
+                    },
+                },
+            };
+            EditById::Add {
+                place: id::sheet(sheet),
+                element: Box::new(Placed::Paper(element)),
+            }
+        })
+        .collect();
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &ChangesById {
+            document: None,
+            edits,
+        },
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    for (name, applied) in ["Paper", "Other"].into_iter().zip(result) {
+        let sheet = after
+            .sheets
+            .iter()
+            .find(|s| s.name.as_deref() == Some(name))
+            .unwrap();
+        let element = &sheet.elements[0];
+        let actual = id::Namer::new(&id::sheet(sheet)).next(0, element);
+        assert_eq!(applied.id.as_deref(), Some(actual.as_str()));
+        assert_eq!(applied.hash, Some(Hash::element(element)));
+    }
+}
