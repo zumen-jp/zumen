@@ -1778,7 +1778,7 @@ pub struct TextGeometry {
     pub height: f64,
     /// 回転（度）
     pub rotation: f64,
-    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。小版 12 から
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から
     pub style: Option<String>,
 }
 

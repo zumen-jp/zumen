@@ -476,7 +476,7 @@
         "position": { "description": "基点 [X, Y]", "type": "array", "items": { "type": "number" } },
         "height": { "description": "高さ。0 より大きい", "type": "number" },
         "rotation": { "description": "回転（度）", "type": "number" },
-        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。小版 12 から", "type": "string" }
+        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false

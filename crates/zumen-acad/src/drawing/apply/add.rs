@@ -159,11 +159,15 @@ impl Born {
     }
 
     /// 表の `table` の、名前 `name` の定義を指す値。名前は大文字と小文字を区別せずに引き、定義の名前を書く。
-    /// 定義がなければ `None`。DXF で、その表を持たない図面なら、名前だけで指す
+    /// 定義がなければ `None`。DXF で定義がないときは名前だけで指すが、文字スタイルは既定の Standard に限る
     fn named(&self, code: i16, table: &[u8], name: &str) -> Option<Value> {
         let name = match self.names.get(table) {
             Some(names) => names.get(&name.to_lowercase())?,
-            None if self.target == Target::Dxf => name,
+            None if self.target == Target::Dxf
+                && (table != b"STYLE" || name.eq_ignore_ascii_case("Standard")) =>
+            {
+                name
+            }
             None => return None,
         };
         self.string(code, name)

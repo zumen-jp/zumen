@@ -2142,6 +2142,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_missing_text_style_without_a_style_table() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = seen(&mut session, "a.dxf");
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"text","content":"A","position":[0,0],"height":2,"rotation":0,"style":"Missing"}}]}"#,
+        );
+        assert_eq!(status, Status::Failed, "{response:?}");
+        assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+        assert_eq!(seen(&mut session, "a.dxf"), before);
+    }
+
+    #[test]
+    fn adds_text_with_a_defined_style() {
+        let dxf = String::from_utf8(EDITABLE.to_vec()).unwrap().replace(
+            "0\nSECTION\n2\nENTITIES\n",
+            "0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nSTYLE\n0\nSTYLE\n2\nCustom\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n",
+        );
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", dxf.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"text","content":"A","position":[0,0],"height":2,"rotation":0,"style":"custom"}}]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert!(shapes(&mut session, "a.dxf")[3].contains(r#""style":"Custom""#));
+    }
+
+    #[test]
     fn adds_texts_and_keeps_their_style_when_replacing() {
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", EDITABLE).unwrap();
