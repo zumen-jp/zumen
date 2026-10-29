@@ -271,6 +271,37 @@ pub(super) fn rename(db: &mut AcadDb, old: &[u8], new: &Value, target: Target) {
     }
 }
 
+/// 除く画層のレコード `record`（表の `position`）を、ほかが指しているか。要素の画層（DXF は名前の 8、DWG はハンドル）、
+/// XDATA の画層の名前（1003）、ほかのオブジェクトのハンドル（ビューポートの凍結・画層の状態・画層の索引など）、
+/// 見出しの変数（今の画層）を見る。表のオブジェクト（TABLE）の項目の並びは、書き戻しが直すので見ない
+pub(super) fn referenced(db: &AcadDb, position: usize, record: &Object) -> bool {
+    let Some(name) = name_of(record) else {
+        return true;
+    };
+    let handle = record.handle();
+    let points = |value: &Value| match &value.data {
+        Data::Handle(found) => handle == Some(*found),
+        Data::Text(text) => matches!(value.code, 8 | 1003) && text.eq_ignore_ascii_case(name),
+        _ => false,
+    };
+    let by_objects = db.objects().iter().enumerate().any(|(at, object)| {
+        at != position && object.kind != b"TABLE" && object.values.iter().any(points)
+    });
+    by_objects || db.variables().any(|(_, values)| values.iter().any(points))
+}
+
+/// 除ける画層のレコードか。0・Defpoints・外部参照に依る画層と、ハンドルを持たない（ID が並びの順で決まり、
+/// 除くと後の画層の ID が変わる）レコードと、拡張辞書か反応子を持つレコードは除かない
+pub(super) fn removable(record: &Object) -> bool {
+    name_of(record).is_some_and(|name| !fixed_name(name))
+        && !external(record)
+        && record.handle().is_some_and(|handle| handle != 0)
+        && !record
+            .values
+            .iter()
+            .any(|value| matches!(value.code, 102 | 360))
+}
+
 /// DXF の画層の表の終わり（ENDTAB）の位置。足すレコードは、その前に置く
 pub(super) fn table_end(db: &AcadDb) -> Option<usize> {
     let objects = db.objects();

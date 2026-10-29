@@ -34,7 +34,7 @@ AutoCAD の系統のファイルモデル（L1）として DWG を読む規則�
 - オブジェクトの置き換え・除き・足しは、展開した `AcDb:AcDbObjects` の後ろに R2000 と同じ形で足し、`AcDb:Handles` を区切りの初めからの位置で作り直して、区切りを置き換える（決定 0071）。`AcDb:ObjFreeSpace` は直さない。見出しの変数の HANDSEED・INSUNITS・PLIMMIN・PLIMMAX の変更は、展開した `AcDb:Header` の中で R2000 と同じく大きさを変えずに書き直し、区切りを置き換える（決定 0078）。
 - 共有の表の変更は、図形の値の変更のうち、共通の欄と、型ごとの欄が R2000 と同じ種類（LINE・CIRCLE・ARC・POINT・ELLIPSE・RAY・XLINE・SOLID・TRACE・3DFACE・TEXT）だけを書き戻す（決定 0072）。色を変えるときは、透明度を写し、RGB の値か DBCOLOR を持つ色は変えない。
 - ATTRIB・ATTDEF・LWPOLYLINE・SPLINE・DIMENSION・TOLERANCE・LEADER・MLINE・SHAPE・VERTEX・INSERT・MTEXT・VIEWPORT の型ごとの欄も書き戻す（決定 0073）。属性を持つ INSERT の持つオブジェクトの数と、MTEXT の背景の欄は、元のビットを写す。HATCH は、初めのグラデーションの欄を元のビットのまま写す（決定 0074）。MINSERT・POLYLINE は、まだ書き戻さない。
-- 表のレコード（LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE）の欄も書き戻す。色の欄は、変わらなければ元のビットを写し、変わったものは番号の形の CMC で書く（決定 0075）。R2010 より前の LAYER は、名前も書き直せる（決定 0162）。図形でないオブジェクトも、GROUP・DICTIONARYVAR・DICTIONARY・MLINESTYLE・XRECORD の欄を書き戻す（決定 0076）。LAYOUT も、R2004 の欄の並びで書き戻す（決定 0082）。
+- 表のレコード（LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE）の欄も書き戻す。色の欄は、変わらなければ元のビットを写し、変わったものは番号の形の CMC で書く（決定 0075）。R2010 より前の LAYER は、名前も書き直せる（決定 0162）。除いた LAYER は、画層の表のオブジェクトの項目の並びからも除いて書き戻す（決定 0162）。図形でないオブジェクトも、GROUP・DICTIONARYVAR・DICTIONARY・MLINESTYLE・XRECORD の欄を書き戻す（決定 0076）。LAYOUT も、R2004 の欄の並びで書き戻す（決定 0082）。
 - 表から除いた図形も書き戻す。R2004 の図形は前後の図形のハンドルを持たないので、所有者のブロックのレコードの持つ図形の数（BL）とハンドルを直す（決定 0077）。
 - 表の終わりに足した、すでにあるブロックの単純な図形・MTEXT・属性を持たない INSERT も書き戻す。R2004 の共通の欄で符号化し、所有者のブロックのレコードの持つ図形に加え、HANDSEED を進める（決定 0079）。属性を持つ INSERT は、型ごとの欄の終わりに ATTRIB の数（BL）を書き、すべての ATTRIB のハンドルを持たせる（決定 0080）。MINSERT・表のレコード・ブロックの足しは、まだ書き戻さない。
 - 足した表のレコード（画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビュー・ビューポートの設定・ブロックのレコード）も書き戻す。反応子の数の後に拡張辞書を持たない印を立て、画層と寸法の体裁の色を CMC で書く。ブロックのレコードは、持つ図形の数（BL）と、持つ図形のハンドルをみな固い所有で書く（決定 0081）。

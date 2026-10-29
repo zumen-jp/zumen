@@ -286,7 +286,7 @@ fn edit(
     let mut added_layers = Vec::new();
     let mut renames = Vec::new();
     for change in &changes.edits {
-        if let Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } = change
+        if let Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } = change
             && layer_records.is_none()
         {
             let mut records = Vec::new();
@@ -358,6 +358,64 @@ fn edit(
                     None => {
                         cx.report(
                             unsupported("replace_layer", "LAYER", target).at(was.source.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::RemoveLayer { target: target_of } => {
+                let Some(&was) = index.layers.get(&target_of.id) else {
+                    missing(&target_of.id, cx);
+                    rejected = true;
+                    continue;
+                };
+                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
+                            .with("id", target_of.id.as_str()),
+                    );
+                    rejected = true;
+                    continue;
+                }
+                // 同じ一覧で足す要素とスタイルを変える要素も、除くレイヤを指せない
+                let pointed = changes.edits.iter().any(|other| match other {
+                    Edit::Add { element, .. } => match element.as_ref() {
+                        Placed::Model(element) => element.layer == was.id,
+                        Placed::Paper(element) => element.layer == was.id,
+                    },
+                    Edit::Restyle { style, .. } => style.layer == Some(was.id),
+                    _ => false,
+                });
+                let found = (targets.insert(target_of.id.as_str())
+                    && was.source != Ref::default()
+                    && !pointed)
+                    .then(|| {
+                        records.iter().copied().find(|&position| {
+                            db.objects()
+                                .get(position)
+                                .is_some_and(|object| source(object) == was.source)
+                        })
+                    })
+                    .flatten();
+                if found.is_some() {
+                    work(cx, db.objects().len() as u64, &was.source)?;
+                }
+                let planned = found.filter(|&position| {
+                    db.objects().get(position).is_some_and(|object| {
+                        layer::removable(object) && !layer::referenced(db, position, object)
+                    })
+                });
+                match planned {
+                    Some(position) => {
+                        if let Some(name) = db.objects().get(position).and_then(layer::name_of) {
+                            layer_names.remove(&name.to_ascii_lowercase());
+                        }
+                        removed.push(position);
+                    }
+                    None => {
+                        cx.report(
+                            unsupported("remove_layer", "LAYER", target).at(was.source.clone()),
                         );
                         rejected = true;
                     }
@@ -608,7 +666,13 @@ fn edit(
                     })
             }
             (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
-            (Edit::Add { .. } | Edit::ReplaceLayer { .. } | Edit::AddLayer { .. }, _) => None,
+            (
+                Edit::Add { .. }
+                | Edit::ReplaceLayer { .. }
+                | Edit::AddLayer { .. }
+                | Edit::RemoveLayer { .. },
+                _,
+            ) => None,
         };
         if planned.is_none() {
             cx.report(unsupported(edit, &text(&object.kind), target).at(at.clone()));
@@ -661,7 +725,7 @@ fn edit(
                 .next()
                 .flatten()
                 .map(|handle| format!("{place}/h{handle:X}")),
-            Edit::Remove { .. } => None,
+            Edit::Remove { .. } | Edit::RemoveLayer { .. } => None,
             Edit::ReplaceLayer { target, .. } => Some(target.id.clone()),
             Edit::AddLayer { .. } => layer_handles
                 .next()

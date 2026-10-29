@@ -3066,6 +3066,8 @@ pub enum Edit {
     Layer(LayerEdit),
     /// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
     AddLayer(AddLayerEdit),
+    /// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
+    RemoveLayer(RemoveLayerEdit),
 }
 
 impl Edit {
@@ -3078,6 +3080,7 @@ impl Edit {
         "add",
         "layer",
         "add_layer",
+        "remove_layer",
     ];
 
     /// 目印の欄（`kind`）の値
@@ -3090,6 +3093,7 @@ impl Edit {
             Self::Add(_) => "add",
             Self::Layer(_) => "layer",
             Self::AddLayer(_) => "add_layer",
+            Self::RemoveLayer(_) => "remove_layer",
         }
     }
 }
@@ -3105,6 +3109,7 @@ impl FromJson for Edit {
             "add" => Self::Add(AddEdit::read_fields(&mut object)?),
             "layer" => Self::Layer(LayerEdit::read_fields(&mut object)?),
             "add_layer" => Self::AddLayer(AddLayerEdit::read_fields(&mut object)?),
+            "remove_layer" => Self::RemoveLayer(RemoveLayerEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -3122,6 +3127,7 @@ impl ToJson for Edit {
             Self::Add(value) => value.to_json(out),
             Self::Layer(value) => value.to_json(out),
             Self::AddLayer(value) => value.to_json(out),
+            Self::RemoveLayer(value) => value.to_json(out),
         }
     }
 }
@@ -3530,6 +3536,50 @@ impl FromJson for LayerEdit {
 }
 
 impl ToJson for LayerEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoveLayerEdit {
+    /// 除くレイヤの ID。tables が返したもの
+    pub id: String,
+    /// 読んだときのレイヤのハッシュ。tables が返したもの
+    pub hash: String,
+}
+
+impl RemoveLayerEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "remove_layer")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { id, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("remove_layer");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for RemoveLayerEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RemoveLayerEdit {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
