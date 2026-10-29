@@ -12,9 +12,9 @@ use crate::{
     Affine, Arrowhead, Attribute, AttributeValue, Axis, Background, BackgroundFill, Border,
     Borders, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, CellData, CellFormat,
     CellValue, Clip, Color, ColorCode, ColorSystem, DateTime, Dimension, DimensionKind,
-    DimensionText, Dogleg, Edge, Element, Fill, Fit, Flow, Font, FontKind, Format, FormattedText,
-    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
-    Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
+    DimensionStyle, DimensionText, Dogleg, Edge, Element, Fill, Fit, Flow, Font, FontKind, Format,
+    FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit,
+    Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
     LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured,
     ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
     PatternOrigin, Piece, Placement, Polyline, Resource, Rotation, Scaled, Shape, SheetId, SpaceId,
@@ -62,6 +62,11 @@ impl Hash {
     /// 予算と中断の合図を確かめながら線種をハッシュする
     pub fn line_type_checked(line_type: &LineType, cx: &mut Cx<'_>) -> Result<Self, Stop> {
         Self::of_checked(b"line-type", cx, |out| line_type.encode(out))
+    }
+
+    /// 予算と中断の合図を確かめながら寸法スタイルをハッシュする
+    pub fn dimension_style_checked(style: &DimensionStyle, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        Self::of_checked(b"dimension-style", cx, |out| style.encode(out))
     }
 
     fn of_checked(
@@ -116,6 +121,11 @@ impl Hash {
     /// 線種のハッシュ。出所は鍵だけを入れる
     pub fn line_type(line_type: &LineType) -> Self {
         Self::of(b"line-type", |out| line_type.encode(out))
+    }
+
+    /// 寸法スタイルのハッシュ。出所は鍵だけを入れる
+    pub fn dimension_style(style: &DimensionStyle) -> Self {
+        Self::of(b"dimension-style", |out| style.encode(out))
     }
 
     fn of(domain: &[u8], body: impl FnOnce(&mut Canon<'_>)) -> Self {
@@ -386,6 +396,7 @@ records! {
     Color { code, rgb }
     ColorCode { system, value }
     LineType { id, name, definition, source }
+    DimensionStyle { name, ends, leader, size, tick, scale, source }
     LineTypeDefinition { description, pattern, basis, marks }
     LineTypeMark { index, content, scale, rotation, rotation_basis, offset }
     ModelPoint { space, x, y }
@@ -1091,6 +1102,15 @@ mod tests {
             }),
             source: Ref::default(),
         };
+        let dimension = DimensionStyle {
+            name: "x".repeat(65536),
+            ends: [Arrowhead::Default, Arrowhead::Default],
+            leader: Arrowhead::Default,
+            size: 1.0,
+            tick: None,
+            scale: 1.0,
+            source: Ref::default(),
+        };
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
         let mut budget = Budget::default();
@@ -1103,11 +1123,21 @@ mod tests {
             Hash::line_type_checked(&line_type, &mut cx).unwrap(),
             Hash::line_type(&line_type)
         );
+        assert_eq!(
+            Hash::dimension_style_checked(&dimension, &mut cx).unwrap(),
+            Hash::dimension_style(&dimension)
+        );
 
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
         let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
         assert!(matches!(
             Hash::line_type_checked(&line_type, &mut cx),
+            Err(Stop::Exceeded(_))
+        ));
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(matches!(
+            Hash::dimension_style_checked(&dimension, &mut cx),
             Err(Stop::Exceeded(_))
         ));
         cancel.cancel();

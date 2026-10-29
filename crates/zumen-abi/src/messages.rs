@@ -2161,6 +2161,8 @@ pub struct TablesResult {
     pub layers: Vec<TableItem>,
     /// 線種
     pub line_types: Vec<TableItem>,
+    /// 寸法スタイル
+    pub dimension_styles: Vec<TableItem>,
 }
 
 impl TablesResult {
@@ -2169,7 +2171,14 @@ impl TablesResult {
         let line_types = object.required("line_types", |value| {
             json::array(value, TableItem::from_json)
         })?;
-        Ok(Self { layers, line_types })
+        let dimension_styles = object.required("dimension_styles", |value| {
+            json::array(value, TableItem::from_json)
+        })?;
+        Ok(Self {
+            layers,
+            line_types,
+            dimension_styles,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -2177,6 +2186,8 @@ impl TablesResult {
         out.array(&self.layers, |out, item| item.to_json(out));
         out.key("line_types");
         out.array(&self.line_types, |out, item| item.to_json(out));
+        out.key("dimension_styles");
+        out.array(&self.dimension_styles, |out, item| item.to_json(out));
     }
 }
 
@@ -2200,7 +2211,7 @@ impl ToJson for TablesResult {
 /// 表の項目
 #[derive(Clone, Debug, PartialEq)]
 pub struct TableItem {
-    /// ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）
+    /// ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。寸法スタイルは dimension-style/h1A か、寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）
     pub id: String,
     /// 元の名前。翻訳しない
     pub name: String,
