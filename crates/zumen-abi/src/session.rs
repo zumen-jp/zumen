@@ -1513,6 +1513,11 @@ mod tests {
         let hash = text(&response, "/result/applied/0/hash");
         let bytes = session.take(0).unwrap();
         assert_eq!(document, Hash::document(&bytes).to_string());
+        let (status, rejected) = call(&mut session, &request(&id, &before[0].1, &document));
+        assert_eq!(status, Status::Failed, "{rejected:?}");
+        assert_eq!(text(&error(&rejected), "/code"), "change.element.stale");
+        assert_eq!(rejected.pointer("/blobs"), Some(&Value::Array(Vec::new())));
+        assert!(session.take(0).is_none());
         let (status, response) = call(&mut session, &request(&id, &hash, &document));
         assert_eq!(status, Status::Ok, "{response:?}");
         let second = text(&response, "/result/applied/0/hash");
