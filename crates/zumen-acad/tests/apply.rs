@@ -3236,6 +3236,90 @@ fn transforms_mirror_texts_and_attributes_by_turning_them_upside_down() {
 }
 
 #[test]
+fn gridded_symbol_transforms_preserve_each_instance_geometry() {
+    use zumen_drawing::{Affine, Grid, ModelLength, Symbol};
+    fn placed(symbol: &Symbol<ModelPoint>, column: u32, row: u32, local: [f64; 2]) -> [f64; 2] {
+        let Some(Grid {
+            column_spacing: Length::Model(ModelLength { value: dx, .. }),
+            row_spacing: Length::Model(ModelLength { value: dy, .. }),
+            ..
+        }) = &symbol.grid
+        else {
+            panic!("grid")
+        };
+        let angle = symbol.rotation.to_radians();
+        let (sin, cos) = (libm::sin(angle), libm::cos(angle));
+        let x = local[0] * symbol.scale[0] + f64::from(column) * dx;
+        let y = local[1] * symbol.scale[1] + f64::from(row) * dy;
+        [
+            symbol.position.x + x * cos - y * sin,
+            symbol.position.y + x * sin + y * cos,
+        ]
+    }
+    let src = String::from_utf8(inserts())
+        .unwrap()
+        .replace(" 42\n2.0\n 43\n2.0\n", " 42\n-3.0\n 43\n2.0\n")
+        .replace(
+            " 50\n30.0\n",
+            " 50\n30.0\n 70\n3\n 71\n2\n 44\n6.0\n 45\n-4.0\n",
+        );
+    for affine in [
+        Affine {
+            m: [0.0, -2.0, 4.0, -2.0, 0.0, 3.0],
+        },
+        Affine {
+            m: [0.0, -2.0, 4.0, 2.0, 0.0, 3.0],
+        },
+    ] {
+        let mut file = testkit::read::<Dxf>(src.as_bytes()).0.unwrap();
+        let before = seen(&lift(&file));
+        let (target, original) = &before[1];
+        let Shape::Symbol(before_symbol) = &original.shape else {
+            panic!("symbol")
+        };
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let applied = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![zumen_drawing::Edit::Transform {
+                    target: target.clone(),
+                    transform: affine,
+                }],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        let after = seen(&lift(
+            &testkit::read::<Dxf>(&testkit::write::<Dxf>(&file).unwrap())
+                .0
+                .unwrap(),
+        ));
+        let (after_id, after_element) = &after[1];
+        let Shape::Symbol(after_symbol) = &after_element.shape else {
+            panic!("symbol")
+        };
+        for column in 0..3 {
+            for row in 0..2 {
+                for point in [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]] {
+                    let [x, y] = placed(before_symbol, column, row, point);
+                    let [a, b, c, d, e, f] = affine.m;
+                    let expected = [a * x + b * y + c, d * x + e * y + f];
+                    let actual = placed(after_symbol, column, row, point);
+                    assert!(
+                        (actual[0] - expected[0]).abs() < 1e-9
+                            && (actual[1] - expected[1]).abs() < 1e-9,
+                        "{column} {row} {point:?}: {actual:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(applied[0].hash, Some(after_id.hash));
+    }
+}
+
+#[test]
 fn transforms_scale_grid_spacings_and_flip_rows_when_mirrored() {
     use zumen_drawing::{Affine, Grid, transform::transform};
     // 3 列 2 行、列の間隔 6、行の間隔 4 で並べる INSERT（2 つ目）
