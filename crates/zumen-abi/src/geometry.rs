@@ -1,6 +1,6 @@
 //! 形の値（`geometry`）と図面モデルの形の行き来（決定 0139）。
 //!
-//! 線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけを扱う。点は要素の空間か用紙の座標、長さは同じ
+//! 線分・円・円弧・楕円・幅を持たない折れ線・文字・書式つきの文字・ブロックの記号・スプライン・寸法だけを扱う。点は要素の空間か用紙の座標、長さは同じ
 //! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use std::cell::Cell;
@@ -8,16 +8,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
-    Affine, Attribute, Edge, Fit, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Length,
-    LineSpacing, ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation,
-    Shape, Spline, Symbol, SymbolKey, Text, Vertex, Vertical,
+    Affine, Attribute, Axis, Dimension, DimensionKind as Kind, DimensionText, Edge, Fit, Flow,
+    FormattedText, Grid, HeightMeaning, Horizontal, Label, Length, LineSpacing, ModelLength,
+    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Spline, Symbol,
+    SymbolKey, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
 use crate::messages::{
-    ArcGeometry, Attachment, CircleGeometry, EllipseGeometry, FormattedTextGeometry, Geometry,
-    LineGeometry, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid,
-    TextFit, TextGeometry,
+    ArcGeometry, Attachment, CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind,
+    DimensionLabel, EllipseGeometry, FormattedTextGeometry, Geometry, LineGeometry,
+    PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid, TextFit,
+    TextGeometry,
 };
 
 /// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
@@ -220,7 +222,325 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 }),
             })
         }
+        Shape::Dimension(dimension) => Geometry::Dimension(dimension_geometry(dimension)?),
         _ => return None,
+    })
+}
+
+/// 寸法の形の値。定義点と違う座標の系の長さを持つものは `None`
+fn dimension_geometry<P: Spot>(dimension: &Dimension<P>) -> Option<DimensionGeometry> {
+    let xy = |point: P| Point::xy(point).to_vec();
+    let (label, content) = match &dimension.label {
+        Label::Measurement => (DimensionLabel::Measurement, None),
+        Label::Override { content, .. } => (DimensionLabel::Override, Some(content.clone())),
+        Label::Hidden => (DimensionLabel::Hidden, None),
+    };
+    let mut geometry = DimensionGeometry {
+        kind: DimensionKind::Linear,
+        first: None,
+        second: None,
+        line: None,
+        rotation: None,
+        oblique: None,
+        vertex: None,
+        first_line: None,
+        second_line: None,
+        arc: None,
+        center: None,
+        chord: None,
+        opposite: None,
+        leader: None,
+        origin: None,
+        feature: None,
+        leader_end: None,
+        axis: None,
+        label,
+        content,
+        measurement: dimension.measurement.map(|measured| measured.value),
+        measurement_key: dimension
+            .measurement
+            .map(|measured| measured.key.to_owned()),
+        text_position: dimension.text.position.map(xy),
+        text_rotation: dimension.text.rotation,
+        style: dimension.style.clone(),
+    };
+    match dimension.kind {
+        Kind::Linear {
+            first,
+            second,
+            line,
+            rotation,
+            oblique,
+        } => {
+            geometry.first = Some(xy(first));
+            geometry.second = Some(xy(second));
+            geometry.line = Some(xy(line));
+            geometry.rotation = Some(rotation);
+            geometry.oblique = Some(oblique);
+        }
+        Kind::Aligned {
+            first,
+            second,
+            line,
+            oblique,
+        } => {
+            geometry.kind = DimensionKind::Aligned;
+            geometry.first = Some(xy(first));
+            geometry.second = Some(xy(second));
+            geometry.line = Some(xy(line));
+            geometry.oblique = Some(oblique);
+        }
+        Kind::Angular {
+            vertex,
+            first,
+            second,
+            arc,
+        } => {
+            geometry.kind = DimensionKind::Angular;
+            geometry.vertex = Some(xy(vertex));
+            geometry.first = Some(xy(first));
+            geometry.second = Some(xy(second));
+            geometry.arc = Some(xy(arc));
+        }
+        Kind::AngularLines { first, second, arc } => {
+            geometry.kind = DimensionKind::AngularLines;
+            geometry.first_line = Some(first.map(xy).to_vec());
+            geometry.second_line = Some(second.map(xy).to_vec());
+            geometry.arc = Some(xy(arc));
+        }
+        Kind::ArcLength {
+            center,
+            first,
+            second,
+            arc,
+        } => {
+            geometry.kind = DimensionKind::ArcLength;
+            geometry.center = Some(xy(center));
+            geometry.first = Some(xy(first));
+            geometry.second = Some(xy(second));
+            geometry.arc = Some(xy(arc));
+        }
+        Kind::Radius {
+            center,
+            chord,
+            leader,
+        } => {
+            geometry.kind = DimensionKind::Radius;
+            geometry.center = Some(xy(center));
+            geometry.chord = Some(xy(chord));
+            geometry.leader = Some(center.length(leader)?);
+        }
+        Kind::Diameter {
+            chord,
+            opposite,
+            leader,
+        } => {
+            geometry.kind = DimensionKind::Diameter;
+            geometry.chord = Some(xy(chord));
+            geometry.opposite = Some(xy(opposite));
+            geometry.leader = Some(chord.length(leader)?);
+        }
+        Kind::Ordinate {
+            origin,
+            feature,
+            leader_end,
+            axis,
+        } => {
+            geometry.kind = DimensionKind::Ordinate;
+            geometry.origin = Some(xy(origin));
+            geometry.feature = Some(xy(feature));
+            geometry.leader_end = Some(xy(leader_end));
+            geometry.axis = Some(match axis {
+                Axis::X => DimensionAxis::X,
+                Axis::Y => DimensionAxis::Y,
+            });
+        }
+    }
+    Some(geometry)
+}
+
+/// 寸法の形の値で作った寸法。`was` は置き換える前の寸法で、足すときは `None`。種類が持たない欄と、
+/// 欠けた欄は、その欄の場所を返す。測定値は元の形式が保存した値なので、置き換えでは元と同じ値だけを、
+/// 足すときは書かないことだけを受ける。寸法を描いた部品は、置き換えでは元のまま持ち、足すときは持たない
+fn dimension_of<P: Spot>(
+    geometry: &DimensionGeometry,
+    was: Option<&Dimension<P>>,
+    origin: P,
+) -> Result<Dimension<P>, String> {
+    let at = |field: &str| format!("geometry/{field}");
+    let point = |xy: &Option<Vec<f64>>, field: &str| match xy.as_deref() {
+        Some(&[x, y]) if x.is_finite() && y.is_finite() => Ok(origin.at([x, y])),
+        _ => Err(at(field)),
+    };
+    let pair = |line: &Option<Vec<Vec<f64>>>, field: &str| match line.as_deref() {
+        Some([a, b]) => Ok([
+            point(&Some(a.clone()), &format!("{field}/0"))?,
+            point(&Some(b.clone()), &format!("{field}/1"))?,
+        ]),
+        _ => Err(at(field)),
+    };
+    let angle = |value: Option<f64>, field: &str| match value {
+        Some(value) if value.is_finite() => Ok(value),
+        _ => Err(at(field)),
+    };
+    let length = |value: Option<f64>, field: &str| match value {
+        Some(value) if value.is_finite() && value >= 0.0 => Ok(origin.length_of(value)),
+        _ => Err(at(field)),
+    };
+    // 種類ごとの欄。ほかの欄があれば、その欄を指す
+    let present = [
+        ("first", geometry.first.is_some()),
+        ("second", geometry.second.is_some()),
+        ("line", geometry.line.is_some()),
+        ("rotation", geometry.rotation.is_some()),
+        ("oblique", geometry.oblique.is_some()),
+        ("vertex", geometry.vertex.is_some()),
+        ("first_line", geometry.first_line.is_some()),
+        ("second_line", geometry.second_line.is_some()),
+        ("arc", geometry.arc.is_some()),
+        ("center", geometry.center.is_some()),
+        ("chord", geometry.chord.is_some()),
+        ("opposite", geometry.opposite.is_some()),
+        ("leader", geometry.leader.is_some()),
+        ("origin", geometry.origin.is_some()),
+        ("feature", geometry.feature.is_some()),
+        ("leader_end", geometry.leader_end.is_some()),
+        ("axis", geometry.axis.is_some()),
+    ];
+    let fields: &[&str] = match geometry.kind {
+        DimensionKind::Linear => &["first", "second", "line", "rotation", "oblique"],
+        DimensionKind::Aligned => &["first", "second", "line", "oblique"],
+        DimensionKind::Angular => &["vertex", "first", "second", "arc"],
+        DimensionKind::AngularLines => &["first_line", "second_line", "arc"],
+        DimensionKind::ArcLength => &["center", "first", "second", "arc"],
+        DimensionKind::Radius => &["center", "chord", "leader"],
+        DimensionKind::Diameter => &["chord", "opposite", "leader"],
+        DimensionKind::Ordinate => &["origin", "feature", "leader_end", "axis"],
+    };
+    if let Some((field, _)) = present
+        .iter()
+        .find(|(field, present)| *present && !fields.contains(field))
+    {
+        return Err(at(field));
+    }
+    let kind = match geometry.kind {
+        DimensionKind::Linear => Kind::Linear {
+            first: point(&geometry.first, "first")?,
+            second: point(&geometry.second, "second")?,
+            line: point(&geometry.line, "line")?,
+            rotation: angle(geometry.rotation, "rotation")?,
+            oblique: angle(geometry.oblique, "oblique")?,
+        },
+        DimensionKind::Aligned => Kind::Aligned {
+            first: point(&geometry.first, "first")?,
+            second: point(&geometry.second, "second")?,
+            line: point(&geometry.line, "line")?,
+            oblique: angle(geometry.oblique, "oblique")?,
+        },
+        DimensionKind::Angular => Kind::Angular {
+            vertex: point(&geometry.vertex, "vertex")?,
+            first: point(&geometry.first, "first")?,
+            second: point(&geometry.second, "second")?,
+            arc: point(&geometry.arc, "arc")?,
+        },
+        DimensionKind::AngularLines => Kind::AngularLines {
+            first: pair(&geometry.first_line, "first_line")?,
+            second: pair(&geometry.second_line, "second_line")?,
+            arc: point(&geometry.arc, "arc")?,
+        },
+        DimensionKind::ArcLength => Kind::ArcLength {
+            center: point(&geometry.center, "center")?,
+            first: point(&geometry.first, "first")?,
+            second: point(&geometry.second, "second")?,
+            arc: point(&geometry.arc, "arc")?,
+        },
+        DimensionKind::Radius => Kind::Radius {
+            center: point(&geometry.center, "center")?,
+            chord: point(&geometry.chord, "chord")?,
+            leader: length(geometry.leader, "leader")?,
+        },
+        DimensionKind::Diameter => Kind::Diameter {
+            chord: point(&geometry.chord, "chord")?,
+            opposite: point(&geometry.opposite, "opposite")?,
+            leader: length(geometry.leader, "leader")?,
+        },
+        DimensionKind::Ordinate => Kind::Ordinate {
+            origin: point(&geometry.origin, "origin")?,
+            feature: point(&geometry.feature, "feature")?,
+            leader_end: point(&geometry.leader_end, "leader_end")?,
+            axis: match geometry.axis {
+                Some(DimensionAxis::X) => Axis::X,
+                Some(DimensionAxis::Y) => Axis::Y,
+                None => return Err(at("axis")),
+            },
+        },
+    };
+    let label = match (geometry.label, &geometry.content) {
+        (DimensionLabel::Measurement, None) => Label::Measurement,
+        (DimensionLabel::Hidden, None) => Label::Hidden,
+        (DimensionLabel::Override, Some(content)) => {
+            // 寸法値の文字の改行は \P で書く。生の改行は、書き戻すファイルの行を壊す
+            if content.contains(['\n', '\r']) {
+                return Err(at("content"));
+            }
+            let absolute = Cell::new(false);
+            let spans = zumen_acad::dimension_spans(content, &|value| {
+                absolute.set(true);
+                origin.length_of(value)
+            });
+            if P::PAPER && absolute.get() {
+                return Err(at("content"));
+            }
+            Label::Override {
+                content: content.clone(),
+                spans,
+            }
+        }
+        (DimensionLabel::Measurement | DimensionLabel::Hidden, Some(_))
+        | (DimensionLabel::Override, None) => return Err(at("content")),
+    };
+    // 測定値は、置き換えでは元と同じ値と欄だけを受け、足すときは書かない
+    let measurement = was.and_then(|was| was.measurement);
+    let given = geometry
+        .measurement
+        .zip(geometry.measurement_key.as_deref());
+    if geometry.measurement.is_some() != geometry.measurement_key.is_some() {
+        let field = if geometry.measurement.is_some() {
+            "measurement_key"
+        } else {
+            "measurement"
+        };
+        return Err(at(field));
+    }
+    if given.is_some() && given != measurement.map(|measured| (measured.value, measured.key)) {
+        return Err(at("measurement"));
+    }
+    let position = match &geometry.text_position {
+        Some(_) => Some(point(&geometry.text_position, "text_position")?),
+        None => None,
+    };
+    let rotation = match geometry.text_rotation {
+        Some(rotation) => Some(angle(Some(rotation), "text_rotation")?),
+        None => None,
+    };
+    if geometry.style.is_empty() || was.is_some_and(|was| was.style != geometry.style) {
+        return Err(at("style"));
+    }
+    Ok(Dimension {
+        kind,
+        measurement,
+        label,
+        text: DimensionText {
+            position,
+            moved: match was {
+                Some(was) => was.text.moved,
+                None => position.is_some(),
+            },
+            rotation,
+            attachment: was.and_then(|was| was.text.attachment),
+        },
+        style: geometry.style.clone(),
+        block: was.and_then(|was| was.block.clone()),
     })
 }
 
@@ -704,6 +1024,12 @@ pub(crate) fn shape_of<P: Spot>(
                 },
             })
         }
+        (Geometry::Dimension(dimension), None) => {
+            Shape::Dimension(dimension_of(dimension, None, origin)?)
+        }
+        (Geometry::Dimension(dimension), Some(Shape::Dimension(was))) => {
+            Shape::Dimension(dimension_of(dimension, Some(was), origin)?)
+        }
         _ => return mismatch(),
     })
 }
@@ -887,6 +1213,16 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
         Shape::Curve(Edge::Spline(spline)) => {
             spline.control.first().or(spline.fit.first()).copied()
         }
+        Shape::Dimension(dimension) => Some(match dimension.kind {
+            Kind::Linear { first, .. }
+            | Kind::Aligned { first, .. }
+            | Kind::ArcLength { first, .. } => first,
+            Kind::Angular { vertex, .. } => vertex,
+            Kind::AngularLines { first, .. } => first[0],
+            Kind::Radius { center, .. } => center,
+            Kind::Diameter { chord, .. } => chord,
+            Kind::Ordinate { origin, .. } => origin,
+        }),
         _ => None,
     }
 }

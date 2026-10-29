@@ -1026,9 +1026,10 @@ fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String
         .collect();
     let tag_name = tags.first().map_or("type", |(tag, _, _)| tag);
     doc(out, "", &def.description);
+    // 境界のメッセージは 1 度読んで使うだけなので、大きい形を箱に入れず、型をスキーマのとおりに保つ
     let _ = writeln!(
         out,
-        "#[derive(Clone, Debug, PartialEq)]\npub enum {name} {{"
+        "#[derive(Clone, Debug, PartialEq)]\n#[allow(clippy::large_enum_variant)]\npub enum {name} {{"
     );
     for (_, value, variant) in &tags {
         let description = schema

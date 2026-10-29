@@ -89,6 +89,12 @@ pub fn mtext_spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<zumen_
     mtext::spans(content, length)
 }
 
+/// 寸法値の文字の内容を、図面モデルの書式の区間に分ける。測定値に置き換える符号（`<>`）は測定値の区間にする。
+/// 読むときと同じ解釈で、境界から寸法の形の値を受けるときに使う
+pub fn dimension_spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<zumen_drawing::Span> {
+    mtext::dimension_spans(content, length)
+}
+
 /// 用紙の座標と、元の図形の座標の対応。用紙の点は、元の点から原点（図面の単位）を引き、1 単位の mm の数を掛ける
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PaperFrame {

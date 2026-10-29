@@ -1237,3 +1237,80 @@ fn drawings_take_back_splines_through_the_boundary() {
         "{replaced:?} {added:?}"
     );
 }
+
+/// 試料の寸法は、`entities` が形の値を返し、その形の値は `replace` で受ける値になる。寸法を描いた部品を
+/// 作り直せないので、書き戻しは `change.edit.unsupported` で断り、ファイルを変えない（決定 0139）
+#[test]
+fn drawings_return_dimensions_but_do_not_write_them() {
+    let mut returned = 0;
+    for path in drawings() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"in", &std::fs::read(&path).unwrap()).unwrap();
+        if !open(&mut session, "in") {
+            continue;
+        }
+        let seen = entities(&mut session, "in");
+        let found = shapes(&mut session, "in");
+        let dimensions: Vec<_> = found
+            .iter()
+            .zip(&seen)
+            .filter_map(|((id, geometry), (_, _, hash))| {
+                let geometry = geometry.as_ref()?;
+                (text(geometry, "/shape") == Some("dimension")).then_some((id, hash, geometry))
+            })
+            .collect();
+        returned += dimensions.len();
+        for (id, hash, geometry) in dimensions.into_iter().take(5) {
+            // 文字の出し方だけを替える。種類と定義点はそのまま
+            let mut out = zumen_json::Writer::new();
+            out.value(geometry);
+            let sent = String::from_utf8(out.into_bytes()).unwrap();
+            let label = text(geometry, "/label").unwrap();
+            let content = match text(geometry, "/content") {
+                Some(content) => {
+                    let mut out = zumen_json::Writer::new();
+                    out.value(&Value::String(content.to_string()));
+                    format!(
+                        r#","content":{}"#,
+                        String::from_utf8(out.into_bytes()).unwrap()
+                    )
+                }
+                None => String::new(),
+            };
+            let other = if label == "hidden" {
+                "measurement"
+            } else {
+                "hidden"
+            };
+            let sent = sent.replace(
+                &format!(r#""label":"{label}"{content}"#),
+                &format!(r#""label":"{other}""#),
+            );
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"in","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{sent}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
+                ),
+            );
+            let code = response
+                .pointer("/diagnostics")
+                .and_then(|d| match d {
+                    Value::Array(items) => items
+                        .iter()
+                        .filter(|item| text(item, "/severity") == Some("error"))
+                        .find_map(|item| text(item, "/code").map(str::to_string)),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            assert_eq!(status, Status::Failed, "{} {sent}", path.display());
+            assert_eq!(
+                code,
+                "change.edit.unsupported",
+                "{} {sent} {response:?}",
+                path.display()
+            );
+        }
+        assert_eq!(shapes(&mut session, "in"), found, "{}", path.display());
+    }
+    assert!(drawings().is_empty() || returned > 0);
+}
