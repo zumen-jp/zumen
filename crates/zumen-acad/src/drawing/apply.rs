@@ -1973,7 +1973,11 @@ mod definition_id_tests {
         let mut budget = zumen_base::Budget::default();
         let mut diagnostics = Diagnostics::new();
         let cancel = zumen_base::CancelToken::new();
-        let index = Index::new(&drawing, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)).unwrap();
+        let index = Index::new(
+            &drawing,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
         assert!(index.elements.contains_key("space/h30/h31"));
         assert!(index.elements.contains_key("space/h30/1/h31"));
         assert_eq!(index.elements.len(), 2);
