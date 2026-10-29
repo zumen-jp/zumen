@@ -6187,9 +6187,20 @@ fn changed_layers_and_styles_are_written_back() {
         assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
         assert!(got.len() <= expected.len() + 1);
     }
-    // 名前・外部参照に依る印・表にない線の太さ・形のファイルでも縦書きでもない STYLE の印は受け付けない
+    // R2010 より前の LAYER の名前は書き直せる（決定 0162）
+    let mut renamed = objects(&src).0;
+    set_value(&mut renamed, 0x10, 2, Data::Text(b"DOOR".to_vec()));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let out = written_back(&mut file, &renamed).0.unwrap();
+    let after = objects(&out).0;
+    let record = after
+        .objects()
+        .iter()
+        .find(|o| o.handle() == Some(0x10))
+        .unwrap();
+    assert_eq!(record.first(2), Some(&Data::Text(b"DOOR".to_vec())));
+    // 外部参照に依る印・表にない線の太さ・形のファイルでも縦書きでもない STYLE の印は受け付けない
     for (handle, code, data) in [
-        (0x10, 2, Data::Text(b"DOOR".to_vec())),
         (0x10, 70, Data::Int(16)),
         (0x10, 370, Data::Int(7)),
         (0x11, 70, Data::Int(2)),

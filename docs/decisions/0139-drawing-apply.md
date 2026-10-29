@@ -44,7 +44,7 @@
   - `Transform`: 要素の並びを、使い手が渡す変換（`Affine`）で動かす。AutoCAD の系統では、図形とともに動く XDATA を、AutoCAD と同じ規則で直す。位置（1011）は移動・尺度・回転・鏡映、変位（1012）は尺度・回転・鏡映、向き（1013）は回転・鏡映、距離（1041）と倍率（1042）は尺度で直す。記号の属性も一緒に動かす。変換が渡されるので、0154 の選択肢 4 の「変換を一意に決められない」はなくなる。変換した形を元の種類で表せないもの（円の非一様な尺度など）と、非一様な尺度で 1041・1042 を持つものは、当てない。
   - `Add`: 空間・用紙・記号の定義の空間に要素を足す。足す先は、空間か用紙の ID で指す。AutoCAD の系統では、`$HANDSEED` から振ったハンドルを ID にし、空間のブロックのレコードを所有者にする。ハンドルは apply が決めるので、読み直さずに足した要素の ID を返す。書き方と足せる形は、0155 に従う。
   - `Remove`: 要素を除く。続くレコード（VERTEX・ATTRIB・SEQEND）も一緒に除く。
-- **指せるもの。** 実寸の空間・用紙・記号の定義の空間の要素を、同じ変更の種類で指す。ID が空間か用紙かを表すので、用紙のための別の種類を置かない。レイヤ・線種などの表の項目の変更は、のちに足す。
+- **指せるもの。** 実寸の空間・用紙・記号の定義の空間の要素を、同じ変更の種類で指す。ID が空間か用紙かを表すので、用紙のための別の種類を置かない。レイヤの変更と追加は、[決定 0162](0162-drawing-layer-changes.md) で足す。線種などのほかの表の項目の変更は、のちに足す。
 - **形式の系統。** DXF と DWG は、今のファイルから表を作り、変更を表のオブジェクトに当ててから `write_back` で書く。どちらの符号化でも同じ当て方を使う。JWW と SXF も、同じ `Changes` を受け取る apply を、それぞれの L1 の上に作る。
 - **確かめること。** 当てる前に、すべての変更を次の順で確かめる。
   - 文書のハッシュがあれば、今の文書と同じか（`change.document.stale`）。
@@ -61,7 +61,7 @@
 - 境界の op として変更を受けるときは、`Changes` の形をメッセージのスキーマに写す。ID とハッシュは、`entities` の op が返す文字列をそのまま使う。
   - 境界の `apply` の op を作った（メッセージのスキーマの小版 7）。要求は文書の名前・あれば文書のハッシュ・変更の並びを持ち、変更は `kind` で `restyle`・`transform`・`remove` を選ぶ。結果は、変更ごとの書き戻した後の ID とハッシュと、書き戻した文書のハッシュを返し、書き戻したファイルを `blobs` の `file` で返す。文書は書き戻したものに替わるので、続けて `entities` と `apply` を呼べる。
   - `restyle` のレイヤと線種は、元の名前で指し、図面の中で名前が 1 つに決まるものだけを受ける。`entities` がレイヤを名前で返すため。
-  - 続く PR で、レイヤと線種の表の項目を ID・名前・ハッシュで返す `tables` の op を足し、`restyle` の `layer_id` と線種の `id` で、表の項目を ID でも指せるようにした（小版 8）。DXF は名前で書くため、同じ名前の表の項目が複数あるときは ID でも書き戻さない。表の項目そのものの変更（名前・色の変更、追加、除去）は、まだない。寸法スタイルも `tables` で ID・名前・ハッシュを返すようにした（小版 9）。
+  - 続く PR で、レイヤと線種の表の項目を ID・名前・ハッシュで返す `tables` の op を足し、`restyle` の `layer_id` と線種の `id` で、表の項目を ID でも指せるようにした（小版 8）。DXF は名前で書くため、同じ名前の表の項目が複数あるときは ID でも書き戻さない。表の項目そのものの変更は、のちにレイヤの名前・状態・スタイルの変更と追加を、決定 0162 で足した（小版 22）。レイヤの除去と、ほかの表の項目の変更は、まだない。寸法スタイルも `tables` で ID・名前・ハッシュを返すようにした（小版 9）。
   - 続く PR で、形の値（`geometry`）で形を置き換える `replace` と、空間か用紙に要素を足す `add` を境界に足した（小版 10）。形の値は `shape` で線分・円・円弧・折れ線・文字を選び、点は要素の空間か用紙の座標、角度は度で持つ。`entities` も、`fields` に `geometry` を入れると同じ形の値を返す（決定 0118 で後に回した欄）。
     - `replace` は、形の種類を変えず、レイヤとスタイルも変えない。折れ線は元の幅を保ち、頂点ごとの幅を持つものは置き換えない。文字は、元の文字の位置合わせ・高さの意味・文字スタイルを保ち、内容・位置・高さ・回転を替える。1 点に置かない文字（2 点の間に合わせるもの）と、改行を含む内容は受けない。
     - `add` は、足す先を空間か用紙の ID で指し、レイヤを `layer` か `layer_id` で選ぶ。どちらもなければ、レイヤ「0」に置く。色・線種・線幅はレイヤに従い、線種の倍率は 1 にする。
@@ -120,6 +120,6 @@
 
 ## 参照
 
-- [決定 0008](0008-model-layers-and-codecs.md)、[決定 0009](0009-diagnostics-and-catalog.md)、[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0024](0024-acad-table-write-back.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0115](0115-drawing-format-extensions.md)、[決定 0154](0154-drawing-apply-keeps-format-data.md)、[決定 0155](0155-drawing-apply-additions.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、[決定 0158](0158-drawing-text-styles.md)
+- [決定 0008](0008-model-layers-and-codecs.md)、[決定 0009](0009-diagnostics-and-catalog.md)、[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0024](0024-acad-table-write-back.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0115](0115-drawing-format-extensions.md)、[決定 0154](0154-drawing-apply-keeps-format-data.md)、[決定 0155](0155-drawing-apply-additions.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、[決定 0158](0158-drawing-text-styles.md)、[決定 0162](0162-drawing-layer-changes.md)
 - DXF Reference「Group Codes That Apply to Extended Data」
 - #170

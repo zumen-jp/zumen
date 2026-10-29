@@ -2420,6 +2420,20 @@ pub enum Edit {
         /// 除く要素
         target: Seen,
     },
+    /// 指したレイヤの名前・状態・色・線種・線幅を、このレイヤのもので置き換える（決定 0162）。ID・出所・
+    /// `follows_placement` は使わない。`target` の ID は [`id::layer`]、ハッシュは [`Hash::layer`]
+    ReplaceLayer {
+        /// 置き換えるレイヤ
+        target: Seen,
+        /// 新しい値。状態とスタイルを持つ
+        layer: Box<Layer>,
+    },
+    /// レイヤを足す（決定 0162）。ID・出所・`follows_placement` は使わない。同じ変更の一覧の要素は、
+    /// 足したレイヤを指せない
+    AddLayer {
+        /// 足すレイヤ。状態とスタイルを持つ
+        layer: Box<Layer>,
+    },
 }
 
 /// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` の欄は変えない
@@ -2453,9 +2467,10 @@ impl Restyle {
 /// 当てた変更 1 つの結果
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Applied {
-    /// 置き換えた要素か足した要素の、書き戻した後の ID。除いたときと、ID を決められないときは `None`
+    /// 置き換えた要素か足した要素（レイヤの変更では、そのレイヤ）の、書き戻した後の ID。除いたときと、ID を
+    /// 決められないときは `None`
     pub id: Option<String>,
-    /// 書き戻した後の要素のハッシュ。`id` と同じときにある
+    /// 書き戻した後の要素（レイヤ）のハッシュ。`id` と同じときにある
     pub hash: Option<Hash>,
 }
 

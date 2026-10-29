@@ -108,22 +108,8 @@ impl Born {
                 .iter()
                 .filter(|object| object.section == Section::Entities)
                 .any(|object| object.values.iter().any(|value| value.code == 100));
-        let seed = match target {
-            Target::Dwg(seed) => seed,
-            Target::Dxf => db.variable(b"$HANDSEED").and_then(|values| {
-                values.iter().find_map(|value| match value.data {
-                    Data::Handle(seed) if value.code == 5 => Some(seed),
-                    _ => None,
-                })
-            }),
-        };
-        let max = db.objects().iter().filter_map(Object::handle).max();
-        let next = match (seed, max) {
-            (None, None) => None,
-            (seed, max) => max
-                .map_or(Some(1), |max| max.checked_add(1))
-                .map(|next| seed.unwrap_or(0).max(next)),
-        };
+        let seed = handle_seed(db, target);
+        let next = next_handle(db, seed);
         let ends = db
             .objects()
             .iter()
@@ -364,6 +350,27 @@ impl Born {
     pub(super) fn layer_value(&self, layer: LayerId) -> Option<Value> {
         let layer = self.layers.get(&layer)?;
         self.named(8, b"LAYER", layer)
+    }
+
+    /// 線種を名前で指す値（`code`）。表に定義がなければ `None`
+    pub(super) fn line_type_value(&self, code: i16, line_type: LineTypeId) -> Option<Value> {
+        let name = self.line_types.get(&line_type)?;
+        self.named(code, b"LTYPE", name)
+    }
+
+    /// 書き戻す先
+    pub(super) fn target(&self) -> Target {
+        self.target
+    }
+
+    /// 文字の値。2007 より前の版に ASCII でない文字を書くなら `None`
+    pub(super) fn text_value(&self, code: i16, value: &str) -> Option<Value> {
+        self.string(code, value)
+    }
+
+    /// DXF の版が `release` 以後か。DWG なら真
+    pub(super) fn dxf_since(&self, release: &[u8]) -> bool {
+        self.target != Target::Dxf || self.since(release)
     }
 
     /// 指定された欄だけを検証し、共通の値にする
@@ -780,6 +787,35 @@ impl Born {
     }
 }
 
+/// 表のハンドルの種。DXF は `$HANDSEED`、DWG は見出しのもの
+fn handle_seed(db: &AcadDb, target: Target) -> Option<u64> {
+    match target {
+        Target::Dwg(seed) => seed,
+        Target::Dxf => db.variable(b"$HANDSEED").and_then(|values| {
+            values.iter().find_map(|value| match value.data {
+                Data::Handle(seed) if value.code == 5 => Some(seed),
+                _ => None,
+            })
+        }),
+    }
+}
+
+/// 次に付けるハンドル。種と、表の最大のハンドルの次の大きいほう。表がハンドルを持たなければ `None`
+fn next_handle(db: &AcadDb, seed: Option<u64>) -> Option<u64> {
+    let max = db.objects().iter().filter_map(Object::handle).max();
+    match (seed, max) {
+        (None, None) => None,
+        (seed, max) => max
+            .map_or(Some(1), |max| max.checked_add(1))
+            .map(|next| seed.unwrap_or(0).max(next)),
+    }
+}
+
+/// 足したものの後に、次に付けるハンドル
+pub(super) fn next_free_handle(db: &AcadDb, target: Target) -> Option<u64> {
+    next_handle(db, handle_seed(db, target))
+}
+
 /// 追加を組む作業量。要素ごとに 1、折れ線の頂点ごとに 1、文字の内容のバイトごとに 1 を数える。
 /// 頂点の列や文字を複製する前に、呼ぶ側が上限を確かめる。
 fn amount<P>(shape: &Shape<P>) -> u64 {
@@ -881,7 +917,7 @@ fn nonzero_positive(value: f64) -> Option<f64> {
 }
 
 /// 線幅（370）。-2 は ByBlock、-3 は文書の既定、0〜211 は 1/100 mm
-fn line_weight(weight: Inherit<LineWeight>) -> Option<i64> {
+pub(super) fn line_weight(weight: Inherit<LineWeight>) -> Option<i64> {
     match weight {
         Inherit::Layer => Some(-1),
         Inherit::Block => Some(-2),
@@ -895,14 +931,14 @@ fn line_weight(weight: Inherit<LineWeight>) -> Option<i64> {
     }
 }
 
-fn text(code: i16, value: &str) -> Value {
+pub(super) fn text(code: i16, value: &str) -> Value {
     Value {
         code,
         data: Data::Text(value.as_bytes().to_vec()),
     }
 }
 
-fn int(code: i16, value: i64) -> Value {
+pub(super) fn int(code: i16, value: i64) -> Value {
     Value {
         code,
         data: Data::Int(value),

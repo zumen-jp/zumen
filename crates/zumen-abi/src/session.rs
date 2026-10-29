@@ -7,8 +7,8 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, 
 use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
     Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Element, Encode,
-    Hash, Inherit, LayerId, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, Placed,
-    Placement, Restyle, Seen, Shape, Style, Unit, id,
+    Hash, Inherit, Layer, LayerId, LayerState, LayerStyle, LineTypeId, LineWeight, ModelPoint,
+    PaperLength, PaperPoint, Placed, Placement, Restyle, Seen, Shape, Style, Unit, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -22,9 +22,9 @@ use crate::geometry;
 use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
     CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
-    EntitiesResult, Entity, EntityField, EntityKind, Extent, Font, FontKind, Format, OpenRequest,
-    OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions, SheetSummary, Source,
-    SpaceSummary, TableItem, TablesRequest, TablesResult, TextStyleItem,
+    EntitiesResult, Entity, EntityField, EntityKind, Extent, Font, FontKind, Format, LayerItem,
+    OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions, SheetSummary,
+    Source, SpaceSummary, TableItem, TablesRequest, TablesResult, TextStyleItem,
 };
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
@@ -425,24 +425,30 @@ impl Session {
     fn tables(&self, request: &TablesRequest, cx: &mut Cx<'_>) -> Result<TablesResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
         let mut seen = BTreeMap::new();
-        let mut layers = Vec::with_capacity(drawing.layers.len());
-        for layer in &drawing.layers {
-            let hash = Hash::layer_checked(layer, cx).map_err(|stop| stopped(cx, stop))?;
-            layers.push(TableItem {
-                id: table_id(id::layer(layer), &mut seen),
-                name: layer.name.clone(),
+        let mut line_types = Vec::with_capacity(drawing.line_types.len());
+        let mut line_type_ids = BTreeMap::new();
+        for line_type in &drawing.line_types {
+            let hash = Hash::line_type_checked(line_type, cx).map_err(|stop| stopped(cx, stop))?;
+            let id = table_id(id::line_type(line_type), &mut seen);
+            line_type_ids
+                .entry(line_type.id)
+                .or_insert_with(|| id.clone());
+            line_types.push(TableItem {
+                id,
+                name: line_type.name.clone(),
                 hash: hash.to_string(),
             });
         }
         seen.clear();
-        let mut line_types = Vec::with_capacity(drawing.line_types.len());
-        for line_type in &drawing.line_types {
-            let hash = Hash::line_type_checked(line_type, cx).map_err(|stop| stopped(cx, stop))?;
-            line_types.push(TableItem {
-                id: table_id(id::line_type(line_type), &mut seen),
-                name: line_type.name.clone(),
-                hash: hash.to_string(),
-            });
+        let mut layers = Vec::with_capacity(drawing.layers.len());
+        for layer in &drawing.layers {
+            let hash = Hash::layer_checked(layer, cx).map_err(|stop| stopped(cx, stop))?;
+            layers.push(layer_item(
+                table_id(id::layer(layer), &mut seen),
+                layer,
+                hash,
+                &line_type_ids,
+            ));
         }
         seen.clear();
         let mut dimension_styles = Vec::with_capacity(drawing.dimension_styles.len());
@@ -574,6 +580,55 @@ impl Session {
 }
 
 /// 文字スタイルの表の項目。定義がなければ、ID・名前・ハッシュだけを返す
+/// レイヤの表の項目（決定 0162）。線種は `line_types` の ID で指す
+fn layer_item(
+    id: String,
+    layer: &Layer,
+    hash: Hash,
+    line_types: &BTreeMap<LineTypeId, String>,
+) -> LayerItem {
+    let style = layer.style.as_ref();
+    LayerItem {
+        id,
+        name: layer.name.clone(),
+        hash: hash.to_string(),
+        defined: layer.state.is_some() || layer.style.is_some(),
+        visible: layer.state.map(|state| state.visible),
+        printable: layer.state.map(|state| state.printable),
+        editable: layer.state.map(|state| state.editable),
+        frozen: layer.state.map(|state| state.frozen),
+        color: style
+            .and_then(|style| style.color)
+            .map(|color| messages::ColorChange {
+                inherit: None,
+                aci: color
+                    .code
+                    .filter(|code| code.system == ColorSystem::Aci)
+                    .map(|code| u64::from(code.value)),
+                rgb: color
+                    .rgb
+                    .map(|rgb| rgb.iter().map(|&value| u64::from(value)).collect()),
+            }),
+        line_type_id: style
+            .and_then(|style| style.line_type)
+            .and_then(|line_type| line_types.get(&line_type).cloned()),
+        line_weight: style
+            .and_then(|style| style.line_weight)
+            .map(|weight| match weight {
+                LineWeight::Width(width) => messages::LineWeightChange {
+                    inherit: None,
+                    mm: Some(width.0),
+                    default: None,
+                },
+                LineWeight::Default => messages::LineWeightChange {
+                    inherit: None,
+                    mm: None,
+                    default: Some(true),
+                },
+            }),
+    }
+}
+
 fn text_style_item(id: String, style: &zumen_drawing::TextStyle, hash: Hash) -> TextStyleItem {
     let definition = style.definition.as_ref();
     TextStyleItem {
@@ -820,6 +875,88 @@ fn changes(
                 Edit::Add {
                     place: edit.place.clone(),
                     element: Box::new(element),
+                }
+            }
+            messages::Edit::Layer(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                cx.check(
+                    Kind::Work,
+                    edit.name.as_ref().map_or(0, |name| name.len() as u64),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
+                // 指したレイヤがなければ、要素と同じく `change.element.missing` にする
+                let Some(base) = tables
+                    .layer_ids
+                    .get(&edit.id)
+                    .copied()
+                    .flatten()
+                    .and_then(|(_, layer)| drawing.layer(layer))
+                else {
+                    let missing =
+                        Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", edit.id.as_str());
+                    return Err(fail(cx, missing));
+                };
+                let fields = LayerFields {
+                    name: edit.name.as_deref(),
+                    visible: edit.visible,
+                    printable: edit.printable,
+                    editable: edit.editable,
+                    frozen: edit.frozen,
+                    color: edit.color.as_ref(),
+                    line_type: edit.line_type.as_ref(),
+                    line_weight: edit.line_weight.as_ref(),
+                };
+                let layer = layer_change(base, &fields, tables)
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::ReplaceLayer {
+                    target,
+                    layer: Box::new(layer),
+                }
+            }
+            messages::Edit::AddLayer(edit) => {
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                cx.check(Kind::Work, edit.name.len() as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
+                // 書かない色・線種・線幅は、レイヤ 0 と同じにする
+                let zero = tables
+                    .layers
+                    .get("0")
+                    .copied()
+                    .flatten()
+                    .and_then(|layer| drawing.layer(layer));
+                let base = Layer {
+                    id: LayerId(u32::MAX),
+                    name: String::new(),
+                    state: None,
+                    style: zero.and_then(|layer| layer.style),
+                    follows_placement: false,
+                    source: Ref::default(),
+                };
+                let fields = LayerFields {
+                    name: Some(&edit.name),
+                    visible: edit.visible,
+                    printable: edit.printable,
+                    editable: edit.editable,
+                    frozen: edit.frozen,
+                    color: edit.color.as_ref(),
+                    line_type: edit.line_type.as_ref(),
+                    line_weight: edit.line_weight.as_ref(),
+                };
+                let layer = layer_change(&base, &fields, tables)
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::AddLayer {
+                    layer: Box::new(layer),
                 }
             }
         });
@@ -1139,72 +1276,28 @@ fn restyle(
     tables: &TableLookup<'_>,
 ) -> Result<Restyle, &'static str> {
     let layer = layer_of(edit.layer.as_deref(), edit.layer_id.as_deref(), tables)?;
-    let color = match &edit.color {
-        None => None,
-        Some(change) => Some(match (change.inherit, change.aci, change.rgb.as_deref()) {
-            (Some(to), None, None) => inherit(to),
-            (None, None, None) | (Some(_), _, _) => return Err("color"),
-            (None, aci, rgb) => {
-                let rgb = match rgb {
-                    None => None,
-                    Some(&[r, g, b]) => {
-                        Some([r, g, b].map(|value| u8::try_from(value).unwrap_or(u8::MAX)))
-                    }
-                    Some(_) => return Err("color"),
-                };
-                let code = match aci {
-                    None => None,
-                    Some(value) => Some(ColorCode {
-                        system: ColorSystem::Aci,
-                        value: u32::try_from(value).map_err(|_| "color")?,
-                    }),
-                };
-                Inherit::Own(Color { code, rgb })
-            }
-        }),
-    };
-    let line_type = match &edit.line_type {
-        None => None,
-        Some(change) => Some(match (change.inherit, &change.name, &change.id) {
-            (Some(to), None, None) => inherit(to),
-            (None, None, Some(wanted)) => {
-                let (name, id) = tables
-                    .line_type_ids
-                    .get(wanted)
-                    .copied()
-                    .flatten()
-                    .ok_or("line_type")?;
-                if tables.line_types.get(name).copied().flatten() != Some(id) {
-                    return Err("line_type");
-                }
-                Inherit::Own(id)
-            }
-            (None, Some(name), None) => Inherit::Own(
-                tables
-                    .line_types
-                    .get(name.as_str())
-                    .copied()
-                    .flatten()
-                    .ok_or("line_type")?,
-            ),
-            _ => return Err("line_type"),
-        }),
-    };
+    let color = edit
+        .color
+        .as_ref()
+        .map(color_change)
+        .transpose()
+        .map_err(|()| "color")?;
+    let line_type = edit
+        .line_type
+        .as_ref()
+        .map(|change| line_type_change(change, tables))
+        .transpose()
+        .map_err(|()| "line_type")?;
     let line_type_scale = match edit.line_type_scale {
         Some(scale) if !(scale.is_finite() && scale > 0.0) => return Err("line_type_scale"),
         scale => scale,
     };
-    let line_weight = match &edit.line_weight {
-        None => None,
-        Some(change) => Some(match (change.inherit, change.mm, change.default) {
-            (Some(to), None, None) => inherit(to),
-            (None, Some(mm), None) if mm.is_finite() && mm >= 0.0 => {
-                Inherit::Own(LineWeight::Width(PaperLength(mm)))
-            }
-            (None, None, Some(true)) => Inherit::Own(LineWeight::Default),
-            _ => return Err("line_weight"),
-        }),
-    };
+    let line_weight = edit
+        .line_weight
+        .as_ref()
+        .map(line_weight_change)
+        .transpose()
+        .map_err(|()| "line_weight")?;
     Ok(Restyle {
         layer,
         color,
@@ -1212,6 +1305,144 @@ fn restyle(
         line_type_scale,
         line_weight,
     })
+}
+
+/// 新しい色。合わなければ `Err`
+fn color_change(change: &messages::ColorChange) -> Result<Inherit<Color>, ()> {
+    Ok(match (change.inherit, change.aci, change.rgb.as_deref()) {
+        (Some(to), None, None) => inherit(to),
+        (None, None, None) | (Some(_), _, _) => return Err(()),
+        (None, aci, rgb) => {
+            let rgb = match rgb {
+                None => None,
+                Some(&[r, g, b]) => {
+                    Some([r, g, b].map(|value| u8::try_from(value).unwrap_or(u8::MAX)))
+                }
+                Some(_) => return Err(()),
+            };
+            let code = match aci {
+                None => None,
+                Some(value) => Some(ColorCode {
+                    system: ColorSystem::Aci,
+                    value: u32::try_from(value).map_err(|_| ())?,
+                }),
+            };
+            Inherit::Own(Color { code, rgb })
+        }
+    })
+}
+
+/// 新しい線種。名前か ID が 1 つに決まらなければ `Err`
+fn line_type_change(
+    change: &messages::LineTypeChange,
+    tables: &TableLookup<'_>,
+) -> Result<Inherit<LineTypeId>, ()> {
+    Ok(match (change.inherit, &change.name, &change.id) {
+        (Some(to), None, None) => inherit(to),
+        (None, None, Some(wanted)) => {
+            let (name, id) = tables
+                .line_type_ids
+                .get(wanted)
+                .copied()
+                .flatten()
+                .ok_or(())?;
+            if tables.line_types.get(name).copied().flatten() != Some(id) {
+                return Err(());
+            }
+            Inherit::Own(id)
+        }
+        (None, Some(name), None) => Inherit::Own(
+            tables
+                .line_types
+                .get(name.as_str())
+                .copied()
+                .flatten()
+                .ok_or(())?,
+        ),
+        _ => return Err(()),
+    })
+}
+
+/// 新しい線幅
+fn line_weight_change(change: &messages::LineWeightChange) -> Result<Inherit<LineWeight>, ()> {
+    Ok(match (change.inherit, change.mm, change.default) {
+        (Some(to), None, None) => inherit(to),
+        (None, Some(mm), None) if mm.is_finite() && mm >= 0.0 => {
+            Inherit::Own(LineWeight::Width(PaperLength(mm)))
+        }
+        (None, None, Some(true)) => Inherit::Own(LineWeight::Default),
+        _ => return Err(()),
+    })
+}
+
+/// レイヤの変更と追加の、書いた欄（決定 0162）
+struct LayerFields<'e> {
+    name: Option<&'e str>,
+    visible: Option<bool>,
+    printable: Option<bool>,
+    editable: Option<bool>,
+    frozen: Option<bool>,
+    color: Option<&'e messages::ColorChange>,
+    line_type: Option<&'e messages::LineTypeChange>,
+    line_weight: Option<&'e messages::LineWeightChange>,
+}
+
+/// `base` に、書いた欄を重ねたレイヤ。凍結するだけなら表示もしない。表示するだけか、凍結を解くだけなら、
+/// 凍結を解いて表示する。継承は書けない。合わなければ、その欄の名前を返す
+fn layer_change(
+    base: &Layer,
+    fields: &LayerFields<'_>,
+    tables: &TableLookup<'_>,
+) -> Result<Layer, &'static str> {
+    let was = base.state.unwrap_or(LayerState {
+        visible: true,
+        printable: true,
+        editable: true,
+        frozen: false,
+    });
+    let frozen = fields
+        .frozen
+        .unwrap_or(was.frozen && fields.visible != Some(true));
+    // 凍結を解いた画層は、表示する
+    let visible = fields
+        .visible
+        .unwrap_or(!frozen && (was.visible || was.frozen));
+    let state = LayerState {
+        visible,
+        printable: fields.printable.unwrap_or(was.printable),
+        editable: fields.editable.unwrap_or(was.editable),
+        frozen,
+    };
+    let mut style = base.style.unwrap_or(LayerStyle {
+        color: None,
+        line_type: None,
+        line_weight: None,
+    });
+    if let Some(change) = fields.color {
+        match color_change(change) {
+            Ok(Inherit::Own(color)) => style.color = Some(color),
+            _ => return Err("color"),
+        }
+    }
+    if let Some(change) = fields.line_type {
+        match line_type_change(change, tables) {
+            Ok(Inherit::Own(line_type)) => style.line_type = Some(line_type),
+            _ => return Err("line_type"),
+        }
+    }
+    if let Some(change) = fields.line_weight {
+        match line_weight_change(change) {
+            Ok(Inherit::Own(weight)) => style.line_weight = Some(weight),
+            _ => return Err("line_weight"),
+        }
+    }
+    let mut layer = base.clone();
+    if let Some(name) = fields.name {
+        layer.name = name.to_owned();
+    }
+    layer.state = Some(state);
+    layer.style = Some(style);
+    Ok(layer)
 }
 
 /// 継承する先
@@ -2014,7 +2245,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":21}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":22}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2468,6 +2699,106 @@ mod tests {
         // 表の項目の ID は、書き戻しても変わらない
         let (_, again) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
         assert_eq!(again.pointer("/result"), tables.pointer("/result"));
+    }
+
+    #[test]
+    fn changes_and_adds_layers_with_their_definitions() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", TABLED.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (_, tables) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let hash = text(&tables, "/result/layers/1/hash");
+        let mut out = zumen_json::Writer::new();
+        out.value(tables.pointer("/result/layers/1").unwrap());
+        assert_eq!(
+            String::from_utf8(out.into_bytes()).unwrap(),
+            format!(
+                concat!(
+                    r#"{{"id":"layer/h13","name":"Wall","hash":"{}","defined":true,"visible":true,"#,
+                    r#""printable":true,"editable":true,"frozen":false,"color":{{"aci":1}},"#,
+                    r#""line_type_id":"line-type/h11"}}"#
+                ),
+                hash
+            )
+        );
+        let apply =
+            |edits: &str| format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edits}]}}"#);
+        let layer = |fields: &str| {
+            apply(&format!(
+                r#"{{"kind":"layer","id":"layer/h13","hash":"{hash}",{fields}}}"#
+            ))
+        };
+        for (request, code, pointer) in [
+            (
+                layer(r#""color":{"inherit":"layer"}"#),
+                "call.value.invalid",
+                Some("/edits/0/color"),
+            ),
+            (
+                layer(r#""line_type":{"name":"Missing"}"#),
+                "call.value.invalid",
+                Some("/edits/0/line_type"),
+            ),
+            (
+                layer(r#""line_weight":{"inherit":"block"}"#),
+                "call.value.invalid",
+                Some("/edits/0/line_weight"),
+            ),
+            (layer(r#""name":"0""#), "change.edit.unsupported", None),
+            (
+                apply(&format!(
+                    r#"{{"kind":"layer","id":"layer/h99","hash":"{hash}"}}"#
+                )),
+                "change.element.missing",
+                None,
+            ),
+            (
+                apply(r#"{"kind":"add_layer","name":"wall"}"#),
+                "change.edit.unsupported",
+                None,
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            let error = error(&response);
+            assert_eq!(text(&error, "/code"), code, "{request}");
+            if let Some(pointer) = pointer {
+                assert_eq!(text(&error, "/params/pointer"), pointer, "{request}");
+            }
+        }
+        // 凍結するだけなら表示もしない。足すレイヤの書かない色と線種は、レイヤ 0 と同じ
+        let edits = [
+            format!(
+                r#"{{"kind":"layer","id":"layer/h13","hash":"{hash}","name":"Walls","frozen":true,"color":{{"aci":3}},"line_type":{{"name":"Dashed"}},"line_weight":{{"mm":0.5}}}}"#
+            ),
+            r#"{"kind":"add_layer","name":"Grid","printable":false}"#.to_owned(),
+        ];
+        let (status, response) = call(&mut session, &apply(&edits.join(",")));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let (_, after) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let mut out = zumen_json::Writer::new();
+        out.value(after.pointer("/result/layers").unwrap());
+        assert_eq!(
+            String::from_utf8(out.into_bytes()).unwrap(),
+            format!(
+                concat!(
+                    r#"[{{"id":"layer/h10","name":"0","hash":"{}","defined":true,"visible":true,"#,
+                    r#""printable":true,"editable":true,"frozen":false,"color":{{"aci":7}},"#,
+                    r#""line_type_id":"line-type/h11"}},"#,
+                    r#"{{"id":"layer/h13","name":"Walls","hash":"{}","defined":true,"visible":false,"#,
+                    r#""printable":true,"editable":true,"frozen":true,"color":{{"aci":3}},"#,
+                    r#""line_type_id":"line-type/h12","line_weight":{{"mm":0.5}}}},"#,
+                    r#"{{"id":"layer/h40","name":"Grid","hash":"{}","defined":true,"visible":true,"#,
+                    r#""printable":false,"editable":true,"frozen":false,"color":{{"aci":7}},"#,
+                    r#""line_type_id":"line-type/h11"}}]"#
+                ),
+                text(&after, "/result/layers/0/hash"),
+                text(&response, "/result/applied/0/hash"),
+                text(&response, "/result/applied/1/hash"),
+            )
+        );
+        assert_eq!(text(&response, "/result/applied/0/id"), "layer/h13");
+        assert_eq!(text(&response, "/result/applied/1/id"), "layer/h40");
     }
 
     #[test]
