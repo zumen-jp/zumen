@@ -1013,11 +1013,13 @@ fn drawings_take_back_transformed_elements() {
             .flat_map(|target| [(target, false), (target, true)])
         {
             let affine = affine(mirrored);
-            // 鏡映した文字と、属性か格子を持つ記号は、書く方法を決めていないので当てない
+            // 格子を持つ記号と、書式つきの属性を持つ記号は、鏡映を表せないので当てない
             let refused = mirrored
                 && match &element.shape {
-                    Shape::Text(_) => true,
-                    Shape::Symbol(symbol) => !symbol.attributes.is_empty() || symbol.grid.is_some(),
+                    Shape::Symbol(symbol) => {
+                        symbol.grid.is_some()
+                            || symbol.attributes.iter().any(|a| a.formatted.is_some())
+                    }
                     _ => false,
                 };
             let target = target.clone();

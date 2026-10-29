@@ -1,10 +1,14 @@
 //! 要素の形を、使い手が渡すアフィン変換で動かす（決定 0139 の `Transform`）。
 //!
 //! 線分と、膨らみと幅を持たない折れ線は、どのアフィン変換でも写せる。円・円弧・楕円・幅か膨らみを持つ折れ線は、
-//! 相似（等方の尺度・回転・鏡映・平行移動）でだけ、元の種類のまま写せる。文字は、鏡映を含まない相似でだけ写す。
-//! 記号は、相似で写す。鏡映は、Y の尺度の符号を変えて表す（`M R(θ) diag(sx, sy) = R(φ − θ) diag(s sx, −s sy)`。
-//! `M` は X 軸で鏡映してから `φ` 回し `s` 倍する相似）。属性と格子を持つ記号の鏡映と、鏡映した文字を元の形式で
-//! 表す書き方（反転の印）は、まだ決めていない。
+//! 相似（等方の尺度・回転・鏡映・平行移動）でだけ、元の種類のまま写せる。
+//!
+//! 記号と文字（TEXT）は、相似で写す。鏡映は、文字の枠の Y を反転して表す（`M R(θ) = R(φ − θ) F`。`M` は X 軸で
+//! 鏡映してから `φ` 回し `s` 倍する相似、`F` は X 軸の鏡映）。記号は Y の尺度の符号を変え
+//! （`M R(θ) diag(sx, sy) = R(φ − θ) diag(s sx, −s sy)`）、文字は上下の反転（`upside_down`）を入れ替える。
+//! 文字の反転は、斜体と幅の倍率を当てた字形に、文字の基点のまわりで当てるものとして扱う（DXF の 71 の
+//! 2・4。推定）ので、斜体の角度は変えない。書式つきの文字（MTEXT）は反転の印を持たないので、鏡映を含まない
+//! 相似でだけ写し、書式つきの属性を持つ記号も鏡映しない。格子を持つ記号は鏡映しない。
 
 use crate::{
     Affine, Attribute, Edge, FormattedText, Height, Length, ModelLength, ModelPoint, PaperLength,
@@ -231,19 +235,14 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
             })
         }
         Shape::Polyline(line) => Shape::Polyline(polyline(line, transform, similar)?),
-        Shape::Text(text) => Shape::Text(lettering(text, transform, upright(similar)?)?),
-        Shape::Formatted(text) => Shape::Formatted(formatting(text, transform, upright(similar)?)?),
+        Shape::Text(text) => Shape::Text(lettering(text, transform, similar?)?),
+        Shape::Formatted(text) => Shape::Formatted(formatting(text, transform, similar?)?),
         Shape::Symbol(symbol) => Shape::Symbol(match similar? {
             s if s.mirrored => mirroring(symbol, transform, s)?,
             s => placing(symbol, transform, s)?,
         }),
         _ => return None,
     })
-}
-
-/// 鏡映を含まない相似
-fn upright(similar: Option<Similarity>) -> Option<Similarity> {
-    similar.filter(|s| !s.mirrored)
 }
 
 fn polyline<P: Point>(
@@ -306,16 +305,25 @@ fn lettering<P: Point>(text: &Text<P>, transform: &Affine, s: Similarity) -> Opt
     Some(Text {
         placement,
         height: height(&text.height, s.scale),
-        rotation: degrees(text.rotation + s.rotation),
+        rotation: if s.mirrored {
+            degrees(s.rotation - text.rotation)
+        } else {
+            degrees(text.rotation + s.rotation)
+        },
+        upside_down: text.upside_down != s.mirrored,
         ..text.clone()
     })
 }
 
+/// 書式つきの文字を、鏡映を含まない相似で写す
 fn formatting<P: Point>(
     text: &FormattedText<P>,
     transform: &Affine,
     s: Similarity,
 ) -> Option<FormattedText<P>> {
+    if s.mirrored {
+        return None;
+    }
     // 内容の絶対高さや解釈できない書式は、元の符号を書き直さずに尺度を変えられない。
     if s.scale != 1.0
         && text.spans.iter().any(|span| {
@@ -342,8 +350,13 @@ fn formatting<P: Point>(
     })
 }
 
-fn placing<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> Option<Symbol<P>> {
-    let attributes = symbol
+/// 属性も同じ変換で写す。書式つきの属性は、鏡映しない
+fn attributes<P: Point>(
+    symbol: &Symbol<P>,
+    transform: &Affine,
+    s: Similarity,
+) -> Option<Vec<Attribute<P>>> {
+    symbol
         .attributes
         .iter()
         .map(|attribute| {
@@ -356,7 +369,11 @@ fn placing<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> O
                 ..attribute.clone()
             })
         })
-        .collect::<Option<Vec<_>>>()?;
+        .collect()
+}
+
+fn placing<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> Option<Symbol<P>> {
+    let attributes = attributes(symbol, transform, s)?;
     let grid = symbol.grid.as_ref().map(|grid| crate::Grid {
         column_spacing: scaled(grid.column_spacing, s.scale),
         row_spacing: scaled(grid.row_spacing, s.scale),
@@ -372,9 +389,9 @@ fn placing<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> O
     })
 }
 
-/// 記号を、鏡映を含む相似で写す。属性と格子を持つものは写さない
+/// 記号を、鏡映を含む相似で写す。格子を持つものと、書式つきの属性を持つものは写さない
 fn mirroring<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> Option<Symbol<P>> {
-    if !symbol.attributes.is_empty() || symbol.grid.is_some() {
+    if symbol.grid.is_some() {
         return None;
     }
     let [sx, sy] = symbol.scale;
@@ -382,6 +399,7 @@ fn mirroring<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) ->
         position: transform.point(symbol.position),
         scale: [sx * s.scale, -sy * s.scale],
         rotation: degrees(s.rotation - symbol.rotation),
+        attributes: attributes(symbol, transform, s)?,
         ..symbol.clone()
     })
 }
