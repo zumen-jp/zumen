@@ -3236,6 +3236,240 @@ fn transforms_mirror_texts_and_attributes_by_turning_them_upside_down() {
 }
 
 #[test]
+fn gridded_symbol_transforms_preserve_each_instance_geometry() {
+    use zumen_drawing::{Affine, Grid, ModelLength, Symbol};
+    fn placed(symbol: &Symbol<ModelPoint>, column: u32, row: u32, local: [f64; 2]) -> [f64; 2] {
+        let Some(Grid {
+            column_spacing: Length::Model(ModelLength { value: dx, .. }),
+            row_spacing: Length::Model(ModelLength { value: dy, .. }),
+            ..
+        }) = &symbol.grid
+        else {
+            panic!("grid")
+        };
+        let angle = symbol.rotation.to_radians();
+        let (sin, cos) = (libm::sin(angle), libm::cos(angle));
+        let x = local[0] * symbol.scale[0] + f64::from(column) * dx;
+        let y = local[1] * symbol.scale[1] + f64::from(row) * dy;
+        [
+            symbol.position.x + x * cos - y * sin,
+            symbol.position.y + x * sin + y * cos,
+        ]
+    }
+    let src = String::from_utf8(inserts())
+        .unwrap()
+        .replace(" 42\n2.0\n 43\n2.0\n", " 42\n-3.0\n 43\n2.0\n")
+        .replace(
+            " 50\n30.0\n",
+            " 50\n30.0\n 70\n3\n 71\n2\n 44\n6.0\n 45\n-4.0\n",
+        );
+    for affine in [
+        Affine {
+            m: [0.0, -2.0, 4.0, -2.0, 0.0, 3.0],
+        },
+        Affine {
+            m: [0.0, -2.0, 4.0, 2.0, 0.0, 3.0],
+        },
+    ] {
+        let mut file = testkit::read::<Dxf>(src.as_bytes()).0.unwrap();
+        let before = seen(&lift(&file));
+        let (target, original) = &before[1];
+        let Shape::Symbol(before_symbol) = &original.shape else {
+            panic!("symbol")
+        };
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let applied = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![zumen_drawing::Edit::Transform {
+                    target: target.clone(),
+                    transform: affine,
+                }],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        let after = seen(&lift(
+            &testkit::read::<Dxf>(&testkit::write::<Dxf>(&file).unwrap())
+                .0
+                .unwrap(),
+        ));
+        let (after_id, after_element) = &after[1];
+        let Shape::Symbol(after_symbol) = &after_element.shape else {
+            panic!("symbol")
+        };
+        for column in 0..3 {
+            for row in 0..2 {
+                for point in [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]] {
+                    let [x, y] = placed(before_symbol, column, row, point);
+                    let [a, b, c, d, e, f] = affine.m;
+                    let expected = [a * x + b * y + c, d * x + e * y + f];
+                    let actual = placed(after_symbol, column, row, point);
+                    assert!(
+                        (actual[0] - expected[0]).abs() < 1e-9
+                            && (actual[1] - expected[1]).abs() < 1e-9,
+                        "{column} {row} {point:?}: {actual:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(applied[0].hash, Some(after_id.hash));
+    }
+}
+
+#[test]
+fn gridded_symbol_with_attributes_keeps_its_grid_when_added() {
+    use zumen_drawing::{Grid, Placed};
+    let src = attributed_addition_source("40");
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let Shape::Symbol(mut symbol) = attributed_newcomer() else {
+        panic!("symbol")
+    };
+    symbol.grid = Some(Grid {
+        columns: 3,
+        rows: 2,
+        column_spacing: model(6.0),
+        row_spacing: model(-4.0),
+    });
+    symbol.scale = [-2.0, 3.0];
+    symbol.rotation = 30.0;
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &zumen_drawing::Changes {
+            edits: vec![zumen_drawing::Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(addition_element(Shape::Symbol(
+                    symbol.clone(),
+                )))),
+            }],
+            document: None,
+        },
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    let [(target, element)] = <[_; 1]>::try_from(after).unwrap();
+    let Shape::Symbol(placed) = element.shape else {
+        panic!("symbol")
+    };
+    assert_eq!(placed.grid, symbol.grid);
+    assert_eq!(placed.scale, symbol.scale);
+    assert_eq!(placed.rotation, symbol.rotation);
+    assert_eq!(placed.position, symbol.position);
+    assert_eq!(placed.attributes.len(), 1);
+    assert_eq!(placed.attributes[0].tag, symbol.attributes[0].tag);
+    assert_eq!(placed.attributes[0].text, symbol.attributes[0].text);
+    assert_eq!(applied[0].id.as_deref(), Some(target.id.as_str()));
+    assert_eq!(applied[0].hash, Some(target.hash));
+}
+
+#[test]
+fn gridded_symbol_refuses_shear_and_keeps_the_file_when_budget_stops() {
+    use zumen_base::{Kind, Limit, Limits};
+    use zumen_drawing::Affine;
+    let src = String::from_utf8(inserts())
+        .unwrap()
+        .replace(
+            " 50\n30.0\n",
+            " 50\n30.0\n 70\n3\n 71\n2\n 44\n6.0\n 45\n4.0\n",
+        )
+        .into_bytes();
+    for limited in [false, true] {
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let before = seen(&lift(&file));
+        let mut budget = if limited {
+            Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)))
+        } else {
+            Budget::default()
+        };
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![zumen_drawing::Edit::Transform {
+                    target: before[1].0.clone(),
+                    transform: Affine {
+                        m: [1.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+                    },
+                }],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        if limited {
+            assert!(matches!(result, Err(Error::Stopped(_))));
+        } else {
+            assert_eq!(result.unwrap_err(), Error::Rejected);
+            assert!(
+                diag.iter()
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+            );
+        }
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+}
+
+#[test]
+fn transforms_scale_grid_spacings_and_flip_rows_when_mirrored() {
+    use zumen_drawing::{Affine, Grid, transform::transform};
+    // 3 列 2 行、列の間隔 6、行の間隔 4 で並べる INSERT（2 つ目）
+    let src = String::from_utf8(inserts()).unwrap().replace(
+        " 50\n30.0\n",
+        " 50\n30.0\n 70\n3\n 71\n2\n 44\n6.0\n 45\n4.0\n",
+    );
+    // 2 倍にして 90° 回す、と、X 軸で鏡映して 2 倍にする
+    let turned = Affine {
+        m: [0.0, -2.0, 0.0, 2.0, 0.0, 0.0],
+    };
+    let mirrored = Affine {
+        m: [2.0, 0.0, 0.0, 0.0, -2.0, 0.0],
+    };
+    for (affine, spacing) in [(turned, [12.0, 8.0]), (mirrored, [12.0, -8.0])] {
+        let mut file = testkit::read::<Dxf>(src.as_bytes()).0.unwrap();
+        let before = seen(&lift(&file));
+        let (target, was) = &before[1];
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let applied = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![zumen_drawing::Edit::Transform {
+                    target: target.clone(),
+                    transform: affine,
+                }],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        assert_eq!(diag.iter().count(), 0);
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+        let (now_id, now) = &after[1];
+        assert_eq!(now.shape, transform(&was.shape, &affine).unwrap());
+        assert_eq!(applied[0].hash, Some(now_id.hash));
+        let Shape::Symbol(symbol) = &now.shape else {
+            panic!("{:?}", now.shape);
+        };
+        let Some(Grid {
+            columns: 3,
+            rows: 2,
+            column_spacing: Length::Model(column),
+            row_spacing: Length::Model(row),
+        }) = symbol.grid
+        else {
+            panic!("{:?}", symbol.grid);
+        };
+        assert_eq!([column.value, row.value], spacing);
+    }
+}
+
+#[test]
 fn transforms_mirror_symbols_without_attributes_by_flipping_the_y_scale() {
     use zumen_drawing::{Affine, Shape, transform::transform};
     let mut file = testkit::read::<Dxf>(&defined()).0.unwrap();
@@ -3536,4 +3770,42 @@ fn reflection_of_an_already_flipped_rotated_text_preserves_other_flags() {
     assert!(text.backward);
     assert!(!text.upside_down);
     assert_eq!(text.oblique, 12.0);
+}
+
+#[test]
+fn additions_reject_grid_counts_that_cannot_round_trip() {
+    use zumen_drawing::{Grid, Symbol, SymbolKey};
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "30"),
+        (2, "PART"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "ENDBLK"),
+    ];
+    for (columns, rows) in [(0, 2), (2, 0), (1, 1)] {
+        let src = addition_source("AC1009", "40", &blocks);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: "PART".into(),
+            },
+            position: at(0.0, 0.0),
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            grid: Some(Grid {
+                columns,
+                rows,
+                column_spacing: model(3.0),
+                row_spacing: model(4.0),
+            }),
+            attributes: vec![],
+            clip: None,
+        }));
+        let (result, _) = apply(&mut file, vec![Edit::Add(Box::new(element))]);
+        assert_eq!(result, Err(Error::Rejected), "{columns} x {rows}");
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
 }

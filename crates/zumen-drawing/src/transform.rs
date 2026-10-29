@@ -8,7 +8,8 @@
 //! （`M R(θ) diag(sx, sy) = R(φ − θ) diag(s sx, −s sy)`）、文字は上下の反転（`upside_down`）を入れ替える。
 //! 文字の反転は、斜体と幅の倍率を当てた字形に、文字の基点のまわりで当てるものとして扱う（DXF の 71 の
 //! 2・4。推定）ので、斜体の角度は変えない。書式つきの文字（MTEXT）は反転の印を持たないので、鏡映を含まない
-//! 相似でだけ写し、書式つきの属性を持つ記号も鏡映しない。格子を持つ記号は鏡映しない。
+//! 相似でだけ写し、書式つきの属性を持つ記号も鏡映しない。格子の間隔は尺度を掛け、鏡映では、記号の Y の向きに
+//! 並ぶ行の間隔の符号を変える。
 
 use crate::{
     Affine, Attribute, Edge, FormattedText, Height, Length, ModelLength, ModelPoint, PaperLength,
@@ -389,16 +390,20 @@ fn placing<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> O
     })
 }
 
-/// 記号を、鏡映を含む相似で写す。格子を持つものと、書式つきの属性を持つものは写さない
+/// 記号を、鏡映を含む相似で写す。書式つきの属性を持つものは写さない。格子の行は、記号の Y の向きに並ぶので、
+/// 鏡映すると行の間隔の符号が変わる
 fn mirroring<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> Option<Symbol<P>> {
-    if symbol.grid.is_some() {
-        return None;
-    }
+    let grid = symbol.grid.as_ref().map(|grid| crate::Grid {
+        column_spacing: scaled(grid.column_spacing, s.scale),
+        row_spacing: scaled(grid.row_spacing, -s.scale),
+        ..*grid
+    });
     let [sx, sy] = symbol.scale;
     Some(Symbol {
         position: transform.point(symbol.position),
         scale: [sx * s.scale, -sy * s.scale],
         rotation: degrees(s.rotation - symbol.rotation),
+        grid,
         attributes: attributes(symbol, transform, s)?,
         ..symbol.clone()
     })

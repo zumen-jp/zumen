@@ -947,7 +947,8 @@ fn drawings_take_back_restyled_lines() {
 )]
 fn drawings_take_back_transformed_elements() {
     use zumen_drawing::{
-        Affine, Applied, Changes, Drawing2D, Edit, Hash, Seen, Shape, id, transform::transform,
+        Affine, Applied, Changes, Drawing2D, Edit, Grid, Hash, Length, ModelLength, Placed, Seen,
+        Shape, id, transform::transform,
     };
     use zumen_sdk::{Apply, Codec, Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
@@ -964,7 +965,12 @@ fn drawings_take_back_transformed_elements() {
             Shape::Curve(_) => "curve",
             Shape::Polyline(_) => "polyline",
             Shape::Text(_) => "text",
-            // 点（`dxf.point`）は、置き換えをまだ扱わない
+            // 点（`dxf.point`）は、置き換えをまだ扱わない。格子に並べる記号（MINSERT）は分けて数える
+            Shape::Symbol(symbol)
+                if symbol.key.namespace == "dxf.block" && symbol.grid.is_some() =>
+            {
+                "grid"
+            }
             Shape::Symbol(symbol) if symbol.key.namespace == "dxf.block" => "symbol",
             _ => return None,
         })
@@ -1013,12 +1019,11 @@ fn drawings_take_back_transformed_elements() {
             .flat_map(|target| [(target, false), (target, true)])
         {
             let affine = affine(mirrored);
-            // 格子を持つ記号と、書式つきの属性を持つ記号は、鏡映を表せないので当てない
+            // 書式つきの属性を持つ記号は、鏡映を表せないので当てない
             let refused = mirrored
                 && match &element.shape {
                     Shape::Symbol(symbol) => {
-                        symbol.grid.is_some()
-                            || symbol.attributes.iter().any(|a| a.formatted.is_some())
+                        symbol.attributes.iter().any(|a| a.formatted.is_some())
                     }
                     _ => false,
                 };
@@ -1112,6 +1117,102 @@ fn drawings_take_back_transformed_elements() {
                 "{}",
                 path.display()
             );
+        }
+        // 格子に並べる記号は試料にないので、属性を除いた記号を 3 列 2 行で足してから、回して動かし、鏡映する。
+        // DWG は MINSERT として足す。R2004 から後の DWG は、MINSERT をまだ足せない
+        let minsert = !src.starts_with(b"AC10") || src.starts_with(b"AC1015");
+        if let Some((_, _, element)) = targets.iter().find(|(kind, _, _)| *kind == "symbol")
+            && let Shape::Symbol(symbol) = &element.shape
+        {
+            let spacing = |value: f64| {
+                Length::Model(ModelLength {
+                    space: space.id,
+                    value,
+                })
+            };
+            let mut gridded = (*element).clone();
+            gridded.shape = Shape::Symbol(zumen_drawing::Symbol {
+                grid: Some(Grid {
+                    columns: 3,
+                    rows: 2,
+                    column_spacing: spacing(600.0),
+                    row_spacing: spacing(450.0),
+                }),
+                attributes: Vec::new(),
+                ..symbol.clone()
+            });
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let mut file = testkit::read::<C>(&src).0.unwrap();
+            let added = file.apply(
+                &Changes {
+                    edits: vec![Edit::Add {
+                        place: place.clone(),
+                        element: Box::new(Placed::Model(gridded)),
+                    }],
+                    document: None,
+                },
+                &mut Cx::new(&mut budget, &mut diag, &cancel),
+            );
+            let added = match added {
+                Ok(added) => added,
+                Err(error) => {
+                    assert!(!minsert, "{} {error:?}", path.display());
+                    assert_eq!(
+                        diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+                        [codes::DWG_CHANGE_UNSUPPORTED]
+                    );
+                    return (kinds, mirrors);
+                }
+            };
+            let base = testkit::write::<C>(&file).unwrap();
+            let seen = |bytes: &[u8], target: &str| {
+                let drawing = lift(&testkit::read::<C>(bytes).0.unwrap());
+                let space = &drawing.spaces[0];
+                let place = id::space(space.id);
+                let mut namer = id::Namer::new(&place);
+                space
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .map(|(index, element)| (namer.next(index, element), element.clone()))
+                    .find(|(id, _)| id == target)
+                    .unwrap()
+                    .1
+            };
+            let target = added[0].id.clone().unwrap();
+            let was = seen(&base, &target);
+            for mirrored in [false, true] {
+                let affine = affine(mirrored);
+                let mut file = testkit::read::<C>(&base).0.unwrap();
+                let applied = file
+                    .apply(
+                        &Changes {
+                            edits: vec![Edit::Transform {
+                                target: Seen {
+                                    id: target.clone(),
+                                    hash: Hash::element(&was),
+                                },
+                                transform: affine,
+                            }],
+                            document: None,
+                        },
+                        &mut Cx::new(&mut budget, &mut diag, &cancel),
+                    )
+                    .unwrap_or_else(|error| panic!("{} {error:?}", path.display()));
+                let moved = seen(&testkit::write::<C>(&file).unwrap(), &target);
+                assert_eq!(
+                    moved.shape,
+                    transform(&was.shape, &affine).unwrap(),
+                    "{}",
+                    path.display()
+                );
+                assert_eq!(applied[0].hash, Some(Hash::element(&moved)));
+                if mirrored {
+                    mirrors.push("grid");
+                }
+            }
         }
         (kinds, mirrors)
     }
