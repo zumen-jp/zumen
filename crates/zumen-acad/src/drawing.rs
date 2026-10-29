@@ -10,7 +10,8 @@
 //! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間・
 //! ペーパー空間・記号の定義のブロックのレコードを指す SORTENTSTABLE で決め、なければ入力の順とする。
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
-//! DWG でも `dxf.` で始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
+//! DWG でも `dxf.` で始まるものを使う。DWG の読み手がまだ読まない値（R2010 からの表の書式）だけは、`dwg.` で
+//! 始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
 mod apply;
 mod mtext;
@@ -42,6 +43,9 @@ const UTF8: &[u8] = b"AC1021";
 
 /// HATCH の SPLINE の辺が当てはめる点を持つ最初の版（2010）
 const FIT_DATA: &[u8] = b"AC1024";
+
+/// DWG の ACAD_TABLE が内容を TABLECONTENT の形で持つ最初の版（2010。ODS 5.4.1 の 20.4.96.2）
+const TABLE_CONTENT: &[u8] = b"AC1024";
 
 /// 移さない理由。診断は大きいので箱に入れる
 type Lifted<T> = Result<T, Box<Diagnostic>>;
@@ -134,6 +138,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         sheet: SHEET,
         unicode: version.is_some_and(|v| v >= UTF8),
         fit_data: version.is_some_and(|v| v >= FIT_DATA),
+        table_content: version.is_some_and(|v| v >= TABLE_CONTENT),
         version: version.map(|v| String::from_utf8_lossy(v).into_owned()),
         mm: unit.millimeters(),
         unit,
@@ -742,6 +747,9 @@ struct Lifter<'a> {
     unicode: bool,
     /// 2010 以降の版なら、DXF の HATCH の SPLINE の辺は当てはめる点（97）を持つ
     fit_data: bool,
+    /// 2010 以降の版なら、DWG の表は内容を TABLECONTENT の形で持つ。DWG の読み手は、その書式と TABLESTYLE を
+    /// まだ読まない
+    table_content: bool,
     /// 見出しの `$ACADVER`。形式固有の情報の版にする
     version: Option<String>,
     /// 文書の長さの単位。記号の定義の空間も、この単位とする
@@ -1575,7 +1583,9 @@ impl Lifter<'_> {
     /// （141）・列の幅（142）と、種類（171）で始まるセルの並び。セルは、覆われる（173）・広げる列と行の数（175・
     /// 176）を持ち、種類が 1 なら文字（2 の区切りと 1）、2 ならブロックのレコード（340）を内容とする。文字がなく、
     /// 2007 からの値（301 から）の文字（302）があれば、それを内容とする（docs/formats/dxf.md）。数が合わない
-    /// ものは読めないとする。セルの値の型と単位と表示の書式は `cell_value` で読む。セルの書式と枠は、まだ移さない
+    /// ものは読めないとする。セルの値の型と単位と表示の書式は `cell_value` で、セルの書式と枠は `cell_format` で、
+    /// 表のスタイルの書式は `table_formats` で読む。R2010 からの DWG の読み手は書式を読まないので、書式は空になる
+    /// （`element` で診断する）
     fn table<P>(
         &self,
         db: &AcadDb,
@@ -1887,8 +1897,8 @@ impl Lifter<'_> {
     /// 表のスタイル（DXF Reference「TABLESTYLE」）の、行の種類ごとの書式。説明（3）の後の 280 が 1 ならタイトルの
     /// 行を、281 が 1 なら見出しの行を持たない。文字スタイル（7）から始まる組が、データ・タイトル・見出しの順に
     /// 続く（試料の表を描いたブロックの文字の高さと位置合わせで確かめた）。組の枠は、上・内側の横・下・左・
-    /// 内側の縦・右の順に、線幅（274〜279）・表示（284〜289）・色（64〜69）を持つ（推定）。組がなければ `None`
-    /// （R2010 からの DWG の読み手は、TABLESTYLE の欄をまだ読まない）
+    /// 内側の縦・右の順に、線幅（274〜279）・表示（284〜289）・色（64〜69）を持つ（推定）。組がなければ `None`。
+    /// R2010 からの DWG の読み手は、TABLESTYLE の欄をまだ読まないので `None` になる（`element` で診断する）
     fn table_formats(
         &self,
         db: &AcadDb,
@@ -2121,7 +2131,8 @@ impl Lifter<'_> {
         })
     }
 
-    /// 図形を要素にする。INSERT の属性のうち移せないものは、属性の出所を指す診断を返し、INSERT は移す
+    /// 図形を要素にする。INSERT の属性のうち移せないものは、属性の出所を指す診断を返し、INSERT は移す。
+    /// R2010 からの DWG の表は、書式を移さないことを表の出所を指す診断で返し、表は移す
     #[allow(clippy::too_many_arguments)]
     fn element<P: Copy>(
         &self,
@@ -2150,6 +2161,10 @@ impl Lifter<'_> {
         }
         if let Shape::Table(_) = &shape {
             report_cell_values(object, cx);
+            // R2010 からの DWG の読み手は、表のスタイル・セルのスタイル・内容の書式を読まない（docs/formats/dwg.md）
+            if self.table_content && matches!(object.origin, Origin::Dwg { .. }) {
+                cx.report(Diagnostic::new(codes::DWG_TABLE_FORMAT_UNSUPPORTED).at(source.clone()));
+            }
         }
         if let Shape::Symbol(symbol) = &mut shape {
             // 切り抜きを読めなければ、切り抜かずに移す
@@ -2227,7 +2242,7 @@ impl Lifter<'_> {
     }
 
     /// SOLID と TRACE（DXF Reference「SOLID」「TRACE」）。4 つの角（10〜13）を 1・2・4・3 の順に結んだ輪を
-    /// 塗る。3 つ目と 4 つ目の角が同じなら三角形とする。厚さ（39）は、まだ移さない（決定 0140）
+    /// 塗る。3 つ目と 4 つ目の角が同じなら三角形とする。厚さ（39）は、`dxf.entity` の拡張に控える（決定 0142）
     fn solid<P>(&self, object: &Object, point: &impl Fn(f64, f64) -> P) -> Lifted<Hatch<P>> {
         let corner = |x: i16| self.planar_point(object, x, &|x, y| [x, y]);
         let [first, second, third] = [corner(10)?, corner(11)?, corner(12)?];
@@ -4891,6 +4906,7 @@ mod tests {
             sheet: SHEET,
             unicode: true,
             fit_data: true,
+            table_content: true,
             version: None,
             unit: Unit::Millimeter,
             mm: Some(1.0),
@@ -4915,6 +4931,101 @@ mod tests {
                 }))
             );
             assert_eq!(row.text_style.as_deref(), text_style);
+        }
+    }
+
+    /// 版が `version` の DWG（`dwg` が偽なら DXF）の、1 行 1 列の表と、欄のない TABLESTYLE を持つ表。DWG の
+    /// 読み手は、R2010 からの TABLESTYLE の欄を読まず、ACAD_TABLE を AcDbTable（100）なしで置き、表を描いた
+    /// ブロック（2）を値の終わりに置く
+    fn table_db(version: &str, dwg: bool) -> AcadDb {
+        let origin = |at: usize| {
+            if dwg {
+                Origin::Dwg {
+                    offset: at,
+                    end: at + 1,
+                }
+            } else {
+                Origin::Dxf { record: at }
+            }
+        };
+        let value = |code: i16, data: Data| Value { code, data };
+        let text = |code: i16, text: &str| value(code, Data::Text(text.as_bytes().to_vec()));
+        let mut db = AcadDb::default();
+        db.set_variable(b"$ACADVER", vec![text(1, version)]);
+        db.push(Object {
+            kind: b"TABLESTYLE".to_vec(),
+            section: Section::Objects,
+            values: vec![value(5, Data::Handle(0x40))],
+            origin: origin(0),
+        });
+        let mut values = vec![
+            value(5, Data::Handle(0x41)),
+            text(8, "0"),
+            value(10, Data::Real(0.0)),
+            value(20, Data::Real(0.0)),
+            value(30, Data::Real(0.0)),
+        ];
+        if !dwg {
+            values.extend([text(2, "*T1"), text(100, "AcDbTable")]);
+        }
+        values.extend([
+            value(342, Data::Handle(0x40)),
+            value(91, Data::Int(1)),
+            value(92, Data::Int(1)),
+            value(141, Data::Real(1.0)),
+            value(142, Data::Real(2.0)),
+            value(171, Data::Int(1)),
+            text(1, "A"),
+        ]);
+        if dwg {
+            values.push(text(2, "*T1"));
+        }
+        db.push(Object {
+            kind: b"ACAD_TABLE".to_vec(),
+            section: Section::Entities,
+            values,
+            origin: origin(1),
+        });
+        db
+    }
+
+    /// R2010 からの DWG の表は、書式を読まないことを、表ごとに表の出所を指す `dwg.table-format.unsupported`
+    /// で返し、表は移す。R2004 までの DWG と、DXF の表は返さない
+    #[test]
+    fn dwg_tables_from_2010_report_that_their_formats_are_not_read() {
+        use zumen_base::{Budget, CancelToken, Diagnostics};
+        for (version, dwg, reported) in [
+            ("AC1024", true, true),
+            ("AC1027", true, true),
+            ("AC1032", true, true),
+            ("AC1018", true, false),
+            ("AC1024", false, false),
+            ("AC1032", false, false),
+        ] {
+            let db = table_db(version, dwg);
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let drawing = lift(&db, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+            let [element] = drawing.spaces[0].elements.as_slice() else {
+                panic!("{version} {dwg}: {:?}", drawing.spaces[0].elements);
+            };
+            let Shape::Table(table) = &element.shape else {
+                panic!("{version} {dwg}: {:?}", element.shape);
+            };
+            assert_eq!(table.formats, None, "{version} {dwg}");
+            let found: Vec<_> = diag
+                .iter()
+                .filter(|d| d.code() == codes::DWG_TABLE_FORMAT_UNSUPPORTED)
+                .map(|d| (d.count(), d.places().to_vec()))
+                .collect();
+            let expected = if reported {
+                vec![(1, vec![source(&db.objects()[1])])]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(found, expected, "{version} {dwg}");
+            assert_eq!(element.source, source(&db.objects()[1]), "{version} {dwg}");
         }
     }
 }
