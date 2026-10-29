@@ -10,5 +10,7 @@ pub mod dxf;
 mod snapshot;
 
 pub use db::{AcadDb, Data, DataType, Line, Object, Origin, Section, Value, ViewError};
+#[cfg(feature = "drawing")]
+pub use drawing::mtext_spans;
 pub use dwg::{Dwg, DwgFile, DwgTxn, Locator};
 pub use dxf::{Dxf, DxfFile, DxfTxn, Record, Tag};

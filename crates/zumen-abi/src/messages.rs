@@ -1290,7 +1290,7 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
-    /// 形の値。線分・円・円弧・幅を持たない折れ線・1 点に置く文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
     pub geometry: Option<Geometry>,
 }
 
@@ -1447,11 +1447,21 @@ pub enum Geometry {
     Polyline(PolylineGeometry),
     /// 1 点に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
     Text(TextGeometry),
+    /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
+    FormattedText(FormattedTextGeometry),
 }
 
 impl Geometry {
     /// 目印の欄（`shape`）の値（スキーマの順）
-    pub const TAGS: &[&str] = &["line", "circle", "arc", "ellipse", "polyline", "text"];
+    pub const TAGS: &[&str] = &[
+        "line",
+        "circle",
+        "arc",
+        "ellipse",
+        "polyline",
+        "text",
+        "formatted_text",
+    ];
 
     /// 目印の欄（`shape`）の値
     pub const fn tag(&self) -> &'static str {
@@ -1462,6 +1472,7 @@ impl Geometry {
             Self::Ellipse(_) => "ellipse",
             Self::Polyline(_) => "polyline",
             Self::Text(_) => "text",
+            Self::FormattedText(_) => "formatted_text",
         }
     }
 }
@@ -1476,6 +1487,9 @@ impl FromJson for Geometry {
             "ellipse" => Self::Ellipse(EllipseGeometry::read_fields(&mut object)?),
             "polyline" => Self::Polyline(PolylineGeometry::read_fields(&mut object)?),
             "text" => Self::Text(TextGeometry::read_fields(&mut object)?),
+            "formatted_text" => {
+                Self::FormattedText(FormattedTextGeometry::read_fields(&mut object)?)
+            }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -1492,6 +1506,7 @@ impl ToJson for Geometry {
             Self::Ellipse(value) => value.to_json(out),
             Self::Polyline(value) => value.to_json(out),
             Self::Text(value) => value.to_json(out),
+            Self::FormattedText(value) => value.to_json(out),
         }
     }
 }
@@ -1834,6 +1849,170 @@ impl ToJson for TextGeometry {
     }
 }
 
+/// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormattedTextGeometry {
+    /// 内容。書式の符号（\P の改行など）を含めた、元の形式の内容のまま
+    pub content: String,
+    /// 基点 [X, Y]
+    pub position: Vec<f64>,
+    /// 高さ。0 より大きい
+    pub height: f64,
+    /// 回転（度）
+    pub rotation: f64,
+    /// 基点に合わせる枠の位置
+    pub attachment: Option<Attachment>,
+    /// 折り返す枠の幅。0 より大きい。書かなければ折り返さない
+    pub width: Option<f64>,
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける
+    pub style: Option<String>,
+}
+
+impl FormattedTextGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "formatted_text")?;
+        let content = object.required("content", json::string)?;
+        let position = object.required("position", |value| json::array(value, json::number))?;
+        let height = object.required("height", json::number)?;
+        let rotation = object.required("rotation", json::number)?;
+        let attachment = object.optional("attachment", Attachment::from_json)?;
+        let width = object.optional("width", json::number)?;
+        let style = object.optional("style", json::string)?;
+        Ok(Self {
+            content,
+            position,
+            height,
+            rotation,
+            attachment,
+            width,
+            style,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("formatted_text");
+        out.key("content");
+        out.string(&self.content);
+        out.key("position");
+        out.array(&self.position, |out, item| out.float(*item));
+        out.key("height");
+        out.float(self.height);
+        out.key("rotation");
+        out.float(self.rotation);
+        if let Some(value) = &self.attachment {
+            out.key("attachment");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.width {
+            out.key("width");
+            out.float(*value);
+        }
+        if let Some(value) = &self.style {
+            out.key("style");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for FormattedTextGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for FormattedTextGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 基点に合わせる枠の位置。entities は返し、足すときに書かなければ左上、置き換えるときに書かなければ元のまま
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Attachment {
+    /// `top_left`
+    TopLeft,
+    /// `top_center`
+    TopCenter,
+    /// `top_right`
+    TopRight,
+    /// `middle_left`
+    MiddleLeft,
+    /// `middle_center`
+    MiddleCenter,
+    /// `middle_right`
+    MiddleRight,
+    /// `bottom_left`
+    BottomLeft,
+    /// `bottom_center`
+    BottomCenter,
+    /// `bottom_right`
+    BottomRight,
+}
+
+impl Attachment {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::TopLeft,
+        Self::TopCenter,
+        Self::TopRight,
+        Self::MiddleLeft,
+        Self::MiddleCenter,
+        Self::MiddleRight,
+        Self::BottomLeft,
+        Self::BottomCenter,
+        Self::BottomRight,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::TopLeft => "top_left",
+            Self::TopCenter => "top_center",
+            Self::TopRight => "top_right",
+            Self::MiddleLeft => "middle_left",
+            Self::MiddleCenter => "middle_center",
+            Self::MiddleRight => "middle_right",
+            Self::BottomLeft => "bottom_left",
+            Self::BottomCenter => "bottom_center",
+            Self::BottomRight => "bottom_right",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "top_left" => Some(Self::TopLeft),
+            "top_center" => Some(Self::TopCenter),
+            "top_right" => Some(Self::TopRight),
+            "middle_left" => Some(Self::MiddleLeft),
+            "middle_center" => Some(Self::MiddleCenter),
+            "middle_right" => Some(Self::MiddleRight),
+            "bottom_left" => Some(Self::BottomLeft),
+            "bottom_center" => Some(Self::BottomCenter),
+            "bottom_right" => Some(Self::BottomRight),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for Attachment {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for Attachment {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
 /// 要素の形の種類（決定 0022）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EntityKind {
@@ -2092,7 +2271,7 @@ pub enum Edit {
     Remove(RemoveEdit),
     /// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から
     Replace(ReplaceEdit),
-    /// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は線分・円・円弧・折れ線。小版 10 から
+    /// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
     Add(AddEdit),
 }
 
@@ -2377,7 +2556,7 @@ impl ToJson for ReplaceEdit {
     }
 }
 
-/// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は線分・円・円弧・折れ線。小版 10 から
+/// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct AddEdit {
     /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分

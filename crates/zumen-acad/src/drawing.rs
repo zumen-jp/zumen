@@ -83,6 +83,12 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     framed(db, cx).map(|(drawing, _)| drawing)
 }
 
+/// MTEXT の内容を、図面モデルの書式の区間に分ける。読むときと書き戻すときに区間を確かめるのと同じ解釈で、
+/// `length` は図面の単位の値を長さにする。境界から書式つきの文字を足し、置き換えるときに使う
+pub fn mtext_spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<zumen_drawing::Span> {
+    mtext::spans(content, length)
+}
+
 /// 用紙の座標と、元の図形の座標の対応。用紙の点は、元の点から原点（図面の単位）を引き、1 単位の mm の数を掛ける
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PaperFrame {

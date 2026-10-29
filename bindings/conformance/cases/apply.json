@@ -318,6 +318,22 @@
               "start_angle": 0,
               "end_angle": 360
             }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "formatted_text",
+              "content": "{\\H0.8x;GRID}\\PX1",
+              "position": [
+                1,
+                8
+              ],
+              "height": 2.5,
+              "rotation": 0,
+              "attachment": "top_left",
+              "style": "Standard"
+            }
           }
         ]
       },
@@ -340,7 +356,7 @@
         ]
       },
       "expect": {
-        "/result/total": 5,
+        "/result/total": 6,
         "/result/items/0/geometry": {
           "shape": "line",
           "start": [
@@ -383,6 +399,18 @@
           "ratio": 0.5,
           "start_angle": 0,
           "end_angle": 360
+        },
+        "/result/items/5/geometry": {
+          "shape": "formatted_text",
+          "content": "{\\H0.8x;GRID}\\PX1",
+          "position": [
+            1,
+            8
+          ],
+          "height": 2.5,
+          "rotation": 0,
+          "attachment": "top_left",
+          "style": "Standard"
         }
       }
     },
