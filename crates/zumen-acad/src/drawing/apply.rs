@@ -63,7 +63,10 @@ fn document<F>(
     };
     let mut bytes = Vec::new();
     write(file, &mut bytes, cx)?;
-    let current = Hash::document(&bytes) == hash;
+    let current = Hash::document_checked(&bytes, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    })? == hash;
     if !current {
         cx.report(Diagnostic::new(codes::CHANGE_DOCUMENT_STALE));
     }
@@ -129,17 +132,24 @@ impl<'a> Index<'a> {
     }
 
     /// ID の要素の、今のハッシュ
-    fn hash(&self, id: &str) -> Option<Hash> {
-        self.elements.get(id).map(|found| match found {
-            Found::Model(element) => Hash::element(element),
-            Found::Paper(element) => Hash::element(element),
+    fn hash(&self, id: &str, cx: &mut Cx<'_>) -> Result<Option<Hash>, Error> {
+        let Some(found) = self.elements.get(id) else {
+            return Ok(None);
+        };
+        let (result, source) = match found {
+            Found::Model(element) => (Hash::element_checked(element, cx), &element.source),
+            Found::Paper(element) => (Hash::element_checked(element, cx), &element.source),
+        };
+        result.map(Some).map_err(|stop| {
+            cx.report(stop.to_diagnostic().at(source.clone()));
+            Error::Stopped(stop)
         })
     }
 }
 
 /// 当てた変更の、書き戻した後の ID とハッシュ。鍵（ハンドル）を持たない要素の ID は、読み直すとずれうる
 /// ので返さない
-fn applied(index: &Index, id: Option<String>) -> Applied {
+fn applied(index: &Index, id: Option<String>, cx: &mut Cx<'_>) -> Result<Applied, Error> {
     let keyed = |id: &String| {
         index.elements.get(id).is_some_and(|found| {
             match found {
@@ -150,16 +160,22 @@ fn applied(index: &Index, id: Option<String>) -> Applied {
             .is_some()
         })
     };
-    match id.filter(keyed).and_then(|id| Some((index.hash(&id)?, id))) {
-        Some((hash, id)) => Applied {
-            id: Some(id),
-            hash: Some(hash),
-        },
-        None => Applied {
+    let Some(id) = id.filter(keyed) else {
+        return Ok(Applied {
             id: None,
             hash: None,
-        },
-    }
+        });
+    };
+    let Some(hash) = index.hash(&id, cx)? else {
+        return Ok(Applied {
+            id: None,
+            hash: None,
+        });
+    };
+    Ok(Applied {
+        id: Some(id),
+        hash: Some(hash),
+    })
 }
 
 /// 当てられない変更の診断
@@ -266,7 +282,7 @@ fn edit(
             rejected = true;
             continue;
         };
-        if index.hash(&target_of.id) != Some(target_of.hash) {
+        if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
             cx.report(
                 Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", target_of.id.as_str()),
             );
@@ -365,21 +381,22 @@ fn edit(
     let mut quiet = Diagnostics::new();
     let (after, _) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
     let after = Index::new(&after);
-    Ok(changes
+    changes
         .edits
         .iter()
         .map(|change| match change {
-            Edit::Replace { target, .. } => applied(&after, Some(target.id.clone())),
+            Edit::Replace { target, .. } => applied(&after, Some(target.id.clone()), cx),
             Edit::Add { place, .. } => applied(
                 &after,
                 handles
                     .next()
                     .flatten()
                     .map(|handle| format!("{place}/h{handle:X}")),
+                cx,
             ),
-            Edit::Remove { .. } => applied(&after, None),
+            Edit::Remove { .. } => applied(&after, None, cx),
         })
-        .collect())
+        .collect()
 }
 
 /// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある
@@ -1093,5 +1110,113 @@ mod duplicate_handle_tests {
         ));
         assert_eq!(budget.used(Kind::Work), 0);
         assert_eq!(db, before);
+    }
+}
+
+#[cfg(test)]
+mod hash_budget_tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Key, Kind, Limit, Limits};
+    use zumen_drawing::{LayerId, ModelSpace, Style, Unit, Vertex};
+
+    fn context<'a>(
+        budget: &'a mut Budget,
+        diagnostics: &'a mut Diagnostics,
+        cancel: &'a CancelToken,
+    ) -> Cx<'a> {
+        Cx::new(budget, diagnostics, cancel)
+    }
+
+    #[test]
+    fn checks_element_hashes_with_work_and_cancellation() {
+        let point = ModelPoint {
+            space: SpaceId(0),
+            x: 0.0,
+            y: 0.0,
+        };
+        let element = Element {
+            source: Ref::at_record(1).with_key(Key::Handle(1)),
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Polyline(Polyline {
+                vertices: vec![Vertex { point, bulge: 0.0 }; 100],
+                closed: false,
+                width: None,
+                vertex_widths: vec![],
+            }),
+        };
+        let drawing = Drawing2D {
+            spaces: vec![ModelSpace {
+                id: SpaceId(0),
+                unit: Unit::Unknown,
+                elements: vec![element],
+                order: vec![0],
+            }],
+            ..Drawing2D::default()
+        };
+        let index = Index::new(&drawing);
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
+        let result = index.hash(
+            "space/0/h1",
+            &mut context(&mut budget, &mut diagnostics, &cancel),
+        );
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+        let mut budget = Budget::default();
+        let actual = applied(
+            &index,
+            Some("space/0/h1".into()),
+            &mut context(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        assert_eq!(
+            actual.hash,
+            Some(Hash::element(&drawing.spaces[0].elements[0]))
+        );
+        cancel.cancel();
+        let mut budget = Budget::default();
+        assert!(matches!(
+            applied(
+                &index,
+                Some("space/0/h1".into()),
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+    }
+
+    #[test]
+    fn checks_document_hash_with_work_budget() {
+        struct TestFile(Vec<u8>);
+        fn write(file: &TestFile, out: &mut Vec<u8>, _: &mut Cx<'_>) -> Result<(), Error> {
+            out.extend_from_slice(&file.0);
+            Ok(())
+        }
+        let bytes = vec![42; 4096];
+        let changes = Changes {
+            edits: vec![],
+            document: Some(Hash::document(&bytes)),
+        };
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(2)));
+        assert!(matches!(
+            document(
+                &TestFile(bytes),
+                &changes,
+                write,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
     }
 }
