@@ -2793,7 +2793,7 @@ fn transforms_the_records_cannot_hold_change_nothing() {
         transform(&arc, sheared),
         // 距離（1041）は、相似でない変換では直せない
         transform(&line, sheared),
-        // 鏡映した記号を書く方法は決めていない
+        // 属性を持つ記号の鏡映は、属性の文字を鏡映して書く方法を決めていない
         transform(&insert, mirrored),
         // 向きがつぶれる
         transform(&line, flattened),
@@ -3180,6 +3180,58 @@ fn defined() -> Vec<u8> {
         .map(|(code, value)| format!("{code:>3}\n{value}\n"))
         .collect::<String>()
         .into_bytes()
+}
+
+#[test]
+fn transforms_mirror_symbols_without_attributes_by_flipping_the_y_scale() {
+    use zumen_drawing::{Affine, Shape, transform::transform};
+    let mut file = testkit::read::<Dxf>(&defined()).0.unwrap();
+    let [(insert, before)] = <[_; 1]>::try_from(seen(&lift(&file))).unwrap();
+    // 直線 y = x で鏡映する。(5, 5) の配置は動かず、定義の (1, 0) は (5, 6) に写る
+    let mirrored = Affine {
+        m: [0.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &zumen_drawing::Changes {
+            edits: vec![zumen_drawing::Edit::Transform {
+                target: insert.clone(),
+                transform: mirrored,
+            }],
+            document: None,
+        },
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let [(after_id, after)] =
+        <[_; 1]>::try_from(seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()))).unwrap();
+    assert_eq!(after.shape, transform(&before.shape, &mirrored).unwrap());
+    let Shape::Symbol(symbol) = &after.shape else {
+        panic!("{:?}", after.shape);
+    };
+    assert_eq!(symbol.scale, [1.0, -1.0]);
+    assert_eq!(symbol.rotation, 90.0);
+    let place = |[x, y]: [f64; 2]| {
+        let (sin, cos) = (
+            libm::sin(symbol.rotation.to_radians()),
+            libm::cos(symbol.rotation.to_radians()),
+        );
+        let [sx, sy] = symbol.scale;
+        let (x, y) = (x * sx, y * sy);
+        [
+            symbol.position.x + x * cos - y * sin,
+            symbol.position.y + x * sin + y * cos,
+        ]
+    };
+    let rounded = |[x, y]: [f64; 2]| [(x * 1e9).round() / 1e9, (y * 1e9).round() / 1e9];
+    assert_eq!(rounded(place([1.0, 0.0])), [5.0, 6.0]);
+    assert_eq!(rounded(place([0.0, 1.0])), [6.0, 5.0]);
+    assert_eq!(applied[0].id.as_deref(), Some(insert.id.as_str()));
+    assert_eq!(applied[0].hash, Some(after_id.hash));
 }
 
 /// 記号の定義の要素の ID とハッシュ
