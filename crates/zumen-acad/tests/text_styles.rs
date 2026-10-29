@@ -386,3 +386,80 @@ fn text_style_renames_count_record_values_and_stop_without_changing_the_file() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(written, enlarged.as_bytes());
 }
+
+#[test]
+fn text_style_search_counts_shape_record_names_before_copying_them() {
+    use zumen_base::{Kind, Limit, Limits};
+
+    // 形のファイルの STYLE は文字スタイルではないが、名前の重複検査では走査する。
+    let original = String::from_utf8(src()).unwrap();
+    let marker = "  0\nENDTAB\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n";
+    let with_shape = |name: &str| {
+        original.replace(
+            marker,
+            &format!("  0\nSTYLE\n  5\n15\n  2\n{name}\n 70\n1\n{marker}"),
+        )
+    };
+    let small = with_shape("Shape");
+    let large = with_shape(&"S".repeat(64 * 1024));
+    let run = |input: &str, limit: Option<u64>| {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let mut target = seen(&drawing, "Notes");
+        target.id = "text-style/hFFFF".to_owned();
+        let changes = Changes {
+            edits: vec![Edit::RemoveTextStyle { target }],
+            document: None,
+        };
+        let limits = limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        });
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let result = file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (
+            result,
+            budget.used(Kind::Work),
+            testkit::write::<Dxf>(&file).unwrap(),
+        )
+    };
+    let (result, small_work, _) = run(&small, None);
+    assert!(matches!(result, Err(Error::Rejected)));
+    let (result, large_work, _) = run(&large, None);
+    assert!(matches!(result, Err(Error::Rejected)));
+    assert!(large_work >= small_work + 63, "{small_work}, {large_work}");
+    let (result, _, written) = run(&large, Some(small_work + 1));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, large.as_bytes());
+}
+
+#[test]
+fn text_style_changes_do_not_merge_undefined_styles_or_shift_their_ids() {
+    let input = String::from_utf8(src())
+        .unwrap()
+        .replace("NOTE\n  7\nNotes\n", "NOTE\n  7\nMissing\n");
+    let drawing = lift(&testkit::read::<Dxf>(input.as_bytes()).0.unwrap());
+    assert_eq!(style(&drawing, "Missing").0, "text-style/4");
+    let mut renamed = style(&drawing, "Notes").1.clone();
+    renamed.name = "Missing".to_owned();
+    let mut added = style(&drawing, "Standard").1.clone();
+    added.name = "Added".to_owned();
+    for edit in [
+        Edit::ReplaceTextStyle {
+            target: seen(&drawing, "Notes"),
+            style: Box::new(renamed),
+        },
+        Edit::AddTextStyle {
+            style: Box::new(added),
+        },
+    ] {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let (result, found) = apply(&mut file, vec![edit]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(found, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
+    }
+}

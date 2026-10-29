@@ -350,6 +350,7 @@ fn edit(
             for (position, object) in db.objects().iter().enumerate() {
                 work(cx, 1, &Ref::default())?;
                 if object.section == Section::Tables && object.kind == b"STYLE" {
+                    count_transform_values(object, &Ref::default(), cx)?;
                     if let Some(Data::Text(name)) = object.first(2)
                         && !name.is_empty()
                     {
@@ -358,6 +359,21 @@ fn edit(
                     if text_style::is_style(object) {
                         records.push(position);
                     }
+                }
+            }
+            // 図形だけが指す名前も、既存の文字スタイルとして重複を防ぐ。
+            for style in drawing
+                .text_styles
+                .iter()
+                .filter(|style| style.definition.is_none())
+            {
+                work(cx, 1 + style.name.len() as u64 / 1024, &style.source)?;
+                if let Some(Value {
+                    data: Data::Text(name),
+                    ..
+                }) = born.text_value(2, &style.name)
+                {
+                    style_names.insert(name.to_ascii_lowercase());
                 }
             }
             style_records = Some(records);
@@ -711,6 +727,12 @@ fn edit(
             }
             Edit::AddTextStyle { style: new } => {
                 work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                // 定義のない文字スタイルは表の後に並ぶため、表への追加でその ID がずれる。
+                work(cx, drawing.text_styles.len() as u64, &Ref::default())?;
+                let unstable = drawing
+                    .text_styles
+                    .iter()
+                    .any(|style| style.definition.is_none());
                 count_table_records(db, styles, &Ref::default(), cx)?;
                 let standard = styles.iter().find_map(|&position| {
                     db.objects().get(position).filter(|object| {
@@ -730,7 +752,8 @@ fn edit(
                         return None;
                     };
                     let name = name.to_ascii_lowercase();
-                    ((target != Target::Dxf || layer::table_end(db, b"STYLE").is_some())
+                    (!unstable
+                        && (target != Target::Dxf || layer::table_end(db, b"STYLE").is_some())
                         && style_names.insert(name))
                     .then_some(values)
                 });
