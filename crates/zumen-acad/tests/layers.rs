@@ -718,3 +718,39 @@ fn removing_dictionary_children_counts_each_removal_and_stops_safely() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(written, input.as_bytes());
 }
+
+#[test]
+fn missing_dictionary_stops_safely_at_the_work_limit() {
+    use zumen_base::{Kind, Limit, Limits};
+    let input = with_dictionary("").replacen("360\nD1\n102\n}\n", "360\nFFFF\n102\n}\n", 1);
+    let run = |limit: Option<u64>| {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let changes = Changes {
+            edits: vec![Edit::RemoveLayer {
+                target: seen(layer(&drawing, "Unused")),
+            }],
+            document: None,
+        };
+        let limits = limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        });
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let result = file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (
+            result,
+            budget.used(Kind::Work),
+            testkit::write::<Dxf>(&file).unwrap(),
+        )
+    };
+    let (result, used, written) = run(None);
+    assert!(matches!(result, Err(Error::Rejected)));
+    assert_eq!(written, input.as_bytes());
+    let (result, _, written) = run(Some(used - 1));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, input.as_bytes());
+}

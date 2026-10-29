@@ -34,14 +34,16 @@ pub(super) fn owned(
         if !seen.insert(child) {
             return Ok(None);
         }
-        let Some(position) = db.position(child) else {
+        // 編集の計画中は索引を組んだ後に表を変えない。存在しないハンドルでも全体を走査しない。
+        let Some(position) = db.indexed_position(child) else {
             return Ok(None);
         };
         let Some(object) = db.objects().get(position) else {
             return Ok(None);
         };
         count_transform_values(object, place, cx)?;
-        if object.section != Section::Objects
+        if object.handle() != Some(child)
+            || object.section != Section::Objects
             || object.owner() != Some(parent)
             || (dictionary && object.kind != b"DICTIONARY")
         {
@@ -136,4 +138,135 @@ pub(super) fn pointed(
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{Origin, Value};
+    use zumen_base::{Budget, CancelToken, Diagnostics, Kind};
+
+    #[test]
+    fn missing_child_does_not_search_unrelated_objects() {
+        let layer = Object {
+            kind: b"LAYER".to_vec(),
+            section: Section::Tables,
+            values: vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(1),
+                },
+                Value {
+                    code: 102,
+                    data: Data::Text(b"{ACAD_XDICTIONARY".to_vec()),
+                },
+                Value {
+                    code: 360,
+                    data: Data::Handle(2),
+                },
+                Value {
+                    code: 102,
+                    data: Data::Text(b"}".to_vec()),
+                },
+            ],
+            origin: Origin::New,
+        };
+        let run = |extra| {
+            let mut db = AcadDb::default();
+            db.push(layer.clone());
+            for _ in 0..extra {
+                db.push(Object {
+                    kind: b"XRECORD".to_vec(),
+                    section: Section::Objects,
+                    values: Vec::new(),
+                    origin: Origin::New,
+                });
+            }
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let result = owned(
+                &db,
+                &layer,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                &Ref::default(),
+            )
+            .unwrap();
+            assert!(result.is_none());
+            budget.used(Kind::Work)
+        };
+        assert_eq!(run(0), run(10_000));
+    }
+
+    #[test]
+    fn stale_index_does_not_fall_back_to_search() {
+        let layer = Object {
+            kind: b"LAYER".to_vec(),
+            section: Section::Tables,
+            values: vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(1),
+                },
+                Value {
+                    code: 102,
+                    data: Data::Text(b"{ACAD_XDICTIONARY".to_vec()),
+                },
+                Value {
+                    code: 360,
+                    data: Data::Handle(2),
+                },
+                Value {
+                    code: 102,
+                    data: Data::Text(b"}".to_vec()),
+                },
+            ],
+            origin: Origin::New,
+        };
+        let dictionary = Object {
+            kind: b"DICTIONARY".to_vec(),
+            section: Section::Objects,
+            values: vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(3),
+                },
+                Value {
+                    code: 330,
+                    data: Data::Handle(1),
+                },
+            ],
+            origin: Origin::New,
+        };
+        let mut db = AcadDb::default();
+        db.push(layer.clone());
+        db.push(dictionary);
+        db.object_mut(1).unwrap().values[0].data = Data::Handle(2);
+        assert_eq!(db.position(2), Some(1));
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        assert!(
+            owned(
+                &db,
+                &layer,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                &Ref::default()
+            )
+            .unwrap()
+            .is_none()
+        );
+        let mut old_reference = layer;
+        old_reference.values[2].data = Data::Handle(3);
+        assert!(
+            owned(
+                &db,
+                &old_reference,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                &Ref::default()
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
 }
