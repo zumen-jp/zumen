@@ -2014,7 +2014,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":20}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":21}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3442,17 +3442,52 @@ mod tests {
         ] {
             assert!(attribute.contains(field), "{field:?}: {attribute}");
         }
-        // 置き換えは、属性の値を変えない
-        let (status, response) = call(
-            &mut session,
-            &format!(
-                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"symbol","name":"DOOR","position":[10,20],"scale":[2,2],"rotation":90,"attributes":[{{"tag":"NO","value":"D8"}}]}}}}]}}"#
+        // 置き換えは、属性のタグと 1 行の値だけを受け、値を変えれば ATTRIB の値を書き直す
+        let replace = |session: &mut Session, attributes: &str| {
+            call(
+                session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"symbol","name":"DOOR","position":[10,20],"scale":[2,2],"rotation":90,"attributes":{attributes}}}}}]}}"#
+                ),
+            )
+        };
+        for (attributes, pointer) in [
+            (
+                r#"[{"tag":"NUMBER","value":"D8"}]"#,
+                "/edits/0/geometry/attributes/0/tag",
             ),
-        );
-        assert_eq!(status, Status::Failed);
+            (
+                r#"[{"tag":"NO","value":"D\n8"}]"#,
+                "/edits/0/geometry/attributes/0/value",
+            ),
+            (
+                r#"[{"tag":"NO","value":"D8"},{"tag":"NO","value":"D9"}]"#,
+                "/edits/0/geometry/attributes",
+            ),
+        ] {
+            let (status, response) = replace(&mut session, attributes);
+            assert_eq!(status, Status::Failed, "{attributes}");
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let (status, response) = replace(&mut session, r#"[{"tag":"NO","value":"D8"}]"#);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let rewritten = String::from_utf8(session.take(0).unwrap()).unwrap();
+        let (_, attribute) = rewritten.split_once("ATTRIB").unwrap();
+        let (attribute, _) = attribute.split_once("SEQEND").unwrap();
+        assert!(attribute.contains("  1\nD8\n"), "{attribute}");
+        assert!(attribute.contains(" 10\n8.0\n"), "{attribute}");
         assert_eq!(
-            text(&error(&response), "/params/pointer"),
-            "/edits/0/geometry/attributes"
+            seen(&mut session, "a.dxf"),
+            [(
+                text(&response, "/result/applied/0/id"),
+                text(&response, "/result/applied/0/hash")
+            )]
+        );
+        assert_eq!(
+            shapes(&mut session, "a.dxf"),
+            [
+                r#"{"shape":"symbol","name":"DOOR","position":[10,20],"scale":[2,2],"rotation":90,"attributes":[{"tag":"NO","value":"D8"}]}"#
+            ]
         );
         // 値を渡さなくても、定義の属性を作れなければ拒否する
         let (status, response) = add(

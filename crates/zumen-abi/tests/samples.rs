@@ -1314,3 +1314,81 @@ fn drawings_return_dimensions_but_do_not_write_them() {
     }
     assert!(drawings().is_empty() || returned > 0);
 }
+
+/// 試料の属性を持つ記号（表題欄など）の属性の値を `replace` で変えると、ATTRIB の値だけが書き直され、読み直した
+/// 形の値は変えたものと同じになる。ほかの要素の形の値は変わらない。書式つきの値を持つ属性は値を変えられない
+#[test]
+fn drawings_take_back_attribute_values_changed_through_the_boundary() {
+    let json = |value: &Value| {
+        let mut out = zumen_json::Writer::new();
+        out.value(value);
+        String::from_utf8(out.into_bytes()).unwrap()
+    };
+    // DXF と DWG それぞれで書き換えた数
+    let mut changed = [0, 0];
+    for path in drawings() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"in", &std::fs::read(&path).unwrap()).unwrap();
+        if !open(&mut session, "in") {
+            continue;
+        }
+        let symbols: Vec<(String, String, Value)> = shapes(&mut session, "in")
+            .into_iter()
+            .zip(entities(&mut session, "in"))
+            .filter_map(|((id, geometry), (_, _, hash))| {
+                let geometry = geometry?;
+                (text(&geometry, "/shape") == Some("symbol")
+                    && text(&geometry, "/attributes/0/tag").is_some())
+                .then_some((id, hash, geometry))
+            })
+            .take(3)
+            .collect();
+        for (id, hash, geometry) in symbols {
+            let before = shapes(&mut session, "in");
+            let sent = json(&geometry);
+            let attribute = geometry.pointer("/attributes/0").unwrap();
+            let value = text(attribute, "/value").unwrap();
+            let fresh = format!("{value}-1");
+            let old = json(attribute);
+            let new = old.replacen(
+                &json(&Value::String(value.to_string())),
+                &json(&Value::String(fresh.clone())),
+                1,
+            );
+            let sent = sent.replacen(&old, &new, 1);
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"in","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{sent}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
+                ),
+            );
+            if status != Status::Ok {
+                // 書式つきの値を持つ属性と、2007 より前の DXF の ASCII でない値は書けない
+                assert_eq!(status, Status::Failed, "{} {sent}", path.display());
+                assert_eq!(shapes(&mut session, "in"), before, "{}", path.display());
+                continue;
+            }
+            assert_eq!(text(&response, "/result/applied/0/id"), Some(id.as_str()));
+            let expected: Vec<(String, Option<String>)> = before
+                .iter()
+                .map(|(other, geometry)| {
+                    let geometry = match (other == &id, geometry) {
+                        (true, _) => Some(sent.clone()),
+                        (false, geometry) => geometry.as_ref().map(json),
+                    };
+                    (other.clone(), geometry)
+                })
+                .collect();
+            let after: Vec<(String, Option<String>)> = shapes(&mut session, "in")
+                .iter()
+                .map(|(other, geometry)| (other.clone(), geometry.as_ref().map(json)))
+                .collect();
+            assert_eq!(after, expected, "{}", path.display());
+            changed[usize::from(path.extension().is_some_and(|e| e == "dwg"))] += 1;
+        }
+    }
+    assert!(
+        drawings().is_empty() || changed.iter().all(|count| *count > 0),
+        "{changed:?}"
+    );
+}
