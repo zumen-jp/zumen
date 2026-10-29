@@ -96,7 +96,7 @@ struct Index<'a> {
 }
 
 impl<'a> Index<'a> {
-    fn new(drawing: &'a Drawing2D) -> Self {
+    fn new(drawing: &'a Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Error> {
         let mut elements = BTreeMap::new();
         let mut places = BTreeMap::new();
         let mut seen = BTreeSet::new();
@@ -107,28 +107,32 @@ impl<'a> Index<'a> {
             }
         };
         for space in &drawing.spaces {
+            work(cx, 1, &Ref::default())?;
             let place = id::space(space.id);
             let mut namer = id::Namer::new(&place);
             for (index, element) in space.elements.iter().enumerate() {
+                work(cx, 1, &element.source)?;
                 note(&element.source);
                 elements.insert(namer.next(index, element), Found::Model(element));
             }
             places.insert(place, Place::Space(space.id));
         }
         for sheet in &drawing.sheets {
+            work(cx, 1, &sheet.source)?;
             let place = id::sheet(sheet);
             let mut namer = id::Namer::new(&place);
             for (index, element) in sheet.elements.iter().enumerate() {
+                work(cx, 1, &element.source)?;
                 note(&element.source);
                 elements.insert(namer.next(index, element), Found::Paper(element));
             }
             places.insert(place, Place::Sheet(sheet.id));
         }
-        Self {
+        Ok(Self {
             elements,
             places,
             shared,
-        }
+        })
     }
 
     /// ID の要素の、今のハッシュ
@@ -213,7 +217,7 @@ fn edit(
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
     let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
-    let index = Index::new(&drawing);
+    let index = Index::new(&drawing, cx)?;
     // 2007 からの版は文字を UTF-8 で持つ。それより前は、ASCII の文字だけを書く（読む側と同じ）
     let unicode = db
         .variable(b"$ACADVER")
@@ -380,7 +384,7 @@ fn edit(
     // ハンドルで作るので、読み直したファイルと同じになる
     let mut quiet = Diagnostics::new();
     let (after, _) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
-    let after = Index::new(&after);
+    let after = Index::new(&after, cx)?;
     changes
         .edits
         .iter()
@@ -1154,9 +1158,23 @@ mod hash_budget_tests {
             }],
             ..Drawing2D::default()
         };
-        let index = Index::new(&drawing);
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        assert!(matches!(
+            Index::new(
+                &drawing,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        let mut budget = Budget::default();
+        let index = Index::new(
+            &drawing,
+            &mut context(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        diagnostics = Diagnostics::new();
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
         let result = index.hash(
             "space/0/h1",
