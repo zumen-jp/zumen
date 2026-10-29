@@ -492,7 +492,8 @@
           "height": 2.5,
           "rotation": 0,
           "attachment": "top_left",
-          "style": "Standard"
+          "style": "Standard",
+          "style_id": "text-style/0"
         },
         "/result/items/6/geometry": {
           "shape": "spline",
@@ -536,7 +537,8 @@
           "fit": "aligned",
           "height": 1,
           "rotation": 90,
-          "style": "Standard"
+          "style": "Standard",
+          "style_id": "text-style/0"
         },
         "/result/items/8/geometry": {
           "shape": "spline",
