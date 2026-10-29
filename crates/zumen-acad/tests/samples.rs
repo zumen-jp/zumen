@@ -2496,3 +2496,76 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
     }
     assert!(pairs().is_empty() || kinds.len() == 6, "{kinds:?}");
 }
+
+/// 図形とともに動く XDATA（位置・変位・向き・距離・倍率）を持つ図形の形を変えると、DWG も DXF も何も反映しない
+/// （決定 0154）
+#[cfg(feature = "drawing")]
+#[test]
+fn drawings_refuse_to_move_entities_with_moving_xdata() {
+    use zumen_drawing::{Changes, Drawing2D, Edit, Placement, Shape, Target};
+    use zumen_sdk::{Apply, Error, Lift, testkit};
+    fn check<C: Codec>(path: &Path) -> usize
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut diag = Diagnostics::new();
+        let drawing = file
+            .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        let moving = ["position", "displacement", "direction", "distance", "scale"];
+        let found = drawing.extensions.iter().find_map(|extension| {
+            let Target::Model { space, index } = extension.target else {
+                return None;
+            };
+            let space = drawing.spaces.iter().find(|s| s.id == space)?;
+            let element = space.elements.get(index)?;
+            (extension.namespace == "dxf.xdata"
+                && extension.fields.iter().any(|f| moving.contains(&f.key))
+                && matches!(element.shape, Shape::Text(_)))
+            .then(|| element.clone())
+        });
+        let Some(mut element) = found else {
+            return 0;
+        };
+        if let Shape::Text(text) = &mut element.shape
+            && let Placement::Anchor { point, .. } = &mut text.placement
+        {
+            point.x += 1.0;
+        }
+        let at = element.source.clone();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                edits: vec![Edit::Replace(Box::new(element))],
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        );
+        assert_eq!(result, Err(Error::Rejected), "{}", path.display());
+        let found: Vec<_> = diag
+            .iter()
+            .map(|d| (d.code(), d.places().to_vec()))
+            .collect();
+        assert_eq!(
+            found,
+            [(codes::DXF_XDATA_UNSUPPORTED, vec![at])],
+            "{}",
+            path.display()
+        );
+        assert_eq!(
+            testkit::write::<C>(&file).unwrap(),
+            src,
+            "{}",
+            path.display()
+        );
+        1
+    }
+    let mut checked = 0;
+    for (dwg, dxf) in pairs() {
+        checked += check::<Dwg>(&dwg) + check::<Dxf>(&dxf);
+    }
+    assert!(pairs().is_empty() || checked >= 2, "{checked}");
+}

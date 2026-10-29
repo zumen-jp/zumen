@@ -729,3 +729,76 @@ fn inserts_that_the_records_cannot_hold_change_nothing() {
     }
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+/// XDATA を持つ LINE を 2 つ持つ DXF。1 つ目は文字列だけを、2 つ目は図形とともに動く位置（1011）を持つ
+#[cfg(test)]
+fn xdata_lines() -> Vec<u8> {
+    dxf(&[
+        (0, "LINE"),
+        (5, "1A"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+        (31, "0.0"),
+        (1001, "ZUMEN"),
+        (1000, "kept"),
+        (0, "LINE"),
+        (5, "1B"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+        (31, "0.0"),
+        (1001, "ZUMEN"),
+        (1000, "anchor"),
+        (1011, "1.0"),
+        (1021, "1.0"),
+        (1031, "0.0"),
+    ])
+}
+
+#[test]
+fn xdata_is_kept_unless_it_moves_with_the_entity() {
+    let src = xdata_lines();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [plain, anchored] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
+    let moved = |element: &Element<ModelPoint>| {
+        let mut element = element.clone();
+        if let Shape::Line { end, .. } = &mut element.shape {
+            end.x = 4.0;
+        }
+        element
+    };
+    // 位置を持つ XDATA があれば、もう 1 つの変更も含めて何も反映しない
+    let edits = vec![
+        Edit::Replace(Box::new(moved(&plain))),
+        Edit::Replace(Box::new(moved(&anchored))),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(codes::DXF_XDATA_UNSUPPORTED, vec![anchored.source.clone()])]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    // 形を変えなければ、位置を持つ XDATA があっても当てられる
+    let (result, found) = apply(
+        &mut file,
+        vec![
+            Edit::Replace(Box::new(moved(&plain))),
+            Edit::Replace(Box::new(anchored.clone())),
+        ],
+    );
+    assert_eq!(result, Ok(()));
+    assert!(found.is_empty(), "{found:?}");
+    let text = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+    assert!(
+        text.contains(" 11\n4.0\n 21\n1.0\n 31\n0.0\n1001\nZUMEN\n1000\nkept\n"),
+        "{text}"
+    );
+}

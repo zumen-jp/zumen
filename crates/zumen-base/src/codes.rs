@@ -436,7 +436,7 @@ pub const DXF_CELL_VALUE_DROPPED: Code = Code::new(
     &["type"],
 );
 
-/// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。今は、LINE・CIRCLE の形の置き換えと、続くレコードを持たない図形の除去だけを扱う（決定 0139）
+/// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）
 ///
 /// `dxf.change.unsupported`（0.0.0 から）
 pub const DXF_CHANGE_UNSUPPORTED: Code = Code::new(
@@ -805,6 +805,20 @@ pub const DXF_VIEWPORT_UNSUPPORTED: Code = Code::new(
     &["code"],
 );
 
+/// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）
+///
+/// `dxf.xdata.unsupported`（0.0.0 から）
+pub const DXF_XDATA_UNSUPPORTED: Code = Code::new(
+    "dxf.xdata.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("code", ParamType::Int),
+        Param::new("kind", ParamType::Text),
+    ],
+    &[],
+);
+
 /// ネイティブの境界でパニックを捕まえた。不具合なので直す
 ///
 /// `internal.panic.caught`（0.0.0 から）
@@ -1071,6 +1085,7 @@ pub const ALL: &[Code] = &[
     DXF_VALUE_UNSAFE,
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
+    DXF_XDATA_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
     JWW_BODY_INVALID,
     JWW_FILE_INVALID,

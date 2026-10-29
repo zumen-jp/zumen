@@ -63,6 +63,19 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
             continue;
         };
         let object = db.objects().get(index).ok_or(Error::Rejected)?;
+        if let Edit::Replace(element) = change
+            && element.shape != original.shape
+            && let Some(code) = moving_xdata(object)
+        {
+            cx.report(
+                Diagnostic::new(codes::DXF_XDATA_UNSUPPORTED)
+                    .with("kind", text(&object.kind))
+                    .with("code", i64::from(code))
+                    .at(at.clone()),
+            );
+            rejected = true;
+            continue;
+        }
         let planned = match change {
             Edit::Replace(element) => replacement(original, element, object, unicode)
                 .map(|values| replaced.push((index, values))),
@@ -96,6 +109,19 @@ fn entity(db: &AcadDb, at: &Ref) -> Option<usize> {
     db.objects()
         .iter()
         .position(|object| object.section == Section::Entities && source(object) == *at)
+}
+
+/// 図形とともに動く XDATA の最初のグループ・コード。AutoCAD は、図形を動かし・回し・尺度を変えると、
+/// 1011（位置）・1012（変位）・1013（向き）・1041（距離）・1042（倍率）を同じく直す（DXF Reference
+/// 「Group Codes That Apply to Extended Data」）。置き換えから同じ変換を決められないので、書き戻さない（決定 0154）
+fn moving_xdata(object: &Object) -> Option<i16> {
+    let start = object.values.iter().position(|v| v.code == 1001)?;
+    object
+        .values
+        .iter()
+        .skip(start)
+        .map(|v| v.code)
+        .find(|code| matches!(code, 1011..=1013 | 1041 | 1042))
 }
 
 /// 続くレコード（POLYLINE の VERTEX、属性を持つ INSERT の ATTRIB、SEQEND）を持つ図形か
