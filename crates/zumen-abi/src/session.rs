@@ -443,11 +443,11 @@ fn capabilities() -> CapabilitiesResult {
             minor: SCHEMA_MINOR,
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
-        // ID の規則の版。AutoCAD の系統は、ハンドルで ID を作る 2（決定 0156）
+        // ID の規則の版。AutoCAD の系統はハンドルで、SXF はインスタンスの番号で ID を作る 2（決定 0156）
         formats: [
             (Dxf::FORMAT, "acad", 2),
             (Dwg::FORMAT, "acad", 2),
-            (Sxf::FORMAT, "sxf", 1),
+            (Sxf::FORMAT, "sxf", 2),
             (Jww::FORMAT, "jww", 1),
         ]
         .into_iter()
@@ -580,6 +580,10 @@ impl Page {
                     }),
                     handle: match element.source.key() {
                         Some(Key::Handle(handle)) => Some(format!("{handle:X}")),
+                        _ => None,
+                    },
+                    instance: match element.source.key() {
+                        Some(Key::Instance(number)) => Some(number),
                         _ => None,
                     },
                 }),
@@ -913,7 +917,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":5}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":6}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

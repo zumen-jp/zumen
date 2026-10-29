@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use zumen_base::{Diagnostic, Kind, Ref, codes};
+use zumen_base::{Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Basis, Boundary, Branch, Callout, CalloutContent, Color, ColorCode,
     ColorSystem, Dimension, DimensionKind, DimensionText, Drawing2D, Edge, Element, Extension,
@@ -87,7 +87,7 @@ impl Lift<Drawing2D> for SxfFile {
             Mode::Sfc => sfc_records(self),
             Mode::P21 => p21::records(self, cx)?,
         };
-        Lifter::new(&records).run(cx)
+        Lifter::new(&records, self).run(cx)
     }
 }
 
@@ -178,6 +178,8 @@ fn sfc_arg(file: &SxfFile, value: &Value) -> Arg {
 struct Feature<'f> {
     /// レコードの番号
     record: usize,
+    /// そのレコードのインスタンスの番号（`#n`）
+    instance: Option<u64>,
     name: &'f str,
     kind: &'f str,
     args: &'f [Arg],
@@ -188,8 +190,13 @@ impl Feature<'_> {
         self.name.as_bytes().eq_ignore_ascii_case(name)
     }
 
+    /// 出所。インスタンスの番号があれば、変わらない鍵として足す（決定 0156）
     fn source(&self) -> Ref {
-        Ref::at_record(self.record as u64)
+        let at = Ref::at_record(self.record as u64);
+        match self.instance {
+            Some(number) => at.with_key(Key::Instance(number)),
+            None => at,
+        }
     }
 
     fn kind(&self) -> String {
@@ -369,11 +376,15 @@ struct Lifter<'f> {
 }
 
 impl<'f> Lifter<'f> {
-    fn new(records: &'f [FeatureRecord]) -> Self {
+    fn new(records: &'f [FeatureRecord], file: &SxfFile) -> Self {
         let features = records
             .iter()
             .map(|record| Feature {
                 record: record.record,
+                instance: file
+                    .records()
+                    .get(record.record)
+                    .and_then(|entry| entry.id()),
                 name: &record.name,
                 kind: &record.kind,
                 args: &record.args,

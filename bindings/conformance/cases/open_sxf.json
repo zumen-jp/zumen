@@ -129,6 +129,30 @@
       "absent": [
         "/result"
       ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.sfc"
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "sheet/0/i20",
+        "/result/items/0/source/instance": 20
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "c.p21"
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "sheet/0/i18",
+        "/result/items/0/source/instance": 18
+      }
     }
   ]
 }

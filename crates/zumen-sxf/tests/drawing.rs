@@ -1,6 +1,6 @@
 //! SFC と P21 から図面モデルへの変換（決定 0121・0132）。入力は、どれも試験の中で作る。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Ref, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge,
     FieldValue, Fill, Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight,
@@ -113,7 +113,8 @@ fn moves_tables_and_shapes_on_the_sheet() {
         .find(|t| t.name == "mine")
         .unwrap();
     assert_eq!(mine.definition.as_ref().unwrap().pattern, [2.0, -1.0]);
-    assert_eq!(line.source, Ref::at_record(11));
+    // 出所は、レコードの番号と、変わらない鍵のインスタンスの番号を持つ（決定 0156）
+    assert_eq!(line.source, Ref::at_record(11).with_key(Key::Instance(60)));
 
     // 既定義の色は RGB を持たず、既定義線種は名前だけを持つ
     let circle = &elements[1];
@@ -401,7 +402,10 @@ fn moves_the_title_block_items() {
     assert_eq!(items[4].value, "1");
     assert_eq!(items[11].value, "");
     assert!(items[0].display.is_empty());
-    assert_eq!(drawing.title_blocks[0].source, Ref::at_record(6));
+    assert_eq!(
+        drawing.title_blocks[0].source,
+        Ref::at_record(6).with_key(Key::Instance(10))
+    );
     find(&diag, codes::SXF_LIFT_INVALID);
 }
 
@@ -426,7 +430,10 @@ fn moves_raster_groups_as_underlays() {
         panic!("{:?}", elements[0].shape);
     };
     assert_eq!(underlay.resource.path, "a.tif");
-    assert_eq!(underlay.resource.definition, Ref::at_record(9));
+    assert_eq!(
+        underlay.resource.definition,
+        Ref::at_record(9).with_key(Key::Instance(40))
+    );
     assert_eq!(
         underlay.frame,
         UnderlayFrame::Corners {
@@ -435,7 +442,10 @@ fn moves_raster_groups_as_underlays() {
             top: paper(0.0, 10.0),
         }
     );
-    assert_eq!(elements[0].source, Ref::at_record(7));
+    assert_eq!(
+        elements[0].source,
+        Ref::at_record(7).with_key(Key::Instance(20))
+    );
     assert!(matches!(elements[1].shape, Shape::Line { .. }));
     // 「画像」の属性の名前のグループに、範囲を示す折れ線がなければ、画像を移さない
     let missing = find(&diag, codes::SXF_RASTER_FRAME_MISSING);
@@ -1023,7 +1033,7 @@ fn moves_p21_curves_like_the_same_sfc() {
     };
     assert_eq!(
         from_p21.sheets[0].elements[0].source,
-        Ref::at_record(records("#26"))
+        Ref::at_record(records("#26")).with_key(Key::Instance(26))
     );
 }
 
@@ -1429,4 +1439,58 @@ fn moves_p21_subfigures_and_attributes_like_the_same_sfc() {
     assert!(sfc_diag.is_empty(), "{sfc_diag:?}");
     assert!(diag.is_empty(), "{diag:?}");
     assert_eq!(unsourced(from_p21), unsourced(from_sfc));
+}
+
+/// 番号つきのフィーチャを並べた SFC
+#[cfg(test)]
+fn numbered(features: &[(u64, &str)]) -> Vec<u8> {
+    let mut src = String::from(
+        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n",
+    );
+    for (number, feature) in features {
+        src.push_str(&format!("/*SXF3\n#{number} = {feature}\nSXF3*/\n"));
+    }
+    src.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
+    src.into_bytes()
+}
+
+#[test]
+fn element_ids_keep_instance_numbers_when_a_feature_is_added_before() {
+    use zumen_drawing::{Hash, id};
+    let ids = |src: &[u8]| {
+        let (drawing, _) = lift(src);
+        let sheet = &drawing.sheets[0];
+        let place = id::sheet(sheet);
+        let mut namer = id::Namer::new(&place);
+        sheet
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| (namer.next(index, element), Hash::element(element)))
+            .collect::<Vec<_>>()
+    };
+    let layer = r"layer_feature(\'L\','1')";
+    let line = "line_feature('1','1','1','1','0.0','0.0','10.0','0.0')";
+    let circle = "circle_feature('1','1','1','1','5.0','5.0','3.0')";
+    let sheet = r"drawing_sheet_feature(\'S\','3','1','0','0')";
+    let before = ids(&numbered(&[
+        (10, layer),
+        (20, line),
+        (30, circle),
+        (90, sheet),
+    ]));
+    let after = ids(&numbered(&[
+        (10, layer),
+        (15, "line_feature('1','1','1','1','0.0','0.0','0.0','10.0')"),
+        (20, line),
+        (30, circle),
+        (90, sheet),
+    ]));
+    // 前に線を足しても、ほかの要素の ID とハッシュは変わらない（決定 0156）
+    assert_eq!(
+        before.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+        ["sheet/0/i20", "sheet/0/i30"]
+    );
+    assert_eq!(after[0].0, "sheet/0/i15");
+    assert_eq!(after[1..], before);
 }
