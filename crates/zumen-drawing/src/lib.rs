@@ -19,9 +19,14 @@
 //! 寸法と引出線の端部記号は、図面の寸法スタイルの表（[`DimensionStyle`]）に置く。記号は、定義を名前空間付きの
 //! キー（[`SymbolKey`]）で指し、配置と属性を持つ（[`Symbol`]）。定義の中身は、定義ごとの空間に置く（[`SymbolDefinition`]）。ハッチングは、境界の輪と、塗り・パターン・
 //! グラデーションの区別を持つ（[`Hatch`]）。表は、行と列の大きさとセルの結合・内容を持つ（[`Table`]）。下敷きは、資源を参照名で指し、置き方と切り抜きを持つ（[`Underlay`]）。
-//! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。
+//! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。要素の ID とハッシュは [`id`] と [`Hash`] で作る（決定 0156）。
 
 use zumen_base::Ref;
+
+mod hash;
+pub mod id;
+
+pub use hash::{Canon, Encode, Hash};
 
 /// 図面。実寸の空間と用紙を、順序のある一覧で持つ
 #[derive(Clone, Debug, Default, PartialEq)]

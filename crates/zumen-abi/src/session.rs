@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
-use zumen_base::{Ref, codes, name};
-use zumen_drawing::{Drawing2D, Element, Placement, Shape, Unit};
+use zumen_base::{Key, Ref, codes, name};
+use zumen_drawing::{Drawing2D, Element, Encode, Hash, Placement, Shape, Unit, id};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Codec, Lift};
@@ -390,12 +390,10 @@ impl Session {
             items: Vec::new(),
         };
         for space in &drawing.spaces {
-            let place = format!("space/{}", space.id.0);
-            page.collect(&drawing, &place, &space.elements, cx)?;
+            page.collect(&drawing, &id::space(space.id), &space.elements, cx)?;
         }
         for sheet in &drawing.sheets {
-            let place = format!("sheet/{}", sheet.id.0);
-            page.collect(&drawing, &place, &sheet.elements, cx)?;
+            page.collect(&drawing, &id::sheet(sheet.id), &sheet.elements, cx)?;
         }
         let total = page.position;
         Ok(EntitiesResult {
@@ -435,19 +433,20 @@ fn capabilities() -> CapabilitiesResult {
             minor: SCHEMA_MINOR,
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
+        // ID の規則の版。AutoCAD の系統は、ハンドルで ID を作る 2（決定 0156）
         formats: [
-            (Dxf::FORMAT, "acad"),
-            (Dwg::FORMAT, "acad"),
-            (Sxf::FORMAT, "sxf"),
-            (Jww::FORMAT, "jww"),
+            (Dxf::FORMAT, "acad", 2),
+            (Dwg::FORMAT, "acad", 2),
+            (Sxf::FORMAT, "sxf", 1),
+            (Jww::FORMAT, "jww", 1),
         ]
         .into_iter()
-        .map(|(id, family)| Format {
+        .map(|(id, family, id_rules)| Format {
             id: id.to_string(),
             family: family.to_string(),
             read: true,
             write: false,
-            id_rules: 1,
+            id_rules,
         })
         .collect(),
     }
@@ -496,28 +495,16 @@ struct Page {
 
 impl Page {
     /// 空間か用紙の要素を数え、返す範囲にあるものを足す
-    fn collect<P: Planar>(
+    fn collect<P: Planar + Encode>(
         &mut self,
         drawing: &Drawing2D,
         place: &str,
         elements: &[Element<P>],
         cx: &mut Cx<'_>,
     ) -> Result<(), Failed> {
-        // 出所ごとの、これまでに出てきた要素の数
-        let mut seen = BTreeMap::<Ref, u64>::new();
+        let mut namer = id::Namer::new(place);
         for (index, element) in elements.iter().enumerate() {
-            let origin = match (element.source.record(), element.source.bytes()) {
-                (Some(record), _) => format!("r{record}"),
-                (None, Some(bytes)) => format!("b{}", bytes.start),
-                (None, None) => format!("e{index}"),
-            };
-            let repeat = if element.source == Ref::default() {
-                0
-            } else {
-                let count = seen.entry(element.source.clone()).or_insert(0);
-                *count += 1;
-                *count - 1
-            };
+            let id = namer.next(index, element);
             let mut bbox = None;
             // 止めたら、扱っていた要素の出所を場所に入れる（決定 0119）
             let stop_at = |cx: &mut Cx<'_>, stop: Stop| {
@@ -543,10 +530,6 @@ impl Page {
                 continue;
             }
             cx.check(Kind::Work, 1).map_err(|stop| stop_at(cx, stop))?;
-            let id = match repeat {
-                0 => format!("{place}/{origin}"),
-                n => format!("{place}/{origin}/{n}"),
-            };
             let has = |field| self.fields.contains(&field);
             if has(EntityField::Bbox) && self.region.is_none() {
                 bbox = bounds::bbox(&element.shape);
@@ -564,8 +547,13 @@ impl Page {
                         start: bytes.start,
                         end: bytes.end,
                     }),
+                    handle: match element.source.key() {
+                        Some(Key::Handle(handle)) => Some(format!("{handle:X}")),
+                        _ => None,
+                    },
                 }),
                 bbox: bbox.filter(|_| has(EntityField::Bbox)),
+                hash: has(EntityField::Hash).then(|| Hash::element(element).to_string()),
             });
         }
         Ok(())
@@ -894,7 +882,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":4}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":1}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":5}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1021,6 +1009,40 @@ mod tests {
             r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":13}}"#,
         );
         assert_eq!(status, Status::Ok);
+    }
+
+    #[test]
+    fn handles_keep_ids_and_hashes_when_an_element_is_added_before() {
+        const LINE: &str = "0\nLINE\n5\n2F\n8\n0\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n";
+        let drawing = |before: &str| {
+            format!("0\nSECTION\n2\nENTITIES\n{before}{LINE}0\nENDSEC\n0\nEOF\n").into_bytes()
+        };
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", &drawing("")).unwrap();
+        let circle = "0\nCIRCLE\n5\n30\n8\n0\n10\n0.0\n20\n0.0\n40\n1.0\n";
+        session.push(b"b.dxf", &drawing(circle)).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        call(&mut session, r#"{"v":1,"op":"open","input":"b.dxf"}"#);
+        let request = |doc: &str| {
+            format!(r#"{{"v":1,"op":"entities","doc":"{doc}","fields":["source","hash"]}}"#)
+        };
+        let (status, a) = call(&mut session, &request("a.dxf"));
+        assert_eq!(status, Status::Ok);
+        let (_, b) = call(&mut session, &request("b.dxf"));
+        assert_eq!(text(&a, "/result/items/0/id"), "space/0/h2F");
+        assert_eq!(text(&a, "/result/items/0/source/handle"), "2F");
+        assert_eq!(text(&b, "/result/items/0/id"), "space/0/h30");
+        assert_eq!(text(&b, "/result/items/1/id"), "space/0/h2F");
+        // 前に要素が増えて、レコードの番号がずれても、ハッシュは変わらない
+        assert_ne!(
+            number(&a, "/result/items/0/source/record"),
+            number(&b, "/result/items/1/source/record")
+        );
+        let hash = text(&a, "/result/items/0/hash");
+        assert!(hash.starts_with("v1:") && hash.len() == 35, "{hash}");
+        assert_eq!(hash, text(&b, "/result/items/1/hash"));
+        assert_ne!(hash, text(&b, "/result/items/0/hash"));
+        assert!(a.pointer("/result/items/0/kind").is_none());
     }
 
     #[test]

@@ -103,14 +103,15 @@
         "/result": {
           "items": [
             {
-              "id": "space/0/b428",
+              "id": "space/0/h2A",
               "kind": "line",
               "layer": "0",
               "source": {
                 "bytes": {
                   "start": 428,
                   "end": 481
-                }
+                },
+                "handle": "2A"
               }
             }
           ],
@@ -135,10 +136,27 @@
       },
       "expect": {
         "/result/total": 1,
-        "/result/items/0/id": "space/0/b428"
+        "/result/items/0/id": "space/0/h2A"
       },
       "absent": [
         "/result/items/0/kind"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dwg",
+        "fields": [
+          "hash"
+        ]
+      },
+      "expect": {
+        "/result/items/0/id": "space/0/h2A",
+        "/result/items/0/hash": "v1:739a0e4693ff99fa3b47fa1b0ef3b896"
+      },
+      "absent": [
+        "/result/items/0/source"
       ]
     }
   ]

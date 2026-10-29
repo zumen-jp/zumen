@@ -83,12 +83,22 @@ pub struct ByteRange {
     pub end: u64,
 }
 
-/// 診断の場所。ID と、L1 のレコード・バイト範囲（決定 0008 の出所）
+/// 形式が持つ、変わらない鍵（決定 0156）。書き戻しても、前のレコードが増えても変わらない
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Key {
+    /// AutoCAD の系統のハンドル
+    Handle(u64),
+    /// SXF のインスタンスの番号（`#n`）
+    Instance(u64),
+}
+
+/// 診断の場所。ID と、L1 のレコード・バイト範囲（決定 0008 の出所）と、形式が持つ鍵
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ref {
     id: Option<String>,
     record: Option<u64>,
     bytes: Option<ByteRange>,
+    key: Option<Key>,
 }
 
 impl Ref {
@@ -126,6 +136,12 @@ impl Ref {
         self
     }
 
+    /// 形式が持つ鍵を足す
+    pub fn with_key(mut self, key: Key) -> Self {
+        self.key = Some(key);
+        self
+    }
+
     /// ID
     pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
@@ -139,6 +155,11 @@ impl Ref {
     /// L1 のバイト範囲
     pub fn bytes(&self) -> Option<ByteRange> {
         self.bytes
+    }
+
+    /// 形式が持つ鍵
+    pub fn key(&self) -> Option<Key> {
+        self.key
     }
 }
 

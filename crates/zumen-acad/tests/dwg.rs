@@ -3588,7 +3588,7 @@ fn header_variables_and_paper_space_flags_are_in_the_table() {
 #[cfg(feature = "drawing")]
 #[test]
 fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
-    use zumen_base::Ref;
+    use zumen_base::{Key, Ref};
     use zumen_drawing::{
         Element, Inherit, LayerId, ModelPoint, PaperLength, PaperPoint, Shape, SheetId, SpaceId,
         Style, Unit,
@@ -3603,7 +3603,9 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
     );
     let (db, _) = objects(&src);
     let source = |handle: u64| match db.get(handle).unwrap().origin {
-        Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
+        Origin::Dwg { offset, end } => {
+            Ref::at_bytes(offset as u64, end as u64).with_key(Key::Handle(handle))
+        }
         Origin::Dxf { .. } | Origin::New => panic!("DWG のオブジェクトではない"),
     };
     let (file, mut diag) = read(&src, Limits::default());

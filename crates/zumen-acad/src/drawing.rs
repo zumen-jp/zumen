@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
-use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
+use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Attribute, AttributeDefinition, AttributeValue, Axis, Background,
     BackgroundFill, Basis, Border, Borders, Boundary, Branch, Callout, CalloutContent, Cell,
@@ -532,11 +532,16 @@ fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
     })
 }
 
+/// 出所。ハンドルがあれば、変わらない鍵として足す（決定 0156）
 fn source(object: &Object) -> Ref {
-    match object.origin {
+    let at = match object.origin {
         Origin::Dxf { record } => Ref::at_record(record as u64),
         Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
         Origin::New => Ref::default(),
+    };
+    match object.handle() {
+        Some(handle) => at.with_key(Key::Handle(handle)),
+        None => at,
     }
 }
 
