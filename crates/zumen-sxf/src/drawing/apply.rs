@@ -88,6 +88,8 @@ impl Apply<Changes> for SxfFile {
                 same
             }
         };
+        // フィーチャの引数を取り出す作業を、バイト数に応じて数える。
+        work(cx, (self.src.len() as u64).div_ceil(1024), &Ref::default())?;
         let records = sfc_records(self);
         // 変換の診断は、書き戻しの診断に混ぜない
         let mut quiet = Diagnostics::new();
@@ -95,6 +97,8 @@ impl Apply<Changes> for SxfFile {
         let before = Index::new(&drawing, cx)?;
         let tables = Tables::new(&records, &drawing, cx)?;
         let grouped = grouped(&records, cx)?;
+        // 改行の種類を調べるため、元のバイト列を走査する。
+        work(cx, (self.src.len() as u64).div_ceil(1024), &Ref::default())?;
         let mut plan = Plan::new(self, &records);
         let mut expected = Vec::new();
         let mut targets = BTreeSet::new();
@@ -131,6 +135,11 @@ impl Apply<Changes> for SxfFile {
                         continue;
                     };
                     let (layer, new) = found.element.restyled(style);
+                    work(
+                        cx,
+                        tables.style_work(&new, Some(found.element.style())),
+                        &Ref::default(),
+                    )?;
                     let mut element = found.element.with(layer, new, None);
                     plan.styled(&found, &mut element, &tables, &grouped)
                         .map(|()| Expected::Element(found.instance, Box::new(element)))
@@ -148,6 +157,17 @@ impl Apply<Changes> for SxfFile {
                         continue;
                     };
                     let element = found.element.replaced(element);
+                    if let Some(element) = &element {
+                        let style = match element {
+                            Placed::Model(element) => &element.style,
+                            Placed::Paper(element) => &element.style,
+                        };
+                        work(
+                            cx,
+                            tables.style_work(style, Some(found.element.style())),
+                            &Ref::default(),
+                        )?;
+                    }
                     element
                         .and_then(|mut element| {
                             plan.styled(&found, &mut element, &tables, &grouped)?;
@@ -185,6 +205,7 @@ impl Apply<Changes> for SxfFile {
                         Placed::Paper(element)
                             if before.sheets.get(place) == Some(&element.shape_sheet()) =>
                         {
+                            work(cx, tables.style_work(&element.style, None), &Ref::default())?;
                             plan.add(element, &tables)
                         }
                         _ => None,
@@ -230,6 +251,8 @@ impl Apply<Changes> for SxfFile {
             return Err(Error::Rejected);
         }
         let src = plan.bytes(&self.src, cx)?;
+        // 読み直しは、書いたバイト列をもう一度写して保持する。
+        work(cx, (src.len() as u64).div_ceil(1024), &Ref::default())?;
         let updated = quietly(cx, |cx| Sxf::read(&src, cx));
         let updated = match updated {
             Ok(updated) => updated,
@@ -408,6 +431,13 @@ enum Any<'a> {
 }
 
 impl<'a> Any<'a> {
+    fn style(&self) -> &'a Style {
+        match self {
+            Any::Model(element) => &element.style,
+            Any::Paper(element) => &element.style,
+        }
+    }
+
     fn source(&self) -> &'a Ref {
         match self {
             Any::Model(element) => &element.source,
@@ -635,6 +665,25 @@ struct Tables {
 }
 
 impl Tables {
+    /// 利用者定義色と線幅を順に探す作業。変わらない欄は探さない。
+    fn style_work(&self, style: &Style, old: Option<&Style>) -> u64 {
+        let color = old.is_none_or(|old| old.color != style.color)
+            && matches!(
+                style.color,
+                Inherit::Own(Color {
+                    code: None,
+                    rgb: Some(_)
+                })
+            );
+        let width = old.is_none_or(|old| old.line_weight != style.line_weight)
+            && matches!(style.line_weight, Some(Inherit::Own(LineWeight::Width(PaperLength(mm)))) if !WIDTHS.contains(&mm));
+        (if color { self.colors.len() as u64 } else { 0 }).saturating_add(if width {
+            self.widths.len() as u64
+        } else {
+            0
+        })
+    }
+
     fn new(records: &[FeatureRecord], drawing: &Drawing2D, cx: &mut Cx) -> Result<Self, Error> {
         let mut colors = Vec::new();
         let mut widths = Vec::new();
@@ -973,6 +1022,14 @@ impl<'f> Plan<'f> {
 
     /// 書き直したバイト列
     fn bytes(mut self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        let added = self.patches.iter().fold(0u64, |total, (_, bytes)| {
+            total.saturating_add(bytes.len() as u64)
+        });
+        work(
+            cx,
+            (src.len() as u64).saturating_add(added).div_ceil(1024),
+            &Ref::default(),
+        )?;
         self.patches.sort_by_key(|(range, _)| range.start);
         let mut out = Vec::with_capacity(src.len());
         let mut end = 0;

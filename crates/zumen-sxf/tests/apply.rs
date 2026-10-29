@@ -115,6 +115,94 @@ fn sxf_color(value: u32) -> Inherit<Color> {
 }
 
 #[test]
+fn apply_counts_copying_the_input_and_stops_without_changes() {
+    use zumen_base::{Kind, Limit, Limits};
+    let mut large = src();
+    large.extend(vec![b' '; 1024 * 1024]);
+    let run = |input: &[u8], limit: Option<u64>| {
+        let mut file = read(input);
+        let mut budget = Budget::new(limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        }));
+        let mut diagnostics = Diagnostics::new();
+        let changes = Changes {
+            edits: Vec::new(),
+            document: None,
+        };
+        let result = file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (result, budget.used(Kind::Work), write(&file))
+    };
+    let (_, small, _) = run(&src(), None);
+    let (result, large_work, _) = run(&large, None);
+    assert!(result.is_ok());
+    assert!(large_work >= small + 1024, "{small}, {large_work}");
+    let (result, _, written) = run(&large, Some(small + 100));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, large);
+}
+
+#[test]
+fn apply_counts_each_search_for_user_colors_and_widths() {
+    use zumen_base::{Kind, Limit, Limits};
+    let extra = (0..200)
+        .map(|at| format!("/*SXF\r\n#{} = user_defined_colour_feature('1','2','3')\r\nSXF*/\r\n/*SXF\r\n#{} = width_feature('0.4')\r\nSXF*/\r\n", 2000 + at * 2, 2001 + at * 2))
+        .collect::<String>();
+    let large = String::from_utf8(src())
+        .unwrap()
+        .replace("/*SXF\r\n#30 =", &format!("{extra}/*SXF\r\n#30 ="));
+    let run = |input: &[u8], edit: bool, limit: Option<u64>| {
+        let mut file = read(input);
+        let drawing = lift(&file);
+        let edits = if edit {
+            [70, 80, 90, 100]
+                .into_iter()
+                .map(|instance| Edit::Restyle {
+                    target: seen(&drawing, instance).0,
+                    style: Restyle {
+                        color: Some(Inherit::Own(Color {
+                            code: None,
+                            rgb: Some([10, 20, 30]),
+                        })),
+                        line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.3)))),
+                        ..Restyle::default()
+                    },
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut budget = Budget::new(limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        }));
+        let mut diagnostics = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        );
+        (result, budget.used(Kind::Work), write(&file))
+    };
+    let (_, small_base, _) = run(&src(), false, None);
+    let (small_result, small_edit, _) = run(&src(), true, None);
+    assert!(small_result.is_ok(), "{small_result:?}");
+    let (_, large_base, _) = run(large.as_bytes(), false, None);
+    let (large_result, large_edit, _) = run(large.as_bytes(), true, None);
+    assert!(large_result.is_ok(), "{large_result:?}");
+    assert!(
+        large_edit - large_base >= small_edit - small_base + 1600,
+        "{small_base}, {small_edit}, {large_base}, {large_edit}"
+    );
+    let (result, _, written) = run(large.as_bytes(), true, Some(large_edit - 1));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, large.as_bytes());
+}
+
+#[test]
 fn edits_are_written_into_the_feature_comments() {
     let src = src();
     let mut file = read(&src);
