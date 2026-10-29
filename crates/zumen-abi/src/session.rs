@@ -671,6 +671,15 @@ fn line_type_item(
 ) -> Result<LineTypeItem, Failed> {
     let definition = line_type.definition.as_ref();
     let mut mark = |mark: &zumen_drawing::LineTypeMark| {
+        // 項目の構築と、添える文字・フォントの名前の複製を先に数える。
+        let bytes = match &mark.content {
+            MarkContent::Shape { font, .. } => font.as_ref().map_or(0, |font| font.name.len()),
+            MarkContent::Text { content, style } => content
+                .len()
+                .saturating_add(style.as_ref().map_or(0, String::len)),
+        };
+        cx.check(Kind::Work, 1 + bytes as u64 / 1024)
+            .map_err(|stop| stopped(cx, stop))?;
         let (kind, font, number, text, style) = match &mark.content {
             MarkContent::Shape { font, number } => (
                 LineTypeMarkKind::Shape,
@@ -705,14 +714,20 @@ fn line_type_item(
                 } else {
                     (None, None)
                 };
-                (
-                    id,
-                    Some(
-                        fixed
-                            .filter(|height| *height > 0.0)
-                            .map_or(mark.scale, |height| height * mark.scale),
-                    ),
-                )
+                let height = fixed
+                    .filter(|height| *height > 0.0)
+                    .map_or(mark.scale, |height| height * mark.scale);
+                let height = if height.is_finite() {
+                    Some(height)
+                } else {
+                    cx.report(
+                        Diagnostic::new(codes::DRAWING_MARK_HEIGHT_DROPPED)
+                            .with("name", line_type.name.clone())
+                            .at(line_type.source.clone()),
+                    );
+                    None
+                };
+                (id, height)
             }
             MarkContent::Shape { .. } => (None, None),
         };
@@ -3458,6 +3473,7 @@ mod tests {
                 text(&response, "/result/applied/1/hash"),
             )
         );
+
         // 足した文字スタイルは、次の apply で除ける
         let notes = text(&response, "/result/applied/1/hash");
         let (status, removed) = call(
@@ -3597,6 +3613,57 @@ mod tests {
                 r#""scale":0.2,"rotation":0,"rotation_basis":"absolute","offset":[0,0]}]"#
             )
         );
+        // どちらも有限でも、積が大きすぎる高さは JSON に書けない。
+        let overflow = src
+            .replace("46\n0.25\n", "46\n1e200\n")
+            .replace("2\nGas\n70\n0\n40\n2.0\n", "2\nGas\n70\n0\n40\n1e200\n");
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"overflow.dxf", overflow.as_bytes()).unwrap();
+        call(
+            &mut session,
+            r#"{"v":1,"op":"open","input":"overflow.dxf"}"#,
+        );
+        let (status, result) = call(
+            &mut session,
+            r#"{"v":1,"op":"tables","doc":"overflow.dxf"}"#,
+        );
+        assert_eq!(status, Status::Ok);
+        assert_eq!(result.pointer("/result/line_types/0/marks/0/height"), None);
+        let mut diagnostics = zumen_json::Writer::new();
+        diagnostics.value(result.pointer("/diagnostics").unwrap());
+        let diagnostics = String::from_utf8(diagnostics.into_bytes()).unwrap();
+        assert!(
+            diagnostics.contains("drawing.mark-height.dropped"),
+            "{diagnostics}"
+        );
+        // 入力に有限でない倍率・回転・ずれがあれば、添える文字は診断して移さない。
+        for (field, value) in [
+            ("46\n0.25\n", "46\nNaN\n"),
+            ("50\n0.0\n", "50\ninf\n"),
+            ("44\n-0.1\n", "44\n-inf\n"),
+            ("45\n-0.05\n", "45\nNaN\n"),
+        ] {
+            let invalid = src.replacen(field, value, 1);
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"invalid.dxf", invalid.as_bytes()).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"invalid.dxf"}"#);
+            let (status, result) =
+                call(&mut session, r#"{"v":1,"op":"tables","doc":"invalid.dxf"}"#);
+            assert_eq!(status, Status::Ok, "{field}");
+            let mut diagnostics = zumen_json::Writer::new();
+            diagnostics.value(result.pointer("/result/line_types").unwrap());
+            diagnostics.value(result.pointer("/diagnostics").unwrap());
+            let diagnostics = String::from_utf8(diagnostics.into_bytes()).unwrap();
+            assert!(
+                !diagnostics.contains("\"kind\":\"text\""),
+                "{field}: {diagnostics}"
+            );
+            assert!(
+                diagnostics.contains("dxf.lift.invalid")
+                    || diagnostics.contains("dxf.line-type-element.dropped"),
+                "{field}: {diagnostics}"
+            );
+        }
     }
 
     #[test]
@@ -3688,6 +3755,61 @@ mod tests {
         );
         cancel.cancel();
         let mut budget = Budget::default();
+        assert!(
+            line_type_item(
+                "line-type/0".to_owned(),
+                &line_type,
+                hash,
+                &ids,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn line_type_marks_without_style_count_construction_and_text_copies() {
+        let line_type = LineType {
+            id: LineTypeId(0),
+            name: "marked".to_owned(),
+            definition: Some(LineTypeDefinition {
+                description: String::new(),
+                pattern: vec![1.0],
+                basis: PatternBasis::Element,
+                marks: (0..64)
+                    .map(|_| zumen_drawing::LineTypeMark {
+                        index: 0,
+                        content: MarkContent::Text {
+                            content: "A".repeat(2048),
+                            style: None,
+                        },
+                        scale: 1.0,
+                        rotation: 0.0,
+                        rotation_basis: zumen_drawing::MarkRotation::Relative,
+                        offset: [0.0, 0.0],
+                    })
+                    .collect(),
+            }),
+            source: Ref::default(),
+        };
+        let hash = Hash::line_type(&line_type);
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let ids = StyleIds::default();
+        assert!(
+            line_type_item(
+                "line-type/0".to_owned(),
+                &line_type,
+                hash,
+                &ids,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_ok()
+        );
+        let work = budget.used(Kind::Work);
+        assert!(work >= 64 * 3, "{work}");
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(work - 1)));
         assert!(
             line_type_item(
                 "line-type/0".to_owned(),

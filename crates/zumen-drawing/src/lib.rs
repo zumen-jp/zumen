@@ -77,7 +77,7 @@ impl Drawing2D {
     }
 
     /// 線種に添える文字の高さ（決定 0166）。文字スタイルが決まった高さを持てば、その高さに倍率を掛けた値、
-    /// 持たないか、文字スタイルがなければ倍率そのもの。単位は線種の列と同じ。形なら `None`
+    /// 持たないか、文字スタイルがなければ倍率そのもの。単位は線種の列と同じ。形か、有限でない高さなら `None`
     pub fn mark_text_height(&self, mark: &LineTypeMark) -> Option<f64> {
         let MarkContent::Text { style, .. } = &mark.content else {
             return None;
@@ -88,7 +88,8 @@ impl Drawing2D {
             .and_then(|style| style.definition.as_ref())
             .and_then(|definition| definition.height)
             .filter(|height| *height > 0.0);
-        Some(height.map_or(mark.scale, |height| height * mark.scale))
+        let height = height.map_or(mark.scale, |height| height * mark.scale);
+        height.is_finite().then_some(height)
     }
 
     /// 要素が名前で指すだけで、表にない文字スタイルを、定義のない項目として後ろに足す。
@@ -2656,6 +2657,13 @@ mod text_style_tests {
         assert_eq!(drawing.mark_text_height(&text(Some("Free"))), Some(0.5));
         assert_eq!(drawing.mark_text_height(&text(Some("Missing"))), Some(0.5));
         assert_eq!(drawing.mark_text_height(&text(None)), Some(0.5));
+        let huge = Drawing2D {
+            text_styles: vec![style("Fixed", Some(1e200))],
+            ..Drawing2D::default()
+        };
+        let mut oversized = text(Some("Fixed"));
+        oversized.scale = 1e200;
+        assert_eq!(huge.mark_text_height(&oversized), None);
         let shape = mark(MarkContent::Shape {
             font: None,
             number: 1,

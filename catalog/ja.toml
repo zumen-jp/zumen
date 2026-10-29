@@ -7,6 +7,7 @@ group-separator = ","
 decimal-separator = "."
 
 [codes]
+"drawing.mark-height.dropped" = "線種「{name}」に添える文字の高さを有限の実数で表せないので、結果に含めませんでした（{count} 件）。"
 "change.document.stale" = "文書が、変更の一覧を作ったときから変わっています。変更を反映しませんでした。"
 "change.element.missing" = "変更が指す「{id}」が、図面にありません。変更を反映しませんでした。"
 "change.element.stale" = "「{id}」の要素が、変更の一覧を作ったときから変わっています。変更を反映しませんでした。"
