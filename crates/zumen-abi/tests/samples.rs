@@ -535,6 +535,160 @@ fn drawings_take_back_texts_added_through_the_boundary() {
     );
 }
 
+/// 試料の実寸の空間の 2 点の間に合わせる文字を、境界の `replace` で 2 点だけ動かし、`add` で 2 点の間に合わせる
+/// 文字を足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。DWG の試料は
+/// 2 点の間に合わせる文字を持たないので、足した文字を置き換えて確かめる
+#[test]
+fn drawings_take_back_texts_fitted_between_two_points() {
+    let budget = r#""budget":{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}"#;
+    let (mut replaced, mut added, mut moved, mut skewed) = ([0, 0], [0, 0], [0, 0], 0);
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let check = |session: &mut Session, doc: &str, response: &Value, expected: &Value| {
+            let file = session.take(0).unwrap();
+            let id = text(response, "/result/applied/0/id").unwrap().to_string();
+            let hash = text(response, "/result/applied/0/hash")
+                .unwrap()
+                .to_string();
+            session.push(doc.as_bytes(), &file).unwrap();
+            assert!(open(session, doc), "{name}");
+            assert!(
+                entities(session, doc)
+                    .iter()
+                    .any(|(found, _, found_hash)| *found == id && *found_hash == hash),
+                "{name}: {id}"
+            );
+            let found = shapes(session, doc)
+                .into_iter()
+                .find(|(found, _)| *found == id)
+                .and_then(|(_, geometry)| geometry);
+            assert!(
+                found.as_ref().is_some_and(|found| close(found, expected)),
+                "{name}: {id}: {found:?}"
+            );
+        };
+        let fitted = shapes(&mut session, &name)
+            .into_iter()
+            .find(|(id, geometry)| {
+                id.starts_with("space/0/h")
+                    && id.matches('/').count() == 2
+                    && geometry.as_ref().is_some_and(|g| {
+                        text(g, "/shape") == Some("text") && g.pointer("/end").is_some()
+                    })
+            });
+        if let Some((id, Some(geometry))) = fitted {
+            let (_, _, hash) = entities(&mut session, &name)
+                .into_iter()
+                .find(|(found, _, _)| *found == id)
+                .unwrap();
+            let number =
+                |pointer: &str| zumen_json::number(geometry.pointer(pointer).unwrap()).unwrap();
+            let style = text(&geometry, "/style").unwrap();
+            let moved = format!(
+                r#"{{"shape":"text","content":"GRID X1","position":[{},{}],"end":[{},{}],"fit":"{}","height":{},"rotation":{},"style":"{style}"}}"#,
+                number("/position/0") + 5.0,
+                number("/position/1") - 2.5,
+                number("/end/0") + 5.0,
+                number("/end/1") - 2.5,
+                text(&geometry, "/fit").unwrap(),
+                number("/height"),
+                number("/rotation"),
+            );
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{moved}}}],{budget}}}"#
+                ),
+            );
+            if status == Status::Ok {
+                check(
+                    &mut session,
+                    "replaced",
+                    &response,
+                    &zumen_json::parse(moved.as_bytes()).unwrap(),
+                );
+                replaced[dwg] += 1;
+            } else {
+                // 回転が 2 点の向きと合わない文字は、置き換えない
+                assert!(
+                    format!("{response:?}").contains("/edits/0/geometry/rotation"),
+                    "{name}: {response:?}"
+                );
+                skewed += 1;
+            }
+        }
+        let table = tables(&mut session, &name);
+        let layer_id = text(&table, "/layers/0/id").unwrap().to_string();
+        let adding = r#"{"shape":"text","content":"GRID X1","position":[10,0],"end":[10,8],"fit":"aligned","height":2,"rotation":90}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{adding}}}],{budget}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let file = session.take(0).unwrap();
+        session.push(b"added", &file).unwrap();
+        assert!(open(&mut session, "added"), "{name}");
+        let id = text(&response, "/result/applied/0/id").unwrap().to_string();
+        let hash = text(&response, "/result/applied/0/hash")
+            .unwrap()
+            .to_string();
+        assert!(
+            entities(&mut session, "added")
+                .iter()
+                .any(|(found, _, found_hash)| *found == id && *found_hash == hash),
+            "{name}: {id}"
+        );
+        let found = shapes(&mut session, "added")
+            .into_iter()
+            .find(|(found, _)| *found == id)
+            .and_then(|(_, geometry)| geometry)
+            .unwrap_or_else(|| panic!("{name}: {id}"));
+        // 足した文字の文字スタイルは、図面の Standard の名前で読み直す
+        let style = text(&found, "/style").unwrap_or_else(|| panic!("{name}: {found:?}"));
+        let expected = format!(r#"{},"style":"{style}"}}"#, adding.trim_end_matches('}'));
+        let expected = zumen_json::parse(expected.as_bytes()).unwrap();
+        assert!(close(&found, &expected), "{name}: {found:?}");
+        added[dwg] += 1;
+        // 足した文字も、2 点を動かして置き換える。DWG の試料は 2 点の間に合わせる文字を持たないため
+        let moving = format!(
+            r#"{{"shape":"text","content":"GRID X2","position":[-6,1],"end":[-12,1],"fit":"aligned","height":2,"rotation":180,"style":"{style}"}}"#
+        );
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"added","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{moving}}}],{budget}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        check(
+            &mut session,
+            "moved",
+            &response,
+            &zumen_json::parse(moving.as_bytes()).unwrap(),
+        );
+        moved[dwg] += 1;
+    }
+    assert!(
+        drawings().is_empty()
+            || (replaced[0] > 0 && added.iter().all(|n| *n > 0) && moved.iter().all(|n| *n > 0)),
+        "{replaced:?} {added:?} {moved:?} {skewed}"
+    );
+}
+
 /// 試料の実寸の空間の書式つきの文字を、境界の `replace` で内容と位置だけ替え、`add` で書式つきの文字を足すと、
 /// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。2007 より前の版は
 /// ASCII の文字だけを書くので、日本語の内容は `change.edit.unsupported` になり、ASCII の内容なら足せる

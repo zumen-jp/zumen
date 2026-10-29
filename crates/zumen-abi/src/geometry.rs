@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
-    Affine, Attribute, Edge, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Length,
+    Affine, Attribute, Edge, Fit, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Length,
     LineSpacing, ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation,
     Shape, Spline, Symbol, SymbolKey, Text, Vertex, Vertical,
 };
@@ -17,7 +17,7 @@ use crate::bounds::Planar;
 use crate::messages::{
     ArcGeometry, Attachment, CircleGeometry, EllipseGeometry, FormattedTextGeometry, Geometry,
     LineGeometry, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid,
-    TextGeometry,
+    TextFit, TextGeometry,
 };
 
 /// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
@@ -128,16 +128,28 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 closed: line.closed,
             })
         }
-        Shape::Text(text) => match text.placement {
-            Placement::Anchor { point, .. } => Geometry::Text(TextGeometry {
+        Shape::Text(text) => {
+            let (point, end, fit) = match text.placement {
+                Placement::Anchor { point, .. } => (point, None, None),
+                Placement::Between { first, second, fit } => (
+                    first,
+                    Some(xy(second)),
+                    Some(match fit {
+                        Fit::Aligned => TextFit::Aligned,
+                        Fit::Fit => TextFit::Fit,
+                    }),
+                ),
+            };
+            Geometry::Text(TextGeometry {
                 content: text.content.clone(),
                 position: xy(point),
+                end,
+                fit,
                 height: point.length(text.height.value)?,
                 rotation: text.rotation,
                 style: Some(text.style.clone()),
-            }),
-            Placement::Between { .. } => return None,
-        },
+            })
+        }
         Shape::Formatted(text) => Geometry::FormattedText(FormattedTextGeometry {
             content: text.content.clone(),
             position: xy(text.point),
@@ -207,6 +219,33 @@ pub(crate) fn shape_of<P: Spot>(
         }
     };
     let mismatch = || Err("geometry".to_string());
+    // 2 点の間に合わせる文字の 2 点と合わせ方。AutoCAD は回転を 2 点から決め直すので、回転は 1 点目から
+    // 2 点目への向きと同じでなければならない
+    let between = |text: &TextGeometry| -> Result<Option<(P, P, Fit)>, String> {
+        let (end, fit) = match (&text.end, text.fit) {
+            (None, None) => return Ok(None),
+            (Some(_), None) => return Err("geometry/fit".to_string()),
+            (None, Some(_)) => return Err("geometry/end".to_string()),
+            (Some(end), Some(fit)) => (end, fit),
+        };
+        let first = point(&text.position, "position")?;
+        let second = point(end, "end")?;
+        let ([x0, y0], [x1, y1]) = (Point::xy(first), Point::xy(second));
+        if x0 == x1 && y0 == y1 {
+            return Err("geometry/end".to_string());
+        }
+        let turn = (finite(text.rotation, "rotation")?
+            - libm::atan2(y1 - y0, x1 - x0).to_degrees())
+        .rem_euclid(360.0);
+        if turn.min(360.0 - turn) > 1e-6 {
+            return Err("geometry/rotation".to_string());
+        }
+        let fit = match fit {
+            TextFit::Aligned => Fit::Aligned,
+            TextFit::Fit => Fit::Fit,
+        };
+        Ok(Some((first, second, fit)))
+    };
     Ok(match (geometry, was) {
         (Geometry::Line(line), None | Some(Shape::Line { .. })) => Shape::Line {
             start: point(&line.start, "start")?,
@@ -325,10 +364,13 @@ pub(crate) fn shape_of<P: Spot>(
             }
             Shape::Text(Text {
                 content: text.content.clone(),
-                placement: Placement::Anchor {
-                    point: point(&text.position, "position")?,
-                    horizontal: Horizontal::Left,
-                    vertical: Vertical::Baseline,
+                placement: match between(text)? {
+                    Some((first, second, fit)) => Placement::Between { first, second, fit },
+                    None => Placement::Anchor {
+                        point: point(&text.position, "position")?,
+                        horizontal: Horizontal::Left,
+                        vertical: Vertical::Baseline,
+                    },
                 },
                 height: zumen_drawing::Height {
                     value: positive(text.height, "height")?,
@@ -347,24 +389,36 @@ pub(crate) fn shape_of<P: Spot>(
             if text.style.as_ref().is_some_and(|style| *style != old.style) {
                 return Err("geometry/style".to_string());
             }
-            let Placement::Anchor {
-                horizontal,
-                vertical,
-                ..
-            } = old.placement
-            else {
-                return mismatch();
+            // 1 点に置く文字と 2 点の間に合わせる文字は、入れ替えない
+            let placement = match (old.placement, between(text)?) {
+                (
+                    Placement::Anchor {
+                        horizontal,
+                        vertical,
+                        ..
+                    },
+                    None,
+                ) => Placement::Anchor {
+                    point: point(&text.position, "position")?,
+                    horizontal,
+                    vertical,
+                },
+                (Placement::Between { fit: was, .. }, Some((first, second, fit))) => {
+                    if fit != was {
+                        return Err("geometry/fit".to_string());
+                    }
+                    Placement::Between { first, second, fit }
+                }
+                (Placement::Anchor { .. }, Some(_)) | (Placement::Between { .. }, None) => {
+                    return Err("geometry/end".to_string());
+                }
             };
             if text.content.contains(['\n', '\r']) {
                 return Err("geometry/content".to_string());
             }
             Shape::Text(Text {
                 content: text.content.clone(),
-                placement: Placement::Anchor {
-                    point: point(&text.position, "position")?,
-                    horizontal,
-                    vertical,
-                },
+                placement,
                 height: zumen_drawing::Height {
                     value: positive(text.height, "height")?,
                     meaning: old.height.meaning.clone(),
