@@ -781,6 +781,14 @@ impl Lifter<'_> {
             {
                 let mm = self.paper_mm(kind)?;
                 let [ox, oy] = self.origin;
+                let point = |x: f64, y: f64| PaperPoint {
+                    sheet: self.sheet,
+                    x: (x - ox) * mm,
+                    y: (y - oy) * mm,
+                };
+                let length = |value: f64| Length::Paper(PaperLength(value * mm));
+                let element =
+                    self.element(db, object, source, attributes, point, length, out, cx)?;
                 out.frames.insert(
                     self.sheet,
                     PaperFrame {
@@ -793,14 +801,6 @@ impl Lifter<'_> {
                         },
                     },
                 );
-                let point = |x: f64, y: f64| PaperPoint {
-                    sheet: self.sheet,
-                    x: (x - ox) * mm,
-                    y: (y - oy) * mm,
-                };
-                let length = |value: f64| Length::Paper(PaperLength(value * mm));
-                let element =
-                    self.element(db, object, source, attributes, point, length, out, cx)?;
                 let target = Target::Paper {
                     sheet: self.sheet,
                     index: out.paper.len(),

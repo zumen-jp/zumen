@@ -166,6 +166,20 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
     if rejected {
         return Err(Error::Rejected);
     }
+    let insertion_work = born.insertion_work(&added, db.objects().len());
+    if insertion_work > 0 {
+        let at = changes
+            .edits
+            .iter()
+            .find_map(|edit| match edit {
+                Edit::Add(element) => Some(&element.source),
+                Edit::AddOnSheet(element) => Some(&element.source),
+                _ => None,
+            })
+            .cloned()
+            .unwrap_or_default();
+        work(cx, insertion_work, &at)?;
+    }
     for (index, values) in replaced {
         db.object_mut(index).ok_or(Error::Rejected)?.values = values;
     }

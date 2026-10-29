@@ -2780,6 +2780,26 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             if dwg {
                 assert_eq!(result, Err(Error::Rejected), "{}", path.display());
                 assert_eq!(testkit::write::<C>(&file).unwrap(), src);
+                // DWG に角度（50）を書けない MTEXT を、向き 0 として足してはいけない。
+                let mut angled = weighted.clone();
+                angled.style.line_weight = Some(Inherit::Layer);
+                angled.shape = shapes
+                    .iter()
+                    .find(|shape| matches!(shape, Shape::Formatted(_)))
+                    .unwrap()
+                    .clone();
+                if let Shape::Formatted(text) = &mut angled.shape {
+                    text.rotation = zumen_drawing::Rotation::Angle(45.0);
+                }
+                let mut file = read::<C>(&src);
+                let result = file.apply(
+                    &Changes {
+                        edits: vec![Edit::Add(Box::new(angled))],
+                    },
+                    &mut Cx::new(&mut budget, &mut diag, &cancel),
+                );
+                assert_eq!(result, Err(Error::Rejected), "{}", path.display());
+                assert_eq!(testkit::write::<C>(&file).unwrap(), src);
             } else {
                 assert_eq!(result, Ok(()), "{}", path.display());
                 let written = testkit::write::<C>(&file).unwrap();

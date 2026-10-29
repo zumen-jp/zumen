@@ -1602,3 +1602,165 @@ fn binary_mtext_content_keeps_caret_escapes_across_chunk_boundaries() {
     };
     assert_eq!(text.content, expected);
 }
+
+#[test]
+fn sheet_additions_need_a_sheet_from_successfully_lifted_elements() {
+    use zumen_drawing::{PaperPoint, SheetId};
+    let src = versioned(
+        "AC1015",
+        &[
+            (0, "LINE"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (11, "1.0"),
+            (21, "0.0"),
+            (0, "CIRCLE"),
+            (5, "1B"),
+            (8, "0"),
+            (67, "1"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (40, "0.0"),
+        ],
+    );
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let drawing = lift(&file);
+    assert!(drawing.sheets.is_empty());
+    let template = &drawing.spaces[0].elements[0];
+    let element = Element {
+        source: template.source.clone(),
+        layer: template.layer,
+        style: template.style,
+        shape: Shape::Line {
+            start: PaperPoint {
+                sheet: SheetId(0),
+                x: 0.0,
+                y: 0.0,
+            },
+            end: PaperPoint {
+                sheet: SheetId(0),
+                x: 1.0,
+                y: 0.0,
+            },
+        },
+    };
+    assert_eq!(
+        apply(&mut file, vec![Edit::AddOnSheet(Box::new(element))]).0,
+        Err(Error::Rejected)
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn mtext_additions_need_the_supported_version_and_spacing() {
+    for (version, spacing, supported) in [
+        ("AC1009", 1.0, false),
+        ("AC1021", 0.249, false),
+        ("AC1021", 4.001, false),
+        ("AC1012", 0.25, true),
+        ("AC1021", 4.0, true),
+    ] {
+        let src = addition_source(version, "20", &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let mut shape = newcomers().remove(5);
+        if let Shape::Formatted(text) = &mut shape {
+            text.line_spacing.factor = spacing;
+        }
+        let result = apply(
+            &mut file,
+            vec![Edit::Add(Box::new(addition_element(shape)))],
+        )
+        .0;
+        if supported {
+            assert_eq!(result, Ok(()), "{version} {spacing}");
+        } else {
+            assert_eq!(result, Err(Error::Rejected), "{version} {spacing}");
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        }
+    }
+}
+
+#[test]
+fn mtext_additions_count_content_before_parsing_or_copying() {
+    use zumen_base::{Kind, Limit, Limits};
+    let src = addition_source("AC1021", "20", &[]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(newcomers().remove(0))))],
+        },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let mut shape = newcomers().remove(5);
+    if let Shape::Formatted(text) = &mut shape {
+        text.content = "x".repeat(1000);
+        text.spans = spans(&text.content);
+    }
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 20)),
+    );
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(shape)))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn block_sheet_additions_count_insertion_work_before_changing_the_file() {
+    use zumen_base::{Kind, Limit, Limits};
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "C2"),
+        (330, "C1"),
+        (2, "*Paper_Space0"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "LINE"),
+        (5, "C3"),
+        (330, "C1"),
+        (67, "1"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+        (0, "ENDBLK"),
+        (5, "C4"),
+        (330, "C1"),
+    ];
+    let src = String::from_utf8(addition_source("AC1021", "1000", &blocks)).unwrap().replacen(
+        "  0\nENDTAB\n  0\nENDSEC\n", "  0\nENDTAB\n  0\nTABLE\n  2\nBLOCK_RECORD\n  0\nBLOCK_RECORD\n  5\nC1\n  2\n*Paper_Space0\n  0\nENDTAB\n  0\nENDSEC\n", 1).into_bytes();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes { edits: vec![] },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let element = lift(&file).sheets[0].elements[0].clone();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 5)),
+    );
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::AddOnSheet(Box::new(element))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}

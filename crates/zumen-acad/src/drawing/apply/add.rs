@@ -416,6 +416,9 @@ impl Born {
         frame: &impl Frame<P>,
         lettering: &FormattedText<P>,
     ) -> Option<()> {
+        if !self.version.is_empty() && !self.since(b"AC1012") {
+            return None;
+        }
         if lettering.height.meaning != HeightMeaning::Declared("dxf.MTEXT.40")
             || lettering.background.is_some()
             || lettering.spans != mtext::spans(&lettering.content, &|value| frame.lifted(value))
@@ -442,6 +445,9 @@ impl Born {
             Flow::ByStyle => 5,
         };
         let spacing = nonzero_positive(lettering.line_spacing.factor)?;
+        if !(0.25..=4.0).contains(&spacing) {
+            return None;
+        }
         values.push(text(100, "AcDbMText"));
         point(values, frame, 10, &lettering.point)?;
         values.push(real(40, positive(frame, &lettering.height.value)?)?);
@@ -466,7 +472,12 @@ impl Born {
         let direction = match lettering.rotation {
             Rotation::Direction(direction) => Some(direction),
             // 角度を向きにするには三角関数が要るので、DWG には 0 の角度だけを、X 軸の向きとして書く
-            Rotation::Angle(angle) if dwg => (angle == 0.0).then_some([1.0, 0.0]),
+            Rotation::Angle(angle) if dwg => {
+                if angle != 0.0 {
+                    return None;
+                }
+                Some([1.0, 0.0])
+            }
             Rotation::Angle(angle) => {
                 if angle != 0.0 {
                     values.push(real(50, angle.to_radians())?);
@@ -522,6 +533,18 @@ impl Born {
         Some(())
     }
 
+    /// DXF の BLOCKS への挿入は、終端の検索と挿入後の索引の作り直しが表の数に比例する。
+    /// 表が増える分を含めた上限を先に数え、呼ぶ側が変更前に予算を確かめる。
+    pub(super) fn insertion_work(&self, added: &[Record], existing: usize) -> u64 {
+        if self.target != Target::Dxf {
+            return 0;
+        }
+        let count = added.iter().filter(|record| record.home.blocks).count() as u64;
+        count
+            .saturating_mul(2)
+            .saturating_mul(existing.saturating_add(added.len()) as u64)
+    }
+
     /// 足す図形を表に足す。ハンドルを順に付け、所有者を置き場所のブロックのレコードにする。DXF の BLOCKS の
     /// 所の図形は、所有者のブロックの ENDBLK の前に置く。DWG は、足したオブジェクトを表の終わりにだけ置け、
     /// 所有者のブロックの図形の列には書き戻しがつなぐ（決定 0079）
@@ -556,12 +579,13 @@ impl Born {
                 values,
                 origin: Origin::New,
             };
-            let end = db.objects().iter().position(|object| {
-                object.kind == b"ENDBLK"
-                    && home.blocks
-                    && self.target == Target::Dxf
-                    && object.owner() == home.owner
-            });
+            let end = if home.blocks && self.target == Target::Dxf {
+                db.objects()
+                    .iter()
+                    .position(|object| object.kind == b"ENDBLK" && object.owner() == home.owner)
+            } else {
+                None
+            };
             match end {
                 Some(index) => db.insert(index, object),
                 None => db.push(object),
@@ -578,6 +602,7 @@ pub(super) fn amount<P>(shape: &Shape<P>) -> u64 {
     let items = match shape {
         Shape::Polyline(line) => line.vertices.len(),
         Shape::Text(text) => text.content.len(),
+        Shape::Formatted(text) => text.content.len(),
         _ => 0,
     };
     1u64.saturating_add(items as u64)
