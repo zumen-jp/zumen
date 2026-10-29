@@ -969,8 +969,8 @@ fn drawings_take_back_transformed_elements() {
             _ => return None,
         })
     }
-    /// 動かした要素の種類
-    fn check<C: Codec>(path: &Path) -> Vec<&'static str>
+    /// 動かした要素の種類と、鏡映して書き戻せた要素の種類
+    fn check<C: Codec>(path: &Path) -> (Vec<&'static str>, Vec<&'static str>)
     where
         C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
     {
@@ -981,6 +981,7 @@ fn drawings_take_back_transformed_elements() {
         let mut namer = id::Namer::new(&place);
         let mut kinds = Vec::new();
         let mut targets = Vec::new();
+        let mut mirrors = Vec::new();
         for (index, element) in space.elements.iter().enumerate() {
             let id = namer.next(index, element);
             if let Some(kind) = kind(&element.shape)
@@ -991,15 +992,36 @@ fn drawings_take_back_transformed_elements() {
                 targets.push((kind, id, element));
             }
         }
-        // 30° 回し、尺度 1.5 にして、(100, -50) 動かす
-        let affine = {
+        // 30° 回し、尺度 1.5 にして、(100, -50) 動かす。鏡映するときは、先に X 軸で鏡映する
+        let affine = |mirrored: bool| {
             let turned = Affine::rotation(0.0, 0.0, 30.0);
             let [a, b, _, d, e, _] = turned.m;
+            let flip = if mirrored { -1.0 } else { 1.0 };
             Affine {
-                m: [a * 1.5, b * 1.5, 100.0, d * 1.5, e * 1.5, -50.0],
+                m: [
+                    a * 1.5,
+                    b * 1.5 * flip,
+                    100.0,
+                    d * 1.5,
+                    e * 1.5 * flip,
+                    -50.0,
+                ],
             }
         };
-        for (_, target, element) in targets {
+        for ((kind, target, element), mirrored) in targets
+            .iter()
+            .flat_map(|target| [(target, false), (target, true)])
+        {
+            let affine = affine(mirrored);
+            // 鏡映した文字と、属性か格子を持つ記号は、書く方法を決めていないので当てない
+            let refused = mirrored
+                && match &element.shape {
+                    Shape::Text(_) => true,
+                    Shape::Symbol(symbol) => !symbol.attributes.is_empty() || symbol.grid.is_some(),
+                    _ => false,
+                };
+            let target = target.clone();
+            let element = *element;
             let mut file = testkit::read::<C>(&src).0.unwrap();
             let changes = Changes {
                 edits: vec![Edit::Transform {
@@ -1014,15 +1036,27 @@ fn drawings_take_back_transformed_elements() {
             let mut diag = Diagnostics::new();
             let mut budget = Budget::default();
             let cancel = CancelToken::new();
-            let applied = file
-                .apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "{} {target}: {error:?} {:?}",
-                        path.display(),
-                        diag.iter().map(|d| d.code()).collect::<Vec<_>>()
-                    )
-                });
+            let result = file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
+            if refused {
+                assert_eq!(result.unwrap_err(), zumen_sdk::Error::Rejected, "{target}");
+                assert_eq!(
+                    diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+                    [codes::CHANGE_EDIT_UNSUPPORTED],
+                    "{} {target}",
+                    path.display()
+                );
+                continue;
+            }
+            if mirrored {
+                mirrors.push(*kind);
+            }
+            let applied = result.unwrap_or_else(|error| {
+                panic!(
+                    "{} {target}: {error:?} {:?}",
+                    path.display(),
+                    diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+                )
+            });
             let written = testkit::write::<C>(&file).unwrap();
             let after = lift(&testkit::read::<C>(&written).0.unwrap());
             let space = &after.spaces[0];
@@ -1035,9 +1069,21 @@ fn drawings_take_back_transformed_elements() {
                 .map(|(index, element)| (namer.next(index, element), element))
                 .find(|(id, _)| *id == target)
                 .unwrap();
-            // 書き戻すとレコードの位置が変わるので、属性の出所は鍵だけで比べる
+            // 書き戻すとレコードの位置が変わるので、属性の出所は鍵だけで比べる。鏡映した弧は、
+            // ファイルが反時計回りでしか持てないので、始まりと終わりを入れ替えた反時計回りの弧と比べる
             let keyed = |shape: &Shape<_>| {
                 let mut shape = shape.clone();
+                if let Shape::Curve(zumen_drawing::Edge::Arc {
+                    start,
+                    end,
+                    counterclockwise,
+                    ..
+                }) = &mut shape
+                    && !*counterclockwise
+                {
+                    std::mem::swap(start, end);
+                    *counterclockwise = true;
+                }
                 if let Shape::Symbol(symbol) = &mut shape {
                     for attribute in &mut symbol.attributes {
                         let key = attribute.source.key();
@@ -1065,18 +1111,20 @@ fn drawings_take_back_transformed_elements() {
                 path.display()
             );
         }
-        kinds
+        (kinds, mirrors)
     }
     let mut lines = 0;
     for (dwg, dxf) in pairs() {
-        for kinds in [check::<Dwg>(&dwg), check::<Dxf>(&dxf)] {
+        for (kinds, _) in [check::<Dwg>(&dwg), check::<Dxf>(&dxf)] {
             lines += usize::from(kinds.contains(&"line"));
         }
     }
     if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
         let binary = PathBuf::from(dir).join("features-r2018-binary.dxf");
         if binary.exists() {
-            assert!(check::<Dxf>(&binary).contains(&"symbol"));
+            let (kinds, mirrors) = check::<Dxf>(&binary);
+            assert!(kinds.contains(&"symbol"));
+            assert!(mirrors.contains(&"symbol"));
         }
     }
     assert!(pairs().is_empty() || lines > 0);

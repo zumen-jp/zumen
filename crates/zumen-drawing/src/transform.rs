@@ -1,8 +1,10 @@
 //! 要素の形を、使い手が渡すアフィン変換で動かす（決定 0139 の `Transform`）。
 //!
 //! 線分と、膨らみと幅を持たない折れ線は、どのアフィン変換でも写せる。円・円弧・楕円・幅か膨らみを持つ折れ線は、
-//! 相似（等方の尺度・回転・鏡映・平行移動）でだけ、元の種類のまま写せる。文字と記号は、鏡映を含まない相似でだけ
-//! 写す。鏡映した文字と記号を元の形式で表す書き方（反転の印・負の尺度）は、まだ決めていない。
+//! 相似（等方の尺度・回転・鏡映・平行移動）でだけ、元の種類のまま写せる。文字は、鏡映を含まない相似でだけ写す。
+//! 記号は、相似で写す。鏡映は、Y の尺度の符号を変えて表す（`M R(θ) diag(sx, sy) = R(φ − θ) diag(s sx, −s sy)`。
+//! `M` は X 軸で鏡映してから `φ` 回し `s` 倍する相似）。属性と格子を持つ記号の鏡映と、鏡映した文字を元の形式で
+//! 表す書き方（反転の印）は、まだ決めていない。
 
 use crate::{
     Affine, Attribute, Edge, FormattedText, Height, Length, ModelLength, ModelPoint, PaperLength,
@@ -231,7 +233,10 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
         Shape::Polyline(line) => Shape::Polyline(polyline(line, transform, similar)?),
         Shape::Text(text) => Shape::Text(lettering(text, transform, upright(similar)?)?),
         Shape::Formatted(text) => Shape::Formatted(formatting(text, transform, upright(similar)?)?),
-        Shape::Symbol(symbol) => Shape::Symbol(placing(symbol, transform, upright(similar)?)?),
+        Shape::Symbol(symbol) => Shape::Symbol(match similar? {
+            s if s.mirrored => mirroring(symbol, transform, s)?,
+            s => placing(symbol, transform, s)?,
+        }),
         _ => return None,
     })
 }
@@ -363,6 +368,20 @@ fn placing<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> O
         rotation: degrees(symbol.rotation + s.rotation),
         grid,
         attributes,
+        ..symbol.clone()
+    })
+}
+
+/// 記号を、鏡映を含む相似で写す。属性と格子を持つものは写さない
+fn mirroring<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> Option<Symbol<P>> {
+    if !symbol.attributes.is_empty() || symbol.grid.is_some() {
+        return None;
+    }
+    let [sx, sy] = symbol.scale;
+    Some(Symbol {
+        position: transform.point(symbol.position),
+        scale: [sx * s.scale, -sy * s.scale],
+        rotation: degrees(s.rotation - symbol.rotation),
         ..symbol.clone()
     })
 }

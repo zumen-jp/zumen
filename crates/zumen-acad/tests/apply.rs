@@ -2793,7 +2793,7 @@ fn transforms_the_records_cannot_hold_change_nothing() {
         transform(&arc, sheared),
         // 距離（1041）は、相似でない変換では直せない
         transform(&line, sheared),
-        // 鏡映した記号を書く方法は決めていない
+        // 属性を持つ記号の鏡映は、属性の文字を鏡映して書く方法を決めていない
         transform(&insert, mirrored),
         // 向きがつぶれる
         transform(&line, flattened),
@@ -3182,6 +3182,58 @@ fn defined() -> Vec<u8> {
         .into_bytes()
 }
 
+#[test]
+fn transforms_mirror_symbols_without_attributes_by_flipping_the_y_scale() {
+    use zumen_drawing::{Affine, Shape, transform::transform};
+    let mut file = testkit::read::<Dxf>(&defined()).0.unwrap();
+    let [(insert, before)] = <[_; 1]>::try_from(seen(&lift(&file))).unwrap();
+    // 直線 y = x で鏡映する。(5, 5) の配置は動かず、定義の (1, 0) は (5, 6) に写る
+    let mirrored = Affine {
+        m: [0.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &zumen_drawing::Changes {
+            edits: vec![zumen_drawing::Edit::Transform {
+                target: insert.clone(),
+                transform: mirrored,
+            }],
+            document: None,
+        },
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let [(after_id, after)] =
+        <[_; 1]>::try_from(seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()))).unwrap();
+    assert_eq!(after.shape, transform(&before.shape, &mirrored).unwrap());
+    let Shape::Symbol(symbol) = &after.shape else {
+        panic!("{:?}", after.shape);
+    };
+    assert_eq!(symbol.scale, [1.0, -1.0]);
+    assert_eq!(symbol.rotation, 90.0);
+    let place = |[x, y]: [f64; 2]| {
+        let (sin, cos) = (
+            libm::sin(symbol.rotation.to_radians()),
+            libm::cos(symbol.rotation.to_radians()),
+        );
+        let [sx, sy] = symbol.scale;
+        let (x, y) = (x * sx, y * sy);
+        [
+            symbol.position.x + x * cos - y * sin,
+            symbol.position.y + x * sin + y * cos,
+        ]
+    };
+    let rounded = |[x, y]: [f64; 2]| [(x * 1e9).round() / 1e9, (y * 1e9).round() / 1e9];
+    assert_eq!(rounded(place([1.0, 0.0])), [5.0, 6.0]);
+    assert_eq!(rounded(place([0.0, 1.0])), [6.0, 5.0]);
+    assert_eq!(applied[0].id.as_deref(), Some(insert.id.as_str()));
+    assert_eq!(applied[0].hash, Some(after_id.hash));
+}
+
 /// 記号の定義の要素の ID とハッシュ
 #[cfg(test)]
 fn defined_elements(drawing: &Drawing2D) -> Vec<(zumen_drawing::Seen, Element<ModelPoint>)> {
@@ -3289,4 +3341,94 @@ fn elements_of_symbol_definitions_are_changed_by_id() {
     let after = defined_elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].0.id, "space/h30/h31");
+}
+
+#[test]
+fn mirror_symbols_preserves_world_geometry_for_rotations_scales_and_block_bases() {
+    use zumen_drawing::{Affine, Shape};
+    let template = String::from_utf8(defined()).unwrap();
+    let original = "  2\nB\n 70\n0\n 10\n0.0\n 20\n0.0\n";
+    let with_base = "  2\nB\n 70\n0\n 10\n1.25\n 20\n-2.5\n";
+    assert!(template.contains(original));
+    let template = template.replacen(original, with_base, 1);
+    let insert = "  0\nINSERT\n  5\n1A\n  8\n0\n  2\nB\n 10\n5.0\n 20\n5.0\n 30\n0.0\n";
+    assert!(template.contains(insert));
+    let matrix = Affine {
+        m: [1.5, 2.0, 7.0, 2.0, -1.5, -2.0],
+    };
+    for (angle, sx, sy) in [
+        (30.0, 2.0, 3.0),
+        (123.0, -2.0, 3.0),
+        (270.0, 2.0, -3.0),
+        (315.0, -2.0, -3.0),
+    ] {
+        let extra = format!("{insert} 41\n{sx}\n 42\n{sy}\n 50\n{angle}\n");
+        let src = template.replacen(insert, &extra, 1);
+        let mut file = testkit::read::<Dxf>(src.as_bytes()).0.unwrap();
+        let before_drawing = lift(&file);
+        let before = &before_drawing.spaces[0].elements[0];
+        let before_symbol = match &before.shape {
+            Shape::Symbol(symbol) => symbol,
+            other => panic!("{other:?}"),
+        };
+        let before_base = before_drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key == before_symbol.key)
+            .unwrap()
+            .base
+            .unwrap();
+        let target = seen(&before_drawing).remove(0).0;
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let applied = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![zumen_drawing::Edit::Transform {
+                    target: target.clone(),
+                    transform: matrix,
+                }],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after_drawing = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+        let after = &after_drawing.spaces[0].elements[0];
+        let after_symbol = match &after.shape {
+            Shape::Symbol(symbol) => symbol,
+            other => panic!("{other:?}"),
+        };
+        let after_base = after_drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key == after_symbol.key)
+            .unwrap()
+            .base
+            .unwrap();
+        let world =
+            |symbol: &zumen_drawing::Symbol<ModelPoint>, base: ModelPoint, [x, y]: [f64; 2]| {
+                let theta = symbol.rotation.to_radians();
+                let (sin, cos) = (libm::sin(theta), libm::cos(theta));
+                let x = (x - base.x) * symbol.scale[0];
+                let y = (y - base.y) * symbol.scale[1];
+                [
+                    symbol.position.x + cos * x - sin * y,
+                    symbol.position.y + sin * x + cos * y,
+                ]
+            };
+        for point in [[1.25, -2.5], [0.0, 0.0], [1.0, 0.0], [3.0, -4.0]] {
+            let [x, y] = world(before_symbol, before_base, point);
+            let expected = matrix.apply(x, y);
+            let found = world(after_symbol, after_base, point);
+            assert!(
+                (found[0] - expected.0).abs() < 1e-9 && (found[1] - expected.1).abs() < 1e-9,
+                "angle={angle} scale=({sx},{sy}) point={point:?} found={found:?} expected={expected:?}"
+            );
+        }
+        assert_eq!(applied[0].id.as_deref(), Some(target.id.as_str()));
+        assert_eq!(applied[0].hash, Some(seen(&after_drawing)[0].0.hash));
+    }
 }
