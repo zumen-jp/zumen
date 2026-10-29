@@ -3074,3 +3074,49 @@ fn transform_moves_vertically_aligned_attributes() {
         assert_eq!((value(10), value(20)), expected_first);
     }
 }
+
+#[test]
+fn transforms_count_attribute_searches_and_xdata_before_writing() {
+    use zumen_base::{Kind, Limit, Limits};
+    use zumen_drawing::{Affine, Edit as Change};
+    let source = String::from_utf8(movable()).unwrap();
+    let transform = |src: &[u8], limit: Option<u64>| {
+        let mut file = testkit::read::<Dxf>(src).0.unwrap();
+        let target = seen(&lift(&file)).last().unwrap().0.clone();
+        let changes = zumen_drawing::Changes {
+            edits: vec![Change::Transform {
+                target,
+                transform: Affine::translation(1.0, 0.0),
+            }],
+            document: None,
+        };
+        let limits = match limit {
+            Some(limit) => Limits::default().with(Kind::Work, Limit::Finite(limit)),
+            None => Limits::default(),
+        };
+        let mut budget = Budget::new(limits);
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &changes,
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        (
+            result,
+            budget.used(Kind::Work),
+            testkit::write::<Dxf>(&file).unwrap(),
+        )
+    };
+    let (result, baseline, _) = transform(source.as_bytes(), None);
+    assert!(result.is_ok());
+    let marker = " 70\n0\n  0\nSEQEND\n";
+    assert!(source.contains(marker));
+    let payload = format!(
+        " 70\n0\n1001\nAPP\n{}  0\nSEQEND\n",
+        "1000\nx\n".repeat(300)
+    );
+    let enlarged = source.replacen(marker, &payload, 1).into_bytes();
+    let (result, _, written) = transform(&enlarged, Some(baseline + 30));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, enlarged);
+}

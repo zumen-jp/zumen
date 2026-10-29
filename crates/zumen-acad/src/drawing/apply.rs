@@ -371,24 +371,30 @@ fn edit(
                 restyled(&born, object, layer, was, style, target, cx)?
                     .map(|values| replaced.push((position, values)))
             }
-            (Edit::Transform { transform, .. }, Found::Model(was)) => anchor(&was.shape)
-                .and_then(|anchor| {
-                    let frame = InSpace(anchor.space);
-                    moved(db, was, object, transform, unicode, &frame, true)
-                })
-                .map(|values| {
-                    replaced.push((position, values.object));
-                    replaced.extend(values.followers);
-                }),
-            (Edit::Transform { transform, .. }, Found::Paper(was)) => anchor(&was.shape)
-                .and_then(|anchor| {
-                    let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
-                    moved(db, was, object, transform, unicode, &frame, false)
-                })
-                .map(|values| {
-                    replaced.push((position, values.object));
-                    replaced.extend(values.followers);
-                }),
+            (Edit::Transform { transform, .. }, Found::Model(was)) => {
+                transform_work(db, was, object, cx)?;
+                anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = InSpace(anchor.space);
+                        moved(db, was, object, transform, unicode, &frame, true)
+                    })
+                    .map(|values| {
+                        replaced.push((position, values.object));
+                        replaced.extend(values.followers);
+                    })
+            }
+            (Edit::Transform { transform, .. }, Found::Paper(was)) => {
+                transform_work(db, was, object, cx)?;
+                anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                        moved(db, was, object, transform, unicode, &frame, false)
+                    })
+                    .map(|values| {
+                        replaced.push((position, values.object));
+                        replaced.extend(values.followers);
+                    })
+            }
             (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
             (Edit::Add { .. }, _) => None,
         };
@@ -560,6 +566,49 @@ fn copy_value(value: &Value, cx: &mut Cx<'_>, at: &Ref) -> Result<Value, Error> 
 struct Moved {
     object: Vec<Value>,
     followers: Vec<(usize, Vec<Value>)>,
+}
+
+/// 変換前に、値の走査・複製と属性のレコードの探索に必要な作業を数える。
+fn transform_work<P>(
+    db: &AcadDb,
+    element: &Element<P>,
+    object: &Object,
+    cx: &mut Cx<'_>,
+) -> Result<(), Error> {
+    count_transform_values(object, &element.source, cx)?;
+    if let Shape::Symbol(symbol) = &element.shape {
+        for attribute in &symbol.attributes {
+            work(cx, 1, &attribute.source)?;
+            for candidate in db.objects() {
+                work(cx, 1, &attribute.source)?;
+                // source はハンドルを探すため、候補の値をなめる。
+                for _ in &candidate.values {
+                    work(cx, 1, &attribute.source)?;
+                }
+                if matches!(candidate.section, Section::Entities | Section::Blocks)
+                    && source(candidate) == attribute.source
+                {
+                    count_transform_values(candidate, &attribute.source, cx)?;
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn count_transform_values(object: &Object, at: &Ref, cx: &mut Cx<'_>) -> Result<(), Error> {
+    for value in &object.values {
+        work(cx, 1, at)?;
+        let bytes = match &value.data {
+            Data::Text(bytes) | Data::Binary(bytes) => bytes.len(),
+            _ => 0,
+        };
+        for _ in (0..bytes).step_by(1024) {
+            work(cx, 1, at)?;
+        }
+    }
+    Ok(())
 }
 
 /// 変換 `transform` で動かした図形の値。形は置き換えと同じ書き方で書き、図形とともに動く XDATA（[`carried`]）と、
@@ -1464,6 +1513,150 @@ mod hash_budget_tests {
         cancel: &'a CancelToken,
     ) -> Cx<'a> {
         Cx::new(budget, diagnostics, cancel)
+    }
+
+    #[test]
+    fn transform_values_obey_work_and_cancellation() {
+        use crate::db::Origin;
+        let object = Object {
+            kind: b"LINE".to_vec(),
+            section: Section::Entities,
+            values: vec![
+                Value {
+                    code: 1001,
+                    data: Data::Text(b"app".to_vec()),
+                },
+                Value {
+                    code: 1004,
+                    data: Data::Binary(vec![0; 4096]),
+                },
+                Value {
+                    code: 1011,
+                    data: Data::Real(2.0),
+                },
+            ],
+            origin: Origin::Dxf { record: 1 },
+        };
+        let at = Ref::at_record(1);
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(4)));
+        assert!(matches!(
+            count_transform_values(
+                &object,
+                &at,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        let mut budget = Budget::default();
+        cancel.cancel();
+        assert!(matches!(
+            count_transform_values(
+                &object,
+                &at,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 0);
+    }
+
+    #[test]
+    fn transform_attribute_search_obeys_work_and_cancellation() {
+        use crate::db::Origin;
+        use zumen_drawing::{Attribute, Height, HeightMeaning, SymbolKey};
+        let point = ModelPoint {
+            space: SpaceId(0),
+            x: 0.0,
+            y: 0.0,
+        };
+        let attribute = Attribute {
+            tag: "A".into(),
+            text: Text {
+                content: "x".into(),
+                height: Height {
+                    value: Length::Model(ModelLength {
+                        space: SpaceId(0),
+                        value: 1.0,
+                    }),
+                    meaning: HeightMeaning::Frame,
+                },
+                placement: Placement::Anchor {
+                    point,
+                    horizontal: Horizontal::Left,
+                    vertical: Vertical::Baseline,
+                },
+                rotation: 0.0,
+                width_factor: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                style: String::new(),
+            },
+            formatted: None,
+            hidden: false,
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            source: Ref::at_record(99),
+        };
+        let element = Element {
+            source: Ref::at_record(0),
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Symbol(Symbol {
+                key: SymbolKey {
+                    namespace: "dxf.block",
+                    name: "B".into(),
+                },
+                position: point,
+                scale: [1.0, 1.0],
+                rotation: 0.0,
+                grid: None,
+                attributes: vec![attribute],
+                clip: None,
+            }),
+        };
+        let object = Object {
+            kind: b"INSERT".to_vec(),
+            section: Section::Entities,
+            values: vec![],
+            origin: Origin::Dxf { record: 0 },
+        };
+        let mut db = AcadDb::default();
+        for record in 1..=100 {
+            db.push(Object {
+                kind: b"ATTRIB".to_vec(),
+                section: Section::Entities,
+                values: vec![],
+                origin: Origin::Dxf { record },
+            });
+        }
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
+        assert!(matches!(
+            transform_work(
+                &db,
+                &element,
+                &object,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 10);
+        let mut budget = Budget::default();
+        cancel.cancel();
+        assert!(matches!(
+            transform_work(
+                &db,
+                &element,
+                &object,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 0);
     }
 
     #[test]
