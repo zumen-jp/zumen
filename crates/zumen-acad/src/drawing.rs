@@ -33,7 +33,8 @@ use zumen_drawing::{
     ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
     PatternOrigin, Placement, Polyline, Resource, Rotation, Shape, Sheet, SheetId, SheetItem,
     SpaceId, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Table, TableFormats, Target, Text,
-    Underlay, UnderlayFrame, UnderlayKind, Unit, ValueUnit, Vertex, Vertical, View,
+    TextStyle, TextStyleDefinition, Underlay, UnderlayFrame, UnderlayKind, Unit, ValueUnit, Vertex,
+    Vertical, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -152,7 +153,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     };
     let mut out = Out::default();
     // 画層が線種を指すので、線種の表を先に移す
-    for kind in [&b"LTYPE"[..], b"LAYER", b"DIMSTYLE"] {
+    for kind in [&b"LTYPE"[..], b"LAYER", b"DIMSTYLE", b"STYLE"] {
         for object in db.objects() {
             if object.section != Section::Tables || object.kind != kind {
                 continue;
@@ -162,7 +163,8 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             let lifted = match kind {
                 b"LTYPE" => lifter.line_type_record(db, object, source.clone(), &mut out, cx),
                 b"LAYER" => lifter.layer_record(object, source.clone(), &mut out),
-                _ => lifter.dimension_style_record(db, object, source.clone(), &mut out),
+                b"DIMSTYLE" => lifter.dimension_style_record(db, object, source.clone(), &mut out),
+                _ => lifter.text_style_record(object, source.clone(), &mut out),
             };
             if let Err(diagnostic) = lifted {
                 cx.report((*diagnostic).at(source));
@@ -232,6 +234,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         line_type_scale,
         default_line_weight,
         dimension_styles: out.dimension_styles,
+        text_styles: out.text_styles,
         symbols,
         extensions: out.extensions,
         ..Drawing2D::default()
@@ -300,6 +303,10 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     drawing
         .sheets
         .extend(out.layouts.into_iter().map(|(_, _, sheet, _)| sheet));
+    drawing.add_named_text_styles(cx).map_err(|(stop, place)| {
+        cx.report(stop.to_diagnostic().at(place));
+        Error::Stopped(stop)
+    })?;
     Ok((drawing, out.frames))
 }
 
@@ -724,6 +731,7 @@ struct Out {
     /// 線種の表のレコードのハンドル
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
+    text_styles: Vec<TextStyle>,
     extensions: Vec<Extension>,
     /// 要素を置いた用紙ごとの座標の対応。中身のない用紙のものは、ID を付けるときに足す
     frames: BTreeMap<SheetId, PaperFrame>,
@@ -4210,6 +4218,73 @@ impl Lifter<'_> {
         Ok(())
     }
 
+    /// 文字スタイルの表のレコード（DXF Reference「STYLE」。決定 0158）。形のファイルのレコード（70 の 1）は
+    /// 文字スタイルにしない。主のフォントは 3、大きいフォントは 4 とし、TrueType のファイル（拡張子が
+    /// `.ttf`・`.ttc`・`.otf`）と、XDATA の ACAD に書体の名前（1000）を持つものは名前で指すフォントにする。
+    /// 1071 は、下の 8 ビットをピッチと系統、次の 8 ビットを文字集合、ビット 24 を斜体、ビット 25 を太字とする
+    /// （推定。文字集合とピッチは試料の値で確かめた）。最後に使った高さ（42）は移さない（決定 0157）
+    fn text_style_record(&self, object: &Object, source: Ref, out: &mut Out) -> Lifted<()> {
+        let kind = object.kind.as_slice();
+        let flags = self.int(object, 70, 0)?;
+        if flags & 1 != 0 {
+            return Ok(());
+        }
+        let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
+        let height = self.real(object, 40, Some(0.0))?;
+        if height < 0.0 {
+            return Err(invalid(kind, 40));
+        }
+        let width = self.real(object, 41, Some(1.0))?;
+        if width <= 0.0 {
+            return Err(invalid(kind, 41));
+        }
+        let generation = self.int(object, 71, 0)?;
+        let file = self.string(object, 3)?.unwrap_or_default();
+        let big = self.string(object, 4)?.unwrap_or_default();
+        let face = true_type_face(object)
+            .map(|(face, bits)| Ok::<_, Box<Diagnostic>>((self.decode(kind, 1000, face)?, bits)))
+            .transpose()?;
+        let true_type = [".ttf", ".ttc", ".otf"].iter().any(|extension| {
+            file.len() >= extension.len()
+                && file
+                    .get(file.len() - extension.len()..)
+                    .is_some_and(|tail| tail.eq_ignore_ascii_case(extension))
+        });
+        let font = match face {
+            Some((face, bits)) => Some(Font {
+                name: face,
+                kind: named_font(bits),
+            }),
+            None if file.is_empty() => None,
+            None if true_type => Some(Font {
+                name: file,
+                kind: named_font(None),
+            }),
+            None => Some(Font {
+                name: file,
+                kind: FontKind::Shape,
+            }),
+        };
+        out.text_styles.push(TextStyle {
+            name,
+            definition: Some(TextStyleDefinition {
+                font,
+                big_font: (!big.is_empty()).then_some(Font {
+                    name: big,
+                    kind: FontKind::Shape,
+                }),
+                height: (height > 0.0).then_some(height),
+                width,
+                oblique: self.real(object, 50, Some(0.0))?,
+                backward: generation & 2 != 0,
+                upside_down: generation & 4 != 0,
+                vertical: flags & 4 != 0,
+            }),
+            source,
+        });
+        Ok(())
+    }
+
     /// 画層を足す。同じ名前がすでにあれば、名前で引くのは先のものにする
     fn add_layer(
         &self,
@@ -4738,6 +4813,46 @@ fn columns() -> Box<Diagnostic> {
 
 fn non_planar(kind: &[u8]) -> Box<Diagnostic> {
     Box::new(Diagnostic::new(codes::DXF_NON_PLANAR_DROPPED).with("kind", text(kind)))
+}
+
+/// 表のレコードの XDATA の ACAD の、TrueType の書体の名前（1000）と印（1071）。名前が空か、なければ `None`
+fn true_type_face(object: &Object) -> Option<(&Data, Option<i64>)> {
+    let start = object.values.iter().position(|value| {
+        value.code == 1001 && matches!(&value.data, Data::Text(name) if name.as_slice() == b"ACAD")
+    })?;
+    let group = object.values.get(start + 1..)?;
+    let group = group.split(|value| value.code == 1001).next()?;
+    let face = group
+        .iter()
+        .find_map(|value| match (&value.code, &value.data) {
+            (1000, face @ Data::Text(name)) if !name.is_empty() => Some(face),
+            _ => None,
+        })?;
+    let bits = group
+        .iter()
+        .find_map(|value| match (&value.code, &value.data) {
+            (1071, Data::Int(bits)) => Some(*bits),
+            _ => None,
+        });
+    Some((face, bits))
+}
+
+/// 1071 の印から、名前で指すフォントの種類を作る
+fn named_font(bits: Option<i64>) -> FontKind {
+    match bits {
+        Some(bits) => FontKind::Named {
+            bold: bits & 0x0200_0000 != 0,
+            italic: bits & 0x0100_0000 != 0,
+            charset: Some(((bits >> 8) & 0xFF) as u32),
+            pitch: Some((bits & 0xFF) as u32),
+        },
+        None => FontKind::Named {
+            bold: false,
+            italic: false,
+            charset: None,
+            pitch: None,
+        },
+    }
 }
 
 #[cfg(test)]

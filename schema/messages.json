@@ -839,9 +839,14 @@
           "description": "寸法スタイル",
           "type": "array",
           "items": { "$ref": "#/$defs/table_item" }
+        },
+        "text_styles": {
+          "description": "文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/text_style_item" }
         }
       },
-      "required": ["layers", "line_types", "dimension_styles"],
+      "required": ["layers", "line_types", "dimension_styles", "text_styles"],
       "additionalProperties": false
     },
     "table_item": {
@@ -857,6 +862,48 @@
       },
       "required": ["id", "name", "hash"],
       "additionalProperties": false
+    },
+    "text_style_item": {
+      "description": "文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID。表のレコードがハンドルを持てば text-style/h11、なければ文字スタイルの並びの中の順（text-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）",
+          "type": "string"
+        },
+        "name": { "description": "元の名前。翻訳しない", "type": "string" },
+        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" },
+        "defined": { "description": "ファイルに定義がある。偽なら、ほかの欄を持たない", "type": "boolean" },
+        "font": { "description": "主のフォント。ファイルが決めていなければ書かない", "$ref": "#/$defs/font" },
+        "big_font": { "description": "大きいフォント（漢字などの形のファイル）。なければ書かない", "$ref": "#/$defs/font" },
+        "height": { "description": "決まった高さ。文書の単位。決めなければ書かない", "type": "number" },
+        "width": { "description": "幅の倍率", "type": "number" },
+        "oblique": { "description": "傾き（度）", "type": "number" },
+        "backward": { "description": "左右を裏返す", "type": "boolean" },
+        "upside_down": { "description": "上下を反転する", "type": "boolean" },
+        "vertical": { "description": "縦書き", "type": "boolean" }
+      },
+      "required": ["id", "name", "hash", "defined"],
+      "additionalProperties": false
+    },
+    "font": {
+      "description": "フォントの指定。取得と字形の評価は使い手が行う",
+      "type": "object",
+      "properties": {
+        "name": { "description": "元の名前。形のファイルならファイルの名前、名前で指すフォントなら書体の名前。翻訳しない", "type": "string" },
+        "kind": { "description": "種類", "$ref": "#/$defs/font_kind" },
+        "bold": { "description": "太字。名前で指すフォントだけ", "type": "boolean" },
+        "italic": { "description": "斜体。名前で指すフォントだけ", "type": "boolean" },
+        "charset": { "description": "文字集合の番号（128 は Shift_JIS）。名前で指すフォントで、元の形式が決めていれば", "type": "integer", "minimum": 0 },
+        "pitch": { "description": "ピッチと系統の番号。名前で指すフォントで、元の形式が決めていれば", "type": "integer", "minimum": 0 }
+      },
+      "required": ["name", "kind"],
+      "additionalProperties": false
+    },
+    "font_kind": {
+      "description": "フォントの種類。shape は形のファイル（SHX など）、named は名前で指すフォント（TrueType など）",
+      "type": "string",
+      "enum": ["shape", "named"]
     },
     "source": {
       "description": "要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない",
