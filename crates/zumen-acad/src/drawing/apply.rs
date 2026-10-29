@@ -591,6 +591,17 @@ fn moved<P: Copy + PartialEq + transform::Point>(
         _ => element.clone(),
     };
     let mut values = replacement(was, &written, object, unicode, frame)?;
+    if let (Shape::Text(before), Shape::Text(after)) = (&was.shape, &element.shape) {
+        aligned_first(
+            &mut values,
+            &object.values,
+            before,
+            after,
+            transform,
+            frame,
+            73,
+        )?;
+    }
     if moving_xdata(object).is_some() {
         if !model {
             return None;
@@ -609,7 +620,23 @@ fn moved<P: Copy + PartialEq + transform::Point>(
                 return None;
             }
             let mut values = follower.values.clone();
-            lettering(&mut values, &attribute.text, &original.text, frame, unicode)?;
+            lettering(
+                &mut values,
+                &attribute.text,
+                &original.text,
+                frame,
+                unicode,
+                74,
+            )?;
+            aligned_first(
+                &mut values,
+                &follower.values,
+                &original.text,
+                &attribute.text,
+                transform,
+                frame,
+                74,
+            )?;
             if moving_xdata(follower).is_some() {
                 if !model {
                     return None;
@@ -623,6 +650,40 @@ fn moved<P: Copy + PartialEq + transform::Point>(
         object: values,
         followers,
     })
+}
+
+/// 位置合わせされた文字の、基点からの相対位置を保つ第1点も変換する。
+fn aligned_first<P>(
+    values: &mut Vec<Value>,
+    original: &[Value],
+    before: &Text<P>,
+    after: &Text<P>,
+    transform: &Affine,
+    frame: &impl Frame<P>,
+    vertical_code: i16,
+) -> Option<()> {
+    let aligned = [72, vertical_code].iter().any(|code| {
+        original
+            .iter()
+            .any(|v| v.code == *code && v.data != Data::Int(0))
+    });
+    let (Placement::Anchor { point: old, .. }, Placement::Anchor { point: new, .. }) =
+        (&before.placement, &after.placement)
+    else {
+        return Some(());
+    };
+    if !aligned {
+        return Some(());
+    }
+    let [old_x, old_y] = frame.point(old)?;
+    let [new_x, new_y] = frame.point(new)?;
+    let [x, y] = transform.vector([
+        first_real(original, 10)? - old_x,
+        first_real(original, 20)? - old_y,
+    ]);
+    put(values, 10, new_x + x, &[])?;
+    put(values, 20, new_y + y, &[])?;
+    Some(())
 }
 
 /// 図形とともに動く XDATA を、AutoCAD と同じ規則で直す（DXF Reference「Group Codes That Apply to Extended
@@ -873,7 +934,7 @@ fn replacement<P: PartialEq>(
             values = lwpolyline(&values, line, was, frame)?;
         }
         (Shape::Text(text), Shape::Text(was), b"TEXT") => {
-            lettering(&mut values, text, was, frame, unicode)?;
+            lettering(&mut values, text, was, frame, unicode, 73)?;
         }
         (Shape::Formatted(text), Shape::Formatted(was), b"MTEXT") => {
             formatting(&mut values, text, was, frame, unicode)?;
@@ -1004,6 +1065,7 @@ fn lettering<P: PartialEq>(
     was: &Text<P>,
     frame: &impl Frame<P>,
     unicode: bool,
+    vertical_code: i16,
 ) -> Option<()> {
     if text.style != was.style || text.height.meaning != was.height.meaning {
         return None;
@@ -1023,7 +1085,7 @@ fn lettering<P: PartialEq>(
         ) if horizontal == was_horizontal && vertical == was_vertical => {
             let at = frame.point(point)?;
             let was_at = frame.point(was_point)?;
-            let aligned = [72, 73].iter().any(|code| {
+            let aligned = [72, vertical_code].iter().any(|code| {
                 values
                     .iter()
                     .any(|v| v.code == *code && v.data != Data::Int(0))

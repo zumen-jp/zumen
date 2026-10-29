@@ -2948,3 +2948,129 @@ fn similarity_preserves_full_ellipses_and_arcs() {
         }
     }
 }
+
+#[test]
+fn rotating_aligned_text_also_rotates_its_first_point() {
+    use zumen_drawing::{Affine, Edit as Change};
+    let src = versioned(
+        "AC1021",
+        &[
+            (0, "TEXT"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "0"),
+            (20, "0"),
+            (11, "2"),
+            (21, "0"),
+            (40, "2"),
+            (1, "A"),
+            (72, "1"),
+        ],
+    );
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let target = seen(&lift(&file)).remove(0).0;
+    let changes = zumen_drawing::Changes {
+        edits: vec![Change::Transform {
+            target,
+            transform: Affine {
+                m: [0.0, -1.0, 0.0, 1.0, 0.0, 0.0],
+            },
+        }],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let file = testkit::read::<Dxf>(&written).0.unwrap();
+    let record = file
+        .records()
+        .iter()
+        .find(|r| file.kind(r) == b"TEXT")
+        .unwrap();
+    let find = |code| {
+        record
+            .tags()
+            .iter()
+            .find(|t| t.code() == code)
+            .map(|t| file.value(t))
+            .unwrap()
+    };
+    assert_eq!(
+        std::str::from_utf8(find(10))
+            .unwrap()
+            .parse::<f64>()
+            .unwrap(),
+        0.0
+    );
+    assert_eq!(
+        std::str::from_utf8(find(20))
+            .unwrap()
+            .parse::<f64>()
+            .unwrap(),
+        0.0
+    );
+}
+
+#[test]
+fn transform_moves_vertically_aligned_attributes() {
+    use zumen_drawing::{Affine, Edit as Change, Placement};
+    let original = String::from_utf8(movable()).unwrap();
+    let old = "  0\nATTRIB\n  5\n1D\n  8\n0\n 10\n1.0\n 20\n0.0\n";
+    let new = "  0\nATTRIB\n  5\n1D\n  8\n0\n 10\n1.0\n 20\n0.0\n 11\n2.0\n 21\n0.0\n 74\n2\n";
+    assert!(original.contains(old));
+    let src = original.replace(old, new).into_bytes();
+    for (transform, expected_anchor, expected_first) in [
+        (Affine::translation(5.0, 3.0), (7.0, 3.0), (6.0, 3.0)),
+        (
+            Affine {
+                m: [0.0, -1.0, 0.0, 1.0, 0.0, 0.0],
+            },
+            (0.0, 2.0),
+            (0.0, 1.0),
+        ),
+    ] {
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let target = seen(&lift(&file))[2].0.clone();
+        let changes = zumen_drawing::Changes {
+            edits: vec![Change::Transform { target, transform }],
+            document: None,
+        };
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        zumen_sdk::Apply::apply(
+            &mut file,
+            &changes,
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let file = testkit::read::<Dxf>(&written).0.unwrap();
+        let after = seen(&lift(&file));
+        let Shape::Symbol(symbol) = &after[2].1.shape else {
+            panic!()
+        };
+        let Placement::Anchor { point, .. } = symbol.attributes[0].text.placement else {
+            panic!()
+        };
+        assert_eq!((point.x, point.y), expected_anchor);
+        let record = file
+            .records()
+            .iter()
+            .find(|r| file.kind(r) == b"ATTRIB")
+            .unwrap();
+        let value = |code| {
+            let tag = record.tags().iter().find(|t| t.code() == code).unwrap();
+            std::str::from_utf8(file.value(tag))
+                .unwrap()
+                .parse::<f64>()
+                .unwrap()
+        };
+        assert_eq!((value(10), value(20)), expected_first);
+    }
+}
