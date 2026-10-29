@@ -56,7 +56,7 @@
     "dxf.leader-line-style.dropped": "Did not lift the per-line overrides of color, line type, line weight and arrowhead in MULTILEADER ({count}); the lines use the settings of the whole callout.",
     "dxf.lift.dropped": "Did not lift {count} \"{kind}\" entities, which the drawing model cannot hold yet.",
     "dxf.lift.invalid": "Did not lift {count} \"{kind}\" entities into the drawing model, because the value of group code {code} is missing, unreadable or out of range.",
-    "dxf.line-type-element.dropped": "Did not lift the shapes and text in the elements of line type \"{name}\" ({count}); only the dash and gap lengths were lifted.",
+    "dxf.line-type-element.dropped": "Did not lift a shape or text in an element of line type \"{name}\" because it could not be read ({count}); the dash and gap lengths were lifted.",
     "dxf.mtext-columns.unsupported": "Did not lift {count} MTEXT entities and multiline attributes with columns, which are not supported yet.",
     "dxf.non-planar.dropped": "Did not lift {count} \"{kind}\" entities with a nonzero Z or a non-Z extrusion into the planar drawing model.",
     "dxf.object.unsupported": "Cannot write back a change to \"{kind}\" to DXF, because it does not come from a record of this file with the same kind. The changes were not applied.",

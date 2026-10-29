@@ -3236,12 +3236,13 @@ fn layers_styles_and_linetypes_have_their_fields() {
             (49, Data::Real(-0.5)),
             (74, Data::Int(2)),
             (75, Data::Int(0)),
+            // 文字の体裁は、DXF と同じく形の番号の後に置く
+            (340, Data::Handle(0x11)),
             (46, Data::Real(0.5)),
             (50, Data::Real(0.0)),
             (44, Data::Real(0.1)),
             (45, Data::Real(-0.2)),
             (9, text(b"AB")),
-            (340, Data::Handle(0x11)),
         ]
     );
 }

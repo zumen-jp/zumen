@@ -967,6 +967,7 @@ impl Lifter<'_> {
                 description: description.to_owned(),
                 pattern,
                 basis: PatternBasis::Paper,
+                marks: Vec::new(),
             }),
             source: Ref::at_record(0),
         });
