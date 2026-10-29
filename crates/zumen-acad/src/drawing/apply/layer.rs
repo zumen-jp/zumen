@@ -6,8 +6,11 @@
 //! 今の画層（`$CLAYER`）も書き直す。DWG の図形は画層をハンドルで指すので、足した図形のほかは書き直さない
 
 use super::add::{Born, Target, int, line_weight};
+use super::{count_transform_values, work};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
+use zumen_base::{Cx, Ref};
 use zumen_drawing::{ColorSystem, Inherit, Layer, LayerState, LayerStyle};
+use zumen_sdk::Error;
 
 /// 名前に使えない文字（AutoCAD の名前の決まり）
 const FORBIDDEN: &[char] = &['<', '>', '/', '\\', '"', ':', ';', '?', '*', '|', '=', '`'];
@@ -273,10 +276,17 @@ pub(super) fn rename(db: &mut AcadDb, old: &[u8], new: &Value, target: Target) {
 
 /// 除く画層のレコード `record`（表の `position`）を、ほかが指しているか。要素の画層（DXF は名前の 8、DWG はハンドル）、
 /// XDATA の画層の名前（1003）、ほかのオブジェクトのハンドル（ビューポートの凍結・画層の状態・画層の索引など）、
-/// 見出しの変数（今の画層）を見る。表のオブジェクト（TABLE）の項目の並びは、書き戻しが直すので見ない
-pub(super) fn referenced(db: &AcadDb, position: usize, record: &Object) -> bool {
+/// 見出しの変数（今の画層）を見る。DWG の表のオブジェクト（TABLE）の項目の並びは、共有の表に置かれず、
+/// 書き戻しが直す。それ以外の TABLE の値は検査する
+pub(super) fn referenced(
+    db: &AcadDb,
+    position: usize,
+    record: &Object,
+    cx: &mut Cx,
+    place: &Ref,
+) -> Result<bool, Error> {
     let Some(name) = name_of(record) else {
-        return true;
+        return Ok(true);
     };
     let handle = record.handle();
     let points = |value: &Value| match &value.data {
@@ -284,10 +294,26 @@ pub(super) fn referenced(db: &AcadDb, position: usize, record: &Object) -> bool 
         Data::Text(text) => matches!(value.code, 8 | 1003) && text.eq_ignore_ascii_case(name),
         _ => false,
     };
-    let by_objects = db.objects().iter().enumerate().any(|(at, object)| {
-        at != position && object.kind != b"TABLE" && object.values.iter().any(points)
-    });
-    by_objects || db.variables().any(|(_, values)| values.iter().any(points))
+    for (at, object) in db.objects().iter().enumerate() {
+        work(cx, 1, place)?;
+        count_transform_values(object, place, cx)?;
+        if at != position && object.values.iter().any(points) {
+            return Ok(true);
+        }
+    }
+    for (_, values) in db.variables() {
+        for value in values {
+            let bytes = match &value.data {
+                Data::Text(bytes) | Data::Binary(bytes) => bytes.len(),
+                _ => 0,
+            };
+            work(cx, 1 + bytes as u64 / 1024, place)?;
+        }
+        if values.iter().any(points) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// 除ける画層のレコードか。0・Defpoints・外部参照に依る画層と、ハンドルを持たない（ID が並びの順で決まり、

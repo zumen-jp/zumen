@@ -432,3 +432,54 @@ fn layers_in_use_are_not_removed() {
     assert_eq!(result.unwrap_err(), Error::Rejected);
     assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
 }
+
+#[test]
+fn removing_a_layer_does_not_change_the_ids_of_later_layers_without_handles() {
+    let original = String::from_utf8(src()).unwrap();
+    let without_handle = original.replacen(
+        "  0\nENDTAB\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n",
+        "  0\nLAYER\n  2\nLater\n 70\n0\n 62\n7\n  6\nContinuous\n  0\nENDTAB\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n",
+        1,
+    );
+    let implicit = original.replace("  8\na\n", "  8\nMissing\n");
+    for (input, later) in [(without_handle, "Later"), (implicit, "Missing")] {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let before_id = id::layer(layer(&drawing, later));
+        assert!(before_id.starts_with("layer/"));
+        assert!(!before_id.starts_with("layer/h"));
+        let (result, codes) = apply(
+            &mut file,
+            vec![Edit::RemoveLayer {
+                target: seen(layer(&drawing, "Unused")),
+            }],
+        );
+        assert_eq!(result.unwrap_err(), Error::Rejected, "{later}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
+        assert_eq!(id::layer(layer(&lift(&file), later)), before_id);
+    }
+}
+
+#[test]
+fn table_references_prevent_layer_removal() {
+    let original = String::from_utf8(src()).unwrap();
+    for reference in ["1001\nAPP\n1003\nUnused\n", "340\n12\n"] {
+        let input = original.replacen(
+            " 70\n1\n  0\nLTYPE\n",
+            &format!(" 70\n1\n{reference}  0\nLTYPE\n"),
+            1,
+        );
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let (result, codes) = apply(
+            &mut file,
+            vec![Edit::RemoveLayer {
+                target: seen(layer(&drawing, "Unused")),
+            }],
+        );
+        assert_eq!(result.unwrap_err(), Error::Rejected, "{reference}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
+    }
+}
