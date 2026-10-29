@@ -381,3 +381,41 @@ fn layer_renames_count_record_values_and_stop_without_changing_the_file() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(written, enlarged.as_bytes());
 }
+
+#[test]
+fn layer_rename_counts_values_examined_in_objects() {
+    use zumen_base::Kind;
+    let original = String::from_utf8(src()).unwrap();
+    let payload = format!(
+        "  0\nSECTION\n  2\nOBJECTS\n  0\nXRECORD\n  5\n35\n{}  0\nENDSEC\n  0\nEOF\n",
+        "  1\nvalue\n".repeat(300)
+    );
+    let input = original.replace("  0\nEOF\n", &payload);
+    let run = |rename: bool| {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let was = layer(&drawing, "A");
+        let mut new = was.clone();
+        if rename {
+            new.name = "Walls".to_owned();
+        }
+        let changes = Changes {
+            edits: vec![Edit::ReplaceLayer {
+                target: seen(was),
+                layer: Box::new(new),
+            }],
+            document: None,
+        };
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+        )
+        .unwrap();
+        budget.used(Kind::Work)
+    };
+    let unchanged = run(false);
+    let renamed = run(true);
+    assert!(renamed >= unchanged + 300, "{unchanged}, {renamed}");
+}
