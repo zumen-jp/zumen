@@ -301,6 +301,7 @@ fn dimension_style_changes_that_cannot_be_written_are_refused() {
         // Standard・子を持つもの・子の名前と、ほかと重なる名前と、$ を持つ名前
         vec![replace("Standard", &|style| style.name = "Main".to_owned())],
         vec![replace("Family", &|style| style.name = "Other".to_owned())],
+        vec![replace("Family", &|style| style.name = "family".to_owned())],
         vec![replace("Family$0", &|style| {
             style.name = "Other".to_owned()
         })],
@@ -313,6 +314,12 @@ fn dimension_style_changes_that_cannot_be_written_are_refused() {
         vec![replace("Unused", &|style| style.scale = f64::INFINITY)],
         vec![replace("Unused", &|style| style.tick = Some(0.0))],
         vec![replace("Unused", &|style| style.leader = block("_MISSING"))],
+        vec![replace("Unused", &|style| {
+            style.leader = Arrowhead::Symbol(SymbolKey {
+                namespace: "other",
+                name: "_DOT".to_owned(),
+            });
+        })],
         // 同じ寸法スタイルの 2 度の変更
         vec![
             replace("Unused", &|style| style.size = 1.0),
@@ -391,4 +398,26 @@ fn dimension_style_renames_count_record_values_and_stop_without_changing_the_fil
     let (result, _, written) = run(&enlarged, Some(larger - 1));
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(written, enlarged.as_bytes());
+}
+
+#[test]
+fn dimension_style_case_change_is_refused_if_an_object_may_reference_it() {
+    let input = String::from_utf8(src()).unwrap().replace(
+        "  0\nEOF\n",
+        "  0\nSECTION\n  2\nOBJECTS\n  0\nXRECORD\n  5\n35\n  3\nUnused\n  0\nENDSEC\n  0\nEOF\n",
+    );
+    let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let mut changed = style(&drawing, "Unused").1.clone();
+    changed.name = "unused".to_owned();
+    let (result, found) = apply(
+        &mut file,
+        vec![Edit::ReplaceDimensionStyle {
+            target: seen(&drawing, "Unused"),
+            style: Box::new(changed),
+        }],
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(found, [codes::CHANGE_EDIT_UNSUPPORTED]);
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
 }

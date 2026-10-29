@@ -119,10 +119,11 @@ pub(super) fn write(
     let handle = |code: i16, arrow: &Arrowhead| -> Option<Option<Value>> {
         match arrow {
             Arrowhead::Default => Some(None),
-            Arrowhead::Symbol(key) => Some(Some(Value {
+            Arrowhead::Symbol(key) if key.namespace == "dxf.block" => Some(Some(Value {
                 code,
                 data: Data::Handle(blocks(&key.name)?),
             })),
+            Arrowhead::Symbol(_) => None,
         }
     };
     let [first, second] = &style.ends;

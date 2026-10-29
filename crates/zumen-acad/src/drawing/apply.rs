@@ -954,7 +954,7 @@ fn edit(
                                     data: Data::Text(name),
                                     ..
                                 }),
-                            ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
+                            ) if target == Target::Dxf && old != &name => {
                                 dimension_style::named_elsewhere(db, old, cx, &was.source)?
                             }
                             _ => false,
@@ -988,12 +988,16 @@ fn edit(
                     let Some(Data::Text(name)) = layer::find(&values, 2) else {
                         return None;
                     };
+                    if old != name
+                        && (named
+                            || dimension_style::has_children(dimension_style_names.iter(), old))
+                    {
+                        return None;
+                    }
                     if !old.eq_ignore_ascii_case(name) {
                         // 名前を変えるなら、ほかの寸法スタイルと重ならず、子の寸法スタイルを持たず、DXF の
                         // 寸法などでないオブジェクトが名前で指していないこと
                         let free = !dimension_style_names.contains(&name.to_ascii_lowercase())
-                            && !dimension_style::has_children(dimension_style_names.iter(), old)
-                            && !named
                             && !new_name_used;
                         free.then_some(())?;
                         dimension_style_names.remove(&old.to_ascii_lowercase());
