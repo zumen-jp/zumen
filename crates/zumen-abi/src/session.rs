@@ -1663,7 +1663,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":13}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":14}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2461,6 +2461,100 @@ mod tests {
             shapes(&mut session, "a.dxf")[3],
             r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"middle_center","style":"Standard"}"#
         );
+    }
+
+    #[test]
+    fn adds_and_replaces_symbols_by_their_geometry() {
+        let file =
+            b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+            0\nSECTION\n2\nBLOCKS\n\
+            0\nBLOCK\n5\n20\n8\n0\n2\nDOOR\n70\n0\n10\n0\n20\n0\n3\nDOOR\n\
+            0\nLINE\n5\n21\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n\
+            0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n\
+            0\nSECTION\n2\nENTITIES\n\
+            0\nINSERT\n5\n40\n8\n0\n2\nDOOR\n10\n5.0\n20\n5.0\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", file).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let symbols = |session: &mut Session| {
+            shapes(session, "a.dxf")
+                .into_iter()
+                .filter(|shape| shape.contains(r#""shape":"symbol""#))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            symbols(&mut session),
+            [r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[1,1],"rotation":0}"#]
+        );
+        let (id, hash) = seen(&mut session, "a.dxf")
+            .into_iter()
+            .find(|(id, _)| id == "space/0/h40")
+            .unwrap();
+        let apply = |session: &mut Session, edit: &str| {
+            call(
+                session,
+                &format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#),
+            )
+        };
+        // 定義と格子の列と行の数は変えない。尺度は 0 でない
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"symbol","name":"WINDOW","position":[5,5],"scale":[1,1],"rotation":0}"#,
+                "/edits/0/geometry/name",
+            ),
+            (
+                r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[1,1],"rotation":0,"grid":{"columns":2,"rows":1,"column_spacing":3,"row_spacing":0}}"#,
+                "/edits/0/geometry/grid",
+            ),
+            (
+                r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[0,1],"rotation":0}"#,
+                "/edits/0/geometry/scale",
+            ),
+        ] {
+            let (status, response) = apply(
+                &mut session,
+                &format!(
+                    r#"{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let replaced =
+            r#"{"shape":"symbol","name":"DOOR","position":[7,8],"scale":[2,-1],"rotation":30}"#;
+        let (status, response) = apply(
+            &mut session,
+            &format!(r#"{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}"#),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(symbols(&mut session), [replaced]);
+        // 格子に並べた記号を足す。1×1 の格子は持たない
+        let (status, response) = apply(
+            &mut session,
+            r#"{"kind":"add","place":"space/0","geometry":{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,1],"rotation":0,"grid":{"columns":1,"rows":1,"column_spacing":0,"row_spacing":0}}}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/grid"
+        );
+        let added = r#"{"shape":"symbol","name":"DOOR","position":[1,2],"scale":[1,1],"rotation":90,"grid":{"columns":2,"rows":3,"column_spacing":4,"row_spacing":-5}}"#;
+        let (status, response) = apply(
+            &mut session,
+            &format!(r#"{{"kind":"add","place":"space/0","geometry":{added}}}"#),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert!(seen(&mut session, "a.dxf").contains(&(id, hash)));
+        assert_eq!(symbols(&mut session), [replaced, added]);
+        // 図面にない定義は足せない
+        let (status, response) = apply(
+            &mut session,
+            r#"{"kind":"add","place":"space/0","geometry":{"shape":"symbol","name":"WINDOW","position":[0,0],"scale":[1,1],"rotation":0}}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
     }
 
     #[test]

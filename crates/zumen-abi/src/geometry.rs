@@ -1,25 +1,28 @@
 //! 形の値（`geometry`）と図面モデルの形の行き来（決定 0139）。
 //!
-//! 線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字だけを扱う。点は要素の空間か用紙の座標、長さは同じ
+//! 線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号だけを扱う。点は要素の空間か用紙の座標、長さは同じ
 //! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use std::cell::Cell;
 
 use zumen_drawing::transform::Point;
 use zumen_drawing::{
-    Edge, Flow, FormattedText, HeightMeaning, Horizontal, Length, LineSpacing, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Text, Vertex,
-    Vertical,
+    Edge, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Length, LineSpacing, ModelLength,
+    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Symbol, SymbolKey,
+    Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
 use crate::messages::{
     ArcGeometry, Attachment, CircleGeometry, EllipseGeometry, FormattedTextGeometry, Geometry,
-    LineGeometry, PolylineGeometry, TextGeometry,
+    LineGeometry, PolylineGeometry, SymbolGeometry, SymbolGrid, TextGeometry,
 };
 
+/// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
+const BLOCK: &str = "dxf.block";
+
 /// 形の値と行き来できる点
-pub(crate) trait Spot: Planar + Point {
+pub(crate) trait Spot: Planar + Point + PartialEq {
     /// 用紙の点。用紙の長さは図面の単位から mm に直したもので、直す倍率は書き戻す側だけが知る
     const PAPER: bool;
 
@@ -129,6 +132,23 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             },
             style: Some(text.style.clone()),
         }),
+        Shape::Symbol(symbol) if symbol.key.namespace == BLOCK => {
+            Geometry::Symbol(SymbolGeometry {
+                name: symbol.key.name.clone(),
+                position: xy(symbol.position),
+                scale: symbol.scale.to_vec(),
+                rotation: symbol.rotation,
+                grid: match &symbol.grid {
+                    Some(grid) => Some(SymbolGrid {
+                        columns: grid.columns.into(),
+                        rows: grid.rows.into(),
+                        column_spacing: symbol.position.length(grid.column_spacing)?,
+                        row_spacing: symbol.position.length(grid.row_spacing)?,
+                    }),
+                    None => None,
+                },
+            })
+        }
         _ => return None,
     })
 }
@@ -347,11 +367,7 @@ pub(crate) fn shape_of<P: Spot>(
                     vertical,
                     rotation,
                     width,
-                    frame_height: old.frame_height,
-                    flow: old.flow,
-                    line_spacing: old.line_spacing,
-                    background: old.background,
-                    style: old.style.clone(),
+                    ..old.clone()
                 },
                 None => FormattedText {
                     content: text.content.clone(),
@@ -373,6 +389,80 @@ pub(crate) fn shape_of<P: Spot>(
                     },
                     background: None,
                     style: text.style.clone().unwrap_or_else(|| "Standard".to_string()),
+                },
+            })
+        }
+        (Geometry::Symbol(symbol), was) => {
+            let was = match was {
+                None => None,
+                Some(Shape::Symbol(old)) => Some(old),
+                Some(_) => return mismatch(),
+            };
+            let position = point(&symbol.position, "position")?;
+            let scale = match *symbol.scale.as_slice() {
+                [x, y] if [x, y].iter().all(|v| v.is_finite() && *v != 0.0) => [x, y],
+                _ => return Err("geometry/scale".to_string()),
+            };
+            let rotation = finite(symbol.rotation, "rotation")?;
+            let grid = match &symbol.grid {
+                None => None,
+                Some(grid) => {
+                    let count = |value: u64| u32::try_from(value).ok().filter(|n| *n >= 1);
+                    let (Some(columns), Some(rows)) = (count(grid.columns), count(grid.rows))
+                    else {
+                        return Err("geometry/grid".to_string());
+                    };
+                    // 読み直すと、1×1 の格子は格子なしになる
+                    if (columns, rows) == (1, 1) {
+                        return Err("geometry/grid".to_string());
+                    }
+                    Some(Grid {
+                        columns,
+                        rows,
+                        column_spacing: origin
+                            .length_of(finite(grid.column_spacing, "grid/column_spacing")?),
+                        row_spacing: origin
+                            .length_of(finite(grid.row_spacing, "grid/row_spacing")?),
+                    })
+                }
+            };
+            let counts = |grid: &Option<Grid>| grid.as_ref().map(|g| (g.columns, g.rows));
+            Shape::Symbol(match was {
+                // 置き換えは、定義・格子の列と行の数・属性・切り抜きを変えない。属性は置く点などに合わせて
+                // 動かせないので、属性を持つ記号は置く点・尺度・回転も変えない
+                Some(old) => {
+                    if symbol.name != old.key.name {
+                        return Err("geometry/name".to_string());
+                    }
+                    if counts(&grid) != counts(&old.grid) {
+                        return Err("geometry/grid".to_string());
+                    }
+                    if !old.attributes.is_empty()
+                        && (position != old.position
+                            || scale != old.scale
+                            || rotation != old.rotation)
+                    {
+                        return mismatch();
+                    }
+                    Symbol {
+                        position,
+                        scale,
+                        rotation,
+                        grid,
+                        ..old.clone()
+                    }
+                }
+                None => Symbol {
+                    key: SymbolKey {
+                        namespace: BLOCK,
+                        name: symbol.name.clone(),
+                    },
+                    position,
+                    scale,
+                    rotation,
+                    grid,
+                    attributes: Vec::new(),
+                    clip: None,
                 },
             })
         }
@@ -431,6 +521,7 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
             Placement::Between { first, .. } => Some(first),
         },
         Shape::Formatted(text) => Some(text.point),
+        Shape::Symbol(symbol) => Some(symbol.position),
         _ => None,
     }
 }
