@@ -592,6 +592,7 @@ fn changes(
             Some(messages::Geometry::FormattedText(text)) => {
                 text.style.as_ref().map_or(0, String::len)
             }
+            Some(messages::Geometry::Symbol(symbol)) => symbol.name.len(),
             _ => 0,
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -872,6 +873,42 @@ fn count_old_element<P>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<(), Fai
     let size = match &element.shape {
         Shape::Text(text) => text.style.len(),
         Shape::Formatted(text) => text.style.len(),
+        Shape::Symbol(symbol) => {
+            // 属性と切り抜きは元のまま複製する。内容と区間は、たどる前に予算を確かめる。
+            for attribute in &symbol.attributes {
+                let size = 1usize
+                    .saturating_add(attribute.tag.len())
+                    .saturating_add(attribute.text.content.len())
+                    .saturating_add(attribute.text.style.len())
+                    .saturating_add(attribute.source.id().map_or(0, str::len));
+                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                    .map_err(|stop| stopped(cx, stop))?;
+                if let Some(text) = &attribute.formatted {
+                    let size = text.content.len().saturating_add(text.style.len());
+                    cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                        .map_err(|stop| stopped(cx, stop))?;
+                    for span in &text.spans {
+                        let text = match &span.piece {
+                            zumen_drawing::Piece::Text(text)
+                            | zumen_drawing::Piece::Unparsed(text) => text.len(),
+                            zumen_drawing::Piece::Stack { upper, lower, .. } => {
+                                upper.len().saturating_add(lower.len())
+                            }
+                            _ => 0,
+                        };
+                        let font = span.format.font.as_ref().map_or(0, |font| font.name.len());
+                        let size = 1usize.saturating_add(text).saturating_add(font);
+                        cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                            .map_err(|stop| stopped(cx, stop))?;
+                    }
+                }
+            }
+            symbol
+                .key
+                .name
+                .len()
+                .saturating_add(symbol.clip.as_ref().map_or(0, |clip| clip.vertices.len()))
+        }
         _ => 0,
     };
     cx.check(
@@ -1158,6 +1195,7 @@ impl Page {
                     Shape::Polyline(line) => line.vertices.len(),
                     Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Formatted(text) => text.content.len().saturating_add(text.style.len()),
+                    Shape::Symbol(symbol) => symbol.key.name.len(),
                     _ => 0,
                 };
                 cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -1553,8 +1591,8 @@ mod tests {
     #[test]
     fn geometry_copies_obey_work_budget() {
         use zumen_drawing::{
-            Flow, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, ModelLength,
-            Piece, Rotation, SpaceId, Span, Vertical,
+            Clip, Flow, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, ModelLength,
+            Piece, Rotation, SpaceId, Span, Symbol, SymbolKey, Vertical,
         };
         let point = ModelPoint {
             space: SpaceId(0),
@@ -1588,7 +1626,67 @@ mod tests {
             background: None,
             style: "style".repeat(30),
         };
-        let shapes = [Shape::Formatted(formatted)];
+        let mut nested = formatted.clone();
+        nested.content.clear();
+        nested.style.clear();
+        nested.spans[0].piece = Piece::Text("x".into());
+        nested.spans[0].format.font = Some(zumen_drawing::Font {
+            name: "x".repeat(100),
+            kind: zumen_drawing::FontKind::Shape,
+        });
+        let attribute = zumen_drawing::Attribute {
+            tag: "tag".into(),
+            text: zumen_drawing::Text {
+                content: "value".into(),
+                height: formatted.height.clone(),
+                placement: Placement::Anchor {
+                    point,
+                    horizontal: Horizontal::Left,
+                    vertical: Vertical::Baseline,
+                },
+                rotation: 0.0,
+                width_factor: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                style: "s".into(),
+            },
+            formatted: Some(nested),
+            hidden: false,
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            source: Ref::default(),
+        };
+        let shapes = [
+            Shape::Formatted(formatted),
+            Shape::Symbol(Symbol {
+                key: SymbolKey {
+                    namespace: "dxf.block",
+                    name: "x".repeat(100),
+                },
+                position: point,
+                scale: [1.0, 1.0],
+                rotation: 0.0,
+                grid: None,
+                attributes: vec![],
+                clip: Some(Clip {
+                    vertices: vec![[0.0, 0.0]; 100],
+                    inverted: false,
+                }),
+            }),
+            Shape::Symbol(Symbol {
+                key: SymbolKey {
+                    namespace: "dxf.block",
+                    name: "x".repeat(100),
+                },
+                position: point,
+                scale: [1.0, 1.0],
+                rotation: 0.0,
+                grid: None,
+                attributes: vec![attribute],
+                clip: None,
+            }),
+        ];
         for shape in shapes {
             let element = Element {
                 source: Ref::default(),
@@ -1636,6 +1734,9 @@ mod tests {
             ),
             format!(
                 r#"{{"shape":"formatted_text","content":"x","position":[0,0],"height":1,"rotation":0,"style":"{long}"}}"#
+            ),
+            format!(
+                r#"{{"shape":"symbol","name":"{long}","position":[0,0],"scale":[1,1],"rotation":0}}"#
             ),
         ] {
             let json = format!(
