@@ -320,6 +320,13 @@ group-by = ["type"]
 since = "0.0.0"
 status = "active"
 
+[codes."dwg.table-format.unsupported"]
+description = "R2010 からの DWG の表のスタイル・セルのスタイル・内容の書式は、まだ読めないので、表とセルの書式と文字の回転を図面モデルに移さなかった。セルの内容と値と、表を描いたブロックは移した"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.binary.unsupported"]
 description = "バイナリの DXF は、まだ読めない（読めるようにしたので使わない）"
 severity = "error"

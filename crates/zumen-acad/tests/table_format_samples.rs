@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use zumen_acad::{Dwg, Dxf};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Ref, codes};
 use zumen_drawing::{
     Border, CellFormat, Color, ColorCode, ColorSystem, Drawing2D, Horizontal, Inherit, Length,
     LineWeight, ModelPoint, PaperLength, Shape, Table, Vertical,
@@ -57,6 +57,25 @@ fn tables(drawing: &Drawing2D) -> Vec<&Table<ModelPoint>> {
             _ => None,
         })
         .collect()
+}
+
+/// モデル空間・記号の定義・用紙のすべての表の出所
+#[cfg(test)]
+fn table_sources(drawing: &Drawing2D) -> Vec<Ref> {
+    let model = drawing
+        .spaces
+        .iter()
+        .chain(drawing.symbols.iter().map(|symbol| &symbol.space))
+        .flat_map(|space| &space.elements)
+        .filter(|element| matches!(element.shape, Shape::Table(_)))
+        .map(|element| element.source.clone());
+    let paper = drawing
+        .sheets
+        .iter()
+        .flat_map(|sheet| &sheet.elements)
+        .filter(|element| matches!(element.shape, Shape::Table(_)))
+        .map(|element| element.source.clone());
+    model.chain(paper).collect()
 }
 
 #[cfg(test)]
@@ -179,4 +198,42 @@ fn cell_formats_and_table_styles_are_lifted() {
     }
     // ZUMEN_SAMPLES がなければ 0
     assert!(checked == 0 || checked >= 11, "{checked}");
+}
+
+/// R2010 からの DWG の表は、書式を読まないことを、表ごとに表の出所を指す `dwg.table-format.unsupported` で
+/// 返す。R2004 までの DWG と、DXF の表は返さない
+#[test]
+fn dwg_tables_from_2010_report_that_their_formats_are_not_read() {
+    let mut checked = 0;
+    for path in drawings() {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let Some((drawing, diag)) = lift(&path) else {
+            continue;
+        };
+        let r2010 = name.ends_with(".dwg")
+            && std::fs::read(&path)
+                .unwrap()
+                .get(..6)
+                .is_some_and(|version| version >= b"AC1024".as_slice());
+        let sources = table_sources(&drawing);
+        let found: Vec<_> = diag
+            .iter()
+            .filter(|d| d.code() == codes::DWG_TABLE_FORMAT_UNSUPPORTED)
+            .collect();
+        if !r2010 || sources.is_empty() {
+            assert!(found.is_empty(), "{name}");
+            continue;
+        }
+        let [found] = found.as_slice() else {
+            panic!("{name}: {found:?}");
+        };
+        assert_eq!(found.count(), sources.len() as u64, "{name}");
+        assert!(
+            found.places().iter().all(|place| sources.contains(place)),
+            "{name}"
+        );
+        checked += 1;
+    }
+    // ZUMEN_SAMPLES がなければ 0。試料の sample_AC1024・sample_AC1027・sample_AC1032 の DWG は表を持つ
+    assert!(checked == 0 || checked >= 3, "{checked}");
 }

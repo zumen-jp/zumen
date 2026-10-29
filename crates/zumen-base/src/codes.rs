@@ -406,6 +406,17 @@ pub const DWG_RECORD_MISSING: Code = Code::new(
     &["type", "code"],
 );
 
+/// R2010 からの DWG の表のスタイル・セルのスタイル・内容の書式は、まだ読めないので、表とセルの書式と文字の回転を図面モデルに移さなかった。セルの内容と値と、表を描いたブロックは移した
+///
+/// `dwg.table-format.unsupported`（0.0.0 から）
+pub const DWG_TABLE_FORMAT_UNSUPPORTED: Code = Code::new(
+    "dwg.table-format.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// まだ扱えない型の DWG のオブジェクトを、種類を空にして表に置いた
 ///
 /// `dwg.type.unsupported`（0.0.0 から）
@@ -1120,6 +1131,7 @@ pub const ALL: &[Code] = &[
     DWG_OBJECT_INVALID,
     DWG_OBJECT_MISSING,
     DWG_RECORD_MISSING,
+    DWG_TABLE_FORMAT_UNSUPPORTED,
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,
     DWG_XDATA_INVALID,
