@@ -2607,11 +2607,13 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         b"DIMSTYLE" => &dimstyle_codes,
         _ => return None,
     };
+    // LAYER の名前は、R2010 より前なら書き直せる（決定 0162。[`record_fields`]）
+    let renamable = new.kind == b"LAYER";
     let rest = |object: &Object| -> Vec<_> {
         object
             .values
             .iter()
-            .filter(|value| !own.contains(&value.code))
+            .filter(|value| !own.contains(&value.code) && !(renamable && value.code == 2))
             .cloned()
             .collect()
     };
@@ -2619,7 +2621,8 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
 }
 
 /// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
-/// 名前・参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す
+/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、R2010 より前の LAYER は
+/// 名前を書き直せる（決定 0162）。R2010 からは、名前が文字列の流れにあるので書き直さない
 fn record_fields(
     fields: &mut BitWriter,
     old: &Object,
@@ -2631,6 +2634,7 @@ fn record_fields(
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     bits.text()?;
+    let named_at = bits.pos();
     bits.bit()?;
     // R2010 からは、外部参照の番号（BS）がない
     if release < Release::R2010 {
@@ -2638,7 +2642,13 @@ fn record_fields(
     }
     let xdep = bits.bit()?;
     let own_at = bits.pos();
-    fields.copy(data, start..own_at)?;
+    if text_of(old, 2) == text_of(new, 2) {
+        fields.copy(data, start..own_at)?;
+    } else {
+        (new.kind == b"LAYER" && release < Release::R2010 && !xdep).then_some(())?;
+        string(fields, new, 2)?;
+        fields.copy(data, named_at..own_at)?;
+    }
     match new.kind.as_slice() {
         b"LAYER" => layer(fields, new, xdep, data, own_at, release),
         b"STYLE" => style(fields, old, new, xdep, data, own_at, release),
