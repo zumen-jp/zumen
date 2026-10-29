@@ -778,6 +778,8 @@ impl ToJson for DrawingRequest {
 /// 図面モデルの要約。移さなかった図形と値は、診断で返す
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawingResult {
+    /// 文書のハッシュ。open に渡したバイト列から作る。変更の一覧の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: Option<String>,
     /// 実寸の空間。モデルの順
     pub spaces: Vec<SpaceSummary>,
     /// 用紙。モデルの順
@@ -786,16 +788,25 @@ pub struct DrawingResult {
 
 impl DrawingResult {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.optional("hash", json::string)?;
         let spaces = object.required("spaces", |value| {
             json::array(value, SpaceSummary::from_json)
         })?;
         let sheets = object.required("sheets", |value| {
             json::array(value, SheetSummary::from_json)
         })?;
-        Ok(Self { spaces, sheets })
+        Ok(Self {
+            hash,
+            spaces,
+            sheets,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
         out.key("spaces");
         out.array(&self.spaces, |out, item| item.to_json(out));
         out.key("sheets");
@@ -823,6 +834,8 @@ impl ToJson for DrawingResult {
 /// 実寸の空間の要約
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpaceSummary {
+    /// 空間の ID（space/0）。entities の要素の ID の始まりと同じ（決定 0156）
+    pub id: Option<String>,
     /// 文書の単位
     pub unit: Unit,
     /// 要素の数
@@ -833,10 +846,12 @@ pub struct SpaceSummary {
 
 impl SpaceSummary {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.optional("id", json::string)?;
         let unit = object.required("unit", Unit::from_json)?;
         let elements = object.required("elements", ElementCounts::from_json)?;
         let extent = object.optional("extent", Extent::from_json)?;
         Ok(Self {
+            id,
             unit,
             elements,
             extent,
@@ -844,6 +859,10 @@ impl SpaceSummary {
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
         out.key("unit");
         self.unit.to_json(out);
         out.key("elements");
@@ -875,6 +894,8 @@ impl ToJson for SpaceSummary {
 /// 用紙の要約
 #[derive(Clone, Debug, PartialEq)]
 pub struct SheetSummary {
+    /// 用紙の ID。LAYOUT がハンドルを持てば sheet/h22、なければ読んだ順の番号（sheet/0）。entities の要素の ID の始まりと同じ（決定 0156）
+    pub id: Option<String>,
     /// 元の形式の用紙の名前（DXF・DWG のレイアウトの名前）。翻訳しない。なければ持たない
     pub name: Option<String>,
     /// 用紙の幅と高さ（mm）。分からなければ持たない
@@ -889,12 +910,14 @@ pub struct SheetSummary {
 
 impl SheetSummary {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.optional("id", json::string)?;
         let name = object.optional("name", json::string)?;
         let size = object.optional("size", |value| json::array(value, json::number))?;
         let elements = object.required("elements", ElementCounts::from_json)?;
         let views = object.required("views", |value| json::uint(value, 0, 9007199254740991))?;
         let extent = object.optional("extent", Extent::from_json)?;
         Ok(Self {
+            id,
             name,
             size,
             elements,
@@ -904,6 +927,10 @@ impl SheetSummary {
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
         if let Some(value) = &self.name {
             out.key("name");
             out.string(value);

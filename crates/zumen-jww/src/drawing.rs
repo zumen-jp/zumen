@@ -1356,6 +1356,7 @@ impl Lifter<'_> {
             elements: Vec::new(),
             views: Vec::new(),
             order: Vec::new(),
+            source: Ref::default(),
         };
         for (group, elements) in std::mem::take(&mut self.groups) {
             let id = SpaceId(group as u32);

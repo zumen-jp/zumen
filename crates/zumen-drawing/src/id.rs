@@ -1,15 +1,16 @@
 //! 要素の ID（決定 0117・0156）
 //!
-//! ID は、空間か用紙（`space/0`・`sheet/1`）と、出所の部分を `/` でつなぐ。出所の部分は、形式が持つ鍵が
+//! ID は、空間か用紙（`space/0`・`sheet/h22`・`sheet/1`）と、出所の部分を `/` でつなぐ。出所の部分は、形式が持つ鍵が
 //! あれば鍵で作る。ハンドルは `h` と大文字の 16 進、インスタンスの番号は `i` と 10 進で書く。鍵がなければ、
 //! レコードの番号（`r`）、バイトの位置（`b`）、要素の順（`e`）で作る。1 つのレコードから作った 2 つ目からの
-//! 要素には、`/1`・`/2` を足す。
+//! 要素には、`/1`・`/2` を足す。用紙は、元の形式の用紙のレコード（LAYOUT）がハンドルを持てば `sheet/h22`、
+//! なければ読んだ順の番号で作る。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Key, Ref};
 
-use crate::{Element, SheetId, SpaceId};
+use crate::{Element, Sheet, SpaceId};
 
 /// 空間の ID の文字列
 pub fn space(id: SpaceId) -> String {
@@ -17,8 +18,11 @@ pub fn space(id: SpaceId) -> String {
 }
 
 /// 用紙の ID の文字列
-pub fn sheet(id: SheetId) -> String {
-    format!("sheet/{}", id.0)
+pub fn sheet(sheet: &Sheet) -> String {
+    match sheet.source.key() {
+        Some(Key::Handle(handle)) => format!("sheet/h{handle:X}"),
+        _ => format!("sheet/{}", sheet.id.0),
+    }
 }
 
 /// 出所の部分。`index` は、空間か用紙の中の要素の順
@@ -113,6 +117,17 @@ mod tests {
                 "space/0/e5"
             ]
         );
-        assert_eq!(sheet(SheetId(2)), "sheet/2");
+        let mut paper = Sheet {
+            id: crate::SheetId(2),
+            name: None,
+            size: None,
+            elements: Vec::new(),
+            views: Vec::new(),
+            order: Vec::new(),
+            source: Ref::at_record(9),
+        };
+        assert_eq!(sheet(&paper), "sheet/2");
+        paper.source = paper.source.with_key(Key::Handle(0x22));
+        assert_eq!(sheet(&paper), "sheet/h22");
     }
 }

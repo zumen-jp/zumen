@@ -3286,7 +3286,7 @@ fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
     let sheets = drawing
         .sheets
         .iter()
-        .map(|sheet| named(&id::sheet(sheet.id), &sheet.elements));
+        .map(|sheet| named(&id::sheet(sheet), &sheet.elements));
     spaces.chain(sheets).collect()
 }
 
@@ -3324,5 +3324,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
         // どの要素もハンドルで指し、レコードの番号やバイトの位置で指さない
         let keyed = |id: &String| id.rsplit('/').any(|part| part.starts_with('h'));
         assert!(ids.iter().flatten().all(keyed), "{}", dwg.display());
+        // 用紙は、LAYOUT のハンドルで指す
+        for sheet in &ours.sheets {
+            let id = zumen_drawing::id::sheet(sheet);
+            assert!(id.starts_with("sheet/h"), "{id} {}", dwg.display());
+        }
     }
 }

@@ -255,6 +255,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             elements: out.paper,
             views: out.views,
             order,
+            source: current.map_or_else(Ref::default, |(_, layout)| source(layout)),
         });
     }
     // ほかのレイアウトの用紙は、今のレイアウトの後に、タブの順で並べる。今のレイアウトのペーパー空間の
@@ -1395,6 +1396,7 @@ impl Lifter<'_> {
                 elements,
                 views,
                 order,
+                source: layout.map_or_else(Ref::default, |(_, layout)| source(layout)),
             },
             frame,
         ));

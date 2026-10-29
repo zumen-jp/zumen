@@ -41,6 +41,8 @@ pub struct Session {
     inputs: BTreeMap<String, Vec<u8>>,
     /// `open` で作った文書
     docs: BTreeMap<String, Doc>,
+    /// `open` で作った文書の、元のバイト列のハッシュ（決定 0156）
+    hashes: BTreeMap<String, Hash>,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
     blobs: Vec<Option<Blob>>,
 }
@@ -142,6 +144,7 @@ impl Session {
             engine,
             inputs: BTreeMap::new(),
             docs: BTreeMap::new(),
+            hashes: BTreeMap::new(),
             blobs: Vec::new(),
         })
     }
@@ -302,6 +305,8 @@ impl Session {
             doc: name.clone(),
             format: doc.format().to_string(),
         };
+        let hash = Hash::document(bytes);
+        self.hashes.insert(name.clone(), hash);
         self.docs.insert(name.clone(), doc);
         Ok(result)
     }
@@ -337,6 +342,7 @@ impl Session {
         }
         for doc in docs {
             self.docs.remove(doc);
+            self.hashes.remove(doc);
         }
         for input in inputs {
             self.inputs.remove(input);
@@ -346,7 +352,8 @@ impl Session {
 
     fn drawing(&self, request: &DrawingRequest, cx: &mut Cx<'_>) -> Result<DrawingResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
-        Ok(summary(&drawing))
+        let hash = self.hashes.get(&request.doc).map(Hash::to_string);
+        Ok(summary(&drawing, hash))
     }
 
     fn entities(
@@ -393,7 +400,7 @@ impl Session {
             page.collect(&drawing, &id::space(space.id), &space.elements, cx)?;
         }
         for sheet in &drawing.sheets {
-            page.collect(&drawing, &id::sheet(sheet.id), &sheet.elements, cx)?;
+            page.collect(&drawing, &id::sheet(sheet), &sheet.elements, cx)?;
         }
         let total = page.position;
         Ok(EntitiesResult {
@@ -453,12 +460,14 @@ fn capabilities() -> CapabilitiesResult {
 }
 
 /// 図面モデルの要約。空間と用紙は、モデルの順に並べる
-fn summary(drawing: &Drawing2D) -> DrawingResult {
+fn summary(drawing: &Drawing2D, hash: Option<String>) -> DrawingResult {
     DrawingResult {
+        hash,
         spaces: drawing
             .spaces
             .iter()
             .map(|space| SpaceSummary {
+                id: Some(id::space(space.id)),
                 unit: unit_of(space.unit),
                 elements: counts(&space.elements),
                 extent: extent(&space.elements, |p| (p.x, p.y)),
@@ -468,6 +477,7 @@ fn summary(drawing: &Drawing2D) -> DrawingResult {
             .sheets
             .iter()
             .map(|sheet| SheetSummary {
+                id: Some(id::sheet(sheet)),
                 name: sheet.name.clone(),
                 size: sheet.size.map(|size| size.iter().map(|l| l.0).collect()),
                 elements: counts(&sheet.elements),
@@ -984,6 +994,9 @@ mod tests {
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
         let (status, response) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
         assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/spaces/0/id"), "space/0");
+        assert_eq!(text(&response, "/result/sheets/0/id"), "sheet/0");
+        assert!(text(&response, "/result/hash").starts_with("v1:"));
         assert_eq!(text(&response, "/result/spaces/0/unit"), "millimeter");
         assert_eq!(number(&response, "/result/spaces/0/elements/lines"), "1");
         assert_eq!(number(&response, "/result/spaces/0/elements/texts"), "1");
@@ -1043,6 +1056,19 @@ mod tests {
         assert_eq!(hash, text(&b, "/result/items/1/hash"));
         assert_ne!(hash, text(&b, "/result/items/0/hash"));
         assert!(a.pointer("/result/items/0/kind").is_none());
+        // 文書のハッシュは、バイト列が違えば違う
+        let summary = |session: &mut Session, doc: &str| {
+            let (_, response) = call(
+                session,
+                &format!(r#"{{"v":1,"op":"drawing","doc":"{doc}"}}"#),
+            );
+            text(&response, "/result/hash")
+        };
+        let (a, b) = (
+            summary(&mut session, "a.dxf"),
+            summary(&mut session, "b.dxf"),
+        );
+        assert!(a.starts_with("v1:") && a != b, "{a} {b}");
     }
 
     #[test]

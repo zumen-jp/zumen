@@ -485,6 +485,8 @@ pub struct Sheet {
     pub views: Vec<View>,
     /// 描く順。要素とビューを、先に描くものから並べる
     pub order: Vec<SheetItem>,
+    /// 元の形式の用紙のレコード（DXF・DWG の LAYOUT）。鍵があれば、ID を鍵で作る（決定 0156）
+    pub source: Ref,
 }
 
 /// 用紙の上に描くもの

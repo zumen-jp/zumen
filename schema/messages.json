@@ -215,6 +215,10 @@
       "description": "図面モデルの要約。移さなかった図形と値は、診断で返す",
       "type": "object",
       "properties": {
+        "hash": {
+          "description": "文書のハッシュ。open に渡したバイト列から作る。変更の一覧の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）",
+          "type": "string"
+        },
         "spaces": {
           "description": "実寸の空間。モデルの順",
           "type": "array",
@@ -233,6 +237,7 @@
       "description": "実寸の空間の要約",
       "type": "object",
       "properties": {
+        "id": { "description": "空間の ID（space/0）。entities の要素の ID の始まりと同じ（決定 0156）", "type": "string" },
         "unit": { "description": "文書の単位", "$ref": "#/$defs/unit" },
         "elements": { "description": "要素の数", "$ref": "#/$defs/element_counts" },
         "extent": {
@@ -247,6 +252,10 @@
       "description": "用紙の要約",
       "type": "object",
       "properties": {
+        "id": {
+          "description": "用紙の ID。LAYOUT がハンドルを持てば sheet/h22、なければ読んだ順の番号（sheet/0）。entities の要素の ID の始まりと同じ（決定 0156）",
+          "type": "string"
+        },
         "name": {
           "description": "元の形式の用紙の名前（DXF・DWG のレイアウトの名前）。翻訳しない。なければ持たない",
           "type": "string"

@@ -45,6 +45,11 @@ impl Hash {
         })
     }
 
+    /// 文書のハッシュ。元のバイト列そのものから作る
+    pub fn document(bytes: &[u8]) -> Self {
+        Self::of(b"document", |out| out.bytes(bytes))
+    }
+
     /// レイヤのハッシュ。出所は鍵だけを入れる
     pub fn layer(layer: &Layer) -> Self {
         Self::of(b"layer", |out| layer.encode(out))

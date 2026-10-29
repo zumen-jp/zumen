@@ -35,8 +35,10 @@
       },
       "expect": {
         "/result": {
+          "hash": "v1:4a57105e2f91a0bbbc5e755adb983cf2",
           "spaces": [
             {
+              "id": "space/0",
               "unit": "millimeter",
               "elements": {
                 "lines": 1,
@@ -52,6 +54,7 @@
           ],
           "sheets": [
             {
+              "id": "sheet/0",
               "size": [
                 420,
                 297
