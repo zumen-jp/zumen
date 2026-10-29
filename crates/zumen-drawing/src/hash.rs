@@ -18,8 +18,8 @@ use crate::{
     LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured,
     ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
     PatternOrigin, Piece, Placement, Polyline, Resource, Rotation, Scaled, Shape, SheetId, SpaceId,
-    Span, Spline, StackKind, Style, Symbol, SymbolKey, Table, TableFormats, Text, Underlay,
-    UnderlayFrame, UnderlayKind, ValueUnit, Vertex, Vertical,
+    Span, Spline, StackKind, Style, Symbol, SymbolKey, Table, TableFormats, Text, TextStyle,
+    TextStyleDefinition, Underlay, UnderlayFrame, UnderlayKind, ValueUnit, Vertex, Vertical,
 };
 
 /// 要素か表の項目のハッシュ。`v1:` と 32 桁の 16 進で書く
@@ -67,6 +67,11 @@ impl Hash {
     /// 予算と中断の合図を確かめながら寸法スタイルをハッシュする
     pub fn dimension_style_checked(style: &DimensionStyle, cx: &mut Cx<'_>) -> Result<Self, Stop> {
         Self::of_checked(b"dimension-style", cx, |out| style.encode(out))
+    }
+
+    /// 予算と中断の合図を確かめながら文字スタイルをハッシュする
+    pub fn text_style_checked(style: &TextStyle, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        Self::of_checked(b"text-style", cx, |out| style.encode(out))
     }
 
     fn of_checked(
@@ -126,6 +131,11 @@ impl Hash {
     /// 寸法スタイルのハッシュ。出所は鍵だけを入れる
     pub fn dimension_style(style: &DimensionStyle) -> Self {
         Self::of(b"dimension-style", |out| style.encode(out))
+    }
+
+    /// 文字スタイルのハッシュ。出所は鍵だけを入れる
+    pub fn text_style(style: &TextStyle) -> Self {
+        Self::of(b"text-style", |out| style.encode(out))
     }
 
     fn of(domain: &[u8], body: impl FnOnce(&mut Canon<'_>)) -> Self {
@@ -397,6 +407,8 @@ records! {
     ColorCode { system, value }
     LineType { id, name, definition, source }
     DimensionStyle { name, ends, leader, size, tick, scale, source }
+    TextStyle { name, definition, source }
+    TextStyleDefinition { font, big_font, height, width, oblique, backward, upside_down, vertical }
     LineTypeDefinition { description, pattern, basis, marks }
     LineTypeMark { index, content, scale, rotation, rotation_basis, offset }
     ModelPoint { space, x, y }

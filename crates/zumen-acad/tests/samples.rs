@@ -4053,7 +4053,7 @@ fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
 
 /// 記号の定義の空間・レイヤ・線種の ID（決定 0156）
 #[cfg(feature = "drawing")]
-fn table_ids(drawing: &zumen_drawing::Drawing2D) -> [Vec<String>; 3] {
+fn table_ids(drawing: &zumen_drawing::Drawing2D) -> [Vec<String>; 4] {
     use zumen_drawing::id;
     let mut definitions = id::DefinitionNamer::default();
     [
@@ -4072,6 +4072,12 @@ fn table_ids(drawing: &zumen_drawing::Drawing2D) -> [Vec<String>; 3] {
             .map(id::layer)
             .collect(),
         drawing.line_types.iter().map(id::line_type).collect(),
+        drawing
+            .text_styles
+            .iter()
+            .enumerate()
+            .map(|(index, style)| id::text_style(style, index))
+            .collect(),
     ]
 }
 
@@ -4134,4 +4140,72 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
             assert!(id.starts_with("sheet/h"), "{id} {}", dwg.display());
         }
     }
+}
+
+/// 試料の日本の図面の文字スタイルは、TrueType の書体を、XDATA の ACAD の書体の名前と文字集合（128 は
+/// Shift_JIS）で指す（決定 0158）。どの文字スタイルも、名前で指すだけのものを含めて表にある
+#[test]
+#[cfg(feature = "drawing")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_name_the_fonts_of_their_text_styles() {
+    use zumen_drawing::{FontKind, Shape};
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let mut japanese = 0;
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if !path.extension().is_some_and(|e| e == "dxf" || e == "dwg") {
+            continue;
+        }
+        let src = std::fs::read(&path).unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let drawing = if path.extension().is_some_and(|e| e == "dwg") {
+            let Ok(file) = Dwg::read(&src, &mut cx) else {
+                continue;
+            };
+            zumen_sdk::Lift::lift(&file, &mut cx)
+        } else {
+            let Ok(file) = Dxf::read(&src, &mut cx) else {
+                continue;
+            };
+            zumen_sdk::Lift::lift(&file, &mut cx)
+        };
+        let Ok(drawing) = drawing else {
+            continue;
+        };
+        for element in drawing.spaces.iter().flat_map(|space| &space.elements) {
+            let style = match &element.shape {
+                Shape::Text(text) => &text.style,
+                Shape::Formatted(text) => &text.style,
+                _ => continue,
+            };
+            assert!(
+                style.is_empty() || drawing.text_style(style).is_some(),
+                "{} {style}",
+                path.display()
+            );
+        }
+        japanese += drawing
+            .text_styles
+            .iter()
+            .filter_map(|style| style.definition.as_ref()?.font.as_ref())
+            .filter(|font| {
+                matches!(
+                    font.kind,
+                    FontKind::Named {
+                        charset: Some(128),
+                        ..
+                    }
+                ) && font.name == "MS Gothic"
+            })
+            .count();
+    }
+    assert!(japanese > 0);
 }

@@ -22,9 +22,9 @@ use crate::geometry;
 use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
     CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
-    EntitiesResult, Entity, EntityField, EntityKind, Extent, Format, OpenRequest, OpenResult,
-    Request, RequestCommon, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary,
-    TableItem, TablesRequest, TablesResult,
+    EntitiesResult, Entity, EntityField, EntityKind, Extent, Font, FontKind, Format, OpenRequest,
+    OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions, SheetSummary, Source,
+    SpaceSummary, TableItem, TablesRequest, TablesResult, TextStyleItem,
 };
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
@@ -455,10 +455,21 @@ impl Session {
                 hash: hash.to_string(),
             });
         }
+        seen.clear();
+        let mut text_styles = Vec::with_capacity(drawing.text_styles.len());
+        for (index, style) in drawing.text_styles.iter().enumerate() {
+            let hash = Hash::text_style_checked(style, cx).map_err(|stop| stopped(cx, stop))?;
+            text_styles.push(text_style_item(
+                table_id(id::text_style(style, index), &mut seen),
+                style,
+                hash,
+            ));
+        }
         Ok(TablesResult {
             layers,
             line_types,
             dimension_styles,
+            text_styles,
         })
     }
 
@@ -559,6 +570,51 @@ impl Session {
     #[cfg(test)]
     fn add_blob(&mut self, kind: BlobKind, bytes: Vec<u8>) {
         self.blobs.push(Some(Blob { kind, bytes }));
+    }
+}
+
+/// 文字スタイルの表の項目。定義がなければ、ID・名前・ハッシュだけを返す
+fn text_style_item(id: String, style: &zumen_drawing::TextStyle, hash: Hash) -> TextStyleItem {
+    let definition = style.definition.as_ref();
+    TextStyleItem {
+        id,
+        name: style.name.clone(),
+        hash: hash.to_string(),
+        defined: definition.is_some(),
+        font: definition.and_then(|d| d.font.as_ref()).map(font_of),
+        big_font: definition.and_then(|d| d.big_font.as_ref()).map(font_of),
+        height: definition.and_then(|d| d.height),
+        width: definition.map(|d| d.width),
+        oblique: definition.map(|d| d.oblique),
+        backward: definition.map(|d| d.backward),
+        upside_down: definition.map(|d| d.upside_down),
+        vertical: definition.map(|d| d.vertical),
+    }
+}
+
+fn font_of(font: &zumen_drawing::Font) -> Font {
+    match font.kind {
+        zumen_drawing::FontKind::Shape => Font {
+            name: font.name.clone(),
+            kind: FontKind::Shape,
+            bold: None,
+            italic: None,
+            charset: None,
+            pitch: None,
+        },
+        zumen_drawing::FontKind::Named {
+            bold,
+            italic,
+            charset,
+            pitch,
+        } => Font {
+            name: font.name.clone(),
+            kind: FontKind::Named,
+            bold: Some(bold),
+            italic: Some(italic),
+            charset: charset.map(u64::from),
+            pitch: pitch.map(u64::from),
+        },
     }
 }
 
@@ -1958,7 +2014,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":19}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":20}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2299,6 +2355,50 @@ mod tests {
         0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n105\n1D\n2\nStandard\n70\n0\n41\n2.5\n0\nENDTAB\n0\nENDSEC\n\
         0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1A\n8\n0\n10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n\
         0\nCIRCLE\n5\n1B\n8\n0\n10\n5.0\n20\n5.0\n40\n2.0\n0\nENDSEC\n0\nEOF\n";
+
+    /// 3 つの文字スタイル（形のファイルと大きいフォント・TrueType の書体・形のファイルのレコード）と、表にない
+    /// 文字スタイルを指す文字を持つ R2004 の DXF
+    const STYLED: &str = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$HANDSEED\n5\n40\n\
+        0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nSTYLE\n\
+        0\nSTYLE\n5\n11\n2\nStandard\n70\n0\n40\n0.0\n41\n0.8\n50\n15.0\n71\n2\n42\n2.5\n3\ntxt\n4\nextfont2.shx\n\
+        0\nSTYLE\n5\n12\n2\nGothic\n70\n4\n40\n3.5\n41\n1.0\n50\n0.0\n71\n0\n42\n3.5\n3\nmsgothic.ttc\n4\n\n\
+        1001\nACAD\n1000\nMS Gothic\n1071\n33587249\n\
+        0\nSTYLE\n5\n13\n2\n\n70\n1\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n1.0\n3\nltypeshp.shx\n4\n\n\
+        0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n\
+        0\nTEXT\n5\n1A\n8\n0\n10\n0.0\n20\n0.0\n40\n2.5\n1\nA\n7\nMissing\n\
+        0\nTEXT\n5\n1B\n8\n0\n10\n0.0\n20\n5.0\n40\n2.5\n1\nB\n7\nGOTHIC\n0\nENDSEC\n0\nEOF\n";
+
+    #[test]
+    fn lists_text_styles_with_their_fonts() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", STYLED.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, tables) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok, "{tables:?}");
+        let mut out = zumen_json::Writer::new();
+        out.value(tables.pointer("/result/text_styles").unwrap());
+        let styles = String::from_utf8(out.into_bytes()).unwrap();
+        let hashes: Vec<String> = (0..3)
+            .map(|index| text(&tables, &format!("/result/text_styles/{index}/hash")))
+            .collect();
+        // 形のファイルのレコードは文字スタイルにしない。表にない名前は、定義のない項目として後ろに足す。
+        // 1071 の 33587249 は 0x02008031（太字、文字集合 128、ピッチと系統 0x31）
+        assert_eq!(
+            styles,
+            format!(
+                concat!(
+                    r#"[{{"id":"text-style/h11","name":"Standard","hash":"{}","defined":true,"#,
+                    r#""font":{{"name":"txt","kind":"shape"}},"big_font":{{"name":"extfont2.shx","kind":"shape"}},"#,
+                    r#""width":0.8,"oblique":15,"backward":true,"upside_down":false,"vertical":false}},"#,
+                    r#"{{"id":"text-style/h12","name":"Gothic","hash":"{}","defined":true,"#,
+                    r#""font":{{"name":"MS Gothic","kind":"named","bold":true,"italic":false,"charset":128,"pitch":49}},"#,
+                    r#""height":3.5,"width":1,"oblique":0,"backward":false,"upside_down":false,"vertical":true}},"#,
+                    r#"{{"id":"text-style/2","name":"Missing","hash":"{}","defined":false}}]"#
+                ),
+                hashes[0], hashes[1], hashes[2]
+            )
+        );
+    }
 
     #[test]
     fn lists_table_items_and_restyles_with_their_ids() {

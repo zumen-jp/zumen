@@ -46,6 +46,8 @@ pub struct Drawing2D {
     pub default_line_weight: Option<PaperLength>,
     /// 寸法スタイル。順序は元の形式の定義の順
     pub dimension_styles: Vec<DimensionStyle>,
+    /// 文字スタイル。順序は元の形式の定義の順。要素が名前で指すだけで、定義がないものは後ろに足す（決定 0158）
+    pub text_styles: Vec<TextStyle>,
     /// 記号の定義。順序は元の形式の定義の順
     pub symbols: Vec<SymbolDefinition>,
     /// 形式固有の情報。順序は変換した順
@@ -63,6 +65,61 @@ impl Drawing2D {
     /// ID の線種
     pub fn line_type(&self, id: LineTypeId) -> Option<&LineType> {
         self.line_types.iter().find(|line_type| line_type.id == id)
+    }
+
+    /// 名前の文字スタイル。名前は大文字と小文字を区別せずに比べ、同じ名前があれば先のもの
+    pub fn text_style(&self, name: &str) -> Option<&TextStyle> {
+        self.text_styles
+            .iter()
+            .find(|style| style.name.eq_ignore_ascii_case(name))
+    }
+
+    /// 要素が名前で指すだけで、表にない文字スタイルを、定義のない項目として後ろに足す。空の名前は足さない
+    pub fn add_named_text_styles(&mut self) {
+        let mut names: Vec<String> = Vec::new();
+        let mut note = |name: &str| {
+            let known = |style: &str| style.eq_ignore_ascii_case(name);
+            if !name.is_empty()
+                && !self.text_styles.iter().any(|style| known(&style.name))
+                && !names.iter().any(|style| known(style))
+            {
+                names.push(name.to_owned());
+            }
+        };
+        for line_type in &self.line_types {
+            for mark in line_type.definition.iter().flat_map(|d| &d.marks) {
+                if let MarkContent::Text {
+                    style: Some(style), ..
+                } = &mark.content
+                {
+                    note(style);
+                }
+            }
+        }
+        for space in &self.spaces {
+            for element in &space.elements {
+                shape_text_styles(&element.shape, &mut note);
+            }
+        }
+        for sheet in &self.sheets {
+            for element in &sheet.elements {
+                shape_text_styles(&element.shape, &mut note);
+            }
+        }
+        for symbol in &self.symbols {
+            for element in &symbol.space.elements {
+                shape_text_styles(&element.shape, &mut note);
+            }
+            for definition in &symbol.attributes {
+                attribute_text_styles(&definition.attribute, &mut note);
+            }
+        }
+        self.text_styles
+            .extend(names.into_iter().map(|name| TextStyle {
+                name,
+                definition: None,
+                source: Ref::default(),
+            }));
     }
 
     /// 名前の寸法スタイル。名前は大文字と小文字も含めて比べ、同じ名前があれば先のもの
@@ -1206,6 +1263,83 @@ pub struct AttributeValue {
     pub text: String,
 }
 
+/// 形が名前で指す文字スタイルを `note` に渡す
+fn shape_text_styles<P>(shape: &Shape<P>, note: &mut impl FnMut(&str)) {
+    match shape {
+        Shape::Text(text) => note(&text.style),
+        Shape::Formatted(text) => note(&text.style),
+        Shape::Symbol(symbol) => {
+            for attribute in &symbol.attributes {
+                attribute_text_styles(attribute, note);
+            }
+        }
+        Shape::Callout(callout) => match &callout.content {
+            CalloutContent::Text(text) => note(&text.style),
+            CalloutContent::Symbol { symbol, .. } => {
+                for attribute in &symbol.attributes {
+                    attribute_text_styles(attribute, note);
+                }
+            }
+            CalloutContent::None => {}
+        },
+        Shape::Table(table) => {
+            let formats = table.formats.iter().flat_map(|formats| {
+                [
+                    &formats.title_format,
+                    &formats.header_format,
+                    &formats.data_format,
+                ]
+            });
+            for format in table.cells.iter().map(|cell| &cell.format).chain(formats) {
+                if let Some(style) = &format.text_style {
+                    note(style);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn attribute_text_styles<P>(attribute: &Attribute<P>, note: &mut impl FnMut(&str)) {
+    note(&attribute.text.style);
+    if let Some(formatted) = &attribute.formatted {
+        note(&formatted.style);
+    }
+}
+
+/// 文字スタイル（決定 0158）。文字・書式つきの文字・表のセルの書式・線種の文字は、今は名前で指す。
+/// フォントと縦書きは文字スタイルから引き、高さ・幅の倍率・傾き・裏返し・上下反転は要素の値を使う
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextStyle {
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 定義。要素が名前で指すだけで、ファイルに定義がなければ `None`
+    pub definition: Option<TextStyleDefinition>,
+    /// 定義の出所。定義がなければ既定の値
+    pub source: Ref,
+}
+
+/// 文字スタイルの定義。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextStyleDefinition {
+    /// 主のフォント。ファイルが決めていなければ `None`
+    pub font: Option<Font>,
+    /// 大きいフォント（漢字などの形のファイル）。なければ `None`
+    pub big_font: Option<Font>,
+    /// 決まった高さ。文書の単位。決めなければ `None`
+    pub height: Option<f64>,
+    /// 幅の倍率
+    pub width: f64,
+    /// 傾き（度）
+    pub oblique: f64,
+    /// 左右を裏返す
+    pub backward: bool,
+    /// 上下を反転する
+    pub upside_down: bool,
+    /// 縦書き
+    pub vertical: bool,
+}
+
 /// 寸法スタイルのうち、端部記号とその大きさ。寸法と引出線は名前で指す
 #[derive(Clone, Debug, PartialEq)]
 pub struct DimensionStyle {
@@ -2287,4 +2421,51 @@ pub struct Applied {
     pub id: Option<String>,
     /// 書き戻した後の要素のハッシュ。`id` と同じときにある
     pub hash: Option<Hash>,
+}
+
+#[cfg(test)]
+mod text_style_tests {
+    use super::*;
+
+    #[test]
+    fn named_text_styles_are_added_once_without_definitions() {
+        let mark = |style: &str| LineTypeMark {
+            index: 0,
+            content: MarkContent::Text {
+                content: "W".to_owned(),
+                style: Some(style.to_owned()),
+            },
+            scale: 1.0,
+            rotation: 0.0,
+            rotation_basis: MarkRotation::Relative,
+            offset: [0.0, 0.0],
+        };
+        let mut drawing = Drawing2D {
+            line_types: vec![LineType {
+                id: LineTypeId(0),
+                name: "Water".to_owned(),
+                definition: Some(LineTypeDefinition {
+                    description: String::new(),
+                    pattern: vec![1.0, -1.0],
+                    basis: PatternBasis::Element,
+                    marks: vec![mark("Standard"), mark("GOTHIC"), mark("gothic"), mark("")],
+                }),
+                source: Ref::default(),
+            }],
+            text_styles: vec![TextStyle {
+                name: "standard".to_owned(),
+                definition: None,
+                source: Ref::at_record(3),
+            }],
+            ..Drawing2D::default()
+        };
+        drawing.add_named_text_styles();
+        let names: Vec<&str> = drawing
+            .text_styles
+            .iter()
+            .map(|style| style.name.as_str())
+            .collect();
+        assert_eq!(names, ["standard", "GOTHIC"]);
+        assert_eq!(drawing.text_style("Gothic").unwrap().source, Ref::default());
+    }
 }

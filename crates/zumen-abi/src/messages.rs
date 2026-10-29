@@ -3644,6 +3644,8 @@ pub struct TablesResult {
     pub line_types: Vec<TableItem>,
     /// 寸法スタイル
     pub dimension_styles: Vec<TableItem>,
+    /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から
+    pub text_styles: Vec<TextStyleItem>,
 }
 
 impl TablesResult {
@@ -3655,10 +3657,14 @@ impl TablesResult {
         let dimension_styles = object.required("dimension_styles", |value| {
             json::array(value, TableItem::from_json)
         })?;
+        let text_styles = object.required("text_styles", |value| {
+            json::array(value, TextStyleItem::from_json)
+        })?;
         Ok(Self {
             layers,
             line_types,
             dimension_styles,
+            text_styles,
         })
     }
 
@@ -3669,6 +3675,8 @@ impl TablesResult {
         out.array(&self.line_types, |out, item| item.to_json(out));
         out.key("dimension_styles");
         out.array(&self.dimension_styles, |out, item| item.to_json(out));
+        out.key("text_styles");
+        out.array(&self.text_styles, |out, item| item.to_json(out));
     }
 }
 
@@ -3732,6 +3740,245 @@ impl ToJson for TableItem {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextStyleItem {
+    /// ID。表のレコードがハンドルを持てば text-style/h11、なければ文字スタイルの並びの中の順（text-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）
+    pub id: String,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: String,
+    /// ファイルに定義がある。偽なら、ほかの欄を持たない
+    pub defined: bool,
+    /// 主のフォント。ファイルが決めていなければ書かない
+    pub font: Option<Font>,
+    /// 大きいフォント（漢字などの形のファイル）。なければ書かない
+    pub big_font: Option<Font>,
+    /// 決まった高さ。文書の単位。決めなければ書かない
+    pub height: Option<f64>,
+    /// 幅の倍率
+    pub width: Option<f64>,
+    /// 傾き（度）
+    pub oblique: Option<f64>,
+    /// 左右を裏返す
+    pub backward: Option<bool>,
+    /// 上下を反転する
+    pub upside_down: Option<bool>,
+    /// 縦書き
+    pub vertical: Option<bool>,
+}
+
+impl TextStyleItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.required("name", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let defined = object.required("defined", json::boolean)?;
+        let font = object.optional("font", Font::from_json)?;
+        let big_font = object.optional("big_font", Font::from_json)?;
+        let height = object.optional("height", json::number)?;
+        let width = object.optional("width", json::number)?;
+        let oblique = object.optional("oblique", json::number)?;
+        let backward = object.optional("backward", json::boolean)?;
+        let upside_down = object.optional("upside_down", json::boolean)?;
+        let vertical = object.optional("vertical", json::boolean)?;
+        Ok(Self {
+            id,
+            name,
+            hash,
+            defined,
+            font,
+            big_font,
+            height,
+            width,
+            oblique,
+            backward,
+            upside_down,
+            vertical,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("name");
+        out.string(&self.name);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("defined");
+        out.bool(self.defined);
+        if let Some(value) = &self.font {
+            out.key("font");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.big_font {
+            out.key("big_font");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.float(*value);
+        }
+        if let Some(value) = &self.width {
+            out.key("width");
+            out.float(*value);
+        }
+        if let Some(value) = &self.oblique {
+            out.key("oblique");
+            out.float(*value);
+        }
+        if let Some(value) = &self.backward {
+            out.key("backward");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.upside_down {
+            out.key("upside_down");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            out.bool(*value);
+        }
+    }
+}
+
+impl FromJson for TextStyleItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TextStyleItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// フォントの指定。取得と字形の評価は使い手が行う
+#[derive(Clone, Debug, PartialEq)]
+pub struct Font {
+    /// 元の名前。形のファイルならファイルの名前、名前で指すフォントなら書体の名前。翻訳しない
+    pub name: String,
+    /// 種類
+    pub kind: FontKind,
+    /// 太字。名前で指すフォントだけ
+    pub bold: Option<bool>,
+    /// 斜体。名前で指すフォントだけ
+    pub italic: Option<bool>,
+    /// 文字集合の番号（128 は Shift_JIS）。名前で指すフォントで、元の形式が決めていれば
+    pub charset: Option<u64>,
+    /// ピッチと系統の番号。名前で指すフォントで、元の形式が決めていれば
+    pub pitch: Option<u64>,
+}
+
+impl Font {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let kind = object.required("kind", FontKind::from_json)?;
+        let bold = object.optional("bold", json::boolean)?;
+        let italic = object.optional("italic", json::boolean)?;
+        let charset = object.optional("charset", |value| json::uint(value, 0, 9007199254740991))?;
+        let pitch = object.optional("pitch", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            name,
+            kind,
+            bold,
+            italic,
+            charset,
+            pitch,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.bold {
+            out.key("bold");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.italic {
+            out.key("italic");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.charset {
+            out.key("charset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.pitch {
+            out.key("pitch");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for Font {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Font {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// フォントの種類。shape は形のファイル（SHX など）、named は名前で指すフォント（TrueType など）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FontKind {
+    /// `shape`
+    Shape,
+    /// `named`
+    Named,
+}
+
+impl FontKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Shape, Self::Named];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Shape => "shape",
+            Self::Named => "named",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "shape" => Some(Self::Shape),
+            "named" => Some(Self::Named),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for FontKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for FontKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

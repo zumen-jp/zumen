@@ -16,7 +16,9 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Key, Ref};
 
-use crate::{DimensionStyle, Element, Layer, LineType, Sheet, SpaceId, SymbolDefinition};
+use crate::{
+    DimensionStyle, Element, Layer, LineType, Sheet, SpaceId, SymbolDefinition, TextStyle,
+};
 
 /// 空間の ID の文字列
 pub fn space(id: SpaceId) -> String {
@@ -96,6 +98,14 @@ pub fn dimension_style(style: &DimensionStyle, index: usize) -> String {
     match style.source.key() {
         Some(Key::Handle(handle)) => format!("dimension-style/h{handle:X}"),
         _ => format!("dimension-style/{index}"),
+    }
+}
+
+/// 文字スタイルの ID の文字列（決定 0158）。ハンドルがなければ、表の中の順の番号で作る
+pub fn text_style(style: &TextStyle, index: usize) -> String {
+    match style.source.key() {
+        Some(Key::Handle(handle)) => format!("text-style/h{handle:X}"),
+        _ => format!("text-style/{index}"),
     }
 }
 
@@ -267,6 +277,14 @@ mod tests {
             source: Ref::default().with_key(Key::Handle(0x14)),
         };
         assert_eq!(line_type(&dashed), "line-type/h14");
+        let mut gothic = TextStyle {
+            name: "Gothic".to_owned(),
+            definition: None,
+            source: Ref::default(),
+        };
+        assert_eq!(text_style(&gothic, 2), "text-style/2");
+        gothic.source = Ref::default().with_key(Key::Handle(0x11));
+        assert_eq!(text_style(&gothic, 2), "text-style/h11");
         let mut standard = DimensionStyle {
             name: "Standard".to_owned(),
             ends: [crate::Arrowhead::Default, crate::Arrowhead::Default],
