@@ -467,16 +467,27 @@ impl Session {
         let drawing = self.lift(&request.doc, cx)?;
         // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを境界で判定できないため、
         // 安全に属性を作れない記号の追加は拒否する。
-        if let Some(index) = request.edits.iter().position(|edit| {
-            matches!(edit, messages::Edit::Add(edit) if matches!(edit.geometry, messages::Geometry::Symbol(_)))
-        }) {
-            let diagnostics = u64::try_from(cx.diag.iter().len()).unwrap_or(u64::MAX);
-            cx.check(Kind::Work, diagnostics).map_err(|stop| stopped(cx, stop))?;
+        let mut symbol_add = None;
+        for (index, edit) in request.edits.iter().enumerate() {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            if matches!(edit, messages::Edit::Add(edit) if matches!(edit.geometry, messages::Geometry::Symbol(_)))
+            {
+                symbol_add = Some(index);
+                break;
+            }
+        }
+        if let Some(index) = symbol_add {
+            let diagnostics = u64::try_from(cx.diag.len()).unwrap_or(u64::MAX);
+            cx.check(Kind::Work, diagnostics)
+                .map_err(|stop| stopped(cx, stop))?;
             let invalid_definitions = cx.diag.iter().any(|diagnostic| {
                 matches!(diagnostic.param("kind"), Some(zumen_base::Value::Text(kind)) if kind == "ATTDEF")
             });
             if invalid_definitions {
-                return Err(fail(cx, invalid_value(format!("/edits/{index}/geometry/attributes"))));
+                return Err(fail(
+                    cx,
+                    invalid_value(format!("/edits/{index}/geometry/attributes")),
+                ));
             }
         }
         if let Some(doc @ (Doc::Sxf(_) | Doc::Jww(_))) = self.docs.get(&request.doc) {
