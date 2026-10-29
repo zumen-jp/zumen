@@ -3236,6 +3236,61 @@ fn transforms_mirror_texts_and_attributes_by_turning_them_upside_down() {
 }
 
 #[test]
+fn transforms_scale_grid_spacings_and_flip_rows_when_mirrored() {
+    use zumen_drawing::{Affine, Grid, transform::transform};
+    // 3 列 2 行、列の間隔 6、行の間隔 4 で並べる INSERT（2 つ目）
+    let src = String::from_utf8(inserts()).unwrap().replace(
+        " 50\n30.0\n",
+        " 50\n30.0\n 70\n3\n 71\n2\n 44\n6.0\n 45\n4.0\n",
+    );
+    // 2 倍にして 90° 回す、と、X 軸で鏡映して 2 倍にする
+    let turned = Affine {
+        m: [0.0, -2.0, 0.0, 2.0, 0.0, 0.0],
+    };
+    let mirrored = Affine {
+        m: [2.0, 0.0, 0.0, 0.0, -2.0, 0.0],
+    };
+    for (affine, spacing) in [(turned, [12.0, 8.0]), (mirrored, [12.0, -8.0])] {
+        let mut file = testkit::read::<Dxf>(src.as_bytes()).0.unwrap();
+        let before = seen(&lift(&file));
+        let (target, was) = &before[1];
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let applied = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![zumen_drawing::Edit::Transform {
+                    target: target.clone(),
+                    transform: affine,
+                }],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        assert_eq!(diag.iter().count(), 0);
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+        let (now_id, now) = &after[1];
+        assert_eq!(now.shape, transform(&was.shape, &affine).unwrap());
+        assert_eq!(applied[0].hash, Some(now_id.hash));
+        let Shape::Symbol(symbol) = &now.shape else {
+            panic!("{:?}", now.shape);
+        };
+        let Some(Grid {
+            columns: 3,
+            rows: 2,
+            column_spacing: Length::Model(column),
+            row_spacing: Length::Model(row),
+        }) = symbol.grid
+        else {
+            panic!("{:?}", symbol.grid);
+        };
+        assert_eq!([column.value, row.value], spacing);
+    }
+}
+
+#[test]
 fn transforms_mirror_symbols_without_attributes_by_flipping_the_y_scale() {
     use zumen_drawing::{Affine, Shape, transform::transform};
     let mut file = testkit::read::<Dxf>(&defined()).0.unwrap();

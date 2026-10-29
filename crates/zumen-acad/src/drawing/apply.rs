@@ -1298,19 +1298,25 @@ fn formatting<P: PartialEq>(
     Some(())
 }
 
-/// INSERT（DXF Reference「INSERT」）の置く点（10・20）・尺度（41・42）・回転（50、度）を直す。定義（2）・
-/// 格子（70・71・44・45）・属性・切り抜きは変えられない。属性と切り抜きは、続くレコードと拡張辞書にあるため
+/// INSERT（DXF Reference「INSERT」）の置く点（10・20）・尺度（41・42）・回転（50、度）と、格子の間隔
+/// （44・45）を直す。定義（2）・格子の列と行の数（70・71）・属性・切り抜きは変えられない。属性と切り抜きは、
+/// 続くレコードと拡張辞書にあるため。格子の有無と数を変えると、INSERT と MINSERT の型が変わるため
 fn placing<P: PartialEq>(
     values: &mut Vec<Value>,
     symbol: &Symbol<P>,
     was: &Symbol<P>,
     frame: &impl Frame<P>,
 ) -> Option<()> {
-    if symbol.key != was.key
-        || symbol.grid != was.grid
-        || symbol.attributes != was.attributes
-        || symbol.clip != was.clip
-    {
+    let spacing = match (&symbol.grid, &was.grid) {
+        (None, None) => None,
+        (Some(grid), Some(original))
+            if (grid.columns, grid.rows) == (original.columns, original.rows) =>
+        {
+            Some((grid, original))
+        }
+        _ => return None,
+    };
+    if symbol.key != was.key || symbol.attributes != was.attributes || symbol.clip != was.clip {
         return None;
     }
     place(values, frame, [10, 20], &symbol.position, &was.position)?;
@@ -1324,6 +1330,25 @@ fn placing<P: PartialEq>(
     }
     if symbol.rotation != was.rotation {
         optional(values, 50, symbol.rotation, 0.0, &[43, 42, 41, 30, 20])?;
+    }
+    // 間隔は、変換で負になることもある（鏡映した行）。省けば 0 なので、欄の並び（70・71・44・45）に合わせて書く
+    if let Some((grid, original)) = spacing {
+        if grid.column_spacing != original.column_spacing {
+            let value = frame
+                .length(&grid.column_spacing)
+                .filter(|v| v.is_finite())?;
+            optional(values, 44, value, 0.0, &[71, 70, 50, 43, 42, 41, 30, 20])?;
+        }
+        if grid.row_spacing != original.row_spacing {
+            let value = frame.length(&grid.row_spacing).filter(|v| v.is_finite())?;
+            optional(
+                values,
+                45,
+                value,
+                0.0,
+                &[44, 71, 70, 50, 43, 42, 41, 30, 20],
+            )?;
+        }
     }
     Some(())
 }

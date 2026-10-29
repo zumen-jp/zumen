@@ -559,8 +559,8 @@ impl Born {
         Some(())
     }
 
-    /// INSERT（DXF Reference「INSERT」）の値と、続く ATTRIB と SEQEND。格子・切り抜きを持つ記号と、空間の
-    /// ブロックは足さない。属性を持てば、属性が続く印（66 = 1）を書き、属性ごとの ATTRIB と、記号のレイヤの
+    /// INSERT（DXF Reference「INSERT」）の値と、続く ATTRIB と SEQEND。格子を持つ記号は、列と行の数（70・71）と
+    /// 間隔（44・45）を書く（DWG では MINSERT になる）。切り抜きを持つ記号と、空間のブロックは足さない。属性を持てば、属性が続く印（66 = 1）を書き、属性ごとの ATTRIB と、記号のレイヤの
     /// SEQEND を続ける
     fn placing<P>(
         &self,
@@ -573,7 +573,6 @@ impl Born {
         let name = &symbol.key.name;
         let space = name.to_lowercase();
         if symbol.key.namespace != BLOCK
-            || symbol.grid.is_some()
             || symbol.clip.is_some()
             || space.starts_with("*model_space")
             || space.starts_with("*paper_space")
@@ -599,6 +598,14 @@ impl Born {
         }
         if symbol.rotation != 0.0 {
             values.push(real(50, symbol.rotation)?);
+        }
+        if let Some(grid) = &symbol.grid {
+            for (code, count) in [(70, grid.columns), (71, grid.rows)] {
+                values.push(int(code, i64::from(i16::try_from(count).ok()?)));
+            }
+            for (code, spacing) in [(44, &grid.column_spacing), (45, &grid.row_spacing)] {
+                values.push(real(code, frame.length(spacing)?)?);
+            }
         }
         let mut followers = Vec::new();
         if attributed {
