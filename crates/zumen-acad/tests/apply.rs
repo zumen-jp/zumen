@@ -1235,3 +1235,215 @@ fn sheet_elements_need_a_sheet_with_elements() {
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+/// 定義を持つ空の DXF。BLOCK_RECORD の表は持たない。
+fn addition_source(version: &str, seed: &str, blocks: &[(i16, &str)]) -> Vec<u8> {
+    let mut tags = vec![
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, version),
+        (9, "$INSUNITS"),
+        (70, "4"),
+        (9, "$HANDSEED"),
+        (5, seed),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+    ];
+    tags.extend_from_slice(blocks);
+    tags.extend_from_slice(&[
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    tags.into_iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+fn addition_element(shape: Shape<ModelPoint>) -> Element<ModelPoint> {
+    use zumen_drawing::{Inherit, Style};
+    Element {
+        source: Ref::default(),
+        layer: LayerId(0),
+        shape,
+        style: Style {
+            color: Inherit::Layer,
+            line_type: Inherit::Layer,
+            line_type_scale: 1.0,
+            line_weight: Some(Inherit::Layer),
+        },
+    }
+}
+
+#[test]
+fn additions_to_an_empty_modern_dxf_keep_subclass_markers() {
+    let src = addition_source("AC1021", "20", &[]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let element = addition_element(newcomers().remove(0));
+    assert_eq!(
+        apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+        Ok(())
+    );
+    let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+    assert!(written.contains("100\nAcDbEntity\n"));
+    assert!(written.contains("100\nAcDbLine\n"));
+}
+
+#[test]
+fn additions_use_only_entity_kinds_available_in_the_dxf_version() {
+    for (version, index) in [("AC1009", 2), ("AC1009", 3), ("AC1012", 3)] {
+        let src = addition_source(version, "20", &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(newcomers().remove(index));
+        assert_eq!(
+            apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+            Err(Error::Rejected),
+            "{version} {index}"
+        );
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+    for (version, index) in [("AC1012", 2), ("AC1014", 3)] {
+        let src = addition_source(version, "20", &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(newcomers().remove(index));
+        assert_eq!(
+            apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+            Ok(()),
+            "{version} {index}"
+        );
+    }
+}
+
+#[test]
+fn additions_require_an_existing_block_even_without_block_records() {
+    use zumen_drawing::{Symbol, SymbolKey};
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "30"),
+        (2, "PART"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "ENDBLK"),
+    ];
+    for name in ["part", "MISSING"] {
+        let src = addition_source("AC1009", "20", &blocks);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: name.to_owned(),
+            },
+            position: at(0.0, 0.0),
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            grid: None,
+            attributes: vec![],
+            clip: None,
+        }));
+        let (result, _) = apply(&mut file, vec![Edit::Add(Box::new(element))]);
+        if name == "part" {
+            assert_eq!(result, Ok(()));
+            let drawing = lift(&file);
+            let Shape::Symbol(symbol) = &drawing.spaces[0].elements[0].shape else {
+                panic!();
+            };
+            assert_eq!(symbol.key.name, "PART");
+        } else {
+            assert_eq!(result, Err(Error::Rejected));
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        }
+    }
+}
+
+#[test]
+fn additions_reject_exhausted_handles_before_changing_the_file() {
+    for (seed, count) in [("FFFFFFFFFFFFFFFF", 1), ("FFFFFFFFFFFFFFFE", 2)] {
+        let src = addition_source("AC1021", seed, &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(newcomers().remove(0));
+        let edits = (0..count)
+            .map(|_| Edit::Add(Box::new(element.clone())))
+            .collect();
+        assert_eq!(apply(&mut file, edits).0, Err(Error::Rejected), "{seed}");
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+}
+
+#[test]
+fn additions_can_use_the_last_handle_with_a_following_seed() {
+    let src = addition_source("AC1021", "FFFFFFFFFFFFFFFE", &[]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let element = addition_element(newcomers().remove(0));
+    assert_eq!(
+        apply(&mut file, vec![Edit::Add(Box::new(element.clone()))]).0,
+        Ok(())
+    );
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    assert!(String::from_utf8_lossy(&written).contains("$HANDSEED\n  5\nFFFFFFFFFFFFFFFF\n"));
+    assert_eq!(
+        apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+        Err(Error::Rejected)
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), written);
+}
+
+#[test]
+fn additions_stop_before_visiting_vertices_over_the_work_budget() {
+    use zumen_base::{Kind, Limit, Limits};
+    use zumen_drawing::{Polyline, Vertex};
+    let src = addition_source("AC1021", "20", &[]);
+    let line = addition_element(newcomers().remove(0));
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(line.clone()))],
+        },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let mut polyline = line;
+    polyline.shape = Shape::Polyline(Polyline {
+        vertices: (0..100)
+            .map(|x| Vertex {
+                point: at(f64::from(x), 0.0),
+                bulge: 0.0,
+            })
+            .collect(),
+        closed: false,
+        width: None,
+        vertex_widths: vec![],
+    });
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 10)),
+    );
+    let mut diag = Diagnostics::new();
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(polyline))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}

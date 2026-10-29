@@ -50,6 +50,8 @@ pub(super) struct Born {
     /// レイヤと線種の名前
     layers: BTreeMap<LayerId, String>,
     line_types: BTreeMap<LineTypeId, String>,
+    /// 図面モデルに定義のあるブロック。BLOCK_RECORD の表がない古い DXF も、BLOCKS の定義で確かめる
+    blocks: BTreeMap<String, String>,
     /// 最初に付けるハンドル。表がハンドルを持たなければ `None`
     next: Option<u64>,
     /// ENDBLK を持つブロックのレコードのハンドル。BLOCKS の所に足す図形は、その ENDBLK の前に置く
@@ -82,11 +84,6 @@ impl Born {
                 .or_default()
                 .insert(name.to_lowercase(), name);
         }
-        let markers = db
-            .objects()
-            .iter()
-            .filter(|object| object.section == Section::Entities)
-            .any(|object| object.values.iter().any(|value| value.code == 100));
         let version = match db.variable(b"$ACADVER").and_then(<[Value]>::first) {
             Some(Value {
                 data: Data::Text(text),
@@ -94,6 +91,13 @@ impl Born {
             }) => text.trim_ascii().to_vec(),
             _ => Vec::new(),
         };
+        // R13 以降の DXF は、モデル空間に図形がなくてもサブクラスの区切りが要る。
+        let markers = (target == Target::Dxf && version.as_slice() >= b"AC1012")
+            || db
+                .objects()
+                .iter()
+                .filter(|object| object.section == Section::Entities)
+                .any(|object| object.values.iter().any(|value| value.code == 100));
         let seed = match target {
             Target::Dwg(seed) => seed,
             Target::Dxf => db.variable(b"$HANDSEED").and_then(|values| {
@@ -106,10 +110,9 @@ impl Born {
         let max = db.objects().iter().filter_map(Object::handle).max();
         let next = match (seed, max) {
             (None, None) => None,
-            (seed, max) => Some(
-                seed.unwrap_or(0)
-                    .max(max.map_or(1, |max| max.saturating_add(1))),
-            ),
+            (seed, max) => max
+                .map_or(Some(1), |max| max.checked_add(1))
+                .map(|next| seed.unwrap_or(0).max(next)),
         };
         let ends = db
             .objects()
@@ -134,6 +137,12 @@ impl Born {
                 .line_types
                 .iter()
                 .map(|line_type| (line_type.id, line_type.name.clone()))
+                .collect(),
+            blocks: drawing
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.key.namespace == BLOCK)
+                .map(|symbol| (symbol.key.name.to_lowercase(), symbol.key.name.clone()))
                 .collect(),
             next,
         }
@@ -175,9 +184,12 @@ impl Born {
         element: &Element<P>,
         frame: &impl Frame<P>,
         home: Home,
+        index: usize,
     ) -> Option<Record> {
-        // 足した図形は、ハンドルで指されるので、ハンドルを付けられない図面には足さない
-        self.next?;
+        // 足す図形のハンドルと、その次の HANDSEED を、飽和させずに付けられることを先に確かめる。
+        self.next?
+            .checked_add(u64::try_from(index).ok()?)?
+            .checked_add(1)?;
         // BLOCKS の所に足す図形は、所有者のブロックの ENDBLK の前に置く。DWG は、その図形に 67 を持たない
         if home.blocks && !home.owner.is_some_and(|owner| self.ends.contains(&owner)) {
             return None;
@@ -268,6 +280,9 @@ impl Born {
                 end,
                 counterclockwise,
             }) => {
+                if !self.version.is_empty() && !self.since(b"AC1012") {
+                    return None;
+                }
                 let (start, end) = turned(*start, *end, *counterclockwise);
                 let [x, y] = frame.point(center)?;
                 let [end_x, end_y] = frame.point(major)?;
@@ -284,6 +299,9 @@ impl Born {
                 b"ELLIPSE"
             }
             Shape::Polyline(line) => {
+                if !self.version.is_empty() && !self.since(b"AC1014") {
+                    return None;
+                }
                 values.push(text(100, "AcDbPolyline"));
                 lwpolyline(&mut values, frame, line)?;
                 b"LWPOLYLINE"
@@ -400,6 +418,7 @@ impl Born {
         {
             return None;
         }
+        let name = self.blocks.get(&space)?;
         values.push(text(100, "AcDbBlockReference"));
         values.push(self.named(2, b"BLOCK_RECORD", name)?);
         point(values, frame, 10, &symbol.position)?;
@@ -462,9 +481,21 @@ impl Born {
                 Some(index) => db.insert(index, object),
                 None => db.push(object),
             }
-            next = next.saturating_add(1);
+            // record が各追加の位置で、次の HANDSEED まで加算できることを確かめている。
+            next += 1;
         }
     }
+}
+
+/// 追加を組む作業量。要素ごとに 1、折れ線の頂点ごとに 1、文字の内容のバイトごとに 1 を数える。
+/// 頂点の列や文字を複製する前に、呼ぶ側が上限を確かめる。
+pub(super) fn amount<P>(shape: &Shape<P>) -> u64 {
+    let items = match shape {
+        Shape::Polyline(line) => line.vertices.len(),
+        Shape::Text(text) => text.content.len(),
+        _ => 0,
+    };
+    1u64.saturating_add(items as u64)
 }
 
 /// 足せない要素の診断に書く、形の種類

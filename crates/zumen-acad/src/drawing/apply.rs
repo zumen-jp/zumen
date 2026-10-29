@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{MODEL, PaperFrame, framed, mtext, source, text};
+use super::{MODEL, PaperFrame, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
@@ -72,19 +72,30 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
             Edit::Remove(at) => (at, model.contains_key(at) || paper.contains_key(at)),
             Edit::Add(_) | Edit::AddOnSheet(_) => {
                 let (record, kind, at) = match change {
-                    Edit::Add(element) => (
-                        born.record(element, &InSpace(MODEL), born.model()),
-                        kind_of(&element.shape),
-                        &element.source,
-                    ),
-                    Edit::AddOnSheet(element) => (
-                        anchor(&element.shape).and_then(|at| {
-                            let frame = *frames.get(&at.sheet)?;
-                            born.record(element, &OnSheet(at.sheet, frame), frame.home)
-                        }),
-                        kind_of(&element.shape),
-                        &element.source,
-                    ),
+                    Edit::Add(element) => {
+                        work(cx, add::amount(&element.shape), &element.source)?;
+                        (
+                            born.record(element, &InSpace(MODEL), born.model(), added.len()),
+                            kind_of(&element.shape),
+                            &element.source,
+                        )
+                    }
+                    Edit::AddOnSheet(element) => {
+                        work(cx, add::amount(&element.shape), &element.source)?;
+                        (
+                            anchor(&element.shape).and_then(|at| {
+                                let frame = *frames.get(&at.sheet)?;
+                                born.record(
+                                    element,
+                                    &OnSheet(at.sheet, frame),
+                                    frame.home,
+                                    added.len(),
+                                )
+                            }),
+                            kind_of(&element.shape),
+                            &element.source,
+                        )
+                    }
                     _ => continue,
                 };
                 match record {
