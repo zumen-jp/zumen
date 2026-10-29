@@ -156,6 +156,11 @@ impl Apply<Changes> for SxfFile {
                         rejected = true;
                         continue;
                     };
+                    // 渡された形を複製して書式化する前に、可変長の内容を予算で数える。
+                    match element.as_ref() {
+                        Placed::Model(element) => Any::Model(element).hash(cx)?,
+                        Placed::Paper(element) => Any::Paper(element).hash(cx)?,
+                    };
                     let element = found.element.replaced(element);
                     if let Some(element) = &element {
                         let style = match element {
@@ -187,6 +192,8 @@ impl Apply<Changes> for SxfFile {
                         rejected = true;
                         continue;
                     };
+                    // 変換は元の形を走査し、結果を複製して書式化する。
+                    found.element.hash(cx)?;
                     let element = found.element.transformed(transform);
                     element
                         .and_then(|element| {
@@ -205,6 +212,7 @@ impl Apply<Changes> for SxfFile {
                         Placed::Paper(element)
                             if before.sheets.get(place) == Some(&element.shape_sheet()) =>
                         {
+                            Any::Paper(element).hash(cx)?;
                             work(cx, tables.style_work(&element.style, None), &Ref::default())?;
                             plan.add(element, &tables)
                         }

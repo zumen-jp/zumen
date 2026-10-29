@@ -203,6 +203,113 @@ fn apply_counts_each_search_for_user_colors_and_widths() {
 }
 
 #[test]
+fn apply_counts_new_polyline_vertices_before_writing() {
+    use zumen_base::{Kind, Limit, Limits};
+    let input = src();
+    let drawing = lift(&read(&input));
+    let base = seen(&drawing, 100).1;
+    let mut missing = seen(&drawing, 70).0;
+    missing.id = "sheet/0/i9999".to_owned();
+    let run = |count: usize, replace: bool, limit: Option<u64>| {
+        let mut element = base.clone();
+        let Shape::Polyline(line) = &mut element.shape else {
+            panic!()
+        };
+        line.vertices.resize(count, line.vertices[0]);
+        let first = if replace {
+            Edit::Replace {
+                target: seen(&drawing, 100).0,
+                element: Box::new(Placed::Paper(element)),
+            }
+        } else {
+            Edit::Add {
+                place: id::sheet(&drawing.sheets[0]),
+                element: Box::new(Placed::Paper(element)),
+            }
+        };
+        let edits = vec![
+            first,
+            Edit::Remove {
+                target: missing.clone(),
+            },
+        ];
+        let mut file = read(&input);
+        let mut budget = Budget::new(limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        }));
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        (result, budget.used(Kind::Work), write(&file))
+    };
+    for replace in [false, true] {
+        let (result, small, _) = run(3, replace, None);
+        assert!(matches!(result, Err(Error::Rejected)));
+        let (result, large, _) = run(8192, replace, None);
+        assert!(matches!(result, Err(Error::Rejected)));
+        assert!(large >= small + 8190, "{small}, {large}");
+        let (result, _, written) = run(8192, replace, Some(small + 1));
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(written, input);
+    }
+}
+
+#[test]
+fn transforming_polyline_counts_its_vertices_and_stops_without_changes() {
+    use zumen_base::{Kind, Limit, Limits};
+    let xs = vec!["0"; 8192].join(",");
+    let ys = vec!["1"; 8192].join(",");
+    let input = String::from_utf8(src()).unwrap().replace(
+        "'3','(0,1,2)','(0,1,0)'",
+        &format!("'8192','({xs})','({ys})'"),
+    );
+    let drawing = lift(&read(input.as_bytes()));
+    let run = |edit: bool, limit: Option<u64>| {
+        let mut file = read(input.as_bytes());
+        let mut missing = seen(&drawing, 70).0;
+        missing.id = "sheet/0/i9999".to_owned();
+        let edits = if edit {
+            vec![
+                Edit::Transform {
+                    target: seen(&drawing, 100).0,
+                    transform: Affine {
+                        m: [1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
+                    },
+                },
+                Edit::Remove { target: missing },
+            ]
+        } else {
+            vec![Edit::Remove { target: missing }]
+        };
+        let mut budget = Budget::new(limit.map_or(Limits::default(), |limit| {
+            Limits::default().with(Kind::Work, Limit::Finite(limit))
+        }));
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        (result, budget.used(Kind::Work), write(&file))
+    };
+    let (result, baseline, _) = run(false, None);
+    assert!(matches!(result, Err(Error::Rejected)));
+    let (result, changed, _) = run(true, None);
+    assert!(matches!(result, Err(Error::Rejected)));
+    assert!(changed >= baseline + 8192, "{baseline}, {changed}");
+    let (result, _, written) = run(true, Some(changed - 1));
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(written, input.as_bytes());
+}
+
+#[test]
 fn edits_are_written_into_the_feature_comments() {
     let src = src();
     let mut file = read(&src);
