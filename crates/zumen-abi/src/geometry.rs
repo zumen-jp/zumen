@@ -4,6 +4,7 @@
 //! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use std::cell::Cell;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
@@ -559,23 +560,26 @@ pub(crate) fn shape_of<P: Spot>(
 /// 足す記号の属性。AutoCAD が挿入するときと同じく、定義の属性の定義のうち値が決まっていないものを、記号の
 /// 置く点・尺度・回転で写して作り、`given` のタグの値で既定の値を替える。実寸の空間に、X と Y の尺度の大きさが
 /// 同じで置く記号だけに作る。用紙では、定義の長さを mm に直す倍率を書き戻す側しか知らず、尺度の大きさが違えば
-/// 文字の形を保って写せないため。作れないときは、値を渡されていれば失敗し、渡されていなければ属性なしで足す
+/// 文字の形を保って写せないため。必要な属性を作れないときは失敗する
 pub(crate) fn attributes_of<P: Spot>(
-    drawing: &Drawing2D,
+    definition: Option<&zumen_drawing::SymbolDefinition>,
     symbol: &Symbol<P>,
     given: Option<&[SymbolAttribute]>,
 ) -> Result<Vec<Attribute<P>>, String> {
     let given = given.unwrap_or_default();
+    let mut supplied = BTreeMap::new();
     for (index, attribute) in given.iter().enumerate() {
         if attribute.value.contains(['\n', '\r']) {
             return Err(format!("geometry/attributes/{index}/value"));
         }
+        if supplied
+            .insert(attribute.tag.to_ascii_lowercase(), attribute)
+            .is_some()
+        {
+            return Err(format!("geometry/attributes/{index}/tag"));
+        }
     }
-    let Some(definition) = drawing.symbols.iter().find(|definition| {
-        definition.key.namespace == BLOCK
-            && definition.key.name.eq_ignore_ascii_case(&symbol.key.name)
-    }) else {
-        // 図面にない定義は、書き戻す側が足さない
+    let Some(definition) = definition else {
         return Ok(Vec::new());
     };
     let defined: Vec<_> = definition
@@ -584,11 +588,12 @@ pub(crate) fn attributes_of<P: Spot>(
         .filter(|definition| !definition.constant)
         .map(|definition| &definition.attribute)
         .collect();
+    let tags: BTreeSet<_> = defined
+        .iter()
+        .map(|item| item.tag.to_ascii_lowercase())
+        .collect();
     for (index, attribute) in given.iter().enumerate() {
-        if !defined
-            .iter()
-            .any(|defined| defined.tag.eq_ignore_ascii_case(&attribute.tag))
-        {
+        if !tags.contains(&attribute.tag.to_ascii_lowercase()) {
             return Err(format!("geometry/attributes/{index}/tag"));
         }
     }
@@ -616,10 +621,7 @@ pub(crate) fn attributes_of<P: Spot>(
                     else {
                         return None;
                     };
-                    if let Some(value) = given
-                        .iter()
-                        .find(|value| value.tag.eq_ignore_ascii_case(&defined.tag))
-                    {
+                    if let Some(value) = supplied.get(&defined.tag.to_ascii_lowercase()) {
                         text.content = value.value.clone();
                     }
                     Some(Attribute {
@@ -637,7 +639,7 @@ pub(crate) fn attributes_of<P: Spot>(
         .flatten();
     match made {
         Some(attributes) => Ok(attributes),
-        None if given.is_empty() => Ok(Vec::new()),
+        None if defined.is_empty() && given.is_empty() => Ok(Vec::new()),
         None => Err("geometry/attributes".to_string()),
     }
 }
