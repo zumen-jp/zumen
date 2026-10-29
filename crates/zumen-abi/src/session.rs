@@ -443,11 +443,11 @@ fn capabilities() -> CapabilitiesResult {
             minor: SCHEMA_MINOR,
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
-        // ID の規則の版。AutoCAD の系統は、ハンドルで ID を作る 2（決定 0156）
+        // ID の規則の版。AutoCAD の系統はハンドルで、SXF はインスタンスの番号で ID を作る 2（決定 0156）
         formats: [
             (Dxf::FORMAT, "acad", 2),
             (Dwg::FORMAT, "acad", 2),
-            (Sxf::FORMAT, "sxf", 1),
+            (Sxf::FORMAT, "sxf", 2),
             (Jww::FORMAT, "jww", 1),
         ]
         .into_iter()
@@ -580,6 +580,10 @@ impl Page {
                     }),
                     handle: match element.source.key() {
                         Some(Key::Handle(handle)) => Some(format!("{handle:X}")),
+                        _ => None,
+                    },
+                    instance: match element.source.key() {
+                        Some(Key::Instance(number)) => Some(number.to_string()),
                         _ => None,
                     },
                 }),
@@ -913,7 +917,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":5}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":1}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":6}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1256,6 +1260,24 @@ mod tests {
             assert_eq!(status, Status::Failed, "{request}");
             assert_eq!(text(&response, "/diagnostics/0/params/pointer"), pointer);
         }
+    }
+
+    #[test]
+    fn keeps_large_sxf_instance_numbers_exact() {
+        let src = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#18446744073709551615 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')\nSXF3*/\n/*SXF3\n#30 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.sfc", src.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.sfc"}"#);
+        let (status, result) = call(&mut session, r#"{"v":1,"op":"entities","doc":"a.sfc"}"#);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(
+            result.pointer("/result/items/0/id"),
+            Some(&Value::String("sheet/0/i18446744073709551615".into()))
+        );
+        assert_eq!(
+            result.pointer("/result/items/0/source/instance"),
+            Some(&Value::String("18446744073709551615".into()))
+        );
     }
 
     #[test]

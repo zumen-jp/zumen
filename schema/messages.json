@@ -406,7 +406,8 @@
       "properties": {
         "record": { "description": "L1 のレコードの番号", "type": "integer", "minimum": 0 },
         "bytes": { "description": "L1 のバイト範囲", "$ref": "#/$defs/byte_range" },
-        "handle": { "description": "AutoCAD の系統のハンドル。大文字の 16 進。書き戻しても変わらない", "type": "string" }
+        "handle": { "description": "AutoCAD の系統のハンドル。大文字の 16 進。書き戻しても変わらない", "type": "string" },
+        "instance": { "description": "SXF のインスタンスの番号（#n の n）。10 進の文字列。小版 6 から", "type": "string" }
       },
       "additionalProperties": false
     },
