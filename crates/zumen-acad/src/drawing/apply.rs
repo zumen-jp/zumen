@@ -385,6 +385,25 @@ fn edit(
                     }
                 }
             }
+            // 図形だけが指す名前も、既存の線種として重複を防ぐ。
+            for line_type in drawing
+                .line_types
+                .iter()
+                .filter(|line_type| line_type.definition.is_none())
+            {
+                work(
+                    cx,
+                    1 + line_type.name.len() as u64 / 1024,
+                    &line_type.source,
+                )?;
+                if let Some(Value {
+                    data: Data::Text(name),
+                    ..
+                }) = born.text_value(2, &line_type.name)
+                {
+                    line_type_names.insert(name.to_ascii_lowercase());
+                }
+            }
             line_type_records = Some(records);
         }
         let line_type_positions = line_type_records.as_deref().unwrap_or_default();
@@ -785,6 +804,12 @@ fn edit(
             }
             Edit::AddLineType { line_type: new } => {
                 work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                // 定義のない線種は表の後に並ぶため、表への追加でその ID がずれる。
+                work(cx, drawing.line_types.len() as u64, &Ref::default())?;
+                let unstable = drawing
+                    .line_types
+                    .iter()
+                    .any(|line_type| line_type.definition.is_none());
                 count_table_records(db, line_type_positions, &Ref::default(), cx)?;
                 let continuous = line_type_positions.iter().find_map(|&position| {
                     db.objects().get(position).filter(|object| {
@@ -801,7 +826,8 @@ fn edit(
                     let mut values = line_type::template(continuous, target);
                     line_type::write(&born, &mut values, new, None, target)?;
                     let name = line_type::value_name(&values)?.to_ascii_lowercase();
-                    (!line_type::fixed_name(&name)
+                    (!unstable
+                        && !line_type::fixed_name(&name)
                         && (target != Target::Dxf || layer::table_end(db, b"LTYPE").is_some())
                         && line_type_names.insert(name))
                     .then_some(values)

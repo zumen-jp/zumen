@@ -294,6 +294,35 @@ fn line_types_are_added_and_removed() {
 }
 
 #[test]
+fn line_type_changes_do_not_merge_undefined_types_or_shift_their_ids() {
+    let input = String::from_utf8(src())
+        .unwrap()
+        .replace("  6\nDashed\n100\nAcDbLine", "  6\nMissing\n100\nAcDbLine");
+    let drawing = lift(&testkit::read::<Dxf>(input.as_bytes()).0.unwrap());
+    let missing = line_type(&drawing, "Missing");
+    assert!(missing.definition.is_none());
+    let mut renamed = line_type(&drawing, "Unused").clone();
+    renamed.name = "Missing".to_owned();
+    let mut added = line_type(&drawing, "Dashed").clone();
+    added.name = "Added".to_owned();
+    for edit in [
+        Edit::ReplaceLineType {
+            target: seen(&drawing, "Unused"),
+            line_type: Box::new(renamed),
+        },
+        Edit::AddLineType {
+            line_type: Box::new(added),
+        },
+    ] {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let (result, found) = apply(&mut file, vec![edit]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(found, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
+    }
+}
+
+#[test]
 fn line_type_changes_that_cannot_be_written_are_refused() {
     let src = src();
     let drawing = lift(&testkit::read::<Dxf>(&src).0.unwrap());
