@@ -1817,8 +1817,10 @@ pub struct TextGeometry {
     pub height: f64,
     /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
     pub rotation: f64,
-    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から
     pub style: Option<String>,
+    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+    pub style_id: Option<String>,
 }
 
 impl TextGeometry {
@@ -1831,6 +1833,7 @@ impl TextGeometry {
         let height = object.required("height", json::number)?;
         let rotation = object.required("rotation", json::number)?;
         let style = object.optional("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
             content,
             position,
@@ -1839,6 +1842,7 @@ impl TextGeometry {
             height,
             rotation,
             style,
+            style_id,
         })
     }
 
@@ -1863,6 +1867,10 @@ impl TextGeometry {
         out.float(self.rotation);
         if let Some(value) = &self.style {
             out.key("style");
+            out.string(value);
+        }
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
             out.string(value);
         }
     }
@@ -1943,8 +1951,10 @@ pub struct FormattedTextGeometry {
     pub attachment: Option<Attachment>,
     /// 折り返す枠の幅。0 より大きい。書かなければ折り返さない
     pub width: Option<f64>,
-    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す
     pub style: Option<String>,
+    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+    pub style_id: Option<String>,
 }
 
 impl FormattedTextGeometry {
@@ -1957,6 +1967,7 @@ impl FormattedTextGeometry {
         let attachment = object.optional("attachment", Attachment::from_json)?;
         let width = object.optional("width", json::number)?;
         let style = object.optional("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
             content,
             position,
@@ -1965,6 +1976,7 @@ impl FormattedTextGeometry {
             attachment,
             width,
             style,
+            style_id,
         })
     }
 
@@ -1989,6 +2001,10 @@ impl FormattedTextGeometry {
         }
         if let Some(value) = &self.style {
             out.key("style");
+            out.string(value);
+        }
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
             out.string(value);
         }
     }
@@ -2171,6 +2187,8 @@ pub struct DimensionGeometry {
     pub text_rotation: Option<f64>,
     /// 寸法スタイルの元の名前
     pub style: String,
+    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から
+    pub style_id: Option<String>,
 }
 
 impl DimensionGeometry {
@@ -2206,6 +2224,7 @@ impl DimensionGeometry {
             object.optional("text_position", |value| json::array(value, json::number))?;
         let text_rotation = object.optional("text_rotation", json::number)?;
         let style = object.required("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
             kind,
             first,
@@ -2232,6 +2251,7 @@ impl DimensionGeometry {
             text_position,
             text_rotation,
             style,
+            style_id,
         })
     }
 
@@ -2336,6 +2356,10 @@ impl DimensionGeometry {
         }
         out.key("style");
         out.string(&self.style);
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
+            out.string(value);
+        }
     }
 }
 

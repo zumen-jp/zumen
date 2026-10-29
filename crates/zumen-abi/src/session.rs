@@ -1,5 +1,6 @@
 //! セッション: 名前のついた入力を持ち、要求を受けて応答を返す（決定 0012）。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
@@ -403,6 +404,7 @@ impl Session {
             region,
             position: 0,
             items: Vec::new(),
+            style_ids: None,
         };
         for space in &drawing.spaces {
             page.collect(&drawing, &id::space(space.id), &space.elements, cx)?;
@@ -685,6 +687,64 @@ fn table_id(base: String, seen: &mut BTreeMap<String, u64>) -> String {
     result
 }
 
+/// 要素が名前で指す文字スタイルと寸法スタイルの ID（tables が返すもの）。名前は大文字と小文字を区別せずに比べ、
+/// 同じ名前があれば、図面モデルが引くのと同じく先の項目にする（決定 0158）
+#[derive(Default)]
+struct StyleIds {
+    text: BTreeMap<String, String>,
+    dimension: BTreeMap<String, String>,
+}
+
+impl StyleIds {
+    fn new(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Failed> {
+        let mut result = Self::default();
+        let mut seen = BTreeMap::new();
+        for (index, style) in drawing.dimension_styles.iter().enumerate() {
+            let work = style.name.len().saturating_add(1);
+            cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
+            let id = table_id(id::dimension_style(style, index), &mut seen);
+            result
+                .dimension
+                .entry(style.name.to_lowercase())
+                .or_insert(id);
+        }
+        seen.clear();
+        for (index, style) in drawing.text_styles.iter().enumerate() {
+            let work = style.name.len().saturating_add(1);
+            cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
+            let id = table_id(id::text_style(style, index), &mut seen);
+            result.text.entry(style.name.to_lowercase()).or_insert(id);
+        }
+        Ok(result)
+    }
+
+    /// 形の値に、名前で引いたスタイルの ID を書く
+    fn fill(&self, geometry: &mut messages::Geometry) {
+        let find =
+            |items: &BTreeMap<String, String>, name: &str| items.get(&name.to_lowercase()).cloned();
+        match geometry {
+            messages::Geometry::Text(text) => {
+                text.style_id = text
+                    .style
+                    .as_deref()
+                    .and_then(|name| find(&self.text, name));
+            }
+            messages::Geometry::FormattedText(text) => {
+                text.style_id = text
+                    .style
+                    .as_deref()
+                    .and_then(|name| find(&self.text, name));
+            }
+            messages::Geometry::Dimension(dimension) => {
+                dimension.style_id = find(&self.dimension, &dimension.style);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// 要求の変更を、図面モデルの変更の一覧にする。レイヤと線種は、ID か、名前が 1 つに決まるものを図面から引く
 fn changes(
     request: &ApplyRequest,
@@ -731,10 +791,13 @@ fn changes(
             Some(messages::Geometry::Text(text)) => text
                 .content
                 .len()
-                .saturating_add(text.style.as_ref().map_or(0, String::len)),
-            Some(messages::Geometry::FormattedText(text)) => {
-                text.style.as_ref().map_or(0, String::len)
-            }
+                .saturating_add(text.style.as_ref().map_or(0, String::len))
+                .saturating_add(text.style_id.as_ref().map_or(0, String::len)),
+            Some(messages::Geometry::FormattedText(text)) => text
+                .style
+                .as_ref()
+                .map_or(0, String::len)
+                .saturating_add(text.style_id.as_ref().map_or(0, String::len)),
             Some(messages::Geometry::Symbol(symbol)) => symbol.name.len(),
             _ => 0,
         };
@@ -793,15 +856,20 @@ fn changes(
                 if elements.is_none() {
                     elements = Some(ElementLookup::new(drawing, cx)?);
                 }
+                if tables.is_none() && has_style_id(&edit.geometry) {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let geometry = named_style(&edit.geometry, tables.as_ref())
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
                 // 指した要素がなければ、除くときと同じく `change.element.missing` にする
                 let element = match elements.as_ref().and_then(|index| index.get(&edit.id)) {
                     Some(FoundElement::Model(element)) => {
                         count_old_element(element, cx)?;
-                        reshaped(element, &edit.geometry).map(Placed::Model)
+                        reshaped(element, &geometry).map(Placed::Model)
                     }
                     Some(FoundElement::Paper(element)) => {
                         count_old_element(element, cx)?;
-                        reshaped(element, &edit.geometry).map(Placed::Paper)
+                        reshaped(element, &geometry).map(Placed::Paper)
                     }
                     None => {
                         let missing = Diagnostic::new(codes::CHANGE_ELEMENT_MISSING)
@@ -870,7 +938,9 @@ fn changes(
                 } else {
                     None
                 };
-                let element = added(edit, places, tables, definition)
+                let geometry = named_style(&edit.geometry, Some(tables))
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                let element = added(edit, &geometry, places, tables, definition)
                     .map_err(|field| fail(cx, invalid_value(at(&field))))?;
                 Edit::Add {
                     place: edit.place.clone(),
@@ -1076,6 +1146,8 @@ struct TableLookup<'a> {
     layer_ids: BTreeMap<String, Option<(&'a str, LayerId)>>,
     line_types: BTreeMap<&'a str, Option<LineTypeId>>,
     line_type_ids: BTreeMap<String, Option<(&'a str, LineTypeId)>>,
+    /// 文字スタイルの ID から名前。同じ名前（大文字と小文字を区別しない）の項目が複数あれば `None`
+    text_style_ids: BTreeMap<String, Option<&'a str>>,
 }
 
 impl<'a> TableLookup<'a> {
@@ -1085,6 +1157,7 @@ impl<'a> TableLookup<'a> {
             layer_ids: BTreeMap::new(),
             line_types: BTreeMap::new(),
             line_type_ids: BTreeMap::new(),
+            text_style_ids: BTreeMap::new(),
         };
         let mut seen = BTreeMap::new();
         for layer in &drawing.layers {
@@ -1114,8 +1187,74 @@ impl<'a> TableLookup<'a> {
                 .and_modify(|v| *v = None)
                 .or_insert(Some((&line_type.name, line_type.id)));
         }
+        seen.clear();
+        let mut names: BTreeMap<String, usize> = BTreeMap::new();
+        for style in &drawing.text_styles {
+            let work = style.name.len().saturating_add(1);
+            cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
+            *names.entry(style.name.to_lowercase()).or_default() += 1;
+        }
+        for (index, style) in drawing.text_styles.iter().enumerate() {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let unique = names.get(&style.name.to_lowercase()) == Some(&1);
+            result.text_style_ids.insert(
+                table_id(id::text_style(style, index), &mut seen),
+                unique.then_some(style.name.as_str()),
+            );
+        }
         Ok(result)
     }
+}
+
+/// 文字スタイルを ID で指した形の値か
+fn has_style_id(geometry: &messages::Geometry) -> bool {
+    match geometry {
+        messages::Geometry::Text(text) => text.style_id.is_some(),
+        messages::Geometry::FormattedText(text) => text.style_id.is_some(),
+        _ => false,
+    }
+}
+
+/// 文字スタイルを ID で指した形の値を、名前で指す形の値にする。合わなければ、その欄の名前を返す
+fn named_style<'g>(
+    geometry: &'g messages::Geometry,
+    tables: Option<&TableLookup<'_>>,
+) -> Result<Cow<'g, messages::Geometry>, &'static str> {
+    let (style, wanted) = match geometry {
+        messages::Geometry::Text(text) => (&text.style, &text.style_id),
+        messages::Geometry::FormattedText(text) => (&text.style, &text.style_id),
+        _ => return Ok(Cow::Borrowed(geometry)),
+    };
+    let Some(wanted) = wanted else {
+        return Ok(Cow::Borrowed(geometry));
+    };
+    let name = tables
+        .and_then(|tables| {
+            tables
+                .text_style_ids
+                .get(wanted.as_str())
+                .copied()
+                .flatten()
+        })
+        .ok_or("geometry/style_id")?
+        .to_string();
+    // 名前も書けば、同じ文字スタイルを指す（entities が返した形の値を、そのまま戻せる）
+    if style
+        .as_ref()
+        .is_some_and(|style| !style.eq_ignore_ascii_case(&name))
+    {
+        return Err("geometry/style_id");
+    }
+    let mut geometry = geometry.clone();
+    match &mut geometry {
+        messages::Geometry::Text(text) => (text.style, text.style_id) = (Some(name), None),
+        messages::Geometry::FormattedText(text) => {
+            (text.style, text.style_id) = (Some(name), None);
+        }
+        _ => {}
+    }
+    Ok(Cow::Owned(geometry))
 }
 
 /// 名前か ID で指したレイヤ。どちらもなければ `None`。合わなければ、その欄の名前を返す
@@ -1213,6 +1352,7 @@ fn reshaped<P: geometry::Spot>(
 /// 足す要素。レイヤを指さなければ「0」に置き、色・線種・線幅はレイヤに従う。合わない欄があれば、その欄の名前を返す
 fn added(
     edit: &messages::AddEdit,
+    geometry: &messages::Geometry,
     places: &PlaceLookup,
     tables: &TableLookup<'_>,
     definition: Option<&zumen_drawing::SymbolDefinition>,
@@ -1233,7 +1373,7 @@ fn added(
             layer,
             style,
             shape: attributed(
-                geometry::shape_of(&edit.geometry, None, origin)?,
+                geometry::shape_of(geometry, None, origin)?,
                 edit,
                 definition,
             )?,
@@ -1245,7 +1385,7 @@ fn added(
             layer,
             style,
             shape: attributed(
-                geometry::shape_of(&edit.geometry, None, origin)?,
+                geometry::shape_of(geometry, None, origin)?,
                 edit,
                 definition,
             )?,
@@ -1533,6 +1673,8 @@ struct Page {
     /// 次に数える要素の位置
     position: u64,
     items: Vec<Entity>,
+    /// 形の値に書くスタイルの ID。形の値を返すときに作る
+    style_ids: Option<StyleIds>,
 }
 
 impl Page {
@@ -1611,7 +1753,15 @@ impl Page {
                             .map_err(|stop| stop_at(cx, stop))?;
                     }
                 }
-                geometry::geometry_of(&element.shape)
+                if self.style_ids.is_none() {
+                    self.style_ids = Some(StyleIds::new(drawing, cx)?);
+                }
+                geometry::geometry_of(&element.shape).map(|mut geometry| {
+                    if let Some(ids) = &self.style_ids {
+                        ids.fill(&mut geometry);
+                    }
+                    geometry
+                })
             } else {
                 None
             };
@@ -2121,6 +2271,7 @@ mod tests {
                 region: None,
                 position: 0,
                 items: vec![],
+                style_ids: None,
             };
             let mut diagnostics = Diagnostics::new();
             let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
@@ -2224,6 +2375,7 @@ mod tests {
             region: None,
             position: 0,
             items: vec![],
+            style_ids: None,
         };
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
@@ -2245,7 +2397,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":22}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":23}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3063,6 +3215,91 @@ mod tests {
     }
 
     #[test]
+    fn texts_refer_to_text_styles_by_their_ids() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", STYLED.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        // 名前は大文字と小文字を区別せずに引く。表にない名前も、定義のない項目の ID で指す
+        let shapes_before = shapes(&mut session, "a.dxf");
+        assert!(shapes_before[0].ends_with(r#""style":"Missing","style_id":"text-style/2"}"#));
+        assert!(shapes_before[1].ends_with(r#""style":"GOTHIC","style_id":"text-style/h12"}"#));
+        let add = |style: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{{"shape":"text","content":"C","position":[0,9],"height":2,"rotation":0{style}}}}}]}}"#
+            )
+        };
+        // ID で指せば、名前で書く。名前も書くなら、同じ文字スタイルを指す
+        for style in [
+            r#","style_id":"text-style/h12""#,
+            r#","style":"gothic","style_id":"text-style/h12""#,
+        ] {
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"a.dxf", STYLED.as_bytes()).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+            let (status, response) = call(&mut session, &add(style));
+            assert_eq!(status, Status::Ok, "{response:?}");
+            assert!(
+                shapes(&mut session, "a.dxf")[2]
+                    .ends_with(r#""style":"Gothic","style_id":"text-style/h12"}"#)
+            );
+        }
+        for style in [
+            r#","style_id":"text-style/h99""#,
+            r#","style":"Standard","style_id":"text-style/h12""#,
+        ] {
+            let (status, response) = call(&mut session, &add(style));
+            assert_eq!(status, Status::Failed);
+            assert_eq!(
+                text(&error(&response), "/params/pointer"),
+                "/edits/0/geometry/style_id"
+            );
+        }
+        // entities が返した形の値は、そのまま置き換えに戻せる。ほかの文字スタイルの ID には置き換えない
+        let (id, hash) = seen(&mut session, "a.dxf")[1].clone();
+        let replace = |geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+            )
+        };
+        let other = shapes_before[1].replace("text-style/h12", "text-style/h11");
+        let other = other.replace(r#""style":"GOTHIC","#, "");
+        let (status, response) = call(&mut session, &replace(&other));
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/style"
+        );
+        let (status, response) = call(&mut session, &replace(&shapes_before[1]));
+        assert_eq!(status, Status::Ok, "{response:?}");
+    }
+
+    #[test]
+    fn duplicated_text_style_names_cannot_be_referred_to_by_id() {
+        let dxf = STYLED.replace("2\nGothic\n", "2\nstandard\n");
+        let dxf = dxf.replace("7\nGOTHIC\n", "7\nSTANDARD\n");
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", dxf.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        // entities は、図面モデルと同じく先の項目の ID を返す
+        assert!(shapes(&mut session, "a.dxf")[1].ends_with(r#""style_id":"text-style/h11"}"#));
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"text","content":"C","position":[0,9],"height":2,"rotation":0,"style_id":"text-style/h11"}}]}"#,
+        );
+        assert_eq!(status, Status::Failed, "{response:?}");
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/style_id"
+        );
+    }
+
+    /// 足した文字の形の値に、entities が書く文字スタイルの ID（表にない Standard）を足したもの
+    fn with_style_id(geometry: &str) -> String {
+        let open = geometry.strip_suffix('}').unwrap();
+        format!(r#"{open},"style_id":"text-style/0"}}"#)
+    }
+
+    #[test]
     fn adds_text_with_a_defined_style() {
         let dxf = String::from_utf8(EDITABLE.to_vec()).unwrap().replace(
             "0\nSECTION\n2\nENTITIES\n",
@@ -3095,7 +3332,7 @@ mod tests {
         let id = text(&response, "/result/applied/0/id");
         let hash = text(&response, "/result/applied/0/hash");
         assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
-        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        assert_eq!(shapes(&mut session, "a.dxf")[3], with_style_id(added));
         // 置き換えは文字スタイルを変えない
         let (status, response) = call(
             &mut session,
@@ -3117,7 +3354,7 @@ mod tests {
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(
             shapes(&mut session, "a.dxf")[3],
-            r#"{"shape":"text","content":"X2","position":[4,5],"height":3,"rotation":0,"style":"Standard"}"#
+            r#"{"shape":"text","content":"X2","position":[4,5],"height":3,"rotation":0,"style":"Standard","style_id":"text-style/0"}"#
         );
     }
 
@@ -3165,7 +3402,7 @@ mod tests {
         let id = text(&response, "/result/applied/0/id");
         let hash = text(&response, "/result/applied/0/hash");
         assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
-        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        assert_eq!(shapes(&mut session, "a.dxf")[3], with_style_id(added));
         // 合わせ方は変えず、1 点に置く文字にも替えない
         for (geometry, pointer) in [
             (
@@ -3186,7 +3423,7 @@ mod tests {
             assert_eq!(status, Status::Failed);
             assert_eq!(text(&error(&response), "/params/pointer"), pointer);
         }
-        let replaced = r#"{"shape":"text","content":"X2","position":[1,1],"end":[-5,1],"fit":"aligned","height":2,"rotation":180,"style":"Standard"}"#;
+        let replaced = r#"{"shape":"text","content":"X2","position":[1,1],"end":[-5,1],"fit":"aligned","height":2,"rotation":180,"style":"Standard","style_id":"text-style/0"}"#;
         let (status, response) = call(
             &mut session,
             &format!(
@@ -3239,7 +3476,7 @@ mod tests {
         let id = text(&response, "/result/applied/0/id");
         let hash = text(&response, "/result/applied/0/hash");
         assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
-        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        assert_eq!(shapes(&mut session, "a.dxf")[3], with_style_id(added));
         // 生の改行と、違う文字スタイルは受けない
         for (geometry, pointer) in [
             (
@@ -3274,7 +3511,7 @@ mod tests {
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(
             shapes(&mut session, "a.dxf")[3],
-            r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"top_left","width":20,"style":"Standard"}"#
+            r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"top_left","width":20,"style":"Standard","style_id":"text-style/0"}"#
         );
         let hash = text(&response, "/result/applied/0/hash");
         let id = text(&response, "/result/applied/0/id");
@@ -3287,7 +3524,7 @@ mod tests {
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(
             shapes(&mut session, "a.dxf")[3],
-            r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"middle_center","style":"Standard"}"#
+            r#"{"shape":"formatted_text","content":"X2","position":[4,5],"height":3,"rotation":0,"attachment":"middle_center","style":"Standard","style_id":"text-style/0"}"#
         );
     }
 
@@ -3511,6 +3748,7 @@ mod tests {
         // 1000 離れた 2 点の線形寸法。測定値は 1000 で、文字を「995」に上書きし、利用者が動かした（128）
         const DIMENSIONED: &[u8] =
             b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+            0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n105\n2A\n2\nISO-25\n70\n0\n0\nENDTAB\n0\nENDSEC\n\
             0\nSECTION\n2\nENTITIES\n\
             0\nDIMENSION\n5\n40\n8\n0\n3\nISO-25\n10\n0.0\n20\n100.0\n11\n520.0\n21\n110.0\n\
             70\n160\n71\n5\n42\n1000.0\n1\n995\n13\n0.0\n23\n0.0\n14\n1000.0\n24\n0.0\n\
@@ -3518,7 +3756,8 @@ mod tests {
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", DIMENSIONED).unwrap();
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
-        let geometry = r#"{"shape":"dimension","kind":"linear","first":[0,0],"second":[1000,0],"line":[0,100],"rotation":0,"oblique":0,"label":"override","content":"995","measurement":1000,"measurement_key":"dxf.DIMENSION.42","text_position":[520,110],"style":"ISO-25"}"#;
+        let geometry = r#"{"shape":"dimension","kind":"linear","first":[0,0],"second":[1000,0],"line":[0,100],"rotation":0,"oblique":0,"label":"override","content":"995","measurement":1000,"measurement_key":"dxf.DIMENSION.42","text_position":[520,110],"style":"ISO-25","style_id":"dimension-style/h2A"}"#;
+        // 寸法スタイルも、名前で引いた ID を返す
         assert_eq!(shapes(&mut session, "a.dxf"), [geometry]);
         let (id, hash) = seen(&mut session, "a.dxf").remove(0);
         // 種類が持たない欄・欠けた欄・合わない文字と測定値は、その欄を指す
@@ -4149,6 +4388,7 @@ mod tests {
             }),
             position: 0,
             items: Vec::new(),
+            style_ids: None,
         };
         let at = |x: f64| zumen_drawing::PaperPoint {
             sheet: zumen_drawing::SheetId(3),
@@ -4639,6 +4879,7 @@ mod tests {
             region: None,
             position: 0,
             items: Vec::new(),
+            style_ids: None,
         };
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
         let mut diagnostics = Diagnostics::new();

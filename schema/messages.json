@@ -482,7 +482,8 @@
         "fit": { "description": "2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から", "$ref": "#/$defs/text_fit" },
         "height": { "description": "高さ。0 より大きい", "type": "number" },
         "rotation": { "description": "回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない", "type": "number" },
-        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から", "type": "string" }
+        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から", "type": "string" },
+        "style_id": { "description": "文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false
@@ -503,7 +504,8 @@
         "rotation": { "description": "回転（度）", "type": "number" },
         "attachment": { "description": "基点に合わせる枠の位置", "$ref": "#/$defs/attachment" },
         "width": { "description": "折り返す枠の幅。0 より大きい。書かなければ折り返さない", "type": "number" },
-        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける", "type": "string" }
+        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す", "type": "string" },
+        "style_id": { "description": "文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false
@@ -555,7 +557,8 @@
         "measurement_key": { "description": "measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ", "type": "string" },
         "text_position": { "description": "寸法値の文字の中央の点 [X, Y]。元の形式が持たなければ書かない", "type": "array", "items": { "type": "number" } },
         "text_rotation": { "description": "寸法値の文字の回転（度）。寸法線に沿わせるなら書かない", "type": "number" },
-        "style": { "description": "寸法スタイルの元の名前", "type": "string" }
+        "style": { "description": "寸法スタイルの元の名前", "type": "string" },
+        "style_id": { "description": "寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から", "type": "string" }
       },
       "required": ["shape", "kind", "label", "style"],
       "additionalProperties": false

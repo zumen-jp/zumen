@@ -525,7 +525,11 @@ fn drawings_take_back_texts_added_through_the_boundary() {
         // 足した文字の文字スタイルは、図面の Standard の名前で読み直す
         let style = text(&found, "/style").unwrap_or_else(|| panic!("{name}: {found:?}"));
         assert!(style.eq_ignore_ascii_case("Standard"), "{name}: {style}");
-        let expected = format!(r#"{},"style":"{style}"}}"#, geometry.trim_end_matches('}'));
+        let style_id = text(&found, "/style_id").unwrap_or_else(|| panic!("{name}: {found:?}"));
+        let expected = format!(
+            r#"{},"style":"{style}","style_id":"{style_id}"}}"#,
+            geometry.trim_end_matches('}')
+        );
         let expected = zumen_json::parse(expected.as_bytes()).unwrap();
         assert!(close(&found, &expected), "{name}: {found:?}");
     }
@@ -596,8 +600,9 @@ fn drawings_take_back_texts_fitted_between_two_points() {
             let number =
                 |pointer: &str| zumen_json::number(geometry.pointer(pointer).unwrap()).unwrap();
             let style = text(&geometry, "/style").unwrap();
+            let style_id = text(&geometry, "/style_id").unwrap();
             let moved = format!(
-                r#"{{"shape":"text","content":"GRID X1","position":[{},{}],"end":[{},{}],"fit":"{}","height":{},"rotation":{},"style":"{style}"}}"#,
+                r#"{{"shape":"text","content":"GRID X1","position":[{},{}],"end":[{},{}],"fit":"{}","height":{},"rotation":{},"style":"{style}","style_id":"{style_id}"}}"#,
                 number("/position/0") + 5.0,
                 number("/position/1") - 2.5,
                 number("/end/0") + 5.0,
@@ -659,13 +664,17 @@ fn drawings_take_back_texts_fitted_between_two_points() {
             .unwrap_or_else(|| panic!("{name}: {id}"));
         // 足した文字の文字スタイルは、図面の Standard の名前で読み直す
         let style = text(&found, "/style").unwrap_or_else(|| panic!("{name}: {found:?}"));
-        let expected = format!(r#"{},"style":"{style}"}}"#, adding.trim_end_matches('}'));
+        let style_id = text(&found, "/style_id").unwrap_or_else(|| panic!("{name}: {found:?}"));
+        let expected = format!(
+            r#"{},"style":"{style}","style_id":"{style_id}"}}"#,
+            adding.trim_end_matches('}')
+        );
         let expected = zumen_json::parse(expected.as_bytes()).unwrap();
         assert!(close(&found, &expected), "{name}: {found:?}");
         added[dwg] += 1;
         // 足した文字も、2 点を動かして置き換える。DWG の試料は 2 点の間に合わせる文字を持たないため
         let moving = format!(
-            r#"{{"shape":"text","content":"GRID X2","position":[-6,1],"end":[-12,1],"fit":"aligned","height":2,"rotation":180,"style":"{style}"}}"#
+            r#"{{"shape":"text","content":"GRID X2","position":[-6,1],"end":[-12,1],"fit":"aligned","height":2,"rotation":180,"style":"{style}","style_id":"{style_id}"}}"#
         );
         let (status, response) = call(
             &mut session,
@@ -729,11 +738,12 @@ fn drawings_take_back_formatted_texts_through_the_boundary() {
             let width =
                 number(&was, "/width").map_or(String::new(), |w| format!(r#","width":{w}"#));
             let geometry = format!(
-                r#"{{"shape":"formatted_text","content":"GRID\\PX2","position":[7.5,-2],"height":{},"rotation":{},"attachment":"{}"{width},"style":"{}"}}"#,
+                r#"{{"shape":"formatted_text","content":"GRID\\PX2","position":[7.5,-2],"height":{},"rotation":{},"attachment":"{}"{width},"style":"{}","style_id":"{}"}}"#,
                 number(&was, "/height").unwrap(),
                 number(&was, "/rotation").unwrap(),
                 text(&was, "/attachment").unwrap(),
                 text(&was, "/style").unwrap(),
+                text(&was, "/style_id").unwrap(),
             );
             let (status, response) = call(
                 &mut session,
@@ -821,7 +831,11 @@ fn drawings_take_back_formatted_texts_through_the_boundary() {
             .unwrap_or_else(|| panic!("{name}: {id}"));
         let style = text(&found, "/style").unwrap_or_else(|| panic!("{name}: {found:?}"));
         assert!(style.eq_ignore_ascii_case("Standard"), "{name}: {style}");
-        let expected = format!(r#"{},"style":"{style}"}}"#, geometry.trim_end_matches('}'));
+        let style_id = text(&found, "/style_id").unwrap_or_else(|| panic!("{name}: {found:?}"));
+        let expected = format!(
+            r#"{},"style":"{style}","style_id":"{style_id}"}}"#,
+            geometry.trim_end_matches('}')
+        );
         let expected = zumen_json::parse(expected.as_bytes()).unwrap();
         assert!(close(&found, &expected), "{name}: {found:?}");
     }
@@ -1391,4 +1405,102 @@ fn drawings_take_back_attribute_values_changed_through_the_boundary() {
         drawings().is_empty() || changed.iter().all(|count| *count > 0),
         "{changed:?}"
     );
+}
+
+/// 試料の文字と書式つきの文字は、`tables` の文字スタイルを ID（`style_id`）で指す。その ID だけで文字を足すと、
+/// 書き戻したファイルを開き直した文字が、同じ文字スタイルを指す（決定 0158）
+#[test]
+fn drawings_refer_to_text_styles_by_their_ids() {
+    let budget = r#""budget":{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}"#;
+    let (mut referred, mut added) = ([0, 0], [0, 0]);
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let table = tables(&mut session, &name);
+        let layer_id = text(&table, "/layers/0/id").unwrap().to_string();
+        let Some(Value::Array(styles)) = table.pointer("/text_styles").cloned() else {
+            panic!("{name}");
+        };
+        let items: Vec<(String, String)> = styles
+            .iter()
+            .map(|item| {
+                (
+                    text(item, "/id").unwrap().to_string(),
+                    text(item, "/name").unwrap().to_string(),
+                )
+            })
+            .collect();
+        let unique = |id: &str| {
+            let (_, found) = items.iter().find(|(item, _)| item == id)?;
+            let same = items
+                .iter()
+                .filter(|(_, other)| other.eq_ignore_ascii_case(found))
+                .count();
+            (same == 1).then(|| found.clone())
+        };
+        let mut chosen = None;
+        for (id, geometry) in shapes(&mut session, &name) {
+            let Some(geometry) = geometry else { continue };
+            if !matches!(text(&geometry, "/shape"), Some("text" | "formatted_text")) {
+                continue;
+            }
+            // 要素が名前で指すだけの文字スタイルも、定義のない項目として表にあるので、ID は必ず決まる
+            let style = text(&geometry, "/style").unwrap();
+            let style_id = text(&geometry, "/style_id").unwrap_or_else(|| panic!("{name}: {id}"));
+            let (_, found) = items
+                .iter()
+                .find(|(item, _)| item == style_id)
+                .unwrap_or_else(|| panic!("{name}: {id} {style_id}"));
+            assert!(found.eq_ignore_ascii_case(style), "{name}: {id}");
+            referred[dwg] += 1;
+            if chosen.is_none() && id.starts_with("space/0/") {
+                chosen = unique(style_id).map(|found| (style_id.to_string(), found));
+            }
+        }
+        let Some((style_id, style)) = chosen else {
+            continue;
+        };
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{{"shape":"text","content":"STYLE","position":[1,2],"height":2.5,"rotation":0,"style_id":"{style_id}"}}}}],{budget}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let id = text(&response, "/result/applied/0/id").unwrap().to_string();
+        let file = session.take(0).unwrap();
+        session.push(b"again", &file).unwrap();
+        assert!(open(&mut session, "again"), "{name}");
+        let geometry = shapes(&mut session, "again")
+            .into_iter()
+            .find(|(found, _)| *found == id)
+            .and_then(|(_, geometry)| geometry)
+            .unwrap_or_else(|| panic!("{name}: {id}"));
+        // DWG の文字は、文字スタイルの名前を元の図形の書き方（STANDARD など）で返すことがある
+        assert!(
+            text(&geometry, "/style").is_some_and(|found| found.eq_ignore_ascii_case(&style)),
+            "{name}"
+        );
+        assert_eq!(
+            text(&geometry, "/style_id"),
+            Some(style_id.as_str()),
+            "{name}"
+        );
+        added[dwg] += 1;
+    }
+    if !drawings().is_empty() {
+        assert!(referred.iter().all(|count| *count > 0), "{referred:?}");
+        assert!(added.iter().all(|count| *count > 0), "{added:?}");
+    }
 }
