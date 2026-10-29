@@ -88,6 +88,17 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
 pub(crate) struct PaperFrame {
     pub(crate) origin: [f64; 2],
     pub(crate) mm: f64,
+    /// 用紙の図形の置き場所。用紙に図形を足すときに、同じ所に置く
+    pub(crate) home: Home,
+}
+
+/// 図形の置き場所。所有者のブロックのレコードと、BLOCKS の所（ほかのレイアウトのペーパー空間のブロック）に
+/// あるかと、ペーパー空間の印（67 = 1）を持つか
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Home {
+    pub(crate) owner: Option<u64>,
+    pub(crate) blocks: bool,
+    pub(crate) paper: bool,
 }
 
 /// 図面モデルと、要素を持つ用紙ごとの座標の対応
@@ -775,6 +786,11 @@ impl Lifter<'_> {
                     PaperFrame {
                         origin: self.origin,
                         mm,
+                        home: Home {
+                            owner: object.owner(),
+                            blocks: object.section == Section::Blocks,
+                            paper: matches!(object.first(67), Some(Data::Int(1))),
+                        },
                     },
                 );
                 let point = |x: f64, y: f64| PaperPoint {

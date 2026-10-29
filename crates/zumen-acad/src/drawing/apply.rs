@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{PaperFrame, framed, mtext, source, text};
+use super::{MODEL, PaperFrame, framed, mtext, source, text};
 use add::{Born, Target, kind_of};
 
 mod add;
@@ -70,14 +70,30 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
             Edit::Replace(element) => (&element.source, model.contains_key(&element.source)),
             Edit::ReplaceOnSheet(element) => (&element.source, paper.contains_key(&element.source)),
             Edit::Remove(at) => (at, model.contains_key(at) || paper.contains_key(at)),
-            Edit::Add(element) => {
-                match born.record(element) {
+            Edit::Add(_) | Edit::AddOnSheet(_) => {
+                let (record, kind, at) = match change {
+                    Edit::Add(element) => (
+                        born.record(element, &InSpace(MODEL), born.model()),
+                        kind_of(&element.shape),
+                        &element.source,
+                    ),
+                    Edit::AddOnSheet(element) => (
+                        anchor(&element.shape).and_then(|at| {
+                            let frame = *frames.get(&at.sheet)?;
+                            born.record(element, &OnSheet(at.sheet, frame), frame.home)
+                        }),
+                        kind_of(&element.shape),
+                        &element.source,
+                    ),
+                    _ => continue,
+                };
+                match record {
                     Some(record) => added.push(record),
                     None => {
                         cx.report(
                             Diagnostic::new(codes::DXF_CHANGE_UNSUPPORTED)
-                                .with("kind", kind_of(&element.shape))
-                                .at(element.source.clone()),
+                                .with("kind", kind)
+                                .at(at.clone()),
                         );
                         rejected = true;
                     }
@@ -96,7 +112,7 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
             Edit::ReplaceOnSheet(element) => {
                 paper.get(at).is_some_and(|was| element.shape != was.shape)
             }
-            Edit::Remove(_) | Edit::Add(_) => false,
+            Edit::Remove(_) | Edit::Add(_) | Edit::AddOnSheet(_) => false,
         };
         if reshaped && let Some(code) = moving_xdata(object) {
             cx.report(
@@ -125,7 +141,7 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
                 })
                 .map(|values| replaced.push((index, values))),
             Edit::Remove(_) => (!followed(object)).then(|| removed.push(index)),
-            Edit::Add(_) => None,
+            Edit::Add(_) | Edit::AddOnSheet(_) => None,
         };
         if planned.is_none() {
             cx.report(
@@ -196,7 +212,9 @@ struct OnSheet(SheetId, PaperFrame);
 
 impl Frame<PaperPoint> for OnSheet {
     fn point(&self, point: &PaperPoint) -> Option<[f64; 2]> {
-        let PaperFrame { origin: [x, y], mm } = self.1;
+        let PaperFrame {
+            origin: [x, y], mm, ..
+        } = self.1;
         (point.sheet == self.0).then_some([point.x / mm + x, point.y / mm + y])
     }
 

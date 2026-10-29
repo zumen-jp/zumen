@@ -1164,3 +1164,74 @@ fn elements_that_cannot_be_added_change_nothing() {
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+#[test]
+fn sheet_elements_are_added_in_paper_millimeters() {
+    use zumen_drawing::{PaperLength, PaperPoint, SheetId};
+    let mut file = testkit::read::<Dxf>(&sheet()).0.unwrap();
+    let drawing = lift(&file);
+    let template = drawing.sheets[0].elements[0].clone();
+    let at = |sheet: u32, x: f64, y: f64| PaperPoint {
+        sheet: SheetId(sheet),
+        x,
+        y,
+    };
+    let mut line = template.clone();
+    line.shape = Shape::Line {
+        start: at(0, 25.4, 50.8),
+        end: at(0, 50.8, 25.4),
+    };
+    let mut circle = template.clone();
+    circle.shape = Shape::Circle {
+        center: at(0, 25.4, 25.4),
+        radius: Length::Paper(PaperLength(12.7)),
+    };
+    let (result, found) = apply(
+        &mut file,
+        vec![
+            Edit::AddOnSheet(Box::new(line.clone())),
+            Edit::AddOnSheet(Box::new(circle.clone())),
+        ],
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    let shapes: Vec<_> = after.sheets[0].elements[2..]
+        .iter()
+        .map(|e| e.shape.clone())
+        .collect();
+    assert_eq!(shapes, [line.shape, circle.shape]);
+    // 用紙の mm を図面の単位（インチ）に戻して用紙の原点を足し、ペーパー空間の印を付ける。値は、インチに
+    // 戻して最後の桁が違わないものを選ぶ
+    let text = String::from_utf8(written).unwrap();
+    assert!(text.contains(
+        "  0\nLINE\n  5\n20\n 67\n1\n  8\n0\n 10\n11.0\n 20\n22.0\n 30\n0.0\n 11\n12.0\n 21\n21.0\n"
+    ));
+    assert_eq!(elements(&after).len(), 1);
+}
+
+#[test]
+fn sheet_elements_need_a_sheet_with_elements() {
+    use zumen_drawing::{PaperPoint, SheetId};
+    let src = sheet();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut line = lift(&file).sheets[0].elements[0].clone();
+    let at = |x: f64| PaperPoint {
+        sheet: SheetId(5),
+        x,
+        y: 0.0,
+    };
+    line.shape = Shape::Line {
+        start: at(0.0),
+        end: at(1.0),
+    };
+    line.source = Ref::at_record(900);
+    let (result, found) = apply(&mut file, vec![Edit::AddOnSheet(Box::new(line))]);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(codes::DXF_CHANGE_UNSUPPORTED, vec![Ref::at_record(900)])]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}

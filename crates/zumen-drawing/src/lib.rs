@@ -2197,4 +2197,6 @@ pub enum Edit {
     /// 実寸の空間に、この要素を足す。要素の出所は使わない。書き戻したファイルを読み直すと、足した要素は
     /// 新しい出所を持つ
     Add(Box<Element<ModelPoint>>),
+    /// 用紙に、この要素を足す。用紙は要素の点が決め、出所は使わない
+    AddOnSheet(Box<Element<PaperPoint>>),
 }

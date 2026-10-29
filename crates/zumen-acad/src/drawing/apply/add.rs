@@ -1,21 +1,29 @@
-//! 図面モデルの実寸の空間の要素を、表のモデル空間の新しい図形として足す（決定 0155）。
+//! 図面モデルの実寸の空間と用紙の要素を、表の新しい図形として足す（決定 0155）。実寸の空間の要素は
+//! モデル空間に、用紙の要素は、その用紙のほかの図形と同じ所（今のレイアウトのペーパー空間か、ほかの
+//! レイアウトのペーパー空間のブロック）に足す。
 //!
 //! 足す図形は、レイヤ・線種・文字の体裁・ブロックを名前で指す。指す定義が図面になければ足さない。
 //! 表が DXF の区切り（100）を持てば、DXF Reference の並びで区切りも書く。ハンドルは、表のどのハンドル
 //! よりも大きく、見出しの HANDSEED より小さくない値から順に付ける。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Frame, InSpace, nonnegative, positive, real, turned};
+use super::{Frame, nonnegative, positive, real, turned};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
-use crate::drawing::{BLOCK, MODEL};
+use crate::drawing::{BLOCK, Home};
 use zumen_drawing::{
     ColorSystem, Drawing2D, Edge, Element, Fit, HeightMeaning, Horizontal, Inherit, LayerId,
-    LineTypeId, LineWeight, ModelPoint, Placement, Polyline, Shape, Symbol, Text, Vertical,
+    LineTypeId, LineWeight, Placement, Polyline, Shape, Symbol, Text, Vertical,
 };
 
-/// 足す図形の種類と、ハンドルと所有者の後の値
-pub(super) type Record = (&'static [u8], Vec<Value>);
+/// 足す図形
+pub(super) struct Record {
+    kind: &'static [u8],
+    /// ハンドルと所有者の後の値
+    values: Vec<Value>,
+    /// 置き場所
+    home: Home,
+}
 
 /// 書き戻す先
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,6 +52,8 @@ pub(super) struct Born {
     line_types: BTreeMap<LineTypeId, String>,
     /// 最初に付けるハンドル。表がハンドルを持たなければ `None`
     next: Option<u64>,
+    /// ENDBLK を持つブロックのレコードのハンドル。BLOCKS の所に足す図形は、その ENDBLK の前に置く
+    ends: BTreeSet<u64>,
 }
 
 /// 名前で指す定義の表
@@ -101,7 +111,14 @@ impl Born {
                     .max(max.map_or(1, |max| max.saturating_add(1))),
             ),
         };
+        let ends = db
+            .objects()
+            .iter()
+            .filter(|object| object.kind == b"ENDBLK")
+            .filter_map(Object::owner)
+            .collect();
         Born {
+            ends,
             owner,
             markers,
             version,
@@ -143,11 +160,32 @@ impl Born {
         self.version.as_slice() >= release
     }
 
-    /// 要素を足す図形のレコード。表せない要素なら `None`
-    pub(super) fn record(&self, element: &Element<ModelPoint>) -> Option<Record> {
+    /// モデル空間の図形の置き場所
+    pub(super) fn model(&self) -> Home {
+        Home {
+            owner: self.owner,
+            blocks: false,
+            paper: false,
+        }
+    }
+
+    /// 要素を、座標の対応 `frame` で `home` に足す図形。表せない要素なら `None`
+    pub(super) fn record<P: Copy>(
+        &self,
+        element: &Element<P>,
+        frame: &impl Frame<P>,
+        home: Home,
+    ) -> Option<Record> {
         // 足した図形は、ハンドルで指されるので、ハンドルを付けられない図面には足さない
         self.next?;
+        // BLOCKS の所に足す図形は、所有者のブロックの ENDBLK の前に置く。DWG は、その図形に 67 を持たない
+        if home.blocks && !home.owner.is_some_and(|owner| self.ends.contains(&owner)) {
+            return None;
+        }
         let mut values = vec![text(100, "AcDbEntity")];
+        if home.paper && !(home.blocks && matches!(self.target, Target::Dwg(_))) {
+            values.push(int(67, 1));
+        }
         let layer = self.layers.get(&element.layer)?;
         values.push(self.named(8, b"LAYER", layer)?);
         let style = &element.style;
@@ -193,18 +231,17 @@ impl Born {
             }
             values.push(int(420, i64::from(u32::from_be_bytes([0, r, g, b]))));
         }
-        let frame = InSpace(MODEL);
         let kind = match &element.shape {
             Shape::Line { start, end } | Shape::Curve(Edge::Line { start, end }) => {
                 values.push(text(100, "AcDbLine"));
-                point(&mut values, &frame, 10, start)?;
-                point(&mut values, &frame, 11, end)?;
+                point(&mut values, frame, 10, start)?;
+                point(&mut values, frame, 11, end)?;
                 b"LINE".as_slice()
             }
             Shape::Circle { center, radius } => {
                 values.push(text(100, "AcDbCircle"));
-                point(&mut values, &frame, 10, center)?;
-                values.push(real(40, positive(&frame, radius)?)?);
+                point(&mut values, frame, 10, center)?;
+                values.push(real(40, positive(frame, radius)?)?);
                 b"CIRCLE"
             }
             Shape::Curve(Edge::Arc {
@@ -216,8 +253,8 @@ impl Born {
             }) => {
                 let (start, end) = turned(*start, *end, *counterclockwise);
                 values.push(text(100, "AcDbCircle"));
-                point(&mut values, &frame, 10, center)?;
-                values.push(real(40, positive(&frame, radius)?)?);
+                point(&mut values, frame, 10, center)?;
+                values.push(real(40, positive(frame, radius)?)?);
                 values.push(text(100, "AcDbArc"));
                 values.push(real(50, start)?);
                 values.push(real(51, end)?);
@@ -239,7 +276,7 @@ impl Born {
                     return None;
                 }
                 values.push(text(100, "AcDbEllipse"));
-                point(&mut values, &frame, 10, center)?;
+                point(&mut values, frame, 10, center)?;
                 values.extend([real(11, axis[0])?, real(21, axis[1])?, real(31, 0.0)?]);
                 values.push(real(40, *ratio)?);
                 values.push(real(41, start.to_radians())?);
@@ -248,15 +285,15 @@ impl Born {
             }
             Shape::Polyline(line) => {
                 values.push(text(100, "AcDbPolyline"));
-                lwpolyline(&mut values, &frame, line)?;
+                lwpolyline(&mut values, frame, line)?;
                 b"LWPOLYLINE"
             }
             Shape::Text(text) => {
-                self.lettering(&mut values, &frame, text)?;
+                self.lettering(&mut values, frame, text)?;
                 b"TEXT"
             }
             Shape::Symbol(symbol) => {
-                self.placing(&mut values, &frame, symbol)?;
+                self.placing(&mut values, frame, symbol)?;
                 b"INSERT"
             }
             _ => return None,
@@ -264,16 +301,16 @@ impl Born {
         if !self.markers {
             values.retain(|value| value.code != 100);
         }
-        Some((kind, values))
+        Some(Record { kind, values, home })
     }
 
     /// TEXT（DXF Reference「TEXT」）の値。位置合わせが左の基準線でなければ、11 を基点とし、10 も同じ点にする。
     /// 10 は位置合わせから決まる点で、読み直すときに使わず、AutoCAD は図面を開き直すと決め直す
-    fn lettering(
+    fn lettering<P>(
         &self,
         values: &mut Vec<Value>,
-        frame: &InSpace,
-        lettering: &Text<ModelPoint>,
+        frame: &impl Frame<P>,
+        lettering: &Text<P>,
     ) -> Option<()> {
         if lettering.height.meaning != HeightMeaning::Declared("dxf.TEXT.40") {
             return None;
@@ -346,11 +383,11 @@ impl Born {
     }
 
     /// INSERT（DXF Reference「INSERT」）の値。格子・属性・切り抜きを持つ記号と、空間のブロックは足さない
-    fn placing(
+    fn placing<P>(
         &self,
         values: &mut Vec<Value>,
-        frame: &InSpace,
-        symbol: &Symbol<ModelPoint>,
+        frame: &impl Frame<P>,
+        symbol: &Symbol<P>,
     ) -> Option<()> {
         let name = &symbol.key.name;
         let space = name.to_lowercase();
@@ -381,29 +418,50 @@ impl Born {
         Some(())
     }
 
-    /// 足す図形を、表のモデル空間に足す。ハンドルを順に付け、所有者をモデル空間のブロックにする
+    /// 足す図形を表に足す。ハンドルを順に付け、所有者を置き場所のブロックのレコードにする。DXF の BLOCKS の
+    /// 所の図形は、所有者のブロックの ENDBLK の前に置く。DWG は、足したオブジェクトを表の終わりにだけ置け、
+    /// 所有者のブロックの図形の列には書き戻しがつなぐ（決定 0079）
     pub(super) fn push(&self, db: &mut AcadDb, added: Vec<Record>) {
         let Some(mut next) = self.next else {
             return;
         };
-        for (kind, own) in added {
+        for Record {
+            kind,
+            values: own,
+            home,
+        } in added
+        {
             let mut values = vec![Value {
                 code: 5,
                 data: Data::Handle(next),
             }];
-            if let Some(owner) = self.owner {
+            if let Some(owner) = home.owner {
                 values.push(Value {
                     code: 330,
                     data: Data::Handle(owner),
                 });
             }
             values.extend(own);
-            db.push(Object {
+            let object = Object {
                 kind: kind.to_vec(),
-                section: Section::Entities,
+                section: if home.blocks {
+                    Section::Blocks
+                } else {
+                    Section::Entities
+                },
                 values,
                 origin: Origin::New,
+            };
+            let end = db.objects().iter().position(|object| {
+                object.kind == b"ENDBLK"
+                    && home.blocks
+                    && self.target == Target::Dxf
+                    && object.owner() == home.owner
             });
+            match end {
+                Some(index) => db.insert(index, object),
+                None => db.push(object),
+            }
             next = next.saturating_add(1);
         }
     }
@@ -433,7 +491,7 @@ pub(super) fn kind_of<P>(shape: &Shape<P>) -> &'static str {
 
 /// LWPOLYLINE（DXF Reference「LWPOLYLINE」）の値。頂点の数（90）・閉じていること（70）・一定の幅（43）と、
 /// 頂点ごとに 10・20、頂点ごとの幅（40・41）、0 でない膨らみ（42）を並べる
-fn lwpolyline(values: &mut Vec<Value>, frame: &InSpace, line: &Polyline<ModelPoint>) -> Option<()> {
+fn lwpolyline<P>(values: &mut Vec<Value>, frame: &impl Frame<P>, line: &Polyline<P>) -> Option<()> {
     let count = line.vertices.len();
     let widths = !line.vertex_widths.is_empty();
     if count == 0 || (widths && (line.vertex_widths.len() != count || line.width.is_some())) {
@@ -459,7 +517,7 @@ fn lwpolyline(values: &mut Vec<Value>, frame: &InSpace, line: &Polyline<ModelPoi
 }
 
 /// 点の X・Y・Z（`code`、`code + 10`、`code + 20`）。Z は 0
-fn point(values: &mut Vec<Value>, frame: &InSpace, code: i16, at: &ModelPoint) -> Option<()> {
+fn point<P>(values: &mut Vec<Value>, frame: &impl Frame<P>, code: i16, at: &P) -> Option<()> {
     let [x, y] = frame.point(at)?;
     values.extend([real(code, x)?, real(code + 10, y)?, real(code + 20, 0.0)?]);
     Some(())

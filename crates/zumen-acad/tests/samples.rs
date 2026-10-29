@@ -2833,7 +2833,9 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
     reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
-    use zumen_drawing::{Changes, Drawing2D, Edit, PaperPoint, Placement, Shape};
+    use zumen_drawing::{
+        Changes, Drawing2D, Edit, Inherit, Length, PaperLength, PaperPoint, Placement, Shape, Style,
+    };
     use zumen_sdk::{Apply, Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
         let mut diag = Diagnostics::new();
@@ -2941,7 +2943,98 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
             "{}",
             path.display()
         );
+        // 要素を持つどの用紙にも、線分と円を足せる。足した要素は、その用紙の終わりに並ぶ（決定 0155）
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let mut added = Vec::new();
+        for sheet in before
+            .sheets
+            .iter()
+            .filter(|sheet| !sheet.elements.is_empty())
+        {
+            let at = |x: f64, y: f64| PaperPoint {
+                sheet: sheet.id,
+                x,
+                y,
+            };
+            let shapes = [
+                Shape::Line {
+                    start: at(5.0, 5.0),
+                    end: at(50.0, 30.0),
+                },
+                Shape::Circle {
+                    center: at(20.0, 20.0),
+                    radius: Length::Paper(PaperLength(7.5)),
+                },
+            ];
+            for shape in shapes {
+                let mut element = sheet.elements[0].clone();
+                element.shape = shape;
+                element.style = Style {
+                    color: Inherit::Layer,
+                    line_type: Inherit::Layer,
+                    line_type_scale: 1.0,
+                    line_weight: Some(Inherit::Layer),
+                };
+                added.push(element);
+            }
+        }
+        let edits = added
+            .iter()
+            .map(|element| Edit::AddOnSheet(Box::new(element.clone())))
+            .collect();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes { edits },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        );
+        assert_eq!(
+            result,
+            Ok(()),
+            "{}: {:?}",
+            path.display(),
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+        );
+        let grown = lift(
+            &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                .0
+                .unwrap(),
+        );
+        for sheet in before
+            .sheets
+            .iter()
+            .filter(|sheet| !sheet.elements.is_empty())
+        {
+            let found = &grown
+                .sheets
+                .iter()
+                .find(|s| s.id == sheet.id)
+                .unwrap()
+                .elements;
+            assert_eq!(found.len(), sheet.elements.len() + 2, "{}", path.display());
+            let mine = added
+                .iter()
+                .filter(|e| anchor_sheet(&e.shape) == Some(sheet.id));
+            for (found, element) in found[sheet.elements.len()..].iter().zip(mine) {
+                assert!(
+                    close(
+                        &format!("{:?}", found.shape),
+                        &format!("{:?}", element.shape)
+                    ),
+                    "{}: {:?}",
+                    path.display(),
+                    found.shape
+                );
+            }
+        }
         expected.len()
+    }
+    /// 線分と円の点が置かれた用紙
+    fn anchor_sheet(shape: &Shape<PaperPoint>) -> Option<zumen_drawing::SheetId> {
+        match shape {
+            Shape::Line { start, .. } => Some(start.sheet),
+            Shape::Circle { center, .. } => Some(center.sheet),
+            _ => None,
+        }
     }
     // 用紙に要素を持つ試料。farmhouse.dwg は今のレイアウトとほかの 25 のレイアウトに、features-r2018.dxf は
     // ほかのレイアウト（A3-PLAN）に要素を持つ
