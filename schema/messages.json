@@ -398,7 +398,8 @@
         { "$ref": "#/$defs/text_geometry" },
         { "$ref": "#/$defs/formatted_text_geometry" },
         { "$ref": "#/$defs/symbol_geometry" },
-        { "$ref": "#/$defs/spline_geometry" }
+        { "$ref": "#/$defs/spline_geometry" },
+        { "$ref": "#/$defs/dimension_geometry" }
       ]
     },
     "line_geometry": {
@@ -524,6 +525,55 @@
       },
       "required": ["shape", "degree", "knots", "control", "closed", "periodic"],
       "additionalProperties": false
+    },
+    "dimension_geometry": {
+      "description": "寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "dimension" },
+        "kind": { "description": "寸法の種類", "$ref": "#/$defs/dimension_kind" },
+        "first": { "description": "1 本目の補助線の点か、測る角度の 1 本目の線の点か、円弧の始めの点 [X, Y]。linear・aligned・angular・arc_length が持つ", "type": "array", "items": { "type": "number" } },
+        "second": { "description": "2 本目の補助線の点か、測る角度の 2 本目の線の点か、円弧の終わりの点 [X, Y]。linear・aligned・angular・arc_length が持つ", "type": "array", "items": { "type": "number" } },
+        "line": { "description": "寸法線が通る点 [X, Y]。linear・aligned が持つ", "type": "array", "items": { "type": "number" } },
+        "rotation": { "description": "測る向き（度）。linear が持つ", "type": "number" },
+        "oblique": { "description": "補助線の傾き（度）。傾けなければ 0。linear・aligned が持つ", "type": "number" },
+        "vertex": { "description": "角度の頂点 [X, Y]。angular が持つ", "type": "array", "items": { "type": "number" } },
+        "first_line": { "description": "1 本目の線の始点と終点 [[X, Y], [X, Y]]。angular_lines が持つ", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "second_line": { "description": "2 本目の線の始点と終点 [[X, Y], [X, Y]]。angular_lines が持つ", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "arc": { "description": "寸法の弧が通る点 [X, Y]。angular・angular_lines・arc_length が持つ", "type": "array", "items": { "type": "number" } },
+        "center": { "description": "中心 [X, Y]。arc_length・radius が持つ", "type": "array", "items": { "type": "number" } },
+        "chord": { "description": "円の上の点 [X, Y]。radius・diameter が持つ", "type": "array", "items": { "type": "number" } },
+        "opposite": { "description": "chord と向かい合う円の上の点 [X, Y]。diameter が持つ", "type": "array", "items": { "type": "number" } },
+        "leader": { "description": "引出線の長さ。radius・diameter が持つ", "type": "number" },
+        "origin": { "description": "原点 [X, Y]。ordinate が持つ", "type": "array", "items": { "type": "number" } },
+        "feature": { "description": "測る点 [X, Y]。ordinate が持つ", "type": "array", "items": { "type": "number" } },
+        "leader_end": { "description": "引出線の終点 [X, Y]。ordinate が持つ", "type": "array", "items": { "type": "number" } },
+        "axis": { "description": "測る座標の軸。ordinate が持つ", "$ref": "#/$defs/dimension_axis" },
+        "label": { "description": "寸法値の文字の書き方", "$ref": "#/$defs/dimension_label" },
+        "content": { "description": "利用者が書いた寸法値の文字の元の内容。label が override のときだけ持つ。測定値に置き換える符号（DXF の <>）と書式の符号もそのまま持つ", "type": "string" },
+        "measurement": { "description": "元の形式が保存した測定値。単位と倍率は measurement_key の欄に従う", "type": "number" },
+        "measurement_key": { "description": "measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ", "type": "string" },
+        "text_position": { "description": "寸法値の文字の中央の点 [X, Y]。元の形式が持たなければ書かない", "type": "array", "items": { "type": "number" } },
+        "text_rotation": { "description": "寸法値の文字の回転（度）。寸法線に沿わせるなら書かない", "type": "number" },
+        "style": { "description": "寸法スタイルの元の名前", "type": "string" }
+      },
+      "required": ["shape", "kind", "label", "style"],
+      "additionalProperties": false
+    },
+    "dimension_kind": {
+      "description": "寸法の種類。linear は 2 点を測る向きに、aligned は 2 点を結ぶ向きに測った長さ。angular は頂点から 2 点へ向かう線の、angular_lines は 2 本の線のなす角度。arc_length は円弧の長さ。radius は半径、diameter は直径。ordinate は原点からの X か Y の座標",
+      "type": "string",
+      "enum": ["linear", "aligned", "angular", "angular_lines", "arc_length", "radius", "diameter", "ordinate"]
+    },
+    "dimension_axis": {
+      "description": "座標の軸",
+      "type": "string",
+      "enum": ["x", "y"]
+    },
+    "dimension_label": {
+      "description": "寸法値の文字の書き方。measurement は測定値を書き、override は利用者が書いた文字（content）を書き、hidden は書かない",
+      "type": "string",
+      "enum": ["measurement", "override", "hidden"]
     },
     "symbol_geometry": {
       "description": "記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から",

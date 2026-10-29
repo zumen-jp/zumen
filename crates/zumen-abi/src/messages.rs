@@ -9,6 +9,7 @@ use zumen_json::{self as json, FromJson, Invalid, ObjectReader, Problem, ToJson,
 
 /// 要求。op の値で形が決まる
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Request {
     /// コアの版と、使える op・形式を尋ねる
     Capabilities(CapabilitiesRequest),
@@ -1434,6 +1435,7 @@ impl ToJson for EntityField {
 
 /// 形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Geometry {
     /// 線分
     Line(LineGeometry),
@@ -1453,6 +1455,8 @@ pub enum Geometry {
     Symbol(SymbolGeometry),
     /// スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない
     Spline(SplineGeometry),
+    /// 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から
+    Dimension(DimensionGeometry),
 }
 
 impl Geometry {
@@ -1467,6 +1471,7 @@ impl Geometry {
         "formatted_text",
         "symbol",
         "spline",
+        "dimension",
     ];
 
     /// 目印の欄（`shape`）の値
@@ -1481,6 +1486,7 @@ impl Geometry {
             Self::FormattedText(_) => "formatted_text",
             Self::Symbol(_) => "symbol",
             Self::Spline(_) => "spline",
+            Self::Dimension(_) => "dimension",
         }
     }
 }
@@ -1500,6 +1506,7 @@ impl FromJson for Geometry {
             }
             "symbol" => Self::Symbol(SymbolGeometry::read_fields(&mut object)?),
             "spline" => Self::Spline(SplineGeometry::read_fields(&mut object)?),
+            "dimension" => Self::Dimension(DimensionGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -1519,6 +1526,7 @@ impl ToJson for Geometry {
             Self::FormattedText(value) => value.to_json(out),
             Self::Symbol(value) => value.to_json(out),
             Self::Spline(value) => value.to_json(out),
+            Self::Dimension(value) => value.to_json(out),
         }
     }
 }
@@ -2110,6 +2118,410 @@ impl ToJson for SplineGeometry {
     }
 }
 
+/// 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct DimensionGeometry {
+    /// 寸法の種類
+    pub kind: DimensionKind,
+    /// 1 本目の補助線の点か、測る角度の 1 本目の線の点か、円弧の始めの点 [X, Y]。linear・aligned・angular・arc_length が持つ
+    pub first: Option<Vec<f64>>,
+    /// 2 本目の補助線の点か、測る角度の 2 本目の線の点か、円弧の終わりの点 [X, Y]。linear・aligned・angular・arc_length が持つ
+    pub second: Option<Vec<f64>>,
+    /// 寸法線が通る点 [X, Y]。linear・aligned が持つ
+    pub line: Option<Vec<f64>>,
+    /// 測る向き（度）。linear が持つ
+    pub rotation: Option<f64>,
+    /// 補助線の傾き（度）。傾けなければ 0。linear・aligned が持つ
+    pub oblique: Option<f64>,
+    /// 角度の頂点 [X, Y]。angular が持つ
+    pub vertex: Option<Vec<f64>>,
+    /// 1 本目の線の始点と終点 [[X, Y], [X, Y]]。angular_lines が持つ
+    pub first_line: Option<Vec<Vec<f64>>>,
+    /// 2 本目の線の始点と終点 [[X, Y], [X, Y]]。angular_lines が持つ
+    pub second_line: Option<Vec<Vec<f64>>>,
+    /// 寸法の弧が通る点 [X, Y]。angular・angular_lines・arc_length が持つ
+    pub arc: Option<Vec<f64>>,
+    /// 中心 [X, Y]。arc_length・radius が持つ
+    pub center: Option<Vec<f64>>,
+    /// 円の上の点 [X, Y]。radius・diameter が持つ
+    pub chord: Option<Vec<f64>>,
+    /// chord と向かい合う円の上の点 [X, Y]。diameter が持つ
+    pub opposite: Option<Vec<f64>>,
+    /// 引出線の長さ。radius・diameter が持つ
+    pub leader: Option<f64>,
+    /// 原点 [X, Y]。ordinate が持つ
+    pub origin: Option<Vec<f64>>,
+    /// 測る点 [X, Y]。ordinate が持つ
+    pub feature: Option<Vec<f64>>,
+    /// 引出線の終点 [X, Y]。ordinate が持つ
+    pub leader_end: Option<Vec<f64>>,
+    /// 測る座標の軸。ordinate が持つ
+    pub axis: Option<DimensionAxis>,
+    /// 寸法値の文字の書き方
+    pub label: DimensionLabel,
+    /// 利用者が書いた寸法値の文字の元の内容。label が override のときだけ持つ。測定値に置き換える符号（DXF の <>）と書式の符号もそのまま持つ
+    pub content: Option<String>,
+    /// 元の形式が保存した測定値。単位と倍率は measurement_key の欄に従う
+    pub measurement: Option<f64>,
+    /// measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
+    pub measurement_key: Option<String>,
+    /// 寸法値の文字の中央の点 [X, Y]。元の形式が持たなければ書かない
+    pub text_position: Option<Vec<f64>>,
+    /// 寸法値の文字の回転（度）。寸法線に沿わせるなら書かない
+    pub text_rotation: Option<f64>,
+    /// 寸法スタイルの元の名前
+    pub style: String,
+}
+
+impl DimensionGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "dimension")?;
+        let kind = object.required("kind", DimensionKind::from_json)?;
+        let first = object.optional("first", |value| json::array(value, json::number))?;
+        let second = object.optional("second", |value| json::array(value, json::number))?;
+        let line = object.optional("line", |value| json::array(value, json::number))?;
+        let rotation = object.optional("rotation", json::number)?;
+        let oblique = object.optional("oblique", json::number)?;
+        let vertex = object.optional("vertex", |value| json::array(value, json::number))?;
+        let first_line = object.optional("first_line", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let second_line = object.optional("second_line", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let arc = object.optional("arc", |value| json::array(value, json::number))?;
+        let center = object.optional("center", |value| json::array(value, json::number))?;
+        let chord = object.optional("chord", |value| json::array(value, json::number))?;
+        let opposite = object.optional("opposite", |value| json::array(value, json::number))?;
+        let leader = object.optional("leader", json::number)?;
+        let origin = object.optional("origin", |value| json::array(value, json::number))?;
+        let feature = object.optional("feature", |value| json::array(value, json::number))?;
+        let leader_end = object.optional("leader_end", |value| json::array(value, json::number))?;
+        let axis = object.optional("axis", DimensionAxis::from_json)?;
+        let label = object.required("label", DimensionLabel::from_json)?;
+        let content = object.optional("content", json::string)?;
+        let measurement = object.optional("measurement", json::number)?;
+        let measurement_key = object.optional("measurement_key", json::string)?;
+        let text_position =
+            object.optional("text_position", |value| json::array(value, json::number))?;
+        let text_rotation = object.optional("text_rotation", json::number)?;
+        let style = object.required("style", json::string)?;
+        Ok(Self {
+            kind,
+            first,
+            second,
+            line,
+            rotation,
+            oblique,
+            vertex,
+            first_line,
+            second_line,
+            arc,
+            center,
+            chord,
+            opposite,
+            leader,
+            origin,
+            feature,
+            leader_end,
+            axis,
+            label,
+            content,
+            measurement,
+            measurement_key,
+            text_position,
+            text_rotation,
+            style,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("dimension");
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.first {
+            out.key("first");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.second {
+            out.key("second");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.line {
+            out.key("line");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.rotation {
+            out.key("rotation");
+            out.float(*value);
+        }
+        if let Some(value) = &self.oblique {
+            out.key("oblique");
+            out.float(*value);
+        }
+        if let Some(value) = &self.vertex {
+            out.key("vertex");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.first_line {
+            out.key("first_line");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.second_line {
+            out.key("second_line");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.arc {
+            out.key("arc");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.center {
+            out.key("center");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.chord {
+            out.key("chord");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.opposite {
+            out.key("opposite");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.leader {
+            out.key("leader");
+            out.float(*value);
+        }
+        if let Some(value) = &self.origin {
+            out.key("origin");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.feature {
+            out.key("feature");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.leader_end {
+            out.key("leader_end");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.axis {
+            out.key("axis");
+            value.to_json(out);
+        }
+        out.key("label");
+        self.label.to_json(out);
+        if let Some(value) = &self.content {
+            out.key("content");
+            out.string(value);
+        }
+        if let Some(value) = &self.measurement {
+            out.key("measurement");
+            out.float(*value);
+        }
+        if let Some(value) = &self.measurement_key {
+            out.key("measurement_key");
+            out.string(value);
+        }
+        if let Some(value) = &self.text_position {
+            out.key("text_position");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.text_rotation {
+            out.key("text_rotation");
+            out.float(*value);
+        }
+        out.key("style");
+        out.string(&self.style);
+    }
+}
+
+impl FromJson for DimensionGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DimensionGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 寸法の種類。linear は 2 点を測る向きに、aligned は 2 点を結ぶ向きに測った長さ。angular は頂点から 2 点へ向かう線の、angular_lines は 2 本の線のなす角度。arc_length は円弧の長さ。radius は半径、diameter は直径。ordinate は原点からの X か Y の座標
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DimensionKind {
+    /// `linear`
+    Linear,
+    /// `aligned`
+    Aligned,
+    /// `angular`
+    Angular,
+    /// `angular_lines`
+    AngularLines,
+    /// `arc_length`
+    ArcLength,
+    /// `radius`
+    Radius,
+    /// `diameter`
+    Diameter,
+    /// `ordinate`
+    Ordinate,
+}
+
+impl DimensionKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Linear,
+        Self::Aligned,
+        Self::Angular,
+        Self::AngularLines,
+        Self::ArcLength,
+        Self::Radius,
+        Self::Diameter,
+        Self::Ordinate,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Linear => "linear",
+            Self::Aligned => "aligned",
+            Self::Angular => "angular",
+            Self::AngularLines => "angular_lines",
+            Self::ArcLength => "arc_length",
+            Self::Radius => "radius",
+            Self::Diameter => "diameter",
+            Self::Ordinate => "ordinate",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "linear" => Some(Self::Linear),
+            "aligned" => Some(Self::Aligned),
+            "angular" => Some(Self::Angular),
+            "angular_lines" => Some(Self::AngularLines),
+            "arc_length" => Some(Self::ArcLength),
+            "radius" => Some(Self::Radius),
+            "diameter" => Some(Self::Diameter),
+            "ordinate" => Some(Self::Ordinate),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for DimensionKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for DimensionKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 座標の軸
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DimensionAxis {
+    /// `x`
+    X,
+    /// `y`
+    Y,
+}
+
+impl DimensionAxis {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::X, Self::Y];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::X => "x",
+            Self::Y => "y",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "x" => Some(Self::X),
+            "y" => Some(Self::Y),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for DimensionAxis {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for DimensionAxis {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 寸法値の文字の書き方。measurement は測定値を書き、override は利用者が書いた文字（content）を書き、hidden は書かない
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DimensionLabel {
+    /// `measurement`
+    Measurement,
+    /// `override`
+    Override,
+    /// `hidden`
+    Hidden,
+}
+
+impl DimensionLabel {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Measurement, Self::Override, Self::Hidden];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Measurement => "measurement",
+            Self::Override => "override",
+            Self::Hidden => "hidden",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "measurement" => Some(Self::Measurement),
+            "override" => Some(Self::Override),
+            "hidden" => Some(Self::Hidden),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for DimensionLabel {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for DimensionLabel {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
 /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct SymbolGeometry {
@@ -2614,6 +3026,7 @@ impl ToJson for Applied {
 
 /// 要素 1 つへの変更。kind の値で形が決まる
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Edit {
     /// 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない
     Restyle(RestyleEdit),
