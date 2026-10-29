@@ -1,5 +1,5 @@
 {
-  "description": "apply は、entities が返す ID とハッシュで要素を指す変更の一覧を、開いた DXF に当てて書き戻す。変更ごとに書き戻した後の ID とハッシュを返し、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。読み直した要素は、apply が返したものと同じになる。読んだときのハッシュが今と違う変更・形の合わない値・まだ書き戻せない形式は、何も変えずに失敗する（決定 0139・0156）。tables は、レイヤと線種の表の項目を ID・名前・ハッシュで返す（決定 0156）",
+  "description": "apply は、entities が返す ID とハッシュで要素を指す変更の一覧を、開いた DXF に当てて書き戻す。変更ごとに書き戻した後の ID とハッシュを返し、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。読み直した要素は、apply が返したものと同じになる。読んだときのハッシュが今と違う変更・形の合わない値・まだ書き戻せない形式は、何も変えずに失敗する（決定 0139・0156）。replace と add は、形の値（geometry）で要素の形を置き換え、空間か用紙に要素を足す（決定 0139）。tables は、レイヤと線種の表の項目を ID・名前・ハッシュで返す（決定 0156）",
   "steps": [
     {
       "push": {
@@ -178,6 +178,181 @@
       "absent": [
         "/result"
       ]
+    },
+    {
+      "push": {
+        "name": "c.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n2F\n8\n0\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n0\nCIRCLE\n5\n30\n8\n0\n10\n5.0\n20\n5.0\n40\n2.0\n0\nLINE\n5\n31\n8\n0\n10\n0.0\n20\n1.0\n11\n10.0\n21\n1.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "c.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "c.dxf",
+        "fields": [
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/items/0/geometry": {
+          "shape": "line",
+          "start": [
+            0,
+            0
+          ],
+          "end": [
+            10,
+            0
+          ]
+        },
+        "/result/items/1/geometry": {
+          "shape": "circle",
+          "center": [
+            5,
+            5
+          ],
+          "radius": 2
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "c.dxf",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2F",
+            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                0,
+                0
+              ],
+              "radius": 1
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/0/geometry"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "c.dxf",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2F",
+            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                1,
+                2
+              ],
+              "end": [
+                3,
+                4
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer": "0",
+            "geometry": {
+              "shape": "polyline",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  5,
+                  0
+                ],
+                [
+                  5,
+                  5
+                ]
+              ],
+              "closed": true
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h2F",
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "c.dxf",
+        "fields": [
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 4,
+        "/result/items/0/geometry": {
+          "shape": "line",
+          "start": [
+            1,
+            2
+          ],
+          "end": [
+            3,
+            4
+          ]
+        },
+        "/result/items/3/geometry": {
+          "shape": "polyline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              5,
+              0
+            ],
+            [
+              5,
+              5
+            ]
+          ],
+          "closed": true
+        }
+      }
     },
     {
       "push": {

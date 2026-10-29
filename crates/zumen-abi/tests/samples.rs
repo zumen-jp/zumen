@@ -250,3 +250,139 @@ fn drawings_move_lines_to_layers_named_by_id() {
     }
     assert!(drawings().is_empty() || checked > 0);
 }
+
+/// 要素の ID と形の値。要素が多い図面も、すべて読む
+#[cfg(test)]
+fn shapes(session: &mut Session, doc: &str) -> Vec<(String, Option<Value>)> {
+    let request = format!(
+        r#"{{"v":1,"op":"entities","doc":"{doc}","fields":["geometry"],"limit":10000,"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
+    );
+    let mut found = Vec::new();
+    let mut offset = 0;
+    loop {
+        let paged = request.replacen("\"limit\"", &format!("\"offset\":{offset},\"limit\""), 1);
+        let (status, response) = call(session, &paged);
+        assert_eq!(status, Status::Ok, "{doc}: {response:?}");
+        let Some(Value::Array(items)) = response.pointer("/result/items") else {
+            panic!("{doc}: {response:?}");
+        };
+        for item in items {
+            found.push((
+                text(item, "/id").unwrap().to_string(),
+                item.pointer("/geometry").cloned(),
+            ));
+        }
+        offset += items.len();
+        if response.pointer("/result/next_offset").is_none() {
+            return found;
+        }
+    }
+}
+
+/// 試料の実寸の空間の線の形を、境界の `replace` で置き換え、`add` で線を足すと、書き戻したファイルを開き直した
+/// 要素の形とハッシュが、送った形と `apply` が返したものと同じになり、ほかの要素は変わらない（決定 0139）
+#[test]
+fn drawings_take_back_shapes_replaced_and_added_through_the_boundary() {
+    let mut checked = [0, 0];
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        let before = entities(&mut session, &name);
+        let Some((id, _, hash)) = before.iter().find(|(id, kind, _)| {
+            kind == "line" && id.starts_with("space/0/h") && id.matches('/').count() == 2
+        }) else {
+            continue;
+        };
+        let replaced = r#"{"shape":"line","start":[-3.5,2.25],"end":[40,17.75]}"#;
+        // R12 の DXF は LWPOLYLINE を足せないので、どの版でも足せる円弧を足す
+        let added =
+            r#"{"shape":"arc","center":[5,6],"radius":7.5,"start_angle":30,"end_angle":210}"#;
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}},{{"kind":"add","place":"space/0","geometry":{added}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}}}}"#
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let file = session.take(0).unwrap();
+        let applied: Vec<(String, String)> = (0..2)
+            .map(|index| {
+                let field = |key: &str| {
+                    text(&response, &format!("/result/applied/{index}/{key}"))
+                        .unwrap_or_else(|| panic!("{name}: {response:?}"))
+                        .to_string()
+                };
+                (field("id"), field("hash"))
+            })
+            .collect();
+        assert_eq!(&applied[0].0, id, "{name}");
+        session.push(b"again", &file).unwrap();
+        assert!(open(&mut session, "again"), "{name}");
+        let after = entities(&mut session, "again");
+        assert_eq!(after.len(), before.len() + 1, "{name}");
+        for (was_id, _, was_hash) in &before {
+            let (_, _, hash) = after
+                .iter()
+                .find(|(id, _, _)| id == was_id)
+                .unwrap_or_else(|| panic!("{name}: {was_id}"));
+            if was_id != id {
+                assert_eq!(was_hash, hash, "{name}: {was_id}");
+            }
+        }
+        for (id, hash) in &applied {
+            assert!(
+                after
+                    .iter()
+                    .any(|(was, _, was_hash)| was == id && was_hash == hash),
+                "{name}: {id}"
+            );
+        }
+        let geometry = shapes(&mut session, "again");
+        for (id, expected) in [(&applied[0].0, replaced), (&applied[1].0, added)] {
+            let found = geometry
+                .iter()
+                .find(|(was, _)| was == id)
+                .and_then(|(_, geometry)| geometry.clone());
+            let expected = zumen_json::parse(expected.as_bytes()).unwrap();
+            // DWG は角度をラジアンで持つので、度の値は末の桁がずれうる
+            assert!(
+                found.as_ref().is_some_and(|found| close(found, &expected)),
+                "{name}: {id}: {found:?}"
+            );
+        }
+        checked[usize::from(name.to_ascii_lowercase().ends_with(".dwg"))] += 1;
+    }
+    assert!(
+        drawings().is_empty() || checked.iter().all(|n| *n > 0),
+        "{checked:?}"
+    );
+}
+
+/// 数の差が小さいほかは同じ値
+#[cfg(test)]
+fn close(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => {
+            let (a, b): (f64, f64) = (a.as_str().parse().unwrap(), b.as_str().parse().unwrap());
+            (a - b).abs() <= 1e-9 * a.abs().max(1.0)
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| close(a, b))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b.iter())
+                    .all(|((ka, a), (kb, b))| ka == kb && close(a, b))
+        }
+        _ => a == b,
+    }
+}

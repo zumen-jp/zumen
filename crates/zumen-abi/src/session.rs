@@ -7,8 +7,8 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, 
 use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
     Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Element, Encode,
-    Hash, Inherit, LayerId, LineTypeId, LineWeight, PaperLength, Placement, Restyle, Seen, Shape,
-    Unit, id,
+    Hash, Inherit, LayerId, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, Placed,
+    Placement, Restyle, Seen, Shape, Style, Unit, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -16,8 +16,9 @@ use zumen_sdk::{Apply, Codec, Lift};
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
-use crate::bounds::{self, Planar};
+use crate::bounds;
 use crate::describe;
+use crate::geometry;
 use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
     CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
@@ -604,6 +605,42 @@ fn changes(
             messages::Edit::Remove(edit) => Edit::Remove {
                 target: seen(&edit.id, &edit.hash, cx)?,
             },
+            messages::Edit::Replace(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                // 指した要素がなければ、除くときと同じく `change.element.missing` にする
+                let element = match geometry::find(drawing, &edit.id) {
+                    Some(Placed::Model(element)) => {
+                        reshaped(element, &edit.geometry).map(Placed::Model)
+                    }
+                    Some(Placed::Paper(element)) => {
+                        reshaped(element, &edit.geometry).map(Placed::Paper)
+                    }
+                    None => {
+                        let missing = Diagnostic::new(codes::CHANGE_ELEMENT_MISSING)
+                            .with("id", edit.id.as_str());
+                        return Err(fail(cx, missing));
+                    }
+                }
+                .map_err(|field| fail(cx, invalid_value(at(&field))))?;
+                Edit::Replace {
+                    target,
+                    element: Box::new(element),
+                }
+            }
+            messages::Edit::Add(edit) => {
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                let element = added(edit, drawing, tables)
+                    .map_err(|field| fail(cx, invalid_value(at(&field))))?;
+                Edit::Add {
+                    place: edit.place.clone(),
+                    element: Box::new(element),
+                }
+            }
         });
     }
     Ok(Changes { edits, document })
@@ -657,21 +694,15 @@ impl<'a> TableLookup<'a> {
     }
 }
 
-/// 要求のスタイルの変更を、図面モデルの変更にする。合わない欄があれば、その欄の名前を返す
-fn restyle(
-    edit: &messages::RestyleEdit,
+/// 名前か ID で指したレイヤ。どちらもなければ `None`。合わなければ、その欄の名前を返す
+fn layer_of(
+    name: Option<&str>,
+    wanted: Option<&str>,
     tables: &TableLookup<'_>,
-) -> Result<Restyle, &'static str> {
-    let layer = match (&edit.layer, &edit.layer_id) {
+) -> Result<Option<LayerId>, &'static str> {
+    Ok(match (name, wanted) {
         (None, None) => None,
-        (Some(name), None) => Some(
-            tables
-                .layers
-                .get(name.as_str())
-                .copied()
-                .flatten()
-                .ok_or("layer")?,
-        ),
+        (Some(name), None) => Some(tables.layers.get(name).copied().flatten().ok_or("layer")?),
         (None, Some(wanted)) => {
             let (name, id) = tables
                 .layer_ids
@@ -679,13 +710,86 @@ fn restyle(
                 .copied()
                 .flatten()
                 .ok_or("layer_id")?;
+            // DXF は名前で書くので、名前が 1 つに決まらないレイヤは ID でも書き戻さない
             if tables.layers.get(name).copied().flatten() != Some(id) {
                 return Err("layer_id");
             }
             Some(id)
         }
         (Some(_), Some(_)) => return Err("layer_id"),
+    })
+}
+
+/// 形を形の値で置き換えた要素。合わない欄があれば、その欄の名前を返す
+fn reshaped<P: geometry::Spot>(
+    element: Element<P>,
+    value: &messages::Geometry,
+) -> Result<Element<P>, String> {
+    let origin = geometry::origin_of(&element.shape).ok_or("geometry")?;
+    let shape = geometry::shape_of(value, Some(&element.shape), origin)?;
+    Ok(Element { shape, ..element })
+}
+
+/// 足す要素。レイヤを指さなければ「0」に置き、色・線種・線幅はレイヤに従う。合わない欄があれば、その欄の名前を返す
+fn added(
+    edit: &messages::AddEdit,
+    drawing: &Drawing2D,
+    tables: &TableLookup<'_>,
+) -> Result<Placed, String> {
+    let layer = match layer_of(edit.layer.as_deref(), edit.layer_id.as_deref(), tables)? {
+        Some(layer) => layer,
+        None => layer_of(Some("0"), None, tables)?.ok_or("layer")?,
     };
+    let style = Style {
+        color: Inherit::Layer,
+        line_type: Inherit::Layer,
+        line_type_scale: 1.0,
+        line_weight: Some(Inherit::Layer),
+    };
+    if let Some(space) = drawing
+        .spaces
+        .iter()
+        .find(|space| id::space(space.id) == edit.place)
+    {
+        let origin = ModelPoint {
+            space: space.id,
+            x: 0.0,
+            y: 0.0,
+        };
+        return Ok(Placed::Model(Element {
+            source: Ref::default(),
+            layer,
+            style,
+            shape: geometry::shape_of(&edit.geometry, None, origin)?,
+        }));
+    }
+    let mut sheets = id::SheetNamer::default();
+    if let Some(sheet) = drawing
+        .sheets
+        .iter()
+        .find(|sheet| sheets.next(sheet) == edit.place)
+    {
+        let origin = PaperPoint {
+            sheet: sheet.id,
+            x: 0.0,
+            y: 0.0,
+        };
+        return Ok(Placed::Paper(Element {
+            source: Ref::default(),
+            layer,
+            style,
+            shape: geometry::shape_of(&edit.geometry, None, origin)?,
+        }));
+    }
+    Err("place".to_string())
+}
+
+/// 要求のスタイルの変更を、図面モデルの変更にする。合わない欄があれば、その欄の名前を返す
+fn restyle(
+    edit: &messages::RestyleEdit,
+    tables: &TableLookup<'_>,
+) -> Result<Restyle, &'static str> {
+    let layer = layer_of(edit.layer.as_deref(), edit.layer_id.as_deref(), tables)?;
     let color = match &edit.color {
         None => None,
         Some(change) => Some(match (change.inherit, change.aci, change.rgb.as_deref()) {
@@ -853,7 +957,7 @@ struct Page {
 
 impl Page {
     /// 空間か用紙の要素を数え、返す範囲にあるものを足す
-    fn collect<P: Planar + Encode>(
+    fn collect<P: geometry::Spot + Encode>(
         &mut self,
         drawing: &Drawing2D,
         place: &str,
@@ -901,6 +1005,17 @@ impl Page {
             } else {
                 None
             };
+            // 形の値は、折れ線の頂点の数に比例して作る
+            let geometry = if has(EntityField::Geometry) {
+                if let Shape::Polyline(line) = &element.shape {
+                    let vertices = u64::try_from(line.vertices.len()).unwrap_or(u64::MAX);
+                    cx.check(Kind::Work, vertices)
+                        .map_err(|stop| stop_at(cx, stop))?;
+                }
+                geometry::geometry_of(&element.shape)
+            } else {
+                None
+            };
             self.items.push(Entity {
                 id,
                 kind: has(EntityField::Kind).then(|| kind_of(&element.shape)),
@@ -925,6 +1040,7 @@ impl Page {
                 }),
                 bbox: bbox.filter(|_| has(EntityField::Bbox)),
                 hash,
+                geometry,
             });
         }
         Ok(())
@@ -1255,7 +1371,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":9}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":10}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1779,6 +1895,77 @@ mod tests {
         }
     }
 
+    /// 開いた文書の要素の形の値
+    fn shapes(session: &mut Session, doc: &str) -> Vec<String> {
+        let (_, response) = call(
+            session,
+            &format!(r#"{{"v":1,"op":"entities","doc":"{doc}","fields":["geometry"]}}"#),
+        );
+        let Some(Value::Array(items)) = response.pointer("/result/items") else {
+            panic!("{response:?}");
+        };
+        items
+            .iter()
+            .map(|item| match item.pointer("/geometry") {
+                Some(geometry) => {
+                    let mut out = Writer::new();
+                    out.value(geometry);
+                    String::from_utf8(out.into_bytes()).unwrap()
+                }
+                None => String::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn replaces_and_adds_shapes_by_their_geometry() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        assert_eq!(
+            shapes(&mut session, "a.dxf"),
+            [
+                r#"{"shape":"line","start":[0,0],"end":[10,0]}"#,
+                r#"{"shape":"circle","center":[5,5],"radius":2}"#,
+                r#"{"shape":"line","start":[0,1],"end":[10,1]}"#,
+            ]
+        );
+        let before = seen(&mut session, "a.dxf");
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{}","hash":"{}","geometry":{{"shape":"line","start":[1,2],"end":[3,4]}}}},{{"kind":"replace","id":"{}","hash":"{}","geometry":{{"shape":"circle","center":[6,6],"radius":3}}}},{{"kind":"add","place":"space/0","geometry":{{"shape":"polyline","points":[[0,0],[5,0],[5,5]],"bulges":[0,0.5,0],"closed":true}}}},{{"kind":"add","place":"space/0","layer":"0","geometry":{{"shape":"arc","center":[1,1],"radius":2,"start_angle":0,"end_angle":90}}}}]}}"#,
+            before[0].0, before[0].1, before[1].0, before[1].1
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let file = session.take(0).unwrap();
+        let after = seen(&mut session, "a.dxf");
+        assert_eq!(after.len(), 5);
+        // 置き換えた要素の ID は変わらず、足した要素の ID とハッシュは読み直したものと同じ
+        for (index, at) in [(0, 0), (1, 1), (2, 3), (3, 4)] {
+            assert_eq!(
+                text(&response, &format!("/result/applied/{index}/id")),
+                after[at].0
+            );
+            assert_eq!(
+                text(&response, &format!("/result/applied/{index}/hash")),
+                after[at].1
+            );
+        }
+        assert_eq!(after[0].0, before[0].0);
+        let expected = [
+            r#"{"shape":"line","start":[1,2],"end":[3,4]}"#,
+            r#"{"shape":"circle","center":[6,6],"radius":3}"#,
+            r#"{"shape":"line","start":[0,1],"end":[10,1]}"#,
+            r#"{"shape":"polyline","points":[[0,0],[5,0],[5,5]],"bulges":[0,0.5,0],"closed":true}"#,
+            r#"{"shape":"arc","center":[1,1],"radius":2,"start_angle":0,"end_angle":90}"#,
+        ];
+        assert_eq!(shapes(&mut session, "a.dxf"), expected);
+        session.push(b"b.dxf", &file).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"b.dxf"}"#);
+        assert_eq!(shapes(&mut session, "b.dxf"), expected);
+        assert_eq!(seen(&mut session, "b.dxf"), after);
+    }
+
     #[test]
     fn checks_the_changes_before_applying_them() {
         let mut session = Session::new(b"").unwrap();
@@ -1858,6 +2045,60 @@ mod tests {
                 "",
                 "change.element.missing",
                 "",
+            ),
+            (
+                format!(
+                    r#""kind":"replace","id":"space/0/h99","hash":"{hash}","geometry":{{"shape":"line","start":[0,0],"end":[1,1]}}"#
+                ),
+                "",
+                "change.element.missing",
+                "",
+            ),
+            (
+                format!(
+                    r#""kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"circle","center":[0,0],"radius":1}}"#
+                ),
+                "",
+                "call.value.invalid",
+                "/edits/0/geometry",
+            ),
+            (
+                format!(
+                    r#""kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"line","start":[0],"end":[1,1]}}"#
+                ),
+                "",
+                "call.value.invalid",
+                "/edits/0/geometry/start",
+            ),
+            (
+                r#""kind":"add","place":"space/9","geometry":{"shape":"line","start":[0,0],"end":[1,1]}"#.to_string(),
+                "",
+                "call.value.invalid",
+                "/edits/0/place",
+            ),
+            (
+                r#""kind":"add","place":"space/0","layer":"WALL","geometry":{"shape":"line","start":[0,0],"end":[1,1]}"#.to_string(),
+                "",
+                "call.value.invalid",
+                "/edits/0/layer",
+            ),
+            (
+                r#""kind":"add","place":"space/0","geometry":{"shape":"circle","center":[0,0],"radius":0}"#.to_string(),
+                "",
+                "call.value.invalid",
+                "/edits/0/geometry/radius",
+            ),
+            (
+                r#""kind":"add","place":"space/0","geometry":{"shape":"polyline","points":[[0,0],[1,1]],"bulges":[0],"closed":false}"#.to_string(),
+                "",
+                "call.value.invalid",
+                "/edits/0/geometry/bulges",
+            ),
+            (
+                r#""kind":"add","place":"space/0","geometry":{"shape":"text","content":"A","position":[0,0],"height":2.5,"rotation":0}"#.to_string(),
+                "",
+                "call.value.invalid",
+                "/edits/0/geometry",
             ),
         ];
         for (edit, document, code, pointer) in cases {

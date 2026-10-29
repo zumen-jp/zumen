@@ -1290,6 +1290,8 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
+    /// 形の値。線分・円・円弧・幅を持たない折れ線・1 点に置く文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    pub geometry: Option<Geometry>,
 }
 
 impl Entity {
@@ -1300,6 +1302,7 @@ impl Entity {
         let source = object.optional("source", Source::from_json)?;
         let bbox = object.optional("bbox", Extent::from_json)?;
         let hash = object.optional("hash", json::string)?;
+        let geometry = object.optional("geometry", Geometry::from_json)?;
         Ok(Self {
             id,
             kind,
@@ -1307,6 +1310,7 @@ impl Entity {
             source,
             bbox,
             hash,
+            geometry,
         })
     }
 
@@ -1332,6 +1336,10 @@ impl Entity {
         if let Some(value) = &self.hash {
             out.key("hash");
             out.string(value);
+        }
+        if let Some(value) = &self.geometry {
+            out.key("geometry");
+            value.to_json(out);
         }
     }
 }
@@ -1368,6 +1376,8 @@ pub enum EntityField {
     Bbox,
     /// `hash`
     Hash,
+    /// `geometry`
+    Geometry,
 }
 
 impl EntityField {
@@ -1379,6 +1389,7 @@ impl EntityField {
         Self::Source,
         Self::Bbox,
         Self::Hash,
+        Self::Geometry,
     ];
 
     /// JSON での名前
@@ -1390,6 +1401,7 @@ impl EntityField {
             Self::Source => "source",
             Self::Bbox => "bbox",
             Self::Hash => "hash",
+            Self::Geometry => "geometry",
         }
     }
 
@@ -1402,6 +1414,7 @@ impl EntityField {
             "source" => Some(Self::Source),
             "bbox" => Some(Self::Bbox),
             "hash" => Some(Self::Hash),
+            "geometry" => Some(Self::Geometry),
             _ => None,
         }
     }
@@ -1416,6 +1429,330 @@ impl FromJson for EntityField {
 impl ToJson for EntityField {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
+    }
+}
+
+/// 形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる
+#[derive(Clone, Debug, PartialEq)]
+pub enum Geometry {
+    /// 線分
+    Line(LineGeometry),
+    /// 円
+    Circle(CircleGeometry),
+    /// 円弧。始まりの角度から終わりの角度へ、反時計回りにたどる
+    Arc(ArcGeometry),
+    /// 頂点を結んだ折れ線。幅は持たない
+    Polyline(PolylineGeometry),
+    /// 1 点に置く文字。位置合わせ・幅の倍率・斜体・反転・文字スタイルは、置き換える前の値のまま
+    Text(TextGeometry),
+}
+
+impl Geometry {
+    /// 目印の欄（`shape`）の値（スキーマの順）
+    pub const TAGS: &[&str] = &["line", "circle", "arc", "polyline", "text"];
+
+    /// 目印の欄（`shape`）の値
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Line(_) => "line",
+            Self::Circle(_) => "circle",
+            Self::Arc(_) => "arc",
+            Self::Polyline(_) => "polyline",
+            Self::Text(_) => "text",
+        }
+    }
+}
+
+impl FromJson for Geometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = match object.tag("shape")? {
+            "line" => Self::Line(LineGeometry::read_fields(&mut object)?),
+            "circle" => Self::Circle(CircleGeometry::read_fields(&mut object)?),
+            "arc" => Self::Arc(ArcGeometry::read_fields(&mut object)?),
+            "polyline" => Self::Polyline(PolylineGeometry::read_fields(&mut object)?),
+            "text" => Self::Text(TextGeometry::read_fields(&mut object)?),
+            other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
+        };
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Geometry {
+    fn to_json(&self, out: &mut Writer) {
+        match self {
+            Self::Line(value) => value.to_json(out),
+            Self::Circle(value) => value.to_json(out),
+            Self::Arc(value) => value.to_json(out),
+            Self::Polyline(value) => value.to_json(out),
+            Self::Text(value) => value.to_json(out),
+        }
+    }
+}
+
+/// 線分
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineGeometry {
+    /// 始点 [X, Y]
+    pub start: Vec<f64>,
+    /// 終点 [X, Y]
+    pub end: Vec<f64>,
+}
+
+impl LineGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "line")?;
+        let start = object.required("start", |value| json::array(value, json::number))?;
+        let end = object.required("end", |value| json::array(value, json::number))?;
+        Ok(Self { start, end })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("line");
+        out.key("start");
+        out.array(&self.start, |out, item| out.float(*item));
+        out.key("end");
+        out.array(&self.end, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for LineGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LineGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 円
+#[derive(Clone, Debug, PartialEq)]
+pub struct CircleGeometry {
+    /// 中心 [X, Y]
+    pub center: Vec<f64>,
+    /// 半径。0 より大きい
+    pub radius: f64,
+}
+
+impl CircleGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "circle")?;
+        let center = object.required("center", |value| json::array(value, json::number))?;
+        let radius = object.required("radius", json::number)?;
+        Ok(Self { center, radius })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("circle");
+        out.key("center");
+        out.array(&self.center, |out, item| out.float(*item));
+        out.key("radius");
+        out.float(self.radius);
+    }
+}
+
+impl FromJson for CircleGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CircleGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 円弧。始まりの角度から終わりの角度へ、反時計回りにたどる
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArcGeometry {
+    /// 中心 [X, Y]
+    pub center: Vec<f64>,
+    /// 半径。0 より大きい
+    pub radius: f64,
+    /// 始まりの角度（度）
+    pub start_angle: f64,
+    /// 終わりの角度（度）
+    pub end_angle: f64,
+}
+
+impl ArcGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "arc")?;
+        let center = object.required("center", |value| json::array(value, json::number))?;
+        let radius = object.required("radius", json::number)?;
+        let start_angle = object.required("start_angle", json::number)?;
+        let end_angle = object.required("end_angle", json::number)?;
+        Ok(Self {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("arc");
+        out.key("center");
+        out.array(&self.center, |out, item| out.float(*item));
+        out.key("radius");
+        out.float(self.radius);
+        out.key("start_angle");
+        out.float(self.start_angle);
+        out.key("end_angle");
+        out.float(self.end_angle);
+    }
+}
+
+impl FromJson for ArcGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ArcGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 頂点を結んだ折れ線。幅は持たない
+#[derive(Clone, Debug, PartialEq)]
+pub struct PolylineGeometry {
+    /// 頂点の [X, Y] の並び。2 つ以上
+    pub points: Vec<Vec<f64>>,
+    /// 頂点ごとの、次の頂点への弧の膨らみ（中心角の 4 分の 1 の正接。正は反時計回り）。points と同じ数。書かなければどれも 0
+    pub bulges: Option<Vec<f64>>,
+    /// 最後の頂点から最初の頂点へ結ぶ
+    pub closed: bool,
+}
+
+impl PolylineGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "polyline")?;
+        let points = object.required("points", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let bulges = object.optional("bulges", |value| json::array(value, json::number))?;
+        let closed = object.required("closed", json::boolean)?;
+        Ok(Self {
+            points,
+            bulges,
+            closed,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("polyline");
+        out.key("points");
+        out.array(&self.points, |out, item| {
+            out.array(item, |out, item| out.float(*item))
+        });
+        if let Some(value) = &self.bulges {
+            out.key("bulges");
+            out.array(value, |out, item| out.float(*item));
+        }
+        out.key("closed");
+        out.bool(self.closed);
+    }
+}
+
+impl FromJson for PolylineGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PolylineGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 1 点に置く文字。位置合わせ・幅の倍率・斜体・反転・文字スタイルは、置き換える前の値のまま
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextGeometry {
+    /// 内容。1 行
+    pub content: String,
+    /// 基点 [X, Y]
+    pub position: Vec<f64>,
+    /// 高さ。0 より大きい
+    pub height: f64,
+    /// 回転（度）
+    pub rotation: f64,
+}
+
+impl TextGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "text")?;
+        let content = object.required("content", json::string)?;
+        let position = object.required("position", |value| json::array(value, json::number))?;
+        let height = object.required("height", json::number)?;
+        let rotation = object.required("rotation", json::number)?;
+        Ok(Self {
+            content,
+            position,
+            height,
+            rotation,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("text");
+        out.key("content");
+        out.string(&self.content);
+        out.key("position");
+        out.array(&self.position, |out, item| out.float(*item));
+        out.key("height");
+        out.float(self.height);
+        out.key("rotation");
+        out.float(self.rotation);
+    }
+}
+
+impl FromJson for TextGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TextGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 
@@ -1675,11 +2012,15 @@ pub enum Edit {
     Transform(TransformEdit),
     /// 要素を除く
     Remove(RemoveEdit),
+    /// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から
+    Replace(ReplaceEdit),
+    /// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は線分・円・円弧・折れ線。小版 10 から
+    Add(AddEdit),
 }
 
 impl Edit {
     /// 目印の欄（`kind`）の値（スキーマの順）
-    pub const TAGS: &[&str] = &["restyle", "transform", "remove"];
+    pub const TAGS: &[&str] = &["restyle", "transform", "remove", "replace", "add"];
 
     /// 目印の欄（`kind`）の値
     pub const fn tag(&self) -> &'static str {
@@ -1687,6 +2028,8 @@ impl Edit {
             Self::Restyle(_) => "restyle",
             Self::Transform(_) => "transform",
             Self::Remove(_) => "remove",
+            Self::Replace(_) => "replace",
+            Self::Add(_) => "add",
         }
     }
 }
@@ -1698,6 +2041,8 @@ impl FromJson for Edit {
             "restyle" => Self::Restyle(RestyleEdit::read_fields(&mut object)?),
             "transform" => Self::Transform(TransformEdit::read_fields(&mut object)?),
             "remove" => Self::Remove(RemoveEdit::read_fields(&mut object)?),
+            "replace" => Self::Replace(ReplaceEdit::read_fields(&mut object)?),
+            "add" => Self::Add(AddEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -1711,6 +2056,8 @@ impl ToJson for Edit {
             Self::Restyle(value) => value.to_json(out),
             Self::Transform(value) => value.to_json(out),
             Self::Remove(value) => value.to_json(out),
+            Self::Replace(value) => value.to_json(out),
+            Self::Add(value) => value.to_json(out),
         }
     }
 }
@@ -1896,6 +2243,118 @@ impl FromJson for RemoveEdit {
 }
 
 impl ToJson for RemoveEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReplaceEdit {
+    /// 置き換える要素の ID。entities が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。entities が返したもの
+    pub hash: String,
+    /// 新しい形。entities の geometry と同じ種類
+    pub geometry: Geometry,
+}
+
+impl ReplaceEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "replace")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let geometry = object.required("geometry", Geometry::from_json)?;
+        Ok(Self { id, hash, geometry })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("replace");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("geometry");
+        self.geometry.to_json(out);
+    }
+}
+
+impl FromJson for ReplaceEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReplaceEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は線分・円・円弧・折れ線。小版 10 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddEdit {
+    /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分
+    pub place: String,
+    /// レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0
+    pub layer: Option<String>,
+    /// レイヤの ID。tables が返したもの
+    pub layer_id: Option<String>,
+    /// 足す形
+    pub geometry: Geometry,
+}
+
+impl AddEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add")?;
+        let place = object.required("place", json::string)?;
+        let layer = object.optional("layer", json::string)?;
+        let layer_id = object.optional("layer_id", json::string)?;
+        let geometry = object.required("geometry", Geometry::from_json)?;
+        Ok(Self {
+            place,
+            layer,
+            layer_id,
+            geometry,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add");
+        out.key("place");
+        out.string(&self.place);
+        if let Some(value) = &self.layer {
+            out.key("layer");
+            out.string(value);
+        }
+        if let Some(value) = &self.layer_id {
+            out.key("layer_id");
+            out.string(value);
+        }
+        out.key("geometry");
+        self.geometry.to_json(out);
+    }
+}
+
+impl FromJson for AddEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for AddEdit {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
