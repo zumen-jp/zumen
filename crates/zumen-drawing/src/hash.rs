@@ -114,6 +114,24 @@ impl Hash {
     }
 }
 
+impl core::str::FromStr for Hash {
+    type Err = ();
+
+    /// `v1:` と 32 桁の 16 進を読む。版が違うか、桁か文字が合わなければ `Err`
+    fn from_str(text: &str) -> Result<Self, ()> {
+        let digits = text.strip_prefix("v1:").ok_or(())?;
+        if digits.len() != 32 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(());
+        }
+        let mut bytes = [0; 16];
+        for (byte, pair) in bytes.iter_mut().zip(digits.as_bytes().chunks(2)) {
+            let pair = core::str::from_utf8(pair).map_err(|_| ())?;
+            *byte = u8::from_str_radix(pair, 16).map_err(|_| ())?;
+        }
+        Ok(Self(bytes))
+    }
+}
+
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "v{}:", Self::VERSION)?;
@@ -1064,5 +1082,21 @@ mod tests {
     fn hashes_are_written_with_the_version() {
         let text = Hash([0xab; 16]).to_string();
         assert_eq!(text, format!("v1:{}", "ab".repeat(16)));
+        let hash = Hash([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0xff]);
+        assert_eq!(hash.to_string().parse(), Ok(hash));
+        assert_eq!(
+            format!("v1:{}", "AB".repeat(16)).parse(),
+            Ok(Hash([0xab; 16]))
+        );
+        for wrong in [
+            "",
+            "v1:",
+            "v2:00000000000000000000000000000000",
+            "v1:0",
+            "v1:+1000000000000000000000000000000",
+            "v1:é0000000000000000000000000000000",
+        ] {
+            assert_eq!(wrong.parse::<Hash>(), Err(()), "{wrong}");
+        }
     }
 }

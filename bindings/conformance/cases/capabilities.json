@@ -7,10 +7,10 @@
         "/v": 1,
         "/result/abi": 1,
         "/result/schema/major": 1,
-        "/result/ops": ["capabilities", "open", "close", "describe", "drawing", "entities"],
+        "/result/ops": ["capabilities", "open", "close", "describe", "drawing", "entities", "apply"],
         "/result/formats": [
-          { "id": "dxf", "family": "acad", "read": true, "write": false, "id_rules": 2 },
-          { "id": "dwg", "family": "acad", "read": true, "write": false, "id_rules": 2 },
+          { "id": "dxf", "family": "acad", "read": true, "write": true, "id_rules": 2 },
+          { "id": "dwg", "family": "acad", "read": true, "write": true, "id_rules": 2 },
           { "id": "sxf", "family": "sxf", "read": true, "write": false, "id_rules": 2 },
           { "id": "jww", "family": "jww", "read": true, "write": false, "id_rules": 1 }
         ],

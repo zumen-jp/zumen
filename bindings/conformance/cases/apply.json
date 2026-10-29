@@ -1,0 +1,209 @@
+{
+  "description": "apply は、entities が返す ID とハッシュで要素を指す変更の一覧を、開いた DXF に当てて書き戻す。変更ごとに書き戻した後の ID とハッシュを返し、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。読み直した要素は、apply が返したものと同じになる。読んだときのハッシュが今と違う変更・形の合わない値・まだ書き戻せない形式は、何も変えずに失敗する（決定 0139・0156）",
+  "steps": [
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n2F\n8\n0\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n0\nCIRCLE\n5\n30\n8\n0\n10\n5.0\n20\n5.0\n40\n2.0\n0\nLINE\n5\n31\n8\n0\n10\n0.0\n20\n1.0\n11\n10.0\n21\n1.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "fields": [
+          "hash"
+        ]
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2F",
+            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44"
+          },
+          {
+            "id": "space/0/h30",
+            "hash": "v1:9d74d3aa418fe58cd1891b738b7d1cc2"
+          },
+          {
+            "id": "space/0/h31",
+            "hash": "v1:f8ca0e5f46253561da39c3f73462346a"
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "a.dxf",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h2F",
+            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44",
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/0/matrix"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "a.dxf",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h2F",
+            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44",
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              7
+            ]
+          },
+          {
+            "kind": "restyle",
+            "id": "space/0/h30",
+            "hash": "v1:9d74d3aa418fe58cd1891b738b7d1cc2",
+            "color": {
+              "aci": 1
+            },
+            "line_weight": {
+              "mm": 0.35
+            }
+          },
+          {
+            "kind": "remove",
+            "id": "space/0/h31",
+            "hash": "v1:f8ca0e5f46253561da39c3f73462346a"
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h2F",
+        "/result/applied/1/id": "space/0/h30",
+        "/result/applied/2": {},
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf",
+        "fields": [
+          "kind",
+          "hash"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/0/kind": "line",
+        "/result/items/1/kind": "circle"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "a.dxf",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h2F",
+            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44",
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              7
+            ]
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.element.stale",
+        "/diagnostics/0/params/id": "space/0/h2F",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "push": {
+        "name": "b.sfc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#20 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')\nSXF3*/\n/*SXF3\n#30 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "b.sfc"
+      },
+      "expect": {
+        "/result/format": "sxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "b.sfc",
+        "edits": [
+          {
+            "kind": "remove",
+            "id": "sheet/0/i20",
+            "hash": "v1:a26c9a681fb6d4cc4488d5434023dc44"
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.format.unsupported",
+        "/diagnostics/0/params/format": "sxf"
+      },
+      "absent": [
+        "/result"
+      ]
+    }
+  ]
+}

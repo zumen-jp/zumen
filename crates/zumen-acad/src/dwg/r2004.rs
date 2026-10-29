@@ -83,6 +83,37 @@ struct Section {
 }
 
 impl Container {
+    pub(super) fn snapshot(&self, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        use crate::snapshot::{bytes, check};
+        let mut sections = Vec::new();
+        for section in &self.sections {
+            check(cx)?;
+            let name = bytes(&section.name, cx)?;
+            let data = section
+                .data
+                .as_deref()
+                .map(|data| bytes(data, cx))
+                .transpose()?;
+            let mut pages = Vec::new();
+            for page in &section.pages {
+                check(cx)?;
+                pages.push(*page);
+            }
+            sections.push(Section {
+                description: section.description,
+                name,
+                data,
+                pages,
+                replaced: section.replaced,
+            });
+        }
+        Ok(Self {
+            header: self.header,
+            map_head: self.map_head,
+            sections,
+        })
+    }
+
     /// 名前（`AcDb:Header`）の区切り
     pub(super) fn section(&self, name: &[u8]) -> Option<&[u8]> {
         self.sections

@@ -22,6 +22,8 @@ pub enum Request {
     Drawing(DrawingRequest),
     /// 開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）
     Entities(EntitiesRequest),
+    /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から
+    Apply(ApplyRequest),
 }
 
 impl Request {
@@ -33,6 +35,7 @@ impl Request {
         "describe",
         "drawing",
         "entities",
+        "apply",
     ];
 
     /// 目印の欄（`op`）の値
@@ -44,6 +47,7 @@ impl Request {
             Self::Describe(_) => "describe",
             Self::Drawing(_) => "drawing",
             Self::Entities(_) => "entities",
+            Self::Apply(_) => "apply",
         }
     }
 }
@@ -58,6 +62,7 @@ impl FromJson for Request {
             "describe" => Self::Describe(DescribeRequest::read_fields(&mut object)?),
             "drawing" => Self::Drawing(DrawingRequest::read_fields(&mut object)?),
             "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
+            "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -74,6 +79,7 @@ impl ToJson for Request {
             Self::Describe(value) => value.to_json(out),
             Self::Drawing(value) => value.to_json(out),
             Self::Entities(value) => value.to_json(out),
+            Self::Apply(value) => value.to_json(out),
         }
     }
 }
@@ -1505,6 +1511,579 @@ impl FromJson for EntityKind {
 impl ToJson for EntityKind {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
+    }
+}
+
+/// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ApplyRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// 読んだときの文書のハッシュ（drawing の hash）。書けば、今の文書と同じときだけ当てる
+    pub hash: Option<String>,
+    /// 変更。並べた順に当てる
+    pub edits: Vec<Edit>,
+}
+
+impl ApplyRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "apply")?;
+        let doc = object.required("doc", json::string)?;
+        let hash = object.optional("hash", json::string)?;
+        let edits = object.required("edits", |value| json::array(value, Edit::from_json))?;
+        Ok(Self {
+            request_common,
+            doc,
+            hash,
+            edits,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("apply");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
+        out.key("edits");
+        out.array(&self.edits, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for ApplyRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ApplyRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 当てた変更の結果。書き戻したファイルは blobs の file で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct ApplyResult {
+    /// 変更ごとの結果。要求の edits と同じ順
+    pub applied: Vec<Applied>,
+    /// 書き戻した文書のハッシュ。次の apply の前提条件に使う
+    pub hash: String,
+}
+
+impl ApplyResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let applied = object.required("applied", |value| json::array(value, Applied::from_json))?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { applied, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("applied");
+        out.array(&self.applied, |out, item| item.to_json(out));
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for ApplyResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ApplyResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 当てた変更 1 つの結果
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Applied {
+    /// 変えた要素の、書き戻した後の ID。除いたときと、ID を決められないときは持たない
+    pub id: Option<String>,
+    /// 変えた要素の、書き戻した後のハッシュ。id があるときに持つ
+    pub hash: Option<String>,
+}
+
+impl Applied {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.optional("id", json::string)?;
+        let hash = object.optional("hash", json::string)?;
+        Ok(Self { id, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for Applied {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Applied {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素 1 つへの変更。kind の値で形が決まる
+#[derive(Clone, Debug, PartialEq)]
+pub enum Edit {
+    /// 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない
+    Restyle(RestyleEdit),
+    /// 要素を、アフィン変換で動かす。AutoCAD の系統では、図形とともに動く XDATA と記号の属性も同じ変換で直す。変換した形を元の種類で表せなければ当てない
+    Transform(TransformEdit),
+    /// 要素を除く
+    Remove(RemoveEdit),
+}
+
+impl Edit {
+    /// 目印の欄（`kind`）の値（スキーマの順）
+    pub const TAGS: &[&str] = &["restyle", "transform", "remove"];
+
+    /// 目印の欄（`kind`）の値
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Restyle(_) => "restyle",
+            Self::Transform(_) => "transform",
+            Self::Remove(_) => "remove",
+        }
+    }
+}
+
+impl FromJson for Edit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = match object.tag("kind")? {
+            "restyle" => Self::Restyle(RestyleEdit::read_fields(&mut object)?),
+            "transform" => Self::Transform(TransformEdit::read_fields(&mut object)?),
+            "remove" => Self::Remove(RemoveEdit::read_fields(&mut object)?),
+            other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
+        };
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Edit {
+    fn to_json(&self, out: &mut Writer) {
+        match self {
+            Self::Restyle(value) => value.to_json(out),
+            Self::Transform(value) => value.to_json(out),
+            Self::Remove(value) => value.to_json(out),
+        }
+    }
+}
+
+/// 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない
+#[derive(Clone, Debug, PartialEq)]
+pub struct RestyleEdit {
+    /// 変える要素の ID。entities が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。entities が返したもの
+    pub hash: String,
+    /// レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの
+    pub layer: Option<String>,
+    /// 色
+    pub color: Option<ColorChange>,
+    /// 線種
+    pub line_type: Option<LineTypeChange>,
+    /// 要素の線種の倍率
+    pub line_type_scale: Option<f64>,
+    /// 線幅
+    pub line_weight: Option<LineWeightChange>,
+}
+
+impl RestyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "restyle")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let layer = object.optional("layer", json::string)?;
+        let color = object.optional("color", ColorChange::from_json)?;
+        let line_type = object.optional("line_type", LineTypeChange::from_json)?;
+        let line_type_scale = object.optional("line_type_scale", json::number)?;
+        let line_weight = object.optional("line_weight", LineWeightChange::from_json)?;
+        Ok(Self {
+            id,
+            hash,
+            layer,
+            color,
+            line_type,
+            line_type_scale,
+            line_weight,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("restyle");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.layer {
+            out.key("layer");
+            out.string(value);
+        }
+        if let Some(value) = &self.color {
+            out.key("color");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_type {
+            out.key("line_type");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_type_scale {
+            out.key("line_type_scale");
+            out.float(*value);
+        }
+        if let Some(value) = &self.line_weight {
+            out.key("line_weight");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for RestyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RestyleEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素を、アフィン変換で動かす。AutoCAD の系統では、図形とともに動く XDATA と記号の属性も同じ変換で直す。変換した形を元の種類で表せなければ当てない
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransformEdit {
+    /// 動かす要素の ID。entities が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。entities が返したもの
+    pub hash: String,
+    /// [a, b, c, d, e, f]。要素の空間か用紙の点 (x, y) を (a x + b y + c, d x + e y + f) に写す
+    pub matrix: Vec<f64>,
+}
+
+impl TransformEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "transform")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let matrix = object.required("matrix", |value| json::array(value, json::number))?;
+        Ok(Self { id, hash, matrix })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("transform");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("matrix");
+        out.array(&self.matrix, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for TransformEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TransformEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素を除く
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoveEdit {
+    /// 除く要素の ID。entities が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。entities が返したもの
+    pub hash: String,
+}
+
+impl RemoveEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "remove")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { id, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("remove");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for RemoveEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RemoveEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Inherit {
+    /// `layer`
+    Layer,
+    /// `block`
+    Block,
+}
+
+impl Inherit {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Layer, Self::Block];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Layer => "layer",
+            Self::Block => "block",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "layer" => Some(Self::Layer),
+            "block" => Some(Self::Block),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for Inherit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for Inherit {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 新しい色。inherit か、aci と rgb の少なくとも一方のどちらかを書く
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ColorChange {
+    /// 継承する先
+    pub inherit: Option<Inherit>,
+    /// AutoCAD の色の番号（1〜255）
+    pub aci: Option<u64>,
+    /// [赤, 緑, 青]。それぞれ 0〜255
+    pub rgb: Option<Vec<u64>>,
+}
+
+impl ColorChange {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let inherit = object.optional("inherit", Inherit::from_json)?;
+        let aci = object.optional("aci", |value| json::uint(value, 1, 255))?;
+        let rgb = object.optional("rgb", |value| {
+            json::array(value, |value| json::uint(value, 0, 255))
+        })?;
+        Ok(Self { inherit, aci, rgb })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.inherit {
+            out.key("inherit");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.aci {
+            out.key("aci");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.rgb {
+            out.key("rgb");
+            out.array(value, |out, item| out.uint(*item));
+        }
+    }
+}
+
+impl FromJson for ColorChange {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ColorChange {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 新しい線種。inherit か name のどちらかを書く
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LineTypeChange {
+    /// 継承する先
+    pub inherit: Option<Inherit>,
+    /// 線種の元の名前。図面にある線種で、名前が 1 つに決まるもの
+    pub name: Option<String>,
+}
+
+impl LineTypeChange {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let inherit = object.optional("inherit", Inherit::from_json)?;
+        let name = object.optional("name", json::string)?;
+        Ok(Self { inherit, name })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.inherit {
+            out.key("inherit");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for LineTypeChange {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LineTypeChange {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 新しい線幅。inherit・mm・default のどれか 1 つを書く
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LineWeightChange {
+    /// 継承する先
+    pub inherit: Option<Inherit>,
+    /// 用紙の上の幅（mm）。0 以上
+    pub mm: Option<f64>,
+    /// true なら、文書の既定の線幅
+    pub default: Option<bool>,
+}
+
+impl LineWeightChange {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let inherit = object.optional("inherit", Inherit::from_json)?;
+        let mm = object.optional("mm", json::number)?;
+        let default = object.optional("default", json::boolean)?;
+        Ok(Self {
+            inherit,
+            mm,
+            default,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.inherit {
+            out.key("inherit");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.mm {
+            out.key("mm");
+            out.float(*value);
+        }
+        if let Some(value) = &self.default {
+            out.key("default");
+            out.bool(*value);
+        }
+    }
+}
+
+impl FromJson for LineWeightChange {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LineWeightChange {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 

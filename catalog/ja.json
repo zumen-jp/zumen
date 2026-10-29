@@ -28,6 +28,7 @@
     "change.edit.unsupported": "「{kind}」の要素の {edit} は、まだ {format} に書き戻せません。変更を反映しませんでした。",
     "change.element.missing": "変更が指す「{id}」が、図面にありません。変更を反映しませんでした。",
     "change.element.stale": "「{id}」の要素が、変更の一覧を作ったときから変わっています。変更を反映しませんでした。",
+    "change.format.unsupported": "{format} の文書には、まだ変更を当てられません。変更を反映しませんでした。",
     "change.xdata.unsupported": "「{kind}」の要素は、図形とともに動く XDATA（グループ・コード {code}）を持つので、形の変更を書き戻せません。変更を反映しませんでした。",
     "dwg.change.unsupported": "「{kind}」の変更は、まだ DWG に書き戻せません。変更を反映しませんでした。",
     "dwg.crc.invalid": "DWG の{part}の CRC が合いません（{count} 件）。読むのは続けました。",

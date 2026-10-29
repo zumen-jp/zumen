@@ -5,20 +5,24 @@ use std::collections::BTreeMap;
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_base::{Key, Ref, codes, name};
-use zumen_drawing::{Drawing2D, Element, Encode, Hash, Placement, Shape, Unit, id};
+use zumen_drawing::{
+    Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Element, Encode,
+    Hash, Inherit, LayerId, LineTypeId, LineWeight, PaperLength, Placement, Restyle, Seen, Shape,
+    Unit, id,
+};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
-use zumen_sdk::{Codec, Lift};
+use zumen_sdk::{Apply, Codec, Lift};
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::bounds::{self, Planar};
 use crate::describe;
 use crate::messages::{
-    self, BlobKind, ByteRange, CapabilitiesResult, CloseRequest, CloseResult, DrawingRequest,
-    DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField,
-    EntityKind, Extent, Format, OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion,
-    SessionOptions, SheetSummary, Source, SpaceSummary,
+    self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
+    CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
+    EntitiesResult, Entity, EntityField, EntityKind, Extent, Format, OpenRequest, OpenResult,
+    Request, RequestCommon, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary,
 };
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
@@ -255,6 +259,7 @@ impl Session {
             }
             Request::Drawing(request) => self.drawing(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
         };
         result.ok()
     }
@@ -413,6 +418,60 @@ impl Session {
         })
     }
 
+    /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
+    fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
+        let drawing = self.lift(&request.doc, cx)?;
+        if let Some(doc @ (Doc::Sxf(_) | Doc::Jww(_))) = self.docs.get(&request.doc) {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CHANGE_FORMAT_UNSUPPORTED).with("format", doc.format()),
+            ));
+        }
+        let changes = changes(request, &drawing, cx)?;
+        let Some(doc) = self.docs.get_mut(&request.doc) else {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", request.doc.as_str()),
+            ));
+        };
+        // 書き出しが予算や中断で止まっても、元の文書は変更しない。
+        let mut bytes = Vec::new();
+        let (applied, hash) = match doc {
+            Doc::Dxf(file) => {
+                let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
+                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                *file = updated;
+                (applied, hash)
+            }
+            Doc::Dwg(file) => {
+                let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
+                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                Dwg::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                *file = updated;
+                (applied, hash)
+            }
+            Doc::Sxf(_) | Doc::Jww(_) => return Err(Failed),
+        };
+        self.hashes.insert(request.doc.clone(), hash);
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(ApplyResult {
+            applied: applied
+                .into_iter()
+                .map(|Applied { id, hash }| messages::Applied {
+                    id,
+                    hash: hash.map(|hash| hash.to_string()),
+                })
+                .collect(),
+            hash: hash.to_string(),
+        })
+    }
+
     /// 名前の文書を、図面モデルに変換する
     fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
         if !name::is_safe(doc) {
@@ -434,6 +493,186 @@ impl Session {
     }
 }
 
+/// 要求の変更を、図面モデルの変更の一覧にする。レイヤと線種は、名前が 1 つに決まるものを図面から引く
+fn changes(
+    request: &ApplyRequest,
+    drawing: &Drawing2D,
+    cx: &mut Cx<'_>,
+) -> Result<Changes, Failed> {
+    let hash = |text: &str, pointer: String, cx: &mut Cx<'_>| {
+        text.parse::<Hash>()
+            .map_err(|()| fail(cx, invalid_value(pointer)))
+    };
+    let document = match &request.hash {
+        Some(text) => Some(hash(text, "/hash".to_string(), cx)?),
+        None => None,
+    };
+    let mut edits = Vec::with_capacity(request.edits.len());
+    let mut tables = None;
+    for (index, edit) in request.edits.iter().enumerate() {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        let at = |field: &str| format!("/edits/{index}/{field}");
+        let seen = |id: &str, text: &str, cx: &mut Cx<'_>| {
+            Ok(Seen {
+                id: id.to_string(),
+                hash: hash(text, at("hash"), cx)?,
+            })
+        };
+        edits.push(match edit {
+            messages::Edit::Restyle(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                Edit::Restyle {
+                    target,
+                    style: restyle(edit, tables)
+                        .map_err(|field| fail(cx, invalid_value(at(field))))?,
+                }
+            }
+            messages::Edit::Transform(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                let m = match edit.matrix.as_slice() {
+                    &[a, b, c, d, e, f] if edit.matrix.iter().all(|v| v.is_finite()) => {
+                        [a, b, c, d, e, f]
+                    }
+                    _ => return Err(fail(cx, invalid_value(at("matrix")))),
+                };
+                Edit::Transform {
+                    target,
+                    transform: Affine { m },
+                }
+            }
+            messages::Edit::Remove(edit) => Edit::Remove {
+                target: seen(&edit.id, &edit.hash, cx)?,
+            },
+        });
+    }
+    Ok(Changes { edits, document })
+}
+
+/// 表の検索を変更ごとに繰り返さないための索引。同じ名前は 1 つに決まらない
+struct TableLookup<'a> {
+    layers: BTreeMap<&'a str, Option<LayerId>>,
+    line_types: BTreeMap<&'a str, Option<LineTypeId>>,
+}
+
+impl<'a> TableLookup<'a> {
+    fn new(drawing: &'a Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Failed> {
+        let mut result = Self {
+            layers: BTreeMap::new(),
+            line_types: BTreeMap::new(),
+        };
+        for layer in &drawing.layers {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            result
+                .layers
+                .entry(&layer.name)
+                .and_modify(|v| *v = None)
+                .or_insert(Some(layer.id));
+        }
+        for line_type in &drawing.line_types {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            result
+                .line_types
+                .entry(&line_type.name)
+                .and_modify(|v| *v = None)
+                .or_insert(Some(line_type.id));
+        }
+        Ok(result)
+    }
+}
+
+/// 要求のスタイルの変更を、図面モデルの変更にする。合わない欄があれば、その欄の名前を返す
+fn restyle(
+    edit: &messages::RestyleEdit,
+    tables: &TableLookup<'_>,
+) -> Result<Restyle, &'static str> {
+    let layer = match &edit.layer {
+        None => None,
+        Some(name) => Some(
+            tables
+                .layers
+                .get(name.as_str())
+                .copied()
+                .flatten()
+                .ok_or("layer")?,
+        ),
+    };
+    let color = match &edit.color {
+        None => None,
+        Some(change) => Some(match (change.inherit, change.aci, change.rgb.as_deref()) {
+            (Some(to), None, None) => inherit(to),
+            (None, None, None) | (Some(_), _, _) => return Err("color"),
+            (None, aci, rgb) => {
+                let rgb = match rgb {
+                    None => None,
+                    Some(&[r, g, b]) => {
+                        Some([r, g, b].map(|value| u8::try_from(value).unwrap_or(u8::MAX)))
+                    }
+                    Some(_) => return Err("color"),
+                };
+                let code = match aci {
+                    None => None,
+                    Some(value) => Some(ColorCode {
+                        system: ColorSystem::Aci,
+                        value: u32::try_from(value).map_err(|_| "color")?,
+                    }),
+                };
+                Inherit::Own(Color { code, rgb })
+            }
+        }),
+    };
+    let line_type = match &edit.line_type {
+        None => None,
+        Some(change) => Some(match (change.inherit, &change.name) {
+            (Some(to), None) => inherit(to),
+            (None, Some(name)) => Inherit::Own(
+                tables
+                    .line_types
+                    .get(name.as_str())
+                    .copied()
+                    .flatten()
+                    .ok_or("line_type")?,
+            ),
+            _ => return Err("line_type"),
+        }),
+    };
+    let line_type_scale = match edit.line_type_scale {
+        Some(scale) if !(scale.is_finite() && scale > 0.0) => return Err("line_type_scale"),
+        scale => scale,
+    };
+    let line_weight = match &edit.line_weight {
+        None => None,
+        Some(change) => Some(match (change.inherit, change.mm, change.default) {
+            (Some(to), None, None) => inherit(to),
+            (None, Some(mm), None) if mm.is_finite() && mm >= 0.0 => {
+                Inherit::Own(LineWeight::Width(PaperLength(mm)))
+            }
+            (None, None, Some(true)) => Inherit::Own(LineWeight::Default),
+            _ => return Err("line_weight"),
+        }),
+    };
+    Ok(Restyle {
+        layer,
+        color,
+        line_type,
+        line_type_scale,
+        line_weight,
+    })
+}
+
+/// 継承する先
+fn inherit<T>(inherit: messages::Inherit) -> Inherit<T> {
+    match inherit {
+        messages::Inherit::Layer => Inherit::Layer,
+        messages::Inherit::Block => Inherit::Block,
+    }
+}
+
 fn capabilities() -> CapabilitiesResult {
     CapabilitiesResult {
         package: env!("CARGO_PKG_VERSION").to_string(),
@@ -444,18 +683,19 @@ fn capabilities() -> CapabilitiesResult {
         },
         ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
         // ID の規則の版。AutoCAD の系統はハンドルで、SXF はインスタンスの番号で ID を作る 2（決定 0156）
+        // 書けるのは、apply で書き戻せる形式（決定 0139）
         formats: [
-            (Dxf::FORMAT, "acad", 2),
-            (Dwg::FORMAT, "acad", 2),
-            (Sxf::FORMAT, "sxf", 2),
-            (Jww::FORMAT, "jww", 1),
+            (Dxf::FORMAT, "acad", true, 2),
+            (Dwg::FORMAT, "acad", true, 2),
+            (Sxf::FORMAT, "sxf", false, 2),
+            (Jww::FORMAT, "jww", false, 1),
         ]
         .into_iter()
-        .map(|(id, family, id_rules)| Format {
+        .map(|(id, family, write, id_rules)| Format {
             id: id.to_string(),
             family: family.to_string(),
             read: true,
-            write: false,
+            write,
             id_rules,
         })
         .collect(),
@@ -679,6 +919,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Describe(request) => &request.request_common,
         Request::Drawing(request) => &request.request_common,
         Request::Entities(request) => &request.request_common,
+        Request::Apply(request) => &request.request_common,
     }
 }
 
@@ -917,7 +1158,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":6}},"ops":["capabilities","open","close","describe","drawing","entities"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":7}},"ops":["capabilities","open","close","describe","drawing","entities","apply"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1152,6 +1393,267 @@ mod tests {
             summary(&mut session, "b.dxf"),
         );
         assert!(a.starts_with("v1:") && a != b, "{a} {b}");
+    }
+
+    /// 応答の最初の error の診断
+    fn error(response: &Value) -> Value {
+        let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
+            panic!("{response:?}");
+        };
+        diagnostics
+            .iter()
+            .find(|diagnostic| text(diagnostic, "/severity") == "error")
+            .cloned()
+            .unwrap_or_else(|| panic!("{response:?}"))
+    }
+
+    /// ハンドルを持つ線 2 本と円を持つ DXF
+    const EDITABLE: &[u8] =
+        b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+        0\nSECTION\n2\nENTITIES\n\
+        0\nLINE\n5\n2F\n8\n0\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n\
+        0\nCIRCLE\n5\n30\n8\n0\n10\n5.0\n20\n5.0\n40\n2.0\n\
+        0\nLINE\n5\n31\n8\n0\n10\n0.0\n20\n1.0\n11\n10.0\n21\n1.0\n0\nENDSEC\n0\nEOF\n";
+
+    /// 開いた文書の要素の ID とハッシュ
+    fn seen(session: &mut Session, doc: &str) -> Vec<(String, String)> {
+        let (_, response) = call(
+            session,
+            &format!(r#"{{"v":1,"op":"entities","doc":"{doc}","fields":["hash"]}}"#),
+        );
+        let Some(Value::Array(items)) = response.pointer("/result/items") else {
+            panic!("{response:?}");
+        };
+        (0..items.len())
+            .map(|index| {
+                (
+                    text(&response, &format!("/result/items/{index}/id")),
+                    text(&response, &format!("/result/items/{index}/hash")),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn applies_changes_by_id_and_returns_the_written_file() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        let document = text(&summary, "/result/hash");
+        let before = seen(&mut session, "a.dxf");
+        let ids: Vec<&str> = before.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["space/0/h2F", "space/0/h30", "space/0/h31"]);
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","hash":"{document}","edits":[{{"kind":"transform","id":"{}","hash":"{}","matrix":[1,0,5,0,1,7]}},{{"kind":"restyle","id":"{}","hash":"{}","color":{{"aci":1}},"line_weight":{{"mm":0.35}}}},{{"kind":"remove","id":"{}","hash":"{}"}}]}}"#,
+            before[0].0, before[0].1, before[1].0, before[1].1, before[2].0, before[2].1
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        // バイナリの結果は、次の呼び出しで捨てるので、先に取り出す
+        let file = session.take(0).unwrap();
+        // 書き戻した文書を読み直した ID とハッシュが、apply の返すものと同じになる
+        let after = seen(&mut session, "a.dxf");
+        assert_eq!(after.len(), 2);
+        for (index, (id, hash)) in after.iter().enumerate() {
+            assert_eq!(&text(&response, &format!("/result/applied/{index}/id")), id);
+            assert_eq!(
+                &text(&response, &format!("/result/applied/{index}/hash")),
+                hash
+            );
+            assert_ne!(hash, &before[index].1);
+        }
+        assert_eq!(
+            response.pointer("/result/applied/2"),
+            Some(&Value::Object(Default::default()))
+        );
+        assert_eq!(text(&response, "/blobs/0/kind"), "file");
+        assert_eq!(number(&response, "/blobs/0/size"), file.len().to_string());
+        assert_eq!(
+            text(&response, "/result/hash"),
+            Hash::document(&file).to_string()
+        );
+        let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        assert_eq!(
+            text(&summary, "/result/hash"),
+            text(&response, "/result/hash")
+        );
+        // 書き戻したファイルを開き直しても、同じ要素になる
+        session.push(b"b.dxf", &file).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"b.dxf"}"#);
+        assert_eq!(seen(&mut session, "b.dxf"), after);
+        // 読んだときのハッシュが古い変更は、当てない
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/code"), "change.document.stale");
+        assert_eq!(response.pointer("/blobs"), Some(&Value::Array(Vec::new())));
+        assert_eq!(seen(&mut session, "a.dxf"), after);
+    }
+
+    #[test]
+    fn repeated_apply_accepts_latest_document_hash() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = seen(&mut session, "a.dxf");
+        let (_, drawing) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        let document = text(&drawing, "/result/hash");
+        let request = |id: &str, hash: &str, document: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","hash":"{document}","edits":[{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}]}}"#
+            )
+        };
+        let (status, response) = call(
+            &mut session,
+            &request(&before[0].0, &before[0].1, &document),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let document = text(&response, "/result/hash");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        let bytes = session.take(0).unwrap();
+        assert_eq!(document, Hash::document(&bytes).to_string());
+        let (status, rejected) = call(&mut session, &request(&id, &before[0].1, &document));
+        assert_eq!(status, Status::Failed, "{rejected:?}");
+        assert_eq!(text(&error(&rejected), "/code"), "change.element.stale");
+        assert_eq!(rejected.pointer("/blobs"), Some(&Value::Array(Vec::new())));
+        assert!(session.take(0).is_none());
+        let (status, response) = call(&mut session, &request(&id, &hash, &document));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let second = text(&response, "/result/applied/0/hash");
+        assert_ne!(second, hash);
+        assert_eq!(second, seen(&mut session, "a.dxf")[0].1);
+    }
+
+    #[test]
+    fn failed_apply_keeps_document_and_hash_at_every_work_limit() {
+        let mut failed = 0;
+        let mut succeeded = false;
+        for limit in 0..300 {
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"a.dxf", EDITABLE).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+            let before = seen(&mut session, "a.dxf");
+            let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+            let document = text(&summary, "/result/hash");
+            let request = format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"transform","id":"{}","hash":"{}","matrix":[1,0,5,0,1,7]}}],"budget":{{"work":{limit}}}}}"#,
+                before[0].0, before[0].1
+            );
+            let (status, _) = call(&mut session, &request);
+            if status == Status::Ok {
+                succeeded = true;
+                break;
+            }
+            failed += 1;
+            assert_eq!(seen(&mut session, "a.dxf"), before, "work={limit}");
+            let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+            assert_eq!(text(&summary, "/result/hash"), document, "work={limit}");
+        }
+        assert!(failed > 0 && succeeded);
+    }
+
+    #[test]
+    fn checks_the_changes_before_applying_them() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = seen(&mut session, "a.dxf");
+        let (id, hash) = &before[0];
+        let cases = [
+            (
+                format!(r#""hash":"{hash}","kind":"remove","id":"{id}""#),
+                r#""hash":"v1:00""#,
+                "call.value.invalid",
+                "/hash",
+            ),
+            (
+                format!(r#""kind":"remove","id":"{id}","hash":"v1:00""#),
+                "",
+                "call.value.invalid",
+                "/edits/0/hash",
+            ),
+            (
+                format!(r#""kind":"move","id":"{id}","hash":"{hash}""#),
+                "",
+                "call.value.invalid",
+                "/edits/0/kind",
+            ),
+            (
+                format!(r#""kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,0,0,1]"#),
+                "",
+                "call.value.invalid",
+                "/edits/0/matrix",
+            ),
+            (
+                format!(
+                    r#""kind":"restyle","id":"{id}","hash":"{hash}","color":{{"inherit":"layer","aci":1}}"#
+                ),
+                "",
+                "call.value.invalid",
+                "/edits/0/color",
+            ),
+            (
+                format!(r#""kind":"restyle","id":"{id}","hash":"{hash}","color":{{"rgb":[1,2]}}"#),
+                "",
+                "call.value.invalid",
+                "/edits/0/color",
+            ),
+            (
+                format!(r#""kind":"restyle","id":"{id}","hash":"{hash}","layer":"WALL""#),
+                "",
+                "call.value.invalid",
+                "/edits/0/layer",
+            ),
+            (
+                format!(
+                    r#""kind":"restyle","id":"{id}","hash":"{hash}","line_type":{{"name":"DASHED"}}"#
+                ),
+                "",
+                "call.value.invalid",
+                "/edits/0/line_type",
+            ),
+            (
+                format!(r#""kind":"restyle","id":"{id}","hash":"{hash}","line_type_scale":0"#),
+                "",
+                "call.value.invalid",
+                "/edits/0/line_type_scale",
+            ),
+            (
+                format!(
+                    r#""kind":"restyle","id":"{id}","hash":"{hash}","line_weight":{{"default":false}}"#
+                ),
+                "",
+                "call.value.invalid",
+                "/edits/0/line_weight",
+            ),
+            (
+                format!(r#""kind":"remove","id":"space/0/h99","hash":"{hash}""#),
+                "",
+                "change.element.missing",
+                "",
+            ),
+        ];
+        for (edit, document, code, pointer) in cases {
+            let (edit, document) = if document.is_empty() {
+                (edit, String::new())
+            } else {
+                // 文書のハッシュの例は、変更をそのままにして文書のハッシュだけを壊す
+                let edit = edit.replacen(&format!(r#""hash":"{hash}","#), "", 1)
+                    + &format!(r#","hash":"{hash}""#);
+                (edit, format!(",{document}"))
+            };
+            let request =
+                format!(r#"{{"v":1,"op":"apply","doc":"a.dxf"{document},"edits":[{{{edit}}}]}}"#);
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            let error = error(&response);
+            assert_eq!(text(&error, "/code"), code, "{request}");
+            if !pointer.is_empty() {
+                assert_eq!(text(&error, "/params/pointer"), pointer, "{request}");
+            }
+        }
+        assert_eq!(seen(&mut session, "a.dxf"), before);
     }
 
     #[test]
@@ -1549,6 +2051,37 @@ mod tests {
             response,
             r#"{"v":1,"diagnostics":[{"code":"zip.path.unsafe","severity":"warning","count":1,"at":[{"id":"7","record":3,"bytes":{"start":10,"end":20}}],"cite":{"spec":"zip-appnote-6.3.10","section":"4.4.17"},"params":{"name":"../a"}}],"blobs":[]}"#
         );
+    }
+
+    #[test]
+    fn table_lookup_counts_work_and_rejects_ambiguous_names() {
+        let mut drawing = Drawing2D::default();
+        for id in 0..2 {
+            drawing.layers.push(zumen_drawing::Layer {
+                id: LayerId(id),
+                name: "same".to_string(),
+                state: None,
+                style: None,
+                follows_placement: false,
+                source: Ref::default(),
+            });
+        }
+        let cancel = CancelToken::new();
+        let mut diagnostics = Diagnostics::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(TableLookup::new(&drawing, &mut cx).is_err());
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let lookup = TableLookup::new(&drawing, &mut cx).ok().unwrap();
+        assert_eq!(lookup.layers.get("same"), Some(&None));
+        assert_eq!(budget.used(Kind::Work), 2);
     }
 
     #[test]
