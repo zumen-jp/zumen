@@ -423,25 +423,23 @@ impl Session {
     /// レイヤと線種の表の項目を、ID・名前・ハッシュで返す（決定 0156）
     fn tables(&self, request: &TablesRequest, cx: &mut Cx<'_>) -> Result<TablesResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
-        let mut item = |id: String, name: &str, hash: Hash| {
-            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            Ok(TableItem {
-                id,
-                name: name.to_string(),
-                hash: hash.to_string(),
-            })
-        };
         let mut layers = Vec::with_capacity(drawing.layers.len());
         for layer in &drawing.layers {
-            layers.push(item(id::layer(layer), &layer.name, Hash::layer(layer))?);
+            let hash = Hash::layer_checked(layer, cx).map_err(|stop| stopped(cx, stop))?;
+            layers.push(TableItem {
+                id: id::layer(layer),
+                name: layer.name.clone(),
+                hash: hash.to_string(),
+            });
         }
         let mut line_types = Vec::with_capacity(drawing.line_types.len());
         for line_type in &drawing.line_types {
-            line_types.push(item(
-                id::line_type(line_type),
-                &line_type.name,
-                Hash::line_type(line_type),
-            )?);
+            let hash = Hash::line_type_checked(line_type, cx).map_err(|stop| stopped(cx, stop))?;
+            line_types.push(TableItem {
+                id: id::line_type(line_type),
+                name: line_type.name.clone(),
+                hash: hash.to_string(),
+            });
         }
         Ok(TablesResult { layers, line_types })
     }
