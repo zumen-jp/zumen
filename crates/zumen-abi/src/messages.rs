@@ -24,6 +24,8 @@ pub enum Request {
     Entities(EntitiesRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から
     Apply(ApplyRequest),
+    /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から
+    Tables(TablesRequest),
 }
 
 impl Request {
@@ -36,6 +38,7 @@ impl Request {
         "drawing",
         "entities",
         "apply",
+        "tables",
     ];
 
     /// 目印の欄（`op`）の値
@@ -48,6 +51,7 @@ impl Request {
             Self::Drawing(_) => "drawing",
             Self::Entities(_) => "entities",
             Self::Apply(_) => "apply",
+            Self::Tables(_) => "tables",
         }
     }
 }
@@ -63,6 +67,7 @@ impl FromJson for Request {
             "drawing" => Self::Drawing(DrawingRequest::read_fields(&mut object)?),
             "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
+            "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -80,6 +85,7 @@ impl ToJson for Request {
             Self::Drawing(value) => value.to_json(out),
             Self::Entities(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
+            Self::Tables(value) => value.to_json(out),
         }
     }
 }
@@ -1716,8 +1722,10 @@ pub struct RestyleEdit {
     pub id: String,
     /// 読んだときの要素のハッシュ。entities が返したもの
     pub hash: String,
-    /// レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの
+    /// レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない
     pub layer: Option<String>,
+    /// レイヤの ID。tables が返したもの。小版 8 から
+    pub layer_id: Option<String>,
     /// 色
     pub color: Option<ColorChange>,
     /// 線種
@@ -1734,6 +1742,7 @@ impl RestyleEdit {
         let id = object.required("id", json::string)?;
         let hash = object.required("hash", json::string)?;
         let layer = object.optional("layer", json::string)?;
+        let layer_id = object.optional("layer_id", json::string)?;
         let color = object.optional("color", ColorChange::from_json)?;
         let line_type = object.optional("line_type", LineTypeChange::from_json)?;
         let line_type_scale = object.optional("line_type_scale", json::number)?;
@@ -1742,6 +1751,7 @@ impl RestyleEdit {
             id,
             hash,
             layer,
+            layer_id,
             color,
             line_type,
             line_type_scale,
@@ -1758,6 +1768,10 @@ impl RestyleEdit {
         out.string(&self.hash);
         if let Some(value) = &self.layer {
             out.key("layer");
+            out.string(value);
+        }
+        if let Some(value) = &self.layer_id {
+            out.key("layer_id");
             out.string(value);
         }
         if let Some(value) = &self.color {
@@ -1986,20 +2000,23 @@ impl ToJson for ColorChange {
     }
 }
 
-/// 新しい線種。inherit か name のどちらかを書く
+/// 新しい線種。inherit・name・id のどれか 1 つを書く
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LineTypeChange {
     /// 継承する先
     pub inherit: Option<Inherit>,
     /// 線種の元の名前。図面にある線種で、名前が 1 つに決まるもの
     pub name: Option<String>,
+    /// 線種の ID。tables が返したもの。小版 8 から
+    pub id: Option<String>,
 }
 
 impl LineTypeChange {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let inherit = object.optional("inherit", Inherit::from_json)?;
         let name = object.optional("name", json::string)?;
-        Ok(Self { inherit, name })
+        let id = object.optional("id", json::string)?;
+        Ok(Self { inherit, name, id })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -2009,6 +2026,10 @@ impl LineTypeChange {
         }
         if let Some(value) = &self.name {
             out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.id {
+            out.key("id");
             out.string(value);
         }
     }
@@ -2080,6 +2101,141 @@ impl FromJson for LineWeightChange {
 }
 
 impl ToJson for LineWeightChange {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct TablesRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+}
+
+impl TablesRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "tables")?;
+        let doc = object.required("doc", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("tables");
+        out.key("doc");
+        out.string(&self.doc);
+    }
+}
+
+impl FromJson for TablesRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TablesRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 表の項目。図面モデルの順
+#[derive(Clone, Debug, PartialEq)]
+pub struct TablesResult {
+    /// レイヤ
+    pub layers: Vec<TableItem>,
+    /// 線種
+    pub line_types: Vec<TableItem>,
+}
+
+impl TablesResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let layers = object.required("layers", |value| json::array(value, TableItem::from_json))?;
+        let line_types = object.required("line_types", |value| {
+            json::array(value, TableItem::from_json)
+        })?;
+        Ok(Self { layers, line_types })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("layers");
+        out.array(&self.layers, |out, item| item.to_json(out));
+        out.key("line_types");
+        out.array(&self.line_types, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for TablesResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TablesResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 表の項目
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableItem {
+    /// ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。書き戻しても変わらない（決定 0156）
+    pub id: String,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: String,
+}
+
+impl TableItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.required("name", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { id, name, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("name");
+        out.string(&self.name);
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for TableItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TableItem {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
