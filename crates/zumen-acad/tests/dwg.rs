@@ -3680,6 +3680,76 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
     );
 }
 
+#[cfg(feature = "drawing")]
+#[test]
+fn stopped_drawing_apply_keeps_the_original_dwg() {
+    use zumen_drawing::{Affine, Changes, Drawing2D, Edit, Hash, Seen, id};
+    use zumen_sdk::{Apply, Lift};
+
+    let src = with_header_variables(
+        dwg(&objects_with_a_block()),
+        0x58,
+        0x1F,
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+    );
+    let cancel = CancelToken::new();
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let file = Dwg::read(&src, &mut cx).unwrap();
+    let drawing: Drawing2D = file.lift(&mut cx).unwrap();
+    let space = &drawing.spaces[0];
+    let element = &space.elements[0];
+    let place = id::space(space.id);
+    let changes = Changes {
+        document: None,
+        edits: vec![Edit::Transform {
+            target: Seen {
+                id: id::Namer::new(&place).next(0, element),
+                hash: Hash::element(element),
+            },
+            transform: Affine {
+                m: [1.0, 0.0, 5.0, 0.0, 1.0, 7.0],
+            },
+        }],
+    };
+
+    // 成功に必要な作業量を測り、最後の段階で上限を超えるようにする。
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let mut file = Dwg::read(&src, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)).unwrap();
+    let mut budget = Budget::default();
+    file.apply(
+        &changes,
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    let work = budget.used(Kind::Work);
+    assert!(work > 0);
+
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let mut file = Dwg::read(&src, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)).unwrap();
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(work - 1)));
+    assert!(matches!(
+        file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+        ),
+        Err(Error::Stopped(_))
+    ));
+    let mut bytes = Vec::new();
+    let mut budget = Budget::default();
+    Dwg::write(
+        &file,
+        &mut bytes,
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    assert_eq!(bytes, src);
+}
+
 #[test]
 fn dwg_lines_have_the_same_typed_view_as_dxf() {
     let (db, _) = objects(&dwg(&objects_in_sample()));
