@@ -1119,8 +1119,8 @@ fn drawings_take_back_transformed_elements() {
             );
         }
         // 格子に並べる記号は試料にないので、属性を除いた記号を 3 列 2 行で足してから、回して動かし、鏡映する。
-        // DWG は MINSERT として足す。R2004 から後の DWG は、MINSERT をまだ足せない
-        let minsert = !src.starts_with(b"AC10") || src.starts_with(b"AC1015");
+        // DWG は MINSERT として足す。R2000 より前の DWG には、まだ足せない
+        let minsert = !src.starts_with(b"AC10") || src.as_slice() >= b"AC1015".as_slice();
         if let Some((_, _, element)) = targets.iter().find(|(kind, _, _)| *kind == "symbol")
             && let Shape::Symbol(symbol) = &element.shape
         {
@@ -2229,7 +2229,7 @@ fn r2000_drawings_take_back_added_entities() {
 
 #[test]
 fn r2004_drawings_take_back_added_entities() {
-    added_entities_are_taken_back(b"AC1018", false);
+    added_entities_are_taken_back(b"AC1018", true);
 }
 
 /// R2010 から後の図面に LINE・CIRCLE・TEXT・LWPOLYLINE・INSERT を足して書き戻すと、読み直したものが足したものと
@@ -2237,7 +2237,7 @@ fn r2004_drawings_take_back_added_entities() {
 #[test]
 fn r2010_and_later_drawings_take_back_added_entities() {
     for version in [b"AC1024", b"AC1027", b"AC1032"] {
-        added_entities_are_taken_back(version, false);
+        added_entities_are_taken_back(version, true);
     }
 }
 
@@ -2555,7 +2555,7 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
         // 書き換えた見出しの変数と、足したオブジェクトの CRC は合う
         let mut fresh = Diagnostics::new();
         let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
-        let again = Dwg::read(&out, &mut cx).unwrap();
+        let mut again = Dwg::read(&out, &mut cx).unwrap();
         assert_eq!(
             again.handle_seed(),
             Some(seed + count),
@@ -2578,6 +2578,40 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             assert_eq!(a.kind, b.kind, "{}", path.display());
             assert_eq!(a.values, b.values, "{}", path.display());
         }
+        // 足した MINSERT の基点と列の数と間隔を変えて書き戻すと、読み直したものが変えたものと合う
+        let Some(index) = after.objects().iter().rposition(|o| {
+            o.kind == b"INSERT" && o.values.iter().any(|v| v.code == 70) && o.handle() >= Some(seed)
+        }) else {
+            continue;
+        };
+        let mut changed = after.clone();
+        let minsert = changed.object_mut(index).unwrap();
+        for value in &mut minsert.values {
+            value.data = match value.code {
+                10 => Data::Real(18.0),
+                70 => Data::Int(4),
+                44 => Data::Real(7.0),
+                _ => continue,
+            };
+        }
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        again.write_back(&changed, &mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&again, &mut out, &mut cx).unwrap();
+        let read_back = Dwg::read(&out, &mut cx).unwrap().objects(&mut cx).unwrap();
+        assert_eq!(
+            read_back.objects()[index].values,
+            changed.objects()[index].values,
+            "{}",
+            path.display()
+        );
+        assert_eq!(
+            read_back.objects()[index + 1].values,
+            changed.objects()[index + 1].values,
+            "{}",
+            path.display()
+        );
     }
 }
 
