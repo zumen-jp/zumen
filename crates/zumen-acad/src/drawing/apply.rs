@@ -429,7 +429,10 @@ fn formatting(
             }
             (Rotation::Direction([x, y]), Rotation::Direction(_)) if [x, y] != [0.0, 0.0] => {
                 put(values, 11, x, &[])?;
-                put(values, 21, y, &[])?;
+                put(values, 21, y, &[11])?;
+                // 角度と方向の両方があると、後の指定が優先される（DXF Reference「MTEXT」）。
+                // 古い角度が新しい方向を上書きしないよう、方向だけを残す
+                values.retain(|value| value.code != 50);
             }
             _ => return None,
         }
@@ -467,7 +470,7 @@ fn formatting(
     }
     if text.line_spacing != was.line_spacing {
         let factor = text.line_spacing.factor;
-        if !(factor.is_finite() && factor > 0.0) {
+        if !(0.25..=4.0).contains(&factor) {
             return None;
         }
         let exact = Data::Int(if text.line_spacing.exact { 2 } else { 1 });
@@ -482,7 +485,7 @@ fn formatting(
 }
 
 /// MTEXT の内容を、250 バイトずつの区切り（3）と最後の値（1）にして、元の内容の値の場所に置く。区切りは
-/// 文字の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）
+/// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）
 fn contents(values: &mut Vec<Value>, content: &str, unicode: bool) -> Option<()> {
     if !(unicode || content.is_ascii()) || content.contains(['\n', '\r']) {
         return None;
@@ -492,7 +495,19 @@ fn contents(values: &mut Vec<Value>, content: &str, unicode: bool) -> Option<()>
     let mut chunks = Vec::new();
     let mut rest = content;
     while rest.len() > 250 {
-        let cut = (0..=250).rev().find(|at| rest.is_char_boundary(*at))?;
+        let mut cut = (0..=250).rev().find(|at| rest.is_char_boundary(*at))?;
+        // バイナリの DXF と DWG は、区切りごとに `^ ` や `^J` を戻す。末尾の `^` が対を持たなければ
+        // 次の区切りへ送る。`^^` は 1 組の表記なので、その間では切らない
+        let carets = rest
+            .as_bytes()
+            .get(..cut)?
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == b'^')
+            .count();
+        if !carets.is_multiple_of(2) {
+            cut = cut.checked_sub(1)?;
+        }
         let (chunk, tail) = rest.split_at(cut);
         chunks.push(Value {
             code: 3,
