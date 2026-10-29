@@ -443,13 +443,16 @@ impl Session {
                 hash: hash.to_string(),
             });
         }
+        seen.clear();
         let mut dimension_styles = Vec::with_capacity(drawing.dimension_styles.len());
         for (index, style) in drawing.dimension_styles.iter().enumerate() {
-            dimension_styles.push(item(
-                id::dimension_style(style, index),
-                &style.name,
-                Hash::dimension_style(style),
-            )?);
+            let hash =
+                Hash::dimension_style_checked(style, cx).map_err(|stop| stopped(cx, stop))?;
+            dimension_styles.push(TableItem {
+                id: table_id(id::dimension_style(style, index), &mut seen),
+                name: style.name.clone(),
+                hash: hash.to_string(),
+            });
         }
         Ok(TablesResult {
             layers,
@@ -1731,7 +1734,8 @@ mod tests {
     fn tables_keep_ids_unique_when_handles_repeat() {
         let source = TABLED
             .replace("5\n13\n2\nWall\n", "5\n10\n2\nWall\n")
-            .replace("5\n12\n2\nDashed\n", "5\n11\n2\nDashed\n");
+            .replace("5\n12\n2\nDashed\n", "5\n11\n2\nDashed\n")
+            .replace("105\n1D\n2\nStandard\n70\n0\n41\n2.5\n", "105\n1D\n2\nStandard\n70\n0\n41\n2.5\n0\nDIMSTYLE\n105\n1D\n2\nOther\n70\n0\n41\n3.0\n");
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", source.as_bytes()).unwrap();
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
@@ -1741,6 +1745,14 @@ mod tests {
         assert_eq!(text(&tables, "/result/layers/1/id"), "layer/h10/1");
         assert_eq!(text(&tables, "/result/line_types/0/id"), "line-type/h11");
         assert_eq!(text(&tables, "/result/line_types/1/id"), "line-type/h11/1");
+        assert_eq!(
+            text(&tables, "/result/dimension_styles/0/id"),
+            "dimension-style/h1D"
+        );
+        assert_eq!(
+            text(&tables, "/result/dimension_styles/1/id"),
+            "dimension-style/h1D/1"
+        );
     }
 
     #[test]

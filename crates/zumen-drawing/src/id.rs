@@ -93,11 +93,10 @@ pub fn line_type(line_type: &LineType) -> String {
 
 /// 寸法スタイルの ID の文字列。`index` は、図面の寸法スタイルの並びの中の順
 pub fn dimension_style(style: &DimensionStyle, index: usize) -> String {
-    keyed(
-        "dimension-style",
-        &style.source,
-        u32::try_from(index).unwrap_or(u32::MAX),
-    )
+    match style.source.key() {
+        Some(Key::Handle(handle)) => format!("dimension-style/h{handle:X}"),
+        _ => format!("dimension-style/{index}"),
+    }
 }
 
 /// 表の項目の ID の文字列。ハンドルがなければ、読んだ順の番号で作る
@@ -278,6 +277,11 @@ mod tests {
             source: Ref::at_record(12),
         };
         assert_eq!(dimension_style(&standard, 1), "dimension-style/1");
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(
+            dimension_style(&standard, u32::MAX as usize + 1),
+            "dimension-style/4294967296"
+        );
         standard.source = standard.source.with_key(Key::Handle(0x1a));
         assert_eq!(dimension_style(&standard, 1), "dimension-style/h1A");
     }

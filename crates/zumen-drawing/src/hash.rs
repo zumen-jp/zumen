@@ -64,6 +64,11 @@ impl Hash {
         Self::of_checked(b"line-type", cx, |out| line_type.encode(out))
     }
 
+    /// 予算と中断の合図を確かめながら寸法スタイルをハッシュする
+    pub fn dimension_style_checked(style: &DimensionStyle, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        Self::of_checked(b"dimension-style", cx, |out| style.encode(out))
+    }
+
     fn of_checked(
         domain: &[u8],
         cx: &mut Cx<'_>,
@@ -1097,6 +1102,15 @@ mod tests {
             }),
             source: Ref::default(),
         };
+        let dimension = DimensionStyle {
+            name: "x".repeat(65536),
+            ends: [Arrowhead::Default, Arrowhead::Default],
+            leader: Arrowhead::Default,
+            size: 1.0,
+            tick: None,
+            scale: 1.0,
+            source: Ref::default(),
+        };
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
         let mut budget = Budget::default();
@@ -1109,11 +1123,21 @@ mod tests {
             Hash::line_type_checked(&line_type, &mut cx).unwrap(),
             Hash::line_type(&line_type)
         );
+        assert_eq!(
+            Hash::dimension_style_checked(&dimension, &mut cx).unwrap(),
+            Hash::dimension_style(&dimension)
+        );
 
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
         let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
         assert!(matches!(
             Hash::line_type_checked(&line_type, &mut cx),
+            Err(Stop::Exceeded(_))
+        ));
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(matches!(
+            Hash::dimension_style_checked(&dimension, &mut cx),
             Err(Stop::Exceeded(_))
         ));
         cancel.cancel();
