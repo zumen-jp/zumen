@@ -8778,3 +8778,30 @@ fn table_style_rows_keep_null_text_style_handles() {
         ]
     );
 }
+
+#[test]
+fn snapshots_preserve_r2000_and_expanded_r2004_and_stop_on_budget() {
+    for source in [sample(), r2004(&r2004_sections())] {
+        let file = read(&source, Limits::default()).0.unwrap();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let snapshot = file
+            .snapshot(&mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+            .unwrap();
+        assert_eq!(snapshot, file);
+        let used = budget.used(Kind::Work);
+        assert!(used > 1);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(used - 1)));
+        assert!(matches!(
+            file.snapshot(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        cancel.cancel();
+        let mut budget = Budget::default();
+        assert!(matches!(
+            file.snapshot(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+    }
+}

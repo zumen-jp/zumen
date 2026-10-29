@@ -86,6 +86,45 @@ impl Record {
 }
 
 impl DxfFile {
+    /// ファイルを、予算と中断を確かめながら複製する。元の位置と変更済みの値も保つ
+    pub fn snapshot(&self, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        use crate::snapshot::{bytes, check};
+        let src = bytes(&self.src, cx)?;
+        let mut records = Vec::new();
+        for record in &self.records {
+            check(cx)?;
+            let mut tags = Vec::new();
+            for tag in &record.tags {
+                check(cx)?;
+                tags.push(Tag {
+                    code: tag.code,
+                    span: tag.span.clone(),
+                    value: tag.value.clone(),
+                    edited: tag
+                        .edited
+                        .as_deref()
+                        .map(|v| bytes(v, cx).map(Vec::into_boxed_slice))
+                        .transpose()?,
+                });
+            }
+            records.push(Record {
+                span: record.span.clone(),
+                tags,
+                edited: record.edited,
+            });
+        }
+        Ok(Self {
+            src,
+            records,
+            trailer: self.trailer.clone(),
+            binary: self
+                .binary
+                .as_ref()
+                .map(|binary| binary.snapshot(cx))
+                .transpose()?,
+        })
+    }
+
     /// レコード
     pub fn records(&self) -> &[Record] {
         &self.records

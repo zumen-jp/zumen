@@ -7,6 +7,7 @@ pub mod db;
 mod drawing;
 pub mod dwg;
 pub mod dxf;
+mod snapshot;
 
 pub use db::{AcadDb, Data, DataType, Line, Object, Origin, Section, Value, ViewError};
 pub use dwg::{Dwg, DwgFile, DwgTxn, Locator};

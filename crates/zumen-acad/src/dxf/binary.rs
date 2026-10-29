@@ -28,6 +28,16 @@ pub(super) struct Binary {
     pub(super) trailer: Range<usize>,
 }
 
+impl Binary {
+    pub(super) fn snapshot(&self, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        Ok(Self {
+            src: crate::snapshot::bytes(&self.src, cx)?,
+            wide: self.wide,
+            trailer: self.trailer.clone(),
+        })
+    }
+}
+
 /// 読んだ結果。ASCII の表現の文、レコード、元のバイナリ
 pub(super) struct Decoded {
     pub(super) text: Vec<u8>,

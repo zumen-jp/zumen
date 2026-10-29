@@ -150,6 +150,58 @@ struct Entry {
 }
 
 impl DwgFile {
+    /// ファイルを、予算と中断を確かめながら複製する。展開した区切りも保つ
+    pub fn snapshot(&self, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        use crate::snapshot::{bytes, check};
+        let src = bytes(&self.src, cx)?;
+        let mut locators = Vec::new();
+        for locator in &self.locators {
+            check(cx)?;
+            locators.push(*locator);
+        }
+        let container = self
+            .container
+            .as_ref()
+            .map(|value| value.snapshot(cx))
+            .transpose()?;
+        let mut classes = Vec::new();
+        for class in &self.classes {
+            check(cx)?;
+            classes.push(Class {
+                number: class.number,
+                name: bytes(&class.name, cx)?,
+                entity: class.entity,
+            });
+        }
+        let mut entries = Vec::new();
+        for entry in &self.entries {
+            check(cx)?;
+            let Entry {
+                handle,
+                span,
+                data,
+                handles,
+                type_code,
+            } = entry;
+            entries.push(Entry {
+                handle: *handle,
+                span: span.clone(),
+                data: data.clone(),
+                handles: *handles,
+                type_code: *type_code,
+            });
+        }
+        Ok(Self {
+            src,
+            release: self.release,
+            code_page: self.code_page,
+            locators,
+            container,
+            classes,
+            entries,
+        })
+    }
+
     /// 版の文字列（`AC1015`）
     pub fn version(&self) -> &[u8] {
         self.src.get(..6).unwrap_or_default()

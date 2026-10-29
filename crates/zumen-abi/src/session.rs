@@ -433,24 +433,27 @@ impl Session {
                 Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", request.doc.as_str()),
             ));
         };
-        // 当てられない変更の理由と、止めた理由は、apply と書き出しが診断として足してある。
-        // 当てたあとに書き出しで止めたら、文書は変わっているので、元のバイト列のハッシュは捨てる
-        self.hashes.remove(&request.doc);
+        // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let mut bytes = Vec::new();
-        let applied = match doc {
+        let (applied, hash) = match doc {
             Doc::Dxf(file) => {
-                let applied = file.apply(&changes, cx).map_err(|_| Failed)?;
-                Dxf::write(file, &mut bytes, cx).map_err(|_| Failed)?;
-                applied
+                let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
+                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                let hash = Hash::document(&bytes);
+                *file = updated;
+                (applied, hash)
             }
             Doc::Dwg(file) => {
-                let applied = file.apply(&changes, cx).map_err(|_| Failed)?;
-                Dwg::write(file, &mut bytes, cx).map_err(|_| Failed)?;
-                applied
+                let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
+                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                Dwg::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                let hash = Hash::document(&bytes);
+                *file = updated;
+                (applied, hash)
             }
             Doc::Sxf(_) | Doc::Jww(_) => return Err(Failed),
         };
-        let hash = Hash::document(&bytes);
         self.hashes.insert(request.doc.clone(), hash);
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
@@ -1440,6 +1443,34 @@ mod tests {
         assert_eq!(text(&error(&response), "/code"), "change.document.stale");
         assert_eq!(response.pointer("/blobs"), Some(&Value::Array(Vec::new())));
         assert_eq!(seen(&mut session, "a.dxf"), after);
+    }
+
+    #[test]
+    fn failed_apply_keeps_document_and_hash_at_every_work_limit() {
+        let mut failed = 0;
+        let mut succeeded = false;
+        for limit in 0..300 {
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"a.dxf", EDITABLE).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+            let before = seen(&mut session, "a.dxf");
+            let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+            let document = text(&summary, "/result/hash");
+            let request = format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"transform","id":"{}","hash":"{}","matrix":[1,0,5,0,1,7]}}],"budget":{{"work":{limit}}}}}"#,
+                before[0].0, before[0].1
+            );
+            let (status, _) = call(&mut session, &request);
+            if status == Status::Ok {
+                succeeded = true;
+                break;
+            }
+            failed += 1;
+            assert_eq!(seen(&mut session, "a.dxf"), before, "work={limit}");
+            let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+            assert_eq!(text(&summary, "/result/hash"), document, "work={limit}");
+        }
+        assert!(failed > 0 && succeeded);
     }
 
     #[test]

@@ -1234,3 +1234,44 @@ fn table_changes_that_cannot_be_written_back_change_nothing() {
         assert_eq!(diag.iter().map(|d| d.code()).collect::<Vec<_>>(), [code]);
     }
 }
+
+#[test]
+fn snapshots_preserve_binary_and_edited_values_and_stop_on_budget() {
+    for source in [sample("\n"), binary_line(true), binary_line(false)] {
+        let mut file = read(&source);
+        let index = file
+            .records()
+            .iter()
+            .position(|record| file.kind(record) == b"LINE")
+            .unwrap();
+        let mut txn = file.transaction();
+        txn.set_real(index, 11, 200.0).unwrap();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        txn.commit(&mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+            .unwrap();
+        let mut budget = Budget::default();
+        let snapshot = file
+            .snapshot(&mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+            .unwrap();
+        assert_eq!(snapshot, file);
+        assert_eq!(
+            testkit::write::<Dxf>(&snapshot).unwrap(),
+            testkit::write::<Dxf>(&file).unwrap()
+        );
+        let used = budget.used(Kind::Work);
+        assert!(used > 1);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(used - 1)));
+        assert!(matches!(
+            file.snapshot(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        cancel.cancel();
+        let mut budget = Budget::default();
+        assert!(matches!(
+            file.snapshot(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+    }
+}
