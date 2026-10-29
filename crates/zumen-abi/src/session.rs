@@ -687,8 +687,8 @@ fn table_id(base: String, seen: &mut BTreeMap<String, u64>) -> String {
     result
 }
 
-/// 要素が名前で指す文字スタイルと寸法スタイルの ID（tables が返すもの）。名前は大文字と小文字を区別せずに比べ、
-/// 同じ名前があれば、図面モデルが引くのと同じく先の項目にする（決定 0158）
+/// 要素が名前で指す文字スタイルと寸法スタイルの ID（tables が返すもの）。名前の比較は図面モデルと同じにし、
+/// 同じ名前があれば先の項目にする（決定 0158）
 #[derive(Default)]
 struct StyleIds {
     text: BTreeMap<String, String>,
@@ -704,10 +704,7 @@ impl StyleIds {
             cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
                 .map_err(|stop| stopped(cx, stop))?;
             let id = table_id(id::dimension_style(style, index), &mut seen);
-            result
-                .dimension
-                .entry(style.name.to_lowercase())
-                .or_insert(id);
+            result.dimension.entry(style.name.clone()).or_insert(id);
         }
         seen.clear();
         for (index, style) in drawing.text_styles.iter().enumerate() {
@@ -715,15 +712,19 @@ impl StyleIds {
             cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
                 .map_err(|stop| stopped(cx, stop))?;
             let id = table_id(id::text_style(style, index), &mut seen);
-            result.text.entry(style.name.to_lowercase()).or_insert(id);
+            result
+                .text
+                .entry(style.name.to_ascii_lowercase())
+                .or_insert(id);
         }
         Ok(result)
     }
 
     /// 形の値に、名前で引いたスタイルの ID を書く
     fn fill(&self, geometry: &mut messages::Geometry) {
-        let find =
-            |items: &BTreeMap<String, String>, name: &str| items.get(&name.to_lowercase()).cloned();
+        let find = |items: &BTreeMap<String, String>, name: &str| {
+            items.get(&name.to_ascii_lowercase()).cloned()
+        };
         match geometry {
             messages::Geometry::Text(text) => {
                 text.style_id = text
@@ -738,7 +739,7 @@ impl StyleIds {
                     .and_then(|name| find(&self.text, name));
             }
             messages::Geometry::Dimension(dimension) => {
-                dimension.style_id = find(&self.dimension, &dimension.style);
+                dimension.style_id = self.dimension.get(&dimension.style).cloned();
             }
             _ => {}
         }
@@ -1193,11 +1194,11 @@ impl<'a> TableLookup<'a> {
             let work = style.name.len().saturating_add(1);
             cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
                 .map_err(|stop| stopped(cx, stop))?;
-            *names.entry(style.name.to_lowercase()).or_default() += 1;
+            *names.entry(style.name.to_ascii_lowercase()).or_default() += 1;
         }
         for (index, style) in drawing.text_styles.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            let unique = names.get(&style.name.to_lowercase()) == Some(&1);
+            let unique = names.get(&style.name.to_ascii_lowercase()) == Some(&1);
             result.text_style_ids.insert(
                 table_id(id::text_style(style, index), &mut seen),
                 unique.then_some(style.name.as_str()),
@@ -3290,6 +3291,49 @@ mod tests {
         assert_eq!(
             text(&error(&response), "/params/pointer"),
             "/edits/0/geometry/style_id"
+        );
+    }
+
+    #[test]
+    fn non_ascii_text_style_names_remain_distinct() {
+        let dxf = STYLED
+            .replace("AC1018", "AC1021")
+            .replace("2\nStandard\n", "2\nÄ\n")
+            .replace("2\nGothic\n", "2\nä\n")
+            .replace("7\nGOTHIC\n", "7\nä\n");
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", dxf.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        assert!(
+            shapes(&mut session, "a.dxf")[1]
+                .ends_with(r#""style":"ä","style_id":"text-style/h12"}"#)
+        );
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"text","content":"C","position":[0,9],"height":2,"rotation":0,"style_id":"text-style/h12"}}]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert!(
+            shapes(&mut session, "a.dxf")[2]
+                .ends_with(r#""style":"ä","style_id":"text-style/h12"}"#)
+        );
+    }
+
+    #[test]
+    fn dimension_style_ids_follow_the_models_case_sensitive_lookup() {
+        let dxf =
+            b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+            0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n105\n2A\n2\nSTYLE\n70\n0\n\
+            0\nDIMSTYLE\n105\n2B\n2\nstyle\n70\n0\n0\nENDTAB\n0\nENDSEC\n\
+            0\nSECTION\n2\nENTITIES\n0\nDIMENSION\n5\n40\n8\n0\n3\nstyle\n10\n0.0\n20\n100.0\n\
+            70\n32\n13\n0.0\n23\n0.0\n14\n1000.0\n24\n0.0\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", dxf).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let geometry = &shapes(&mut session, "a.dxf")[0];
+        assert!(
+            geometry.contains(r#""style":"style","style_id":"dimension-style/h2B""#),
+            "{geometry}"
         );
     }
 
