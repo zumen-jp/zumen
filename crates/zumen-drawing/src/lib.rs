@@ -2479,6 +2479,26 @@ pub enum Edit {
         /// 除く線種
         target: Seen,
     },
+    /// 指した寸法スタイルの名前と定義（端部記号・その大きさ・斜線・倍率）を、この寸法スタイルのもので置き換える
+    /// （決定 0165）。出所は使わない。`target` の ID は [`id::dimension_style`]、ハッシュは
+    /// [`Hash::dimension_style`]
+    ReplaceDimensionStyle {
+        /// 置き換える寸法スタイル
+        target: Seen,
+        /// 新しい値
+        style: Box<DimensionStyle>,
+    },
+    /// 寸法スタイルを足す（決定 0165）。出所は使わない
+    AddDimensionStyle {
+        /// 足す寸法スタイル
+        style: Box<DimensionStyle>,
+    },
+    /// 指した寸法スタイルを除く（決定 0165）。寸法・引出線・ほかのオブジェクト・今の寸法スタイルが指すものと、
+    /// Standard と外部参照に依るものは除けない
+    RemoveDimensionStyle {
+        /// 除く寸法スタイル
+        target: Seen,
+    },
 }
 
 /// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` の欄は変えない

@@ -5002,3 +5002,252 @@ fn drawings_take_back_changed_line_types() {
         assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
     }
 }
+
+/// 試料の寸法スタイルの名前・大きさ・斜線・倍率を変え、寸法スタイルを 1 つ足し、寸法と引出線が使わない寸法スタイル
+/// を除いて書き戻すと、読み直した寸法スタイルは変えたものと同じになり、寸法と引出線は名前を変えた寸法スタイルを指す。
+/// DXF は、端部記号もブロックの矢印に変える。R2010 から後の DWG は、日本語の名前にも変える（決定 0165）
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_take_back_changed_dimension_styles() {
+    use zumen_drawing::{
+        Applied, Arrowhead, Changes, DimensionStyle, Drawing2D, Edit, Hash, Seen, Shape, SymbolKey,
+        id,
+    };
+    use zumen_sdk::{Apply, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Option<Drawing2D> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .ok()
+    }
+    /// 寸法と引出線ごとの、寸法スタイルの名前（小文字）
+    fn used(drawing: &Drawing2D) -> Vec<String> {
+        fn name<P>(shape: &Shape<P>) -> Option<String> {
+            match shape {
+                Shape::Dimension(dimension) => Some(dimension.style.to_lowercase()),
+                Shape::Leader(leader) => Some(leader.style.to_lowercase()),
+                _ => None,
+            }
+        }
+        let model = drawing
+            .spaces
+            .iter()
+            .chain(drawing.symbols.iter().map(|symbol| &symbol.space))
+            .flat_map(|space| &space.elements)
+            .filter_map(|element| name(&element.shape));
+        let paper = drawing
+            .sheets
+            .iter()
+            .flat_map(|sheet| &sheet.elements)
+            .filter_map(|element| name(&element.shape));
+        model.chain(paper).collect()
+    }
+    fn seen(drawing: &Drawing2D, style: &DimensionStyle) -> Seen {
+        let index = drawing
+            .dimension_styles
+            .iter()
+            .position(|other| std::ptr::eq(other, style))
+            .unwrap();
+        Seen {
+            id: id::dimension_style(style, index),
+            hash: Hash::dimension_style(style),
+        }
+    }
+    fn apply<F: Apply<Changes, Output = Vec<Applied>>>(
+        file: &mut F,
+        edits: Vec<Edit>,
+    ) -> Result<Vec<Applied>, zumen_sdk::Error> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(
+            &Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+    }
+    /// 変えて足したら `[1, 除いた数]`。書き戻せなければ `[0, 0]`
+    fn check<C: zumen_sdk::Codec>(path: &Path, src: &[u8], suffix: &str, dxf: bool) -> [usize; 2]
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let Some(drawing) = testkit::read::<C>(src).0.ok().and_then(|file| lift(&file)) else {
+            return [0, 0];
+        };
+        let free = |style: &&DimensionStyle| {
+            style.source.key().is_some()
+                && !style.name.eq_ignore_ascii_case("Standard")
+                && style.name.is_ascii()
+                && !style.name.contains(['$', '|'])
+                && !drawing.dimension_styles.iter().any(|other| {
+                    other
+                        .name
+                        .as_bytes()
+                        .split(|&byte| byte == b'$')
+                        .next()
+                        .is_some_and(|parent| {
+                            other.name.contains('$')
+                                && parent.eq_ignore_ascii_case(style.name.as_bytes())
+                        })
+                })
+        };
+        let Some(was) = drawing.dimension_styles.iter().find(free) else {
+            return [0, 0];
+        };
+        let mut changed = was.clone();
+        changed.name = format!("{}{suffix}", was.name);
+        changed.size = was.size * 2.0 + 1.0;
+        changed.scale = 50.0;
+        changed.tick = Some(0.75);
+        // DXF は、試料が持つ矢印のブロックがあれば、端部記号もそれに変える
+        let arrow = drawing
+            .symbols
+            .iter()
+            .map(|symbol| &symbol.key)
+            .find(|key| key.namespace == "dxf.block" && key.name.starts_with('_'));
+        if let (true, Some(arrow)) = (dxf, arrow) {
+            let block = Arrowhead::Symbol(SymbolKey {
+                namespace: "dxf.block",
+                name: arrow.name.clone(),
+            });
+            changed.ends = [block.clone(), Arrowhead::Default];
+            changed.leader = block;
+        }
+        let mut added = changed.clone();
+        added.name = "ZUMEN-ADDED".to_owned();
+        added.tick = None;
+        let mut file = testkit::read::<C>(src).0.unwrap();
+        let edits = vec![
+            Edit::ReplaceDimensionStyle {
+                target: seen(&drawing, was),
+                style: Box::new(changed.clone()),
+            },
+            Edit::AddDimensionStyle {
+                style: Box::new(added.clone()),
+            },
+        ];
+        let Ok(applied) = apply(&mut file, edits) else {
+            assert_eq!(
+                testkit::write::<C>(&file).unwrap(),
+                src,
+                "{}",
+                path.display()
+            );
+            return [0, 0];
+        };
+        let written = testkit::write::<C>(&file).unwrap();
+        let after = lift(&testkit::read::<C>(&written).0.unwrap()).unwrap();
+        let find = |name: &str| {
+            after
+                .dimension_styles
+                .iter()
+                .find(|style| style.name == name)
+                .unwrap()
+        };
+        let same = |style: &DimensionStyle, expected: &DimensionStyle| {
+            assert_eq!(
+                (
+                    &style.ends,
+                    &style.leader,
+                    style.size,
+                    style.tick,
+                    style.scale
+                ),
+                (
+                    &expected.ends,
+                    &expected.leader,
+                    expected.size,
+                    expected.tick,
+                    expected.scale
+                ),
+                "{}",
+                path.display()
+            );
+        };
+        let renamed = find(&changed.name);
+        same(renamed, &changed);
+        assert_eq!(seen(&after, renamed).id, seen(&drawing, was).id);
+        assert_eq!(applied[0].hash, Some(Hash::dimension_style(renamed)));
+        let new = find("ZUMEN-ADDED");
+        same(new, &added);
+        assert_eq!(applied[1].id, Some(seen(&after, new).id));
+        // 寸法と引出線は、名前を変えた寸法スタイルを指す
+        let old = was.name.to_lowercase();
+        let expected: Vec<String> = used(&drawing)
+            .into_iter()
+            .map(|name| match name == old {
+                true => changed.name.to_lowercase(),
+                false => name,
+            })
+            .collect();
+        assert_eq!(used(&after), expected, "{}", path.display());
+        // 寸法と引出線が使わない寸法スタイルを除く。断ったら、ファイルは変わらない
+        let in_use: std::collections::BTreeSet<String> = used(&after).into_iter().collect();
+        let mut removed = 0;
+        for style in after.dimension_styles.iter().filter(free).take(32) {
+            if in_use.contains(&style.name.to_lowercase()) {
+                continue;
+            }
+            let mut file = testkit::read::<C>(&written).0.unwrap();
+            let edits = vec![Edit::RemoveDimensionStyle {
+                target: seen(&after, style),
+            }];
+            if apply(&mut file, edits).is_err() {
+                assert_eq!(testkit::write::<C>(&file).unwrap(), written);
+                continue;
+            }
+            let again = lift(
+                &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                    .0
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(
+                again
+                    .dimension_styles
+                    .iter()
+                    .all(|other| other.name != style.name)
+            );
+            assert_eq!(used(&again), used(&after), "{}", path.display());
+            removed += 1;
+        }
+        [1, removed]
+    }
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
+        .collect();
+    paths.sort();
+    // DXF・R2010 より前の DWG・R2010 から後の DWG の、変えた図面の数と除いた寸法スタイルの数
+    let mut counts = [[0; 2]; 3];
+    for path in paths {
+        let src = std::fs::read(&path).unwrap();
+        let (kind, found) = if path.extension().is_some_and(|e| e == "dxf") {
+            (0, check::<Dxf>(&path, &src, "-ZUMEN", true))
+        } else if src
+            .get(..6)
+            .is_some_and(|version| version >= b"AC1024".as_slice())
+        {
+            (2, check::<Dwg>(&path, &src, "-寸法", false))
+        } else {
+            (1, check::<Dwg>(&path, &src, "-ZUMEN", false))
+        };
+        for (count, found) in counts[kind].iter_mut().zip(found) {
+            *count += found;
+        }
+    }
+    if !pairs().is_empty() {
+        assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
+        assert!(counts.iter().all(|[_, removed]| *removed > 0), "{counts:?}");
+    }
+}

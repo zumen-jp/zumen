@@ -3080,6 +3080,12 @@ pub enum Edit {
     AddLineType(AddLineTypeEdit),
     /// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から
     RemoveLineType(RemoveLineTypeEdit),
+    /// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から
+    DimensionStyle(DimensionStyleEdit),
+    /// 寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から
+    AddDimensionStyle(AddDimensionStyleEdit),
+    /// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から
+    RemoveDimensionStyle(RemoveDimensionStyleEdit),
 }
 
 impl Edit {
@@ -3099,6 +3105,9 @@ impl Edit {
         "line_type",
         "add_line_type",
         "remove_line_type",
+        "dimension_style",
+        "add_dimension_style",
+        "remove_dimension_style",
     ];
 
     /// 目印の欄（`kind`）の値
@@ -3118,6 +3127,9 @@ impl Edit {
             Self::LineType(_) => "line_type",
             Self::AddLineType(_) => "add_line_type",
             Self::RemoveLineType(_) => "remove_line_type",
+            Self::DimensionStyle(_) => "dimension_style",
+            Self::AddDimensionStyle(_) => "add_dimension_style",
+            Self::RemoveDimensionStyle(_) => "remove_dimension_style",
         }
     }
 }
@@ -3144,6 +3156,15 @@ impl FromJson for Edit {
             "remove_line_type" => {
                 Self::RemoveLineType(RemoveLineTypeEdit::read_fields(&mut object)?)
             }
+            "dimension_style" => {
+                Self::DimensionStyle(DimensionStyleEdit::read_fields(&mut object)?)
+            }
+            "add_dimension_style" => {
+                Self::AddDimensionStyle(AddDimensionStyleEdit::read_fields(&mut object)?)
+            }
+            "remove_dimension_style" => {
+                Self::RemoveDimensionStyle(RemoveDimensionStyleEdit::read_fields(&mut object)?)
+            }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -3168,6 +3189,9 @@ impl ToJson for Edit {
             Self::LineType(value) => value.to_json(out),
             Self::AddLineType(value) => value.to_json(out),
             Self::RemoveLineType(value) => value.to_json(out),
+            Self::DimensionStyle(value) => value.to_json(out),
+            Self::AddDimensionStyle(value) => value.to_json(out),
+            Self::RemoveDimensionStyle(value) => value.to_json(out),
         }
     }
 }
@@ -4067,6 +4091,226 @@ impl ToJson for RemoveLineTypeEdit {
     }
 }
 
+/// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct DimensionStyleEdit {
+    /// 変える寸法スタイルの ID。tables が返したもの
+    pub id: String,
+    /// 読んだときの寸法スタイルのハッシュ。tables が返したもの
+    pub hash: String,
+    /// 新しい名前。ほかの寸法スタイルと重ならず（大文字と小文字を区別しない）、$ と < > / \ " : ; ? * | = ` を含まないもの。Standard・子の寸法スタイル（名前に $ を持つもの）・子を持つ寸法スタイル・外部参照に依る寸法スタイルの名前は変えられない
+    pub name: Option<String>,
+    /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号。2 つのブロックの名前で、空の名前は既定の矢印（塗りつぶした閉じた矢印）。DXF は R2000 から変えられる。DWG の端部記号は変えられない
+    pub ends: Option<Vec<String>>,
+    /// 引出線の端部記号。ブロックの名前で、空の名前は既定の矢印。ends と同じ決まり
+    pub leader: Option<String>,
+    /// 端部記号の大きさ（DIMASZ）。文書の単位で、scale を掛ける前の値。負の数は書けない
+    pub size: Option<f64>,
+    /// 端部記号の代わりに描く斜線の大きさ（DIMTSZ）。0 なら斜線を描かない。負の数は書けない
+    pub tick: Option<f64>,
+    /// 大きさに掛ける倍率（DIMSCALE）。0 はビューの縮尺から決める。負の数は書けない
+    pub scale: Option<f64>,
+}
+
+impl DimensionStyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "dimension_style")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let ends = object.optional("ends", |value| json::array(value, json::string))?;
+        let leader = object.optional("leader", json::string)?;
+        let size = object.optional("size", json::number)?;
+        let tick = object.optional("tick", json::number)?;
+        let scale = object.optional("scale", json::number)?;
+        Ok(Self {
+            id,
+            hash,
+            name,
+            ends,
+            leader,
+            size,
+            tick,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("dimension_style");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.ends {
+            out.key("ends");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.leader {
+            out.key("leader");
+            out.string(value);
+        }
+        if let Some(value) = &self.size {
+            out.key("size");
+            out.float(*value);
+        }
+        if let Some(value) = &self.tick {
+            out.key("tick");
+            out.float(*value);
+        }
+        if let Some(value) = &self.scale {
+            out.key("scale");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for DimensionStyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DimensionStyleEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddDimensionStyleEdit {
+    /// 名前。dimension_style の name と同じ決まり
+    pub name: String,
+    /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号。2 つのブロックの名前で、空の名前は既定の矢印（塗りつぶした閉じた矢印）。DXF は R2000 から変えられる。DWG の端部記号は変えられない
+    pub ends: Option<Vec<String>>,
+    /// 引出線の端部記号。ブロックの名前で、空の名前は既定の矢印。ends と同じ決まり
+    pub leader: Option<String>,
+    /// 端部記号の大きさ（DIMASZ）。文書の単位で、scale を掛ける前の値。負の数は書けない
+    pub size: Option<f64>,
+    /// 端部記号の代わりに描く斜線の大きさ（DIMTSZ）。0 なら斜線を描かない。負の数は書けない
+    pub tick: Option<f64>,
+    /// 大きさに掛ける倍率（DIMSCALE）。0 はビューの縮尺から決める。負の数は書けない
+    pub scale: Option<f64>,
+}
+
+impl AddDimensionStyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_dimension_style")?;
+        let name = object.required("name", json::string)?;
+        let ends = object.optional("ends", |value| json::array(value, json::string))?;
+        let leader = object.optional("leader", json::string)?;
+        let size = object.optional("size", json::number)?;
+        let tick = object.optional("tick", json::number)?;
+        let scale = object.optional("scale", json::number)?;
+        Ok(Self {
+            name,
+            ends,
+            leader,
+            size,
+            tick,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_dimension_style");
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.ends {
+            out.key("ends");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.leader {
+            out.key("leader");
+            out.string(value);
+        }
+        if let Some(value) = &self.size {
+            out.key("size");
+            out.float(*value);
+        }
+        if let Some(value) = &self.tick {
+            out.key("tick");
+            out.float(*value);
+        }
+        if let Some(value) = &self.scale {
+            out.key("scale");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for AddDimensionStyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for AddDimensionStyleEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoveDimensionStyleEdit {
+    /// 除く寸法スタイルの ID。tables が返したもの
+    pub id: String,
+    /// 読んだときの寸法スタイルのハッシュ。tables が返したもの
+    pub hash: String,
+}
+
+impl RemoveDimensionStyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "remove_dimension_style")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { id, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("remove_dimension_style");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for RemoveDimensionStyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RemoveDimensionStyleEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct AddLayerEdit {
@@ -4422,8 +4666,8 @@ pub struct TablesResult {
     pub layers: Vec<LayerItem>,
     /// 線種。小版 26 から、定義を持つ
     pub line_types: Vec<LineTypeItem>,
-    /// 寸法スタイル
-    pub dimension_styles: Vec<TableItem>,
+    /// 寸法スタイル。小版 27 から、端部記号と大きさを持つ
+    pub dimension_styles: Vec<DimensionStyleItem>,
     /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から
     pub text_styles: Vec<TextStyleItem>,
 }
@@ -4435,7 +4679,7 @@ impl TablesResult {
             json::array(value, LineTypeItem::from_json)
         })?;
         let dimension_styles = object.required("dimension_styles", |value| {
-            json::array(value, TableItem::from_json)
+            json::array(value, DimensionStyleItem::from_json)
         })?;
         let text_styles = object.required("text_styles", |value| {
             json::array(value, TextStyleItem::from_json)
@@ -4716,6 +4960,96 @@ impl FromJson for LineTypeItem {
 }
 
 impl ToJson for LineTypeItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 寸法スタイルの表の項目（決定 0165）。小版 27 から、端部記号と大きさを持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct DimensionStyleItem {
+    /// ID。寸法スタイルのレコードがハンドルを持てば dimension-style/h1A、なければ寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）
+    pub id: String,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: String,
+    /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+    pub ends: Option<Vec<String>>,
+    /// 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+    pub leader: Option<String>,
+    /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。小版 27 から
+    pub size: Option<f64>,
+    /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。小版 27 から
+    pub tick: Option<f64>,
+    /// 大きさに掛ける倍率。0 はビューの縮尺から決める。小版 27 から
+    pub scale: Option<f64>,
+}
+
+impl DimensionStyleItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.required("name", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let ends = object.optional("ends", |value| json::array(value, json::string))?;
+        let leader = object.optional("leader", json::string)?;
+        let size = object.optional("size", json::number)?;
+        let tick = object.optional("tick", json::number)?;
+        let scale = object.optional("scale", json::number)?;
+        Ok(Self {
+            id,
+            name,
+            hash,
+            ends,
+            leader,
+            size,
+            tick,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("name");
+        out.string(&self.name);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.ends {
+            out.key("ends");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.leader {
+            out.key("leader");
+            out.string(value);
+        }
+        if let Some(value) = &self.size {
+            out.key("size");
+            out.float(*value);
+        }
+        if let Some(value) = &self.tick {
+            out.key("tick");
+            out.float(*value);
+        }
+        if let Some(value) = &self.scale {
+            out.key("scale");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for DimensionStyleItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DimensionStyleItem {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

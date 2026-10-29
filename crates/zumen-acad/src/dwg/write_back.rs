@@ -1361,8 +1361,8 @@ impl DwgFile {
         Ok(())
     }
 
-    /// 除いた画層・文字スタイル・線種のレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から
-    /// 除いたデータを、`changes` に足す（決定 0162〜0164）。反応子と拡張辞書を持つレコードと、ほかの表のレコードは
+    /// 除いた画層・文字スタイル・線種・寸法スタイルのレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から
+    /// 除いたデータを、`changes` に足す（決定 0162〜0165）。反応子と拡張辞書を持つレコードと、ほかの表のレコードは
     /// 除けない
     fn unlist(
         &self,
@@ -1375,6 +1375,7 @@ impl DwgFile {
             b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE),
             b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE),
             b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE),
+            b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE),
             _ => return None,
         };
         (!old
@@ -2693,7 +2694,7 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         b"DIMSTYLE" => &dimstyle_codes,
         _ => return None,
     };
-    // LAYER・STYLE・LTYPE の名前は書き直せる（決定 0162〜0164。[`record_fields`]）
+    // LAYER・STYLE・LTYPE・DIMSTYLE の名前は書き直せる（決定 0162〜0165。[`record_fields`]）
     let renamable = renamable(new);
     let rest = |object: &Object| -> Vec<_> {
         object
@@ -2706,14 +2707,17 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
     (rest(old) == rest(new)).then_some(())
 }
 
-/// 名前を書き直せる表のレコード（LAYER・STYLE・LTYPE。決定 0162〜0164）か
+/// 名前を書き直せる表のレコード（LAYER・STYLE・LTYPE・DIMSTYLE。決定 0162〜0165）か
 fn renamable(object: &Object) -> bool {
-    matches!(object.kind.as_slice(), b"LAYER" | b"STYLE" | b"LTYPE")
+    matches!(
+        object.kind.as_slice(),
+        b"LAYER" | b"STYLE" | b"LTYPE" | b"DIMSTYLE"
+    )
 }
 
 /// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
-/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER・STYLE・LTYPE は名前を
-/// 書き直せる（決定 0162〜0164）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
+/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER・STYLE・LTYPE・DIMSTYLE は名前を
+/// 書き直せる（決定 0162〜0165）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
 fn record_fields(
     fields: &mut BitWriter,
     old: &Object,
@@ -3037,8 +3041,10 @@ fn add_entry(data: &[u8], entry: Entry, type_code: i16, release: Release) -> Opt
         handles.handle(found.code, found.value);
     }
     entry.copy(&mut bits, count, &mut handles)?;
+    // 寸法の体裁の表の項目の後のハンドルが指すものは、除かない（決定 0165）
     for _ in 0..extra {
         let found = bits.handle()?;
+        (!matches!(entry, Entry::Remove(handle) if handle == found.value)).then_some(())?;
         handles.handle(found.code, found.value);
     }
     let mut out = BitWriter::default();
@@ -3093,8 +3099,10 @@ fn add_entry_r2010(
         out.handle(found.code, found.value);
     }
     entry.copy(&mut bits, count, &mut out)?;
+    // 寸法の体裁の表の項目の後のハンドルが指すものは、除かない（決定 0165）
     for _ in 0..extra {
         let found = bits.handle()?;
+        (!matches!(entry, Entry::Remove(handle) if handle == found.value)).then_some(())?;
         out.handle(found.code, found.value);
     }
     with_modular_size(out, at)
