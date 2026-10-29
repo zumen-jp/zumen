@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 # 要素のハッシュ（決定 0156）。CC0-1.0 OR Apache-2.0。C と asm を使わない pure で、どの対象でも同じ値になる
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
+# 変換の三角関数（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
 zumen-base = { path = "../zumen-base" }
 
 [lints]

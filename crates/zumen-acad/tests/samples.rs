@@ -937,6 +937,151 @@ fn drawings_take_back_restyled_lines() {
     assert!(pairs().is_empty() || checked > 0);
 }
 
+/// 試料の線・円・弧・折れ線・文字・記号（INSERT）を、種類ごとに 1 つずつ ID で回して動かすと、読み直した形は変換で
+/// 写した形と同じになり、返すハッシュも読み直したときと同じになる（決定 0139）
+#[cfg(feature = "drawing")]
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_take_back_transformed_elements() {
+    use zumen_drawing::{
+        Affine, Applied, Changes, Drawing2D, Edit, Hash, Seen, Shape, id, transform::transform,
+    };
+    use zumen_sdk::{Apply, Codec, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+    }
+    fn kind<P>(shape: &Shape<P>) -> Option<&'static str> {
+        Some(match shape {
+            Shape::Line { .. } => "line",
+            Shape::Circle { .. } => "circle",
+            Shape::Curve(_) => "curve",
+            Shape::Polyline(_) => "polyline",
+            Shape::Text(_) => "text",
+            // 点（`dxf.point`）は、置き換えをまだ扱わない
+            Shape::Symbol(symbol) if symbol.key.namespace == "dxf.block" => "symbol",
+            _ => return None,
+        })
+    }
+    /// 動かした要素の種類
+    fn check<C: Codec>(path: &Path) -> Vec<&'static str>
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let drawing = lift(&testkit::read::<C>(&src).0.unwrap());
+        let space = &drawing.spaces[0];
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        let mut kinds = Vec::new();
+        let mut targets = Vec::new();
+        for (index, element) in space.elements.iter().enumerate() {
+            let id = namer.next(index, element);
+            if let Some(kind) = kind(&element.shape)
+                && id.matches('/').count() == 2
+                && !kinds.contains(&kind)
+            {
+                kinds.push(kind);
+                targets.push((kind, id, element));
+            }
+        }
+        // 30° 回し、尺度 1.5 にして、(100, -50) 動かす
+        let affine = {
+            let turned = Affine::rotation(0.0, 0.0, 30.0);
+            let [a, b, _, d, e, _] = turned.m;
+            Affine {
+                m: [a * 1.5, b * 1.5, 100.0, d * 1.5, e * 1.5, -50.0],
+            }
+        };
+        for (_, target, element) in targets {
+            let mut file = testkit::read::<C>(&src).0.unwrap();
+            let changes = Changes {
+                edits: vec![Edit::Transform {
+                    target: Seen {
+                        id: target.clone(),
+                        hash: Hash::element(element),
+                    },
+                    transform: affine,
+                }],
+                document: Some(Hash::document(&src)),
+            };
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let applied = file
+                .apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{} {target}: {error:?} {:?}",
+                        path.display(),
+                        diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+                    )
+                });
+            let written = testkit::write::<C>(&file).unwrap();
+            let after = lift(&testkit::read::<C>(&written).0.unwrap());
+            let space = &after.spaces[0];
+            let place = id::space(space.id);
+            let mut namer = id::Namer::new(&place);
+            let (_, moved) = space
+                .elements
+                .iter()
+                .enumerate()
+                .map(|(index, element)| (namer.next(index, element), element))
+                .find(|(id, _)| *id == target)
+                .unwrap();
+            // 書き戻すとレコードの位置が変わるので、属性の出所は鍵だけで比べる
+            let keyed = |shape: &Shape<_>| {
+                let mut shape = shape.clone();
+                if let Shape::Symbol(symbol) = &mut shape {
+                    for attribute in &mut symbol.attributes {
+                        let key = attribute.source.key();
+                        attribute.source = key
+                            .map(|key| zumen_base::Ref::default().with_key(key))
+                            .unwrap_or_default();
+                    }
+                }
+                shape
+            };
+            let expected = transform(&element.shape, &affine).unwrap();
+            assert_eq!(
+                keyed(&moved.shape),
+                keyed(&expected),
+                "{} {target}",
+                path.display()
+            );
+            assert_eq!(moved.layer, element.layer, "{}", path.display());
+            assert_eq!(moved.style, element.style, "{}", path.display());
+            assert_eq!(applied[0].id.as_deref(), Some(target.as_str()));
+            assert_eq!(
+                applied[0].hash,
+                Some(Hash::element(moved)),
+                "{}",
+                path.display()
+            );
+        }
+        kinds
+    }
+    let mut lines = 0;
+    for (dwg, dxf) in pairs() {
+        for kinds in [check::<Dwg>(&dwg), check::<Dxf>(&dxf)] {
+            lines += usize::from(kinds.contains(&"line"));
+        }
+    }
+    if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
+        let binary = PathBuf::from(dir).join("features-r2018-binary.dxf");
+        if binary.exists() {
+            assert!(check::<Dxf>(&binary).contains(&"symbol"));
+        }
+    }
+    assert!(pairs().is_empty() || lines > 0);
+}
+
 /// 図面モデルで動かした線を、DWG に書き戻して読み直すと、同じ所に動いている（決定 0139）
 #[cfg(feature = "drawing")]
 #[test]

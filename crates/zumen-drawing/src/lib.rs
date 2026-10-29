@@ -25,6 +25,7 @@ use zumen_base::Ref;
 
 mod hash;
 pub mod id;
+pub mod transform;
 
 pub use hash::{Canon, Encode, Hash};
 
@@ -2228,6 +2229,14 @@ pub enum Edit {
         target: Seen,
         /// 新しい値
         style: Restyle,
+    },
+    /// 指した要素を、この変換で動かす（[`transform::transform`]）。AutoCAD の系統では、図形とともに動く XDATA と
+    /// 記号の属性も同じ変換で直す
+    Transform {
+        /// 動かす要素
+        target: Seen,
+        /// 要素の空間（用紙）の点を写す変換
+        transform: Affine,
     },
     /// 空間か用紙に、この要素を足す。要素の出所は使わない
     Add {

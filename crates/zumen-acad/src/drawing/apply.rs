@@ -10,9 +10,9 @@ use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal, LayerId,
-    Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle,
-    Rotation, Shape, SheetId, SpaceId, Style, Symbol, Text, Vertical, id,
+    Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
+    LayerId, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline,
+    Restyle, Rotation, Shape, SheetId, SpaceId, Style, Symbol, Text, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -283,6 +283,9 @@ fn edit(
             Edit::Restyle {
                 target: target_of, ..
             } => ("restyle", target_of),
+            Edit::Transform {
+                target: target_of, ..
+            } => ("transform", target_of),
             Edit::Remove { target: target_of } => ("remove", target_of),
         };
         let Some(&found) = index.elements.get(&target_of.id) else {
@@ -368,6 +371,30 @@ fn edit(
                 restyled(&born, object, layer, was, style, target, cx)?
                     .map(|values| replaced.push((position, values)))
             }
+            (Edit::Transform { transform, .. }, Found::Model(was)) => {
+                transform_work(db, was, object, cx)?;
+                anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = InSpace(anchor.space);
+                        moved(db, was, object, transform, unicode, &frame, true)
+                    })
+                    .map(|values| {
+                        replaced.push((position, values.object));
+                        replaced.extend(values.followers);
+                    })
+            }
+            (Edit::Transform { transform, .. }, Found::Paper(was)) => {
+                transform_work(db, was, object, cx)?;
+                anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                        moved(db, was, object, transform, unicode, &frame, false)
+                    })
+                    .map(|values| {
+                        replaced.push((position, values.object));
+                        replaced.extend(values.followers);
+                    })
+            }
             (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
             (Edit::Add { .. }, _) => None,
         };
@@ -401,9 +428,9 @@ fn edit(
         .edits
         .iter()
         .map(|change| match change {
-            Edit::Replace { target, .. } | Edit::Restyle { target, .. } => {
-                applied(&after, Some(target.id.clone()), cx)
-            }
+            Edit::Replace { target, .. }
+            | Edit::Restyle { target, .. }
+            | Edit::Transform { target, .. } => applied(&after, Some(target.id.clone()), cx),
             Edit::Add { place, .. } => applied(
                 &after,
                 handles
@@ -533,6 +560,230 @@ fn copy_value(value: &Value, cx: &mut Cx<'_>, at: &Ref) -> Result<Value, Error> 
         code: value.code,
         data,
     })
+}
+
+/// 動かした図形と、続く ATTRIB の値
+struct Moved {
+    object: Vec<Value>,
+    followers: Vec<(usize, Vec<Value>)>,
+}
+
+/// 変換前に、値の走査・複製と属性のレコードの探索に必要な作業を数える。
+fn transform_work<P>(
+    db: &AcadDb,
+    element: &Element<P>,
+    object: &Object,
+    cx: &mut Cx<'_>,
+) -> Result<(), Error> {
+    count_transform_values(object, &element.source, cx)?;
+    if let Shape::Symbol(symbol) = &element.shape {
+        for attribute in &symbol.attributes {
+            work(cx, 1, &attribute.source)?;
+            for candidate in db.objects() {
+                work(cx, 1, &attribute.source)?;
+                // source はハンドルを探すため、候補の値をなめる。
+                for _ in &candidate.values {
+                    work(cx, 1, &attribute.source)?;
+                }
+                if matches!(candidate.section, Section::Entities | Section::Blocks)
+                    && source(candidate) == attribute.source
+                {
+                    count_transform_values(candidate, &attribute.source, cx)?;
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn count_transform_values(object: &Object, at: &Ref, cx: &mut Cx<'_>) -> Result<(), Error> {
+    for value in &object.values {
+        work(cx, 1, at)?;
+        let bytes = match &value.data {
+            Data::Text(bytes) | Data::Binary(bytes) => bytes.len(),
+            _ => 0,
+        };
+        for _ in (0..bytes).step_by(1024) {
+            work(cx, 1, at)?;
+        }
+    }
+    Ok(())
+}
+
+/// 変換 `transform` で動かした図形の値。形は置き換えと同じ書き方で書き、図形とともに動く XDATA（[`carried`]）と、
+/// 記号の属性（続く ATTRIB の置く点・高さ・回転）も同じ変換で直す。`model` でなければ（用紙の図形）、
+/// XDATA の点は用紙の mm と図面の単位の違いを直せないので、動く XDATA を持つ図形は扱わない
+fn moved<P: Copy + PartialEq + transform::Point>(
+    db: &AcadDb,
+    was: &Element<P>,
+    object: &Object,
+    transform: &Affine,
+    unicode: bool,
+    frame: &impl Frame<P>,
+    model: bool,
+) -> Option<Moved> {
+    let shape = transform::transform(&was.shape, transform)?;
+    let element = Element {
+        shape,
+        ..was.clone()
+    };
+    // 属性は続く ATTRIB にあるので、INSERT は元の属性のまま書き、ATTRIB を下で直す
+    let written = match (&element.shape, &was.shape) {
+        (Shape::Symbol(symbol), Shape::Symbol(original)) => Element {
+            shape: Shape::Symbol(Symbol {
+                attributes: original.attributes.clone(),
+                ..symbol.clone()
+            }),
+            ..element.clone()
+        },
+        _ => element.clone(),
+    };
+    let mut values = replacement(was, &written, object, unicode, frame)?;
+    if let (Shape::Text(before), Shape::Text(after)) = (&was.shape, &element.shape) {
+        aligned_first(
+            &mut values,
+            &object.values,
+            before,
+            after,
+            transform,
+            frame,
+            73,
+        )?;
+    }
+    if moving_xdata(object).is_some() {
+        if !model {
+            return None;
+        }
+        carried(&mut values, transform)?;
+    }
+    let mut followers = Vec::new();
+    if let (Shape::Symbol(symbol), Shape::Symbol(was)) = (&element.shape, &was.shape) {
+        for (attribute, original) in symbol.attributes.iter().zip(&was.attributes) {
+            if original.formatted.is_some() {
+                return None;
+            }
+            let position = entity(db, &original.source)?;
+            let follower = db.objects().get(position)?;
+            if follower.kind != b"ATTRIB" {
+                return None;
+            }
+            let mut values = follower.values.clone();
+            lettering(
+                &mut values,
+                &attribute.text,
+                &original.text,
+                frame,
+                unicode,
+                74,
+            )?;
+            aligned_first(
+                &mut values,
+                &follower.values,
+                &original.text,
+                &attribute.text,
+                transform,
+                frame,
+                74,
+            )?;
+            if moving_xdata(follower).is_some() {
+                if !model {
+                    return None;
+                }
+                carried(&mut values, transform)?;
+            }
+            followers.push((position, values));
+        }
+    }
+    Some(Moved {
+        object: values,
+        followers,
+    })
+}
+
+/// 位置合わせされた文字の、基点からの相対位置を保つ第1点も変換する。
+fn aligned_first<P>(
+    values: &mut Vec<Value>,
+    original: &[Value],
+    before: &Text<P>,
+    after: &Text<P>,
+    transform: &Affine,
+    frame: &impl Frame<P>,
+    vertical_code: i16,
+) -> Option<()> {
+    let aligned = [72, vertical_code].iter().any(|code| {
+        original
+            .iter()
+            .any(|v| v.code == *code && v.data != Data::Int(0))
+    });
+    let (Placement::Anchor { point: old, .. }, Placement::Anchor { point: new, .. }) =
+        (&before.placement, &after.placement)
+    else {
+        return Some(());
+    };
+    if !aligned {
+        return Some(());
+    }
+    let [old_x, old_y] = frame.point(old)?;
+    let [new_x, new_y] = frame.point(new)?;
+    let [x, y] = transform.vector([
+        first_real(original, 10)? - old_x,
+        first_real(original, 20)? - old_y,
+    ]);
+    put(values, 10, new_x + x, &[])?;
+    put(values, 20, new_y + y, &[])?;
+    Some(())
+}
+
+/// 図形とともに動く XDATA を、AutoCAD と同じ規則で直す（DXF Reference「Group Codes That Apply to Extended
+/// Data」）。位置（1011・1021）は変換で写し、変位（1012・1022）は平行移動を除いて写し、向き（1013・1023）は
+/// 写してから元の長さにそろえる。距離（1041）と倍率（1042）は尺度を掛け、相似でない変換では直さない
+fn carried(values: &mut [Value], transform: &Affine) -> Option<()> {
+    let start = values.iter().position(|v| v.code == 1001)?;
+    let tail = values.get_mut(start..)?;
+    let scale = if tail.iter().any(|v| matches!(v.code, 1041 | 1042)) {
+        transform.similarity()?.scale
+    } else {
+        1.0
+    };
+    // X の値を持ち、続く Y の値を待っている点
+    let mut pending: Option<&mut Value> = None;
+    for value in tail.iter_mut() {
+        if let Some(first) = pending.take() {
+            let (Data::Real(x), Data::Real(y)) = (&first.data, &value.data) else {
+                return None;
+            };
+            if value.code != first.code + 10 {
+                return None;
+            }
+            let [x, y] = match first.code {
+                1011 => {
+                    let (x, y) = transform.apply(*x, *y);
+                    [x, y]
+                }
+                1012 => transform.vector([*x, *y]),
+                _ => transform.direction([*x, *y]),
+            };
+            first.data = Data::Real(x);
+            value.data = Data::Real(y);
+            continue;
+        }
+        match value.code {
+            1011..=1013 => pending = Some(value),
+            1041 | 1042 => {
+                let Data::Real(number) = value.data else {
+                    return None;
+                };
+                value.data = Data::Real(number * scale);
+            }
+            _ => {}
+        }
+    }
+    (pending.is_none()
+        && tail
+            .iter()
+            .all(|v| !matches!(v.data, Data::Real(number) if !number.is_finite())))
+    .then_some(())
 }
 
 /// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある
@@ -732,7 +983,7 @@ fn replacement<P: PartialEq>(
             values = lwpolyline(&values, line, was, frame)?;
         }
         (Shape::Text(text), Shape::Text(was), b"TEXT") => {
-            lettering(&mut values, text, was, frame, unicode)?;
+            lettering(&mut values, text, was, frame, unicode, 73)?;
         }
         (Shape::Formatted(text), Shape::Formatted(was), b"MTEXT") => {
             formatting(&mut values, text, was, frame, unicode)?;
@@ -863,6 +1114,7 @@ fn lettering<P: PartialEq>(
     was: &Text<P>,
     frame: &impl Frame<P>,
     unicode: bool,
+    vertical_code: i16,
 ) -> Option<()> {
     if text.style != was.style || text.height.meaning != was.height.meaning {
         return None;
@@ -882,7 +1134,7 @@ fn lettering<P: PartialEq>(
         ) if horizontal == was_horizontal && vertical == was_vertical => {
             let at = frame.point(point)?;
             let was_at = frame.point(was_point)?;
-            let aligned = [72, 73].iter().any(|code| {
+            let aligned = [72, vertical_code].iter().any(|code| {
                 values
                     .iter()
                     .any(|v| v.code == *code && v.data != Data::Int(0))
@@ -1261,6 +1513,150 @@ mod hash_budget_tests {
         cancel: &'a CancelToken,
     ) -> Cx<'a> {
         Cx::new(budget, diagnostics, cancel)
+    }
+
+    #[test]
+    fn transform_values_obey_work_and_cancellation() {
+        use crate::db::Origin;
+        let object = Object {
+            kind: b"LINE".to_vec(),
+            section: Section::Entities,
+            values: vec![
+                Value {
+                    code: 1001,
+                    data: Data::Text(b"app".to_vec()),
+                },
+                Value {
+                    code: 1004,
+                    data: Data::Binary(vec![0; 4096]),
+                },
+                Value {
+                    code: 1011,
+                    data: Data::Real(2.0),
+                },
+            ],
+            origin: Origin::Dxf { record: 1 },
+        };
+        let at = Ref::at_record(1);
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(4)));
+        assert!(matches!(
+            count_transform_values(
+                &object,
+                &at,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        let mut budget = Budget::default();
+        cancel.cancel();
+        assert!(matches!(
+            count_transform_values(
+                &object,
+                &at,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 0);
+    }
+
+    #[test]
+    fn transform_attribute_search_obeys_work_and_cancellation() {
+        use crate::db::Origin;
+        use zumen_drawing::{Attribute, Height, HeightMeaning, SymbolKey};
+        let point = ModelPoint {
+            space: SpaceId(0),
+            x: 0.0,
+            y: 0.0,
+        };
+        let attribute = Attribute {
+            tag: "A".into(),
+            text: Text {
+                content: "x".into(),
+                height: Height {
+                    value: Length::Model(ModelLength {
+                        space: SpaceId(0),
+                        value: 1.0,
+                    }),
+                    meaning: HeightMeaning::Frame,
+                },
+                placement: Placement::Anchor {
+                    point,
+                    horizontal: Horizontal::Left,
+                    vertical: Vertical::Baseline,
+                },
+                rotation: 0.0,
+                width_factor: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                style: String::new(),
+            },
+            formatted: None,
+            hidden: false,
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            source: Ref::at_record(99),
+        };
+        let element = Element {
+            source: Ref::at_record(0),
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Symbol(Symbol {
+                key: SymbolKey {
+                    namespace: "dxf.block",
+                    name: "B".into(),
+                },
+                position: point,
+                scale: [1.0, 1.0],
+                rotation: 0.0,
+                grid: None,
+                attributes: vec![attribute],
+                clip: None,
+            }),
+        };
+        let object = Object {
+            kind: b"INSERT".to_vec(),
+            section: Section::Entities,
+            values: vec![],
+            origin: Origin::Dxf { record: 0 },
+        };
+        let mut db = AcadDb::default();
+        for record in 1..=100 {
+            db.push(Object {
+                kind: b"ATTRIB".to_vec(),
+                section: Section::Entities,
+                values: vec![],
+                origin: Origin::Dxf { record },
+            });
+        }
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
+        assert!(matches!(
+            transform_work(
+                &db,
+                &element,
+                &object,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 10);
+        let mut budget = Budget::default();
+        cancel.cancel();
+        assert!(matches!(
+            transform_work(
+                &db,
+                &element,
+                &object,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 0);
     }
 
     #[test]
