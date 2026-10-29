@@ -1441,6 +1441,8 @@ pub enum Geometry {
     Circle(CircleGeometry),
     /// 円弧。始まりの角度から終わりの角度へ、反時計回りにたどる
     Arc(ArcGeometry),
+    /// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から
+    Ellipse(EllipseGeometry),
     /// 頂点を結んだ折れ線。幅は持たない
     Polyline(PolylineGeometry),
     /// 1 点に置く文字。位置合わせ・幅の倍率・斜体・反転・文字スタイルは、置き換える前の値のまま
@@ -1449,7 +1451,7 @@ pub enum Geometry {
 
 impl Geometry {
     /// 目印の欄（`shape`）の値（スキーマの順）
-    pub const TAGS: &[&str] = &["line", "circle", "arc", "polyline", "text"];
+    pub const TAGS: &[&str] = &["line", "circle", "arc", "ellipse", "polyline", "text"];
 
     /// 目印の欄（`shape`）の値
     pub const fn tag(&self) -> &'static str {
@@ -1457,6 +1459,7 @@ impl Geometry {
             Self::Line(_) => "line",
             Self::Circle(_) => "circle",
             Self::Arc(_) => "arc",
+            Self::Ellipse(_) => "ellipse",
             Self::Polyline(_) => "polyline",
             Self::Text(_) => "text",
         }
@@ -1470,6 +1473,7 @@ impl FromJson for Geometry {
             "line" => Self::Line(LineGeometry::read_fields(&mut object)?),
             "circle" => Self::Circle(CircleGeometry::read_fields(&mut object)?),
             "arc" => Self::Arc(ArcGeometry::read_fields(&mut object)?),
+            "ellipse" => Self::Ellipse(EllipseGeometry::read_fields(&mut object)?),
             "polyline" => Self::Polyline(PolylineGeometry::read_fields(&mut object)?),
             "text" => Self::Text(TextGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
@@ -1485,6 +1489,7 @@ impl ToJson for Geometry {
             Self::Line(value) => value.to_json(out),
             Self::Circle(value) => value.to_json(out),
             Self::Arc(value) => value.to_json(out),
+            Self::Ellipse(value) => value.to_json(out),
             Self::Polyline(value) => value.to_json(out),
             Self::Text(value) => value.to_json(out),
         }
@@ -1631,6 +1636,71 @@ impl FromJson for ArcGeometry {
 }
 
 impl ToJson for ArcGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct EllipseGeometry {
+    /// 中心 [X, Y]
+    pub center: Vec<f64>,
+    /// 長軸の端の点 [X, Y]。中心と違う点
+    pub major: Vec<f64>,
+    /// 短軸の長軸に対する比。0 より大きく 1 以下
+    pub ratio: f64,
+    /// 始まりの角度（度）。楕円を円に引き延ばしたときの角度
+    pub start_angle: f64,
+    /// 終わりの角度（度）。楕円を円に引き延ばしたときの角度
+    pub end_angle: f64,
+}
+
+impl EllipseGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "ellipse")?;
+        let center = object.required("center", |value| json::array(value, json::number))?;
+        let major = object.required("major", |value| json::array(value, json::number))?;
+        let ratio = object.required("ratio", json::number)?;
+        let start_angle = object.required("start_angle", json::number)?;
+        let end_angle = object.required("end_angle", json::number)?;
+        Ok(Self {
+            center,
+            major,
+            ratio,
+            start_angle,
+            end_angle,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("ellipse");
+        out.key("center");
+        out.array(&self.center, |out, item| out.float(*item));
+        out.key("major");
+        out.array(&self.major, |out, item| out.float(*item));
+        out.key("ratio");
+        out.float(self.ratio);
+        out.key("start_angle");
+        out.float(self.start_angle);
+        out.key("end_angle");
+        out.float(self.end_angle);
+    }
+}
+
+impl FromJson for EllipseGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EllipseGeometry {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

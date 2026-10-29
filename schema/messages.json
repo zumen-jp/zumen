@@ -393,6 +393,7 @@
         { "$ref": "#/$defs/line_geometry" },
         { "$ref": "#/$defs/circle_geometry" },
         { "$ref": "#/$defs/arc_geometry" },
+        { "$ref": "#/$defs/ellipse_geometry" },
         { "$ref": "#/$defs/polyline_geometry" },
         { "$ref": "#/$defs/text_geometry" }
       ]
@@ -430,6 +431,20 @@
         "end_angle": { "description": "終わりの角度（度）", "type": "number" }
       },
       "required": ["shape", "center", "radius", "start_angle", "end_angle"],
+      "additionalProperties": false
+    },
+    "ellipse_geometry": {
+      "description": "楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "ellipse" },
+        "center": { "description": "中心 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "major": { "description": "長軸の端の点 [X, Y]。中心と違う点", "type": "array", "items": { "type": "number" } },
+        "ratio": { "description": "短軸の長軸に対する比。0 より大きく 1 以下", "type": "number" },
+        "start_angle": { "description": "始まりの角度（度）。楕円を円に引き延ばしたときの角度", "type": "number" },
+        "end_angle": { "description": "終わりの角度（度）。楕円を円に引き延ばしたときの角度", "type": "number" }
+      },
+      "required": ["shape", "center", "major", "ratio", "start_angle", "end_angle"],
       "additionalProperties": false
     },
     "polyline_geometry": {

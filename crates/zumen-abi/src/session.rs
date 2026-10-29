@@ -1483,7 +1483,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":10}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":11}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2076,6 +2076,69 @@ mod tests {
         call(&mut session, r#"{"v":1,"op":"open","input":"b.dxf"}"#);
         assert_eq!(shapes(&mut session, "b.dxf"), expected);
         assert_eq!(seen(&mut session, "b.dxf"), after);
+    }
+
+    #[test]
+    fn adds_and_replaces_ellipses_by_their_geometry() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let added = r#"{"shape":"ellipse","center":[2,3],"major":[6,3],"ratio":0.5,"start_angle":0,"end_angle":360}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        let replaced = r#"{"shape":"ellipse","center":[2,3],"major":[2,7],"ratio":0.25,"start_angle":30,"end_angle":120}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/applied/0/id"), id);
+        assert_eq!(
+            seen(&mut session, "a.dxf")[3].1,
+            text(&response, "/result/applied/0/hash")
+        );
+        let found = shapes(&mut session, "a.dxf")[3].clone();
+        let found = zumen_json::parse(found.as_bytes()).unwrap();
+        for (pointer, expected) in [
+            ("/center/1", 3.0),
+            ("/major/1", 7.0),
+            ("/ratio", 0.25),
+            ("/start_angle", 30.0),
+            ("/end_angle", 120.0),
+        ] {
+            let value: f64 = number(&found, pointer).parse().unwrap();
+            assert!((value - expected).abs() < 1e-9, "{pointer}: {value}");
+        }
+        // 中心と同じ長軸の端と、1 を超える比は受けない
+        for (geometry, pointer) in [
+            (
+                r#""center":[2,3],"major":[2,3],"ratio":0.5"#,
+                "/edits/0/geometry/major",
+            ),
+            (
+                r#""center":[2,3],"major":[4,3],"ratio":1.5"#,
+                "/edits/0/geometry/ratio",
+            ),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{{"shape":"ellipse",{geometry},"start_angle":0,"end_angle":360}}}}]}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
     }
 
     #[test]
