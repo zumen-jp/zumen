@@ -12,7 +12,8 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
     LayerId, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline,
-    Restyle, Rotation, Shape, SheetId, SpaceId, Style, Symbol, Text, Vertical, id, transform,
+    Restyle, Rotation, Shape, SheetId, SpaceId, Spline, Style, Symbol, Text, Vertical, id,
+    transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -350,6 +351,14 @@ fn edit(
             rejected = true;
             continue;
         };
+        // 置き換え値の比較と、元のレコードの複製に先立って作業量を数える。
+        if let Edit::Replace { element, .. } = change {
+            match element.as_ref() {
+                Placed::Model(element) => add::work(&element.shape, cx, at)?,
+                Placed::Paper(element) => add::work(&element.shape, cx, at)?,
+            }
+            count_transform_values(object, at, cx)?;
+        }
         let reshaped = match (change, found) {
             (Edit::Replace { element, .. }, Found::Model(was)) => {
                 matches!(element.as_ref(), Placed::Model(element) if element.shape != was.shape)
@@ -1091,6 +1100,9 @@ fn replacement<P: PartialEq>(
                 (*was_start, *was_end),
             )?;
         }
+        (Shape::Curve(Edge::Spline(spline)), Shape::Curve(Edge::Spline(was)), b"SPLINE") => {
+            splining(&mut values, spline, was, frame)?;
+        }
         (Shape::Polyline(line), Shape::Polyline(was), b"LWPOLYLINE") => {
             values = lwpolyline(&values, line, was, frame)?;
         }
@@ -1452,6 +1464,82 @@ fn placing<P: PartialEq>(
     Some(())
 }
 
+/// SPLINE（DXF Reference「SPLINE」）の、制御点で決まる定義を書き直す。印（70）の閉じている・周期的・有理
+/// （1・2・4）と、次数（71）・節点と制御点の数（72・73）・節点（40）・制御点（10・20・30）・重み（41）を書く。
+/// ほかの印と許容差（42〜44）は元のまま。当てはめる点か接線を持つスプラインは、DWG の場合（scenario）が
+/// 変わるので書かない
+fn splining<P: PartialEq>(
+    values: &mut Vec<Value>,
+    spline: &Spline<P>,
+    was: &Spline<P>,
+    frame: &impl Frame<P>,
+) -> Option<()> {
+    if !(controlled(spline) && controlled(was)) {
+        return None;
+    }
+    let defined = spline_values(frame, spline)?;
+    let flags = values.iter().find_map(|v| match v.data {
+        Data::Int(flags) if v.code == 70 => Some(flags),
+        _ => None,
+    });
+    // DXF Reference「SPLINE」: 16 は線形を表す。変更後も線形かは、制御点だけでは
+    // 保証できないため、線形の印を持つものの置き換えは拒否する。
+    if flags.unwrap_or(0) & 16 != 0 {
+        return None;
+    }
+    let counts = [
+        (70, spline_flags(flags.unwrap_or(8), spline)),
+        (71, i64::from(spline.degree)),
+        (72, i64::try_from(spline.knots.len()).ok()?),
+        (73, i64::try_from(spline.control.len()).ok()?),
+    ];
+    for (code, count) in counts {
+        match values.iter_mut().find(|v| v.code == code) {
+            Some(slot) => slot.data = Data::Int(count),
+            None => insert(values, code, Data::Int(count), &[code - 1, 100])?,
+        }
+    }
+    let at = values
+        .iter()
+        .position(|v| matches!(v.code, 10 | 20 | 30 | 40 | 41))?;
+    values.retain(|v| !matches!(v.code, 10 | 20 | 30 | 40 | 41));
+    values.splice(at..at, defined);
+    Some(())
+}
+
+/// 制御点だけで決まるスプライン。当てはめる点も接線も持たない
+fn controlled<P>(spline: &Spline<P>) -> bool {
+    !spline.control.is_empty()
+        && spline.fit.is_empty()
+        && spline.start_tangent.is_none()
+        && spline.end_tangent.is_none()
+}
+
+/// SPLINE の印（70）。`flags` の閉じている・周期的・有理（1・2・4）を、スプラインに合わせる
+fn spline_flags<P>(flags: i64, spline: &Spline<P>) -> i64 {
+    flags & !7
+        | i64::from(spline.closed)
+        | i64::from(spline.periodic) << 1
+        | i64::from(!spline.weights.is_empty()) << 2
+}
+
+/// SPLINE の節点（40）と、制御点（10・20・30）とその重み（41）の値。読む側が読めないスプラインは `None`
+fn spline_values<P>(frame: &impl Frame<P>, spline: &Spline<P>) -> Option<Vec<Value>> {
+    super::check_spline(b"SPLINE", spline).ok()?;
+    let mut values = Vec::with_capacity(spline.knots.len() + spline.control.len() * 4);
+    for knot in &spline.knots {
+        values.push(real(40, *knot)?);
+    }
+    for (at, control) in spline.control.iter().enumerate() {
+        let [x, y] = frame.point(control)?;
+        values.extend([real(10, x)?, real(20, y)?, real(30, 0.0)?]);
+        if let Some(weight) = spline.weights.get(at) {
+            values.push(real(41, *weight)?);
+        }
+    }
+    Some(values)
+}
+
 /// 0 でない有限の値
 fn nonzero(value: f64) -> Option<f64> {
     (value.is_finite() && value != 0.0).then_some(value)
@@ -1579,6 +1667,7 @@ fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
         },
         Shape::Formatted(text) => Some(text.point),
         Shape::Symbol(symbol) => Some(symbol.position),
+        Shape::Curve(Edge::Spline(spline)) => spline.control.first().copied(),
         _ => None,
     }
 }
@@ -1715,6 +1804,38 @@ mod hash_budget_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Key, Kind, Limit, Limits};
     use zumen_drawing::{LayerId, ModelSpace, Style, Unit, Vertex};
+
+    #[test]
+    fn linear_spline_is_not_replaced_with_an_unverified_curve() {
+        let point = |x, y| ModelPoint { space: MODEL, x, y };
+        let spline = Spline {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control: vec![point(0.0, 0.0), point(1.0, 0.0), point(2.0, 0.0)],
+            weights: vec![],
+            fit: vec![],
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+        };
+        let mut changed = spline.clone();
+        changed.control[1].y = 1.0;
+        let int = |code, value| Value {
+            code,
+            data: Data::Int(value),
+        };
+        let mut values = vec![
+            int(70, 24),
+            int(71, 2),
+            int(72, 6),
+            int(73, 3),
+            real(40, 0.0).unwrap(),
+        ];
+        let before = values.clone();
+        assert!(splining(&mut values, &changed, &spline, &InSpace(MODEL)).is_none());
+        assert_eq!(values, before);
+    }
 
     #[test]
     fn stopped_apply_does_not_change_dxf() {

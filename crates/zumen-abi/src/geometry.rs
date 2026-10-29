@@ -1,6 +1,6 @@
 //! 形の値（`geometry`）と図面モデルの形の行き来（決定 0139）。
 //!
-//! 線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号だけを扱う。点は要素の空間か用紙の座標、長さは同じ
+//! 線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけを扱う。点は要素の空間か用紙の座標、長さは同じ
 //! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use std::cell::Cell;
@@ -8,14 +8,14 @@ use std::cell::Cell;
 use zumen_drawing::transform::Point;
 use zumen_drawing::{
     Edge, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Length, LineSpacing, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Symbol, SymbolKey,
-    Text, Vertex, Vertical,
+    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Spline, Symbol,
+    SymbolKey, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
 use crate::messages::{
     ArcGeometry, Attachment, CircleGeometry, EllipseGeometry, FormattedTextGeometry, Geometry,
-    LineGeometry, PolylineGeometry, SymbolGeometry, SymbolGrid, TextGeometry,
+    LineGeometry, PolylineGeometry, SplineGeometry, SymbolGeometry, SymbolGrid, TextGeometry,
 };
 
 /// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
@@ -100,6 +100,22 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 ratio: *ratio,
                 start_angle: start,
                 end_angle: end,
+            })
+        }
+        // 当てはめる点か接線を持つスプラインは、書き戻すと DWG の場合（制御点か当てはめる点か）が変わるので扱わない
+        Shape::Curve(Edge::Spline(spline))
+            if !spline.control.is_empty()
+                && spline.fit.is_empty()
+                && spline.start_tangent.is_none()
+                && spline.end_tangent.is_none() =>
+        {
+            Geometry::Spline(SplineGeometry {
+                degree: spline.degree.into(),
+                knots: spline.knots.clone(),
+                control: spline.control.iter().map(|point| xy(*point)).collect(),
+                weights: (!spline.weights.is_empty()).then(|| spline.weights.clone()),
+                closed: spline.closed,
+                periodic: spline.periodic,
             })
         }
         Shape::Polyline(line) if line.width.is_none() && line.vertex_widths.is_empty() => {
@@ -214,6 +230,52 @@ pub(crate) fn shape_of<P: Spot>(
                 end: finite(ellipse.end_angle, "end_angle")?,
                 counterclockwise: true,
             })
+        }
+        (Geometry::Spline(spline), None | Some(Shape::Curve(Edge::Spline(_)))) => {
+            let degree = u32::try_from(spline.degree)
+                .ok()
+                .filter(|degree| *degree >= 1)
+                .ok_or_else(|| "geometry/degree".to_string())?;
+            let mut control = Vec::with_capacity(spline.control.len());
+            for (index, xy) in spline.control.iter().enumerate() {
+                control.push(point(xy, &format!("control/{index}"))?);
+            }
+            if control.len() <= degree as usize {
+                return Err("geometry/control".to_string());
+            }
+            for (index, knot) in spline.knots.iter().enumerate() {
+                finite(*knot, &format!("knots/{index}"))?;
+            }
+            // 節点は減らない並びで、周期的でなければ制御点の数と次数と 1 の和の数
+            if spline
+                .knots
+                .windows(2)
+                .any(|pair| matches!(*pair, [a, b] if b < a))
+                || (!spline.periodic && spline.knots.len() != control.len() + degree as usize + 1)
+            {
+                return Err("geometry/knots".to_string());
+            }
+            let weights = match &spline.weights {
+                None => Vec::new(),
+                Some(weights)
+                    if weights.len() == control.len()
+                        && weights.iter().all(|w| w.is_finite() && *w > 0.0) =>
+                {
+                    weights.clone()
+                }
+                Some(_) => return Err("geometry/weights".to_string()),
+            };
+            Shape::Curve(Edge::Spline(Spline {
+                degree,
+                knots: spline.knots.clone(),
+                control,
+                weights,
+                fit: Vec::new(),
+                start_tangent: None,
+                end_tangent: None,
+                closed: spline.closed,
+                periodic: spline.periodic,
+            }))
         }
         (Geometry::Polyline(line), was) => {
             // 幅は置き換える前の値のまま。頂点ごとの幅は頂点の数で決まるので、持つものは置き換えない
@@ -526,6 +588,7 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
         },
         Shape::Formatted(text) => Some(text.point),
         Shape::Symbol(symbol) => Some(symbol.position),
+        Shape::Curve(Edge::Spline(spline)) => spline.control.first().copied(),
         _ => None,
     }
 }

@@ -585,6 +585,11 @@ fn changes(
         };
         let size = match value {
             Some(messages::Geometry::Polyline(line)) => line.points.len(),
+            Some(messages::Geometry::Spline(spline)) => spline
+                .control
+                .len()
+                .saturating_add(spline.knots.len())
+                .saturating_add(spline.weights.as_ref().map_or(0, Vec::len)),
             Some(messages::Geometry::Text(text)) => text
                 .content
                 .len()
@@ -597,6 +602,12 @@ fn changes(
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
             .map_err(|stop| stopped(cx, stop))?;
+        if let Some(messages::Geometry::Spline(spline)) = value {
+            for point in &spline.control {
+                cx.check(Kind::Work, u64::try_from(point.len()).unwrap_or(u64::MAX))
+                    .map_err(|stop| stopped(cx, stop))?;
+            }
+        }
         edits.push(match edit {
             messages::Edit::Restyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
@@ -1193,6 +1204,11 @@ impl Page {
             let geometry = if has(EntityField::Geometry) {
                 let size = match &element.shape {
                     Shape::Polyline(line) => line.vertices.len(),
+                    Shape::Curve(zumen_drawing::Edge::Spline(spline)) => spline
+                        .control
+                        .len()
+                        .saturating_add(spline.knots.len())
+                        .saturating_add(spline.weights.len()),
                     Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Formatted(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Symbol(symbol) => symbol.key.name.len(),
@@ -1759,12 +1775,82 @@ mod tests {
     }
 
     #[test]
+    fn spline_geometry_obeys_work_budget() {
+        let knots = vec!["0"; 100].join(",");
+        let geometry = format!(
+            r#"{{"shape":"spline","degree":1,"knots":[{knots}],"control":[[0,0],[1,1]],"closed":false,"periodic":false}}"#
+        );
+        for edit in [
+            format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
+            format!(
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+            ),
+        ] {
+            let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);
+            let value = zumen_json::parse(json.as_bytes()).unwrap();
+            let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+                panic!();
+            };
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(changes(&request, &Drawing2D::default(), &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+        let point = ModelPoint {
+            space: zumen_drawing::SpaceId(0),
+            x: 0.0,
+            y: 0.0,
+        };
+        let element = Element {
+            source: Ref::default(),
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Curve(zumen_drawing::Edge::Spline(zumen_drawing::Spline {
+                degree: 1,
+                knots: vec![0.0; 100],
+                control: vec![point; 2],
+                weights: vec![],
+                fit: vec![],
+                start_tangent: None,
+                end_tangent: None,
+                closed: false,
+                periodic: false,
+            })),
+        };
+        let mut page = Page {
+            start: 0,
+            end: 1,
+            fields: vec![EntityField::Geometry],
+            region: None,
+            position: 0,
+            items: vec![],
+        };
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(
+            page.collect(&Drawing2D::default(), "space/0", &[element], &mut cx)
+                .is_err()
+        );
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+    }
+
+    #[test]
     fn answers_capabilities() {
         let mut session = Session::new(b"").unwrap();
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":14}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":15}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2696,6 +2782,66 @@ mod tests {
         );
         assert_eq!(status, Status::Failed);
         assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+    }
+
+    #[test]
+    fn adds_and_replaces_splines_by_their_geometry() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let added = r#"{"shape":"spline","degree":3,"knots":[0,0,0,0,1,2,2,2,2],"control":[[0,0],[1,2],[3,3],[5,1],[6,0]],"closed":false,"periodic":false}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
+        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        // 次数・制御点・節点・重みの数が合わない値は受けない
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"spline","degree":0,"knots":[0,1],"control":[[0,0],[1,1]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/degree",
+            ),
+            (
+                r#"{"shape":"spline","degree":3,"knots":[0,0,0,1,1,1],"control":[[0,0],[1,1],[2,0]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/control",
+            ),
+            (
+                r#"{"shape":"spline","degree":2,"knots":[0,0,1,1,1],"control":[[0,0],[1,1],[2,0]],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/knots",
+            ),
+            (
+                r#"{"shape":"spline","degree":2,"knots":[0,0,0,1,1,1],"control":[[0,0],[1,1],[2,0]],"weights":[1,0],"closed":false,"periodic":false}"#,
+                "/edits/0/geometry/weights",
+            ),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        // 有理の 2 次のスプライン（円弧）に置き換える
+        let replaced = r#"{"shape":"spline","degree":2,"knots":[0,0,0,1,1,1],"control":[[10,0],[10,10],[0,10]],"weights":[1,0.5,1],"closed":false,"periodic":false}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(shapes(&mut session, "a.dxf")[3], replaced);
+        let (id, hash) = seen(&mut session, "a.dxf")[3].clone();
+        assert_eq!(id, text(&response, "/result/applied/0/id"));
+        assert_eq!(hash, text(&response, "/result/applied/0/hash"));
     }
 
     #[test]

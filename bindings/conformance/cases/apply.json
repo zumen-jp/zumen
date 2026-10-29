@@ -334,6 +334,38 @@
               "attachment": "top_left",
               "style": "Standard"
             }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "spline",
+              "degree": 2,
+              "knots": [
+                0,
+                0,
+                0,
+                1,
+                1,
+                1
+              ],
+              "control": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  3,
+                  6
+                ],
+                [
+                  6,
+                  0
+                ]
+              ],
+              "closed": false,
+              "periodic": false
+            }
           }
         ]
       },
@@ -356,7 +388,7 @@
         ]
       },
       "expect": {
-        "/result/total": 6,
+        "/result/total": 7,
         "/result/items/0/geometry": {
           "shape": "line",
           "start": [
@@ -411,6 +443,34 @@
           "rotation": 0,
           "attachment": "top_left",
           "style": "Standard"
+        },
+        "/result/items/6/geometry": {
+          "shape": "spline",
+          "degree": 2,
+          "knots": [
+            0,
+            0,
+            0,
+            1,
+            1,
+            1
+          ],
+          "control": [
+            [
+              0,
+              0
+            ],
+            [
+              3,
+              6
+            ],
+            [
+              6,
+              0
+            ]
+          ],
+          "closed": false,
+          "periodic": false
         }
       }
     },

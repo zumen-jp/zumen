@@ -375,7 +375,7 @@
           "type": "string"
         },
         "geometry": {
-          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
+          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
           "$ref": "#/$defs/geometry"
         }
       },
@@ -397,7 +397,8 @@
         { "$ref": "#/$defs/polyline_geometry" },
         { "$ref": "#/$defs/text_geometry" },
         { "$ref": "#/$defs/formatted_text_geometry" },
-        { "$ref": "#/$defs/symbol_geometry" }
+        { "$ref": "#/$defs/symbol_geometry" },
+        { "$ref": "#/$defs/spline_geometry" }
       ]
     },
     "line_geometry": {
@@ -497,6 +498,21 @@
         "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
+      "additionalProperties": false
+    },
+    "spline_geometry": {
+      "description": "制御点で決まるスプライン（NURBS）。当てはめる点か接線を持つスプラインは、まだ形の値を持たない。小版 15 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "spline" },
+        "degree": { "description": "次数。1 以上", "type": "integer", "minimum": 1, "maximum": 32767 },
+        "knots": { "description": "節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数", "type": "array", "items": { "type": "number" } },
+        "control": { "description": "制御点の [X, Y] の並び。次数より多い", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "weights": { "description": "制御点ごとの重み。0 より大きい。有理のスプラインだけが持ち、書かなければ有理でない", "type": "array", "items": { "type": "number" } },
+        "closed": { "description": "閉じている", "type": "boolean" },
+        "periodic": { "description": "周期的", "type": "boolean" }
+      },
+      "required": ["shape", "degree", "knots", "control", "closed", "periodic"],
       "additionalProperties": false
     },
     "symbol_geometry": {

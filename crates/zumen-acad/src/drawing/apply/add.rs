@@ -270,6 +270,26 @@ impl Born {
                 values.push(real(42, end.to_radians())?);
                 b"ELLIPSE"
             }
+            Shape::Curve(Edge::Spline(spline)) => {
+                if !self.version.is_empty() && !self.since(b"AC1012") {
+                    return None;
+                }
+                if !super::controlled(spline) {
+                    return None;
+                }
+                let defined = super::spline_values(frame, spline)?;
+                values.push(text(100, "AcDbSpline"));
+                // 平面の印（8）を立てる
+                values.push(int(70, super::spline_flags(8, spline)));
+                values.push(int(71, i64::from(spline.degree)));
+                values.push(int(72, i64::try_from(spline.knots.len()).ok()?));
+                values.push(int(73, i64::try_from(spline.control.len()).ok()?));
+                values.push(int(74, 0));
+                // DXF Reference「SPLINE」: 節点と制御点の許容差の既定値。DWG はどちらも持つ
+                values.extend([real(42, 1e-7)?, real(43, 1e-7)?]);
+                values.extend(defined);
+                b"SPLINE"
+            }
             Shape::Polyline(line) => {
                 if !self.version.is_empty() && !self.since(b"AC1014") {
                     return None;
@@ -754,6 +774,11 @@ impl Born {
 fn amount<P>(shape: &Shape<P>) -> u64 {
     let items = match shape {
         Shape::Polyline(line) => line.vertices.len(),
+        Shape::Curve(Edge::Spline(spline)) => spline
+            .control
+            .len()
+            .saturating_add(spline.knots.len())
+            .saturating_add(spline.weights.len()),
         Shape::Text(text) => text.content.len(),
         Shape::Formatted(text) => text.content.len(),
         Shape::Symbol(symbol) => symbol
