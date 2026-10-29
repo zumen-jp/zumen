@@ -1764,3 +1764,113 @@ fn block_sheet_additions_count_insertion_work_before_changing_the_file() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+#[cfg(test)]
+fn attributed_newcomer() -> Shape<ModelPoint> {
+    use zumen_drawing::{Attribute, HeightMeaning, Symbol, SymbolKey};
+    let Shape::Text(mut text) = newcomers().remove(4) else {
+        panic!();
+    };
+    text.height.meaning = HeightMeaning::Declared("dxf.ATTRIB.40");
+    Shape::Symbol(Symbol {
+        key: SymbolKey {
+            namespace: "dxf.block",
+            name: "PART".to_owned(),
+        },
+        position: at(0.0, 0.0),
+        scale: [1.0, 1.0],
+        rotation: 0.0,
+        grid: None,
+        clip: None,
+        attributes: vec![Attribute {
+            tag: "A".to_owned(),
+            text,
+            formatted: None,
+            hidden: false,
+            layer: LayerId(0),
+            style: addition_element(newcomers().remove(0)).style,
+            source: Ref::default(),
+        }],
+    })
+}
+
+#[cfg(test)]
+fn attributed_addition_source(seed: &str) -> Vec<u8> {
+    addition_source(
+        "AC1021",
+        seed,
+        &[
+            (0, "BLOCK"),
+            (5, "30"),
+            (2, "PART"),
+            (70, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (0, "ENDBLK"),
+        ],
+    )
+}
+
+#[test]
+fn attributed_additions_reserve_followers_and_the_next_seed() {
+    for (seed, supported) in [("FFFFFFFFFFFFFFFD", false), ("FFFFFFFFFFFFFFFC", true)] {
+        let src = attributed_addition_source(seed);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let result = apply(
+            &mut file,
+            vec![Edit::Add(Box::new(addition_element(attributed_newcomer())))],
+        )
+        .0;
+        if supported {
+            assert_eq!(result, Ok(()));
+            assert!(
+                String::from_utf8_lossy(&testkit::write::<Dxf>(&file).unwrap())
+                    .contains("$HANDSEED\n  5\nFFFFFFFFFFFFFFFF\n")
+            );
+        } else {
+            assert_eq!(result, Err(Error::Rejected));
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        }
+    }
+    let src = attributed_addition_source("FFFFFFFFFFFFFFFC");
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let edits = vec![
+        Edit::Add(Box::new(addition_element(attributed_newcomer()))),
+        Edit::Add(Box::new(addition_element(newcomers().remove(0)))),
+    ];
+    assert_eq!(apply(&mut file, edits).0, Err(Error::Rejected));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn attributed_additions_count_attribute_content_before_copying() {
+    use zumen_base::{Kind, Limit, Limits};
+    let src = attributed_addition_source("100");
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(newcomers().remove(0))))],
+        },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let mut shape = attributed_newcomer();
+    if let Shape::Symbol(symbol) = &mut shape {
+        symbol.attributes[0].text.content = "x".repeat(100);
+    }
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 20)),
+    );
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(shape)))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
