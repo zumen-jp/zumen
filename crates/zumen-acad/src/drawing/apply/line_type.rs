@@ -90,10 +90,11 @@ pub(super) fn write(
     let count = i64::try_from(definition.pattern.len()).ok()?;
     set(values, 73, Some(int(73, count)));
     set(values, 40, Some(real(40, total)?));
-    // 形か文字を持つレコードと DWG の今あるレコードは、要素の数を変えずに長さだけを書き直す
-    let marked = values
-        .iter()
-        .any(|value| value.code == 74 && matches!(value.data, Data::Int(flags) if flags & 6 != 0));
+    // モデルに現れない値も捨てない。要素の付加値か 0 でない印があれば、長さだけを書き直す。
+    let marked = values.iter().any(|value| {
+        matches!(value.code, 75 | 340 | 46 | 50 | 44 | 45 | 9)
+            || (value.code == 74 && !matches!(value.data, Data::Int(0)))
+    });
     let dashes = values.iter().filter(|value| value.code == 49).count();
     if marked || (was.is_some() && matches!(target, Target::Dwg(_))) {
         (dashes == definition.pattern.len()).then_some(())?;

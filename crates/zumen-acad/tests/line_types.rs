@@ -537,9 +537,13 @@ fn line_type_changes_preserve_unread_dash_values() {
     let drawing = lift(&file);
     let mut changed = line_type(&drawing, "Dashed").clone();
     changed.definition.as_mut().unwrap().pattern = vec![0.75, -0.25];
-    let (result, _) = apply(&mut file, vec![Edit::ReplaceLineType {
-        target: seen(&drawing, "Dashed"), line_type: Box::new(changed),
-    }]);
+    let (result, _) = apply(
+        &mut file,
+        vec![Edit::ReplaceLineType {
+            target: seen(&drawing, "Dashed"),
+            line_type: Box::new(changed),
+        }],
+    );
     if result.is_ok() {
         let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
         assert!(written.contains("  9\nKEEP\n"));
