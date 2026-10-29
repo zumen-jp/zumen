@@ -1449,7 +1449,7 @@ pub enum Geometry {
     Text(TextGeometry),
     /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
     FormattedText(FormattedTextGeometry),
-    /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。属性・切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは属性も切り抜きも持たない。小版 14 から
+    /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から
     Symbol(SymbolGeometry),
     /// 制御点で決まるスプライン（NURBS）。当てはめる点か接線を持つスプラインは、まだ形の値を持たない。小版 15 から
     Spline(SplineGeometry),
@@ -2021,7 +2021,7 @@ impl ToJson for SplineGeometry {
     }
 }
 
-/// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。属性・切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは属性も切り抜きも持たない。小版 14 から
+/// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは属性と切り抜きを元のままにし、属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct SymbolGeometry {
     /// 記号の定義（ブロック）の元の名前。足すときは図面にある定義の名前を指す
@@ -2034,6 +2034,8 @@ pub struct SymbolGeometry {
     pub rotation: f64,
     /// 格子に並べて置く列と行。書かなければ 1 つだけ置く
     pub grid: Option<SymbolGrid>,
+    /// 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じタグと値だけを受ける。小版 16 から
+    pub attributes: Option<Vec<SymbolAttribute>>,
 }
 
 impl SymbolGeometry {
@@ -2044,12 +2046,16 @@ impl SymbolGeometry {
         let scale = object.required("scale", |value| json::array(value, json::number))?;
         let rotation = object.required("rotation", json::number)?;
         let grid = object.optional("grid", SymbolGrid::from_json)?;
+        let attributes = object.optional("attributes", |value| {
+            json::array(value, SymbolAttribute::from_json)
+        })?;
         Ok(Self {
             name,
             position,
             scale,
             rotation,
             grid,
+            attributes,
         })
     }
 
@@ -2068,6 +2074,10 @@ impl SymbolGeometry {
             out.key("grid");
             value.to_json(out);
         }
+        if let Some(value) = &self.attributes {
+            out.key("attributes");
+            out.array(value, |out, item| item.to_json(out));
+        }
     }
 }
 
@@ -2081,6 +2091,47 @@ impl FromJson for SymbolGeometry {
 }
 
 impl ToJson for SymbolGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 記号の属性のタグと値
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolAttribute {
+    /// 元のタグ
+    pub tag: String,
+    /// 値。1 行
+    pub value: String,
+}
+
+impl SymbolAttribute {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let tag = object.required("tag", json::string)?;
+        let value = object.required("value", json::string)?;
+        Ok(Self { tag, value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("tag");
+        out.string(&self.tag);
+        out.key("value");
+        out.string(&self.value);
+    }
+}
+
+impl FromJson for SymbolAttribute {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SymbolAttribute {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

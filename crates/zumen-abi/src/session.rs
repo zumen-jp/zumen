@@ -465,6 +465,31 @@ impl Session {
     /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
     fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
+        // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを境界で判定できないため、
+        // 安全に属性を作れない記号の追加は拒否する。
+        let mut symbol_add = None;
+        for (index, edit) in request.edits.iter().enumerate() {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            if matches!(edit, messages::Edit::Add(edit) if matches!(edit.geometry, messages::Geometry::Symbol(_)))
+            {
+                symbol_add = Some(index);
+                break;
+            }
+        }
+        if let Some(index) = symbol_add {
+            let diagnostics = u64::try_from(cx.diag.len()).unwrap_or(u64::MAX);
+            cx.check(Kind::Work, diagnostics)
+                .map_err(|stop| stopped(cx, stop))?;
+            let invalid_definitions = cx.diag.iter().any(|diagnostic| {
+                matches!(diagnostic.param("kind"), Some(zumen_base::Value::Text(kind)) if kind == "ATTDEF")
+            });
+            if invalid_definitions {
+                return Err(fail(
+                    cx,
+                    invalid_value(format!("/edits/{index}/geometry/attributes")),
+                ));
+            }
+        }
         if let Some(doc @ (Doc::Sxf(_) | Doc::Jww(_))) = self.docs.get(&request.doc) {
             return Err(fail(
                 cx,
@@ -567,6 +592,7 @@ fn changes(
     let mut tables = None;
     let mut elements = None;
     let mut places = None;
+    let mut definitions: Option<BTreeMap<String, &zumen_drawing::SymbolDefinition>> = None;
     for (index, edit) in request.edits.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let at = |field: &str| format!("/edits/{index}/{field}");
@@ -605,6 +631,16 @@ fn changes(
         if let Some(messages::Geometry::Spline(spline)) = value {
             for point in &spline.control {
                 cx.check(Kind::Work, u64::try_from(point.len()).unwrap_or(u64::MAX))
+                    .map_err(|stop| stopped(cx, stop))?;
+            }
+        }
+
+        if let Some(messages::Geometry::Symbol(symbol)) = value {
+            for item in symbol.attributes.iter().flatten() {
+                let size = 1_usize
+                    .saturating_add(item.tag.len())
+                    .saturating_add(item.value.len());
+                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
                     .map_err(|stop| stopped(cx, stop))?;
             }
         }
@@ -686,7 +722,43 @@ fn changes(
                 let Some(places) = &places else {
                     return Err(Failed);
                 };
-                let element = added(edit, places, tables)
+                let definition = if let messages::Geometry::Symbol(symbol) = &edit.geometry {
+                    if definitions.is_none() {
+                        let mut found = BTreeMap::new();
+                        for definition in &drawing.symbols {
+                            let work = definition.key.name.len().saturating_add(1);
+                            cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
+                                .map_err(|stop| stopped(cx, stop))?;
+                            if definition.key.namespace == "dxf.block" {
+                                found
+                                    .entry(definition.key.name.to_ascii_lowercase())
+                                    .or_insert(definition);
+                            }
+                        }
+                        definitions = Some(found);
+                    }
+                    let work = symbol.name.len();
+                    cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
+                        .map_err(|stop| stopped(cx, stop))?;
+                    let found = definitions
+                        .as_ref()
+                        .and_then(|items| items.get(&symbol.name.to_ascii_lowercase()).copied());
+                    if let Some(definition) = found {
+                        for item in &definition.attributes {
+                            let attr = &item.attribute;
+                            let size = 1_usize
+                                .saturating_add(attr.tag.len())
+                                .saturating_add(attr.text.content.len())
+                                .saturating_add(attr.text.style.len());
+                            cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                                .map_err(|stop| stopped(cx, stop))?;
+                        }
+                    }
+                    found
+                } else {
+                    None
+                };
+                let element = added(edit, places, tables, definition)
                     .map_err(|field| fail(cx, invalid_value(at(&field))))?;
                 Edit::Add {
                     place: edit.place.clone(),
@@ -949,6 +1021,7 @@ fn added(
     edit: &messages::AddEdit,
     places: &PlaceLookup,
     tables: &TableLookup<'_>,
+    definition: Option<&zumen_drawing::SymbolDefinition>,
 ) -> Result<Placed, String> {
     let layer = match layer_of(edit.layer.as_deref(), edit.layer_id.as_deref(), tables)? {
         Some(layer) => layer,
@@ -965,7 +1038,11 @@ fn added(
             source: Ref::default(),
             layer,
             style,
-            shape: geometry::shape_of(&edit.geometry, None, origin)?,
+            shape: attributed(
+                geometry::shape_of(&edit.geometry, None, origin)?,
+                edit,
+                definition,
+            )?,
         }));
     }
     if let Some(&origin) = places.sheets.get(&edit.place) {
@@ -973,10 +1050,30 @@ fn added(
             source: Ref::default(),
             layer,
             style,
-            shape: geometry::shape_of(&edit.geometry, None, origin)?,
+            shape: attributed(
+                geometry::shape_of(&edit.geometry, None, origin)?,
+                edit,
+                definition,
+            )?,
         }));
     }
     Err("place".to_string())
+}
+
+/// 足す記号に、定義の属性の定義から属性を付ける
+fn attributed<P: geometry::Spot>(
+    shape: Shape<P>,
+    edit: &messages::AddEdit,
+    definition: Option<&zumen_drawing::SymbolDefinition>,
+) -> Result<Shape<P>, String> {
+    match (shape, &edit.geometry) {
+        (Shape::Symbol(mut symbol), messages::Geometry::Symbol(given)) => {
+            symbol.attributes =
+                geometry::attributes_of(definition, &symbol, given.attributes.as_deref())?;
+            Ok(Shape::Symbol(symbol))
+        }
+        (shape, _) => Ok(shape),
+    }
 }
 
 /// 要求のスタイルの変更を、図面モデルの変更にする。合わない欄があれば、その欄の名前を返す
@@ -1216,6 +1313,15 @@ impl Page {
                 };
                 cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
                     .map_err(|stop| stop_at(cx, stop))?;
+                if let Shape::Symbol(symbol) = &element.shape {
+                    for attribute in &symbol.attributes {
+                        let size = 1_usize
+                            .saturating_add(attribute.tag.len())
+                            .saturating_add(attribute.text.content.len());
+                        cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                            .map_err(|stop| stop_at(cx, stop))?;
+                    }
+                }
                 geometry::geometry_of(&element.shape)
             } else {
                 None
@@ -1850,7 +1956,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":15}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":16}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2842,6 +2948,152 @@ mod tests {
         let (id, hash) = seen(&mut session, "a.dxf")[3].clone();
         assert_eq!(id, text(&response, "/result/applied/0/id"));
         assert_eq!(hash, text(&response, "/result/applied/0/hash"));
+    }
+
+    #[test]
+    fn counts_symbol_attribute_values_before_building_changes() {
+        let value = "A".repeat(1000);
+        let json = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,1],"rotation":0,"attributes":[{{"tag":"NO","value":"{value}"}}]}}}}]}}"#
+        );
+        let value = zumen_json::parse(json.as_bytes()).unwrap();
+        let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+            panic!()
+        };
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(100)));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(changes(&request, &Drawing2D::default(), &mut cx).is_err());
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+    }
+
+    #[test]
+    fn adds_symbols_with_attributes_made_from_their_definitions() {
+        let file =
+            b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+            0\nSECTION\n2\nBLOCKS\n\
+            0\nBLOCK\n5\n20\n8\n0\n2\nDOOR\n70\n2\n10\n0\n20\n0\n3\nDOOR\n\
+            0\nLINE\n5\n21\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n\
+            0\nATTDEF\n5\n23\n8\n0\n10\n0.5\n20\n1.0\n40\n0.25\n1\nD1\n3\nNumber\n2\nNO\n70\n0\n\
+            0\nATTDEF\n5\n24\n8\n0\n10\n0\n20\n-1\n40\n0.25\n1\nACME\n3\nMaker\n2\nMAKER\n70\n2\n\
+            0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n\
+            0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+        // 読めない ATTDEF があれば、属性を省いた記号を足さない。
+        let broken = String::from_utf8(file.to_vec())
+            .unwrap()
+            .replace("2\nNO\n70\n0", "70\n0");
+        let mut rejected = Session::new(b"").unwrap();
+        rejected.push(b"broken.dxf", broken.as_bytes()).unwrap();
+        call(&mut rejected, r#"{"v":1,"op":"open","input":"broken.dxf"}"#);
+        let (status, response) = call(
+            &mut rejected,
+            r#"{"v":1,"op":"apply","doc":"broken.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,1],"rotation":0}}]}"#,
+        );
+        assert_eq!(status, Status::Failed, "{response:?}");
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/attributes"
+        );
+
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", file).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let add = |session: &mut Session, geometry: &str| {
+            call(
+                session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+                ),
+            )
+        };
+        // 値が決まった属性の定義（MAKER）は、属性を作らない。尺度の大きさが違えば、文字を写せない
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,1],"rotation":0,"attributes":[{"tag":"MAKER","value":"X"}]}"#,
+                "/edits/0/geometry/attributes/0/tag",
+            ),
+            (
+                r#"{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,2],"rotation":0,"attributes":[{"tag":"NO","value":"X"}]}"#,
+                "/edits/0/geometry/attributes",
+            ),
+        ] {
+            let (status, response) = add(&mut session, geometry);
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let (status, response) = add(
+            &mut session,
+            r#"{"shape":"symbol","name":"DOOR","position":[10,20],"scale":[2,2],"rotation":90,"attributes":[{"tag":"no","value":"D7"}]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let written = String::from_utf8(session.take(0).unwrap()).unwrap();
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert!(seen(&mut session, "a.dxf").contains(&(id.clone(), hash.clone())));
+        assert_eq!(
+            shapes(&mut session, "a.dxf"),
+            [
+                r#"{"shape":"symbol","name":"DOOR","position":[10,20],"scale":[2,2],"rotation":90,"attributes":[{"tag":"NO","value":"D7"}]}"#
+            ]
+        );
+        // 属性の基点は、定義の (0.5, 1) を 2 倍して 90° 回し、(10, 20) へ動かした (8, 21)。高さは 2 倍の 0.5
+        let (_, attribute) = written.split_once("ATTRIB").unwrap();
+        let (attribute, _) = attribute.split_once("SEQEND").unwrap();
+        for field in [
+            " 10\n8.0\n",
+            " 20\n21.0\n",
+            " 40\n0.5\n",
+            " 50\n90.0\n",
+            "  1\nD7\n",
+        ] {
+            assert!(attribute.contains(field), "{field:?}: {attribute}");
+        }
+        // 置き換えは、属性の値を変えない
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"symbol","name":"DOOR","position":[10,20],"scale":[2,2],"rotation":90,"attributes":[{{"tag":"NO","value":"D8"}}]}}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/attributes"
+        );
+        // 値を渡さなくても、定義の属性を作れなければ拒否する
+        let (status, response) = add(
+            &mut session,
+            r#"{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,2],"rotation":0}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/attributes"
+        );
+        // 同じタグを大小文字を変えて渡しても、後の値を黙って捨てない
+        let (status, response) = add(
+            &mut session,
+            r#"{"shape":"symbol","name":"DOOR","position":[0,0],"scale":[1,1],"rotation":0,"attributes":[{"tag":"NO","value":"A"},{"tag":"no","value":"B"}]}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/attributes/1/tag"
+        );
+        // 値を渡さなければ、既定の値で作る
+        let (status, response) = add(
+            &mut session,
+            r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[1,1],"rotation":0}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            shapes(&mut session, "a.dxf")[1],
+            r#"{"shape":"symbol","name":"DOOR","position":[5,5],"scale":[1,1],"rotation":0,"attributes":[{"tag":"NO","value":"D1"}]}"#
+        );
     }
 
     #[test]
