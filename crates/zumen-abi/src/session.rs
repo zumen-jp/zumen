@@ -441,7 +441,7 @@ impl Session {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
-                let hash = Hash::document(&bytes);
+                let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 *file = updated;
                 (applied, hash)
             }
@@ -449,7 +449,7 @@ impl Session {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Dwg::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
-                let hash = Hash::document(&bytes);
+                let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 *file = updated;
                 (applied, hash)
             }
