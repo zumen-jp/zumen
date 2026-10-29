@@ -8,7 +8,8 @@ use std::cell::Cell;
 use zumen_drawing::transform::Point;
 use zumen_drawing::{
     Edge, Flow, FormattedText, HeightMeaning, Horizontal, Length, LineSpacing, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Text, Vertex, Vertical,
+    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Text, Vertex,
+    Vertical,
 };
 
 use crate::bounds::Planar;
