@@ -3376,10 +3376,16 @@ fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
     if !is_up(&extrusion) {
         values.extend(extrusion);
     }
-    if bits.bit()? {
+    let attribs = bits.bit()?;
+    if attribs {
         values.push(int(66, 1));
     }
     if grid {
+        // R2004 からは、属性を持つときだけ、列と行の欄の前に持つオブジェクトの数（BL）が入る（ODS 5.4.1 の
+        // 20.4.9）。INSERT では欄の終わりに入るので読まない
+        if attribs && bits.release() >= Release::R2004 {
+            bits.bl()?;
+        }
         for code in [70, 71] {
             let count = bits.bs()?;
             if count != 1 {
