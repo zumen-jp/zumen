@@ -2657,7 +2657,7 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         b"DIMSTYLE" => &dimstyle_codes,
         _ => return None,
     };
-    // LAYER の名前は、R2010 より前なら書き直せる（決定 0162。[`record_fields`]）
+    // LAYER の名前は書き直せる（決定 0162。[`record_fields`]）
     let renamable = new.kind == b"LAYER";
     let rest = |object: &Object| -> Vec<_> {
         object
@@ -2671,8 +2671,8 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
 }
 
 /// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
-/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、R2010 より前の LAYER は
-/// 名前を書き直せる（決定 0162）。R2010 からは、名前が文字列の流れにあるので書き直さない
+/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER は名前を書き直せる
+/// （決定 0162）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
 fn record_fields(
     fields: &mut BitWriter,
     old: &Object,
@@ -2695,7 +2695,7 @@ fn record_fields(
     if text_of(old, 2) == text_of(new, 2) {
         fields.copy(data, start..own_at)?;
     } else {
-        (new.kind == b"LAYER" && release < Release::R2010 && !xdep).then_some(())?;
+        (new.kind == b"LAYER" && !xdep).then_some(())?;
         string(fields, new, 2)?;
         fields.copy(data, named_at..own_at)?;
     }
@@ -2711,7 +2711,8 @@ fn record_fields(
 }
 
 /// R2010 から後の表のレコードを符号化し直したデータ（決定 0089）。`data` はハンドルの流れの大きさ（MC）の後の
-/// データ、`handles_at` はハンドルの流れの始まり。文字列の流れは、初めの名前を写し、型ごとの欄の文字列を続ける
+/// データ、`handles_at` はハンドルの流れの始まり。文字列の流れは、初めの名前を写し、型ごとの欄の文字列を続ける。
+/// 名前を変えた LAYER は、初めに新しい名前を書く（決定 0162）
 fn encode_record_r2010(
     data: &[u8],
     handles_at: usize,
@@ -2728,7 +2729,10 @@ fn encode_record_r2010(
         let mut bits = Bits::with_release(data, release);
         bits.seek(end);
         let units = usize::try_from(bits.bs()?).ok()?;
-        fields.copy_strings(data, end..bits.pos() + units * 16)?;
+        // 名前を変えたら、`record_fields` が新しい名前を流れの初めに書く
+        if text_of(old, 2) == text_of(object, 2) {
+            fields.copy_strings(data, end..bits.pos() + units * 16)?;
+        }
         let own_end = record_fields(&mut fields, old, object, data, start, release)?;
         fields.copy(data, own_end..end)?;
         Some(fields)

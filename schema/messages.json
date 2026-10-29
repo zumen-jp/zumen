@@ -778,7 +778,7 @@
       "additionalProperties": false
     },
     "layer_edit": {
-      "description": "レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、R2010 から後の名前と、今あるレイヤの線種と真の色を変えられない。小版 22 から",
+      "description": "レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から",
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "layer" },
