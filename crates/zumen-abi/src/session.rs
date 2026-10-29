@@ -1483,7 +1483,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":11}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":12}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2142,6 +2142,48 @@ mod tests {
     }
 
     #[test]
+    fn adds_texts_and_keeps_their_style_when_replacing() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let added = r#"{"shape":"text","content":"GRID X1","position":[2,3],"height":2.5,"rotation":30,"style":"Standard"}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
+        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        // 置き換えは文字スタイルを変えない
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"text","content":"X2","position":[2,3],"height":2.5,"rotation":0,"style":"Other"}}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/style"
+        );
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"text","content":"X2","position":[4,5],"height":3,"rotation":0}}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            shapes(&mut session, "a.dxf")[3],
+            r#"{"shape":"text","content":"X2","position":[4,5],"height":3,"rotation":0,"style":"Standard"}"#
+        );
+    }
+
+    #[test]
     fn checks_the_changes_before_applying_them() {
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", EDITABLE).unwrap();
@@ -2270,10 +2312,10 @@ mod tests {
                 "/edits/0/geometry/bulges",
             ),
             (
-                r#""kind":"add","place":"space/0","geometry":{"shape":"text","content":"A","position":[0,0],"height":2.5,"rotation":0}"#.to_string(),
+                r#""kind":"add","place":"space/0","geometry":{"shape":"text","content":"A\nB","position":[0,0],"height":2.5,"rotation":0}"#.to_string(),
                 "",
                 "call.value.invalid",
-                "/edits/0/geometry",
+                "/edits/0/geometry/content",
             ),
         ];
         for (edit, document, code, pointer) in cases {

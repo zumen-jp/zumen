@@ -455,3 +455,82 @@ fn drawings_take_back_ellipses_replaced_through_the_boundary() {
         "{checked:?}"
     );
 }
+
+/// 試料の実寸の空間に、境界の `add` で文字を足すと、開き直した文字の形とハッシュが、送った形と `apply` が
+/// 返したものと同じになる（決定 0139）。2007 より前の版は ASCII の文字だけを書くので、日本語の文字は
+/// `change.edit.unsupported` になり、ASCII の文字なら足せる
+#[test]
+fn drawings_take_back_texts_added_through_the_boundary() {
+    let mut japanese = [0, 0];
+    for path in drawings() {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "_");
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
+        if !open(&mut session, &name) {
+            continue;
+        }
+        // レイヤ「0」を持たない図面（Jw_cad が書いた R12 の DXF など）もあるので、表の最初のレイヤを ID で指す
+        let table = tables(&mut session, &name);
+        let layer_id = text(&table, "/layers/0/id").unwrap().to_string();
+        let add = |session: &mut Session, content: &str| {
+            let geometry = format!(
+                r#"{{"shape":"text","content":"{content}","position":[12.5,-4],"height":3.5,"rotation":15}}"#
+            );
+            let (status, response) = call(
+                session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{geometry}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited","decoded_bytes":"unlimited"}}}}"#
+                ),
+            );
+            (status, response, geometry)
+        };
+        let (status, response, geometry) = match add(&mut session, "通り芯 X1") {
+            (Status::Ok, response, geometry) => {
+                japanese[usize::from(name.to_ascii_lowercase().ends_with(".dwg"))] += 1;
+                (Status::Ok, response, geometry)
+            }
+            (_, response, _) => {
+                assert!(
+                    format!("{response:?}").contains("change.edit.unsupported"),
+                    "{name}: {response:?}"
+                );
+                add(&mut session, "GRID X1")
+            }
+        };
+        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        let file = session.take(0).unwrap();
+        let id = text(&response, "/result/applied/0/id").unwrap().to_string();
+        let hash = text(&response, "/result/applied/0/hash")
+            .unwrap()
+            .to_string();
+        session.push(b"again", &file).unwrap();
+        assert!(open(&mut session, "again"), "{name}");
+        assert!(
+            entities(&mut session, "again")
+                .iter()
+                .any(|(was, _, was_hash)| *was == id && *was_hash == hash),
+            "{name}: {id}"
+        );
+        let found = shapes(&mut session, "again")
+            .into_iter()
+            .find(|(was, _)| *was == id)
+            .and_then(|(_, geometry)| geometry)
+            .unwrap_or_else(|| panic!("{name}: {id}"));
+        // 足した文字の文字スタイルは、図面の Standard の名前で読み直す
+        let style = text(&found, "/style").unwrap_or_else(|| panic!("{name}: {found:?}"));
+        assert!(style.eq_ignore_ascii_case("Standard"), "{name}: {style}");
+        let expected = format!(r#"{},"style":"{style}"}}"#, geometry.trim_end_matches('}'));
+        let expected = zumen_json::parse(expected.as_bytes()).unwrap();
+        assert!(close(&found, &expected), "{name}: {found:?}");
+    }
+    assert!(
+        drawings().is_empty() || japanese.iter().all(|n| *n > 0),
+        "{japanese:?}"
+    );
+}

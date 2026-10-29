@@ -5,8 +5,8 @@
 
 use zumen_drawing::transform::Point;
 use zumen_drawing::{
-    Edge, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Shape,
-    Text, Vertex,
+    Edge, HeightMeaning, Horizontal, Length, ModelLength, ModelPoint, PaperLength, PaperPoint,
+    Placement, Polyline, Shape, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
@@ -103,6 +103,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 position: xy(point),
                 height: point.length(text.height.value)?,
                 rotation: text.rotation,
+                style: Some(text.style.clone()),
             }),
             Placement::Between { .. } => return None,
         },
@@ -201,8 +202,35 @@ pub(crate) fn shape_of<P: Spot>(
                 vertex_widths: Vec::new(),
             })
         }
-        // 文字は、高さの意味・位置合わせ・文字スタイルを決める元の文字がなければ作らない
+        // 足す文字は、AutoCAD の系統の TEXT の高さ（40）として書く。境界の apply が書けるのは DXF と DWG だけ
+        (Geometry::Text(text), None) => {
+            if text.content.contains(['\n', '\r']) {
+                return Err("geometry/content".to_string());
+            }
+            Shape::Text(Text {
+                content: text.content.clone(),
+                placement: Placement::Anchor {
+                    point: point(&text.position, "position")?,
+                    horizontal: Horizontal::Left,
+                    vertical: Vertical::Baseline,
+                },
+                height: zumen_drawing::Height {
+                    value: positive(text.height, "height")?,
+                    meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+                },
+                rotation: finite(text.rotation, "rotation")?,
+                width_factor: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                style: text.style.clone().unwrap_or_else(|| "Standard".to_string()),
+            })
+        }
+        // 置き換える文字は、高さの意味・位置合わせ・文字スタイルを元の文字から受け継ぐ
         (Geometry::Text(text), Some(Shape::Text(old))) => {
+            if text.style.as_ref().is_some_and(|style| *style != old.style) {
+                return Err("geometry/style".to_string());
+            }
             let Placement::Anchor {
                 horizontal,
                 vertical,
