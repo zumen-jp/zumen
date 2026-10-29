@@ -851,6 +851,9 @@ fn changes(
             messages::Edit::Remove(edit) => Edit::Remove {
                 target: seen(&edit.id, &edit.hash, cx)?,
             },
+            messages::Edit::RemoveLayer(edit) => Edit::RemoveLayer {
+                target: seen(&edit.id, &edit.hash, cx)?,
+            },
             messages::Edit::Replace(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 count_formatted_geometry(&edit.geometry, cx)?;
@@ -2398,7 +2401,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":23}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":24}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2952,6 +2955,24 @@ mod tests {
         );
         assert_eq!(text(&response, "/result/applied/0/id"), "layer/h13");
         assert_eq!(text(&response, "/result/applied/1/id"), "layer/h40");
+        // レイヤ 0 は除けない。足したレイヤは、次の apply で除ける
+        let remove = |id: &str, hash: &str| {
+            apply(&format!(
+                r#"{{"kind":"remove_layer","id":"{id}","hash":"{hash}"}}"#
+            ))
+        };
+        let zero = text(&after, "/result/layers/0/hash");
+        let (status, refused) = call(&mut session, &remove("layer/h10", &zero));
+        assert_eq!(status, Status::Failed, "{refused:?}");
+        assert_eq!(text(&error(&refused), "/code"), "change.edit.unsupported");
+        let grid = text(&response, "/result/applied/1/hash");
+        let (status, removed) = call(&mut session, &remove("layer/h40", &grid));
+        assert_eq!(status, Status::Ok, "{removed:?}");
+        assert_eq!(removed.pointer("/result/applied/0/id"), None);
+        let (_, last) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        assert_eq!(text(&last, "/result/layers/0/id"), "layer/h10");
+        assert_eq!(text(&last, "/result/layers/1/id"), "layer/h13");
+        assert_eq!(last.pointer("/result/layers/2"), None);
     }
 
     #[test]

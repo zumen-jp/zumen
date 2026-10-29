@@ -1152,11 +1152,17 @@ impl DwgFile {
         let entry = match r2010 {
             true => {
                 let (data, handles_at) = self.current_r2010(changes, record)?;
-                add_entry_r2010(&data, handles_at, handle, type_code, self.release)?
+                add_entry_r2010(
+                    &data,
+                    handles_at,
+                    Entry::Add(handle),
+                    type_code,
+                    self.release,
+                )?
             }
             false => add_entry(
                 &self.current(changes, record)?,
-                handle,
+                Entry::Add(handle),
                 type_code,
                 self.release,
             )?,
@@ -1301,6 +1307,11 @@ impl DwgFile {
         let mut gone = BTreeSet::new();
         let mut blocks = BTreeMap::new();
         for &(record, old) in removed {
+            if old.section == Section::Tables {
+                self.unlist(record, old, &records, changes)
+                    .ok_or_else(|| unsupported(&old.kind))?;
+                continue;
+            }
             let block = self
                 .entries
                 .get(record)
@@ -1348,6 +1359,45 @@ impl DwgFile {
             done.ok_or_else(|| unsupported(b"BLOCK_RECORD"))?;
         }
         Ok(())
+    }
+
+    /// 除いた画層のレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から除いたデータを、
+    /// `changes` に足す（決定 0162）。反応子と拡張辞書を持つレコードと、画層のほかの表のレコードは除けない
+    fn unlist(
+        &self,
+        record: usize,
+        old: &Object,
+        records: &BTreeMap<u64, usize>,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+    ) -> Option<()> {
+        (old.kind == b"LAYER"
+            && !old
+                .values
+                .iter()
+                .any(|value| matches!(value.code, 102 | 360)))
+        .then_some(())?;
+        let handle = self.entries.get(record)?.handle;
+        let control = *records.get(&old.owner()?)?;
+        (self.entries.get(control)?.type_code == LAYER_CONTROL_TYPE).then_some(())?;
+        let new = if self.release >= Release::R2010 {
+            let (data, handles_at) = self.current_r2010(changes, control)?;
+            add_entry_r2010(
+                &data,
+                handles_at,
+                Entry::Remove(handle),
+                LAYER_TYPE,
+                self.release,
+            )?
+        } else {
+            add_entry(
+                &self.current(changes, control)?,
+                Entry::Remove(handle),
+                LAYER_TYPE,
+                self.release,
+            )?
+        };
+        changes.insert(control, new);
+        Some(())
     }
 
     /// ブロックのレコード `block` の図形の並びから、`gone` の `count` 個の図形を除き、隣が変わった図形と
@@ -2903,9 +2953,46 @@ fn layer_flags(object: &Object, xdep: bool, old: i16) -> Option<(i16, i16)> {
     (1..=255).contains(&color).then_some((flags, color))
 }
 
-/// 型 `type_code` のレコードの表のオブジェクトのデータ `data` の、項目の数（BL）を 1 増やし、項目の
-/// ハンドルの終わりに `entry` を足したもの（決定 0061）。ハンドルの流れの後の埋めるビットは写さない
-fn add_entry(data: &[u8], entry: u64, type_code: i16, release: Release) -> Option<Vec<u8>> {
+/// 表のオブジェクトの項目の変え方
+#[derive(Clone, Copy)]
+enum Entry {
+    /// 項目のハンドルの終わりに足す（決定 0061）
+    Add(u64),
+    /// 項目のハンドルから除く（決定 0162）。項目に 1 つだけなければ `None`
+    Remove(u64),
+}
+
+impl Entry {
+    /// 項目の数 `count` の新しい値
+    fn count(self, count: i32) -> Option<i32> {
+        match self {
+            Self::Add(_) => count.checked_add(1),
+            Self::Remove(_) => count.checked_sub(1),
+        }
+    }
+
+    /// `count` 個の項目のハンドルを `bits` から読み、変えて `out` に書く
+    fn copy(self, bits: &mut Bits<'_>, count: i32, out: &mut BitWriter) -> Option<()> {
+        let mut removed = 0;
+        for _ in 0..count {
+            let found = bits.handle()?;
+            if matches!(self, Self::Remove(handle) if handle == found.value) {
+                removed += 1;
+                continue;
+            }
+            out.handle(found.code, found.value);
+        }
+        match self {
+            Self::Add(handle) => out.handle(2, handle),
+            Self::Remove(_) => (removed == 1).then_some(())?,
+        }
+        Some(())
+    }
+}
+
+/// 型 `type_code` のレコードの表のオブジェクトのデータ `data` の、項目の数（BL）と項目のハンドルを `entry` の
+/// とおりに変えたもの（決定 0061・0162）。ハンドルの流れの後の埋めるビットは写さない
+fn add_entry(data: &[u8], entry: Entry, type_code: i16, release: Release) -> Option<Vec<u8>> {
     let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut bits = Bits::with_release(data, release);
     bits.seek(size_at + 32);
@@ -2916,7 +3003,7 @@ fn add_entry(data: &[u8], entry: u64, type_code: i16, release: Release) -> Optio
     let xdic = release < Release::R2004 || !bits.bit()?;
     let count = bits.bl()?;
     let mut fields = BitWriter::default();
-    fields.bl(count.checked_add(1)?);
+    fields.bl(entry.count(count)?);
     // 寸法の体裁の表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く。ブロックの表は、
     // 項目の後にモデル空間と用紙空間のハンドルが続く（決定 0068）
     let extra = match type_code {
@@ -2929,12 +3016,12 @@ fn add_entry(data: &[u8], entry: u64, type_code: i16, release: Release) -> Optio
     }
     (bits.pos() == handles_at).then_some(())?;
     let mut handles = BitWriter::default();
-    // 所有者・反応子・拡張辞書・項目
-    for _ in 0..(1 + i64::from(reactors) + i64::from(xdic) + i64::from(count)) {
+    // 所有者・反応子・拡張辞書と、項目
+    for _ in 0..(1 + i64::from(reactors) + i64::from(xdic)) {
         let found = bits.handle()?;
         handles.handle(found.code, found.value);
     }
-    handles.handle(2, entry);
+    entry.copy(&mut bits, count, &mut handles)?;
     for _ in 0..extra {
         let found = bits.handle()?;
         handles.handle(found.code, found.value);
@@ -2951,12 +3038,12 @@ fn add_entry(data: &[u8], entry: u64, type_code: i16, release: Release) -> Optio
 }
 
 /// 型 `type_code` のレコードの、R2010 から後の表のオブジェクトのデータ `data`（ハンドルの流れの大きさ（MC）の
-/// 後）の、項目の数（BL）を 1 増やし、項目のハンドルの終わりに `entry` を足したもの（決定 0094）。`handles_at` は
+/// 後）の、項目の数（BL）と項目のハンドルを `entry` のとおりに変えたもの（決定 0094・0162）。`handles_at` は
 /// ハンドルの流れの始まり。ハンドルの流れの後の埋めるビットは写さない
 fn add_entry_r2010(
     data: &[u8],
     handles_at: usize,
-    entry: u64,
+    entry: Entry,
     type_code: i16,
     release: Release,
 ) -> Option<Vec<u8>> {
@@ -2981,16 +3068,16 @@ fn add_entry_r2010(
     (bits.pos() == end).then_some(())?;
     let mut out = BitWriter::default();
     out.copy(data, 0..count_at)?;
-    out.bl(count.checked_add(1)?);
+    out.bl(entry.count(count)?);
     out.copy(data, count_end..handles_at)?;
     let at = out.len();
     bits.seek(handles_at);
-    // 所有者・反応子・拡張辞書・項目
-    for _ in 0..(1 + i64::from(reactors) + i64::from(xdic) + i64::from(count)) {
+    // 所有者・反応子・拡張辞書と、項目
+    for _ in 0..(1 + i64::from(reactors) + i64::from(xdic)) {
         let found = bits.handle()?;
         out.handle(found.code, found.value);
     }
-    out.handle(2, entry);
+    entry.copy(&mut bits, count, &mut out)?;
     for _ in 0..extra {
         let found = bits.handle()?;
         out.handle(found.code, found.value);

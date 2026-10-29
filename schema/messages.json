@@ -704,7 +704,8 @@
         { "$ref": "#/$defs/replace_edit" },
         { "$ref": "#/$defs/add_edit" },
         { "$ref": "#/$defs/layer_edit" },
-        { "$ref": "#/$defs/add_layer_edit" }
+        { "$ref": "#/$defs/add_layer_edit" },
+        { "$ref": "#/$defs/remove_layer_edit" }
       ]
     },
     "restyle_edit": {
@@ -803,6 +804,17 @@
           "description": "線幅。mm か default。inherit は書けない",
           "$ref": "#/$defs/line_weight_change"
         }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "remove_layer_edit": {
+      "description": "レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "remove_layer" },
+        "id": { "description": "除くレイヤの ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときのレイヤのハッシュ。tables が返したもの", "type": "string" }
       },
       "required": ["kind", "id", "hash"],
       "additionalProperties": false
