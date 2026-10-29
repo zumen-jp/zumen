@@ -2569,3 +2569,174 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
     }
     assert!(pairs().is_empty() || checked >= 2, "{checked}");
 }
+
+/// 図面モデルで用紙の要素を動かして、DWG と DXF に書き戻して読み直すと、同じ所に動いている。今のレイアウトの
+/// 用紙も、ほかのレイアウトの用紙も確かめる（決定 0139）
+#[cfg(feature = "drawing")]
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
+    use zumen_drawing::{Changes, Drawing2D, Edit, PaperPoint, Placement, Shape};
+    use zumen_sdk::{Apply, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+    }
+    fn moved(shape: &Shape<PaperPoint>) -> Option<Shape<PaperPoint>> {
+        let by = |p: &mut PaperPoint| {
+            p.x += 1.5;
+            p.y -= 0.25;
+        };
+        let mut shape = shape.clone();
+        match &mut shape {
+            Shape::Line { start, end } => {
+                by(start);
+                by(end);
+            }
+            Shape::Circle { center, .. } => by(center),
+            Shape::Polyline(line) => line.vertices.iter_mut().for_each(|v| by(&mut v.point)),
+            Shape::Text(text) => match &mut text.placement {
+                Placement::Anchor { point, .. } => by(point),
+                Placement::Between { first, second, .. } => {
+                    by(first);
+                    by(second);
+                }
+            },
+            Shape::Formatted(text) => by(&mut text.point),
+            _ => return None,
+        }
+        Some(shape)
+    }
+    /// 数を許容差で比べ、ほかの文字は同じであること。用紙の mm を図面の単位に戻すと、最後の桁が違うことがある
+    fn close(found: &str, expected: &str) -> bool {
+        fn tokens(text: &str) -> Vec<Result<f64, String>> {
+            let mut out = Vec::new();
+            let mut rest = text;
+            while let Some(first) = rest.chars().next() {
+                let number = first.is_ascii_digit()
+                    || (first == '-' && rest.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
+                let end = if number {
+                    rest.char_indices()
+                        .skip(1)
+                        .find(|(_, c)| !(c.is_ascii_digit() || matches!(c, '.' | 'e' | '-')))
+                        .map_or(rest.len(), |(at, _)| at)
+                } else {
+                    first.len_utf8()
+                };
+                let (token, tail) = rest.split_at(end);
+                out.push(match token.parse::<f64>() {
+                    Ok(value) if number => Ok(value),
+                    _ => Err(token.to_owned()),
+                });
+                rest = tail;
+            }
+            out
+        }
+        let (found, expected) = (tokens(found), tokens(expected));
+        found.len() == expected.len()
+            && found.iter().zip(&expected).all(|pair| match pair {
+                (Ok(a), Ok(b)) => (a - b).abs() <= 1e-9 * a.abs().max(1.0),
+                (a, b) => a == b,
+            })
+    }
+    fn check<C: Codec>(path: &Path) -> usize
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes>,
+    {
+        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(&src).0.unwrap();
+        let before = lift(&file);
+        let mut edits = Vec::new();
+        let mut expected = Vec::new();
+        for sheet in &before.sheets {
+            let found = sheet
+                .elements
+                .iter()
+                .enumerate()
+                .find_map(|(index, element)| Some((index, moved(&element.shape)?)));
+            let Some((index, shape)) = found else {
+                continue;
+            };
+            let mut element = sheet.elements[index].clone();
+            element.shape = shape;
+            edits.push(Edit::ReplaceOnSheet(Box::new(element.clone())));
+            expected.push((sheet.id, index, element.shape));
+        }
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(
+            &Changes { edits },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        let after = lift(
+            &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                .0
+                .unwrap(),
+        );
+        for (id, index, shape) in &expected {
+            let sheet = after.sheets.iter().find(|s| s.id == *id).unwrap();
+            let found = format!("{:?}", sheet.elements[*index].shape);
+            assert!(
+                close(&found, &format!("{shape:?}")),
+                "{}: {found}",
+                path.display()
+            );
+        }
+        // ほかのレイアウトの用紙の要素（BLOCKS のペーパー空間のブロックの中の図形）も除ける
+        let written = testkit::write::<C>(&file).unwrap();
+        let mut file = testkit::read::<C>(&written).0.unwrap();
+        let sheet = after
+            .sheets
+            .iter()
+            .rfind(|sheet| sheet.id.0 != 0 && !sheet.elements.is_empty())
+            .unwrap();
+        let first = sheet.elements.first().unwrap().source.clone();
+        let mut diag = Diagnostics::new();
+        file.apply(
+            &Changes {
+                edits: vec![Edit::Remove(first)],
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        let removed = lift(
+            &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                .0
+                .unwrap(),
+        );
+        let left = removed.sheets.iter().find(|s| s.id == sheet.id).unwrap();
+        assert_eq!(
+            left.elements.len() + 1,
+            sheet.elements.len(),
+            "{}",
+            path.display()
+        );
+        expected.len()
+    }
+    // 用紙に要素を持つ試料。farmhouse.dwg は今のレイアウトとほかの 25 のレイアウトに、features-r2018.dxf は
+    // ほかのレイアウト（A3-PLAN）に要素を持つ
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let mut sheets = 0;
+    let farmhouse = dir.join("farmhouse.dwg");
+    if farmhouse.exists() {
+        sheets += check::<Dwg>(&farmhouse);
+        assert!(sheets >= 26, "{sheets}");
+    }
+    for name in ["features-r2018.dxf", "features-r2018-binary.dxf"] {
+        let path = dir.join(name);
+        if path.exists() {
+            assert_eq!(check::<Dxf>(&path), 1, "{}", path.display());
+        }
+    }
+}
