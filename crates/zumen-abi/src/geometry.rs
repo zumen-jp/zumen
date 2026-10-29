@@ -127,7 +127,9 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             if spline.fit.len() >= 2
                 && spline.control.is_empty()
                 && spline.knots.is_empty()
-                && spline.weights.is_empty() =>
+                && spline.weights.is_empty()
+                && spline.start_tangent != Some([0.0, 0.0])
+                && spline.end_tangent != Some([0.0, 0.0]) =>
         {
             Geometry::Spline(SplineGeometry {
                 degree: spline.degree.into(),
@@ -321,7 +323,11 @@ pub(crate) fn shape_of<P: Spot>(
             let fitting = spline.fit.is_some();
             if let Some(Shape::Curve(Edge::Spline(old))) = was
                 && !old.fit.is_empty()
-                && (!old.control.is_empty() || !old.knots.is_empty() || !old.weights.is_empty())
+                && (!old.control.is_empty()
+                    || !old.knots.is_empty()
+                    || !old.weights.is_empty()
+                    || old.start_tangent == Some([0.0, 0.0])
+                    || old.end_tangent == Some([0.0, 0.0]))
             {
                 return mismatch();
             }

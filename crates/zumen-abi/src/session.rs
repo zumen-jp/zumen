@@ -4116,4 +4116,22 @@ mod tests {
             codes::BUDGET_WORK_EXCEEDED
         );
     }
+
+    #[test]
+    fn fit_spline_with_zero_tangent_is_not_returned_or_replaced() {
+        let src = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nSPLINE\n5\n20\n8\n0\n70\n8\n71\n1\n72\n0\n73\n0\n74\n2\n12\n0\n22\n0\n11\n0\n21\n0\n11\n1\n21\n2\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"fit.dxf", src).unwrap();
+        assert_eq!(
+            call(&mut session, r#"{"v":1,"op":"open","input":"fit.dxf"}"#).0,
+            Status::Ok
+        );
+        assert_eq!(shapes(&mut session, "fit.dxf"), [""]);
+        let (id, hash) = seen(&mut session, "fit.dxf")[0].clone();
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"fit.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"spline","degree":1,"knots":[],"control":[],"fit":[[0,0],[1,2]],"closed":false,"periodic":false}}}}]}}"#
+        );
+        assert_eq!(call(&mut session, &request).0, Status::Failed);
+        assert_eq!(seen(&mut session, "fit.dxf")[0], (id, hash));
+    }
 }

@@ -1543,6 +1543,8 @@ fn fitted<P>(spline: &Spline<P>) -> bool {
         && spline.knots.is_empty()
         && spline.weights.is_empty()
         && spline.fit.len() >= 2
+        && spline.start_tangent != Some([0.0, 0.0])
+        && spline.end_tangent != Some([0.0, 0.0])
 }
 
 /// SPLINE の接線（12・22・32、13・23・33）と、当てはめる点（11・21・31）の値。読む側が読めないスプラインは `None`
