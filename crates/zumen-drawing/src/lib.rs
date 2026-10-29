@@ -2190,6 +2190,8 @@ pub struct Changes {
 pub enum Edit {
     /// 同じ出所を持つ実寸の空間の要素を、この要素で置き換える
     Replace(Box<Element<ModelPoint>>),
-    /// この出所の要素を除く
+    /// 同じ出所を持つ用紙の要素を、この要素で置き換える
+    ReplaceOnSheet(Box<Element<PaperPoint>>),
+    /// この出所の要素（実寸の空間か用紙の要素）を除く
     Remove(Ref),
 }

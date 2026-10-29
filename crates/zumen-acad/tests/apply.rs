@@ -803,6 +803,181 @@ fn xdata_is_kept_unless_it_moves_with_the_entity() {
     );
 }
 
+/// 長さの単位がインチで、用紙の原点（$PLIMMIN）が (10, 20) の DXF。ペーパー空間に LINE と TEXT を、
+/// モデル空間に CIRCLE を持つ
+#[cfg(test)]
+fn sheet() -> Vec<u8> {
+    let tags: &[(i16, &str)] = &[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$INSUNITS"),
+        (70, "1"),
+        (9, "$HANDSEED"),
+        (5, "20"),
+        (9, "$PLIMMIN"),
+        (10, "10.0"),
+        (20, "20.0"),
+        (9, "$PLIMMAX"),
+        (10, "30.0"),
+        (20, "40.0"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "LINE"),
+        (5, "1A"),
+        (67, "1"),
+        (8, "0"),
+        (10, "10.0"),
+        (20, "20.0"),
+        (30, "0.0"),
+        (11, "11.0"),
+        (21, "21.0"),
+        (31, "0.0"),
+        (0, "TEXT"),
+        (5, "1B"),
+        (67, "1"),
+        (8, "0"),
+        (10, "12.0"),
+        (20, "22.0"),
+        (30, "0.0"),
+        (40, "0.5"),
+        (1, "A"),
+        (0, "CIRCLE"),
+        (5, "1C"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (40, "1.0"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ];
+    tags.iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+#[test]
+fn sheet_elements_are_moved_in_paper_millimeters_and_removed() {
+    use zumen_drawing::{PaperLength, PaperPoint, Placement};
+    let mut file = testkit::read::<Dxf>(&sheet()).0.unwrap();
+    let drawing = lift(&file);
+    let [line, text] =
+        <[_; 2]>::try_from(drawing.sheets.first().unwrap().elements.clone()).unwrap();
+    assert_eq!(
+        line.shape,
+        Shape::Line {
+            start: PaperPoint {
+                sheet: zumen_drawing::SheetId(0),
+                x: 0.0,
+                y: 0.0
+            },
+            end: PaperPoint {
+                sheet: zumen_drawing::SheetId(0),
+                x: 25.4,
+                y: 25.4
+            },
+        }
+    );
+    // 用紙の 50.8 mm は、原点からの 2 インチ
+    let mut moved = line.clone();
+    if let Shape::Line { end, .. } = &mut moved.shape {
+        end.x = 50.8;
+    }
+    let mut taller = text.clone();
+    if let Shape::Text(text) = &mut taller.shape {
+        text.height.value = Length::Paper(PaperLength(25.4));
+        if let Placement::Anchor { point, .. } = &mut text.placement {
+            point.y = 0.0;
+        }
+    }
+    let edits = vec![
+        Edit::ReplaceOnSheet(Box::new(moved.clone())),
+        Edit::ReplaceOnSheet(Box::new(taller.clone())),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Ok(()));
+    assert!(found.is_empty(), "{found:?}");
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let text_out = String::from_utf8(written.clone()).unwrap();
+    // 変えていない始まりの点は、元の値のまま
+    assert!(
+        text_out.contains(" 10\n10.0\n 20\n20.0\n 30\n0.0\n 11\n12.0\n 21\n21.0\n"),
+        "{text_out}"
+    );
+    assert!(
+        text_out.contains(" 10\n12.0\n 20\n20.0\n 30\n0.0\n 40\n1.0\n"),
+        "{text_out}"
+    );
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    assert_eq!(after.sheets.first().unwrap().elements, [moved, taller]);
+    // 用紙の要素も除ける
+    let mut file = testkit::read::<Dxf>(&written).0.unwrap();
+    let (result, _) = apply(&mut file, vec![Edit::Remove(line.source.clone())]);
+    assert_eq!(result, Ok(()));
+    let after = lift(
+        &testkit::read::<Dxf>(&testkit::write::<Dxf>(&file).unwrap())
+            .0
+            .unwrap(),
+    );
+    assert_eq!(after.sheets.first().unwrap().elements.len(), 1);
+}
+
+#[test]
+fn sheet_and_model_replacements_do_not_cross() {
+    let src = sheet();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let drawing = lift(&file);
+    let line = drawing
+        .sheets
+        .first()
+        .unwrap()
+        .elements
+        .first()
+        .unwrap()
+        .clone();
+    let circle = elements(&drawing).first().unwrap().clone();
+    // 用紙の要素を実寸の空間の置き換えで指しても、実寸の空間の要素を用紙の置き換えで指しても、見つからない
+    let as_model = Element {
+        shape: Shape::Line {
+            start: ModelPoint {
+                space: zumen_drawing::SpaceId(0),
+                x: 0.0,
+                y: 0.0,
+            },
+            end: ModelPoint {
+                space: zumen_drawing::SpaceId(0),
+                x: 1.0,
+                y: 1.0,
+            },
+        },
+        layer: line.layer,
+        style: line.style,
+        source: line.source.clone(),
+    };
+    let as_paper = Element {
+        shape: line.shape.clone(),
+        layer: circle.layer,
+        style: circle.style,
+        source: circle.source.clone(),
+    };
+    let edits = vec![
+        Edit::Replace(Box::new(as_model)),
+        Edit::ReplaceOnSheet(Box::new(as_paper)),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(
+            codes::DXF_ELEMENT_MISSING,
+            vec![line.source.clone(), circle.source.clone()]
+        )]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
 #[test]
 fn mtext_line_spacing_must_fit_the_dxf_range() {
     let src = mtexts("AC1021", "abc");

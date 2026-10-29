@@ -80,6 +80,18 @@ impl Lift<Drawing2D> for DwgFile {
 }
 
 fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
+    framed(db, cx).map(|(drawing, _)| drawing)
+}
+
+/// 用紙の座標と、元の図形の座標の対応。用紙の点は、元の点から原点（図面の単位）を引き、1 単位の mm の数を掛ける
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PaperFrame {
+    pub(crate) origin: [f64; 2],
+    pub(crate) mm: f64,
+}
+
+/// 図面モデルと、要素を持つ用紙ごとの座標の対応
+fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, PaperFrame>), Error> {
     let unit = unit(db, cx);
     let limits = |name: &[u8]| {
         db.variable(name)
@@ -255,7 +267,7 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     drawing
         .sheets
         .extend(out.layouts.into_iter().map(|(_, _, sheet)| sheet));
-    Ok(drawing)
+    Ok((drawing, out.frames))
 }
 
 /// 図形 1 つの作業量。書式つきの文字は、内容の 250 バイトの区切り（3）ごとにも数える。曲線は、頂点・制御点・
@@ -671,6 +683,8 @@ struct Out {
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
     extensions: Vec<Extension>,
+    /// 要素を置いた用紙ごとの座標の対応
+    frames: BTreeMap<SheetId, PaperFrame>,
 }
 
 #[derive(Clone)]
@@ -756,6 +770,13 @@ impl Lifter<'_> {
             {
                 let mm = self.paper_mm(kind)?;
                 let [ox, oy] = self.origin;
+                out.frames.insert(
+                    self.sheet,
+                    PaperFrame {
+                        origin: self.origin,
+                        mm,
+                    },
+                );
                 let point = |x: f64, y: f64| PaperPoint {
                     sheet: self.sheet,
                     x: (x - ox) * mm,

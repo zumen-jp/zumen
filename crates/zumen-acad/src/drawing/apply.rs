@@ -2,13 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use super::{lift, mtext, source, text};
+use super::{PaperFrame, framed, mtext, source, text};
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{DwgFile, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
     Changes, Edge, Edit, Element, FormattedText, Horizontal, Length, ModelLength, ModelPoint,
-    Placement, Polyline, Rotation, Shape, SpaceId, Symbol, Text, Vertical,
+    PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, SheetId, SpaceId, Symbol, Text,
+    Vertical,
 };
 use zumen_sdk::{Apply, Error};
 
@@ -34,11 +35,17 @@ impl Apply<Changes> for DwgFile {
 fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
-    let drawing = lift(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
-    let elements: BTreeMap<&Ref, &Element<ModelPoint>> = drawing
+    let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+    let model: BTreeMap<&Ref, &Element<ModelPoint>> = drawing
         .spaces
         .iter()
         .flat_map(|space| &space.elements)
+        .map(|element| (&element.source, element))
+        .collect();
+    let paper: BTreeMap<&Ref, &Element<PaperPoint>> = drawing
+        .sheets
+        .iter()
+        .flat_map(|sheet| &sheet.elements)
         .map(|element| (&element.source, element))
         .collect();
     // 2007 からの版は文字を UTF-8 で持つ。それより前は、ASCII の文字だけを書く（読む側と同じ）
@@ -55,18 +62,28 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
     for change in &changes.edits {
         let at = match change {
             Edit::Replace(element) => &element.source,
+            Edit::ReplaceOnSheet(element) => &element.source,
             Edit::Remove(at) => at,
         };
-        let (Some(original), Some(index)) = (elements.get(at), entity(db, at)) else {
+        let found = match change {
+            Edit::Replace(_) => model.contains_key(at),
+            Edit::ReplaceOnSheet(_) => paper.contains_key(at),
+            Edit::Remove(_) => model.contains_key(at) || paper.contains_key(at),
+        };
+        let (true, Some(index)) = (found, entity(db, at)) else {
             cx.report(Diagnostic::new(codes::DXF_ELEMENT_MISSING).at(at.clone()));
             rejected = true;
             continue;
         };
         let object = db.objects().get(index).ok_or(Error::Rejected)?;
-        if let Edit::Replace(element) = change
-            && element.shape != original.shape
-            && let Some(code) = moving_xdata(object)
-        {
+        let reshaped = match change {
+            Edit::Replace(element) => model.get(at).is_some_and(|was| element.shape != was.shape),
+            Edit::ReplaceOnSheet(element) => {
+                paper.get(at).is_some_and(|was| element.shape != was.shape)
+            }
+            Edit::Remove(_) => false,
+        };
+        if reshaped && let Some(code) = moving_xdata(object) {
             cx.report(
                 Diagnostic::new(codes::DXF_XDATA_UNSUPPORTED)
                     .with("kind", text(&object.kind))
@@ -77,7 +94,20 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
             continue;
         }
         let planned = match change {
-            Edit::Replace(element) => replacement(original, element, object, unicode)
+            Edit::Replace(element) => model
+                .get(at)
+                .and_then(|was| {
+                    let frame = InSpace(anchor(&was.shape)?.space);
+                    replacement(was, element, object, unicode, &frame)
+                })
+                .map(|values| replaced.push((index, values))),
+            Edit::ReplaceOnSheet(element) => paper
+                .get(at)
+                .and_then(|was| {
+                    let sheet = anchor(&was.shape)?.sheet;
+                    let frame = OnSheet(sheet, *frames.get(&sheet)?);
+                    replacement(was, element, object, unicode, &frame)
+                })
                 .map(|values| replaced.push((index, values))),
             Edit::Remove(_) => (!followed(object)).then(|| removed.push(index)),
         };
@@ -104,11 +134,81 @@ fn edit(db: &mut AcadDb, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
     Ok(())
 }
 
-/// 出所が `at` の図形の、表の中の番号
+/// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある
 fn entity(db: &AcadDb, at: &Ref) -> Option<usize> {
-    db.objects()
-        .iter()
-        .position(|object| object.section == Section::Entities && source(object) == *at)
+    db.objects().iter().position(|object| {
+        matches!(object.section, Section::Entities | Section::Blocks) && source(object) == *at
+    })
+}
+
+/// 図面モデルの点と長さを、元の図形のレコードの値に戻す
+trait Frame<P> {
+    /// 点のレコードの X と Y。元の要素と同じ空間（用紙）の点でなければ `None`
+    fn point(&self, point: &P) -> Option<[f64; 2]>;
+    /// 長さのレコードの値。元の要素と同じ空間（用紙）の長さでなければ `None`
+    fn length(&self, length: &Length) -> Option<f64>;
+    /// レコードの長さを、読む側と同じく図面モデルの長さにする
+    fn lifted(&self, value: f64) -> Length;
+}
+
+/// 実寸の空間。点と長さは、レコードの値のまま
+struct InSpace(SpaceId);
+
+impl Frame<ModelPoint> for InSpace {
+    fn point(&self, point: &ModelPoint) -> Option<[f64; 2]> {
+        (point.space == self.0).then_some([point.x, point.y])
+    }
+
+    fn length(&self, length: &Length) -> Option<f64> {
+        match length {
+            Length::Model(length) if length.space == self.0 => Some(length.value),
+            _ => None,
+        }
+    }
+
+    fn lifted(&self, value: f64) -> Length {
+        Length::Model(ModelLength {
+            space: self.0,
+            value,
+        })
+    }
+}
+
+/// 用紙。用紙の mm を、読むときと逆に、図面の単位に戻して原点を足す
+struct OnSheet(SheetId, PaperFrame);
+
+impl Frame<PaperPoint> for OnSheet {
+    fn point(&self, point: &PaperPoint) -> Option<[f64; 2]> {
+        let PaperFrame { origin: [x, y], mm } = self.1;
+        (point.sheet == self.0).then_some([point.x / mm + x, point.y / mm + y])
+    }
+
+    fn length(&self, length: &Length) -> Option<f64> {
+        match length {
+            Length::Paper(PaperLength(value)) => Some(value / self.1.mm),
+            _ => None,
+        }
+    }
+
+    fn lifted(&self, value: f64) -> Length {
+        Length::Paper(PaperLength(value * self.1.mm))
+    }
+}
+
+/// 点を書く。変わっていなければ、元の値を残す（戻した値が最後の桁で違って、変えていない点を書き換えないため）
+fn place<P: PartialEq>(
+    values: &mut Vec<Value>,
+    frame: &impl Frame<P>,
+    [x, y]: [i16; 2],
+    point: &P,
+    was: &P,
+) -> Option<()> {
+    let at = frame.point(point)?;
+    if point != was {
+        put(values, x, at[0], &[])?;
+        put(values, y, at[1], &[])?;
+    }
+    Some(())
 }
 
 /// 図形とともに動く XDATA の最初のグループ・コード。AutoCAD は、図形を動かし・回し・尺度を変えると、
@@ -135,33 +235,44 @@ fn followed(object: &Object) -> bool {
 
 /// 置き換えで書く値。元の値を写し、変わった形の欄だけを直す。レイヤ・スタイルが同じで、形の種類が
 /// 元のレコードで表せ、点と長さが元の要素と同じ空間にあるときだけ返す
-fn replacement(
-    original: &Element<ModelPoint>,
-    element: &Element<ModelPoint>,
+fn replacement<P: PartialEq>(
+    original: &Element<P>,
+    element: &Element<P>,
     object: &Object,
     unicode: bool,
+    frame: &impl Frame<P>,
 ) -> Option<Vec<Value>> {
     if element.layer != original.layer || element.style != original.style {
         return None;
     }
-    let space = space(&original.shape)?;
     let mut values = object.values.clone();
     if element.shape == original.shape {
         return Some(values);
     }
     match (&element.shape, &original.shape, object.kind.as_slice()) {
-        (Shape::Line { start, end }, _, b"LINE") => {
-            within(space, &[start, end])?;
-            put(&mut values, 10, start.x, &[])?;
-            put(&mut values, 20, start.y, &[])?;
-            put(&mut values, 11, end.x, &[])?;
-            put(&mut values, 21, end.y, &[])?;
+        (
+            Shape::Line { start, end },
+            Shape::Line {
+                start: was_start,
+                end: was_end,
+            },
+            b"LINE",
+        ) => {
+            place(&mut values, frame, [10, 20], start, was_start)?;
+            place(&mut values, frame, [11, 21], end, was_end)?;
         }
-        (Shape::Circle { center, radius }, _, b"CIRCLE") => {
-            within(space, &[center])?;
-            put(&mut values, 10, center.x, &[])?;
-            put(&mut values, 20, center.y, &[])?;
-            put(&mut values, 40, positive(radius, space)?, &[])?;
+        (
+            Shape::Circle { center, radius },
+            Shape::Circle {
+                center: was_center,
+                radius: was_radius,
+            },
+            b"CIRCLE",
+        ) => {
+            place(&mut values, frame, [10, 20], center, was_center)?;
+            if radius != was_radius {
+                put(&mut values, 40, positive(frame, radius)?, &[])?;
+            }
         }
         // ARC（DXF Reference「ARC」）は反時計回りの角度（度）で持つ。時計回りの弧は、始まりと終わりを入れ替える
         (
@@ -172,14 +283,18 @@ fn replacement(
                 end,
                 counterclockwise,
             }),
-            _,
+            Shape::Curve(Edge::Arc {
+                center: was_center,
+                radius: was_radius,
+                ..
+            }),
             b"ARC",
         ) => {
-            within(space, &[center])?;
+            place(&mut values, frame, [10, 20], center, was_center)?;
             let (start, end) = turned(*start, *end, *counterclockwise);
-            put(&mut values, 10, center.x, &[])?;
-            put(&mut values, 20, center.y, &[])?;
-            put(&mut values, 40, positive(radius, space)?, &[])?;
+            if radius != was_radius {
+                put(&mut values, 40, positive(frame, radius)?, &[])?;
+            }
             put(&mut values, 50, start, &[])?;
             put(&mut values, 51, end, &[])?;
         }
@@ -201,24 +316,26 @@ fn replacement(
             }),
             b"ELLIPSE",
         ) => {
-            within(space, &[center, major])?;
             ellipse(
                 &mut values,
+                frame,
                 [center, major, was_center, was_major],
                 *ratio,
                 turned(*start, *end, *counterclockwise),
                 (*was_start, *was_end),
             )?;
         }
-        (Shape::Polyline(line), _, b"LWPOLYLINE") => values = lwpolyline(&values, line, space)?,
+        (Shape::Polyline(line), Shape::Polyline(was), b"LWPOLYLINE") => {
+            values = lwpolyline(&values, line, was, frame)?;
+        }
         (Shape::Text(text), Shape::Text(was), b"TEXT") => {
-            lettering(&mut values, text, was, space, unicode)?;
+            lettering(&mut values, text, was, frame, unicode)?;
         }
         (Shape::Formatted(text), Shape::Formatted(was), b"MTEXT") => {
-            formatting(&mut values, text, was, space, unicode)?;
+            formatting(&mut values, text, was, frame, unicode)?;
         }
         (Shape::Symbol(symbol), Shape::Symbol(was), b"INSERT") => {
-            placing(&mut values, symbol, was, space)?;
+            placing(&mut values, symbol, was, frame)?;
         }
         _ => return None,
     }
@@ -228,9 +345,10 @@ fn replacement(
 /// ELLIPSE（DXF Reference「ELLIPSE」）の欄を直す。長軸の端（11・21）は中心からの向き、始まりと終わりの
 /// パラメーター（41・42）はラジアンで持つ。読むときに度へ直した値と比べ、変わった欄だけを書く。
 /// 直し戻した値が元の値と最後の桁で違って、変えていない欄まで書き換えないようにするため
-fn ellipse(
+fn ellipse<P: PartialEq>(
     values: &mut Vec<Value>,
-    [center, major, was_center, was_major]: [&ModelPoint; 4],
+    frame: &impl Frame<P>,
+    [center, major, was_center, was_major]: [&P; 4],
     ratio: f64,
     (start, end): (f64, f64),
     (was_start, was_end): (f64, f64),
@@ -238,12 +356,11 @@ fn ellipse(
     if !(ratio > 0.0 && ratio <= 1.0) {
         return None;
     }
-    if center != was_center {
-        put(values, 10, center.x, &[])?;
-        put(values, 20, center.y, &[])?;
-    }
+    place(values, frame, [10, 20], center, was_center)?;
+    let [x, y] = frame.point(center)?;
+    let [end_x, end_y] = frame.point(major)?;
     if center != was_center || major != was_major {
-        let axis = [major.x - center.x, major.y - center.y];
+        let axis = [end_x - x, end_y - y];
         if axis == [0.0, 0.0] {
             return None;
         }
@@ -264,7 +381,12 @@ fn ellipse(
 /// いること（70 の 1）・一定の幅（43）を直し、頂点ごとに 10・20、頂点の ID（91）、頂点ごとの幅（40・41）、
 /// 0 でない膨らみ（42）を並べる。頂点の後の値（押し出しの向きなど）は写す。頂点の ID を持つのに頂点の数が
 /// 変わるもの、頂点の間にほかの値があるもの、一定の幅と頂点ごとの幅の両方を持つものは書き戻さない
-fn lwpolyline(values: &[Value], line: &Polyline<ModelPoint>, space: SpaceId) -> Option<Vec<Value>> {
+fn lwpolyline<P: PartialEq>(
+    values: &[Value],
+    line: &Polyline<P>,
+    was: &Polyline<P>,
+    frame: &impl Frame<P>,
+) -> Option<Vec<Value>> {
     let vertex = |code: i16| matches!(code, 10 | 20 | 40 | 41 | 42 | 91);
     let first = values.iter().position(|v| v.code == 10)?;
     let last = values.iter().rposition(|v| vertex(v.code))?;
@@ -273,6 +395,9 @@ fn lwpolyline(values: &[Value], line: &Polyline<ModelPoint>, space: SpaceId) -> 
         return None;
     }
     let ids: Vec<&Value> = body.iter().filter(|v| v.code == 91).collect();
+    // 元の頂点の 10・20。変わっていない頂点は、元の値を写す
+    let xs: Vec<&Value> = body.iter().filter(|v| v.code == 10).collect();
+    let ys: Vec<&Value> = body.iter().filter(|v| v.code == 20).collect();
     let count = line.vertices.len();
     if count == 0 || !(ids.is_empty() || ids.len() == count) {
         return None;
@@ -295,7 +420,7 @@ fn lwpolyline(values: &[Value], line: &Polyline<ModelPoint>, space: SpaceId) -> 
     }
     match &line.width {
         Some(width) => {
-            let width = Data::Real(nonnegative(width, space)?);
+            let width = Data::Real(nonnegative(frame, width)?);
             match out.iter_mut().find(|v| v.code == 43) {
                 Some(slot) => slot.data = width,
                 None => insert(&mut out, 43, width, &[70, 90])?,
@@ -304,15 +429,18 @@ fn lwpolyline(values: &[Value], line: &Polyline<ModelPoint>, space: SpaceId) -> 
         None => out.retain(|v| v.code != 43),
     }
     for (index, corner) in line.vertices.iter().enumerate() {
-        within(space, &[&corner.point])?;
-        out.push(real(10, corner.point.x)?);
-        out.push(real(20, corner.point.y)?);
+        let [x, y] = frame.point(&corner.point)?;
+        let kept = was.vertices.get(index).map(|v| &v.point) == Some(&corner.point);
+        match (kept, xs.get(index), ys.get(index)) {
+            (true, Some(x), Some(y)) => out.extend([(*x).clone(), (*y).clone()]),
+            _ => out.extend([real(10, x)?, real(20, y)?]),
+        }
         if let Some(id) = ids.get(index) {
             out.push((*id).clone());
         }
         if let Some([start, end]) = line.vertex_widths.get(index) {
-            out.push(real(40, nonnegative(start, space)?)?);
-            out.push(real(41, nonnegative(end, space)?)?);
+            out.push(real(40, nonnegative(frame, start)?)?);
+            out.push(real(41, nonnegative(frame, end)?)?);
         }
         if corner.bulge != 0.0 {
             out.push(real(42, corner.bulge)?);
@@ -326,11 +454,11 @@ fn lwpolyline(values: &[Value], line: &Polyline<ModelPoint>, space: SpaceId) -> 
 /// 反転（71 の 2 と 4）と、置く点を書く。位置合わせ（72・73）・2 点の間への合わせ方・文字スタイル・高さの意味は
 /// 変えられない。左の基準線に置く文字は 10 を、ほかの位置合わせの文字は 11 を基点とし、10 は 11 と同じだけ動かす。
 /// 10 は位置合わせから決まる点で、読み直すときに使わないが、ほかのソフトが読むので食い違わせない
-fn lettering(
+fn lettering<P: PartialEq>(
     values: &mut Vec<Value>,
-    text: &Text<ModelPoint>,
-    was: &Text<ModelPoint>,
-    space: SpaceId,
+    text: &Text<P>,
+    was: &Text<P>,
+    frame: &impl Frame<P>,
     unicode: bool,
 ) -> Option<()> {
     if text.style != was.style || text.height.meaning != was.height.meaning {
@@ -349,7 +477,8 @@ fn lettering(
                 vertical: was_vertical,
             },
         ) if horizontal == was_horizontal && vertical == was_vertical => {
-            within(space, &[point])?;
+            let at = frame.point(point)?;
+            let was_at = frame.point(was_point)?;
             let aligned = [72, 73].iter().any(|code| {
                 values
                     .iter()
@@ -357,13 +486,13 @@ fn lettering(
             });
             if point != was_point && aligned {
                 let first = [first_real(values, 10)?, first_real(values, 20)?];
-                put(values, 10, first[0] + (point.x - was_point.x), &[])?;
-                put(values, 20, first[1] + (point.y - was_point.y), &[])?;
-                put(values, 11, point.x, &[])?;
-                put(values, 21, point.y, &[])?;
+                put(values, 10, first[0] + (at[0] - was_at[0]), &[])?;
+                put(values, 20, first[1] + (at[1] - was_at[1]), &[])?;
+                put(values, 11, at[0], &[])?;
+                put(values, 21, at[1], &[])?;
             } else if point != was_point {
-                put(values, 10, point.x, &[])?;
-                put(values, 20, point.y, &[])?;
+                put(values, 10, at[0], &[])?;
+                put(values, 20, at[1], &[])?;
             }
         }
         (
@@ -374,15 +503,8 @@ fn lettering(
                 fit: was_fit,
             },
         ) if fit == was_fit => {
-            within(space, &[first, second])?;
-            if first != was_first {
-                put(values, 10, first.x, &[])?;
-                put(values, 20, first.y, &[])?;
-            }
-            if second != was_second {
-                put(values, 11, second.x, &[])?;
-                put(values, 21, second.y, &[])?;
-            }
+            place(values, frame, [10, 20], first, was_first)?;
+            place(values, frame, [11, 21], second, was_second)?;
         }
         _ => return None,
     }
@@ -396,7 +518,7 @@ fn lettering(
         slot.data = Data::Text(content.as_bytes().to_vec());
     }
     if text.height.value != was.height.value {
-        put(values, 40, positive(&text.height.value, space)?, &[])?;
+        put(values, 40, positive(frame, &text.height.value)?, &[])?;
     }
     if text.width_factor.is_nan() || text.width_factor <= 0.0 {
         return None;
@@ -422,11 +544,11 @@ fn lettering(
 /// 向き（50 のラジアンか、11・21 の向き）・枠の幅（41）と高さ（46）・位置合わせ（71）・行送り（44・73）を書く。
 /// 文字スタイル・書き進める向き・背景・高さの意味は変えられない。向きは、元と同じ形（角度か向き）のときだけ
 /// 書く。省いた欄は、DXF Reference の並び（内容の後に 50・73・44）で足す。区間は内容から決まるので、内容を解釈し直した区間と合わなければ受け付けない
-fn formatting(
+fn formatting<P: PartialEq>(
     values: &mut Vec<Value>,
-    text: &FormattedText<ModelPoint>,
-    was: &FormattedText<ModelPoint>,
-    space: SpaceId,
+    text: &FormattedText<P>,
+    was: &FormattedText<P>,
+    frame: &impl Frame<P>,
     unicode: bool,
 ) -> Option<()> {
     if text.style != was.style
@@ -436,20 +558,15 @@ fn formatting(
     {
         return None;
     }
-    let length = |value: f64| Length::Model(ModelLength { space, value });
-    if text.spans != mtext::spans(&text.content, &length) {
+    if text.spans != mtext::spans(&text.content, &|value| frame.lifted(value)) {
         return None;
     }
-    within(space, &[&text.point])?;
-    if text.point != was.point {
-        put(values, 10, text.point.x, &[])?;
-        put(values, 20, text.point.y, &[])?;
-    }
+    place(values, frame, [10, 20], &text.point, &was.point)?;
     if text.content != was.content {
         contents(values, &text.content, unicode)?;
     }
     if text.height.value != was.height.value {
-        put(values, 40, positive(&text.height.value, space)?, &[])?;
+        put(values, 40, positive(frame, &text.height.value)?, &[])?;
     }
     if text.rotation != was.rotation {
         match (text.rotation, was.rotation) {
@@ -466,13 +583,13 @@ fn formatting(
             _ => return None,
         }
     }
-    for (code, frame, was_frame) in [
+    for (code, box_size, was_size) in [
         (41, &text.width, &was.width),
         (46, &text.frame_height, &was.frame_height),
     ] {
-        if frame != was_frame {
-            let size = match frame {
-                Some(size) => positive(size, space)?,
+        if box_size != was_size {
+            let size = match box_size {
+                Some(size) => positive(frame, size)?,
                 None => 0.0,
             };
             optional(values, code, size, 0.0, &[40])?;
@@ -515,11 +632,11 @@ fn formatting(
 
 /// INSERT（DXF Reference「INSERT」）の置く点（10・20）・尺度（41・42）・回転（50、度）を直す。定義（2）・
 /// 格子（70・71・44・45）・属性・切り抜きは変えられない。属性と切り抜きは、続くレコードと拡張辞書にあるため
-fn placing(
+fn placing<P: PartialEq>(
     values: &mut Vec<Value>,
-    symbol: &Symbol<ModelPoint>,
-    was: &Symbol<ModelPoint>,
-    space: SpaceId,
+    symbol: &Symbol<P>,
+    was: &Symbol<P>,
+    frame: &impl Frame<P>,
 ) -> Option<()> {
     if symbol.key != was.key
         || symbol.grid != was.grid
@@ -528,11 +645,7 @@ fn placing(
     {
         return None;
     }
-    within(space, &[&symbol.position])?;
-    if symbol.position != was.position {
-        put(values, 10, symbol.position.x, &[])?;
-        put(values, 20, symbol.position.y, &[])?;
-    }
+    place(values, frame, [10, 20], &symbol.position, &was.position)?;
     // 尺度と回転は、省けば既定の値になる。変わったときだけ、欄の並び（10・20・30・41・42・43・50）に合わせて書く
     let [x, y] = symbol.scale;
     if x != was.scale[0] {
@@ -622,24 +735,16 @@ fn turned(start: f64, end: f64, counterclockwise: bool) -> (f64, f64) {
     }
 }
 
-/// 点がすべて `space` にあるか
-fn within(space: SpaceId, points: &[&ModelPoint]) -> Option<()> {
-    points.iter().all(|p| p.space == space).then_some(())
+/// 元の要素と同じ空間（用紙）の長さのレコードの値で、0 より大きいもの
+fn positive<P>(frame: &impl Frame<P>, length: &Length) -> Option<f64> {
+    nonnegative(frame, length).filter(|value| *value > 0.0)
 }
 
-/// `space` の実寸の長さで、0 より大きいもの
-fn positive(length: &Length, space: SpaceId) -> Option<f64> {
-    nonnegative(length, space).filter(|value| *value > 0.0)
-}
-
-/// `space` の実寸の長さで、0 以上のもの
-fn nonnegative(length: &Length, space: SpaceId) -> Option<f64> {
-    match length {
-        Length::Model(length) if length.space == space && length.value >= 0.0 => {
-            Some(length.value).filter(|value| value.is_finite())
-        }
-        _ => None,
-    }
+/// 元の要素と同じ空間（用紙）の長さのレコードの値で、0 以上のもの
+fn nonnegative<P>(frame: &impl Frame<P>, length: &Length) -> Option<f64> {
+    frame
+        .length(length)
+        .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 /// 有限の実数の値
@@ -669,21 +774,19 @@ fn insert(values: &mut Vec<Value>, code: i16, data: Data, after: &[i16]) -> Opti
     Some(())
 }
 
-/// 置き換えられる形の空間
-fn space(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
+/// 置き換えられる形の初めの点。形の空間（用紙）を決める
+fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
     match shape {
-        Shape::Line { start, .. } => Some(start.space),
-        Shape::Circle { center, .. } => Some(center.space),
-        Shape::Curve(Edge::Arc { center, .. } | Edge::Elliptic { center, .. }) => {
-            Some(center.space)
-        }
-        Shape::Polyline(line) => line.vertices.first().map(|v| v.point.space),
+        Shape::Line { start, .. } => Some(*start),
+        Shape::Circle { center, .. } => Some(*center),
+        Shape::Curve(Edge::Arc { center, .. } | Edge::Elliptic { center, .. }) => Some(*center),
+        Shape::Polyline(line) => line.vertices.first().map(|v| v.point),
         Shape::Text(text) => match &text.placement {
-            Placement::Anchor { point, .. } => Some(point.space),
-            Placement::Between { first, .. } => Some(first.space),
+            Placement::Anchor { point, .. } => Some(*point),
+            Placement::Between { first, .. } => Some(*first),
         },
-        Shape::Formatted(text) => Some(text.point.space),
-        Shape::Symbol(symbol) => Some(symbol.position.space),
+        Shape::Formatted(text) => Some(text.point),
+        Shape::Symbol(symbol) => Some(symbol.position),
         _ => None,
     }
 }
