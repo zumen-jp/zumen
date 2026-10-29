@@ -53,7 +53,7 @@
   - 形を変える `Replace` で、元の図形が図形とともに動く XDATA を持たないか（0154 の規則。`change.xdata.unsupported`）。形を動かすときは `Transform` を使う。
 - **診断の名前空間。** 変更の診断は、形式によらない名前空間 `change` にする。`dxf.element.missing`・`dxf.change.unsupported`・`dwg.change.unsupported` は、台帳で廃止にする（[決定 0009](0009-diagnostics-and-catalog.md)）。0154 の `dxf.xdata.unsupported` も、`change.xdata.unsupported` に移して廃止にする。
 - **手間。** apply は、ID から要素への索引を 1 回だけ作る。図面モデルへの変換も、1 回の apply で 1 回にする。手間は、文書の大きさと変更の数の和に比例する。
-- **今の範囲。** main は、実寸の空間と用紙の LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・TEXT・MTEXT・INSERT の形の置き換えと、続くレコードを持たない図形の除去を、出所で指して当てる。同じ形の追加は、足す先を要素の点で決め、足した要素の出所は読み直して決める（0155）。ID・前提条件・`Restyle`・`Transform`・ID を返す `Add`・記号の定義の要素は、この決定を採ってから作る。
+- **今の範囲。** 変更の一覧は、ID と読んだときのハッシュで要素を指し、文書のハッシュを持てる。DXF と DWG は、実寸の空間と用紙の LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・TEXT・MTEXT・INSERT の形の置き換えと、続くレコードを持たない図形の除去と、同じ形の追加（足す先を空間か用紙の ID で指す。0155）を当て、変更ごとに新しい ID とハッシュを返す。`Restyle`・`Transform`・記号の定義の要素・続くレコードの除去は、まだない。
 
 ## 影響
 
@@ -62,6 +62,10 @@
 - 対応表の E1・E4・E10（[対応表](../formats/drawing2d-mapping.md)）は、置き換えの範囲を広げるときに扱う。E5 は、0154 と `Transform` で扱う。形式固有の情報（[決定 0115](0115-drawing-format-extensions.md)）は、書き戻しが L1 の値を残すので、図面モデルから書かない。
 - SXF の apply は、インスタンスの番号を保って書く（0156）。
 - 変更の診断の code が変わるので、診断で分岐する使い手は、`change` の code に合わせる。
+- `dwg.change.unsupported` は、DWG の L1 の書き戻し（表のオブジェクトの変更）でも使う。図面モデルの変更の診断は `change.*` に移し、L1 の診断としては残す。
+- `change.element.missing` と `change.element.stale` は、ID ごとに分けて数える（値 `id` でまとめる）。足す要素の出所は使わないので、足す変更の診断は場所を持たない。
+- apply が返す ID とハッシュは、書き戻した表から図面モデルを作り直して求める。図面モデルへの変換は、確かめるときと合わせて 1 回の apply で 2 回になる。返すハッシュが読み直したときと同じになることを優先した。
+- 2 つ以上の要素を作ったレコード（ID の終わりに `/1` などを持つもの）の要素は、1 つだけを書き戻せないので、`change.edit.unsupported` にする。
 
 ## 参照
 

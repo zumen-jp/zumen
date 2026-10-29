@@ -1,10 +1,13 @@
 //! 図面モデルの変更を、DXF に書き戻す（決定 0139）。
 #![cfg(feature = "drawing")]
 
+mod by_source;
+
+use by_source::{Apply, Changes, Edit};
 use zumen_acad::{Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Ref, codes};
-use zumen_drawing::{Changes, Drawing2D, Edit, Element, LayerId, Length, ModelPoint, Shape};
-use zumen_sdk::{Apply, Error, Lift, testkit};
+use zumen_drawing::{Drawing2D, Element, LayerId, Length, ModelPoint, Shape};
+use zumen_sdk::{Error, Lift, testkit};
 
 /// LINE・CIRCLE・ARC を 1 つずつ持つ DXF
 #[cfg(test)]
@@ -145,8 +148,12 @@ fn changes_that_cannot_be_written_back_change_nothing() {
     assert_eq!(
         found,
         [
-            (codes::DXF_CHANGE_UNSUPPORTED, vec![line.source, arc.source]),
-            (codes::DXF_ELEMENT_MISSING, vec![nowhere]),
+            (
+                codes::CHANGE_EDIT_UNSUPPORTED,
+                vec![line.source, arc.source]
+            ),
+            // ない要素の診断は、出所ではなく ID を値に持つ
+            (codes::CHANGE_ELEMENT_MISSING, vec![]),
         ]
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
@@ -334,7 +341,7 @@ fn replacements_the_records_cannot_hold_change_nothing() {
     assert_eq!(
         found,
         [(
-            codes::DXF_CHANGE_UNSUPPORTED,
+            codes::CHANGE_EDIT_UNSUPPORTED,
             vec![ellipse.source, line.source]
         )]
     );
@@ -440,7 +447,7 @@ fn texts_that_the_records_cannot_hold_change_nothing() {
     assert_eq!(
         found,
         [(
-            codes::DXF_CHANGE_UNSUPPORTED,
+            codes::CHANGE_EDIT_UNSUPPORTED,
             vec![left.source.clone(), centered.source]
         )]
     );
@@ -595,7 +602,7 @@ fn mtexts_that_the_records_cannot_hold_change_nothing() {
         let (result, found) = apply(&mut file, vec![case]);
         assert_eq!(result, Err(Error::Rejected));
         assert_eq!(found.len(), 1, "{found:?}");
-        assert_eq!(found[0].0, codes::DXF_CHANGE_UNSUPPORTED);
+        assert_eq!(found[0].0, codes::CHANGE_EDIT_UNSUPPORTED);
     }
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
@@ -725,7 +732,7 @@ fn inserts_that_the_records_cannot_hold_change_nothing() {
         let at = edit.source.clone();
         let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(edit))]);
         assert_eq!(result, Err(Error::Rejected));
-        assert_eq!(found, [(codes::DXF_CHANGE_UNSUPPORTED, vec![at])]);
+        assert_eq!(found, [(codes::CHANGE_EDIT_UNSUPPORTED, vec![at])]);
     }
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
@@ -783,7 +790,10 @@ fn xdata_is_kept_unless_it_moves_with_the_entity() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(
         found,
-        [(codes::DXF_XDATA_UNSUPPORTED, vec![anchored.source.clone()])]
+        [(
+            codes::CHANGE_XDATA_UNSUPPORTED,
+            vec![anchored.source.clone()]
+        )]
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
     // 形を変えなければ、位置を持つ XDATA があっても当てられる
@@ -970,8 +980,9 @@ fn sheet_and_model_replacements_do_not_cross() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(
         found,
+        // ID は空間か用紙を表すので、要素はあるが、別の空間の要素では置き換えられない
         [(
-            codes::DXF_ELEMENT_MISSING,
+            codes::CHANGE_EDIT_UNSUPPORTED,
             vec![line.source.clone(), circle.source.clone()]
         )]
     );
@@ -1194,10 +1205,8 @@ fn elements_that_cannot_be_added_change_nothing() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(
         found,
-        [(
-            codes::DXF_CHANGE_UNSUPPORTED,
-            (901..=905).map(Ref::at_record).collect()
-        )]
+        // 足す要素の出所は使わないので、診断は場所を持たない
+        [(codes::CHANGE_EDIT_UNSUPPORTED, vec![])]
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
@@ -1268,7 +1277,8 @@ fn sheet_elements_need_a_known_sheet() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(
         found,
-        [(codes::DXF_CHANGE_UNSUPPORTED, vec![Ref::at_record(900)])]
+        // 用紙がないので、足す先がない
+        [(codes::CHANGE_ELEMENT_MISSING, vec![])]
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
@@ -1501,7 +1511,7 @@ fn mtext_line_spacing_must_fit_the_dxf_range() {
             assert_eq!(found, []);
         } else {
             assert_eq!(result, Err(Error::Rejected), "{factor}");
-            assert_eq!(found[0].0, codes::DXF_CHANGE_UNSUPPORTED);
+            assert_eq!(found[0].0, codes::CHANGE_EDIT_UNSUPPORTED);
             assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
         }
     }
@@ -2046,4 +2056,145 @@ fn sheet_additions_use_the_layout_origin_and_units_without_elements() {
             assert!((found - expected).abs() < 1e-10, "{found} != {expected}");
         }
     }
+}
+
+/// 実寸の空間の要素の ID と、今のハッシュ
+#[cfg(test)]
+fn seen(drawing: &Drawing2D) -> Vec<(zumen_drawing::Seen, Element<ModelPoint>)> {
+    use zumen_drawing::{Hash, Seen, id};
+    let space = drawing.spaces.first().unwrap();
+    let place = id::space(space.id);
+    let mut namer = id::Namer::new(&place);
+    space
+        .elements
+        .iter()
+        .enumerate()
+        .map(|(index, element)| {
+            let seen = Seen {
+                id: namer.next(index, element),
+                hash: Hash::element(element),
+            };
+            (seen, element.clone())
+        })
+        .collect()
+}
+
+#[test]
+fn changes_check_ids_element_hashes_and_the_document_hash_before_applying() {
+    use zumen_drawing::{Hash, Placed, Seen};
+    let src = src();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(line, _), (circle, _), (arc, arc_element)] =
+        <[_; 3]>::try_from(seen(&lift(&file))).unwrap();
+    assert_eq!(
+        [line.id.as_str(), circle.id.as_str(), arc.id.as_str()],
+        ["space/0/h1A", "space/0/h1B", "space/0/h1C"]
+    );
+    let changes = zumen_drawing::Changes {
+        edits: vec![
+            zumen_drawing::Edit::Remove {
+                target: Seen {
+                    id: line.id.clone(),
+                    hash: Hash([0; 16]),
+                },
+            },
+            zumen_drawing::Edit::Remove {
+                target: Seen {
+                    id: "space/0/h99".into(),
+                    hash: circle.hash,
+                },
+            },
+            zumen_drawing::Edit::Add {
+                place: "sheet/h5".into(),
+                element: Box::new(Placed::Model(arc_element)),
+            },
+            zumen_drawing::Edit::Remove { target: arc },
+        ],
+        document: Some(Hash::document(b"another file")),
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    // 最初の 1 つで止めずに、すべての変更を確かめる
+    let found: Vec<_> = diag
+        .iter()
+        .map(|d| (d.code(), format!("{:?}", d.params())))
+        .collect();
+    assert_eq!(
+        found.iter().map(|(code, _)| *code).collect::<Vec<_>>(),
+        [
+            codes::CHANGE_DOCUMENT_STALE,
+            codes::CHANGE_ELEMENT_STALE,
+            codes::CHANGE_ELEMENT_MISSING,
+            codes::CHANGE_ELEMENT_MISSING,
+        ]
+    );
+    assert!(found[1].1.contains("space/0/h1A"));
+    assert!(found[2].1.contains("space/0/h99"));
+    assert!(found[3].1.contains("sheet/h5"));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn applied_changes_return_the_ids_and_hashes_that_reading_again_gives() {
+    use zumen_drawing::{Hash, Placed};
+    let src = src();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(line, mut moved), (circle, _), (arc, _)] =
+        <[_; 3]>::try_from(seen(&lift(&file))).unwrap();
+    if let Shape::Line { end, .. } = &mut moved.shape {
+        end.x = 3.5;
+    }
+    let mut added = moved.clone();
+    added.source = Ref::default();
+    let changes = zumen_drawing::Changes {
+        edits: vec![
+            zumen_drawing::Edit::Replace {
+                target: line.clone(),
+                element: Box::new(Placed::Model(moved.clone())),
+            },
+            zumen_drawing::Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(added)),
+            },
+            zumen_drawing::Edit::Remove { target: arc },
+        ],
+        // 読んだバイト列のハッシュ。変えていないファイルは元のバイトのまま書くので、今の文書と同じ
+        document: Some(Hash::document(&src)),
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let again = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    let ids: Vec<_> = again.iter().map(|(seen, _)| seen.id.as_str()).collect();
+    // 足した図形のハンドルは、$HANDSEED（20）から振る
+    assert_eq!(ids, ["space/0/h1A", "space/0/h1B", "space/0/h20"]);
+    assert_eq!(applied.len(), 3);
+    assert_eq!(applied[0].id.as_deref(), Some("space/0/h1A"));
+    assert_eq!(applied[0].hash, Some(again[0].0.hash));
+    assert_ne!(applied[0].hash, Some(line.hash));
+    assert_eq!(applied[1].id.as_deref(), Some("space/0/h20"));
+    assert_eq!(applied[1].hash, Some(again[2].0.hash));
+    assert_eq!(
+        applied[2],
+        zumen_drawing::Applied {
+            id: None,
+            hash: None
+        }
+    );
+    // 触れていない要素のハッシュは変わらない
+    assert_eq!(again[1].0, circle);
 }

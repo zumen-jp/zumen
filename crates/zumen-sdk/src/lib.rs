@@ -43,9 +43,12 @@ pub trait Lift<M>: FileModel {
 
 /// L2 の領域モデルへの変更 `C` を、元の L1 にその場で書き戻す（決定 0008・0139）
 pub trait Apply<C>: FileModel {
+    /// 当てた結果（図面モデルでは、変更ごとの新しい ID とハッシュ）
+    type Output;
+
     /// すべての変更を確かめてから反映する。1 つでも書き戻せなければ、何も反映せずに
-    /// [`Error::Rejected`] を返す。理由は診断として文脈に足す
-    fn apply(&mut self, changes: &C, cx: &mut Cx) -> Result<(), Error>;
+    /// [`Error::Rejected`] を返す。理由は、当てられない変更ごとの診断として文脈に足す
+    fn apply(&mut self, changes: &C, cx: &mut Cx) -> Result<Self::Output, Error>;
 }
 
 /// L1: 形式の系統のモデルと、その符号化の 1 つ（決定 0008）

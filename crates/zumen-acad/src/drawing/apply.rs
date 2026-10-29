@@ -1,57 +1,191 @@
 //! 図面モデルの変更を、共有の表を通して DXF・DWG に書き戻す（決定 0139）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{MODEL, PaperFrame, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
 use crate::db::{AcadDb, Data, Object, Section, Value};
-use crate::{DwgFile, DxfFile};
+use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    Changes, Edge, Edit, Element, FormattedText, Horizontal, Length, ModelLength, ModelPoint,
-    PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, SheetId, SpaceId, Symbol, Text,
-    Vertical,
+    Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal, Length,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Rotation, Shape,
+    SheetId, SpaceId, Symbol, Text, Vertical, id,
 };
-use zumen_sdk::{Apply, Error};
+use zumen_sdk::{Apply, Codec, Error};
 
 impl Apply<Changes> for DxfFile {
+    type Output = Vec<Applied>;
+
     /// 今のファイルから表を作り、変更を当ててから書き戻す
-    fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
+    fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+        let current = document(self, changes, Dxf::write, cx)?;
         let mut db = self.table(cx, false)?;
-        edit(&mut db, changes, Target::Dxf, cx)?;
-        self.write_back(&db, cx)
+        let applied = edit(&mut db, changes, Target::Dxf, cx)?;
+        if !current {
+            return Err(Error::Rejected);
+        }
+        self.write_back(&db, cx)?;
+        Ok(applied)
     }
 }
 
 impl Apply<Changes> for DwgFile {
+    type Output = Vec<Applied>;
+
     /// 今のファイルから表を作り、変更を当ててから書き戻す
-    fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<(), Error> {
+    fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+        let current = document(self, changes, Dwg::write, cx)?;
         let mut db = self.objects(cx)?;
         let seed = self.handle_seed();
-        edit(&mut db, changes, Target::Dwg(seed), cx)?;
-        self.write_back(&db, cx)
+        let applied = edit(&mut db, changes, Target::Dwg(seed), cx)?;
+        if !current {
+            return Err(Error::Rejected);
+        }
+        self.write_back(&db, cx)?;
+        Ok(applied)
     }
 }
 
-/// 変更を表に当てる。当てられない変更が 1 つでもあれば、表を変えずに失敗する。`target` は書き戻す先
-fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Result<(), Error> {
+/// 変更の一覧が文書のハッシュを持てば、今のファイルを書いたバイト列のハッシュと比べる。違えば診断を足して
+/// `false` を返す。ほかの変更も確かめるので、ここでは止めない。変えていないファイルは元のバイトのまま書くので、
+/// 読んだバイト列のハッシュと同じになる
+fn document<F>(
+    file: &F,
+    changes: &Changes,
+    write: fn(&F, &mut Vec<u8>, &mut Cx) -> Result<(), Error>,
+    cx: &mut Cx,
+) -> Result<bool, Error> {
+    let Some(hash) = changes.document else {
+        return Ok(true);
+    };
+    let mut bytes = Vec::new();
+    write(file, &mut bytes, cx)?;
+    let current = Hash::document(&bytes) == hash;
+    if !current {
+        cx.report(Diagnostic::new(codes::CHANGE_DOCUMENT_STALE));
+    }
+    Ok(current)
+}
+
+/// ID が指す要素
+#[derive(Clone, Copy)]
+enum Found<'a> {
+    Model(&'a Element<ModelPoint>),
+    Paper(&'a Element<PaperPoint>),
+}
+
+/// 足す先
+#[derive(Clone, Copy, PartialEq)]
+enum Place {
+    Space(SpaceId),
+    Sheet(SheetId),
+}
+
+/// ID から要素と足す先への索引（決定 0156）。図面モデルを 1 回なめて作る
+struct Index<'a> {
+    elements: BTreeMap<String, Found<'a>>,
+    places: BTreeMap<String, Place>,
+    /// 2 つ以上の要素を作った出所。1 つの要素だけを書き戻せない
+    shared: BTreeSet<&'a Ref>,
+}
+
+impl<'a> Index<'a> {
+    fn new(drawing: &'a Drawing2D) -> Self {
+        let mut elements = BTreeMap::new();
+        let mut places = BTreeMap::new();
+        let mut seen = BTreeSet::new();
+        let mut shared = BTreeSet::new();
+        let mut note = |source: &'a Ref| {
+            if *source != Ref::default() && !seen.insert(source) {
+                shared.insert(source);
+            }
+        };
+        for space in &drawing.spaces {
+            let place = id::space(space.id);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in space.elements.iter().enumerate() {
+                note(&element.source);
+                elements.insert(namer.next(index, element), Found::Model(element));
+            }
+            places.insert(place, Place::Space(space.id));
+        }
+        for sheet in &drawing.sheets {
+            let place = id::sheet(sheet);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in sheet.elements.iter().enumerate() {
+                note(&element.source);
+                elements.insert(namer.next(index, element), Found::Paper(element));
+            }
+            places.insert(place, Place::Sheet(sheet.id));
+        }
+        Self {
+            elements,
+            places,
+            shared,
+        }
+    }
+
+    /// ID の要素の、今のハッシュ
+    fn hash(&self, id: &str) -> Option<Hash> {
+        self.elements.get(id).map(|found| match found {
+            Found::Model(element) => Hash::element(element),
+            Found::Paper(element) => Hash::element(element),
+        })
+    }
+}
+
+/// 当てた変更の、書き戻した後の ID とハッシュ。鍵（ハンドル）を持たない要素の ID は、読み直すとずれうる
+/// ので返さない
+fn applied(index: &Index, id: Option<String>) -> Applied {
+    let keyed = |id: &String| {
+        index.elements.get(id).is_some_and(|found| {
+            match found {
+                Found::Model(element) => &element.source,
+                Found::Paper(element) => &element.source,
+            }
+            .key()
+            .is_some()
+        })
+    };
+    match id.filter(keyed).and_then(|id| Some((index.hash(&id)?, id))) {
+        Some((hash, id)) => Applied {
+            id: Some(id),
+            hash: Some(hash),
+        },
+        None => Applied {
+            id: None,
+            hash: None,
+        },
+    }
+}
+
+/// 当てられない変更の診断
+fn unsupported(edit: &str, kind: &str, target: Target) -> Diagnostic {
+    let format = match target {
+        Target::Dxf => "DXF",
+        Target::Dwg(_) => "DWG",
+    };
+    Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
+        .with("edit", edit)
+        .with("kind", kind)
+        .with("format", format)
+}
+
+/// 変更を表に当てる。すべての変更を確かめ、当てられない変更が 1 つでもあれば、表を変えずに失敗する。
+/// `target` は書き戻す先。当てたら、表から図面モデルを作り直し、変更ごとの新しい ID とハッシュを返す
+fn edit(
+    db: &mut AcadDb,
+    changes: &Changes,
+    target: Target,
+    cx: &mut Cx,
+) -> Result<Vec<Applied>, Error> {
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
     let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
-    let model: BTreeMap<&Ref, &Element<ModelPoint>> = drawing
-        .spaces
-        .iter()
-        .flat_map(|space| &space.elements)
-        .map(|element| (&element.source, element))
-        .collect();
-    let paper: BTreeMap<&Ref, &Element<PaperPoint>> = drawing
-        .sheets
-        .iter()
-        .flat_map(|sheet| &sheet.elements)
-        .map(|element| (&element.source, element))
-        .collect();
+    let index = Index::new(&drawing);
     // 2007 からの版は文字を UTF-8 で持つ。それより前は、ASCII の文字だけを書く（読む側と同じ）
     let unicode = db
         .variable(b"$ACADVER")
@@ -66,38 +200,36 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
     let mut added = Vec::new();
     let mut added_records = 0u64;
     let mut rejected = false;
+    let missing = |id: &str, cx: &mut Cx| {
+        cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
+    };
     for change in &changes.edits {
-        let (at, found) = match change {
-            Edit::Replace(element) => (&element.source, model.contains_key(&element.source)),
-            Edit::ReplaceOnSheet(element) => (&element.source, paper.contains_key(&element.source)),
-            Edit::Remove(at) => (at, model.contains_key(at) || paper.contains_key(at)),
-            Edit::Add(_) | Edit::AddOnSheet(_) => {
-                let (record, kind, at) = match change {
-                    Edit::Add(element) => {
-                        add::work(&element.shape, cx, &element.source)?;
-                        (
-                            born.record(element, &InSpace(MODEL), born.model(), added_records),
-                            kind_of(&element.shape),
-                            &element.source,
-                        )
+        let (edit, target_of) = match change {
+            Edit::Add { place, element } => {
+                let Some(&place) = index.places.get(place) else {
+                    missing(place, cx);
+                    rejected = true;
+                    continue;
+                };
+                let (record, kind) = match (place, element.as_ref()) {
+                    (Place::Space(space), Placed::Model(element)) => {
+                        add::work(&element.shape, cx, &Ref::default())?;
+                        let record = (space == MODEL)
+                            .then(|| {
+                                born.record(element, &InSpace(MODEL), born.model(), added_records)
+                            })
+                            .flatten();
+                        (record, kind_of(&element.shape))
                     }
-                    Edit::AddOnSheet(element) => {
-                        add::work(&element.shape, cx, &element.source)?;
-                        (
-                            anchor(&element.shape).and_then(|at| {
-                                let frame = *frames.get(&at.sheet)?;
-                                born.record(
-                                    element,
-                                    &OnSheet(at.sheet, frame),
-                                    frame.home,
-                                    added_records,
-                                )
-                            }),
-                            kind_of(&element.shape),
-                            &element.source,
-                        )
+                    (Place::Sheet(sheet), Placed::Paper(element)) => {
+                        add::work(&element.shape, cx, &Ref::default())?;
+                        let record = frames.get(&sheet).and_then(|&frame| {
+                            born.record(element, &OnSheet(sheet, frame), frame.home, added_records)
+                        });
+                        (record, kind_of(&element.shape))
                     }
-                    _ => continue,
+                    (_, Placed::Model(element)) => (None, kind_of(&element.shape)),
+                    (_, Placed::Paper(element)) => (None, kind_of(&element.shape)),
                 };
                 match record {
                     Some(record) => {
@@ -105,33 +237,58 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
                         added.push(record);
                     }
                     None => {
-                        cx.report(
-                            Diagnostic::new(codes::DXF_CHANGE_UNSUPPORTED)
-                                .with("kind", kind)
-                                .at(at.clone()),
-                        );
+                        cx.report(unsupported("add", kind, target));
                         rejected = true;
                     }
                 }
                 continue;
             }
+            Edit::Replace {
+                target: target_of, ..
+            } => ("replace", target_of),
+            Edit::Remove { target: target_of } => ("remove", target_of),
         };
-        let (true, Some(index)) = (found, entity(db, at)) else {
-            cx.report(Diagnostic::new(codes::DXF_ELEMENT_MISSING).at(at.clone()));
+        let Some(&found) = index.elements.get(&target_of.id) else {
+            missing(&target_of.id, cx);
             rejected = true;
             continue;
         };
-        let object = db.objects().get(index).ok_or(Error::Rejected)?;
-        let reshaped = match change {
-            Edit::Replace(element) => model.get(at).is_some_and(|was| element.shape != was.shape),
-            Edit::ReplaceOnSheet(element) => {
-                paper.get(at).is_some_and(|was| element.shape != was.shape)
+        if index.hash(&target_of.id) != Some(target_of.hash) {
+            cx.report(
+                Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", target_of.id.as_str()),
+            );
+            rejected = true;
+            continue;
+        }
+        let at = match found {
+            Found::Model(element) => &element.source,
+            Found::Paper(element) => &element.source,
+        };
+        let object = (!index.shared.contains(at))
+            .then(|| entity(db, at))
+            .flatten()
+            .and_then(|position| Some((position, db.objects().get(position)?)));
+        let Some((position, object)) = object else {
+            let kind = match found {
+                Found::Model(element) => kind_of(&element.shape),
+                Found::Paper(element) => kind_of(&element.shape),
+            };
+            cx.report(unsupported(edit, kind, target).at(at.clone()));
+            rejected = true;
+            continue;
+        };
+        let reshaped = match (change, found) {
+            (Edit::Replace { element, .. }, Found::Model(was)) => {
+                matches!(element.as_ref(), Placed::Model(element) if element.shape != was.shape)
             }
-            Edit::Remove(_) | Edit::Add(_) | Edit::AddOnSheet(_) => false,
+            (Edit::Replace { element, .. }, Found::Paper(was)) => {
+                matches!(element.as_ref(), Placed::Paper(element) if element.shape != was.shape)
+            }
+            _ => false,
         };
         if reshaped && let Some(code) = moving_xdata(object) {
             cx.report(
-                Diagnostic::new(codes::DXF_XDATA_UNSUPPORTED)
+                Diagnostic::new(codes::CHANGE_XDATA_UNSUPPORTED)
                     .with("kind", text(&object.kind))
                     .with("code", i64::from(code))
                     .at(at.clone()),
@@ -139,31 +296,29 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
             rejected = true;
             continue;
         }
-        let planned = match change {
-            Edit::Replace(element) => model
-                .get(at)
-                .and_then(|was| {
-                    let frame = InSpace(anchor(&was.shape)?.space);
-                    replacement(was, element, object, unicode, &frame)
-                })
-                .map(|values| replaced.push((index, values))),
-            Edit::ReplaceOnSheet(element) => paper
-                .get(at)
-                .and_then(|was| {
-                    let sheet = anchor(&was.shape)?.sheet;
-                    let frame = OnSheet(sheet, *frames.get(&sheet)?);
-                    replacement(was, element, object, unicode, &frame)
-                })
-                .map(|values| replaced.push((index, values))),
-            Edit::Remove(_) => (!followed(object)).then(|| removed.push(index)),
-            Edit::Add(_) | Edit::AddOnSheet(_) => None,
+        let planned = match (change, found) {
+            (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
+                Placed::Model(element) => anchor(&was.shape)
+                    .and_then(|anchor| {
+                        replacement(was, element, object, unicode, &InSpace(anchor.space))
+                    })
+                    .map(|values| replaced.push((position, values))),
+                Placed::Paper(_) => None,
+            },
+            (Edit::Replace { element, .. }, Found::Paper(was)) => match element.as_ref() {
+                Placed::Paper(element) => anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                        replacement(was, element, object, unicode, &frame)
+                    })
+                    .map(|values| replaced.push((position, values))),
+                Placed::Model(_) => None,
+            },
+            (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
+            (Edit::Add { .. }, _) => None,
         };
         if planned.is_none() {
-            cx.report(
-                Diagnostic::new(codes::DXF_CHANGE_UNSUPPORTED)
-                    .with("kind", text(&object.kind))
-                    .at(at.clone()),
-            );
+            cx.report(unsupported(edit, &text(&object.kind), target).at(at.clone()));
             rejected = true;
         }
     }
@@ -172,28 +327,37 @@ fn edit(db: &mut AcadDb, changes: &Changes, target: Target, cx: &mut Cx) -> Resu
     }
     let insertion_work = born.insertion_work(&added, db.objects().len());
     if insertion_work > 0 {
-        let at = changes
-            .edits
-            .iter()
-            .find_map(|edit| match edit {
-                Edit::Add(element) => Some(&element.source),
-                Edit::AddOnSheet(element) => Some(&element.source),
-                _ => None,
-            })
-            .cloned()
-            .unwrap_or_default();
-        work(cx, insertion_work, &at)?;
+        work(cx, insertion_work, &Ref::default())?;
     }
-    for (index, values) in replaced {
-        db.object_mut(index).ok_or(Error::Rejected)?.values = values;
+    for (position, values) in replaced {
+        db.object_mut(position).ok_or(Error::Rejected)?.values = values;
     }
     removed.sort_unstable();
     removed.dedup();
-    for index in removed.into_iter().rev() {
-        db.remove(index);
+    for position in removed.into_iter().rev() {
+        db.remove(position);
     }
-    born.push(db, added);
-    Ok(())
+    let mut handles = born.push(db, added).into_iter();
+    // 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める。ID は
+    // ハンドルで作るので、読み直したファイルと同じになる
+    let mut quiet = Diagnostics::new();
+    let (after, _) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+    let after = Index::new(&after);
+    Ok(changes
+        .edits
+        .iter()
+        .map(|change| match change {
+            Edit::Replace { target, .. } => applied(&after, Some(target.id.clone())),
+            Edit::Add { place, .. } => applied(
+                &after,
+                handles
+                    .next()
+                    .flatten()
+                    .map(|handle| format!("{place}/h{handle:X}")),
+            ),
+            Edit::Remove { .. } => applied(&after, None),
+        })
+        .collect())
 }
 
 /// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある
