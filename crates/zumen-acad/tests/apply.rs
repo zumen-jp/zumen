@@ -3485,3 +3485,55 @@ fn mirror_symbols_preserves_world_geometry_for_rotations_scales_and_block_bases(
         assert_eq!(applied[0].hash, Some(seen(&after_drawing)[0].0.hash));
     }
 }
+
+#[test]
+fn reflection_of_an_already_flipped_rotated_text_preserves_other_flags() {
+    use zumen_drawing::{Affine, Edit as Change, Placement};
+    let src = versioned(
+        "AC1021",
+        &[
+            (0, "TEXT"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "2.0"),
+            (20, "3.0"),
+            (40, "2.0"),
+            (1, "A"),
+            (50, "30.0"),
+            (71, "6"),
+            (51, "12.0"),
+        ],
+    );
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let target = seen(&lift(&file)).remove(0).0;
+    let changes = zumen_drawing::Changes {
+        edits: vec![Change::Transform {
+            target,
+            transform: Affine {
+                m: [0.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+            },
+        }],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    let Shape::Text(text) = &after[0].1.shape else {
+        panic!()
+    };
+    let Placement::Anchor { point, .. } = text.placement else {
+        panic!()
+    };
+    assert_eq!((point.x, point.y), (3.0, 2.0));
+    assert_eq!(text.rotation, 60.0);
+    assert!(text.backward);
+    assert!(!text.upside_down);
+    assert_eq!(text.oblique, 12.0);
+}
