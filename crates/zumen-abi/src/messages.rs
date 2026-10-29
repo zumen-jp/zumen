@@ -3074,6 +3074,12 @@ pub enum Edit {
     AddTextStyle(AddTextStyleEdit),
     /// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から
     RemoveTextStyle(RemoveTextStyleEdit),
+    /// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から
+    LineType(LineTypeEdit),
+    /// 線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から
+    AddLineType(AddLineTypeEdit),
+    /// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から
+    RemoveLineType(RemoveLineTypeEdit),
 }
 
 impl Edit {
@@ -3090,6 +3096,9 @@ impl Edit {
         "text_style",
         "add_text_style",
         "remove_text_style",
+        "line_type",
+        "add_line_type",
+        "remove_line_type",
     ];
 
     /// 目印の欄（`kind`）の値
@@ -3106,6 +3115,9 @@ impl Edit {
             Self::TextStyle(_) => "text_style",
             Self::AddTextStyle(_) => "add_text_style",
             Self::RemoveTextStyle(_) => "remove_text_style",
+            Self::LineType(_) => "line_type",
+            Self::AddLineType(_) => "add_line_type",
+            Self::RemoveLineType(_) => "remove_line_type",
         }
     }
 }
@@ -3126,6 +3138,11 @@ impl FromJson for Edit {
             "add_text_style" => Self::AddTextStyle(AddTextStyleEdit::read_fields(&mut object)?),
             "remove_text_style" => {
                 Self::RemoveTextStyle(RemoveTextStyleEdit::read_fields(&mut object)?)
+            }
+            "line_type" => Self::LineType(LineTypeEdit::read_fields(&mut object)?),
+            "add_line_type" => Self::AddLineType(AddLineTypeEdit::read_fields(&mut object)?),
+            "remove_line_type" => {
+                Self::RemoveLineType(RemoveLineTypeEdit::read_fields(&mut object)?)
             }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
@@ -3148,6 +3165,9 @@ impl ToJson for Edit {
             Self::TextStyle(value) => value.to_json(out),
             Self::AddTextStyle(value) => value.to_json(out),
             Self::RemoveTextStyle(value) => value.to_json(out),
+            Self::LineType(value) => value.to_json(out),
+            Self::AddLineType(value) => value.to_json(out),
+            Self::RemoveLineType(value) => value.to_json(out),
         }
     }
 }
@@ -3875,6 +3895,178 @@ impl ToJson for RemoveTextStyleEdit {
     }
 }
 
+/// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineTypeEdit {
+    /// 変える線種の ID。tables が返したもの
+    pub id: String,
+    /// 読んだときの線種のハッシュ。tables が返したもの
+    pub hash: String,
+    /// 新しい名前。ほかの線種と重ならず（大文字と小文字を区別しない）、< > / \ " : ; ? * | = ` を含まないもの。ByLayer・ByBlock・Continuous と外部参照に依る線種の名前は変えられない
+    pub name: Option<String>,
+    /// 説明
+    pub description: Option<String>,
+    /// 線と間の長さの列。文書の単位。正は線、負は間、0 は点
+    pub pattern: Option<Vec<f64>>,
+}
+
+impl LineTypeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "line_type")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let description = object.optional("description", json::string)?;
+        let pattern = object.optional("pattern", |value| json::array(value, json::number))?;
+        Ok(Self {
+            id,
+            hash,
+            name,
+            description,
+            pattern,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("line_type");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        if let Some(value) = &self.pattern {
+            out.key("pattern");
+            out.array(value, |out, item| out.float(*item));
+        }
+    }
+}
+
+impl FromJson for LineTypeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LineTypeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddLineTypeEdit {
+    /// 名前。line_type の name と同じ決まり
+    pub name: String,
+    /// 説明
+    pub description: Option<String>,
+    /// 線と間の長さの列。文書の単位。正は線、負は間、0 は点
+    pub pattern: Option<Vec<f64>>,
+}
+
+impl AddLineTypeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_line_type")?;
+        let name = object.required("name", json::string)?;
+        let description = object.optional("description", json::string)?;
+        let pattern = object.optional("pattern", |value| json::array(value, json::number))?;
+        Ok(Self {
+            name,
+            description,
+            pattern,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_line_type");
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        if let Some(value) = &self.pattern {
+            out.key("pattern");
+            out.array(value, |out, item| out.float(*item));
+        }
+    }
+}
+
+impl FromJson for AddLineTypeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for AddLineTypeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoveLineTypeEdit {
+    /// 除く線種の ID。tables が返したもの
+    pub id: String,
+    /// 読んだときの線種のハッシュ。tables が返したもの
+    pub hash: String,
+}
+
+impl RemoveLineTypeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "remove_line_type")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { id, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("remove_line_type");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for RemoveLineTypeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RemoveLineTypeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct AddLayerEdit {
@@ -4228,8 +4420,8 @@ impl ToJson for TablesRequest {
 pub struct TablesResult {
     /// レイヤ
     pub layers: Vec<LayerItem>,
-    /// 線種
-    pub line_types: Vec<TableItem>,
+    /// 線種。小版 26 から、定義を持つ
+    pub line_types: Vec<LineTypeItem>,
     /// 寸法スタイル
     pub dimension_styles: Vec<TableItem>,
     /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から
@@ -4240,7 +4432,7 @@ impl TablesResult {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let layers = object.required("layers", |value| json::array(value, LayerItem::from_json))?;
         let line_types = object.required("line_types", |value| {
-            json::array(value, TableItem::from_json)
+            json::array(value, LineTypeItem::from_json)
         })?;
         let dimension_styles = object.required("dimension_styles", |value| {
             json::array(value, TableItem::from_json)
@@ -4436,6 +4628,94 @@ impl FromJson for LayerItem {
 }
 
 impl ToJson for LayerItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線種の表の項目（決定 0164）。小版 26 から、定義を持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineTypeItem {
+    /// ID。表のレコードがハンドルを持てば line-type/h14、なければ読んだ順の番号（line-type/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）
+    pub id: String,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: String,
+    /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から
+    pub defined: bool,
+    /// 元の説明。小版 26 から
+    pub description: Option<String>,
+    /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。小版 26 から
+    pub pattern: Option<Vec<f64>>,
+    /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。小版 26 から
+    pub paper: Option<bool>,
+    /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から
+    pub marked: Option<bool>,
+}
+
+impl LineTypeItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.required("name", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let defined = object.required("defined", json::boolean)?;
+        let description = object.optional("description", json::string)?;
+        let pattern = object.optional("pattern", |value| json::array(value, json::number))?;
+        let paper = object.optional("paper", json::boolean)?;
+        let marked = object.optional("marked", json::boolean)?;
+        Ok(Self {
+            id,
+            name,
+            hash,
+            defined,
+            description,
+            pattern,
+            paper,
+            marked,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("name");
+        out.string(&self.name);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("defined");
+        out.bool(self.defined);
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        if let Some(value) = &self.pattern {
+            out.key("pattern");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.paper {
+            out.key("paper");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.marked {
+            out.key("marked");
+            out.bool(*value);
+        }
+    }
+}
+
+impl FromJson for LineTypeItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LineTypeItem {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
