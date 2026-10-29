@@ -621,6 +621,7 @@ fn changes(
             },
             messages::Edit::Replace(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
+                count_formatted_geometry(&edit.geometry, cx)?;
                 if elements.is_none() {
                     elements = Some(ElementLookup::new(drawing, cx)?);
                 }
@@ -647,6 +648,7 @@ fn changes(
                 }
             }
             messages::Edit::Add(edit) => {
+                count_formatted_geometry(&edit.geometry, cx)?;
                 if tables.is_none() {
                     tables = Some(TableLookup::new(drawing, cx)?);
                 }
@@ -754,6 +756,27 @@ impl PlaceLookup {
         }
         Ok(Self { spaces, sheets })
     }
+}
+
+/// MTEXT の解析は、入れ子や区間ごとにフォント名を複製する。内容の長さと、複製を起こし得る
+/// 符号の数から上限を求め、解析より先に作業量を数える。
+fn count_formatted_geometry(value: &messages::Geometry, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    if let messages::Geometry::FormattedText(text) = value {
+        let bytes = u64::try_from(text.content.len()).unwrap_or(u64::MAX);
+        cx.check(Kind::Work, bytes)
+            .map_err(|stop| stopped(cx, stop))?;
+        if text.content.contains("\\f") || text.content.contains("\\F") {
+            let signs = text
+                .content
+                .bytes()
+                .filter(|b| matches!(b, b'{' | b'}' | b'\\'))
+                .count();
+            let signs = u64::try_from(signs).unwrap_or(u64::MAX);
+            cx.check(Kind::Work, bytes.saturating_mul(signs))
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+    }
+    Ok(())
 }
 
 /// 表の検索を変更ごとに繰り返さないための索引。同じ名前は 1 つに決まらない
@@ -1474,6 +1497,41 @@ mod tests {
         match value.pointer(pointer) {
             Some(Value::Number(number)) => number.as_str().to_string(),
             other => panic!("{pointer}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn formatted_geometry_checks_work_before_parsing() {
+        // フォント名を入れ子ごとに複製する内容。追加と置き換えのどちらも解析前に止める。
+        let content = format!("\\f{};{}", "A".repeat(80), "{".repeat(80));
+        let geometry = format!(
+            r#"{{"shape":"formatted_text","content":{},"position":[0,0],"height":1,"rotation":0}}"#,
+            {
+                let mut out = Writer::new();
+                out.string(&content);
+                String::from_utf8(out.into_bytes()).unwrap()
+            }
+        );
+        for edit in [
+            format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
+            format!(
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+            ),
+        ] {
+            let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);
+            let value = zumen_json::parse(json.as_bytes()).unwrap();
+            let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+                panic!();
+            };
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(500)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(changes(&request, &Drawing2D::default(), &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
         }
     }
 
