@@ -149,6 +149,15 @@ fn degrees(value: f64) -> f64 {
     if turned >= 360.0 { 0.0 } else { turned }
 }
 
+/// 全周は、向きを保ったまま始まりと終わりに一回転の差を残す
+fn full_turn(start: f64, end: f64, counterclockwise: bool) -> Option<(f64, f64)> {
+    ((end - start).abs() >= 360.0).then_some(if counterclockwise {
+        (0.0, 360.0)
+    } else {
+        (360.0, 0.0)
+    })
+}
+
 /// 形を `transform` で写す。元の種類のまま写せなければ `None`
 pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape<P>> {
     if !transform.invertible() {
@@ -182,12 +191,15 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
                 false => degrees(angle + s.rotation),
                 true => degrees(s.rotation - angle),
             };
+            let counterclockwise = *counterclockwise != s.mirrored;
+            let (start, end) = full_turn(*start, *end, counterclockwise)
+                .unwrap_or_else(|| (turn(*start), turn(*end)));
             Shape::Curve(Edge::Arc {
                 center: point(center),
                 radius: scaled(*radius, s.scale),
-                start: turn(*start),
-                end: turn(*end),
-                counterclockwise: *counterclockwise != s.mirrored,
+                start,
+                end,
+                counterclockwise,
             })
         }
         Shape::Curve(Edge::Elliptic {
@@ -204,13 +216,16 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
                 false => angle,
                 true => degrees(-angle),
             };
+            let counterclockwise = *counterclockwise != s.mirrored;
+            let (start, end) = full_turn(*start, *end, counterclockwise)
+                .unwrap_or_else(|| (turn(*start), turn(*end)));
             Shape::Curve(Edge::Elliptic {
                 center: point(center),
                 major: point(major),
                 ratio: *ratio,
-                start: turn(*start),
-                end: turn(*end),
-                counterclockwise: *counterclockwise != s.mirrored,
+                start,
+                end,
+                counterclockwise,
             })
         }
         Shape::Polyline(line) => Shape::Polyline(polyline(line, transform, similar)?),

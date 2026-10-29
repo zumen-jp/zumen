@@ -2868,3 +2868,83 @@ fn scaling_mtext_rejects_absolute_and_unparsed_formatting() {
         }
     }
 }
+
+#[test]
+fn similarity_preserves_full_ellipses_and_arcs() {
+    use zumen_drawing::{Affine, Edge, Edit as Change};
+    let transforms = [
+        Affine {
+            m: [1.0, 0.0, 0.0, 0.0, -1.0, 0.0],
+        },
+        Affine {
+            m: [0.0, -1.0, 0.0, 1.0, 0.0, 0.0],
+        },
+        Affine {
+            m: [2.0, 0.0, 0.0, 0.0, 2.0, 0.0],
+        },
+        Affine {
+            m: [0.0, -2.0, 0.0, 2.0, 0.0, 0.0],
+        },
+    ];
+    for (kind, tags) in [
+        (
+            "ELLIPSE",
+            vec![
+                (0, "ELLIPSE"),
+                (5, "1A"),
+                (8, "0"),
+                (10, "0"),
+                (20, "0"),
+                (11, "2"),
+                (21, "0"),
+                (40, "0.5"),
+                (41, "0"),
+                (42, "6.283185307179586"),
+            ],
+        ),
+        (
+            "ARC",
+            vec![
+                (0, "ARC"),
+                (5, "1A"),
+                (8, "0"),
+                (10, "0"),
+                (20, "0"),
+                (40, "2"),
+                (50, "0"),
+                (51, "360"),
+            ],
+        ),
+    ] {
+        for transform in transforms {
+            let src = versioned("AC1021", &tags);
+            let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+            let target = seen(&lift(&file)).remove(0).0;
+            let changes = zumen_drawing::Changes {
+                edits: vec![Change::Transform { target, transform }],
+                document: None,
+            };
+            let mut budget = Budget::default();
+            let mut diag = Diagnostics::new();
+            zumen_sdk::Apply::apply(
+                &mut file,
+                &changes,
+                &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+            )
+            .unwrap();
+            let written = testkit::write::<Dxf>(&file).unwrap();
+            let file = testkit::read::<Dxf>(&written).0.unwrap();
+            let after = seen(&lift(&file));
+            let (start, end) = match after[0].1.shape {
+                Shape::Curve(Edge::Elliptic { start, end, .. } | Edge::Arc { start, end, .. }) => {
+                    (start, end)
+                }
+                _ => panic!(),
+            };
+            assert!(
+                (end - start).abs() >= 360.0,
+                "{kind} {transform:?}: start={start}, end={end}"
+            );
+        }
+    }
+}
