@@ -351,6 +351,14 @@ fn edit(
             rejected = true;
             continue;
         };
+        // 置き換え値の比較と、元のレコードの複製に先立って作業量を数える。
+        if let Edit::Replace { element, .. } = change {
+            match element.as_ref() {
+                Placed::Model(element) => add::work(&element.shape, cx, at)?,
+                Placed::Paper(element) => add::work(&element.shape, cx, at)?,
+            }
+            count_transform_values(object, at, cx)?;
+        }
         let reshaped = match (change, found) {
             (Edit::Replace { element, .. }, Found::Model(was)) => {
                 matches!(element.as_ref(), Placed::Model(element) if element.shape != was.shape)
@@ -1474,6 +1482,11 @@ fn splining<P: PartialEq>(
         Data::Int(flags) if v.code == 70 => Some(flags),
         _ => None,
     });
+    // DXF Reference「SPLINE」: 16 は線形を表す。変更後も線形かは、制御点だけでは
+    // 保証できないため、線形の印を持つものの置き換えは拒否する。
+    if flags.unwrap_or(0) & 16 != 0 {
+        return None;
+    }
     let counts = [
         (70, spline_flags(flags.unwrap_or(8), spline)),
         (71, i64::from(spline.degree)),
@@ -1791,6 +1804,38 @@ mod hash_budget_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Key, Kind, Limit, Limits};
     use zumen_drawing::{LayerId, ModelSpace, Style, Unit, Vertex};
+
+    #[test]
+    fn linear_spline_is_not_replaced_with_an_unverified_curve() {
+        let point = |x, y| ModelPoint { space: MODEL, x, y };
+        let spline = Spline {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control: vec![point(0.0, 0.0), point(1.0, 0.0), point(2.0, 0.0)],
+            weights: vec![],
+            fit: vec![],
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+        };
+        let mut changed = spline.clone();
+        changed.control[1].y = 1.0;
+        let int = |code, value| Value {
+            code,
+            data: Data::Int(value),
+        };
+        let mut values = vec![
+            int(70, 24),
+            int(71, 2),
+            int(72, 6),
+            int(73, 3),
+            real(40, 0.0).unwrap(),
+        ];
+        let before = values.clone();
+        assert!(splining(&mut values, &changed, &spline, &InSpace(MODEL)).is_none());
+        assert_eq!(values, before);
+    }
 
     #[test]
     fn stopped_apply_does_not_change_dxf() {

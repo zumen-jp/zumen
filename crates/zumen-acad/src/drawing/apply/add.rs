@@ -285,8 +285,8 @@ impl Born {
                 values.push(int(72, i64::try_from(spline.knots.len()).ok()?));
                 values.push(int(73, i64::try_from(spline.control.len()).ok()?));
                 values.push(int(74, 0));
-                // 節点と制御点の許容差は、AutoCAD の既定の値とする。DWG の制御点のスプラインは、どちらも持つ
-                values.extend([real(42, 1e-10)?, real(43, 1e-10)?]);
+                // DXF Reference「SPLINE」: 節点と制御点の許容差の既定値。DWG はどちらも持つ
+                values.extend([real(42, 1e-7)?, real(43, 1e-7)?]);
                 values.extend(defined);
                 b"SPLINE"
             }
@@ -774,9 +774,11 @@ impl Born {
 fn amount<P>(shape: &Shape<P>) -> u64 {
     let items = match shape {
         Shape::Polyline(line) => line.vertices.len(),
-        Shape::Curve(Edge::Spline(spline)) => {
-            spline.control.len().saturating_add(spline.knots.len())
-        }
+        Shape::Curve(Edge::Spline(spline)) => spline
+            .control
+            .len()
+            .saturating_add(spline.knots.len())
+            .saturating_add(spline.weights.len()),
         Shape::Text(text) => text.content.len(),
         Shape::Formatted(text) => text.content.len(),
         Shape::Symbol(symbol) => symbol

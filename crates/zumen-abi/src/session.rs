@@ -585,6 +585,11 @@ fn changes(
         };
         let size = match value {
             Some(messages::Geometry::Polyline(line)) => line.points.len(),
+            Some(messages::Geometry::Spline(spline)) => spline
+                .control
+                .len()
+                .saturating_add(spline.knots.len())
+                .saturating_add(spline.weights.as_ref().map_or(0, Vec::len)),
             Some(messages::Geometry::Text(text)) => text
                 .content
                 .len()
@@ -597,6 +602,12 @@ fn changes(
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
             .map_err(|stop| stopped(cx, stop))?;
+        if let Some(messages::Geometry::Spline(spline)) = value {
+            for point in &spline.control {
+                cx.check(Kind::Work, u64::try_from(point.len()).unwrap_or(u64::MAX))
+                    .map_err(|stop| stopped(cx, stop))?;
+            }
+        }
         edits.push(match edit {
             messages::Edit::Restyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
@@ -1193,6 +1204,11 @@ impl Page {
             let geometry = if has(EntityField::Geometry) {
                 let size = match &element.shape {
                     Shape::Polyline(line) => line.vertices.len(),
+                    Shape::Curve(zumen_drawing::Edge::Spline(spline)) => spline
+                        .control
+                        .len()
+                        .saturating_add(spline.knots.len())
+                        .saturating_add(spline.weights.len()),
                     Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Formatted(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Symbol(symbol) => symbol.key.name.len(),
@@ -1756,6 +1772,76 @@ mod tests {
                 codes::BUDGET_WORK_EXCEEDED
             );
         }
+    }
+
+    #[test]
+    fn spline_geometry_obeys_work_budget() {
+        let knots = vec!["0"; 100].join(",");
+        let geometry = format!(
+            r#"{{"shape":"spline","degree":1,"knots":[{knots}],"control":[[0,0],[1,1]],"closed":false,"periodic":false}}"#
+        );
+        for edit in [
+            format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
+            format!(
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+            ),
+        ] {
+            let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);
+            let value = zumen_json::parse(json.as_bytes()).unwrap();
+            let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+                panic!();
+            };
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(changes(&request, &Drawing2D::default(), &mut cx).is_err());
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+        let point = ModelPoint {
+            space: zumen_drawing::SpaceId(0),
+            x: 0.0,
+            y: 0.0,
+        };
+        let element = Element {
+            source: Ref::default(),
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Curve(zumen_drawing::Edge::Spline(zumen_drawing::Spline {
+                degree: 1,
+                knots: vec![0.0; 100],
+                control: vec![point; 2],
+                weights: vec![],
+                fit: vec![],
+                start_tangent: None,
+                end_tangent: None,
+                closed: false,
+                periodic: false,
+            })),
+        };
+        let mut page = Page {
+            start: 0,
+            end: 1,
+            fields: vec![EntityField::Geometry],
+            region: None,
+            position: 0,
+            items: vec![],
+        };
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(
+            page.collect(&Drawing2D::default(), "space/0", &[element], &mut cx)
+                .is_err()
+        );
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
     }
 
     #[test]
