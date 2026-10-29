@@ -139,7 +139,7 @@
         "op": "drawing",
         "doc": "a.dxf",
         "budget": {
-          "work": 13
+          "work": 14
         }
       },
       "expect": {

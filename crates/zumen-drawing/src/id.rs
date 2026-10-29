@@ -4,7 +4,7 @@
 //! あれば鍵で作る。ハンドルは `h` と大文字の 16 進、インスタンスの番号は `i` と 10 進で書く。鍵がなければ、
 //! レコードの番号（`r`）、バイトの位置（`b`）、要素の順（`e`）で作る。1 つのレコードから作った 2 つ目からの
 //! 要素には、`/1`・`/2` を足す。用紙は、元の形式の用紙のレコード（LAYOUT）がハンドルを持てば `sheet/h22`、
-//! なければ読んだ順の番号で作る。
+//! なければ読んだ順の番号で作る。同じ用紙 ID が重複するときは、2 つ目から `/1`・`/2` を足す。
 
 use std::collections::BTreeMap;
 
@@ -22,6 +22,27 @@ pub fn sheet(sheet: &Sheet) -> String {
     match sheet.source.key() {
         Some(Key::Handle(handle)) => format!("sheet/h{handle:X}"),
         _ => format!("sheet/{}", sheet.id.0),
+    }
+}
+
+/// 用紙に順に、重複しない ID を振る
+#[derive(Debug, Default)]
+pub struct SheetNamer {
+    seen: BTreeMap<String, u64>,
+}
+
+impl SheetNamer {
+    /// 次の用紙の ID。用紙は図面モデルの順に、飛ばさずに渡す
+    pub fn next(&mut self, value: &Sheet) -> String {
+        let id = sheet(value);
+        let count = self.seen.entry(id.clone()).or_insert(0);
+        let repeat = *count;
+        *count += 1;
+        if repeat == 0 {
+            id
+        } else {
+            format!("{id}/{repeat}")
+        }
     }
 }
 
