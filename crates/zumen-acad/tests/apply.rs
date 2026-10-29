@@ -2780,21 +2780,18 @@ fn transforms_the_records_cannot_hold_change_nothing() {
     use zumen_drawing::Affine;
     let src = movable();
     let mut file = testkit::read::<Dxf>(&src).0.unwrap();
-    let [(line, _), (arc, _), (insert, _)] = <[_; 3]>::try_from(seen(&lift(&file))).unwrap();
+    let [(line, _), (arc, _), _] = <[_; 3]>::try_from(seen(&lift(&file))).unwrap();
     let transform = |target: &zumen_drawing::Seen, m: [f64; 6]| zumen_drawing::Edit::Transform {
         target: target.clone(),
         transform: Affine { m },
     };
     let sheared = [1.0, 1.0, 0.0, 0.0, 1.0, 0.0];
-    let mirrored = [1.0, 0.0, 0.0, 0.0, -1.0, 0.0];
     let flattened = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
     for edit in [
         // 円弧はずらすと楕円になる
         transform(&arc, sheared),
         // 距離（1041）は、相似でない変換では直せない
         transform(&line, sheared),
-        // 属性を持つ記号の鏡映は、属性の文字を鏡映して書く方法を決めていない
-        transform(&insert, mirrored),
         // 向きがつぶれる
         transform(&line, flattened),
     ] {
@@ -3180,6 +3177,62 @@ fn defined() -> Vec<u8> {
         .map(|(code, value)| format!("{code:>3}\n{value}\n"))
         .collect::<String>()
         .into_bytes()
+}
+
+#[test]
+fn transforms_mirror_texts_and_attributes_by_turning_them_upside_down() {
+    use zumen_drawing::{Affine, transform::transform};
+    // X 軸で鏡映し、X に 10 動かす
+    let mirrored = Affine {
+        m: [1.0, 0.0, 10.0, 0.0, -1.0, 0.0],
+    };
+    for src in [texts("AC1015"), movable()] {
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let before = seen(&lift(&file));
+        let targets: Vec<_> = before
+            .iter()
+            .filter(|(_, element)| matches!(element.shape, Shape::Text(_) | Shape::Symbol(_)))
+            .collect();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let applied = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: targets
+                    .iter()
+                    .map(|(target, _)| zumen_drawing::Edit::Transform {
+                        target: target.clone(),
+                        transform: mirrored,
+                    })
+                    .collect(),
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        assert_eq!(diag.iter().count(), 0);
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+        for ((target, was), applied) in targets.iter().zip(&applied) {
+            let (now_id, now) = after.iter().find(|(id, _)| id.id == target.id).unwrap();
+            assert_eq!(now.shape, transform(&was.shape, &mirrored).unwrap());
+            assert_eq!(applied.hash, Some(now_id.hash));
+        }
+        // 文字と属性は、上下の反転の印（71 の 4）を持つ
+        let text = String::from_utf8(written).unwrap();
+        assert!(
+            text.contains(
+                " 71
+4
+"
+            ),
+            "{text}"
+        );
+        if let Some(Shape::Text(text)) = after.first().map(|(_, element)| &element.shape) {
+            assert!(text.upside_down);
+            assert_eq!(text.rotation, 0.0);
+        }
+    }
 }
 
 #[test]
