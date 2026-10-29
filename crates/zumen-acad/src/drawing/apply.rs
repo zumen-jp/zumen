@@ -1475,7 +1475,7 @@ fn splining<P: PartialEq>(
     was: &Spline<P>,
     frame: &impl Frame<P>,
 ) -> Option<()> {
-    let fitting = fitted(spline) && !was.fit.is_empty();
+    let fitting = fitted(spline) && fitted(was);
     if !(fitting || controlled(spline) && controlled(was)) {
         return None;
     }

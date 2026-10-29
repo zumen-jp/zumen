@@ -615,7 +615,8 @@ fn changes(
                 .control
                 .len()
                 .saturating_add(spline.knots.len())
-                .saturating_add(spline.weights.as_ref().map_or(0, Vec::len)),
+                .saturating_add(spline.weights.as_ref().map_or(0, Vec::len))
+                .saturating_add(spline.fit.as_ref().map_or(0, Vec::len)),
             Some(messages::Geometry::Text(text)) => text
                 .content
                 .len()
@@ -629,7 +630,7 @@ fn changes(
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
             .map_err(|stop| stopped(cx, stop))?;
         if let Some(messages::Geometry::Spline(spline)) = value {
-            for point in &spline.control {
+            for point in spline.control.iter().chain(spline.fit.iter().flatten()) {
                 cx.check(Kind::Work, u64::try_from(point.len()).unwrap_or(u64::MAX))
                     .map_err(|stop| stopped(cx, stop))?;
             }
@@ -1305,7 +1306,8 @@ impl Page {
                         .control
                         .len()
                         .saturating_add(spline.knots.len())
-                        .saturating_add(spline.weights.len()),
+                        .saturating_add(spline.weights.len())
+                        .saturating_add(spline.fit.len()),
                     Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Formatted(text) => text.content.len().saturating_add(text.style.len()),
                     Shape::Symbol(symbol) => symbol.key.name.len(),
@@ -4014,5 +4016,104 @@ mod tests {
         );
         let (status, response) = call(&mut session, &request);
         assert_eq!(status, Status::Ok, "{response:?}");
+    }
+
+    #[test]
+    fn spline_with_fit_and_control_is_not_silently_replaced() {
+        let source = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nSPLINE\n5\n20\n8\n0\n70\n8\n71\n1\n72\n4\n73\n2\n74\n2\n40\n0\n40\n0\n40\n1\n40\n1\n10\n0\n20\n0\n10\n1\n20\n0\n11\n0\n21\n0\n11\n1\n21\n2\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"fit.dxf", source).unwrap();
+        assert_eq!(
+            call(&mut session, r#"{"v":1,"op":"open","input":"fit.dxf"}"#).0,
+            Status::Ok
+        );
+        assert_eq!(shapes(&mut session, "fit.dxf"), [""]);
+        let (id, hash) = seen(&mut session, "fit.dxf")[0].clone();
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"fit.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"spline","degree":1,"knots":[],"control":[],"fit":[[0,0],[1,2]],"closed":false,"periodic":false}}}}]}}"#
+        );
+        assert_eq!(call(&mut session, &request).0, Status::Failed);
+        assert_eq!(seen(&mut session, "fit.dxf")[0], (id, hash));
+    }
+
+    #[test]
+    fn fit_points_obey_the_work_budget_before_conversion() {
+        let points = std::iter::repeat_n("[0,0]", 80)
+            .collect::<Vec<_>>()
+            .join(",");
+        let geometry = format!(
+            r#"{{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[{points}],"closed":false,"periodic":false}}"#
+        );
+        for edit in [
+            format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
+            format!(
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+            ),
+        ] {
+            let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);
+            let value = zumen_json::parse(json.as_bytes()).unwrap();
+            let Request::Apply(request) = Request::from_json(&value).unwrap() else {
+                panic!()
+            };
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(50)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            assert!(
+                changes(
+                    &request,
+                    &Drawing2D::default(),
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+                )
+                .is_err()
+            );
+            assert_eq!(
+                diagnostics.iter().next().unwrap().code(),
+                codes::BUDGET_WORK_EXCEEDED
+            );
+        }
+    }
+
+    #[test]
+    fn returning_fit_points_obeys_the_work_budget() {
+        let source = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nSPLINE\n5\n20\n8\n0\n70\n8\n71\n1\n72\n0\n73\n0\n74\n2\n11\n0\n21\n0\n11\n1\n21\n2\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"fit.dxf", source).unwrap();
+        assert_eq!(
+            call(&mut session, r#"{"v":1,"op":"open","input":"fit.dxf"}"#).0,
+            Status::Ok
+        );
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let drawing = session
+            .lift(
+                "fit.dxf",
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .ok()
+            .unwrap();
+        let mut page = Page {
+            start: 0,
+            end: 1,
+            fields: vec![EntityField::Geometry],
+            region: None,
+            position: 0,
+            items: Vec::new(),
+        };
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(
+            page.collect(
+                &drawing,
+                "space/0",
+                &drawing.spaces[0].elements,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
     }
 }

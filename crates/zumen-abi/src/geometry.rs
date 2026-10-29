@@ -122,9 +122,13 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 periodic: spline.periodic,
             })
         }
-        // 当てはめる点で決まるスプライン。制御点は当てはめる点から求めたものなので返さない。書き戻す側は
-        // 制御点を書かず、読む側が求め直す
-        Shape::Curve(Edge::Spline(spline)) if spline.fit.len() >= 2 => {
+        // 制御点や節点も持つものは、それらが当てはめる点から再現できるか分からないので返さない。
+        Shape::Curve(Edge::Spline(spline))
+            if spline.fit.len() >= 2
+                && spline.control.is_empty()
+                && spline.knots.is_empty()
+                && spline.weights.is_empty() =>
+        {
             Geometry::Spline(SplineGeometry {
                 degree: spline.degree.into(),
                 knots: Vec::new(),
@@ -315,6 +319,12 @@ pub(crate) fn shape_of<P: Spot>(
             // 置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない。DWG の場合（scenario）が
             // 変わるため
             let fitting = spline.fit.is_some();
+            if let Some(Shape::Curve(Edge::Spline(old))) = was
+                && !old.fit.is_empty()
+                && (!old.control.is_empty() || !old.knots.is_empty() || !old.weights.is_empty())
+            {
+                return mismatch();
+            }
             if let Some(Shape::Curve(Edge::Spline(old))) = was
                 && old.fit.is_empty() == fitting
             {

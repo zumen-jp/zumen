@@ -3809,3 +3809,20 @@ fn additions_reject_grid_counts_that_cannot_round_trip() {
         assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
     }
 }
+
+#[test]
+fn spline_replacement_keeps_existing_control_points_and_fit_points() {
+    use zumen_drawing::Edge;
+    let src = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nSPLINE\n5\n20\n8\n0\n70\n8\n71\n1\n72\n4\n73\n2\n74\n2\n40\n0\n40\n0\n40\n1\n40\n1\n10\n0\n20\n0\n10\n1\n20\n0\n11\n0\n21\n0\n11\n1\n21\n2\n0\nENDSEC\n0\nEOF\n";
+    let mut file = testkit::read::<Dxf>(src).0.unwrap();
+    let mut changed = elements(&lift(&file)).remove(0);
+    let Shape::Curve(Edge::Spline(spline)) = &mut changed.shape else {
+        panic!();
+    };
+    spline.knots.clear();
+    spline.control.clear();
+    spline.weights.clear();
+    let (result, _) = apply(&mut file, vec![Edit::Replace(Box::new(changed))]);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
