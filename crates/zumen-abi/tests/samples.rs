@@ -103,6 +103,8 @@ fn tables(session: &mut Session, doc: &str) -> Value {
 #[test]
 fn drawings_take_back_lines_moved_through_the_boundary() {
     let mut checked = 0;
+    // ハンドルで ID を作った寸法スタイルを持つ図面の、DXF と DWG の数
+    let mut styled = [0, 0];
     for path in drawings() {
         let name = path
             .file_name()
@@ -119,6 +121,13 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
         }
         let before = entities(&mut session, &name);
         let tables_before = tables(&mut session, &name);
+        if let Some(Value::Array(styles)) = tables_before.pointer("/dimension_styles")
+            && styles.iter().any(|style| {
+                text(style, "/id").is_some_and(|id| id.starts_with("dimension-style/h"))
+            })
+        {
+            styled[usize::from(name.to_ascii_lowercase().ends_with(".dwg"))] += 1;
+        }
         // 1 つのレコードが 1 つの要素を作る、ハンドルを持つ線
         let Some((id, _, hash)) = before.iter().find(|(id, kind, _)| {
             kind == "line" && id.starts_with("space/0/h") && id.matches('/').count() == 2
@@ -157,6 +166,10 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
         checked += 1;
     }
     assert!(drawings().is_empty() || checked > 0);
+    assert!(
+        drawings().is_empty() || styled.iter().all(|n| *n > 0),
+        "{styled:?}"
+    );
 }
 
 /// 試料の DXF の実寸の空間の線を、`tables` が返したレイヤの ID で別のレイヤに移すと、開き直した線が

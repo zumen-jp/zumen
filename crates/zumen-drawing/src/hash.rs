@@ -12,9 +12,9 @@ use crate::{
     Affine, Arrowhead, Attribute, AttributeValue, Axis, Background, BackgroundFill, Border,
     Borders, Boundary, Branch, Callout, CalloutContent, Cell, CellContent, CellData, CellFormat,
     CellValue, Clip, Color, ColorCode, ColorSystem, DateTime, Dimension, DimensionKind,
-    DimensionText, Dogleg, Edge, Element, Fill, Fit, Flow, Font, FontKind, Format, FormattedText,
-    Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Label,
-    Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
+    DimensionStyle, DimensionText, Dogleg, Edge, Element, Fill, Fit, Flow, Font, FontKind, Format,
+    FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit,
+    Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
     LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured,
     ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
     PatternOrigin, Piece, Placement, Polyline, Resource, Rotation, Scaled, Shape, SheetId, SpaceId,
@@ -116,6 +116,11 @@ impl Hash {
     /// 線種のハッシュ。出所は鍵だけを入れる
     pub fn line_type(line_type: &LineType) -> Self {
         Self::of(b"line-type", |out| line_type.encode(out))
+    }
+
+    /// 寸法スタイルのハッシュ。出所は鍵だけを入れる
+    pub fn dimension_style(style: &DimensionStyle) -> Self {
+        Self::of(b"dimension-style", |out| style.encode(out))
     }
 
     fn of(domain: &[u8], body: impl FnOnce(&mut Canon<'_>)) -> Self {
@@ -386,6 +391,7 @@ records! {
     Color { code, rgb }
     ColorCode { system, value }
     LineType { id, name, definition, source }
+    DimensionStyle { name, ends, leader, size, tick, scale, source }
     LineTypeDefinition { description, pattern, basis, marks }
     LineTypeMark { index, content, scale, rotation, rotation_basis, offset }
     ModelPoint { space, x, y }

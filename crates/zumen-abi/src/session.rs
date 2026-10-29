@@ -443,7 +443,19 @@ impl Session {
                 hash: hash.to_string(),
             });
         }
-        Ok(TablesResult { layers, line_types })
+        let mut dimension_styles = Vec::with_capacity(drawing.dimension_styles.len());
+        for (index, style) in drawing.dimension_styles.iter().enumerate() {
+            dimension_styles.push(item(
+                id::dimension_style(style, index),
+                &style.name,
+                Hash::dimension_style(style),
+            )?);
+        }
+        Ok(TablesResult {
+            layers,
+            line_types,
+            dimension_styles,
+        })
     }
 
     /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
@@ -1240,7 +1252,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":8}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":9}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1577,7 +1589,8 @@ mod tests {
         9\n$HANDSEED\n5\n40\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n\
         0\nLTYPE\n5\n11\n2\nCONTINUOUS\n70\n0\n0\nLTYPE\n5\n12\n2\nDashed\n70\n0\n0\nENDTAB\n\
         0\nTABLE\n2\nLAYER\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n\
-        0\nLAYER\n5\n13\n2\nWall\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n\
+        0\nLAYER\n5\n13\n2\nWall\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nENDTAB\n\
+        0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n105\n1D\n2\nStandard\n70\n0\n41\n2.5\n0\nENDTAB\n0\nENDSEC\n\
         0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1A\n8\n0\n10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n\
         0\nCIRCLE\n5\n1B\n8\n0\n10\n5.0\n20\n5.0\n40\n2.0\n0\nENDSEC\n0\nEOF\n";
 
@@ -1602,6 +1615,8 @@ mod tests {
         assert_eq!(item("layers", "0"), "layer/h10");
         assert_eq!(item("layers", "Wall"), "layer/h13");
         assert_eq!(item("line_types", "Dashed"), "line-type/h12");
+        // DIMSTYLE のハンドルは 105 に書く
+        assert_eq!(item("dimension_styles", "Standard"), "dimension-style/h1D");
         let before = seen(&mut session, "a.dxf");
         let (id, hash) = &before[0];
         let restyle = |fields: &str| {

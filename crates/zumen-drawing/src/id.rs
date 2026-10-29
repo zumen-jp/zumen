@@ -9,13 +9,14 @@
 //! 記号の定義の空間は、定義（BLOCK）がハンドルを持てば `space/h1F`、なければ `space/` と空間の番号で作る。
 //! 同じ定義の ID が重なれば、2 つ目から `/1`・`/2` を足す。
 //! レイヤと線種の表の項目は、表のレコードがハンドルを持てば `layer/h10`・`line-type/h14`、なければ `layer/` と
-//! `line-type/` に読んだ順の番号を足して作る。
+//! `line-type/` に読んだ順の番号を足して作る。寸法スタイルも同じく、`dimension-style/h1A` か、図面の寸法スタイルの
+//! 並びの中の順で `dimension-style/0` と作る。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Key, Ref};
 
-use crate::{Element, Layer, LineType, Sheet, SpaceId, SymbolDefinition};
+use crate::{DimensionStyle, Element, Layer, LineType, Sheet, SpaceId, SymbolDefinition};
 
 /// 空間の ID の文字列
 pub fn space(id: SpaceId) -> String {
@@ -88,6 +89,15 @@ pub fn layer(layer: &Layer) -> String {
 /// 線種の ID の文字列
 pub fn line_type(line_type: &LineType) -> String {
     keyed("line-type", &line_type.source, line_type.id.0)
+}
+
+/// 寸法スタイルの ID の文字列。`index` は、図面の寸法スタイルの並びの中の順
+pub fn dimension_style(style: &DimensionStyle, index: usize) -> String {
+    keyed(
+        "dimension-style",
+        &style.source,
+        u32::try_from(index).unwrap_or(u32::MAX),
+    )
 }
 
 /// 表の項目の ID の文字列。ハンドルがなければ、読んだ順の番号で作る
@@ -258,5 +268,17 @@ mod tests {
             source: Ref::default().with_key(Key::Handle(0x14)),
         };
         assert_eq!(line_type(&dashed), "line-type/h14");
+        let mut standard = DimensionStyle {
+            name: "Standard".to_owned(),
+            ends: [crate::Arrowhead::Default, crate::Arrowhead::Default],
+            leader: crate::Arrowhead::Default,
+            size: 2.5,
+            tick: None,
+            scale: 1.0,
+            source: Ref::at_record(12),
+        };
+        assert_eq!(dimension_style(&standard, 1), "dimension-style/1");
+        standard.source = standard.source.with_key(Key::Handle(0x1a));
+        assert_eq!(dimension_style(&standard, 1), "dimension-style/h1A");
     }
 }

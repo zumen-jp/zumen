@@ -569,9 +569,14 @@
           "description": "線種",
           "type": "array",
           "items": { "$ref": "#/$defs/table_item" }
+        },
+        "dimension_styles": {
+          "description": "寸法スタイル",
+          "type": "array",
+          "items": { "$ref": "#/$defs/table_item" }
         }
       },
-      "required": ["layers", "line_types"],
+      "required": ["layers", "line_types", "dimension_styles"],
       "additionalProperties": false
     },
     "table_item": {
@@ -579,7 +584,7 @@
       "type": "object",
       "properties": {
         "id": {
-          "description": "ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）",
+          "description": "ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。寸法スタイルは dimension-style/h1A か、寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）",
           "type": "string"
         },
         "name": { "description": "元の名前。翻訳しない", "type": "string" },
