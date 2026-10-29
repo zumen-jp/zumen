@@ -2460,6 +2460,25 @@ pub enum Edit {
         /// 除く文字スタイル
         target: Seen,
     },
+    /// 指した線種の名前と定義を、この線種のもので置き換える（決定 0164）。ID と出所は使わない。
+    /// `target` の ID は [`id::line_type`]、ハッシュは [`Hash::line_type`]
+    ReplaceLineType {
+        /// 置き換える線種
+        target: Seen,
+        /// 新しい値。定義を持つ
+        line_type: Box<LineType>,
+    },
+    /// 線種を足す（決定 0164）。ID と出所は使わない。同じ変更の一覧の要素とレイヤは、足した線種を指せない
+    AddLineType {
+        /// 足す線種。定義を持つ
+        line_type: Box<LineType>,
+    },
+    /// 指した線種を除く（決定 0164）。要素・レイヤ・ほかのオブジェクト・今の線種が指すものと、ByLayer・
+    /// ByBlock・Continuous と外部参照に依るものは除けない
+    RemoveLineType {
+        /// 除く線種
+        target: Seen,
+    },
 }
 
 /// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` の欄は変えない

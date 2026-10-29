@@ -4788,3 +4788,217 @@ fn drawings_take_back_changed_text_styles() {
         assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
     }
 }
+
+/// 試料の線種の名前と定義を変え、線種を 1 つ足し、要素とレイヤが使わない線種を除いて書き戻すと、読み直した線種は
+/// 変えたものと同じになり、要素とレイヤは名前を変えた線種を指す。R2010 から後の DWG は、日本語の名前にも変える
+/// （決定 0164）
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_take_back_changed_line_types() {
+    use zumen_drawing::{
+        Applied, Changes, Drawing2D, Edit, Hash, Inherit, LineType, LineTypeId, PatternBasis, Seen,
+        id,
+    };
+    use zumen_sdk::{Apply, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Option<Drawing2D> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .ok()
+    }
+    /// 要素とレイヤごとの、線種の名前（小文字）
+    fn used(drawing: &Drawing2D) -> Vec<String> {
+        let name = |line_type: LineTypeId| {
+            drawing
+                .line_types
+                .iter()
+                .find(|other| other.id == line_type)
+                .map_or(String::new(), |other| other.name.to_lowercase())
+        };
+        let own = |line_type: &Inherit<LineTypeId>| match line_type {
+            Inherit::Own(line_type) => Some(*line_type),
+            _ => None,
+        };
+        let model = drawing
+            .spaces
+            .iter()
+            .chain(drawing.symbols.iter().map(|symbol| &symbol.space))
+            .flat_map(|space| &space.elements)
+            .filter_map(|element| own(&element.style.line_type));
+        let paper = drawing
+            .sheets
+            .iter()
+            .flat_map(|sheet| &sheet.elements)
+            .filter_map(|element| own(&element.style.line_type));
+        let layers = drawing
+            .layers
+            .iter()
+            .filter_map(|layer| layer.style.as_ref().and_then(|style| style.line_type));
+        model.chain(paper).chain(layers).map(name).collect()
+    }
+    fn seen(line_type: &LineType) -> Seen {
+        Seen {
+            id: id::line_type(line_type),
+            hash: Hash::line_type(line_type),
+        }
+    }
+    fn apply<F: Apply<Changes, Output = Vec<Applied>>>(
+        file: &mut F,
+        edits: Vec<Edit>,
+    ) -> Result<Vec<Applied>, zumen_sdk::Error> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(
+            &Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+    }
+    /// 変えて足したら `[1, 除いた数]`。書き戻せなければ `[0, 0]`
+    fn check<C: zumen_sdk::Codec>(path: &Path, src: &[u8], suffix: &str) -> [usize; 2]
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let Some(drawing) = testkit::read::<C>(src).0.ok().and_then(|file| lift(&file)) else {
+            return [0, 0];
+        };
+        let defined = |line_type: &&LineType| {
+            line_type.definition.as_ref().is_some_and(|definition| {
+                definition.basis == PatternBasis::Element && definition.marks.is_empty()
+            }) && line_type.source.key().is_some()
+                && !["ByLayer", "ByBlock", "Continuous"]
+                    .iter()
+                    .any(|fixed| line_type.name.eq_ignore_ascii_case(fixed))
+                && line_type.name.is_ascii()
+                && !line_type.name.contains('|')
+        };
+        let Some(was) = drawing.line_types.iter().find(defined) else {
+            return [0, 0];
+        };
+        // 要素の数を変えずに、長さを倍にする（DWG の今ある線種は、要素の数を変えられない）
+        let mut changed = was.clone();
+        changed.name = format!("{}{suffix}", was.name);
+        let definition = changed.definition.as_mut().unwrap();
+        definition.description = "ZUMEN".to_owned();
+        for length in &mut definition.pattern {
+            *length *= 2.0;
+        }
+        let mut added = changed.clone();
+        added.name = "ZUMEN-ADDED".to_owned();
+        added.definition.as_mut().unwrap().pattern = vec![1.0, -0.5];
+        let mut file = testkit::read::<C>(src).0.unwrap();
+        let edits = vec![
+            Edit::ReplaceLineType {
+                target: seen(was),
+                line_type: Box::new(changed.clone()),
+            },
+            Edit::AddLineType {
+                line_type: Box::new(added.clone()),
+            },
+        ];
+        let Ok(applied) = apply(&mut file, edits) else {
+            assert_eq!(
+                testkit::write::<C>(&file).unwrap(),
+                src,
+                "{}",
+                path.display()
+            );
+            return [0, 0];
+        };
+        let written = testkit::write::<C>(&file).unwrap();
+        let after = lift(&testkit::read::<C>(&written).0.unwrap()).unwrap();
+        let find = |name: &str| {
+            after
+                .line_types
+                .iter()
+                .find(|line_type| line_type.name == name)
+                .unwrap()
+        };
+        let renamed = find(&changed.name);
+        assert_eq!(renamed.definition, changed.definition, "{}", path.display());
+        assert_eq!(id::line_type(renamed), id::line_type(was));
+        assert_eq!(applied[0].hash, Some(Hash::line_type(renamed)));
+        let new = find("ZUMEN-ADDED");
+        assert_eq!(new.definition, added.definition, "{}", path.display());
+        assert_eq!(applied[1].id, Some(id::line_type(new)));
+        // 要素とレイヤは、名前を変えた線種を指す
+        let old = was.name.to_lowercase();
+        let expected: Vec<String> = used(&drawing)
+            .into_iter()
+            .map(|name| match name == old {
+                true => changed.name.to_lowercase(),
+                false => name,
+            })
+            .collect();
+        assert_eq!(used(&after), expected, "{}", path.display());
+        // 要素とレイヤが使わない線種を除く。断ったら、ファイルは変わらない
+        let in_use: std::collections::BTreeSet<String> = used(&after).into_iter().collect();
+        let mut removed = 0;
+        for line_type in after.line_types.iter().filter(defined).take(32) {
+            if in_use.contains(&line_type.name.to_lowercase()) {
+                continue;
+            }
+            let mut file = testkit::read::<C>(&written).0.unwrap();
+            let edits = vec![Edit::RemoveLineType {
+                target: seen(line_type),
+            }];
+            if apply(&mut file, edits).is_err() {
+                assert_eq!(testkit::write::<C>(&file).unwrap(), written);
+                continue;
+            }
+            let again = lift(
+                &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                    .0
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(
+                again
+                    .line_types
+                    .iter()
+                    .all(|other| other.name != line_type.name)
+            );
+            assert_eq!(used(&again), used(&after), "{}", path.display());
+            removed += 1;
+        }
+        [1, removed]
+    }
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
+        .collect();
+    paths.sort();
+    // DXF・R2010 より前の DWG・R2010 から後の DWG の、変えた図面の数と除いた線種の数
+    let mut counts = [[0; 2]; 3];
+    for path in paths {
+        let src = std::fs::read(&path).unwrap();
+        let (kind, found) = if path.extension().is_some_and(|e| e == "dxf") {
+            (0, check::<Dxf>(&path, &src, "-ZUMEN"))
+        } else if src
+            .get(..6)
+            .is_some_and(|version| version >= b"AC1024".as_slice())
+        {
+            (2, check::<Dwg>(&path, &src, "-線種"))
+        } else {
+            (1, check::<Dwg>(&path, &src, "-ZUMEN"))
+        };
+        for (count, found) in counts[kind].iter_mut().zip(found) {
+            *count += found;
+        }
+    }
+    if !pairs().is_empty() {
+        assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
+        assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
+    }
+}

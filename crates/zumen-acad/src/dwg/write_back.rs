@@ -1361,8 +1361,8 @@ impl DwgFile {
         Ok(())
     }
 
-    /// 除いた画層か文字スタイルのレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から
-    /// 除いたデータを、`changes` に足す（決定 0162・0163）。反応子と拡張辞書を持つレコードと、ほかの表のレコードは
+    /// 除いた画層・文字スタイル・線種のレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から
+    /// 除いたデータを、`changes` に足す（決定 0162〜0164）。反応子と拡張辞書を持つレコードと、ほかの表のレコードは
     /// 除けない
     fn unlist(
         &self,
@@ -1374,6 +1374,7 @@ impl DwgFile {
         let (type_code, control_type) = match old.kind.as_slice() {
             b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE),
             b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE),
+            b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE),
             _ => return None,
         };
         (!old
@@ -2692,7 +2693,7 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         b"DIMSTYLE" => &dimstyle_codes,
         _ => return None,
     };
-    // LAYER と STYLE の名前は書き直せる（決定 0162・0163。[`record_fields`]）
+    // LAYER・STYLE・LTYPE の名前は書き直せる（決定 0162〜0164。[`record_fields`]）
     let renamable = renamable(new);
     let rest = |object: &Object| -> Vec<_> {
         object
@@ -2705,14 +2706,14 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
     (rest(old) == rest(new)).then_some(())
 }
 
-/// 名前を書き直せる表のレコード（LAYER と STYLE。決定 0162・0163）か
+/// 名前を書き直せる表のレコード（LAYER・STYLE・LTYPE。決定 0162〜0164）か
 fn renamable(object: &Object) -> bool {
-    matches!(object.kind.as_slice(), b"LAYER" | b"STYLE")
+    matches!(object.kind.as_slice(), b"LAYER" | b"STYLE" | b"LTYPE")
 }
 
 /// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
-/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER と STYLE は名前を
-/// 書き直せる（決定 0162・0163）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
+/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER・STYLE・LTYPE は名前を
+/// 書き直せる（決定 0162〜0164）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
 fn record_fields(
     fields: &mut BitWriter,
     old: &Object,

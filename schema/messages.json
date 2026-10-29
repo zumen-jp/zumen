@@ -708,7 +708,10 @@
         { "$ref": "#/$defs/remove_layer_edit" },
         { "$ref": "#/$defs/text_style_edit" },
         { "$ref": "#/$defs/add_text_style_edit" },
-        { "$ref": "#/$defs/remove_text_style_edit" }
+        { "$ref": "#/$defs/remove_text_style_edit" },
+        { "$ref": "#/$defs/line_type_edit" },
+        { "$ref": "#/$defs/add_line_type_edit" },
+        { "$ref": "#/$defs/remove_line_type_edit" }
       ]
     },
     "restyle_edit": {
@@ -886,6 +889,54 @@
       "required": ["kind", "id", "hash"],
       "additionalProperties": false
     },
+    "line_type_edit": {
+      "description": "線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "line_type" },
+        "id": { "description": "変える線種の ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの線種のハッシュ。tables が返したもの", "type": "string" },
+        "name": {
+          "description": "新しい名前。ほかの線種と重ならず（大文字と小文字を区別しない）、< > / \\ \" : ; ? * | = ` を含まないもの。ByLayer・ByBlock・Continuous と外部参照に依る線種の名前は変えられない",
+          "type": "string"
+        },
+        "description": { "description": "説明", "type": "string" },
+        "pattern": {
+          "description": "線と間の長さの列。文書の単位。正は線、負は間、0 は点",
+          "type": "array",
+          "items": { "type": "number" }
+        }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "add_line_type_edit": {
+      "description": "線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_line_type" },
+        "name": { "description": "名前。line_type の name と同じ決まり", "type": "string" },
+        "description": { "description": "説明", "type": "string" },
+        "pattern": {
+          "description": "線と間の長さの列。文書の単位。正は線、負は間、0 は点",
+          "type": "array",
+          "items": { "type": "number" }
+        }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
+    "remove_line_type_edit": {
+      "description": "線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "remove_line_type" },
+        "id": { "description": "除く線種の ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの線種のハッシュ。tables が返したもの", "type": "string" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
     "add_layer_edit": {
       "description": "レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から",
       "type": "object",
@@ -975,9 +1026,9 @@
           "items": { "$ref": "#/$defs/layer_item" }
         },
         "line_types": {
-          "description": "線種",
+          "description": "線種。小版 26 から、定義を持つ",
           "type": "array",
-          "items": { "$ref": "#/$defs/table_item" }
+          "items": { "$ref": "#/$defs/line_type_item" }
         },
         "dimension_styles": {
           "description": "寸法スタイル",
@@ -1039,6 +1090,38 @@
         "line_weight": {
           "description": "線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から",
           "$ref": "#/$defs/line_weight_change"
+        }
+      },
+      "required": ["id", "name", "hash", "defined"],
+      "additionalProperties": false
+    },
+    "line_type_item": {
+      "description": "線種の表の項目（決定 0164）。小版 26 から、定義を持つ",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID。表のレコードがハンドルを持てば line-type/h14、なければ読んだ順の番号（line-type/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）",
+          "type": "string"
+        },
+        "name": { "description": "元の名前。翻訳しない", "type": "string" },
+        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" },
+        "defined": {
+          "description": "ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から",
+          "type": "boolean"
+        },
+        "description": { "description": "元の説明。小版 26 から", "type": "string" },
+        "pattern": {
+          "description": "線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。小版 26 から",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "paper": {
+          "description": "列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。小版 26 から",
+          "type": "boolean"
+        },
+        "marked": {
+          "description": "列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から",
+          "type": "boolean"
         }
       },
       "required": ["id", "name", "hash", "defined"],

@@ -8,9 +8,9 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, 
 use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
     Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Element, Encode,
-    Hash, Inherit, Layer, LayerId, LayerState, LayerStyle, LineTypeId, LineWeight, ModelPoint,
-    PaperLength, PaperPoint, Placed, Placement, Restyle, Seen, Shape, Style, TextStyle,
-    TextStyleDefinition, Unit, id,
+    Hash, Inherit, Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeDefinition,
+    LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, PatternBasis, Placed, Placement,
+    Restyle, Seen, Shape, Style, TextStyle, TextStyleDefinition, Unit, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -25,8 +25,8 @@ use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
     CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
     EntitiesResult, Entity, EntityField, EntityKind, Extent, Font, FontKind, Format, LayerItem,
-    OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions, SheetSummary,
-    Source, SpaceSummary, TableItem, TablesRequest, TablesResult, TextStyleItem,
+    LineTypeItem, OpenRequest, OpenResult, Request, RequestCommon, SchemaVersion, SessionOptions,
+    SheetSummary, Source, SpaceSummary, TableItem, TablesRequest, TablesResult, TextStyleItem,
 };
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
@@ -436,11 +436,7 @@ impl Session {
             line_type_ids
                 .entry(line_type.id)
                 .or_insert_with(|| id.clone());
-            line_types.push(TableItem {
-                id,
-                name: line_type.name.clone(),
-                hash: hash.to_string(),
-            });
+            line_types.push(line_type_item(id, line_type, hash));
         }
         seen.clear();
         let mut layers = Vec::with_capacity(drawing.layers.len());
@@ -629,6 +625,20 @@ fn layer_item(
                     default: Some(true),
                 },
             }),
+    }
+}
+
+fn line_type_item(id: String, line_type: &LineType, hash: Hash) -> LineTypeItem {
+    let definition = line_type.definition.as_ref();
+    LineTypeItem {
+        id,
+        name: line_type.name.clone(),
+        hash: hash.to_string(),
+        defined: definition.is_some(),
+        description: definition.map(|d| d.description.clone()),
+        pattern: definition.map(|d| d.pattern.clone()),
+        paper: definition.map(|d| d.basis == PatternBasis::Paper),
+        marked: definition.map(|d| !d.marks.is_empty()),
     }
 }
 
@@ -927,6 +937,76 @@ fn changes(
                     style: Box::new(style),
                 }
             }
+            messages::Edit::RemoveLineType(edit) => Edit::RemoveLineType {
+                target: seen(&edit.id, &edit.hash, cx)?,
+            },
+            messages::Edit::LineType(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                cx.check(
+                    Kind::Work,
+                    line_type_work(
+                        edit.name.as_deref(),
+                        edit.description.as_deref(),
+                        edit.pattern.as_deref(),
+                    ),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
+                // 指した線種がなければ、要素と同じく `change.element.missing` にする
+                let Some(base) = tables.line_type_items.get(&edit.id).copied() else {
+                    let missing =
+                        Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", edit.id.as_str());
+                    return Err(fail(cx, missing));
+                };
+                let line_type = line_type_edit(
+                    base,
+                    edit.name.as_deref(),
+                    edit.description.as_deref(),
+                    edit.pattern.as_deref(),
+                )
+                .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::ReplaceLineType {
+                    target,
+                    line_type: Box::new(line_type),
+                }
+            }
+            messages::Edit::AddLineType(edit) => {
+                cx.check(
+                    Kind::Work,
+                    line_type_work(
+                        Some(&edit.name),
+                        edit.description.as_deref(),
+                        edit.pattern.as_deref(),
+                    ),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
+                // 書かない欄は、Continuous と同じにする
+                let continuous = drawing.line_types.iter().find(|line_type| {
+                    line_type.name.eq_ignore_ascii_case("Continuous")
+                        && line_type.definition.is_some()
+                });
+                let base = LineType {
+                    id: LineTypeId(0),
+                    name: String::new(),
+                    definition: continuous.and_then(|line_type| line_type.definition.clone()),
+                    source: Ref::default(),
+                };
+                let line_type = line_type_edit(
+                    &base,
+                    Some(&edit.name),
+                    edit.description.as_deref(),
+                    edit.pattern.as_deref(),
+                )
+                .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::AddLineType {
+                    line_type: Box::new(line_type),
+                }
+            }
             messages::Edit::Replace(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 count_formatted_geometry(&edit.geometry, cx)?;
@@ -1223,6 +1303,8 @@ struct TableLookup<'a> {
     layer_ids: BTreeMap<String, Option<(&'a str, LayerId)>>,
     line_types: BTreeMap<&'a str, Option<LineTypeId>>,
     line_type_ids: BTreeMap<String, Option<(&'a str, LineTypeId)>>,
+    /// 線種の ID から項目（決定 0164）
+    line_type_items: BTreeMap<String, &'a LineType>,
     /// 文字スタイルの ID から名前。同じ名前（大文字と小文字を区別しない）の項目が複数あれば `None`
     text_style_ids: BTreeMap<String, Option<&'a str>>,
     /// 文字スタイルの ID から項目（決定 0163）
@@ -1236,6 +1318,7 @@ impl<'a> TableLookup<'a> {
             layer_ids: BTreeMap::new(),
             line_types: BTreeMap::new(),
             line_type_ids: BTreeMap::new(),
+            line_type_items: BTreeMap::new(),
             text_style_ids: BTreeMap::new(),
             text_styles: BTreeMap::new(),
         };
@@ -1261,9 +1344,11 @@ impl<'a> TableLookup<'a> {
                 .entry(&line_type.name)
                 .and_modify(|v| *v = None)
                 .or_insert(Some(line_type.id));
+            let id = table_id(id::line_type(line_type), &mut seen);
+            result.line_type_items.insert(id.clone(), line_type);
             result
                 .line_type_ids
-                .entry(table_id(id::line_type(line_type), &mut seen))
+                .entry(id)
                 .and_modify(|v| *v = None)
                 .or_insert(Some((&line_type.name, line_type.id)));
         }
@@ -1698,6 +1783,51 @@ fn text_style_change(
     definition.vertical = fields.vertical.unwrap_or(definition.vertical);
     Ok(TextStyle {
         name: fields.name.unwrap_or(&base.name).to_owned(),
+        definition: Some(definition),
+        source: base.source.clone(),
+    })
+}
+
+/// 線種の変更の名前・説明の長さと列の要素の数
+fn line_type_work(name: Option<&str>, description: Option<&str>, pattern: Option<&[f64]>) -> u64 {
+    let text = [name, description]
+        .iter()
+        .flatten()
+        .map(|text| text.len() as u64)
+        .sum::<u64>();
+    text.saturating_add(pattern.map_or(0, |pattern| pattern.len() as u64))
+}
+
+/// `base` に、書いた欄を重ねた線種（決定 0164）。定義がなければ、説明も列もない実線から始める。列を書けば、
+/// 文書の単位の列にする。合わなければ、その欄の名前を返す。書けるかどうか（添える形と文字・要素の数）は、
+/// apply が形式ごとに確かめる
+fn line_type_edit(
+    base: &LineType,
+    name: Option<&str>,
+    description: Option<&str>,
+    pattern: Option<&[f64]>,
+) -> Result<LineType, &'static str> {
+    let mut definition = base.definition.clone().unwrap_or(LineTypeDefinition {
+        description: String::new(),
+        pattern: Vec::new(),
+        basis: PatternBasis::Element,
+        marks: Vec::new(),
+    });
+    if let Some(description) = description {
+        definition.description = description.to_owned();
+    }
+    if let Some(pattern) = pattern {
+        pattern
+            .iter()
+            .all(|length| length.is_finite())
+            .then_some(())
+            .ok_or("pattern")?;
+        definition.pattern = pattern.to_vec();
+        definition.basis = PatternBasis::Element;
+    }
+    Ok(LineType {
+        id: base.id,
+        name: name.unwrap_or(&base.name).to_owned(),
         definition: Some(definition),
         source: base.source.clone(),
     })
@@ -2584,7 +2714,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":25}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":26}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3074,6 +3204,86 @@ mod tests {
         assert_eq!(removed.pointer("/result/applied/0/id"), None);
         let (_, last) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
         assert_eq!(last.pointer("/result/text_styles/2"), None);
+    }
+
+    #[test]
+    fn changes_adds_and_removes_line_types() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", TABLED.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (_, tables) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let continuous = text(&tables, "/result/line_types/0/hash");
+        let dashed = text(&tables, "/result/line_types/1/hash");
+        let apply =
+            |edits: &str| format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edits}]}}"#);
+        // Continuous の名前は変えず、除かない。ない線種は指せない
+        for (request, code) in [
+            (
+                apply(&format!(
+                    r#"{{"kind":"line_type","id":"line-type/h11","hash":"{continuous}","name":"Solid"}}"#
+                )),
+                "change.edit.unsupported",
+            ),
+            (
+                apply(&format!(
+                    r#"{{"kind":"remove_line_type","id":"line-type/h11","hash":"{continuous}"}}"#
+                )),
+                "change.edit.unsupported",
+            ),
+            (
+                apply(&format!(
+                    r#"{{"kind":"line_type","id":"line-type/h99","hash":"{dashed}"}}"#
+                )),
+                "change.element.missing",
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&error(&response), "/code"), code, "{request}");
+        }
+        // 足す線種の書かない欄は、Continuous と同じ
+        let edits = [
+            format!(
+                r#"{{"kind":"line_type","id":"line-type/h12","hash":"{dashed}","name":"Hidden","pattern":[0.5,-0.25]}}"#
+            ),
+            r#"{"kind":"add_line_type","name":"Center","description":"Center ____ _ ____","pattern":[1.25,-0.25,0.25,-0.25]}"#
+                .to_owned(),
+        ];
+        let (status, response) = call(&mut session, &apply(&edits.join(",")));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/applied/0/id"), "line-type/h12");
+        assert_eq!(text(&response, "/result/applied/1/id"), "line-type/h40");
+        let (_, after) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let mut out = zumen_json::Writer::new();
+        out.value(after.pointer("/result/line_types").unwrap());
+        assert_eq!(
+            String::from_utf8(out.into_bytes()).unwrap(),
+            format!(
+                concat!(
+                    r#"[{{"id":"line-type/h11","name":"CONTINUOUS","hash":"{}","defined":true,"#,
+                    r#""description":"","pattern":[],"paper":false,"marked":false}},"#,
+                    r#"{{"id":"line-type/h12","name":"Hidden","hash":"{}","defined":true,"#,
+                    r#""description":"","pattern":[0.5,-0.25],"paper":false,"marked":false}},"#,
+                    r#"{{"id":"line-type/h40","name":"Center","hash":"{}","defined":true,"#,
+                    r#""description":"Center ____ _ ____","pattern":[1.25,-0.25,0.25,-0.25],"paper":false,"marked":false}}]"#
+                ),
+                continuous,
+                text(&response, "/result/applied/0/hash"),
+                text(&response, "/result/applied/1/hash"),
+            )
+        );
+        // 足した線種は、次の apply で除ける
+        let center = text(&response, "/result/applied/1/hash");
+        let (status, removed) = call(
+            &mut session,
+            &apply(&format!(
+                r#"{{"kind":"remove_line_type","id":"line-type/h40","hash":"{center}"}}"#
+            )),
+        );
+        assert_eq!(status, Status::Ok, "{removed:?}");
+        assert_eq!(removed.pointer("/result/applied/0/id"), None);
+        let (_, last) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        assert_eq!(last.pointer("/result/line_types/2"), None);
     }
 
     #[test]
