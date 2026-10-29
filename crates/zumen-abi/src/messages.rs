@@ -1817,8 +1817,10 @@ pub struct TextGeometry {
     pub height: f64,
     /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
     pub rotation: f64,
-    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から
     pub style: Option<String>,
+    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+    pub style_id: Option<String>,
 }
 
 impl TextGeometry {
@@ -1831,6 +1833,7 @@ impl TextGeometry {
         let height = object.required("height", json::number)?;
         let rotation = object.required("rotation", json::number)?;
         let style = object.optional("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
             content,
             position,
@@ -1839,6 +1842,7 @@ impl TextGeometry {
             height,
             rotation,
             style,
+            style_id,
         })
     }
 
@@ -1863,6 +1867,10 @@ impl TextGeometry {
         out.float(self.rotation);
         if let Some(value) = &self.style {
             out.key("style");
+            out.string(value);
+        }
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
             out.string(value);
         }
     }
@@ -1943,8 +1951,10 @@ pub struct FormattedTextGeometry {
     pub attachment: Option<Attachment>,
     /// 折り返す枠の幅。0 より大きい。書かなければ折り返さない
     pub width: Option<f64>,
-    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す
     pub style: Option<String>,
+    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+    pub style_id: Option<String>,
 }
 
 impl FormattedTextGeometry {
@@ -1957,6 +1967,7 @@ impl FormattedTextGeometry {
         let attachment = object.optional("attachment", Attachment::from_json)?;
         let width = object.optional("width", json::number)?;
         let style = object.optional("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
             content,
             position,
@@ -1965,6 +1976,7 @@ impl FormattedTextGeometry {
             attachment,
             width,
             style,
+            style_id,
         })
     }
 
@@ -1989,6 +2001,10 @@ impl FormattedTextGeometry {
         }
         if let Some(value) = &self.style {
             out.key("style");
+            out.string(value);
+        }
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
             out.string(value);
         }
     }
@@ -2171,6 +2187,8 @@ pub struct DimensionGeometry {
     pub text_rotation: Option<f64>,
     /// 寸法スタイルの元の名前
     pub style: String,
+    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から
+    pub style_id: Option<String>,
 }
 
 impl DimensionGeometry {
@@ -2206,6 +2224,7 @@ impl DimensionGeometry {
             object.optional("text_position", |value| json::array(value, json::number))?;
         let text_rotation = object.optional("text_rotation", json::number)?;
         let style = object.required("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
             kind,
             first,
@@ -2232,6 +2251,7 @@ impl DimensionGeometry {
             text_position,
             text_rotation,
             style,
+            style_id,
         })
     }
 
@@ -2336,6 +2356,10 @@ impl DimensionGeometry {
         }
         out.key("style");
         out.string(&self.style);
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
+            out.string(value);
+        }
     }
 }
 
@@ -2982,9 +3006,9 @@ impl ToJson for ApplyResult {
 /// 当てた変更 1 つの結果
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Applied {
-    /// 変えた要素の、書き戻した後の ID。除いたときと、ID を決められないときは持たない
+    /// 変えた要素（レイヤの変更では、そのレイヤ）の、書き戻した後の ID。除いたときと、ID を決められないときは持たない
     pub id: Option<String>,
-    /// 変えた要素の、書き戻した後のハッシュ。id があるときに持つ
+    /// 変えた要素（レイヤ）の、書き戻した後のハッシュ。id があるときに持つ
     pub hash: Option<String>,
 }
 
@@ -3038,11 +3062,26 @@ pub enum Edit {
     Replace(ReplaceEdit),
     /// 空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
     Add(AddEdit),
+    /// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から
+    Layer(LayerEdit),
+    /// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
+    AddLayer(AddLayerEdit),
+    /// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
+    RemoveLayer(RemoveLayerEdit),
 }
 
 impl Edit {
     /// 目印の欄（`kind`）の値（スキーマの順）
-    pub const TAGS: &[&str] = &["restyle", "transform", "remove", "replace", "add"];
+    pub const TAGS: &[&str] = &[
+        "restyle",
+        "transform",
+        "remove",
+        "replace",
+        "add",
+        "layer",
+        "add_layer",
+        "remove_layer",
+    ];
 
     /// 目印の欄（`kind`）の値
     pub const fn tag(&self) -> &'static str {
@@ -3052,6 +3091,9 @@ impl Edit {
             Self::Remove(_) => "remove",
             Self::Replace(_) => "replace",
             Self::Add(_) => "add",
+            Self::Layer(_) => "layer",
+            Self::AddLayer(_) => "add_layer",
+            Self::RemoveLayer(_) => "remove_layer",
         }
     }
 }
@@ -3065,6 +3107,9 @@ impl FromJson for Edit {
             "remove" => Self::Remove(RemoveEdit::read_fields(&mut object)?),
             "replace" => Self::Replace(ReplaceEdit::read_fields(&mut object)?),
             "add" => Self::Add(AddEdit::read_fields(&mut object)?),
+            "layer" => Self::Layer(LayerEdit::read_fields(&mut object)?),
+            "add_layer" => Self::AddLayer(AddLayerEdit::read_fields(&mut object)?),
+            "remove_layer" => Self::RemoveLayer(RemoveLayerEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -3080,6 +3125,9 @@ impl ToJson for Edit {
             Self::Remove(value) => value.to_json(out),
             Self::Replace(value) => value.to_json(out),
             Self::Add(value) => value.to_json(out),
+            Self::Layer(value) => value.to_json(out),
+            Self::AddLayer(value) => value.to_json(out),
+            Self::RemoveLayer(value) => value.to_json(out),
         }
     }
 }
@@ -3384,6 +3432,258 @@ impl ToJson for AddEdit {
     }
 }
 
+/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayerEdit {
+    /// 変えるレイヤの ID。tables が返したもの
+    pub id: String,
+    /// 読んだときのレイヤのハッシュ。tables が返したもの
+    pub hash: String,
+    /// 新しい名前。ほかのレイヤと重ならず（大文字と小文字を区別しない）、< > / \ " : ; ? * | = ` を含まないもの。0 と Defpoints の名前は変えられない
+    pub name: Option<String>,
+    /// 表示する。凍結するなら偽
+    pub visible: Option<bool>,
+    /// 印刷する
+    pub printable: Option<bool>,
+    /// 編集できる（ロックしない）
+    pub editable: Option<bool>,
+    /// 凍結する
+    pub frozen: Option<bool>,
+    /// 色。aci が要る。inherit は書けない
+    pub color: Option<ColorChange>,
+    /// 線種。name か id で指す。inherit は書けない
+    pub line_type: Option<LineTypeChange>,
+    /// 線幅。mm か default。inherit は書けない
+    pub line_weight: Option<LineWeightChange>,
+}
+
+impl LayerEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "layer")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let visible = object.optional("visible", json::boolean)?;
+        let printable = object.optional("printable", json::boolean)?;
+        let editable = object.optional("editable", json::boolean)?;
+        let frozen = object.optional("frozen", json::boolean)?;
+        let color = object.optional("color", ColorChange::from_json)?;
+        let line_type = object.optional("line_type", LineTypeChange::from_json)?;
+        let line_weight = object.optional("line_weight", LineWeightChange::from_json)?;
+        Ok(Self {
+            id,
+            hash,
+            name,
+            visible,
+            printable,
+            editable,
+            frozen,
+            color,
+            line_type,
+            line_weight,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("layer");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.visible {
+            out.key("visible");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.printable {
+            out.key("printable");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.editable {
+            out.key("editable");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.frozen {
+            out.key("frozen");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.color {
+            out.key("color");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_type {
+            out.key("line_type");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_weight {
+            out.key("line_weight");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for LayerEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LayerEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoveLayerEdit {
+    /// 除くレイヤの ID。tables が返したもの
+    pub id: String,
+    /// 読んだときのレイヤのハッシュ。tables が返したもの
+    pub hash: String,
+}
+
+impl RemoveLayerEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "remove_layer")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { id, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("remove_layer");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for RemoveLayerEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RemoveLayerEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddLayerEdit {
+    /// 名前。layer の name と同じ決まり
+    pub name: String,
+    /// 表示する。凍結するなら偽
+    pub visible: Option<bool>,
+    /// 印刷する
+    pub printable: Option<bool>,
+    /// 編集できる（ロックしない）
+    pub editable: Option<bool>,
+    /// 凍結する
+    pub frozen: Option<bool>,
+    /// 色。aci が要る。inherit は書けない
+    pub color: Option<ColorChange>,
+    /// 線種。name か id で指す。inherit は書けない
+    pub line_type: Option<LineTypeChange>,
+    /// 線幅。mm か default。inherit は書けない
+    pub line_weight: Option<LineWeightChange>,
+}
+
+impl AddLayerEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_layer")?;
+        let name = object.required("name", json::string)?;
+        let visible = object.optional("visible", json::boolean)?;
+        let printable = object.optional("printable", json::boolean)?;
+        let editable = object.optional("editable", json::boolean)?;
+        let frozen = object.optional("frozen", json::boolean)?;
+        let color = object.optional("color", ColorChange::from_json)?;
+        let line_type = object.optional("line_type", LineTypeChange::from_json)?;
+        let line_weight = object.optional("line_weight", LineWeightChange::from_json)?;
+        Ok(Self {
+            name,
+            visible,
+            printable,
+            editable,
+            frozen,
+            color,
+            line_type,
+            line_weight,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_layer");
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.visible {
+            out.key("visible");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.printable {
+            out.key("printable");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.editable {
+            out.key("editable");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.frozen {
+            out.key("frozen");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.color {
+            out.key("color");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_type {
+            out.key("line_type");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_weight {
+            out.key("line_weight");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for AddLayerEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for AddLayerEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// 値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Inherit {
@@ -3639,7 +3939,7 @@ impl ToJson for TablesRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TablesResult {
     /// レイヤ
-    pub layers: Vec<TableItem>,
+    pub layers: Vec<LayerItem>,
     /// 線種
     pub line_types: Vec<TableItem>,
     /// 寸法スタイル
@@ -3650,7 +3950,7 @@ pub struct TablesResult {
 
 impl TablesResult {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
-        let layers = object.required("layers", |value| json::array(value, TableItem::from_json))?;
+        let layers = object.required("layers", |value| json::array(value, LayerItem::from_json))?;
         let line_types = object.required("line_types", |value| {
             json::array(value, TableItem::from_json)
         })?;
@@ -3736,6 +4036,118 @@ impl FromJson for TableItem {
 }
 
 impl ToJson for TableItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// レイヤの表の項目（決定 0162）。小版 22 から、状態とスタイルを持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayerItem {
+    /// ID。表のレコードがハンドルを持てば layer/h10、なければ読んだ順の番号（layer/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）
+    pub id: String,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    pub hash: String,
+    /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から
+    pub defined: bool,
+    /// 表示する。小版 22 から
+    pub visible: Option<bool>,
+    /// 印刷する。小版 22 から
+    pub printable: Option<bool>,
+    /// 編集できる。小版 22 から
+    pub editable: Option<bool>,
+    /// 凍結する。小版 22 から
+    pub frozen: Option<bool>,
+    /// 色。inherit を持たない。定義が色を持たなければ書かない。小版 22 から
+    pub color: Option<ColorChange>,
+    /// 線種の ID。定義が線種を持たなければ書かない。小版 22 から
+    pub line_type_id: Option<String>,
+    /// 線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から
+    pub line_weight: Option<LineWeightChange>,
+}
+
+impl LayerItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.required("name", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let defined = object.required("defined", json::boolean)?;
+        let visible = object.optional("visible", json::boolean)?;
+        let printable = object.optional("printable", json::boolean)?;
+        let editable = object.optional("editable", json::boolean)?;
+        let frozen = object.optional("frozen", json::boolean)?;
+        let color = object.optional("color", ColorChange::from_json)?;
+        let line_type_id = object.optional("line_type_id", json::string)?;
+        let line_weight = object.optional("line_weight", LineWeightChange::from_json)?;
+        Ok(Self {
+            id,
+            name,
+            hash,
+            defined,
+            visible,
+            printable,
+            editable,
+            frozen,
+            color,
+            line_type_id,
+            line_weight,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("name");
+        out.string(&self.name);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("defined");
+        out.bool(self.defined);
+        if let Some(value) = &self.visible {
+            out.key("visible");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.printable {
+            out.key("printable");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.editable {
+            out.key("editable");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.frozen {
+            out.key("frozen");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.color {
+            out.key("color");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_type_id {
+            out.key("line_type_id");
+            out.string(value);
+        }
+        if let Some(value) = &self.line_weight {
+            out.key("line_weight");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for LayerItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LayerItem {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

@@ -482,7 +482,8 @@
         "fit": { "description": "2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から", "$ref": "#/$defs/text_fit" },
         "height": { "description": "高さ。0 より大きい", "type": "number" },
         "rotation": { "description": "回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない", "type": "number" },
-        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から", "type": "string" }
+        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から", "type": "string" },
+        "style_id": { "description": "文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false
@@ -503,7 +504,8 @@
         "rotation": { "description": "回転（度）", "type": "number" },
         "attachment": { "description": "基点に合わせる枠の位置", "$ref": "#/$defs/attachment" },
         "width": { "description": "折り返す枠の幅。0 より大きい。書かなければ折り返さない", "type": "number" },
-        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける", "type": "string" }
+        "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す", "type": "string" },
+        "style_id": { "description": "文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false
@@ -555,7 +557,8 @@
         "measurement_key": { "description": "measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ", "type": "string" },
         "text_position": { "description": "寸法値の文字の中央の点 [X, Y]。元の形式が持たなければ書かない", "type": "array", "items": { "type": "number" } },
         "text_rotation": { "description": "寸法値の文字の回転（度）。寸法線に沿わせるなら書かない", "type": "number" },
-        "style": { "description": "寸法スタイルの元の名前", "type": "string" }
+        "style": { "description": "寸法スタイルの元の名前", "type": "string" },
+        "style_id": { "description": "寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から", "type": "string" }
       },
       "required": ["shape", "kind", "label", "style"],
       "additionalProperties": false
@@ -682,11 +685,11 @@
       "type": "object",
       "properties": {
         "id": {
-          "description": "変えた要素の、書き戻した後の ID。除いたときと、ID を決められないときは持たない",
+          "description": "変えた要素（レイヤの変更では、そのレイヤ）の、書き戻した後の ID。除いたときと、ID を決められないときは持たない",
           "type": "string"
         },
         "hash": {
-          "description": "変えた要素の、書き戻した後のハッシュ。id があるときに持つ",
+          "description": "変えた要素（レイヤ）の、書き戻した後のハッシュ。id があるときに持つ",
           "type": "string"
         }
       },
@@ -699,7 +702,10 @@
         { "$ref": "#/$defs/transform_edit" },
         { "$ref": "#/$defs/remove_edit" },
         { "$ref": "#/$defs/replace_edit" },
-        { "$ref": "#/$defs/add_edit" }
+        { "$ref": "#/$defs/add_edit" },
+        { "$ref": "#/$defs/layer_edit" },
+        { "$ref": "#/$defs/add_layer_edit" },
+        { "$ref": "#/$defs/remove_layer_edit" }
       ]
     },
     "restyle_edit": {
@@ -771,6 +777,77 @@
       "required": ["kind", "place", "geometry"],
       "additionalProperties": false
     },
+    "layer_edit": {
+      "description": "レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "layer" },
+        "id": { "description": "変えるレイヤの ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときのレイヤのハッシュ。tables が返したもの", "type": "string" },
+        "name": {
+          "description": "新しい名前。ほかのレイヤと重ならず（大文字と小文字を区別しない）、< > / \\ \" : ; ? * | = ` を含まないもの。0 と Defpoints の名前は変えられない",
+          "type": "string"
+        },
+        "visible": { "description": "表示する。凍結するなら偽", "type": "boolean" },
+        "printable": { "description": "印刷する", "type": "boolean" },
+        "editable": { "description": "編集できる（ロックしない）", "type": "boolean" },
+        "frozen": { "description": "凍結する", "type": "boolean" },
+        "color": {
+          "description": "色。aci が要る。inherit は書けない",
+          "$ref": "#/$defs/color_change"
+        },
+        "line_type": {
+          "description": "線種。name か id で指す。inherit は書けない",
+          "$ref": "#/$defs/line_type_change"
+        },
+        "line_weight": {
+          "description": "線幅。mm か default。inherit は書けない",
+          "$ref": "#/$defs/line_weight_change"
+        }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "remove_layer_edit": {
+      "description": "レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "remove_layer" },
+        "id": { "description": "除くレイヤの ID。tables が返したもの", "type": "string" },
+        "hash": { "description": "読んだときのレイヤのハッシュ。tables が返したもの", "type": "string" }
+      },
+      "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "add_layer_edit": {
+      "description": "レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_layer" },
+        "name": {
+          "description": "名前。layer の name と同じ決まり",
+          "type": "string"
+        },
+        "visible": { "description": "表示する。凍結するなら偽", "type": "boolean" },
+        "printable": { "description": "印刷する", "type": "boolean" },
+        "editable": { "description": "編集できる（ロックしない）", "type": "boolean" },
+        "frozen": { "description": "凍結する", "type": "boolean" },
+        "color": {
+          "description": "色。aci が要る。inherit は書けない",
+          "$ref": "#/$defs/color_change"
+        },
+        "line_type": {
+          "description": "線種。name か id で指す。inherit は書けない",
+          "$ref": "#/$defs/line_type_change"
+        },
+        "line_weight": {
+          "description": "線幅。mm か default。inherit は書けない",
+          "$ref": "#/$defs/line_weight_change"
+        }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
     "inherit": {
       "description": "値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から",
       "type": "string",
@@ -828,7 +905,7 @@
         "layers": {
           "description": "レイヤ",
           "type": "array",
-          "items": { "$ref": "#/$defs/table_item" }
+          "items": { "$ref": "#/$defs/layer_item" }
         },
         "line_types": {
           "description": "線種",
@@ -861,6 +938,43 @@
         "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" }
       },
       "required": ["id", "name", "hash"],
+      "additionalProperties": false
+    },
+    "layer_item": {
+      "description": "レイヤの表の項目（決定 0162）。小版 22 から、状態とスタイルを持つ",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID。表のレコードがハンドルを持てば layer/h10、なければ読んだ順の番号（layer/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156）",
+          "type": "string"
+        },
+        "name": { "description": "元の名前。翻訳しない", "type": "string" },
+        "hash": {
+          "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）",
+          "type": "string"
+        },
+        "defined": {
+          "description": "ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から",
+          "type": "boolean"
+        },
+        "visible": { "description": "表示する。小版 22 から", "type": "boolean" },
+        "printable": { "description": "印刷する。小版 22 から", "type": "boolean" },
+        "editable": { "description": "編集できる。小版 22 から", "type": "boolean" },
+        "frozen": { "description": "凍結する。小版 22 から", "type": "boolean" },
+        "color": {
+          "description": "色。inherit を持たない。定義が色を持たなければ書かない。小版 22 から",
+          "$ref": "#/$defs/color_change"
+        },
+        "line_type_id": {
+          "description": "線種の ID。定義が線種を持たなければ書かない。小版 22 から",
+          "type": "string"
+        },
+        "line_weight": {
+          "description": "線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から",
+          "$ref": "#/$defs/line_weight_change"
+        }
+      },
+      "required": ["id", "name", "hash", "defined"],
       "additionalProperties": false
     },
     "text_style_item": {

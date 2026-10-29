@@ -4243,3 +4243,332 @@ fn drawings_name_the_fonts_of_their_text_styles() {
     }
     assert!(japanese > 0);
 }
+
+/// 試料のレイヤの名前・色・状態を変え、レイヤを 1 つ足して書き戻すと、読み直したレイヤは変えたものと同じに
+/// なり、図形は名前を変えたレイヤにとどまる。R2010 から後の DWG は、名前を文字列の流れに UTF-16 で書くので、
+/// 日本語の名前にも変える（決定 0162）
+#[cfg(feature = "drawing")]
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_take_back_renamed_restyled_and_added_layers() {
+    use zumen_drawing::{
+        Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Hash, LayerState, Seen,
+        id,
+    };
+    use zumen_sdk::{Apply, Codec, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Option<Drawing2D> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .ok()
+    }
+    /// 空間の図形ごとの、レイヤの名前
+    fn layer_names(drawing: &Drawing2D) -> Vec<String> {
+        drawing
+            .spaces
+            .iter()
+            .flat_map(|space| &space.elements)
+            .map(|element| drawing.layer(element.layer).unwrap().name.clone())
+            .collect()
+    }
+    fn apply<C: Codec>(
+        file: &mut C::File,
+        edits: Vec<Edit>,
+    ) -> (
+        Result<Vec<Applied>, zumen_sdk::Error>,
+        Vec<zumen_base::Code>,
+    )
+    where
+        C::File: Apply<Changes, Output = Vec<Applied>>,
+    {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let result = file.apply(
+            &Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        );
+        let found = diag
+            .iter()
+            .filter(|d| d.severity() == zumen_base::Severity::Error)
+            .map(|d| d.code())
+            .collect();
+        (result, found)
+    }
+    /// 名前の後ろに `suffix` を足して書き戻す。書き戻せなければ `None`
+    fn check<C: Codec>(path: &Path, src: &[u8], suffix: &str) -> Option<()>
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let mut file = testkit::read::<C>(src).0.ok()?;
+        let drawing = lift(&file)?;
+        // 真の色を持たない、名前を変えられる画層
+        let was = drawing.layers.iter().find(|layer| {
+            layer.source.key().is_some()
+                && layer.name != "0"
+                && !layer.name.eq_ignore_ascii_case("Defpoints")
+                && layer.name.is_ascii()
+                && !layer.name.contains('|')
+                && layer.state.is_some_and(|state| !state.frozen)
+                && layer
+                    .style
+                    .is_some_and(|style| style.color.is_some_and(|color| color.rgb.is_none()))
+        })?;
+        let zero = drawing.layers.iter().find(|layer| layer.name == "0")?;
+        let green = Some(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: 3,
+            }),
+            rgb: None,
+        });
+        let mut changed = was.clone();
+        changed.name = format!("{}{suffix}", was.name);
+        changed.state = Some(LayerState {
+            printable: false,
+            editable: false,
+            ..was.state.unwrap()
+        });
+        changed.style = Some(zumen_drawing::LayerStyle {
+            color: green,
+            ..was.style.unwrap()
+        });
+        let mut added = zero.clone();
+        added.name = "ZUMEN-ADDED".to_owned();
+        added.style = Some(zumen_drawing::LayerStyle {
+            color: green,
+            ..zero.style.unwrap()
+        });
+        // 真の色を持つ画層 0 からは、真の色を除いて足す
+        let edits = vec![
+            Edit::ReplaceLayer {
+                target: Seen {
+                    id: id::layer(was),
+                    hash: Hash::layer(was),
+                },
+                layer: Box::new(changed.clone()),
+            },
+            Edit::AddLayer {
+                layer: Box::new(added.clone()),
+            },
+        ];
+        let (result, found) = apply::<C>(&mut file, edits);
+        let Ok(applied) = result else {
+            assert!(!found.is_empty(), "{}", path.display());
+            assert_eq!(
+                testkit::write::<C>(&file).unwrap(),
+                src,
+                "{}",
+                path.display()
+            );
+            return None;
+        };
+        let written = testkit::write::<C>(&file).unwrap();
+        let after = lift(&testkit::read::<C>(&written).0.unwrap()).unwrap();
+        let find = |name: &str| after.layers.iter().find(|layer| layer.name == name);
+        let renamed = find(&changed.name).unwrap();
+        assert_eq!(renamed.state, changed.state, "{}", path.display());
+        assert_eq!(renamed.style, changed.style, "{}", path.display());
+        assert_eq!(id::layer(renamed), id::layer(was), "{}", path.display());
+        assert_eq!(applied[0].hash, Some(Hash::layer(renamed)));
+        let new = find("ZUMEN-ADDED").unwrap();
+        assert_eq!(new.style, added.style, "{}", path.display());
+        assert_eq!(new.state, added.state, "{}", path.display());
+        assert_eq!(applied[1].id, Some(id::layer(new)), "{}", path.display());
+        assert_eq!(applied[1].hash, Some(Hash::layer(new)));
+        // 図形は、名前を変えたレイヤにとどまる
+        let expected: Vec<String> = layer_names(&drawing)
+            .into_iter()
+            .map(|name| match name == was.name {
+                true => changed.name.clone(),
+                false => name,
+            })
+            .collect();
+        assert_eq!(layer_names(&after), expected, "{}", path.display());
+        Some(())
+    }
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
+        .collect();
+    paths.sort();
+    let (mut dxf, mut dwg, mut modern) = (0, 0, 0);
+    for path in paths {
+        let src = std::fs::read(&path).unwrap();
+        if path.extension().is_some_and(|e| e == "dxf") {
+            dxf += usize::from(check::<Dxf>(&path, &src, "-ZUMEN").is_some());
+        } else if path.extension().is_some_and(|e| e == "dwg") {
+            let late = src
+                .get(..6)
+                .is_some_and(|version| version >= b"AC1024".as_slice());
+            if late {
+                modern += usize::from(check::<Dwg>(&path, &src, "-図面").is_some());
+            } else {
+                dwg += usize::from(check::<Dwg>(&path, &src, "-ZUMEN").is_some());
+            }
+        }
+    }
+    if !pairs().is_empty() {
+        assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
+    }
+}
+
+/// 試料の図面から、要素が使わない画層を除いて書き戻すと、開き直した図面にその画層がなく、ほかの画層の ID・
+/// 名前・状態・スタイルと、要素の画層は変わらない（決定 0162）
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_take_back_removed_layers() {
+    use std::collections::BTreeSet;
+    use zumen_drawing::{Applied, Changes, Drawing2D, Edit, Hash, LayerId, Seen, id};
+    use zumen_sdk::{Apply, Codec, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Option<Drawing2D> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .ok()
+    }
+    /// 要素ごとの画層の名前
+    fn placed(drawing: &Drawing2D) -> Vec<String> {
+        let name = |layer: LayerId| drawing.layer(layer).unwrap().name.clone();
+        let model = drawing
+            .spaces
+            .iter()
+            .chain(drawing.symbols.iter().map(|symbol| &symbol.space))
+            .flat_map(|space| &space.elements)
+            .map(|element| name(element.layer));
+        let paper = drawing
+            .sheets
+            .iter()
+            .flat_map(|sheet| &sheet.elements)
+            .map(|element| name(element.layer));
+        model.chain(paper).collect()
+    }
+    /// ほかの画層の ID・名前・状態・スタイル。ハッシュは図面モデルの中の画層の番号を含むので、
+    /// 除いた画層より後ろでは変わる（決定 0162）
+    fn others(drawing: &Drawing2D, gone: &str) -> Vec<(String, String)> {
+        drawing
+            .layers
+            .iter()
+            .filter(|layer| layer.name != gone)
+            .map(|layer| {
+                let (name, state, style) = (&layer.name, &layer.state, &layer.style);
+                (id::layer(layer), format!("{name} {state:?} {style:?}"))
+            })
+            .collect()
+    }
+    /// 除けた画層があれば `true`
+    fn check<C: Codec>(path: &Path, src: &[u8]) -> bool
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let Some(drawing) = testkit::read::<C>(src).0.ok().and_then(|file| lift(&file)) else {
+            return false;
+        };
+        let used: BTreeSet<String> = placed(&drawing).into_iter().collect();
+        let candidates = drawing
+            .layers
+            .iter()
+            .filter(|layer| {
+                layer.source.key().is_some()
+                    && layer.name != "0"
+                    && !layer.name.eq_ignore_ascii_case("Defpoints")
+                    && !used.contains(&layer.name)
+            })
+            .take(32);
+        for was in candidates {
+            let mut file = testkit::read::<C>(src).0.unwrap();
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let result = file.apply(
+                &Changes {
+                    edits: vec![Edit::RemoveLayer {
+                        target: Seen {
+                            id: id::layer(was),
+                            hash: Hash::layer(was),
+                        },
+                    }],
+                    document: None,
+                },
+                &mut Cx::new(&mut budget, &mut diag, &cancel),
+            );
+            let Ok(applied) = result else {
+                // 断ったら、ファイルは変わらない
+                assert_eq!(
+                    testkit::write::<C>(&file).unwrap(),
+                    src,
+                    "{}",
+                    path.display()
+                );
+                continue;
+            };
+            assert_eq!(
+                applied,
+                [Applied {
+                    id: None,
+                    hash: None
+                }]
+            );
+            let written = testkit::write::<C>(&file).unwrap();
+            let after = lift(&testkit::read::<C>(&written).0.unwrap()).unwrap();
+            assert!(
+                after.layers.iter().all(|layer| layer.name != was.name),
+                "{}: {}",
+                path.display(),
+                was.name
+            );
+            assert_eq!(
+                others(&after, &was.name),
+                others(&drawing, &was.name),
+                "{}",
+                path.display()
+            );
+            assert_eq!(placed(&after), placed(&drawing), "{}", path.display());
+            return true;
+        }
+        false
+    }
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
+        .collect();
+    paths.sort();
+    let (mut dxf, mut dwg, mut modern) = (0, 0, 0);
+    for path in paths {
+        let src = std::fs::read(&path).unwrap();
+        if path.extension().is_some_and(|e| e == "dxf") {
+            dxf += usize::from(check::<Dxf>(&path, &src));
+        } else {
+            let late = src
+                .get(..6)
+                .is_some_and(|version| version >= b"AC1024".as_slice());
+            let removed = usize::from(check::<Dwg>(&path, &src));
+            match late {
+                true => modern += removed,
+                false => dwg += removed,
+            }
+        }
+    }
+    if !pairs().is_empty() {
+        assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
+    }
+}

@@ -6,14 +6,15 @@ use super::{MODEL, PaperFrame, attached, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
+mod layer;
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
-use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
-    LayerId, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline,
-    Restyle, Rotation, Shape, SheetId, SpaceId, Spline, Style, Symbol, Text, Vertical, id,
-    transform,
+    Layer, LayerId, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement,
+    Polyline, Restyle, Rotation, Shape, SheetId, SpaceId, Spline, Style, Symbol, Text, Vertical,
+    id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -100,6 +101,8 @@ enum Place {
 /// ID から要素と足す先への索引（決定 0156）。図面モデルを 1 回なめて作る
 struct Index<'a> {
     elements: BTreeMap<String, Found<'a>>,
+    /// レイヤ（決定 0162）
+    layers: BTreeMap<String, &'a Layer>,
     places: BTreeMap<String, Place>,
     /// 2 つ以上の要素を作った出所。1 つの要素だけを書き戻せない
     shared: BTreeSet<&'a Ref>,
@@ -152,8 +155,14 @@ impl<'a> Index<'a> {
             }
             places.insert(place, Place::Sheet(sheet.id));
         }
+        let mut layers = BTreeMap::new();
+        for layer in &drawing.layers {
+            work(cx, 1, &layer.source)?;
+            layers.entry(id::layer(layer)).or_insert(layer);
+        }
         Ok(Self {
             elements,
+            layers,
             places,
             shared,
         })
@@ -162,7 +171,13 @@ impl<'a> Index<'a> {
     /// ID の要素の、今のハッシュ
     fn hash(&self, id: &str, cx: &mut Cx<'_>) -> Result<Option<Hash>, Error> {
         let Some(found) = self.elements.get(id) else {
-            return Ok(None);
+            let Some(layer) = self.layers.get(id) else {
+                return Ok(None);
+            };
+            return Hash::layer_checked(layer, cx).map(Some).map_err(|stop| {
+                cx.report(stop.to_diagnostic().at(layer.source.clone()));
+                Error::Stopped(stop)
+            });
         };
         let (result, source) = match found {
             Found::Model(element) => (Hash::element_checked(element, cx), &element.source),
@@ -186,7 +201,10 @@ fn applied(index: &Index, id: Option<String>, cx: &mut Cx<'_>) -> Result<Applied
             }
             .key()
             .is_some()
-        })
+        }) || index
+            .layers
+            .get(id)
+            .is_some_and(|layer| layer.source.key().is_some())
     };
     let Some(id) = id.filter(keyed) else {
         return Ok(Applied {
@@ -262,8 +280,224 @@ fn edit(
     let missing = |id: &str, cx: &mut Cx| {
         cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
     };
+    // レイヤの変更（決定 0162）。画層の表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
+    let mut layer_records: Option<Vec<usize>> = None;
+    let mut layer_names: BTreeSet<Vec<u8>> = BTreeSet::new();
+    let mut added_layers = Vec::new();
+    let mut renames = Vec::new();
     for change in &changes.edits {
+        if let Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } = change
+            && layer_records.is_none()
+        {
+            let mut records = Vec::new();
+            for (position, object) in db.objects().iter().enumerate() {
+                work(cx, 1, &Ref::default())?;
+                if layer::is_layer(object) {
+                    count_transform_values(object, &Ref::default(), cx)?;
+                    records.push(position);
+                    if let Some(name) = layer::name_of(object) {
+                        layer_names.insert(name.to_ascii_lowercase());
+                    }
+                }
+            }
+            layer_records = Some(records);
+        }
+        let records = layer_records.as_deref().unwrap_or_default();
         let (edit, target_of) = match change {
+            Edit::ReplaceLayer {
+                target: target_of,
+                layer: new,
+            } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                let Some(&was) = index.layers.get(&target_of.id) else {
+                    missing(&target_of.id, cx);
+                    rejected = true;
+                    continue;
+                };
+                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
+                            .with("id", target_of.id.as_str()),
+                    );
+                    rejected = true;
+                    continue;
+                }
+                count_layer_records(db, records, &was.source, cx)?;
+                let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
+                    .then(|| {
+                        records.iter().copied().find(|&position| {
+                            db.objects()
+                                .get(position)
+                                .is_some_and(|object| source(object) == was.source)
+                        })
+                    })
+                    .flatten()
+                    .and_then(|position| Some((position, db.objects().get(position)?)));
+                let named = if let Some((_, object)) = found {
+                    count_transform_values(object, &was.source, cx)?;
+                    if target == Target::Dxf {
+                        let old = layer::name_of(object);
+                        let requested = born.text_value(2, &new.name);
+                        if let (
+                            Some(old),
+                            Some(Value {
+                                data: Data::Text(name),
+                                ..
+                            }),
+                        ) = (old, requested)
+                        {
+                            if !old.eq_ignore_ascii_case(&name) {
+                                layer::named_in_objects(db, old, cx, &was.source)?
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                let planned = found.and_then(|(position, object)| {
+                    let mut values = object.values.clone();
+                    layer::write(&born, &mut values, new, Some((object, was)))?;
+                    let old = layer::name_of(object)?;
+                    let name = layer::value_name(&values)?;
+                    if !old.eq_ignore_ascii_case(name) {
+                        // 名前を変えるなら、ほかの画層と重ならず、DXF の OBJECTS が名前で指していないこと
+                        let free = !layer_names.contains(&name.to_ascii_lowercase())
+                            && !layer::fixed_name(name)
+                            && !named;
+                        free.then_some(())?;
+                        layer_names.remove(&old.to_ascii_lowercase());
+                        layer_names.insert(name.to_ascii_lowercase());
+                    }
+                    if old != name {
+                        let name = Value {
+                            code: 2,
+                            data: Data::Text(name.to_vec()),
+                        };
+                        renames.push((old.to_vec(), name));
+                    }
+                    Some((position, values))
+                });
+                match planned {
+                    Some(planned) => replaced.push(planned),
+                    None => {
+                        cx.report(
+                            unsupported("replace_layer", "LAYER", target).at(was.source.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::RemoveLayer { target: target_of } => {
+                let Some(&was) = index.layers.get(&target_of.id) else {
+                    missing(&target_of.id, cx);
+                    rejected = true;
+                    continue;
+                };
+                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
+                            .with("id", target_of.id.as_str()),
+                    );
+                    rejected = true;
+                    continue;
+                }
+                // 同じ一覧で足す要素とスタイルを変える要素も、除くレイヤを指せない
+                work(cx, changes.edits.len() as u64, &was.source)?;
+                let pointed = changes.edits.iter().any(|other| match other {
+                    Edit::Add { element, .. } => match element.as_ref() {
+                        Placed::Model(element) => element.layer == was.id,
+                        Placed::Paper(element) => element.layer == was.id,
+                    },
+                    Edit::Restyle { style, .. } => style.layer == Some(was.id),
+                    _ => false,
+                });
+                // 後ろのハンドルなしレイヤは並びの番号が ID なので、除くと別の ID になる
+                work(cx, drawing.layers.len() as u64, &was.source)?;
+                let unstable = drawing.layers.iter().any(|layer| {
+                    layer.id.0 > was.id.0 && !matches!(layer.source.key(), Some(Key::Handle(_)))
+                });
+                count_layer_records(db, records, &was.source, cx)?;
+                let found = (targets.insert(target_of.id.as_str())
+                    && was.source != Ref::default()
+                    && !pointed
+                    && !unstable)
+                    .then(|| {
+                        records.iter().copied().find(|&position| {
+                            db.objects()
+                                .get(position)
+                                .is_some_and(|object| source(object) == was.source)
+                        })
+                    })
+                    .flatten();
+                let planned = if let Some((position, object)) = found.and_then(|position| {
+                    db.objects().get(position).map(|object| (position, object))
+                }) {
+                    count_transform_values(object, &was.source, cx)?;
+                    if layer::removable(object)
+                        && !layer::referenced(db, position, object, cx, &was.source)?
+                    {
+                        Some(position)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                match planned {
+                    Some(position) => {
+                        if let Some(name) = db.objects().get(position).and_then(layer::name_of) {
+                            layer_names.remove(&name.to_ascii_lowercase());
+                        }
+                        removed.push(position);
+                    }
+                    None => {
+                        cx.report(
+                            unsupported("remove_layer", "LAYER", target).at(was.source.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::AddLayer { layer: new } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                count_layer_records(db, records, &Ref::default(), cx)?;
+                let zero = records.iter().find_map(|&position| {
+                    db.objects()
+                        .get(position)
+                        .filter(|object| layer::name_of(object) == Some(b"0"))
+                });
+                if let Some(zero) = zero {
+                    count_transform_values(zero, &Ref::default(), cx)?;
+                }
+                if target == Target::Dxf {
+                    count_layer_table_search(db, cx)?;
+                }
+                let planned = zero.and_then(|zero| {
+                    let mut values = layer::template(zero, target);
+                    layer::write(&born, &mut values, new, None)?;
+                    let name = layer::value_name(&values)?.to_ascii_lowercase();
+                    (!layer::fixed_name(&name)
+                        && (target != Target::Dxf || layer::table_end(db).is_some())
+                        && layer_names.insert(name))
+                    .then_some(values)
+                });
+                match planned {
+                    Some(values) => added_layers.push(values),
+                    None => {
+                        cx.report(unsupported("add_layer", "LAYER", target));
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
             Edit::Add { place, element } => {
                 let Some(&place) = index.places.get(place) else {
                     missing(place, cx);
@@ -489,7 +723,13 @@ fn edit(
                     })
             }
             (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
-            (Edit::Add { .. }, _) => None,
+            (
+                Edit::Add { .. }
+                | Edit::ReplaceLayer { .. }
+                | Edit::AddLayer { .. }
+                | Edit::RemoveLayer { .. },
+                _,
+            ) => None,
         };
         if planned.is_none() {
             cx.report(unsupported(edit, &text(&object.kind), target).at(at.clone()));
@@ -512,6 +752,27 @@ fn edit(
         db.remove(position);
     }
     let mut handles = born.push(db, added).into_iter();
+    let mut layer_handles = Vec::with_capacity(added_layers.len());
+    for values in added_layers {
+        for object in db.objects() {
+            work(cx, 1, &Ref::default())?;
+            count_transform_values(object, &Ref::default(), cx)?;
+        }
+        let handle = add::next_free_handle(db, target);
+        let record = layer::record(values, handle);
+        match target {
+            Target::Dxf => {
+                let at = layer::table_end(db).ok_or(Error::Rejected)?;
+                db.insert(at, record);
+            }
+            Target::Dwg(_) => db.push(record),
+        }
+        layer_handles.push(handle);
+    }
+    for (old, new) in &renames {
+        layer::rename(db, old, new, target, cx)?;
+    }
+    let mut layer_handles = layer_handles.into_iter();
     // ID はハンドルで作るので、読み直したファイルと同じになる
     Ok(changes
         .edits
@@ -524,9 +785,37 @@ fn edit(
                 .next()
                 .flatten()
                 .map(|handle| format!("{place}/h{handle:X}")),
-            Edit::Remove { .. } => None,
+            Edit::Remove { .. } | Edit::RemoveLayer { .. } => None,
+            Edit::ReplaceLayer { target, .. } => Some(target.id.clone()),
+            Edit::AddLayer { .. } => layer_handles
+                .next()
+                .flatten()
+                .map(|handle| format!("layer/h{handle:X}")),
         })
         .collect())
+}
+
+/// 画層のレコードを探す前に、名前と出所の探索に掛かる作業を数える。
+fn count_layer_records(db: &AcadDb, records: &[usize], at: &Ref, cx: &mut Cx) -> Result<(), Error> {
+    for &position in records {
+        work(cx, 1, at)?;
+        if let Some(object) = db.objects().get(position) {
+            count_transform_values(object, at, cx)?;
+        }
+    }
+    Ok(())
+}
+
+/// 表の終わりを探す前に、表の名前を調べる作業を数える。
+fn count_layer_table_search(db: &AcadDb, cx: &mut Cx) -> Result<(), Error> {
+    let at = Ref::default();
+    for object in db.objects() {
+        work(cx, 1, &at)?;
+        if object.kind == b"TABLE" {
+            count_transform_values(object, &at, cx)?;
+        }
+    }
+    Ok(())
 }
 
 fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) -> bool {

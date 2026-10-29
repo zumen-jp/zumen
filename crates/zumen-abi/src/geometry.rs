@@ -181,6 +181,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 height: point.length(text.height.value)?,
                 rotation,
                 style: Some(text.style.clone()),
+                style_id: None,
             })
         }
         Shape::Formatted(text) => Geometry::FormattedText(FormattedTextGeometry {
@@ -194,6 +195,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 None => None,
             },
             style: Some(text.style.clone()),
+            style_id: None,
         }),
         Shape::Symbol(symbol) if symbol.key.namespace == BLOCK => {
             Geometry::Symbol(SymbolGeometry {
@@ -263,6 +265,7 @@ fn dimension_geometry<P: Spot>(dimension: &Dimension<P>) -> Option<DimensionGeom
         text_position: dimension.text.position.map(xy),
         text_rotation: dimension.text.rotation,
         style: dimension.style.clone(),
+        style_id: None,
     };
     match dimension.kind {
         Kind::Linear {
@@ -803,7 +806,12 @@ pub(crate) fn shape_of<P: Spot>(
         }
         // 置き換える文字は、高さの意味・位置合わせ・文字スタイルを元の文字から受け継ぐ
         (Geometry::Text(text), Some(Shape::Text(old))) => {
-            if text.style.as_ref().is_some_and(|style| *style != old.style) {
+            // 文字スタイルの名前は、大文字と小文字を区別せずに比べる（図面モデルが引くのと同じ）
+            if text
+                .style
+                .as_ref()
+                .is_some_and(|style| !style.eq_ignore_ascii_case(&old.style))
+            {
                 return Err("geometry/style".to_string());
             }
             // 1 点に置く文字と 2 点の間に合わせる文字は、入れ替えない
@@ -855,7 +863,7 @@ pub(crate) fn shape_of<P: Spot>(
                 Some(_) => return mismatch(),
             };
             if let (Some(style), Some(old)) = (&text.style, was)
-                && *style != old.style
+                && !style.eq_ignore_ascii_case(&old.style)
             {
                 return Err("geometry/style".to_string());
             }
