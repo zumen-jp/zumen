@@ -315,54 +315,78 @@ impl Born {
 
     /// 図形に共通の値（DXF Reference「Common Group Codes for Entities」）。区切り・ペーパー空間の印（`paper`
     /// なら 67 = 1）・レイヤ・線種・色・線幅・線種の倍率
-    fn entity(&self, layer: LayerId, style: &Style, paper: bool) -> Option<Vec<Value>> {
+    pub(super) fn entity(&self, layer: LayerId, style: &Style, paper: bool) -> Option<Vec<Value>> {
         let mut values = vec![text(100, "AcDbEntity")];
         if paper {
             values.push(int(67, 1));
         }
+        values.push(self.layer_value(layer)?);
+        values.extend(self.style_values(style, &[6, 62, 420, 430, 370, 48])?);
+        Some(values)
+    }
+
+    /// 指定されたレイヤだけを検証する
+    pub(super) fn layer_value(&self, layer: LayerId) -> Option<Value> {
         let layer = self.layers.get(&layer)?;
-        values.push(self.named(8, b"LAYER", layer)?);
-        match style.line_type {
-            Inherit::Layer => {}
-            Inherit::Block => values.push(text(6, "ByBlock")),
-            Inherit::Own(id) => {
-                let name = self.line_types.get(&id)?;
-                values.push(self.named(6, b"LTYPE", name)?);
-            }
-        }
-        let mut rgb = None;
-        match style.color {
-            Inherit::Layer => {}
-            Inherit::Block => values.push(int(62, 0)),
-            Inherit::Own(color) => {
-                match color.code {
-                    Some(code)
-                        if code.system == ColorSystem::Aci && (1..=255).contains(&code.value) =>
-                    {
-                        values.push(int(62, i64::from(code.value)));
-                    }
-                    Some(_) => return None,
-                    None if color.rgb.is_none() => return None,
-                    None => {}
+        self.named(8, b"LAYER", layer)
+    }
+
+    /// 指定された欄だけを検証し、共通の値にする
+    pub(super) fn style_values(&self, style: &Style, changed: &[i16]) -> Option<Vec<Value>> {
+        let mut values = Vec::new();
+        if changed.contains(&6) {
+            match style.line_type {
+                Inherit::Layer => {}
+                Inherit::Block => values.push(text(6, "ByBlock")),
+                Inherit::Own(id) => {
+                    let name = self.line_types.get(&id)?;
+                    values.push(self.named(6, b"LTYPE", name)?);
                 }
-                rgb = color.rgb;
             }
         }
-        match style.line_weight {
-            None | Some(Inherit::Layer) => {}
-            Some(weight) if self.target == Target::Dxf && self.since(b"AC1015") => {
-                values.push(int(370, line_weight(weight)?));
+        if changed.contains(&62) {
+            let mut rgb = None;
+            match style.color {
+                Inherit::Layer => {}
+                Inherit::Block => values.push(int(62, 0)),
+                Inherit::Own(color) => {
+                    match color.code {
+                        Some(code)
+                            if code.system == ColorSystem::Aci
+                                && (1..=255).contains(&code.value) =>
+                        {
+                            values.push(int(62, i64::from(code.value)));
+                        }
+                        Some(_) => return None,
+                        None if color.rgb.is_none() => return None,
+                        None => {}
+                    }
+                    rgb = color.rgb;
+                }
             }
-            Some(_) => return None,
+            if let Some([r, g, b]) = rgb {
+                if !(self.target == Target::Dxf && self.since(b"AC1018")) {
+                    return None;
+                }
+                values.push(int(420, i64::from(u32::from_be_bytes([0, r, g, b]))));
+            }
         }
-        if style.line_type_scale != 1.0 {
+        if changed.contains(&370) {
+            match style.line_weight {
+                None | Some(Inherit::Layer) => {}
+                Some(weight) if self.target == Target::Dxf && self.since(b"AC1015") => {
+                    values.push(int(370, line_weight(weight)?));
+                }
+                Some(_) => return None,
+            }
+        }
+        if changed.contains(&48) && style.line_type_scale != 1.0 {
             values.push(real(48, nonzero_positive(style.line_type_scale)?)?);
         }
-        if let Some([r, g, b]) = rgb {
-            if !(self.target == Target::Dxf && self.since(b"AC1018")) {
-                return None;
-            }
-            values.push(int(420, i64::from(u32::from_be_bytes([0, r, g, b]))));
+        // 元の順に合わせ、色の RGB を線種の倍率の後に並べる
+        if let Some(position) = values.iter().position(|value| value.code == 420) {
+            let rgb = values.remove(position);
+            values.push(rgb);
         }
         Some(values)
     }
