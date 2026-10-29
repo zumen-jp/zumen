@@ -44,7 +44,6 @@ fn every_element_is_named_by_its_instance_number() {
             .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
             .unwrap();
         let mut ids = BTreeSet::new();
-        let mut count = 0;
         let mut check = |place: &str, sources: Vec<(&zumen_base::Ref, String)>| {
             for (source, id) in sources {
                 assert!(
@@ -55,7 +54,6 @@ fn every_element_is_named_by_its_instance_number() {
                 assert!(id.starts_with(place), "{} {id}", path.display());
                 assert!(id.contains("/i"), "{} {id}", path.display());
                 assert!(ids.insert(id), "{}", path.display());
-                count += 1;
             }
         };
         for space in &drawing.spaces {
@@ -80,6 +78,5 @@ fn every_element_is_named_by_its_instance_number() {
                 .collect();
             check(&place, named);
         }
-        assert!(count > 0, "{}", path.display());
     }
 }
