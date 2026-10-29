@@ -565,6 +565,8 @@ fn changes(
     };
     let mut edits = Vec::with_capacity(request.edits.len());
     let mut tables = None;
+    let mut elements = None;
+    let mut places = None;
     for (index, edit) in request.edits.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let at = |field: &str| format!("/edits/{index}/{field}");
@@ -574,6 +576,18 @@ fn changes(
                 hash: hash(text, at("hash"), cx)?,
             })
         };
+        let value = match edit {
+            messages::Edit::Replace(edit) => Some(&edit.geometry),
+            messages::Edit::Add(edit) => Some(&edit.geometry),
+            _ => None,
+        };
+        let size = match value {
+            Some(messages::Geometry::Polyline(line)) => line.points.len(),
+            Some(messages::Geometry::Text(text)) => text.content.len(),
+            _ => 0,
+        };
+        cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+            .map_err(|stop| stopped(cx, stop))?;
         edits.push(match edit {
             messages::Edit::Restyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
@@ -607,12 +621,17 @@ fn changes(
             },
             messages::Edit::Replace(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
+                if elements.is_none() {
+                    elements = Some(ElementLookup::new(drawing, cx)?);
+                }
                 // 指した要素がなければ、除くときと同じく `change.element.missing` にする
-                let element = match geometry::find(drawing, &edit.id) {
-                    Some(Placed::Model(element)) => {
+                let element = match elements.as_ref().and_then(|index| index.get(&edit.id)) {
+                    Some(FoundElement::Model(element)) => {
+                        count_old_text(&element.shape, cx)?;
                         reshaped(element, &edit.geometry).map(Placed::Model)
                     }
-                    Some(Placed::Paper(element)) => {
+                    Some(FoundElement::Paper(element)) => {
+                        count_old_text(&element.shape, cx)?;
                         reshaped(element, &edit.geometry).map(Placed::Paper)
                     }
                     None => {
@@ -634,7 +653,13 @@ fn changes(
                 let Some(tables) = &tables else {
                     return Err(Failed);
                 };
-                let element = added(edit, drawing, tables)
+                if places.is_none() {
+                    places = Some(PlaceLookup::new(drawing, cx)?);
+                }
+                let Some(places) = &places else {
+                    return Err(Failed);
+                };
+                let element = added(edit, places, tables)
                     .map_err(|field| fail(cx, invalid_value(at(&field))))?;
                 Edit::Add {
                     place: edit.place.clone(),
@@ -644,6 +669,91 @@ fn changes(
         });
     }
     Ok(Changes { edits, document })
+}
+
+/// 要素の ID を一度だけ作り、複数の置き換えで共有する。
+enum FoundElement<'a> {
+    Model(&'a Element<ModelPoint>),
+    Paper(&'a Element<PaperPoint>),
+}
+
+struct ElementLookup<'a>(BTreeMap<String, FoundElement<'a>>);
+
+impl<'a> ElementLookup<'a> {
+    fn new(drawing: &'a Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Failed> {
+        let mut found = BTreeMap::new();
+        for space in &drawing.spaces {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let place = id::space(space.id);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in space.elements.iter().enumerate() {
+                cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+                found.insert(namer.next(index, element), FoundElement::Model(element));
+            }
+        }
+        let mut definitions = id::DefinitionNamer::default();
+        for definition in &drawing.symbols {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let place = definitions.next(definition);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in definition.space.elements.iter().enumerate() {
+                cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+                found.insert(namer.next(index, element), FoundElement::Model(element));
+            }
+        }
+        let mut sheets = id::SheetNamer::default();
+        for sheet in &drawing.sheets {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let place = sheets.next(sheet);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in sheet.elements.iter().enumerate() {
+                cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+                found.insert(namer.next(index, element), FoundElement::Paper(element));
+            }
+        }
+        Ok(Self(found))
+    }
+
+    fn get(&self, id: &str) -> Option<&FoundElement<'a>> {
+        self.0.get(id)
+    }
+}
+
+/// 足す先の検索を変更ごとに繰り返さないための索引。
+struct PlaceLookup {
+    spaces: BTreeMap<String, ModelPoint>,
+    sheets: BTreeMap<String, PaperPoint>,
+}
+
+impl PlaceLookup {
+    fn new(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Failed> {
+        let mut spaces = BTreeMap::new();
+        for space in &drawing.spaces {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            spaces.insert(
+                id::space(space.id),
+                ModelPoint {
+                    space: space.id,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            );
+        }
+        let mut sheets = BTreeMap::new();
+        let mut namer = id::SheetNamer::default();
+        for sheet in &drawing.sheets {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            sheets.insert(
+                namer.next(sheet),
+                PaperPoint {
+                    sheet: sheet.id,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            );
+        }
+        Ok(Self { spaces, sheets })
+    }
 }
 
 /// 表の検索を変更ごとに繰り返さないための索引。同じ名前は 1 つに決まらない
@@ -721,19 +831,35 @@ fn layer_of(
 }
 
 /// 形を形の値で置き換えた要素。合わない欄があれば、その欄の名前を返す
+fn count_old_text<P>(shape: &Shape<P>, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    if let Shape::Text(text) = shape {
+        cx.check(
+            Kind::Work,
+            u64::try_from(text.content.len()).unwrap_or(u64::MAX),
+        )
+        .map_err(|stop| stopped(cx, stop))?;
+    }
+    Ok(())
+}
+
 fn reshaped<P: geometry::Spot>(
-    element: Element<P>,
+    element: &Element<P>,
     value: &messages::Geometry,
 ) -> Result<Element<P>, String> {
     let origin = geometry::origin_of(&element.shape).ok_or("geometry")?;
     let shape = geometry::shape_of(value, Some(&element.shape), origin)?;
-    Ok(Element { shape, ..element })
+    Ok(Element {
+        source: element.source.clone(),
+        layer: element.layer,
+        style: element.style,
+        shape,
+    })
 }
 
 /// 足す要素。レイヤを指さなければ「0」に置き、色・線種・線幅はレイヤに従う。合わない欄があれば、その欄の名前を返す
 fn added(
     edit: &messages::AddEdit,
-    drawing: &Drawing2D,
+    places: &PlaceLookup,
     tables: &TableLookup<'_>,
 ) -> Result<Placed, String> {
     let layer = match layer_of(edit.layer.as_deref(), edit.layer_id.as_deref(), tables)? {
@@ -746,16 +872,7 @@ fn added(
         line_type_scale: 1.0,
         line_weight: Some(Inherit::Layer),
     };
-    if let Some(space) = drawing
-        .spaces
-        .iter()
-        .find(|space| id::space(space.id) == edit.place)
-    {
-        let origin = ModelPoint {
-            space: space.id,
-            x: 0.0,
-            y: 0.0,
-        };
+    if let Some(&origin) = places.spaces.get(&edit.place) {
         return Ok(Placed::Model(Element {
             source: Ref::default(),
             layer,
@@ -763,17 +880,7 @@ fn added(
             shape: geometry::shape_of(&edit.geometry, None, origin)?,
         }));
     }
-    let mut sheets = id::SheetNamer::default();
-    if let Some(sheet) = drawing
-        .sheets
-        .iter()
-        .find(|sheet| sheets.next(sheet) == edit.place)
-    {
-        let origin = PaperPoint {
-            sheet: sheet.id,
-            x: 0.0,
-            y: 0.0,
-        };
+    if let Some(&origin) = places.sheets.get(&edit.place) {
         return Ok(Placed::Paper(Element {
             source: Ref::default(),
             layer,
@@ -1007,11 +1114,13 @@ impl Page {
             };
             // 形の値は、折れ線の頂点の数に比例して作る
             let geometry = if has(EntityField::Geometry) {
-                if let Shape::Polyline(line) = &element.shape {
-                    let vertices = u64::try_from(line.vertices.len()).unwrap_or(u64::MAX);
-                    cx.check(Kind::Work, vertices)
-                        .map_err(|stop| stop_at(cx, stop))?;
-                }
+                let size = match &element.shape {
+                    Shape::Polyline(line) => line.vertices.len(),
+                    Shape::Text(text) => text.content.len(),
+                    _ => 0,
+                };
+                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                    .map_err(|stop| stop_at(cx, stop))?;
                 geometry::geometry_of(&element.shape)
             } else {
                 None
@@ -2517,6 +2626,55 @@ mod tests {
         assert_eq!(
             response,
             r#"{"v":1,"diagnostics":[{"code":"zip.path.unsafe","severity":"warning","count":1,"at":[{"id":"7","record":3,"bytes":{"start":10,"end":20}}],"cite":{"spec":"zip-appnote-6.3.10","section":"4.4.17"},"params":{"name":"../a"}}],"blobs":[]}"#
+        );
+    }
+
+    #[test]
+    fn element_and_place_lookup_count_work() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let drawing = session
+            .lift(
+                "a.dxf",
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .ok()
+            .unwrap();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(3)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(
+            ElementLookup::new(
+                &drawing,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let lookup = ElementLookup::new(
+            &drawing,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .ok()
+        .unwrap();
+        assert!(lookup.get("space/0/h2F").is_some());
+        assert_eq!(budget.used(Kind::Work), 4);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(
+            PlaceLookup::new(
+                &drawing,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_err()
         );
     }
 

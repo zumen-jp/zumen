@@ -27,8 +27,9 @@ impl Apply<Changes> for DxfFile {
         if !current {
             return Err(Error::Rejected);
         }
+        let result = settled(&db, ids, cx)?;
         self.write_back(&db, cx)?;
-        settled(&db, ids, cx)
+        Ok(result)
     }
 }
 
@@ -44,12 +45,16 @@ impl Apply<Changes> for DwgFile {
         if !current {
             return Err(Error::Rejected);
         }
-        self.write_back(&db, cx)?;
+        // 書き戻し後の検査が止まっても、元のファイルは変えない。
+        let mut updated = self.snapshot(cx)?;
+        updated.write_back(&db, cx)?;
         // DWG は角度をラジアンで持つので、表の度の値は、書いて読み直すと末の桁がずれうる。ハッシュは、
         // 書き戻したファイルから作り直した表で求める
         let mut quiet = Diagnostics::new();
-        let written = self.objects(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
-        settled(&written, ids, cx)
+        let written = updated.objects(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+        let result = settled(&written, ids, cx)?;
+        *self = updated;
+        Ok(result)
     }
 }
 
@@ -1548,6 +1553,65 @@ mod hash_budget_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Key, Kind, Limit, Limits};
     use zumen_drawing::{LayerId, ModelSpace, Style, Unit, Vertex};
+
+    #[test]
+    fn stopped_apply_does_not_change_dxf() {
+        use zumen_drawing::Seen;
+        use zumen_sdk::Lift;
+        let src = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n2F\n8\n0\n10\n0\n20\n0\n11\n10\n21\n0\n0\nENDSEC\n0\nEOF\n";
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let mut cx = context(&mut budget, &mut diagnostics, &cancel);
+        let file = Dxf::read(src, &mut cx).unwrap();
+        let drawing: Drawing2D = file.lift(&mut cx).unwrap();
+        let space = &drawing.spaces[0];
+        let element = &space.elements[0];
+        let place = id::space(space.id);
+        let target = Seen {
+            id: id::Namer::new(&place).next(0, element),
+            hash: Hash::element(element),
+        };
+        let changes = Changes {
+            edits: vec![Edit::Transform {
+                target,
+                transform: Affine {
+                    m: [1.0, 0.0, 5.0, 0.0, 1.0, 7.0],
+                },
+            }],
+            document: None,
+        };
+        let mut failed = 0;
+        let mut succeeded = false;
+        for limit in 0..500 {
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let mut file =
+                Dxf::read(src, &mut context(&mut budget, &mut diagnostics, &cancel)).unwrap();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+            if file
+                .apply(
+                    &changes,
+                    &mut context(&mut budget, &mut diagnostics, &cancel),
+                )
+                .is_ok()
+            {
+                succeeded = true;
+                break;
+            }
+            failed += 1;
+            let mut bytes = Vec::new();
+            let mut budget = Budget::default();
+            Dxf::write(
+                &file,
+                &mut bytes,
+                &mut context(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap();
+            assert_eq!(bytes, src, "work={limit}");
+        }
+        assert!(failed > 0 && succeeded);
+    }
 
     #[test]
     fn indexing_symbol_definitions_and_elements_counts_work() {

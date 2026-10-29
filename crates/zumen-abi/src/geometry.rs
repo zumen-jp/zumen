@@ -5,8 +5,8 @@
 
 use zumen_drawing::transform::Point;
 use zumen_drawing::{
-    Drawing2D, Edge, Element, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed,
-    Placement, Polyline, Shape, Text, Vertex, id,
+    Edge, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Shape,
+    Text, Vertex,
 };
 
 use crate::bounds::Planar;
@@ -204,42 +204,4 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
         },
         _ => None,
     }
-}
-
-/// ID の要素。実寸の空間・記号の定義の空間・用紙の順に探す
-pub(crate) fn find(drawing: &Drawing2D, wanted: &str) -> Option<Placed> {
-    fn search<P: Clone>(place: &str, elements: &[Element<P>], wanted: &str) -> Option<Element<P>> {
-        if !wanted
-            .strip_prefix(place)
-            .is_some_and(|rest| rest.starts_with('/'))
-        {
-            return None;
-        }
-        let mut namer = id::Namer::new(place);
-        elements
-            .iter()
-            .enumerate()
-            .find(|(index, element)| namer.next(*index, element) == wanted)
-            .map(|(_, element)| element.clone())
-    }
-    for space in &drawing.spaces {
-        if let Some(found) = search(&id::space(space.id), &space.elements, wanted) {
-            return Some(Placed::Model(found));
-        }
-    }
-    // 定義と用紙の ID は、apply の索引と同じく、重なれば 2 つ目から `/1` を足す
-    let mut definitions = id::DefinitionNamer::default();
-    for definition in &drawing.symbols {
-        let place = definitions.next(definition);
-        if let Some(found) = search(&place, &definition.space.elements, wanted) {
-            return Some(Placed::Model(found));
-        }
-    }
-    let mut sheets = id::SheetNamer::default();
-    for sheet in &drawing.sheets {
-        if let Some(found) = search(&sheets.next(sheet), &sheet.elements, wanted) {
-            return Some(Placed::Paper(found));
-        }
-    }
-    None
 }
