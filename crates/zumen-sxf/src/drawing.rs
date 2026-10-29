@@ -21,6 +21,8 @@ use zumen_sdk::{Cx, Error, Lift};
 
 use crate::{Mode, Quote, SxfFile, Value, p21};
 
+mod apply;
+
 const SHEET: SheetId = SheetId(0);
 
 /// 既定義線種のコード 1〜15 の名前（SXF の共通既定義要素の表）

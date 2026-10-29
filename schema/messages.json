@@ -774,13 +774,16 @@
       "additionalProperties": false
     },
     "add_edit": {
-      "description": "空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から",
+      "description": "空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から",
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "add" },
         "place": { "description": "足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分", "type": "string" },
         "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0", "type": "string" },
         "layer_id": { "description": "レイヤの ID。tables が返したもの", "type": "string" },
+        "color": { "description": "色。SXF はレイヤに従う色を書けないので、書く。小版 29 から", "$ref": "#/$defs/color_change" },
+        "line_type": { "description": "線種。小版 29 から", "$ref": "#/$defs/line_type_change" },
+        "line_weight": { "description": "線幅。小版 29 から", "$ref": "#/$defs/line_weight_change" },
         "geometry": { "description": "足す形", "$ref": "#/$defs/geometry" }
       },
       "required": ["kind", "place", "geometry"],
@@ -1035,11 +1038,12 @@
       "enum": ["layer", "block"]
     },
     "color_change": {
-      "description": "新しい色。inherit か、aci と rgb の少なくとも一方のどちらかを書く",
+      "description": "新しい色。inherit か、aci・sxf・rgb の少なくとも 1 つのどちらかを書く。aci と sxf は一緒に書かない",
       "type": "object",
       "properties": {
         "inherit": { "description": "継承する先", "$ref": "#/$defs/inherit" },
         "aci": { "description": "AutoCAD の色の番号（1〜255）", "type": "integer", "minimum": 1, "maximum": 255 },
+        "sxf": { "description": "SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から", "type": "integer", "minimum": 1 },
         "rgb": {
           "description": "[赤, 緑, 青]。それぞれ 0〜255",
           "type": "array",
