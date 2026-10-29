@@ -449,7 +449,7 @@ impl Session {
             line_type_ids
                 .entry(line_type.id)
                 .or_insert_with(|| id.clone());
-            line_types.push(line_type_item(id, line_type, hash, &drawing, &style_ids));
+            line_types.push(line_type_item(id, line_type, hash, &style_ids, cx)?);
         }
         seen.clear();
         let mut layers = Vec::with_capacity(drawing.layers.len());
@@ -666,11 +666,11 @@ fn line_type_item(
     id: String,
     line_type: &LineType,
     hash: Hash,
-    drawing: &Drawing2D,
     style_ids: &StyleIds,
-) -> LineTypeItem {
+    cx: &mut Cx<'_>,
+) -> Result<LineTypeItem, Failed> {
     let definition = line_type.definition.as_ref();
-    let mark = |mark: &zumen_drawing::LineTypeMark| {
+    let mut mark = |mark: &zumen_drawing::LineTypeMark| {
         let (kind, font, number, text, style) = match &mark.content {
             MarkContent::Shape { font, number } => (
                 LineTypeMarkKind::Shape,
@@ -687,17 +687,44 @@ fn line_type_item(
                 style.clone(),
             ),
         };
-        messages::LineTypeMark {
+        let (style_id, height) = match &mark.content {
+            MarkContent::Text { style, .. } => {
+                let (id, fixed) = if let Some(name) = style {
+                    // 同じ名前を持つ最初の項目を索引から引く。比較と小文字への変換も数える。
+                    let depth = u64::from(style_ids.text.len().max(1).ilog2()) + 1;
+                    let length = u64::try_from(name.len())
+                        .unwrap_or(u64::MAX)
+                        .saturating_add(1);
+                    cx.check(Kind::Work, length.saturating_mul(depth).saturating_mul(16))
+                        .map_err(|stop| stopped(cx, stop))?;
+                    let key = name.to_ascii_lowercase();
+                    (
+                        style_ids.text.get(&key).cloned(),
+                        style_ids.text_heights.get(&key).copied().flatten(),
+                    )
+                } else {
+                    (None, None)
+                };
+                (
+                    id,
+                    Some(
+                        fixed
+                            .filter(|height| *height > 0.0)
+                            .map_or(mark.scale, |height| height * mark.scale),
+                    ),
+                )
+            }
+            MarkContent::Shape { .. } => (None, None),
+        };
+        Ok(messages::LineTypeMark {
             index: mark.index as u64,
             kind,
             font,
             number,
             text,
-            style_id: style
-                .as_ref()
-                .and_then(|name| style_ids.text.get(&name.to_ascii_lowercase()).cloned()),
+            style_id,
             style,
-            height: drawing.mark_text_height(mark),
+            height,
             scale: mark.scale,
             rotation: mark.rotation,
             rotation_basis: match mark.rotation_basis {
@@ -706,9 +733,9 @@ fn line_type_item(
                 zumen_drawing::MarkRotation::Upright => messages::MarkRotation::Upright,
             },
             offset: mark.offset.to_vec(),
-        }
+        })
     };
-    LineTypeItem {
+    Ok(LineTypeItem {
         id,
         name: line_type.name.clone(),
         hash: hash.to_string(),
@@ -717,8 +744,10 @@ fn line_type_item(
         pattern: definition.map(|d| d.pattern.clone()),
         paper: definition.map(|d| d.basis == PatternBasis::Paper),
         marked: definition.map(|d| !d.marks.is_empty()),
-        marks: definition.map(|d| d.marks.iter().map(mark).collect()),
-    }
+        marks: definition
+            .map(|d| d.marks.iter().map(&mut mark).collect())
+            .transpose()?,
+    })
 }
 
 fn text_style_item(id: String, style: &zumen_drawing::TextStyle, hash: Hash) -> TextStyleItem {
@@ -782,6 +811,7 @@ fn table_id(base: String, seen: &mut BTreeMap<String, u64>) -> String {
 #[derive(Default)]
 struct StyleIds {
     text: BTreeMap<String, String>,
+    text_heights: BTreeMap<String, Option<f64>>,
     dimension: BTreeMap<String, String>,
 }
 
@@ -802,10 +832,14 @@ impl StyleIds {
             cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
                 .map_err(|stop| stopped(cx, stop))?;
             let id = table_id(id::text_style(style, index), &mut seen);
-            result
-                .text
-                .entry(style.name.to_ascii_lowercase())
-                .or_insert(id);
+            let key = style.name.to_ascii_lowercase();
+            result.text_heights.entry(key.clone()).or_insert_with(|| {
+                style
+                    .definition
+                    .as_ref()
+                    .and_then(|definition| definition.height)
+            });
+            result.text.entry(key).or_insert(id);
         }
         Ok(result)
     }
@@ -3557,6 +3591,107 @@ mod tests {
                 r#"[{"index":0,"kind":"shape","font":{"name":"ltypeshp.shx","kind":"shape"},"number":2,"#,
                 r#""scale":0.2,"rotation":0,"rotation_basis":"absolute","offset":[0,0]}]"#
             )
+        );
+    }
+
+    #[test]
+    fn line_type_mark_heights_use_a_bounded_style_lookup() {
+        let style = |name: String, height: f64| TextStyle {
+            name,
+            definition: Some(TextStyleDefinition {
+                font: None,
+                big_font: None,
+                height: Some(height),
+                width: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                vertical: false,
+            }),
+            source: Ref::default(),
+        };
+        let mut drawing = Drawing2D {
+            text_styles: (0..256)
+                .map(|i| style(format!("style{i:03}"), 2.0))
+                .collect(),
+            ..Drawing2D::default()
+        };
+        // 同名の後ろの項目より先の項目を使う。
+        drawing.text_styles.push(style("STYLE255".to_owned(), 8.0));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let ids = StyleIds::new(
+            &drawing,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .ok()
+        .unwrap();
+        let line_type = LineType {
+            id: LineTypeId(0),
+            name: "marked".to_owned(),
+            definition: Some(LineTypeDefinition {
+                description: String::new(),
+                pattern: vec![1.0],
+                basis: PatternBasis::Element,
+                marks: (0..64)
+                    .map(|_| zumen_drawing::LineTypeMark {
+                        index: 0,
+                        content: MarkContent::Text {
+                            content: "GAS".to_owned(),
+                            style: Some("STYLE255".to_owned()),
+                        },
+                        scale: 0.5,
+                        rotation: 0.0,
+                        rotation_basis: zumen_drawing::MarkRotation::Relative,
+                        offset: [0.0, 0.0],
+                    })
+                    .collect(),
+            }),
+            source: Ref::default(),
+        };
+        let hash = Hash::line_type(&line_type);
+        let mut budget = Budget::default();
+        let result = line_type_item(
+            "line-type/0".to_owned(),
+            &line_type,
+            hash,
+            &ids,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .ok()
+        .unwrap();
+        let work = budget.used(Kind::Work);
+        assert!(work >= 64);
+        assert!(
+            result
+                .marks
+                .unwrap()
+                .iter()
+                .all(|mark| mark.height == Some(1.0))
+        );
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(work - 1)));
+        assert!(
+            line_type_item(
+                "line-type/0".to_owned(),
+                &line_type,
+                hash,
+                &ids,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_err()
+        );
+        cancel.cancel();
+        let mut budget = Budget::default();
+        assert!(
+            line_type_item(
+                "line-type/0".to_owned(),
+                &line_type,
+                hash,
+                &ids,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_err()
         );
     }
 
