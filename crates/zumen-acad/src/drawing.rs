@@ -101,7 +101,8 @@ pub(crate) struct Home {
     pub(crate) paper: bool,
 }
 
-/// 図面モデルと、要素を持つ用紙ごとの座標の対応
+/// 図面モデルと、用紙ごとの座標の対応。中身のない用紙は、LAYOUT のブロックのレコードがあり、単位が
+/// 分かるものだけが持つ
 fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, PaperFrame>), Error> {
     let unit = unit(db, cx);
     let limits = |name: &[u8]| {
@@ -261,23 +262,26 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     // 中身のない用紙の ID は、中身のある用紙の後から、タブの順に付ける
     let current = current.map(|(index, _)| index);
     out.layouts
-        .retain(|(_, layout, _)| !(has_paper && layout.is_some() && *layout == current));
-    out.layouts.sort_by_key(|(tab, _, _)| *tab);
+        .retain(|(_, layout, _, _)| !(has_paper && layout.is_some() && *layout == current));
+    out.layouts.sort_by_key(|(tab, _, _, _)| *tab);
     let filled = out
         .layouts
         .iter()
-        .filter(|(_, _, sheet)| sheet.id != EMPTY)
+        .filter(|(_, _, sheet, _)| sheet.id != EMPTY)
         .count();
     let mut next = u32::try_from(filled).unwrap_or(u32::MAX).saturating_add(1);
-    for (_, _, sheet) in &mut out.layouts {
+    for (_, _, sheet, frame) in &mut out.layouts {
         if sheet.id == EMPTY {
             sheet.id = SheetId(next);
             next = next.saturating_add(1);
+            if let Some(frame) = frame {
+                out.frames.insert(sheet.id, *frame);
+            }
         }
     }
     drawing
         .sheets
-        .extend(out.layouts.into_iter().map(|(_, _, sheet)| sheet));
+        .extend(out.layouts.into_iter().map(|(_, _, sheet, _)| sheet));
     Ok((drawing, out.frames))
 }
 
@@ -455,7 +459,11 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
     let inner = symbols
         .iter()
         .flat_map(|symbol| placed(&symbol.space.elements));
-    let layouts = || out.layouts.iter().flat_map(|(_, _, sheet)| &sheet.elements);
+    let layouts = || {
+        out.layouts
+            .iter()
+            .flat_map(|(_, _, sheet, _)| &sheet.elements)
+    };
     let others = referenced(&out.model)
         .chain(referenced(&out.paper))
         .chain(layouts().flat_map(|element| referenced(std::slice::from_ref(element))))
@@ -678,8 +686,8 @@ struct Out {
     /// 用紙の上に描くものと、そのハンドル。順序は入力の順
     sheet: Vec<(SheetItem, Option<u64>)>,
     /// ほかのレイアウトの用紙と、そのタブの順と LAYOUT の位置（オブジェクトの並びの中）。中身のない用紙の ID は、
-    /// 最後に付ける
-    layouts: Vec<(i64, Option<usize>, Sheet)>,
+    /// 最後に付ける。中身のない用紙は、要素を足すための座標の対応も持つ
+    layouts: Vec<(i64, Option<usize>, Sheet, Option<PaperFrame>)>,
     /// 中身のあるほかのレイアウトの用紙の数。ID を決めるために毎回並びを探し直さない
     filled_layouts: u32,
     layers: Vec<Layer>,
@@ -694,7 +702,7 @@ struct Out {
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
     extensions: Vec<Extension>,
-    /// 要素を置いた用紙ごとの座標の対応
+    /// 要素を置いた用紙ごとの座標の対応。中身のない用紙のものは、ID を付けるときに足す
     frames: BTreeMap<SheetId, PaperFrame>,
 }
 
@@ -1350,6 +1358,23 @@ impl Lifter<'_> {
         if !empty {
             out.filled_layouts = id.0;
         }
+        // 中身のない用紙に足す要素は、レイアウトのブロックのレコードを所有者とし、ペーパー空間の印を付ける。
+        // 今のレイアウト（`*Paper_Space`）のものは ENTITIES の所に、ほかのレイアウトのものはそのブロックに置く
+        let frame = match (record, self.mm) {
+            (Some(record), Some(mm)) if empty => {
+                let current = matches!(record.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"*Paper_Space"));
+                Some(PaperFrame {
+                    origin: if current { self.origin } else { lifter.origin },
+                    mm,
+                    home: Home {
+                        owner: handle,
+                        blocks: !current,
+                        paper: true,
+                    },
+                })
+            }
+            _ => None,
+        };
         out.layouts.push((
             tab,
             layout.map(|(index, _)| index),
@@ -1361,6 +1386,7 @@ impl Lifter<'_> {
                 views,
                 order,
             },
+            frame,
         ));
         Ok(())
     }

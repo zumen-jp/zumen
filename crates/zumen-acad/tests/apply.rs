@@ -1249,7 +1249,7 @@ fn sheet_elements_are_added_in_paper_millimeters() {
 }
 
 #[test]
-fn sheet_elements_need_a_sheet_with_elements() {
+fn sheet_elements_need_a_known_sheet() {
     use zumen_drawing::{PaperPoint, SheetId};
     let src = sheet();
     let mut file = testkit::read::<Dxf>(&src).0.unwrap();
