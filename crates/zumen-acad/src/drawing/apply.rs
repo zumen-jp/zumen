@@ -23,12 +23,13 @@ impl Apply<Changes> for DxfFile {
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
         let current = document(self, changes, Dxf::write, cx)?;
         let mut db = self.table(cx, false)?;
-        let applied = edit(&mut db, changes, Target::Dxf, cx)?;
+        let ids = edit(&mut db, changes, Target::Dxf, cx)?;
         if !current {
             return Err(Error::Rejected);
         }
+        let result = settled(&db, ids, cx)?;
         self.write_back(&db, cx)?;
-        Ok(applied)
+        Ok(result)
     }
 }
 
@@ -40,12 +41,20 @@ impl Apply<Changes> for DwgFile {
         let current = document(self, changes, Dwg::write, cx)?;
         let mut db = self.objects(cx)?;
         let seed = self.handle_seed();
-        let applied = edit(&mut db, changes, Target::Dwg(seed), cx)?;
+        let ids = edit(&mut db, changes, Target::Dwg(seed), cx)?;
         if !current {
             return Err(Error::Rejected);
         }
-        self.write_back(&db, cx)?;
-        Ok(applied)
+        // 書き戻し後の検査が止まっても、元のファイルは変えない。
+        let mut updated = self.snapshot(cx)?;
+        updated.write_back(&db, cx)?;
+        // DWG は角度をラジアンで持つので、表の度の値は、書いて読み直すと末の桁がずれうる。ハッシュは、
+        // 書き戻したファイルから作り直した表で求める
+        let mut quiet = Diagnostics::new();
+        let written = updated.objects(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+        let result = settled(&written, ids, cx)?;
+        *self = updated;
+        Ok(result)
     }
 }
 
@@ -209,13 +218,13 @@ fn unsupported(edit: &str, kind: &str, target: Target) -> Diagnostic {
 }
 
 /// 変更を表に当てる。すべての変更を確かめ、当てられない変更が 1 つでもあれば、表を変えずに失敗する。
-/// `target` は書き戻す先。当てたら、表から図面モデルを作り直し、変更ごとの新しい ID とハッシュを返す
+/// `target` は書き戻す先。当てたら、変更ごとの新しい ID を返す（除いた変更は `None`）
 fn edit(
     db: &mut AcadDb,
     changes: &Changes,
     target: Target,
     cx: &mut Cx,
-) -> Result<Vec<Applied>, Error> {
+) -> Result<Vec<Option<String>>, Error> {
     // ハンドルが重複すると、参照や ID が別のオブジェクトを指しうる。書き戻しは拒否する。
     let mut handles = BTreeSet::new();
     for object in db.objects() {
@@ -432,29 +441,29 @@ fn edit(
         db.remove(position);
     }
     let mut handles = born.push(db, added).into_iter();
-    // 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める。ID は
-    // ハンドルで作るので、読み直したファイルと同じになる
-    let mut quiet = Diagnostics::new();
-    let (after, _) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
-    let after = Index::new(&after, cx)?;
-    changes
+    // ID はハンドルで作るので、読み直したファイルと同じになる
+    Ok(changes
         .edits
         .iter()
         .map(|change| match change {
             Edit::Replace { target, .. }
             | Edit::Restyle { target, .. }
-            | Edit::Transform { target, .. } => applied(&after, Some(target.id.clone()), cx),
-            Edit::Add { place, .. } => applied(
-                &after,
-                handles
-                    .next()
-                    .flatten()
-                    .map(|handle| format!("{place}/h{handle:X}")),
-                cx,
-            ),
-            Edit::Remove { .. } => applied(&after, None, cx),
+            | Edit::Transform { target, .. } => Some(target.id.clone()),
+            Edit::Add { place, .. } => handles
+                .next()
+                .flatten()
+                .map(|handle| format!("{place}/h{handle:X}")),
+            Edit::Remove { .. } => None,
         })
-        .collect()
+        .collect())
+}
+
+/// 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める
+fn settled(db: &AcadDb, ids: Vec<Option<String>>, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+    let mut quiet = Diagnostics::new();
+    let (after, _) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+    let after = Index::new(&after, cx)?;
+    ids.into_iter().map(|id| applied(&after, id, cx)).collect()
 }
 
 /// スタイルを変えた図形の値。変わった欄（レイヤ 8・線種 6・色 62 と 420 と 430・線幅 370・線種の倍率 48）
@@ -1544,6 +1553,65 @@ mod hash_budget_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Key, Kind, Limit, Limits};
     use zumen_drawing::{LayerId, ModelSpace, Style, Unit, Vertex};
+
+    #[test]
+    fn stopped_apply_does_not_change_dxf() {
+        use zumen_drawing::Seen;
+        use zumen_sdk::Lift;
+        let src = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n2F\n8\n0\n10\n0\n20\n0\n11\n10\n21\n0\n0\nENDSEC\n0\nEOF\n";
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let mut cx = context(&mut budget, &mut diagnostics, &cancel);
+        let file = Dxf::read(src, &mut cx).unwrap();
+        let drawing: Drawing2D = file.lift(&mut cx).unwrap();
+        let space = &drawing.spaces[0];
+        let element = &space.elements[0];
+        let place = id::space(space.id);
+        let target = Seen {
+            id: id::Namer::new(&place).next(0, element),
+            hash: Hash::element(element),
+        };
+        let changes = Changes {
+            edits: vec![Edit::Transform {
+                target,
+                transform: Affine {
+                    m: [1.0, 0.0, 5.0, 0.0, 1.0, 7.0],
+                },
+            }],
+            document: None,
+        };
+        let mut failed = 0;
+        let mut succeeded = false;
+        for limit in 0..500 {
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let mut file =
+                Dxf::read(src, &mut context(&mut budget, &mut diagnostics, &cancel)).unwrap();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+            if file
+                .apply(
+                    &changes,
+                    &mut context(&mut budget, &mut diagnostics, &cancel),
+                )
+                .is_ok()
+            {
+                succeeded = true;
+                break;
+            }
+            failed += 1;
+            let mut bytes = Vec::new();
+            let mut budget = Budget::default();
+            Dxf::write(
+                &file,
+                &mut bytes,
+                &mut context(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap();
+            assert_eq!(bytes, src, "work={limit}");
+        }
+        assert!(failed > 0 && succeeded);
+    }
 
     #[test]
     fn indexing_symbol_definitions_and_elements_counts_work() {

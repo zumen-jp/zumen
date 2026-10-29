@@ -373,6 +373,10 @@
         "hash": {
           "description": "要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）",
           "type": "string"
+        },
+        "geometry": {
+          "description": "形の値。線分・円・円弧・幅を持たない折れ線・1 点に置く文字だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
+          "$ref": "#/$defs/geometry"
         }
       },
       "required": ["id"],
@@ -381,7 +385,85 @@
     "entity_field": {
       "description": "entities で返す要素の欄（決定 0118）",
       "type": "string",
-      "enum": ["id", "kind", "layer", "source", "bbox", "hash"]
+      "enum": ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
+    },
+    "geometry": {
+      "description": "形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる",
+      "oneOf": [
+        { "$ref": "#/$defs/line_geometry" },
+        { "$ref": "#/$defs/circle_geometry" },
+        { "$ref": "#/$defs/arc_geometry" },
+        { "$ref": "#/$defs/polyline_geometry" },
+        { "$ref": "#/$defs/text_geometry" }
+      ]
+    },
+    "line_geometry": {
+      "description": "線分",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "line" },
+        "start": { "description": "始点 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "end": { "description": "終点 [X, Y]", "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["shape", "start", "end"],
+      "additionalProperties": false
+    },
+    "circle_geometry": {
+      "description": "円",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "circle" },
+        "center": { "description": "中心 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "radius": { "description": "半径。0 より大きい", "type": "number" }
+      },
+      "required": ["shape", "center", "radius"],
+      "additionalProperties": false
+    },
+    "arc_geometry": {
+      "description": "円弧。始まりの角度から終わりの角度へ、反時計回りにたどる",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "arc" },
+        "center": { "description": "中心 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "radius": { "description": "半径。0 より大きい", "type": "number" },
+        "start_angle": { "description": "始まりの角度（度）", "type": "number" },
+        "end_angle": { "description": "終わりの角度（度）", "type": "number" }
+      },
+      "required": ["shape", "center", "radius", "start_angle", "end_angle"],
+      "additionalProperties": false
+    },
+    "polyline_geometry": {
+      "description": "頂点を結んだ折れ線。幅は持たない",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "polyline" },
+        "points": {
+          "description": "頂点の [X, Y] の並び。2 つ以上",
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "number" } }
+        },
+        "bulges": {
+          "description": "頂点ごとの、次の頂点への弧の膨らみ（中心角の 4 分の 1 の正接。正は反時計回り）。points と同じ数。書かなければどれも 0",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "closed": { "description": "最後の頂点から最初の頂点へ結ぶ", "type": "boolean" }
+      },
+      "required": ["shape", "points", "closed"],
+      "additionalProperties": false
+    },
+    "text_geometry": {
+      "description": "1 点に置く文字。位置合わせ・幅の倍率・斜体・反転・文字スタイルは、置き換える前の値のまま",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "text" },
+        "content": { "description": "内容。1 行", "type": "string" },
+        "position": { "description": "基点 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "height": { "description": "高さ。0 より大きい", "type": "number" },
+        "rotation": { "description": "回転（度）", "type": "number" }
+      },
+      "required": ["shape", "content", "position", "height", "rotation"],
+      "additionalProperties": false
     },
     "entity_kind": {
       "description": "要素の形の種類（決定 0022）",
@@ -459,7 +541,9 @@
       "oneOf": [
         { "$ref": "#/$defs/restyle_edit" },
         { "$ref": "#/$defs/transform_edit" },
-        { "$ref": "#/$defs/remove_edit" }
+        { "$ref": "#/$defs/remove_edit" },
+        { "$ref": "#/$defs/replace_edit" },
+        { "$ref": "#/$defs/add_edit" }
       ]
     },
     "restyle_edit": {
@@ -504,6 +588,31 @@
         "hash": { "description": "読んだときの要素のハッシュ。entities が返したもの", "type": "string" }
       },
       "required": ["kind", "id", "hash"],
+      "additionalProperties": false
+    },
+    "replace_edit": {
+      "description": "要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "replace" },
+        "id": { "description": "置き換える要素の ID。entities が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの要素のハッシュ。entities が返したもの", "type": "string" },
+        "geometry": { "description": "新しい形。entities の geometry と同じ種類", "$ref": "#/$defs/geometry" }
+      },
+      "required": ["kind", "id", "hash", "geometry"],
+      "additionalProperties": false
+    },
+    "add_edit": {
+      "description": "空間か用紙に要素を足す。色・線種・線幅はレイヤに従う。足せる形は線分・円・円弧・折れ線。小版 10 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add" },
+        "place": { "description": "足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分", "type": "string" },
+        "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0", "type": "string" },
+        "layer_id": { "description": "レイヤの ID。tables が返したもの", "type": "string" },
+        "geometry": { "description": "足す形", "$ref": "#/$defs/geometry" }
+      },
+      "required": ["kind", "place", "geometry"],
       "additionalProperties": false
     },
     "inherit": {

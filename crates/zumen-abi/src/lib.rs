@@ -13,6 +13,7 @@ pub mod abi;
 mod bounds;
 mod describe;
 pub mod ffi;
+mod geometry;
 pub mod messages;
 mod session;
 
