@@ -139,7 +139,7 @@
       "expect": {
         "/result/total": 1,
         "/result/items/0/id": "sheet/0/i20",
-        "/result/items/0/source/instance": 20
+        "/result/items/0/source/instance": "20"
       }
     },
     {
@@ -151,7 +151,7 @@
       "expect": {
         "/result/total": 1,
         "/result/items/0/id": "sheet/0/i18",
-        "/result/items/0/source/instance": 18
+        "/result/items/0/source/instance": "18"
       }
     }
   ]

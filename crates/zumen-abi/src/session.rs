@@ -583,7 +583,7 @@ impl Page {
                         _ => None,
                     },
                     instance: match element.source.key() {
-                        Some(Key::Instance(number)) => Some(number),
+                        Some(Key::Instance(number)) => Some(number.to_string()),
                         _ => None,
                     },
                 }),
@@ -1260,6 +1260,24 @@ mod tests {
             assert_eq!(status, Status::Failed, "{request}");
             assert_eq!(text(&response, "/diagnostics/0/params/pointer"), pointer);
         }
+    }
+
+    #[test]
+    fn keeps_large_sxf_instance_numbers_exact() {
+        let src = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#18446744073709551615 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')\nSXF3*/\n/*SXF3\n#30 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.sfc", src.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.sfc"}"#);
+        let (status, result) = call(&mut session, r#"{"v":1,"op":"entities","doc":"a.sfc"}"#);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(
+            result.pointer("/result/items/0/id"),
+            Some(&Value::String("sheet/0/i18446744073709551615".into()))
+        );
+        assert_eq!(
+            result.pointer("/result/items/0/source/instance"),
+            Some(&Value::String("18446744073709551615".into()))
+        );
     }
 
     #[test]

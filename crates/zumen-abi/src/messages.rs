@@ -1517,8 +1517,8 @@ pub struct Source {
     pub bytes: Option<ByteRange>,
     /// AutoCAD の系統のハンドル。大文字の 16 進。書き戻しても変わらない
     pub handle: Option<String>,
-    /// SXF のインスタンスの番号（#n の n）。小版 6 から
-    pub instance: Option<u64>,
+    /// SXF のインスタンスの番号（#n の n）。10 進の文字列。小版 6 から
+    pub instance: Option<String>,
 }
 
 impl Source {
@@ -1526,8 +1526,7 @@ impl Source {
         let record = object.optional("record", |value| json::uint(value, 0, 9007199254740991))?;
         let bytes = object.optional("bytes", ByteRange::from_json)?;
         let handle = object.optional("handle", json::string)?;
-        let instance =
-            object.optional("instance", |value| json::uint(value, 0, 9007199254740991))?;
+        let instance = object.optional("instance", json::string)?;
         Ok(Self {
             record,
             bytes,
@@ -1551,7 +1550,7 @@ impl Source {
         }
         if let Some(value) = &self.instance {
             out.key("instance");
-            out.uint(*value);
+            out.string(value);
         }
     }
 }
