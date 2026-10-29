@@ -324,9 +324,16 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.change.unsupported"]
-description = "図面モデルの要素の変更を、元の図形のレコードに書き戻せない。今は、LINE・CIRCLE の形の置き換えと、続くレコードを持たない図形の除去だけを扱う（決定 0139）"
+description = "図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）"
 severity = "error"
 params = { kind = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."dxf.xdata.unsupported"]
+description = "置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）"
+severity = "error"
+params = { kind = "text", code = "int" }
 since = "0.0.0"
 status = "active"
 
