@@ -2816,3 +2816,55 @@ fn transforms_the_records_cannot_hold_change_nothing() {
     }
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+#[test]
+fn scaling_mtext_rejects_absolute_and_unparsed_formatting() {
+    use zumen_drawing::{Affine, Edit as Change};
+    for (content, scale, rejected) in [
+        ("\\H2;A", 2.0, true),
+        ("\\H2;A", 1.0, false),
+        ("\\H2x;A", 2.0, false),
+        ("\\Habc;A", 2.0, true),
+    ] {
+        let src = versioned(
+            "AC1021",
+            &[
+                (0, "MTEXT"),
+                (5, "1A"),
+                (8, "0"),
+                (10, "0.0"),
+                (20, "0.0"),
+                (40, "2.5"),
+                (1, content),
+            ],
+        );
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let target = seen(&lift(&file)).remove(0).0;
+        let changes = zumen_drawing::Changes {
+            edits: vec![Change::Transform {
+                target,
+                transform: Affine {
+                    m: [scale, 0.0, 1.0, 0.0, scale, 0.0],
+                },
+            }],
+            document: None,
+        };
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &changes,
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        if rejected {
+            assert_eq!(result, Err(Error::Rejected), "{content}");
+            assert!(
+                diag.iter()
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+            );
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        } else {
+            assert!(result.is_ok(), "{content}: {result:?}");
+        }
+    }
+}

@@ -6,7 +6,7 @@
 
 use crate::{
     Affine, Attribute, Edge, FormattedText, Height, Length, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, Placement, Polyline, Rotation, Shape, Symbol, Text, Vertex,
+    PaperPoint, Piece, Placement, Polyline, Rotation, Scaled, Shape, Symbol, Text, Vertex,
 };
 
 /// 変換で写せる点
@@ -296,6 +296,15 @@ fn formatting<P: Point>(
     transform: &Affine,
     s: Similarity,
 ) -> Option<FormattedText<P>> {
+    // 内容の絶対高さや解釈できない書式は、元の符号を書き直さずに尺度を変えられない。
+    if s.scale != 1.0
+        && text.spans.iter().any(|span| {
+            matches!(span.format.height, Some(Scaled::Value(_)))
+                || matches!(span.piece, Piece::Unparsed(_))
+        })
+    {
+        return None;
+    }
     let rotation = match text.rotation {
         Rotation::Angle(angle) => Rotation::Angle(degrees(angle + s.rotation)),
         Rotation::Direction(direction) => {
