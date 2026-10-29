@@ -7,7 +7,8 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, 
 use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
     Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Element, Encode,
-    Hash, Inherit, LineWeight, PaperLength, Placement, Restyle, Seen, Shape, Unit, id,
+    Hash, Inherit, LayerId, LineTypeId, LineWeight, PaperLength, Placement, Restyle, Seen, Shape,
+    Unit, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -507,6 +508,7 @@ fn changes(
         None => None,
     };
     let mut edits = Vec::with_capacity(request.edits.len());
+    let mut tables = None;
     for (index, edit) in request.edits.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let at = |field: &str| format!("/edits/{index}/{field}");
@@ -517,11 +519,20 @@ fn changes(
             })
         };
         edits.push(match edit {
-            messages::Edit::Restyle(edit) => Edit::Restyle {
-                target: seen(&edit.id, &edit.hash, cx)?,
-                style: restyle(edit, drawing)
-                    .map_err(|field| fail(cx, invalid_value(at(field))))?,
-            },
+            messages::Edit::Restyle(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                Edit::Restyle {
+                    target,
+                    style: restyle(edit, tables)
+                        .map_err(|field| fail(cx, invalid_value(at(field))))?,
+                }
+            }
             messages::Edit::Transform(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 let m = match edit.matrix.as_slice() {
@@ -543,17 +554,53 @@ fn changes(
     Ok(Changes { edits, document })
 }
 
+/// 表の検索を変更ごとに繰り返さないための索引。同じ名前は 1 つに決まらない
+struct TableLookup<'a> {
+    layers: BTreeMap<&'a str, Option<LayerId>>,
+    line_types: BTreeMap<&'a str, Option<LineTypeId>>,
+}
+
+impl<'a> TableLookup<'a> {
+    fn new(drawing: &'a Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Failed> {
+        let mut result = Self {
+            layers: BTreeMap::new(),
+            line_types: BTreeMap::new(),
+        };
+        for layer in &drawing.layers {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            result
+                .layers
+                .entry(&layer.name)
+                .and_modify(|v| *v = None)
+                .or_insert(Some(layer.id));
+        }
+        for line_type in &drawing.line_types {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            result
+                .line_types
+                .entry(&line_type.name)
+                .and_modify(|v| *v = None)
+                .or_insert(Some(line_type.id));
+        }
+        Ok(result)
+    }
+}
+
 /// 要求のスタイルの変更を、図面モデルの変更にする。合わない欄があれば、その欄の名前を返す
-fn restyle(edit: &messages::RestyleEdit, drawing: &Drawing2D) -> Result<Restyle, &'static str> {
+fn restyle(
+    edit: &messages::RestyleEdit,
+    tables: &TableLookup<'_>,
+) -> Result<Restyle, &'static str> {
     let layer = match &edit.layer {
         None => None,
-        Some(name) => {
-            let mut found = drawing.layers.iter().filter(|layer| &layer.name == name);
-            match (found.next(), found.next()) {
-                (Some(layer), None) => Some(layer.id),
-                _ => return Err("layer"),
-            }
-        }
+        Some(name) => Some(
+            tables
+                .layers
+                .get(name.as_str())
+                .copied()
+                .flatten()
+                .ok_or("layer")?,
+        ),
     };
     let color = match &edit.color {
         None => None,
@@ -583,16 +630,14 @@ fn restyle(edit: &messages::RestyleEdit, drawing: &Drawing2D) -> Result<Restyle,
         None => None,
         Some(change) => Some(match (change.inherit, &change.name) {
             (Some(to), None) => inherit(to),
-            (None, Some(name)) => {
-                let mut found = drawing
+            (None, Some(name)) => Inherit::Own(
+                tables
                     .line_types
-                    .iter()
-                    .filter(|line_type| &line_type.name == name);
-                match (found.next(), found.next()) {
-                    (Some(line_type), None) => Inherit::Own(line_type.id),
-                    _ => return Err("line_type"),
-                }
-            }
+                    .get(name.as_str())
+                    .copied()
+                    .flatten()
+                    .ok_or("line_type")?,
+            ),
             _ => return Err("line_type"),
         }),
     };
@@ -1971,6 +2016,37 @@ mod tests {
             response,
             r#"{"v":1,"diagnostics":[{"code":"zip.path.unsafe","severity":"warning","count":1,"at":[{"id":"7","record":3,"bytes":{"start":10,"end":20}}],"cite":{"spec":"zip-appnote-6.3.10","section":"4.4.17"},"params":{"name":"../a"}}],"blobs":[]}"#
         );
+    }
+
+    #[test]
+    fn table_lookup_counts_work_and_rejects_ambiguous_names() {
+        let mut drawing = Drawing2D::default();
+        for id in 0..2 {
+            drawing.layers.push(zumen_drawing::Layer {
+                id: LayerId(id),
+                name: "same".to_string(),
+                state: None,
+                style: None,
+                follows_placement: false,
+                source: Ref::default(),
+            });
+        }
+        let cancel = CancelToken::new();
+        let mut diagnostics = Diagnostics::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(TableLookup::new(&drawing, &mut cx).is_err());
+        assert_eq!(
+            diagnostics.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let lookup = TableLookup::new(&drawing, &mut cx).ok().unwrap();
+        assert_eq!(lookup.layers.get("same"), Some(&None));
+        assert_eq!(budget.used(Kind::Work), 2);
     }
 
     #[test]
