@@ -3187,7 +3187,7 @@ fn defined() -> Vec<u8> {
 fn defined_elements(drawing: &Drawing2D) -> Vec<(zumen_drawing::Seen, Element<ModelPoint>)> {
     use zumen_drawing::{Hash, Seen, id};
     let definition = drawing.symbols.first().unwrap();
-    let place = id::definition(definition);
+    let place = id::DefinitionNamer::default().next(definition);
     let mut namer = id::Namer::new(&place);
     definition
         .space
@@ -3209,7 +3209,10 @@ fn elements_of_symbol_definitions_are_changed_by_id() {
     use zumen_drawing::{Affine, Inherit, Restyle, id, transform::transform};
     let file = testkit::read::<Dxf>(&defined()).0.unwrap();
     let drawing = lift(&file);
-    assert_eq!(id::definition(&drawing.symbols[0]), "space/h30");
+    assert_eq!(
+        id::DefinitionNamer::default().next(&drawing.symbols[0]),
+        "space/h30"
+    );
     let [(line, line_before), (circle, _)] =
         <[_; 2]>::try_from(defined_elements(&drawing)).unwrap();
     assert_eq!(line.id, "space/h30/h31");

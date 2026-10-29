@@ -1101,8 +1101,12 @@ fn drawings_take_back_lines_moved_inside_symbol_definitions() {
     /// 名前を持つ定義の中の、ハンドルで指す要素
     fn named(drawing: &Drawing2D) -> Vec<(String, Element<ModelPoint>)> {
         let mut found = Vec::new();
-        for definition in drawing.symbols.iter().filter(|d| !d.anonymous) {
-            let place = id::definition(definition);
+        let mut definitions = id::DefinitionNamer::default();
+        for definition in &drawing.symbols {
+            let place = definitions.next(definition);
+            if definition.anonymous {
+                continue;
+            }
             let mut namer = id::Namer::new(&place);
             for (index, element) in definition.space.elements.iter().enumerate() {
                 let id = namer.next(index, element);
@@ -3800,11 +3804,13 @@ fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
         .iter()
         .map(|space| named(&id::space(space.id), &space.elements));
     // 名前のない定義（*U・*D など）は、CAD が保存するたびに作り直し、ハンドルも変わりうるので比べない
+    let mut definition_namer = id::DefinitionNamer::default();
     let definitions = drawing
         .symbols
         .iter()
-        .filter(|d| !d.anonymous)
-        .map(|definition| named(&id::definition(definition), &definition.space.elements));
+        .map(|definition| (definition, definition_namer.next(definition)))
+        .filter(|(definition, _)| !definition.anonymous)
+        .map(|(definition, place)| named(&place, &definition.space.elements));
     let sheets = drawing
         .sheets
         .iter()
@@ -3816,12 +3822,14 @@ fn element_ids(drawing: &zumen_drawing::Drawing2D) -> Vec<Vec<String>> {
 #[cfg(feature = "drawing")]
 fn table_ids(drawing: &zumen_drawing::Drawing2D) -> [Vec<String>; 3] {
     use zumen_drawing::id;
+    let mut definitions = id::DefinitionNamer::default();
     [
         drawing
             .symbols
             .iter()
-            .filter(|d| !d.anonymous)
-            .map(id::definition)
+            .map(|definition| (definition, definitions.next(definition)))
+            .filter(|(definition, _)| !definition.anonymous)
+            .map(|(_, id)| id)
             .collect(),
         // 注釈尺度を分けて書いたレイヤ（`0 @ 1` など）も、保存するたびに作り直す
         drawing
@@ -3872,7 +3880,11 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
         // 記号の定義の空間・レイヤ・線種も、同じ ID になり、定義を持つものはハンドルで指す
         let tables = table_ids(&ours);
         assert_eq!(tables, table_ids(&theirs), "{}", dwg.display());
-        let defined = ours.symbols.iter().map(|d| (&d.source, id::definition(d)));
+        let mut definitions = id::DefinitionNamer::default();
+        let defined = ours
+            .symbols
+            .iter()
+            .map(|d| (&d.source, definitions.next(d)));
         let layers = ours.layers.iter().map(|l| (&l.source, id::layer(l)));
         let line_types = ours
             .line_types

@@ -7,6 +7,7 @@
 //! なければ読んだ順の番号で作る。同じ用紙 ID が重複するときは、2 つ目から `/1`・`/2` を足す。
 //!
 //! 記号の定義の空間は、定義（BLOCK）がハンドルを持てば `space/h1F`、なければ `space/` と空間の番号で作る。
+//! 同じ定義の ID が重なれば、2 つ目から `/1`・`/2` を足す。
 //! レイヤと線種の表の項目は、表のレコードがハンドルを持てば `layer/h10`・`line-type/h14`、なければ `layer/` と
 //! `line-type/` に読んだ順の番号を足して作る。
 
@@ -50,11 +51,32 @@ impl SheetNamer {
     }
 }
 
-/// 記号の定義の空間の ID の文字列
+/// 記号の定義の空間の ID の基底。同じハンドルが重なるときは、[`DefinitionNamer`] で区別する
 pub fn definition(definition: &SymbolDefinition) -> String {
     match definition.source.key() {
         Some(Key::Handle(handle)) => format!("space/h{handle:X}"),
         _ => space(definition.space.id),
+    }
+}
+
+/// 記号の定義に順に、重複しない空間の ID を振る
+#[derive(Debug, Default)]
+pub struct DefinitionNamer {
+    seen: BTreeMap<String, u64>,
+}
+
+impl DefinitionNamer {
+    /// 次の定義の ID。定義は図面モデルの順に、飛ばさずに渡す
+    pub fn next(&mut self, value: &SymbolDefinition) -> String {
+        let id = definition(value);
+        let count = self.seen.entry(id.clone()).or_insert(0);
+        let repeat = *count;
+        *count += 1;
+        if repeat == 0 {
+            id
+        } else {
+            format!("{id}/{repeat}")
+        }
     }
 }
 
@@ -208,6 +230,16 @@ mod tests {
         assert_eq!(definition(&symbol), "space/3");
         symbol.source = symbol.source.with_key(Key::Handle(0x1f));
         assert_eq!(definition(&symbol), "space/h1F");
+        let mut other = symbol.clone();
+        other.key.name = "C".to_owned();
+        other.space.id = SpaceId(4);
+        other.source = Ref::at_record(9).with_key(Key::Handle(0x1f));
+        let mut namer = DefinitionNamer::default();
+        assert_eq!(namer.next(&symbol), "space/h1F");
+        assert_eq!(namer.next(&other), "space/h1F/1");
+        assert_eq!(namer.next(&other), "space/h1F/2");
+        other.source = Ref::at_record(9);
+        assert_eq!(namer.next(&other), "space/4");
         let mut wall = Layer {
             id: LayerId(2),
             name: "Wall".to_owned(),

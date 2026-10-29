@@ -118,9 +118,10 @@ impl<'a> Index<'a> {
             places.insert(place, Place::Space(space.id));
         }
         // 記号の定義の中の要素も ID で指せる。定義の空間に足すことは、まだしない
+        let mut definitions = id::DefinitionNamer::default();
         for definition in &drawing.symbols {
             work(cx, 1, &definition.source)?;
-            let place = id::definition(definition);
+            let place = definitions.next(definition);
             let mut namer = id::Namer::new(&place);
             for (index, element) in definition.space.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
@@ -1923,5 +1924,58 @@ mod hash_budget_tests {
             diagnostics.iter().next().unwrap().code(),
             codes::BUDGET_WORK_EXCEEDED
         );
+    }
+}
+
+#[cfg(test)]
+mod definition_id_tests {
+    use super::*;
+    use zumen_base::Key;
+    use zumen_drawing::{ModelSpace, SymbolDefinition, SymbolKey, Unit};
+
+    #[test]
+    fn duplicate_definition_handles_have_distinct_index_entries() {
+        let mut drawing = Drawing2D::default();
+        for number in 0..2 {
+            let space = SpaceId(number);
+            let point = ModelPoint {
+                space,
+                x: 0.0,
+                y: 0.0,
+            };
+            let element = Element {
+                source: Ref::at_record(u64::from(number) + 10).with_key(Key::Handle(0x31)),
+                layer: LayerId(0),
+                style: Style::BLOCK,
+                shape: Shape::Line {
+                    start: point,
+                    end: point,
+                },
+            };
+            drawing.symbols.push(SymbolDefinition {
+                key: SymbolKey {
+                    namespace: "dxf.block",
+                    name: format!("B{number}"),
+                },
+                space: ModelSpace {
+                    id: space,
+                    unit: Unit::Millimeter,
+                    elements: vec![element],
+                    order: vec![],
+                },
+                base: None,
+                attributes: vec![],
+                anonymous: false,
+                external: None,
+                source: Ref::at_record(u64::from(number)).with_key(Key::Handle(0x30)),
+            });
+        }
+        let mut budget = zumen_base::Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = zumen_base::CancelToken::new();
+        let index = Index::new(&drawing, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)).unwrap();
+        assert!(index.elements.contains_key("space/h30/h31"));
+        assert!(index.elements.contains_key("space/h30/1/h31"));
+        assert_eq!(index.elements.len(), 2);
     }
 }
