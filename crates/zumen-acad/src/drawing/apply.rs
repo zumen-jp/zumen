@@ -10,9 +10,9 @@ use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Ref, codes};
 use zumen_drawing::{
-    Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal, LayerId,
-    Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle,
-    Rotation, Shape, SheetId, SpaceId, Style, Symbol, Text, Vertical, id,
+    Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
+    LayerId, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline,
+    Restyle, Rotation, Shape, SheetId, SpaceId, Style, Symbol, Text, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -283,6 +283,9 @@ fn edit(
             Edit::Restyle {
                 target: target_of, ..
             } => ("restyle", target_of),
+            Edit::Transform {
+                target: target_of, ..
+            } => ("transform", target_of),
             Edit::Remove { target: target_of } => ("remove", target_of),
         };
         let Some(&found) = index.elements.get(&target_of.id) else {
@@ -368,6 +371,24 @@ fn edit(
                 restyled(&born, object, layer, was, style, target, cx)?
                     .map(|values| replaced.push((position, values)))
             }
+            (Edit::Transform { transform, .. }, Found::Model(was)) => anchor(&was.shape)
+                .and_then(|anchor| {
+                    let frame = InSpace(anchor.space);
+                    moved(db, was, object, transform, unicode, &frame, true)
+                })
+                .map(|values| {
+                    replaced.push((position, values.object));
+                    replaced.extend(values.followers);
+                }),
+            (Edit::Transform { transform, .. }, Found::Paper(was)) => anchor(&was.shape)
+                .and_then(|anchor| {
+                    let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                    moved(db, was, object, transform, unicode, &frame, false)
+                })
+                .map(|values| {
+                    replaced.push((position, values.object));
+                    replaced.extend(values.followers);
+                }),
             (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
             (Edit::Add { .. }, _) => None,
         };
@@ -401,9 +422,9 @@ fn edit(
         .edits
         .iter()
         .map(|change| match change {
-            Edit::Replace { target, .. } | Edit::Restyle { target, .. } => {
-                applied(&after, Some(target.id.clone()), cx)
-            }
+            Edit::Replace { target, .. }
+            | Edit::Restyle { target, .. }
+            | Edit::Transform { target, .. } => applied(&after, Some(target.id.clone()), cx),
             Edit::Add { place, .. } => applied(
                 &after,
                 handles
@@ -533,6 +554,126 @@ fn copy_value(value: &Value, cx: &mut Cx<'_>, at: &Ref) -> Result<Value, Error> 
         code: value.code,
         data,
     })
+}
+
+/// 動かした図形と、続く ATTRIB の値
+struct Moved {
+    object: Vec<Value>,
+    followers: Vec<(usize, Vec<Value>)>,
+}
+
+/// 変換 `transform` で動かした図形の値。形は置き換えと同じ書き方で書き、図形とともに動く XDATA（[`carried`]）と、
+/// 記号の属性（続く ATTRIB の置く点・高さ・回転）も同じ変換で直す。`model` でなければ（用紙の図形）、
+/// XDATA の点は用紙の mm と図面の単位の違いを直せないので、動く XDATA を持つ図形は扱わない
+fn moved<P: Copy + PartialEq + transform::Point>(
+    db: &AcadDb,
+    was: &Element<P>,
+    object: &Object,
+    transform: &Affine,
+    unicode: bool,
+    frame: &impl Frame<P>,
+    model: bool,
+) -> Option<Moved> {
+    let shape = transform::transform(&was.shape, transform)?;
+    let element = Element {
+        shape,
+        ..was.clone()
+    };
+    // 属性は続く ATTRIB にあるので、INSERT は元の属性のまま書き、ATTRIB を下で直す
+    let written = match (&element.shape, &was.shape) {
+        (Shape::Symbol(symbol), Shape::Symbol(original)) => Element {
+            shape: Shape::Symbol(Symbol {
+                attributes: original.attributes.clone(),
+                ..symbol.clone()
+            }),
+            ..element.clone()
+        },
+        _ => element.clone(),
+    };
+    let mut values = replacement(was, &written, object, unicode, frame)?;
+    if moving_xdata(object).is_some() {
+        if !model {
+            return None;
+        }
+        carried(&mut values, transform)?;
+    }
+    let mut followers = Vec::new();
+    if let (Shape::Symbol(symbol), Shape::Symbol(was)) = (&element.shape, &was.shape) {
+        for (attribute, original) in symbol.attributes.iter().zip(&was.attributes) {
+            if original.formatted.is_some() {
+                return None;
+            }
+            let position = entity(db, &original.source)?;
+            let follower = db.objects().get(position)?;
+            if follower.kind != b"ATTRIB" {
+                return None;
+            }
+            let mut values = follower.values.clone();
+            lettering(&mut values, &attribute.text, &original.text, frame, unicode)?;
+            if moving_xdata(follower).is_some() {
+                if !model {
+                    return None;
+                }
+                carried(&mut values, transform)?;
+            }
+            followers.push((position, values));
+        }
+    }
+    Some(Moved {
+        object: values,
+        followers,
+    })
+}
+
+/// 図形とともに動く XDATA を、AutoCAD と同じ規則で直す（DXF Reference「Group Codes That Apply to Extended
+/// Data」）。位置（1011・1021）は変換で写し、変位（1012・1022）は平行移動を除いて写し、向き（1013・1023）は
+/// 写してから元の長さにそろえる。距離（1041）と倍率（1042）は尺度を掛け、相似でない変換では直さない
+fn carried(values: &mut [Value], transform: &Affine) -> Option<()> {
+    let start = values.iter().position(|v| v.code == 1001)?;
+    let tail = values.get_mut(start..)?;
+    let scale = if tail.iter().any(|v| matches!(v.code, 1041 | 1042)) {
+        transform.similarity()?.scale
+    } else {
+        1.0
+    };
+    // X の値を持ち、続く Y の値を待っている点
+    let mut pending: Option<&mut Value> = None;
+    for value in tail.iter_mut() {
+        if let Some(first) = pending.take() {
+            let (Data::Real(x), Data::Real(y)) = (&first.data, &value.data) else {
+                return None;
+            };
+            if value.code != first.code + 10 {
+                return None;
+            }
+            let [x, y] = match first.code {
+                1011 => {
+                    let (x, y) = transform.apply(*x, *y);
+                    [x, y]
+                }
+                1012 => transform.vector([*x, *y]),
+                _ => transform.direction([*x, *y]),
+            };
+            first.data = Data::Real(x);
+            value.data = Data::Real(y);
+            continue;
+        }
+        match value.code {
+            1011..=1013 => pending = Some(value),
+            1041 | 1042 => {
+                let Data::Real(number) = value.data else {
+                    return None;
+                };
+                value.data = Data::Real(number * scale);
+            }
+            _ => {}
+        }
+    }
+    (pending.is_none()
+        && tail
+            .iter()
+            .all(|v| !matches!(v.data, Data::Real(number) if !number.is_finite())))
+    .then_some(())
 }
 
 /// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある

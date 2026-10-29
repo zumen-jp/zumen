@@ -2630,3 +2630,189 @@ fn restyle_keeps_undefined_line_type_and_handles_implicit_layer() {
         }
     }
 }
+
+/// ブロック B を定義し、図形とともに動く XDATA を持つ LINE、ARC、属性を 1 つ持つ INSERT を持つ DXF
+#[cfg(test)]
+fn movable() -> Vec<u8> {
+    let tags: &[(i16, &str)] = &[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, "AC1015"),
+        (9, "$INSUNITS"),
+        (70, "4"),
+        (9, "$HANDSEED"),
+        (5, "40"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (5, "30"),
+        (8, "0"),
+        (2, "B"),
+        (70, "2"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (0, "ENDBLK"),
+        (5, "31"),
+        (8, "0"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "LINE"),
+        (5, "1A"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+        (31, "0.0"),
+        (1001, "ZUMEN"),
+        (1011, "1.0"),
+        (1021, "1.0"),
+        (1031, "0.0"),
+        (1012, "1.0"),
+        (1022, "0.0"),
+        (1032, "0.0"),
+        (1013, "1.0"),
+        (1023, "0.0"),
+        (1033, "0.0"),
+        (1041, "2.0"),
+        (1042, "3.0"),
+        (0, "ARC"),
+        (5, "1B"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (40, "1.0"),
+        (50, "0.0"),
+        (51, "90.0"),
+        (0, "INSERT"),
+        (5, "1C"),
+        (8, "0"),
+        (66, "1"),
+        (2, "B"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (0, "ATTRIB"),
+        (5, "1D"),
+        (8, "0"),
+        (10, "1.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (40, "2.5"),
+        (1, "x"),
+        (2, "A"),
+        (70, "0"),
+        (0, "SEQEND"),
+        (5, "1E"),
+        (8, "0"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ];
+    tags.iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+#[test]
+fn transforms_move_shapes_attributes_and_the_xdata_that_moves_with_them() {
+    use zumen_drawing::{Affine, transform::transform};
+    let mut file = testkit::read::<Dxf>(&movable()).0.unwrap();
+    let before = seen(&lift(&file));
+    // 2 倍にして 90° 回し、X に 10 動かす
+    let affine = Affine {
+        m: [0.0, -2.0, 10.0, 2.0, 0.0, 0.0],
+    };
+    let changes = zumen_drawing::Changes {
+        edits: before
+            .iter()
+            .map(|(target, _)| zumen_drawing::Edit::Transform {
+                target: target.clone(),
+                transform: affine,
+            })
+            .collect(),
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(after.len(), before.len());
+    for (((was_id, was), (now_id, now)), applied) in before.iter().zip(&after).zip(&applied) {
+        // 形は写した形になり、ID は変わらず、返すハッシュは読み直したときと同じ
+        assert_eq!(now.shape, transform(&was.shape, &affine).unwrap());
+        assert_eq!(now_id.id, was_id.id);
+        assert_eq!(applied.id.as_deref(), Some(was_id.id.as_str()));
+        assert_eq!(applied.hash, Some(now_id.hash));
+    }
+    let text = String::from_utf8(written).unwrap();
+    // 位置は写し、変位は平行移動を除いて写し、向きは元の長さにそろえ、距離と倍率に尺度を掛ける
+    assert!(
+        text.contains(
+            "1001\nZUMEN\n1011\n8.0\n1021\n2.0\n1031\n0.0\n1012\n0.0\n1022\n2.0\n1032\n0.0\n\
+             1013\n0.0\n1023\n1.0\n1033\n0.0\n1041\n4.0\n1042\n6.0\n"
+        ),
+        "{text}"
+    );
+    // 属性は置く点を写す（(1, 0) は (10, 2) に）
+    assert!(
+        text.contains("  0\nATTRIB\n  5\n1D\n  8\n0\n 10\n10.0\n 20\n2.0\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn transforms_the_records_cannot_hold_change_nothing() {
+    use zumen_drawing::Affine;
+    let src = movable();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(line, _), (arc, _), (insert, _)] = <[_; 3]>::try_from(seen(&lift(&file))).unwrap();
+    let transform = |target: &zumen_drawing::Seen, m: [f64; 6]| zumen_drawing::Edit::Transform {
+        target: target.clone(),
+        transform: Affine { m },
+    };
+    let sheared = [1.0, 1.0, 0.0, 0.0, 1.0, 0.0];
+    let mirrored = [1.0, 0.0, 0.0, 0.0, -1.0, 0.0];
+    let flattened = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    for edit in [
+        // 円弧はずらすと楕円になる
+        transform(&arc, sheared),
+        // 距離（1041）は、相似でない変換では直せない
+        transform(&line, sheared),
+        // 鏡映した記号を書く方法は決めていない
+        transform(&insert, mirrored),
+        // 向きがつぶれる
+        transform(&line, flattened),
+    ] {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![edit],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        assert_eq!(result.unwrap_err(), Error::Rejected);
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::CHANGE_EDIT_UNSUPPORTED]
+        );
+    }
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
