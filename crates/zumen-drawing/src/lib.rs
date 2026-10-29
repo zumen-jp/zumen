@@ -76,6 +76,21 @@ impl Drawing2D {
             .find(|style| style.name.eq_ignore_ascii_case(name))
     }
 
+    /// 線種に添える文字の高さ（決定 0166）。文字スタイルが決まった高さを持てば、その高さに倍率を掛けた値、
+    /// 持たないか、文字スタイルがなければ倍率そのもの。単位は線種の列と同じ。形なら `None`
+    pub fn mark_text_height(&self, mark: &LineTypeMark) -> Option<f64> {
+        let MarkContent::Text { style, .. } = &mark.content else {
+            return None;
+        };
+        let height = style
+            .as_deref()
+            .and_then(|name| self.text_style(name))
+            .and_then(|style| style.definition.as_ref())
+            .and_then(|definition| definition.height)
+            .filter(|height| *height > 0.0);
+        Some(height.map_or(mark.scale, |height| height * mark.scale))
+    }
+
     /// 要素が名前で指すだけで、表にない文字スタイルを、定義のない項目として後ろに足す。
     /// 空の名前は足さない。作業量と中断を確かめ、途中で止まれば追加しない
     pub fn add_named_text_styles(&mut self, cx: &mut Cx<'_>) -> Result<(), (Stop, Ref)> {
@@ -2600,6 +2615,52 @@ mod text_style_tests {
             .collect();
         assert_eq!(names, ["standard", "GOTHIC"]);
         assert_eq!(drawing.text_style("Gothic").unwrap().source, Ref::default());
+    }
+
+    #[test]
+    fn mark_text_heights_scale_the_fixed_height_of_their_text_style() {
+        let mark = |content: MarkContent| LineTypeMark {
+            index: 0,
+            content,
+            scale: 0.5,
+            rotation: 0.0,
+            rotation_basis: MarkRotation::Upright,
+            offset: [0.0, 0.0],
+        };
+        let text = |style: Option<&str>| {
+            mark(MarkContent::Text {
+                content: "GAS".to_owned(),
+                style: style.map(str::to_owned),
+            })
+        };
+        let style = |name: &str, height: Option<f64>| TextStyle {
+            name: name.to_owned(),
+            definition: Some(TextStyleDefinition {
+                font: None,
+                big_font: None,
+                height,
+                width: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                vertical: false,
+            }),
+            source: Ref::default(),
+        };
+        let drawing = Drawing2D {
+            text_styles: vec![style("Fixed", Some(3.0)), style("Free", None)],
+            ..Drawing2D::default()
+        };
+        // 決まった高さに倍率を掛ける。高さを決めない・ない文字スタイルなら、倍率を高さにする。形は高さを持たない
+        assert_eq!(drawing.mark_text_height(&text(Some("fixed"))), Some(1.5));
+        assert_eq!(drawing.mark_text_height(&text(Some("Free"))), Some(0.5));
+        assert_eq!(drawing.mark_text_height(&text(Some("Missing"))), Some(0.5));
+        assert_eq!(drawing.mark_text_height(&text(None)), Some(0.5));
+        let shape = mark(MarkContent::Shape {
+            font: None,
+            number: 1,
+        });
+        assert_eq!(drawing.mark_text_height(&shape), None);
     }
 
     #[test]

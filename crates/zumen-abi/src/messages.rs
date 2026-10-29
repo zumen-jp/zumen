@@ -4898,6 +4898,8 @@ pub struct LineTypeItem {
     pub paper: Option<bool>,
     /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から
     pub marked: Option<bool>,
+    /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。小版 28 から
+    pub marks: Option<Vec<LineTypeMark>>,
 }
 
 impl LineTypeItem {
@@ -4910,6 +4912,8 @@ impl LineTypeItem {
         let pattern = object.optional("pattern", |value| json::array(value, json::number))?;
         let paper = object.optional("paper", json::boolean)?;
         let marked = object.optional("marked", json::boolean)?;
+        let marks =
+            object.optional("marks", |value| json::array(value, LineTypeMark::from_json))?;
         Ok(Self {
             id,
             name,
@@ -4919,6 +4923,7 @@ impl LineTypeItem {
             pattern,
             paper,
             marked,
+            marks,
         })
     }
 
@@ -4946,6 +4951,10 @@ impl LineTypeItem {
         if let Some(value) = &self.marked {
             out.key("marked");
             out.bool(*value);
+        }
+        if let Some(value) = &self.marks {
+            out.key("marks");
+            out.array(value, |out, item| item.to_json(out));
         }
     }
 }
@@ -5054,6 +5063,212 @@ impl ToJson for DimensionStyleItem {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。小版 28 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineTypeMark {
+    /// 添える列の要素の番号（pattern の添字）
+    pub index: u64,
+    /// 形（shape）か文字（text）
+    pub kind: LineTypeMarkKind,
+    /// 形の形のファイル。元の形式が指す文字スタイルがなければ書かない
+    pub font: Option<Font>,
+    /// 形の番号
+    pub number: Option<u64>,
+    /// 文字の文字列
+    pub text: Option<String>,
+    /// 文字の文字スタイルの元の名前。元の形式が指す文字スタイルがなければ書かない
+    pub style: Option<String>,
+    /// 文字の文字スタイルの ID。tables の text_styles の ID で、名前で引いたもの（大文字と小文字を区別せず、同じ名前があれば先の項目）
+    pub style_id: Option<String>,
+    /// 文字の高さ。文字スタイルが決まった高さを持てば、それに scale を掛けたもの。持たなければ scale。単位は pattern と同じ
+    pub height: Option<f64>,
+    /// 倍率。文字なら、文字スタイルの高さへの倍率
+    pub scale: f64,
+    /// 回転（度、反時計回り）
+    pub rotation: f64,
+    /// 回転の基準
+    pub rotation_basis: MarkRotation,
+    /// 置く位置のずれ（x・y）。線の向きを x とする。単位は pattern と同じ
+    pub offset: Vec<f64>,
+}
+
+impl LineTypeMark {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let index = object.required("index", |value| json::uint(value, 0, 9007199254740991))?;
+        let kind = object.required("kind", LineTypeMarkKind::from_json)?;
+        let font = object.optional("font", Font::from_json)?;
+        let number = object.optional("number", |value| json::uint(value, 0, 9007199254740991))?;
+        let text = object.optional("text", json::string)?;
+        let style = object.optional("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
+        let height = object.optional("height", json::number)?;
+        let scale = object.required("scale", json::number)?;
+        let rotation = object.required("rotation", json::number)?;
+        let rotation_basis = object.required("rotation_basis", MarkRotation::from_json)?;
+        let offset = object.required("offset", |value| json::array(value, json::number))?;
+        Ok(Self {
+            index,
+            kind,
+            font,
+            number,
+            text,
+            style,
+            style_id,
+            height,
+            scale,
+            rotation,
+            rotation_basis,
+            offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("index");
+        out.uint(self.index);
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.font {
+            out.key("font");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.number {
+            out.key("number");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.text {
+            out.key("text");
+            out.string(value);
+        }
+        if let Some(value) = &self.style {
+            out.key("style");
+            out.string(value);
+        }
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
+            out.string(value);
+        }
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.float(*value);
+        }
+        out.key("scale");
+        out.float(self.scale);
+        out.key("rotation");
+        out.float(self.rotation);
+        out.key("rotation_basis");
+        self.rotation_basis.to_json(out);
+        out.key("offset");
+        out.array(&self.offset, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for LineTypeMark {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LineTypeMark {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線種に添えるものの種類。shape は形のファイルの形、text は文字
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LineTypeMarkKind {
+    /// `shape`
+    Shape,
+    /// `text`
+    Text,
+}
+
+impl LineTypeMarkKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Shape, Self::Text];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Shape => "shape",
+            Self::Text => "text",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "shape" => Some(Self::Shape),
+            "text" => Some(Self::Text),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for LineTypeMarkKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for LineTypeMarkKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 回転の基準。relative は線の向きから、absolute は文書の x 軸から測る。upright は線の向きから測り、文字が逆さに見えるなら半回転する
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MarkRotation {
+    /// `relative`
+    Relative,
+    /// `absolute`
+    Absolute,
+    /// `upright`
+    Upright,
+}
+
+impl MarkRotation {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Relative, Self::Absolute, Self::Upright];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Relative => "relative",
+            Self::Absolute => "absolute",
+            Self::Upright => "upright",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "relative" => Some(Self::Relative),
+            "absolute" => Some(Self::Absolute),
+            "upright" => Some(Self::Upright),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for MarkRotation {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for MarkRotation {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

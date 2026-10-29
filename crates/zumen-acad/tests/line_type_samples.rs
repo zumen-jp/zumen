@@ -98,6 +98,15 @@ fn shapes_and_text_of_line_types_become_marks() {
             }],
             "{name}"
         );
+        // 文字の高さ。Standard は高さを決めないので、倍率が高さになる（決定 0166）
+        let gas = &marks(&drawing, "GAS_LINE")[0];
+        let standard = drawing.text_style("Standard").unwrap().definition.as_ref();
+        assert_eq!(
+            standard.map(|definition| definition.height),
+            Some(None),
+            "{name}"
+        );
+        assert_eq!(drawing.mark_text_height(gas), Some(0.1), "{name}");
         assert_eq!(
             marks(&drawing, "TRACKS"),
             [LineTypeMark {
