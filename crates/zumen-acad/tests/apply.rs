@@ -977,3 +977,190 @@ fn sheet_and_model_replacements_do_not_cross() {
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+/// 実寸の空間の点
+#[cfg(test)]
+fn at(x: f64, y: f64) -> ModelPoint {
+    ModelPoint {
+        space: zumen_drawing::SpaceId(0),
+        x,
+        y,
+    }
+}
+
+/// 実寸の空間の長さ
+#[cfg(test)]
+fn model(value: f64) -> Length {
+    Length::Model(zumen_drawing::ModelLength {
+        space: zumen_drawing::SpaceId(0),
+        value,
+    })
+}
+
+/// 足す線分・円弧・楕円・軽量の折れ線・文字
+#[cfg(test)]
+fn newcomers() -> Vec<Shape<ModelPoint>> {
+    use zumen_drawing::{
+        Edge, Height, HeightMeaning, Horizontal, Placement, Polyline, Text, Vertex, Vertical,
+    };
+    vec![
+        Shape::Line {
+            start: at(0.0, 0.0),
+            end: at(2.0, 3.0),
+        },
+        Shape::Curve(Edge::Arc {
+            center: at(1.0, 1.0),
+            radius: model(2.0),
+            start: 30.0,
+            end: 120.0,
+            counterclockwise: true,
+        }),
+        Shape::Curve(Edge::Elliptic {
+            center: at(5.0, 5.0),
+            major: at(8.0, 5.0),
+            ratio: 0.5,
+            start: 0.0,
+            end: 180.0,
+            counterclockwise: true,
+        }),
+        Shape::Polyline(Polyline {
+            vertices: vec![
+                Vertex {
+                    point: at(0.0, 0.0),
+                    bulge: 0.5,
+                },
+                Vertex {
+                    point: at(4.0, 0.0),
+                    bulge: 0.0,
+                },
+                Vertex {
+                    point: at(4.0, 3.0),
+                    bulge: 0.0,
+                },
+            ],
+            closed: true,
+            width: None,
+            vertex_widths: Vec::new(),
+        }),
+        Shape::Text(Text {
+            content: "zumen".to_owned(),
+            height: Height {
+                value: model(2.5),
+                meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+            },
+            placement: Placement::Anchor {
+                point: at(3.0, 3.0),
+                horizontal: Horizontal::Center,
+                vertical: Vertical::Middle,
+            },
+            rotation: 15.0,
+            width_factor: 1.0,
+            oblique: 0.0,
+            backward: false,
+            upside_down: false,
+            style: "STANDARD".to_owned(),
+        }),
+    ]
+}
+
+#[test]
+fn elements_are_added_with_new_handles() {
+    use zumen_drawing::{Color, ColorCode, ColorSystem, Inherit};
+    let mut file = testkit::read::<Dxf>(&src()).0.unwrap();
+    let before = elements(&lift(&file));
+    let shapes = newcomers();
+    let edits = shapes
+        .iter()
+        .enumerate()
+        .map(|(index, shape)| {
+            let mut element = before[0].clone();
+            element.shape = shape.clone();
+            if index == 0 {
+                element.style.color = Inherit::Own(Color {
+                    code: Some(ColorCode {
+                        system: ColorSystem::Aci,
+                        value: 3,
+                    }),
+                    rgb: None,
+                });
+            }
+            Edit::Add(Box::new(element))
+        })
+        .collect();
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(after.len(), before.len() + shapes.len());
+    let added: Vec<_> = after[before.len()..]
+        .iter()
+        .map(|e| e.shape.clone())
+        .collect();
+    assert_eq!(added, shapes);
+    assert!(
+        after[before.len()..]
+            .iter()
+            .all(|e| e.layer == before[0].layer)
+    );
+    // ハンドルは $HANDSEED（20）から順に付け、$HANDSEED を最後のハンドルの次に進める。区切り（100）を
+    // 持たない表には、区切りを書かない
+    let text = String::from_utf8(written).unwrap();
+    assert!(text.contains("  0\nLINE\n  5\n20\n  8\n0\n 62\n3\n 10\n0.0\n"));
+    assert!(text.contains("  0\nTEXT\n  5\n24\n"));
+    assert!(text.contains("$HANDSEED\n  5\n25\n"));
+    assert!(!text.contains("AcDb"));
+}
+
+#[test]
+fn elements_that_cannot_be_added_change_nothing() {
+    use zumen_drawing::{Placement, SpaceId};
+    let src = src();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let template = elements(&lift(&file)).swap_remove(0);
+    let shapes = newcomers();
+    let add = |record: u64, shape: Shape<ModelPoint>, layer: LayerId| {
+        let mut element = template.clone();
+        element.source = Ref::at_record(record);
+        element.shape = shape;
+        element.layer = layer;
+        Edit::Add(Box::new(element))
+    };
+    // 図面にないレイヤ、半径が 0 の円、ほかの空間の線分、改行を持つ文字は足せない
+    let mut elsewhere = shapes[0].clone();
+    if let Shape::Line { end, .. } = &mut elsewhere {
+        end.space = SpaceId(1);
+    }
+    let mut broken = shapes[4].clone();
+    if let Shape::Text(text) = &mut broken {
+        text.content = "a\nb".to_owned();
+        if let Placement::Anchor { point, .. } = &mut text.placement {
+            point.x = 1.0;
+        }
+    }
+    let edits = vec![
+        add(901, shapes[0].clone(), LayerId(99)),
+        add(
+            902,
+            Shape::Circle {
+                center: at(0.0, 0.0),
+                radius: model(0.0),
+            },
+            template.layer,
+        ),
+        add(903, elsewhere, template.layer),
+        add(904, broken, template.layer),
+        add(905, shapes[1].clone(), template.layer),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(
+            codes::DXF_CHANGE_UNSUPPORTED,
+            (901..=904).map(Ref::at_record).collect()
+        )]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}

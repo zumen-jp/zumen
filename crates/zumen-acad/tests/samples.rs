@@ -59,6 +59,41 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
     found
 }
 
+/// 数を許容差で比べ、ほかの文字は同じであること。用紙の mm を図面の単位に戻すか、DWG のラジアンを度に戻すと、
+/// 最後の桁が違うことがある
+#[cfg(test)]
+fn close(found: &str, expected: &str) -> bool {
+    fn tokens(text: &str) -> Vec<Result<f64, String>> {
+        let mut out = Vec::new();
+        let mut rest = text;
+        while let Some(first) = rest.chars().next() {
+            let number = first.is_ascii_digit()
+                || (first == '-' && rest.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
+            let end = if number {
+                rest.char_indices()
+                    .skip(1)
+                    .find(|(_, c)| !(c.is_ascii_digit() || matches!(c, '.' | 'e' | '-')))
+                    .map_or(rest.len(), |(at, _)| at)
+            } else {
+                first.len_utf8()
+            };
+            let (token, tail) = rest.split_at(end);
+            out.push(match token.parse::<f64>() {
+                Ok(value) if number => Ok(value),
+                _ => Err(token.to_owned()),
+            });
+            rest = tail;
+        }
+        out
+    }
+    let (found, expected) = (tokens(found), tokens(expected));
+    found.len() == expected.len()
+        && found.iter().zip(&expected).all(|pair| match pair {
+            (Ok(a), Ok(b)) => (a - b).abs() <= 1e-9 * a.abs().max(1.0),
+            (a, b) => a == b,
+        })
+}
+
 /// フォルダーの中の、版が `version` の DWG
 #[cfg(test)]
 #[allow(
@@ -2497,6 +2532,225 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
     assert!(pairs().is_empty() || kinds.len() == 6, "{kinds:?}");
 }
 
+/// 図面モデルで足した線分・円・円弧・楕円・軽量の折れ線・文字・記号を、DWG と DXF に書き戻して読み直すと、
+/// モデル空間の終わりに同じ形で並ぶ（決定 0155）
+#[cfg(feature = "drawing")]
+#[test]
+fn drawings_take_back_elements_added_in_the_drawing_model() {
+    use zumen_drawing::{
+        Changes, Drawing2D, Edge, Edit, Element, Height, HeightMeaning, Horizontal, Inherit,
+        Length, LineWeight, ModelLength, ModelPoint, PaperLength, Placement, Polyline, Shape,
+        SpaceId, Style, Text, Vertex, Vertical,
+    };
+    use zumen_sdk::{Apply, Error, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+    }
+    let at = |x: f64, y: f64| ModelPoint {
+        space: SpaceId(0),
+        x,
+        y,
+    };
+    let length = |value: f64| {
+        Length::Model(ModelLength {
+            space: SpaceId(0),
+            value,
+        })
+    };
+    let shapes = vec![
+        Shape::Line {
+            start: at(1.0, 2.0),
+            end: at(3.0, 4.0),
+        },
+        Shape::Circle {
+            center: at(5.0, 6.0),
+            radius: length(7.0),
+        },
+        Shape::Curve(Edge::Arc {
+            center: at(1.0, 1.0),
+            radius: length(2.0),
+            start: 30.0,
+            end: 120.0,
+            counterclockwise: true,
+        }),
+        Shape::Curve(Edge::Elliptic {
+            center: at(5.0, 5.0),
+            major: at(8.0, 9.0),
+            ratio: 0.5,
+            start: 10.0,
+            end: 200.0,
+            counterclockwise: true,
+        }),
+        Shape::Polyline(Polyline {
+            vertices: [(0.0, 0.0, 0.5), (4.0, 0.0, 0.0), (4.0, 3.0, 0.0)]
+                .map(|(x, y, bulge)| Vertex {
+                    point: at(x, y),
+                    bulge,
+                })
+                .to_vec(),
+            closed: true,
+            width: Some(length(0.25)),
+            vertex_widths: Vec::new(),
+        }),
+        Shape::Text(Text {
+            content: "zumen".to_owned(),
+            height: Height {
+                value: length(2.5),
+                meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+            },
+            placement: Placement::Anchor {
+                point: at(3.0, 3.0),
+                horizontal: Horizontal::Center,
+                vertical: Vertical::Middle,
+            },
+            rotation: 15.0,
+            width_factor: 0.8,
+            oblique: 0.0,
+            backward: false,
+            upside_down: false,
+            style: "Standard".to_owned(),
+        }),
+    ];
+    let check = |path: &Path, dwg: bool, symbols: &mut usize| {
+        fn read<C: Codec>(src: &[u8]) -> C::File {
+            testkit::read::<C>(src).0.unwrap()
+        }
+        fn run<C: Codec>(path: &Path, dwg: bool, shapes: &[Shape<ModelPoint>], symbols: &mut usize)
+        where
+            C::File: Lift<Drawing2D> + Apply<Changes>,
+        {
+            let src = std::fs::read(path).unwrap();
+            let mut file = read::<C>(&src);
+            let drawing = lift(&file);
+            let before = drawing.spaces[0].elements.len();
+            let layer = drawing
+                .layers
+                .iter()
+                .find(|layer| layer.name == "0")
+                .unwrap()
+                .id;
+            let mut shapes = shapes.to_vec();
+            // 名前のあるブロックを置く記号があれば、その定義を回して置く記号も足す
+            let symbol =
+                drawing.spaces[0]
+                    .elements
+                    .iter()
+                    .find_map(|element| match &element.shape {
+                        Shape::Symbol(symbol)
+                            if symbol.key.namespace == "dxf.block"
+                                && !symbol.key.name.starts_with('*')
+                                && symbol.grid.is_none() =>
+                        {
+                            let mut symbol = symbol.clone();
+                            symbol.position = ModelPoint {
+                                space: SpaceId(0),
+                                x: 8.0,
+                                y: 9.0,
+                            };
+                            symbol.rotation = 90.0;
+                            symbol.scale = [2.0, 2.0];
+                            symbol.attributes.clear();
+                            symbol.clip = None;
+                            Some(Shape::Symbol(symbol))
+                        }
+                        _ => None,
+                    });
+            if let Some(symbol) = symbol {
+                shapes.push(symbol);
+                *symbols += 1;
+            }
+            let edits = shapes
+                .iter()
+                .map(|shape| {
+                    Edit::Add(Box::new(Element {
+                        source: zumen_base::Ref::default(),
+                        layer,
+                        style: Style {
+                            color: Inherit::Layer,
+                            line_type: Inherit::Layer,
+                            line_type_scale: 1.0,
+                            line_weight: Some(Inherit::Layer),
+                        },
+                        shape: shape.clone(),
+                    }))
+                })
+                .collect();
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            file.apply(
+                &Changes { edits },
+                &mut Cx::new(&mut budget, &mut diag, &cancel),
+            )
+            .unwrap();
+            let written = testkit::write::<C>(&file).unwrap();
+            let after = lift(&read::<C>(&written));
+            let elements = &after.spaces[0].elements;
+            assert_eq!(elements.len(), before + shapes.len(), "{}", path.display());
+            for (found, shape) in elements[before..].iter().zip(&shapes) {
+                // 文字の体裁は、大文字と小文字を区別せずに引いた定義の名前で書く
+                let mut shape = shape.clone();
+                if let (Shape::Text(found), Shape::Text(text)) = (&found.shape, &mut shape) {
+                    assert!(found.style.eq_ignore_ascii_case(&text.style));
+                    text.style.clone_from(&found.style);
+                }
+                assert!(
+                    close(&format!("{:?}", found.shape), &format!("{shape:?}")),
+                    "{}: {:?} != {shape:?}",
+                    path.display(),
+                    found.shape
+                );
+                assert_eq!(found.layer, layer, "{}", path.display());
+            }
+            // 線の太さを持つ線分は、DXF には足せ、DWG にはまだ足せない（決定 0079）
+            let mut file = read::<C>(&src);
+            let weighted = Element {
+                source: zumen_base::Ref::default(),
+                layer,
+                style: Style {
+                    color: Inherit::Layer,
+                    line_type: Inherit::Layer,
+                    line_type_scale: 1.0,
+                    line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.25)))),
+                },
+                shape: shapes[0].clone(),
+            };
+            let mut diag = Diagnostics::new();
+            let result = file.apply(
+                &Changes {
+                    edits: vec![Edit::Add(Box::new(weighted.clone()))],
+                },
+                &mut Cx::new(&mut budget, &mut diag, &cancel),
+            );
+            if dwg {
+                assert_eq!(result, Err(Error::Rejected), "{}", path.display());
+                assert_eq!(testkit::write::<C>(&file).unwrap(), src);
+            } else {
+                assert_eq!(result, Ok(()), "{}", path.display());
+                let written = testkit::write::<C>(&file).unwrap();
+                let after = lift(&read::<C>(&written));
+                let found = after.spaces[0].elements.last().unwrap();
+                assert_eq!(found.style, weighted.style, "{}", path.display());
+            }
+        }
+        if dwg {
+            run::<Dwg>(path, dwg, &shapes, symbols);
+        } else {
+            run::<Dxf>(path, dwg, &shapes, symbols);
+        }
+    };
+    let mut symbols = 0;
+    for (dwg, dxf) in pairs() {
+        check(&dwg, true, &mut symbols);
+        check(&dxf, false, &mut symbols);
+    }
+    assert!(pairs().is_empty() || symbols > 0);
+}
+
 /// 図形とともに動く XDATA（位置・変位・向き・距離・倍率）を持つ図形の形を変えると、DWG も DXF も何も反映しない
 /// （決定 0154）
 #[cfg(feature = "drawing")]
@@ -2612,38 +2866,6 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
             _ => return None,
         }
         Some(shape)
-    }
-    /// 数を許容差で比べ、ほかの文字は同じであること。用紙の mm を図面の単位に戻すと、最後の桁が違うことがある
-    fn close(found: &str, expected: &str) -> bool {
-        fn tokens(text: &str) -> Vec<Result<f64, String>> {
-            let mut out = Vec::new();
-            let mut rest = text;
-            while let Some(first) = rest.chars().next() {
-                let number = first.is_ascii_digit()
-                    || (first == '-' && rest.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
-                let end = if number {
-                    rest.char_indices()
-                        .skip(1)
-                        .find(|(_, c)| !(c.is_ascii_digit() || matches!(c, '.' | 'e' | '-')))
-                        .map_or(rest.len(), |(at, _)| at)
-                } else {
-                    first.len_utf8()
-                };
-                let (token, tail) = rest.split_at(end);
-                out.push(match token.parse::<f64>() {
-                    Ok(value) if number => Ok(value),
-                    _ => Err(token.to_owned()),
-                });
-                rest = tail;
-            }
-            out
-        }
-        let (found, expected) = (tokens(found), tokens(expected));
-        found.len() == expected.len()
-            && found.iter().zip(&expected).all(|pair| match pair {
-                (Ok(a), Ok(b)) => (a - b).abs() <= 1e-9 * a.abs().max(1.0),
-                (a, b) => a == b,
-            })
     }
     fn check<C: Codec>(path: &Path) -> usize
     where
