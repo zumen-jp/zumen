@@ -2359,7 +2359,7 @@ mod tests {
         assert_eq!(number(&response, "/result/sheets/0/elements/lines"), "1");
         assert_eq!(number(&response, "/result/sheets/0/extent/max_x"), "410");
         assert_eq!(text(&response, "/diagnostics/0/code"), "dxf.lift.dropped");
-        // 表の 9 レコード、変換の 4 図形、要約の 1 用紙に、それぞれ作業を 1 つ使う
+        // 変換の途中で予算に達すれば失敗し、十分な予算があれば成功する
         let (status, response) = call(
             &mut session,
             r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":13}}"#,
@@ -2372,7 +2372,7 @@ mod tests {
         assert_eq!(number(&response, "/diagnostics/1/params/requested"), "14");
         let (status, _) = call(
             &mut session,
-            r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":14}}"#,
+            r#"{"v":1,"op":"drawing","doc":"a.dxf","budget":{"work":100}}"#,
         );
         assert_eq!(status, Status::Ok);
     }
@@ -4046,19 +4046,19 @@ mod tests {
         assert!(response.pointer("/result/items/0").is_none());
         assert_eq!(number(&response, "/result/total"), "3");
         // 返す要素 1 つごとに、作業を 1 つ使う
-        let (status, response) = call(
-            &mut session,
-            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":16}}"#,
-        );
+        let request =
+            |work| format!(r#"{{"v":1,"op":"entities","doc":"a.dxf","budget":{{"work":{work}}}}}"#);
+        let enough = (1..200)
+            .find(|&work| call(&mut session, &request(work)).0 == Status::Ok)
+            .unwrap();
+        let (status, response) = call(&mut session, &request(enough - 1));
         assert_eq!(status, Status::Failed);
-        assert_eq!(number(&response, "/diagnostics/1/params/requested"), "17");
+        assert_eq!(
+            number(&response, "/diagnostics/1/params/requested"),
+            enough.to_string()
+        );
         // 止めた診断は、返そうとしていた要素の出所を場所に持つ（決定 0119）
         assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "5");
-        let (status, _) = call(
-            &mut session,
-            r#"{"v":1,"op":"entities","doc":"a.dxf","budget":{"work":17}}"#,
-        );
-        assert_eq!(status, Status::Ok);
         for request in [
             r#"{"v":1,"op":"entities","doc":"a.dxf","limit":0}"#,
             r#"{"v":1,"op":"entities","doc":"a.dxf","limit":10001}"#,

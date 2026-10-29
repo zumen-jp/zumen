@@ -519,7 +519,12 @@ fn edit(
                 Placed::Model(element) => add::work(&element.shape, cx, at)?,
                 Placed::Paper(element) => add::work(&element.shape, cx, at)?,
             }
-            count_transform_values(object, at, cx)?;
+            // 属性の値を置き換えるときは、続く ATTRIB の値も複製する。
+            // その走査と複製を、実行する前に予算に含める。
+            match found {
+                Found::Model(was) => transform_work(db, &positions, was, object, cx)?,
+                Found::Paper(was) => transform_work(db, &positions, was, object, cx)?,
+            }
         }
         let reshaped = match (change, found) {
             (Edit::Replace { element, .. }, Found::Model(was)) => {
