@@ -686,8 +686,9 @@ impl Plan<'_> {
             if !in_definition && group != was.group & 0xF {
                 return None;
             }
-            base.group = group;
-            base.layer = u16::try_from(n % 16).ok()?;
+            // 使わない上位ビットは意味が未確認なので残す。
+            base.group = (was.group & !0xF) | group;
+            base.layer = (was.layer & !0xF) | u16::try_from(n % 16).ok()?;
         }
         if style.color != element.style.color {
             base.pen_color = self.pen(style.color)?;
@@ -882,8 +883,8 @@ struct Lists<'p> {
     plan: &'p Plan<'p>,
     src: &'p [u8],
     out: Vec<u8>,
-    /// 書いたクラスの名前から、その番号
-    numbers: BTreeMap<Vec<u8>, u32>,
+    /// 書いたクラスの名前とスキーマから、その番号
+    numbers: BTreeMap<(Vec<u8>, u16), u32>,
     /// 次の番号。クラスとオブジェクトの番号は、ファイルの全体で 1 から数える
     next: u32,
     moved: BTreeMap<usize, usize>,
@@ -935,7 +936,20 @@ impl Lists<'_> {
         let mut added = Vec::new();
         for (class, body) in &self.plan.added {
             work(cx, 1)?;
-            let Some(schema) = self.plan.file.classes().first().map(crate::Class::schema) else {
+            let classes = self.plan.file.classes();
+            work(cx, classes.len() as u64)?;
+            // 同じクラスがすでにあれば、そのスキーマを使う。なければ全クラスが同じ場合だけ推定できる。
+            let same = classes
+                .iter()
+                .find(|item| self.plan.file.bytes(item.name()) == *class);
+            let schema = same.map(crate::Class::schema).or_else(|| {
+                let schema = classes.first()?.schema();
+                classes
+                    .iter()
+                    .all(|item| item.schema() == schema)
+                    .then_some(schema)
+            });
+            let Some(schema) = schema else {
                 return Ok(None);
             };
             self.tag(class, schema);
@@ -1062,7 +1076,8 @@ impl Lists<'_> {
 
     /// オブジェクトの前の印。初めてのクラスは名前を書き、ほかは番号で指す（MFC の CArchive）
     fn tag(&mut self, name: &[u8], schema: u16) {
-        match self.numbers.get(name) {
+        let key = (name.to_vec(), schema);
+        match self.numbers.get(&key) {
             Some(&number) if number < 0x7FFF => {
                 self.out.extend((0x8000 | number as u16).to_le_bytes());
             }
@@ -1075,7 +1090,7 @@ impl Lists<'_> {
                 self.out.extend(schema.to_le_bytes());
                 self.out.extend((name.len() as u16).to_le_bytes());
                 self.out.extend_from_slice(name);
-                self.numbers.insert(name.to_vec(), self.next);
+                self.numbers.insert(key, self.next);
                 self.next += 1;
             }
         }

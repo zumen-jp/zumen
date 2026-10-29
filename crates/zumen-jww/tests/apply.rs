@@ -144,6 +144,120 @@ fn close(a: f64, b: f64) -> bool {
 }
 
 #[test]
+fn rewriting_lists_preserves_each_class_schema() {
+    let mut spec = Spec::new(700);
+    spec.groups[0] = (3, 100.0, [3; 16]);
+    let mut archive = Archive::new(700);
+    archive.group = 0;
+    archive.layer = 0;
+    archive.count(2);
+    archive.line();
+    // 同じクラス名を別のスキーマで新たに定義する。
+    archive.out.extend([0xFF, 0xFF, 2, 0, 8, 0]);
+    archive.out.extend(b"CDataSen");
+    archive.base(1, 1);
+    archive.reals(&[0.0, 1.0, 10.0, 1.0]);
+    archive.count(0);
+    archive.out.extend(0u32.to_le_bytes());
+    let mut input = spec.build();
+    input.extend(&archive.out);
+    let mut file = read(&input);
+    let drawing = lift(&file);
+    let schemas = |file: &JwwFile| {
+        file.records()
+            .iter()
+            .filter(|record| file.kind_name(record) == b"CDataSen")
+            .map(|record| file.classes()[record.tag().unwrap().1].schema())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(schemas(&file), [1, 2]);
+    let added = element(&drawing, 0).1.clone();
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(added)),
+        }],
+        None,
+    );
+    assert!(result.is_ok(), "{result:?} {diagnostics:?}");
+    assert_eq!(schemas(&file), [1, 2, 1]);
+}
+
+#[test]
+fn restyling_layer_preserves_unread_high_bits() {
+    let mut input = src();
+    let file = read(&input);
+    let at = file.records()[1].body().start;
+    input[at + 9..at + 11].copy_from_slice(&0xCD00u16.to_le_bytes());
+    input[at + 11..at + 13].copy_from_slice(&0xAB00u16.to_le_bytes());
+    let mut file = read(&input);
+    let drawing = lift(&file);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Restyle {
+            target: seen(&drawing, 0),
+            style: Restyle {
+                layer: Some(LayerId(2)),
+                ..Restyle::default()
+            },
+        }],
+        None,
+    );
+    assert!(result.is_ok(), "{result:?} {diagnostics:?}");
+    let output = write(&file);
+    assert_eq!(
+        u16::from_le_bytes(output[at + 9..at + 11].try_into().unwrap()),
+        0xCD01
+    );
+    assert_eq!(
+        u16::from_le_bytes(output[at + 11..at + 13].try_into().unwrap()),
+        0xAB00
+    );
+}
+
+#[test]
+fn added_entity_uses_the_schema_of_its_own_class() {
+    let mut spec = Spec::new(700);
+    spec.groups[0] = (3, 100.0, [3; 16]);
+    let mut archive = Archive::new(700);
+    archive.group = 0;
+    archive.layer = 0;
+    archive.count(2);
+    archive.tag("CDataEnko");
+    archive.base(1, 1);
+    archive.reals(&[0.0, 0.0, 5.0, 0.0, 2.0 * PI, 0.0, 1.0]);
+    archive.out.extend(1u32.to_le_bytes());
+    archive.out.extend([0xFF, 0xFF, 2, 0, 8, 0]);
+    archive.out.extend(b"CDataSen");
+    archive.base(1, 1);
+    archive.reals(&[0.0, 0.0, 10.0, 0.0]);
+    archive.count(0);
+    archive.out.extend(0u32.to_le_bytes());
+    let mut input = spec.build();
+    input.extend(&archive.out);
+    let mut file = read(&input);
+    let drawing = lift(&file);
+    let added = element(&drawing, 1).1.clone();
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(added)),
+        }],
+        None,
+    );
+    assert!(result.is_ok(), "{result:?} {diagnostics:?}");
+    let schemas: Vec<_> = file
+        .records()
+        .iter()
+        .filter(|record| file.kind_name(record) == b"CDataSen")
+        .map(|record| file.classes()[record.tag().unwrap().1].schema())
+        .collect();
+    assert_eq!(schemas, [2, 2]);
+}
+
+#[test]
 fn edits_are_written_into_the_entity_lists() {
     let src = src();
     let mut file = read(&src);
