@@ -119,9 +119,11 @@ impl<'a> Index<'a> {
         }
         // 記号の定義の中の要素も ID で指せる。定義の空間に足すことは、まだしない
         for definition in &drawing.symbols {
+            work(cx, 1, &definition.source)?;
             let place = id::definition(definition);
             let mut namer = id::Namer::new(&place);
             for (index, element) in definition.space.elements.iter().enumerate() {
+                work(cx, 1, &element.source)?;
                 note(&element.source);
                 elements.insert(namer.next(index, element), Found::Model(element));
             }
@@ -1516,6 +1518,68 @@ mod hash_budget_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Key, Kind, Limit, Limits};
     use zumen_drawing::{LayerId, ModelSpace, Style, Unit, Vertex};
+
+    #[test]
+    fn indexing_symbol_definitions_and_elements_counts_work() {
+        use zumen_drawing::{SymbolDefinition, SymbolKey};
+        let point = ModelPoint {
+            space: SpaceId(1),
+            x: 0.0,
+            y: 0.0,
+        };
+        let definition = SymbolDefinition {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: "B".to_owned(),
+            },
+            space: ModelSpace {
+                id: SpaceId(1),
+                unit: Unit::Unknown,
+                elements: vec![Element {
+                    source: Ref::at_record(2),
+                    layer: LayerId(0),
+                    style: Style::BLOCK,
+                    shape: Shape::Line {
+                        start: point,
+                        end: point,
+                    },
+                }],
+                order: vec![0],
+            },
+            base: None,
+            attributes: vec![],
+            anonymous: false,
+            external: None,
+            source: Ref::at_record(1),
+        };
+        let drawing = Drawing2D {
+            symbols: vec![definition],
+            ..Drawing2D::default()
+        };
+        let cancel = CancelToken::new();
+        for limit in [0, 1] {
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+            let mut diagnostics = Diagnostics::new();
+            assert!(matches!(
+                Index::new(
+                    &drawing,
+                    &mut context(&mut budget, &mut diagnostics, &cancel)
+                ),
+                Err(Error::Stopped(_))
+            ));
+            assert_eq!(budget.used(Kind::Work), limit);
+        }
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(2)));
+        let mut diagnostics = Diagnostics::new();
+        assert!(
+            Index::new(
+                &drawing,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_ok()
+        );
+        assert_eq!(budget.used(Kind::Work), 2);
+    }
 
     fn context<'a>(
         budget: &'a mut Budget,
