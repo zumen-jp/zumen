@@ -729,3 +729,121 @@ fn inserts_that_the_records_cannot_hold_change_nothing() {
     }
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+#[test]
+fn mtext_line_spacing_must_fit_the_dxf_range() {
+    let src = mtexts("AC1021", "abc");
+    for (factor, supported) in [(0.249, false), (0.25, true), (4.0, true), (4.001, false)] {
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let mut element = elements(&lift(&file)).remove(0);
+        let Shape::Formatted(text) = &mut element.shape else {
+            panic!("{:?}", element.shape);
+        };
+        text.line_spacing.factor = factor;
+        let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(element))]);
+        if supported {
+            assert_eq!(result, Ok(()), "{factor}");
+            assert_eq!(found, []);
+        } else {
+            assert_eq!(result, Err(Error::Rejected), "{factor}");
+            assert_eq!(found[0].0, codes::DXF_CHANGE_UNSUPPORTED);
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        }
+    }
+}
+
+#[test]
+fn mtext_direction_changes_win_over_an_old_angle_and_fill_missing_components() {
+    use zumen_drawing::Rotation;
+    // MTEXT は、角度（50）と方向（11）のうち、後の指定が優先される（DXF Reference「MTEXT」）。
+    for with_y in [true, false] {
+        let mut tags = vec![
+            (0, "MTEXT"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (40, "2.5"),
+            (1, "A"),
+            (11, "1.0"),
+        ];
+        if with_y {
+            tags.push((21, "0.0"));
+        }
+        tags.extend([(31, "0.0"), (50, "0.0")]);
+        let src = versioned("AC1021", &tags);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let mut element = elements(&lift(&file)).remove(0);
+        let Shape::Formatted(text) = &mut element.shape else {
+            panic!("{:?}", element.shape);
+        };
+        text.rotation = Rotation::Direction([0.0, 1.0]);
+        let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(element))]);
+        assert_eq!(result, Ok(()), "{with_y}");
+        assert_eq!(found, []);
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let file = testkit::read::<Dxf>(&written).0.unwrap();
+        let record = file
+            .records()
+            .iter()
+            .find(|r| file.kind(r) == b"MTEXT")
+            .unwrap();
+        let last = record
+            .tags()
+            .iter()
+            .rev()
+            .find(|tag| matches!(tag.code(), 11 | 50))
+            .unwrap();
+        if last.code() == 50 {
+            assert_eq!(file.real(record, 50), Ok(core::f64::consts::FRAC_PI_2));
+        } else {
+            assert_eq!(file.real(record, 11), Ok(0.0));
+            assert_eq!(file.real(record, 21), Ok(1.0));
+        }
+    }
+}
+
+#[test]
+fn binary_mtext_content_keeps_caret_escapes_across_chunk_boundaries() {
+    let nul = |value: &str| [value.as_bytes(), b"\0"].concat();
+    let tags = [
+        (0i16, nul("SECTION")),
+        (2, nul("HEADER")),
+        (9, nul("$INSUNITS")),
+        (70, 4i16.to_le_bytes().to_vec()),
+        (0, nul("ENDSEC")),
+        (0, nul("SECTION")),
+        (2, nul("ENTITIES")),
+        (0, nul("MTEXT")),
+        (5, nul("1A")),
+        (8, nul("0")),
+        (10, 0.0f64.to_le_bytes().to_vec()),
+        (20, 0.0f64.to_le_bytes().to_vec()),
+        (40, 2.5f64.to_le_bytes().to_vec()),
+        (1, nul("A")),
+        (0, nul("ENDSEC")),
+        (0, nul("EOF")),
+    ];
+    let mut src = b"AutoCAD Binary DXF\r\n\x1a\0".to_vec();
+    for (code, value) in tags {
+        src.extend_from_slice(&code.to_le_bytes());
+        src.extend(value);
+    }
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut element = elements(&lift(&file)).remove(0);
+    let Shape::Formatted(text) = &mut element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    text.content = format!("{}^ B", "a".repeat(249));
+    text.spans = spans(&text.content);
+    let expected = text.content.clone();
+    let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(element))]);
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let file = testkit::read::<Dxf>(&written).0.unwrap();
+    let Shape::Formatted(text) = &elements(&lift(&file))[0].shape else {
+        panic!("not MTEXT");
+    };
+    assert_eq!(text.content, expected);
+}
