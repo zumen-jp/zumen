@@ -129,16 +129,24 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             })
         }
         Shape::Text(text) => {
-            let (point, end, fit) = match text.placement {
-                Placement::Anchor { point, .. } => (point, None, None),
-                Placement::Between { first, second, fit } => (
-                    first,
-                    Some(xy(second)),
-                    Some(match fit {
-                        Fit::Aligned => TextFit::Aligned,
-                        Fit::Fit => TextFit::Fit,
-                    }),
-                ),
+            let (point, end, fit, rotation) = match text.placement {
+                Placement::Anchor { point, .. } => (point, None, None, text.rotation),
+                Placement::Between { first, second, fit } => {
+                    let ([x0, y0], [x1, y1]) = (Point::xy(first), Point::xy(second));
+                    if x0 == x1 && y0 == y1 {
+                        return None;
+                    }
+                    let rotation = libm::atan2(y1 - y0, x1 - x0).to_degrees();
+                    (
+                        first,
+                        Some(xy(second)),
+                        Some(match fit {
+                            Fit::Aligned => TextFit::Aligned,
+                            Fit::Fit => TextFit::Fit,
+                        }),
+                        rotation,
+                    )
+                }
             };
             Geometry::Text(TextGeometry {
                 content: text.content.clone(),
@@ -146,7 +154,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 end,
                 fit,
                 height: point.length(text.height.value)?,
-                rotation: text.rotation,
+                rotation,
                 style: Some(text.style.clone()),
             })
         }

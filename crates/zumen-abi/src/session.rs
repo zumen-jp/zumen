@@ -3883,4 +3883,24 @@ mod tests {
         drop(watchdog::Watchdog::start(&untouched, 60_000).unwrap());
         assert_eq!(untouched.stop(), None);
     }
+
+    #[test]
+    fn fitted_text_geometry_uses_the_direction_of_its_points() {
+        let source = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n5\n20\n8\n0\n10\n0\n20\n0\n11\n0\n21\n5\n40\n1\n1\nX1\n72\n5\n50\n0\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"fit.dxf", source).unwrap();
+        assert_eq!(
+            call(&mut session, r#"{"v":1,"op":"open","input":"fit.dxf"}"#).0,
+            Status::Ok
+        );
+        let shape = shapes(&mut session, "fit.dxf")[0].clone();
+        let value = zumen_json::parse(shape.as_bytes()).unwrap();
+        assert_eq!(number(&value, "/rotation"), "90");
+        let (id, hash) = seen(&mut session, "fit.dxf")[0].clone();
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"fit.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{shape}}}]}}"#
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+    }
 }
