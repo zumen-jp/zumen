@@ -41,7 +41,7 @@ pub fn origin(source: &Ref, index: usize) -> String {
 pub struct Namer<'a> {
     place: &'a str,
     /// 出所ごとの、これまでに出てきた要素の数
-    seen: BTreeMap<&'a Ref, u64>,
+    seen: BTreeMap<String, u64>,
 }
 
 impl<'a> Namer<'a> {
@@ -56,10 +56,13 @@ impl<'a> Namer<'a> {
     /// 次の要素の ID。要素は、空間か用紙の順に、飛ばさずに渡す
     pub fn next<P>(&mut self, index: usize, element: &'a Element<P>) -> String {
         let origin = origin(&element.source, index);
-        let repeat = if element.source == Ref::default() {
+        let repeat = if element.source.key().is_none()
+            && element.source.record().is_none()
+            && element.source.bytes().is_none()
+        {
             0
         } else {
-            let count = self.seen.entry(&element.source).or_insert(0);
+            let count = self.seen.entry(origin.clone()).or_insert(0);
             *count += 1;
             *count - 1
         };
@@ -94,7 +97,7 @@ mod tests {
         let place = space(SpaceId(0));
         let elements = [
             element(Ref::at_record(3).with_key(Key::Handle(0x2f))),
-            element(Ref::at_record(3).with_key(Key::Handle(0x2f))),
+            element(Ref::at_record(4).with_key(Key::Handle(0x2f))),
             element(Ref::at_bytes(10, 20)),
             element(Ref::at_record(7)),
             element(Ref::default().with_key(Key::Instance(120))),

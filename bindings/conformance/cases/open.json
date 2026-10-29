@@ -29,7 +29,7 @@
       "expect": { "/diagnostics/0/code": "budget.work.exceeded", "/diagnostics/0/params/limit": 2 }
     },
     {
-      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 27, "records": 2, "work": 3 } },
+      "call": { "v": 1, "op": "open", "input": "a.dxf", "budget": { "input_bytes": 27, "records": 2, "work": 4 } },
       "expect": { "/result": { "doc": "a.dxf", "format": "dxf" }, "/diagnostics": [] }
     },
     {

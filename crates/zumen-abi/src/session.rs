@@ -305,7 +305,7 @@ impl Session {
             doc: name.clone(),
             format: doc.format().to_string(),
         };
-        let hash = Hash::document(bytes);
+        let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
         self.hashes.insert(name.clone(), hash);
         self.docs.insert(name.clone(), doc);
         Ok(result)
@@ -544,6 +544,15 @@ impl Page {
             if has(EntityField::Bbox) && self.region.is_none() {
                 bbox = bounds::bbox(&element.shape);
             }
+            let hash = if has(EntityField::Hash) {
+                Some(
+                    Hash::element_checked(element, cx)
+                        .map_err(|stop| stop_at(cx, stop))?
+                        .to_string(),
+                )
+            } else {
+                None
+            };
             self.items.push(Entity {
                 id,
                 kind: has(EntityField::Kind).then(|| kind_of(&element.shape)),
@@ -563,7 +572,7 @@ impl Page {
                     },
                 }),
                 bbox: bbox.filter(|_| has(EntityField::Bbox)),
-                hash: has(EntityField::Hash).then(|| Hash::element(element).to_string()),
+                hash,
             });
         }
         Ok(())

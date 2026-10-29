@@ -6,7 +6,7 @@
 
 use core::fmt;
 
-use zumen_base::{Key, Ref};
+use zumen_base::{Cx, Key, Kind, Ref, Stop};
 
 use crate::{
     Affine, Arrowhead, Attribute, AttributeValue, Axis, Background, BackgroundFill, Border,
@@ -45,9 +45,47 @@ impl Hash {
         })
     }
 
+    /// 予算と中断の合図を確かめながら要素をハッシュする
+    pub fn element_checked<P: Encode>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        let mut check = || cx.check(Kind::Work, 1);
+        let mut out = Canon {
+            hasher: blake3::Hasher::new(),
+            check: Some(&mut check),
+            stop: None,
+        };
+        Self::VERSION.encode(&mut out);
+        b"element".as_slice().encode(&mut out);
+        element.layer.encode(&mut out);
+        element.style.encode(&mut out);
+        element.shape.encode(&mut out);
+        if let Some(stop) = out.stop {
+            return Err(stop);
+        }
+        let digest = out.hasher.finalize();
+        let mut bytes = [0; 16];
+        bytes.copy_from_slice(&digest.as_bytes()[..16]);
+        Ok(Self(bytes))
+    }
+
+    /// 予算と中断の合図を確かめながら文書をハッシュする
+    pub fn document_checked(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        let mut hasher = blake3::Hasher::new();
+        for chunk in bytes.chunks(1024) {
+            cx.check(Kind::Work, 1)?;
+            hasher.update(chunk);
+        }
+        let digest = hasher.finalize();
+        let mut result = [0; 16];
+        result.copy_from_slice(&digest.as_bytes()[..16]);
+        Ok(Self(result))
+    }
+
     /// 文書のハッシュ。元のバイト列そのものから作る
     pub fn document(bytes: &[u8]) -> Self {
-        Self::of(b"document", |out| out.bytes(bytes))
+        let digest = blake3::hash(bytes);
+        let mut result = [0; 16];
+        result.copy_from_slice(&digest.as_bytes()[..16]);
+        Self(result)
     }
 
     /// レイヤのハッシュ。出所は鍵だけを入れる
@@ -60,12 +98,16 @@ impl Hash {
         Self::of(b"line-type", |out| line_type.encode(out))
     }
 
-    fn of(domain: &[u8], body: impl FnOnce(&mut Canon)) -> Self {
-        let mut out = Canon(blake3::Hasher::new());
+    fn of(domain: &[u8], body: impl FnOnce(&mut Canon<'_>)) -> Self {
+        let mut out = Canon {
+            hasher: blake3::Hasher::new(),
+            check: None,
+            stop: None,
+        };
         Self::VERSION.encode(&mut out);
         domain.encode(&mut out);
         body(&mut out);
-        let digest = out.0.finalize();
+        let digest = out.hasher.finalize();
         let mut bytes = [0; 16];
         bytes.copy_from_slice(&digest.as_bytes()[..16]);
         Self(bytes)
@@ -80,11 +122,26 @@ impl fmt::Display for Hash {
 }
 
 /// 決まった並びのバイト列を受ける所
-pub struct Canon(blake3::Hasher);
+pub struct Canon<'a> {
+    hasher: blake3::Hasher,
+    check: Option<&'a mut dyn FnMut() -> Result<(), Stop>>,
+    stop: Option<Stop>,
+}
 
-impl Canon {
+impl Canon<'_> {
     fn bytes(&mut self, bytes: &[u8]) {
-        self.0.update(bytes);
+        for chunk in bytes.chunks(1024) {
+            if self.stop.is_some() {
+                break;
+            }
+            if let Some(check) = &mut self.check
+                && let Err(stop) = check()
+            {
+                self.stop = Some(stop);
+                break;
+            }
+            self.hasher.update(chunk);
+        }
     }
 
     fn tag(&mut self, tag: u8) {
@@ -95,11 +152,11 @@ impl Canon {
 /// 決まった並びのバイト列にできる値
 pub trait Encode {
     /// 値のバイト列を書き足す
-    fn encode(&self, out: &mut Canon);
+    fn encode(&self, out: &mut Canon<'_>);
 }
 
 impl Encode for bool {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         out.tag(u8::from(*self));
     }
 }
@@ -107,7 +164,7 @@ impl Encode for bool {
 macro_rules! integers {
     ($($ty:ty),*) => {$(
         impl Encode for $ty {
-            fn encode(&self, out: &mut Canon) {
+            fn encode(&self, out: &mut Canon<'_>) {
                 out.bytes(&self.to_le_bytes());
             }
         }
@@ -117,13 +174,13 @@ macro_rules! integers {
 integers!(u8, u16, u32, u64, i64);
 
 impl Encode for usize {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         (*self as u64).encode(out);
     }
 }
 
 impl Encode for f64 {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         let bits = if self.is_nan() {
             f64::NAN.to_bits()
         } else if *self == 0.0 {
@@ -136,45 +193,55 @@ impl Encode for f64 {
 }
 
 impl Encode for [u8] {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         self.len().encode(out);
         out.bytes(self);
     }
 }
 
 impl Encode for str {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         self.as_bytes().encode(out);
     }
 }
 
 impl Encode for String {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         self.as_str().encode(out);
     }
 }
 
 impl Encode for &str {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         (*self).encode(out);
     }
 }
 
 impl<T: Encode> Encode for Vec<T> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         self.len().encode(out);
-        self.iter().for_each(|item| item.encode(out));
+        for item in self {
+            if out.stop.is_some() {
+                break;
+            }
+            item.encode(out);
+        }
     }
 }
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
-    fn encode(&self, out: &mut Canon) {
-        self.iter().for_each(|item| item.encode(out));
+    fn encode(&self, out: &mut Canon<'_>) {
+        for item in self {
+            if out.stop.is_some() {
+                break;
+            }
+            item.encode(out);
+        }
     }
 }
 
 impl<T: Encode> Encode for Option<T> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             None => out.tag(0),
             Some(value) => {
@@ -186,13 +253,13 @@ impl<T: Encode> Encode for Option<T> {
 }
 
 impl<T: Encode + ?Sized> Encode for Box<T> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         (**self).encode(out);
     }
 }
 
 impl<A: Encode, B: Encode> Encode for (A, B) {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         self.0.encode(out);
         self.1.encode(out);
     }
@@ -200,7 +267,7 @@ impl<A: Encode, B: Encode> Encode for (A, B) {
 
 /// 出所は、形式が持つ鍵だけを入れる。位置は、前のレコードが増えると変わる
 impl Encode for Ref {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self.key() {
             None => out.tag(0),
             Some(Key::Handle(handle)) => {
@@ -219,7 +286,7 @@ impl Encode for Ref {
 macro_rules! records {
     ($($ty:ident $(<$p:ident>)? { $($field:ident),* $(,)? })*) => {$(
         impl$(<$p: Encode>)? Encode for $ty$(<$p>)? {
-            fn encode(&self, out: &mut Canon) {
+            fn encode(&self, out: &mut Canon<'_>) {
                 let $ty { $($field),* } = self;
                 $($field.encode(out);)*
             }
@@ -231,7 +298,7 @@ macro_rules! records {
 macro_rules! units {
     ($($ty:ident { $($variant:ident),* $(,)? })*) => {$(
         impl Encode for $ty {
-            fn encode(&self, out: &mut Canon) {
+            fn encode(&self, out: &mut Canon<'_>) {
                 let tags = [$($ty::$variant),*];
                 let tag = tags.iter().position(|tag| tag == self);
                 match tag {
@@ -247,7 +314,7 @@ macro_rules! units {
 macro_rules! newtypes {
     ($($ty:ident),*) => {$(
         impl Encode for $ty {
-            fn encode(&self, out: &mut Canon) {
+            fn encode(&self, out: &mut Canon<'_>) {
                 self.0.encode(out);
             }
         }
@@ -329,7 +396,7 @@ records! {
 }
 
 impl<T: Encode> Encode for Inherit<T> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Inherit::Layer => out.tag(0),
             Inherit::Block => out.tag(1),
@@ -342,7 +409,7 @@ impl<T: Encode> Encode for Inherit<T> {
 }
 
 impl Encode for MarkContent {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             MarkContent::Shape { font, number } => {
                 out.tag(0);
@@ -359,7 +426,7 @@ impl Encode for MarkContent {
 }
 
 impl Encode for LineWeight {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             LineWeight::Width(width) => {
                 out.tag(0);
@@ -371,7 +438,7 @@ impl Encode for LineWeight {
 }
 
 impl Encode for Length {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Length::Paper(length) => {
                 out.tag(0);
@@ -386,7 +453,7 @@ impl Encode for Length {
 }
 
 impl<P: Encode> Encode for Shape<P> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Shape::Line { start, end } => {
                 out.tag(0);
@@ -447,7 +514,7 @@ impl<P: Encode> Encode for Shape<P> {
 }
 
 impl<P: Encode> Encode for DimensionKind<P> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             DimensionKind::Linear {
                 first,
@@ -542,7 +609,7 @@ impl<P: Encode> Encode for DimensionKind<P> {
 }
 
 impl Encode for Label {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Label::Measurement => out.tag(0),
             Label::Override { content, spans } => {
@@ -556,7 +623,7 @@ impl Encode for Label {
 }
 
 impl<P: Encode> Encode for UnderlayFrame<P> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             UnderlayFrame::Pixels {
                 size,
@@ -591,7 +658,7 @@ impl<P: Encode> Encode for UnderlayFrame<P> {
 }
 
 impl Encode for CellData {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             CellData::Text(text) => {
                 out.tag(0);
@@ -618,7 +685,7 @@ impl Encode for CellData {
 }
 
 impl Encode for CellContent {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             CellContent::Empty => out.tag(0),
             CellContent::Text { content, spans } => {
@@ -635,7 +702,7 @@ impl Encode for CellContent {
 }
 
 impl<P: Encode> Encode for CalloutContent<P> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             CalloutContent::None => out.tag(0),
             CalloutContent::Text(text) => {
@@ -652,7 +719,7 @@ impl<P: Encode> Encode for CalloutContent<P> {
 }
 
 impl Encode for Arrowhead {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Arrowhead::Default => out.tag(0),
             Arrowhead::Symbol(key) => {
@@ -664,7 +731,7 @@ impl Encode for Arrowhead {
 }
 
 impl<P: Encode> Encode for Boundary<P> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Boundary::Polyline { vertices, closed } => {
                 out.tag(0);
@@ -680,7 +747,7 @@ impl<P: Encode> Encode for Boundary<P> {
 }
 
 impl<P: Encode> Encode for Edge<P> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Edge::Line { start, end } => {
                 out.tag(0);
@@ -742,7 +809,7 @@ impl<P: Encode> Encode for Edge<P> {
 }
 
 impl Encode for Fill {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Fill::Solid => out.tag(0),
             Fill::Pattern(pattern) => {
@@ -758,7 +825,7 @@ impl Encode for Fill {
 }
 
 impl Encode for HeightMeaning {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             HeightMeaning::Frame => out.tag(0),
             HeightMeaning::CapHeight => out.tag(1),
@@ -772,7 +839,7 @@ impl Encode for HeightMeaning {
 }
 
 impl<P: Encode> Encode for Placement<P> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Placement::Anchor {
                 point,
@@ -795,7 +862,7 @@ impl<P: Encode> Encode for Placement<P> {
 }
 
 impl Encode for Rotation {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Rotation::Angle(angle) => {
                 out.tag(0);
@@ -810,7 +877,7 @@ impl Encode for Rotation {
 }
 
 impl Encode for BackgroundFill {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             BackgroundFill::Color(color) => {
                 out.tag(0);
@@ -822,7 +889,7 @@ impl Encode for BackgroundFill {
 }
 
 impl Encode for Piece {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Piece::Text(text) => {
                 out.tag(0);
@@ -847,7 +914,7 @@ impl Encode for Piece {
 }
 
 impl<T: Encode> Encode for Scaled<T> {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             Scaled::Value(value) => {
                 out.tag(0);
@@ -862,7 +929,7 @@ impl<T: Encode> Encode for Scaled<T> {
 }
 
 impl Encode for FontKind {
-    fn encode(&self, out: &mut Canon) {
+    fn encode(&self, out: &mut Canon<'_>) {
         match self {
             FontKind::Shape => out.tag(0),
             FontKind::Named {
@@ -917,6 +984,80 @@ mod tests {
         let mut moved = line(0.0, Ref::default());
         moved.layer = LayerId(1);
         assert_ne!(hash, Hash::element(&moved));
+    }
+
+    #[test]
+    fn checked_hashes_match_and_respect_work_and_cancellation() {
+        use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+        let bytes = vec![42; 4096];
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert_eq!(
+            Hash::document_checked(&bytes, &mut cx).unwrap(),
+            Hash::document(&bytes)
+        );
+        assert_eq!(
+            Hash::document(b"").to_string(),
+            "v1:af1349b9f5f9a1a6a0404dea36dcc949"
+        );
+        let element = line(1.0, Ref::default());
+        assert_eq!(
+            Hash::element_checked(&element, &mut cx).unwrap(),
+            Hash::element(&element)
+        );
+
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(2)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(matches!(
+            Hash::document_checked(&bytes, &mut cx),
+            Err(Stop::Exceeded(_))
+        ));
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(2)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(matches!(
+            Hash::element_checked(&element, &mut cx),
+            Err(Stop::Exceeded(_))
+        ));
+        cancel.cancel();
+        let mut budget = Budget::default();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert_eq!(
+            Hash::element_checked(&element, &mut cx),
+            Err(Stop::Cancelled)
+        );
+    }
+
+    #[test]
+    fn encoding_stops_visiting_items_after_the_budget() {
+        use std::cell::Cell;
+
+        struct Count<'a>(&'a Cell<usize>);
+        impl Encode for Count<'_> {
+            fn encode(&self, out: &mut Canon<'_>) {
+                self.0.set(self.0.get() + 1);
+                1_u8.encode(out);
+            }
+        }
+        let visits = Cell::new(0);
+        let items: Vec<_> = (0..1000).map(|_| Count(&visits)).collect();
+        let mut budget = zumen_base::Budget::new(
+            zumen_base::Limits::default().with(Kind::Work, zumen_base::Limit::Finite(2)),
+        );
+        let mut diagnostics = zumen_base::Diagnostics::new();
+        let cancel = zumen_base::CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let mut check = || cx.check(Kind::Work, 1);
+        let mut out = Canon {
+            hasher: blake3::Hasher::new(),
+            check: Some(&mut check),
+            stop: None,
+        };
+        items.encode(&mut out);
+        assert!(matches!(out.stop, Some(Stop::Exceeded(_))));
+        assert_eq!(visits.get(), 2);
     }
 
     #[test]
