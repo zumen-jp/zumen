@@ -978,6 +978,513 @@ fn sheet_and_model_replacements_do_not_cross() {
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
 
+/// 実寸の空間の点
+#[cfg(test)]
+fn at(x: f64, y: f64) -> ModelPoint {
+    ModelPoint {
+        space: zumen_drawing::SpaceId(0),
+        x,
+        y,
+    }
+}
+
+/// 実寸の空間の長さ
+#[cfg(test)]
+fn model(value: f64) -> Length {
+    Length::Model(zumen_drawing::ModelLength {
+        space: zumen_drawing::SpaceId(0),
+        value,
+    })
+}
+
+/// 足す線分・円弧・楕円・軽量の折れ線・文字
+#[cfg(test)]
+fn newcomers() -> Vec<Shape<ModelPoint>> {
+    use zumen_drawing::{
+        Edge, Flow, Format, FormattedText, Height, HeightMeaning, Horizontal, LineSpacing, Piece,
+        Placement, Polyline, Rotation, Span, Text, Vertex, Vertical,
+    };
+    let span = |piece| Span {
+        piece,
+        format: Format::default(),
+    };
+    vec![
+        Shape::Line {
+            start: at(0.0, 0.0),
+            end: at(2.0, 3.0),
+        },
+        Shape::Curve(Edge::Arc {
+            center: at(1.0, 1.0),
+            radius: model(2.0),
+            start: 30.0,
+            end: 120.0,
+            counterclockwise: true,
+        }),
+        Shape::Curve(Edge::Elliptic {
+            center: at(5.0, 5.0),
+            major: at(8.0, 5.0),
+            ratio: 0.5,
+            start: 0.0,
+            end: 180.0,
+            counterclockwise: true,
+        }),
+        Shape::Polyline(Polyline {
+            vertices: vec![
+                Vertex {
+                    point: at(0.0, 0.0),
+                    bulge: 0.5,
+                },
+                Vertex {
+                    point: at(4.0, 0.0),
+                    bulge: 0.0,
+                },
+                Vertex {
+                    point: at(4.0, 3.0),
+                    bulge: 0.0,
+                },
+            ],
+            closed: true,
+            width: None,
+            vertex_widths: Vec::new(),
+        }),
+        Shape::Text(Text {
+            content: "zumen".to_owned(),
+            height: Height {
+                value: model(2.5),
+                meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+            },
+            placement: Placement::Anchor {
+                point: at(3.0, 3.0),
+                horizontal: Horizontal::Center,
+                vertical: Vertical::Middle,
+            },
+            rotation: 15.0,
+            width_factor: 1.0,
+            oblique: 0.0,
+            backward: false,
+            upside_down: false,
+            style: "STANDARD".to_owned(),
+        }),
+        Shape::Formatted(FormattedText {
+            content: "zumen\\Pdrawing".to_owned(),
+            spans: vec![
+                span(Piece::Text("zumen".to_owned())),
+                span(Piece::Paragraph),
+                span(Piece::Text("drawing".to_owned())),
+            ],
+            height: Height {
+                value: model(2.5),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+            },
+            point: at(6.0, 1.0),
+            horizontal: Horizontal::Center,
+            vertical: Vertical::Top,
+            rotation: Rotation::Angle(0.0),
+            width: Some(model(10.0)),
+            frame_height: None,
+            flow: Flow::LeftToRight,
+            line_spacing: LineSpacing {
+                factor: 1.5,
+                exact: true,
+            },
+            background: None,
+            style: "STANDARD".to_owned(),
+        }),
+    ]
+}
+
+#[test]
+fn elements_are_added_with_new_handles() {
+    use zumen_drawing::{Color, ColorCode, ColorSystem, Inherit};
+    let mut file = testkit::read::<Dxf>(&src()).0.unwrap();
+    let before = elements(&lift(&file));
+    let shapes = newcomers();
+    let edits = shapes
+        .iter()
+        .enumerate()
+        .map(|(index, shape)| {
+            let mut element = before[0].clone();
+            element.shape = shape.clone();
+            if index == 0 {
+                element.style.color = Inherit::Own(Color {
+                    code: Some(ColorCode {
+                        system: ColorSystem::Aci,
+                        value: 3,
+                    }),
+                    rgb: None,
+                });
+            }
+            Edit::Add(Box::new(element))
+        })
+        .collect();
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(after.len(), before.len() + shapes.len());
+    let added: Vec<_> = after[before.len()..]
+        .iter()
+        .map(|e| e.shape.clone())
+        .collect();
+    assert_eq!(added, shapes);
+    assert!(
+        after[before.len()..]
+            .iter()
+            .all(|e| e.layer == before[0].layer)
+    );
+    // ハンドルは $HANDSEED（20）から順に付け、$HANDSEED を最後のハンドルの次に進める。区切り（100）を
+    // 持たない表には、区切りを書かない
+    let text = String::from_utf8(written).unwrap();
+    assert!(text.contains("  0\nLINE\n  5\n20\n  8\n0\n 62\n3\n 10\n0.0\n"));
+    assert!(text.contains("  0\nTEXT\n  5\n24\n"));
+    assert!(text.contains("  0\nMTEXT\n  5\n25\n"));
+    assert!(text.contains("$HANDSEED\n  5\n26\n"));
+    assert!(!text.contains("AcDb"));
+}
+
+#[test]
+fn elements_that_cannot_be_added_change_nothing() {
+    use zumen_drawing::{Placement, SpaceId};
+    let src = src();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let template = elements(&lift(&file)).swap_remove(0);
+    let shapes = newcomers();
+    let add = |record: u64, shape: Shape<ModelPoint>, layer: LayerId| {
+        let mut element = template.clone();
+        element.source = Ref::at_record(record);
+        element.shape = shape;
+        element.layer = layer;
+        Edit::Add(Box::new(element))
+    };
+    // 図面にないレイヤ、半径が 0 の円、ほかの空間の線分、改行を持つ文字、内容と合わない区間を持つ書式つきの
+    // 文字は足せない
+    let mut elsewhere = shapes[0].clone();
+    if let Shape::Line { end, .. } = &mut elsewhere {
+        end.space = SpaceId(1);
+    }
+    let mut broken = shapes[4].clone();
+    if let Shape::Text(text) = &mut broken {
+        text.content = "a\nb".to_owned();
+        if let Placement::Anchor { point, .. } = &mut text.placement {
+            point.x = 1.0;
+        }
+    }
+    let mut stale = shapes[5].clone();
+    if let Shape::Formatted(text) = &mut stale {
+        text.content = "zumen".to_owned();
+    }
+    let edits = vec![
+        add(901, shapes[0].clone(), LayerId(99)),
+        add(
+            902,
+            Shape::Circle {
+                center: at(0.0, 0.0),
+                radius: model(0.0),
+            },
+            template.layer,
+        ),
+        add(903, elsewhere, template.layer),
+        add(904, broken, template.layer),
+        add(905, stale, template.layer),
+        add(906, shapes[1].clone(), template.layer),
+    ];
+    let (result, found) = apply(&mut file, edits);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(
+            codes::DXF_CHANGE_UNSUPPORTED,
+            (901..=905).map(Ref::at_record).collect()
+        )]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn sheet_elements_are_added_in_paper_millimeters() {
+    use zumen_drawing::{PaperLength, PaperPoint, SheetId};
+    let mut file = testkit::read::<Dxf>(&sheet()).0.unwrap();
+    let drawing = lift(&file);
+    let template = drawing.sheets[0].elements[0].clone();
+    let at = |sheet: u32, x: f64, y: f64| PaperPoint {
+        sheet: SheetId(sheet),
+        x,
+        y,
+    };
+    let mut line = template.clone();
+    line.shape = Shape::Line {
+        start: at(0, 25.4, 50.8),
+        end: at(0, 50.8, 25.4),
+    };
+    let mut circle = template.clone();
+    circle.shape = Shape::Circle {
+        center: at(0, 25.4, 25.4),
+        radius: Length::Paper(PaperLength(12.7)),
+    };
+    let (result, found) = apply(
+        &mut file,
+        vec![
+            Edit::AddOnSheet(Box::new(line.clone())),
+            Edit::AddOnSheet(Box::new(circle.clone())),
+        ],
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    let shapes: Vec<_> = after.sheets[0].elements[2..]
+        .iter()
+        .map(|e| e.shape.clone())
+        .collect();
+    assert_eq!(shapes, [line.shape, circle.shape]);
+    // 用紙の mm を図面の単位（インチ）に戻して用紙の原点を足し、ペーパー空間の印を付ける。値は、インチに
+    // 戻して最後の桁が違わないものを選ぶ
+    let text = String::from_utf8(written).unwrap();
+    assert!(text.contains(
+        "  0\nLINE\n  5\n20\n 67\n1\n  8\n0\n 10\n11.0\n 20\n22.0\n 30\n0.0\n 11\n12.0\n 21\n21.0\n"
+    ));
+    assert_eq!(elements(&after).len(), 1);
+}
+
+#[test]
+fn sheet_elements_need_a_known_sheet() {
+    use zumen_drawing::{PaperPoint, SheetId};
+    let src = sheet();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut line = lift(&file).sheets[0].elements[0].clone();
+    let at = |x: f64| PaperPoint {
+        sheet: SheetId(5),
+        x,
+        y: 0.0,
+    };
+    line.shape = Shape::Line {
+        start: at(0.0),
+        end: at(1.0),
+    };
+    line.source = Ref::at_record(900);
+    let (result, found) = apply(&mut file, vec![Edit::AddOnSheet(Box::new(line))]);
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(codes::DXF_CHANGE_UNSUPPORTED, vec![Ref::at_record(900)])]
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+/// 定義を持つ空の DXF。BLOCK_RECORD の表は持たない。
+fn addition_source(version: &str, seed: &str, blocks: &[(i16, &str)]) -> Vec<u8> {
+    let mut tags = vec![
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, version),
+        (9, "$INSUNITS"),
+        (70, "4"),
+        (9, "$HANDSEED"),
+        (5, seed),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+    ];
+    tags.extend_from_slice(blocks);
+    tags.extend_from_slice(&[
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    tags.into_iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+fn addition_element(shape: Shape<ModelPoint>) -> Element<ModelPoint> {
+    use zumen_drawing::{Inherit, Style};
+    Element {
+        source: Ref::default(),
+        layer: LayerId(0),
+        shape,
+        style: Style {
+            color: Inherit::Layer,
+            line_type: Inherit::Layer,
+            line_type_scale: 1.0,
+            line_weight: Some(Inherit::Layer),
+        },
+    }
+}
+
+#[test]
+fn additions_to_an_empty_modern_dxf_keep_subclass_markers() {
+    let src = addition_source("AC1021", "20", &[]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let element = addition_element(newcomers().remove(0));
+    assert_eq!(
+        apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+        Ok(())
+    );
+    let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+    assert!(written.contains("100\nAcDbEntity\n"));
+    assert!(written.contains("100\nAcDbLine\n"));
+}
+
+#[test]
+fn additions_use_only_entity_kinds_available_in_the_dxf_version() {
+    for (version, index) in [("AC1009", 2), ("AC1009", 3), ("AC1012", 3)] {
+        let src = addition_source(version, "20", &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(newcomers().remove(index));
+        assert_eq!(
+            apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+            Err(Error::Rejected),
+            "{version} {index}"
+        );
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+    for (version, index) in [("AC1012", 2), ("AC1014", 3)] {
+        let src = addition_source(version, "20", &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(newcomers().remove(index));
+        assert_eq!(
+            apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+            Ok(()),
+            "{version} {index}"
+        );
+    }
+}
+
+#[test]
+fn additions_require_an_existing_block_even_without_block_records() {
+    use zumen_drawing::{Symbol, SymbolKey};
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "30"),
+        (2, "PART"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "ENDBLK"),
+    ];
+    for name in ["part", "MISSING"] {
+        let src = addition_source("AC1009", "20", &blocks);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: name.to_owned(),
+            },
+            position: at(0.0, 0.0),
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            grid: None,
+            attributes: vec![],
+            clip: None,
+        }));
+        let (result, _) = apply(&mut file, vec![Edit::Add(Box::new(element))]);
+        if name == "part" {
+            assert_eq!(result, Ok(()));
+            let drawing = lift(&file);
+            let Shape::Symbol(symbol) = &drawing.spaces[0].elements[0].shape else {
+                panic!();
+            };
+            assert_eq!(symbol.key.name, "PART");
+        } else {
+            assert_eq!(result, Err(Error::Rejected));
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        }
+    }
+}
+
+#[test]
+fn additions_reject_exhausted_handles_before_changing_the_file() {
+    for (seed, count) in [("FFFFFFFFFFFFFFFF", 1), ("FFFFFFFFFFFFFFFE", 2)] {
+        let src = addition_source("AC1021", seed, &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(newcomers().remove(0));
+        let edits = (0..count)
+            .map(|_| Edit::Add(Box::new(element.clone())))
+            .collect();
+        assert_eq!(apply(&mut file, edits).0, Err(Error::Rejected), "{seed}");
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+}
+
+#[test]
+fn additions_can_use_the_last_handle_with_a_following_seed() {
+    let src = addition_source("AC1021", "FFFFFFFFFFFFFFFE", &[]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let element = addition_element(newcomers().remove(0));
+    assert_eq!(
+        apply(&mut file, vec![Edit::Add(Box::new(element.clone()))]).0,
+        Ok(())
+    );
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    assert!(String::from_utf8_lossy(&written).contains("$HANDSEED\n  5\nFFFFFFFFFFFFFFFF\n"));
+    assert_eq!(
+        apply(&mut file, vec![Edit::Add(Box::new(element))]).0,
+        Err(Error::Rejected)
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), written);
+}
+
+#[test]
+fn additions_stop_before_visiting_vertices_over_the_work_budget() {
+    use zumen_base::{Kind, Limit, Limits};
+    use zumen_drawing::{Polyline, Vertex};
+    let src = addition_source("AC1021", "20", &[]);
+    let line = addition_element(newcomers().remove(0));
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(line.clone()))],
+        },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let mut polyline = line;
+    polyline.shape = Shape::Polyline(Polyline {
+        vertices: (0..100)
+            .map(|x| Vertex {
+                point: at(f64::from(x), 0.0),
+                bulge: 0.0,
+            })
+            .collect(),
+        closed: false,
+        width: None,
+        vertex_widths: vec![],
+    });
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 10)),
+    );
+    let mut diag = Diagnostics::new();
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(polyline))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
 #[test]
 fn mtext_line_spacing_must_fit_the_dxf_range() {
     let src = mtexts("AC1021", "abc");
@@ -1094,4 +1601,449 @@ fn binary_mtext_content_keeps_caret_escapes_across_chunk_boundaries() {
         panic!("not MTEXT");
     };
     assert_eq!(text.content, expected);
+}
+
+#[test]
+fn sheet_additions_need_a_sheet_from_successfully_lifted_elements() {
+    use zumen_drawing::{PaperPoint, SheetId};
+    let src = versioned(
+        "AC1015",
+        &[
+            (0, "LINE"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (11, "1.0"),
+            (21, "0.0"),
+            (0, "CIRCLE"),
+            (5, "1B"),
+            (8, "0"),
+            (67, "1"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (40, "0.0"),
+        ],
+    );
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let drawing = lift(&file);
+    assert!(drawing.sheets.is_empty());
+    let template = &drawing.spaces[0].elements[0];
+    let element = Element {
+        source: template.source.clone(),
+        layer: template.layer,
+        style: template.style,
+        shape: Shape::Line {
+            start: PaperPoint {
+                sheet: SheetId(0),
+                x: 0.0,
+                y: 0.0,
+            },
+            end: PaperPoint {
+                sheet: SheetId(0),
+                x: 1.0,
+                y: 0.0,
+            },
+        },
+    };
+    assert_eq!(
+        apply(&mut file, vec![Edit::AddOnSheet(Box::new(element))]).0,
+        Err(Error::Rejected)
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn mtext_additions_need_the_supported_version_and_spacing() {
+    for (version, spacing, supported) in [
+        ("AC1009", 1.0, false),
+        ("AC1021", 0.249, false),
+        ("AC1021", 4.001, false),
+        ("AC1012", 0.25, true),
+        ("AC1021", 4.0, true),
+    ] {
+        let src = addition_source(version, "20", &[]);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let mut shape = newcomers().remove(5);
+        if let Shape::Formatted(text) = &mut shape {
+            text.line_spacing.factor = spacing;
+        }
+        let result = apply(
+            &mut file,
+            vec![Edit::Add(Box::new(addition_element(shape)))],
+        )
+        .0;
+        if supported {
+            assert_eq!(result, Ok(()), "{version} {spacing}");
+        } else {
+            assert_eq!(result, Err(Error::Rejected), "{version} {spacing}");
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        }
+    }
+}
+
+#[test]
+fn mtext_additions_count_content_before_parsing_or_copying() {
+    use zumen_base::{Kind, Limit, Limits};
+    let src = addition_source("AC1021", "20", &[]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(newcomers().remove(0))))],
+        },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let mut shape = newcomers().remove(5);
+    if let Shape::Formatted(text) = &mut shape {
+        text.content = "x".repeat(1000);
+        text.spans = spans(&text.content);
+    }
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 20)),
+    );
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(shape)))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn block_sheet_additions_count_insertion_work_before_changing_the_file() {
+    use zumen_base::{Kind, Limit, Limits};
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "C2"),
+        (330, "C1"),
+        (2, "*Paper_Space0"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "LINE"),
+        (5, "C3"),
+        (330, "C1"),
+        (67, "1"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (11, "1.0"),
+        (21, "1.0"),
+        (0, "ENDBLK"),
+        (5, "C4"),
+        (330, "C1"),
+    ];
+    let src = String::from_utf8(addition_source("AC1021", "1000", &blocks)).unwrap().replacen(
+        "  0\nENDTAB\n  0\nENDSEC\n", "  0\nENDTAB\n  0\nTABLE\n  2\nBLOCK_RECORD\n  0\nBLOCK_RECORD\n  5\nC1\n  2\n*Paper_Space0\n  0\nENDTAB\n  0\nENDSEC\n", 1).into_bytes();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes { edits: vec![] },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let element = lift(&file).sheets[0].elements[0].clone();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 5)),
+    );
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::AddOnSheet(Box::new(element))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[cfg(test)]
+fn attributed_newcomer() -> Shape<ModelPoint> {
+    use zumen_drawing::{Attribute, HeightMeaning, Symbol, SymbolKey};
+    let Shape::Text(mut text) = newcomers().remove(4) else {
+        panic!();
+    };
+    text.height.meaning = HeightMeaning::Declared("dxf.ATTRIB.40");
+    Shape::Symbol(Symbol {
+        key: SymbolKey {
+            namespace: "dxf.block",
+            name: "PART".to_owned(),
+        },
+        position: at(0.0, 0.0),
+        scale: [1.0, 1.0],
+        rotation: 0.0,
+        grid: None,
+        clip: None,
+        attributes: vec![Attribute {
+            tag: "A".to_owned(),
+            text,
+            formatted: None,
+            hidden: false,
+            layer: LayerId(0),
+            style: addition_element(newcomers().remove(0)).style,
+            source: Ref::default(),
+        }],
+    })
+}
+
+#[cfg(test)]
+fn attributed_addition_source(seed: &str) -> Vec<u8> {
+    addition_source(
+        "AC1021",
+        seed,
+        &[
+            (0, "BLOCK"),
+            (5, "30"),
+            (2, "PART"),
+            (70, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (0, "ENDBLK"),
+        ],
+    )
+}
+
+#[test]
+fn attributed_additions_reserve_followers_and_the_next_seed() {
+    for (seed, supported) in [("FFFFFFFFFFFFFFFD", false), ("FFFFFFFFFFFFFFFC", true)] {
+        let src = attributed_addition_source(seed);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let result = apply(
+            &mut file,
+            vec![Edit::Add(Box::new(addition_element(attributed_newcomer())))],
+        )
+        .0;
+        if supported {
+            assert_eq!(result, Ok(()));
+            assert!(
+                String::from_utf8_lossy(&testkit::write::<Dxf>(&file).unwrap())
+                    .contains("$HANDSEED\n  5\nFFFFFFFFFFFFFFFF\n")
+            );
+        } else {
+            assert_eq!(result, Err(Error::Rejected));
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+        }
+    }
+    let src = attributed_addition_source("FFFFFFFFFFFFFFFC");
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let edits = vec![
+        Edit::Add(Box::new(addition_element(attributed_newcomer()))),
+        Edit::Add(Box::new(addition_element(newcomers().remove(0)))),
+    ];
+    assert_eq!(apply(&mut file, edits).0, Err(Error::Rejected));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn attributed_additions_count_attribute_content_before_copying() {
+    use zumen_base::{Kind, Limit, Limits};
+    let src = attributed_addition_source("100");
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut control = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(newcomers().remove(0))))],
+        },
+        &mut Cx::new(&mut control, &mut diag, &cancel),
+    )
+    .unwrap();
+    let mut shape = attributed_newcomer();
+    if let Shape::Symbol(symbol) = &mut shape {
+        symbol.attributes[0].text.content = "x".repeat(100);
+    }
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::new(
+        Limits::default().with(Kind::Work, Limit::Finite(control.used(Kind::Work) + 20)),
+    );
+    let result = file.apply(
+        &Changes {
+            edits: vec![Edit::Add(Box::new(addition_element(shape)))],
+        },
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+/// 空の LAYOUT。現在の用紙は見出しの原点、ほかの用紙は LAYOUT の原点を使う。
+#[cfg(test)]
+fn empty_sheet_source(current: bool, units: &str, viewport: bool) -> Vec<u8> {
+    let name = if current {
+        "*Paper_Space"
+    } else {
+        "*Paper_Space0"
+    };
+    let mut tags = vec![
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, "AC1021"),
+        (9, "$INSUNITS"),
+        (70, units),
+        (9, "$HANDSEED"),
+        (5, "1000"),
+        (9, "$PLIMMIN"),
+        (10, "2.0"),
+        (20, "3.0"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        (0, "ENDTAB"),
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "C1"),
+        (2, name),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (5, "C2"),
+        (330, "C1"),
+        (2, name),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+    ];
+    let view = [
+        (0, "VIEWPORT"),
+        (5, "C3"),
+        (330, "C1"),
+        (8, "0"),
+        (67, "1"),
+        (69, "2"),
+        (10, "5.0"),
+        (20, "5.0"),
+        (40, "10.0"),
+        (41, "10.0"),
+        (45, "100.0"),
+    ];
+    if viewport && !current {
+        tags.extend(view);
+    }
+    tags.extend([
+        (0, "ENDBLK"),
+        (5, "C4"),
+        (330, "C1"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+    ]);
+    if viewport && current {
+        tags.extend(view);
+    }
+    tags.extend([
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "OBJECTS"),
+        (0, "LAYOUT"),
+        (5, "D1"),
+        (330, "1A"),
+        (100, "AcDbPlotSettings"),
+        (1, ""),
+        (100, "AcDbLayout"),
+        (1, "Paper"),
+        (71, "1"),
+        (10, "7.0"),
+        (20, "11.0"),
+        (11, "17.0"),
+        (21, "21.0"),
+        (330, "C1"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    tags.into_iter()
+        .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+#[test]
+fn sheet_additions_use_the_layout_origin_and_units_without_elements() {
+    use zumen_drawing::PaperPoint;
+    for (current, viewport, units) in [
+        (true, false, "1"),
+        (false, false, "1"),
+        (true, true, "1"),
+        (false, true, "1"),
+        (true, false, "0"),
+        (false, false, "0"),
+    ] {
+        let src = empty_sheet_source(current, units, viewport);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let before = lift(&file);
+        let sheet = &before.sheets[0];
+        assert!(sheet.elements.is_empty());
+        assert_eq!(sheet.views.len(), usize::from(viewport && units != "0"));
+        let template = addition_element(newcomers().remove(0));
+        let shape = |sheet| Shape::Line {
+            start: PaperPoint {
+                sheet,
+                x: 5.0,
+                y: 10.0,
+            },
+            end: PaperPoint {
+                sheet,
+                x: 50.0,
+                y: 30.0,
+            },
+        };
+        let element = Element {
+            source: Ref::default(),
+            layer: template.layer,
+            style: template.style,
+            shape: shape(sheet.id),
+        };
+        let result = apply(&mut file, vec![Edit::AddOnSheet(Box::new(element))]).0;
+        if units == "0" {
+            assert_eq!(result, Err(Error::Rejected));
+            assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+            continue;
+        }
+        assert_eq!(result, Ok(()), "current={current} viewport={viewport}");
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+        let found = after
+            .sheets
+            .iter()
+            .find(|sheet| sheet.name.as_deref() == Some("Paper"))
+            .unwrap();
+        assert_eq!(found.elements.len(), 1);
+        let Shape::Line { start, end } = &found.elements[0].shape else {
+            panic!()
+        };
+        let Shape::Line {
+            start: expected_start,
+            end: expected_end,
+        } = shape(found.id)
+        else {
+            panic!()
+        };
+        for (found, expected) in [
+            (start.x, expected_start.x),
+            (start.y, expected_start.y),
+            (end.x, expected_end.x),
+            (end.y, expected_end.y),
+        ] {
+            assert!((found - expected).abs() < 1e-10, "{found} != {expected}");
+        }
+    }
 }
