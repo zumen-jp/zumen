@@ -495,7 +495,6 @@ impl Session {
     fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
         // SXF は SFC だけに書き戻す（決定 0167）。変換の診断より先に断る
         let unsupported = match self.docs.get(&request.doc) {
-            Some(Doc::Jww(_)) => Some("jww"),
             Some(Doc::Sxf(file)) if file.mode() != zumen_sxf::Mode::Sfc => Some("sxf (P21)"),
             _ => None,
         };
@@ -540,6 +539,7 @@ impl Session {
         };
         // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let mut bytes = Vec::new();
+        let mut ids_shifted = false;
         let (applied, hash) = match doc {
             Doc::Dxf(file) => {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
@@ -565,7 +565,15 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Jww(_) => return Err(Failed),
+            Doc::Jww(file) => {
+                let mut updated = file.clone();
+                let (applied, shifted) = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                Jww::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                *file = updated;
+                ids_shifted = shifted;
+                (applied, hash)
+            }
         };
         self.hashes.insert(request.doc.clone(), hash);
         self.blobs.push(Some(Blob {
@@ -581,6 +589,7 @@ impl Session {
                 })
                 .collect(),
             hash: hash.to_string(),
+            ids_shifted: ids_shifted.then_some(true),
         })
     }
 
@@ -634,6 +643,10 @@ fn layer_item(
                 sxf: color
                     .code
                     .filter(|code| code.system == ColorSystem::Sxf)
+                    .map(|code| u64::from(code.value)),
+                jww: color
+                    .code
+                    .filter(|code| code.system == ColorSystem::Jww)
                     .map(|code| u64::from(code.value)),
                 rgb: color
                     .rgb
@@ -1856,11 +1869,12 @@ fn restyle(
 
 /// 新しい色。合わなければ `Err`
 fn color_change(change: &messages::ColorChange) -> Result<Inherit<Color>, ()> {
-    let code = match (change.aci, change.sxf) {
-        (Some(_), Some(_)) => return Err(()),
-        (Some(value), None) => Some((ColorSystem::Aci, value)),
-        (None, Some(value)) => Some((ColorSystem::Sxf, value)),
-        (None, None) => None,
+    let code = match (change.aci, change.sxf, change.jww) {
+        (Some(value), None, None) => Some((ColorSystem::Aci, value)),
+        (None, Some(value), None) => Some((ColorSystem::Sxf, value)),
+        (None, None, Some(value)) => Some((ColorSystem::Jww, value)),
+        (None, None, None) => None,
+        _ => return Err(()),
     };
     Ok(match (change.inherit, code, change.rgb.as_deref()) {
         (Some(to), None, None) => inherit(to),
@@ -2240,7 +2254,7 @@ fn capabilities() -> CapabilitiesResult {
             (Dxf::FORMAT, "acad", true, 2),
             (Dwg::FORMAT, "acad", true, 2),
             (Sxf::FORMAT, "sxf", true, 2),
-            (Jww::FORMAT, "jww", false, 1),
+            (Jww::FORMAT, "jww", true, 1),
         ]
         .into_iter()
         .map(|(id, family, write, id_rules)| Format {
@@ -3029,7 +3043,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":29}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":30}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

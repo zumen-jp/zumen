@@ -23,6 +23,8 @@ use zumen_sdk::{Cx, Error, Lift};
 use crate::parse::{Fail, Reader};
 use crate::{JwwFile, Record, RecordKind};
 
+mod apply;
+
 const SHEET: SheetId = SheetId(0);
 
 /// 寸法が SXF の欄を持つ最初の版
@@ -282,6 +284,40 @@ impl Header {
             .map(|group| group.scale)
             .filter(|scale| scale.is_finite() && *scale > 0.0)
             .unwrap_or(1.0)
+    }
+
+    /// 色。1〜9 と 100〜356 は見出しの色を、ほかは番号だけを持つ
+    fn color(&self, pen: u16) -> Color {
+        let rgb = match pen {
+            1..=9 => self.pens.get(usize::from(pen)).copied(),
+            100..=356 => self
+                .sxf_pens
+                .get(usize::from(pen - 100))
+                .map(|(color, _)| *color),
+            _ => None,
+        };
+        Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Jww,
+                value: u32::from(pen),
+            }),
+            rgb: rgb.map(colorref),
+        }
+    }
+
+    /// 線幅。図形の線幅、ペンの印刷の幅の順に使う。単位が分からなければ `None`
+    fn weight(&self, pen_color: u16, pen_width: u16) -> Option<Inherit<LineWeight>> {
+        let pen = match pen_color {
+            1..=9 => self.printer_widths.get(usize::from(pen_color)).copied(),
+            100..=356 => self
+                .sxf_pens
+                .get(usize::from(pen_color - 100))
+                .map(|(_, width)| *width),
+            _ => None,
+        };
+        self.width(u32::from(pen_width))
+            .or_else(|| pen.and_then(|width| self.width(width)))
+            .map(|mm| Inherit::Own(LineWeight::Width(PaperLength(mm))))
     }
 
     /// 見出しの線幅の単位を mm にする。単位が分からなければ `None`
@@ -856,54 +892,13 @@ impl Lifter<'_> {
         Ok(Some((shape, self.line_style(&line_base))))
     }
 
-    /// 色。1〜9 と 100〜356 は見出しの色を、ほかは番号だけを持つ
-    fn color(&self, pen: u16) -> Color {
-        let rgb = match pen {
-            1..=9 => self.header.pens.get(usize::from(pen)).copied(),
-            100..=356 => self
-                .header
-                .sxf_pens
-                .get(usize::from(pen - 100))
-                .map(|(color, _)| *color),
-            _ => None,
-        };
-        Color {
-            code: Some(ColorCode {
-                system: ColorSystem::Jww,
-                value: u32::from(pen),
-            }),
-            rgb: rgb.map(colorref),
-        }
-    }
-
-    /// 線幅。図形の線幅、ペンの印刷の幅の順に使う。単位が分からなければ `None`
-    fn weight(&self, base: &Base) -> Option<Inherit<LineWeight>> {
-        let pen = match base.pen_color {
-            1..=9 => self
-                .header
-                .printer_widths
-                .get(usize::from(base.pen_color))
-                .copied(),
-            100..=356 => self
-                .header
-                .sxf_pens
-                .get(usize::from(base.pen_color - 100))
-                .map(|(_, width)| *width),
-            _ => None,
-        };
-        self.header
-            .width(u32::from(base.pen_width))
-            .or_else(|| pen.and_then(|width| self.header.width(width)))
-            .map(|mm| Inherit::Own(LineWeight::Width(PaperLength(mm))))
-    }
-
     /// 線の色・線種・線幅
     fn line_style(&mut self, base: &Base) -> Style {
         Style {
-            color: Inherit::Own(self.color(base.pen_color)),
+            color: Inherit::Own(self.header.color(base.pen_color)),
             line_type: Inherit::Own(self.line_type(base.pen_style)),
             line_type_scale: 1.0,
-            line_weight: self.weight(base),
+            line_weight: self.header.weight(base.pen_color, base.pen_width),
         }
     }
 
@@ -1107,7 +1102,10 @@ impl Lifter<'_> {
             attributes: Vec::new(),
             clip: None,
         });
-        Ok(Some((shape, self.fill_style(self.color(base.pen_color)))))
+        Ok(Some((
+            shape,
+            self.fill_style(self.header.color(base.pen_color)),
+        )))
     }
 
     /// 文字。始点を左下にし、高さは縦の大きさ（用紙の mm）とする。設定を書いた文字は、図面の設定にする
@@ -1199,7 +1197,10 @@ impl Lifter<'_> {
             upside_down: false,
             style: font,
         });
-        Ok(Some((shape, self.fill_style(self.color(base.pen_color)))))
+        Ok(Some((
+            shape,
+            self.fill_style(self.header.color(base.pen_color)),
+        )))
     }
 
     /// `^@BM` の文字の画像。`ファイル,幅,高さ` の幅と高さは用紙の mm で、文字の始点を左下の角にし、文字の角度で
@@ -1258,7 +1259,7 @@ impl Lifter<'_> {
             clip: None,
             visible: true,
         });
-        Ok((shape, self.fill_style(self.color(base.pen_color))))
+        Ok((shape, self.fill_style(self.header.color(base.pen_color))))
     }
 
     /// ソリッド。4 点は書いた順に結ぶ。線種が 101 からは円のソリッドとする
@@ -1277,7 +1278,7 @@ impl Lifter<'_> {
                 rgb: Some(colorref(r.u32()?)),
             }
         } else {
-            self.color(base.pen_color)
+            self.header.color(base.pen_color)
         };
         let at = base.at;
         let boundary = if base.pen_style >= CIRCLE_SOLID {
