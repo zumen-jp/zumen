@@ -123,13 +123,13 @@
         "op": "entities",
         "doc": "a.dxf",
         "budget": {
-          "work": 16
+          "work": 37
         }
       },
       "status": "failed",
       "expect": {
         "/diagnostics/1/code": "budget.work.exceeded",
-        "/diagnostics/1/params/requested": 17
+        "/diagnostics/1/params/requested": 38
       },
       "absent": [
         "/result"
@@ -141,7 +141,7 @@
         "op": "entities",
         "doc": "a.dxf",
         "budget": {
-          "work": 17
+          "work": 38
         }
       },
       "expect": {
@@ -266,7 +266,7 @@
           50
         ],
         "budget": {
-          "work": 18
+          "work": 39
         }
       },
       "status": "failed",
@@ -289,7 +289,7 @@
           50
         ],
         "budget": {
-          "work": 19
+          "work": 40
         }
       },
       "expect": {
