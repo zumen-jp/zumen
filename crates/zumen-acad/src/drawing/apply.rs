@@ -101,6 +101,8 @@ enum Place {
 /// ID から要素と足す先への索引（決定 0156）。図面モデルを 1 回なめて作る
 struct Index<'a> {
     elements: BTreeMap<String, Found<'a>>,
+    /// ハンドルから書き戻した後の要素 ID。複数の要素を作ったハンドルは `None`
+    element_handles: BTreeMap<u64, Option<String>>,
     /// レイヤ（決定 0162）
     layers: BTreeMap<String, &'a Layer>,
     places: BTreeMap<String, Place>,
@@ -111,6 +113,7 @@ struct Index<'a> {
 impl<'a> Index<'a> {
     fn new(drawing: &'a Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Error> {
         let mut elements = BTreeMap::new();
+        let mut element_handles = BTreeMap::new();
         let mut places = BTreeMap::new();
         let mut seen = BTreeSet::new();
         let mut shared = BTreeSet::new();
@@ -126,7 +129,9 @@ impl<'a> Index<'a> {
             for (index, element) in space.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
                 note(&element.source);
-                elements.insert(namer.next(index, element), Found::Model(element));
+                let id = namer.next(index, element);
+                remember_handle(&mut element_handles, &element.source, &id);
+                elements.insert(id, Found::Model(element));
             }
             places.insert(place, Place::Space(space.id));
         }
@@ -139,7 +144,9 @@ impl<'a> Index<'a> {
             for (index, element) in definition.space.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
                 note(&element.source);
-                elements.insert(namer.next(index, element), Found::Model(element));
+                let id = namer.next(index, element);
+                remember_handle(&mut element_handles, &element.source, &id);
+                elements.insert(id, Found::Model(element));
             }
             places.insert(place, Place::Space(definition.space.id));
         }
@@ -151,7 +158,9 @@ impl<'a> Index<'a> {
             for (index, element) in sheet.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
                 note(&element.source);
-                elements.insert(namer.next(index, element), Found::Paper(element));
+                let id = namer.next(index, element);
+                remember_handle(&mut element_handles, &element.source, &id);
+                elements.insert(id, Found::Paper(element));
             }
             places.insert(place, Place::Sheet(sheet.id));
         }
@@ -162,6 +171,7 @@ impl<'a> Index<'a> {
         }
         Ok(Self {
             elements,
+            element_handles,
             layers,
             places,
             shared,
@@ -188,6 +198,26 @@ impl<'a> Index<'a> {
             Error::Stopped(stop)
         })
     }
+}
+
+/// 要素のハンドルと ID を控える。同じ出所から複数の要素ができたときは、曖昧なので選ばない
+fn remember_handle(handles: &mut BTreeMap<u64, Option<String>>, source: &Ref, id: &str) {
+    if let Some(Key::Handle(handle)) = source.key() {
+        handles
+            .entry(handle)
+            .and_modify(|id| *id = None)
+            .or_insert_with(|| Some(id.to_owned()));
+    }
+}
+
+/// 書き戻した後に、変更の結果を探す鍵
+#[derive(Debug)]
+enum ResultTarget {
+    /// 図形は用紙の ID が変わっても、ハンドルから探せる
+    Element(Option<u64>),
+    /// レイヤは表の ID で探す
+    Layer(Option<String>),
+    Removed,
 }
 
 /// 当てた変更の、書き戻した後の ID とハッシュ。鍵（ハンドル）を持たない要素の ID は、読み直すとずれうる
@@ -243,7 +273,7 @@ fn edit(
     changes: &Changes,
     target: Target,
     cx: &mut Cx,
-) -> Result<Vec<Option<String>>, Error> {
+) -> Result<Vec<ResultTarget>, Error> {
     // ハンドルが重複すると、参照や ID が別のオブジェクトを指しうる。書き戻しは拒否する。
     let mut handles = BTreeSet::new();
     for object in db.objects() {
@@ -773,24 +803,35 @@ fn edit(
         layer::rename(db, old, new, target, cx)?;
     }
     let mut layer_handles = layer_handles.into_iter();
-    // ID はハンドルで作るので、読み直したファイルと同じになる
+    // 要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く
     Ok(changes
         .edits
         .iter()
         .map(|change| match change {
             Edit::Replace { target, .. }
             | Edit::Restyle { target, .. }
-            | Edit::Transform { target, .. } => Some(target.id.clone()),
-            Edit::Add { place, .. } => handles
-                .next()
-                .flatten()
-                .map(|handle| format!("{place}/h{handle:X}")),
-            Edit::Remove { .. } | Edit::RemoveLayer { .. } => None,
-            Edit::ReplaceLayer { target, .. } => Some(target.id.clone()),
-            Edit::AddLayer { .. } => layer_handles
-                .next()
-                .flatten()
-                .map(|handle| format!("layer/h{handle:X}")),
+            | Edit::Transform { target, .. } => {
+                let handle = index.elements.get(&target.id).and_then(|found| {
+                    let source = match found {
+                        Found::Model(element) => &element.source,
+                        Found::Paper(element) => &element.source,
+                    };
+                    match source.key() {
+                        Some(Key::Handle(handle)) => Some(handle),
+                        _ => None,
+                    }
+                });
+                ResultTarget::Element(handle)
+            }
+            Edit::Add { .. } => ResultTarget::Element(handles.next().flatten()),
+            Edit::Remove { .. } | Edit::RemoveLayer { .. } => ResultTarget::Removed,
+            Edit::ReplaceLayer { target, .. } => ResultTarget::Layer(Some(target.id.clone())),
+            Edit::AddLayer { .. } => ResultTarget::Layer(
+                layer_handles
+                    .next()
+                    .flatten()
+                    .map(|handle| format!("layer/h{handle:X}")),
+            ),
         })
         .collect())
 }
@@ -860,11 +901,24 @@ fn attribute_counts_for(
 }
 
 /// 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める
-fn settled(db: &AcadDb, ids: Vec<Option<String>>, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+fn settled(db: &AcadDb, targets: Vec<ResultTarget>, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
     let mut quiet = Diagnostics::new();
     let (after, _) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
     let after = Index::new(&after, cx)?;
-    ids.into_iter().map(|id| applied(&after, id, cx)).collect()
+    targets
+        .into_iter()
+        .map(|target| {
+            let id = match target {
+                ResultTarget::Element(handle) => handle
+                    .and_then(|handle| after.element_handles.get(&handle))
+                    .cloned()
+                    .flatten(),
+                ResultTarget::Layer(id) => id,
+                ResultTarget::Removed => None,
+            };
+            applied(&after, id, cx)
+        })
+        .collect()
 }
 
 /// スタイルを変えた図形の値。変わった欄（レイヤ 8・線種 6・色 62 と 420 と 430・線幅 370・線種の倍率 48）
@@ -2680,6 +2734,44 @@ mod hash_budget_tests {
             ),
             Err(Error::Stopped(_))
         ));
+    }
+
+    #[test]
+    fn element_handle_index_rejects_ambiguous_sources() {
+        let point = ModelPoint {
+            space: MODEL,
+            x: 0.0,
+            y: 0.0,
+        };
+        let element = Element {
+            source: Ref::at_record(7).with_key(Key::Handle(42)),
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Line {
+                start: point,
+                end: point,
+            },
+        };
+        let drawing = Drawing2D {
+            spaces: vec![ModelSpace {
+                id: MODEL,
+                unit: Unit::Unknown,
+                elements: vec![element.clone(), element],
+                order: vec![0, 1],
+            }],
+            ..Drawing2D::default()
+        };
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let index = Index::new(
+            &drawing,
+            &mut context(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        assert_eq!(index.element_handles.get(&42), Some(&None));
+        assert!(index.elements.contains_key("space/0/h2A"));
+        assert!(index.elements.contains_key("space/0/h2A/1"));
     }
 
     #[test]
