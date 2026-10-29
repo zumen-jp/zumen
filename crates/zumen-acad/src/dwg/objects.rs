@@ -907,6 +907,10 @@ fn read(
             vec![int(90, i64::from(bits.bl()?))]
         } else if kind == b"LAYOUT" {
             layout(&mut bits, release, &mut handles)?
+        } else if kind == b"TABLESTYLE" && release < Release::R2010 {
+            // 行ごとの文字スタイル（7）のハンドルは、ハンドルの流れで仮の値を埋める
+            handles.extend([7; 3]);
+            tablestyle(&mut bits)?
         } else if sortents {
             for _ in 0..bits.bl()? {
                 sorts.push(bits.handle()?.resolve(entry.handle)?);
@@ -963,7 +967,7 @@ fn read(
                     .find(|value| value.code == code && value.data == Data::Handle(SLOT));
                 match (code, slot) {
                     (0, _) => {}
-                    // LTYPE の要素の 340 は、DXF と同じく 0 でも置く
+                    // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でも区切りとして残す
                     (_, Some(slot)) => slot.data = Data::Handle(handle),
                     (6, None) if handle != 0 => records.push(RecordRef {
                         code,
@@ -1651,6 +1655,46 @@ fn viewport(bits: &mut Bits, frozen: &mut u32) -> Option<Vec<Value>> {
 /// MLINESTYLE の欄（ODS 5.4.1 の 20.4.73、R2000）。名前（2）・印（70）・説明（3）・塗りの色（62）・
 /// 始めと終わりの角度（51・52、度に直す）・線の数（71）と、線ごとの位置（49）と色（62）を置く。印は、
 /// DWG と DXF でビットの並びが違うので並べ直す。線種は番号で記録されているので、まだ置かない
+/// R2004 までの TABLESTYLE（試料の DWG の値と DXF で確かめた）。名前（3）・向き（70）・印（71）・余白（40・41）・
+/// 表題と見出しを出さない印（280・281）の後に、データ・表題・見出しの行ごとに、文字スタイル（7。ハンドルの
+/// 流れで埋める仮の値）・高さ（140）・位置合わせ（170）・文字の色（62）・背景の色（63）・背景を塗る印（283）と、
+/// 6 つの枠の線幅（274〜279）・表示（284〜289）・色（64〜69）を、DXF と同じ
+/// 並びで置く。色は、ACAD_TABLE と同じく R2000 でも R2004 の形の CMC で持つ
+fn tablestyle(bits: &mut Bits) -> Option<Vec<Value>> {
+    let mut values = vec![
+        text_value(3, &bits.text()?),
+        int(70, i64::from(bits.bs()?)),
+        int(71, i64::from(bits.bs()?)),
+        real(40, bits.bd()?),
+        real(41, bits.bd()?),
+        int(280, i64::from(bits.bit()?)),
+        int(281, i64::from(bits.bit()?)),
+    ];
+    for _ in 0..3 {
+        values.push(Value {
+            code: 7,
+            data: Data::Handle(SLOT),
+        });
+        values.push(real(140, bits.bd()?));
+        values.push(int(170, i64::from(bits.bs()?)));
+        values.push(int(62, i64::from(bits.cmc_r2004()?.index)));
+        values.push(int(63, i64::from(bits.cmc_r2004()?.index)));
+        values.push(int(283, i64::from(bits.bit()?)));
+        let mut weights = Vec::new();
+        let mut shown = Vec::new();
+        let mut colors = Vec::new();
+        for edge in 0..6 {
+            weights.push(int(274 + edge, i64::from(bits.bs()?)));
+            shown.push(int(284 + edge, i64::from(bits.bit()?)));
+            colors.push(int(64 + edge, i64::from(bits.cmc_r2004()?.index)));
+        }
+        values.extend(weights);
+        values.extend(shown);
+        values.extend(colors);
+    }
+    Some(values)
+}
+
 fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
     let name = bits.text()?;
     let description = bits.text()?;
