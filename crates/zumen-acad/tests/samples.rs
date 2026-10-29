@@ -4572,3 +4572,219 @@ fn drawings_take_back_removed_layers() {
         assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
     }
 }
+
+/// 試料の文字スタイルの名前と定義を変え、文字スタイルを 1 つ足し、要素が使わない文字スタイルを除いて書き戻すと、
+/// 読み直した文字スタイルは変えたものと同じになり、文字は名前を変えた文字スタイルを指す。R2010 から後の DWG は、
+/// 日本語の名前にも変える（決定 0163）
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn drawings_take_back_changed_text_styles() {
+    use zumen_drawing::{
+        Applied, Changes, Drawing2D, Edit, Element, Font, FontKind, Hash, Seen, Shape, TextStyle,
+        id,
+    };
+    use zumen_sdk::{Apply, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Option<Drawing2D> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .ok()
+    }
+    fn styled<P>(element: &Element<P>) -> Option<&str> {
+        match &element.shape {
+            Shape::Text(text) => Some(&text.style),
+            Shape::Formatted(text) => Some(&text.style),
+            _ => None,
+        }
+    }
+    /// 文字ごとの、文字スタイルの名前（小文字）
+    fn used(drawing: &Drawing2D) -> Vec<String> {
+        let model = drawing
+            .spaces
+            .iter()
+            .chain(drawing.symbols.iter().map(|symbol| &symbol.space))
+            .flat_map(|space| &space.elements)
+            .filter_map(styled);
+        let paper = drawing
+            .sheets
+            .iter()
+            .flat_map(|sheet| &sheet.elements)
+            .filter_map(styled);
+        model.chain(paper).map(str::to_lowercase).collect()
+    }
+    fn seen(drawing: &Drawing2D, style: &TextStyle) -> Seen {
+        let index = drawing
+            .text_styles
+            .iter()
+            .position(|other| std::ptr::eq(other, style))
+            .unwrap();
+        Seen {
+            id: id::text_style(style, index),
+            hash: Hash::text_style(style),
+        }
+    }
+    fn apply<F: Apply<Changes, Output = Vec<Applied>>>(
+        file: &mut F,
+        edits: Vec<Edit>,
+    ) -> Result<Vec<Applied>, zumen_sdk::Error> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(
+            &Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+    }
+    /// 変えて足したら `[1, 除いた数]`。書き戻せなければ `[0, 0]`
+    fn check<C: zumen_sdk::Codec>(path: &Path, src: &[u8], suffix: &str) -> [usize; 2]
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let Some(drawing) = testkit::read::<C>(src).0.ok().and_then(|file| lift(&file)) else {
+            return [0, 0];
+        };
+        let defined = |style: &&TextStyle| {
+            style.definition.is_some()
+                && style.source.key().is_some()
+                && !style.name.eq_ignore_ascii_case("Standard")
+                && style.name.is_ascii()
+                && !style.name.contains('|')
+        };
+        let Some(was) = drawing.text_styles.iter().find(defined) else {
+            return [0, 0];
+        };
+        let Some(standard) = drawing.text_styles.iter().find(|style| {
+            style.name.eq_ignore_ascii_case("Standard") && style.definition.is_some()
+        }) else {
+            return [0, 0];
+        };
+        let mut changed = was.clone();
+        changed.name = format!("{}{suffix}", was.name);
+        let definition = changed.definition.as_mut().unwrap();
+        definition.height = Some(2.0);
+        definition.width = 0.9;
+        definition.oblique = 10.0;
+        let mut added = standard.clone();
+        added.name = "ZUMEN-ADDED".to_owned();
+        let definition = added.definition.as_mut().unwrap();
+        definition.font = Some(Font {
+            name: "simplex.shx".to_owned(),
+            kind: FontKind::Shape,
+        });
+        definition.big_font = None;
+        let mut file = testkit::read::<C>(src).0.unwrap();
+        let edits = vec![
+            Edit::ReplaceTextStyle {
+                target: seen(&drawing, was),
+                style: Box::new(changed.clone()),
+            },
+            Edit::AddTextStyle {
+                style: Box::new(added.clone()),
+            },
+        ];
+        let Ok(applied) = apply(&mut file, edits) else {
+            assert_eq!(
+                testkit::write::<C>(&file).unwrap(),
+                src,
+                "{}",
+                path.display()
+            );
+            return [0, 0];
+        };
+        let written = testkit::write::<C>(&file).unwrap();
+        let after = lift(&testkit::read::<C>(&written).0.unwrap()).unwrap();
+        let find = |name: &str| {
+            after
+                .text_styles
+                .iter()
+                .find(|style| style.name == name)
+                .unwrap()
+        };
+        let renamed = find(&changed.name);
+        assert_eq!(renamed.definition, changed.definition, "{}", path.display());
+        assert_eq!(seen(&after, renamed).id, seen(&drawing, was).id);
+        assert_eq!(applied[0].hash, Some(Hash::text_style(renamed)));
+        let new = find("ZUMEN-ADDED");
+        assert_eq!(new.definition, added.definition, "{}", path.display());
+        assert_eq!(applied[1].id, Some(seen(&after, new).id));
+        // 文字は、名前を変えた文字スタイルを指す
+        let old = was.name.to_lowercase();
+        let expected: Vec<String> = used(&drawing)
+            .into_iter()
+            .map(|name| match name == old {
+                true => changed.name.to_lowercase(),
+                false => name,
+            })
+            .collect();
+        assert_eq!(used(&after), expected, "{}", path.display());
+        // 文字が使わない文字スタイルを除く。断ったら、ファイルは変わらない
+        let in_use: std::collections::BTreeSet<String> = used(&after).into_iter().collect();
+        let mut removed = 0;
+        for style in after.text_styles.iter().filter(defined).take(32) {
+            if in_use.contains(&style.name.to_lowercase()) {
+                continue;
+            }
+            let mut file = testkit::read::<C>(&written).0.unwrap();
+            let edits = vec![Edit::RemoveTextStyle {
+                target: seen(&after, style),
+            }];
+            if apply(&mut file, edits).is_err() {
+                assert_eq!(testkit::write::<C>(&file).unwrap(), written);
+                continue;
+            }
+            let again = lift(
+                &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                    .0
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(
+                again
+                    .text_styles
+                    .iter()
+                    .all(|other| other.name != style.name)
+            );
+            assert_eq!(used(&again), used(&after), "{}", path.display());
+            removed += 1;
+        }
+        [1, removed]
+    }
+    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
+        .collect();
+    paths.sort();
+    // DXF・R2010 より前の DWG・R2010 から後の DWG の、変えた図面の数と除いた文字スタイルの数
+    let mut counts = [[0; 2]; 3];
+    for path in paths {
+        let src = std::fs::read(&path).unwrap();
+        let (kind, found) = if path.extension().is_some_and(|e| e == "dxf") {
+            (0, check::<Dxf>(&path, &src, "-ZUMEN"))
+        } else if src
+            .get(..6)
+            .is_some_and(|version| version >= b"AC1024".as_slice())
+        {
+            (2, check::<Dwg>(&path, &src, "-文字"))
+        } else {
+            (1, check::<Dwg>(&path, &src, "-ZUMEN"))
+        };
+        for (count, found) in counts[kind].iter_mut().zip(found) {
+            *count += found;
+        }
+    }
+    if !pairs().is_empty() {
+        assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
+        assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
+    }
+}

@@ -9,7 +9,8 @@ use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
     Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Element, Encode,
     Hash, Inherit, Layer, LayerId, LayerState, LayerStyle, LineTypeId, LineWeight, ModelPoint,
-    PaperLength, PaperPoint, Placed, Placement, Restyle, Seen, Shape, Style, Unit, id,
+    PaperLength, PaperPoint, Placed, Placement, Restyle, Seen, Shape, Style, TextStyle,
+    TextStyleDefinition, Unit, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -854,6 +855,78 @@ fn changes(
             messages::Edit::RemoveLayer(edit) => Edit::RemoveLayer {
                 target: seen(&edit.id, &edit.hash, cx)?,
             },
+            messages::Edit::RemoveTextStyle(edit) => Edit::RemoveTextStyle {
+                target: seen(&edit.id, &edit.hash, cx)?,
+            },
+            messages::Edit::TextStyle(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                cx.check(
+                    Kind::Work,
+                    text_style_work(edit.name.as_deref(), &edit.font, &edit.big_font),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
+                // 指した文字スタイルがなければ、要素と同じく `change.element.missing` にする
+                let Some(base) = tables.text_styles.get(&edit.id).copied() else {
+                    let missing =
+                        Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", edit.id.as_str());
+                    return Err(fail(cx, missing));
+                };
+                let fields = TextStyleFields {
+                    name: edit.name.as_deref(),
+                    font: edit.font.as_ref(),
+                    big_font: edit.big_font.as_ref(),
+                    height: edit.height,
+                    width: edit.width,
+                    oblique: edit.oblique,
+                    backward: edit.backward,
+                    upside_down: edit.upside_down,
+                    vertical: edit.vertical,
+                };
+                let style = text_style_change(base, &fields)
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::ReplaceTextStyle {
+                    target,
+                    style: Box::new(style),
+                }
+            }
+            messages::Edit::AddTextStyle(edit) => {
+                cx.check(
+                    Kind::Work,
+                    text_style_work(Some(&edit.name), &edit.font, &edit.big_font),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
+                // 書かない欄は、Standard と同じにする
+                let standard = drawing.text_styles.iter().find(|style| {
+                    style.name.eq_ignore_ascii_case("Standard") && style.definition.is_some()
+                });
+                let base = TextStyle {
+                    name: String::new(),
+                    definition: standard.and_then(|style| style.definition.clone()),
+                    source: Ref::default(),
+                };
+                let fields = TextStyleFields {
+                    name: Some(&edit.name),
+                    font: edit.font.as_ref(),
+                    big_font: edit.big_font.as_ref(),
+                    height: edit.height,
+                    width: edit.width,
+                    oblique: edit.oblique,
+                    backward: edit.backward,
+                    upside_down: edit.upside_down,
+                    vertical: edit.vertical,
+                };
+                let style = text_style_change(&base, &fields)
+                    .map_err(|field| fail(cx, invalid_value(at(field))))?;
+                Edit::AddTextStyle {
+                    style: Box::new(style),
+                }
+            }
             messages::Edit::Replace(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 count_formatted_geometry(&edit.geometry, cx)?;
@@ -1152,6 +1225,8 @@ struct TableLookup<'a> {
     line_type_ids: BTreeMap<String, Option<(&'a str, LineTypeId)>>,
     /// 文字スタイルの ID から名前。同じ名前（大文字と小文字を区別しない）の項目が複数あれば `None`
     text_style_ids: BTreeMap<String, Option<&'a str>>,
+    /// 文字スタイルの ID から項目（決定 0163）
+    text_styles: BTreeMap<String, &'a TextStyle>,
 }
 
 impl<'a> TableLookup<'a> {
@@ -1162,6 +1237,7 @@ impl<'a> TableLookup<'a> {
             line_types: BTreeMap::new(),
             line_type_ids: BTreeMap::new(),
             text_style_ids: BTreeMap::new(),
+            text_styles: BTreeMap::new(),
         };
         let mut seen = BTreeMap::new();
         for layer in &drawing.layers {
@@ -1202,10 +1278,11 @@ impl<'a> TableLookup<'a> {
         for (index, style) in drawing.text_styles.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
             let unique = names.get(&style.name.to_ascii_lowercase()) == Some(&1);
-            result.text_style_ids.insert(
-                table_id(id::text_style(style, index), &mut seen),
-                unique.then_some(style.name.as_str()),
-            );
+            let id = table_id(id::text_style(style, index), &mut seen);
+            result.text_styles.insert(id.clone(), style);
+            result
+                .text_style_ids
+                .insert(id, unique.then_some(style.name.as_str()));
         }
         Ok(result)
     }
@@ -1520,6 +1597,112 @@ fn line_weight_change(change: &messages::LineWeightChange) -> Result<Inherit<Lin
 }
 
 /// レイヤの変更と追加の、書いた欄（決定 0162）
+/// 文字スタイルの変更で書いた欄（決定 0163）
+struct TextStyleFields<'e> {
+    name: Option<&'e str>,
+    font: Option<&'e messages::Font>,
+    big_font: Option<&'e messages::Font>,
+    height: Option<f64>,
+    width: Option<f64>,
+    oblique: Option<f64>,
+    backward: Option<bool>,
+    upside_down: Option<bool>,
+    vertical: Option<bool>,
+}
+
+/// 文字スタイルの変更の名前とフォントの名前の長さ
+fn text_style_work(
+    name: Option<&str>,
+    font: &Option<messages::Font>,
+    big_font: &Option<messages::Font>,
+) -> u64 {
+    [
+        name,
+        font.as_ref().map(|f| f.name.as_str()),
+        big_font.as_ref().map(|f| f.name.as_str()),
+    ]
+    .iter()
+    .flatten()
+    .map(|text| text.len() as u64)
+    .sum()
+}
+
+/// フォントの指定。名前が空なら `None`。形のファイルは太字などを持てない。合わなければ `Err`
+fn font_change(font: &messages::Font) -> Result<Option<zumen_drawing::Font>, ()> {
+    if font.name.is_empty() {
+        return Ok(None);
+    }
+    let kind = match font.kind {
+        messages::FontKind::Shape => {
+            let plain = font.bold.is_none()
+                && font.italic.is_none()
+                && font.charset.is_none()
+                && font.pitch.is_none();
+            plain.then_some(zumen_drawing::FontKind::Shape).ok_or(())?
+        }
+        messages::FontKind::Named => zumen_drawing::FontKind::Named {
+            bold: font.bold.unwrap_or(false),
+            italic: font.italic.unwrap_or(false),
+            charset: font
+                .charset
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|_| ())?,
+            pitch: font.pitch.map(u32::try_from).transpose().map_err(|_| ())?,
+        },
+    };
+    Ok(Some(zumen_drawing::Font {
+        name: font.name.clone(),
+        kind,
+    }))
+}
+
+/// `base` に、書いた欄を重ねた文字スタイル。定義がなければ、Standard と同じ既定の値から始める。合わなければ、
+/// その欄の名前を返す。書けるかどうか（フォントの種類・傾きの範囲など）は、apply が形式ごとに確かめる
+fn text_style_change(
+    base: &TextStyle,
+    fields: &TextStyleFields<'_>,
+) -> Result<TextStyle, &'static str> {
+    let mut definition = base.definition.clone().unwrap_or(TextStyleDefinition {
+        font: None,
+        big_font: None,
+        height: None,
+        width: 1.0,
+        oblique: 0.0,
+        backward: false,
+        upside_down: false,
+        vertical: false,
+    });
+    if let Some(font) = fields.font {
+        definition.font = font_change(font).map_err(|()| "font")?;
+    }
+    if let Some(font) = fields.big_font {
+        definition.big_font = font_change(font).map_err(|()| "big_font")?;
+    }
+    if let Some(height) = fields.height {
+        definition.height = match height {
+            0.0 => None,
+            height if height > 0.0 => Some(height),
+            _ => return Err("height"),
+        };
+    }
+    if let Some(width) = fields.width {
+        (width > 0.0).then_some(()).ok_or("width")?;
+        definition.width = width;
+    }
+    if let Some(oblique) = fields.oblique {
+        definition.oblique = oblique;
+    }
+    definition.backward = fields.backward.unwrap_or(definition.backward);
+    definition.upside_down = fields.upside_down.unwrap_or(definition.upside_down);
+    definition.vertical = fields.vertical.unwrap_or(definition.vertical);
+    Ok(TextStyle {
+        name: fields.name.unwrap_or(&base.name).to_owned(),
+        definition: Some(definition),
+        source: base.source.clone(),
+    })
+}
+
 struct LayerFields<'e> {
     name: Option<&'e str>,
     visible: Option<bool>,
@@ -2401,7 +2584,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":24}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":25}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2785,6 +2968,112 @@ mod tests {
                 hashes[0], hashes[1], hashes[2]
             )
         );
+    }
+
+    #[test]
+    fn changes_adds_and_removes_text_styles() {
+        let mut session = Session::new(b"").unwrap();
+        // 表にない文字スタイルは並びの番号が ID なので、その前の文字スタイルを除けない。文字は Standard を指す
+        let styled = STYLED.replace("7\nMissing", "7\nStandard");
+        session.push(b"a.dxf", styled.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (_, tables) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let standard = text(&tables, "/result/text_styles/0/hash");
+        let gothic = text(&tables, "/result/text_styles/1/hash");
+        let apply =
+            |edits: &str| format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edits}]}}"#);
+        let style = |fields: &str| {
+            apply(&format!(
+                r#"{{"kind":"text_style","id":"text-style/h11","hash":"{standard}",{fields}}}"#
+            ))
+        };
+        for (request, code, pointer) in [
+            (
+                style(r#""font":{"name":"txt","kind":"shape","bold":true}"#),
+                "call.value.invalid",
+                Some("/edits/0/font"),
+            ),
+            (
+                style(r#""height":-1"#),
+                "call.value.invalid",
+                Some("/edits/0/height"),
+            ),
+            (
+                style(r#""width":0"#),
+                "call.value.invalid",
+                Some("/edits/0/width"),
+            ),
+            // Standard の名前は変えない。文字が指す文字スタイルは除かない
+            (style(r#""name":"Main""#), "change.edit.unsupported", None),
+            (
+                apply(&format!(
+                    r#"{{"kind":"remove_text_style","id":"text-style/h12","hash":"{gothic}"}}"#
+                )),
+                "change.edit.unsupported",
+                None,
+            ),
+            (
+                apply(&format!(
+                    r#"{{"kind":"text_style","id":"text-style/h99","hash":"{standard}"}}"#
+                )),
+                "change.element.missing",
+                None,
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            let error = error(&response);
+            assert_eq!(text(&error, "/code"), code, "{request}");
+            if let Some(pointer) = pointer {
+                assert_eq!(text(&error, "/params/pointer"), pointer, "{request}");
+            }
+        }
+        // 足す文字スタイルの書かない欄は、Standard と同じ
+        let edits = [
+            format!(
+                r#"{{"kind":"text_style","id":"text-style/h11","hash":"{standard}","width":0.9,"backward":false}}"#
+            ),
+            r#"{"kind":"add_text_style","name":"Notes","font":{"name":"simplex.shx","kind":"shape"},"height":2.5}"#
+                .to_owned(),
+        ];
+        let (status, response) = call(&mut session, &apply(&edits.join(",")));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/applied/0/id"), "text-style/h11");
+        assert_eq!(text(&response, "/result/applied/1/id"), "text-style/h40");
+        let (_, after) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let mut out = zumen_json::Writer::new();
+        out.value(after.pointer("/result/text_styles").unwrap());
+        assert_eq!(
+            String::from_utf8(out.into_bytes()).unwrap(),
+            format!(
+                concat!(
+                    r#"[{{"id":"text-style/h11","name":"Standard","hash":"{}","defined":true,"#,
+                    r#""font":{{"name":"txt","kind":"shape"}},"big_font":{{"name":"extfont2.shx","kind":"shape"}},"#,
+                    r#""width":0.9,"oblique":15,"backward":false,"upside_down":false,"vertical":false}},"#,
+                    r#"{{"id":"text-style/h12","name":"Gothic","hash":"{}","defined":true,"#,
+                    r#""font":{{"name":"MS Gothic","kind":"named","bold":true,"italic":false,"charset":128,"pitch":49}},"#,
+                    r#""height":3.5,"width":1,"oblique":0,"backward":false,"upside_down":false,"vertical":true}},"#,
+                    r#"{{"id":"text-style/h40","name":"Notes","hash":"{}","defined":true,"#,
+                    r#""font":{{"name":"simplex.shx","kind":"shape"}},"big_font":{{"name":"extfont2.shx","kind":"shape"}},"#,
+                    r#""height":2.5,"width":0.8,"oblique":15,"backward":true,"upside_down":false,"vertical":false}}]"#
+                ),
+                text(&response, "/result/applied/0/hash"),
+                gothic,
+                text(&response, "/result/applied/1/hash"),
+            )
+        );
+        // 足した文字スタイルは、次の apply で除ける
+        let notes = text(&response, "/result/applied/1/hash");
+        let (status, removed) = call(
+            &mut session,
+            &apply(&format!(
+                r#"{{"kind":"remove_text_style","id":"text-style/h40","hash":"{notes}"}}"#
+            )),
+        );
+        assert_eq!(status, Status::Ok, "{removed:?}");
+        assert_eq!(removed.pointer("/result/applied/0/id"), None);
+        let (_, last) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        assert_eq!(last.pointer("/result/text_styles/2"), None);
     }
 
     #[test]

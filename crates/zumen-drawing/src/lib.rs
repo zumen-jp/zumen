@@ -2440,6 +2440,26 @@ pub enum Edit {
         /// 除くレイヤ
         target: Seen,
     },
+    /// 指した文字スタイルの名前と定義を、この文字スタイルのもので置き換える（決定 0163）。出所は使わない。
+    /// `target` の ID は [`id::text_style`]、ハッシュは [`Hash::text_style`]
+    ReplaceTextStyle {
+        /// 置き換える文字スタイル
+        target: Seen,
+        /// 新しい値。定義を持つ
+        style: Box<TextStyle>,
+    },
+    /// 文字スタイルを足す（決定 0163）。出所は使わない。同じ変更の一覧の要素は、足した文字スタイルを
+    /// 指せない
+    AddTextStyle {
+        /// 足す文字スタイル。定義を持つ
+        style: Box<TextStyle>,
+    },
+    /// 指した文字スタイルを除く（決定 0163）。要素・ほかのオブジェクト・今の文字スタイルが指すものと、
+    /// Standard と外部参照に依るものは除けない
+    RemoveTextStyle {
+        /// 除く文字スタイル
+        target: Seen,
+    },
 }
 
 /// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` の欄は変えない

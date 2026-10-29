@@ -7,14 +7,15 @@ use add::{Born, Target, kind_of};
 
 mod add;
 mod layer;
+mod text_style;
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, FormattedText, Hash, Horizontal,
     Layer, LayerId, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement,
-    Polyline, Restyle, Rotation, Shape, SheetId, SpaceId, Spline, Style, Symbol, Text, Vertical,
-    id, transform,
+    Polyline, Restyle, Rotation, Shape, SheetId, SpaceId, Spline, Style, Symbol, Text, TextStyle,
+    Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -105,6 +106,8 @@ struct Index<'a> {
     element_handles: BTreeMap<u64, Option<String>>,
     /// レイヤ（決定 0162）
     layers: BTreeMap<String, &'a Layer>,
+    /// 文字スタイル（決定 0163）
+    text_styles: BTreeMap<String, &'a TextStyle>,
     places: BTreeMap<String, Place>,
     /// 2 つ以上の要素を作った出所。1 つの要素だけを書き戻せない
     shared: BTreeSet<&'a Ref>,
@@ -169,10 +172,18 @@ impl<'a> Index<'a> {
             work(cx, 1, &layer.source)?;
             layers.entry(id::layer(layer)).or_insert(layer);
         }
+        let mut text_styles = BTreeMap::new();
+        for (index, style) in drawing.text_styles.iter().enumerate() {
+            work(cx, 1, &style.source)?;
+            text_styles
+                .entry(id::text_style(style, index))
+                .or_insert(style);
+        }
         Ok(Self {
             elements,
             element_handles,
             layers,
+            text_styles,
             places,
             shared,
         })
@@ -181,6 +192,10 @@ impl<'a> Index<'a> {
     /// ID の要素の、今のハッシュ
     fn hash(&self, id: &str, cx: &mut Cx<'_>) -> Result<Option<Hash>, Error> {
         let Some(found) = self.elements.get(id) else {
+            if let Some(style) = self.text_styles.get(id) {
+                work(cx, 1, &style.source)?;
+                return Ok(Some(Hash::text_style(style)));
+            }
             let Some(layer) = self.layers.get(id) else {
                 return Ok(None);
             };
@@ -215,8 +230,8 @@ fn remember_handle(handles: &mut BTreeMap<u64, Option<String>>, source: &Ref, id
 enum ResultTarget {
     /// 図形は用紙の ID が変わっても、ハンドルから探せる
     Element(Option<u64>),
-    /// レイヤは表の ID で探す
-    Layer(Option<String>),
+    /// 表の項目（レイヤ・文字スタイル）は表の ID で探す
+    Table(Option<String>),
     Removed,
 }
 
@@ -235,6 +250,10 @@ fn applied(index: &Index, id: Option<String>, cx: &mut Cx<'_>) -> Result<Applied
             .layers
             .get(id)
             .is_some_and(|layer| layer.source.key().is_some())
+            || index
+                .text_styles
+                .get(id)
+                .is_some_and(|style| style.source.key().is_some())
     };
     let Some(id) = id.filter(keyed) else {
         return Ok(Applied {
@@ -315,7 +334,35 @@ fn edit(
     let mut layer_names: BTreeSet<Vec<u8>> = BTreeSet::new();
     let mut added_layers = Vec::new();
     let mut renames = Vec::new();
+    // 文字スタイルの変更（決定 0163）。表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
+    let mut style_records: Option<Vec<usize>> = None;
+    let mut style_names: BTreeSet<Vec<u8>> = BTreeSet::new();
+    let mut added_styles = Vec::new();
+    let mut style_renames = Vec::new();
+    let mut removed_styles = Vec::new();
     for change in &changes.edits {
+        if let Edit::ReplaceTextStyle { .. }
+        | Edit::AddTextStyle { .. }
+        | Edit::RemoveTextStyle { .. } = change
+            && style_records.is_none()
+        {
+            let mut records = Vec::new();
+            for (position, object) in db.objects().iter().enumerate() {
+                work(cx, 1, &Ref::default())?;
+                if object.section == Section::Tables && object.kind == b"STYLE" {
+                    if let Some(Data::Text(name)) = object.first(2)
+                        && !name.is_empty()
+                    {
+                        style_names.insert(name.to_ascii_lowercase());
+                    }
+                    if text_style::is_style(object) {
+                        records.push(position);
+                    }
+                }
+            }
+            style_records = Some(records);
+        }
+        let styles = style_records.as_deref().unwrap_or_default();
         if let Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } = change
             && layer_records.is_none()
         {
@@ -352,7 +399,7 @@ fn edit(
                     rejected = true;
                     continue;
                 }
-                count_layer_records(db, records, &was.source, cx)?;
+                count_table_records(db, records, &was.source, cx)?;
                 let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
                     .then(|| {
                         records.iter().copied().find(|&position| {
@@ -453,7 +500,7 @@ fn edit(
                 let unstable = drawing.layers.iter().any(|layer| {
                     layer.id.0 > was.id.0 && !matches!(layer.source.key(), Some(Key::Handle(_)))
                 });
-                count_layer_records(db, records, &was.source, cx)?;
+                count_table_records(db, records, &was.source, cx)?;
                 let found = (targets.insert(target_of.id.as_str())
                     && was.source != Ref::default()
                     && !pointed
@@ -498,7 +545,7 @@ fn edit(
             }
             Edit::AddLayer { layer: new } => {
                 work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                count_layer_records(db, records, &Ref::default(), cx)?;
+                count_table_records(db, records, &Ref::default(), cx)?;
                 let zero = records.iter().find_map(|&position| {
                     db.objects()
                         .get(position)
@@ -508,14 +555,14 @@ fn edit(
                     count_transform_values(zero, &Ref::default(), cx)?;
                 }
                 if target == Target::Dxf {
-                    count_layer_table_search(db, cx)?;
+                    count_table_search(db, cx)?;
                 }
                 let planned = zero.and_then(|zero| {
                     let mut values = layer::template(zero, target);
                     layer::write(&born, &mut values, new, None)?;
                     let name = layer::value_name(&values)?.to_ascii_lowercase();
                     (!layer::fixed_name(&name)
-                        && (target != Target::Dxf || layer::table_end(db).is_some())
+                        && (target != Target::Dxf || layer::table_end(db, b"LAYER").is_some())
                         && layer_names.insert(name))
                     .then_some(values)
                 });
@@ -523,6 +570,174 @@ fn edit(
                     Some(values) => added_layers.push(values),
                     None => {
                         cx.report(unsupported("add_layer", "LAYER", target));
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::ReplaceTextStyle {
+                target: target_of,
+                style: new,
+            } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                let Some(&was) = index.text_styles.get(&target_of.id) else {
+                    missing(&target_of.id, cx);
+                    rejected = true;
+                    continue;
+                };
+                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
+                            .with("id", target_of.id.as_str()),
+                    );
+                    rejected = true;
+                    continue;
+                }
+                count_table_records(db, styles, &was.source, cx)?;
+                let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
+                    .then(|| record_at(db, styles, &was.source))
+                    .flatten();
+                // DXF で名前を変えるなら、図形でないオブジェクトが名前で指していないかを先に調べる
+                let named = match found {
+                    Some((_, object)) => {
+                        count_transform_values(object, &was.source, cx)?;
+                        match (object.first(2), born.text_value(2, &new.name)) {
+                            (
+                                Some(Data::Text(old)),
+                                Some(Value {
+                                    data: Data::Text(name),
+                                    ..
+                                }),
+                            ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
+                                text_style::named_elsewhere(db, old, cx, &was.source)?
+                            }
+                            _ => false,
+                        }
+                    }
+                    None => false,
+                };
+                let planned = found.and_then(|(position, object)| {
+                    let mut values = object.values.clone();
+                    text_style::write(&born, &mut values, new, Some((object, was)))?;
+                    let Some(Data::Text(old)) = object.first(2) else {
+                        return None;
+                    };
+                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
+                        return None;
+                    };
+                    if !old.eq_ignore_ascii_case(name) {
+                        // 名前を変えるなら、ほかの文字スタイルと重ならず、DXF の図形でないオブジェクトが名前で
+                        // 指していないこと
+                        let free = !style_names.contains(&name.to_ascii_lowercase()) && !named;
+                        free.then_some(())?;
+                        style_names.remove(&old.to_ascii_lowercase());
+                        style_names.insert(name.to_ascii_lowercase());
+                    }
+                    if old != name {
+                        let name = Value {
+                            code: 7,
+                            data: Data::Text(name.clone()),
+                        };
+                        style_renames.push((old.clone(), name));
+                    }
+                    Some((position, values))
+                });
+                match planned {
+                    Some(planned) => replaced.push(planned),
+                    None => {
+                        cx.report(
+                            unsupported("replace_text_style", "STYLE", target)
+                                .at(was.source.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::RemoveTextStyle { target: target_of } => {
+                let Some(&was) = index.text_styles.get(&target_of.id) else {
+                    missing(&target_of.id, cx);
+                    rejected = true;
+                    continue;
+                };
+                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
+                            .with("id", target_of.id.as_str()),
+                    );
+                    rejected = true;
+                    continue;
+                }
+                // 後ろのハンドルなし文字スタイルは並びの番号が ID なので、除くと別の ID になる
+                work(cx, drawing.text_styles.len() as u64, &was.source)?;
+                let unstable = drawing
+                    .text_styles
+                    .iter()
+                    .skip_while(|style| !std::ptr::eq(*style, was))
+                    .skip(1)
+                    .any(|style| !matches!(style.source.key(), Some(Key::Handle(_))));
+                count_table_records(db, styles, &was.source, cx)?;
+                let found = (targets.insert(target_of.id.as_str())
+                    && was.source != Ref::default()
+                    && !unstable)
+                    .then(|| record_at(db, styles, &was.source))
+                    .flatten();
+                let planned = match found {
+                    Some((position, object)) => {
+                        count_transform_values(object, &was.source, cx)?;
+                        (text_style::removable(object)
+                            && !text_style::referenced(db, position, object, cx, &was.source)?)
+                        .then_some((position, object))
+                    }
+                    None => None,
+                };
+                match planned {
+                    Some((position, object)) => {
+                        if let Some(Data::Text(name)) = object.first(2) {
+                            style_names.remove(&name.to_ascii_lowercase());
+                            removed_styles.push(name.clone());
+                        }
+                        removed.push(position);
+                    }
+                    None => {
+                        cx.report(
+                            unsupported("remove_text_style", "STYLE", target)
+                                .at(was.source.clone()),
+                        );
+                        rejected = true;
+                    }
+                }
+                continue;
+            }
+            Edit::AddTextStyle { style: new } => {
+                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+                count_table_records(db, styles, &Ref::default(), cx)?;
+                let standard = styles.iter().find_map(|&position| {
+                    db.objects().get(position).filter(|object| {
+                        matches!(object.first(2), Some(Data::Text(name)) if text_style::fixed_name(name))
+                    })
+                });
+                if let Some(standard) = standard {
+                    count_transform_values(standard, &Ref::default(), cx)?;
+                }
+                if target == Target::Dxf {
+                    count_table_search(db, cx)?;
+                }
+                let planned = standard.and_then(|standard| {
+                    let mut values = text_style::template(standard, target);
+                    text_style::write(&born, &mut values, new, None)?;
+                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
+                        return None;
+                    };
+                    let name = name.to_ascii_lowercase();
+                    ((target != Target::Dxf || layer::table_end(db, b"STYLE").is_some())
+                        && style_names.insert(name))
+                    .then_some(values)
+                });
+                match planned {
+                    Some(values) => added_styles.push(values),
+                    None => {
+                        cx.report(unsupported("add_text_style", "STYLE", target));
                         rejected = true;
                     }
                 }
@@ -757,7 +972,10 @@ fn edit(
                 Edit::Add { .. }
                 | Edit::ReplaceLayer { .. }
                 | Edit::AddLayer { .. }
-                | Edit::RemoveLayer { .. },
+                | Edit::RemoveLayer { .. }
+                | Edit::ReplaceTextStyle { .. }
+                | Edit::AddTextStyle { .. }
+                | Edit::RemoveTextStyle { .. },
                 _,
             ) => None,
         };
@@ -789,10 +1007,10 @@ fn edit(
             count_transform_values(object, &Ref::default(), cx)?;
         }
         let handle = add::next_free_handle(db, target);
-        let record = layer::record(values, handle);
+        let record = layer::record(b"LAYER", values, handle);
         match target {
             Target::Dxf => {
-                let at = layer::table_end(db).ok_or(Error::Rejected)?;
+                let at = layer::table_end(db, b"LAYER").ok_or(Error::Rejected)?;
                 db.insert(at, record);
             }
             Target::Dwg(_) => db.push(record),
@@ -802,6 +1020,34 @@ fn edit(
     for (old, new) in &renames {
         layer::rename(db, old, new, target, cx)?;
     }
+    let mut style_handles = Vec::with_capacity(added_styles.len());
+    for values in added_styles {
+        for object in db.objects() {
+            work(cx, 1, &Ref::default())?;
+            count_transform_values(object, &Ref::default(), cx)?;
+        }
+        let handle = add::next_free_handle(db, target);
+        let record = layer::record(b"STYLE", values, handle);
+        match target {
+            Target::Dxf => {
+                let at = layer::table_end(db, b"STYLE").ok_or(Error::Rejected)?;
+                db.insert(at, record);
+            }
+            Target::Dwg(_) => db.push(record),
+        }
+        style_handles.push(handle);
+    }
+    for (old, new) in &style_renames {
+        text_style::rename(db, old, new, target, cx)?;
+    }
+    // 同じ一覧で足した図形は、除いた文字スタイルを指せない
+    for name in &removed_styles {
+        if text_style::named_by_new(db, name, cx)? {
+            cx.report(unsupported("remove_text_style", "STYLE", target));
+            return Err(Error::Rejected);
+        }
+    }
+    let mut style_handles = style_handles.into_iter();
     let mut layer_handles = layer_handles.into_iter();
     // 要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く
     Ok(changes
@@ -824,20 +1070,29 @@ fn edit(
                 ResultTarget::Element(handle)
             }
             Edit::Add { .. } => ResultTarget::Element(handles.next().flatten()),
-            Edit::Remove { .. } | Edit::RemoveLayer { .. } => ResultTarget::Removed,
-            Edit::ReplaceLayer { target, .. } => ResultTarget::Layer(Some(target.id.clone())),
-            Edit::AddLayer { .. } => ResultTarget::Layer(
+            Edit::Remove { .. } | Edit::RemoveLayer { .. } | Edit::RemoveTextStyle { .. } => {
+                ResultTarget::Removed
+            }
+            Edit::ReplaceLayer { target, .. } => ResultTarget::Table(Some(target.id.clone())),
+            Edit::AddLayer { .. } => ResultTarget::Table(
                 layer_handles
                     .next()
                     .flatten()
                     .map(|handle| format!("layer/h{handle:X}")),
             ),
+            Edit::ReplaceTextStyle { target, .. } => ResultTarget::Table(Some(target.id.clone())),
+            Edit::AddTextStyle { .. } => ResultTarget::Table(
+                style_handles
+                    .next()
+                    .flatten()
+                    .map(|handle| format!("text-style/h{handle:X}")),
+            ),
         })
         .collect())
 }
 
-/// 画層のレコードを探す前に、名前と出所の探索に掛かる作業を数える。
-fn count_layer_records(db: &AcadDb, records: &[usize], at: &Ref, cx: &mut Cx) -> Result<(), Error> {
+/// 表のレコード（画層・文字スタイル）を探す前に、名前と出所の探索に掛かる作業を数える。
+fn count_table_records(db: &AcadDb, records: &[usize], at: &Ref, cx: &mut Cx) -> Result<(), Error> {
     for &position in records {
         work(cx, 1, at)?;
         if let Some(object) = db.objects().get(position) {
@@ -848,7 +1103,7 @@ fn count_layer_records(db: &AcadDb, records: &[usize], at: &Ref, cx: &mut Cx) ->
 }
 
 /// 表の終わりを探す前に、表の名前を調べる作業を数える。
-fn count_layer_table_search(db: &AcadDb, cx: &mut Cx) -> Result<(), Error> {
+fn count_table_search(db: &AcadDb, cx: &mut Cx) -> Result<(), Error> {
     let at = Ref::default();
     for object in db.objects() {
         work(cx, 1, &at)?;
@@ -857,6 +1112,16 @@ fn count_layer_table_search(db: &AcadDb, cx: &mut Cx) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// 表のレコードの位置 `records` のうち、出所が `source` のもの
+fn record_at<'a>(db: &'a AcadDb, records: &[usize], source: &Ref) -> Option<(usize, &'a Object)> {
+    records.iter().find_map(|&position| {
+        db.objects()
+            .get(position)
+            .filter(|object| super::source(object) == *source)
+            .map(|object| (position, object))
+    })
 }
 
 fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) -> bool {
@@ -913,7 +1178,7 @@ fn settled(db: &AcadDb, targets: Vec<ResultTarget>, cx: &mut Cx) -> Result<Vec<A
                     .and_then(|handle| after.element_handles.get(&handle))
                     .cloned()
                     .flatten(),
-                ResultTarget::Layer(id) => id,
+                ResultTarget::Table(id) => id,
                 ResultTarget::Removed => None,
             };
             applied(&after, id, cx)
