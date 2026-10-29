@@ -7,6 +7,8 @@
 //! 変えたら、DXF では、図形と画層のレコードの線種の名前（6）と、見出しの変数の線種の名前（6。`$CELTYPE`）も
 //! 書き直す。DWG の図形と画層は線種をハンドルで指すので、足した図形と画層のほかは書き直さない
 
+use std::collections::BTreeSet;
+
 use super::add::{Born, Target, int};
 use super::layer::{external, find, set_in, usable_name};
 use super::{count_transform_values, real, work};
@@ -227,12 +229,12 @@ pub(super) fn rename(
     Ok(())
 }
 
-/// 除く線種のレコード `record`（表の `position`）を、ほかが指しているか。図形と画層の線種の名前（6）、
+/// 除く線種のレコード `record`（表の位置と、一緒に除く拡張辞書などの位置を `skip` に持つ）を、ほかが指しているか。図形と画層の線種の名前（6）、
 /// ほかのオブジェクトのハンドル（DWG の図形と画層・寸法スタイルの線種など）、見出しの変数を見る。DWG の
 /// 表のオブジェクト（TABLE）の項目の並びは、共有の表に置かれず、書き戻しが直す
 pub(super) fn referenced(
     db: &AcadDb,
-    position: usize,
+    skip: &BTreeSet<usize>,
     record: &Object,
     cx: &mut Cx,
     place: &Ref,
@@ -248,7 +250,7 @@ pub(super) fn referenced(
     for (at, object) in db.objects().iter().enumerate() {
         work(cx, 1, place)?;
         count_transform_values(object, place, cx)?;
-        if at != position && object.values.iter().any(points) {
+        if !skip.contains(&at) && object.values.iter().any(points) {
             return Ok(true);
         }
     }
@@ -268,15 +270,11 @@ pub(super) fn referenced(
 }
 
 /// 除ける線種のレコードか。ByLayer・ByBlock・Continuous・外部参照に依るものと、ハンドルを持たない
-/// レコードと、拡張辞書か反応子を持つレコードは除かない
+/// レコードは除かない。拡張辞書は一緒に除く（決定 0170）
 pub(super) fn removable(record: &Object) -> bool {
     matches!(record.first(2), Some(Data::Text(name)) if !fixed_name(name))
         && !external(record)
         && record.handle().is_some_and(|handle| handle != 0)
-        && !record
-            .values
-            .iter()
-            .any(|value| matches!(value.code, 102 | 360))
 }
 
 /// 足した図形と画層のうち、名前 `name` の線種を指すものがあるか

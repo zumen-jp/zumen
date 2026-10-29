@@ -88,6 +88,19 @@ impl AcadDb {
             .or_else(|| self.objects.iter().find(|o| o.handle() == Some(handle)))
     }
 
+    /// ハンドルで引いた位置。同じハンドルが 2 つ以上あれば、最初のもの
+    pub fn position(&self, handle: u64) -> Option<usize> {
+        self.handles
+            .get(&handle)
+            .copied()
+            .filter(|&index| {
+                self.objects
+                    .get(index)
+                    .is_some_and(|o| o.handle() == Some(handle))
+            })
+            .or_else(|| self.objects.iter().position(|o| o.handle() == Some(handle)))
+    }
+
     /// 見出しの変数を置く。同じ名前がすでにあれば置き換える
     pub fn set_variable(&mut self, name: &[u8], values: Vec<Value>) {
         self.variables.insert(name.to_vec(), values);

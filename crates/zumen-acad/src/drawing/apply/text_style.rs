@@ -6,6 +6,8 @@
 //! 文字スタイルの名前（7）と、見出しの変数の文字スタイルの名前（7。`$TEXTSTYLE` など）も書き直す。DWG の
 //! 図形は文字スタイルをハンドルで指すので、足した図形のほかは書き直さない
 
+use std::collections::BTreeSet;
+
 use super::add::{Born, Target, int};
 use super::layer::{external, find, set_in, usable_name};
 use super::{count_transform_values, real, work};
@@ -251,13 +253,13 @@ pub(super) fn rename(
     Ok(())
 }
 
-/// 除く文字スタイルのレコード `record`（表の `position`）を、ほかが指しているか。図形と表の書式などの
+/// 除く文字スタイルのレコード `record`（表の位置と、一緒に除く拡張辞書などの位置を `skip` に持つ）を、ほかが指しているか。図形と表の書式などの
 /// 文字スタイルの名前（7）、ほかのオブジェクトのハンドル（寸法スタイル・複合線種など）、見出しの変数を見る。
 /// DWG の表のオブジェクト（TABLE）の項目の並びは、共有の表に置かれず、書き戻しが直す。それ以外の TABLE の
 /// 値は検査する
 pub(super) fn referenced(
     db: &AcadDb,
-    position: usize,
+    skip: &BTreeSet<usize>,
     record: &Object,
     cx: &mut Cx,
     place: &Ref,
@@ -273,7 +275,7 @@ pub(super) fn referenced(
     for (at, object) in db.objects().iter().enumerate() {
         work(cx, 1, place)?;
         count_transform_values(object, place, cx)?;
-        if at != position && object.values.iter().any(points) {
+        if !skip.contains(&at) && object.values.iter().any(points) {
             return Ok(true);
         }
     }
@@ -292,16 +294,12 @@ pub(super) fn referenced(
     Ok(false)
 }
 
-/// 除ける文字スタイルのレコードか。Standard・外部参照に依るものと、ハンドルを持たないレコードと、拡張辞書か
-/// 反応子を持つレコードは除かない
+/// 除ける文字スタイルのレコードか。Standard・外部参照に依るものと、ハンドルを持たないレコードは除かない。
+/// 拡張辞書は一緒に除く（決定 0170）
 pub(super) fn removable(record: &Object) -> bool {
     matches!(record.first(2), Some(Data::Text(name)) if !fixed_name(name))
         && !external(record)
         && record.handle().is_some_and(|handle| handle != 0)
-        && !record
-            .values
-            .iter()
-            .any(|value| matches!(value.code, 102 | 360))
 }
 
 /// 足した図形のうち、名前 `name` の文字スタイルを指すものがあるか

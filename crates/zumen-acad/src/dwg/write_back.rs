@@ -1290,7 +1290,8 @@ impl DwgFile {
 
     /// 除いた図形 `removed` の前後の図形と、所有者のブロックのレコードの、図形の並びをたどるハンドルを直した
     /// データを、`changes` に足す（決定 0051）。図形を持つ図形（ATTRIB を持つ INSERT など）と、反応子か
-    /// 拡張辞書を持つ図形と、[`REMOVABLE`] にない種類は除けない
+    /// 拡張辞書を持つ図形と、[`REMOVABLE`] にない種類は除けない。図形でないオブジェクトは、所有者も
+    /// 除くとき（除く表のレコードの拡張辞書と、それが持つオブジェクト。決定 0170）だけ除ける
     fn unlink(
         &self,
         base: &AcadDb,
@@ -1306,9 +1307,20 @@ impl DwgFile {
         let owners: BTreeSet<u64> = base.objects().iter().filter_map(Object::owner).collect();
         let mut gone = BTreeSet::new();
         let mut blocks = BTreeMap::new();
+        let all: BTreeSet<u64> = removed
+            .iter()
+            .filter_map(|&(record, _)| self.entries.get(record).map(|entry| entry.handle))
+            .collect();
         for &(record, old) in removed {
             if old.section == Section::Tables {
-                self.unlist(record, old, &records, changes)
+                self.unlist(record, old, &all, &records, changes)
+                    .ok_or_else(|| unsupported(&old.kind))?;
+                continue;
+            }
+            if old.section == Section::Objects {
+                // 所有者と一緒に除く。所有者が持つ並びは、所有者ごとなくなる
+                old.owner()
+                    .filter(|owner| all.contains(owner))
                     .ok_or_else(|| unsupported(&old.kind))?;
                 continue;
             }
@@ -1362,12 +1374,13 @@ impl DwgFile {
     }
 
     /// 除いた画層・文字スタイル・線種・寸法スタイルのレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から
-    /// 除いたデータを、`changes` に足す（決定 0162〜0165）。反応子と拡張辞書を持つレコードと、ほかの表のレコードは
-    /// 除けない
+    /// 除いたデータを、`changes` に足す（決定 0162〜0165）。反応子を持つレコードと、ほかの表のレコードは
+    /// 除けない。拡張辞書を持つレコードは、拡張辞書も一緒に除くとき（ハンドルが `all` にある。決定 0170）だけ除ける
     fn unlist(
         &self,
         record: usize,
         old: &Object,
+        all: &BTreeSet<u64>,
         records: &BTreeMap<u64, usize>,
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Option<()> {
@@ -1378,10 +1391,17 @@ impl DwgFile {
             b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE),
             _ => return None,
         };
-        (!old
-            .values
-            .iter()
-            .any(|value| matches!(value.code, 102 | 360)))
+        let (xdictionary, rest) = without_xdictionary(old);
+        let gone = match xdictionary {
+            Some(Data::Handle(handle)) => all.contains(&handle),
+            Some(_) => false,
+            None => true,
+        };
+        (gone
+            && !rest
+                .values
+                .iter()
+                .any(|value| matches!(value.code, 102 | 360)))
         .then_some(())?;
         let handle = self.entries.get(record)?.handle;
         let control = *records.get(&old.owner()?)?;

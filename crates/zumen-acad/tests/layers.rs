@@ -569,3 +569,91 @@ fn layer_rename_counts_values_examined_in_objects() {
     let renamed = run(true);
     assert!(renamed >= unchanged + 300, "{unchanged}, {renamed}");
 }
+
+/// 画層 Unused に、注釈の尺度の XRECORD を持つ拡張辞書を持たせた DXF（決定 0170）
+#[cfg(test)]
+fn with_dictionary(extra: &str) -> String {
+    String::from_utf8(src())
+        .unwrap()
+        .replacen(
+            "  5\n12\n330\n2\n",
+            "  5\n12\n102\n{ACAD_XDICTIONARY\n360\nD1\n102\n}\n330\n2\n",
+            1,
+        )
+        .replacen(
+            "  0\nEOF\n",
+            &format!(
+                "  0\nSECTION\n  2\nOBJECTS\n  0\nDICTIONARY\n  5\nD1\n102\n{{ACAD_REACTORS\n330\n12\n102\n}}\n\
+                 330\n12\n100\nAcDbDictionary\n281\n1\n  3\nASDK_XREC_ANNO_SCALE_INFO\n360\nD2\n  0\n\
+                 XRECORD\n  5\nD2\n102\n{{ACAD_REACTORS\n330\nD1\n102\n}}\n330\nD1\n100\nAcDbXrecord\n\
+                 280\n1\n 90\n4\n{extra}  0\nENDSEC\n  0\nEOF\n"
+            ),
+            1,
+        )
+}
+
+#[test]
+fn layers_are_removed_with_their_extension_dictionaries() {
+    let input = with_dictionary("");
+    let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let (result, codes) = apply(
+        &mut file,
+        vec![Edit::RemoveLayer {
+            target: seen(layer(&drawing, "Unused")),
+        }],
+    );
+    assert!(result.is_ok(), "{codes:?}");
+    assert!(codes.is_empty(), "{codes:?}");
+    let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+    assert!(!written.contains("Unused"));
+    assert!(!written.contains("ASDK_XREC_ANNO_SCALE_INFO"));
+    assert!(!written.contains("XRECORD"));
+    assert!(!written.contains("\nD1\n") && !written.contains("\nD2\n"));
+    let after = lift(&testkit::read::<Dxf>(written.as_bytes()).0.unwrap());
+    assert_eq!(id::layer(layer(&after, "A")), "layer/h11");
+}
+
+#[test]
+fn extension_dictionaries_that_others_point_to_keep_their_layers() {
+    let original = with_dictionary("");
+    let inputs = [
+        // ほかのオブジェクトが、拡張辞書の XRECORD を指す
+        with_dictionary("  0\nXRECORD\n  5\nD3\n330\n1F\n100\nAcDbXrecord\n340\nD2\n"),
+        // 見出しの変数が、拡張辞書を指す
+        original.replacen("$CLAYER\n", "$TSTACKALIGN\n340\nD1\n  9\n$CLAYER\n", 1),
+        // 拡張辞書の所有者が、画層でない
+        original.replacen(
+            "330\n12\n100\nAcDbDictionary\n",
+            "330\n11\n100\nAcDbDictionary\n",
+            1,
+        ),
+        // 拡張辞書が持つ XRECORD の所有者が、拡張辞書でない
+        original.replacen(
+            "330\nD1\n100\nAcDbXrecord\n",
+            "330\n12\n100\nAcDbXrecord\n",
+            1,
+        ),
+        // 拡張辞書がない
+        original.replacen("360\nD1\n102\n}\n", "360\nD9\n102\n}\n", 1),
+        // 画層が反応子を持つ
+        original.replacen(
+            "  5\n12\n102\n",
+            "  5\n12\n102\n{ACAD_REACTORS\n330\n1A\n102\n}\n102\n",
+            1,
+        ),
+    ];
+    for input in inputs {
+        let mut file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let (result, codes) = apply(
+            &mut file,
+            vec![Edit::RemoveLayer {
+                target: seen(layer(&drawing, "Unused")),
+            }],
+        );
+        assert_eq!(result.unwrap_err(), Error::Rejected, "{input}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{input}");
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
+    }
+}
