@@ -81,11 +81,11 @@ fn every_element_is_named_by_its_instance_number() {
     }
 }
 
-/// 試料の SFC で、用紙と部分図の線分・円・円弧・折線を動かし、文字を除き、用紙に線分を足して書き戻す
-/// （決定 0167）。複合曲線がまとめる曲線と、作図グループの展開で複数の要素になるものは断るので、断った変更を
+/// 試料の SFC と P21 で、用紙と部分図の線分・円・円弧・折線を動かし、文字を除き、用紙に線分を足して書き戻す
+/// （決定 0167・0169）。複合曲線がまとめる曲線と、作図グループの展開で複数の要素になるものは断るので、断った変更を
 /// 除いて当て直す。変えなかった要素の ID と値が変わらないことは、apply が読み直して確かめる
 #[test]
-fn sfc_samples_take_back_moved_removed_and_added_elements() {
+fn samples_take_back_moved_removed_and_added_elements() {
     use zumen_base::codes;
     use zumen_drawing::{
         Affine, Changes, Edge, Edit, Element, Hash, PaperPoint, Placed, Seen, Shape,
@@ -105,9 +105,6 @@ fn sfc_samples_take_back_moved_removed_and_added_elements() {
     for path in samples() {
         let src = std::fs::read(&path).unwrap();
         let file = testkit::read::<Sxf>(&src).0.unwrap();
-        if file.mode() != zumen_sxf::Mode::Sfc {
-            continue;
-        }
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
         let cancel = CancelToken::new();

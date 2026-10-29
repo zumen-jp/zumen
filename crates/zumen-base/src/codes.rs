@@ -279,7 +279,7 @@ pub const CHANGE_ELEMENT_STALE: Code = Code::new(
     &["id"],
 );
 
-/// この形式の文書には、まだ変更を当てられない。今は DXF・DWG・JWW と SXF の SFC だけに当てる（決定 0139・0167・0168）
+/// この形式の文書には、まだ変更を当てられない。今は DXF・DWG・JWW・SXF に当てる（決定 0139・0167・0168・0169）
 ///
 /// `change.format.unsupported`（0.0.0 から）
 pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(

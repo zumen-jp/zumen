@@ -13,7 +13,7 @@ use crate::drawing::{Arg, FeatureRecord, LINE_TYPES, WIDTHS, work};
 use crate::{Part, SxfFile, Value};
 
 /// 既定義色のコード 1〜16 の名前（SXF の共通既定義要素の表）
-const COLORS: [&str; 16] = [
+pub(crate) const COLORS: [&str; 16] = [
     "black",
     "red",
     "green",
@@ -98,6 +98,27 @@ pub(crate) fn records(file: &SxfFile, cx: &mut Cx) -> Result<Vec<FeatureRecord>,
     Ok(out)
 }
 
+/// 表のコードを持つ実体。書き戻しが、コードから実体を引くのに使う
+pub(crate) struct Codes {
+    /// レイヤのコード（1 から）の順の、PRESENTATION_LAYER_ASSIGNMENT の番号
+    pub(crate) layers: Vec<u64>,
+    /// 色の実体の番号から、色のコード
+    pub(crate) colors: BTreeMap<u64, i64>,
+    /// 線種の実体の番号から、線種のコード
+    pub(crate) line_types: BTreeMap<u64, i64>,
+}
+
+/// 変換と同じ順で、表のコードを数える
+pub(crate) fn codes(file: &SxfFile, cx: &mut Cx) -> Result<Codes, Error> {
+    let mut builder = Builder::new(file);
+    builder.tables(cx)?;
+    Ok(Codes {
+        layers: builder.layers,
+        colors: builder.colors,
+        line_types: builder.line_types,
+    })
+}
+
 /// ハッチングの外形と中抜きに書いた複合曲線のレコードを、複合曲線の番号（書いた順に 1 から）にする
 fn number_composites(out: &mut [FeatureRecord]) {
     let composites: Vec<usize> = out
@@ -171,6 +192,8 @@ struct Builder<'f> {
     widths: Vec<f64>,
     /// 要素（表記の実体）からレイヤのコードへ
     layer_of: BTreeMap<u64, i64>,
+    /// レイヤのコードの順の、PRESENTATION_LAYER_ASSIGNMENT の番号
+    layers: Vec<u64>,
     /// 複合図形の定義のレコード。用紙の要素より前に書く
     definitions: Vec<FeatureRecord>,
     /// いま組み直している図形の並びの、複合曲線のレコード。並びの先に書く
@@ -205,6 +228,7 @@ impl<'f> Builder<'f> {
             fonts: BTreeMap::new(),
             widths: Vec::new(),
             layer_of: BTreeMap::new(),
+            layers: Vec::new(),
             definitions: Vec::new(),
             front: Vec::new(),
             subfigures: BTreeMap::new(),
@@ -440,6 +464,7 @@ impl<'f> Builder<'f> {
                 layer,
             );
             code += 1;
+            self.layers.push(id);
             for item in references(args.get(2)) {
                 self.layer_of.entry(item).or_insert(code);
             }

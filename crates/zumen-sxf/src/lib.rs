@@ -237,6 +237,8 @@ impl Codec for Sxf {
                 return Err(Error::Unsupported);
             }
         }
+        cx.check(Kind::Work, 1 + src.len() as u64 / 1024)
+            .map_err(|stop| stopped(cx, stop, None))?;
         Ok(SxfFile {
             src: src.to_vec(),
             mode: read.mode,

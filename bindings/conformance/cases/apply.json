@@ -605,7 +605,7 @@
     {
       "push": {
         "name": "c.p21",
-        "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=CARTESIAN_POINT('',(0.,0.));\nENDSEC;\nEND-ISO-10303-21;\n"
+        "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=CARTESIAN_POINT(' ',(0.,0.));\n#2=CARTESIAN_POINT(' ',(10.,0.));\n#3=POLYLINE(' ',(#1,#2));\n#4=DRAUGHTING_PRE_DEFINED_COLOUR('red');\n#5=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n#6=CURVE_STYLE(' ',#5,POSITIVE_LENGTH_MEASURE(0.25),#4);\n#7=PRESENTATION_STYLE_ASSIGNMENT((#6));\n#8=ANNOTATION_CURVE_OCCURRENCE(' ',(#7),#3);\n#9=PRESENTATION_LAYER_ASSIGNMENT('A',' ',(#8));\n#10=DRAWING_SHEET_REVISION('A3_horizontal',(#8),' ',' ');\nENDSEC;\nEND-ISO-10303-21;\n"
       }
     },
     {
@@ -623,16 +623,18 @@
         "v": 1,
         "op": "apply",
         "doc": "c.p21",
-        "edits": []
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "sheet/0/i8",
+            "hash": "v1:034ad616bdf7a8de02a55f4a5c27ab84",
+            "matrix": [1, 0, 5, 0, 1, 7]
+          }
+        ]
       },
-      "status": "failed",
       "expect": {
-        "/diagnostics/0/code": "change.format.unsupported",
-        "/diagnostics/0/params/format": "sxf (P21)"
-      },
-      "absent": [
-        "/result"
-      ]
+        "/result/applied/0/id": "sheet/0/i8"
+      }
     },
     {
       "push": {
