@@ -1491,6 +1491,36 @@ mod tests {
     }
 
     #[test]
+    fn repeated_apply_accepts_latest_document_hash() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = seen(&mut session, "a.dxf");
+        let (_, drawing) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        let document = text(&drawing, "/result/hash");
+        let request = |id: &str, hash: &str, document: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","hash":"{document}","edits":[{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}]}}"#
+            )
+        };
+        let (status, response) = call(
+            &mut session,
+            &request(&before[0].0, &before[0].1, &document),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let document = text(&response, "/result/hash");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        let bytes = session.take(0).unwrap();
+        assert_eq!(document, Hash::document(&bytes).to_string());
+        let (status, response) = call(&mut session, &request(&id, &hash, &document));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let second = text(&response, "/result/applied/0/hash");
+        assert_ne!(second, hash);
+        assert_eq!(second, seen(&mut session, "a.dxf")[0].1);
+    }
+
+    #[test]
     fn failed_apply_keeps_document_and_hash_at_every_work_limit() {
         let mut failed = 0;
         let mut succeeded = false;
