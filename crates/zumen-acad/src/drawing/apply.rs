@@ -16,9 +16,8 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element, FormattedText, Hash,
     Horizontal, Inherit, Layer, LayerId, Length, LineType, MarkContent, ModelLength, ModelPoint,
-    PaperLength,
-    PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Shape, SheetId, SpaceId, Spline,
-    Style, Symbol, Text, TextStyle, Vertical, id, transform,
+    PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Shape, SheetId,
+    SpaceId, Spline, Style, Symbol, Text, TextStyle, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
