@@ -237,6 +237,7 @@ fn edit(
             return Err(Error::Rejected);
         }
     }
+    let positions = object_positions(db, cx)?;
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
     let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
@@ -337,7 +338,7 @@ fn edit(
             continue;
         }
         let object = (!index.shared.contains(at))
-            .then(|| entity(db, at))
+            .then(|| positions.get(at).copied())
             .flatten()
             .and_then(|position| Some((position, db.objects().get(position)?)));
         let Some((position, object)) = object else {
@@ -433,11 +434,13 @@ fn edit(
                     .map(|values| replaced.push((position, values)))
             }
             (Edit::Transform { transform, .. }, Found::Model(was)) => {
-                transform_work(db, was, object, cx)?;
+                transform_work(db, &positions, was, object, cx)?;
                 anchor(&was.shape)
                     .and_then(|anchor| {
                         let frame = InSpace(anchor.space);
-                        moved(db, was, object, transform, unicode, &frame, true)
+                        moved(
+                            db, &positions, was, object, transform, unicode, &frame, true,
+                        )
                     })
                     .map(|values| {
                         replaced.push((position, values.object));
@@ -445,11 +448,13 @@ fn edit(
                     })
             }
             (Edit::Transform { transform, .. }, Found::Paper(was)) => {
-                transform_work(db, was, object, cx)?;
+                transform_work(db, &positions, was, object, cx)?;
                 anchor(&was.shape)
                     .and_then(|anchor| {
                         let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
-                        moved(db, was, object, transform, unicode, &frame, false)
+                        moved(
+                            db, &positions, was, object, transform, unicode, &frame, false,
+                        )
                     })
                     .map(|values| {
                         replaced.push((position, values.object));
@@ -673,6 +678,7 @@ struct Moved {
 /// 変換前に、値の走査・複製と属性のレコードの探索に必要な作業を数える。
 fn transform_work<P>(
     db: &AcadDb,
+    positions: &BTreeMap<Ref, usize>,
     element: &Element<P>,
     object: &Object,
     cx: &mut Cx<'_>,
@@ -681,18 +687,11 @@ fn transform_work<P>(
     if let Shape::Symbol(symbol) = &element.shape {
         for attribute in &symbol.attributes {
             work(cx, 1, &attribute.source)?;
-            for candidate in db.objects() {
-                work(cx, 1, &attribute.source)?;
-                // source はハンドルを探すため、候補の値をなめる。
-                for _ in &candidate.values {
-                    work(cx, 1, &attribute.source)?;
-                }
-                if matches!(candidate.section, Section::Entities | Section::Blocks)
-                    && source(candidate) == attribute.source
-                {
-                    count_transform_values(candidate, &attribute.source, cx)?;
-                    break;
-                }
+            if let Some(candidate) = positions
+                .get(&attribute.source)
+                .and_then(|position| db.objects().get(*position))
+            {
+                count_transform_values(candidate, &attribute.source, cx)?;
             }
         }
     }
@@ -716,8 +715,10 @@ fn count_transform_values(object: &Object, at: &Ref, cx: &mut Cx<'_>) -> Result<
 /// 変換 `transform` で動かした図形の値。形は置き換えと同じ書き方で書き、図形とともに動く XDATA（[`carried`]）と、
 /// 記号の属性（続く ATTRIB の置く点・高さ・回転）も同じ変換で直す。`model` でなければ（用紙の図形）、
 /// XDATA の点は用紙の mm と図面の単位の違いを直せないので、動く XDATA を持つ図形は扱わない
+#[allow(clippy::too_many_arguments)]
 fn moved<P: Copy + PartialEq + transform::Point>(
     db: &AcadDb,
+    positions: &BTreeMap<Ref, usize>,
     was: &Element<P>,
     object: &Object,
     transform: &Affine,
@@ -765,7 +766,7 @@ fn moved<P: Copy + PartialEq + transform::Point>(
             if original.formatted.is_some() {
                 return None;
             }
-            let position = entity(db, &original.source)?;
+            let position = *positions.get(&original.source)?;
             let follower = db.objects().get(position)?;
             if follower.kind != b"ATTRIB" {
                 return None;
@@ -888,11 +889,20 @@ fn carried(values: &mut [Value], transform: &Affine) -> Option<()> {
     .then_some(())
 }
 
-/// 出所が `at` の図形の、表の中の番号。ほかのレイアウトの用紙の図形は、BLOCKS のペーパー空間のブロックにある
-fn entity(db: &AcadDb, at: &Ref) -> Option<usize> {
-    db.objects().iter().position(|object| {
-        matches!(object.section, Section::Entities | Section::Blocks) && source(object) == *at
-    })
+/// 出所から元の表の位置を引く。重複する出所は、従来の走査と同じく最初のものを返す。
+fn object_positions(db: &AcadDb, cx: &mut Cx<'_>) -> Result<BTreeMap<Ref, usize>, Error> {
+    let mut positions = BTreeMap::new();
+    let at = Ref::default();
+    for (position, object) in db.objects().iter().enumerate() {
+        work(cx, 1, &at)?;
+        if matches!(object.section, Section::Entities | Section::Blocks) {
+            for _ in &object.values {
+                work(cx, 1, &at)?;
+            }
+            positions.entry(source(object)).or_insert(position);
+        }
+    }
+    Ok(positions)
 }
 
 /// 図面モデルの点と長さを、元の図形のレコードの値に戻す
@@ -1956,20 +1966,44 @@ mod hash_budget_tests {
         let cancel = CancelToken::new();
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
         assert!(matches!(
+            object_positions(&db, &mut context(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 10);
+        let mut budget = Budget::default();
+        let positions =
+            object_positions(&db, &mut context(&mut budget, &mut diagnostics, &cancel)).unwrap();
+        // 索引を作った後は、ほかの 99 件をなめずに属性を引ける。
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        assert!(
             transform_work(
                 &db,
+                &positions,
+                &element,
+                &object,
+                &mut context(&mut budget, &mut diagnostics, &cancel)
+            )
+            .is_ok()
+        );
+        assert_eq!(budget.used(Kind::Work), 1);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+        assert!(matches!(
+            transform_work(
+                &db,
+                &positions,
                 &element,
                 &object,
                 &mut context(&mut budget, &mut diagnostics, &cancel)
             ),
             Err(Error::Stopped(_))
         ));
-        assert_eq!(budget.used(Kind::Work), 10);
+        assert_eq!(budget.used(Kind::Work), 0);
         let mut budget = Budget::default();
         cancel.cancel();
         assert!(matches!(
             transform_work(
                 &db,
+                &positions,
                 &element,
                 &object,
                 &mut context(&mut budget, &mut diagnostics, &cancel)
