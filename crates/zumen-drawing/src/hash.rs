@@ -47,6 +47,28 @@ impl Hash {
 
     /// 予算と中断の合図を確かめながら要素をハッシュする
     pub fn element_checked<P: Encode>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        Self::of_checked(b"element", cx, |out| {
+            element.layer.encode(out);
+            element.style.encode(out);
+            element.shape.encode(out);
+        })
+    }
+
+    /// 予算と中断の合図を確かめながらレイヤをハッシュする
+    pub fn layer_checked(layer: &Layer, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        Self::of_checked(b"layer", cx, |out| layer.encode(out))
+    }
+
+    /// 予算と中断の合図を確かめながら線種をハッシュする
+    pub fn line_type_checked(line_type: &LineType, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        Self::of_checked(b"line-type", cx, |out| line_type.encode(out))
+    }
+
+    fn of_checked(
+        domain: &[u8],
+        cx: &mut Cx<'_>,
+        body: impl FnOnce(&mut Canon<'_>),
+    ) -> Result<Self, Stop> {
         let mut check = || cx.check(Kind::Work, 1);
         let mut out = Canon {
             hasher: blake3::Hasher::new(),
@@ -54,10 +76,8 @@ impl Hash {
             stop: None,
         };
         Self::VERSION.encode(&mut out);
-        b"element".as_slice().encode(&mut out);
-        element.layer.encode(&mut out);
-        element.style.encode(&mut out);
-        element.shape.encode(&mut out);
+        domain.encode(&mut out);
+        body(&mut out);
         if let Some(stop) = out.stop {
             return Err(stop);
         }
@@ -1046,6 +1066,54 @@ mod tests {
             Hash::element_checked(&element, &mut cx),
             Err(Stop::Cancelled)
         );
+    }
+
+    #[test]
+    fn checked_table_hashes_match_and_stop_during_long_values() {
+        use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+        let layer = Layer {
+            id: LayerId(1),
+            name: "a".repeat(4096),
+            state: None,
+            style: None,
+            follows_placement: false,
+            source: Ref::default(),
+        };
+        let line_type = LineType {
+            id: LineTypeId(2),
+            name: "line".to_string(),
+            definition: Some(LineTypeDefinition {
+                description: String::new(),
+                pattern: vec![1.0; 1000],
+                basis: PatternBasis::Element,
+                marks: vec![],
+            }),
+            source: Ref::default(),
+        };
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert_eq!(
+            Hash::layer_checked(&layer, &mut cx).unwrap(),
+            Hash::layer(&layer)
+        );
+        assert_eq!(
+            Hash::line_type_checked(&line_type, &mut cx).unwrap(),
+            Hash::line_type(&line_type)
+        );
+
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20)));
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert!(matches!(
+            Hash::line_type_checked(&line_type, &mut cx),
+            Err(Stop::Exceeded(_))
+        ));
+        cancel.cancel();
+        let mut budget = Budget::default();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        assert_eq!(Hash::layer_checked(&layer, &mut cx), Err(Stop::Cancelled));
     }
 
     #[test]
