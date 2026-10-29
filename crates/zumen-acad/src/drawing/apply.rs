@@ -117,9 +117,10 @@ impl<'a> Index<'a> {
             }
             places.insert(place, Place::Space(space.id));
         }
+        let mut sheet_namer = id::SheetNamer::default();
         for sheet in &drawing.sheets {
             work(cx, 1, &sheet.source)?;
-            let place = id::sheet(sheet);
+            let place = sheet_namer.next(sheet);
             let mut namer = id::Namer::new(&place);
             for (index, element) in sheet.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
@@ -1129,6 +1130,61 @@ mod hash_budget_tests {
         cancel: &'a CancelToken,
     ) -> Cx<'a> {
         Cx::new(budget, diagnostics, cancel)
+    }
+
+    #[test]
+    fn indexes_sheets_with_the_same_names_as_entities() {
+        use zumen_drawing::{PaperPoint, Sheet};
+        let sheets = (0..2)
+            .map(|number| Sheet {
+                id: SheetId(number),
+                name: None,
+                size: None,
+                elements: vec![Element {
+                    source: Ref::at_record(u64::from(number) + 10)
+                        .with_key(Key::Handle(u64::from(number) + 10)),
+                    layer: LayerId(0),
+                    style: Style::BLOCK,
+                    shape: Shape::Line {
+                        start: PaperPoint {
+                            sheet: SheetId(number),
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                        end: PaperPoint {
+                            sheet: SheetId(number),
+                            x: 1.0,
+                            y: 1.0,
+                        },
+                    },
+                }],
+                views: vec![],
+                order: vec![],
+                source: Ref::at_record(u64::from(number) + 20).with_key(Key::Handle(5)),
+            })
+            .collect();
+        let drawing = Drawing2D {
+            sheets,
+            ..Drawing2D::default()
+        };
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let index = Index::new(
+            &drawing,
+            &mut context(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        assert!(matches!(
+            index.places.get("sheet/h5"),
+            Some(Place::Sheet(SheetId(0)))
+        ));
+        assert!(matches!(
+            index.places.get("sheet/h5/1"),
+            Some(Place::Sheet(SheetId(1)))
+        ));
+        assert!(index.elements.contains_key("sheet/h5/hA"));
+        assert!(index.elements.contains_key("sheet/h5/1/hB"));
     }
 
     #[test]
