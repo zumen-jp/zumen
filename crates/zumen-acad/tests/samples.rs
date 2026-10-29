@@ -3141,7 +3141,11 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
             Err(zumen_sdk::Error::Rejected)
                 if diag
                     .iter()
-                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED) =>
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+                    && diag.iter().all(|d| {
+                        d.severity() != zumen_base::Severity::Error
+                            || d.code() == codes::CHANGE_EDIT_UNSUPPORTED
+                    }) =>
             {
                 false
             }
