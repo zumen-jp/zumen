@@ -1290,7 +1290,7 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
     pub geometry: Option<Geometry>,
 }
 
@@ -1445,7 +1445,7 @@ pub enum Geometry {
     Ellipse(EllipseGeometry),
     /// 頂点を結んだ折れ線。幅は持たない
     Polyline(PolylineGeometry),
-    /// 1 点に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
     Text(TextGeometry),
     /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
     FormattedText(FormattedTextGeometry),
@@ -1794,16 +1794,20 @@ impl ToJson for PolylineGeometry {
     }
 }
 
-/// 1 点に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextGeometry {
     /// 内容。1 行
     pub content: String,
-    /// 基点 [X, Y]
+    /// 基点 [X, Y]。2 点の間に合わせる文字では 1 点目
     pub position: Vec<f64>,
+    /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。小版 17 から
+    pub end: Option<Vec<f64>>,
+    /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から
+    pub fit: Option<TextFit>,
     /// 高さ。0 より大きい
     pub height: f64,
-    /// 回転（度）
+    /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
     pub rotation: f64,
     /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。小版 12 から
     pub style: Option<String>,
@@ -1814,12 +1818,16 @@ impl TextGeometry {
         object.constant("shape", "text")?;
         let content = object.required("content", json::string)?;
         let position = object.required("position", |value| json::array(value, json::number))?;
+        let end = object.optional("end", |value| json::array(value, json::number))?;
+        let fit = object.optional("fit", TextFit::from_json)?;
         let height = object.required("height", json::number)?;
         let rotation = object.required("rotation", json::number)?;
         let style = object.optional("style", json::string)?;
         Ok(Self {
             content,
             position,
+            end,
+            fit,
             height,
             rotation,
             style,
@@ -1833,6 +1841,14 @@ impl TextGeometry {
         out.string(&self.content);
         out.key("position");
         out.array(&self.position, |out, item| out.float(*item));
+        if let Some(value) = &self.end {
+            out.key("end");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.fit {
+            out.key("fit");
+            value.to_json(out);
+        }
         out.key("height");
         out.float(self.height);
         out.key("rotation");
@@ -1858,6 +1874,49 @@ impl ToJson for TextGeometry {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TextFit {
+    /// `aligned`
+    Aligned,
+    /// `fit`
+    Fit,
+}
+
+impl TextFit {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Aligned, Self::Fit];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Aligned => "aligned",
+            Self::Fit => "fit",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "aligned" => Some(Self::Aligned),
+            "fit" => Some(Self::Fit),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for TextFit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for TextFit {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

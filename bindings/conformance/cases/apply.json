@@ -366,6 +366,26 @@
               "closed": false,
               "periodic": false
             }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "text",
+              "content": "X1",
+              "position": [
+                0,
+                -2
+              ],
+              "end": [
+                0,
+                3
+              ],
+              "fit": "aligned",
+              "height": 1,
+              "rotation": 90,
+              "style": "Standard"
+            }
           }
         ]
       },
@@ -388,7 +408,7 @@
         ]
       },
       "expect": {
-        "/result/total": 7,
+        "/result/total": 8,
         "/result/items/0/geometry": {
           "shape": "line",
           "start": [
@@ -471,6 +491,22 @@
           ],
           "closed": false,
           "periodic": false
+        },
+        "/result/items/7/geometry": {
+          "shape": "text",
+          "content": "X1",
+          "position": [
+            0,
+            -2
+          ],
+          "end": [
+            0,
+            3
+          ],
+          "fit": "aligned",
+          "height": 1,
+          "rotation": 90,
+          "style": "Standard"
         }
       }
     },

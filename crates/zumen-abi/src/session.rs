@@ -1956,7 +1956,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":16}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":17}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2685,6 +2685,108 @@ mod tests {
         assert_eq!(
             shapes(&mut session, "a.dxf")[3],
             r#"{"shape":"text","content":"X2","position":[4,5],"height":3,"rotation":0,"style":"Standard"}"#
+        );
+    }
+
+    #[test]
+    fn adds_and_replaces_texts_fitted_between_two_points() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        // 2 点目と合わせ方は一緒に書き、回転は 1 点目から 2 点目への向きと同じにする
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"text","content":"X1","position":[0,0],"end":[0,5],"height":1,"rotation":90}"#,
+                "/edits/0/geometry/fit",
+            ),
+            (
+                r#"{"shape":"text","content":"X1","position":[0,0],"fit":"fit","height":1,"rotation":90}"#,
+                "/edits/0/geometry/end",
+            ),
+            (
+                r#"{"shape":"text","content":"X1","position":[0,0],"end":[0,0],"fit":"fit","height":1,"rotation":0}"#,
+                "/edits/0/geometry/end",
+            ),
+            (
+                r#"{"shape":"text","content":"X1","position":[0,0],"end":[0,5],"fit":"fit","height":1,"rotation":0}"#,
+                "/edits/0/geometry/rotation",
+            ),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let added = r#"{"shape":"text","content":"X1","position":[0,0],"end":[0,5],"fit":"aligned","height":1,"rotation":90,"style":"Standard"}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let id = text(&response, "/result/applied/0/id");
+        let hash = text(&response, "/result/applied/0/hash");
+        assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
+        assert_eq!(shapes(&mut session, "a.dxf")[3], added);
+        // 合わせ方は変えず、1 点に置く文字にも替えない
+        for (geometry, pointer) in [
+            (
+                r#"{"shape":"text","content":"X2","position":[1,1],"end":[1,6],"fit":"fit","height":1,"rotation":90}"#,
+                "/edits/0/geometry/fit",
+            ),
+            (
+                r#"{"shape":"text","content":"X2","position":[1,1],"height":1,"rotation":90}"#,
+                "/edits/0/geometry/end",
+            ),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let replaced = r#"{"shape":"text","content":"X2","position":[1,1],"end":[-5,1],"fit":"aligned","height":2,"rotation":180,"style":"Standard"}"#;
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(shapes(&mut session, "a.dxf")[3], replaced);
+        let (id, hash) = seen(&mut session, "a.dxf")[3].clone();
+        assert_eq!(id, text(&response, "/result/applied/0/id"));
+        assert_eq!(hash, text(&response, "/result/applied/0/hash"));
+        // 1 点に置く文字は、2 点の間に合わせる文字に替えない
+        let plain = r#"{"shape":"text","content":"X3","position":[0,0],"height":1,"rotation":0}"#;
+        let (_, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{plain}}}]}}"#
+            ),
+        );
+        let (id, hash) = (
+            text(&response, "/result/applied/0/id"),
+            text(&response, "/result/applied/0/hash"),
+        );
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{added}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&error(&response), "/params/pointer"),
+            "/edits/0/geometry/end"
         );
     }
 
@@ -3780,5 +3882,25 @@ mod tests {
         let untouched = CancelToken::new();
         drop(watchdog::Watchdog::start(&untouched, 60_000).unwrap());
         assert_eq!(untouched.stop(), None);
+    }
+
+    #[test]
+    fn fitted_text_geometry_uses_the_direction_of_its_points() {
+        let source = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n5\n20\n8\n0\n10\n0\n20\n0\n11\n0\n21\n5\n40\n1\n1\nX1\n72\n5\n50\n0\n0\nENDSEC\n0\nEOF\n";
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"fit.dxf", source).unwrap();
+        assert_eq!(
+            call(&mut session, r#"{"v":1,"op":"open","input":"fit.dxf"}"#).0,
+            Status::Ok
+        );
+        let shape = shapes(&mut session, "fit.dxf")[0].clone();
+        let value = zumen_json::parse(shape.as_bytes()).unwrap();
+        assert_eq!(number(&value, "/rotation"), "90");
+        let (id, hash) = seen(&mut session, "fit.dxf")[0].clone();
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"fit.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{shape}}}]}}"#
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
     }
 }
