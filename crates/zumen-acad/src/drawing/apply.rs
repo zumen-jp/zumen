@@ -182,6 +182,18 @@ fn edit(
     target: Target,
     cx: &mut Cx,
 ) -> Result<Vec<Applied>, Error> {
+    // ハンドルが重複すると、参照や ID が別のオブジェクトを指しうる。書き戻しは拒否する。
+    let mut handles = BTreeSet::new();
+    for object in db.objects() {
+        work(cx, 1, &source(object))?;
+        if let Some(handle) = object.handle()
+            && handle != 0
+            && !handles.insert(handle)
+        {
+            cx.report(unsupported("apply", "duplicate_handle", target).at(source(object)));
+            return Err(Error::Rejected);
+        }
+    }
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
     let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
@@ -1026,5 +1038,60 @@ fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
         Shape::Formatted(text) => Some(text.point),
         Shape::Symbol(symbol) => Some(symbol.position),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod duplicate_handle_tests {
+    use super::*;
+    use crate::db::Origin;
+    use zumen_base::{Budget, CancelToken, Kind, Limit, Limits};
+
+    #[test]
+    fn checking_handles_obeys_work_budget_and_cancellation() {
+        let mut db = AcadDb::default();
+        for handle in [1, 2] {
+            db.push(Object {
+                kind: b"LINE".to_vec(),
+                section: Section::Entities,
+                values: vec![Value {
+                    code: 5,
+                    data: Data::Handle(handle),
+                }],
+                origin: Origin::New,
+            });
+        }
+        let changes = Changes {
+            edits: vec![],
+            document: None,
+        };
+        let before = db.clone();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        assert!(matches!(
+            edit(
+                &mut db,
+                &changes,
+                Target::Dxf,
+                &mut Cx::new(&mut budget, &mut diag, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 1);
+        assert_eq!(db, before);
+        let mut budget = Budget::default();
+        cancel.cancel();
+        assert!(matches!(
+            edit(
+                &mut db,
+                &changes,
+                Target::Dxf,
+                &mut Cx::new(&mut budget, &mut diag, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Work), 0);
+        assert_eq!(db, before);
     }
 }

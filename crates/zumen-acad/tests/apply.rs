@@ -2232,3 +2232,85 @@ fn multiple_changes_to_one_element_are_rejected_without_writing() {
     );
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+#[test]
+fn duplicate_entity_handles_can_remove_the_wrong_entity() {
+    use zumen_drawing::Edit as Change;
+    let src = versioned(
+        "AC1021",
+        &[
+            (0, "LINE"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "0"),
+            (20, "0"),
+            (11, "1"),
+            (21, "1"),
+            (1001, "APP"),
+            (1000, "first"),
+            (0, "LINE"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "0"),
+            (20, "0"),
+            (11, "1"),
+            (21, "1"),
+            (1001, "APP"),
+            (1000, "second"),
+        ],
+    );
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let entities = seen(&lift(&file));
+    assert_eq!(entities.len(), 2);
+    assert_eq!(entities[0].0.hash, entities[1].0.hash);
+    let changes = zumen_drawing::Changes {
+        edits: vec![Change::Remove {
+            target: entities[0].0.clone(),
+        }],
+        document: None,
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert!(
+        diag.iter()
+            .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+    );
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn duplicate_handles_in_definitions_and_tables_reject_apply() {
+    let record = |kind: &str, name: &str| format!("0\n{kind}\n5\n40\n2\n{name}\n70\n0\n");
+    for (section, first, second) in [
+        ("TABLES", record("LAYER", "A"), record("LAYER", "B")),
+        ("TABLES", record("LTYPE", "A"), record("LTYPE", "B")),
+        ("BLOCKS", record("BLOCK", "A"), record("BLOCK", "B")),
+        ("OBJECTS", record("LAYOUT", "A"), record("LAYOUT", "B")),
+    ] {
+        let src =
+            format!("0\nSECTION\n2\n{section}\n{first}{second}0\nENDSEC\n0\nEOF\n").into_bytes();
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        assert_eq!(result, Err(Error::Rejected), "{section}");
+        assert!(
+            diag.iter()
+                .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+        );
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+}
