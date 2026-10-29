@@ -762,8 +762,14 @@ pub(super) fn work<P>(
     super::work(cx, amount(shape), at)?;
     if let Shape::Symbol(symbol) = shape {
         for attribute in &symbol.attributes {
-            let bytes =
-                (attribute.tag.len() as u64).saturating_add(attribute.text.content.len() as u64);
+            // 複数行の属性は、埋め込みの MTEXT の内容も数える
+            let lines = attribute
+                .formatted
+                .as_ref()
+                .map_or(0, |formatted| formatted.content.len() as u64);
+            let bytes = (attribute.tag.len() as u64)
+                .saturating_add(attribute.text.content.len() as u64)
+                .saturating_add(lines);
             super::work(cx, bytes, at)?;
         }
     }
