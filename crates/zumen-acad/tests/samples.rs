@@ -1114,11 +1114,9 @@ fn drawings_take_back_transformed_elements() {
         (kinds, mirrors)
     }
     let mut lines = 0;
-    let mut mirrored = 0;
     for (dwg, dxf) in pairs() {
-        for (kinds, mirrors) in [check::<Dwg>(&dwg), check::<Dxf>(&dxf)] {
+        for (kinds, _) in [check::<Dwg>(&dwg), check::<Dxf>(&dxf)] {
             lines += usize::from(kinds.contains(&"line"));
-            mirrored += usize::from(mirrors.contains(&"symbol"));
         }
     }
     if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
@@ -1126,11 +1124,10 @@ fn drawings_take_back_transformed_elements() {
         if binary.exists() {
             let (kinds, mirrors) = check::<Dxf>(&binary);
             assert!(kinds.contains(&"symbol"));
-            mirrored += usize::from(mirrors.contains(&"symbol"));
+            assert!(mirrors.contains(&"symbol"));
         }
     }
     assert!(pairs().is_empty() || lines > 0);
-    assert!(pairs().is_empty() || mirrored > 0, "{mirrored}");
 }
 
 /// 試料の記号の定義の中の線を ID で動かすと、読み直した線は動いていて、ID は変わらない（決定 0139・0156）
