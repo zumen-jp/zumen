@@ -3121,6 +3121,56 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         }
         Some(shape)
     }
+    /// 別のファイルで候補を試す。モデルに移せなかった属性を元の記号が持つ場合も、置き換えを拒否する。
+    fn can_replace<C: Codec>(src: &[u8], element: &Element<ModelPoint>) -> bool
+    where
+        C::File: Lift<Drawing2D> + Apply,
+    {
+        let mut file = testkit::read::<C>(src).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let result = file.apply(
+            &Changes {
+                edits: vec![Edit::Replace(Box::new(element.clone()))],
+            },
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        );
+        match result {
+            Ok(()) => true,
+            Err(zumen_sdk::Error::Rejected)
+                if diag
+                    .iter()
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+                    && diag.iter().all(|d| {
+                        d.severity() != zumen_base::Severity::Error
+                            || d.code() == codes::CHANGE_EDIT_UNSUPPORTED
+                    }) =>
+            {
+                false
+            }
+            Err(error) => panic!("{error:?}: {diag:?}"),
+        }
+    }
+    /// 実際に置き換えられるブロックの記号だけを選ぶ。
+    fn symbol_candidate<C: Codec>(
+        src: &[u8],
+        element: &Element<ModelPoint>,
+    ) -> Option<Shape<ModelPoint>>
+    where
+        C::File: Lift<Drawing2D> + Apply,
+    {
+        let Shape::Symbol(symbol) = &element.shape else {
+            return None;
+        };
+        if symbol.key.namespace != "dxf.block" || !symbol.attributes.is_empty() {
+            return None;
+        }
+        let shape = moved(&element.shape)?;
+        let mut candidate = element.clone();
+        candidate.shape = shape.clone();
+        can_replace::<C>(src, &candidate).then_some(shape)
+    }
     /// 書式のない内容 `content` の MTEXT を読んで得る区間
     fn plain(content: &str) -> Vec<zumen_drawing::Span> {
         let src = format!(
@@ -3148,11 +3198,17 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
                     Shape::Polyline(_) => "polyline",
                     Shape::Text(_) => "text",
                     Shape::Formatted(_) => "mtext",
-                    // POINT も記号になるので、ブロックを置く INSERT だけを選ぶ
-                    Shape::Symbol(ref symbol) if symbol.key.namespace == "dxf.block" => "symbol",
+                    Shape::Symbol(_) if kind == "symbol" => {
+                        return symbol_candidate::<C>(&src, element)
+                            .map(|shape| (index, Some(shape)));
+                    }
                     _ => return None,
                 };
-                (name == kind).then(|| (index, moved(&element.shape)))
+                if name != kind {
+                    return None;
+                }
+                let shape = moved(&element.shape)?;
+                Some((index, Some(shape)))
             });
             let Some((index, Some(shape))) = found else {
                 continue;
@@ -3193,6 +3249,32 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
             assert_eq!(found, shape, "{}", path.display());
         }
     }
+    // 最初の記号の属性はタグがなく、モデルへ移せない。元のファイルには残るので、次の記号を選ぶ。
+    let synthetic =
+        b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+        0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n5\n20\n8\n0\n2\nDOOR\n70\n0\n10\n0\n20\n0\n3\nDOOR\n\
+        0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n\
+        0\nINSERT\n5\n40\n8\n0\n2\nDOOR\n66\n1\n10\n5\n20\n5\n\
+        0\nATTRIB\n5\n41\n8\n0\n10\n5\n20\n5\n40\n1\n1\nvalue\n\
+        0\nSEQEND\n5\n42\n0\nINSERT\n5\n43\n8\n0\n2\nDOOR\n10\n8\n20\n5\n0\nENDSEC\n0\nEOF\n";
+    for owner_attached in [false, true] {
+        let text = std::str::from_utf8(synthetic).unwrap();
+        let src = if owner_attached {
+            text.replace("66\n1\n", "")
+                .replace("0\nATTRIB\n5\n41\n", "0\nATTRIB\n5\n41\n330\n40\n")
+        } else {
+            text.to_string()
+        };
+        let synthetic = src.as_bytes();
+        let synthetic_elements = lift(&testkit::read::<Dxf>(synthetic).0.unwrap());
+        assert!(symbol_candidate::<Dxf>(synthetic, &synthetic_elements[0]).is_none());
+        assert!(symbol_candidate::<Dxf>(synthetic, &synthetic_elements[1]).is_some());
+        let selected = synthetic_elements
+            .iter()
+            .position(|element| symbol_candidate::<Dxf>(synthetic, element).is_some());
+        assert_eq!(selected, Some(1));
+    }
+
     let mut kinds = BTreeMap::new();
     for (dwg, dxf) in pairs() {
         check::<Dwg>(&dwg, &mut kinds);
