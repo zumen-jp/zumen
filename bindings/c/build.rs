@@ -40,6 +40,10 @@ fn build(files: &[&str], cpp: bool, name: &str) {
         // MSVC は C99 を選べないので、C11 で確かめる。ソースは UTF-8 として読む
         build.flag("/utf-8");
         build.flag(if cpp { "/std:c++17" } else { "/std:c11" });
+        if cpp {
+            // zumen.hpp は例外を投げるので、C++ の例外の巻き戻しを有効にする
+            build.flag("/EHsc");
+        }
     } else {
         build.flag("-pedantic");
         build.flag(if cpp { "-std=c++17" } else { "-std=c99" });
