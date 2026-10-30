@@ -285,11 +285,16 @@ fn run_case(case: &Case, engine: &mut dyn Engine, report: &mut Report) {
                         _ => Err("push に name か name_hex がない".to_string()),
                     },
                 };
-                let data = match (input.pointer("/text"), input.pointer("/hex")) {
-                    (Some(Value::String(text)), None) => Ok(text.as_bytes().to_vec()),
-                    (None, Some(Value::String(hex))) => decode_hex(hex),
-                    (None, None) => Ok(Vec::new()),
-                    _ => Err("push の text と hex は、どちらか 1 つにする".to_string()),
+                let data = match (
+                    input.pointer("/text"),
+                    input.pointer("/hex"),
+                    input.pointer("/file"),
+                ) {
+                    (Some(Value::String(text)), None, None) => Ok(text.as_bytes().to_vec()),
+                    (None, Some(Value::String(hex)), None) => decode_hex(hex),
+                    (None, None, Some(Value::String(file))) => read_sample(file),
+                    (None, None, None) => Ok(Vec::new()),
+                    _ => Err("push の text と hex と file は、どれか 1 つにする".to_string()),
                 };
                 match (name, data) {
                     (Ok(name), Ok(data)) => (engine.push(&name, &data), None),
@@ -438,6 +443,20 @@ fn bytes_of(input: &Value, value_key: &str, text_key: &str) -> Result<Vec<u8>, S
         },
         _ => Err("オブジェクトにする".to_string()),
     }
+}
+
+/// 公開サンプル（決定 0171）を読む。道筋はリポジトリの根から書き、`samples/` の中に限る
+fn read_sample(file: &str) -> Result<Vec<u8>, String> {
+    let inside = file.strip_prefix("samples/").is_some_and(|rest| {
+        rest.split('/')
+            .all(|part| !part.is_empty() && part != "." && part != ".." && !part.contains('\\'))
+    });
+    if !inside {
+        return Err(format!(
+            "push の file は samples/ の中のファイルにする: {file}"
+        ));
+    }
+    fs::read(root().join("../..").join(file)).map_err(|e| format!("{file} を読めない: {e}"))
 }
 
 fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
