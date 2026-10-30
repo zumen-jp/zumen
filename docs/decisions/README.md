@@ -219,3 +219,4 @@
 - [0183: 点の要素を書き戻し、形式が表せない点は断る](0183-drawing-apply-points.md)（2026-10-31、採用）
 - [0184: シーンで寸法・表・引出線・ハッチングの線を描き、残る近似を診断で返す](0184-scene-annotations-and-approximations.md)（2026-10-31、採用）
 - [0185: 引出線の書き戻しを、注記つきの追加・DWG・変換と MULTILEADER の枝の置き換えへ広げる](0185-drawing-apply-leader-and-callout-write-back.md)（2026-10-31、採用）
+- [0186: CFF・CFF2 の字形の命令をたどって正確な外形を求め、カーニングは GPOS か kern の表から読む](0186-read-cff-outlines-and-kerning.md)（2026-10-31、採用）

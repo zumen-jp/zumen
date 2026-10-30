@@ -11,12 +11,18 @@
 //! - 文字から字形: `cmap` の Unicode の副表（プラットフォーム 0、または 3 の符号化 1・10）の
 //!   形式 12（なければ形式 4）
 //! - 送り: `hmtx` の advanceWidth。numberOfHMetrics を超える字形は最後の送り
-//! - 外形: `loca` で引いた `glyf` の字形の見出しの xMin・yMin・xMax・yMax。輪郭はたどらない
+//! - 外形: `loca` で引いた `glyf` の字形の見出しの xMin・yMin・xMax・yMax。輪郭はたどらない。
+//!   `glyf` がなければ、`CFF `・`CFF2` の字形の命令をたどった外形（[`cff`]、決定 0186）
+//! - カーニング: `GPOS` の pair adjustment か、なければ `kern` の形式 0（[`kern`]、決定 0186）
 //!
 //! 受け取ったファイルは信用しない。位置と長さはすべて確かめ、足し算と掛け算は `u64` か
 //! 溢れを確かめて行い、`usize` の幅（32 ビットの wasm と 64 ビット）で結果が変わらないようにする。
 //! 文字ごとの作業は、副表の二分探索で抑える。外形を見出しから読むのは、複合の字形の入れ子を
-//! たどると、作業量が入れ子の深さの指数で増えうるためである。CFF・CFF2 の外形は読まない。
+//! たどると、作業量が入れ子の深さの指数で増えうるためである。CFF・CFF2 の字形の命令は、
+//! 副ルーチンの入れ子と、字形ごとの作業量に上限を設けてたどる。
+
+mod cff;
+mod kern;
 
 use crate::layout::{FontMetrics, Glyph, Glyphs};
 
@@ -29,9 +35,10 @@ pub enum Unread {
     Index,
     /// ファイルの見出しか表の並びが壊れている
     Malformed,
-    /// 要る表がないか、壊れている。表の名前（`head`・`hhea`・`maxp`・`hmtx`・`cmap`・`loca`・`glyf`）
+    /// 要る表がないか、壊れている。表の名前（`head`・`hhea`・`maxp`・`hmtx`・`cmap`・`loca`・`glyf`・
+    /// `CFF `・`CFF2`）
     Table(&'static str),
-    /// 外形が `glyf` でなく CFF・CFF2 である。まだ読まない
+    /// 外形が CFF・CFF2 で、読まない形である（字形の命令が Type 2 でない、Font DICT が 256 を超える）
     Cff,
 }
 
@@ -43,11 +50,20 @@ pub struct Font<'a> {
     long_metrics: u16,
     /// `maxp` の numGlyphs（1 以上）
     glyph_count: u16,
-    loca: &'a [u8],
-    long_loca: bool,
-    glyf: &'a [u8],
+    outline: Outline<'a>,
+    kerning: kern::Kerning<'a>,
     metrics: FontMetrics,
     fallback: Glyph,
+}
+
+/// 字形の外形を読む表
+enum Outline<'a> {
+    Glyf {
+        loca: &'a [u8],
+        long_loca: bool,
+        glyf: &'a [u8],
+    },
+    Cff(cff::Cff<'a>),
 }
 
 /// 文字から字形の番号を引く `cmap` の副表
@@ -70,7 +86,12 @@ struct Tables<'a> {
     cmap: Option<&'a [u8]>,
     loca: Option<&'a [u8]>,
     glyf: Option<&'a [u8]>,
-    cff: bool,
+    cff: Option<&'a [u8]>,
+    cff2: Option<&'a [u8]>,
+    gpos: Option<&'a [u8]>,
+    kern: Option<&'a [u8]>,
+    /// 表の並びで見つけた CFF・CFF2 の表の名前（ファイルの外を指していても）
+    cff_tag: Option<&'static str>,
 }
 
 const TRUETYPE: u32 = 0x0001_0000;
@@ -120,25 +141,35 @@ impl<'a> Font<'a> {
             return Err(Unread::Table("hmtx"));
         }
         let cmap = cmap(tables.cmap.ok_or(Unread::Table("cmap"))?)?;
-        let (loca, glyf) = match (tables.loca, tables.glyf) {
-            (Some(loca), Some(glyf)) => (loca, glyf),
-            _ if tables.cff => return Err(Unread::Cff),
+        let (outline, outline_name) = match (tables.loca, tables.glyf) {
+            (Some(loca), Some(glyf)) => {
+                let width = if long_loca { 4 } else { 2 };
+                if (loca.len() as u64) < (u64::from(glyph_count) + 1) * width {
+                    return Err(Unread::Table("loca"));
+                }
+                let glyf = Outline::Glyf {
+                    loca,
+                    long_loca,
+                    glyf,
+                };
+                (glyf, "glyf")
+            }
+            _ if tables.cff_tag.is_some() => match (tables.cff, tables.cff2) {
+                (Some(table), _) => (Outline::Cff(cff::Cff::parse(table, false)?), "CFF "),
+                (None, Some(table)) => (Outline::Cff(cff::Cff::parse(table, true)?), "CFF2"),
+                (None, None) => return Err(Unread::Table(tables.cff_tag.unwrap_or("CFF "))),
+            },
             (None, _) => return Err(Unread::Table("loca")),
             (_, None) => return Err(Unread::Table("glyf")),
         };
-        let width = if long_loca { 4 } else { 2 };
-        if (loca.len() as u64) < (u64::from(glyph_count) + 1) * width {
-            return Err(Unread::Table("loca"));
-        }
 
         let mut font = Self {
             cmap,
             hmtx,
             long_metrics,
             glyph_count,
-            loca,
-            long_loca,
-            glyf,
+            outline,
+            kerning: kern::Kerning::read(tables.gpos, tables.kern),
             metrics: FontMetrics {
                 units_per_em: 0.0,
                 ascent: 0.0,
@@ -150,8 +181,8 @@ impl<'a> Font<'a> {
                 bounds: None,
             },
         };
-        // 字形 0（.notdef）は、フォントにない文字に使う。読めなければ glyf が壊れている
-        font.fallback = font.by_id(0).ok_or(Unread::Table("glyf"))?;
+        // 字形 0（.notdef）は、フォントにない文字に使う。読めなければ外形の表が壊れている
+        font.fallback = font.by_id(0).ok_or(Unread::Table(outline_name))?;
 
         // OS/2: 版（0）・fsSelection（62）・sTypoAscender（68）・sTypoDescender（70）・sCapHeight（88）
         let os2 = tables.os2.unwrap_or(&[]);
@@ -182,35 +213,59 @@ impl<'a> Font<'a> {
     }
 
     /// 字形の番号から、送りと外形を読む。番号が字形の数を超えるか、`loca` の区間が逆か `glyf` の
-    /// 外にあれば `None`。区間が空の字形（空白など）は外形を持たない
+    /// 外にあれば `None`。区間が空の字形（空白など）は外形を持たない。CFF・CFF2 では、字形の命令が
+    /// 壊れているか上限を超えれば `None`、何も描かない字形は外形を持たない
     fn by_id(&self, id: u16) -> Option<Glyph> {
         if id >= self.glyph_count {
             return None;
         }
         let record = id.min(self.long_metrics - 1);
         let advance = u16_at(self.hmtx, usize::from(record) * 4)?;
-        let (start, end) = if self.long_loca {
-            let at = usize::from(id) * 4;
-            (u32_at(self.loca, at)?, u32_at(self.loca, at + 4)?)
-        } else {
-            let at = usize::from(id) * 2;
-            let [start, end] = [u16_at(self.loca, at)?, u16_at(self.loca, at + 2)?];
-            (u32::from(start) * 2, u32::from(end) * 2)
-        };
-        let bounds = match start.cmp(&end) {
-            core::cmp::Ordering::Greater => return None,
-            core::cmp::Ordering::Equal => None,
-            core::cmp::Ordering::Less => {
-                let glyph = slice(self.glyf, u64::from(start), u64::from(end - start))?;
-                // 見出し: numberOfContours（0）・xMin（2）・yMin（4）・xMax（6）・yMax（8）
-                let [l, b, r, t] = [2, 4, 6, 8].map(|at| i16_at(glyph, at).map(f64::from));
-                Some([l?, b?, r?, t?])
-            }
+        let bounds = match &self.outline {
+            Outline::Glyf {
+                loca,
+                long_loca,
+                glyf,
+            } => glyf_bounds(loca, *long_loca, glyf, id)?,
+            Outline::Cff(cff) => cff.bounds(id)?,
         };
         Some(Glyph {
             advance: f64::from(advance),
             bounds,
         })
+    }
+}
+
+/// `glyf` の字形の見出しの外形
+fn glyf_bounds(loca: &[u8], long_loca: bool, glyf: &[u8], id: u16) -> Option<Option<[f64; 4]>> {
+    let (start, end) = if long_loca {
+        let at = usize::from(id) * 4;
+        (u32_at(loca, at)?, u32_at(loca, at + 4)?)
+    } else {
+        let at = usize::from(id) * 2;
+        let [start, end] = [u16_at(loca, at)?, u16_at(loca, at + 2)?];
+        (u32::from(start) * 2, u32::from(end) * 2)
+    };
+    match start.cmp(&end) {
+        core::cmp::Ordering::Greater => None,
+        core::cmp::Ordering::Equal => Some(None),
+        core::cmp::Ordering::Less => {
+            let glyph = slice(glyf, u64::from(start), u64::from(end - start))?;
+            // 見出し: numberOfContours（0）・xMin（2）・yMin（4）・xMax（6）・yMax（8）
+            let [l, b, r, t] = [2, 4, 6, 8].map(|at| i16_at(glyph, at).map(f64::from));
+            Some(Some([l?, b?, r?, t?]))
+        }
+    }
+}
+
+impl Font<'_> {
+    /// 文字の字形の番号。`cmap` になく、字形 0 か字形の数を超える番号に当たる文字は `None`
+    fn id(&self, ch: char) -> Option<u16> {
+        let id = match self.cmap {
+            Cmap::Segments(table, count) => segment(table, count, ch)?,
+            Cmap::Groups(groups, count) => group(groups, count, ch)?,
+        };
+        (id != 0 && id < self.glyph_count).then_some(id)
     }
 }
 
@@ -222,18 +277,19 @@ impl Glyphs for Font<'_> {
     /// 字形 0 に当たる文字・字形の数を超える番号に当たる文字・字形の区間が壊れた文字は、
     /// フォントにないとする
     fn glyph(&self, ch: char) -> Option<Glyph> {
-        let id = match self.cmap {
-            Cmap::Segments(table, count) => segment(table, count, ch)?,
-            Cmap::Groups(groups, count) => group(groups, count, ch)?,
-        };
-        if id == 0 {
-            return None;
-        }
-        self.by_id(id)
+        self.by_id(self.id(ch)?)
     }
 
     fn fallback(&self) -> Glyph {
         self.fallback
+    }
+
+    /// `GPOS` か `kern` の表の値。どちらかの文字がフォントになければ詰めない
+    fn kerning(&self, left: char, right: char) -> f64 {
+        match (self.id(left), self.id(right)) {
+            (Some(left), Some(right)) => f64::from(self.kerning.value(left, right)),
+            _ => 0.0,
+        }
     }
 }
 
@@ -282,9 +338,16 @@ fn directory(data: &[u8], index: u32) -> Result<Tables<'_>, Unread> {
             b"cmap" => &mut tables.cmap,
             b"loca" => &mut tables.loca,
             b"glyf" => &mut tables.glyf,
+            b"GPOS" => &mut tables.gpos,
+            b"kern" => &mut tables.kern,
             b"CFF " | b"CFF2" => {
-                tables.cff = true;
-                continue;
+                let (slot, name) = if d == b' ' {
+                    (&mut tables.cff, "CFF ")
+                } else {
+                    (&mut tables.cff2, "CFF2")
+                };
+                tables.cff_tag = tables.cff_tag.or(Some(name));
+                slot
             }
             _ => continue,
         };
@@ -779,35 +842,48 @@ mod tests {
         // hmtx が短い
         let data = assemble(edit(b"hmtx", |hmtx| hmtx.truncate(6)));
         assert_eq!(reason(&data), Unread::Table("hmtx"));
-        // 外形が CFF のフォント
+        // 外形が CFF のフォントで、CFF の表が見出しだけ
         let mut cff: Tables = tables()
             .into_iter()
             .filter(|(tag, _)| tag != b"glyf" && tag != b"loca")
             .collect();
         cff.push((*b"CFF ", vec![1, 0, 4, 4]));
-        assert_eq!(reason(&assemble(cff)), Unread::Cff);
+        assert_eq!(reason(&assemble(cff)), Unread::Table("CFF "));
     }
 
     #[test]
     fn survives_truncated_and_corrupted_bytes() {
-        let data = assemble(tables());
         let probe = |bytes: &[u8]| {
             if let Ok(font) = Font::parse(bytes, 0) {
                 let _ = font.metrics();
                 let _ = font.fallback();
                 for ch in [' ', 'H', 'g', 'X', 'Z', 'Q'] {
                     let _ = font.glyph(ch);
+                    for right in ['H', 'g'] {
+                        let _ = font.kerning(ch, right);
+                    }
                 }
             }
         };
-        for end in 0..data.len() {
-            probe(&data[..end]);
-        }
-        for at in 0..data.len() {
-            for mask in [0x01, 0x80, 0xFF] {
-                let mut bytes = data.clone();
-                bytes[at] ^= mask;
-                probe(&bytes);
+        let mut kerned = tables();
+        kerned.push((*b"GPOS", gpos(&[])));
+        kerned.push((*b"kern", kern()));
+        // TrueType・CFF・CFF2・カーニングの表のあるフォント
+        for data in [
+            assemble(tables()),
+            assemble(cff_font(cff_table())),
+            assemble(cff_font(cff2())),
+            assemble(kerned),
+        ] {
+            for end in 0..data.len() {
+                probe(&data[..end]);
+            }
+            for at in 0..data.len() {
+                for mask in [0x01, 0x80, 0xFF] {
+                    let mut bytes = data.clone();
+                    bytes[at] ^= mask;
+                    probe(&bytes);
+                }
             }
         }
     }
@@ -844,5 +920,618 @@ mod tests {
         assert_eq!([a, b, c, d], [0.01, 0.0, 0.0, 0.01]);
         assert!((e - (10.0 - 8.75)).abs() < 1e-12, "{e}");
         assert!((f - (20.0 - 7.0)).abs() < 1e-12, "{f}");
+    }
+
+    /// CFF の INDEX。位置の大きさは、いちばん大きい位置に合わせる。`long` なら数は 32 ビット（CFF2）
+    fn cff_index(objects: &[Vec<u8>], long: bool) -> Vec<u8> {
+        let mut out = Vec::new();
+        if long {
+            put32(&mut out, objects.len() as u32);
+        } else {
+            put16(&mut out, objects.len() as i32);
+        }
+        if objects.is_empty() {
+            return out;
+        }
+        let last = 1 + objects.iter().map(Vec::len).sum::<usize>();
+        let size = match last {
+            0..=0xFF => 1,
+            0x100..=0xFFFF => 2,
+            _ => 4,
+        };
+        out.push(size as u8);
+        let mut offset = 1usize;
+        for object in std::iter::once(&Vec::new()).chain(objects) {
+            offset += object.len();
+            out.extend_from_slice(&(offset as u32).to_be_bytes()[4 - size..]);
+        }
+        for object in objects {
+            out.extend_from_slice(object);
+        }
+        out
+    }
+
+    /// DICT の整数（5 バイトの形にし、値によらず長さを決める）と演算子
+    fn dict(entries: &[(&[i32], &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (operands, op) in entries {
+            for &value in *operands {
+                out.push(29);
+                out.extend_from_slice(&value.to_be_bytes());
+            }
+            out.extend_from_slice(op);
+        }
+        out
+    }
+
+    /// 字形の命令を、数と演算子の名前を空白で区切った文から組み立てる。`0x` で始まる語は生のバイト
+    fn charstring(program: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        for token in program.split_whitespace() {
+            if let Some(hex) = token.strip_prefix("0x") {
+                out.push(u8::from_str_radix(hex, 16).unwrap());
+            } else if let Ok(value) = token.parse::<i32>() {
+                match value {
+                    -107..=107 => out.push((value + 139) as u8),
+                    108..=1131 => {
+                        out.push(((value - 108) / 256 + 247) as u8);
+                        out.push(((value - 108) % 256) as u8);
+                    }
+                    -1131..=-108 => {
+                        out.push(((-value - 108) / 256 + 251) as u8);
+                        out.push(((-value - 108) % 256) as u8);
+                    }
+                    _ => {
+                        out.push(28);
+                        out.extend_from_slice(&(value as i16).to_be_bytes());
+                    }
+                }
+            } else if let Ok(value) = token.parse::<f64>() {
+                out.push(255);
+                out.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+            } else {
+                let op: &[u8] = match token {
+                    "hstem" => &[1],
+                    "vstem" => &[3],
+                    "vmoveto" => &[4],
+                    "rlineto" => &[5],
+                    "hlineto" => &[6],
+                    "vlineto" => &[7],
+                    "rrcurveto" => &[8],
+                    "callsubr" => &[10],
+                    "return" => &[11],
+                    "endchar" => &[14],
+                    "blend" => &[16],
+                    "hstemhm" => &[18],
+                    "hintmask" => &[19],
+                    "rmoveto" => &[21],
+                    "hmoveto" => &[22],
+                    "rcurveline" => &[24],
+                    "rlinecurve" => &[25],
+                    "vvcurveto" => &[26],
+                    "hhcurveto" => &[27],
+                    "callgsubr" => &[29],
+                    "vhcurveto" => &[30],
+                    "hvcurveto" => &[31],
+                    "add" => &[12, 10],
+                    "hflex" => &[12, 34],
+                    "flex" => &[12, 35],
+                    "hflex1" => &[12, 36],
+                    "flex1" => &[12, 37],
+                    _ => panic!("{token}"),
+                };
+                out.extend_from_slice(op);
+            }
+        }
+        out
+    }
+
+    /// CFF の字形 4 つ。0 は .notdef（送りの引数つき、外形 50〜450 × 0〜700）、1 は `H`（ヒントと
+    /// hintmask つき、外形 0〜700 × 0〜720）、2 は `g`（局所と全体の副ルーチンで、制御点が 400 まで
+    /// 上がる曲線を描く。外形 100〜400 × 0〜300）、3 は空白（送りの引数だけ）
+    fn glyphs() -> Vec<String> {
+        [
+            "500 50 0 rmoveto 400 700 -400 hlineto endchar",
+            "0 50 100 50 hstemhm 0 700 hintmask 0xE0 0 0 rmoveto 700 720 -700 hlineto endchar",
+            "-107 callsubr -107 callgsubr endchar",
+            "250 endchar",
+        ]
+        .map(str::to_owned)
+        .to_vec()
+    }
+
+    /// `glyphs` の字形と、`g` が呼ぶ副ルーチンを持つ CFF の表
+    fn cff_table() -> Vec<u8> {
+        cff(
+            &glyphs(),
+            &["0 400 300 0 0 -400 rrcurveto return"],
+            &["100 0 rmoveto return"],
+            &[],
+        )
+    }
+
+    /// CFF の表。`top` は Top DICT に足す項目
+    fn cff(glyphs: &[String], globals: &[&str], locals: &[&str], top: &[u8]) -> Vec<u8> {
+        let objects = |programs: &mut dyn Iterator<Item = &str>| -> Vec<Vec<u8>> {
+            programs.map(charstring).collect()
+        };
+        let charstrings = cff_index(&objects(&mut glyphs.iter().map(String::as_str)), false);
+        let globals = cff_index(&objects(&mut globals.iter().copied()), false);
+        let locals = cff_index(&objects(&mut locals.iter().copied()), false);
+        let private = dict(&[(&[6], &[19])]);
+        let top_dict = |at: i32| {
+            let mut out = dict(&[
+                (&[at], &[17]),
+                (
+                    &[private.len() as i32, at + charstrings.len() as i32],
+                    &[18],
+                ),
+            ]);
+            out.extend_from_slice(top);
+            out
+        };
+        let mut head = vec![1, 0, 4, 4];
+        head.extend(cff_index(&[b"Test".to_vec()], false));
+        let at = head.len()
+            + cff_index(&[top_dict(0)], false).len()
+            + cff_index(&[], false).len()
+            + globals.len();
+        head.extend(cff_index(&[top_dict(at as i32)], false));
+        head.extend(cff_index(&[], false));
+        head.extend(globals);
+        head.extend(charstrings);
+        head.extend(private);
+        head.extend(locals);
+        head
+    }
+
+    /// CFF2 の表。字形は CFF と同じ形で、Font DICT は 2 つ。字形 0・1 は Font DICT 0、2・3 は 1 で、
+    /// `g` は Font DICT 1 の局所の副ルーチンで描く。`H` は blend の差分を含む
+    fn cff2() -> Vec<u8> {
+        let programs = [
+            "50 0 rmoveto 400 700 -400 hlineto",
+            "0 0 5 5 5 5 2 blend rmoveto 700 720 -700 hlineto",
+            "-107 callsubr",
+            "",
+        ];
+        let charstrings = cff_index(&programs.map(charstring), true);
+        let subrs = [
+            cff_index(&[charstring("5 5 rlineto")], true),
+            cff_index(
+                &[charstring("100 0 rmoveto 0 400 300 0 0 -400 rrcurveto")],
+                true,
+            ),
+        ];
+        // FDSelect の形式 3: 区間 2 つと番兵
+        let mut select = vec![3];
+        for value in [2, 0] {
+            put16(&mut select, value);
+        }
+        select.push(0);
+        put16(&mut select, 2);
+        select.push(1);
+        put16(&mut select, 4);
+        // vstore: 長さと ItemVariationStore（ItemVariationData が 1 つで、領域は 2 つ）
+        let mut store = Vec::new();
+        for value in [1, 0, 0] {
+            put16(&mut store, value);
+        }
+        put16(&mut store, 1);
+        put32(&mut store, 12);
+        for value in [0, 0, 2, 0, 0] {
+            put16(&mut store, value);
+        }
+        let mut vstore = Vec::new();
+        put16(&mut vstore, store.len() as i32);
+        vstore.extend(store);
+
+        let build = |at: [i32; 4], privates: [i32; 2]| {
+            let top = dict(&[
+                (&[at[0]], &[17]),
+                (&[at[1]], &[12, 36]),
+                (&[at[2]], &[12, 37]),
+                (&[at[3]], &[24]),
+            ]);
+            let private = dict(&[(&[6], &[19])]);
+            let fonts = cff_index(
+                &[
+                    dict(&[(&[private.len() as i32, privates[0]], &[18])]),
+                    dict(&[(&[private.len() as i32, privates[1]], &[18])]),
+                ],
+                true,
+            );
+            let mut out = vec![2, 0, 5];
+            put16(&mut out, top.len() as i32);
+            out.extend(top);
+            out.extend(cff_index(&[], true));
+            let mut at = [0; 4];
+            at[0] = out.len() as i32;
+            out.extend(&charstrings);
+            at[1] = out.len() as i32;
+            out.extend(fonts);
+            at[2] = out.len() as i32;
+            out.extend(&select);
+            at[3] = out.len() as i32;
+            out.extend(&vstore);
+            let mut privates = [0; 2];
+            for (i, subrs) in subrs.iter().enumerate() {
+                privates[i] = out.len() as i32;
+                out.extend(&private);
+                out.extend(subrs);
+            }
+            (out, at, privates)
+        };
+        let (_, at, privates) = build([0; 4], [0; 2]);
+        build(at, privates).0
+    }
+
+    /// TrueType のフォントの `glyf`・`loca` を、CFF か CFF2 の表に置き換える
+    fn cff_font(table: Vec<u8>) -> Tables {
+        let tag = if table[0] == 2 { *b"CFF2" } else { *b"CFF " };
+        let mut tables: Tables = tables()
+            .into_iter()
+            .filter(|(tag, _)| tag != b"glyf" && tag != b"loca")
+            .collect();
+        tables.push((tag, table));
+        tables
+    }
+
+    /// CFF のフォントの字形 2（`g`）を `program` に替え、その外形を読む。読めなければ `None`
+    fn cff_bounds(program: &str, globals: &[&str], locals: &[&str]) -> Option<Option<[f64; 4]>> {
+        let mut glyphs = glyphs();
+        glyphs[2] = program.to_owned();
+        let data = assemble(cff_font(cff(&glyphs, globals, locals, &[])));
+        let font = Font::parse(&data, 0).unwrap();
+        font.glyph('g').map(|glyph| glyph.bounds)
+    }
+
+    #[test]
+    fn reads_cff_outlines() {
+        for table in [cff_table(), cff2()] {
+            let data = assemble(cff_font(table));
+            let font = Font::parse(&data, 0).unwrap();
+            assert_eq!(
+                font.glyph('H'),
+                Some(Glyph {
+                    advance: 700.0,
+                    bounds: Some([0.0, 0.0, 700.0, 720.0]),
+                })
+            );
+            // 制御点は 400 まで上がるが、曲線の頂は 300
+            assert_eq!(
+                font.glyph('g'),
+                Some(Glyph {
+                    advance: 550.0,
+                    bounds: Some([100.0, 0.0, 400.0, 300.0]),
+                })
+            );
+            assert_eq!(
+                font.glyph(' '),
+                Some(Glyph {
+                    advance: 250.0,
+                    bounds: None,
+                })
+            );
+            assert_eq!(font.fallback().bounds, Some([50.0, 0.0, 450.0, 700.0]));
+            assert_eq!(font.metrics().cap_height, 700.0);
+        }
+        // OS/2 がなければ、大文字の高さは CFF の H の外形の上
+        let tables: Tables = cff_font(cff_table())
+            .into_iter()
+            .filter(|(tag, _)| tag != b"OS/2")
+            .collect();
+        let data = assemble(tables);
+        assert_eq!(Font::parse(&data, 0).unwrap().metrics().cap_height, 720.0);
+    }
+
+    #[test]
+    fn reads_every_cff_drawing_operator() {
+        // 省略形の演算子は、同じ曲線を rrcurveto・rlineto で書いたものと同じ外形になる
+        let pairs = [
+            (
+                "1 2 3 4 5 6 7 8 9 hvcurveto",
+                "1 0 2 3 0 4 0 5 6 7 8 9 rrcurveto",
+            ),
+            (
+                "1 2 3 4 5 6 7 8 9 vhcurveto",
+                "0 1 2 3 4 0 5 0 6 7 9 8 rrcurveto",
+            ),
+            (
+                "1 2 3 4 5 6 7 8 9 vvcurveto",
+                "1 2 3 4 0 5 0 6 7 8 0 9 rrcurveto",
+            ),
+            (
+                "1 2 3 4 5 6 7 8 9 hhcurveto",
+                "2 1 3 4 5 0 6 0 7 8 9 0 rrcurveto",
+            ),
+            (
+                "1 2 3 4 5 6 7 8 rcurveline",
+                "1 2 3 4 5 6 rrcurveto 7 8 rlineto",
+            ),
+            (
+                "1 2 3 4 5 6 7 8 rlinecurve",
+                "1 2 rlineto 3 4 5 6 7 8 rrcurveto",
+            ),
+            (
+                "1 2 3 4 5 6 7 8 9 10 11 12 50 flex",
+                "1 2 3 4 5 6 7 8 9 10 11 12 rrcurveto",
+            ),
+            ("1 2 3 4 5 6 7 hflex", "1 0 2 3 4 0 5 0 6 -3 7 0 rrcurveto"),
+            (
+                "1 2 3 4 5 6 7 8 9 hflex1",
+                "1 2 3 4 5 0 6 0 7 8 9 -14 rrcurveto",
+            ),
+            (
+                "1 2 3 4 5 6 7 8 9 10 11 flex1",
+                "1 2 3 4 5 6 7 8 9 10 -25 11 rrcurveto",
+            ),
+            (
+                "-30 -40 rlineto 70 hlineto 90 vlineto",
+                "-30 -40 rlineto 70 0 0 90 rlineto",
+            ),
+        ];
+        for (short, long) in pairs {
+            let program = |body: &str| format!("0 0 rmoveto {body} endchar");
+            let expected = cff_bounds(&program(long), &[], &[]).unwrap();
+            assert!(expected.is_some(), "{long}");
+            assert_eq!(
+                cff_bounds(&program(short), &[], &[]),
+                Some(expected),
+                "{short}"
+            );
+        }
+        // 1 バイト・2 バイト・3 バイトの整数と、固定小数点の数
+        assert_eq!(
+            cff_bounds("10 20 rmoveto 500 -500 2000 1000 rlineto endchar", &[], &[]),
+            Some(Some([10.0, -480.0, 2510.0, 520.0]))
+        );
+        assert_eq!(
+            cff_bounds("0.5 0.25 rlineto endchar", &[], &[]),
+            Some(Some([0.0, 0.0, 0.5, 0.25]))
+        );
+        // hmoveto・vmoveto と、移動だけの字形
+        assert_eq!(
+            cff_bounds("5 hmoveto 6 vmoveto 1 1 rlineto endchar", &[], &[]),
+            Some(Some([5.0, 6.0, 6.0, 7.0]))
+        );
+        assert_eq!(cff_bounds("5 hmoveto endchar", &[], &[]), Some(None));
+    }
+
+    #[test]
+    fn limits_cff_nesting_stack_and_work() {
+        // 副ルーチンを順に呼ぶ鎖。最後の副ルーチンが描く
+        let chain = |depth: usize| {
+            let mut locals: Vec<String> = (1..depth)
+                .map(|i| format!("{} callsubr return", i as i32 - 107))
+                .collect();
+            locals.push("10 10 rlineto return".to_owned());
+            locals
+        };
+        for (depth, expected) in [(10, Some(Some([0.0, 0.0, 10.0, 10.0]))), (11, None)] {
+            let locals = chain(depth);
+            let locals: Vec<&str> = locals.iter().map(String::as_str).collect();
+            assert_eq!(
+                cff_bounds("-107 callsubr endchar", &[], &locals),
+                expected,
+                "{depth}"
+            );
+        }
+        // 自分を呼ぶ副ルーチン
+        assert_eq!(
+            cff_bounds("-107 callsubr endchar", &[], &["-107 callsubr return"]),
+            None
+        );
+        // 16 回ずつ次を呼ぶ 10 段の副ルーチンは、作業量の上限で止まる
+        let locals: Vec<String> = (0..10)
+            .map(|i| {
+                if i == 9 {
+                    "1 1 rlineto return".to_owned()
+                } else {
+                    format!("{} return", format!("{} callsubr ", i - 106).repeat(16))
+                }
+            })
+            .collect();
+        let locals: Vec<&str> = locals.iter().map(String::as_str).collect();
+        assert_eq!(cff_bounds("-107 callsubr endchar", &[], &locals), None);
+        // 引数のスタックは 48 まで
+        let numbers = |count: usize| "1 ".repeat(count);
+        assert!(cff_bounds(&format!("{}hstem endchar", numbers(48)), &[], &[]).is_some());
+        assert_eq!(
+            cff_bounds(&format!("{}hstem endchar", numbers(49)), &[], &[]),
+            None
+        );
+    }
+
+    #[test]
+    fn rejects_broken_cff_glyphs_and_tables() {
+        for program in [
+            // 引数の数が合わない
+            "1 2 3 rlineto endchar",
+            "1 2 3 4 5 rrcurveto endchar",
+            "1 2 3 flex endchar",
+            // ない副ルーチン・return の多すぎ
+            "-106 callsubr endchar",
+            "return",
+            // 廃止された seac と算術の演算子
+            "0 0 0 65 66 endchar",
+            "1 2 add endchar",
+            // hintmask の印が字形の外に出る
+            "0 10 hstem hintmask",
+            // CFF2 の blend は vstore がなければ読めない
+            "1 2 1 blend rmoveto endchar",
+        ] {
+            assert_eq!(cff_bounds(program, &[], &[]), None, "{program}");
+        }
+        // 字形の命令が Type 2 でない（CharstringType が 1）
+        let data = assemble(cff_font(cff(
+            &glyphs(),
+            &[],
+            &[],
+            &dict(&[(&[1], &[12, 6])]),
+        )));
+        assert_eq!(reason(&data), Unread::Cff);
+        // .notdef が読めなければ、CFF の表が壊れている
+        let mut broken = glyphs();
+        broken[0] = "1 rlineto endchar".to_owned();
+        let data = assemble(cff_font(cff(&broken, &[], &[], &[])));
+        assert_eq!(reason(&data), Unread::Table("CFF "));
+        // CFF2 の表がファイルの外を指す
+        let mut tables = cff_font(cff2());
+        tables.last_mut().unwrap().1.truncate(3);
+        assert_eq!(reason(&assemble(tables)), Unread::Table("CFF2"));
+    }
+
+    /// `kern` の表: 形式 0 の副表 1 つに、`H` `g` を -50、`g` `H` を 30 にする組
+    fn kern() -> Vec<u8> {
+        let pairs = [(1, 2, -50), (2, 1, 30)];
+        let mut out = Vec::new();
+        for value in [
+            0,
+            1,
+            0,
+            14 + 6 * pairs.len() as i32,
+            0x0001,
+            pairs.len() as i32,
+            0,
+            0,
+            0,
+        ] {
+            put16(&mut out, value);
+        }
+        for (left, right, value) in pairs {
+            for value in [left, right, value] {
+                put16(&mut out, value);
+            }
+        }
+        out
+    }
+
+    /// GPOS の表。`kern` の機能は lookup 0（extension を通した形式 1: `H` `g` を -40）と lookup 1
+    /// （形式 2: 組 (H, H) を 15、(g, H) を -20）を指す。`liga` の機能の lookup 2 は使わない。
+    /// `extra` を与えれば、lookup 1 の副表の位置をその数だけ並べる
+    fn gpos(extra: &[()]) -> Vec<u8> {
+        let words = |values: &[i32]| {
+            let mut out = Vec::new();
+            for &value in values {
+                put16(&mut out, value);
+            }
+            out
+        };
+        // 形式 1: 見出し 12 バイト、coverage（12）、PairSet（18）。valueFormat1 は XPlacement と XAdvance
+        let mut format1 = words(&[1, 12, 5, 0, 1, 18]);
+        format1.extend(words(&[1, 1, 1]));
+        format1.extend(words(&[1, 2, 7, -40]));
+        let mut extension = words(&[1, 2]);
+        put32(&mut extension, 8);
+        extension.extend(&format1);
+        // 形式 2: 見出し 16 バイト、組の値（16）、coverage（28）、ClassDef 1（38）、ClassDef 2（48）
+        let mut format2 = words(&[2, 28, 4, 0, 38, 48, 3, 2]);
+        format2.extend(words(&[0, 0, 0, 15, 0, -20]));
+        format2.extend(words(&[2, 1, 1, 2, 0]));
+        format2.extend(words(&[1, 1, 2, 1, 2]));
+        format2.extend(words(&[2, 1, 1, 1, 1]));
+        let mut liga = words(&[1, 12, 4, 0, 1, 18]);
+        liga.extend(words(&[1, 1, 1]));
+        liga.extend(words(&[1, 2, 1000]));
+        let lookup = |kind: i32, subtable: &[u8], copies: usize| {
+            let mut out = words(&[kind, 0, copies as i32]);
+            let at = 6 + 2 * copies as i32;
+            for _ in 0..copies {
+                put16(&mut out, at);
+            }
+            out.extend(subtable);
+            out
+        };
+        let lookups = [
+            lookup(9, &extension, 1),
+            lookup(2, &format2, 1 + extra.len()),
+            lookup(2, &liga, 1),
+        ];
+        let mut list = words(&[3]);
+        let mut at = 8;
+        for lookup in &lookups {
+            put16(&mut list, at);
+            at += lookup.len() as i32;
+        }
+        for lookup in &lookups {
+            list.extend(lookup);
+        }
+        let mut features = words(&[2]);
+        features.extend(b"kern");
+        put16(&mut features, 14);
+        features.extend(b"liga");
+        put16(&mut features, 22);
+        features.extend(words(&[0, 2, 0, 1]));
+        features.extend(words(&[0, 1, 2]));
+        let mut out = words(&[1, 0, 0, 10, 10 + features.len() as i32]);
+        out.extend(features);
+        out.extend(list);
+        out
+    }
+
+    #[test]
+    fn reads_kern_table() {
+        let mut tables = tables();
+        tables.push((*b"kern", kern()));
+        let data = assemble(tables);
+        let font = Font::parse(&data, 0).unwrap();
+        assert_eq!(font.kerning('H', 'g'), -50.0);
+        assert_eq!(font.kerning('g', 'H'), 30.0);
+        assert_eq!(font.kerning('H', 'H'), 0.0);
+        // フォントにない文字は詰めない
+        assert_eq!(font.kerning('Q', 'g'), 0.0);
+        // 最小値の副表と、縦の向きの副表は使わない
+        for coverage in [0x0003, 0x0005] {
+            let mut table = kern();
+            table[8..10].copy_from_slice(&(coverage as u16).to_be_bytes());
+            let mut tables = self::tables();
+            tables.push((*b"kern", table));
+            let data = assemble(tables);
+            assert_eq!(Font::parse(&data, 0).unwrap().kerning('H', 'g'), 0.0);
+        }
+    }
+
+    #[test]
+    fn reads_gpos_pair_adjustments_before_kern() {
+        let mut tables = tables();
+        tables.push((*b"GPOS", gpos(&[])));
+        tables.push((*b"kern", kern()));
+        let data = assemble(tables);
+        let font = Font::parse(&data, 0).unwrap();
+        // GPOS があれば kern の表は使わない。liga の機能の lookup は使わない
+        assert_eq!(font.kerning('H', 'g'), -40.0);
+        assert_eq!(font.kerning('H', 'H'), 15.0);
+        assert_eq!(font.kerning('g', 'H'), -20.0);
+        assert_eq!(font.kerning('g', 'g'), 0.0);
+        assert_eq!(font.kerning(' ', 'H'), 0.0);
+
+        // カーニングは配置の送りに効く
+        let text = Text {
+            content: "Hg".to_owned(),
+            height: Height {
+                value: Length::Paper(PaperLength(7.0)),
+                meaning: HeightMeaning::CapHeight,
+            },
+            placement: Placement::Anchor {
+                point: [0.0, 0.0],
+                horizontal: Horizontal::Left,
+                vertical: Vertical::Baseline,
+            },
+            rotation: 0.0,
+            width_factor: 1.0,
+            oblique: 0.0,
+            backward: false,
+            upside_down: false,
+            style: String::new(),
+        };
+        let laid = place(&text, |p| *p, &font, |_| None::<Reference>).unwrap();
+        assert_eq!(laid.pens, vec![0.0, 660.0]);
+
+        // 副表が多すぎる GPOS は読まず、kern の表を使う
+        let mut tables = self::tables();
+        tables.push((*b"GPOS", gpos(&[(); 1024])));
+        tables.push((*b"kern", kern()));
+        let data = assemble(tables);
+        assert_eq!(Font::parse(&data, 0).unwrap().kerning('H', 'g'), -50.0);
     }
 }
