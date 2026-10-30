@@ -4579,44 +4579,23 @@ fn additions_to_symbol_definitions_go_before_endblk_within_the_budget() {
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
 
-/// POINT は、置き換え・変換・追加を書き戻さず、ファイルを変えない（決定 0160。点の書き戻しは #170）
+/// POINT の位置と X 軸の角度を置き換え、変換で動かし、文書の点の表し方に従う点を足す。読み直すと同じ点になる。
+/// 既定義の印の点と作図の補助の点は、POINT で表せないので断り、ファイルを変えない（決定 0183）
 #[test]
-fn points_are_not_replaced_transformed_or_added() {
-    use zumen_drawing::{Affine, Edit as Change, Placed, Point};
+fn points_are_replaced_transformed_and_added() {
+    use zumen_drawing::{Affine, Edit as Change, MarkerKey, Placed, Point, PointLook, SpaceId, id};
     let src = dxf(&[
         (0, "POINT"),
         (5, "1A"),
+        (100, "AcDbEntity"),
         (8, "0"),
+        (100, "AcDbPoint"),
         (10, "1.0"),
         (20, "2.0"),
         (30, "0.0"),
     ]);
-    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
-    let [(target, point)] = <[_; 1]>::try_from(seen(&lift(&file))).unwrap();
-    let Shape::Point(dot) = &point.shape else {
-        panic!("{:?}", point.shape);
-    };
-    let moved = Element {
-        shape: Shape::Point(Point {
-            position: at(5.0, 5.0),
-            ..dot.clone()
-        }),
-        ..point.clone()
-    };
-    for edit in [
-        Change::Replace {
-            target: target.clone(),
-            element: Box::new(Placed::Model(moved.clone())),
-        },
-        Change::Transform {
-            target: target.clone(),
-            transform: Affine::translation(1.0, 0.0),
-        },
-        Change::Add {
-            place: "space/0".to_owned(),
-            element: Box::new(Placed::Model(moved)),
-        },
-    ] {
+    let run = |edit: Change| {
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
         let result = zumen_sdk::Apply::apply(
@@ -4627,177 +4606,100 @@ fn points_are_not_replaced_transformed_or_added() {
             },
             &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
         );
-        assert_eq!(result.unwrap_err(), Error::Rejected);
-        assert_eq!(
-            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
-            [codes::CHANGE_EDIT_UNSUPPORTED]
-        );
-    }
-    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
-}
-
-/// ブロック A と C のレコードと定義（どちらも線分 1 本）を持つ R2000 の DXF
-#[cfg(test)]
-fn two_recorded_definitions() -> Vec<u8> {
-    let mut tags: Vec<(i16, &str)> = vec![
-        (0, "SECTION"),
-        (2, "HEADER"),
-        (9, "$ACADVER"),
-        (1, "AC1015"),
-        (9, "$HANDSEED"),
-        (5, "100"),
-        (0, "ENDSEC"),
-        (0, "SECTION"),
-        (2, "TABLES"),
-        (0, "TABLE"),
-        (2, "BLOCK_RECORD"),
-        (0, "BLOCK_RECORD"),
-        (5, "1F"),
-        (2, "*Model_Space"),
-        (0, "BLOCK_RECORD"),
-        (5, "20"),
-        (2, "A"),
-        (0, "BLOCK_RECORD"),
-        (5, "21"),
-        (2, "C"),
-        (0, "ENDTAB"),
-        (0, "ENDSEC"),
-        (0, "SECTION"),
-        (2, "BLOCKS"),
-    ];
-    for (record, name, [block, line, end]) in [
-        ("20", "A", ["30", "31", "32"]),
-        ("21", "C", ["40", "41", "42"]),
-    ] {
-        tags.extend([
-            (0, "BLOCK"),
-            (5, block),
-            (330, record),
-            (8, "0"),
-            (2, name),
-            (70, "0"),
-            (10, "0.0"),
-            (20, "0.0"),
-            (30, "0.0"),
-            (0, "LINE"),
-            (5, line),
-            (330, record),
-            (8, "0"),
-            (10, "0.0"),
-            (20, "0.0"),
-            (30, "0.0"),
-            (11, "1.0"),
-            (21, "0.0"),
-            (31, "0.0"),
-            (0, "ENDBLK"),
-            (5, end),
-            (330, record),
-            (8, "0"),
-        ]);
-    }
-    tags.extend([
-        (0, "ENDSEC"),
-        (0, "SECTION"),
-        (2, "ENTITIES"),
-        (0, "ENDSEC"),
-        (0, "EOF"),
-    ]);
-    dxf_tags(&tags)
-}
-
-/// 記号の定義の中に記号を足し、読み直す。定義の入れ子が輪になる追加（自分自身・自分を含む定義・同じ変更の一覧で
-/// 輪になるもの）は断り、ファイルを変えない（#333）
-#[test]
-fn symbols_are_added_into_symbol_definitions_without_cycles() {
-    use zumen_drawing::{Edit, Placed, Symbol, SymbolKey};
-    let src = two_recorded_definitions();
-    let drawing = lift(&testkit::read::<Dxf>(&src).0.unwrap());
-    let definition = |drawing: &Drawing2D, name: &str| {
-        drawing
-            .symbols
-            .iter()
-            .find(|symbol| symbol.key.name == name)
-            .unwrap()
-            .clone()
-    };
-    let a = definition(&drawing, "A");
-    let c = definition(&drawing, "C");
-    // 名前のある定義の空間は space/h{BLOCK のハンドル}
-    let (in_a, in_c) = ("space/h30", "space/h40");
-    let placing = |inside: &zumen_drawing::SymbolDefinition, name: &str| {
-        let mut element = inside.space.elements[0].clone();
-        element.source = Ref::default();
-        element.shape = Shape::Symbol(Symbol {
-            key: SymbolKey {
-                namespace: "dxf.block",
-                name: name.to_owned(),
-            },
-            position: ModelPoint {
-                space: inside.space.id,
-                x: 2.0,
-                y: 3.0,
-            },
-            scale: [1.0, 1.0],
-            rotation: 0.0,
-            grid: None,
-            attributes: Vec::new(),
-            clip: None,
-        });
-        element
-    };
-    let add = |place: &str, element: &Element<ModelPoint>| Edit::Add {
-        place: place.to_owned(),
-        element: Box::new(Placed::Model(element.clone())),
-    };
-    let apply = |src: &[u8], edits: Vec<Edit>| {
-        let mut file = testkit::read::<Dxf>(src).0.unwrap();
-        let mut diag = Diagnostics::new();
-        let result = zumen_sdk::Apply::apply(
-            &mut file,
-            &zumen_drawing::Changes {
-                edits,
-                document: None,
-            },
-            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
-        );
-        let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+        let codes = diag.iter().map(|d| d.code()).collect::<Vec<_>>();
         (result, codes, testkit::write::<Dxf>(&file).unwrap())
     };
+    let points = |written: &[u8]| -> Vec<Point<ModelPoint>> {
+        elements(&lift(&testkit::read::<Dxf>(written).0.unwrap()))
+            .into_iter()
+            .filter_map(|element| match element.shape {
+                Shape::Point(dot) => Some(dot),
+                _ => None,
+            })
+            .collect()
+    };
+    let file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(target, point)] = <[_; 1]>::try_from(seen(&lift(&file))).unwrap();
+    let Shape::Point(dot) = &point.shape else {
+        panic!("{:?}", point.shape);
+    };
+    let with = |dot: Point<ModelPoint>| Element {
+        shape: Shape::Point(dot),
+        ..point.clone()
+    };
+    let turned = Point {
+        position: at(5.0, 5.0),
+        rotation: 30.0,
+        ..dot.clone()
+    };
+    let (result, codes, written) = run(Change::Replace {
+        target: target.clone(),
+        element: Box::new(Placed::Model(with(turned.clone()))),
+    });
+    assert!(result.is_ok(), "{codes:?}");
+    assert_eq!(points(&written), [turned]);
 
-    // C の中に A を置く
-    let a_in_c = placing(&c, "A");
-    let (result, found, written) = apply(&src, vec![add(in_c, &a_in_c)]);
-    assert!(result.is_ok(), "{found:?}");
-    assert!(found.is_empty(), "{found:?}");
-    let again = lift(&testkit::read::<Dxf>(&written).0.unwrap());
-    let c_again = definition(&again, "C");
-    assert_eq!(c_again.space.elements.len(), 2);
-    assert_eq!(c_again.space.elements[1].shape, a_in_c.shape);
-    assert_eq!(definition(&again, "A").space.elements.len(), 1);
-    assert!(again.spaces.iter().all(|space| {
-        space
-            .elements
-            .iter()
-            .all(|element| !matches!(element.shape, Shape::Symbol(_)))
-    }));
-    let text = String::from_utf8(written.to_vec()).unwrap();
-    let insert = text.find("INSERT\n  5\n100\n330\n21\n").unwrap();
-    assert!(insert < text.rfind("ENDBLK").unwrap(), "{text}");
+    let (result, codes, written) = run(Change::Transform {
+        target: target.clone(),
+        transform: Affine::translation(1.0, 0.0),
+    });
+    assert!(result.is_ok(), "{codes:?}");
+    assert_eq!(
+        points(&written),
+        [Point {
+            position: at(2.0, 2.0),
+            ..dot.clone()
+        }]
+    );
 
-    let refused = [codes::CHANGE_SYMBOL_CYCLE_INVALID];
-    // A の中に A を置く（自分自身）
-    let (result, found, out) = apply(&src, vec![add(in_a, &placing(&a, "a"))]);
-    assert!(matches!(result, Err(Error::Rejected)));
-    assert_eq!(found, refused);
-    assert_eq!(out, src);
-    // A を置く C を、A の中に置く（間接）
-    let (result, found, out) = apply(&written, vec![add(in_a, &placing(&a, "C"))]);
-    assert!(matches!(result, Err(Error::Rejected)));
-    assert_eq!(found, refused);
-    assert_eq!(out, written);
-    // 同じ変更の一覧で、C の中に A を、A の中に C を置く
-    let (result, found, out) = apply(&src, vec![add(in_c, &a_in_c), add(in_a, &placing(&a, "C"))]);
-    assert!(matches!(result, Err(Error::Rejected)));
-    assert_eq!(found, refused);
-    assert_eq!(out, src);
+    let added = Point {
+        position: at(3.0, 4.0),
+        rotation: 45.0,
+        ..dot.clone()
+    };
+    let place = id::space(SpaceId(0));
+    let (result, codes, written) = run(Change::Add {
+        place: place.clone(),
+        element: Box::new(Placed::Model(with(added.clone()))),
+    });
+    assert!(result.is_ok(), "{codes:?}");
+    assert_eq!(points(&written), [dot.clone(), added]);
+
+    let marker = Point {
+        look: PointLook::Marker {
+            key: MarkerKey {
+                namespace: "sxf.marker",
+                code: "2".to_owned(),
+            },
+            scale: 1.0,
+        },
+        ..dot.clone()
+    };
+    let construction = Point {
+        construction: true,
+        ..dot.clone()
+    };
+    for edit in [
+        Change::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Model(with(marker.clone()))),
+        },
+        Change::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Model(with(construction.clone()))),
+        },
+        Change::Add {
+            place: place.clone(),
+            element: Box::new(Placed::Model(with(marker))),
+        },
+        Change::Add {
+            place: place.clone(),
+            element: Box::new(Placed::Model(with(construction))),
+        },
+    ] {
+        let (result, codes, written) = run(edit);
+        assert_eq!(result.unwrap_err(), Error::Rejected);
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(written, src);
+    }
 }

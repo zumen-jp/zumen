@@ -11,7 +11,7 @@ use zumen_base::{Diagnostic, Diagnostics, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Encode, Hash,
     Inherit, LayerId, Length, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, Placed,
-    Polyline, Seen, Shape, Style, id, transform,
+    Point, PointLook, Polyline, Seen, Shape, Style, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
@@ -38,6 +38,9 @@ const STYLED: [&str; 8] = [
 
 /// 形を書き直せ、足せるフィーチャ
 const SHAPED: [&str; 4] = ["line", "polyline", "circle", "arc"];
+
+/// 点マーカー。レイヤと色のコードだけを引数の 0〜1 に持ち、SFC だけで書き直し、足す（決定 0183）
+const MARKER: &str = "point_marker";
 
 /// 除けるフィーチャ。複合曲線と複合図形の定義・配置は、ほかのフィーチャが順の番号や名前で指すので除かない
 const REMOVABLE: [&str; 20] = [
@@ -403,6 +406,7 @@ fn feature_name<P>(shape: &Shape<P>) -> Option<&'static str> {
         Shape::Polyline(_) => "polyline_feature",
         Shape::Circle { .. } => "circle_feature",
         Shape::Curve(Edge::Arc { .. }) => "arc_feature",
+        Shape::Point(_) => "point_marker_feature",
         _ => return None,
     })
 }
@@ -711,6 +715,7 @@ impl OnSheet for Element<PaperPoint> {
             Shape::Line { start, .. } => Some(start),
             Shape::Circle { center, .. } | Shape::Curve(Edge::Arc { center, .. }) => Some(center),
             Shape::Polyline(line) => line.vertices.first().map(|vertex| &vertex.point),
+            Shape::Point(dot) => Some(&dot.position),
             _ => None,
         };
         point.map_or(super::SHEET, |point| point.sheet)
@@ -901,6 +906,10 @@ trait Writer {
     fn add(&mut self, args: &Arguments, cx: &mut Cx) -> Result<Option<u64>, Error>;
     /// 書き直したバイト列
     fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error>;
+    /// 点マーカーを書き直し、足せるか
+    fn markers(&self) -> bool {
+        false
+    }
 }
 
 /// 元のバイト列への書き直し
@@ -941,7 +950,8 @@ impl<'f> Plan<'f> {
         let mut result = None;
         let computed = (|| -> Option<()> {
             let name = self.record(found.record)?.name.to_ascii_lowercase();
-            if !STYLED.contains(&name.as_str()) || grouped.contains(&found.record) {
+            let marker = name == MARKER && self.writer.markers();
+            if !(marker || STYLED.contains(&name.as_str())) || grouped.contains(&found.record) {
                 return None;
             }
             let (layer, style) = match element {
@@ -964,10 +974,17 @@ impl<'f> Plan<'f> {
                 style.color = Inherit::Own(color);
                 codes.push((1, code));
             }
+            // 点マーカーは線種と線幅を持たない
             if style.line_type != was.line_type {
+                if marker {
+                    return None;
+                }
                 codes.push((2, tables.line_type(style.line_type)?));
             }
             if style.line_weight != was.line_weight {
+                if marker {
+                    return None;
+                }
                 codes.push((3, tables.width(style.line_weight?)?));
             }
             if codes.is_empty() {
@@ -1002,7 +1019,8 @@ impl<'f> Plan<'f> {
         let mut error = None;
         let computed = (|| -> Option<()> {
             let name = self.record(found.record)?.name.to_ascii_lowercase();
-            if !SHAPED.contains(&name.as_str()) || grouped.contains(&found.record) {
+            let marker = name == MARKER && self.writer.markers();
+            if !(marker || SHAPED.contains(&name.as_str())) || grouped.contains(&found.record) {
                 return None;
             }
             let args = match element {
@@ -1045,12 +1063,24 @@ impl<'f> Plan<'f> {
             let mut args = arguments(&element.shape)?;
             let (color, read) = tables.color(style.color)?;
             element.style.color = Inherit::Own(read);
-            let codes = [
-                tables.layer(element.layer)?,
-                color,
-                tables.line_type(style.line_type)?,
-                tables.width(style.line_weight?)?,
-            ];
+            let codes = if args.name == MARKER {
+                // 点マーカーは線種と線幅を持たず、読み直すとレイヤに従う線種と線幅なしになる
+                if !self.writer.markers()
+                    || style.line_type != Inherit::Layer
+                    || !matches!(style.line_weight, None | Some(Inherit::Layer))
+                {
+                    return None;
+                }
+                element.style.line_weight = None;
+                vec![tables.layer(element.layer)?, color]
+            } else {
+                vec![
+                    tables.layer(element.layer)?,
+                    color,
+                    tables.line_type(style.line_type)?,
+                    tables.width(style.line_weight?)?,
+                ]
+            };
             for (at, code) in codes.iter().enumerate() {
                 *args.values.get_mut(at)? = code.to_string();
             }
@@ -1151,7 +1181,7 @@ impl Writer for Sfc<'_> {
         _cx: &mut Cx,
     ) -> Result<Option<()>, Error> {
         Ok((|| {
-            for (at, text) in args.values.iter().enumerate().skip(4) {
+            for (at, text) in args.values.iter().enumerate().skip(args.first()) {
                 self.argument(record, at, text)?;
             }
             Some(())
@@ -1203,6 +1233,10 @@ impl Writer for Sfc<'_> {
     fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
         patched(self.patches, src, cx)
     }
+
+    fn markers(&self) -> bool {
+        true
+    }
 }
 
 /// ファイルの改行
@@ -1247,10 +1281,17 @@ fn patched(
     Ok(out)
 }
 
-/// フィーチャの名前と引数。レイヤ・色・線種・線幅（0〜3）は空にしておく
+/// フィーチャの名前と引数。レイヤ・色・線種・線幅（0〜3。点マーカーはレイヤと色の 0〜1）は空にしておく
 struct Arguments {
     name: &'static str,
     values: Vec<String>,
+}
+
+impl Arguments {
+    /// 形の初めの引数
+    fn first(&self) -> usize {
+        if self.name == MARKER { 2 } else { 4 }
+    }
 }
 
 /// 全種類の形を予算付きでたどり、その量に応じて複製・変換の作業も先に数える。
@@ -1347,6 +1388,25 @@ fn arguments<P: transform::Point>(shape: &Shape<P>) -> Option<Arguments> {
             values.push(format!("({})", xs.join(",")));
             values.push(format!("({})", ys.join(",")));
             "polyline"
+        }
+        // 点マーカーは、点・マーカーのコード・回転（度）・尺度。名前空間 `sxf.marker` の既定義の印で、読み直すと同じ
+        // コードになるものだけを書く。作図の補助の点はない（決定 0183）
+        Shape::Point(Point {
+            position,
+            rotation,
+            look: PointLook::Marker { key, scale },
+            construction: false,
+        }) if key.namespace == "sxf.marker" => {
+            let code = key.code.parse::<i64>().ok()?;
+            if code.to_string() != key.code {
+                return None;
+            }
+            values.truncate(2);
+            values.extend(point(position)?);
+            values.push(key.code.clone());
+            values.push(number(*rotation)?);
+            values.push(number(*scale)?);
+            MARKER
         }
         _ => return None,
     };

@@ -13,8 +13,8 @@ use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::drawing::{BLOCK, Home, mtext};
 use zumen_drawing::{
     Attribute, ColorSystem, Drawing2D, Edge, Element, Fit, Flow, FormattedText, HeightMeaning,
-    Horizontal, Inherit, LayerId, Leader, LineTypeId, LineWeight, Placement, Polyline, Rotation,
-    Shape, Style, Symbol, Text, Vertical,
+    Horizontal, Inherit, LayerId, Leader, LineTypeId, LineWeight, Placement, PointLook, Polyline,
+    Rotation, Shape, Style, Symbol, Text, Vertical,
 };
 
 /// 足す図形
@@ -322,6 +322,19 @@ impl Born {
             Shape::Leader(leader) => {
                 self.leading(&mut values, frame, leader)?;
                 b"LEADER"
+            }
+            // POINT（DXF Reference「POINT」）。見え方は文書の点の表し方に従うので、既定義の印の点と作図の補助の
+            // 点は足さない。X 軸の角度（50）は 0 でなければ書く（決定 0183）
+            Shape::Point(dot) => {
+                if dot.look != PointLook::Document || dot.construction {
+                    return None;
+                }
+                values.push(text(100, "AcDbPoint"));
+                point(&mut values, frame, 10, &dot.position)?;
+                if dot.rotation != 0.0 {
+                    values.push(real(50, dot.rotation)?);
+                }
+                b"POINT"
             }
             _ => return None,
         };

@@ -1533,7 +1533,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":34}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":35}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -4376,6 +4376,72 @@ mod tests {
         let (status, response) = call(&mut session, r#"{"v":1,"op":"entities","doc":"a.dxf"}"#);
         assert_eq!(status, Status::Ok);
         assert_eq!(text(&response, "/result/items/0/kind"), "point");
+    }
+
+    #[test]
+    fn replaces_and_adds_points_by_their_geometry() {
+        // 点の形の値を返し、置き換えて足す。DXF の POINT は既定義の印を持たない（決定 0183）
+        let mut session = Session::new(b"").unwrap();
+        let dxf = concat!(
+            "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$HANDSEED\n5\n20\n0\nENDSEC\n",
+            "0\nSECTION\n2\nENTITIES\n0\nPOINT\n5\n1A\n100\nAcDbEntity\n8\n0\n100\nAcDbPoint\n",
+            "10\n1.0\n20\n2.0\n30\n0.0\n0\nENDSEC\n0\nEOF\n",
+        );
+        session.push(b"a.dxf", dxf.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = shapes(&mut session, "a.dxf");
+        assert_eq!(
+            before,
+            [r#"{"shape":"point","position":[1,2],"rotation":0}"#]
+        );
+        let (id, hash) = seen(&mut session, "a.dxf").remove(0);
+        let replace = |geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+            )
+        };
+        let add = |geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+            )
+        };
+        // 置き換えは描き方を変えず、印の名前空間は既知のものだけ
+        for (request, pointer) in [
+            (
+                replace(
+                    r#"{"shape":"point","position":[1,2],"rotation":0,"marker":{"namespace":"sxf.marker","code":"2","scale":1}}"#,
+                ),
+                "/edits/0/geometry/marker",
+            ),
+            (
+                add(
+                    r#"{"shape":"point","position":[1,2],"rotation":0,"marker":{"namespace":"other","code":"2","scale":1}}"#,
+                ),
+                "/edits/0/geometry/marker/namespace",
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        let (status, response) = call(
+            &mut session,
+            &add(
+                r#"{"shape":"point","position":[1,2],"rotation":0,"marker":{"namespace":"sxf.marker","code":"2","scale":1}}"#,
+            ),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+        assert_eq!(shapes(&mut session, "a.dxf"), before);
+
+        let replaced = r#"{"shape":"point","position":[5,6],"rotation":30}"#;
+        let added = r#"{"shape":"point","position":[3,4],"rotation":0}"#;
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}},{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(shapes(&mut session, "a.dxf"), [replaced, added]);
     }
 
     #[test]

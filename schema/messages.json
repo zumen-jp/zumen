@@ -406,7 +406,8 @@
         { "$ref": "#/$defs/symbol_geometry" },
         { "$ref": "#/$defs/spline_geometry" },
         { "$ref": "#/$defs/dimension_geometry" },
-        { "$ref": "#/$defs/leader_geometry" }
+        { "$ref": "#/$defs/leader_geometry" },
+        { "$ref": "#/$defs/point_geometry" }
       ]
     },
     "line_geometry": {
@@ -583,6 +584,30 @@
         "style_id": { "description": "寸法スタイルの ID。tables が返したもの。entities は、名前で引いた寸法スタイルの ID を返す。足す・置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける", "type": "string" }
       },
       "required": ["shape", "path", "spline", "style"],
+      "additionalProperties": false
+    },
+    "point_geometry": {
+      "description": "点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "point" },
+        "position": { "description": "位置 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "rotation": { "description": "回転（度）", "type": "number" },
+        "marker": { "description": "既定義の印。書かなければ文書の点の表し方に従う", "$ref": "#/$defs/point_marker" },
+        "construction": { "description": "作図の補助の点（JWW の仮点）か。書かなければ偽", "type": "boolean" }
+      },
+      "required": ["shape", "position", "rotation"],
+      "additionalProperties": false
+    },
+    "point_marker": {
+      "description": "既定義の印の表のキーと尺度。印の形は、表示する側がキーから引く",
+      "type": "object",
+      "properties": {
+        "namespace": { "description": "印の表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）", "type": "string" },
+        "code": { "description": "名前空間の中の元のコード", "type": "string" },
+        "scale": { "description": "尺度", "type": "number" }
+      },
+      "required": ["namespace", "code", "scale"],
       "additionalProperties": false
     },
     "dimension_kind": {

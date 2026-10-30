@@ -577,34 +577,140 @@ fn writing_counts_copied_bytes_and_stops_without_changes() {
     }
 }
 
-/// 点は除けるが、置き換え・変換・追加は書き戻さず、ファイルを変えない（決定 0160。点の書き戻しは #170）
+/// 点の位置と仮点かを置き換え、変換で動かし、点と記号の点を足す。読み直すと同じ点になる。記号でない点は角度を
+/// 持たないので、回す変換では角度を 0 のままにし、角度を置き換えることと、記号の点と入れ替えることは断る（決定 0183）
 #[test]
-fn points_are_not_replaced_transformed_or_added() {
+fn points_are_replaced_transformed_and_added() {
+    use zumen_drawing::{MarkerKey, Point, PointLook};
     let src = src();
     let drawing = lift(&read(&src));
     let (_, point) = element(&drawing, 3);
     let Shape::Point(dot) = &point.shape else {
         panic!("{:?}", point.shape);
     };
-    let moved = Element {
-        shape: Shape::Point(zumen_drawing::Point {
-            position: model(50.0, 50.0),
-            ..dot.clone()
-        }),
+    let with = |dot: Point<ModelPoint>| Element {
+        shape: Shape::Point(dot),
         ..point.clone()
+    };
+    let points = |file: &JwwFile| -> Vec<Point<ModelPoint>> {
+        lift(file).spaces[0]
+            .elements
+            .iter()
+            .filter_map(|element| match &element.shape {
+                Shape::Point(dot) => Some(dot.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let close = |a: &Point<ModelPoint>, b: &Point<ModelPoint>| {
+        (a.position.x - b.position.x).abs() < 1e-9
+            && (a.position.y - b.position.y).abs() < 1e-9
+            && (a.rotation - b.rotation).abs() < 1e-9
+            && a.look == b.look
+            && a.construction == b.construction
+    };
+
+    let moved = Point {
+        position: model(50.0, 60.0),
+        construction: true,
+        ..dot.clone()
+    };
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Replace {
+            target: seen(&drawing, 3),
+            element: Box::new(Placed::Model(with(moved.clone()))),
+        }],
+        None,
+    );
+    assert!(result.is_ok(), "{diagnostics:?}");
+    assert!(close(&points(&file)[0], &moved));
+
+    // 回しても、記号でない点の角度は 0 のまま
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Transform {
+            target: seen(&drawing, 3),
+            transform: Affine::rotation(0.0, 0.0, 90.0),
+        }],
+        None,
+    );
+    assert!(result.is_ok(), "{diagnostics:?}");
+    assert!(close(
+        &points(&file)[0],
+        &Point {
+            position: model(-100.0, 100.0),
+            ..dot.clone()
+        }
+    ));
+
+    let marker = Point {
+        position: model(200.0, 300.0),
+        rotation: 30.0,
+        look: PointLook::Marker {
+            key: MarkerKey {
+                namespace: "jww.point",
+                code: "3".to_owned(),
+            },
+            scale: 2.0,
+        },
+        construction: false,
+    };
+    let added = Point {
+        position: model(10.0, 20.0),
+        ..dot.clone()
+    };
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![
+            Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(with(added.clone()))),
+            },
+            Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(with(marker.clone()))),
+            },
+        ],
+        None,
+    );
+    assert!(result.is_ok(), "{diagnostics:?}");
+    let found = points(&file);
+    assert_eq!(found.len(), 3);
+    assert!(
+        close(&found[1], &added) && close(&found[2], &marker),
+        "{found:?}"
+    );
+
+    let turned = Point {
+        rotation: 10.0,
+        ..dot.clone()
+    };
+    let foreign = Point {
+        look: PointLook::Marker {
+            key: MarkerKey {
+                namespace: "sxf.marker",
+                code: "3".to_owned(),
+            },
+            scale: 1.0,
+        },
+        ..marker.clone()
     };
     for edit in [
         Edit::Replace {
             target: seen(&drawing, 3),
-            element: Box::new(Placed::Model(moved.clone())),
+            element: Box::new(Placed::Model(with(turned))),
         },
-        Edit::Transform {
+        Edit::Replace {
             target: seen(&drawing, 3),
-            transform: Affine::translation(10.0, 0.0),
+            element: Box::new(Placed::Model(with(marker))),
         },
         Edit::Add {
             place: "space/0".into(),
-            element: Box::new(Placed::Model(moved)),
+            element: Box::new(Placed::Model(with(foreign))),
         },
     ] {
         let mut file = read(&src);

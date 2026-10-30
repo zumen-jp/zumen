@@ -10,12 +10,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Hash, Inherit,
-    LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength, Placed, Seen,
-    Shape, SpaceId, Style, id, transform,
+    LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength, Placed, Point,
+    PointLook, Seen, Shape, SpaceId, Style, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
-use super::{Header, PEN_WIDTH_SINCE, SXF_SINCE, TURN};
+use super::{Header, PEN_WIDTH_SINCE, POINT_SYMBOL, SXF_SINCE, TURN};
 use crate::parse::Reader;
 use crate::{Jww, JwwFile, RecordKind};
 
@@ -27,6 +27,9 @@ const LINE: &[u8] = b"CDataSen";
 
 /// 円・円弧・楕円・楕円弧
 const ARC: &[u8] = b"CDataEnko";
+
+/// 点
+const POINT: &[u8] = b"CDataTen";
 
 /// 形の値の比べ方。実寸の値は、用紙の値に縮尺の分母を掛けて読むので、最後の桁が違いうる
 const NEAR: f64 = 1e-9;
@@ -147,6 +150,7 @@ impl Apply<Changes> for JwwFile {
                         continue;
                     };
                     transform::transform(&found.element.shape, transform)
+                        .map(unturned)
                         .and_then(|shape| {
                             plan.shaped(&found, &shape)?;
                             Some(Expected::Changed(
@@ -343,6 +347,7 @@ fn kind_of(element: &Placed) -> &'static str {
     };
     shape.map_or("element", |class| match class {
         LINE => "CDataSen",
+        POINT => "CDataTen",
         _ => "CDataEnko",
     })
 }
@@ -352,7 +357,20 @@ fn class_of(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
     match shape {
         Shape::Line { .. } => Some(LINE),
         Shape::Circle { .. } | Shape::Curve(Edge::Arc { .. }) => Some(ARC),
+        Shape::Point(_) => Some(POINT),
         _ => None,
+    }
+}
+
+/// JWW は、記号でない点の角度を持たない。文書の点の表し方に従う点は、変換で回しても角度を 0 のままにする。JWW の
+/// 点は小さな点として描くので、見え方は変わらない（決定 0183）
+fn unturned(shape: Shape<ModelPoint>) -> Shape<ModelPoint> {
+    match shape {
+        Shape::Point(dot) if dot.look == PointLook::Document => Shape::Point(Point {
+            rotation: 0.0,
+            ..dot
+        }),
+        shape => shape,
     }
 }
 
@@ -407,6 +425,12 @@ fn near(a: &Shape<ModelPoint>, b: &Shape<ModelPoint>) -> bool {
                 && counterclockwise == ccw
                 && angle(*start, *s)
                 && angle(*end, *e)
+        }
+        (Shape::Point(a), Shape::Point(b)) => {
+            point(&a.position, &b.position)
+                && angle(a.rotation, b.rotation)
+                && a.look == b.look
+                && a.construction == b.construction
         }
         _ => a == b,
     }
@@ -621,14 +645,18 @@ impl Plan<'_> {
     /// レイヤとスタイルのうち、変わったものを共通の欄に書く。読み直したときのレイヤとスタイルを返す
     fn styled(&mut self, found: &Found, layer: LayerId, style: &Style) -> Option<(LayerId, Style)> {
         let (name, at) = self.entity(found.record)?;
-        if name != LINE && name != ARC {
-            return None;
-        }
+        let class = [LINE, ARC, POINT]
+            .into_iter()
+            .find(|class| *class == name)?;
         let was = Base::read(&self.file.src, at, self.version())?;
         let in_definition = self.file.records().get(found.record)?.block().is_some();
         let base = self.base(was, found.element, layer, style, in_definition)?;
+        // 点の線種（線種 100 は記号の点）と線幅は、点の見え方ではないので変えない
+        if class == POINT && (base.pen_style, base.pen_width) != (was.pen_style, was.pen_width) {
+            return None;
+        }
         self.patches.push((at, base.bytes(self.version())));
-        Some((base.layer(), self.style(&base)))
+        Some((base.layer(), self.style(&base, class)))
     }
 
     /// 求めたレイヤとスタイルの共通の欄。変わらない値は、元の欄のまま
@@ -667,8 +695,17 @@ impl Plan<'_> {
         Some(base)
     }
 
-    /// 共通の欄を読み直したときのスタイル（変換の `line_style` と同じ）
-    fn style(&self, base: &Base) -> Style {
+    /// 共通の欄を読み直したときのスタイル（変換の `line_style` と同じ）。点は色だけを持つ（変換の `fill_style` と同じ）
+    fn style(&self, base: &Base, class: &[u8]) -> Style {
+        if class == POINT {
+            return Style {
+                color: Inherit::Own(self.header.color(base.pen_color)),
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+                transparency: Inherit::Layer,
+            };
+        }
         Style {
             color: Inherit::Own(self.header.color(base.pen_color)),
             line_type: Inherit::Own(LineTypeId(u32::from(base.pen_style.max(1)))),
@@ -753,13 +790,19 @@ impl Plan<'_> {
         let base = Base::read(&self.file.src, at, self.version())?;
         let in_definition = self.file.records().get(found.record)?.block().is_some();
         let space = space_of(&found.element.shape)?;
-        let bytes = shape_bytes(shape, space, self.scale(base.group, in_definition))?;
+        let bytes = shape_bytes(
+            shape,
+            space,
+            self.scale(base.group, in_definition),
+            base.pen_style == POINT_SYMBOL,
+        )?;
         let size = base.bytes(self.version()).len();
         self.patches.push((at + size, bytes));
         Some(())
     }
 
-    /// レイヤグループの空間の図形の一覧の終わりに、線・円・円弧を足す。読み直したときのレイヤ・スタイル・形を返す
+    /// レイヤグループの空間の図形の一覧の終わりに、線・円・円弧・点を足す。読み直したときのレイヤ・スタイル・形を返す。
+    /// 点は色だけを持ち、記号の点は線種 100 で、ほかの点は線種 1 で書く（決定 0183）
     fn add(
         &mut self,
         space: SpaceId,
@@ -775,15 +818,30 @@ impl Plan<'_> {
         if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
             return None;
         }
+        let symbol = matches!(&element.shape, Shape::Point(dot) if dot.look != PointLook::Document);
+        let (pen_style, pen_width) = match &element.shape {
+            Shape::Point(_) => {
+                if style.line_type != Inherit::Layer
+                    || !matches!(style.line_weight, None | Some(Inherit::Layer))
+                {
+                    return None;
+                }
+                (if symbol { POINT_SYMBOL } else { 1 }, 0)
+            }
+            _ => (
+                self.line_type(style.line_type)?,
+                match style.line_weight {
+                    // 書かなければ、ペンの印刷の幅に従う
+                    None => 0,
+                    Some(weight) => self.width(weight)?,
+                },
+            ),
+        };
         let base = Base {
             curve: 0,
-            pen_style: self.line_type(style.line_type)?,
+            pen_style,
             pen_color: self.pen(style.color)?,
-            pen_width: match style.line_weight {
-                // 書かなければ、ペンの印刷の幅に従う
-                None => 0,
-                Some(weight) => self.width(weight)?,
-            },
+            pen_width,
             layer: u16::try_from(n % 16).ok()?,
             group,
             flag: 0,
@@ -793,11 +851,16 @@ impl Plan<'_> {
             &element.shape,
             space,
             self.scale(group, false),
+            symbol,
         )?);
         // 新しいクラスの印は、ファイルのクラスのスキーマで書く
         self.file.classes().first()?;
         self.added.push((class, bytes));
-        Some((base.layer(), self.style(&base), element.shape.clone()))
+        Some((
+            base.layer(),
+            self.style(&base, class),
+            element.shape.clone(),
+        ))
     }
 
     /// 書き直したバイト列。一覧を読めなければ `None`
@@ -1091,12 +1154,22 @@ fn space_of(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
         Shape::Curve(Edge::Arc { center, .. } | Edge::Elliptic { center, .. }) => {
             Some(center.space)
         }
+        Shape::Point(dot) => Some(dot.position.space),
         _ => None,
     }
 }
 
-/// 線・円・円弧の形の値。座標は `scale` で割って用紙の値にする。円弧は傾き 0・扁平率 1 で書く
-fn shape_bytes(shape: &Shape<ModelPoint>, space: SpaceId, scale: f64) -> Option<Vec<u8>> {
+/// 線・円・円弧・点の形の値。座標は `scale` で割って用紙の値にする。円弧は傾き 0・扁平率 1 で書く。点は、
+/// 記号の点（線種 100、`symbol`）か否かを元の図形のままにする
+fn shape_bytes(
+    shape: &Shape<ModelPoint>,
+    space: SpaceId,
+    scale: f64,
+    symbol: bool,
+) -> Option<Vec<u8>> {
+    if let Shape::Point(dot) = shape {
+        return point_bytes(dot, space, scale, symbol);
+    }
     let mut values = Vec::new();
     let point = |values: &mut Vec<f64>, point: &ModelPoint| {
         (point.space == space).then(|| values.extend([point.x / scale, point.y / scale]))
@@ -1152,6 +1225,40 @@ fn shape_bytes(shape: &Shape<ModelPoint>, space: SpaceId, scale: f64) -> Option<
         .collect();
     if let Some(full) = full {
         out.extend(full.to_le_bytes());
+    }
+    Some(out)
+}
+
+/// 点の形の値（決定 0183）。位置・仮点か（u32）と、記号の点は記号の番号（u32）・角度（度、推定）・倍率を書く。
+/// 記号の点は名前空間 `jww.point` の既定義の印を、ほかの点は文書の点の表し方に従う角度 0 の点を表す。記号の点と
+/// ほかの点を入れ替えると図形の大きさが変わるので、書かない
+fn point_bytes(
+    dot: &Point<ModelPoint>,
+    space: SpaceId,
+    scale: f64,
+    symbol: bool,
+) -> Option<Vec<u8>> {
+    if dot.position.space != space {
+        return None;
+    }
+    let mut out = Vec::new();
+    for value in [dot.position.x / scale, dot.position.y / scale] {
+        out.extend(value.is_finite().then_some(value)?.to_le_bytes());
+    }
+    out.extend(u32::from(dot.construction).to_le_bytes());
+    match &dot.look {
+        PointLook::Document if !symbol && dot.rotation == 0.0 => {}
+        PointLook::Marker { key, scale: size } if symbol && key.namespace == "jww.point" => {
+            // 読み直すと同じキーになる番号だけ
+            let code = key.code.parse::<u32>().ok()?;
+            if code.to_string() != key.code || !dot.rotation.is_finite() || !size.is_finite() {
+                return None;
+            }
+            out.extend(code.to_le_bytes());
+            out.extend(dot.rotation.to_le_bytes());
+            out.extend(size.to_le_bytes());
+        }
+        _ => return None,
     }
     Some(out)
 }

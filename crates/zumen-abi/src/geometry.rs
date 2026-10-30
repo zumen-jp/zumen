@@ -1,6 +1,6 @@
 //! 形の値（`geometry`）と図面モデルの形の行き来（決定 0139）。
 //!
-//! 線分・円・円弧・楕円・幅を持たない折れ線・文字・書式つきの文字・ブロックの記号・スプライン・寸法・引出線だけを扱う。点は要素の空間か用紙の座標、長さは同じ
+//! 線分・円・円弧・楕円・幅を持たない折れ線・文字・書式つきの文字・ブロックの記号・スプライン・寸法・引出線・点だけを扱う。点は要素の空間か用紙の座標、長さは同じ
 //! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use std::cell::Cell;
@@ -9,21 +9,24 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
     Affine, Attribute, Axis, Dimension, DimensionKind as Kind, DimensionText, Edge, Fit, Flow,
-    FormattedText, Grid, HeightMeaning, Horizontal, Label, Leader, Length, LineSpacing,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Spline,
-    Symbol, SymbolKey, Text, Vertex, Vertical,
+    FormattedText, Grid, HeightMeaning, Horizontal, Label, Leader, Length, LineSpacing, MarkerKey,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, PointLook, Polyline, Rotation,
+    Shape, Spline, Symbol, SymbolKey, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
 use crate::messages::{
     ArcGeometry, Attachment, CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind,
     DimensionLabel, EllipseGeometry, FormattedTextGeometry, Geometry, LeaderGeometry, LineGeometry,
-    PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid, TextFit,
-    TextGeometry,
+    PointGeometry, PointMarker, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry,
+    SymbolGrid, TextFit, TextGeometry,
 };
 
 /// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
 const BLOCK: &str = "dxf.block";
+
+/// 点の既定義の印の表の名前空間（決定 0160）
+const MARKERS: [&str; 2] = ["sxf.marker", "jww.point"];
 
 /// 形の値と行き来できる点
 pub(crate) trait Spot: Planar + Point + PartialEq {
@@ -237,6 +240,19 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             annotation: None,
             style: leader.style.clone(),
             style_id: None,
+        }),
+        Shape::Point(dot) => Geometry::Point(PointGeometry {
+            position: xy(dot.position),
+            rotation: dot.rotation,
+            marker: match &dot.look {
+                PointLook::Document => None,
+                PointLook::Marker { key, scale } => Some(PointMarker {
+                    namespace: key.namespace.to_owned(),
+                    code: key.code.clone(),
+                    scale: *scale,
+                }),
+            },
+            construction: dot.construction.then_some(true),
         }),
         _ => return None,
     })
@@ -1107,6 +1123,36 @@ pub(crate) fn shape_of<P: Spot>(
                 style: leader.style.clone(),
             })
         }
+        // 点は、置き換えでも描き方（文書の点の表し方か既定義の印か）を変えない（決定 0183）
+        (Geometry::Point(dot), was @ (None | Some(Shape::Point(_)))) => {
+            let look = match &dot.marker {
+                None => PointLook::Document,
+                Some(marker) => {
+                    let namespace = MARKERS
+                        .into_iter()
+                        .find(|namespace| *namespace == marker.namespace)
+                        .ok_or("geometry/marker/namespace")?;
+                    PointLook::Marker {
+                        key: MarkerKey {
+                            namespace,
+                            code: marker.code.clone(),
+                        },
+                        scale: finite(marker.scale, "marker/scale")?,
+                    }
+                }
+            };
+            if let Some(Shape::Point(was)) = was
+                && (was.look == PointLook::Document) != (look == PointLook::Document)
+            {
+                return Err("geometry/marker".to_string());
+            }
+            Shape::Point(zumen_drawing::Point {
+                position: point(&dot.position, "position")?,
+                rotation: finite(dot.rotation, "rotation")?,
+                look,
+                construction: dot.construction.unwrap_or(false),
+            })
+        }
         _ => return mismatch(),
     })
 }
@@ -1291,6 +1337,7 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
             spline.control.first().or(spline.fit.first()).copied()
         }
         Shape::Leader(leader) => leader.path.first().copied(),
+        Shape::Point(dot) => Some(dot.position),
         Shape::Dimension(dimension) => Some(match dimension.kind {
             Kind::Linear { first, .. }
             | Kind::Aligned { first, .. }

@@ -1479,6 +1479,8 @@ pub enum Geometry {
     Dimension(DimensionGeometry),
     /// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときは注記を持たない。DWG は R2004 までの置き換えだけを書き戻す。小版 31 から
     Leader(LeaderGeometry),
+    /// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から
+    Point(PointGeometry),
 }
 
 impl Geometry {
@@ -1495,6 +1497,7 @@ impl Geometry {
         "spline",
         "dimension",
         "leader",
+        "point",
     ];
 
     /// 目印の欄（`shape`）の値
@@ -1511,6 +1514,7 @@ impl Geometry {
             Self::Spline(_) => "spline",
             Self::Dimension(_) => "dimension",
             Self::Leader(_) => "leader",
+            Self::Point(_) => "point",
         }
     }
 }
@@ -1532,6 +1536,7 @@ impl FromJson for Geometry {
             "spline" => Self::Spline(SplineGeometry::read_fields(&mut object)?),
             "dimension" => Self::Dimension(DimensionGeometry::read_fields(&mut object)?),
             "leader" => Self::Leader(LeaderGeometry::read_fields(&mut object)?),
+            "point" => Self::Point(PointGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -1553,6 +1558,7 @@ impl ToJson for Geometry {
             Self::Spline(value) => value.to_json(out),
             Self::Dimension(value) => value.to_json(out),
             Self::Leader(value) => value.to_json(out),
+            Self::Point(value) => value.to_json(out),
         }
     }
 }
@@ -2480,6 +2486,119 @@ impl FromJson for LeaderGeometry {
 }
 
 impl ToJson for LeaderGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointGeometry {
+    /// 位置 [X, Y]
+    pub position: Vec<f64>,
+    /// 回転（度）
+    pub rotation: f64,
+    /// 既定義の印。書かなければ文書の点の表し方に従う
+    pub marker: Option<PointMarker>,
+    /// 作図の補助の点（JWW の仮点）か。書かなければ偽
+    pub construction: Option<bool>,
+}
+
+impl PointGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "point")?;
+        let position = object.required("position", |value| json::array(value, json::number))?;
+        let rotation = object.required("rotation", json::number)?;
+        let marker = object.optional("marker", PointMarker::from_json)?;
+        let construction = object.optional("construction", json::boolean)?;
+        Ok(Self {
+            position,
+            rotation,
+            marker,
+            construction,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("point");
+        out.key("position");
+        out.array(&self.position, |out, item| out.float(*item));
+        out.key("rotation");
+        out.float(self.rotation);
+        if let Some(value) = &self.marker {
+            out.key("marker");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.construction {
+            out.key("construction");
+            out.bool(*value);
+        }
+    }
+}
+
+impl FromJson for PointGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 既定義の印の表のキーと尺度。印の形は、表示する側がキーから引く
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointMarker {
+    /// 印の表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）
+    pub namespace: String,
+    /// 名前空間の中の元のコード
+    pub code: String,
+    /// 尺度
+    pub scale: f64,
+}
+
+impl PointMarker {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let namespace = object.required("namespace", json::string)?;
+        let code = object.required("code", json::string)?;
+        let scale = object.required("scale", json::number)?;
+        Ok(Self {
+            namespace,
+            code,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("namespace");
+        out.string(&self.namespace);
+        out.key("code");
+        out.string(&self.code);
+        out.key("scale");
+        out.float(self.scale);
+    }
+}
+
+impl FromJson for PointMarker {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointMarker {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

@@ -616,9 +616,12 @@ fn consecutive_composites_keep_their_members_protected() {
     assert!(result.is_ok());
 }
 
-/// 点マーカーは、置き換え・変換・追加を書き戻さず、ファイルを変えない（決定 0160。点の書き戻しは #170）
+/// 点マーカーの位置・コード・回転・尺度・色を置き換え、変換で動かし、点マーカーを足す。読み直すと同じ点になる。
+/// 鏡に映す変換と、名前空間 `sxf.marker` でない点・文書の点の表し方に従う点・線種を持つ点は断り、ファイルを変えない
+/// （決定 0183）
 #[test]
-fn point_markers_are_not_replaced_transformed_or_added() {
+fn point_markers_are_replaced_transformed_and_added() {
+    use zumen_drawing::{MarkerKey, Point, PointLook};
     let features: [&[u8]; 3] = [
         b"layer_feature(\\'A\\','1')",
         b"point_marker_feature('1','1','5.0','6.0','2','0.0','1.0')",
@@ -636,25 +639,125 @@ fn point_markers_are_not_replaced_transformed_or_added() {
     let Shape::Point(point) = &marker.shape else {
         panic!("{:?}", marker.shape);
     };
-    let moved = Element {
-        shape: Shape::Point(zumen_drawing::Point {
-            position: paper(50.0, 50.0),
-            ..point.clone()
-        }),
+    let with = |dot: Point<PaperPoint>| Element {
+        shape: Shape::Point(dot),
         ..marker.clone()
     };
-    for edit in [
-        Edit::Replace {
-            target: target.clone(),
-            element: Box::new(Placed::Paper(moved.clone())),
+    let points = |file: &SxfFile| -> Vec<Element<PaperPoint>> {
+        lift(file).sheets[0]
+            .elements
+            .iter()
+            .filter(|element| matches!(element.shape, Shape::Point(_)))
+            .cloned()
+            .collect()
+    };
+    let key = |namespace, code: &str| MarkerKey {
+        namespace,
+        code: code.to_owned(),
+    };
+
+    let changed = Point {
+        position: paper(50.0, 60.0),
+        rotation: 30.0,
+        look: PointLook::Marker {
+            key: key("sxf.marker", "4"),
+            scale: 2.5,
         },
-        Edit::Transform {
+        construction: false,
+    };
+    let replaced = Element {
+        style: Style {
+            color: sxf_color(2),
+            ..marker.style
+        },
+        ..with(changed.clone())
+    };
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Paper(replaced.clone())),
+        }],
+    );
+    assert!(result.is_ok(), "{diagnostics:?}");
+    let found = points(&file);
+    assert_eq!(found[0].shape, replaced.shape);
+    assert_eq!(found[0].style, replaced.style);
+
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Transform {
             target: target.clone(),
             transform: Affine::translation(10.0, 0.0),
+        }],
+    );
+    assert!(result.is_ok(), "{diagnostics:?}");
+    assert_eq!(
+        points(&file)[0].shape,
+        Shape::Point(Point {
+            position: paper(15.0, 6.0),
+            ..point.clone()
+        })
+    );
+
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(with(changed.clone()))),
+        }],
+    );
+    assert!(result.is_ok(), "{diagnostics:?}");
+    let found = points(&file);
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[1].shape, Shape::Point(changed.clone()));
+    assert_eq!(found[1].style, marker.style);
+
+    // X を反転する鏡映。既定義の印は鏡映を表せない
+    let mirror = Affine {
+        m: [-1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+    };
+    let document = Point {
+        look: PointLook::Document,
+        ..changed.clone()
+    };
+    let foreign = Point {
+        look: PointLook::Marker {
+            key: key("jww.point", "4"),
+            scale: 1.0,
+        },
+        ..changed.clone()
+    };
+    let lined = Element {
+        style: Style {
+            line_type: Inherit::Own(LineTypeId(1)),
+            ..marker.style
+        },
+        ..with(changed)
+    };
+    for edit in [
+        Edit::Transform {
+            target: target.clone(),
+            transform: mirror,
+        },
+        Edit::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Paper(with(document.clone()))),
+        },
+        Edit::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Paper(lined)),
         },
         Edit::Add {
             place: id::sheet(&drawing.sheets[0]),
-            element: Box::new(Placed::Paper(moved)),
+            element: Box::new(Placed::Paper(with(document))),
+        },
+        Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(with(foreign))),
         },
     ] {
         let mut file = read(&src);

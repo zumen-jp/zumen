@@ -452,3 +452,72 @@ fn a_stale_document_is_refused() {
     );
     assert_eq!(write(&file), src);
 }
+
+/// P21 の点マーカーは、置き換え・変換・追加・色の変更を書き戻さず、ファイルを変えない。P21 の点マーカーは、記号の
+/// 実体（SYMBOL_TARGET・DEFINED_SYMBOL）とマーカーの名前で表し、それを組み直す書き方をまだ持たない（決定 0183）
+#[test]
+fn point_markers_are_not_written_into_p21() {
+    use zumen_drawing::{Point, PointLook};
+    let data = [
+        "#2=DRAUGHTING_PRE_DEFINED_COLOUR('green');",
+        "#30=SYMBOL_COLOUR(#2);",
+        "#31=SYMBOL_STYLE(' ',#30);",
+        "#32=PRESENTATION_STYLE_ASSIGNMENT((#31));",
+        "#33=CARTESIAN_POINT(' ',(5.,6.));",
+        "#34=DIRECTION(' ',(1.,0.));",
+        "#35=AXIS2_PLACEMENT_2D(' ',#33,#34);",
+        "#36=SYMBOL_TARGET(' ',#35,1.5,1.5);",
+        "#37=PRE_DEFINED_POINT_MARKER_SYMBOL('circle');",
+        "#38=DEFINED_SYMBOL(' ',#37,#36);",
+        "#39=ANNOTATION_SYMBOL_OCCURRENCE(' ',(#32),#38);",
+        "#60=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#39));",
+        "#70=DRAWING_SHEET_REVISION('A3_horizontal',(#39),' ',' ');",
+    ];
+    let mut src = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n".to_owned();
+    for line in data {
+        src.push_str(line);
+        src.push('\n');
+    }
+    src.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
+    let src = src.into_bytes();
+    let drawing = lift(&read(&src));
+    let (target, marker) = seen(&drawing, 39);
+    let Shape::Point(point) = &marker.shape else {
+        panic!("{:?}", marker.shape);
+    };
+    assert!(matches!(point.look, PointLook::Marker { .. }));
+    let moved = Element {
+        shape: Shape::Point(Point {
+            position: paper(50.0, 50.0),
+            ..point.clone()
+        }),
+        ..marker.clone()
+    };
+    for edit in [
+        Edit::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Paper(moved.clone())),
+        },
+        Edit::Transform {
+            target: target.clone(),
+            transform: Affine::translation(10.0, 0.0),
+        },
+        Edit::Restyle {
+            target: target.clone(),
+            style: Restyle {
+                color: Some(sxf_color(1)),
+                ..Restyle::default()
+            },
+        },
+        Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(moved)),
+        },
+    ] {
+        let mut file = read(&src);
+        let (result, diagnostics) = apply(&mut file, vec![edit]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(write(&file), src);
+    }
+}

@@ -216,3 +216,4 @@
 - [0180: TrueType のフォントの寸法は、依存を足さずに要る表だけを zumen-drawing で読む](0180-read-truetype-metrics-without-dependency.md)（2026-10-30、採用）
 - [0181: 書式つきの文字は枠の幅で折り返して置き、DXF の特殊な符号は呼び出し側が解き、縦書きは置かない](0181-formatted-text-layout.md)（2026-10-31、採用）
 - [0182: 記号の定義の中に記号を足し、定義の入れ子が輪になる追加は断る](0182-drawing-apply-symbols-in-definitions.md)（2026-10-31、採用）
+- [0183: 点の要素を書き戻し、形式が表せない点は断る](0183-drawing-apply-points.md)（2026-10-31、採用）

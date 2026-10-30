@@ -8861,6 +8861,175 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
     assert_eq!(written, src);
 }
 
+/// R2000 の DWG の POINT の位置と X 軸の角度を、図面モデルの変更で置き換え、変換で動かす（決定 0183）。読み直すと
+/// 同じ点になる。既定義の印の点は POINT で表せないので断り、ファイルを変えない。足すことは
+/// [`drawing_additions_go_into_symbol_definitions`] で確かめる
+#[cfg(feature = "drawing")]
+#[test]
+fn drawing_points_are_written_back_to_a_dwg() {
+    use zumen_drawing::{
+        Affine, Changes, Drawing2D, Edit, Element, Hash, MarkerKey, ModelPoint, Placed, Point,
+        PointLook, Seen, Shape, id,
+    };
+    use zumen_sdk::{Apply, Lift};
+    let point = object(
+        0x1B,
+        0x40,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            for v in [1.0, 2.0, 0.0] {
+                w.bd(v);
+            }
+            w.bit(true);
+            w.bit(true);
+            w.bd(0.0);
+        },
+        entity_handles(0x10),
+    );
+    let mut objects = objects_with_a_block();
+    objects.push((0x40, point));
+    objects.sort_by_key(|(handle, _)| *handle);
+    let src = with_header(
+        dwg(&objects),
+        0x58,
+        0x1F,
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+        0x80,
+    );
+    let lift = |src: &[u8]| -> Drawing2D {
+        let (file, mut diag) = read(src, Limits::default());
+        file.unwrap()
+            .lift(&mut Cx::new(
+                &mut Budget::default(),
+                &mut diag,
+                &CancelToken::new(),
+            ))
+            .unwrap()
+    };
+    let points = |src: &[u8]| -> Vec<Point<ModelPoint>> {
+        lift(src).spaces[0]
+            .elements
+            .iter()
+            .filter_map(|element| match &element.shape {
+                Shape::Point(dot) => Some(dot.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let drawing = lift(&src);
+    let space = &drawing.spaces[0];
+    let (index, element) = space
+        .elements
+        .iter()
+        .enumerate()
+        .find(|(_, element)| matches!(element.shape, Shape::Point(_)))
+        .unwrap();
+    let Shape::Point(was) = &element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    let place = id::space(space.id);
+    let mut namer = id::Namer::new(&place);
+    let target = Seen {
+        id: (0..=index)
+            .map(|at| namer.next(at, &space.elements[at]))
+            .last()
+            .unwrap(),
+        hash: Hash::element(element),
+    };
+    let with = |dot: Point<ModelPoint>| Element {
+        shape: Shape::Point(dot),
+        ..element.clone()
+    };
+    let apply = |edit: Edit| {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                document: None,
+                edits: vec![edit],
+            },
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        );
+        let mut bytes = Vec::new();
+        Dwg::write(
+            &file,
+            &mut bytes,
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        (result, diag, bytes)
+    };
+    // DWG は角度をラジアンで持つので、読み直した角度は末の桁が違いうる
+    let close = |found: &Point<ModelPoint>, wanted: &Point<ModelPoint>| {
+        found.position == wanted.position
+            && (found.rotation - wanted.rotation).abs() < 1e-9
+            && found.look == wanted.look
+            && found.construction == wanted.construction
+    };
+
+    let turned = Point {
+        position: ModelPoint {
+            x: 5.0,
+            y: 6.0,
+            ..was.position
+        },
+        rotation: 30.0,
+        ..was.clone()
+    };
+    let (result, diag, written) = apply(Edit::Replace {
+        target: target.clone(),
+        element: Box::new(Placed::Model(with(turned.clone()))),
+    });
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    let found = points(&written);
+    assert!(found.len() == 1 && close(&found[0], &turned), "{found:?}");
+
+    let (result, diag, written) = apply(Edit::Transform {
+        target: target.clone(),
+        transform: Affine::translation(1.0, 0.0),
+    });
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    let moved = Point {
+        position: ModelPoint {
+            x: 2.0,
+            ..was.position
+        },
+        ..was.clone()
+    };
+    assert_eq!(points(&written), [moved]);
+
+    let marker = Point {
+        look: PointLook::Marker {
+            key: MarkerKey {
+                namespace: "sxf.marker",
+                code: "2".to_owned(),
+            },
+            scale: 1.0,
+        },
+        ..was.clone()
+    };
+    for edit in [
+        Edit::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Model(with(marker.clone()))),
+        },
+        Edit::Add {
+            place,
+            element: Box::new(Placed::Model(with(marker))),
+        },
+    ] {
+        let (result, diag, written) = apply(edit);
+        assert_eq!(result.unwrap_err(), Error::Rejected);
+        // 読むときの警告（試験の図面の知らない型）の後に、断る診断が 1 つ
+        assert_eq!(
+            codes_of(&diag).last(),
+            Some(&codes::CHANGE_EDIT_UNSUPPORTED)
+        );
+        assert_eq!(written, src);
+    }
+}
+
 /// 記号の定義の空間に、図面モデルの変更で要素を足す（決定 0177）。L1 の書き戻しでブロック Two を足した DWG を
 /// 作り、その定義に円を足して読み直す。引出線は DWG にまだ足せないので断り、ファイルを変えない
 #[cfg(feature = "drawing")]
@@ -9016,6 +9185,30 @@ fn drawing_additions_go_into_symbol_definitions() {
             .iter()
             .all(|element| !matches!(element.shape, Shape::Circle { .. }))
     }));
+
+    // 文書の点の表し方に従う点も、POINT として足す（決定 0183）。DWG は角度をラジアンで持つので、読み直した角度は
+    // 末の桁が違いうる
+    let (result, diag, written) = apply(
+        &src,
+        Shape::Point(zumen_drawing::Point {
+            position: at(0.25, 0.75),
+            rotation: 30.0,
+            look: zumen_drawing::PointLook::Document,
+            construction: false,
+        }),
+    );
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    let again = lift(&written);
+    let definition = again
+        .symbols
+        .iter()
+        .find(|symbol| symbol.key.name == "Two")
+        .unwrap();
+    let Shape::Point(dot) = &definition.space.elements[1].shape else {
+        panic!("{:?}", definition.space.elements);
+    };
+    assert_eq!(dot.position, at(0.25, 0.75));
+    assert!((dot.rotation - 30.0).abs() < 1e-9, "{}", dot.rotation);
 
     let leader = Shape::Leader(Leader {
         path: vec![at(0.0, 0.0), at(1.0, 1.0)],

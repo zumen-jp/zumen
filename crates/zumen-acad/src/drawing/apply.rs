@@ -1837,9 +1837,31 @@ fn replacement<P: PartialEq>(
         (Shape::Leader(leader), Shape::Leader(was), b"LEADER") => {
             leading(&mut values, leader, was, frame)?;
         }
+        (Shape::Point(dot), Shape::Point(was), b"POINT") => {
+            dotting(&mut values, dot, was, frame)?;
+        }
         _ => return None,
     }
     Some(values)
+}
+
+/// POINT（DXF Reference「POINT」）の位置（10・20）と X 軸の角度（50）を直す。見え方は文書の点の表し方
+/// （`$PDMODE`・`$PDSIZE`）が決めるので、既定義の印の点と作図の補助の点は書かない（決定 0183）。角度は、省けば
+/// 0 なので、欄の並び（10・20・30・39・210・220・230・50）に合わせて書く
+fn dotting<P: PartialEq>(
+    values: &mut Vec<Value>,
+    dot: &zumen_drawing::Point<P>,
+    was: &zumen_drawing::Point<P>,
+    frame: &impl Frame<P>,
+) -> Option<()> {
+    if dot.look != zumen_drawing::PointLook::Document || dot.construction {
+        return None;
+    }
+    place(values, frame, [10, 20], &dot.position, &was.position)?;
+    if dot.rotation != was.rotation {
+        optional(values, 50, dot.rotation, 0.0, &[230, 220, 210, 39, 30, 20])?;
+    }
+    Some(())
 }
 
 /// LEADER（DXF Reference「LEADER」）の欄を直す。寸法スタイル（3）と注記（340）は変えない。経路が変われば、
@@ -2531,6 +2553,7 @@ fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
         },
         Shape::Formatted(text) => Some(text.point),
         Shape::Symbol(symbol) => Some(symbol.position),
+        Shape::Point(dot) => Some(dot.position),
         Shape::Curve(Edge::Spline(spline)) => {
             spline.control.first().or(spline.fit.first()).copied()
         }
