@@ -643,6 +643,7 @@ mod tests {
             line_type: Inherit::Layer,
             line_type_scale: 1.0,
             line_weight: Some(Inherit::Layer),
+            transparency: Inherit::Layer,
         }
     }
 
@@ -712,9 +713,11 @@ mod tests {
                 color: color.map(aci),
                 line_type: Some(LineTypeId(id)),
                 line_weight: Some(LineWeight::Width(PaperLength(0.1 * f64::from(id + 1)))),
+                transparency: None,
             }),
             follows_placement: id == 0,
             source: Ref::default(),
+            description: None,
         }
     }
 

@@ -16,6 +16,8 @@ pub(super) struct Color {
     pub(super) rgb: Option<u32>,
     /// 図形の色を DBCOLOR のハンドルで指すか。そのときは RGB の値がデータの側にない
     pub(super) book: bool,
+    /// 透過性（R2004 から、印の 0x2000 が立つときの BL）。DXF の 440 と同じ値
+    pub(super) transparency: Option<u32>,
 }
 
 impl Color {
@@ -34,6 +36,7 @@ impl Color {
             index,
             rgb,
             book: false,
+            transparency: None,
         }
     }
 }
@@ -85,6 +88,7 @@ impl<'a> Bits<'a> {
             index: self.bs()?,
             rgb: None,
             book: false,
+            transparency: None,
         };
         if self.release >= Release::R2004 {
             color = self.rgb_and_names(color.index)?;
@@ -107,6 +111,7 @@ impl<'a> Bits<'a> {
                 index,
                 rgb: None,
                 book: false,
+                transparency: None,
             };
             return Some((color, None));
         }
@@ -156,6 +161,7 @@ impl<'a> Bits<'a> {
                 index: value,
                 rgb: None,
                 book: false,
+                transparency: None,
             });
         }
         let flags = value as u16;
@@ -163,6 +169,7 @@ impl<'a> Bits<'a> {
             index,
             rgb: None,
             book: flags & 0x4000 != 0,
+            transparency: None,
         };
         // 0x4000 が立つと、0x8000 が立っていても RGB の値はなく、拡張辞書と画層の間に DBCOLOR を指す
         // ハンドルが来る（試料の DWG で確かめた）
@@ -170,7 +177,7 @@ impl<'a> Bits<'a> {
             color = Color::r2004(index, self.bl()? as u32);
         }
         if flags & 0x2000 != 0 {
-            self.bl()?;
+            color.transparency = Some(self.bl()? as u32);
         }
         Some(color)
     }

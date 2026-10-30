@@ -98,6 +98,7 @@ fn callouts_keep_the_style_of_their_lines_and_content() {
             line_type,
             line_type_scale: 1.0,
             line_weight: Some(line_weight),
+            transparency: Inherit::Block,
         };
         let rgb = Inherit::Own(Color {
             code: None,

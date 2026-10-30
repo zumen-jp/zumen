@@ -215,6 +215,7 @@ fn edits_are_written_into_the_instances() {
             line_type: Inherit::Own(LineTypeId(1)),
             line_type_scale: 1.0,
             line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.25)))),
+            transparency: Inherit::Layer,
         },
         shape: Shape::Line {
             start: paper(1e-7, 2.0),

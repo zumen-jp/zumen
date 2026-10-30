@@ -348,7 +348,7 @@ impl Born {
             values.push(int(67, 1));
         }
         values.push(self.layer_value(layer)?);
-        values.extend(self.style_values(style, &[6, 62, 420, 430, 370, 48])?);
+        values.extend(self.style_values(style, &[6, 62, 420, 430, 370, 48, 440])?);
         Some(values)
     }
 
@@ -430,6 +430,10 @@ impl Born {
         }
         if changed.contains(&48) && style.line_type_scale != 1.0 {
             values.push(real(48, nonzero_positive(style.line_type_scale)?)?);
+        }
+        // 透過性（440）は、DWG に足す図形の色の欄に書けないので、レイヤから継承するものだけを足す（決定 0157）
+        if changed.contains(&440) && style.transparency != Inherit::Layer {
+            return None;
         }
         // 元の順に合わせ、色の RGB を線種の倍率の後に並べる
         if let Some(position) = values.iter().position(|value| value.code == 420) {
@@ -674,6 +678,7 @@ impl Born {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
+                transparency: Inherit::Layer,
             };
             followers.push((b"SEQEND", self.entity(layer, &by_layer, paper)?));
         }

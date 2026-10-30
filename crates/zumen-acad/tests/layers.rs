@@ -5,7 +5,7 @@ use zumen_acad::{Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_drawing::{
     Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Hash, Layer, LayerState,
-    LineWeight, PaperLength, Restyle, Seen, id,
+    LayerStyle, LineWeight, PaperLength, Restyle, Seen, Transparency, id,
 };
 use zumen_sdk::{Apply, Error, Lift, testkit};
 
@@ -263,6 +263,17 @@ fn layer_changes_that_cannot_be_written_change_nothing() {
         frozen: true,
         ..a.state.unwrap()
     });
+    let described = Layer {
+        description: Some("外壁".to_owned()),
+        ..a.clone()
+    };
+    let transparent = Layer {
+        style: a.style.map(|style| LayerStyle {
+            transparency: Some(Transparency { alpha: 0x33 }),
+            ..style
+        }),
+        ..a.clone()
+    };
     let stale = Seen {
         hash: Hash::layer(zero),
         ..seen(a)
@@ -301,6 +312,30 @@ fn layer_changes_that_cannot_be_written_change_nothing() {
             vec![Edit::ReplaceLayer {
                 target: seen(a),
                 layer: Box::new(visible_frozen),
+            }],
+            codes::CHANGE_EDIT_UNSUPPORTED,
+        ),
+        // 透過性と説明（XDATA）は、まだ書かない（決定 0157）
+        (
+            vec![Edit::ReplaceLayer {
+                target: seen(a),
+                layer: Box::new(described.clone()),
+            }],
+            codes::CHANGE_EDIT_UNSUPPORTED,
+        ),
+        (
+            vec![Edit::AddLayer {
+                layer: Box::new(Layer {
+                    name: "D".to_owned(),
+                    ..described
+                }),
+            }],
+            codes::CHANGE_EDIT_UNSUPPORTED,
+        ),
+        (
+            vec![Edit::ReplaceLayer {
+                target: seen(a),
+                layer: Box::new(transparent),
             }],
             codes::CHANGE_EDIT_UNSUPPORTED,
         ),

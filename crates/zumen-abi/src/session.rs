@@ -4071,6 +4071,7 @@ mod tests {
                 line_type: zumen_drawing::Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
+                transparency: zumen_drawing::Inherit::Layer,
             },
             shape: Shape::Line {
                 start: at(from),
@@ -4374,6 +4375,7 @@ mod tests {
                 style: None,
                 follows_placement: false,
                 source: Ref::default(),
+                description: None,
             });
         }
         let cancel = CancelToken::new();

@@ -1157,6 +1157,27 @@ fn elements_are_added_with_new_handles() {
 }
 
 #[test]
+fn elements_with_their_own_transparency_are_not_added() {
+    use zumen_drawing::{Inherit, Transparency};
+    let src = src();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut element = elements(&lift(&file)).swap_remove(0);
+    element.source = Ref::at_record(901);
+    element.shape = newcomers().swap_remove(0);
+    // 透過性（440）はまだ書かないので、レイヤから継承するものだけを足す（決定 0157）
+    for transparency in [Inherit::Block, Inherit::Own(Transparency { alpha: 0x7F })] {
+        element.style.transparency = transparency;
+        let (result, found) = apply(&mut file, vec![Edit::Add(Box::new(element.clone()))]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(found, [(codes::CHANGE_EDIT_UNSUPPORTED, vec![])]);
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+    element.style.transparency = Inherit::Layer;
+    let (result, found) = apply(&mut file, vec![Edit::Add(Box::new(element))]);
+    assert!(result.is_ok(), "{found:?}");
+}
+
+#[test]
 fn elements_that_cannot_be_added_change_nothing() {
     use zumen_drawing::{Placement, SpaceId};
     let src = src();
@@ -1335,6 +1356,7 @@ fn addition_element(shape: Shape<ModelPoint>) -> Element<ModelPoint> {
             line_type: Inherit::Layer,
             line_type_scale: 1.0,
             line_weight: Some(Inherit::Layer),
+            transparency: Inherit::Layer,
         },
     }
 }

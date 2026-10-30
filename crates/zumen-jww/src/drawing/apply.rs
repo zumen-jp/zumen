@@ -641,7 +641,7 @@ impl Plan<'_> {
         in_definition: bool,
     ) -> Option<Base> {
         let mut base = was;
-        if style.line_type_scale != 1.0 {
+        if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
             return None;
         }
         if layer != element.layer {
@@ -674,6 +674,7 @@ impl Plan<'_> {
             line_type: Inherit::Own(LineTypeId(u32::from(base.pen_style.max(1)))),
             line_type_scale: 1.0,
             line_weight: self.header.weight(base.pen_color, base.pen_width),
+            transparency: Inherit::Layer,
         }
     }
 
@@ -771,7 +772,7 @@ impl Plan<'_> {
             return None;
         }
         let style = element.style;
-        if style.line_type_scale != 1.0 {
+        if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
             return None;
         }
         let base = Base {

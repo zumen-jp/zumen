@@ -574,6 +574,7 @@ impl<'f> Lifter<'f> {
             style: None,
             follows_placement: false,
             source: feature.source(),
+            description: None,
         });
         Some(())
     }
@@ -885,6 +886,7 @@ impl<'f> Lifter<'f> {
                         line_type: Inherit::Layer,
                         line_type_scale: 1.0,
                         line_weight: None,
+                        transparency: Inherit::Layer,
                     },
                     source,
                     shape: Shape::Symbol(Symbol {
@@ -1215,6 +1217,7 @@ impl<'f> Lifter<'f> {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
+                transparency: Inherit::Layer,
             },
             source,
             shape,
@@ -1259,6 +1262,7 @@ impl<'f> Lifter<'f> {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
+                transparency: Inherit::Layer,
             },
             source,
             shape,
@@ -1287,6 +1291,7 @@ impl<'f> Lifter<'f> {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
+                transparency: Inherit::Layer,
             },
             source: source.clone(),
             shape,
@@ -1605,6 +1610,7 @@ impl<'f> Lifter<'f> {
                             line_type_scale: 1.0,
                             line_weight: line_weight
                                 .map(|width| Inherit::Own(LineWeight::Width(width))),
+                            transparency: Inherit::Layer,
                         },
                         source: curve.source(),
                         shape: *shape,
@@ -1775,6 +1781,7 @@ impl<'f> Lifter<'f> {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
+                transparency: Inherit::Layer,
             },
             source: source.clone(),
             shape: Shape::Hatch(Hatch {
@@ -1992,6 +1999,7 @@ impl<'f> Lifter<'f> {
                 line_type: Inherit::Own(line_type),
                 line_type_scale: 1.0,
                 line_weight: line_weight.map(|width| Inherit::Own(LineWeight::Width(width))),
+                transparency: Inherit::Layer,
             },
             shape,
         }
@@ -2012,6 +2020,7 @@ impl<'f> Lifter<'f> {
                     style: None,
                     follows_placement: false,
                     source: Ref::default(),
+                    description: None,
                 });
             }
         }

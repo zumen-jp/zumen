@@ -1300,7 +1300,7 @@ pub(super) fn skip_extended_data(bits: &mut Bits) -> Option<()> {
 }
 
 /// 図形の共通の欄（ODS 5.4.1 の 20.4.1）。既定の値でない色（62）・線種の尺度（48）・
-/// 非表示（60）を値にする。R2004 からは、反応子の数の後に拡張辞書がないことを表す B があり、
+/// 非表示（60）・透過性（440）を値にする。R2004 からは、反応子の数の後に拡張辞書がないことを表す B があり、
 /// 前後の図形のハンドルはない
 fn entity_data(bits: &mut Bits) -> Option<Common> {
     // 図形の絵の大きさは、R2010 からは BLL
@@ -1353,6 +1353,10 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     }
     if invisible != 0 {
         values.push(int(60, i64::from(invisible)));
+    }
+    // 透過性（440）。DXF と同じく、レイヤから継承する値（上位のバイトが 0）なら置かない
+    if let Some(transparency) = color.transparency.filter(|value| value >> 24 != 0) {
+        values.push(int(440, i64::from(transparency)));
     }
     // 線の太さ（370）。DXF と同じく、ByLayer なら置かない
     if let Some(weight) = lineweight(u16::from(weight)).filter(|weight| *weight != -1) {

@@ -594,6 +594,7 @@ impl Lifter<'_> {
                     style: None,
                     follows_placement: false,
                     source: Ref::at_record(0),
+                    description: None,
                 });
             }
         }
@@ -771,6 +772,7 @@ impl Lifter<'_> {
             line_type: Inherit::Block,
             line_type_scale: 1.0,
             line_weight: None,
+            transparency: Inherit::Layer,
         };
         Ok(Some((shape, style)))
     }
@@ -916,6 +918,7 @@ impl Lifter<'_> {
             line_type: Inherit::Own(self.line_type(base.pen_style)),
             line_type_scale: 1.0,
             line_weight: self.header.weight(base.pen_color, base.pen_width),
+            transparency: Inherit::Layer,
         }
     }
 
@@ -926,6 +929,7 @@ impl Lifter<'_> {
             line_type: Inherit::Layer,
             line_type_scale: 1.0,
             line_weight: None,
+            transparency: Inherit::Layer,
         }
     }
 

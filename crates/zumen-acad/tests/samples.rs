@@ -3517,6 +3517,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                             line_type: Inherit::Layer,
                             line_type_scale: 1.0,
                             line_weight: Some(Inherit::Layer),
+                            transparency: Inherit::Layer,
                         },
                         source: zumen_base::Ref::default(),
                     });
@@ -3536,6 +3537,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                             line_type: Inherit::Layer,
                             line_type_scale: 1.0,
                             line_weight: Some(Inherit::Layer),
+                            transparency: Inherit::Layer,
                         },
                         shape: shape.clone(),
                     }))
@@ -3602,6 +3604,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                     line_type: Inherit::Layer,
                     line_type_scale: 1.0,
                     line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.25)))),
+                    transparency: Inherit::Layer,
                 },
                 shape: shapes[0].clone(),
             };
@@ -3882,6 +3885,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
                     line_type: Inherit::Layer,
                     line_type_scale: 1.0,
                     line_weight: Some(Inherit::Layer),
+                    transparency: Inherit::Layer,
                 };
                 added.push(element);
             }
@@ -3982,6 +3986,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
                         line_type: Inherit::Layer,
                         line_type_scale: 1.0,
                         line_weight: Some(Inherit::Layer),
+                        transparency: Inherit::Layer,
                     },
                     shape: line(sheet.id),
                 }))
@@ -4189,8 +4194,8 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
     }
 }
 
-/// 同じ図面の DWG と DXF は、図面モデルに移した線種の生成・当てはめの許容差・節点の取り方（決定 0157）が
-/// 同じになる。R2013 より前の DWG は節点の取り方を図形の欄に持たないので、節点の取り方は R2013 からの組で比べる。
+/// 同じ図面の DWG と DXF は、図面モデルに移した線種の生成・当てはめの許容差・節点の取り方・図形の透過性と、
+/// 画層の説明と透過性（決定 0157）が同じになる。R2013 より前の DWG は節点の取り方を図形の欄に持たないので、節点の取り方は R2013 からの組で比べる。
 /// 試料の横須賀の平面図は、線種の生成を立てた LWPOLYLINE を持つ
 #[test]
 #[cfg(feature = "drawing")]
@@ -4199,19 +4204,28 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
     reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
-    use zumen_drawing::{Edge, Element, KnotParameterization, ModelPoint, Shape};
-    type Moved = (bool, Option<f64>, Option<KnotParameterization>);
+    use zumen_drawing::{
+        Edge, Element, Inherit, KnotParameterization, ModelPoint, Shape, Transparency,
+    };
+    type Moved = (
+        bool,
+        Option<f64>,
+        Option<KnotParameterization>,
+        Inherit<Transparency>,
+    );
     fn moved(elements: &[Element<ModelPoint>], knots: bool, out: &mut Vec<Moved>) {
         for element in elements {
-            match &element.shape {
-                Shape::Polyline(line) => out.push((line.line_type_generation, None, None)),
-                Shape::Curve(Edge::Spline(spline)) => out.push((
+            let transparency = element.style.transparency;
+            out.push(match &element.shape {
+                Shape::Polyline(line) => (line.line_type_generation, None, None, transparency),
+                Shape::Curve(Edge::Spline(spline)) => (
                     false,
                     spline.fit_tolerance,
                     spline.knot_parameterization.filter(|_| knots),
-                )),
-                _ => {}
-            }
+                    transparency,
+                ),
+                _ => (false, None, None, transparency),
+            });
         }
     }
     let all = |path: &Path, knots: bool| {
@@ -4223,7 +4237,18 @@ fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
         for symbol in &drawing.symbols {
             moved(&symbol.space.elements, knots, &mut out);
         }
-        out
+        let layers: Vec<_> = drawing
+            .layers
+            .iter()
+            .map(|layer| {
+                (
+                    layer.name.clone(),
+                    layer.description.clone(),
+                    layer.style.and_then(|style| style.transparency),
+                )
+            })
+            .collect();
+        (out, layers)
     };
     let mut found = pairs();
     if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
@@ -4234,17 +4259,30 @@ fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
     }
     let mut generated = 0;
     let mut parameterized = 0;
+    let mut transparent = 0;
+    let mut layers = 0;
     for (dwg, dxf) in found {
         let knots = std::fs::read(&dwg).unwrap().get(..6) >= Some(b"AC1027".as_slice());
         let ours = all(&dwg, knots);
         assert_eq!(ours, all(&dxf, knots), "{}", dwg.display());
-        generated += ours.iter().filter(|moved| moved.0).count();
-        parameterized += ours.iter().filter(|moved| moved.2.is_some()).count();
+        let (elements, described) = ours;
+        generated += elements.iter().filter(|moved| moved.0).count();
+        parameterized += elements.iter().filter(|moved| moved.2.is_some()).count();
+        transparent += elements
+            .iter()
+            .filter(|moved| moved.3 != Inherit::Layer)
+            .count();
+        layers += described
+            .iter()
+            .filter(|(_, description, transparency)| {
+                description.is_some() || transparency.is_some()
+            })
+            .count();
     }
     if std::env::var_os("ZUMEN_SAMPLES").is_some_and(|d| !d.is_empty()) {
         assert!(
-            generated > 0 && parameterized > 0,
-            "{generated} {parameterized}"
+            generated > 0 && parameterized > 0 && transparent > 0 && layers > 0,
+            "{generated} {parameterized} {transparent} {layers}"
         );
     }
 }

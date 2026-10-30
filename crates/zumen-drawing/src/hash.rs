@@ -19,8 +19,8 @@ use crate::{
     MarkRotation, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern,
     PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Resource, Rotation,
     Scaled, Shape, SheetId, SpaceId, Span, Spline, StackKind, Style, Symbol, SymbolKey, Table,
-    TableFormats, Text, TextStyle, TextStyleDefinition, Underlay, UnderlayFrame, UnderlayKind,
-    ValueUnit, Vertex, Vertical,
+    TableFormats, Text, TextStyle, TextStyleDefinition, Transparency, Underlay, UnderlayFrame,
+    UnderlayKind, ValueUnit, Vertex, Vertical,
 };
 
 /// 要素か表の項目のハッシュ。`v2:` と 32 桁の 16 進で書く
@@ -405,10 +405,11 @@ units! {
 }
 
 records! {
-    Layer { id, name, state, style, follows_placement, source }
+    Layer { id, name, state, style, follows_placement, description, source }
     LayerState { visible, printable, editable, frozen }
-    LayerStyle { color, line_type, line_weight }
-    Style { color, line_type, line_type_scale, line_weight }
+    LayerStyle { color, line_type, line_weight, transparency }
+    Style { color, line_type, line_type_scale, line_weight, transparency }
+    Transparency { alpha }
     Color { code, rgb }
     ColorCode { system, value }
     LineType { id, name, definition, source }
@@ -1108,6 +1109,7 @@ mod tests {
             style: None,
             follows_placement: false,
             source: Ref::default(),
+            description: None,
         };
         let line_type = LineType {
             id: LineTypeId(2),

@@ -278,6 +278,7 @@ fn edits_are_written_into_the_entity_lists() {
             line_type: Inherit::Own(LineTypeId(1)),
             line_type_scale: 1.0,
             line_weight: None,
+            transparency: Inherit::Layer,
         },
         shape: Shape::Line {
             start: model(0.0, 0.0),

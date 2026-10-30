@@ -18,8 +18,8 @@ use zumen_drawing::{
     LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured, ModelLength, ModelPoint,
     PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece,
     Placement, Polyline, Resource, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Spline,
-    Style, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame, UnderlayKind, Unit, ValueUnit,
-    Vertex, Vertical,
+    Style, SymbolKey, Table, Target, Text, Transparency, Underlay, UnderlayFrame, UnderlayKind,
+    Unit, ValueUnit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -80,6 +80,7 @@ fn by_layer() -> Style {
         line_type: Inherit::Layer,
         line_type_scale: 1.0,
         line_weight: Some(Inherit::Layer),
+        transparency: Inherit::Layer,
     }
 }
 
@@ -939,6 +940,7 @@ fn layers_keep_their_table_and_views_hide_layers() {
             style: None,
             follows_placement: false,
             source: Ref::default(),
+            description: None,
         }
     );
     // レイヤ 0 だけが、ブロックの中で配置のレイヤに従う（決定 0143）
@@ -953,6 +955,94 @@ fn layers_keep_their_table_and_views_hide_layers() {
     let layers: Vec<_> = drawing.spaces[0].elements.iter().map(|e| e.layer).collect();
     assert_eq!(layers, [LayerId(1), LayerId(4)]);
     assert_eq!(drawing.sheets[0].views[0].hidden_layers, [LayerId(2)]);
+}
+
+#[test]
+fn transparency_and_layer_descriptions_move_to_the_model() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "LAYER"),
+        // 説明と、不透明度 0x33 の透過性を XDATA に持つ
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        (1001, "AcAecLayerStandard"),
+        (1000, ""),
+        (1000, "外壁"),
+        (1001, "AcCmTransparency"),
+        (1071, "33554483"),
+        // 空の説明と、レイヤから継承する透過性は持たない
+        (0, "LAYER"),
+        (5, "11"),
+        (2, "Plain"),
+        (70, "0"),
+        (62, "1"),
+        (1001, "AcAecLayerStandard"),
+        (1000, ""),
+        (1000, ""),
+        (1001, "AcCmTransparency"),
+        (1071, "0"),
+        (0, "ENDTAB"),
+    ];
+    let mut entities = model_line("20", "0");
+    entities.extend([model_line("21", "0"), vec![(440, "16777216")]].concat());
+    entities.extend([model_line("22", "Plain"), vec![(440, "33554559")]].concat());
+    // 上位のバイトが 3 の値は、透過性にならない
+    entities.extend([model_line("23", "0"), vec![(440, "50331648")]].concat());
+    let (drawing, diag) = lift(
+        &sections(&[
+            (
+                "HEADER",
+                &[(9, "$ACADVER"), (1, "AC1027"), (9, "$INSUNITS"), (70, "4")],
+            ),
+            ("TABLES", &tables),
+            ("ENTITIES", &entities),
+        ]),
+        &mut Budget::default(),
+    );
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("LINE") Int(440)"#.to_owned(),
+            1,
+            vec![Ref::at_record(12).with_key(Key::Handle(0x23))],
+        )]
+    );
+    let layers: Vec<_> = drawing
+        .layers
+        .iter()
+        .map(|layer| {
+            (
+                layer.name.as_str(),
+                layer.description.as_deref(),
+                layer.style.and_then(|style| style.transparency),
+            )
+        })
+        .collect();
+    assert_eq!(
+        layers,
+        [
+            ("0", Some("外壁"), Some(Transparency { alpha: 0x33 })),
+            ("Plain", None, None),
+        ]
+    );
+    let transparency: Vec<_> = drawing.spaces[0]
+        .elements
+        .iter()
+        .map(|element| element.style.transparency)
+        .collect();
+    assert_eq!(
+        transparency,
+        [
+            Inherit::Layer,
+            Inherit::Block,
+            Inherit::Own(Transparency { alpha: 0x7F }),
+        ]
+    );
 }
 
 #[test]
@@ -3033,6 +3123,7 @@ fn e4_callout_lines_and_content_keep_their_style() {
                 line_type: Inherit::Own(dashed),
                 line_type_scale: 1.0,
                 line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.35)))),
+                transparency: Inherit::Block,
             },
             Inherit::Own(aci(6)),
         )
@@ -3045,6 +3136,7 @@ fn e4_callout_lines_and_content_keep_their_style() {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: Some(Inherit::Layer),
+                transparency: Inherit::Block,
             },
             Inherit::Own(aci(5)),
         )

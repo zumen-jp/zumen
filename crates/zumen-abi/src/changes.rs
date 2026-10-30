@@ -488,7 +488,8 @@ pub(crate) fn changes(
                 };
                 cx.check(Kind::Work, edit.name.len() as u64)
                     .map_err(|stop| stopped(cx, stop))?;
-                // 書かない色・線種・線幅は、レイヤ 0 と同じにする
+                // 書かない色・線種・線幅は、レイヤ 0 と同じにする。透過性は、画層 0 のレコードを写すときに
+                // 拡張データを除くので写さない（決定 0157）
                 let zero = tables
                     .layers
                     .get("0")
@@ -499,9 +500,13 @@ pub(crate) fn changes(
                     id: LayerId(u32::MAX),
                     name: String::new(),
                     state: None,
-                    style: zero.and_then(|layer| layer.style),
+                    style: zero.and_then(|layer| layer.style).map(|style| LayerStyle {
+                        transparency: None,
+                        ..style
+                    }),
                     follows_placement: false,
                     source: Ref::default(),
+                    description: None,
                 };
                 let fields = LayerFields {
                     name: Some(&edit.name),
@@ -884,6 +889,7 @@ fn added(
             Some(change) => line_weight_change(change).map_err(|()| "line_weight")?,
             None => Inherit::Layer,
         }),
+        transparency: Inherit::Layer,
     };
     if let Some(&origin) = places.spaces.get(&edit.place) {
         return Ok(Placed::Model(Element {
@@ -1301,6 +1307,7 @@ fn layer_change(
         color: None,
         line_type: None,
         line_weight: None,
+        transparency: None,
     });
     if let Some(change) = fields.color {
         match color_change(change) {

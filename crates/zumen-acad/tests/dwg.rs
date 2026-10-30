@@ -3646,6 +3646,7 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: Some(Inherit::Layer),
+                transparency: Inherit::Layer,
             },
             shape: Shape::Line {
                 start: model(1.5, 2.0),
@@ -3671,6 +3672,7 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: Some(Inherit::Layer),
+                transparency: Inherit::Layer,
             },
             shape: Shape::Line {
                 start: paper(-10.0, -10.0),

@@ -952,7 +952,7 @@ impl<'f> Plan<'f> {
                 Any::Model(element) => (element.layer, element.style),
                 Any::Paper(element) => (element.layer, element.style),
             };
-            if style.line_type_scale != 1.0 {
+            if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
                 return None;
             }
             let mut codes = Vec::new();
@@ -1039,7 +1039,7 @@ impl<'f> Plan<'f> {
         let computed = (|| -> Option<(u64, Element<PaperPoint>)> {
             let mut element = element.clone();
             let style = element.style;
-            if style.line_type_scale != 1.0 {
+            if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
                 return None;
             }
             let mut args = arguments(&element.shape)?;
@@ -1373,6 +1373,7 @@ mod tests {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: None,
+                transparency: Inherit::Layer,
             },
             shape: Shape::Polyline(Polyline {
                 vertices: vec![Vertex { point, bulge: 0.0 }; 100],
