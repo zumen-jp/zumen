@@ -178,6 +178,14 @@ jobs:
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: TypeScript・JavaScript の包みを通しても、同じハッシュの一覧になることを確かめる（決定 0194）
         run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: ブラウザーを動かす道具（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
+        working-directory: bindings/js/test/browser
+        run: npm ci --ignore-scripts
+      - name: Playwright の版に合う Chromium と、それが使う OS のライブラリを入れる
+        working-directory: bindings/js/test/browser
+        run: npx --no-install playwright install --with-deps --only-shell chromium
+      - name: ブラウザー（Chromium）の中で包みを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
+        run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 
   deny:
     name: 依存の検査

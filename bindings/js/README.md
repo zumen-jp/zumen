@@ -48,3 +48,11 @@ node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zume
 ```
 
 `test/conformance.mjs` は、[適合試験](../conformance/README.md)の組をこの包みで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。型は、CI がサイトと同じ版の TypeScript で `tsconfig.json`（`test/types.ts` を含む）を確かめます。
+
+ブラウザーの中でも、同じ組を流せます（[決定 0199](../../docs/decisions/0199-browser-conformance-with-playwright.md)）。道具は `test/browser` に版を固定して置いてあり、ブラウザーは Playwright で取ります。CI は、PR ごとに Chromium、毎晩に Firefox と WebKit で流します。
+
+```bash
+npm ci --prefix bindings/js/test/browser --ignore-scripts
+npx --prefix bindings/js/test/browser playwright install chromium
+node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```

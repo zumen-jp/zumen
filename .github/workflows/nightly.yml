@@ -1,0 +1,41 @@
+name: 毎晩
+
+on:
+  schedule:
+    # 毎日 3:00（日本時間）
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  browser:
+    name: ブラウザーで適合試験（${{ matrix.browser }}）
+    # PR ごとの Chromium は ci.yml の wasm の job で流す。毎晩は Firefox と WebKit（docs/support.md、決定 0199）
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # docs/support.md の Node.js の下限
+          node-version: 22
+      - name: ブラウザーに配るのと同じ形で作る（決定 0007）
+        run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
+      - name: ブラウザーを動かす道具（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
+        working-directory: bindings/js/test/browser
+        run: npm ci --ignore-scripts
+      - name: Playwright の版に合うブラウザーと、それが使う OS のライブラリを入れる
+        working-directory: bindings/js/test/browser
+        run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
+      - name: ブラウザーの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
+        run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm

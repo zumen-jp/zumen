@@ -45,6 +45,7 @@
 ## 影響
 
 - 階層 1 に上げる 3 つの条件のうち、Node.js での適合試験はこの PR で満たす。ブラウザーでの適合試験（PR ごとに Chromium、毎晩に Firefox・WebKit、[docs/support.md](../support.md)）は、ブラウザーを動かす道具を選ぶときに足す。
+- ブラウザーでの適合試験は、[0199](0199-browser-conformance-with-playwright.md) で足した。
 - 包みの API と生成した型は、公開するまで変えてよい。公開してからは、境界と同じく足すだけにする。
 - 新しい op・欄・区画を足すと、`bindings/js/src` の生成したファイルの差分が PR に並ぶ。
 - Node.js でネイティブの速さかスレッドが要るときは、napi-rs のアドオンを、記録を書いてから足す（[0011](0011-bindings-through-ffi.md)）。

@@ -1,0 +1,16 @@
+{
+  "name": "zumen-js-browser-test",
+  "private": true,
+  "description": "TypeScript・JavaScript の包みの適合試験を、ブラウザーで流す道具（決定 0199）",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node run.mjs chromium ../../../../target/wasm32-unknown-unknown/release/zumen_abi1.wasm"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}

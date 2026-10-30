@@ -232,3 +232,4 @@
 - [0196: .NET の包みは関数ポインターの委譲で C ABI を呼び、生成した record と netstandard2.0・net8.0 の 2 つのアセンブリで書き、名前を仮にして公開しない](0196-dotnet-wrapper.md)（2026-10-31、採用）
 - [0197: CLI と MCP のサーバーは依存を足さずに書き、MCP は 2026-07-28 と前の版の両方に応える](0197-cli-and-mcp-server.md)（2026-10-31、提案）
 - [0198: C・C++ はヘッダーだけの RAII の包みとシーンの読み手を足し、メッセージは JSON の文字列のまま渡す](0198-c-and-cpp-wrapper.md)（2026-10-31、採用）
+- [0199: TypeScript・JavaScript の包みの適合試験を、版を固定した Playwright でブラウザーの中で流す](0199-browser-conformance-with-playwright.md)（2026-10-31、採用）
