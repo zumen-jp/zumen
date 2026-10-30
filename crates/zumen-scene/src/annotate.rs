@@ -128,6 +128,7 @@ impl Builder<'_, '_, '_> {
             font,
             unit,
             bounds: Bounds::default(),
+            glyphs: Vec::new(),
         });
     }
 
@@ -459,7 +460,7 @@ impl Builder<'_, '_, '_> {
                         self.recolor(unit, color)
                     }
                 };
-                self.formatted(visit, text, content_unit);
+                self.formatted(visit, text, content_unit)?;
             }
             // 記号の中身は、部品としてたどった要素として描く
             CalloutContent::Symbol { values, .. } => {

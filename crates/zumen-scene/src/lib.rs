@@ -11,6 +11,7 @@
 
 mod annotate;
 
+mod glyphs;
 pub mod layout;
 mod write;
 
@@ -27,6 +28,7 @@ use zumen_drawing::{
 };
 use zumen_geom2d::{self as geom, Xy};
 
+pub use crate::glyphs::FontSet;
 use crate::layout::{color_flag, color_system, entity_kind, horizontal, text_flag, vertical};
 
 /// 塊の分け方。塊の大きさは実際の図面で測って決める（決定 0137・0172、#219）。それまでの仮の値を
@@ -111,6 +113,8 @@ pub struct Counts {
     pub points: u64,
     /// 画像
     pub images: u64,
+    /// 字形（決定 0188）
+    pub glyphs: u64,
 }
 
 /// 作ったシーン
@@ -136,6 +140,17 @@ pub const SPACE_TOLERANCE_DIVISOR: f64 = 50000.0;
 pub fn build(
     drawing: &Drawing2D,
     options: &Options,
+    cx: &mut Cx<'_>,
+) -> Result<Scene, (Stop, Ref)> {
+    build_with(drawing, options, &FontSet::default(), cx)
+}
+
+/// [`build`] と同じく作り、文字を `fonts` の字形で置く（決定 0188）。字形と置いた字形の形は、作った点と
+/// 同じく `segments` で数える
+pub fn build_with(
+    drawing: &Drawing2D,
+    options: &Options,
+    fonts: &FontSet<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<Scene, (Stop, Ref)> {
     let visits = drawing.walk_parts(options.origin, cx)?;
@@ -169,7 +184,7 @@ pub fn build(
             }
         },
     };
-    let mut builder = Builder::new(drawing, tolerance, options, cx);
+    let mut builder = Builder::new(drawing, tolerance, options, fonts, cx);
     builder.parted = parted;
     for visit in visits.iter().filter(|v| shown(v)) {
         builder.visit(visit)?;
@@ -213,6 +228,16 @@ struct TextItem {
     unit: u32,
     /// 字数と高さから大きめに見積もった範囲。範囲の絞り込みに使う
     bounds: Bounds,
+    /// フォントで置いた字形（決定 0188）。置かなければ空
+    glyphs: Vec<GlyphItem>,
+}
+
+/// 置いた字形
+struct GlyphItem {
+    /// 形（`shapes` の行）
+    shape: u32,
+    /// 字形の単位の座標を起点の座標へ写す変換 `[a, b, c, d, e, f]`（`x = a·u + c·v + e`、`y = b·u + d·v + f`）
+    transform: [f64; 6],
 }
 
 /// 塊の中の点
@@ -369,8 +394,12 @@ struct Builder<'d, 'c, 'x> {
     clips: Vec<Vec<Clipping>>,
     layers: Vec<[u32; 2]>,
     layer_rows: BTreeMap<u32, u32>,
-    fonts: Vec<String>,
+    fonts: &'d FontSet<'d>,
+    font_names: Vec<String>,
     font_rows: BTreeMap<String, u32>,
+    /// 字形の形（輪の列、字形の単位）と、フォント・字形・刻みの組からの行（決定 0188）
+    shapes: Vec<Vec<Vec<Xy>>>,
+    shape_rows: BTreeMap<(usize, u16, i32), u32>,
     /// 描いた部品の中をたどった要素の ID
     parted: BTreeSet<&'d str>,
     /// 単位と色の行ごとの、色だけを変えた単位
@@ -410,6 +439,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         drawing: &'d Drawing2D,
         tolerance: f64,
         options: &'d Options,
+        fonts: &'d FontSet<'d>,
         cx: &'c mut Cx<'x>,
     ) -> Self {
         Self {
@@ -430,8 +460,11 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             clips: Vec::new(),
             layers: Vec::new(),
             layer_rows: BTreeMap::new(),
-            fonts: Vec::new(),
+            fonts,
+            font_names: Vec::new(),
             font_rows: BTreeMap::new(),
+            shapes: Vec::new(),
+            shape_rows: BTreeMap::new(),
             parted: BTreeSet::new(),
             recolored: BTreeMap::new(),
         }
@@ -484,7 +517,6 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             Some(formatted) => self.formatted(visit, formatted, unit),
             None => self.text(visit, text, unit),
         }
-        Ok(())
     }
 
     /// 描く単位。最初に描くものを足すときに作る
@@ -627,7 +659,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         let Some(name) = name.filter(|n| !n.is_empty()) else {
             return layout::NONE;
         };
-        row(&mut self.font_rows, &mut self.fonts, name.to_owned())
+        row(&mut self.font_rows, &mut self.font_names, name.to_owned())
     }
 
     /// 塊に描くものを足す。範囲か数が上限を超えるなら、先に塊を閉じる
@@ -711,11 +743,11 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             }
             Shape::Text(text) => {
                 let unit = self.unit(visit, entity_kind::TEXT, unit);
-                self.text(visit, text, unit);
+                self.text(visit, text, unit)?;
             }
             Shape::Formatted(text) => {
                 let unit = self.unit(visit, entity_kind::FORMATTED, unit);
-                self.formatted(visit, text, unit);
+                self.formatted(visit, text, unit)?;
             }
             Shape::Point(point) => {
                 let unit = self.unit(visit, entity_kind::POINT, unit);
@@ -948,14 +980,14 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             };
             let places = geom::starts(points, pattern, mark.index);
             self.segments(places.len(), source)?;
-            let font = self.font(
-                style
-                    .as_deref()
-                    .and_then(|name| self.drawing.text_style(name))
-                    .and_then(|s| s.definition.as_ref())
-                    .and_then(|s| s.font.as_ref())
-                    .map(|f| f.name.as_str()),
-            );
+            let drawing = self.drawing;
+            let font_name = style
+                .as_deref()
+                .and_then(|name| drawing.text_style(name))
+                .and_then(|s| s.definition.as_ref())
+                .and_then(|s| s.font.as_ref())
+                .map(|f| f.name.as_str());
+            let font = self.font(font_name);
             let string = self.strings.add(content);
             for (at, direction) in places {
                 let r = direction.to_radians();
@@ -972,7 +1004,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                         rotation += 180.0;
                     }
                 }
-                self.put_text(TextItem {
+                let mut item = TextItem {
                     string,
                     at,
                     second: None,
@@ -987,7 +1019,18 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                     font,
                     unit,
                     bounds: Bounds::default(),
-                });
+                    glyphs: Vec::new(),
+                };
+                self.lay_mark(
+                    content,
+                    at,
+                    height * scale,
+                    rotation,
+                    font_name,
+                    &mut item,
+                    source,
+                )?;
+                self.put_text(item);
             }
         }
         if shapes {
@@ -1076,7 +1119,12 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         self.stroke(visit, points, unit, source)
     }
 
-    fn text<P: Spot>(&mut self, visit: &Visit<'_>, text: &Text<P>, unit: u32) {
+    fn text<P: Spot>(
+        &mut self,
+        visit: &Visit<'_>,
+        text: &Text<P>,
+        unit: u32,
+    ) -> Result<(), (Stop, Ref)> {
         let t = visit.transform;
         let (rotation, along) = turned(&t, text.rotation);
         let (_, up) = turned(&t, text.rotation + 90.0);
@@ -1108,7 +1156,8 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             .drawing
             .text_style(&text.style)
             .and_then(|s| s.definition.as_ref());
-        let font = self.font(style.and_then(|s| s.font.as_ref()).map(|f| f.name.as_str()));
+        let font_name = style.and_then(|s| s.font.as_ref()).map(|f| f.name.as_str());
+        let font = self.font(font_name);
         let mut flags = 0;
         if text.backward {
             flags |= text_flag::BACKWARD;
@@ -1121,7 +1170,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         }
         flags |= meaning_flag(&text.height.meaning);
         let string = self.strings.add(&text.content);
-        self.put_text(TextItem {
+        let mut item = TextItem {
             string,
             at,
             second,
@@ -1140,7 +1189,12 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             font,
             unit,
             bounds: Bounds::default(),
-        });
+            glyphs: Vec::new(),
+        };
+        let vertical = style.is_some_and(|s| s.vertical);
+        self.lay_text(visit, text, font_name, vertical, &mut item)?;
+        self.put_text(item);
+        Ok(())
     }
 
     fn put_text(&mut self, mut item: TextItem) {
@@ -1170,7 +1224,12 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     }
 
     /// 書式つきの文字を、書式の区間ごとの文字にする。行の中の位置は、表示する側が送る（決定 0172）
-    fn formatted<P: Spot>(&mut self, visit: &Visit<'_>, text: &FormattedText<P>, unit: u32) {
+    fn formatted<P: Spot>(
+        &mut self,
+        visit: &Visit<'_>,
+        text: &FormattedText<P>,
+        unit: u32,
+    ) -> Result<(), (Stop, Ref)> {
         let t = visit.transform;
         let angle = match text.rotation {
             Rotation::Angle(angle) => angle,
@@ -1205,13 +1264,19 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             vertical_code(text.vertical),
         ];
         let box_width = text.width.map_or(0.0, |w| length(w) * along);
+        let mut laid = self.lay_formatted(visit, text, base_font.as_deref(), vertical)?;
+        if laid.is_some() {
+            flags &= !(text_flag::HEIGHT_FRAME | text_flag::HEIGHT_EM);
+        }
+        let ratio = laid.as_ref().map_or(1.0, |laid| laid.ratio);
         let mut line = 0u32;
-        for span in &text.spans {
-            let height = match span.format.height {
-                Some(Scaled::Value(value)) => length(value) * up,
-                Some(Scaled::Factor(factor)) => base_height * factor,
-                None => base_height,
-            };
+        for (index, span) in text.spans.iter().enumerate() {
+            let height = ratio
+                * match span.format.height {
+                    Some(Scaled::Value(value)) => length(value) * up,
+                    Some(Scaled::Factor(factor)) => base_height * factor,
+                    None => base_height,
+                };
             let width = match span.format.width_factor {
                 Some(Scaled::Value(value) | Scaled::Factor(value)) => value,
                 None => 1.0,
@@ -1232,7 +1297,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 }
                 None => unit,
             };
-            let put = |builder: &mut Self, content: &str, extra: u8| {
+            let put = |builder: &mut Self, content: &str, extra: u8, glyphs: Vec<GlyphItem>| {
                 let string = builder.strings.add(content);
                 builder.put_text(TextItem {
                     string,
@@ -1249,18 +1314,35 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                     font,
                     unit,
                     bounds: Bounds::default(),
+                    glyphs,
                 });
             };
+            let mut glyphs = laid
+                .as_mut()
+                .and_then(|laid| laid.glyphs.remove(&index))
+                .unwrap_or_default();
             match &span.piece {
-                Piece::Text(content) => put(self, content, 0),
+                Piece::Text(content) => put(self, content, 0, glyphs),
                 Piece::Stack { upper, lower, .. } => {
-                    put(self, upper, text_flag::STACK_UPPER);
-                    put(self, lower, text_flag::STACK_LOWER);
+                    let count = laid
+                        .as_ref()
+                        .and_then(|laid| laid.uppers.get(&index))
+                        .copied()
+                        .unwrap_or(0)
+                        .min(glyphs.len());
+                    let below = glyphs.split_off(count);
+                    put(self, upper, text_flag::STACK_UPPER, glyphs);
+                    put(self, lower, text_flag::STACK_LOWER, below);
+                    // 字形で置いた重ねた文字の線は、線にする（決定 0188）
+                    if let Some(ends) = laid.as_ref().and_then(|laid| laid.lines.get(&index)) {
+                        self.line(ends.to_vec(), unit);
+                    }
                 }
                 Piece::Paragraph => line = line.saturating_add(1),
                 _ => {}
             }
         }
+        Ok(())
     }
 
     fn underlay<P: Spot>(
@@ -1494,6 +1576,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         }
         let old = std::mem::take(&mut self.strings);
         let mut strings = Strings::default();
+        let (mut shape_map, mut shapes) = (BTreeMap::new(), Vec::new());
         let (mut unit_map, mut entity_map, mut color_map) =
             (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
         let (mut clip_map, mut layer_map, mut font_map) =
@@ -1575,10 +1658,17 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             for item in &mut chunk.texts {
                 item.string = moved(&old, &mut strings, item.string);
                 let (font, fresh) = renumber(&mut font_map, item.font);
-                if fresh && let Some(name) = self.fonts.get(item.font as usize) {
+                if fresh && let Some(name) = self.font_names.get(item.font as usize) {
                     fonts.push(name.clone());
                 }
                 item.font = font;
+                for glyph in &mut item.glyphs {
+                    let (shape, fresh) = renumber(&mut shape_map, glyph.shape);
+                    if fresh && let Some(rings) = self.shapes.get(glyph.shape as usize) {
+                        shapes.push(rings.clone());
+                    }
+                    glyph.shape = shape;
+                }
             }
             for item in &mut chunk.points {
                 let [a, b, c, d] = item.marker;
@@ -1597,7 +1687,8 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         self.colors = colors;
         self.clips = clips;
         self.layers = layers;
-        self.fonts = fonts;
+        self.font_names = fonts;
+        self.shapes = shapes;
         self.strings = strings;
     }
 
@@ -1662,7 +1753,8 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             colors: &self.colors,
             clips: &self.clips,
             layers: &self.layers,
-            fonts: &self.fonts,
+            fonts: &self.font_names,
+            shapes: &self.shapes,
             point_style,
         };
         let (bytes, counts, extent) = write::write(&chunks, &tables, &mut self.strings);

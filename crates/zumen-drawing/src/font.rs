@@ -26,6 +26,7 @@
 //! 副ルーチンの入れ子と、字形ごとの作業量に上限を設けてたどる。
 
 mod cff;
+mod glyf;
 mod gsub;
 mod kern;
 
@@ -45,6 +46,26 @@ pub enum Unread {
     Table(&'static str),
     /// 外形が CFF・CFF2 で、読まない形である（字形の命令が Type 2 でない、Font DICT が 256 を超える）
     Cff,
+}
+
+/// 字形の輪郭の区間。点は字形の単位で、前の区間の終わり（最初の区間は輪郭の始点）から続く（決定 0188）
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Segment {
+    /// 直線。終わりの点
+    Line([f64; 2]),
+    /// 2 次の Bézier 曲線（TrueType）。制御点と終わりの点
+    Quad([f64; 2], [f64; 2]),
+    /// 3 次の Bézier 曲線（CFF・CFF2）。2 つの制御点と終わりの点
+    Cubic([f64; 2], [f64; 2], [f64; 2]),
+}
+
+/// 字形の閉じた輪郭。最後の区間の終わりから始点へ閉じる。輪郭は非零の規則で塗る（決定 0188）
+#[derive(Clone, Debug, PartialEq)]
+pub struct Contour {
+    /// 始点
+    pub start: [f64; 2],
+    /// 区間
+    pub segments: Vec<Segment>,
 }
 
 /// 読んだフォント。[`Glyphs`] として [`crate::layout::place`] に渡す
@@ -305,6 +326,39 @@ fn glyf_bounds(loca: &[u8], long_loca: bool, glyf: &[u8], id: u16) -> Option<Opt
 }
 
 impl Font<'_> {
+    /// 文字の字形の番号。フォントにない文字は `None`。[`Glyphs::glyph`] が `None` を返す文字と同じ
+    pub fn glyph_id(&self, ch: char) -> Option<u16> {
+        self.id(ch).filter(|&id| self.by_id(id).is_some())
+    }
+
+    /// 縦書きで置く字形の番号。`GSUB` で置き換え、置き換えた先が読めなければ置き換えない
+    /// （[`Glyphs::vertical`] と同じ規則）
+    pub fn vertical_id(&self, id: u16) -> u16 {
+        let replaced = self.vertical.apply(id);
+        if self.by_id(replaced).is_some() {
+            replaced
+        } else {
+            id
+        }
+    }
+
+    /// 字形の輪郭（字形の単位、決定 0188）。番号が字形の数を超えるか、輪郭が壊れているか上限を超えれば
+    /// `None`。何も描かない字形は空。`glyf` の複合の字形は部品を変換して並べ、CFF・CFF2 は字形の命令を
+    /// たどる。可変フォントの変化は当てない
+    pub fn outline(&self, id: u16) -> Option<Vec<Contour>> {
+        if id >= self.glyph_count {
+            return None;
+        }
+        match &self.outline {
+            Outline::Glyf {
+                loca,
+                long_loca,
+                glyf,
+            } => glyf::outline(loca, *long_loca, glyf, self.glyph_count, id),
+            Outline::Cff(cff) => cff.outline(id),
+        }
+    }
+
     /// 字形の番号から、縦書きの字形を読む
     fn vertical_by_id(&self, original: u16) -> Option<VerticalGlyph> {
         let replaced = self.vertical.apply(original);
@@ -1780,6 +1834,254 @@ mod tests {
             let data = with_vertical(&broken);
             let font = Font::parse(&data, 0).unwrap();
             assert!(!font.vertical('H').unwrap().substituted);
+        }
+    }
+
+    /// 単純な字形を符号にする。点は（x, y, 曲線の上か）、`ends` は輪郭の終わりの点の番号。差が 0 なら
+    /// 同じ値の旗、255 以下なら 1 バイト、それより大きければ 2 バイトにし、同じ旗は繰り返しにまとめる
+    pub(crate) fn simple_glyph(
+        bounds: [i32; 4],
+        points: &[(i32, i32, bool)],
+        ends: &[u16],
+    ) -> Vec<u8> {
+        let mut out = Vec::new();
+        put16(&mut out, ends.len() as i32);
+        for value in bounds {
+            put16(&mut out, value);
+        }
+        for &end in ends {
+            put16(&mut out, i32::from(end));
+        }
+        put16(&mut out, 0); // 命令はない
+        let (mut flags, mut xs, mut ys) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut x0, mut y0) = (0, 0);
+        for &(x, y, on) in points {
+            let mut flag = u8::from(on);
+            for (delta, short, same, out) in
+                [(x - x0, 0x02, 0x10, &mut xs), (y - y0, 0x04, 0x20, &mut ys)]
+            {
+                if delta == 0 {
+                    flag |= same;
+                } else if delta.abs() < 256 {
+                    flag |= short;
+                    if delta > 0 {
+                        flag |= same;
+                    }
+                    out.push(delta.unsigned_abs() as u8);
+                } else {
+                    put16(out, delta);
+                }
+            }
+            (x0, y0) = (x, y);
+            flags.push(flag);
+        }
+        let mut i = 0;
+        while i < flags.len() {
+            let run = flags[i..]
+                .iter()
+                .take_while(|f| **f == flags[i])
+                .count()
+                .min(256);
+            if run > 1 {
+                out.push(flags[i] | 0x08);
+                out.push((run - 1) as u8);
+            } else {
+                out.push(flags[i]);
+            }
+            i += run;
+        }
+        out.extend_from_slice(&xs);
+        out.extend_from_slice(&ys);
+        out
+    }
+
+    /// [`tables`] の字形に輪郭を持たせたフォント。0 は四角、1 の `H` は直線だけの 2 つの輪郭、2 の `g` は
+    /// 曲線の外の点が続く輪郭、3 は空白。4 は `H` を半分にして (10, 20) へ動かし、`g` を (-5, 3) へ動かした
+    /// 複合の字形で、`I` に当てる
+    pub(crate) fn outlined() -> Vec<u8> {
+        let notdef = simple_glyph(
+            [50, 0, 450, 700],
+            &[
+                (50, 0, true),
+                (450, 0, true),
+                (450, 700, true),
+                (50, 700, true),
+            ],
+            &[3],
+        );
+        let h = simple_glyph(
+            [0, 0, 700, 720],
+            &[
+                (0, 0, true),
+                (100, 0, true),
+                (100, 720, true),
+                (0, 720, true),
+                (600, 0, true),
+                (700, 0, true),
+                (700, 720, true),
+                (600, 720, true),
+            ],
+            &[3, 7],
+        );
+        // 外の点だけの輪郭（菱形の 4 点）。始点は最初と最後の中点
+        let g = simple_glyph(
+            [30, -210, 520, 480],
+            &[
+                (275, -210, false),
+                (520, 135, false),
+                (275, 480, false),
+                (30, 135, false),
+            ],
+            &[3],
+        );
+        let mut composite = Vec::new();
+        put16(&mut composite, -1);
+        for value in [0, 0, 700, 720] {
+            put16(&mut composite, value);
+        }
+        // ARG_1_AND_2_ARE_WORDS・ARGS_ARE_XY_VALUES・WE_HAVE_A_SCALE・MORE_COMPONENTS
+        put16(&mut composite, 0x0001 | 0x0002 | 0x0008 | 0x0020);
+        put16(&mut composite, 1);
+        put16(&mut composite, 10);
+        put16(&mut composite, 20);
+        put16(&mut composite, 0x2000); // 0.5
+        put16(&mut composite, 0x0002);
+        put16(&mut composite, 2);
+        composite.push(-5i8 as u8);
+        composite.push(3);
+        let mut glyf = Vec::new();
+        let mut loca = Vec::new();
+        for glyph in [notdef, h, g, Vec::new(), composite] {
+            put32(&mut loca, glyf.len() as u32);
+            glyf.extend_from_slice(&glyph);
+            while glyf.len() % 4 != 0 {
+                glyf.push(0);
+            }
+        }
+        put32(&mut loca, glyf.len() as u32);
+        let groups: [(u32, u32); 4] = [(0x20, 3), (0x48, 1), (0x49, 4), (0x67, 2)];
+        let mut cmap = Vec::new();
+        put16(&mut cmap, 0);
+        put16(&mut cmap, 1);
+        put16(&mut cmap, 3);
+        put16(&mut cmap, 10);
+        put32(&mut cmap, 12);
+        put16(&mut cmap, 12);
+        put16(&mut cmap, 0);
+        put32(&mut cmap, 16 + 12 * groups.len() as u32);
+        put32(&mut cmap, 0);
+        put32(&mut cmap, groups.len() as u32);
+        for (code, id) in groups {
+            put32(&mut cmap, code);
+            put32(&mut cmap, code);
+            put32(&mut cmap, id);
+        }
+        let mut tables = tables();
+        for (tag, data) in &mut tables {
+            match &*tag {
+                b"glyf" => *data = glyf.clone(),
+                b"loca" => *data = loca.clone(),
+                b"cmap" => *data = cmap.clone(),
+                b"maxp" => data[4..6].copy_from_slice(&5u16.to_be_bytes()),
+                _ => {}
+            }
+        }
+        assemble(tables)
+    }
+
+    #[test]
+    fn reads_glyf_outlines() {
+        let data = outlined();
+        let font = Font::parse(&data, 0).unwrap();
+        assert_eq!(font.glyph_id('H'), Some(1));
+        assert_eq!(font.glyph_id('Q'), None);
+        let line = |x: f64, y: f64| Segment::Line([x, y]);
+        let h = font.outline(1).unwrap();
+        assert_eq!(
+            h,
+            vec![
+                Contour {
+                    start: [0.0, 0.0],
+                    segments: vec![line(100.0, 0.0), line(100.0, 720.0), line(0.0, 720.0)],
+                },
+                Contour {
+                    start: [600.0, 0.0],
+                    segments: vec![line(700.0, 0.0), line(700.0, 720.0), line(600.0, 720.0)],
+                },
+            ]
+        );
+        let g = font.outline(2).unwrap();
+        assert_eq!(g.len(), 1);
+        assert_eq!(g[0].start, [152.5, -37.5]);
+        assert_eq!(
+            g[0].segments,
+            vec![
+                Segment::Quad([275.0, -210.0], [397.5, -37.5]),
+                Segment::Quad([520.0, 135.0], [397.5, 307.5]),
+                Segment::Quad([275.0, 480.0], [152.5, 307.5]),
+                Segment::Quad([30.0, 135.0], [152.5, -37.5]),
+            ]
+        );
+        assert_eq!(font.outline(3), Some(Vec::new()));
+        let composite = font.outline(4).unwrap();
+        assert_eq!(composite.len(), 3);
+        assert_eq!(composite[0].start, [10.0, 20.0]);
+        assert_eq!(composite[1].segments[0], line(360.0, 20.0));
+        assert_eq!(composite[2].start, [147.5, -34.5]);
+        assert_eq!(font.outline(5), None);
+    }
+
+    #[test]
+    fn rejects_broken_and_deep_glyf_outlines() {
+        // 自分を参照する複合の字形は、入れ子の上限で止まる
+        let mut data = outlined();
+        let font = Font::parse(&data, 0).unwrap();
+        assert!(font.outline(4).is_some());
+        let at = data
+            .windows(4)
+            .position(|w| w == [0x00, 0x2B, 0x00, 0x01])
+            .unwrap();
+        data[at + 3] = 4;
+        let font = Font::parse(&data, 0).unwrap();
+        assert_eq!(font.outline(4), None);
+        // 切り詰めても、1 バイトずつ変えても、パニックしない
+        let data = outlined();
+        for cut in 0..data.len() {
+            if let Ok(font) = Font::parse(&data[..cut], 0) {
+                for id in 0..6 {
+                    let _ = font.outline(id);
+                }
+            }
+        }
+        for at in 0..data.len() {
+            let mut broken = data.clone();
+            broken[at] ^= 0xA5;
+            if let Ok(font) = Font::parse(&broken, 0) {
+                for id in 0..6 {
+                    let _ = font.outline(id);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reads_cff_outline_paths() {
+        for table in [cff_table(), cff2()] {
+            let data = assemble(cff_font(table));
+            let font = Font::parse(&data, 0).unwrap();
+            let h = font.outline(font.glyph_id('H').unwrap()).unwrap();
+            assert!(!h.is_empty());
+            assert!(
+                h.iter()
+                    .all(|c| c.segments.iter().all(|s| matches!(s, Segment::Line(_))))
+            );
+            let g = font.outline(font.glyph_id('g').unwrap()).unwrap();
+            assert!(
+                g.iter()
+                    .flat_map(|c| &c.segments)
+                    .any(|s| matches!(s, Segment::Cubic(..)))
+            );
+            assert_eq!(font.vertical_id(1), 1);
         }
     }
 }

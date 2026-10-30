@@ -18,7 +18,7 @@
 # 大版。区画の意味を変えるときに上げる
 major = 1
 # 小版。区画か値を足すたびに上げる
-minor = 1
+minor = 2
 
 # 塊
 
@@ -413,6 +413,50 @@ name = "strings"
 type = "u8"
 width = 1
 description = "文字列を並べた UTF-8"
+
+# 字形（決定 0188）。scene の op に fonts を渡したときだけ行を持つ
+
+[[sections]]
+name = "text_glyphs"
+type = "u32"
+width = 1
+description = "文字の字形の始まり（glyph_shapes の行）。字形を持つ文字は、文字列の代わりに字形を描く。持たなければ（フォントがない・置けない）文字列を描く"
+
+[[sections]]
+name = "glyph_shapes"
+type = "u32"
+width = 1
+description = "置いた字形の形（shape_rings の行）"
+
+[[sections]]
+name = "glyph_axes"
+type = "f32"
+width = 4
+description = "形の座標（字形の単位）を写す変換の線形の部分 [a, b, c, d]。形の点 (u, v) は、x = a·u + c·v + e、y = b·u + d·v + f に置く（e・f は glyph_xy）"
+
+[[sections]]
+name = "glyph_xy"
+type = "f32"
+width = 2
+description = "字形の原点（形の座標の (0, 0)）を置く点 [e, f]。塊の原点からの X・Y"
+
+[[sections]]
+name = "shape_rings"
+type = "u32"
+width = 1
+description = "字形の形の輪の始まり（outline_vertices の行）。輪は非零の規則で塗る。空白などは輪を持たない"
+
+[[sections]]
+name = "outline_vertices"
+type = "u32"
+width = 1
+description = "字形の輪の頂点の始まり（outline_xy の行）。輪は閉じているものとし、始点を繰り返さない"
+
+[[sections]]
+name = "outline_xy"
+type = "f32"
+width = 2
+description = "字形の輪の頂点（字形の単位）。曲線は、許容差を字形の単位に直して 2 の冪に切り下げた刻みで折れ線にする"
 
 # 値
 

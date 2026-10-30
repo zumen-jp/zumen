@@ -5314,6 +5314,10 @@ pub struct SceneRequest {
     pub print: Option<bool>,
     /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる
     pub palette: Option<String>,
+    /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から
+    pub fonts: Option<Vec<SceneFont>>,
+    /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+    pub heights: Option<BTreeMap<String, HeightReference>>,
 }
 
 impl SceneRequest {
@@ -5327,6 +5331,10 @@ impl SceneRequest {
         let tolerance = object.optional("tolerance", json::number)?;
         let print = object.optional("print", json::boolean)?;
         let palette = object.optional("palette", json::string)?;
+        let fonts = object.optional("fonts", |value| json::array(value, SceneFont::from_json))?;
+        let heights = object.optional("heights", |value| {
+            json::map(value, HeightReference::from_json)
+        })?;
         Ok(Self {
             request_common,
             doc,
@@ -5336,6 +5344,8 @@ impl SceneRequest {
             tolerance,
             print,
             palette,
+            fonts,
+            heights,
         })
     }
 
@@ -5367,6 +5377,14 @@ impl SceneRequest {
             out.key("palette");
             out.string(value);
         }
+        if let Some(value) = &self.fonts {
+            out.key("fonts");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.heights {
+            out.key("heights");
+            out.map(value, |out, item| item.to_json(out));
+        }
     }
 }
 
@@ -5384,6 +5402,103 @@ impl ToJson for SceneRequest {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// シーンの文字を置くフォント（決定 0188）
+#[derive(Clone, Debug, PartialEq)]
+pub struct SceneFont {
+    /// 文字が指すフォントの名前（ファイルに書かれた元の名前）。書かなければ、名前の合わない文字に使う既定のフォント。同じ名前と、名前のないものは 1 つまで
+    pub name: Option<String>,
+    /// TrueType・OpenType（CFF・CFF2 を含む）のファイルの入力の名前（zm_push で渡したもの）
+    pub input: String,
+    /// フォントのコレクション（TTC）の中の番号。書かなければ 0
+    pub index: Option<u64>,
+}
+
+impl SceneFont {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let input = object.required("input", json::string)?;
+        let index = object.optional("index", |value| json::uint(value, 0, 4294967295))?;
+        Ok(Self { name, input, index })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        out.key("input");
+        out.string(&self.input);
+        if let Some(value) = &self.index {
+            out.key("index");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for SceneFont {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SceneFont {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HeightReference {
+    /// `cap_height`
+    CapHeight,
+    /// `em`
+    Em,
+    /// `frame`
+    Frame,
+}
+
+impl HeightReference {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::CapHeight, Self::Em, Self::Frame];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::CapHeight => "cap_height",
+            Self::Em => "em",
+            Self::Frame => "frame",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "cap_height" => Some(Self::CapHeight),
+            "em" => Some(Self::Em),
+            "frame" => Some(Self::Frame),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for HeightReference {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for HeightReference {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 
@@ -5482,6 +5597,8 @@ pub struct SceneCounts {
     pub points: u64,
     /// 画像
     pub images: u64,
+    /// 置いた字形。fonts を書かなければ 0。小版 37 から
+    pub glyphs: u64,
 }
 
 impl SceneCounts {
@@ -5494,6 +5611,7 @@ impl SceneCounts {
         let texts = object.required("texts", |value| json::uint(value, 0, 9007199254740991))?;
         let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
         let images = object.required("images", |value| json::uint(value, 0, 9007199254740991))?;
+        let glyphs = object.required("glyphs", |value| json::uint(value, 0, 9007199254740991))?;
         Ok(Self {
             chunks,
             lines,
@@ -5502,6 +5620,7 @@ impl SceneCounts {
             texts,
             points,
             images,
+            glyphs,
         })
     }
 
@@ -5520,6 +5639,8 @@ impl SceneCounts {
         out.uint(self.points);
         out.key("images");
         out.uint(self.images);
+        out.key("glyphs");
+        out.uint(self.glyphs);
     }
 }
 

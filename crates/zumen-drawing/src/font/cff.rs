@@ -7,7 +7,7 @@
 //! CFF で 48、CFF2 で 513 に抑え、1 つの字形で読む数と演算子の数にも上限（[`WORK`]）を設ける。
 //! 位置の計算は `u64` で行い、`usize` の幅で結果が変わらないようにする。
 
-use super::{Unread, i16_at, slice, u16_at, u32_at};
+use super::{Contour, Segment, Unread, i16_at, slice, u16_at, u32_at};
 
 /// 副ルーチンの入れ子の上限（#5177 の付録 B）
 const DEPTH: usize = 10;
@@ -335,6 +335,19 @@ impl<'a> Cff<'a> {
 
     /// 字形の外形。字形がないか、命令が壊れているか、上限を超えれば `None`。描かない字形は `Some(None)`
     pub(super) fn bounds(&self, id: u16) -> Option<Option<[f64; 4]>> {
+        self.draw(id, Pen::default()).map(|pen| pen.bounds)
+    }
+
+    /// 字形の輪郭（決定 0188）。字形がないか、命令が壊れているか、上限を超えれば `None`
+    pub(super) fn outline(&self, id: u16) -> Option<Vec<Contour>> {
+        let pen = Pen {
+            path: Some(Vec::new()),
+            ..Pen::default()
+        };
+        self.draw(id, pen)?.path
+    }
+
+    fn draw(&self, id: u16, pen: Pen) -> Option<Pen> {
         let code = self.charstrings.get(u32::from(id))?;
         let local = *self.fonts.get(self.select.font(id)?)?;
         Machine {
@@ -342,7 +355,7 @@ impl<'a> Cff<'a> {
             local,
             stack: Vec::new(),
             stems: 0,
-            pen: Pen::default(),
+            pen,
         }
         .run(code)
     }
@@ -431,7 +444,7 @@ struct Machine<'c, 'a> {
 }
 
 impl<'a> Machine<'_, 'a> {
-    fn run(mut self, code: &'a [u8]) -> Option<Option<[f64; 4]>> {
+    fn run(mut self, code: &'a [u8]) -> Option<Pen> {
         // 副ルーチンを呼んだ所。再帰でなく配列に積み、深さを DEPTH で抑える
         let mut frames: Vec<(&'a [u8], usize)> = Vec::new();
         let (mut code, mut at) = (code, 0usize);
@@ -541,7 +554,7 @@ impl<'a> Machine<'_, 'a> {
             }
             self.stack.push(value);
         }
-        Some(self.pen.bounds)
+        Some(self.pen)
     }
 
     fn count_stems(&mut self) {
@@ -578,11 +591,12 @@ fn integer(value: f64) -> Option<i64> {
     (value.fract() == 0.0 && value.abs() <= 2_147_483_648.0).then_some(value as i64)
 }
 
-/// 現在の点と、描いた外形
+/// 現在の点と、描いた外形。`path` が `Some` なら輪郭も集める
 #[derive(Default)]
 struct Pen {
     point: [f64; 2],
     bounds: Option<[f64; 4]>,
+    path: Option<Vec<Contour>>,
 }
 
 impl Pen {
@@ -594,10 +608,10 @@ impl Pen {
             // rmoveto・hmoveto・vmoveto
             21 => {
                 let [.., dx, dy] = *args else { return None };
-                self.move_by(dx, dy);
+                self.start(dx, dy);
             }
-            22 => self.move_by(*args.last()?, 0.0),
-            4 => self.move_by(0.0, *args.last()?),
+            22 => self.start(*args.last()?, 0.0),
+            4 => self.start(0.0, *args.last()?),
             // rlineto
             5 => {
                 if n == 0 || !n.is_multiple_of(2) {
@@ -747,6 +761,32 @@ impl Pen {
         self.point = [x + dx, y + dy];
     }
 
+    /// 移動して、新しい輪郭を始める。前の輪郭は閉じたものとする（#5177 の 4.1 節）
+    fn start(&mut self, dx: f64, dy: f64) {
+        self.move_by(dx, dy);
+        if let Some(path) = &mut self.path {
+            path.push(Contour {
+                start: self.point,
+                segments: Vec::new(),
+            });
+        }
+    }
+
+    /// 輪郭に区間を足す。移動の前に描けば、原点から輪郭を始める
+    fn segment(&mut self, segment: Segment) {
+        if let Some(path) = &mut self.path {
+            if path.is_empty() {
+                path.push(Contour {
+                    start: [0.0, 0.0],
+                    segments: Vec::new(),
+                });
+            }
+            if let Some(contour) = path.last_mut() {
+                contour.segments.push(segment);
+            }
+        }
+    }
+
     fn include(&mut self, x: f64, y: f64) {
         self.bounds = Some(match self.bounds {
             None => [x, y, x, y],
@@ -760,6 +800,7 @@ impl Pen {
         self.move_by(dx, dy);
         let [x, y] = self.point;
         self.include(x, y);
+        self.segment(Segment::Line([x, y]));
     }
 
     fn curve(&mut self, a: f64, b: f64, c: f64, d: f64, e: f64, f: f64) {
@@ -776,6 +817,7 @@ impl Pen {
             self.include(x0, y);
         }
         self.point = [x3, y3];
+        self.segment(Segment::Cubic([x1, y1], [x2, y2], [x3, y3]));
     }
 }
 

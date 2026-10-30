@@ -1242,10 +1242,44 @@
         "palette": {
           "description": "色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる",
           "type": "string"
+        },
+        "fonts": {
+          "description": "文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/scene_font" }
+        },
+        "heights": {
+          "description": "形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/height_reference" }
         }
       },
       "required": ["op", "doc", "from"],
       "unevaluatedProperties": false
+    },
+    "scene_font": {
+      "description": "シーンの文字を置くフォント（決定 0188）",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "文字が指すフォントの名前（ファイルに書かれた元の名前）。書かなければ、名前の合わない文字に使う既定のフォント。同じ名前と、名前のないものは 1 つまで",
+          "type": "string"
+        },
+        "input": { "description": "TrueType・OpenType（CFF・CFF2 を含む）のファイルの入力の名前（zm_push で渡したもの）", "type": "string" },
+        "index": {
+          "description": "フォントのコレクション（TTC）の中の番号。書かなければ 0",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": ["input"],
+      "additionalProperties": false
+    },
+    "height_reference": {
+      "description": "宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ",
+      "type": "string",
+      "enum": ["cap_height", "em", "frame"]
     },
     "scene_result": {
       "description": "シーンの要約と、シーンの blob の番号",
@@ -1278,9 +1312,10 @@
         "faces": { "description": "面", "type": "integer", "minimum": 0 },
         "texts": { "description": "文字", "type": "integer", "minimum": 0 },
         "points": { "description": "点", "type": "integer", "minimum": 0 },
-        "images": { "description": "画像", "type": "integer", "minimum": 0 }
+        "images": { "description": "画像", "type": "integer", "minimum": 0 },
+        "glyphs": { "description": "置いた字形。fonts を書かなければ 0。小版 37 から", "type": "integer", "minimum": 0 }
       },
-      "required": ["chunks", "lines", "vertices", "faces", "texts", "points", "images"],
+      "required": ["chunks", "lines", "vertices", "faces", "texts", "points", "images", "glyphs"],
       "additionalProperties": false
     },
     "check_request": {

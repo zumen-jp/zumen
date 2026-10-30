@@ -656,6 +656,51 @@ fidelity = "dropped"
 since = "0.0.0"
 status = "active"
 
+[codes."scene.font.missing"]
+description = "渡したフォントに、文字のフォントの名前に合うものも既定のものもないので、字形を置かずに文字列だけを返した（決定 0188）"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."scene.font.assumed"]
+description = "名前の合うフォントがないので、既定のフォント（書式の区間では文字のフォント）で字形を置いた（決定 0188）"
+severity = "info"
+fidelity = "approximated"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."scene.glyph.missing"]
+description = "フォントにない文字を、代わりの字形（.notdef）で置いた（決定 0188）"
+severity = "warning"
+fidelity = "approximated"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.glyph-outline.invalid"]
+description = "字形の輪郭が壊れているか上限を超えて読めないので、その字形の形を空にした（決定 0188）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.text-layout.unsupported"]
+description = "文字（縦書きの 1 行の文字、縦書きの上下に重ねた文字、測定値の区間、寸法の決まらない文字など）を字形で置けないので、その部分は文字列だけを返した（決定 0188）"
+severity = "warning"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.text-height.assumed"]
+description = "形式の宣言値の高さが、フォントのどの寸法に当たるかが渡されないので、大文字の高さとみなして字形を置いた（決定 0188）"
+severity = "info"
+params = { key = "text" }
+group-by = ["key"]
+since = "0.0.0"
+status = "active"
+
 # DXF から図面の領域モデルへの変換（決定 0022）
 
 [codes."drawing.mark-height.dropped"]

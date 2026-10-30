@@ -1,0 +1,160 @@
+{
+  "description": "scene に fonts でフォント（試験の中で組み立てた合成の TrueType）を渡すと、文字を字形で置き、字形の形と変換をシーンの字形の区画に返す（決定 0188）。宣言値の高さの意味は heights で決め、渡さなければ大文字の高さとみなす。読めないフォントと、重なる既定のフォントは要求の値の誤りにする",
+  "steps": [
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n5\nA1\n8\n0\n10\n1.0\n20\n2.0\n40\n7.0\n1\nHg%%cI\n0\nTEXT\n5\nA2\n8\n0\n10\n0.0\n20\n20.0\n40\n3.5\n1\nQ\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "push": {
+        "name": "fonts/test.ttf",
+        "hex": "0001000000080000000000004f532f32000000000000008c00000060636d617000000000000000ec0000004c676c796600000000000001380000007c6865616400000000000001b4000000366868656100000000000001ec00000024686d74780000000000000210000000106c6f63610000000000000220000000186d61787000000000000002380000000600040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000320ff380000000000000000000000000000000002bc000000000000000000010003000a0000000c000c000000000040000000000000000400000020000000200000000300000048000000480000000100000049000000490000000400000067000000670000000200010032000001c202bc0003000033211121320190fe7002bc00000000020000000002bc02d0000300070000313311230133112364640258646402d0fd3002d00001001eff2e020801e00003000004120a010113f5f5f5d201590159fea70000ffff0000000002bc02d0002b0001000a0014200000020002fb0300000001000000000000000000005f0f3cf5000003e8000000000000000000000000000000000000000000000000000000000000000100000000000100000384ff060000000000000000000000000000000000000000000000000000000401f4000002bc00000226000000fa0000000000000000001c0000004000000060000000600000007c0000500000050000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "fonts": [
+          {
+            "input": "fonts/test.ttf"
+          }
+        ],
+        "heights": {
+          "dxf.TEXT.40": "cap_height"
+        }
+      },
+      "expect": {
+        "/result/counts/texts": 2,
+        "/result/counts/glyphs": 5,
+        "/diagnostics/0/code": "scene.font.assumed"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "fonts": [
+          {
+            "name": "STANDARD",
+            "input": "fonts/test.ttf"
+          }
+        ]
+      },
+      "expect": {
+        "/result/counts/glyphs": 0,
+        "/diagnostics/0/code": "scene.font.missing"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "fonts": [
+          {
+            "input": "a.dxf"
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/fonts/0/input"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "fonts": [
+          {
+            "input": "fonts/test.ttf"
+          },
+          {
+            "input": "fonts/test.ttf",
+            "index": 0
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/fonts/1"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "fonts": [
+          {
+            "input": "fonts/test.ttf",
+            "index": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/fonts/0/input"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "heights": {
+          "dxf.TEXT.40": "ex"
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid"
+      },
+      "absent": [
+        "/result"
+      ]
+    }
+  ]
+}

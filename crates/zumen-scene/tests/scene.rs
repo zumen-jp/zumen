@@ -2,6 +2,8 @@
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Stop, codes};
+use zumen_drawing::font::Font as Face;
+use zumen_drawing::layout::Reference;
 use zumen_drawing::{
     Color, ColorSystem, Dimension, DimensionKind, DimensionText, Drawing2D, Fill, Format, Hatch,
     HatchLoop, Height, HeightMeaning, Inherit, Islands, Label, Length, LineType,
@@ -9,7 +11,7 @@ use zumen_drawing::{
     Shape, SpaceId, Span, Vertex,
 };
 use zumen_scene::layout::{self, SECTIONS};
-use zumen_scene::{Chunking, Options, Palette, Scene, build};
+use zumen_scene::{Chunking, FontSet, Options, Palette, Scene, build, build_with};
 use zumen_sdk::{Lift, testkit};
 
 const MODEL: SpaceId = SpaceId(0);
@@ -922,4 +924,208 @@ fn same_drawing_gives_the_same_bytes() {
     assert_eq!(a.bytes, b.bytes);
     // 空間からの既定の許容差は、範囲の対角線の 1/50000
     assert!(a.tolerance > 0.0 && a.tolerance < 0.01);
+}
+
+/// 試験の中で組み立てた TrueType のフォント（zumen-drawing の font の試験の `outlined` と同じバイト列）。
+/// em 1000・大文字の高さ 700。字形は .notdef（四角）・`H`（2 つの長方形）・`g`（2 次曲線の菱形）・空白・
+/// `I`（`H` と `g` を並べた複合の字形）
+const FONT: &[&str] = &[
+    "0001000000080000000000004f532f32000000000000008c00000060636d617000000000000000ec0000004c676c7966",
+    "00000000000001380000007c6865616400000000000001b4000000366868656100000000000001ec00000024686d7478",
+    "0000000000000210000000106c6f63610000000000000220000000186d61787000000000000002380000000600040000",
+    "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "000000000000000000000000000000000320ff380000000000000000000000000000000002bc00000000000000000001",
+    "0003000a0000000c000c0000000000400000000000000004000000200000002000000003000000480000004800000001",
+    "00000049000000490000000400000067000000670000000200010032000001c202bc0003000033211121320190fe7002",
+    "bc00000000020000000002bc02d0000300070000313311230133112364640258646402d0fd3002d00001001eff2e0208",
+    "01e00003000004120a010113f5f5f5d201590159fea70000ffff0000000002bc02d0002b0001000a0014200000020002",
+    "fb0300000001000000000000000000005f0f3cf5000003e8000000000000000000000000000000000000000000000000",
+    "000000000000000100000000000100000384ff0600000000000000000000000000000000000000000000000000000004",
+    "01f4000002bc00000226000000fa0000000000000000001c0000004000000060000000600000007c0000500000050000",
+];
+
+#[cfg(test)]
+fn font_bytes() -> Vec<u8> {
+    let hex: String = FONT.concat();
+    hex.as_bytes()
+        .chunks(2)
+        .map(|pair| u8::from_str_radix(core::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect()
+}
+
+#[cfg(test)]
+fn with_fonts(drawing: &Drawing2D, fonts: &FontSet<'_>) -> (Scene, Vec<Code>) {
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let scene = build_with(
+        drawing,
+        &options(),
+        fonts,
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .map_err(|(stop, _)| stop)
+    .unwrap();
+    (scene, diag.iter().map(|d| d.code()).collect())
+}
+
+const GLYPH_TEXT: &[(i16, &str)] = &[
+    (0, "TEXT"),
+    (5, "B1"),
+    (8, "0"),
+    (10, "1"),
+    (20, "2"),
+    (40, "7"),
+    (1, "HgIQ"),
+];
+
+#[test]
+fn texts_are_placed_with_the_glyphs_of_the_fonts() {
+    let drawing = lift(GLYPH_TEXT);
+    let data = font_bytes();
+    let mut fonts = FontSet::default();
+    assert!(fonts.add(None, Face::parse(&data, 0).unwrap()));
+    assert!(!fonts.add(None, Face::parse(&data, 0).unwrap()));
+    fonts.declare("dxf.TEXT.40", Reference::CapHeight);
+    let (scene, found) = with_fonts(&drawing, &fonts);
+    // 文字スタイルのフォントの名前がないので既定のフォントで置き、Q はフォントにない
+    assert!(found.contains(&codes::SCENE_FONT_ASSUMED));
+    assert!(found.contains(&codes::SCENE_GLYPH_MISSING));
+    assert!(!found.contains(&codes::SCENE_TEXT_HEIGHT_ASSUMED));
+    assert_eq!(scene.counts.glyphs, 4);
+    let read = Read(&scene.bytes);
+    assert_eq!(read.u32s(layout::TEXT_GLYPHS), vec![0]);
+    // H・g・I・.notdef の 4 つの形
+    assert_eq!(read.u32s(layout::GLYPH_SHAPES), vec![0, 1, 2, 3]);
+    let axes = read.f32s(layout::GLYPH_AXES);
+    assert_eq!(axes[..4], [0.01, 0.0, 0.0, 0.01]);
+    let origin = read.f64s(layout::CHUNK_ORIGINS);
+    let xy = read.f32s(layout::GLYPH_XY);
+    assert!((f64::from(xy[0]) + origin[0] - 1.0).abs() < 1e-6);
+    assert!((f64::from(xy[1]) + origin[1] - 2.0).abs() < 1e-6);
+    // g の送りの始まりは H の送り 700 の後
+    assert!((f64::from(xy[2]) + origin[0] - 8.0).abs() < 1e-5);
+    // H は 4 点の輪が 2 つ、I は H の 2 つと g の 1 つ、.notdef は 1 つ
+    let rings = read.u32s(layout::SHAPE_RINGS);
+    assert_eq!(rings, vec![0, 2, 3, 6]);
+    let vertices = read.u32s(layout::OUTLINE_VERTICES);
+    assert_eq!(vertices[..3], [0, 4, 8]);
+    assert_eq!(read.f32s(layout::OUTLINE_XY)[..4], [0.0, 0.0, 100.0, 0.0]);
+    // 高さは大文字の高さのまま
+    assert_eq!(read.f32s(layout::TEXT_HEIGHTS), vec![7.0]);
+}
+
+#[test]
+fn heights_are_converted_to_cap_heights_with_the_font() {
+    let mut drawing = lift(GLYPH_TEXT);
+    drawing.spaces[0].order.clear();
+    let stack = Span {
+        piece: Piece::Stack {
+            upper: "H".to_string(),
+            lower: "gg".to_string(),
+            kind: zumen_drawing::StackKind::Horizontal,
+        },
+        format: Format::default(),
+    };
+    push(
+        &mut drawing,
+        Shape::Formatted(zumen_drawing::FormattedText {
+            content: String::new(),
+            spans: vec![
+                Span {
+                    piece: Piece::Text("H".to_string()),
+                    format: Format::default(),
+                },
+                stack,
+            ],
+            height: Height {
+                value: model(10.0),
+                meaning: HeightMeaning::Em,
+            },
+            point: at(0.0, 0.0),
+            horizontal: zumen_drawing::Horizontal::Left,
+            vertical: zumen_drawing::Vertical::Top,
+            rotation: zumen_drawing::Rotation::Angle(0.0),
+            width: None,
+            frame_height: None,
+            flow: zumen_drawing::Flow::LeftToRight,
+            line_spacing: zumen_drawing::LineSpacing {
+                factor: 1.0,
+                exact: false,
+            },
+            background: None,
+            style: String::new(),
+        }),
+    );
+    let data = font_bytes();
+    let mut fonts = FontSet::default();
+    fonts.add(None, Face::parse(&data, 0).unwrap());
+    let (scene, _) = with_fonts(&drawing, &fonts);
+    let read = Read(&scene.bytes);
+    // em 10 は大文字の高さ 7。高さの意味の印は外す
+    assert_eq!(read.f32s(layout::TEXT_HEIGHTS), vec![7.0, 7.0, 7.0]);
+    assert!(
+        read.u8s(layout::TEXT_FLAGS)
+            .iter()
+            .all(|f| f & (layout::text_flag::HEIGHT_EM | layout::text_flag::HEIGHT_FRAME) == 0)
+    );
+    // 本文の H、重ねた上の H、下の g と g
+    assert_eq!(read.u32s(layout::TEXT_GLYPHS), vec![0, 1, 2]);
+    assert_eq!(scene.counts.glyphs, 4);
+    // 重ねた文字の線
+    assert_eq!(scene.counts.lines, 1);
+}
+
+#[test]
+fn texts_without_a_matching_font_keep_only_their_strings() {
+    let drawing = lift(GLYPH_TEXT);
+    let data = font_bytes();
+    let mut fonts = FontSet::default();
+    fonts.add(Some("romans.shx"), Face::parse(&data, 0).unwrap());
+    let (scene, found) = with_fonts(&drawing, &fonts);
+    assert!(found.contains(&codes::SCENE_FONT_MISSING));
+    assert_eq!(scene.counts.glyphs, 0);
+    let read = Read(&scene.bytes);
+    assert_eq!(read.u32s(layout::TEXT_GLYPHS), vec![0]);
+    assert!(read.section(layout::SHAPE_RINGS).is_empty());
+    // フォントを渡さなければ、字形の診断も返さない
+    let (_, found) = with_fonts(&drawing, &FontSet::default());
+    assert!(!found.contains(&codes::SCENE_FONT_MISSING));
+}
+
+#[test]
+fn line_type_text_marks_use_the_glyphs() {
+    let mut drawing = lift(&SHAPES[..9]);
+    drawing.line_types.push(LineType {
+        id: LineTypeId(90),
+        name: "GAS".to_string(),
+        definition: Some(LineTypeDefinition {
+            description: String::new(),
+            pattern: vec![3.0, -2.0],
+            basis: PatternBasis::Element,
+            marks: vec![zumen_drawing::LineTypeMark {
+                index: 1,
+                content: zumen_drawing::MarkContent::Text {
+                    content: "H".to_string(),
+                    style: None,
+                },
+                scale: 0.7,
+                rotation: 0.0,
+                rotation_basis: zumen_drawing::MarkRotation::Relative,
+                offset: [0.0, 0.0],
+            }],
+        }),
+        source: drawing.spaces[0].elements[0].source.clone(),
+    });
+    drawing.spaces[0].elements[0].style.line_type = Inherit::Own(LineTypeId(90));
+    let data = font_bytes();
+    let mut fonts = FontSet::default();
+    fonts.add(None, Face::parse(&data, 0).unwrap());
+    let (scene, found) = with_fonts(&drawing, &fonts);
+    assert!(found.contains(&codes::SCENE_TEXT_HEIGHT_ASSUMED));
+    assert_eq!(scene.counts.texts, 2);
+    assert_eq!(scene.counts.glyphs, 2);
+    let read = Read(&scene.bytes);
+    // 2 つの文字が同じ形を引く
+    assert_eq!(read.u32s(layout::GLYPH_SHAPES), vec![0, 0]);
+    assert_eq!(read.f32s(layout::GLYPH_AXES)[..4], [0.001, 0.0, 0.0, 0.001]);
 }

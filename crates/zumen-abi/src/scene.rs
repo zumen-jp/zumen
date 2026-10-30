@@ -1,11 +1,12 @@
 //! `scene` の op（決定 0172）。起点と色の表を読み、`zumen-scene` でシーンを作る。
 
 use zumen_base::Cx;
+use zumen_drawing::layout::Reference;
 use zumen_drawing::{ColorSystem, Drawing2D, Origin, Unit, id};
 use zumen_json::Value;
-use zumen_scene::{Chunking, Options, Palette};
+use zumen_scene::{Chunking, FontSet, Options, Palette};
 
-use crate::messages::{self, Extent, SceneCounts, SceneRequest, SceneResult};
+use crate::messages::{self, Extent, HeightReference, SceneCounts, SceneRequest, SceneResult};
 use crate::session::{Failed, fail, invalid_value};
 
 /// 要求の値を、図面を変換する前に確かめる
@@ -113,11 +114,21 @@ fn hex(text: &str) -> Option<[u8; 3]> {
     Some([byte(0)?, byte(2)?, byte(4)?])
 }
 
+/// 宣言された高さが当たるフォントの寸法（決定 0188）
+pub(crate) fn reference(value: HeightReference) -> Reference {
+    match value {
+        HeightReference::CapHeight => Reference::CapHeight,
+        HeightReference::Em => Reference::Em,
+        HeightReference::Frame => Reference::Frame,
+    }
+}
+
 /// シーンを作り、結果とバッファーを返す。結果の `blob` は呼ぶ側が書く
 pub(crate) fn scene(
     drawing: &Drawing2D,
     request: &SceneRequest,
     palette: Palette,
+    fonts: &FontSet<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<(SceneResult, Vec<u8>), Failed> {
     let (origin, unit) = origin(drawing, request, cx)?;
@@ -133,7 +144,7 @@ pub(crate) fn scene(
         palette,
         chunking: Chunking::PROVISIONAL,
     };
-    let scene = zumen_scene::build(drawing, &options, cx)
+    let scene = zumen_scene::build_with(drawing, &options, fonts, cx)
         .map_err(|(stop, at)| fail(cx, stop.to_diagnostic().at(at)))?;
     let counts = scene.counts;
     Ok((
@@ -150,6 +161,7 @@ pub(crate) fn scene(
                 texts: counts.texts,
                 points: counts.points,
                 images: counts.images,
+                glyphs: counts.glyphs,
             },
             extent: scene.extent.map(|[min_x, min_y, max_x, max_y]| Extent {
                 min_x,

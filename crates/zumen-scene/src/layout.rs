@@ -8,7 +8,7 @@ pub const MAGIC: [u8; 4] = *b"ZMSC";
 /// 大版。区画の意味を変えるときに上げる
 pub const MAJOR: u16 = 1;
 /// 小版。区画か値を足すたびに上げる
-pub const MINOR: u16 = 1;
+pub const MINOR: u16 = 2;
 /// 番号の「なし」
 pub const NONE: u32 = u32::MAX;
 
@@ -172,9 +172,23 @@ pub const LAYER_IDS: usize = 59;
 pub const FONT_NAMES: usize = 60;
 /// 文字列を並べた UTF-8
 pub const STRINGS: usize = 61;
+/// 文字の字形の始まり（glyph_shapes の行）。字形を持つ文字は、文字列の代わりに字形を描く。持たなければ（フォントがない・置けない）文字列を描く
+pub const TEXT_GLYPHS: usize = 62;
+/// 置いた字形の形（shape_rings の行）
+pub const GLYPH_SHAPES: usize = 63;
+/// 形の座標（字形の単位）を写す変換の線形の部分 [a, b, c, d]。形の点 (u, v) は、x = a·u + c·v + e、y = b·u + d·v + f に置く（e・f は glyph_xy）
+pub const GLYPH_AXES: usize = 64;
+/// 字形の原点（形の座標の (0, 0)）を置く点 [e, f]。塊の原点からの X・Y
+pub const GLYPH_XY: usize = 65;
+/// 字形の形の輪の始まり（outline_vertices の行）。輪は非零の規則で塗る。空白などは輪を持たない
+pub const SHAPE_RINGS: usize = 66;
+/// 字形の輪の頂点の始まり（outline_xy の行）。輪は閉じているものとし、始点を繰り返さない
+pub const OUTLINE_VERTICES: usize = 67;
+/// 字形の輪の頂点（字形の単位）。曲線は、許容差を字形の単位に直して 2 の冪に切り下げた刻みで折れ線にする
+pub const OUTLINE_XY: usize = 68;
 
 /// 区画の定義。番号の順
-pub const SECTIONS: [Section; 62] = [
+pub const SECTIONS: [Section; 69] = [
     Section {
         name: "chunk_origins",
         ty: Type::F64,
@@ -484,6 +498,41 @@ pub const SECTIONS: [Section; 62] = [
         name: "strings",
         ty: Type::U8,
         width: 1,
+    },
+    Section {
+        name: "text_glyphs",
+        ty: Type::U32,
+        width: 1,
+    },
+    Section {
+        name: "glyph_shapes",
+        ty: Type::U32,
+        width: 1,
+    },
+    Section {
+        name: "glyph_axes",
+        ty: Type::F32,
+        width: 4,
+    },
+    Section {
+        name: "glyph_xy",
+        ty: Type::F32,
+        width: 2,
+    },
+    Section {
+        name: "shape_rings",
+        ty: Type::U32,
+        width: 1,
+    },
+    Section {
+        name: "outline_vertices",
+        ty: Type::U32,
+        width: 1,
+    },
+    Section {
+        name: "outline_xy",
+        ty: Type::F32,
+        width: 2,
     },
 ];
 

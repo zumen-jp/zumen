@@ -1346,6 +1346,50 @@ pub const SCENE_FIT_TOLERANCE_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// 名前の合うフォントがないので、既定のフォント（書式の区間では文字のフォント）で字形を置いた（決定 0188）
+///
+/// `scene.font.assumed`（0.0.0 から）
+pub const SCENE_FONT_ASSUMED: Code = Code::new(
+    "scene.font.assumed",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 渡したフォントに、文字のフォントの名前に合うものも既定のものもないので、字形を置かずに文字列だけを返した（決定 0188）
+///
+/// `scene.font.missing`（0.0.0 から）
+pub const SCENE_FONT_MISSING: Code = Code::new(
+    "scene.font.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 字形の輪郭が壊れているか上限を超えて読めないので、その字形の形を空にした（決定 0188）
+///
+/// `scene.glyph-outline.invalid`（0.0.0 から）
+pub const SCENE_GLYPH_OUTLINE_INVALID: Code = Code::new(
+    "scene.glyph-outline.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// フォントにない文字を、代わりの字形（.notdef）で置いた（決定 0188）
+///
+/// `scene.glyph.missing`（0.0.0 から）
+pub const SCENE_GLYPH_MISSING: Code = Code::new(
+    "scene.glyph.missing",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// グラデーションの塗りを、最初の色で塗った（決定 0172）
 ///
 /// `scene.gradient.approximated`（0.0.0 から）
@@ -1444,6 +1488,28 @@ pub const SCENE_TABLE_DROPPED: Code = Code::new(
     "scene.table.dropped",
     Severity::Warning,
     Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 形式の宣言値の高さが、フォントのどの寸法に当たるかが渡されないので、大文字の高さとみなして字形を置いた（決定 0188）
+///
+/// `scene.text-height.assumed`（0.0.0 から）
+pub const SCENE_TEXT_HEIGHT_ASSUMED: Code = Code::new(
+    "scene.text-height.assumed",
+    Severity::Info,
+    None,
+    &[Param::new("key", ParamType::Text)],
+    &["key"],
+);
+
+/// 文字（縦書きの 1 行の文字、縦書きの上下に重ねた文字、測定値の区間、寸法の決まらない文字など）を字形で置けないので、その部分は文字列だけを返した（決定 0188）
+///
+/// `scene.text-layout.unsupported`（0.0.0 から）
+pub const SCENE_TEXT_LAYOUT_UNSUPPORTED: Code = Code::new(
+    "scene.text-layout.unsupported",
+    Severity::Warning,
+    None,
     &[],
     &[],
 );
@@ -1733,6 +1799,10 @@ pub const ALL: &[Code] = &[
     SCENE_DIMENSION_APPROXIMATED,
     SCENE_DIMENSION_DROPPED,
     SCENE_FIT_TOLERANCE_APPROXIMATED,
+    SCENE_FONT_ASSUMED,
+    SCENE_FONT_MISSING,
+    SCENE_GLYPH_OUTLINE_INVALID,
+    SCENE_GLYPH_MISSING,
     SCENE_GRADIENT_APPROXIMATED,
     SCENE_HATCH_PATTERN_APPROXIMATED,
     SCENE_HATCH_PATTERN_DROPPED,
@@ -1742,6 +1812,8 @@ pub const ALL: &[Code] = &[
     SCENE_SPLINE_APPROXIMATED,
     SCENE_TABLE_APPROXIMATED,
     SCENE_TABLE_DROPPED,
+    SCENE_TEXT_HEIGHT_ASSUMED,
+    SCENE_TEXT_LAYOUT_UNSUPPORTED,
     SCENE_UNDERLAY_CLIP_DROPPED,
     SCENE_UNDERLAY_DROPPED,
     SXF_CODE_MISSING,

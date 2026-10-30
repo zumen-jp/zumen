@@ -14,6 +14,7 @@ pub(crate) struct Tables<'a> {
     pub clips: &'a [Vec<Clipping>],
     pub layers: &'a [[u32; 2]],
     pub fonts: &'a [String],
+    pub shapes: &'a [Vec<Vec<Xy>>],
     pub point_style: Option<[f32; 4]>,
 }
 
@@ -72,7 +73,7 @@ pub(crate) fn write(
     let mut counts = Counts::default();
     let mut extent = crate::Bounds::default();
     let (mut lines, mut line_xy, mut faces, mut rings, mut face_xy) = (0, 0, 0, 0, 0);
-    let (mut texts, mut points, mut images) = (0, 0, 0);
+    let (mut texts, mut points, mut images, mut glyphs) = (0, 0, 0, 0);
     for chunk in chunks {
         let bounds = chunk.bounds.get().unwrap_or([0.0; 4]);
         extent = extent.union(chunk.bounds);
@@ -124,6 +125,17 @@ pub(crate) fn write(
             c.u32(layout::TEXT_LINES, &[text.line]);
             c.u32(layout::TEXT_FONTS, &[text.font]);
             c.u32(layout::TEXT_UNITS, &[text.unit]);
+            c.u32(layout::TEXT_GLYPHS, &[index(glyphs)]);
+            for glyph in &text.glyphs {
+                let [a, b, c2, d, e, f] = glyph.transform;
+                c.u32(layout::GLYPH_SHAPES, &[glyph.shape]);
+                c.f32(
+                    layout::GLYPH_AXES,
+                    &[a as f32, b as f32, c2 as f32, d as f32],
+                );
+                c.f32(layout::GLYPH_XY, &relative(origin, [e, f]));
+            }
+            glyphs += text.glyphs.len();
             texts += 1;
         }
         for point in &chunk.points {
@@ -196,6 +208,18 @@ pub(crate) fn write(
         c.u32(layout::FONT_NAMES, &name);
     }
     c.u8(layout::STRINGS, &strings.bytes);
+    let (mut shape_rings, mut outline_xy) = (0, 0);
+    for shape in tables.shapes {
+        c.u32(layout::SHAPE_RINGS, &[index(shape_rings)]);
+        for ring in shape {
+            c.u32(layout::OUTLINE_VERTICES, &[index(outline_xy)]);
+            for [x, y] in ring {
+                c.f32(layout::OUTLINE_XY, &[*x as f32, *y as f32]);
+            }
+            outline_xy += ring.len();
+            shape_rings += 1;
+        }
+    }
 
     counts.chunks = chunks.len() as u64;
     counts.lines = lines as u64;
@@ -204,6 +228,7 @@ pub(crate) fn write(
     counts.texts = texts as u64;
     counts.points = points as u64;
     counts.images = images as u64;
+    counts.glyphs = glyphs as u64;
     (assemble(index(chunks.len()), &c.0), counts, extent.get())
 }
 

@@ -621,8 +621,11 @@ impl Session {
     fn scene(&mut self, request: &SceneRequest, cx: &mut Cx<'_>) -> Result<SceneResult, Failed> {
         scene::check(request, cx)?;
         let palette = self.palette(request.palette.as_deref(), cx)?;
-        let drawing = self.lift(&request.doc, cx)?;
-        let (mut result, bytes) = scene::scene(&drawing, request, palette, cx)?;
+        let (mut result, bytes) = {
+            let fonts = self.fonts(request, cx)?;
+            let drawing = self.lift(&request.doc, cx)?;
+            scene::scene(&drawing, request, palette, &fonts, cx)?
+        };
         result.blob = self.blobs.len() as u64;
         self.blobs.push(Some(Blob {
             kind: BlobKind::Scene,
@@ -650,6 +653,39 @@ impl Session {
         };
         let drawing = self.lift(&request.doc, cx)?;
         check::check(&drawing, request, &profiles, &palette, family, cx)
+    }
+
+    /// シーンの文字を置くフォントの入力を読む（決定 0188）
+    fn fonts(
+        &self,
+        request: &SceneRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<zumen_scene::FontSet<'_>, Failed> {
+        let mut set = zumen_scene::FontSet::default();
+        for (index, font) in request.fonts.iter().flatten().enumerate() {
+            let pointer = format!("/fonts/{index}/input");
+            if !name::is_safe(&font.input) {
+                return Err(fail(cx, invalid_value(pointer)));
+            }
+            let Some(bytes) = self.inputs.get(&font.input) else {
+                return Err(fail(cx, input_missing(&font.input)));
+            };
+            let number = u32::try_from(font.index.unwrap_or(0)).unwrap_or(u32::MAX);
+            let Ok(face) = zumen_drawing::font::Font::parse(bytes, number) else {
+                return Err(fail(cx, invalid_value(pointer)));
+            };
+            if !set.add(font.name.as_deref(), face) {
+                let pointer = match font.name {
+                    Some(_) => format!("/fonts/{index}/name"),
+                    None => format!("/fonts/{index}"),
+                };
+                return Err(fail(cx, invalid_value(pointer)));
+            }
+        }
+        for (key, reference) in request.heights.iter().flatten() {
+            set.declare(key, scene::reference(*reference));
+        }
+        Ok(set)
     }
 
     /// 色の表の入力を読む。名前がなければ空の表
@@ -1533,7 +1569,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":36}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":37}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
