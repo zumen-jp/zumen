@@ -4267,3 +4267,192 @@ fn additions_to_two_unkeyed_empty_sheets_return_their_new_ids() {
         assert_eq!(applied.hash, Some(Hash::element(element)));
     }
 }
+
+/// E1: 非等方のビューは DXF・DWG のビューポートで表せないので、ビューを変える変更を持たない（決定 0139）。
+/// ビューの変更を足すと、この照合が網羅でなくなり、書き戻しの扱いを決め直すまで試験が通らない
+#[test]
+fn e1_changes_have_no_edit_for_views() {
+    use zumen_drawing::Edit as Change;
+    let kind = |edit: &Change| match edit {
+        Change::Replace { .. }
+        | Change::Restyle { .. }
+        | Change::Transform { .. }
+        | Change::Add { .. }
+        | Change::Remove { .. } => "element",
+        Change::ReplaceLayer { .. } | Change::AddLayer { .. } | Change::RemoveLayer { .. } => {
+            "layer"
+        }
+        Change::ReplaceTextStyle { .. }
+        | Change::AddTextStyle { .. }
+        | Change::RemoveTextStyle { .. } => "text style",
+        Change::ReplaceLineType { .. }
+        | Change::AddLineType { .. }
+        | Change::RemoveLineType { .. } => "line type",
+        Change::ReplaceDimensionStyle { .. }
+        | Change::AddDimensionStyle { .. }
+        | Change::RemoveDimensionStyle { .. } => "dimension style",
+    };
+    let file = testkit::read::<Dxf>(&src()).0.unwrap();
+    let changes = by_source::convert(
+        &file,
+        &Changes {
+            edits: vec![Edit::Remove(elements(&lift(&file))[0].source.clone())],
+        },
+    );
+    assert_eq!(kind(&changes.edits[0]), "element");
+}
+
+/// E4・E10: 線形の寸法 1 つと、2×1 の表（ACAD_TABLE）1 つを持つ DXF。どちらも部品の定義を持たない
+#[cfg(test)]
+fn dimension_and_table() -> Vec<u8> {
+    versioned(
+        "AC1027",
+        &[
+            (0, "DIMENSION"),
+            (5, "1A"),
+            (8, "0"),
+            (3, "ISO-25"),
+            (10, "0.0"),
+            (20, "100.0"),
+            (11, "500.0"),
+            (21, "110.0"),
+            (70, "32"),
+            (42, "1000.0"),
+            (1, "995"),
+            (13, "0.0"),
+            (23, "0.0"),
+            (14, "1000.0"),
+            (24, "0.0"),
+            (0, "ACAD_TABLE"),
+            (5, "1B"),
+            (8, "0"),
+            (100, "AcDbBlockReference"),
+            (2, "*T1"),
+            (10, "0.0"),
+            (20, "200.0"),
+            (100, "AcDbTable"),
+            (280, "0"),
+            (11, "1.0"),
+            (21, "0.0"),
+            (90, "22"),
+            (91, "1"),
+            (92, "2"),
+            (93, "0"),
+            (141, "10.0"),
+            (142, "30.0"),
+            (142, "20.0"),
+            (171, "1"),
+            (1, "PARTS"),
+            (171, "1"),
+            (1, "M8"),
+        ],
+    )
+}
+
+/// E4: 寸法は読めるが、置き換えと追加は `change.edit.unsupported` で断り、ファイルを変えない。
+/// E10: 表のセルの変更も同じく断る
+#[test]
+fn e4_e10_dimension_and_table_changes_are_refused_without_changing_the_file() {
+    use zumen_drawing::CellContent;
+    let src = dimension_and_table();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [dimension, table] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
+    let mut restyled = dimension.clone();
+    let Shape::Dimension(shape) = &mut restyled.shape else {
+        panic!("{:?}", dimension.shape);
+    };
+    shape.style = "Standard".to_owned();
+    let mut emptied = table.clone();
+    let Shape::Table(shape) = &mut emptied.shape else {
+        panic!("{:?}", table.shape);
+    };
+    shape.cells[1].content = CellContent::Empty;
+    for (edit, at) in [
+        (
+            Edit::Replace(Box::new(restyled)),
+            vec![dimension.source.clone()],
+        ),
+        (Edit::Replace(Box::new(emptied)), vec![table.source.clone()]),
+        (
+            Edit::Add(Box::new(addition_element(dimension.shape.clone()))),
+            vec![],
+        ),
+        (
+            Edit::Add(Box::new(addition_element(table.shape.clone()))),
+            vec![],
+        ),
+    ] {
+        let (result, found) = apply(&mut file, vec![edit]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(found, [(codes::CHANGE_EDIT_UNSUPPORTED, at)]);
+    }
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+/// E5: 拡張辞書と位置を持たない XDATA を持つ文字を動かすと、どちらも残して書き、読み直した拡張は動かした文字に付く。
+/// 動かす前の位置は戻らない
+#[test]
+fn e5_moving_a_text_keeps_its_xdata_and_extension_dictionary() {
+    use zumen_drawing::{Basis, Placement};
+    let src = versioned(
+        "AC1015",
+        &[
+            (0, "TEXT"),
+            (5, "1A"),
+            (102, "{ACAD_XDICTIONARY"),
+            (360, "1F"),
+            (102, "}"),
+            (8, "0"),
+            (10, "1.0"),
+            (20, "2.0"),
+            (30, "0.0"),
+            (40, "2.5"),
+            (1, "A-1"),
+            (1001, "ROOM"),
+            (1000, "kept"),
+        ],
+    );
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [text] = <[_; 1]>::try_from(elements(&lift(&file))).unwrap();
+    let mut moved = text.clone();
+    if let Shape::Text(shape) = &mut moved.shape
+        && let Placement::Anchor { point, .. } = &mut shape.placement
+    {
+        point.x = 30.0;
+    }
+    let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(moved.clone()))]);
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let text = String::from_utf8(written.clone()).unwrap();
+    assert!(
+        text.contains("102\n{ACAD_XDICTIONARY\n360\n1F\n102\n}\n"),
+        "{text}"
+    );
+    assert!(text.contains("1001\nROOM\n1000\nkept\n"), "{text}");
+    assert!(text.contains(" 10\n30.0\n 20\n2.0\n"), "{text}");
+    let again = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    assert_eq!(elements(&again)[0].shape, moved.shape);
+    let [room] = <[_; 1]>::try_from(again.current_extensions().collect::<Vec<_>>()).unwrap();
+    assert_eq!(room.name, "ROOM");
+    assert_eq!(room.basis, Basis::Model(elements(&again)[0].clone()));
+}
+
+/// E10: 表題欄の項目（属性）の値は、置き換えで書き換えられ、読み直すと新しい値になる
+#[test]
+fn e10_title_block_attribute_values_are_replaced() {
+    let mut file = testkit::read::<Dxf>(&movable()).0.unwrap();
+    let mut element = elements(&lift(&file)).pop().unwrap();
+    let Shape::Symbol(symbol) = &mut element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    symbol.attributes[0].text.content = "DWG A-101".to_owned();
+    let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(element.clone()))]);
+    assert_eq!(result, Ok(()), "{found:?}");
+    assert_eq!(found, []);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let text = String::from_utf8(written.clone()).unwrap();
+    assert!(text.contains("  1\nDWG A-101\n  2\nA\n"), "{text}");
+    let after = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(after.last().unwrap().shape, element.shape);
+}
