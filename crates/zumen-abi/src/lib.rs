@@ -11,11 +11,13 @@
 
 pub mod abi;
 mod bounds;
+mod changes;
 mod describe;
 pub mod ffi;
 mod geometry;
 pub mod messages;
 mod session;
+mod tables;
 
 pub use abi::Status;
 pub use session::{Reply, Session};
