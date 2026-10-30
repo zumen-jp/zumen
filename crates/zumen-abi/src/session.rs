@@ -22,9 +22,10 @@ use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
     CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
     EntitiesResult, Entity, EntityField, EntityKind, Extent, Format, OpenRequest, OpenResult,
-    Request, RequestCommon, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary,
-    TablesRequest, TablesResult,
+    Request, RequestCommon, SceneRequest, SceneResult, SchemaVersion, SessionOptions, SheetSummary,
+    Source, SpaceSummary, TablesRequest, TablesResult,
 };
+use crate::scene;
 use crate::tables::{
     StyleIds, dimension_style_item, layer_item, line_type_item, table_id, text_style_item,
 };
@@ -265,6 +266,7 @@ impl Session {
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
         };
         result.ok()
     }
@@ -604,6 +606,34 @@ impl Session {
         })
     }
 
+    /// 起点から配置をたどった 2D のシーンを、blob で返す（決定 0172）
+    fn scene(&mut self, request: &SceneRequest, cx: &mut Cx<'_>) -> Result<SceneResult, Failed> {
+        scene::check(request, cx)?;
+        let palette = match &request.palette {
+            None => zumen_scene::Palette::default(),
+            Some(name) => {
+                if !name::is_safe(name) {
+                    return Err(fail(cx, invalid_value("/palette")));
+                }
+                let Some(bytes) = self.inputs.get(name) else {
+                    return Err(fail(cx, input_missing(name)));
+                };
+                match scene::palette(bytes) {
+                    Some(palette) => palette,
+                    None => return Err(fail(cx, invalid_value("/palette"))),
+                }
+            }
+        };
+        let drawing = self.lift(&request.doc, cx)?;
+        let (mut result, bytes) = scene::scene(&drawing, request, palette, cx)?;
+        result.blob = self.blobs.len() as u64;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::Scene,
+            bytes,
+        }));
+        Ok(result)
+    }
+
     /// 名前の文書を、図面モデルに変換する
     fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
         if !name::is_safe(doc) {
@@ -877,7 +907,7 @@ fn kind_of<P>(shape: &Shape<P>) -> EntityKind {
     }
 }
 
-fn unit_of(unit: Unit) -> messages::Unit {
+pub(crate) fn unit_of(unit: Unit) -> messages::Unit {
     match unit {
         Unit::Millimeter => messages::Unit::Millimeter,
         Unit::Centimeter => messages::Unit::Centimeter,
@@ -946,6 +976,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Entities(request) => &request.request_common,
         Request::Apply(request) => &request.request_common,
         Request::Tables(request) => &request.request_common,
+        Request::Scene(request) => &request.request_common,
     }
 }
 
@@ -1469,7 +1500,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":32}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":33}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1743,6 +1774,42 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[test]
+    fn returns_scenes_as_blobs_and_checks_the_origin() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        session
+            .push(b"p.json", br##"{"values":[{"rgb":"#ff0000","aci":1}]}"##)
+            .unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"scene","doc":"a.dxf","from":"space/0","tolerance":0.5,"palette":"p.json"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/unit"), "millimeter");
+        assert_eq!(number(&response, "/result/tolerance"), "0.5");
+        assert_eq!(number(&response, "/result/blob"), "0");
+        assert_eq!(text(&response, "/blobs/0/kind"), "scene");
+        let scene = session.take(0).unwrap();
+        assert_eq!(&scene[..4], b"ZMSC");
+        for (request, pointer) in [
+            (r#""from":"space/9""#, "/from"),
+            (r#""from":"space/0","view":0"#, "/view"),
+            (r#""from":"space/0","region":[1,0,0,0]"#, "/region"),
+            (r#""from":"space/0","tolerance":0"#, "/tolerance"),
+            (r#""from":"space/0","palette":"a.dxf""#, "/palette"),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(r#"{{"v":1,"op":"scene","doc":"a.dxf",{request}}}"#),
+            );
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&response, "/diagnostics/0/code"), "call.value.invalid");
+            assert_eq!(text(&response, "/diagnostics/0/params/pointer"), pointer);
+        }
     }
 
     #[test]

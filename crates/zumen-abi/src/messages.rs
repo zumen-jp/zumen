@@ -27,6 +27,8 @@ pub enum Request {
     Apply(ApplyRequest),
     /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から
     Tables(TablesRequest),
+    /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から
+    Scene(SceneRequest),
 }
 
 impl Request {
@@ -40,6 +42,7 @@ impl Request {
         "entities",
         "apply",
         "tables",
+        "scene",
     ];
 
     /// 目印の欄（`op`）の値
@@ -53,6 +56,7 @@ impl Request {
             Self::Entities(_) => "entities",
             Self::Apply(_) => "apply",
             Self::Tables(_) => "tables",
+            Self::Scene(_) => "scene",
         }
     }
 }
@@ -69,6 +73,7 @@ impl FromJson for Request {
             "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
+            "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -87,6 +92,7 @@ impl ToJson for Request {
             Self::Entities(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Tables(value) => value.to_json(out),
+            Self::Scene(value) => value.to_json(out),
         }
     }
 }
@@ -4876,6 +4882,251 @@ impl ToJson for TablesResult {
     }
 }
 
+/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct SceneRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// 起点。実寸の空間・記号の定義の空間・用紙の ID（drawing と entities が返すもの）
+    pub from: String,
+    /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した空間の要素だけを描く。from が用紙のときだけ書ける
+    pub view: Option<u64>,
+    /// [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す
+    pub region: Option<Vec<f64>>,
+    /// 弦の誤差（起点の長さ）。0 より大きい。書かなければ、用紙からは 0.02 mm、空間からは要素の範囲の対角線の 1/50000
+    pub tolerance: Option<f64>,
+    /// true なら印刷する要素を、書かないか false なら表示する要素を描く
+    pub print: Option<bool>,
+    /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる
+    pub palette: Option<String>,
+}
+
+impl SceneRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "scene")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let region = object.optional("region", |value| json::array(value, json::number))?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let print = object.optional("print", json::boolean)?;
+        let palette = object.optional("palette", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            view,
+            region,
+            tolerance,
+            print,
+            palette,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("scene");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.region {
+            out.key("region");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.print {
+            out.key("print");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.palette {
+            out.key("palette");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for SceneRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SceneRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// シーンの要約と、シーンの blob の番号
+#[derive(Clone, Debug, PartialEq)]
+pub struct SceneResult {
+    /// 起点の ID
+    pub from: String,
+    /// 起点のビューの番号。ビューでなければ持たない
+    pub view: Option<u64>,
+    /// 起点の座標の単位。用紙とビューからは millimeter
+    pub unit: Unit,
+    /// 使った弦の誤差（起点の長さ）
+    pub tolerance: f64,
+    /// 返した描くものの数
+    pub counts: SceneCounts,
+    /// 返した塊の範囲。起点の座標。塊がなければ持たない
+    pub extent: Option<Extent>,
+    /// シーンの blob の番号（種類は scene）。zm_take で取り出す
+    pub blob: u64,
+}
+
+impl SceneResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let from = object.required("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let counts = object.required("counts", SceneCounts::from_json)?;
+        let extent = object.optional("extent", Extent::from_json)?;
+        let blob = object.required("blob", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            from,
+            view,
+            unit,
+            tolerance,
+            counts,
+            extent,
+            blob,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("from");
+        out.string(&self.from);
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        out.key("counts");
+        self.counts.to_json(out);
+        if let Some(value) = &self.extent {
+            out.key("extent");
+            value.to_json(out);
+        }
+        out.key("blob");
+        out.uint(self.blob);
+    }
+}
+
+impl FromJson for SceneResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SceneResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// シーンの描くものの種類ごとの数
+#[derive(Clone, Debug, PartialEq)]
+pub struct SceneCounts {
+    /// 塊
+    pub chunks: u64,
+    /// 線（折れ線）
+    pub lines: u64,
+    /// 線と面の頂点
+    pub vertices: u64,
+    /// 面
+    pub faces: u64,
+    /// 文字
+    pub texts: u64,
+    /// 点
+    pub points: u64,
+    /// 画像
+    pub images: u64,
+}
+
+impl SceneCounts {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let chunks = object.required("chunks", |value| json::uint(value, 0, 9007199254740991))?;
+        let lines = object.required("lines", |value| json::uint(value, 0, 9007199254740991))?;
+        let vertices =
+            object.required("vertices", |value| json::uint(value, 0, 9007199254740991))?;
+        let faces = object.required("faces", |value| json::uint(value, 0, 9007199254740991))?;
+        let texts = object.required("texts", |value| json::uint(value, 0, 9007199254740991))?;
+        let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
+        let images = object.required("images", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            chunks,
+            lines,
+            vertices,
+            faces,
+            texts,
+            points,
+            images,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("chunks");
+        out.uint(self.chunks);
+        out.key("lines");
+        out.uint(self.lines);
+        out.key("vertices");
+        out.uint(self.vertices);
+        out.key("faces");
+        out.uint(self.faces);
+        out.key("texts");
+        out.uint(self.texts);
+        out.key("points");
+        out.uint(self.points);
+        out.key("images");
+        out.uint(self.images);
+    }
+}
+
+impl FromJson for SceneCounts {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SceneCounts {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// 表の項目
 #[derive(Clone, Debug, PartialEq)]
 pub struct TableItem {
@@ -6119,7 +6370,7 @@ impl ToJson for Blob {
     }
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene はシーン（#6 で決める配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BlobKind {
     /// `file`

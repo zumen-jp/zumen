@@ -280,6 +280,7 @@ dependencies = [
  "zumen-drawing",
  "zumen-json",
  "zumen-jww",
+ "zumen-scene",
  "zumen-sdk",
  "zumen-sxf",
 ]
@@ -326,6 +327,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-geom2d"
+version = "0.0.0"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "zumen-json"
 version = "0.0.0"
 
@@ -337,6 +345,18 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
+ "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-scene"
+version = "0.0.0"
+dependencies = [
+ "libm",
+ "zumen-acad",
+ "zumen-base",
+ "zumen-drawing",
+ "zumen-geom2d",
  "zumen-sdk",
 ]
 

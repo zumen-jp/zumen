@@ -16,6 +16,7 @@ mod describe;
 pub mod ffi;
 mod geometry;
 pub mod messages;
+mod scene;
 mod session;
 mod tables;
 

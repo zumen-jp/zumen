@@ -518,6 +518,87 @@ group-by = ["id"]
 since = "0.0.0"
 status = "active"
 
+# 2D のシーン（決定 0172）
+
+[codes."scene.curve.approximated"]
+description = "曲線・ふくらみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ"
+severity = "info"
+fidelity = "approximated"
+params = { tolerance = "float" }
+group-by = ["tolerance"]
+since = "0.0.0"
+status = "active"
+
+[codes."scene.spline.approximated"]
+description = "当てはめる点だけで決まるスプラインを、当てはめる点を結ぶ折れ線で描いた"
+severity = "warning"
+fidelity = "approximated"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.gradient.approximated"]
+description = "グラデーションの塗りを、最初の色で塗った（決定 0172）"
+severity = "info"
+fidelity = "approximated"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.dimension.dropped"]
+description = "表示の部品から描けない寸法を、シーンに描かなかった（決定 0172）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.leader.dropped"]
+description = "引出線を、シーンに描かなかった（決定 0172）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.callout.dropped"]
+description = "引出線つきの注記を、シーンに描かなかった（決定 0172）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.table.dropped"]
+description = "表を、シーンに描かなかった（決定 0172）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.hatch-pattern.dropped"]
+description = "ハッチングのパターンの線を、シーンに描かなかった。境界も描かない"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.underlay.dropped"]
+description = "画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.underlay-clip.dropped"]
+description = "下敷きの切り抜きを当てずに、下敷きの全体を描いた"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.line-type-mark.dropped"]
+description = "線種に添える形と文字を、シーンに描かなかった。線と間は描いた"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
 # DXF から図面の領域モデルへの変換（決定 0022）
 
 [codes."drawing.mark-height.dropped"]

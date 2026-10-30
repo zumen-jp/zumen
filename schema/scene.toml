@@ -1,0 +1,544 @@
+# 2D のシーンの配置（決定 0137・0172・0178）。
+#
+# `scene` の op が返すシーンの blob は、見出し・区画の表・区画を 1 つのバッファーに並べる。
+# `cargo xtask codegen` が、ここから Rust の定数（crates/zumen-scene/src/layout.rs）を作る。
+#
+# - 見出しは `ZMSC`、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）。続けて区画ごとに、
+#   始まりと長さ（u32、バイト）を置く。数はリトルエンディアン。各区画は 8 バイトの境界に置く。
+# - 区画は 1 つの列（型付き配列）で、行ごとに `width` 個の `type` の値を並べる。行の数は、長さを
+#   行の大きさで割ったもの。区画の番号は、ここに書いた順で決まる。
+# - 新しい区画は後ろに足し、区画の意味は変えない（決定 0015）。区画を足したら小版を上げる。読み手は、
+#   知らない区画を読み飛ばす。区画の意味を変えるときは、大版を上げる。
+# - 「始まり」の列は、引く先の区画の行の番号で、終わりは次の行の始まり（最後の行なら、引く先の行の
+#   数）。番号の「なし」は 4294967295（u32 の最大）。
+# - 文字列は `strings` の区画の、始まりと長さ（バイト）の組で引く。
+# - 座標は、塊の原点からの相対の f32。切り抜きだけは、起点の座標の f64 で持つ。
+
+[versions]
+# 大版。区画の意味を変えるときに上げる
+major = 1
+# 小版。区画か値を足すたびに上げる
+minor = 0
+
+# 塊
+
+[[sections]]
+name = "chunk_origins"
+type = "f64"
+width = 2
+description = "塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値"
+
+[[sections]]
+name = "chunk_bounds"
+type = "f32"
+width = 4
+description = "塊の描くものの相対座標の範囲（X の最小・Y の最小・X の最大・Y の最大）。文字は基点だけを含む"
+
+[[sections]]
+name = "chunk_lines"
+type = "u32"
+width = 1
+description = "塊の線の始まり（line_vertices の行）"
+
+[[sections]]
+name = "chunk_faces"
+type = "u32"
+width = 1
+description = "塊の面の始まり（face_rings の行）"
+
+[[sections]]
+name = "chunk_texts"
+type = "u32"
+width = 1
+description = "塊の文字の始まり（text_strings の行）"
+
+[[sections]]
+name = "chunk_points"
+type = "u32"
+width = 1
+description = "塊の点の始まり（point_xy の行）"
+
+[[sections]]
+name = "chunk_images"
+type = "u32"
+width = 1
+description = "塊の画像の始まり（image_names の行）"
+
+# 線
+
+[[sections]]
+name = "line_vertices"
+type = "u32"
+width = 1
+description = "線（折れ線）の頂点の始まり（line_xy の行）"
+
+[[sections]]
+name = "line_units"
+type = "u32"
+width = 1
+description = "線の描く単位（unit_entities の行）"
+
+[[sections]]
+name = "line_xy"
+type = "f32"
+width = 2
+description = "線の頂点。塊の原点からの X・Y"
+
+# 面
+
+[[sections]]
+name = "face_rings"
+type = "u32"
+width = 1
+description = "面の輪の始まり（ring_vertices の行）。輪は偶奇の規則で塗る"
+
+[[sections]]
+name = "face_units"
+type = "u32"
+width = 1
+description = "面の描く単位（unit_entities の行）"
+
+[[sections]]
+name = "ring_vertices"
+type = "u32"
+width = 1
+description = "輪の頂点の始まり（face_xy の行）。輪は閉じているものとし、始点を繰り返さない"
+
+[[sections]]
+name = "face_xy"
+type = "f32"
+width = 2
+description = "面の輪の頂点。塊の原点からの X・Y"
+
+# 文字
+
+[[sections]]
+name = "text_strings"
+type = "u32"
+width = 2
+description = "文字の内容（strings の始まりと長さ）"
+
+[[sections]]
+name = "text_xy"
+type = "f32"
+width = 2
+description = "文字の基点。塊の原点からの X・Y"
+
+[[sections]]
+name = "text_second"
+type = "f32"
+width = 2
+description = "2 点の間に置く文字の 2 点目。塊の原点からの X・Y。2 点の間に置かなければ NaN"
+
+[[sections]]
+name = "text_heights"
+type = "f32"
+width = 1
+description = "文字の高さ（起点の長さ）"
+
+[[sections]]
+name = "text_widths"
+type = "f32"
+width = 1
+description = "字形の幅の倍率"
+
+[[sections]]
+name = "text_rotations"
+type = "f32"
+width = 1
+description = "回転（度、反時計回り）"
+
+[[sections]]
+name = "text_obliques"
+type = "f32"
+width = 1
+description = "斜体の角度（度）"
+
+[[sections]]
+name = "text_boxes"
+type = "f32"
+width = 1
+description = "折り返す枠の幅（起点の長さ）。折り返さなければ 0"
+
+[[sections]]
+name = "text_aligns"
+type = "u8"
+width = 2
+description = "位置合わせ。水平（horizontal の値）と垂直（vertical の値）"
+
+[[sections]]
+name = "text_flags"
+type = "u8"
+width = 1
+description = "印（text_flag の値の和）"
+
+[[sections]]
+name = "text_lines"
+type = "u32"
+width = 1
+description = "書式つきの文字の行の番号。0 から数える。1 行の文字は 0"
+
+[[sections]]
+name = "text_fonts"
+type = "u32"
+width = 1
+description = "フォント（font_names の行）。分からなければ「なし」"
+
+[[sections]]
+name = "text_units"
+type = "u32"
+width = 1
+description = "文字の描く単位（unit_entities の行）"
+
+# 点
+
+[[sections]]
+name = "point_xy"
+type = "f32"
+width = 2
+description = "点の位置。塊の原点からの X・Y"
+
+[[sections]]
+name = "point_rotations"
+type = "f32"
+width = 1
+description = "点の回転（度、反時計回り）"
+
+[[sections]]
+name = "point_markers"
+type = "u32"
+width = 4
+description = "既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0"
+
+[[sections]]
+name = "point_scales"
+type = "f32"
+width = 1
+description = "既定義の印の尺度。文書の点の表し方に従う点は 1"
+
+[[sections]]
+name = "point_units"
+type = "u32"
+width = 1
+description = "点の描く単位（unit_entities の行）"
+
+[[sections]]
+name = "point_style"
+type = "f32"
+width = 4
+description = "文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない"
+
+# 画像
+
+[[sections]]
+name = "image_names"
+type = "u32"
+width = 2
+description = "下敷きの参照名（strings の始まりと長さ）。コアは開かない"
+
+[[sections]]
+name = "image_pages"
+type = "u32"
+width = 2
+description = "資源の中のページ（strings の始まりと長さ）。なければ長さが 0"
+
+[[sections]]
+name = "image_xy"
+type = "f32"
+width = 2
+description = "画像の基点（左下の角）。塊の原点からの X・Y"
+
+[[sections]]
+name = "image_edges"
+type = "f32"
+width = 4
+description = "画像の X の辺と Y の辺のベクトル（起点の長さ）。image_frames が corners なら内容の全体の辺、unit なら内容の 1 単位の辺"
+
+[[sections]]
+name = "image_kinds"
+type = "u8"
+width = 1
+description = "資源の種類（image_kind の値）"
+
+[[sections]]
+name = "image_frames"
+type = "u8"
+width = 1
+description = "辺のベクトルの意味（image_frame の値）"
+
+[[sections]]
+name = "image_units"
+type = "u32"
+width = 1
+description = "画像の描く単位（unit_entities の行）"
+
+# 描く単位
+
+[[sections]]
+name = "unit_entities"
+type = "u32"
+width = 1
+description = "描く単位の要素（entity_ids の行）"
+
+[[sections]]
+name = "unit_colors"
+type = "u32"
+width = 1
+description = "描く単位の色（color_systems の行）"
+
+[[sections]]
+name = "unit_weights"
+type = "f32"
+width = 1
+description = "線幅（用紙の mm）。0 は、いちばん細い線"
+
+[[sections]]
+name = "unit_clips"
+type = "u32"
+width = 1
+description = "切り抜き（clip_polygons の行）。切り抜かなければ「なし」"
+
+[[sections]]
+name = "unit_layers"
+type = "u32"
+width = 1
+description = "実効のレイヤ（layer_ids の行）"
+
+# 要素
+
+[[sections]]
+name = "entity_ids"
+type = "u32"
+width = 2
+description = "要素の ID（strings の始まりと長さ、決定 0156）。記号の属性なら、属性を持つ記号の ID"
+
+[[sections]]
+name = "entity_kinds"
+type = "u8"
+width = 1
+description = "要素の種類（entity_kind の値）"
+
+[[sections]]
+name = "entity_paths"
+type = "u32"
+width = 1
+description = "配置の道筋の始まり（step_ids の行）。外側から内側へ"
+
+[[sections]]
+name = "step_ids"
+type = "u32"
+width = 2
+description = "配置の要素の ID（strings の始まりと長さ）"
+
+[[sections]]
+name = "step_cells"
+type = "u32"
+width = 2
+description = "格子に並べた記号の列と行。格子でなければ 0 と 0"
+
+# 色
+
+[[sections]]
+name = "color_systems"
+type = "u8"
+width = 1
+description = "色の符号の系統（color_system の値）"
+
+[[sections]]
+name = "color_codes"
+type = "u32"
+width = 1
+description = "系統の中の符号。系統がなければ 0"
+
+[[sections]]
+name = "color_files"
+type = "u8"
+width = 4
+description = "ファイルが持つ RGB と、持つかどうか（持てば 255、持たなければ 0）"
+
+[[sections]]
+name = "color_rgba"
+type = "u8"
+width = 4
+description = "表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0"
+
+[[sections]]
+name = "color_flags"
+type = "u8"
+width = 1
+description = "印（color_flag の値の和）"
+
+# 切り抜き
+
+[[sections]]
+name = "clip_polygons"
+type = "u32"
+width = 1
+description = "切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く"
+
+[[sections]]
+name = "polygon_vertices"
+type = "u32"
+width = 1
+description = "多角形の頂点の始まり（clip_xy の行）"
+
+[[sections]]
+name = "polygon_flags"
+type = "u8"
+width = 1
+description = "多角形の印。1 なら、内側を隠す（外側だけを描く）"
+
+[[sections]]
+name = "clip_xy"
+type = "f64"
+width = 2
+description = "切り抜きの多角形の頂点。起点の座標の X・Y"
+
+# 表
+
+[[sections]]
+name = "layer_ids"
+type = "u32"
+width = 2
+description = "レイヤの ID（strings の始まりと長さ）。tables の op が返すものと同じ形"
+
+[[sections]]
+name = "font_names"
+type = "u32"
+width = 2
+description = "フォントの元の名前（strings の始まりと長さ）"
+
+[[sections]]
+name = "strings"
+type = "u8"
+width = 1
+description = "文字列を並べた UTF-8"
+
+# 値
+
+[[values]]
+name = "horizontal"
+type = "u8"
+description = "文字の水平の位置合わせ"
+items = [
+  { name = "left", value = 0, description = "左" },
+  { name = "center", value = 1, description = "中央" },
+  { name = "right", value = 2, description = "右" },
+  { name = "middle", value = 3, description = "文字の外形の中央" },
+  { name = "aligned", value = 4, description = "2 点の間に、縦横の比を保って合わせる" },
+  { name = "fit", value = 5, description = "2 点の間に、高さを保って幅だけを合わせる" },
+]
+
+[[values]]
+name = "vertical"
+type = "u8"
+description = "文字の垂直の位置合わせ"
+items = [
+  { name = "baseline", value = 0, description = "基準線" },
+  { name = "bottom", value = 1, description = "下" },
+  { name = "middle", value = 2, description = "中央" },
+  { name = "top", value = 3, description = "上" },
+]
+
+[[values]]
+name = "text_flag"
+type = "u8"
+description = "文字の印。和で持つ"
+items = [
+  { name = "backward", value = 1, description = "左右に反転する" },
+  { name = "upside_down", value = 2, description = "上下に反転する" },
+  { name = "vertical", value = 4, description = "縦書き" },
+  { name = "formatted", value = 8, description = "書式つきの文字の区間。基点は枠の基点で、行の中の位置は表示する側が送る" },
+  { name = "stack_upper", value = 16, description = "上下に重ねた文字の上" },
+  { name = "stack_lower", value = 32, description = "上下に重ねた文字の下" },
+]
+
+[[values]]
+name = "point_mark"
+type = "u8"
+description = "文書の点の基本の形"
+items = [
+  { name = "dot", value = 0, description = "小さな点" },
+  { name = "none", value = 1, description = "なし" },
+  { name = "plus", value = 2, description = "十字" },
+  { name = "cross", value = 3, description = "バツ" },
+  { name = "tick", value = 4, description = "上向きの短い線" },
+]
+
+[[values]]
+name = "point_frame"
+type = "u8"
+description = "文書の点の囲み。和で持つ"
+items = [
+  { name = "circle", value = 1, description = "円で囲む" },
+  { name = "square", value = 2, description = "四角で囲む" },
+]
+
+[[values]]
+name = "point_size"
+type = "u8"
+description = "文書の点の大きさの意味"
+items = [
+  { name = "length", value = 0, description = "起点の長さ" },
+  { name = "screen", value = 1, description = "画面の高さに対する百分率" },
+]
+
+[[values]]
+name = "image_kind"
+type = "u8"
+description = "下敷きの資源の種類"
+items = [
+  { name = "image", value = 0, description = "画素の画像" },
+  { name = "pdf", value = 1, description = "PDF" },
+]
+
+[[values]]
+name = "image_frame"
+type = "u8"
+description = "画像の辺のベクトルの意味"
+items = [
+  { name = "corners", value = 0, description = "内容の全体を、2 つの辺の平行四辺形に収める" },
+  { name = "unit", value = 1, description = "辺は内容の 1 単位。内容の大きさを掛ける" },
+]
+
+[[values]]
+name = "entity_kind"
+type = "u8"
+description = "要素の種類（entities の op の kind と同じ）"
+items = [
+  { name = "line", value = 0, description = "線分" },
+  { name = "circle", value = 1, description = "円" },
+  { name = "curve", value = 2, description = "曲線" },
+  { name = "polyline", value = 3, description = "折れ線" },
+  { name = "text", value = 4, description = "文字" },
+  { name = "formatted", value = 5, description = "書式つきの文字" },
+  { name = "dimension", value = 6, description = "寸法" },
+  { name = "leader", value = 7, description = "引出線" },
+  { name = "callout", value = 8, description = "引出線つきの注記" },
+  { name = "table", value = 9, description = "表" },
+  { name = "underlay", value = 10, description = "下敷き" },
+  { name = "symbol", value = 11, description = "記号" },
+  { name = "hatch", value = 12, description = "ハッチング" },
+  { name = "point", value = 13, description = "点" },
+  { name = "attribute", value = 14, description = "記号の属性" },
+]
+
+[[values]]
+name = "color_system"
+type = "u8"
+description = "色の符号の系統"
+items = [
+  { name = "none", value = 0, description = "符号を持たない" },
+  { name = "aci", value = 1, description = "AutoCAD の色の番号" },
+  { name = "sxf", value = 2, description = "SXF の色のコード" },
+  { name = "jww", value = 3, description = "Jw_cad のペンの番号" },
+]
+
+[[values]]
+name = "color_flag"
+type = "u8"
+description = "色の印。和で持つ"
+items = [
+  { name = "unresolved", value = 1, description = "表示する RGBA が決まらない。表示する側が決める" },
+  { name = "foreground", value = 2, description = "背景で変わる色（ACI の 7）。表示する側が、背景に対する前景の色にする" },
+]

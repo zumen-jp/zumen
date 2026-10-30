@@ -1,0 +1,162 @@
+{
+  "description": "scene は、起点から配置をたどって解いた値を、schema/scene.toml の配置の 2D のシーンにして blob で返す（決定 0137・0172・0178）。曲線は許容差の折れ線にし、大きな座標は塊の原点と相対座標で持つ。シーンのバイト列が、ネイティブと wasm で同じになることを確かめる",
+  "steps": [
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nA1\n8\n0\n62\n1\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n0\nCIRCLE\n5\nA2\n8\n0\n10\n100000.0\n20\n50000.0\n40\n3.0\n0\nARC\n5\nA3\n8\n0\n10\n0.0\n20\n0.0\n40\n10.0\n50\n30.0\n51\n120.0\n0\nTEXT\n5\nA4\n8\nTEXT\n10\n-3.0\n20\n4.0\n40\n2.5\n1\nABC\n0\nPOINT\n5\nA5\n8\n0\n10\n5.0\n20\n6.0\n0\nLINE\n5\nA6\n8\n0\n67\n1\n10\n10.0\n20\n10.0\n11\n410.0\n21\n287.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "push": {
+        "name": "palette.json",
+        "text": "{\"values\":[{\"name\":\"赤\",\"rgb\":\"#ff0000\",\"aci\":1}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "palette": "palette.json"
+      },
+      "expect": {
+        "/result/from": "space/0",
+        "/result/unit": "millimeter",
+        "/result/blob": 0,
+        "/result/counts/lines": 3,
+        "/result/counts/texts": 1,
+        "/result/counts/points": 1,
+        "/result/counts/faces": 0,
+        "/result/counts/chunks": 1,
+        "/blobs/0/kind": "scene",
+        "/diagnostics/0/code": "scene.curve.approximated"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "tolerance": 0.1,
+        "region": [
+          -20,
+          -20,
+          200,
+          200
+        ]
+      },
+      "expect": {
+        "/result/tolerance": 0.1,
+        "/result/counts/chunks": 2,
+        "/result/counts/lines": 2
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "sheet/0"
+      },
+      "expect": {
+        "/result/unit": "millimeter",
+        "/result/tolerance": 0.02,
+        "/result/counts/lines": 1,
+        "/result/extent": {
+          "min_x": 10,
+          "min_y": 10,
+          "max_x": 410,
+          "max_y": 287
+        }
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "sheet/9"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/from"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "budget": {
+          "segments": 10
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.segments.exceeded"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "push": {
+        "name": "text_alignments.dxf",
+        "file": "samples/dxf/text_alignments.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "text_alignments.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "text_alignments.dxf",
+        "from": "space/0"
+      },
+      "expect": {
+        "/result/unit": "meter",
+        "/result/counts/lines": 42,
+        "/result/counts/texts": 16
+      }
+    },
+    {
+      "take": 0
+    }
+  ]
+}

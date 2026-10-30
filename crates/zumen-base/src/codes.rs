@@ -984,6 +984,127 @@ pub const JWW_LIFT_INVALID: Code = Code::new(
 pub const JWW_TRAILER_INVALID: Code =
     Code::new("jww.trailer.invalid", Severity::Warning, None, &[], &[]);
 
+/// 引出線つきの注記を、シーンに描かなかった（決定 0172）
+///
+/// `scene.callout.dropped`（0.0.0 から）
+pub const SCENE_CALLOUT_DROPPED: Code = Code::new(
+    "scene.callout.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 曲線・ふくらみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ
+///
+/// `scene.curve.approximated`（0.0.0 から）
+pub const SCENE_CURVE_APPROXIMATED: Code = Code::new(
+    "scene.curve.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("tolerance", ParamType::Float)],
+    &["tolerance"],
+);
+
+/// 表示の部品から描けない寸法を、シーンに描かなかった（決定 0172）
+///
+/// `scene.dimension.dropped`（0.0.0 から）
+pub const SCENE_DIMENSION_DROPPED: Code = Code::new(
+    "scene.dimension.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// グラデーションの塗りを、最初の色で塗った（決定 0172）
+///
+/// `scene.gradient.approximated`（0.0.0 から）
+pub const SCENE_GRADIENT_APPROXIMATED: Code = Code::new(
+    "scene.gradient.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// ハッチングのパターンの線を、シーンに描かなかった。境界も描かない
+///
+/// `scene.hatch-pattern.dropped`（0.0.0 から）
+pub const SCENE_HATCH_PATTERN_DROPPED: Code = Code::new(
+    "scene.hatch-pattern.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 引出線を、シーンに描かなかった（決定 0172）
+///
+/// `scene.leader.dropped`（0.0.0 から）
+pub const SCENE_LEADER_DROPPED: Code = Code::new(
+    "scene.leader.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 線種に添える形と文字を、シーンに描かなかった。線と間は描いた
+///
+/// `scene.line-type-mark.dropped`（0.0.0 から）
+pub const SCENE_LINE_TYPE_MARK_DROPPED: Code = Code::new(
+    "scene.line-type-mark.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 当てはめる点だけで決まるスプラインを、当てはめる点を結ぶ折れ線で描いた
+///
+/// `scene.spline.approximated`（0.0.0 から）
+pub const SCENE_SPLINE_APPROXIMATED: Code = Code::new(
+    "scene.spline.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 表を、シーンに描かなかった（決定 0172）
+///
+/// `scene.table.dropped`（0.0.0 から）
+pub const SCENE_TABLE_DROPPED: Code = Code::new(
+    "scene.table.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 下敷きの切り抜きを当てずに、下敷きの全体を描いた
+///
+/// `scene.underlay-clip.dropped`（0.0.0 から）
+pub const SCENE_UNDERLAY_CLIP_DROPPED: Code = Code::new(
+    "scene.underlay-clip.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった
+///
+/// `scene.underlay.dropped`（0.0.0 から）
+pub const SCENE_UNDERLAY_DROPPED: Code = Code::new(
+    "scene.underlay.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// 要素が指すレイヤ・色・線種・線幅のコードに定義がない
 ///
 /// `sxf.code.missing`（0.0.0 から）
@@ -1218,6 +1339,17 @@ pub const ALL: &[Code] = &[
     JWW_LIFT_DROPPED,
     JWW_LIFT_INVALID,
     JWW_TRAILER_INVALID,
+    SCENE_CALLOUT_DROPPED,
+    SCENE_CURVE_APPROXIMATED,
+    SCENE_DIMENSION_DROPPED,
+    SCENE_GRADIENT_APPROXIMATED,
+    SCENE_HATCH_PATTERN_DROPPED,
+    SCENE_LEADER_DROPPED,
+    SCENE_LINE_TYPE_MARK_DROPPED,
+    SCENE_SPLINE_APPROXIMATED,
+    SCENE_TABLE_DROPPED,
+    SCENE_UNDERLAY_CLIP_DROPPED,
+    SCENE_UNDERLAY_DROPPED,
     SXF_CODE_MISSING,
     SXF_FILE_INVALID,
     SXF_LIFT_DROPPED,

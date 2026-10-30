@@ -1,6 +1,6 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
-//! - `codegen`: 形式の一覧、Rust の定数と型、C のヘッダー、カタログとプロファイルの JSON を生成する
+//! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー、カタログとプロファイルの JSON を生成する
 //! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳を確かめ、生成したファイルが
 //!   最新かを確かめる
 
@@ -9,6 +9,7 @@ mod catalog;
 mod formats;
 mod profiles;
 mod samples;
+mod scene;
 mod schema;
 // 適合試験と同じ SHA-256 を使う
 #[path = "../../bindings/conformance/src/sha256.rs"]
@@ -25,6 +26,7 @@ const USAGE: &str = "使い方: cargo xtask codegen [--check]";
 const CODES_RS: &str = "crates/zumen-base/src/codes.rs";
 const ABI_RS: &str = "crates/zumen-abi/src/abi.rs";
 const MESSAGES_RS: &str = "crates/zumen-abi/src/messages.rs";
+const SCENE_RS: &str = "crates/zumen-scene/src/layout.rs";
 const HEADER: &str = "bindings/c/include/zumen.h";
 const CATALOG_JA: &str = "catalog/ja.json";
 const CATALOG_EN: &str = "catalog/en.json";
@@ -101,6 +103,16 @@ fn codegen(mode: Mode) -> Result<(), String> {
         )
     })?;
 
+    let scene: scene::Scene = toml::from_str(&read("schema/scene.toml")?)
+        .map_err(|e| format!("schema/scene.toml: {e}"))?;
+    let errors = scene::check(&scene);
+    if !errors.is_empty() {
+        return Err(format!(
+            "schema/scene.toml に問題がある:\n- {}",
+            errors.join("\n- ")
+        ));
+    }
+
     let profiles = profiles::generate(&root)?;
     samples::check(&root)?;
 
@@ -108,6 +120,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
         (ABI_RS, rustfmt(&root, &boundary::render_rust(&boundary))?),
         (MESSAGES_RS, rustfmt(&root, &schema::render(&schema))?),
+        (SCENE_RS, rustfmt(&root, &scene::render_rust(&scene))?),
         (HEADER, boundary::render_header(&boundary)),
         (CATALOG_JA, catalog::render_json("ja", PACKAGE_VERSION, &ja)),
         (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
