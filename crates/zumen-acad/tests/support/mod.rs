@@ -100,6 +100,7 @@ fn extension_normalization_keeps_types_values_and_counts() {
         basis: Basis::Document,
         fields: vec![Field {
             key: "value",
+            code: None,
             value,
         }],
         source: Ref::default(),
@@ -123,11 +124,6 @@ fn extension_normalization_keeps_types_values_and_counts() {
     changed.extensions[1].fields[0].value = FieldValue::Integer(2);
     assert_ne!(first, changed);
     changed = second.clone();
-    changed.extensions.pop();
-    let mut all = first.clone();
-    without_unpaired_record_roundtrips(&mut all, &mut changed);
-    assert_ne!(all, changed);
-    changed = second.clone();
     changed.extensions[0].namespace = "other";
     changed.extensions[0].fields[0].value = FieldValue::Handle(30);
     normalize_extensions(&mut changed);
@@ -150,27 +146,4 @@ fn extension_key(
         extension.version.clone(),
         extension.schema,
     )
-}
-
-/// DWG の画層と DXF の線種は、片側だけに版の往復の XRECORD を持つことがある（決定 0152）。
-/// 両側にある項目は値も比べる。ほかの項目の欠落は比較から除かない。
-pub fn without_unpaired_record_roundtrips(
-    ours: &mut zumen_drawing::Drawing2D,
-    theirs: &mut zumen_drawing::Drawing2D,
-) {
-    use std::collections::BTreeSet;
-    let our_keys: BTreeSet<_> = ours.extensions.iter().map(extension_key).collect();
-    let their_keys: BTreeSet<_> = theirs.extensions.iter().map(extension_key).collect();
-    let roundtrip = |extension: &zumen_drawing::Extension| {
-        let target = format!("{:?}", extension.target);
-        extension.namespace == "dxf.xrecord"
-            && extension.name == "ACAD_XREC_ROUNDTRIP"
-            && (target.starts_with("Layer(") || target.starts_with("LineType("))
-    };
-    ours.extensions.retain(|extension| {
-        !roundtrip(extension) || their_keys.contains(&extension_key(extension))
-    });
-    theirs
-        .extensions
-        .retain(|extension| !roundtrip(extension) || our_keys.contains(&extension_key(extension)));
 }

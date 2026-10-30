@@ -266,6 +266,7 @@ mod tests {
             style: None,
             follows_placement: false,
             source: Ref::default(),
+            description: None,
         };
         assert_eq!(layer(&wall), "layer/2");
         wall.source = Ref::at_record(8).with_key(Key::Handle(0x10));

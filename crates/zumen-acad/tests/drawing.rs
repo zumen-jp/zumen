@@ -18,8 +18,8 @@ use zumen_drawing::{
     LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured, ModelLength, ModelPoint,
     PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece,
     Placement, Polyline, Resource, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Spline,
-    Style, SymbolKey, Table, Target, Text, Underlay, UnderlayFrame, UnderlayKind, Unit, ValueUnit,
-    Vertex, Vertical,
+    Style, SymbolKey, Table, Target, Text, Transparency, Underlay, UnderlayFrame, UnderlayKind,
+    Unit, ValueUnit, Vertex, Vertical,
 };
 use zumen_sdk::{Error, Lift, testkit};
 
@@ -80,6 +80,7 @@ fn by_layer() -> Style {
         line_type: Inherit::Layer,
         line_type_scale: 1.0,
         line_weight: Some(Inherit::Layer),
+        transparency: Inherit::Layer,
     }
 }
 
@@ -939,6 +940,7 @@ fn layers_keep_their_table_and_views_hide_layers() {
             style: None,
             follows_placement: false,
             source: Ref::default(),
+            description: None,
         }
     );
     // レイヤ 0 だけが、ブロックの中で配置のレイヤに従う（決定 0143）
@@ -953,6 +955,94 @@ fn layers_keep_their_table_and_views_hide_layers() {
     let layers: Vec<_> = drawing.spaces[0].elements.iter().map(|e| e.layer).collect();
     assert_eq!(layers, [LayerId(1), LayerId(4)]);
     assert_eq!(drawing.sheets[0].views[0].hidden_layers, [LayerId(2)]);
+}
+
+#[test]
+fn transparency_and_layer_descriptions_move_to_the_model() {
+    let tables = [
+        (0, "TABLE"),
+        (2, "LAYER"),
+        // 説明と、不透明度 0x33 の透過性を XDATA に持つ
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "0"),
+        (70, "0"),
+        (62, "7"),
+        (1001, "AcAecLayerStandard"),
+        (1000, ""),
+        (1000, "外壁"),
+        (1001, "AcCmTransparency"),
+        (1071, "33554483"),
+        // 空の説明と、レイヤから継承する透過性は持たない
+        (0, "LAYER"),
+        (5, "11"),
+        (2, "Plain"),
+        (70, "0"),
+        (62, "1"),
+        (1001, "AcAecLayerStandard"),
+        (1000, ""),
+        (1000, ""),
+        (1001, "AcCmTransparency"),
+        (1071, "0"),
+        (0, "ENDTAB"),
+    ];
+    let mut entities = model_line("20", "0");
+    entities.extend([model_line("21", "0"), vec![(440, "16777216")]].concat());
+    entities.extend([model_line("22", "Plain"), vec![(440, "33554559")]].concat());
+    // 上位のバイトが 3 の値は、透過性にならない
+    entities.extend([model_line("23", "0"), vec![(440, "50331648")]].concat());
+    let (drawing, diag) = lift(
+        &sections(&[
+            (
+                "HEADER",
+                &[(9, "$ACADVER"), (1, "AC1027"), (9, "$INSUNITS"), (70, "4")],
+            ),
+            ("TABLES", &tables),
+            ("ENTITIES", &entities),
+        ]),
+        &mut Budget::default(),
+    );
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("LINE") Int(440)"#.to_owned(),
+            1,
+            vec![Ref::at_record(12).with_key(Key::Handle(0x23))],
+        )]
+    );
+    let layers: Vec<_> = drawing
+        .layers
+        .iter()
+        .map(|layer| {
+            (
+                layer.name.as_str(),
+                layer.description.as_deref(),
+                layer.style.and_then(|style| style.transparency),
+            )
+        })
+        .collect();
+    assert_eq!(
+        layers,
+        [
+            ("0", Some("外壁"), Some(Transparency { alpha: 0x33 })),
+            ("Plain", None, None),
+        ]
+    );
+    let transparency: Vec<_> = drawing.spaces[0]
+        .elements
+        .iter()
+        .map(|element| element.style.transparency)
+        .collect();
+    assert_eq!(
+        transparency,
+        [
+            Inherit::Layer,
+            Inherit::Block,
+            Inherit::Own(Transparency { alpha: 0x7F }),
+        ]
+    );
 }
 
 #[test]
@@ -3033,6 +3123,7 @@ fn e4_callout_lines_and_content_keep_their_style() {
                 line_type: Inherit::Own(dashed),
                 line_type_scale: 1.0,
                 line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.35)))),
+                transparency: Inherit::Block,
             },
             Inherit::Own(aci(6)),
         )
@@ -3045,6 +3136,7 @@ fn e4_callout_lines_and_content_keep_their_style() {
                 line_type: Inherit::Layer,
                 line_type_scale: 1.0,
                 line_weight: Some(Inherit::Layer),
+                transparency: Inherit::Block,
             },
             Inherit::Own(aci(5)),
         )
@@ -3274,6 +3366,7 @@ fn e8_curves_keep_their_definition() {
                 closed: true,
                 width: None,
                 vertex_widths: vec![width(1.0, 2.0), width(0.0, 0.0), width(0.0, 0.0)],
+                line_type_generation: false,
             }),
             Shape::Polyline(Polyline {
                 vertices: vec![
@@ -3289,6 +3382,7 @@ fn e8_curves_keep_their_definition() {
                 closed: false,
                 width: Some(model(0.5)),
                 vertex_widths: vec![],
+                line_type_generation: false,
             }),
             Shape::Curve(Edge::Spline(Spline {
                 degree: 2,
@@ -3300,6 +3394,8 @@ fn e8_curves_keep_their_definition() {
                 end_tangent: None,
                 closed: false,
                 periodic: false,
+                fit_tolerance: None,
+                knot_parameterization: None,
             })),
             Shape::Curve(Edge::Spline(Spline {
                 degree: 3,
@@ -3311,6 +3407,8 @@ fn e8_curves_keep_their_definition() {
                 end_tangent: Some([0.0, 1.0]),
                 closed: true,
                 periodic: false,
+                fit_tolerance: None,
+                knot_parameterization: None,
             })),
         ]
     );
@@ -3375,6 +3473,8 @@ fn e8_hatch_spline_edges_read_fit_data_from_2010() {
             end_tangent: None,
             closed: false,
             periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
         })]
     };
     // 2010 より前は、当てはめる点を持たない。続く 97 は、境界を作った図形の数
@@ -3860,18 +3960,21 @@ fn old_polylines_become_polylines() {
                     [model(0.0), model(0.0)],
                     [model(0.0), model(0.0)],
                 ],
+                line_type_generation: false,
             }),
             Shape::Polyline(Polyline {
                 vertices: vec![corner(0.0, 0.0, 0.0), corner(1.0, 1.0, 0.0)],
                 closed: false,
                 width: Some(model(0.5)),
                 vertex_widths: Vec::new(),
+                line_type_generation: false,
             }),
             Shape::Polyline(Polyline {
                 vertices: vec![corner(0.0, 0.0, 0.0), corner(2.0, 3.0, 0.0)],
                 closed: false,
                 width: None,
                 vertex_widths: Vec::new(),
+                line_type_generation: false,
             }),
         ]
     );
@@ -4569,8 +4672,12 @@ fn e9_underlays_that_cannot_be_read_are_reported() {
 }
 
 /// XDATA の値
-fn field(key: &'static str, value: FieldValue) -> Field {
-    Field { key, value }
+fn field(key: &'static str, code: i16, value: FieldValue) -> Field {
+    Field {
+        key,
+        code: Some(code),
+        value,
+    }
 }
 
 #[test]
@@ -4638,7 +4745,7 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
         namespace: "dxf.xdata",
         name: name.to_owned(),
         version: Some("AC1027".to_owned()),
-        schema: 1,
+        schema: 2,
         target,
         basis,
         fields,
@@ -4656,17 +4763,17 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
                 room,
                 Basis::Model(text.clone()),
                 vec![
-                    field("string", FieldValue::Text("部屋".to_owned())),
-                    field("control", FieldValue::Text("{".to_owned())),
-                    field("integer", FieldValue::Integer(3)),
-                    field("layer", FieldValue::Text("A-AREA".to_owned())),
-                    field("control", FieldValue::Text("}".to_owned())),
-                    field("position", FieldValue::Point([10.0, 20.0, 0.0])),
-                    field("real", FieldValue::Real(0.5)),
-                    field("distance", FieldValue::Real(2.5)),
-                    field("scale", FieldValue::Real(1.5)),
-                    field("handle", FieldValue::Handle(0x1F)),
-                    field("binary", FieldValue::Bytes(vec![0x0A, 0xFF])),
+                    field("string", 1000, FieldValue::Text("部屋".to_owned())),
+                    field("control", 1002, FieldValue::Text("{".to_owned())),
+                    field("integer", 1070, FieldValue::Integer(3)),
+                    field("layer", 1003, FieldValue::Text("A-AREA".to_owned())),
+                    field("control", 1002, FieldValue::Text("}".to_owned())),
+                    field("position", 1011, FieldValue::Point([10.0, 20.0, 0.0])),
+                    field("real", 1040, FieldValue::Real(0.5)),
+                    field("distance", 1041, FieldValue::Real(2.5)),
+                    field("scale", 1042, FieldValue::Real(1.5)),
+                    field("handle", 1005, FieldValue::Handle(0x1F)),
+                    field("binary", 1004, FieldValue::Bytes(vec![0x0A, 0xFF])),
                 ],
                 text.source.clone(),
             ),
@@ -4684,7 +4791,7 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
                     index: 0
                 },
                 Basis::Model(door.elements[0].clone()),
-                vec![field("long", FieldValue::Integer(7))],
+                vec![field("long", 1071, FieldValue::Integer(7))],
                 door.elements[0].source.clone(),
             ),
         ]
@@ -5058,6 +5165,8 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
         (360, "B1"),
         (3, "ACAD_DIMASSOC"),
         (360, "B2"),
+        (3, "ACAD_XREC_ROUNDTRIP"),
+        (360, "B3"),
         (3, "GONE"),
         (360, "BF"),
         (0, "XRECORD"),
@@ -5073,6 +5182,8 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
         (10, "1.0"),
         (20, "2.0"),
         (30, "0.0"),
+        (11, "3.0"),
+        (21, "4.0"),
         (40, "0.5"),
         (280, "1"),
         (330, "A1"),
@@ -5081,6 +5192,12 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
         (5, "B2"),
         (330, "B0"),
         (100, "AcDbDimAssoc"),
+        (0, "XRECORD"),
+        (5, "B3"),
+        (330, "B0"),
+        (100, "AcDbXrecord"),
+        (280, "1"),
+        (102, "ACAD_ROUNDTRIP_2008_TABLE_ENTITY"),
     ];
     let src = sections(&[
         ("HEADER", &header),
@@ -5091,45 +5208,44 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
     let line = drawing.as_ref().unwrap().spaces[0].elements[0].clone();
     assert_eq!(
         found(&diag),
-        [(
-            codes::DXF_EXTENSION_DICTIONARY_DROPPED,
-            "Text(\"ACAD_DIMASSOC\") Text(\"DIMASSOC\")".to_owned(),
-            1,
-            vec![line.source.clone()],
-        )]
+        [
+            (
+                codes::DXF_EXTENSION_DICTIONARY_UNSUPPORTED,
+                "Text(\"ACAD_DIMASSOC\")".to_owned(),
+                1,
+                vec![line.source.clone()],
+            ),
+            (
+                codes::DXF_EXTENSION_DICTIONARY_UNSUPPORTED,
+                "Text(\"ACAD_XREC_ROUNDTRIP\")".to_owned(),
+                1,
+                vec![line.source.clone()],
+            ),
+        ]
     );
-    let code = |code: i64| field("code", FieldValue::Integer(code));
     assert_eq!(
         drawing.unwrap().extensions,
         [Extension {
             namespace: "dxf.xrecord",
             name: "ROOM".to_owned(),
             version: Some("AC1027".to_owned()),
-            schema: 1,
+            schema: 2,
             target: Target::Model {
                 space: MODEL,
                 index: 0,
             },
             basis: Basis::Model(line.clone()),
             fields: vec![
-                code(1),
-                field("text", FieldValue::Text("居間".to_owned())),
-                code(70),
-                field("integer", FieldValue::Integer(3)),
-                code(10),
-                field("real", FieldValue::Real(1.0)),
-                code(20),
-                field("real", FieldValue::Real(2.0)),
-                code(30),
-                field("real", FieldValue::Real(0.0)),
-                code(40),
-                field("real", FieldValue::Real(0.5)),
-                code(280),
-                field("integer", FieldValue::Integer(1)),
-                code(330),
-                field("handle", FieldValue::Handle(0xA1)),
-                code(310),
-                field("binary", FieldValue::Bytes(vec![0x0A, 0xFF])),
+                field("text", 1, FieldValue::Text("居間".to_owned())),
+                field("integer", 70, FieldValue::Integer(3)),
+                field("point", 10, FieldValue::Point([1.0, 2.0, 0.0])),
+                // Z の続かない点は合わせない
+                field("real", 11, FieldValue::Real(3.0)),
+                field("real", 21, FieldValue::Real(4.0)),
+                field("real", 40, FieldValue::Real(0.5)),
+                field("integer", 280, FieldValue::Integer(1)),
+                field("handle", 330, FieldValue::Handle(0xA1)),
+                field("binary", 310, FieldValue::Bytes(vec![0x0A, 0xFF])),
             ],
             source: line.source.clone(),
         }]
@@ -5203,7 +5319,6 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
     let (drawing, diag) = lift(&src, &mut Budget::default());
     assert_eq!(found(&diag), []);
     let mut drawing = drawing.unwrap();
-    let code = |code: i64| field("code", FieldValue::Integer(code));
     let line_type = drawing.line_types[0].clone();
     let layer = drawing.layers[0].clone();
     assert_eq!(
@@ -5213,23 +5328,20 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
                 namespace: "dxf.xrecord",
                 name: "NOTE".to_owned(),
                 version: Some("AC1018".to_owned()),
-                schema: 1,
+                schema: 2,
                 target: Target::LineType(line_type.id),
                 basis: Basis::LineType(line_type.clone()),
-                fields: vec![
-                    code(1),
-                    field("text", FieldValue::Text("dashed".to_owned()))
-                ],
+                fields: vec![field("text", 1, FieldValue::Text("dashed".to_owned()))],
                 source: line_type.source.clone(),
             },
             Extension {
                 namespace: "dxf.xrecord",
                 name: "SCALE".to_owned(),
                 version: Some("AC1018".to_owned()),
-                schema: 1,
+                schema: 2,
                 target: Target::Layer(layer.id),
                 basis: Basis::Layer(layer.clone()),
-                fields: vec![code(90), field("integer", FieldValue::Integer(2))],
+                fields: vec![field("integer", 90, FieldValue::Integer(2))],
                 source: layer.source.clone(),
             },
         ]
@@ -5636,7 +5748,7 @@ fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
 }
 
 #[test]
-fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions() {
+fn thickness_and_spline_tolerances_are_kept_as_extensions() {
     let entities = [
         // 厚さを持つ線分
         entity(
@@ -5662,12 +5774,12 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
                 (20, "0.0"),
             ],
         ),
-        // 厚さが 0 で、線種の生成を立てない図形は、拡張を持たない
+        // 厚さが 0 の図形は、拡張を持たない
         entity(
             "CIRCLE",
             &[(39, "0.0"), (10, "0.0"), (20, "0.0"), (40, "1.0")],
         ),
-        // 許容差を持つ 1 次のスプライン
+        // 許容差を持つ 1 次のスプライン。当てはめの許容差（44）は、図面モデルの値に移す
         entity(
             "SPLINE",
             &[
@@ -5706,7 +5818,7 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
         .iter()
         .map(|extension| {
             assert_eq!(extension.namespace, "dxf.entity");
-            assert_eq!(extension.schema, 1);
+            assert_eq!(extension.schema, 2);
             assert!(extension.is_current(&drawing));
             (extension.target, extension.fields.clone())
         })
@@ -5718,46 +5830,28 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
     assert_eq!(
         kept,
         [
-            (
-                at(0),
-                vec![Field {
-                    key: "thickness",
-                    value: FieldValue::Real(2.5),
-                }]
-            ),
-            (
-                at(1),
-                vec![
-                    Field {
-                        key: "thickness",
-                        value: FieldValue::Real(1.0),
-                    },
-                    Field {
-                        key: "line_type_generation",
-                        value: FieldValue::Integer(1),
-                    },
-                ]
-            ),
+            (at(0), vec![field("thickness", 39, FieldValue::Real(2.5))]),
+            (at(1), vec![field("thickness", 39, FieldValue::Real(1.0))]),
             (
                 at(3),
                 vec![
-                    Field {
-                        key: "knot_tolerance",
-                        value: FieldValue::Real(1e-9),
-                    },
-                    Field {
-                        key: "control_tolerance",
-                        value: FieldValue::Real(1e-10),
-                    },
-                    Field {
-                        key: "fit_tolerance",
-                        value: FieldValue::Real(0.0),
-                    },
+                    field("knot_tolerance", 42, FieldValue::Real(1e-9)),
+                    field("control_tolerance", 43, FieldValue::Real(1e-10)),
                 ]
             ),
         ]
     );
     assert_eq!(elements.len(), 4);
+    // 線種の生成（70 の 128）と当てはめの許容差（44）は、図面モデルの値になる（決定 0157）
+    assert!(matches!(
+        &elements[1].shape,
+        Shape::Polyline(line) if line.line_type_generation
+    ));
+    assert!(matches!(
+        &elements[3].shape,
+        Shape::Curve(Edge::Spline(spline)) if spline.fit_tolerance == Some(0.0)
+            && spline.knot_parameterization.is_none()
+    ));
 }
 
 #[test]

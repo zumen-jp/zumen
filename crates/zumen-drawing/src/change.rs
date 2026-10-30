@@ -198,6 +198,7 @@ impl Restyle {
             line_type: self.line_type.unwrap_or(style.line_type),
             line_type_scale: self.line_type_scale.unwrap_or(style.line_type_scale),
             line_weight: self.line_weight.or(style.line_weight),
+            transparency: style.transparency,
         };
         (self.layer.unwrap_or(layer), style)
     }

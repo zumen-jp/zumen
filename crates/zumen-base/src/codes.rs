@@ -603,6 +603,17 @@ pub const DXF_EXTENSION_DICTIONARY_DROPPED: Code = Code::new(
     &["key", "kind"],
 );
 
+/// 図形・画層・線種の拡張辞書の項目のうち、図面モデルの欄にする値で欄がまだないものと、AutoCAD の版の往復の XRECORD を、図面モデルに移さなかった。元の形式の値は残る（決定 0157）
+///
+/// `dxf.extension-dictionary.unsupported`（0.0.0 から）
+pub const DXF_EXTENSION_DICTIONARY_UNSUPPORTED: Code = Code::new(
+    "dxf.extension-dictionary.unsupported",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("key", ParamType::Text)],
+    &["key"],
+);
+
 /// 出力先の DXF の版にないグループ・コードのタグを、書かなかった
 ///
 /// `dxf.group-code.dropped`（0.0.0 から）
@@ -1171,6 +1182,7 @@ pub const ALL: &[Code] = &[
     DXF_ELEMENT_MISSING,
     DXF_ENTITY_DROPPED,
     DXF_EXTENSION_DICTIONARY_DROPPED,
+    DXF_EXTENSION_DICTIONARY_UNSUPPORTED,
     DXF_GROUP_CODE_DROPPED,
     DXF_GROUP_CODE_MISSING,
     DXF_HANDLE_SEED_MISSING,

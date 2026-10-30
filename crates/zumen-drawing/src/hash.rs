@@ -14,21 +14,22 @@ use crate::{
     CellValue, Clip, Color, ColorCode, ColorSystem, DateTime, Dimension, DimensionKind,
     DimensionStyle, DimensionText, Dogleg, Edge, Element, Fill, Fit, Flow, Font, FontKind, Format,
     FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit,
-    Islands, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineSpacing, LineType,
-    LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Piece, Placement, Polyline, Resource, Rotation, Scaled, Shape, SheetId, SpaceId,
-    Span, Spline, StackKind, Style, Symbol, SymbolKey, Table, TableFormats, Text, TextStyle,
-    TextStyleDefinition, Underlay, UnderlayFrame, UnderlayKind, ValueUnit, Vertex, Vertical,
+    Islands, KnotParameterization, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
+    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent,
+    MarkRotation, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern,
+    PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Resource, Rotation,
+    Scaled, Shape, SheetId, SpaceId, Span, Spline, StackKind, Style, Symbol, SymbolKey, Table,
+    TableFormats, Text, TextStyle, TextStyleDefinition, Transparency, Underlay, UnderlayFrame,
+    UnderlayKind, ValueUnit, Vertex, Vertical,
 };
 
-/// 要素か表の項目のハッシュ。`v1:` と 32 桁の 16 進で書く
+/// 要素か表の項目のハッシュ。`v2:` と 32 桁の 16 進で書く
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Hash(pub [u8; 16]);
 
 impl Hash {
     /// 並びの版
-    pub const VERSION: u32 = 1;
+    pub const VERSION: u32 = 2;
 
     /// 要素のハッシュ。出所は入れない
     pub fn element<P: Encode>(element: &Element<P>) -> Self {
@@ -157,9 +158,13 @@ impl Hash {
 impl core::str::FromStr for Hash {
     type Err = ();
 
-    /// `v1:` と 32 桁の 16 進を読む。版が違うか、桁か文字が合わなければ `Err`
+    /// `v` と版（[`Hash::VERSION`]）と `:` に続く、32 桁の 16 進を読む。版が違うか、桁か文字が合わなければ `Err`
     fn from_str(text: &str) -> Result<Self, ()> {
-        let digits = text.strip_prefix("v1:").ok_or(())?;
+        let digits = text
+            .strip_prefix('v')
+            .and_then(|rest| rest.strip_prefix(Self::VERSION.to_string().as_str()))
+            .and_then(|rest| rest.strip_prefix(':'))
+            .ok_or(())?;
         if digits.len() != 32 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(());
         }
@@ -396,13 +401,15 @@ units! {
     Fit { Aligned, Fit }
     Flow { LeftToRight, TopToBottom, ByStyle }
     StackKind { Horizontal, Diagonal, Tolerance }
+    KnotParameterization { Chord, SquareRoot, Uniform, Custom }
 }
 
 records! {
-    Layer { id, name, state, style, follows_placement, source }
+    Layer { id, name, state, style, follows_placement, description, source }
     LayerState { visible, printable, editable, frozen }
-    LayerStyle { color, line_type, line_weight }
-    Style { color, line_type, line_type_scale, line_weight }
+    LayerStyle { color, line_type, line_weight, transparency }
+    Style { color, line_type, line_type_scale, line_weight, transparency }
+    Transparency { alpha }
     Color { code, rgb }
     ColorCode { system, value }
     LineType { id, name, definition, source }
@@ -441,8 +448,8 @@ records! {
     Hatch<P> { loops, islands, fill, associative, seeds }
     HatchLoop<P> { boundary, external, outermost, derived, text_box, sources }
     Vertex<P> { point, bulge }
-    Polyline<P> { vertices, closed, width, vertex_widths }
-    Spline<P> { degree, knots, control, weights, fit, start_tangent, end_tangent, closed, periodic }
+    Polyline<P> { vertices, closed, width, vertex_widths, line_type_generation }
+    Spline<P> { degree, knots, control, weights, fit, start_tangent, end_tangent, closed, periodic, fit_tolerance, knot_parameterization }
     Pattern { name, origin, angle, scale, double, lines }
     PatternLine { angle, base, offset, dashes }
     Gradient { name, angle, shift, colors, tint }
@@ -1062,7 +1069,7 @@ mod tests {
         );
         assert_eq!(
             Hash::document(b"").to_string(),
-            "v1:af1349b9f5f9a1a6a0404dea36dcc949"
+            "v2:af1349b9f5f9a1a6a0404dea36dcc949"
         );
         let element = line(1.0, Ref::default());
         assert_eq!(
@@ -1102,6 +1109,7 @@ mod tests {
             style: None,
             follows_placement: false,
             source: Ref::default(),
+            description: None,
         };
         let line_type = LineType {
             id: LineTypeId(2),
@@ -1191,20 +1199,20 @@ mod tests {
     #[test]
     fn hashes_are_written_with_the_version() {
         let text = Hash([0xab; 16]).to_string();
-        assert_eq!(text, format!("v1:{}", "ab".repeat(16)));
+        assert_eq!(text, format!("v2:{}", "ab".repeat(16)));
         let hash = Hash([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0xff]);
         assert_eq!(hash.to_string().parse(), Ok(hash));
         assert_eq!(
-            format!("v1:{}", "AB".repeat(16)).parse(),
+            format!("v2:{}", "AB".repeat(16)).parse(),
             Ok(Hash([0xab; 16]))
         );
         for wrong in [
             "",
-            "v1:",
-            "v2:00000000000000000000000000000000",
-            "v1:0",
-            "v1:+1000000000000000000000000000000",
-            "v1:é0000000000000000000000000000000",
+            "v2:",
+            "v1:00000000000000000000000000000000",
+            "v2:0",
+            "v2:+1000000000000000000000000000000",
+            "v2:é0000000000000000000000000000000",
         ] {
             assert_eq!(wrong.parse::<Hash>(), Err(()), "{wrong}");
         }

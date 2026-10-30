@@ -81,6 +81,9 @@ pub struct Polyline<P> {
     pub width: Option<Length>,
     /// 頂点ごとの、次の頂点までの始まりと終わりの幅。元の形式が持たなければ空
     pub vertex_widths: Vec<[Length; 2]>,
+    /// 線種の模様を頂点ごとに切らず、折れ線の全体で続ける（DXF・DWG の線種の生成）。元の形式が持たなければ偽
+    /// （決定 0157）
+    pub line_type_generation: bool,
 }
 
 /// 辺と曲線。角度は度で、反時計回り
@@ -163,4 +166,22 @@ pub struct Spline<P> {
     pub closed: bool,
     /// 周期的
     pub periodic: bool,
+    /// 当てはめる点を通す許容差（要素の空間の長さ）。0 なら点を通る。元の形式が持たなければ `None`（決定 0157）
+    pub fit_tolerance: Option<f64>,
+    /// 当てはめる点から節点を決める取り方。当てはめる点で決まるスプラインでないか、元の形式が持たなければ
+    /// `None`（決定 0157）
+    pub knot_parameterization: Option<KnotParameterization>,
+}
+
+/// 当てはめる点から節点を決める取り方（DXF・DWG の節点のパラメーター化）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KnotParameterization {
+    /// 隣の点との距離に比例させる
+    Chord,
+    /// 隣の点との距離の平方根に比例させる
+    SquareRoot,
+    /// 等しい間隔にする
+    Uniform,
+    /// 元の形式が持つ節点を使う
+    Custom,
 }

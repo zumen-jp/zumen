@@ -338,6 +338,7 @@ fn edits_are_written_into_the_feature_comments() {
             line_type: Inherit::Own(LineTypeId(2)),
             line_type_scale: 1.0,
             line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.3)))),
+            transparency: Inherit::Layer,
         },
         shape: Shape::Circle {
             center: paper(7.0, 8.0),

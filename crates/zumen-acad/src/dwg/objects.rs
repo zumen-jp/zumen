@@ -1300,7 +1300,7 @@ pub(super) fn skip_extended_data(bits: &mut Bits) -> Option<()> {
 }
 
 /// 図形の共通の欄（ODS 5.4.1 の 20.4.1）。既定の値でない色（62）・線種の尺度（48）・
-/// 非表示（60）を値にする。R2004 からは、反応子の数の後に拡張辞書がないことを表す B があり、
+/// 非表示（60）・透過性（440）を値にする。R2004 からは、反応子の数の後に拡張辞書がないことを表す B があり、
 /// 前後の図形のハンドルはない
 fn entity_data(bits: &mut Bits) -> Option<Common> {
     // 図形の絵の大きさは、R2010 からは BLL
@@ -1353,6 +1353,10 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     }
     if invisible != 0 {
         values.push(int(60, i64::from(invisible)));
+    }
+    // 透過性（440）。DXF と同じく、レイヤから継承する値（上位のバイトが 0）なら置かない
+    if let Some(transparency) = color.transparency.filter(|value| value >> 24 != 0) {
+        values.push(int(440, i64::from(transparency)));
     }
     // 線の太さ（370）。DXF と同じく、ByLayer なら置かない
     if let Some(weight) = lineweight(u16::from(weight)).filter(|weight| *weight != -1) {
@@ -3642,8 +3646,8 @@ fn ray(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// LWPOLYLINE の欄（ODS 5.4.1 の 20.4.85、R2000）。DWG の印のうち、閉じていること（0x200）だけを
-/// DXF の 70 の 1 に直す。ほかの印は、続く欄があるかを表す。DXF と同じく、頂点ごとの幅がなければ
+/// LWPOLYLINE の欄（ODS 5.4.1 の 20.4.85、R2000）。DWG の印のうち、閉じていること（0x200）を DXF の 70 の
+/// 1 に、線種の生成（0x100）を 128 に直す。ほかの印は、続く欄があるかを表す。DXF と同じく、頂点ごとの幅がなければ
 /// 一定の幅（43）を置き、膨らみ（42）は 0 でなければ置く
 fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
     let flags = bits.bs()?;
@@ -3684,7 +3688,7 @@ fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
         .collect::<Option<_>>()?;
     let mut values = vec![
         int(90, i64::try_from(count).ok()?),
-        int(70, i64::from(has(0x200))),
+        int(70, i64::from(has(0x200)) | i64::from(has(0x100)) << 7),
     ];
     if widths.is_empty() {
         values.push(real(43, width));
@@ -3713,18 +3717,23 @@ fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
 }
 
 /// SPLINE の欄（ODS 5.4.1 の 20.4.40、R2000）。場合（scenario）が 1 なら節点と制御点、2 なら
-/// 当てはめる点を読む。DXF の印（70）と法線（210）は、DXF を書くときに平らかどうかから決まるので
-/// 置かない。始まりと終わりの接線（12・13）は、0 でなければ置く
+/// 当てはめる点を読む。DXF の印（70）の平らか（8）と法線（210）は、DXF を書くときに平らかどうかから
+/// 決まるので置かない。始まりと終わりの接線（12・13）は、0 でなければ置く
 fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
     let scenario = bits.bl()?;
     // R2013 からは、スプラインの印と、節点の取り方（どちらも BL）が続く。印の 1 が立つときは、
-    // 場合が 1 でも、当てはめる点の欄だけがあり、制御点の欄はない（図面で確かめた）
+    // 場合が 1 でも、当てはめる点の欄だけがあり、制御点の欄はない（図面で確かめた）。このときは
+    // DXF と同じく、70 に当てはめる点で決まること（1024）と節点の取り方のビットを置く（決定 0157）
     let mut fitted = scenario == 2;
     let mut fit_only = false;
+    let mut method = 0;
     if bits.release() >= Release::R2013 {
         fit_only = bits.bl()? & 1 != 0;
         fitted |= fit_only;
-        bits.bl()?;
+        let knot = bits.bl()?;
+        if fit_only {
+            method = 1024 | knot_bit(knot);
+        }
     }
     let degree = bits.bl()?;
     let mut values = vec![int(71, i64::from(degree))];
@@ -3742,7 +3751,10 @@ fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
         let end = point3(bits, 13)?;
         fit = bits.bl()?;
         if fit_only && scenario == 1 {
-            return spline_from_fit(bits, degree, fit, &start, &end);
+            return spline_from_fit(bits, degree, fit, &start, &end, method);
+        }
+        if method != 0 {
+            values.insert(0, int(70, method));
         }
         tail.push(real(44, tolerance));
         for tangent in [start, end] {
@@ -3796,6 +3808,7 @@ fn spline_from_fit(
     fit: i32,
     start: &[Value],
     end: &[Value],
+    method: i64,
 ) -> Option<Vec<Value>> {
     let mut points = Vec::new();
     for _ in 0..fit {
@@ -3809,7 +3822,7 @@ fn spline_from_fit(
             r.get(2).copied()??,
         ])
     };
-    let mut values = vec![int(71, i64::from(degree))];
+    let mut values = vec![int(70, method), int(71, i64::from(degree))];
     if degree == 3 && fit == 2 {
         let (p0, p3) = (xyz(points.first()?)?, xyz(points.get(1)?)?);
         let ([x0, y0, z0], [x3, y3, z3]) = (p0, p3);
@@ -3839,6 +3852,18 @@ fn spline_from_fit(
     }
     values.extend(points.into_iter().flatten());
     Some(values)
+}
+
+/// DWG の節点の取り方（0 は弦の長さ、1 は平方根、2 は一様、15 は指定）を、DXF の 70 のビット（32・64・
+/// 128・256）にする。ほかの値はビットを立てない
+fn knot_bit(knot: i32) -> i64 {
+    match knot {
+        0 => 32,
+        1 => 64,
+        2 => 128,
+        15 => 256,
+        _ => 0,
+    }
 }
 
 /// 2D の VERTEX の欄（ODS 5.4.1 の 20.4.11、R2000）。始まりの幅が負なら、終わりの幅は書かれず、

@@ -48,7 +48,7 @@
       },
       "expect": {
         "/result": {
-          "hash": "v1:ef5bfbcaa6ea169bb44cd53278d255cd",
+          "hash": "v2:ef5bfbcaa6ea169bb44cd53278d255cd",
           "spaces": [
             {
               "id": "space/0",
@@ -155,7 +155,7 @@
       },
       "expect": {
         "/result/items/0/id": "space/0/h2A",
-        "/result/items/0/hash": "v1:739a0e4693ff99fa3b47fa1b0ef3b896"
+        "/result/items/0/hash": "v2:16c38c8b60a0f94ef6cd0b6c1d8740b5"
       },
       "absent": [
         "/result/items/0/source"

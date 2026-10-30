@@ -35,7 +35,7 @@
       },
       "expect": {
         "/result": {
-          "hash": "v1:090650757795390b0109c04ee7d5840d",
+          "hash": "v2:090650757795390b0109c04ee7d5840d",
           "spaces": [
             {
               "id": "space/0",

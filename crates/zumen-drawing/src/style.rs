@@ -1,4 +1,4 @@
-//! レイヤ・線種・文字スタイル・寸法スタイルの表の項目と、要素の色・線種・線幅の指定と継承。
+//! レイヤ・線種・文字スタイル・寸法スタイルの表の項目と、要素の色・線種・線幅・透過性の指定と継承。
 
 use zumen_base::Ref;
 
@@ -21,6 +21,8 @@ pub struct Layer {
     pub style: Option<LayerStyle>,
     /// 記号の定義の中の要素がこのレイヤにあれば、レイヤからの継承を配置のレイヤで解く（決定 0143）
     pub follows_placement: bool,
+    /// 説明。ファイルが持たないか空なら `None`（決定 0157）
+    pub description: Option<String>,
     /// 定義の出所。定義がなければ既定の値
     pub source: Ref,
 }
@@ -39,7 +41,7 @@ pub struct LayerState {
     pub frozen: bool,
 }
 
-/// レイヤの色・線種・線幅。どれも、定義が値を持たなければ `None`
+/// レイヤの色・線種・線幅・透過性。どれも、定義が値を持たなければ `None`
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerStyle {
     /// 色
@@ -48,6 +50,8 @@ pub struct LayerStyle {
     pub line_type: Option<LineTypeId>,
     /// 線幅
     pub line_weight: Option<LineWeight>,
+    /// 透過性（決定 0157）。`None` は不透明
+    pub transparency: Option<Transparency>,
 }
 
 /// 要素の色・線種・線幅の指定
@@ -61,6 +65,8 @@ pub struct Style {
     pub line_type_scale: f64,
     /// 線幅。元の形式から読めていなければ `None`
     pub line_weight: Option<Inherit<LineWeight>>,
+    /// 透過性（決定 0157）。透過性を持たない形式は、レイヤから継承する
+    pub transparency: Inherit<Transparency>,
 }
 
 /// 継承を解くための、要素か配置の色・線種・線幅とレイヤ（[`Drawing2D::color_placed`](crate::Drawing2D::color_placed)）
@@ -90,6 +96,13 @@ pub enum Inherit<T> {
     Block,
     /// 要素が持つ値
     Own(T),
+}
+
+/// 透過性。AutoCAD の不透明度の値（DXF の 440 の下位のバイト）で持ち、0 は透明、255 は不透明
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Transparency {
+    /// 不透明度
+    pub alpha: u8,
 }
 
 /// 色。元の符号と RGB の少なくとも一方を持つ
@@ -217,12 +230,13 @@ pub enum LineWeight {
 }
 
 impl Style {
-    /// 色・線種・線幅のすべてを、要素を置いた配置から継承する指定。線種の倍率は 1
+    /// 色・線種・線幅・透過性のすべてを、要素を置いた配置から継承する指定。線種の倍率は 1
     pub const BLOCK: Self = Self {
         color: Inherit::Block,
         line_type: Inherit::Block,
         line_type_scale: 1.0,
         line_weight: Some(Inherit::Block),
+        transparency: Inherit::Block,
     };
 }
 

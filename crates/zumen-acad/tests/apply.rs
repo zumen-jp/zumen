@@ -1057,6 +1057,7 @@ fn newcomers() -> Vec<Shape<ModelPoint>> {
             closed: true,
             width: None,
             vertex_widths: Vec::new(),
+            line_type_generation: false,
         }),
         Shape::Text(Text {
             content: "zumen".to_owned(),
@@ -1153,6 +1154,27 @@ fn elements_are_added_with_new_handles() {
     assert!(text.contains("  0\nMTEXT\n  5\n25\n"));
     assert!(text.contains("$HANDSEED\n  5\n26\n"));
     assert!(!text.contains("AcDb"));
+}
+
+#[test]
+fn elements_with_their_own_transparency_are_not_added() {
+    use zumen_drawing::{Inherit, Transparency};
+    let src = src();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut element = elements(&lift(&file)).swap_remove(0);
+    element.source = Ref::at_record(901);
+    element.shape = newcomers().swap_remove(0);
+    // 透過性（440）はまだ書かないので、レイヤから継承するものだけを足す（決定 0157）
+    for transparency in [Inherit::Block, Inherit::Own(Transparency { alpha: 0x7F })] {
+        element.style.transparency = transparency;
+        let (result, found) = apply(&mut file, vec![Edit::Add(Box::new(element.clone()))]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(found, [(codes::CHANGE_EDIT_UNSUPPORTED, vec![])]);
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+    }
+    element.style.transparency = Inherit::Layer;
+    let (result, found) = apply(&mut file, vec![Edit::Add(Box::new(element))]);
+    assert!(result.is_ok(), "{found:?}");
 }
 
 #[test]
@@ -1334,6 +1356,7 @@ fn addition_element(shape: Shape<ModelPoint>) -> Element<ModelPoint> {
             line_type: Inherit::Layer,
             line_type_scale: 1.0,
             line_weight: Some(Inherit::Layer),
+            transparency: Inherit::Layer,
         },
     }
 }
@@ -1479,6 +1502,7 @@ fn additions_stop_before_visiting_vertices_over_the_work_budget() {
         closed: false,
         width: None,
         vertex_widths: vec![],
+        line_type_generation: false,
     });
     let mut file = testkit::read::<Dxf>(&src).0.unwrap();
     let mut budget = Budget::new(

@@ -360,6 +360,8 @@ impl Lifter<'_> {
             line_type,
             line_type_scale: 1.0,
             line_weight: Some(line_weight),
+            // 引出線は透過性の欄を持たないので、注記の要素に従う
+            transparency: Inherit::Block,
         };
         let content_color = self.inherited_color(&entity, if symbol { 93 } else { 92 })?;
         for line in parts.leaders.iter().flat_map(|(_, lines)| lines) {

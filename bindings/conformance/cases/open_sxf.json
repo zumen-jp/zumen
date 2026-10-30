@@ -41,7 +41,7 @@
       },
       "expect": {
         "/result": {
-          "hash": "v1:c9a802b12567e66401329e1a194f77f6",
+          "hash": "v2:c9a802b12567e66401329e1a194f77f6",
           "spaces": [],
           "sheets": [
             {
@@ -89,7 +89,7 @@
       },
       "expect": {
         "/result": {
-          "hash": "v1:e6348d1d30ad8381c91dea3f72abaade",
+          "hash": "v2:e6348d1d30ad8381c91dea3f72abaade",
           "spaces": [],
           "sheets": [
             {

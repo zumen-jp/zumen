@@ -81,6 +81,9 @@ pub enum Basis {
 pub struct Field {
     /// 名前空間の中の値の名前
     pub key: &'static str,
+    /// 元の形式の値の番号（DXF のグループ・コード。点は X のコード）。元の形式が値に番号を付けなければ `None`
+    /// （決定 0157）
+    pub code: Option<i16>,
     /// 値
     pub value: FieldValue,
 }

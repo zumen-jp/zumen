@@ -61,17 +61,17 @@ const EMPTY: SheetId = SheetId(u32::MAX);
 /// ブロックの定義を指す記号のキーの名前空間
 const BLOCK: &str = "dxf.block";
 
-/// XDATA の形式固有の情報の名前空間と、値の型の契約の版（決定 0115）
+/// XDATA の形式固有の情報の名前空間と、値の型の契約の版（決定 0115・0157）
 const XDATA: &str = "dxf.xdata";
 
 const POINT: &str = "dxf.point";
-const XDATA_SCHEMA: u32 = 1;
-/// 図面モデルの値にない図形の欄の拡張の名前空間と、値の型の契約の版（決定 0142）
+const XDATA_SCHEMA: u32 = 2;
+/// 図面モデルの値にない図形の欄の拡張の名前空間と、値の型の契約の版（決定 0142・0157）
 const ENTITY: &str = "dxf.entity";
-const ENTITY_SCHEMA: u32 = 1;
-/// 図形の拡張辞書の XRECORD の形式固有の情報の名前空間と、値の型の契約の版（決定 0148）
+const ENTITY_SCHEMA: u32 = 2;
+/// 図形の拡張辞書の XRECORD の形式固有の情報の名前空間と、値の型の契約の版（決定 0148・0157）
 const XRECORD: &str = "dxf.xrecord";
-const XRECORD_SCHEMA: u32 = 1;
+const XRECORD_SCHEMA: u32 = 2;
 
 impl Lift<Drawing2D> for DxfFile {
     /// 表を作ってから変換する。型どおりに読めない値は、変換がその値を使うときに診断を返す

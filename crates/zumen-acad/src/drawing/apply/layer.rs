@@ -1,9 +1,10 @@
 //! レイヤの置き換えと追加を、画層の表のレコード（LAYER）に書く（決定 0162）。
 //!
 //! 置き換えは、元のレコードの値のうち、名前（2）・印（70）・色（62・420）・線種（6）・印刷の印（290）・
-//! 線幅（370）だけを書き直す。追加は、画層 0 のレコードを写し、ハンドル・拡張辞書・拡張データを除いてから
-//! 同じ欄を書く。名前を変えたら、DXF では、図形の画層の名前（8）と、XDATA の画層の名前（1003）と、
-//! 今の画層（`$CLAYER`）も書き直す。DWG の図形は画層をハンドルで指すので、足した図形のほかは書き直さない
+//! 線幅（370）だけを書き直す。透過性と説明（XDATA）を変えるものは、まだ書き戻さない（決定 0157）。
+//! 追加は、画層 0 のレコードを写し、ハンドル・拡張辞書・拡張データを除いてから同じ欄を書く。名前を
+//! 変えたら、DXF では、図形の画層の名前（8）と、XDATA の画層の名前（1003）と、今の画層（`$CLAYER`）も
+//! 書き直す。DWG の図形は画層をハンドルで指すので、足した図形のほかは書き直さない
 
 use std::collections::BTreeSet;
 
@@ -120,6 +121,15 @@ pub(super) fn write(
 ) -> Option<()> {
     let (state, style) = (layer.state?, layer.style?);
     usable_name(&layer.name).then_some(())?;
+    // 透過性と説明は XDATA（AcCmTransparency・AcAecLayerStandard）にあり、まだ書かない。元のままのものだけを
+    // 書き、足す画層（拡張データを写さない）は持たないものだけを足す（決定 0157）
+    let kept = was.map_or((None, None), |(_, old)| {
+        (
+            old.style.and_then(|style| style.transparency),
+            old.description.as_deref(),
+        )
+    });
+    ((style.transparency, layer.description.as_deref()) == kept).then_some(())?;
     // 凍結した画層は表示しない（読むときと同じ）
     (!state.frozen || !state.visible).then_some(())?;
     let dwg = matches!(born.target(), Target::Dwg(_));

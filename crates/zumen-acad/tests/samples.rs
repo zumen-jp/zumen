@@ -458,10 +458,13 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
             _ => {}
         }
     }
+    // 版の往復の XRECORD は、DWG の画層と DXF の線種の片側だけにあることがあり（決定 0152）、移さずに
+    // 診断する（決定 0157）。DWG と DXF で同じ名前になることは xrecord_samples.rs が確かめる
     let codes = diag
         .iter()
         .map(|d| d.code())
         .filter(|c| c.name().starts_with("dxf."))
+        .filter(|c| *c != codes::DXF_EXTENSION_DICTIONARY_UNSUPPORTED)
         .collect();
     (drawing, codes)
 }
@@ -1412,7 +1415,6 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
                     .iter()
                     .any(|their| their.name == ext.name && their.target == ext.target)
         });
-        support::without_unpaired_record_roundtrips(&mut ours, &mut theirs);
         for (ours, theirs) in ours.spaces.iter().zip(&mut theirs.spaces) {
             without_hooks(&ours.elements, &mut theirs.elements);
         }
@@ -1422,10 +1424,20 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
         for (ours, theirs) in ours.symbols.iter().zip(&mut theirs.symbols) {
             without_hooks(&ours.space.elements, &mut theirs.space.elements);
         }
-        let (ours, theirs) = (
+        let (ours, mut theirs) = (
             comparable(&format!("{ours:?}")),
             comparable(&format!("{theirs:?}")),
         );
+        // R2013 より前の DWG は、スプラインの節点の取り方を図形の欄に持たない（DXF は 70 の 1024 と
+        // そのビットに書く）ので、比べない
+        if std::fs::read(&dwg).unwrap().get(..6) < Some(b"AC1027".as_slice()) {
+            for kind in ["Chord", "SquareRoot", "Uniform", "Custom"] {
+                theirs = theirs.replace(
+                    &format!("knot_parameterization: Some({kind})"),
+                    "knot_parameterization: None",
+                );
+            }
+        }
         assert!(
             nearly(&ours, &theirs),
             "{}\n{ours}\n{theirs}",
@@ -3381,6 +3393,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             closed: true,
             width: Some(length(0.25)),
             vertex_widths: Vec::new(),
+            line_type_generation: false,
         }),
         Shape::Text(Text {
             content: "zumen".to_owned(),
@@ -3504,6 +3517,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                             line_type: Inherit::Layer,
                             line_type_scale: 1.0,
                             line_weight: Some(Inherit::Layer),
+                            transparency: Inherit::Layer,
                         },
                         source: zumen_base::Ref::default(),
                     });
@@ -3523,6 +3537,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                             line_type: Inherit::Layer,
                             line_type_scale: 1.0,
                             line_weight: Some(Inherit::Layer),
+                            transparency: Inherit::Layer,
                         },
                         shape: shape.clone(),
                     }))
@@ -3589,6 +3604,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                     line_type: Inherit::Layer,
                     line_type_scale: 1.0,
                     line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.25)))),
+                    transparency: Inherit::Layer,
                 },
                 shape: shapes[0].clone(),
             };
@@ -3869,6 +3885,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
                     line_type: Inherit::Layer,
                     line_type_scale: 1.0,
                     line_weight: Some(Inherit::Layer),
+                    transparency: Inherit::Layer,
                 };
                 added.push(element);
             }
@@ -3969,6 +3986,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
                         line_type: Inherit::Layer,
                         line_type_scale: 1.0,
                         line_weight: Some(Inherit::Layer),
+                        transparency: Inherit::Layer,
                     },
                     shape: line(sheet.id),
                 }))
@@ -4173,6 +4191,99 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
             let id = zumen_drawing::id::sheet(sheet);
             assert!(id.starts_with("sheet/h"), "{id} {}", dwg.display());
         }
+    }
+}
+
+/// 同じ図面の DWG と DXF は、図面モデルに移した線種の生成・当てはめの許容差・節点の取り方・図形の透過性と、
+/// 画層の説明と透過性（決定 0157）が同じになる。R2013 より前の DWG は節点の取り方を図形の欄に持たないので、節点の取り方は R2013 からの組で比べる。
+/// 試料の横須賀の平面図は、線種の生成を立てた LWPOLYLINE を持つ
+#[test]
+#[cfg(feature = "drawing")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
+    use zumen_drawing::{
+        Edge, Element, Inherit, KnotParameterization, ModelPoint, Shape, Transparency,
+    };
+    type Moved = (
+        bool,
+        Option<f64>,
+        Option<KnotParameterization>,
+        Inherit<Transparency>,
+    );
+    fn moved(elements: &[Element<ModelPoint>], knots: bool, out: &mut Vec<Moved>) {
+        for element in elements {
+            let transparency = element.style.transparency;
+            out.push(match &element.shape {
+                Shape::Polyline(line) => (line.line_type_generation, None, None, transparency),
+                Shape::Curve(Edge::Spline(spline)) => (
+                    false,
+                    spline.fit_tolerance,
+                    spline.knot_parameterization.filter(|_| knots),
+                    transparency,
+                ),
+                _ => (false, None, None, transparency),
+            });
+        }
+    }
+    let all = |path: &Path, knots: bool| {
+        let (drawing, _) = lifted(path);
+        let mut out = Vec::new();
+        for space in &drawing.spaces {
+            moved(&space.elements, knots, &mut out);
+        }
+        for symbol in &drawing.symbols {
+            moved(&symbol.space.elements, knots, &mut out);
+        }
+        let layers: Vec<_> = drawing
+            .layers
+            .iter()
+            .map(|layer| {
+                (
+                    layer.name.clone(),
+                    layer.description.clone(),
+                    layer.style.and_then(|style| style.transparency),
+                )
+            })
+            .collect();
+        (out, layers)
+    };
+    let mut found = pairs();
+    if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
+        let dwg = Path::new(&dir).join("jp-yokosuka-minami-survey-plan.dwg");
+        if dwg.exists() {
+            found.push((dwg.clone(), dwg.with_extension("dxf")));
+        }
+    }
+    let mut generated = 0;
+    let mut parameterized = 0;
+    let mut transparent = 0;
+    let mut layers = 0;
+    for (dwg, dxf) in found {
+        let knots = std::fs::read(&dwg).unwrap().get(..6) >= Some(b"AC1027".as_slice());
+        let ours = all(&dwg, knots);
+        assert_eq!(ours, all(&dxf, knots), "{}", dwg.display());
+        let (elements, described) = ours;
+        generated += elements.iter().filter(|moved| moved.0).count();
+        parameterized += elements.iter().filter(|moved| moved.2.is_some()).count();
+        transparent += elements
+            .iter()
+            .filter(|moved| moved.3 != Inherit::Layer)
+            .count();
+        layers += described
+            .iter()
+            .filter(|(_, description, transparency)| {
+                description.is_some() || transparency.is_some()
+            })
+            .count();
+    }
+    if std::env::var_os("ZUMEN_SAMPLES").is_some_and(|d| !d.is_empty()) {
+        assert!(
+            generated > 0 && parameterized > 0 && transparent > 0 && layers > 0,
+            "{generated} {parameterized} {transparent} {layers}"
+        );
     }
 }
 

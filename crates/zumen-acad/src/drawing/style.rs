@@ -1,13 +1,13 @@
-//! 画層・線種・寸法スタイル・文字スタイルの表のレコードと、図形の画層・色・線種・線幅を移す
+//! 画層・線種・寸法スタイル・文字スタイルの表のレコードと、図形の画層・色・線種・線幅・透過性を移す
 //! （決定 0141・0143・0157・0158）。
 
 use super::{Lifted, Lifter, Out, aci, invalid, true_type_face};
-use crate::db::{AcadDb, Data, Object};
+use crate::db::{AcadDb, Data, Object, Value};
 use zumen_base::{Cx, Diagnostic, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Color, DimensionStyle, Font, FontKind, Inherit, Layer, LayerId, LayerState,
     LayerStyle, LineType, LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent,
-    MarkRotation, PaperLength, PatternBasis, Style, TextStyle, TextStyleDefinition,
+    MarkRotation, PaperLength, PatternBasis, Style, TextStyle, TextStyleDefinition, Transparency,
 };
 
 impl Lifter<'_> {
@@ -22,8 +22,8 @@ impl Lifter<'_> {
         self.add_layer(&object.kind, name, None, Ref::default(), out)
     }
 
-    /// 図形の色（62・420）・線種（6）・線種の倍率（48）・線幅（370）（DXF Reference「Common Group Codes for
-    /// Entities」）
+    /// 図形の色（62・420）・線種（6）・線種の倍率（48）・線幅（370）・透過性（440）（DXF Reference「Common Group
+    /// Codes for Entities」）
     pub(super) fn style(&self, object: &Object, out: &mut Out) -> Lifted<Style> {
         let kind = object.kind.as_slice();
         let rgb = self.rgb(object, 420)?;
@@ -60,7 +60,19 @@ impl Lifter<'_> {
             line_type,
             line_type_scale,
             line_weight,
+            transparency: self.transparency(object)?,
         })
+    }
+
+    /// 図形の透過性（440）。なければレイヤから継承する
+    fn transparency(&self, object: &Object) -> Lifted<Inherit<Transparency>> {
+        match object.first(440) {
+            None => Ok(Inherit::Layer),
+            Some(Data::Int(value)) => {
+                transparency(*value).ok_or_else(|| invalid(&object.kind, 440))
+            }
+            Some(_) => Err(invalid(&object.kind, 440)),
+        }
     }
 
     /// 真の色（420、背景は 421）。0x00RRGGBB
@@ -251,7 +263,9 @@ impl Lifter<'_> {
 
     /// 画層の表のレコード（DXF Reference「LAYER」）。凍結（70 の 1）か色（62）が負なら表示せず、290 が偽なら
     /// 印刷せず、ロック（70 の 4）なら編集できないとする。凍結は、表示しないこととは別にも持つ（決定 0141）。
-    /// 新しいビューポートで凍結（70 の 2）は、これから作るビューのための値なので移さない
+    /// 新しいビューポートで凍結（70 の 2）は、これから作るビューのための値なので移さない。透過性は XDATA の
+    /// `AcCmTransparency` の 1071 から、説明は XDATA の `AcAecLayerStandard` の 2 つ目の 1000 から移す（決定 0157）。
+    /// 透過性がレイヤか配置から継承する値なら、不透明とする
     pub(super) fn layer_record(&self, object: &Object, source: Ref, out: &mut Out) -> Lifted<()> {
         let kind = object.kind.as_slice();
         let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
@@ -296,12 +310,35 @@ impl Lifter<'_> {
             None => None,
             Some(_) => Some(self.line_weight(object)?),
         };
+        let transparency = match xdata(object, b"AcCmTransparency")
+            .and_then(|group| group.iter().find(|value| value.code == 1071))
+        {
+            None => None,
+            Some(Value {
+                data: Data::Int(value),
+                ..
+            }) => match transparency(*value).ok_or_else(|| invalid(kind, 1071))? {
+                Inherit::Own(transparency) => Some(transparency),
+                Inherit::Layer | Inherit::Block => None,
+            },
+            Some(_) => return Err(invalid(kind, 1071)),
+        };
+        let description = match xdata(object, b"AcAecLayerStandard")
+            .and_then(|group| group.iter().filter(|value| value.code == 1000).nth(1))
+        {
+            None => None,
+            Some(value) => Some(self.decode(kind, 1000, &value.data)?).filter(|d| !d.is_empty()),
+        };
         let style = LayerStyle {
             color,
             line_type,
             line_weight,
+            transparency,
         };
         let id = self.add_layer(kind, name, Some((state, style)), source, out)?;
+        if let Some(layer) = out.layers.get_mut(id.0 as usize) {
+            layer.description = description;
+        }
         if let Some(handle) = object.handle() {
             out.by_handle.insert(handle, id);
         }
@@ -446,10 +483,34 @@ impl Lifter<'_> {
             name,
             state: defined.map(|(state, _)| state),
             style: defined.map(|(_, style)| style),
+            description: None,
             source,
         });
         Ok(id)
     }
+}
+
+/// 透過性の値（DXF の 440 と、XDATA の `AcCmTransparency` の 1071）。上位のバイトが 0 ならレイヤから、1 なら
+/// 配置から継承し、2 なら下位のバイトを不透明度とする。ほかの値は `None`
+pub(super) fn transparency(value: i64) -> Option<Inherit<Transparency>> {
+    let value = u32::try_from(value).ok()?;
+    match value >> 24 {
+        0 => Some(Inherit::Layer),
+        1 => Some(Inherit::Block),
+        2 => Some(Inherit::Own(Transparency {
+            alpha: (value & 0xFF) as u8,
+        })),
+        _ => None,
+    }
+}
+
+/// XDATA の、登録アプリケーション名（1001）が `app` の組の値。なければ `None`
+fn xdata<'a>(object: &'a Object, app: &[u8]) -> Option<&'a [Value]> {
+    let start = object.values.iter().position(|value| {
+        value.code == 1001 && matches!(&value.data, Data::Text(name) if name.as_slice() == app)
+    })?;
+    let group = object.values.get(start + 1..)?;
+    group.split(|value| value.code == 1001).next()
 }
 
 /// 線種の列の 1 つの要素の、形か文字の値（DXF Reference「LTYPE」の 74〜9）

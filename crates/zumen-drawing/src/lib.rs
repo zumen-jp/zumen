@@ -50,7 +50,7 @@ pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
 };
-pub use shape::{Edge, Element, Polyline, Shape, Spline, Vertex};
+pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};
 pub use space::{
     Affine, Length, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Sheet, SheetItem,
     Unit, View,
@@ -58,7 +58,7 @@ pub use space::{
 pub use style::{
     Arrowhead, Color, ColorCode, ColorSystem, DimensionStyle, Inherit, Inheritor, Layer, LayerId,
     LayerState, LayerStyle, LineType, LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight,
-    MarkContent, MarkRotation, PatternBasis, Style, TextStyle, TextStyleDefinition,
+    MarkContent, MarkRotation, PatternBasis, Style, TextStyle, TextStyleDefinition, Transparency,
 };
 pub use symbol::{Attribute, AttributeDefinition, Grid, Symbol, SymbolDefinition, SymbolKey};
 pub use table::{
@@ -486,9 +486,11 @@ mod tests {
                     color: color.map(aci),
                     line_type: None,
                     line_weight: Some(LineWeight::Default),
+                    transparency: None,
                 }),
                 follows_placement: follows,
                 source: Ref::default(),
+                description: None,
             })
             .collect();
         Drawing2D {
@@ -503,6 +505,7 @@ mod tests {
             line_type: Inherit::Block,
             line_type_scale: 1.0,
             line_weight: Some(Inherit::Block),
+            transparency: Inherit::Layer,
         }
     }
 

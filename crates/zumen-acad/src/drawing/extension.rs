@@ -1,5 +1,6 @@
 //! 図形の XDATA（決定 0115）と、拡張辞書の XRECORD（決定 0148）を、形式固有の情報にする。
-//! 図面モデルの値にない図形の欄も、`dxf.entity` の拡張に控える（決定 0142）。
+//! 図面モデルの値にない図形の欄も、`dxf.entity` の拡張に控える（決定 0142）。どの値も元のグループ・コードを
+//! 持ち、図面モデルの欄にする値は移さない（決定 0157）。
 
 use super::{
     ENTITY, ENTITY_SCHEMA, Lifted, Lifter, Out, XDATA, XDATA_SCHEMA, XRECORD, XRECORD_SCHEMA,
@@ -9,6 +10,32 @@ use crate::db::{AcadDb, Data, Object, Value};
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_drawing::{Basis, Extension, Field, FieldValue, Target};
 use zumen_sdk::Error;
+
+/// 図面モデルの欄にする値で、欄がまだない拡張辞書の項目と、AutoCAD の版の往復の XRECORD（決定 0157）。
+/// 注釈の尺度（`AcDbContextDataManager`・`ASDK_XREC_ANNO_SCALE_INFO`・`ASDK_XREC_ANNOTATION_SCALE_INFO`）、
+/// 寸法の関連づけ（`ACAD_DIMASSOC`）、動的ブロックの表し方（`AcDbBlockRepresentation`）、ビューごとの画層の
+/// 上書き（`ADSK_XREC_LAYER_COLOR_OVR` など、`_OVR` で終わる `ADSK_XREC_LAYER_`）と、版の往復
+/// （`ACAD_XREC_ROUNDTRIP`・`ACAD_MTEXT_RT`・`ACAD_MTEXT_2008_RT`）。往復の値は、図形の値で表せる内容と
+/// 表せない内容（新しい版の表の書式など）をまだ読み分けないので、すべて診断する
+fn unmapped(name: &[u8]) -> bool {
+    const NAMES: [&[u8]; 8] = [
+        b"AcDbContextDataManager",
+        b"ASDK_XREC_ANNO_SCALE_INFO",
+        b"ASDK_XREC_ANNOTATION_SCALE_INFO",
+        b"ACAD_DIMASSOC",
+        b"AcDbBlockRepresentation",
+        b"ACAD_XREC_ROUNDTRIP",
+        b"ACAD_MTEXT_RT",
+        b"ACAD_MTEXT_2008_RT",
+    ];
+    NAMES.contains(&name) || name.starts_with(b"ADSK_XREC_LAYER_") && name.ends_with(b"_OVR")
+}
+
+/// 点の X のグループ・コードなら、その値。Y と Z は、それに 10 と 20 を足したコード（DXF Reference
+/// 「Group Code Value Types」の 10〜17・210・1010〜1013）
+fn point_code(code: i16) -> Option<i16> {
+    matches!(code, 10..=17 | 210 | 1010..=1013).then_some(code)
+}
 
 impl Lifter<'_> {
     /// 図形の XDATA（DXF Reference「Extended Data」、決定 0115）を、登録アプリケーション名（1001）ごとの
@@ -69,8 +96,9 @@ impl Lifter<'_> {
 
     /// 図形の拡張辞書（`{ACAD_XDICTIONARY` の組の 360 が指す DICTIONARY。DXF Reference「Extension
     /// Dictionary and Persistent Reactors」、決定 0148）の XRECORD の項目を、項目の名前ごとの形式固有の
-    /// 情報にして、図形の値とともに控える。値は、グループ・コード（`code`）と、その型の値の組を順に並べる。
-    /// XRECORD でない項目と、読めない値を持つ XRECORD は移さず、診断する
+    /// 情報にして、図形の値とともに控える。値は、グループ・コードを付けた型の値を順に並べる（決定 0157）。
+    /// 図面モデルの欄にする値で、欄がまだない項目（[`unmapped`]）と、AutoCAD の版の往復の XRECORD は移さず、
+    /// L1 に残して診断する。XRECORD でない項目と、読めない値を持つ XRECORD も移さず、診断する
     pub(super) fn dictionary(
         &self,
         db: &AcadDb,
@@ -112,6 +140,16 @@ impl Lifter<'_> {
             let Some(item) = db.get(*handle) else {
                 continue;
             };
+            if let Data::Text(key) = name
+                && unmapped(key)
+            {
+                cx.report(
+                    Diagnostic::new(codes::DXF_EXTENSION_DICTIONARY_UNSUPPORTED)
+                        .with("key", text(key))
+                        .at(source(object)),
+                );
+                continue;
+            }
             let named =
                 self.decode(b"DICTIONARY", 3, name)
                     .and_then(|name| match item.kind.as_slice() {
@@ -141,21 +179,49 @@ impl Lifter<'_> {
     /// XRECORD のデータの値。所有者などの共通の値と、複製の扱い（280）の後に並ぶ
     fn xrecord(&self, item: &Object) -> Lifted<Vec<Field>> {
         let mut depth = 0usize;
-        let mut values = item.values.iter().skip_while(|value| {
-            match (value.code, &value.data) {
-                (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
-                (102, Data::Text(text)) if text.starts_with(b"}") => {
-                    depth = depth.saturating_sub(1);
-                    return true;
+        let data: Vec<&Value> = item
+            .values
+            .iter()
+            .skip_while(|value| {
+                match (value.code, &value.data) {
+                    (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
+                    (102, Data::Text(text)) if text.starts_with(b"}") => {
+                        depth = depth.saturating_sub(1);
+                        return true;
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            depth > 0 || matches!(value.code, 5 | 100 | 330)
-        });
+                depth > 0 || matches!(value.code, 5 | 100 | 330)
+            })
+            .collect();
+        let mut values = data.into_iter();
         let mut fields = Vec::new();
         let mut first = true;
-        for Value { code, data } in values.by_ref() {
+        while let Some(Value { code, data }) = values.next() {
             if core::mem::take(&mut first) && *code == 280 {
+                continue;
+            }
+            // 点は、続く Y と Z と合わせる。Y か Z が続かなければ、合わせずに X を実数とする
+            if let (Some(point), Data::Real(x)) = (point_code(*code), data)
+                && let [
+                    Value {
+                        code: y_code,
+                        data: Data::Real(y),
+                    },
+                    Value {
+                        code: z_code,
+                        data: Data::Real(z),
+                    },
+                ] = values.as_slice().get(..2).unwrap_or_default()
+                && *y_code == point + 10
+                && *z_code == point + 20
+            {
+                values.nth(1);
+                fields.push(Field {
+                    key: "point",
+                    code: Some(*code),
+                    value: FieldValue::Point([*x, *y, *z]),
+                });
                 continue;
             }
             let value = match data {
@@ -174,10 +240,10 @@ impl Lifter<'_> {
                 _ => "binary",
             };
             fields.push(Field {
-                key: "code",
-                value: FieldValue::Integer(i64::from(*code)),
+                key,
+                code: Some(*code),
+                value,
             });
-            fields.push(Field { key, value });
         }
         Ok(fields)
     }
@@ -228,7 +294,11 @@ impl Lifter<'_> {
                 (1070 | 1071, Data::Int(value)) => FieldValue::Integer(*value),
                 _ => return Err(invalid(kind, code)),
             };
-            fields.push(Field { key, value });
+            fields.push(Field {
+                key,
+                code: Some(code),
+                value,
+            });
         }
         Ok((name, fields))
     }
@@ -283,8 +353,8 @@ pub(super) fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Resul
 }
 
 /// 図面モデルの値にない図形の欄（決定 0142）。厚さ（39）は、平面の図形を Z の向きに押し出す長さで、上から
-/// 見た形を変えないので、0 でなければ `thickness` に控える。LWPOLYLINE・POLYLINE の線種の生成（70 の 128）は、
-/// 線種の模様を頂点ごとに切らずに続けることで、立っていれば `line_type_generation` を 1 とする
+/// 見た形を変えないので、0 でなければ `thickness` に控える。SPLINE の節点と制御点の許容差（42・43）も控える。
+/// 線種の生成（70 の 128）と当てはめの許容差（44）は、図面モデルの値に移す（決定 0157）
 fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
     let mut fields = Vec::new();
     let real = |code: i16| match object.first(code) {
@@ -311,27 +381,17 @@ fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
     {
         fields.push(Field {
             key: "thickness",
+            code: Some(39),
             value: FieldValue::Real(thickness),
         });
     }
-    if matches!(object.kind.as_slice(), b"LWPOLYLINE" | b"POLYLINE")
-        && matches!(object.first(70), Some(Data::Int(flags)) if flags & 128 != 0)
-    {
-        fields.push(Field {
-            key: "line_type_generation",
-            value: FieldValue::Integer(1),
-        });
-    }
     if object.kind == b"SPLINE" {
-        let tolerances = [
-            (42, "knot_tolerance"),
-            (43, "control_tolerance"),
-            (44, "fit_tolerance"),
-        ];
+        let tolerances = [(42, "knot_tolerance"), (43, "control_tolerance")];
         for (code, key) in tolerances {
             if let Some(tolerance) = real(code)? {
                 fields.push(Field {
                     key,
+                    code: Some(code),
                     value: FieldValue::Real(tolerance),
                 });
             }
