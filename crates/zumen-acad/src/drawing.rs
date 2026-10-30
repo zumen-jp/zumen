@@ -34,7 +34,7 @@ use acad_table::report_cell_values;
 use extension::extension_work;
 use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Basis, CalloutContent, CellContent, ColorCode, ColorSystem, DimensionStyle,
+    Arrowhead, Basis, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
     Drawing2D, Edge, Element, Extension, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
     ModelPoint, ModelSpace, PaperLength, PaperPoint, Shape, Sheet, SheetId, SheetItem, SpaceId,
     Spline, SymbolDefinition, SymbolKey, Target, TextStyle, Unit, View,
@@ -231,11 +231,26 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             _ => None,
         }
     });
+    // 起点まで BYBLOCK のまま残る色と線種は、色 7 と実線とする（推定。決定 0159）
+    let default_color = Some(Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value: 7,
+        }),
+        rgb: None,
+    });
+    let default_line_type = out
+        .line_types
+        .iter()
+        .find(|line_type| line_type.name.eq_ignore_ascii_case("Continuous"))
+        .map(|line_type| line_type.id);
     let mut drawing = Drawing2D {
         layers: out.layers,
         line_types: out.line_types,
         line_type_scale,
         default_line_weight,
+        default_color,
+        default_line_type,
         dimension_styles: out.dimension_styles,
         text_styles: out.text_styles,
         symbols,
