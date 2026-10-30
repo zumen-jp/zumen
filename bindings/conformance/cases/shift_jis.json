@@ -1,0 +1,52 @@
+{
+  "description": "R2007 より前の ANSI_932 の DXF の文字とレイヤ名を図面モデルに移す（決定 0175）",
+  "steps": [
+    {
+      "push": {
+        "name": "shift_jis.dxf",
+        "hex": "300a53454354494f4e0a320a4845414445520a390a24414341445645520a310a4143313031350a390a24445747434f4445504147450a330a414e53495f3933320a390a24494e53554e4954530a37300a340a300a454e445345430a300a53454354494f4e0a320a5441424c45530a300a5441424c450a320a4c415945520a300a4c415945520a350a31300a320a8a4f8c600a37300a300a36320a310a300a454e445441420a300a454e445345430a300a53454354494f4e0a320a454e5449544945530a300a544558540a380a8a4f8c600a31300a302e300a32300a302e300a34300a312e300a310a907d96ca0a300a454e445345430a300a454f460a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "shift_jis.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "shift_jis.dxf"
+      },
+      "expect": {
+        "/result/spaces/0/elements/texts": 1,
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "shift_jis.dxf",
+        "fields": [
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/kind": "text",
+        "/result/items/0/layer": "外形",
+        "/result/items/0/geometry/content": "図面",
+        "/diagnostics": []
+      }
+    }
+  ]
+}

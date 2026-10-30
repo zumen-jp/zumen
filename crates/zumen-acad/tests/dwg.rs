@@ -3567,6 +3567,11 @@ fn header_variables_and_paper_space_flags_are_in_the_table() {
             .collect()
     };
     assert_eq!(variable(b"$ACADVER"), [(1, Data::Text(b"AC1015".to_vec()))]);
+    // 見出しのコード・ページの番号 30 は、DXF の名前にする
+    assert_eq!(
+        variable(b"$DWGCODEPAGE"),
+        [(3, Data::Text(b"ANSI_1252".to_vec()))]
+    );
     assert_eq!(variable(b"$INSUNITS"), [(70, Data::Int(4))]);
     assert_eq!(
         variable(b"$PLIMMIN"),
@@ -8785,6 +8790,10 @@ fn header_variables_are_written_back() {
         (
             b"$ACADVER".as_slice(),
             vec![(1, Data::Text(b"AC1018".to_vec()))],
+        ),
+        (
+            b"$DWGCODEPAGE".as_slice(),
+            vec![(3, Data::Text(b"ANSI_932".to_vec()))],
         ),
     ];
     for (name, values) in rejected {

@@ -53,7 +53,7 @@
     "dxf.cell-value.dropped": "表のセルの値のうち、型 {type} の値は図面モデルが持たないので移しませんでした。表示する文字は移しました（{count} 件）。",
     "dxf.change.unsupported": "「{kind}」の要素のこの変更は、まだ書き戻せません。変更を反映しませんでした。",
     "dxf.clip.dropped": "記号の切り抜きのグループ・コード {code} を読めず、切り抜かずに移しました（{count} 件）。",
-    "dxf.code-page.unsupported": "コード・ページの版の ASCII でない文字をまだ読めないので、「{kind}」を図面モデルに移しませんでした（{count} 件）。",
+    "dxf.code-page.unsupported": "対応表のないコード・ページの ASCII でない文字を読めないので、「{kind}」を図面モデルに移しませんでした（{count} 件）。",
     "dxf.element.missing": "変更が指す要素が、図面にありません。変更を反映しませんでした。",
     "dxf.entity.dropped": "出力先の DXF の版にない種類の図形「{kind}」を、書きませんでした（{count} 件）。",
     "dxf.extension-dictionary.dropped": "図形の拡張辞書の項目「{key}」（{kind}）を、図面モデルに移しませんでした（{count} 件）。",

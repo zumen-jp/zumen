@@ -560,7 +560,7 @@ pub const DXF_CLIP_DROPPED: Code = Code::new(
     &["code"],
 );
 
-/// コード・ページの版の ASCII でない文字を、まだ読めないので、その文字の図形を図面モデルに移さなかった
+/// 2007 より前の版で、対応表のないコード・ページの ASCII でない文字を読めないので、その文字の図形を図面モデルに移さなかった
 ///
 /// `dxf.code-page.unsupported`（0.0.0 から）
 pub const DXF_CODE_PAGE_UNSUPPORTED: Code = Code::new(
