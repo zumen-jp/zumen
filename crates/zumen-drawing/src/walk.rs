@@ -426,7 +426,11 @@ impl<'a> Walker<'a> {
     {
         let at = || element.source.clone();
         cx.check(Kind::Work, 1).map_err(|stop| (stop, at()))?;
-        let visit = self.resolved(item(element), id, element.layer, &element.style, frame);
+        let mut visit = self.resolved(item(element), id, element.layer, &element.style, frame);
+        // 作図の補助の点は印刷しない（決定 0160）
+        if let Shape::Point(point) = &element.shape {
+            visit.printable &= !point.construction;
+        }
         self.out.push(visit);
         let Shape::Symbol(symbol) = &element.shape else {
             return Ok(());
@@ -818,6 +822,28 @@ mod tests {
         assert_eq!(own.color, Some(aci(2)));
         assert_eq!(own.layer, LayerId(2));
         assert!(own.visible && own.printable);
+    }
+
+    #[test]
+    fn construction_points_are_shown_but_not_printed() {
+        let point = |construction| Element {
+            source: Ref::default(),
+            layer: LayerId(0),
+            style: by_layer(),
+            shape: Shape::Point(crate::Point {
+                position: at(MODEL, 0.0, 0.0),
+                rotation: 0.0,
+                look: crate::PointLook::Document,
+                construction,
+            }),
+        };
+        let drawing = Drawing2D {
+            spaces: vec![space(MODEL, vec![point(false), point(true)])],
+            ..Drawing2D::default()
+        };
+        let (visits, _) = walk(&drawing, Origin::Space(MODEL));
+        let shown: Vec<_> = visits.iter().map(|v| (v.visible, v.printable)).collect();
+        assert_eq!(shown, [(true, true), (true, false)]);
     }
 
     #[test]

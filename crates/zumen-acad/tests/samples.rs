@@ -966,7 +966,7 @@ fn drawings_take_back_transformed_elements() {
             Shape::Curve(_) => "curve",
             Shape::Polyline(_) => "polyline",
             Shape::Text(_) => "text",
-            // 点（`dxf.point`）は、置き換えをまだ扱わない。格子に並べる記号（MINSERT）は分けて数える
+            // 点は、置き換えをまだ扱わない。格子に並べる記号（MINSERT）は分けて数える
             Shape::Symbol(symbol)
                 if symbol.key.namespace == "dxf.block" && symbol.grid.is_some() =>
             {
@@ -1372,10 +1372,17 @@ fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
     assert!(pairs().is_empty() || checked > 0);
 }
 
-/// DWG の見出しから読んだ変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE）は、同じ図面の DXF の HEADER と同じ値を持つ
+/// DWG の見出しから読んだ変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE・PDSIZE）は、同じ図面の DXF の HEADER と同じ値を
+/// 持つ
 #[test]
 fn dwg_header_variables_match_the_dxf_of_the_same_drawing() {
-    let names: [&[u8]; 4] = [b"$INSUNITS", b"$PLIMMIN", b"$PLIMMAX", b"$PDMODE"];
+    let names: [&[u8]; 5] = [
+        b"$INSUNITS",
+        b"$PLIMMIN",
+        b"$PLIMMAX",
+        b"$PDMODE",
+        b"$PDSIZE",
+    ];
     for (dwg, dxf) in pairs() {
         let (ours, theirs) = (table(&dwg), table(&dxf));
         for name in names {

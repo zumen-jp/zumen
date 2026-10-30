@@ -1,12 +1,12 @@
 //! 点・線・円・円弧・楕円・ポリライン・スプライン・SOLID を、図面モデルの形にする。
 //! 厚さと線種の生成は、`dxf.entity` の拡張に控える（決定 0142）。
 
-use super::{Lifted, Lifter, POINT, Values, check_spline, invalid, non_planar, text};
+use super::{Lifted, Lifter, Values, check_spline, invalid, non_planar, text};
 use crate::db::{Data, Object, Value};
 use zumen_base::{Diagnostic, codes};
 use zumen_drawing::{
-    Boundary, Edge, Fill, Hatch, HatchLoop, Islands, KnotParameterization, Length, Polyline, Shape,
-    Spline, Symbol, SymbolKey, Vertex,
+    Boundary, Edge, Fill, Hatch, HatchLoop, Islands, KnotParameterization, Length, Point,
+    PointLook, Polyline, Shape, Spline, Vertex,
 };
 
 impl Lifter<'_> {
@@ -54,28 +54,18 @@ impl Lifter<'_> {
         })
     }
 
-    /// POINT（DXF Reference「POINT」）。名前空間 `dxf.point` の記号として置き、点の表し方（`$PDMODE`）が 0 なら
-    /// `point` を、ほかはその番号を名前にする。角度（50）は X 軸の角度（度）で、記号の回転にする。点の大きさ
-    /// （`$PDSIZE`）は、まだ移さない（決定 0140）
+    /// POINT（DXF Reference「POINT」）。文書の点の表し方（`$PDMODE`・`$PDSIZE`）に従う点にする。角度（50）は
+    /// X 軸の角度（度）で、点の回転にする（決定 0160）
     pub(super) fn point<P>(
         &self,
         object: &Object,
         point: &impl Fn(f64, f64) -> P,
-    ) -> Lifted<Symbol<P>> {
-        Ok(Symbol {
-            key: SymbolKey {
-                namespace: POINT,
-                name: match self.point_mode {
-                    0 => "point".to_owned(),
-                    mode => mode.to_string(),
-                },
-            },
+    ) -> Lifted<Point<P>> {
+        Ok(Point {
             position: self.planar_point(object, 10, point)?,
-            scale: [1.0; 2],
             rotation: self.real(object, 50, Some(0.0))?,
-            grid: None,
-            attributes: Vec::new(),
-            clip: None,
+            look: PointLook::Document,
+            construction: false,
         })
     }
 

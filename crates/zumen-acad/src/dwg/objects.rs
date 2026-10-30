@@ -267,6 +267,7 @@ impl DwgFile {
             db.set_variable(b"$PLIMMAX", vec![real(10, x1), real(20, y1)]);
             db.set_variable(b"$LTSCALE", vec![real(40, header.line_type_scale)]);
             db.set_variable(b"$PDMODE", vec![int(70, i64::from(header.point_mode))]);
+            db.set_variable(b"$PDSIZE", vec![real(40, header.point_size)]);
         }
         Ok(db)
     }

@@ -4,8 +4,9 @@ use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Key, Re
 use zumen_drawing::{
     Arrowhead, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge,
     FieldValue, Fill, Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, PatternOrigin, Position, Rotation, Scaled,
-    Shape, SheetItem, SpaceId, SymbolKey, Target, UnderlayFrame, Vertical,
+    MarkerKey, ModelLength, ModelPoint, PaperLength, PaperPoint, PatternOrigin, Point, PointLook,
+    Position, Rotation, Scaled, Shape, SheetItem, SpaceId, SymbolKey, Target, UnderlayFrame,
+    Vertical,
 };
 use zumen_sdk::{Lift, testkit};
 use zumen_sxf::{Sxf, SxfFile};
@@ -488,7 +489,7 @@ fn moves_splines_as_joined_bezier_curves() {
 }
 
 #[test]
-fn moves_point_markers_as_predefined_symbols() {
+fn moves_point_markers_as_points_with_predefined_markers() {
     let src = sfc(&[
         b"layer_feature(\\'L\\','1')",
         b"point_marker_feature('1','3','5.0','6.0','2','45.0','1.5')",
@@ -496,14 +497,24 @@ fn moves_point_markers_as_predefined_symbols() {
     ]);
     let (drawing, _) = lift(&src);
     let element = &drawing.sheets[0].elements[0];
-    let Shape::Symbol(symbol) = &element.shape else {
-        panic!("{:?}", element.shape);
-    };
-    assert_eq!(symbol.key.namespace, "sxf.marker");
-    assert_eq!(symbol.key.name, "2");
-    assert_eq!(symbol.position, paper(5.0, 6.0));
-    assert_eq!((symbol.scale, symbol.rotation), ([1.5, 1.5], 45.0));
-    assert!(drawing.symbol(&symbol.key).is_none());
+    // 点マーカーは既定義の印の点にし、記号にしない（決定 0160）
+    assert_eq!(
+        element.shape,
+        Shape::Point(Point {
+            position: paper(5.0, 6.0),
+            rotation: 45.0,
+            look: PointLook::Marker {
+                key: MarkerKey {
+                    namespace: "sxf.marker",
+                    code: "2".into(),
+                },
+                scale: 1.5,
+            },
+            construction: false,
+        })
+    );
+    assert!(drawing.symbols.is_empty());
+    assert_eq!(drawing.point_style, None);
 }
 
 #[test]

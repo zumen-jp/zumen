@@ -4578,3 +4578,60 @@ fn additions_to_symbol_definitions_go_before_endblk_within_the_budget() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
+
+/// POINT は、置き換え・変換・追加を書き戻さず、ファイルを変えない（決定 0160。点の書き戻しは #170）
+#[test]
+fn points_are_not_replaced_transformed_or_added() {
+    use zumen_drawing::{Affine, Edit as Change, Placed, Point};
+    let src = dxf(&[
+        (0, "POINT"),
+        (5, "1A"),
+        (8, "0"),
+        (10, "1.0"),
+        (20, "2.0"),
+        (30, "0.0"),
+    ]);
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(target, point)] = <[_; 1]>::try_from(seen(&lift(&file))).unwrap();
+    let Shape::Point(dot) = &point.shape else {
+        panic!("{:?}", point.shape);
+    };
+    let moved = Element {
+        shape: Shape::Point(Point {
+            position: at(5.0, 5.0),
+            ..dot.clone()
+        }),
+        ..point.clone()
+    };
+    for edit in [
+        Change::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Model(moved.clone())),
+        },
+        Change::Transform {
+            target: target.clone(),
+            transform: Affine::translation(1.0, 0.0),
+        },
+        Change::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(moved)),
+        },
+    ] {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits: vec![edit],
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        assert_eq!(result.unwrap_err(), Error::Rejected);
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::CHANGE_EDIT_UNSUPPORTED]
+        );
+    }
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}

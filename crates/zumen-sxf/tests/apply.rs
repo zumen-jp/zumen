@@ -615,3 +615,52 @@ fn consecutive_composites_keep_their_members_protected() {
     );
     assert!(result.is_ok());
 }
+
+/// 点マーカーは、置き換え・変換・追加を書き戻さず、ファイルを変えない（決定 0160。点の書き戻しは #170）
+#[test]
+fn point_markers_are_not_replaced_transformed_or_added() {
+    let features: [&[u8]; 3] = [
+        b"layer_feature(\\'A\\','1')",
+        b"point_marker_feature('1','1','5.0','6.0','2','0.0','1.0')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ];
+    let mut src = b"ISO-10303-21;\r\nHEADER;\r\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\r\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\r\nENDSEC;\r\nDATA;\r\n".to_vec();
+    for (at, feature) in features.iter().enumerate() {
+        src.extend_from_slice(format!("/*SXF\r\n#{} = ", (at + 1) * 10).as_bytes());
+        src.extend_from_slice(feature);
+        src.extend_from_slice(b"\r\nSXF*/\r\n");
+    }
+    src.extend_from_slice(b"ENDSEC;\r\nEND-ISO-10303-21;\r\n");
+    let drawing = lift(&read(&src));
+    let (target, marker) = seen(&drawing, 20);
+    let Shape::Point(point) = &marker.shape else {
+        panic!("{:?}", marker.shape);
+    };
+    let moved = Element {
+        shape: Shape::Point(zumen_drawing::Point {
+            position: paper(50.0, 50.0),
+            ..point.clone()
+        }),
+        ..marker.clone()
+    };
+    for edit in [
+        Edit::Replace {
+            target: target.clone(),
+            element: Box::new(Placed::Paper(moved.clone())),
+        },
+        Edit::Transform {
+            target: target.clone(),
+            transform: Affine::translation(10.0, 0.0),
+        },
+        Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(moved)),
+        },
+    ] {
+        let mut file = read(&src);
+        let (result, diagnostics) = apply(&mut file, vec![edit]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(write(&file), src);
+    }
+}

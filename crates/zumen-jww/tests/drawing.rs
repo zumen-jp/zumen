@@ -8,9 +8,9 @@ use common::{Archive, Spec};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
 use zumen_drawing::{
     Boundary, Color, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, Element, Extension,
-    FieldValue, Fill, Inherit, Label, LayerId, LayerState, Length, LineWeight, ModelLength,
-    ModelPoint, PaperLength, Placement, Position, Shape, SpaceId, Target, UnderlayFrame,
-    UnderlayKind, Unit,
+    FieldValue, Fill, Inherit, Label, LayerId, LayerState, Length, LineWeight, MarkerKey,
+    ModelLength, ModelPoint, PaperLength, Placement, Point, PointLook, Position, Shape, SpaceId,
+    Target, UnderlayFrame, UnderlayKind, Unit,
 };
 use zumen_jww::Jww;
 use zumen_sdk::{Lift, testkit};
@@ -333,18 +333,45 @@ fn arcs_and_ellipses() {
 fn points_texts_and_solids() {
     let (drawing, _) = drawing();
     let shapes = elements(&drawing, 0);
-    // 仮点は描かない
-    let Shape::Symbol(point) = &shapes[5].shape else {
-        panic!("{:?}", shapes[5].shape);
+    // 点は文書の点の表し方に従う点に、仮点は作図の補助の点に、記号の点は既定義の印にし、記号にしない（決定 0160）
+    let point = |shape: &Shape<ModelPoint>| match shape {
+        Shape::Point(point) => point.clone(),
+        other => panic!("{other:?}"),
     };
-    assert_eq!(point.key.namespace, "jww.point");
-    assert_eq!(point.key.name, "point");
-    let Shape::Symbol(symbol) = &shapes[6].shape else {
-        panic!("{:?}", shapes[6].shape);
-    };
-    assert_eq!(symbol.key.name, "3");
-    assert_eq!(symbol.position, model(0, 300.0, 300.0));
-    assert_eq!((symbol.rotation, symbol.scale), (45.0, [2.0, 2.0]));
+    assert_eq!(
+        point(&shapes[5].shape),
+        Point {
+            position: model(0, 100.0, 100.0),
+            rotation: 0.0,
+            look: PointLook::Document,
+            construction: false,
+        }
+    );
+    let construction = point(&shapes[6].shape);
+    assert!(construction.construction);
+    assert_eq!(construction.look, PointLook::Document);
+    assert_eq!(
+        point(&shapes[7].shape),
+        Point {
+            position: model(0, 300.0, 300.0),
+            rotation: 45.0,
+            look: PointLook::Marker {
+                key: MarkerKey {
+                    namespace: "jww.point",
+                    code: "3".into(),
+                },
+                scale: 2.0,
+            },
+            construction: false,
+        }
+    );
+    assert!(
+        drawing
+            .symbols
+            .iter()
+            .all(|s| s.key.namespace != "jww.point")
+    );
+    assert_eq!(drawing.point_style, None);
 
     let texts = elements(&drawing, 1);
     let Shape::Text(text) = &texts[0].shape else {
@@ -361,8 +388,8 @@ fn points_texts_and_solids() {
     assert_eq!(point, model(1, 10.0, 20.0));
     assert_eq!(texts.len(), 1);
 
-    let Shape::Hatch(solid) = &shapes[7].shape else {
-        panic!("{:?}", shapes[7].shape);
+    let Shape::Hatch(solid) = &shapes[8].shape else {
+        panic!("{:?}", shapes[8].shape);
     };
     assert_eq!(solid.fill, Fill::Solid);
     let Boundary::Polyline { vertices, closed } = &solid.loops[0].boundary else {
@@ -371,14 +398,14 @@ fn points_texts_and_solids() {
     assert!(*closed);
     assert_eq!(vertices[2].point, model(0, 100.0, 100.0));
     assert_eq!(
-        shapes[7].style.color,
+        shapes[8].style.color,
         Inherit::Own(Color {
             code: None,
             rgb: Some([0, 0, 255]),
         })
     );
-    let Shape::Hatch(sector) = &shapes[8].shape else {
-        panic!("{:?}", shapes[8].shape);
+    let Shape::Hatch(sector) = &shapes[9].shape else {
+        panic!("{:?}", shapes[9].shape);
     };
     let Boundary::Edges(edges) = &sector.loops[0].boundary else {
         panic!();
@@ -389,7 +416,7 @@ fn points_texts_and_solids() {
     };
     assert_eq!(start, model(0, 0.0, 0.0));
     assert!(close(end.x, 100.0) && close(end.y, 0.0));
-    assert_eq!(shapes.len(), 13);
+    assert_eq!(shapes.len(), 14);
 }
 
 #[test]
@@ -436,18 +463,18 @@ fn blocks_and_dimensions() {
 
     // 参照は、尺度にレイヤグループの縮尺を掛ける
     let shapes = elements(&drawing, 0);
-    let Shape::Symbol(insert) = &shapes[9].shape else {
-        panic!("{:?}", shapes[9].shape);
+    let Shape::Symbol(insert) = &shapes[10].shape else {
+        panic!("{:?}", shapes[10].shape);
     };
     assert_eq!(insert.key, block.key);
     assert_eq!(insert.position, model(0, 500.0, 500.0));
     assert_eq!(insert.scale, [200.0, 300.0]);
     assert!(close(insert.rotation, 90.0));
-    assert_eq!(shapes[9].style.color, Inherit::Block);
+    assert_eq!(shapes[10].style.color, Inherit::Block);
 
     // 寸法は、基準点を寸法線の向きに測る
-    let Shape::Dimension(dimension) = &shapes[10].shape else {
-        panic!("{:?}", shapes[10].shape);
+    let Shape::Dimension(dimension) = &shapes[11].shape else {
+        panic!("{:?}", shapes[11].shape);
     };
     let DimensionKind::Linear {
         first,
@@ -473,7 +500,7 @@ fn blocks_and_dimensions() {
         .find(|e| e.namespace == "jww.dimension")
         .unwrap();
     assert!(extension.is_current(&drawing));
-    assert_eq!(extension.target, element_at(&drawing, SpaceId(0), 10));
+    assert_eq!(extension.target, element_at(&drawing, SpaceId(0), 11));
     // 付く先の要素を変えると失効する
     let mut edited = drawing.clone();
     let space = edited
@@ -481,7 +508,7 @@ fn blocks_and_dimensions() {
         .iter_mut()
         .find(|s| s.id == SpaceId(0))
         .unwrap();
-    space.elements[10].layer = LayerId(99);
+    space.elements[11].layer = LayerId(99);
     assert!(!extension.is_current(&edited));
     assert_eq!(edited.stale_extensions().count(), 1);
 }
@@ -513,13 +540,13 @@ fn images_and_edit_state() {
 
     // 画像は、文字の始点を左下にした下敷きにし、同梱画像のレコードを定義にする
     let shapes = elements(&drawing, 0);
-    let Shape::Underlay(image) = &shapes[11].shape else {
-        panic!("{:?}", shapes[11].shape);
+    let Shape::Underlay(image) = &shapes[12].shape else {
+        panic!("{:?}", shapes[12].shape);
     };
     assert_eq!(image.kind, UnderlayKind::Image);
     assert_eq!(image.resource.path, "%temp%a.jpg");
     // 同梱画像のレコードは、文字のレコードより後ろにある
-    assert!(image.resource.definition.record() > shapes[11].source.record());
+    assert!(image.resource.definition.record() > shapes[12].source.record());
     let UnderlayFrame::Corners { origin, right, top } = image.frame else {
         panic!("{:?}", image.frame);
     };
@@ -540,7 +567,7 @@ fn images_and_edit_state() {
 
     // 曲線属性と属性のフラグ
     let entity = &find("jww.entity")[0];
-    assert_eq!(entity.target, element_at(&drawing, SpaceId(0), 12));
+    assert_eq!(entity.target, element_at(&drawing, SpaceId(0), 13));
     assert_eq!(entity.fields[1].value, FieldValue::Integer(0x20));
 
     // 書き込むグループ・グループの名前・レイヤの保護

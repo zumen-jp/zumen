@@ -9,10 +9,10 @@ use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Boundary, Color, ColorCode, ColorSystem, Draft, Drawing2D, Edge, Element, Field,
     FieldValue, Fill, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Layer,
-    LayerId, LayerState, Length, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Position, Resource, Shape, Sheet,
-    SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, Text, Underlay, UnderlayFrame,
-    UnderlayKind, Unit, Vertex, Vertical, View,
+    LayerId, LayerState, Length, LineType, LineTypeDefinition, LineTypeId, LineWeight, MarkerKey,
+    ModelLength, ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Point, PointLook,
+    Position, Resource, Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, Text,
+    Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_drawing::{
     Dimension, DimensionKind, DimensionText, Font, FontKind, Format, Label, Piece, Scaled, Span,
@@ -1102,35 +1102,32 @@ impl Lifter<'_> {
         }
     }
 
-    /// 点。仮点は描かない。記号の点は番号を、ほかは `point` を、名前空間 `jww.point` のキーにする
+    /// 点（決定 0160）。記号の点は、名前空間 `jww.point` と記号の番号の既定義の印にし、ほかは文書の点の表し方に
+    /// 従う点にする。仮点は、作図の補助の点にする
     fn point(
         &mut self,
         r: &mut Reader,
         base: &Base,
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
         let [x, y] = [r.f64()?, r.f64()?];
-        let temporary = r.u32()? != 0;
-        let (name, rotation, scale) = if base.pen_style == POINT_SYMBOL {
+        let construction = r.u32()? != 0;
+        let (look, rotation) = if base.pen_style == POINT_SYMBOL {
             let code = r.u32()?;
             // 記号の角度は度とする（推定）
-            (code.to_string(), r.f64()?, r.f64()?)
-        } else {
-            ("point".to_owned(), 0.0, 1.0)
-        };
-        if temporary {
-            return Ok(None);
-        }
-        let shape = Shape::Symbol(Symbol {
-            key: SymbolKey {
+            let (rotation, scale) = (r.f64()?, r.f64()?);
+            let key = MarkerKey {
                 namespace: "jww.point",
-                name,
-            },
+                code: code.to_string(),
+            };
+            (PointLook::Marker { key, scale }, rotation)
+        } else {
+            (PointLook::Document, 0.0)
+        };
+        let shape = Shape::Point(Point {
             position: point(base.at, x, y),
-            scale: [scale; 2],
             rotation,
-            grid: None,
-            attributes: Vec::new(),
-            clip: None,
+            look,
+            construction,
         });
         Ok(Some((
             shape,

@@ -242,6 +242,7 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
             s if s.mirrored => mirroring(symbol, transform, s)?,
             s => placing(symbol, transform, s)?,
         }),
+        Shape::Point(dot) => Shape::Point(pointing(dot, transform, similar?)?),
         _ => return None,
     })
 }
@@ -388,6 +389,31 @@ fn placing<P: Point>(symbol: &Symbol<P>, transform: &Affine, s: Similarity) -> O
         grid,
         attributes,
         ..symbol.clone()
+    })
+}
+
+/// 点を相似で写す。既定義の印は鏡映を表せないので、鏡映を含めば写さない
+fn pointing<P: Point>(
+    dot: &crate::Point<P>,
+    transform: &Affine,
+    s: Similarity,
+) -> Option<crate::Point<P>> {
+    let look = match &dot.look {
+        crate::PointLook::Marker { .. } if s.mirrored => return None,
+        crate::PointLook::Marker { key, scale } => crate::PointLook::Marker {
+            key: key.clone(),
+            scale: scale * s.scale,
+        },
+        crate::PointLook::Document => crate::PointLook::Document,
+    };
+    Some(crate::Point {
+        position: transform.point(dot.position),
+        rotation: match s.mirrored {
+            false => degrees(dot.rotation + s.rotation),
+            true => degrees(s.rotation - dot.rotation),
+        },
+        look,
+        construction: dot.construction,
     })
 }
 

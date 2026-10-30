@@ -11,11 +11,11 @@ use zumen_drawing::{
     Dimension, DimensionKind, DimensionText, Draft, Drawing2D, Edge, Element, Field, FieldValue,
     Fill, Flow, Font, FontKind, Format, FormattedText, Hatch, HatchLoop, Height, HeightMeaning,
     Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Length, LineSpacing, LineType,
-    LineTypeDefinition, LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength,
-    PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Polyline,
-    Position, Resource, Rotation, Scaled, Shape, Sheet, SheetId, SheetItem, SpaceId, Span, Spline,
-    Style, Symbol, SymbolDefinition, SymbolKey, TitleBlock, TitleItem, Underlay, UnderlayFrame,
-    UnderlayKind, Unit, Vertex, Vertical, View,
+    LineTypeDefinition, LineTypeId, LineWeight, MarkerKey, ModelLength, ModelPoint, ModelSpace,
+    PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece,
+    Point, PointLook, Polyline, Position, Resource, Rotation, Scaled, Shape, Sheet, SheetId,
+    SheetItem, SpaceId, Span, Spline, Style, Symbol, SymbolDefinition, SymbolKey, TitleBlock,
+    TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -1186,8 +1186,8 @@ impl<'f> Lifter<'f> {
         shape.map_or(Shaped::Invalid, |shape| Shaped::Element(Box::new(shape)))
     }
 
-    /// 点マーカー。引数は、レイヤと色のコード、点、マーカーのコード、回転、尺度。既定義のマーカーは中身を
-    /// 持たないので、名前空間 `sxf.marker` のコードのキーで指す
+    /// 点マーカー。引数は、レイヤと色のコード、点、マーカーのコード、回転、尺度。名前空間 `sxf.marker` と
+    /// マーカーのコードの既定義の印の点にする（決定 0160）
     fn marker<C: Place>(
         &mut self,
         feature: Feature<'f>,
@@ -1198,17 +1198,17 @@ impl<'f> Lifter<'f> {
         let args = self.args(feature);
         let code = args.int(4)?;
         let scale = args.num(6)?;
-        let shape = Shape::Symbol(Symbol {
-            key: SymbolKey {
-                namespace: "sxf.marker",
-                name: code.to_string(),
-            },
+        let shape = Shape::Point(Point {
             position: at.point(args.num(2)?, args.num(3)?),
-            scale: [scale; 2],
             rotation: args.num(5)?,
-            grid: None,
-            attributes: Vec::new(),
-            clip: None,
+            look: PointLook::Marker {
+                key: MarkerKey {
+                    namespace: "sxf.marker",
+                    code: code.to_string(),
+                },
+                scale,
+            },
+            construction: false,
         });
         let source = feature.source();
         let element = Element {

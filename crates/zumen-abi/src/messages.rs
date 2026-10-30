@@ -2896,7 +2896,7 @@ impl ToJson for Attachment {
     }
 }
 
-/// 要素の形の種類（決定 0022）
+/// 要素の形の種類（決定 0022）。point（点、決定 0160）は小版 32 から。それまで点は symbol だった
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EntityKind {
     /// `line`
@@ -2925,6 +2925,8 @@ pub enum EntityKind {
     Symbol,
     /// `hatch`
     Hatch,
+    /// `point`
+    Point,
 }
 
 impl EntityKind {
@@ -2943,6 +2945,7 @@ impl EntityKind {
         Self::Underlay,
         Self::Symbol,
         Self::Hatch,
+        Self::Point,
     ];
 
     /// JSON での名前
@@ -2961,6 +2964,7 @@ impl EntityKind {
             Self::Underlay => "underlay",
             Self::Symbol => "symbol",
             Self::Hatch => "hatch",
+            Self::Point => "point",
         }
     }
 
@@ -2980,6 +2984,7 @@ impl EntityKind {
             "underlay" => Some(Self::Underlay),
             "symbol" => Some(Self::Symbol),
             "hatch" => Some(Self::Hatch),
+            "point" => Some(Self::Point),
             _ => None,
         }
     }

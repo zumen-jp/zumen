@@ -131,6 +131,8 @@ pub(crate) fn bbox<P: Planar>(shape: &Shape<P>) -> Option<Extent> {
             UnderlayFrame::Scaled { origin, .. } => b.point(*origin),
         },
         Shape::Symbol(symbol) => b.symbol(symbol),
+        // 範囲は位置だけで決める（決定 0160）
+        Shape::Point(point) => b.point(point.position),
         Shape::Hatch(hatch) => {
             for hatch_loop in &hatch.loops {
                 match &hatch_loop.boundary {

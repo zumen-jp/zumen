@@ -36,8 +36,9 @@ use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Arrowhead, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle, Draft,
     Drawing2D, Edge, Element, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, Position, Shape, Sheet, SheetId, SheetItem,
-    SpaceId, Spline, SymbolDefinition, SymbolKey, TextStyle, Unit, View,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, PointMark, PointSize, PointStyle, Position,
+    Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, SymbolDefinition, SymbolKey, TextStyle,
+    Unit, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -64,7 +65,6 @@ const BLOCK: &str = "dxf.block";
 /// XDATA の形式固有の情報の名前空間と、値の型の契約の版（決定 0115・0157）
 const XDATA: &str = "dxf.xdata";
 
-const POINT: &str = "dxf.point";
 const XDATA_SCHEMA: u32 = 3;
 /// 図面モデルの値にない図形の欄の拡張の名前空間と、値の型の契約の版（決定 0142・0157）
 const ENTITY: &str = "dxf.entity";
@@ -152,13 +152,6 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         mm: unit.millimeters(),
         unit,
         origin: limits(b"$PLIMMIN").unwrap_or_default(),
-        point_mode: db
-            .variable(b"$PDMODE")
-            .and_then(|values| match values.first().map(|v| &v.data) {
-                Some(Data::Int(mode)) => Some(*mode),
-                _ => None,
-            })
-            .unwrap_or(0),
     };
     let mut out = Out::default();
     // 画層が線種を指すので、線種の表を先に移す
@@ -257,6 +250,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         dimension_styles: out.dimension_styles,
         text_styles: out.text_styles,
         symbols,
+        point_style: point_style(db, cx),
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -477,7 +471,6 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
         .map(|(key, at)| (key.clone(), at));
     for (key, at) in placements.chain(others) {
         work(cx, 1, at)?;
-        // 点の記号（`dxf.point`）は、ブロックの定義を指さない
         if key.namespace == BLOCK && !by_name.contains_key(&key) {
             cx.report(
                 Diagnostic::new(codes::DXF_BLOCK_MISSING)
@@ -666,6 +659,56 @@ fn unit_of(code: i64) -> Unit {
     }
 }
 
+/// 文書の点の表し方（決定 0160）。見出しの `$PDMODE` が形、`$PDSIZE` が大きさ（DXF Reference「HEADER Section
+/// Group Codes」）。どちらもなければ `None`。知らない番号か、有限でない大きさは `dxf.lift.invalid` を返し、小さな点と、
+/// 画面の高さの 5% にする
+fn point_style(db: &AcadDb, cx: &mut Cx) -> Option<PointStyle> {
+    let mode = db.variable(b"$PDMODE");
+    let size = db.variable(b"$PDSIZE");
+    if mode.is_none() && size.is_none() {
+        return None;
+    }
+    let mode = mode.map_or(Some(0), |values| {
+        match values.iter().find(|v| v.code == 70)?.data {
+            Data::Int(mode) => Some(mode),
+            _ => None,
+        }
+    });
+    // 0 は小さな点、1 はなし、2 は十字、3 はバツ、4 は上向きの短い線。32 を足すと円、64 を足すと四角で囲む
+    let shape = mode.and_then(|mode| {
+        let mark = match mode & !0x60 {
+            0 => PointMark::Dot,
+            1 => PointMark::None,
+            2 => PointMark::Plus,
+            3 => PointMark::Cross,
+            4 => PointMark::Tick,
+            _ => return None,
+        };
+        Some((mark, mode & 0x20 != 0, mode & 0x40 != 0))
+    });
+    let (mark, circle, square) = shape.unwrap_or_else(|| {
+        cx.report(*invalid(b"$PDMODE", 70));
+        (PointMark::Dot, false, false)
+    });
+    // 正なら長さ、負なら画面の高さに対する百分率、0 なら画面の高さの 5%
+    let size = size.map_or(Some(0.0), |values| header_real(values, 40));
+    let size = match size.filter(|size| size.is_finite()) {
+        Some(size) if size > 0.0 => PointSize::Length(size),
+        Some(size) if size < 0.0 => PointSize::Screen(-size),
+        Some(_) => PointSize::Screen(5.0),
+        None => {
+            cx.report(*invalid(b"$PDSIZE", 40));
+            PointSize::Screen(5.0)
+        }
+    };
+    Some(PointStyle {
+        mark,
+        circle,
+        square,
+        size,
+    })
+}
+
 fn header_real(values: &[crate::Value], code: i16) -> Option<f64> {
     match values.iter().find(|v| v.code == code)?.data {
         Data::Real(value) => Some(value),
@@ -725,8 +768,6 @@ struct Lifter<'a> {
     mm: Option<f64>,
     /// 用紙の原点（`$PLIMMIN`、図面の単位）
     origin: [f64; 2],
-    /// 点の表し方（`$PDMODE`）。なければ 0
-    point_mode: i64,
 }
 
 impl Lifter<'_> {
@@ -929,7 +970,7 @@ impl Lifter<'_> {
             b"HATCH" => Ok(Shape::Hatch(self.hatch(db, object, point, length)?)),
             b"LINE" => self.line(object, point),
             b"SOLID" | b"TRACE" => Ok(Shape::Hatch(self.solid(object, point)?)),
-            b"POINT" => Ok(Shape::Symbol(self.point(object, point)?)),
+            b"POINT" => Ok(Shape::Point(self.point(object, point)?)),
             b"CIRCLE" => Ok(Shape::Circle {
                 center: self.planar_point(object, 10, point)?,
                 radius: length(self.radius(object)?),
@@ -1246,7 +1287,6 @@ mod tests {
             unit: Unit::Millimeter,
             mm: Some(1.0),
             origin: [0.0; 2],
-            point_mode: 0,
         };
         let formats = lifter
             .table_formats(&db, &style, &|value| Length::Paper(PaperLength(value)))

@@ -16,11 +16,11 @@ use crate::{
     FormattedText, Gradient, Grid, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit,
     Islands, KnotParameterization, Label, Layer, LayerId, LayerState, LayerStyle, Leader, Length,
     LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineTypeMark, LineWeight, MarkContent,
-    MarkRotation, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Pattern,
-    PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Polyline, Resource, Rotation,
-    Scaled, Shape, SheetId, SpaceId, Span, Spline, StackKind, Style, Symbol, SymbolKey, Table,
-    TableFormats, Text, TextStyle, TextStyleDefinition, Transparency, Underlay, UnderlayFrame,
-    UnderlayKind, ValueUnit, Vertex, Vertical,
+    MarkRotation, MarkerKey, Measured, ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind,
+    Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Placement, Point, PointLook,
+    Polyline, Resource, Rotation, Scaled, Shape, SheetId, SpaceId, Span, Spline, StackKind, Style,
+    Symbol, SymbolKey, Table, TableFormats, Text, TextStyle, TextStyleDefinition, Transparency,
+    Underlay, UnderlayFrame, UnderlayKind, ValueUnit, Vertex, Vertical,
 };
 
 /// 要素か表の項目のハッシュ。`v2:` と 32 桁の 16 進で書く
@@ -442,6 +442,8 @@ records! {
     Dogleg { direction, length }
     AttributeValue { definition, text }
     SymbolKey { namespace, name }
+    MarkerKey { namespace, code }
+    Point<P> { position, rotation, look, construction }
     Symbol<P> { key, position, scale, rotation, grid, attributes, clip }
     Grid { columns, rows, column_spacing, row_spacing }
     Attribute<P> { tag, text, formatted, hidden, layer, style, source }
@@ -576,6 +578,24 @@ impl<P: Encode> Encode for Shape<P> {
             Shape::Hatch(hatch) => {
                 out.tag(12);
                 hatch.encode(out);
+            }
+            // 点は決定 0160 で足した。ほかの形の並びは変えないので、版は上げない
+            Shape::Point(point) => {
+                out.tag(13);
+                point.encode(out);
+            }
+        }
+    }
+}
+
+impl Encode for PointLook {
+    fn encode(&self, out: &mut Canon<'_>) {
+        match self {
+            PointLook::Document => out.tag(0),
+            PointLook::Marker { key, scale } => {
+                out.tag(1);
+                key.encode(out);
+                scale.encode(out);
             }
         }
     }

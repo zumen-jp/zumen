@@ -3,8 +3,8 @@
 use zumen_base::Ref;
 
 use crate::{
-    Callout, Dimension, FormattedText, Hatch, LayerId, Leader, Length, Style, Symbol, Table, Text,
-    Underlay,
+    Callout, Dimension, FormattedText, Hatch, LayerId, Leader, Length, Point, Style, Symbol, Table,
+    Text, Underlay,
 };
 
 /// 要素。`P` は要素が属する空間の点
@@ -59,6 +59,8 @@ pub enum Shape<P> {
     Symbol(Symbol<P>),
     /// ハッチング
     Hatch(Hatch<P>),
+    /// 点（決定 0160）
+    Point(Point<P>),
 }
 
 /// 折れ線の頂点

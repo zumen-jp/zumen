@@ -873,6 +873,7 @@ fn kind_of<P>(shape: &Shape<P>) -> EntityKind {
         Shape::Underlay(_) => EntityKind::Underlay,
         Shape::Symbol(_) => EntityKind::Symbol,
         Shape::Hatch(_) => EntityKind::Hatch,
+        Shape::Point(_) => EntityKind::Point,
     }
 }
 
@@ -914,7 +915,8 @@ fn extent<P: Copy>(elements: &[Element<P>], xy: impl Fn(P) -> (f64, f64)) -> Opt
         | Shape::Table(_)
         | Shape::Underlay(_)
         | Shape::Symbol(_)
-        | Shape::Hatch(_) => [None, None],
+        | Shape::Hatch(_)
+        | Shape::Point(_) => [None, None],
     });
     points.flatten().map(xy).fold(None, |extent, (x, y)| {
         Some(match extent {
@@ -1467,7 +1469,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":31}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":32}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -4182,6 +4184,18 @@ mod tests {
             }
         }
         assert_eq!(seen(&mut session, "a.dxf"), before);
+    }
+
+    #[test]
+    fn lists_points_as_points() {
+        // 点は、記号ではなく点の種類で返す（決定 0160）
+        let mut session = Session::new(b"").unwrap();
+        let dxf = "0\nSECTION\n2\nENTITIES\n0\nPOINT\n8\n0\n10\n1.0\n20\n2.0\n0\nENDSEC\n0\nEOF\n";
+        session.push(b"a.dxf", dxf.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(&mut session, r#"{"v":1,"op":"entities","doc":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/items/0/kind"), "point");
     }
 
     #[test]

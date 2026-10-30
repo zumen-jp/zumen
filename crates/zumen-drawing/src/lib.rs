@@ -33,6 +33,7 @@ mod hash;
 mod hatch;
 pub mod id;
 pub mod layout;
+mod point;
 mod shape;
 mod space;
 mod style;
@@ -51,6 +52,7 @@ pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
 };
+pub use point::{MarkerKey, Point, PointLook, PointMark, PointSize, PointStyle};
 pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};
 pub use space::{
     Affine, Length, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Sheet, SheetItem,
@@ -103,6 +105,8 @@ pub struct Drawing2D {
     pub extensions: Vec<Extension>,
     /// 表題欄。順序は元の形式の順
     pub title_blocks: Vec<TitleBlock>,
+    /// 文書の点の表し方（決定 0160）。元の形式が持たなければ `None` で、表示する側は小さな点として描く
+    pub point_style: Option<PointStyle>,
 }
 
 impl Drawing2D {

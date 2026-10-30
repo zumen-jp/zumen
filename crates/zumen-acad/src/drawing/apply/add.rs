@@ -926,6 +926,7 @@ pub(super) fn kind_of<P>(shape: &Shape<P>) -> &'static str {
         Shape::Underlay(_) => "UNDERLAY",
         Shape::Symbol(_) => "INSERT",
         Shape::Hatch(_) => "HATCH",
+        Shape::Point(_) => "POINT",
     }
 }
 

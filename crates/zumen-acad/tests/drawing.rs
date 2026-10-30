@@ -17,9 +17,9 @@ use zumen_drawing::{
     Layer, LayerId, LayerState, Leader, Length, LineSpacing, LineTypeDefinition, LineTypeId,
     LineTypeMark, LineWeight, MarkContent, MarkRotation, Measured, ModelLength, ModelPoint,
     PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece,
-    Placement, Polyline, Resource, Rotation, Shape, SheetId, SheetItem, SpaceId, Span, Spline,
-    Style, SymbolKey, Table, Target, Text, Transparency, Underlay, UnderlayFrame, UnderlayKind,
-    Unit, ValueUnit, Vertex, Vertical,
+    Placement, Point, PointLook, PointMark, PointSize, PointStyle, Polyline, Resource, Rotation,
+    Shape, SheetId, SheetItem, SpaceId, Span, Spline, Style, SymbolKey, Table, Target, Text,
+    Transparency, Underlay, UnderlayFrame, UnderlayKind, Unit, ValueUnit, Vertex, Vertical,
 };
 use zumen_drawing::{Hash, id};
 use zumen_sdk::{Error, Lift, testkit};
@@ -5783,8 +5783,8 @@ fn e9_cyclic_and_missing_definitions_are_reported_and_placements_are_not_expande
 }
 
 #[test]
-fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
-    use zumen_drawing::{Boundary, Fill, Hatch, Symbol, SymbolKey, Vertex};
+fn solids_and_traces_are_filled_in_drawing_order_and_points_are_points() {
+    use zumen_drawing::{Boundary, Fill, Hatch, Vertex};
     let entities = [
         // 4 つの角は 1・2・4・3 の順に結ぶ
         entity(
@@ -5865,19 +5865,25 @@ fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
             closed: true,
         }
     );
+    // 点は文書の点の表し方に従う点にし、記号にしない（決定 0160）
     assert_eq!(
         shapes[2],
-        Shape::Symbol(Symbol {
-            key: SymbolKey {
-                namespace: "dxf.point",
-                name: "34".to_owned(),
-            },
+        Shape::Point(Point {
             position: at(3.0, 4.0).point,
-            scale: [1.0; 2],
             rotation: 30.0,
-            grid: None,
-            attributes: Vec::new(),
-            clip: None,
+            look: PointLook::Document,
+            construction: false,
+        })
+    );
+    assert!(drawing.symbols.is_empty());
+    // 34 は十字（2）を円（32）で囲む。$PDSIZE がなければ画面の高さの 5%
+    assert_eq!(
+        drawing.point_style,
+        Some(PointStyle {
+            mark: PointMark::Plus,
+            circle: true,
+            square: false,
+            size: PointSize::Screen(5.0),
         })
     );
     assert_eq!(
@@ -5889,6 +5895,69 @@ fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
             vec![Ref::at_record(6)]
         )]
     );
+}
+
+#[test]
+fn point_style_comes_from_pdmode_and_pdsize() {
+    let style = |header: &[(i16, &str)]| {
+        let entities = entity("POINT", &[(10, "1.0"), (20, "2.0")]);
+        let header = [MM, header].concat();
+        let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
+        let drawing = drawing.unwrap();
+        assert!(matches!(
+            model_shapes(&drawing)[..],
+            [Shape::Point(Point {
+                look: PointLook::Document,
+                ..
+            })]
+        ));
+        (drawing.point_style, found(&diag))
+    };
+    let point_style = |mark, circle, square, size| {
+        Some(PointStyle {
+            mark,
+            circle,
+            square,
+            size,
+        })
+    };
+    // どちらもなければ、点の表し方を持たない
+    assert_eq!(style(&[]), (None, Vec::new()));
+    // 3 はバツ、64 は四角、32 は円。正の大きさは長さ、負は画面の高さに対する百分率
+    assert_eq!(
+        style(&[(9, "$PDMODE"), (70, "99"), (9, "$PDSIZE"), (40, "2.5")]),
+        (
+            point_style(PointMark::Cross, true, true, PointSize::Length(2.5)),
+            Vec::new()
+        )
+    );
+    assert_eq!(
+        style(&[(9, "$PDMODE"), (70, "65"), (9, "$PDSIZE"), (40, "-10.0")]),
+        (
+            point_style(PointMark::None, false, true, PointSize::Screen(10.0)),
+            Vec::new()
+        )
+    );
+    assert_eq!(
+        style(&[(9, "$PDMODE"), (70, "4")]).0,
+        point_style(PointMark::Tick, false, false, PointSize::Screen(5.0))
+    );
+    // 知らない番号は dxf.lift.invalid を返し、小さな点にする
+    for mode in ["5", "128", "-1"] {
+        assert_eq!(
+            style(&[(9, "$PDMODE"), (70, mode), (9, "$PDSIZE"), (40, "1.0")]),
+            (
+                point_style(PointMark::Dot, false, false, PointSize::Length(1.0)),
+                vec![(
+                    codes::DXF_LIFT_INVALID,
+                    r#"Text("$PDMODE") Int(70)"#.to_owned(),
+                    1,
+                    Vec::new()
+                )]
+            ),
+            "{mode}"
+        );
+    }
 }
 
 #[test]

@@ -576,3 +576,41 @@ fn writing_counts_copied_bytes_and_stops_without_changes() {
         assert_eq!(written, large);
     }
 }
+
+/// 点は除けるが、置き換え・変換・追加は書き戻さず、ファイルを変えない（決定 0160。点の書き戻しは #170）
+#[test]
+fn points_are_not_replaced_transformed_or_added() {
+    let src = src();
+    let drawing = lift(&read(&src));
+    let (_, point) = element(&drawing, 3);
+    let Shape::Point(dot) = &point.shape else {
+        panic!("{:?}", point.shape);
+    };
+    let moved = Element {
+        shape: Shape::Point(zumen_drawing::Point {
+            position: model(50.0, 50.0),
+            ..dot.clone()
+        }),
+        ..point.clone()
+    };
+    for edit in [
+        Edit::Replace {
+            target: seen(&drawing, 3),
+            element: Box::new(Placed::Model(moved.clone())),
+        },
+        Edit::Transform {
+            target: seen(&drawing, 3),
+            transform: Affine::translation(10.0, 0.0),
+        },
+        Edit::Add {
+            place: "space/0".into(),
+            element: Box::new(Placed::Model(moved)),
+        },
+    ] {
+        let mut file = read(&src);
+        let (result, diagnostics) = apply(&mut file, vec![edit], None);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(write(&file), src);
+    }
+}

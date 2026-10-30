@@ -645,7 +645,7 @@
       "enum": ["top_left", "top_center", "top_right", "middle_left", "middle_center", "middle_right", "bottom_left", "bottom_center", "bottom_right"]
     },
     "entity_kind": {
-      "description": "要素の形の種類（決定 0022）",
+      "description": "要素の形の種類（決定 0022）。point（点、決定 0160）は小版 32 から。それまで点は symbol だった",
       "type": "string",
       "enum": [
         "line",
@@ -660,7 +660,8 @@
         "table",
         "underlay",
         "symbol",
-        "hatch"
+        "hatch",
+        "point"
       ]
     },
     "apply_request": {
