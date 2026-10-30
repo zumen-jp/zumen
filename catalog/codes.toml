@@ -688,7 +688,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."scene.text-layout.unsupported"]
-description = "文字（縦書きの 1 行の文字、縦書きの上下に重ねた文字、測定値の区間、寸法の決まらない文字など）を字形で置けないので、その部分は文字列だけを返した（決定 0188）"
+description = "文字（縦書きの 1 行の文字、測定値の区間、寸法の決まらない文字など）を字形で置けないので、その部分は文字列だけを返した（決定 0188）"
 severity = "warning"
 since = "0.0.0"
 status = "active"

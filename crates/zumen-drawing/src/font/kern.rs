@@ -4,6 +4,9 @@
 //! 仕様は OpenType の仕様の GPOS・kern・OpenType Layout Common Table Formats の節に従う。
 //! 文字の組ごとの作業は、lookup と副表の数と二分探索で抑える。副表の数は [`SUBTABLES`] で抑え、
 //! 超える表は読まない（カーニングをしない）。
+//!
+//! 縦書きのカーニング（決定 0189）は、`GPOS` の `vkrn` の機能の pair adjustment の YAdvance を読み、
+//! なければ `kern` の表の縦の向きの形式 0 を読む。
 
 use core::cmp::Ordering;
 use std::collections::BTreeSet;
@@ -22,6 +25,8 @@ pub(super) struct Kerning<'a> {
     lookups: Vec<Vec<&'a [u8]>>,
     /// GPOS がなければ、`kern` の形式 0 の副表
     kern: Vec<Pairs<'a>>,
+    /// 縦書きのカーニング。GPOS の値は YAdvance を読む
+    vertical: bool,
 }
 
 /// `kern` の形式 0 の組の並び
@@ -35,16 +40,33 @@ struct Pairs<'a> {
 impl<'a> Kerning<'a> {
     /// GPOS の pair adjustment があれば、`kern` の表は使わない
     pub(super) fn read(gpos: Option<&'a [u8]>, kern: Option<&'a [u8]>) -> Self {
-        let lookups = gpos.and_then(lookups).unwrap_or_default();
+        Self::from_tables(gpos, kern, false)
+    }
+
+    /// 縦書きのカーニング。GPOS の `vkrn` の pair adjustment があれば、`kern` の表は使わない
+    pub(super) fn read_vertical(gpos: Option<&'a [u8]>, kern: Option<&'a [u8]>) -> Self {
+        Self::from_tables(gpos, kern, true)
+    }
+
+    fn from_tables(gpos: Option<&'a [u8]>, kern: Option<&'a [u8]>, vertical: bool) -> Self {
+        let tag = if vertical { b"vkrn" } else { b"kern" };
+        let lookups = gpos
+            .and_then(|table| lookups(table, tag))
+            .unwrap_or_default();
         let kern = if lookups.is_empty() {
-            kern.and_then(kern_pairs).unwrap_or_default()
+            kern.and_then(|table| kern_pairs(table, vertical))
+                .unwrap_or_default()
         } else {
             Vec::new()
         };
-        Self { lookups, kern }
+        Self {
+            lookups,
+            kern,
+            vertical,
+        }
     }
 
-    /// 字形 `left` の後に `right` が並ぶときに足す送り（字形の単位）
+    /// 字形 `left` の後に `right` が並ぶときに足す送り（字形の単位）。縦書きでは縦の送りに足す
     pub(super) fn value(&self, left: u16, right: u16) -> i32 {
         if !self.lookups.is_empty() {
             // lookup ごとに、最初に当たる副表を使い、lookup の間では足す
@@ -54,7 +76,7 @@ impl<'a> Kerning<'a> {
                 .filter_map(|subtables| {
                     subtables
                         .iter()
-                        .find_map(|subtable| adjust(subtable, left, right))
+                        .find_map(|subtable| adjust(subtable, left, right, self.vertical))
                 })
                 .map(i32::from)
                 .sum();
@@ -78,10 +100,10 @@ pub(super) fn from(data: &[u8], at: impl Into<u64>) -> Option<&[u8]> {
     data.get(usize::try_from(at.into()).ok()?..)
 }
 
-/// GPOS の `kern` の機能の lookup のうち、pair adjustment の副表を lookup の順に集める。
-/// 文字の並びの言語は分からないので、どの用字系の `kern` の機能の lookup も使う
-fn lookups(table: &[u8]) -> Option<Vec<Vec<&[u8]>>> {
-    let (indices, list) = feature_lookups(table, b"kern")?;
+/// GPOS の機能 `tag`（`kern`・`vkrn`）の lookup のうち、pair adjustment の副表を lookup の順に集める。
+/// 文字の並びの言語は分からないので、どの用字系の機能の lookup も使う
+fn lookups<'a>(table: &'a [u8], tag: &[u8; 4]) -> Option<Vec<Vec<&'a [u8]>>> {
+    let (indices, list) = feature_lookups(table, tag)?;
     subtables(list, indices, 2, 9)
 }
 
@@ -166,8 +188,8 @@ pub(super) fn subtables(
 }
 
 /// pair adjustment の副表を当てる。最初の字形が副表に入らなければ `None`。値は最初の字形の
-/// XAdvance だけを読み、2 番目の字形の値と、位置の値（XPlacement など）は読まない
-fn adjust(subtable: &[u8], first: u16, second: u16) -> Option<i16> {
+/// XAdvance（縦書きでは YAdvance）だけを読み、2 番目の字形の値と、位置の値（XPlacement など）は読まない
+fn adjust(subtable: &[u8], first: u16, second: u16, vertical: bool) -> Option<i16> {
     // 見出し: posFormat（0）・coverageOffset（2）・valueFormat1（4）・valueFormat2（6）
     let covered = coverage(from(subtable, u16_at(subtable, 2)?)?, first)?;
     let (format1, format2) = (u16_at(subtable, 4)?, u16_at(subtable, 6)?);
@@ -184,7 +206,7 @@ fn adjust(subtable: &[u8], first: u16, second: u16) -> Option<i16> {
             let i = find(usize::from(u16_at(set, 0)?), |i| {
                 Some(u16_at(set, 2 + i * stride)?.cmp(&second))
             })?;
-            x_advance(set, 2 + i * stride + 2, format1)
+            advance(set, 2 + i * stride + 2, format1, vertical)
         }
         // 形式 2: classDef1Offset（8）・classDef2Offset（10）・class1Count（12）・class2Count（14）、
         // Class1Record の並び（16）
@@ -198,7 +220,7 @@ fn adjust(subtable: &[u8], first: u16, second: u16) -> Option<i16> {
             let record = (u64::from(class1) * u64::from(count2) + u64::from(class2))
                 * (size1 + size2) as u64;
             let at = usize::try_from(16 + record).ok()?;
-            x_advance(subtable, at, format1)
+            advance(subtable, at, format1, vertical)
         }
         _ => None,
     }
@@ -209,12 +231,15 @@ fn record_size(format: u16) -> usize {
     (format & 0xFF).count_ones() as usize * 2
 }
 
-/// ValueRecord の XAdvance（valueFormat のビット 2）。XPlacement（ビット 0）・YPlacement（ビット 1）の後に並ぶ
-fn x_advance(data: &[u8], at: usize, format: u16) -> Option<i16> {
-    if format & 0x4 == 0 {
+/// ValueRecord の XAdvance（valueFormat のビット 2）か YAdvance（ビット 3）。前のビットの値の後に並ぶ。
+/// YAdvance は字形の座標では上が正だが、縦書きの送りは下へ進むので、OpenType の実装の慣行どおり
+/// 値をそのまま縦の送りに足す（負なら詰める）
+fn advance(data: &[u8], at: usize, format: u16, vertical: bool) -> Option<i16> {
+    let bit: u16 = if vertical { 0x8 } else { 0x4 };
+    if format & bit == 0 {
         return Some(0);
     }
-    i16_at(data, at + (format & 0x3).count_ones() as usize * 2)
+    i16_at(data, at + (format & (bit - 1)).count_ones() as usize * 2)
 }
 
 /// Coverage の番号（Common Table Formats の Coverage の節）
@@ -273,7 +298,7 @@ fn range(table: &[u8], at: usize, glyph: u16) -> Option<Ordering> {
 
 /// 昇順に並んだ `count` 個の記録を二分探索する。`order` は、記録が探す値より前なら `Less` を返す。
 /// 読めない記録があれば見つからないとする
-fn find(count: usize, order: impl Fn(usize) -> Option<Ordering>) -> Option<usize> {
+pub(super) fn find(count: usize, order: impl Fn(usize) -> Option<Ordering>) -> Option<usize> {
     let (mut low, mut high) = (0, count);
     while low < high {
         let middle = low + (high - low) / 2;
@@ -286,8 +311,9 @@ fn find(count: usize, order: impl Fn(usize) -> Option<Ordering>) -> Option<usize
     None
 }
 
-/// `kern` の表（Microsoft の版 0）の、横書きの形式 0 の副表を集める。Apple の版 1 は読まない
-fn kern_pairs(table: &[u8]) -> Option<Vec<Pairs<'_>>> {
+/// `kern` の表（Microsoft の版 0）の、横書き（`vertical` なら縦書き）の形式 0 の副表を集める。
+/// Apple の版 1 は読まない
+fn kern_pairs(table: &[u8], vertical: bool) -> Option<Vec<Pairs<'_>>> {
     // 見出し: version（0）・nTables（2）。副表: version（0）・length（2）・coverage（4）
     if u16_at(table, 0)? != 0 {
         return None;
@@ -301,8 +327,9 @@ fn kern_pairs(table: &[u8]) -> Option<Vec<Pairs<'_>>> {
         let (Some(length), Some(coverage)) = (u16_at(subtable, 2), u16_at(subtable, 4)) else {
             break;
         };
-        // 形式（上位 8 ビット）が 0 で、横書き（ビット 0）で、最小値（ビット 1）・縦の向き（ビット 2）でない
-        if coverage >> 8 == 0 && coverage & 0x7 == 0x1 {
+        // 形式（上位 8 ビット）が 0 で、横書き（ビット 0。縦書きでは立たない）で、最小値（ビット 1）・
+        // 交差の向き（ビット 2）でない
+        if coverage >> 8 == 0 && coverage & 0x7 == u16::from(!vertical) {
             // 形式 0: nPairs（6）・searchRange・entrySelector・rangeShift、組（14 から 6 バイトずつ）
             let count = u16_at(subtable, 6)?;
             let pairs = slice(subtable, 14, u64::from(count) * 6)?;

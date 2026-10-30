@@ -18,6 +18,9 @@
 //!   `vrt2`（なければ `vert`）の single substitution（[`gsub`]、決定 0187）。どれも任意の表で、
 //!   なければ、または壊れていれば、縦書きの既定（[`crate::layout::VerticalGlyph::upright`]）と
 //!   置き換えなしで置く
+//! - 縦書きのカーニング: `GPOS` の `vkrn` の pair adjustment の YAdvance か、なければ `kern` の縦の
+//!   向きの形式 0（[`kern`]、決定 0189）
+//! - 縦の原点: CFF・CFF2 のフォントの `VORG`（決定 0189）。なければ外形の上と上の余白から求める
 //!
 //! 受け取ったファイルは信用しない。位置と長さはすべて確かめ、足し算と掛け算は `u64` か
 //! 溢れを確かめて行い、`usize` の幅（32 ビットの wasm と 64 ビット）で結果が変わらないようにする。
@@ -82,6 +85,10 @@ pub struct Font<'a> {
     vmtx: Option<Vmtx<'a>>,
     /// 縦書き用の字形への置き換え
     vertical: gsub::Substitution<'a>,
+    /// 縦書きのカーニング
+    vertical_kerning: kern::Kerning<'a>,
+    /// CFF・CFF2 のフォントの `VORG`。版と長さを確かめた表
+    vorg: Option<&'a [u8]>,
     metrics: FontMetrics,
     fallback: Glyph,
 }
@@ -144,6 +151,7 @@ struct Tables<'a> {
     vhea: Option<&'a [u8]>,
     vmtx: Option<&'a [u8]>,
     gsub: Option<&'a [u8]>,
+    vorg: Option<&'a [u8]>,
     /// 表の並びで見つけた CFF・CFF2 の表の名前（ファイルの外を指していても）
     cff_tag: Option<&'static str>,
 }
@@ -217,6 +225,11 @@ impl<'a> Font<'a> {
             (_, None) => return Err(Unread::Table("glyf")),
         };
 
+        // VORG は CFF・CFF2 のフォントのための表なので、glyf のフォントでは使わない
+        let vorg = match outline {
+            Outline::Cff(_) => vorg(tables.vorg),
+            Outline::Glyf { .. } => None,
+        };
         let mut font = Self {
             cmap,
             hmtx,
@@ -226,6 +239,8 @@ impl<'a> Font<'a> {
             kerning: kern::Kerning::read(tables.gpos, tables.kern),
             vmtx: vmtx(tables.vhea, tables.vmtx, glyph_count),
             vertical: gsub::Substitution::read(tables.gsub),
+            vertical_kerning: kern::Kerning::read_vertical(tables.gpos, tables.kern),
+            vorg,
             metrics: FontMetrics {
                 units_per_em: 0.0,
                 ascent: 0.0,
@@ -303,6 +318,24 @@ fn vmtx<'a>(vhea: Option<&[u8]>, vmtx: Option<&'a [u8]>, glyph_count: u16) -> Op
     })
 }
 
+/// `VORG` の表（OpenType の仕様の VORG の節）。版 1 で、記録の並びが表に収まるものだけを使う
+fn vorg(table: Option<&[u8]>) -> Option<&[u8]> {
+    // majorVersion（0）・minorVersion（2）・defaultVertOriginY（4）・numVertOriginYMetrics（6）、
+    // 記録（glyphIndex・vertOriginY）は 8 から 4 バイトずつ
+    let table = table?;
+    let count = u16_at(table, 6)?;
+    (u16_at(table, 0)? == 1 && table.len() as u64 >= 8 + 4 * u64::from(count)).then_some(table)
+}
+
+/// `VORG` の字形の縦の原点の高さ。記録は字形の番号の昇順で、なければ既定の値
+fn vertical_origin(table: &[u8], id: u16) -> Option<i16> {
+    let count = usize::from(u16_at(table, 6)?);
+    match kern::find(count, |i| Some(u16_at(table, 8 + i * 4)?.cmp(&id))) {
+        Some(i) => i16_at(table, 8 + i * 4 + 2),
+        None => i16_at(table, 4),
+    }
+}
+
 /// `glyf` の字形の見出しの外形
 fn glyf_bounds(loca: &[u8], long_loca: bool, glyf: &[u8], id: u16) -> Option<Option<[f64; 4]>> {
     let (start, end) = if long_loca {
@@ -374,6 +407,9 @@ impl Font<'_> {
                 out.top = top + f64::from(bearing);
             }
         }
+        if let Some(top) = self.vorg.and_then(|table| vertical_origin(table, id)) {
+            out.top = f64::from(top);
+        }
         Some(out)
     }
 
@@ -418,6 +454,17 @@ impl Glyphs for Font<'_> {
     fn kerning(&self, left: char, right: char) -> f64 {
         match (self.id(left), self.id(right)) {
             (Some(left), Some(right)) => f64::from(self.kerning.value(left, right)),
+            _ => 0.0,
+        }
+    }
+
+    /// `GPOS` の `vkrn` か `kern` の縦の向きの表の値を、縦書き用に置き換えた字形の組で引く
+    fn vertical_kerning(&self, left: char, right: char) -> f64 {
+        match (self.id(left), self.id(right)) {
+            (Some(left), Some(right)) => f64::from(
+                self.vertical_kerning
+                    .value(self.vertical_id(left), self.vertical_id(right)),
+            ),
             _ => 0.0,
         }
     }
@@ -473,6 +520,7 @@ fn directory(data: &[u8], index: u32) -> Result<Tables<'_>, Unread> {
             b"vhea" => &mut tables.vhea,
             b"vmtx" => &mut tables.vmtx,
             b"GSUB" => &mut tables.gsub,
+            b"VORG" => &mut tables.vorg,
             b"CFF " | b"CFF2" => {
                 let (slot, name) = if d == b' ' {
                     (&mut tables.cff, "CFF ")
@@ -1899,6 +1947,11 @@ mod tests {
     /// 曲線の外の点が続く輪郭、3 は空白。4 は `H` を半分にして (10, 20) へ動かし、`g` を (-5, 3) へ動かした
     /// 複合の字形で、`I` に当てる
     pub(crate) fn outlined() -> Vec<u8> {
+        outlined_with(Vec::new())
+    }
+
+    /// [`outlined`] の字形の後に、字形 5 から `extra` を足したフォント
+    fn outlined_with(extra: Vec<Vec<u8>>) -> Vec<u8> {
         let notdef = simple_glyph(
             [50, 0, 450, 700],
             &[
@@ -1951,7 +2004,11 @@ mod tests {
         composite.push(3);
         let mut glyf = Vec::new();
         let mut loca = Vec::new();
-        for glyph in [notdef, h, g, Vec::new(), composite] {
+        let count = 5 + extra.len() as u16;
+        for glyph in [notdef, h, g, Vec::new(), composite]
+            .into_iter()
+            .chain(extra)
+        {
             put32(&mut loca, glyf.len() as u32);
             glyf.extend_from_slice(&glyph);
             while glyf.len() % 4 != 0 {
@@ -1982,7 +2039,7 @@ mod tests {
                 b"glyf" => *data = glyf.clone(),
                 b"loca" => *data = loca.clone(),
                 b"cmap" => *data = cmap.clone(),
-                b"maxp" => data[4..6].copy_from_slice(&5u16.to_be_bytes()),
+                b"maxp" => data[4..6].copy_from_slice(&count.to_be_bytes()),
                 _ => {}
             }
         }
@@ -2060,6 +2117,200 @@ mod tests {
                 for id in 0..6 {
                     let _ = font.outline(id);
                 }
+            }
+        }
+    }
+
+    /// GPOS の表。`vkrn` の機能の lookup 0 は形式 1 で、組 (g, g) の YPlacement を 7、YAdvance を -60 にする
+    fn vkrn() -> Vec<u8> {
+        let mut pair = halfwords(&[1, 12, 0x000A, 0, 1, 18]);
+        pair.extend(halfwords(&[1, 1, 2]));
+        pair.extend(halfwords(&[1, 2, 7, -60]));
+        let mut list = halfwords(&[1, 4, 2, 0, 1, 8]);
+        list.extend(pair);
+        let mut out = halfwords(&[1, 0, 0, 10, 24, 1]);
+        out.extend(b"vkrn");
+        out.extend(halfwords(&[8, 0, 1, 0]));
+        out.extend(list);
+        out
+    }
+
+    #[test]
+    fn reads_vertical_kerning() {
+        let mut tables = tables();
+        tables.push((*b"GPOS", vkrn()));
+        tables.push((*b"kern", kern()));
+        let data = assemble(tables);
+        let font = Font::parse(&data, 0).unwrap();
+        // YAdvance を縦の送りに足し、YPlacement は読まない。横書きの kern の表は縦書きに使わない
+        assert_eq!(font.vertical_kerning('g', 'g'), -60.0);
+        assert_eq!(font.vertical_kerning('H', 'g'), 0.0);
+        assert_eq!(font.vertical_kerning('Q', 'g'), 0.0);
+        // vkrn は横書きに使わない。GPOS に kern の機能がないので kern の表を使う
+        assert_eq!(font.kerning('g', 'g'), 0.0);
+        assert_eq!(font.kerning('H', 'g'), -50.0);
+
+        // 縦書き用に置き換えた字形（H は g）の組で引く
+        let mut tables = vertical_tables(&gsub(&[(b"vert", &[0])], 1));
+        tables.extend(self::tables());
+        tables.push((*b"GPOS", vkrn()));
+        let data = assemble(tables);
+        let font = Font::parse(&data, 0).unwrap();
+        assert_eq!(font.vertical_kerning('H', 'H'), -60.0);
+
+        // GPOS に vkrn がなければ、kern の表の縦の向きの形式 0 を使う
+        let mut table = kern();
+        table[8..10].copy_from_slice(&0u16.to_be_bytes());
+        let mut tables = self::tables();
+        tables.push((*b"kern", table));
+        let data = assemble(tables);
+        let font = Font::parse(&data, 0).unwrap();
+        assert_eq!(font.vertical_kerning('H', 'g'), -50.0);
+        assert_eq!(font.kerning('H', 'g'), 0.0);
+    }
+
+    #[test]
+    fn reads_vertical_origins_of_cff_fonts() {
+        // 既定の原点 880、字形 2（g）は 700
+        let vorg = halfwords(&[1, 0, 880, 1, 2, 700]);
+        let mut tables = cff_font(cff_table());
+        tables.push((*b"VORG", vorg.clone()));
+        let data = assemble(tables);
+        let font = Font::parse(&data, 0).unwrap();
+        assert_eq!(font.vertical('g').unwrap().top, 700.0);
+        assert_eq!(font.vertical('H').unwrap().top, 880.0);
+        // 版が違うか、記録が表に収まらなければ使わない（アセンダーの 900）
+        for broken in [
+            halfwords(&[2, 0, 880, 0]),
+            halfwords(&[1, 0, 880, 2, 2, 700]),
+        ] {
+            let mut tables = cff_font(cff_table());
+            tables.push((*b"VORG", broken));
+            let data = assemble(tables);
+            let font = Font::parse(&data, 0).unwrap();
+            assert_eq!(font.vertical('H').unwrap().top, 900.0);
+        }
+        // glyf のフォントでは使わない
+        let mut tables = self::tables();
+        tables.push((*b"VORG", vorg));
+        let data = assemble(tables);
+        let font = Font::parse(&data, 0).unwrap();
+        assert_eq!(font.vertical('g').unwrap().top, 900.0);
+
+        // 切り詰めても、1 バイトずつ変えても、パニックしない
+        let mut tables = cff_font(cff_table());
+        tables.push((*b"VORG", halfwords(&[1, 0, 880, 1, 2, 700])));
+        tables.push((*b"GPOS", vkrn()));
+        let data = assemble(tables);
+        for at in 0..data.len() {
+            let mut broken = data.clone();
+            broken[at] ^= 0xA5;
+            for bytes in [&broken[..], &data[..at]] {
+                if let Ok(font) = Font::parse(bytes, 0) {
+                    let _ = (font.vertical('g'), font.vertical_kerning('g', 'g'));
+                }
+            }
+        }
+    }
+
+    /// 複合の字形。部品は（旗、字形、引数のバイト列、尺度のバイト列）。MORE_COMPONENTS は足す
+    fn composite_glyph(components: &[(u16, u16, Vec<u8>, Vec<u8>)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        put16(&mut out, -1);
+        for value in [0, 0, 0, 0] {
+            put16(&mut out, value);
+        }
+        for (i, (flags, id, args, scale)) in components.iter().enumerate() {
+            let more = if i + 1 < components.len() { 0x0020 } else { 0 };
+            put16(&mut out, i32::from(flags | more));
+            put16(&mut out, i32::from(*id));
+            out.extend_from_slice(args);
+            out.extend_from_slice(scale);
+        }
+        out
+    }
+
+    #[test]
+    fn reads_point_matched_and_scaled_offset_components() {
+        let words = |values: &[i32]| {
+            let mut out = Vec::new();
+            for &v in values {
+                put16(&mut out, v);
+            }
+            out
+        };
+        let half = words(&[0x2000]);
+        let data = outlined_with(vec![
+            // 5: H を置き、g の点 0 を H の点 6（700, 720）に合わせる（バイトの点の番号）
+            composite_glyph(&[
+                (0x0002, 1, vec![0, 0], Vec::new()),
+                (0x0000, 2, vec![6, 0], Vec::new()),
+            ]),
+            // 6: g を半分にしてから、点 0 を H の点 6 に合わせる（語の点の番号）
+            composite_glyph(&[
+                (0x0002, 1, vec![0, 0], Vec::new()),
+                (0x0001 | 0x0008, 2, words(&[6, 0]), half.clone()),
+            ]),
+            // 7: 位置のずれを尺度で写す（SCALED_COMPONENT_OFFSET）
+            composite_glyph(&[(
+                0x0001 | 0x0002 | 0x0008 | 0x0800,
+                1,
+                words(&[10, 20]),
+                half.clone(),
+            )]),
+            // 8: SCALED と UNSCALED の両方が立てば写さない
+            composite_glyph(&[(
+                0x0001 | 0x0002 | 0x0008 | 0x1800,
+                1,
+                words(&[10, 20]),
+                half.clone(),
+            )]),
+            // 9・10: 親の点の番号が前の部品の外、部品の点の番号が部品の外
+            composite_glyph(&[
+                (0x0002, 1, vec![0, 0], Vec::new()),
+                (0x0000, 2, vec![8, 0], Vec::new()),
+            ]),
+            composite_glyph(&[
+                (0x0002, 1, vec![0, 0], Vec::new()),
+                (0x0000, 2, vec![6, 4], Vec::new()),
+            ]),
+            // 11: 点の番号で合わせた複合の字形 5 を、さらに (100, 0) へ動かす入れ子。中の点の番号は中で数える
+            composite_glyph(&[
+                (0x0002, 2, vec![0, 0], Vec::new()),
+                (0x0002, 5, vec![100, 0], Vec::new()),
+            ]),
+        ]);
+        let font = Font::parse(&data, 0).unwrap();
+        let matched = font.outline(5).unwrap();
+        assert_eq!(matched.len(), 3);
+        // g の点 0（275, -210）を（700, 720）へ動かすので、(425, 930) ずれる
+        assert_eq!(matched[2].start, [152.5 + 425.0, -37.5 + 930.0]);
+        assert_eq!(
+            matched[2].segments[0],
+            Segment::Quad([700.0, 720.0], [397.5 + 425.0, -37.5 + 930.0])
+        );
+        let scaled = font.outline(6).unwrap();
+        // 半分にした g の点 0 は（137.5, -105）
+        assert_eq!(scaled[2].start, [76.25 + 562.5, -18.75 + 825.0]);
+        assert_eq!(font.outline(7).unwrap()[0].start, [5.0, 10.0]);
+        assert_eq!(font.outline(8).unwrap()[0].start, [10.0, 20.0]);
+        assert_eq!(font.outline(9), None);
+        assert_eq!(font.outline(10), None);
+        let nested = font.outline(11).unwrap();
+        assert_eq!(nested.len(), 4);
+        assert_eq!(nested[1].start, [100.0, 0.0]);
+        assert_eq!(nested[3].start, [152.5 + 525.0, -37.5 + 930.0]);
+        // 切り詰めても、1 バイトずつ変えても、パニックしない
+        for at in 0..data.len() {
+            let mut broken = data.clone();
+            broken[at] ^= 0x5A;
+            if let Ok(font) = Font::parse(&broken, 0) {
+                for id in 0..13 {
+                    let _ = font.outline(id);
+                }
+            }
+            if let Ok(font) = Font::parse(&data[..at], 0) {
+                let _ = font.outline(5);
             }
         }
     }

@@ -222,3 +222,4 @@
 - [0186: CFF・CFF2 の字形の命令をたどって正確な外形を求め、カーニングは GPOS か kern の表から読む](0186-read-cff-outlines-and-kerning.md)（2026-10-31、採用）
 - [0187: 縦書きの文字を vmtx と GSUB の vert で置き、上下に重ねた文字と禁則を推定の規則で置く](0187-vertical-text-stacks-and-kinsoku.md)（2026-10-31、採用）
 - [0188: シーンの op でフォントを受け取り、文字を字形の形と変換で返す](0188-scene-fonts-and-glyph-outlines.md)（2026-10-31、採用）
+- [0189: 点の番号で合わせる部品と縦書きのカーニングを読み、欧文を倒し、小書きの仮名を禁則に足す](0189-composite-points-vertical-kerning-and-kana-kinsoku.md)（2026-10-31、採用）

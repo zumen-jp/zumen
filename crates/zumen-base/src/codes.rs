@@ -1503,7 +1503,7 @@ pub const SCENE_TEXT_HEIGHT_ASSUMED: Code = Code::new(
     &["key"],
 );
 
-/// 文字（縦書きの 1 行の文字、縦書きの上下に重ねた文字、測定値の区間、寸法の決まらない文字など）を字形で置けないので、その部分は文字列だけを返した（決定 0188）
+/// 文字（縦書きの 1 行の文字、測定値の区間、寸法の決まらない文字など）を字形で置けないので、その部分は文字列だけを返した（決定 0188）
 ///
 /// `scene.text-layout.unsupported`（0.0.0 から）
 pub const SCENE_TEXT_LAYOUT_UNSUPPORTED: Code = Code::new(

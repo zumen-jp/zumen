@@ -1,8 +1,8 @@
 //! `glyf` の字形の輪郭を読む（決定 0188）。OpenType の仕様の glyf の節に従う。
 //!
 //! 受け取ったファイルは信用しない。複合の字形の入れ子は [`DEPTH`] 段に、1 つの字形で読む点と部品の数は
-//! [`WORK`] に抑える。同じ部品を何度も参照しても、作業量は上限で止まる。点の番号で合わせる部品
-//! （ARGS_ARE_XY_VALUES が立たないもの）は読まない。
+//! [`WORK`] に抑える。同じ部品を何度も参照しても、作業量は上限で止まる。部品は、位置のずれか、
+//! 点の番号で合わせて置く（決定 0189）。
 
 use super::{Contour, Segment, i16_at, slice, u16_at, u32_at};
 
@@ -34,6 +34,8 @@ struct Reader<'a> {
     glyf: &'a [u8],
     glyph_count: u16,
     work: u32,
+    /// 写した後の点（輪郭の点の番号の順）。複合の字形の点の番号は、この並びの区間で引く
+    points: Vec<[f64; 2]>,
 }
 
 /// 字形の輪郭。字形が読めなければ `None`、何も描かない字形は空
@@ -50,6 +52,7 @@ pub(super) fn outline(
         glyf,
         glyph_count,
         work: 0,
+        points: Vec::new(),
     };
     let mut out = Vec::new();
     reader.glyph(id, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], 0, &mut out)?;
@@ -154,6 +157,7 @@ impl Reader<'_> {
             .zip(&flags)
             .map(|((&x, &y), &flag)| ([a * x + c * y + e, b * x + d * y + f], flag & 0x01 != 0))
             .collect();
+        self.points.extend(points.iter().map(|(p, _)| *p));
         let mut start = 0;
         for end in ends {
             let end = usize::from(end) + 1;
@@ -179,25 +183,28 @@ impl Reader<'_> {
         const MORE: u16 = 0x0020;
         const XY_SCALE: u16 = 0x0040;
         const TWO_BY_TWO: u16 = 0x0080;
+        const SCALED_OFFSET: u16 = 0x0800;
+        const UNSCALED_OFFSET: u16 = 0x1000;
+        // この字形の点の番号は、最初の部品の点から数える
+        let base = self.points.len();
         let mut at = 10;
         loop {
             self.spend(1)?;
             let flags = u16_at(data, at)?;
             let id = u16_at(data, at + 2)?;
             at += 4;
-            if flags & XY == 0 {
-                // 点の番号で合わせる部品は読まない
-                return None;
-            }
-            let (dx, dy) = if flags & WORDS != 0 {
-                let v = (i16_at(data, at)?, i16_at(data, at + 2)?);
-                at += 4;
-                (f64::from(v.0), f64::from(v.1))
-            } else {
-                let v = (*data.get(at)? as i8, *data.get(at + 1)? as i8);
-                at += 2;
-                (f64::from(v.0), f64::from(v.1))
+            // 引数は、ARGS_ARE_XY_VALUES なら符号つきの位置のずれ、でなければ符号なしの点の番号
+            let words = flags & WORDS != 0;
+            let args: [i32; 2] = match (words, flags & XY != 0) {
+                (true, true) => [i16_at(data, at)?.into(), i16_at(data, at + 2)?.into()],
+                (true, false) => [u16_at(data, at)?.into(), u16_at(data, at + 2)?.into()],
+                (false, true) => [
+                    i32::from(*data.get(at)? as i8),
+                    i32::from(*data.get(at + 1)? as i8),
+                ],
+                (false, false) => [(*data.get(at)?).into(), (*data.get(at + 1)?).into()],
             };
+            at += if words { 4 } else { 2 };
             let f2dot14 = |at: usize| i16_at(data, at).map(|v| f64::from(v) / 16384.0);
             let [sa, sb, sc, sd] = if flags & SCALE != 0 {
                 let s = f2dot14(at)?;
@@ -219,7 +226,20 @@ impl Reader<'_> {
             } else {
                 [1.0, 0.0, 0.0, 1.0]
             };
-            // 部品の変換（オフセットは尺度を掛けない。SCALED_COMPONENT_OFFSET は読まない）を、親の変換に重ねる
+            // 位置のずれは、SCALED_COMPONENT_OFFSET だけが立てば部品の変換で写し、それ以外（どちらも
+            // 立たないか、UNSCALED_COMPONENT_OFFSET が立つ）は写さない。点の番号で合わせるときは、
+            // まずずれなしで置き、後で点が重なるように動かす
+            let (dx, dy) = if flags & XY == 0 {
+                (0.0, 0.0)
+            } else {
+                let (dx, dy) = (f64::from(args[0]), f64::from(args[1]));
+                if flags & (SCALED_OFFSET | UNSCALED_OFFSET) == SCALED_OFFSET {
+                    (sa * dx + sc * dy, sb * dx + sd * dy)
+                } else {
+                    (dx, dy)
+                }
+            };
+            // 部品の変換を、親の変換に重ねる
             let [a, b, c, d, e, f] = transform;
             let child = [
                 a * sa + c * sb,
@@ -229,11 +249,48 @@ impl Reader<'_> {
                 a * dx + c * dy + e,
                 b * dx + d * dy + f,
             ];
+            let (first_point, first_contour) = (self.points.len(), out.len());
             self.glyph(id, child, depth + 1, out)?;
+            if flags & XY == 0 {
+                // 親の点（前の部品までの点）の番号 args[0] と、部品の点の番号 args[1] を重ねる
+                let parent = base.checked_add(usize::try_from(args[0]).ok()?)?;
+                let own = first_point.checked_add(usize::try_from(args[1]).ok()?)?;
+                if parent >= first_point {
+                    return None;
+                }
+                let [px, py] = *self.points.get(parent)?;
+                let [qx, qy] = *self.points.get(own)?;
+                let shift = [px - qx, py - qy];
+                for point in self.points.get_mut(first_point..)? {
+                    *point = moved(*point, shift);
+                }
+                for contour in out.get_mut(first_contour..)? {
+                    translate(contour, shift);
+                }
+            }
             if flags & MORE == 0 {
                 return Some(());
             }
         }
+    }
+}
+
+/// 点を `shift` だけ動かす
+fn moved([x, y]: [f64; 2], [dx, dy]: [f64; 2]) -> [f64; 2] {
+    [x + dx, y + dy]
+}
+
+/// 輪郭を `shift` だけ動かす
+fn translate(contour: &mut Contour, shift: [f64; 2]) {
+    contour.start = moved(contour.start, shift);
+    for segment in &mut contour.segments {
+        *segment = match *segment {
+            Segment::Line(p) => Segment::Line(moved(p, shift)),
+            Segment::Quad(c, p) => Segment::Quad(moved(c, shift), moved(p, shift)),
+            Segment::Cubic(c, d, p) => {
+                Segment::Cubic(moved(c, shift), moved(d, shift), moved(p, shift))
+            }
+        };
     }
 }
 

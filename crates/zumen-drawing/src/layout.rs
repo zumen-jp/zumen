@@ -56,6 +56,11 @@ pub trait Glyphs {
         let _ = (left, right);
         0.0
     }
+    /// 縦書きで並んだ 2 文字の間に足す縦の送り（字形の単位、負なら詰める）。既定は詰めない（決定 0189）
+    fn vertical_kerning(&self, left: char, right: char) -> f64 {
+        let _ = (left, right);
+        0.0
+    }
     /// 縦書きの字形。フォントになければ `None`。既定は横書きの字形を [`VerticalGlyph::upright`] で
     /// 置く（決定 0187）
     fn vertical(&self, ch: char) -> Option<VerticalGlyph> {
@@ -276,7 +281,7 @@ pub struct LaidFormatted {
     pub missing: usize,
     /// 区間で指定されたフォントが渡されず、文字スタイルのフォントで置いた区間の数
     pub substituted: usize,
-    /// 置かなかった区間の位置（測定値・解釈できない符号、縦書きの上下に重ねた文字など）。入力の順
+    /// 置かなかった区間の位置（測定値・解釈できない符号など）。入力の順
     pub skipped: Vec<usize>,
     /// 置いた上下に重ねた文字。入力の順（決定 0187）
     pub stacks: Vec<PlacedStack>,
@@ -400,7 +405,7 @@ pub fn place_formatted<P>(
                 let mut previous = None;
                 for ch in content.chars() {
                     let item = if vertical {
-                        run.upright(index, ch, font, &mut out.missing)
+                        run.upright(index, ch, previous, font, &mut out.missing)
                     } else {
                         run.item(index, ch, previous, font, &mut out.missing)
                     };
@@ -410,22 +415,26 @@ pub fn place_formatted<P>(
             }
             // 段組みは移さない（決定 0109）ので、段の区切りは段落の区切りとして置く
             Piece::Paragraph | Piece::Column => tokens.push(None),
-            // 縦書きの上下に重ねた文字は、向きの規則を決めていないので置かない
-            Piece::Stack { upper, lower, kind } if !vertical => {
+            Piece::Stack { upper, lower, kind } => {
                 let font = font().unwrap_or_else(|()| {
                     out.substituted += 1;
                     fonts.base()
                 });
                 let run = SpanRun::new(&span.format, font, reference, height)?;
-                tokens.push(Some(run.stack(
+                let mut item = run.stack(
                     index,
                     [upper.as_str(), lower.as_str()],
                     *kind,
                     font,
                     &mut out.missing,
-                )));
+                );
+                // 縦書きでは立てたまま置き、上の段の上から下の段の下までを縦の送りにする（決定 0189）
+                if vertical {
+                    item.advance = item.rise + item.drop;
+                }
+                tokens.push(Some(item));
             }
-            Piece::Measurement | Piece::Below | Piece::Stack { .. } | Piece::Unparsed(_) => {
+            Piece::Measurement | Piece::Below | Piece::Unparsed(_) => {
                 out.skipped.push(index);
             }
         }
@@ -473,6 +482,45 @@ impl Frame {
             f,
         ]
     }
+
+    /// 縦書きで時計回りに 90 度倒した字形の変換（決定 0189）。字形の横の向きを列の下へ、縦の向きを
+    /// 右へ写す。字形の u は枠の (0, -sx)、v は枠の (sy, -shear·sy) になる
+    fn turned(&self, at: [f64; 2], sx: f64, sy: f64, shear: f64) -> [f64; 6] {
+        let [e, f] = self.map(at);
+        let (sin, cos) = (self.sin, self.cos);
+        [
+            sin * sx,
+            -cos * sx,
+            cos * sy + sin * sy * shear,
+            sin * sy - cos * sy * shear,
+            e,
+            f,
+        ]
+    }
+
+    /// 上下に重ねた文字を、送りの始まりと基準線を枠の座標 `[x, y]` に置いて足す
+    fn stack(&self, item: &Item, stack: &Stack, [x, y]: [f64; 2], out: &mut LaidFormatted) {
+        let run = &item.run;
+        for &(ch, [gx, gy]) in &stack.glyphs {
+            out.glyphs.push(PlacedGlyph {
+                span: item.span,
+                ch,
+                transform: self.glyph(
+                    [x + gx, y + gy],
+                    run.sx * STACK_SCALE,
+                    run.sy * STACK_SCALE,
+                    run.shear,
+                ),
+                substituted: false,
+            });
+        }
+        out.stacks.push(PlacedStack {
+            span: item.span,
+            line: stack
+                .line
+                .map(|ends| ends.map(|[lx, ly]| self.map([x + lx, y + ly]))),
+        });
+    }
 }
 
 /// 行の送りの増分。2 行目からは、文字の高さ（固定でなければ行でいちばん高い字の高さ）の行送り
@@ -516,11 +564,7 @@ fn rows<P>(
         } else {
             pitch(text, height, line)
         };
-        let width = extent(
-            line.iter().rev().skip_while(|item| item.space).count(),
-            line,
-        );
-        boxes.push((depth, cap, width));
+        boxes.push((depth, cap, measure(line, limit)));
     }
     let width = limit.unwrap_or_else(|| boxes.iter().map(|b| b.2).fold(0.0, f64::max));
     let total = depth + descent;
@@ -561,27 +605,7 @@ fn rows<P>(
                     transform: frame.glyph([x, y], run.sx, run.sy, run.shear),
                     substituted: false,
                 }),
-                Content::Stack(stack) => {
-                    for &(ch, [gx, gy]) in &stack.glyphs {
-                        out.glyphs.push(PlacedGlyph {
-                            span: item.span,
-                            ch,
-                            transform: frame.glyph(
-                                [x + gx, y + gy],
-                                run.sx * STACK_SCALE,
-                                run.sy * STACK_SCALE,
-                                run.shear,
-                            ),
-                            substituted: false,
-                        });
-                    }
-                    out.stacks.push(PlacedStack {
-                        span: item.span,
-                        line: stack
-                            .line
-                            .map(|ends| ends.map(|[lx, ly]| frame.map([x + lx, y + ly]))),
-                    });
-                }
+                Content::Stack(stack) => frame.stack(item, stack, [x, y], out),
             }
             pen += item.advance;
         }
@@ -619,11 +643,7 @@ fn columns<P>(
         } else {
             pitch(text, height, line)
         };
-        let length = extent(
-            line.iter().rev().skip_while(|item| item.space).count(),
-            line,
-        );
-        boxes.push((center, length));
+        boxes.push((center, measure(line, limit)));
     }
     let total = center + half;
     let span = limit.unwrap_or_else(|| boxes.iter().map(|b| b.1).fold(0.0, f64::max));
@@ -646,27 +666,41 @@ fn columns<P>(
         let x = left + total - center;
         let start = out.glyphs.len();
         let mut pen = 0.0;
-        for item in line {
+        for (position, item) in line.iter().enumerate() {
+            if position > 0 {
+                pen += item.kern;
+            }
             let run = &item.run;
-            if let Content::Char {
-                ch,
-                center,
-                top: rise,
-                substituted,
-            } = item.content
-            {
-                // 縦の原点（横の送りの半分, 縦の原点の高さ）を、列の中心線の送りの位置に合わせる
-                out.glyphs.push(PlacedGlyph {
-                    span: item.span,
+            match &item.content {
+                &Content::Char {
                     ch,
-                    transform: frame.glyph(
-                        [x - center, top - offset - pen - rise],
-                        run.sx,
-                        run.sy,
-                        run.shear,
-                    ),
+                    center,
+                    top: rise,
                     substituted,
-                });
+                    turned,
+                } => {
+                    // 縦の原点（横の送りの半分, 縦の原点の高さ）を、列の中心線の送りの位置に合わせる。
+                    // 倒した字形は、基準線を中心線から `center` だけ左に置く
+                    let at = [x - center, top - offset - pen - rise];
+                    let transform = if turned {
+                        frame.turned(at, run.sx, run.sy, run.shear)
+                    } else {
+                        frame.glyph(at, run.sx, run.sy, run.shear)
+                    };
+                    out.glyphs.push(PlacedGlyph {
+                        span: item.span,
+                        ch,
+                        transform,
+                        substituted,
+                    });
+                }
+                // 上下に重ねた文字は立てたまま、列の中心に揃え、上の段の上を送りの始まりに合わせる
+                Content::Stack(stack) => frame.stack(
+                    item,
+                    stack,
+                    [x - stack.width / 2.0, top - offset - pen - item.rise],
+                    out,
+                ),
             }
             pen += item.advance;
         }
@@ -762,6 +796,7 @@ impl SpanRun {
                 center: 0.0,
                 top: 0.0,
                 substituted: false,
+                turned: false,
             },
             advance: glyph.advance * self.sx * self.tracking,
             kern: previous.map_or(0.0, |left| font.kerning(left, ch) * self.sx),
@@ -772,8 +807,19 @@ impl SpanRun {
         }
     }
 
-    /// 縦書きの 1 文字。縦書きでは詰めない（`vkrn` を読まない）
-    fn upright(self, span: usize, ch: char, font: &dyn Glyphs, missing: &mut usize) -> Item {
+    /// 縦書きの 1 文字。立てて置く文字の間は縦書きのカーニングで詰める。横に倒す文字（[`sideways`]）は
+    /// [`SpanRun::turned`] で置く
+    fn upright(
+        self,
+        span: usize,
+        ch: char,
+        previous: Option<char>,
+        font: &dyn Glyphs,
+        missing: &mut usize,
+    ) -> Item {
+        if sideways(ch) {
+            return self.turned(span, ch, previous, font, missing);
+        }
         let glyph = font.vertical(ch).unwrap_or_else(|| {
             *missing += 1;
             font.vertical_fallback()
@@ -785,9 +831,47 @@ impl SpanRun {
                 center: glyph.glyph.advance / 2.0 * self.sx,
                 top: glyph.top * self.sy,
                 substituted: glyph.substituted,
+                turned: false,
             },
             advance: glyph.advance * self.sy * self.tracking,
-            kern: 0.0,
+            kern: previous
+                .filter(|&left| !sideways(left))
+                .map_or(0.0, |left| font.vertical_kerning(left, ch) * self.sy),
+            space: ch.is_whitespace(),
+            rise: self.cap,
+            drop: self.descent,
+            run: self,
+        }
+    }
+
+    /// 縦書きで時計回りに 90 度倒す 1 文字（決定 0189、推定）。横書きの字形を、横の送りで列の下へ進め、
+    /// アセンダーとディセンダーの中央を列の中心線に合わせる。倒した文字の間は横書きのカーニングで詰める
+    fn turned(
+        self,
+        span: usize,
+        ch: char,
+        previous: Option<char>,
+        font: &dyn Glyphs,
+        missing: &mut usize,
+    ) -> Item {
+        let glyph = font.glyph(ch).unwrap_or_else(|| {
+            *missing += 1;
+            font.fallback()
+        });
+        let metrics = font.metrics();
+        Item {
+            span,
+            content: Content::Char {
+                ch,
+                center: (metrics.ascent - metrics.descent) / 2.0 * self.sy,
+                top: 0.0,
+                substituted: false,
+                turned: true,
+            },
+            advance: glyph.advance * self.sx * self.tracking,
+            kern: previous
+                .filter(|&left| sideways(left))
+                .map_or(0.0, |left| font.kerning(left, ch) * self.sx),
             space: ch.is_whitespace(),
             rise: self.cap,
             drop: self.descent,
@@ -867,7 +951,11 @@ impl SpanRun {
             .collect();
         Item {
             span,
-            content: Content::Stack(Box::new(Stack { glyphs, line })),
+            content: Content::Stack(Box::new(Stack {
+                glyphs,
+                line,
+                width,
+            })),
             advance: width,
             kern: 0.0,
             space: false,
@@ -898,12 +986,14 @@ struct Item {
 /// 並べるものの中身
 #[derive(Clone, Debug)]
 enum Content {
-    /// 1 文字。縦書きでは、縦の原点の横の位置（`center`）と高さ（`top`）を図面の長さで持つ
+    /// 1 文字。縦書きでは、縦の原点の横の位置（`center`）と高さ（`top`）を図面の長さで持つ。
+    /// `turned` は縦書きで横に倒した文字で、`center` は基準線から列の中心線までの距離
     Char {
         ch: char,
         center: f64,
         top: f64,
         substituted: bool,
+        turned: bool,
     },
     /// 上下に重ねた文字
     Stack(Box<Stack>),
@@ -914,6 +1004,8 @@ enum Content {
 struct Stack {
     glyphs: Vec<(char, [f64; 2])>,
     line: Option<[[f64; 2]; 2]>,
+    /// 横の幅。縦書きで列の中心に揃えるのに使う
+    width: f64,
 }
 
 impl Item {
@@ -956,9 +1048,13 @@ fn wrap(tokens: Vec<Option<Item>>, limit: Option<f64>) -> Vec<Vec<Item>> {
             None => continue,
         };
         let over = limit.is_some_and(|limit| {
+            let limit = limit * (1.0 + 1e-9);
+            let before = extent(line.len(), line);
+            // 句読点は、前までが収まれば行の終わりにぶら下げる（決定 0189）
             !item.space
                 && !line.is_empty()
-                && extent(line.len(), line) + item.kern + item.advance > limit * (1.0 + 1e-9)
+                && before + item.kern + item.advance > limit
+                && !(hangs(item.ch()) && before <= limit)
         });
         if over {
             let at = (1..=line.len())
@@ -979,6 +1075,31 @@ fn wrap(tokens: Vec<Option<Item>>, limit: Option<f64>) -> Vec<Vec<Item>> {
     lines
 }
 
+/// 行の長さ。終わりの空白と、枠からはみ出してぶら下げた句読点は数えない
+fn measure(line: &[Item], limit: Option<f64>) -> f64 {
+    let mut count = line.iter().rev().skip_while(|item| item.space).count();
+    let hanging = count
+        .checked_sub(1)
+        .and_then(|last| line.get(last))
+        .is_some_and(|item| hangs(item.ch()));
+    if hanging && limit.is_some_and(|limit| extent(count, line) > limit * (1.0 + 1e-9)) {
+        count -= 1;
+    }
+    extent(count, line)
+}
+
+/// 行の終わりにぶら下げる句読点（決定 0189）。読点・句点（半角形は互換分解の先に従う）と、全角のコンマ・
+/// ピリオド
+fn hangs(ch: char) -> bool {
+    matches!(ch, '\u{FF0C}' | '\u{FF0E}') || matches!(narrow(ch), '\u{3001}' | '\u{3002}')
+}
+
+/// 縦書きで横に倒して置く文字（決定 0189、推定）。全角の文字（[`wide`]）と半角形（U+FF61〜U+FFEF。
+/// 半角の片仮名など）は立てて置き、それ以外（欧文・数字・半角の記号など）は倒す
+fn sideways(ch: char) -> bool {
+    !wide(ch) && !matches!(u32::from(ch), 0xFF61..=0xFFEF)
+}
+
 /// 2 文字の間で折り返せるか。行の始まりに置かない文字の前と、行の終わりに置かない文字の後では
 /// 折り返さない（禁則、決定 0187）
 fn breakable(before: &Item, after: &Item) -> bool {
@@ -987,8 +1108,12 @@ fn breakable(before: &Item, after: &Item) -> bool {
 }
 
 /// 行の始まりに置かない文字（禁則、決定 0187）。閉じ括弧（Unicode の一般カテゴリ Pe）と、
-/// 句読点・感嘆符・疑問符・コロン・セミコロン。全角形・半角形は、互換分解の先の文字に従う
+/// 句読点・感嘆符・疑問符・コロン・セミコロン。全角形・半角形は、互換分解の先の文字に従う。
+/// 小書きの仮名（[`small_kana`]）と長音の記号（U+30FC と、その半角形 U+FF70）も置かない（決定 0189）
 fn no_start(ch: char) -> bool {
+    if small_kana(ch) || matches!(ch, '\u{30FC}' | '\u{FF70}') {
+        return true;
+    }
     match narrow(ch) {
         ')' | ']' | '}' | '!' | ',' | '.' | ':' | ';' | '?' => true,
         // 読点・句点
@@ -999,6 +1124,39 @@ fn no_start(ch: char) -> bool {
         '\u{301E}' | '\u{301F}' | '\u{FF60}' => true,
         _ => false,
     }
+}
+
+/// 小書きの仮名（決定 0189）。Unicode の名前に SMALL を持つ平仮名・片仮名で、次の規則で選ぶ。
+///
+/// - 平仮名（U+3041〜U+3096）で小書きの仮名は、すぐ後ろの符号位置に同じ音の普通の仮名がある文字
+///   （ぁ U+3041 と あ U+3042 など）と、区画の終わりに足された ゕ・ゖ（U+3095・U+3096）
+/// - 片仮名（U+30A1〜U+30F6）は、平仮名と同じ並びで 0x60 後ろにあるので、平仮名に戻して同じ規則で選ぶ
+/// - 片仮名の拡張（U+31F0〜U+31FF）はすべて小書き。半角形の ｧ〜ｯ（U+FF67〜U+FF6F）は、互換分解の
+///   先が小書きの片仮名。小書きの仮名の拡張（U+1B132・U+1B150〜U+1B152・U+1B155・U+1B164〜U+1B167）
+fn small_kana(ch: char) -> bool {
+    let code = u32::from(ch);
+    let kana = match code {
+        0x30A1..=0x30F6 => code - 0x60,
+        _ => code,
+    };
+    matches!(
+        kana,
+        0x3041
+            | 0x3043
+            | 0x3045
+            | 0x3047
+            | 0x3049
+            | 0x3063
+            | 0x3083
+            | 0x3085
+            | 0x3087
+            | 0x308E
+            | 0x3095
+            | 0x3096
+    ) || matches!(
+        code,
+        0x31F0..=0x31FF | 0xFF67..=0xFF6F | 0x1B132 | 0x1B150..=0x1B152 | 0x1B155 | 0x1B164..=0x1B167
+    )
 }
 
 /// 行の終わりに置かない文字（禁則、決定 0187）。開き括弧（Unicode の一般カテゴリ Ps）。
@@ -1655,16 +1813,14 @@ mod tests {
         assert_eq!(laid.glyphs.len(), 3);
         assert_eq!(laid.missing, 2);
 
-        // 縦書きでは、上下に重ねた文字を置かない
+        // 縦書きでも、上下に重ねた文字を置く（決定 0189）
         let mut vertical = text.clone();
         vertical.flow = Flow::TopToBottom;
         let laid = place_formatted(&vertical, |p| *p, &HORIZONTAL, |_| None).unwrap();
-        assert_eq!(laid.skipped, vec![1, 2, 3]);
-        assert!(laid.stacks.is_empty());
+        assert_eq!(laid.skipped, vec![2, 3]);
+        assert_eq!(laid.stacks.len(), 1);
         vertical.flow = Flow::ByStyle;
         let by_style = place_formatted(&vertical, |p| *p, &Set { vertical: true }, |_| None);
-        assert_eq!(by_style.unwrap().skipped, vec![1, 2, 3]);
-        let by_style = place_formatted(&vertical, |p| *p, &HORIZONTAL, |_| None);
         assert_eq!(by_style.unwrap().skipped, vec![2, 3]);
 
         let mut degenerate = text;
@@ -1699,7 +1855,8 @@ mod tests {
     }
 
     /// 縦書きの寸法を持つ合成のフォント。「（」は縦書き用の字形に置き換え、縦の送り 1000・原点の高さ 880。
-    /// ほかの文字は合成のフォントの既定（縦の送り 1000、原点の高さ 800）
+    /// 「あ」「い」は `A` と同じ字形。ほかの文字は合成のフォントの既定（縦の送り 1000、原点の高さ 800）。
+    /// 縦書きでは「あ」「い」の間を 200 詰め、横書きのカーニングは `A` と `g` の間を 100 詰める
     struct Upright;
 
     impl Glyphs for Upright {
@@ -1713,12 +1870,25 @@ mod tests {
                     advance: 1000.0,
                     bounds: Some([600.0, -100.0, 900.0, 800.0]),
                 }),
+                'あ' | 'い' => Synthetic.glyph('A'),
                 _ => Synthetic.glyph(ch),
             }
         }
 
         fn fallback(&self) -> Glyph {
             Synthetic.fallback()
+        }
+
+        fn kerning(&self, left: char, right: char) -> f64 {
+            Kerned.kerning(left, right)
+        }
+
+        fn vertical_kerning(&self, left: char, right: char) -> f64 {
+            if (left, right) == ('あ', 'い') {
+                -200.0
+            } else {
+                0.0
+            }
         }
 
         fn vertical(&self, ch: char) -> Option<VerticalGlyph> {
@@ -1763,10 +1933,10 @@ mod tests {
     #[test]
     fn vertical_columns_run_down_and_to_the_left() {
         let laid = columned(&formatted(
-            vec![words("A（"), span(Piece::Paragraph), words("A")],
+            vec![words("あ（"), span(Piece::Paragraph), words("あ")],
             None,
         ));
-        assert_eq!(line_texts(&laid), ["A（", "A"]);
+        assert_eq!(line_texts(&laid), ["あ（", "あ"]);
         // 列の太さは em の 10。1 列目の中心は右から 5、2 列目は行送り 35/3 だけ左
         let pitch = 7.0 * 5.0 / 3.0;
         let total = 10.0 + pitch;
@@ -1784,7 +1954,10 @@ mod tests {
         assert_near(origin(&laid.glyphs[2]), [total - 5.0 - pitch - 3.0, -8.0]);
 
         // 右下を置く点に合わせ、短い列は下に揃える
-        let mut text = formatted(vec![words("AA"), span(Piece::Paragraph), words("A")], None);
+        let mut text = formatted(
+            vec![words("ああ"), span(Piece::Paragraph), words("あ")],
+            None,
+        );
         text.horizontal = Horizontal::Right;
         text.vertical = Vertical::Bottom;
         let laid = columned(&text);
@@ -1796,11 +1969,11 @@ mod tests {
     #[test]
     fn vertical_columns_wrap_at_the_frame() {
         // 枠の幅は列の長さに当てる。送り 10 の文字を 25 で折る
-        let laid = columned(&formatted(vec![words("AAA")], Some(25.0)));
-        assert_eq!(line_texts(&laid), ["AA", "A"]);
+        let laid = columned(&formatted(vec![words("あああ")], Some(25.0)));
+        assert_eq!(line_texts(&laid), ["ああ", "あ"]);
         assert_near(laid.size, [10.0 + 7.0 * 5.0 / 3.0, 25.0]);
         // 横書きの向きと同じく、回す
-        let mut text = formatted(vec![words("A")], None);
+        let mut text = formatted(vec![words("あ")], None);
         text.rotation = Rotation::Angle(90.0);
         let laid = columned(&text);
         assert_near(origin(&laid.glyphs[0]), [8.0, 2.0]);
@@ -1853,9 +2026,10 @@ mod tests {
         // フォントにない文字は幅 10。閉じ括弧・句点は行の始まりに、開き括弧は行の終わりに置かない
         for (content, expected) in [
             ("字字」", ["字", "字」"]),
-            ("字字。", ["字", "字。"]),
             ("字字！", ["字", "字！"]),
-            ("字字｡", ["字", "字｡"]),
+            ("字字ょ", ["字", "字ょ"]),
+            ("字字ー", ["字", "字ー"]),
+            ("字字ｯ", ["字", "字ｯ"]),
             ("字「字", ["字", "「字"]),
             ("字（字", ["字", "（字"]),
         ] {
@@ -1874,8 +2048,122 @@ mod tests {
         for ch in ['（', '〔', '『', '【', '〈', '《', '(', '［', '｢', '〝'] {
             assert!(no_end(ch) && !no_start(ch), "{ch}");
         }
-        for ch in ['字', 'A', 'ー', 'ぁ', '・', '〜'] {
+        for ch in [
+            '字',
+            'A',
+            'あ',
+            'ア',
+            'ゔ',
+            'ヷ',
+            'ｱ',
+            '・',
+            '〜',
+            '\u{1B000}',
+        ] {
             assert!(!no_start(ch) && !no_end(ch), "{ch}");
         }
+        // 小書きの仮名と長音の記号は、行の始まりに置かない（決定 0189）
+        for ch in [
+            'ぁ',
+            'ぃ',
+            'ぅ',
+            'ぇ',
+            'ぉ',
+            'っ',
+            'ゃ',
+            'ゅ',
+            'ょ',
+            'ゎ',
+            'ゕ',
+            'ゖ',
+            'ァ',
+            'ッ',
+            'ャ',
+            'ヮ',
+            'ヵ',
+            'ヶ',
+            'ㇰ',
+            'ㇿ',
+            'ｧ',
+            'ｯ',
+            'ー',
+            'ｰ',
+            '\u{1B132}',
+            '\u{1B155}',
+            '\u{1B167}',
+        ] {
+            assert!(no_start(ch) && !no_end(ch), "{ch}");
+        }
+    }
+
+    #[test]
+    fn punctuation_hangs_past_the_frame() {
+        // 読点・句点は、前までが収まれば枠の外にぶら下げ、行の長さに数えない（決定 0189）
+        for content in ["字字。", "字字、", "字字｡", "字字，", "字字．"] {
+            let laid = flowed(&formatted(vec![words(content)], Some(25.0)));
+            assert_eq!(line_texts(&laid), [content], "{content}");
+            assert_near([laid.lines[0].width, laid.size[0]], [20.0, 25.0]);
+        }
+        // ぶら下げるのは 1 文字まで。2 つ目の句点は行の始まりに置けないので、前の字と送る
+        let laid = flowed(&formatted(vec![words("字字。。")], Some(25.0)));
+        assert_eq!(line_texts(&laid), ["字", "字。。"]);
+        // 収まる句点は、行の長さに数える
+        let laid = flowed(&formatted(vec![words("字。")], Some(25.0)));
+        assert_near([laid.lines[0].width, 0.0], [20.0, 0.0]);
+        // 縦書きでも、列の下にぶら下げる
+        let laid = columned(&formatted(vec![words("字字。")], Some(25.0)));
+        assert_eq!(line_texts(&laid), ["字字。"]);
+        assert_near([laid.lines[0].width, 0.0], [20.0, 0.0]);
+    }
+
+    #[test]
+    fn vertical_kerning_turned_latin_and_stacks() {
+        // 立てた文字の間は縦書きのカーニングで 2 詰める。A・g は時計回りに倒し、横書きのカーニングで 1 詰める
+        let laid = columned(&formatted(vec![words("あいAgい")], None));
+        assert_eq!(line_texts(&laid), ["あいAgい"]);
+        // 縦の送りは 10、倒した A は 6、g は 5
+        let length = 10.0 - 2.0 + 10.0 + 6.0 - 1.0 + 5.0 + 10.0;
+        assert_near([laid.lines[0].width, laid.size[1]], [length, length]);
+        let x = laid.size[0] - 5.0;
+        assert_near(origin(&laid.glyphs[1]), [x - 3.0, -8.0 - 8.0]);
+        // 倒した字形の基準線は、中心線から（アセンダー 8 - ディセンダー 2）/ 2 だけ左。
+        // 字形の横の向きは列の下へ、縦の向きは右へ写る
+        assert_near(origin(&laid.glyphs[2]), [x - 3.0, -18.0]);
+        let t = laid.glyphs[2].transform;
+        assert_near([t[0], t[1]], [0.0, -0.01]);
+        assert_near([t[2], t[3]], [0.01, 0.0]);
+        assert!(!laid.glyphs[2].substituted);
+        assert_near(origin(&laid.glyphs[3]), [x - 3.0, -18.0 - 6.0 + 1.0]);
+        // 倒した文字と立てた文字の間は詰めない
+        assert_near(origin(&laid.glyphs[4]), [x - 3.0, -28.0 - 8.0]);
+
+        // 回した枠でも、倒した字形は枠と一緒に回る
+        let mut text = formatted(vec![words("A")], None);
+        text.rotation = Rotation::Angle(90.0);
+        let laid = columned(&text);
+        let t = laid.glyphs[0].transform;
+        assert_near([t[0], t[1]], [0.01, 0.0]);
+        assert_near([t[2], t[3]], [0.0, 0.01]);
+
+        // 上下に重ねた文字は立てたまま、列の中心に揃え、上の段の上から下の段の下までを縦の送りにする
+        let laid = columned(&formatted(
+            vec![
+                words("あ"),
+                stack("A", "AA", StackKind::Horizontal),
+                words("あ"),
+            ],
+            None,
+        ));
+        assert!(laid.skipped.is_empty());
+        assert_eq!(laid.stacks.len(), 1);
+        // 段の幅は 8.4、上の段の上は基準線から 9.1、下の段の下は 3.5
+        let x = laid.size[0] - 5.0;
+        assert_near(origin(&laid.glyphs[1]), [x - 4.2 + 2.1, -10.0 - 9.1 + 4.2]);
+        assert_near(origin(&laid.glyphs[2]), [x - 4.2, -10.0 - 9.1 - 2.1]);
+        let [start, end] = laid.stacks[0].line.unwrap();
+        assert_near(start, [x - 4.2, -10.0 - 9.1 + 3.5]);
+        assert_near(end, [x + 4.2, -10.0 - 9.1 + 3.5]);
+        assert_near(origin(&laid.glyphs[4]), [x - 3.0, -10.0 - 12.6 - 8.0]);
+        assert_near([laid.lines[0].width, 0.0], [10.0 + 12.6 + 10.0, 0.0]);
     }
 }
