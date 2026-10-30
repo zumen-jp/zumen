@@ -9665,7 +9665,8 @@ fn header_variables_are_written_back() {
     }
 }
 
-/// 見出しの変数の PDMODE・PDSIZE を書き戻す（決定 0190）。BS・BD の幅が変わる値は、区切りの長さが変わるので断る
+/// 見出しの変数の PDMODE・PDSIZE を書き戻す（決定 0190）。BS・BD の幅が変わる値は、大きさを変えた見出しの区切りを
+/// ファイルの後ろに置き、区切りの記録を直す（決定 0193）。有限でない大きさは断る
 #[test]
 fn point_header_variables_are_written_back() {
     let src = with_point_header(
@@ -9681,33 +9682,209 @@ fn point_header_variables_are_written_back() {
     let set = |db: &mut AcadDb, name: &[u8], code: i16, data: Data| {
         db.set_variable(name, vec![Value { code, data }]);
     };
-    let mut db = base.clone();
-    set(&mut db, b"$PDMODE", 70, Data::Int(34));
-    set(&mut db, b"$PDSIZE", 40, Data::Real(-10.0));
-    let mut file = read(&src, Limits::default()).0.unwrap();
-    let (out, diag) = written_back(&mut file, &db);
-    let out = out.unwrap();
-    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
-    let (after, again) = objects(&out);
-    assert_eq!(codes_of(&again), codes_of(&before));
-    assert_eq!(after, db);
-    // BS の幅（3 から 0）と BD の幅（2.5 から 0）が変わる値は書き戻せない
-    for (name, code, data) in [
-        (b"$PDMODE".as_slice(), 70, Data::Int(0)),
-        (b"$PDSIZE".as_slice(), 40, Data::Real(0.0)),
-        (b"$PDSIZE".as_slice(), 40, Data::Real(f64::INFINITY)),
-    ] {
-        let mut changed = base.clone();
-        set(&mut changed, name, code, data);
+    let header_at = |src: &[u8]| {
+        let file = read(src, Limits::default()).0.unwrap();
+        file.locators()
+            .iter()
+            .find(|l| l.number == 0)
+            .unwrap()
+            .seeker
+    };
+    // 同じ幅（3 から 34、2.5 から -10）はその場で、違う幅（3 から 0・65、2.5 から 0・1）は後ろに置いて書く
+    let cases = [
+        ((34, -10.0), false),
+        ((0, 0.0), true),
+        ((65, 1.0), true),
+        ((0, -10.0), true),
+    ];
+    for ((mode, size), moved) in cases {
+        let mut db = base.clone();
+        set(&mut db, b"$PDMODE", 70, Data::Int(mode));
+        set(&mut db, b"$PDSIZE", 40, Data::Real(size));
         let mut file = read(&src, Limits::default()).0.unwrap();
-        let (out, diag) = written_back(&mut file, &changed);
-        assert_eq!(out, Err(Error::Rejected));
-        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+        let (out, diag) = written_back(&mut file, &db);
+        let out = out.unwrap();
+        assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+        let (after, again) = objects(&out);
+        assert_eq!(codes_of(&again), codes_of(&before), "{mode} {size}");
+        assert_eq!(after, db, "{mode} {size}");
+        assert_eq!(header_at(&out) != header_at(&src), moved, "{mode} {size}");
+        // 書いたファイルを、もう一度書き戻せる
+        let mut db = after.clone();
+        set(&mut db, b"$PDMODE", 70, Data::Int(3));
+        set(&mut db, b"$PDSIZE", 40, Data::Real(2.5));
+        let mut file = read(&out, Limits::default()).0.unwrap();
+        let (twice, diag) = written_back(&mut file, &db);
+        assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+        assert_eq!(objects(&twice.unwrap()).0, db);
+    }
+    // 有限でない大きさは書き戻せない
+    let mut changed = base.clone();
+    set(&mut changed, b"$PDSIZE", 40, Data::Real(f64::INFINITY));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+}
+
+/// 版 `release`（R2004・R2010・R2013・R2018）の見出しの変数の区切り。PDMODE・PDSIZE を `point` に、INSUNITS を 4 に、
+/// 用紙空間の範囲を `limits` にする。R2010 からは、文字列（"acad"）とハンドルを別の流れに書く
+#[cfg(test)]
+fn header_of(release: u32, (point_mode, point_size): (u16, f64), limits: [f64; 4]) -> Vec<u8> {
+    let split = release >= 2010;
+    let last = if split {
+        "t2 d9 d2 s1 c1 b6 s3 s1 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 b2 d1 t1 d1 t1 h5 h3 s2"
+    } else {
+        "t2 d9 b6 s3 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 h5 s2"
+    };
+    let tail = match release {
+        2004 => "h12 s2 t2 h5 l1",
+        2010 => "h12 s2 t2 h7 l1",
+        _ => "h12 s2 t2 h8 l1",
+    };
+    let space = "d9 r4 d10 h2 s1 h1 d18";
+    let layout = format!(
+        "d4 t4 l2 b21 s7 M1 l3 s19 d7 Z1 d13 t1 l4 l3 l4 c1 S1 h5 d1 d9 P4 d10 h2 s1 h1 d18 \
+         {space} {last} {tail} U1 E1 h1 t2 C6 s2 C2 t1 X1 Y1"
+    );
+    let (mut main, mut strings, mut handles) = (
+        BitWriter::default(),
+        BitWriter::default(),
+        BitWriter::default(),
+    );
+    if release >= 2013 {
+        // REQUIREDVERSIONS（BLL の 0）
+        main.bits(0, 3);
+    }
+    let mut limits = limits.into_iter();
+    for item in layout.split_whitespace() {
+        let (kind, count) = item.split_at_checked(1).unwrap();
+        let count: usize = count.parse().unwrap();
+        for _ in 0..count {
+            let handle = |w: &mut BitWriter, value| w.handle(5, value);
+            let target = if split { &mut handles } else { &mut main };
+            match kind {
+                "b" => main.bit(false),
+                "s" => main.bs(0),
+                "l" => main.bl_zero(),
+                "d" => main.bd(0.0),
+                "r" => main.rd(0.0),
+                "C" => main.bits(0, 8),
+                "c" => {
+                    main.bs(0);
+                    main.bl_zero();
+                    main.bits(0, 8);
+                }
+                "t" if split => {
+                    strings.bs(4);
+                    for unit in "acad".encode_utf16() {
+                        strings.bytes(&unit.to_le_bytes());
+                    }
+                }
+                "t" => {
+                    main.bs(4);
+                    main.bytes(b"acad");
+                }
+                "P" => main.rd(limits.next().unwrap()),
+                "U" => main.bs(4),
+                "E" => main.bs(3),
+                "M" => main.bs(point_mode),
+                "Z" => main.bd(point_size),
+                "S" => main.handle(0, 0x99),
+                "X" => handle(target, 0x58),
+                "Y" => handle(target, 0x1F),
+                _ => handle(target, 0x40),
+            }
+        }
+    }
+    let data = if split {
+        let mut data = BitWriter::default();
+        data.rl(0);
+        data.bits.extend(main.bits);
+        let size = strings.bits.len() as u16;
+        data.bits.extend(strings.bits);
+        data.bytes(&size.to_le_bytes());
+        data.bit(true);
+        let end = data.bits.len() as u32;
+        data.patch_rl(0, end);
+        data.bits.extend(handles.bits);
+        data.finish()
+    } else {
+        main.finish()
+    };
+    let mut section = vec![
+        0xCF, 0x7B, 0x1F, 0x23, 0xFD, 0xDE, 0x38, 0xA9, 0x5F, 0x7C, 0x68, 0xB8, 0x4E, 0x6D, 0x33,
+        0x5F,
+    ];
+    let mut sized = (data.len() as u32).to_le_bytes().to_vec();
+    if release == 2018 {
+        // 上位の RL
+        sized.extend(0u32.to_le_bytes());
+    }
+    sized.extend(&data);
+    section.extend(&sized);
+    section.extend(crc16(0xC0C1, &sized).to_le_bytes());
+    section.extend([
+        0x30, 0x84, 0xE0, 0xDC, 0x02, 0x21, 0xC7, 0x56, 0xA0, 0x83, 0x97, 0x47, 0xB1, 0x92, 0xCC,
+        0xA0,
+    ]);
+    section
+}
+
+/// R2004 から後の入れ物の DWG で、PDMODE・PDSIZE を書く幅が変わる値を書き、展開した見出しの区切りの大きさを変えて
+/// 置き換える。読み直すと、書いた値になり、ほかの変数と CRC も合う（決定 0193）
+#[test]
+fn point_header_variables_of_another_width_resize_r2004_and_later_headers() {
+    let limits = [10.0, 10.0, 307.0, 220.0];
+    for (version, release) in [
+        (b"AC1018", 2004),
+        (b"AC1024", 2010),
+        (b"AC1027", 2013),
+        (b"AC1032", 2018),
+    ] {
+        for (from, to) in [((3, 2.5), (0, 0.0)), ((0, 0.0), (35, -7.5))] {
+            let mut sections = r2004_sections();
+            let head = header_of(release, from, limits);
+            sections[0] = (b"AcDb:Header", literal_stream(&head), head.len() as u64);
+            if release >= 2010 {
+                let classes = r2010_classes(false);
+                sections[1] = (
+                    b"AcDb:Classes",
+                    literal_stream(&classes),
+                    classes.len() as u64,
+                );
+            }
+            let mut src = r2004(&sections);
+            src[..6].copy_from_slice(version);
+            let (base, before) = objects(&src);
+            let variable = |db: &AcadDb, name: &[u8]| db.variable(name).unwrap()[0].data.clone();
+            assert_eq!(variable(&base, b"$PDMODE"), Data::Int(i64::from(from.0)));
+            assert_eq!(variable(&base, b"$PDSIZE"), Data::Real(from.1));
+            let mut file = read(&src, Limits::default()).0.unwrap();
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let mut txn = file.transaction();
+            txn.set_point_mode(to.0 as i16).unwrap();
+            txn.set_point_size(to.1).unwrap();
+            txn.commit(&mut cx).unwrap();
+            let mut out = Vec::new();
+            Dwg::write(&file, &mut out, &mut cx).unwrap();
+            assert!(diag.is_empty(), "{release} {:?}", codes_of(&diag));
+            let (after, again) = objects(&out);
+            assert_eq!(codes_of(&again), codes_of(&before), "{release} {to:?}");
+            assert_eq!(variable(&after, b"$PDMODE"), Data::Int(i64::from(to.0)));
+            assert_eq!(variable(&after, b"$PDSIZE"), Data::Real(to.1));
+            for name in [b"$INSUNITS".as_slice(), b"$PLIMMIN", b"$PLIMMAX"] {
+                assert_eq!(after.variable(name), base.variable(name), "{release}");
+            }
+        }
     }
 }
 
-/// 文書の点の表し方の変更を、DWG の見出しの PDMODE・PDSIZE に書き戻す（決定 0190）。読み直すと同じ点の表し方に
-/// なる。BS の幅が変わる PDMODE（0 から 3 など）は断り、ファイルを変えない
+/// 文書の点の表し方の変更を、DWG の見出しの PDMODE・PDSIZE に書き戻す（決定 0190・0193）。読み直すと同じ点の
+/// 表し方になる
 #[cfg(feature = "drawing")]
 #[test]
 fn drawing_point_styles_are_written_back_to_a_dwg() {
@@ -9773,14 +9950,17 @@ fn drawing_point_styles_are_written_back_to_a_dwg() {
     result.unwrap();
     assert!(!codes_of(&diag).contains(&codes::DWG_CHANGE_UNSUPPORTED));
     assert_eq!(lift(&out).point_style, Some(style));
-    let (result, diag, out) = apply(PointStyle {
+    // BS の幅が変わる PDMODE（3 から 0）と BD の幅が変わる PDSIZE も書ける（決定 0193）
+    let dot = PointStyle {
         mark: PointMark::Dot,
         circle: false,
+        size: PointSize::Length(1.0),
         ..style
-    });
-    assert_eq!(result, Err(Error::Rejected));
-    assert_eq!(codes_of(&diag).last(), Some(&codes::DWG_CHANGE_UNSUPPORTED));
-    assert_eq!(out, src);
+    };
+    let (result, diag, out) = apply(dot);
+    result.unwrap();
+    assert!(!codes_of(&diag).contains(&codes::DWG_CHANGE_UNSUPPORTED));
+    assert_eq!(lift(&out).point_style, Some(dot));
 }
 
 /// 文字スタイルがない行も 7 の区切りを残し、高さ・色・枠を次の行と混ぜない

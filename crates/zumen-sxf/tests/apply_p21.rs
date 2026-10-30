@@ -592,6 +592,51 @@ fn point_markers_are_written_into_p21() {
     let [now] = points(&read(&written)).try_into().unwrap();
     assert_eq!(now.style.color, sxf_color(1));
     assert_eq!(now.shape, marker.shape);
+    // 色の変更: 記号の見え方の割り当てがほかの見え方（曲線の見え方 #41）も持てば、それを写した割り当てを足す
+    // （決定 0193）
+    let shared = String::from_utf8(src.clone())
+        .unwrap()
+        .replace(
+            "#32=PRESENTATION_STYLE_ASSIGNMENT((#31));",
+            "#40=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n\
+             #41=CURVE_STYLE(' ',#40,POSITIVE_LENGTH_MEASURE(0.13),#2);\n\
+             #32=PRESENTATION_STYLE_ASSIGNMENT((#41,#31));",
+        )
+        .into_bytes();
+    let shared_marker = seen(&lift(&read(&shared)), 39);
+    let mut file = read(&shared);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Restyle {
+            target: shared_marker.0.clone(),
+            style: Restyle {
+                color: Some(sxf_color(1)),
+                ..Restyle::default()
+            },
+        }],
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    result.unwrap();
+    let written = write(&file);
+    let text = String::from_utf8(written.clone()).unwrap();
+    for gone in ["#30=", "#31=", "#32="] {
+        assert!(!text.contains(gone), "{text}");
+    }
+    assert!(text.contains("#41=CURVE_STYLE"), "{text}");
+    assert!(
+        text.contains("PRESENTATION_STYLE_ASSIGNMENT((#41,#"),
+        "{text}"
+    );
+    let [now] = points(&read(&written)).try_into().unwrap();
+    assert_eq!(now.style.color, sxf_color(1));
+    assert_eq!(now.shape, shared_marker.1.shape);
+    assert_eq!(
+        Style {
+            color: sxf_color(1),
+            ..shared_marker.1.style
+        },
+        now.style
+    );
     // 追加: レイヤ L に、色を持つ点マーカーを足す
     let mut file = read(&src);
     let added = Element {

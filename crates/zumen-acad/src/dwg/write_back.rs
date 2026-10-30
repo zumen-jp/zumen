@@ -24,7 +24,7 @@
 //! 足したブロックのレコードは、同じく足した BLOCK・ENDBLK と図形を揃えて書く（決定 0068）。
 //!
 //! 見出しの変数の INSUNITS と、用紙空間の PLIMMIN・PLIMMAX と、PDMODE・PDSIZE の変更は、見出しの変数の区切りの中で
-//! 書き直す（決定 0069・0190）。
+//! 書き直す（決定 0069・0190）。PDMODE・PDSIZE は、書く幅が変わる値なら区切りの大きさを変える（決定 0193）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と、ほかの見出しの変数の変更は、まだ書き戻せない。
 
@@ -439,20 +439,12 @@ impl DwgFile {
                 b"$PLIMMIN" | b"$PLIMMAX" => {
                     limits = Some(paper_limits(db).ok_or_else(|| unsupported(name))?);
                 }
-                // 区切りの長さを変えないよう、BS・BD の幅が変わる値は受け付けない（決定 0190）
+                // BS・BD の幅が変わる値は、見出しの区切りの大きさを変えて書く（決定 0190・0193）
                 b"$PDMODE" => {
-                    let new = header_short(db, name)
-                        .filter(|&new| {
-                            header_short(base, name).map(bs_width) == Some(bs_width(new))
-                        })
-                        .ok_or_else(|| unsupported(name))?;
-                    point_mode = Some(new);
+                    point_mode = Some(header_short(db, name).ok_or_else(|| unsupported(name))?);
                 }
                 b"$PDSIZE" => {
-                    let new = header_real(db, name)
-                        .filter(|&new| header_real(base, name).map(bd_width) == Some(bd_width(new)))
-                        .ok_or_else(|| unsupported(name))?;
-                    point_size = Some(new);
+                    point_size = Some(header_real(db, name).ok_or_else(|| unsupported(name))?);
                 }
                 _ => return Err(unsupported(name)),
             }
@@ -1571,15 +1563,6 @@ fn header_real(db: &AcadDb, name: &[u8]) -> Option<f64> {
             },
         ] if value.is_finite() => Some(*value),
         _ => None,
-    }
-}
-
-/// BD で `value` を書くときのビットの数（ODS 2.5 の BITDOUBLE）
-fn bd_width(value: f64) -> u32 {
-    if value.to_bits() == 1.0f64.to_bits() || value.to_bits() == 0 {
-        2
-    } else {
-        66
     }
 }
 

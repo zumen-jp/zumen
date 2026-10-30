@@ -7,7 +7,8 @@
 //!
 //! 点マーカーは、記号の表記の実体（`ANNOTATION_SYMBOL_OCCURRENCE`）である。形を変えるときは、位置・向き・尺度の
 //! SYMBOL_TARGET と、マーカーの名前の DEFINED_SYMBOL を足し、色を変えるときは SYMBOL_COLOUR と記号の見え方を足して、
-//! 表記の実体がそれを指すようにする（決定 0190）。
+//! 表記の実体がそれを指すようにする（決定 0190）。元の記号の見え方の割り当てがほかの見え方も持てば、それらを写した
+//! 割り当てを足す（決定 0193）。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -410,10 +411,15 @@ impl<'f> P21<'f> {
 
     /// 記号の色（SYMBOL_COLOUR）と見え方の割り当てを足し、その番号を返す
     fn symbol_style(&mut self, code: i64) -> Option<u64> {
+        let style = self.symbol_colour_style(code)?;
+        self.instance(format!("PRESENTATION_STYLE_ASSIGNMENT((#{style}))"))
+    }
+
+    /// 記号の色（SYMBOL_COLOUR）と記号の見え方（SYMBOL_STYLE）を足し、記号の見え方の番号を返す
+    fn symbol_colour_style(&mut self, code: i64) -> Option<u64> {
         let colour = self.color(code)?;
         let symbol = self.instance(format!("SYMBOL_COLOUR(#{colour})"))?;
-        let style = self.instance(format!("SYMBOL_STYLE(' ',#{symbol})"))?;
-        self.instance(format!("PRESENTATION_STYLE_ASSIGNMENT((#{style}))"))
+        self.instance(format!("SYMBOL_STYLE(' ',#{symbol})"))
     }
 
     fn circle(&mut self, x: f64, y: f64, radius: f64) -> Option<u64> {
@@ -816,8 +822,9 @@ impl P21<'_> {
         Some(())
     }
 
-    /// 点マーカーの色を変える。記号の見え方の割り当てを足し、元の記号の見え方の割り当てと置き換える。なければ並びの
-    /// 終わりへ足す。点マーカーは色（引数の 1）だけを持つ
+    /// 点マーカーの色を変える。記号の見え方の割り当てを足し、元の記号の見え方の割り当てと置き換える。元の割り当てが
+    /// ほかの見え方も持てば、それらを同じ順に写す（決定 0193）。なければ並びの終わりへ足す。点マーカーは色（引数の 1）
+    /// だけを持つ
     fn symbol_codes(&mut self, styles: Slot, codes: &[(usize, i64)]) -> Option<()> {
         let [(1, code)] = codes else {
             return None;
@@ -832,21 +839,31 @@ impl P21<'_> {
                         .any(|style| self.slot(*style, "SYMBOL_STYLE", 0).is_some())
                 })
         });
-        let assignment = self.symbol_style(*code)?;
         match found {
             Some(index) => {
                 let was = *list.get(index)?;
-                if self
-                    .list(self.slot(was, "PRESENTATION_STYLE_ASSIGNMENT", 0)?)?
-                    .len()
-                    != 1
-                {
-                    return None;
+                // 割り当てがほかの見え方も持てば、それらを写し、記号の見え方だけを付け替えた割り当てを足す（決定 0193）
+                let style = self.symbol_colour_style(*code)?;
+                let mut styles = Vec::new();
+                for item in self.list(self.slot(was, "PRESENTATION_STYLE_ASSIGNMENT", 0)?)? {
+                    let item = if self.slot(item, "SYMBOL_STYLE", 0).is_some() {
+                        style
+                    } else {
+                        item
+                    };
+                    if !styles.contains(&item) {
+                        styles.push(item);
+                    }
                 }
+                let styles: Vec<_> = styles.iter().map(|item| format!("#{item}")).collect();
+                let assignment = self.instance(format!(
+                    "PRESENTATION_STYLE_ASSIGNMENT(({}))",
+                    styles.join(",")
+                ))?;
                 *list.get_mut(index)? = assignment;
                 self.loose.push(was);
             }
-            None => list.push(assignment),
+            None => list.push(self.symbol_style(*code)?),
         }
         self.lists.insert(styles, list);
         Some(())

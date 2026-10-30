@@ -809,6 +809,8 @@ pub struct DrawingResult {
     pub spaces: Vec<SpaceSummary>,
     /// 用紙。モデルの順
     pub sheets: Vec<SheetSummary>,
+    /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。小版 39 から
+    pub point_style: Option<PointStyleSummary>,
 }
 
 impl DrawingResult {
@@ -820,10 +822,12 @@ impl DrawingResult {
         let sheets = object.required("sheets", |value| {
             json::array(value, SheetSummary::from_json)
         })?;
+        let point_style = object.optional("point_style", PointStyleSummary::from_json)?;
         Ok(Self {
             hash,
             spaces,
             sheets,
+            point_style,
         })
     }
 
@@ -836,6 +840,10 @@ impl DrawingResult {
         out.array(&self.spaces, |out, item| item.to_json(out));
         out.key("sheets");
         out.array(&self.sheets, |out, item| item.to_json(out));
+        if let Some(value) = &self.point_style {
+            out.key("point_style");
+            value.to_json(out);
+        }
     }
 }
 
@@ -849,6 +857,68 @@ impl FromJson for DrawingResult {
 }
 
 impl ToJson for DrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 文書の点の表し方。欄の意味は point_style_edit と同じ
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointStyleSummary {
+    /// 基本の形
+    pub mark: PointMark,
+    /// 円で囲む
+    pub circle: bool,
+    /// 四角で囲む
+    pub square: bool,
+    /// 大きさ。意味は size_kind で決まる
+    pub size: f64,
+    /// 大きさの意味
+    pub size_kind: PointSizeKind,
+}
+
+impl PointStyleSummary {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let mark = object.required("mark", PointMark::from_json)?;
+        let circle = object.required("circle", json::boolean)?;
+        let square = object.required("square", json::boolean)?;
+        let size = object.required("size", json::number)?;
+        let size_kind = object.required("size_kind", PointSizeKind::from_json)?;
+        Ok(Self {
+            mark,
+            circle,
+            square,
+            size,
+            size_kind,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("mark");
+        self.mark.to_json(out);
+        out.key("circle");
+        out.bool(self.circle);
+        out.key("square");
+        out.bool(self.square);
+        out.key("size");
+        out.float(self.size);
+        out.key("size_kind");
+        self.size_kind.to_json(out);
+    }
+}
+
+impl FromJson for PointStyleSummary {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointStyleSummary {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -3616,7 +3686,7 @@ pub enum Edit {
     AddDimensionStyle(AddDimensionStyleEdit),
     /// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から
     RemoveDimensionStyle(RemoveDimensionStyleEdit),
-    /// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を書けない。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
+    /// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
     PointStyle(PointStyleEdit),
 }
 
@@ -4871,7 +4941,7 @@ impl ToJson for RemoveDimensionStyleEdit {
     }
 }
 
-/// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を書けない。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
+/// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct PointStyleEdit {
     /// 基本の形

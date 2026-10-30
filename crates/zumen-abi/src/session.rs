@@ -6,7 +6,8 @@ use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
-    Applied, Drawing2D, Element, Encode, Hash, Leader, Placement, Shape, Unit, id,
+    Applied, Drawing2D, Element, Encode, Hash, Leader, Placement, PointMark, PointSize, PointStyle,
+    Shape, Unit, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -23,8 +24,8 @@ use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CheckRequest,
     CheckResult, CloseRequest, CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine,
     EntitiesRequest, EntitiesResult, Entity, EntityField, EntityKind, Extent, Format, OpenRequest,
-    OpenResult, Request, RequestCommon, SceneRequest, SceneResult, SchemaVersion, SessionOptions,
-    SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
+    OpenResult, PointStyleSummary, Request, RequestCommon, SceneRequest, SceneResult,
+    SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
 };
 use crate::scene;
 use crate::tables::{
@@ -787,7 +788,29 @@ fn summary(
                 })
             })
             .collect::<Result<_, Failed>>()?,
+        point_style: drawing.point_style.map(point_style_summary),
     })
+}
+
+/// 文書の点の表し方の要約（決定 0193）
+fn point_style_summary(style: PointStyle) -> PointStyleSummary {
+    let (size, size_kind) = match style.size {
+        PointSize::Length(size) => (size, messages::PointSizeKind::Length),
+        PointSize::Screen(size) => (size, messages::PointSizeKind::Screen),
+    };
+    PointStyleSummary {
+        mark: match style.mark {
+            PointMark::Dot => messages::PointMark::Dot,
+            PointMark::None => messages::PointMark::None,
+            PointMark::Plus => messages::PointMark::Plus,
+            PointMark::Cross => messages::PointMark::Cross,
+            PointMark::Tick => messages::PointMark::Tick,
+        },
+        circle: style.circle,
+        square: style.square,
+        size,
+        size_kind,
+    }
 }
 
 /// entities の op で返す範囲と、そこまでに数えた要素
@@ -1569,7 +1592,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":38}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":39}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -4648,6 +4671,16 @@ mod tests {
         assert!(header.contains("$PDMODE\n 70\n35\n"), "{header}");
         assert!(header.contains("$PDSIZE\n 40\n2.5\n"), "{header}");
         assert_eq!(shapes(&mut session, "a.dxf"), before);
+        // drawing の point_style で、今の点の表し方を読める（決定 0193）
+        let (status, response) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/point_style/mark"), "cross");
+        assert_eq!(
+            response.pointer("/result/point_style/circle"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(number(&response, "/result/point_style/size"), "2.5");
+        assert_eq!(text(&response, "/result/point_style/size_kind"), "length");
     }
 
     #[test]

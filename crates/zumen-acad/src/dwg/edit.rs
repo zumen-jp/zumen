@@ -7,6 +7,10 @@
 //! 足したオブジェクトは、変えたオブジェクトと同じく後ろに足し、地図に加える。見出しの変数の HANDSEED は、
 //! 大きさ（バイト）が変わらないときだけ、その場で書き換えて区切りの CRC を直す（決定 0052）。
 //!
+//! 見出しの変数の PDMODE・PDSIZE を書く幅が変わり、見出しの区切りの大きさが変われば、R2000 は書き直した区切りを
+//! ファイルの後ろに足し、区切りの記録の位置と大きさと、見出しの CRC を直す。元の区切りのバイトは残る。R2004 からは、
+//! 展開した見出しの区切りの中で置き換える（決定 0193）。
+//!
 //! R2004 は、展開した `AcDb:AcDbObjects` の区切りの後ろにオブジェクトを足し、`AcDb:Handles` の区切りを
 //! 作り直して、入れ物の区切りを置き換える（決定 0071）。入れ物は、書くときに組み直す（決定 0070）。
 
@@ -109,15 +113,15 @@ impl DwgTxn<'_> {
         Ok(())
     }
 
-    /// 見出しの変数の PDMODE（点の表し方）を `mode` にする（決定 0190）。大きさ（バイト）が変わる値なら、確定のときに
-    /// 失敗する
+    /// 見出しの変数の PDMODE（点の表し方）を `mode` にする（決定 0190）。書く幅が変われば、見出しの区切りの大きさを
+    /// 変える（決定 0193）
     pub fn set_point_mode(&mut self, mode: i16) -> Result<(), Error> {
         self.values.point_mode = Some(mode);
         Ok(())
     }
 
-    /// 見出しの変数の PDSIZE（点の大きさ）を `size` にする（決定 0190）。大きさ（バイト）が変わる値なら、確定のときに
-    /// 失敗する
+    /// 見出しの変数の PDSIZE（点の大きさ）を `size` にする（決定 0190）。書く幅が変われば、見出しの区切りの大きさを
+    /// 変える（決定 0193）
     pub fn set_point_size(&mut self, size: f64) -> Result<(), Error> {
         self.values.point_size = Some(size);
         Ok(())
@@ -189,8 +193,10 @@ impl Transaction for DwgTxn<'_> {
                     )
                 })?;
         }
+        // 大きさが変わった見出しの区切り。R2000 は、ファイルの後ろに置いて区切りの記録を直す（決定 0193）
+        let mut moved_header = None;
         if self.values.any() {
-            header
+            let (span, section) = header
                 .and_then(|start| set_values(header_src, start, release, self.values))
                 .ok_or_else(|| {
                     invalid(
@@ -199,6 +205,14 @@ impl Transaction for DwgTxn<'_> {
                         header.unwrap_or(0)..header_src.len(),
                     )
                 })?;
+            if section.len() == span.len() {
+                put(header_src, span.start, &section).ok_or(Error::Rejected)?;
+            } else if container.is_some() {
+                // R2004 からは、展開した区切りの中で置き換える。入れ物は書くときに組み直す（決定 0070）
+                header_src.splice(span, section);
+            } else {
+                moved_header = Some(section);
+            }
         }
         for (record, data) in self.staged {
             let Some(entry) = entries.get_mut(record) else {
@@ -235,6 +249,16 @@ impl Transaction for DwgTxn<'_> {
             file.entries = entries;
             return Ok(());
         }
+        let mut locators = file.locators.clone();
+        if let Some(section) = moved_header {
+            let at = src.len();
+            src.extend_from_slice(&section);
+            let (Ok(seeker), Ok(size)) = (u32::try_from(at), u32::try_from(section.len())) else {
+                return Err(invalid(cx, "header variables", at..src.len()));
+            };
+            set_locator(&mut src, &mut locators, header::NUMBER, seeker, size)
+                .ok_or_else(|| invalid(cx, "header", 0..at))?;
+        }
         let map = src.len();
         push_object_map(&mut src, &entries);
         let size = src.len() - map;
@@ -242,21 +266,11 @@ impl Transaction for DwgTxn<'_> {
         let (Ok(seeker), Ok(size)) = (u32::try_from(map), u32::try_from(size)) else {
             return Err(invalid(cx, "object-map", map..at));
         };
-        let mut locators = file.locators.clone();
-        let Some(index) = locators.iter().position(|l| l.number == OBJECT_MAP_NUMBER) else {
+        if !locators.iter().any(|l| l.number == OBJECT_MAP_NUMBER) {
             return Err(invalid(cx, "object-map", 0..at));
-        };
-        let place = LOCATORS_START + index * LOCATOR_SIZE;
-        let crc_at = LOCATORS_START + locators.len() * LOCATOR_SIZE;
-        put(&mut src, place + 1, &seeker.to_le_bytes())
-            .and_then(|()| put(&mut src, place + 5, &size.to_le_bytes()))
-            .ok_or_else(|| invalid(cx, "header", 0..at))?;
-        let crc = crc16(0, src.get(..crc_at).unwrap_or_default()) ^ header_crc_mask(locators.len());
-        put(&mut src, crc_at, &crc.to_le_bytes()).ok_or_else(|| invalid(cx, "header", 0..at))?;
-        if let Some(locator) = locators.get_mut(index) {
-            locator.seeker = seeker;
-            locator.size = size;
         }
+        set_locator(&mut src, &mut locators, OBJECT_MAP_NUMBER, seeker, size)
+            .ok_or_else(|| invalid(cx, "header", 0..at))?;
         file.src = src;
         file.entries = entries;
         file.locators = locators;
@@ -280,6 +294,27 @@ impl Transact for DwgFile {
             rejected: None,
         }
     }
+}
+
+/// R2000 のファイルの見出しの、番号 `number` の区切りの記録の位置と大きさを書き直し、見出しの CRC を直す
+fn set_locator(
+    src: &mut [u8],
+    locators: &mut [super::Locator],
+    number: u8,
+    seeker: u32,
+    size: u32,
+) -> Option<()> {
+    let index = locators.iter().position(|l| l.number == number)?;
+    let place = LOCATORS_START + index * LOCATOR_SIZE;
+    let crc_at = LOCATORS_START + locators.len() * LOCATOR_SIZE;
+    put(src, place + 1, &seeker.to_le_bytes())?;
+    put(src, place + 5, &size.to_le_bytes())?;
+    let crc = crc16(0, src.get(..crc_at)?) ^ header_crc_mask(locators.len());
+    put(src, crc_at, &crc.to_le_bytes())?;
+    let locator = locators.get_mut(index)?;
+    locator.seeker = seeker;
+    locator.size = size;
+    Some(())
 }
 
 /// `at` から `bytes` を書き込む

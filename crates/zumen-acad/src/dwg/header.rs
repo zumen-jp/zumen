@@ -493,53 +493,71 @@ impl Values {
     }
 }
 
-/// `start` から始まる版 `release` の見出しの変数の区切りの、`values` の変数を書き直し、区切りの CRC を直す
-/// （決定 0069・0078・0084・0190）。データの大きさ（バイト）が変わる値なら `None`。R2010 からは、主のデータの後の
-/// 文字列とハンドルの流れがずれないよう、ビットの数が変わる値でも `None`
+/// `start` から始まる版 `release` の見出しの変数の区切りの、`values` の変数を書き直した区切り（始まりの印から終わりの
+/// 印まで）と、元の区切りの範囲を返す（決定 0069・0078・0084・0190・0193）。CRC は計算し直す。
+///
+/// PDMODE・PDSIZE のビットの数が変われば、後ろのビットをそのままずらし、区切りの大きさ（RL）を書き直す。R2010 からは、
+/// データの初めの文字列の流れの終わりの位置（RL）も同じだけずらす。文字列の流れの大きさと有無の印は、その位置から
+/// 前へ数えるので変わらない（オブジェクトと同じ。決定 0193）。INSUNITS は、BS の幅が変わる値なら `None`
 pub(super) fn set_values(
-    src: &mut [u8],
+    src: &[u8],
     start: usize,
     release: Release,
     values: Values,
-) -> Option<()> {
+) -> Option<(Range<usize>, Vec<u8>)> {
     first_fields(release)?;
     let (data, crc_at) = section(src, start, release)?;
-    let data = data.to_vec();
     let data_at = crc_at - data.len();
-    let found = variables(&mut streams(&data, release)?)?;
-    let mut bits = Bits::with_release(&data, release);
+    let found = variables(&mut streams(data, release)?)?;
+    let mut bits = Bits::with_release(data, release);
     let mut out = BitWriter::default();
     // PDMODE（BS）
-    out.copy(&data, 0..found.point_mode_at)?;
+    out.copy(data, 0..found.point_mode_at)?;
     bits.seek(found.point_mode_at);
     bits.bs()?;
     match values.point_mode {
         Some(mode) => out.bs(mode),
-        None => out.copy(&data, found.point_mode_at..bits.pos())?,
+        None => out.copy(data, found.point_mode_at..bits.pos())?,
     }
     // PDSIZE（BD）
-    out.copy(&data, bits.pos()..found.point_size_at)?;
+    out.copy(data, bits.pos()..found.point_size_at)?;
     bits.seek(found.point_size_at);
     bits.bd()?;
     match values.point_size {
         Some(size) => out.bd(size),
-        None => out.copy(&data, found.point_size_at..bits.pos())?,
+        None => out.copy(data, found.point_size_at..bits.pos())?,
     }
     // PLIMMIN・PLIMMAX（RD）
-    out.copy(&data, bits.pos()..found.limits_at)?;
+    out.copy(data, bits.pos()..found.limits_at)?;
     for value in values.limits.unwrap_or(found.limits) {
         out.rd(value);
     }
-    // INSUNITS（BS）
-    out.copy(&data, found.limits_at + 4 * 64..found.units_at)?;
+    // INSUNITS（BS）。幅が変わる値は、まだ受け付けない（決定 0069）
+    out.copy(data, found.limits_at + 4 * 64..found.units_at)?;
     bits.seek(found.units_at);
     bits.bs()?;
+    let units_at = out.len();
     out.bs(values.units.unwrap_or(found.units));
-    if release >= Release::R2010 && out.len() != bits.pos() {
+    if out.len() - units_at != bits.pos() - found.units_at {
         return None;
     }
-    out.copy(&data, bits.pos()..data.len() * 8)?;
-    store(src, start, data_at, crc_at, out)
+    let shift = out.len() as i64 - bits.pos() as i64;
+    out.copy(data, bits.pos()..data.len() * 8)?;
+    let mut data = out.into_bytes();
+    if release >= Release::R2010 && shift != 0 {
+        let end = i64::from(le32(&data, 0)?).checked_add(shift)?;
+        data.get_mut(..4)?
+            .copy_from_slice(&u32::try_from(end).ok()?.to_le_bytes());
+    }
+    // 始まりの印・大きさ（RL）・R2010 からの上位の RL・データ・CRC・終わりの印
+    let mut section = src.get(start..start + 16)?.to_vec();
+    section.extend_from_slice(&u32::try_from(data.len()).ok()?.to_le_bytes());
+    section.extend_from_slice(src.get(start + 20..data_at)?);
+    section.extend_from_slice(&data);
+    let crc = crc16(OBJECT_CRC_SEED, section.get(16..)?);
+    section.extend_from_slice(&crc.to_le_bytes());
+    section.extend_from_slice(&END);
+    Some((start..crc_at + 18, section))
 }
 
 /// 見出しの変数の区切りのデータを、同じ大きさ（バイト）の `out` に置き換え、CRC を直す。大きさが違えば `None`
@@ -559,4 +577,230 @@ fn store(
     src.get_mut(crc_at..crc_at + 2)?
         .copy_from_slice(&crc.to_le_bytes());
     Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+
+    const PAPER: u64 = 0x58;
+    const MODEL: u64 = 0x1F;
+    const LIMITS: [f64; 4] = [1.0, 2.0, 307.0, 220.0];
+
+    /// 主のデータと、R2010 からのハンドルの流れ
+    struct Streams {
+        release: Release,
+        main: BitWriter,
+        handles: Option<BitWriter>,
+    }
+
+    impl Streams {
+        /// 0 と空の値で書く。文字列は "acad"、ハンドルは 0x40
+        fn put(&mut self, field: Field, count: usize) {
+            for _ in 0..count {
+                match field {
+                    B => self.main.bit(false),
+                    Bs => self.main.bs(0),
+                    Bl => self.main.bl(0),
+                    Bd => self.main.bd(0.0),
+                    Rd => self.main.rd(0.0),
+                    Rc => self.main.rc(0),
+                    Tv => self.main.text(b"acad").unwrap(),
+                    H => self.handle(0x40),
+                    Seed => self.main.handle(0, 0x99),
+                    Cmc => {
+                        self.main.bs(0);
+                        if self.release >= Release::R2004 {
+                            self.main.bl(0);
+                            self.main.rc(0);
+                        }
+                    }
+                }
+            }
+        }
+
+        fn handle(&mut self, value: u64) {
+            self.handles
+                .as_mut()
+                .unwrap_or(&mut self.main)
+                .handle(5, value);
+        }
+    }
+
+    /// 版 `release` の見出しの変数の区切りを、読む側の並びどおりに作る。PDMODE・PDSIZE は `point`、INSUNITS は 4、
+    /// 用紙空間の範囲は [`LIMITS`]。R2010 からは文字列とハンドルを別の流れに書き、`high` なら大きさの後に上位の RL を
+    /// 置く
+    fn section_of(release: Release, (mode, size): (i16, f64), high: bool) -> Vec<u8> {
+        let split = release >= Release::R2010;
+        let mut s = Streams {
+            release,
+            main: if split {
+                BitWriter::with_strings()
+            } else {
+                BitWriter::default()
+            },
+            handles: split.then(BitWriter::default),
+        };
+        if release >= Release::R2013 {
+            // REQUIREDVERSIONS（BLL の 0）
+            s.main.bb(0);
+            s.main.bit(false);
+        }
+        let (mut bs_seen, mut bd_seen) = (false, false);
+        for &(field, count) in first_fields(release).unwrap() {
+            match field {
+                Bs if !bs_seen => {
+                    s.put(Bs, 7);
+                    s.main.bs(mode);
+                    s.put(Bs, count - 8);
+                    bs_seen = true;
+                }
+                Bd if !bd_seen && count == 21 => {
+                    s.put(Bd, 7);
+                    s.main.bd(size);
+                    s.put(Bd, 13);
+                    bd_seen = true;
+                }
+                _ => s.put(field, count),
+            }
+        }
+        // 用紙空間の LIMMIN・LIMMAX が PLIMMIN・PLIMMAX
+        s.put(SPACE[0].0, SPACE[0].1);
+        for value in LIMITS {
+            s.main.rd(value);
+        }
+        for &(field, count) in SPACE[2..].iter().chain(&SPACE) {
+            s.put(field, count);
+        }
+        let last: &[(Field, usize)] = if split { &LAST_R2010 } else { &LAST };
+        let tail: &[(Field, usize)] = match release {
+            Release::R2000 => &TAIL,
+            Release::R2004 => &TAIL_R2004,
+            Release::R2010 => &TAIL_R2010,
+            Release::R2013 | Release::R2018 => &TAIL_R2013,
+        };
+        for &(field, count) in last.iter().chain(tail.split_last().unwrap().1) {
+            s.put(field, count);
+        }
+        // INSUNITS、CEPSNTYPE（3）と CPSNID、FINGERPRINTGUID・VERSIONGUID
+        s.main.bs(4);
+        s.main.bs(3);
+        s.put(H, 1);
+        s.put(Tv, 2);
+        if release >= Release::R2004 {
+            for &(field, count) in &GUIDS_R2004 {
+                s.put(field, count);
+            }
+        }
+        s.handle(PAPER);
+        s.handle(MODEL);
+        let data = match s.handles {
+            Some(handles) => {
+                let mut main = s.main;
+                let strings = main.take_strings();
+                let mut data = BitWriter::default();
+                data.rl(0);
+                let len = main.len();
+                data.copy(&main.into_bytes(), 0..len).unwrap();
+                let len = strings.len();
+                data.copy(&strings.into_bytes(), 0..len).unwrap();
+                data.rs(i16::try_from(len).unwrap());
+                data.bit(true);
+                let end = data.len();
+                let len = handles.len();
+                data.copy(&handles.into_bytes(), 0..len).unwrap();
+                let mut data = data.into_bytes();
+                data[..4].copy_from_slice(&u32::try_from(end).unwrap().to_le_bytes());
+                data
+            }
+            None => s.main.into_bytes(),
+        };
+        let mut out = START.to_vec();
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_le_bytes());
+        if high {
+            out.extend_from_slice(&[0; 4]);
+        }
+        out.extend_from_slice(&data);
+        let crc = crc16(OBJECT_CRC_SEED, &out[16..]);
+        out.extend_from_slice(&crc.to_le_bytes());
+        out.extend_from_slice(&END);
+        out
+    }
+
+    fn read(src: &[u8], release: Release) -> (Option<Header>, Diagnostics) {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let found = header(
+            src,
+            0..src.len(),
+            release,
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        (found, diag)
+    }
+
+    /// PDMODE・PDSIZE を書く幅が変わると、区切りの大きさが変わる。後ろの変数と、R2010 からの文字列とハンドルの流れは
+    /// 元のまま読める（決定 0193）
+    #[test]
+    fn point_values_of_another_width_resize_the_section() {
+        let releases = [
+            (Release::R2000, false),
+            (Release::R2004, false),
+            (Release::R2010, false),
+            (Release::R2013, true),
+            (Release::R2018, false),
+        ];
+        let changes = [
+            ((3, 2.5), (0, 0.0)),
+            ((0, 0.0), (35, -7.5)),
+            ((0, 1.0), (68, 0.0)),
+            ((3, 2.5), (4, 5.0)),
+        ];
+        for (release, high) in releases {
+            for (from, to) in changes {
+                let src = section_of(release, from, high);
+                let (before, diag) = read(&src, release);
+                let before = before.unwrap();
+                assert!(diag.is_empty(), "{release:?} {from:?}");
+                assert_eq!((before.point_mode, before.point_size), from);
+                let values = Values {
+                    point_mode: Some(to.0),
+                    point_size: Some(to.1),
+                    ..Values::default()
+                };
+                let (span, section) = set_values(&src, 0, release, values).unwrap();
+                assert_eq!(span, 0..src.len());
+                let (after, diag) = read(&section, release);
+                let after = after.unwrap_or_else(|| panic!("{release:?} {from:?} {to:?}"));
+                assert!(diag.is_empty(), "{release:?} {from:?} {to:?}");
+                assert_eq!((after.point_mode, after.point_size), to);
+                assert_eq!(
+                    (after.paper, after.model, after.units, after.limits),
+                    (PAPER, MODEL, 4, LIMITS),
+                    "{release:?} {from:?} {to:?}"
+                );
+                // 区切りの大きさは、ずれたビットの分だけ変わる
+                let bits = |(mode, size): (i16, f64)| {
+                    let mut w = BitWriter::default();
+                    w.bs(mode);
+                    w.bd(size);
+                    w.len() as i64
+                };
+                let shift = bits(to) - bits(from);
+                assert_eq!(
+                    (section.len() as i64 - src.len() as i64) * 8,
+                    shift,
+                    "{release:?}"
+                );
+            }
+            // INSUNITS の幅が変わる値は、まだ書かない
+            let src = section_of(release, (3, 2.5), high);
+            let values = Values {
+                units: Some(0),
+                ..Values::default()
+            };
+            assert!(set_values(&src, 0, release, values).is_none());
+        }
+    }
 }

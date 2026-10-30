@@ -232,9 +232,26 @@
           "description": "用紙。モデルの順",
           "type": "array",
           "items": { "$ref": "#/$defs/sheet_summary" }
+        },
+        "point_style": {
+          "description": "文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。小版 39 から",
+          "$ref": "#/$defs/point_style_summary"
         }
       },
       "required": ["spaces", "sheets"],
+      "additionalProperties": false
+    },
+    "point_style_summary": {
+      "description": "文書の点の表し方。欄の意味は point_style_edit と同じ",
+      "type": "object",
+      "properties": {
+        "mark": { "description": "基本の形", "$ref": "#/$defs/point_mark" },
+        "circle": { "description": "円で囲む", "type": "boolean" },
+        "square": { "description": "四角で囲む", "type": "boolean" },
+        "size": { "description": "大きさ。意味は size_kind で決まる", "type": "number" },
+        "size_kind": { "description": "大きさの意味", "$ref": "#/$defs/point_size_kind" }
+      },
+      "required": ["mark", "circle", "square", "size", "size_kind"],
       "additionalProperties": false
     },
     "space_summary": {
@@ -1106,7 +1123,7 @@
       "additionalProperties": false
     },
     "point_style_edit": {
-      "description": "文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を書けない。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から",
+      "description": "文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から",
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "point_style" },

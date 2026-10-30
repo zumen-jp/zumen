@@ -226,3 +226,4 @@
 - [0190: P21 の点マーカーを記号の実体を足して書き戻し、文書の点の表し方を変える変更を足す](0190-drawing-apply-p21-markers-and-point-styles.md)（2026-10-31、採用）
 - [0191: MULTILEADER の変換・文字の書き直し・DWG の値の書き戻しと、注記の反応子を足す](0191-drawing-apply-multileaders-and-reactors.md)（2026-10-31、採用）
 - [0192: 2007 より前の版に書き戻す文字は、読むときの表を逆に引いて符号化し、表せない文字は断る](0192-acad-code-page-write-back.md)（2026-10-31、採用）
+- [0193: DWG の見出しの区切りの大きさを変えて点の表し方を書き、境界で点の表し方を読み、P21 の見え方の割り当てを写す](0193-dwg-header-resize-and-point-style-read.md)（2026-10-31、採用）
