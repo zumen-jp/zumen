@@ -7,13 +7,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Diagnostic, Diagnostics, Kind, Ref, codes};
+use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Hash, Inherit,
     LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength, Placed, Seen,
     Shape, SpaceId, Style, id, transform,
 };
-use zumen_sdk::{Apply, Codec, Cx, Error, Lift};
+use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
 use super::{Header, PEN_WIDTH_SINCE, SXF_SINCE, TURN};
 use crate::parse::Reader;
@@ -182,30 +182,30 @@ impl Apply<Changes> for JwwFile {
                         })
                 }
                 Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
-                    cx.report(unsupported(edit_name(change), "layer"));
+                    cx.report(unsupported(change.name(), "layer"));
                     None
                 }
                 Edit::ReplaceTextStyle { .. }
                 | Edit::AddTextStyle { .. }
                 | Edit::RemoveTextStyle { .. } => {
-                    cx.report(unsupported(edit_name(change), "text_style"));
+                    cx.report(unsupported(change.name(), "text_style"));
                     None
                 }
                 Edit::ReplaceLineType { .. }
                 | Edit::AddLineType { .. }
                 | Edit::RemoveLineType { .. } => {
-                    cx.report(unsupported(edit_name(change), "line_type"));
+                    cx.report(unsupported(change.name(), "line_type"));
                     None
                 }
                 Edit::ReplaceDimensionStyle { .. }
                 | Edit::AddDimensionStyle { .. }
                 | Edit::RemoveDimensionStyle { .. } => {
-                    cx.report(unsupported(edit_name(change), "dimension_style"));
+                    cx.report(unsupported(change.name(), "dimension_style"));
                     None
                 }
             };
             match result {
-                Some(result) => expected.push((edit_name(change), result)),
+                Some(result) => expected.push((change.name(), result)),
                 None => rejected = true,
             }
         }
@@ -303,17 +303,6 @@ impl Apply<Changes> for JwwFile {
         Ok((applied, shifted))
     }
 }
-
-/// 診断を混ぜずに読む・変換する。止めたときだけ、止めた理由を文脈に足す
-fn quietly<T>(cx: &mut Cx, run: impl FnOnce(&mut Cx) -> Result<T, Error>) -> Result<T, Error> {
-    let mut quiet = Diagnostics::new();
-    let result = run(&mut Cx::new(cx.budget, &mut quiet, cx.cancel));
-    if let Err(Error::Stopped(stop)) = &result {
-        cx.report(stop.to_diagnostic());
-    }
-    result
-}
-
 /// 予算の work を使う
 fn work(cx: &mut Cx, amount: u64) -> Result<(), Error> {
     cx.check(Kind::Work, amount).map_err(|stop| {
@@ -338,30 +327,6 @@ enum Expected {
     /// 足した順の番号の要素が、このレイヤ・スタイル・形になる
     Added(usize, LayerId, Style, Shape<ModelPoint>),
 }
-
-/// 変更の名前。診断の `edit` に書く
-fn edit_name(edit: &Edit) -> &'static str {
-    match edit {
-        Edit::Replace { .. } => "replace",
-        Edit::Restyle { .. } => "restyle",
-        Edit::Transform { .. } => "transform",
-        Edit::Add { .. } => "add",
-        Edit::Remove { .. } => "remove",
-        Edit::ReplaceLayer { .. } => "replace_layer",
-        Edit::AddLayer { .. } => "add_layer",
-        Edit::RemoveLayer { .. } => "remove_layer",
-        Edit::ReplaceTextStyle { .. } => "replace_text_style",
-        Edit::AddTextStyle { .. } => "add_text_style",
-        Edit::RemoveTextStyle { .. } => "remove_text_style",
-        Edit::ReplaceLineType { .. } => "replace_line_type",
-        Edit::AddLineType { .. } => "add_line_type",
-        Edit::RemoveLineType { .. } => "remove_line_type",
-        Edit::ReplaceDimensionStyle { .. } => "replace_dimension_style",
-        Edit::AddDimensionStyle { .. } => "add_dimension_style",
-        Edit::RemoveDimensionStyle { .. } => "remove_dimension_style",
-    }
-}
-
 /// 当てられない変更の診断
 fn unsupported(edit: &str, kind: &str) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)

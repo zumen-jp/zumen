@@ -165,6 +165,31 @@ pub struct Restyle {
     pub line_weight: Option<Inherit<LineWeight>>,
 }
 
+impl Edit {
+    /// 変更の名前。診断の `edit` に書く
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Replace { .. } => "replace",
+            Self::Restyle { .. } => "restyle",
+            Self::Transform { .. } => "transform",
+            Self::Add { .. } => "add",
+            Self::Remove { .. } => "remove",
+            Self::ReplaceLayer { .. } => "replace_layer",
+            Self::AddLayer { .. } => "add_layer",
+            Self::RemoveLayer { .. } => "remove_layer",
+            Self::ReplaceTextStyle { .. } => "replace_text_style",
+            Self::AddTextStyle { .. } => "add_text_style",
+            Self::RemoveTextStyle { .. } => "remove_text_style",
+            Self::ReplaceLineType { .. } => "replace_line_type",
+            Self::AddLineType { .. } => "add_line_type",
+            Self::RemoveLineType { .. } => "remove_line_type",
+            Self::ReplaceDimensionStyle { .. } => "replace_dimension_style",
+            Self::AddDimensionStyle { .. } => "add_dimension_style",
+            Self::RemoveDimensionStyle { .. } => "remove_dimension_style",
+        }
+    }
+}
+
 impl Restyle {
     /// 元のレイヤとスタイルに、この変更を重ねたもの
     pub fn over(&self, layer: LayerId, style: &Style) -> (LayerId, Style) {
