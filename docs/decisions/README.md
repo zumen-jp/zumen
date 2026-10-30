@@ -213,3 +213,4 @@
 - [0177: 引出線を形で置き換えて足し、記号の定義の中にも要素を足す](0177-drawing-apply-leaders-and-definitions.md)（2026-10-30、採用）
 - [0178: シーンの区画を 1 つの列にし、配置を schema/scene.toml に置く](0178-scene-layout-columns.md)（2026-10-30、採用）
 - [0179: 照合する要素の種類、指摘の形、使えない規則の扱いを決める](0179-profile-check-details.md)（2026-10-30、採用）
+- [0180: TrueType のフォントの寸法は、依存を足さずに要る表だけを zumen-drawing で読む](0180-read-truetype-metrics-without-dependency.md)（2026-10-30、採用）

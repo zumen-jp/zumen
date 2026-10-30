@@ -29,6 +29,7 @@ mod callout;
 mod change;
 mod dimension;
 mod extension;
+pub mod font;
 mod hash;
 mod hatch;
 pub mod id;
