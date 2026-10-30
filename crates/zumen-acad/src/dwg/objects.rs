@@ -257,6 +257,9 @@ impl DwgFile {
             db.push(object);
         }
         db.set_variable(b"$ACADVER", vec![text_value(1, self.version())]);
+        if let Some(name) = code_page_name(self.code_page) {
+            db.set_variable(b"$DWGCODEPAGE", vec![text_value(3, name)]);
+        }
         if let Some(header) = header {
             let [x0, y0, x1, y1] = header.limits;
             db.set_variable(b"$INSUNITS", vec![int(70, i64::from(header.units))]);
@@ -4327,6 +4330,59 @@ fn text_value(code: i16, text: &[u8]) -> Value {
         code,
         data: Data::Text(caret(text)),
     }
+}
+
+/// 見出しのコード・ページの番号（ODS 5.4.1 の 3）を、DXF の `$DWGCODEPAGE` の名前にする。番号の順は ODA の
+/// コード・ページの列挙による（推定。30 が ANSI_1252 であることを試料の DWG と DXF で確かめた。docs/formats/dwg.md）。
+/// 0（未定義）と表にない番号は `None`
+fn code_page_name(number: u16) -> Option<&'static [u8]> {
+    const NAMES: [&[u8]; 44] = [
+        b"ASCII",
+        b"ISO8859-1",
+        b"ISO8859-2",
+        b"ISO8859-3",
+        b"ISO8859-4",
+        b"ISO8859-5",
+        b"ISO8859-6",
+        b"ISO8859-7",
+        b"ISO8859-8",
+        b"ISO8859-9",
+        b"DOS437",
+        b"DOS850",
+        b"DOS852",
+        b"DOS855",
+        b"DOS857",
+        b"DOS860",
+        b"DOS861",
+        b"DOS863",
+        b"DOS864",
+        b"DOS865",
+        b"DOS869",
+        b"DOS932",
+        b"MAC-ROMAN",
+        b"BIG5",
+        b"KSC5601",
+        b"JOHAB",
+        b"DOS866",
+        b"ANSI_1250",
+        b"ANSI_1251",
+        b"ANSI_1252",
+        b"GB2312",
+        b"ANSI_1253",
+        b"ANSI_1254",
+        b"ANSI_1255",
+        b"ANSI_1256",
+        b"ANSI_1257",
+        b"ANSI_874",
+        b"ANSI_932",
+        b"ANSI_936",
+        b"ANSI_949",
+        b"ANSI_950",
+        b"ANSI_1361",
+        b"ANSI_1200",
+        b"ANSI_1258",
+    ];
+    NAMES.get(usize::from(number).checked_sub(1)?).copied()
 }
 
 fn real(code: i16, value: f64) -> Value {

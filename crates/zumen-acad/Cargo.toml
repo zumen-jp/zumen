@@ -14,11 +14,13 @@ formats = ["dxf", "dwg"]
 zumen-base = { path = "../zumen-base" }
 zumen-sdk = { path = "../zumen-sdk" }
 zumen-drawing = { path = "../zumen-drawing", optional = true }
+# 2007 より前の版の Shift_JIS（ANSI_932）の文字を戻す。WHATWG の Shift_JIS で、環境によらない（決定 0175）
+encoding_rs = { version = "0.8.35", optional = true }
 
 [features]
 default = ["drawing"]
 # DXF から図面モデル（L2）への変換。L1 だけを使うなら外せる
-drawing = ["dep:zumen-drawing"]
+drawing = ["dep:zumen-drawing", "dep:encoding_rs"]
 
 [dev-dependencies]
 libm = { version = "0.2.16", default-features = false }

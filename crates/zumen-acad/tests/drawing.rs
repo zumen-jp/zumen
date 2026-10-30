@@ -451,7 +451,7 @@ fn e9_what_cannot_be_lifted_is_reported_per_record() {
         (40, "1.0"),
         (1, "A"),
         (72, "9"),
-        // 8: コード・ページの版の ASCII でない文字
+        // 8: コード・ページのない 2007 より前の版の、ASCII でない文字
         (0, "TEXT"),
         (8, "0"),
         (10, "0.0"),
@@ -547,6 +547,142 @@ fn text_after_2007_is_read_as_utf8() {
         panic!()
     };
     assert_eq!(text.content, "\u{56f3}\u{9762}");
+}
+
+/// `from` の文字を、生のバイト列 `to` に置き換える。2007 より前の版の符号化した文字を試すのに使う
+fn encoded(src: Vec<u8>, from: &str, to: &[u8]) -> Vec<u8> {
+    let from = from.as_bytes();
+    let mut out = Vec::new();
+    let mut rest = src.as_slice();
+    while let Some(at) = rest.windows(from.len()).position(|w| w == from) {
+        let (head, tail) = rest.split_at(at);
+        out.extend_from_slice(head);
+        out.extend_from_slice(to);
+        rest = tail.get(from.len()..).unwrap_or_default();
+    }
+    out.extend_from_slice(rest);
+    out
+}
+
+#[test]
+fn text_before_2007_is_read_as_shift_jis_by_the_code_page() {
+    let mut header = vec![
+        (9, "$ACADVER"),
+        (1, "AC1015"),
+        (9, "$DWGCODEPAGE"),
+        (3, "ANSI_932"),
+    ];
+    header.extend_from_slice(MM);
+    let tables = [
+        (0, "TABLE"),
+        (2, "LAYER"),
+        (0, "LAYER"),
+        (5, "10"),
+        (2, "@LAYER"),
+        (70, "0"),
+        (62, "1"),
+        (0, "ENDTAB"),
+    ];
+    let entities = [
+        (0, "TEXT"),
+        (8, "@LAYER"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (40, "1.0"),
+        (1, "@TEXT"),
+        // 2 バイト目が `\` の文字は、書式の符号にしない
+        (0, "MTEXT"),
+        (8, "@LAYER"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (40, "1.0"),
+        (1, "@MTEXT"),
+    ];
+    let src = sections(&[
+        ("HEADER", &header),
+        ("TABLES", &tables),
+        ("ENTITIES", &entities),
+    ]);
+    // 外形・図面・表示
+    let src = encoded(src, "@LAYER", b"\x8a\x4f\x8c\x60");
+    let src = encoded(src, "@TEXT", b"\x90\x7d\x96\xca");
+    let src = encoded(src, "@MTEXT", b"\x95\x5c\x8e\xa6");
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    let names: Vec<_> = drawing.layers.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, ["\u{5916}\u{5f62}"]);
+    let elements = &drawing.spaces[0].elements;
+    assert!(elements.iter().all(|e| e.layer == drawing.layers[0].id));
+    let Shape::Text(text) = &elements[0].shape else {
+        panic!()
+    };
+    assert_eq!(text.content, "\u{56f3}\u{9762}");
+    let Shape::Formatted(text) = &elements[1].shape else {
+        panic!("{:?}", elements[1].shape)
+    };
+    assert_eq!(
+        text.spans,
+        [Span {
+            piece: Piece::Text("\u{8868}\u{793a}".to_owned()),
+            format: Format::default(),
+        }]
+    );
+}
+
+#[test]
+fn text_that_is_not_shift_jis_or_in_an_unknown_code_page_is_reported() {
+    let text = |content: &'static str| {
+        vec![
+            (0, "TEXT"),
+            (8, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (40, "1.0"),
+            (1, content),
+        ]
+    };
+    let lifted = |page: &str| {
+        let mut header = vec![
+            (9, "$ACADVER"),
+            (1, "AC1015"),
+            (9, "$DWGCODEPAGE"),
+            (3, page),
+        ];
+        header.extend_from_slice(MM);
+        let mut entities = text("@BROKEN");
+        entities.extend(text("A"));
+        // 2 バイトの文字の 1 バイト目で終わる
+        let src = encoded(dxf(&header, &entities), "@BROKEN", b"\x90\x7d\x96");
+        let (drawing, diag) = lift(&src, &mut Budget::default());
+        (drawing.unwrap().spaces[0].elements.len(), found(&diag))
+    };
+    let at = vec![Ref::at_record(3)];
+    assert_eq!(
+        lifted("ANSI_932"),
+        (
+            1,
+            vec![(
+                codes::DXF_LIFT_INVALID,
+                r#"Text("TEXT") Int(1)"#.to_owned(),
+                1,
+                at.clone()
+            )]
+        )
+    );
+    // 対応表のないコード・ページは、ASCII の文字だけを読む
+    assert_eq!(
+        lifted("ANSI_1252"),
+        (
+            1,
+            vec![(
+                codes::DXF_CODE_PAGE_UNSUPPORTED,
+                r#"Text("TEXT")"#.to_owned(),
+                1,
+                at
+            )]
+        )
+    );
 }
 
 #[test]

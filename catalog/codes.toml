@@ -530,7 +530,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.code-page.unsupported"]
-description = "コード・ページの版の ASCII でない文字を、まだ読めないので、その文字の図形を図面モデルに移さなかった"
+description = "2007 より前の版で、対応表のないコード・ページの ASCII でない文字を読めないので、その文字の図形を図面モデルに移さなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { kind = "text" }
