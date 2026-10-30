@@ -692,7 +692,7 @@ fn inserts_are_moved_scaled_and_turned() {
     assert_eq!(result, Ok(()));
     assert!(found.is_empty(), "{found:?}");
     let written = testkit::write::<Dxf>(&file).unwrap();
-    let text = String::from_utf8(written.clone()).unwrap();
+    let text = String::from_utf8(written.to_vec()).unwrap();
     assert!(
         text.contains(" 10\n3.0\n 20\n-1.0\n 30\n0.0\n 41\n-1.0\n 42\n0.5\n 50\n45.0\n"),
         "{text}"
@@ -910,7 +910,7 @@ fn sheet_elements_are_moved_in_paper_millimeters_and_removed() {
     assert_eq!(result, Ok(()));
     assert!(found.is_empty(), "{found:?}");
     let written = testkit::write::<Dxf>(&file).unwrap();
-    let text_out = String::from_utf8(written.clone()).unwrap();
+    let text_out = String::from_utf8(written.to_vec()).unwrap();
     // 変えていない始まりの点は、元の値のまま
     assert!(
         text_out.contains(" 10\n10.0\n 20\n20.0\n 30\n0.0\n 11\n12.0\n 21\n21.0\n"),
@@ -4424,7 +4424,7 @@ fn e5_moving_a_text_keeps_its_xdata_and_extension_dictionary() {
     assert_eq!(result, Ok(()));
     assert_eq!(found, []);
     let written = testkit::write::<Dxf>(&file).unwrap();
-    let text = String::from_utf8(written.clone()).unwrap();
+    let text = String::from_utf8(written.to_vec()).unwrap();
     assert!(
         text.contains("102\n{ACAD_XDICTIONARY\n360\n1F\n102\n}\n"),
         "{text}"
@@ -4452,7 +4452,7 @@ fn e10_title_block_attribute_values_are_replaced() {
     assert_eq!(result, Ok(()), "{found:?}");
     assert_eq!(found, []);
     let written = testkit::write::<Dxf>(&file).unwrap();
-    let text = String::from_utf8(written.clone()).unwrap();
+    let text = String::from_utf8(written.to_vec()).unwrap();
     assert!(text.contains("  1\nDWG A-101\n  2\nA\n"), "{text}");
     let after = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
     assert_eq!(after.last().unwrap().shape, element.shape);
@@ -4634,4 +4634,170 @@ fn points_are_not_replaced_transformed_or_added() {
         );
     }
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
+/// ブロック A と C のレコードと定義（どちらも線分 1 本）を持つ R2000 の DXF
+#[cfg(test)]
+fn two_recorded_definitions() -> Vec<u8> {
+    let mut tags: Vec<(i16, &str)> = vec![
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, "AC1015"),
+        (9, "$HANDSEED"),
+        (5, "100"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "1F"),
+        (2, "*Model_Space"),
+        (0, "BLOCK_RECORD"),
+        (5, "20"),
+        (2, "A"),
+        (0, "BLOCK_RECORD"),
+        (5, "21"),
+        (2, "C"),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+    ];
+    for (record, name, [block, line, end]) in [
+        ("20", "A", ["30", "31", "32"]),
+        ("21", "C", ["40", "41", "42"]),
+    ] {
+        tags.extend([
+            (0, "BLOCK"),
+            (5, block),
+            (330, record),
+            (8, "0"),
+            (2, name),
+            (70, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (30, "0.0"),
+            (0, "LINE"),
+            (5, line),
+            (330, record),
+            (8, "0"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (30, "0.0"),
+            (11, "1.0"),
+            (21, "0.0"),
+            (31, "0.0"),
+            (0, "ENDBLK"),
+            (5, end),
+            (330, record),
+            (8, "0"),
+        ]);
+    }
+    tags.extend([
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    dxf_tags(&tags)
+}
+
+/// 記号の定義の中に記号を足し、読み直す。定義の入れ子が輪になる追加（自分自身・自分を含む定義・同じ変更の一覧で
+/// 輪になるもの）は断り、ファイルを変えない（#333）
+#[test]
+fn symbols_are_added_into_symbol_definitions_without_cycles() {
+    use zumen_drawing::{Edit, Placed, Symbol, SymbolKey};
+    let src = two_recorded_definitions();
+    let drawing = lift(&testkit::read::<Dxf>(&src).0.unwrap());
+    let definition = |drawing: &Drawing2D, name: &str| {
+        drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key.name == name)
+            .unwrap()
+            .clone()
+    };
+    let a = definition(&drawing, "A");
+    let c = definition(&drawing, "C");
+    // 名前のある定義の空間は space/h{BLOCK のハンドル}
+    let (in_a, in_c) = ("space/h30", "space/h40");
+    let placing = |inside: &zumen_drawing::SymbolDefinition, name: &str| {
+        let mut element = inside.space.elements[0].clone();
+        element.source = Ref::default();
+        element.shape = Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: name.to_owned(),
+            },
+            position: ModelPoint {
+                space: inside.space.id,
+                x: 2.0,
+                y: 3.0,
+            },
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            grid: None,
+            attributes: Vec::new(),
+            clip: None,
+        });
+        element
+    };
+    let add = |place: &str, element: &Element<ModelPoint>| Edit::Add {
+        place: place.to_owned(),
+        element: Box::new(Placed::Model(element.clone())),
+    };
+    let apply = |src: &[u8], edits: Vec<Edit>| {
+        let mut file = testkit::read::<Dxf>(src).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        );
+        let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+        (result, codes, testkit::write::<Dxf>(&file).unwrap())
+    };
+
+    // C の中に A を置く
+    let a_in_c = placing(&c, "A");
+    let (result, found, written) = apply(&src, vec![add(in_c, &a_in_c)]);
+    assert!(result.is_ok(), "{found:?}");
+    assert!(found.is_empty(), "{found:?}");
+    let again = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    let c_again = definition(&again, "C");
+    assert_eq!(c_again.space.elements.len(), 2);
+    assert_eq!(c_again.space.elements[1].shape, a_in_c.shape);
+    assert_eq!(definition(&again, "A").space.elements.len(), 1);
+    assert!(again.spaces.iter().all(|space| {
+        space
+            .elements
+            .iter()
+            .all(|element| !matches!(element.shape, Shape::Symbol(_)))
+    }));
+    let text = String::from_utf8(written.to_vec()).unwrap();
+    let insert = text.find("INSERT\n  5\n100\n330\n21\n").unwrap();
+    assert!(insert < text.rfind("ENDBLK").unwrap(), "{text}");
+
+    let refused = [codes::CHANGE_SYMBOL_CYCLE_INVALID];
+    // A の中に A を置く（自分自身）
+    let (result, found, out) = apply(&src, vec![add(in_a, &placing(&a, "a"))]);
+    assert!(matches!(result, Err(Error::Rejected)));
+    assert_eq!(found, refused);
+    assert_eq!(out, src);
+    // A を置く C を、A の中に置く（間接）
+    let (result, found, out) = apply(&written, vec![add(in_a, &placing(&a, "C"))]);
+    assert!(matches!(result, Err(Error::Rejected)));
+    assert_eq!(found, refused);
+    assert_eq!(out, written);
+    // 同じ変更の一覧で、C の中に A を、A の中に C を置く
+    let (result, found, out) = apply(&src, vec![add(in_c, &a_in_c), add(in_a, &placing(&a, "C"))]);
+    assert!(matches!(result, Err(Error::Rejected)));
+    assert_eq!(found, refused);
+    assert_eq!(out, src);
 }

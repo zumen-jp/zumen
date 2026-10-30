@@ -9030,6 +9030,193 @@ fn drawing_additions_go_into_symbol_definitions() {
     assert_eq!(written, src);
 }
 
+/// 記号の定義の中に、図面モデルの変更で記号を足す（#333）。L1 の書き戻しでブロック Two と Three を足した DWG を
+/// 作り、Three の中に Two を置いて読み直す。定義の入れ子が輪になる追加（自分自身・自分を含む定義）は断り、
+/// ファイルを変えない
+#[cfg(feature = "drawing")]
+#[test]
+fn drawing_symbols_go_into_symbol_definitions_without_cycles() {
+    use zumen_base::Ref;
+    use zumen_drawing::{
+        Changes, Drawing2D, Edit, Element, ModelPoint, Placed, Shape, Symbol, SymbolDefinition,
+        SymbolKey, id,
+    };
+    use zumen_sdk::{Apply, Lift};
+    let real = |code, value| Value {
+        code,
+        data: Data::Real(value),
+    };
+    let src = layer_table_with_seed();
+    let (base, _) = objects(&src);
+    let mut db = base.clone();
+    // ブロックのレコード・BLOCK・LINE・ENDBLK のハンドル
+    for (name, [record, block, line, end]) in [
+        (b"Two".as_slice(), [0x80, 0x81, 0x82, 0x83]),
+        (b"Three".as_slice(), [0x84, 0x85, 0x86, 0x87]),
+    ] {
+        db.push(Object {
+            kind: b"BLOCK_RECORD".to_vec(),
+            section: Section::Tables,
+            values: vec![
+                Value {
+                    code: 5,
+                    data: Data::Handle(record),
+                },
+                Value {
+                    code: 330,
+                    data: Data::Handle(0x5F),
+                },
+                Value {
+                    code: 2,
+                    data: Data::Text(name.to_vec()),
+                },
+            ],
+            origin: Origin::New,
+        });
+        let owned = |db: AcadDb, handle: u64, kind: &[u8], values: Vec<Value>| {
+            let mut db = with_added_values(&db, handle, kind, values);
+            let at = db.objects().len() - 1;
+            for value in &mut db.object_mut(at).unwrap().values {
+                if value.code == 330 {
+                    value.data = Data::Handle(record);
+                }
+            }
+            db
+        };
+        db = owned(
+            db,
+            block,
+            b"BLOCK",
+            vec![
+                Value {
+                    code: 2,
+                    data: Data::Text(name.to_vec()),
+                },
+                real(10, 0.0),
+                real(20, 0.0),
+                real(30, 0.0),
+            ],
+        );
+        db = owned(
+            db,
+            line,
+            b"LINE",
+            vec![
+                real(10, 0.0),
+                real(20, 0.0),
+                real(30, 0.0),
+                real(11, 1.0),
+                real(21, 1.0),
+                real(31, 0.0),
+            ],
+        );
+        db = owned(db, end, b"ENDBLK", Vec::new());
+    }
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let src = out.unwrap();
+
+    let lift = |src: &[u8]| -> Drawing2D {
+        let (file, mut diag) = read(src, Limits::default());
+        file.unwrap()
+            .lift(&mut Cx::new(
+                &mut Budget::default(),
+                &mut diag,
+                &CancelToken::new(),
+            ))
+            .unwrap()
+    };
+    let definition = |drawing: &Drawing2D, name: &str| -> SymbolDefinition {
+        drawing
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key.name == name)
+            .unwrap()
+            .clone()
+    };
+    let drawing = lift(&src);
+    let two = definition(&drawing, "Two");
+    let three = definition(&drawing, "Three");
+    let in_two = id::DefinitionNamer::default().next(&two);
+    let in_three = id::DefinitionNamer::default().next(&three);
+    assert_eq!(
+        (in_two.as_str(), in_three.as_str()),
+        ("space/h81", "space/h85")
+    );
+    let placing = |inside: &SymbolDefinition, name: &str| -> Element<ModelPoint> {
+        let mut element = inside.space.elements[0].clone();
+        element.source = Ref::default();
+        element.shape = Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: name.to_owned(),
+            },
+            position: ModelPoint {
+                space: inside.space.id,
+                x: 2.0,
+                y: 3.0,
+            },
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            grid: None,
+            attributes: Vec::new(),
+            clip: None,
+        });
+        element
+    };
+    let apply = |src: &[u8], place: &str, element: &Element<ModelPoint>| {
+        let mut file = read(src, Limits::default()).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Add {
+                    place: place.to_owned(),
+                    element: Box::new(Placed::Model(element.clone())),
+                }],
+            },
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        );
+        let mut bytes = Vec::new();
+        Dwg::write(
+            &file,
+            &mut bytes,
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        (result, diag, bytes)
+    };
+
+    // Three の中に Two を置く
+    let two_in_three = placing(&three, "Two");
+    let (result, diag, written) = apply(&src, &in_three, &two_in_three);
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let again = lift(&written);
+    let three_again = definition(&again, "Three");
+    assert_eq!(three_again.space.elements.len(), 2);
+    assert_eq!(three_again.space.elements[1].shape, two_in_three.shape);
+    assert_eq!(definition(&again, "Two").space.elements.len(), 1);
+    assert!(again.spaces.iter().all(|space| {
+        space
+            .elements
+            .iter()
+            .all(|element| !matches!(element.shape, Shape::Symbol(_)))
+    }));
+
+    // Two の中に Two を置く（自分自身）
+    let (result, diag, out) = apply(&src, &in_two, &placing(&two, "Two"));
+    assert_eq!(result.unwrap_err(), Error::Rejected);
+    assert_eq!(codes_of(&diag), [codes::CHANGE_SYMBOL_CYCLE_INVALID]);
+    assert_eq!(out, src);
+    // Two を置く Three を、Two の中に置く（間接）
+    let (result, diag, out) = apply(&written, &in_two, &placing(&two, "THREE"));
+    assert_eq!(result.unwrap_err(), Error::Rejected);
+    assert_eq!(codes_of(&diag), [codes::CHANGE_SYMBOL_CYCLE_INVALID]);
+    assert_eq!(out, written);
+}
+
 #[test]
 fn header_variables_are_written_back() {
     let src = with_header_variables(

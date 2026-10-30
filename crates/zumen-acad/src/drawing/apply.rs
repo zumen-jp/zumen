@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Home, MODEL, PaperFrame, attached, framed, mtext, source, text, work};
+use super::{BLOCK, Home, MODEL, PaperFrame, attached, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
@@ -119,6 +119,9 @@ struct Index<'a> {
     places: BTreeMap<String, Place>,
     /// 記号の定義の空間から、その定義（決定 0177）
     definitions: BTreeMap<SpaceId, &'a SymbolDefinition>,
+    /// 記号の定義の名前（小文字）から、その中に置く記号の定義の名前（小文字）。定義の入れ子の輪を見つける
+    /// （#333）
+    nests: Nests,
     /// 2 つ以上の要素を作った出所。1 つの要素だけを書き戻せない
     shared: BTreeSet<&'a Ref>,
 }
@@ -151,13 +154,22 @@ impl<'a> Index<'a> {
         // 記号の定義の中の要素も ID で指せる。定義の空間にも足せる（決定 0177）
         let mut definitions = id::DefinitionNamer::default();
         let mut spaces = BTreeMap::new();
+        let mut nests = Nests::new();
         for definition in &drawing.symbols {
             spaces.insert(definition.space.id, definition);
             work(cx, 1, &definition.source)?;
             let place = definitions.next(definition);
             let mut namer = id::Namer::new(&place);
+            let mut nested = (definition.key.namespace == BLOCK)
+                .then(|| nests.entry(definition.key.name.to_lowercase()).or_default());
             for (index, element) in definition.space.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
+                if let (Some(nested), Shape::Symbol(symbol)) =
+                    (nested.as_deref_mut(), &element.shape)
+                    && symbol.key.namespace == BLOCK
+                {
+                    nested.insert(symbol.key.name.to_lowercase());
+                }
                 note(&element.source);
                 let id = namer.next(index, element);
                 remember_handle(&mut element_handles, &element.source, &id);
@@ -214,6 +226,7 @@ impl<'a> Index<'a> {
             dimension_styles,
             places,
             definitions: spaces,
+            nests,
             shared,
         })
     }
@@ -462,7 +475,12 @@ struct Plan<'e> {
     text_styles: text_style::TextStyles,
     line_types: line_type::LineTypes,
     dimension_styles: dimension_style::DimensionStyles,
+    /// この変更の一覧で記号の定義の中に足した記号。[`Index::nests`] と同じ形（#333）
+    nests: Nests,
 }
+
+/// 記号の定義の名前（小文字）から、その中に置く記号の定義の名前（小文字）
+type Nests = BTreeMap<String, BTreeSet<String>>;
 
 impl<'e> Plan<'e> {
     fn new(db: &AcadDb, target: Target) -> Self {
@@ -478,6 +496,7 @@ impl<'e> Plan<'e> {
             text_styles: text_style::TextStyles::default(),
             line_types: line_type::LineTypes::default(),
             dimension_styles: dimension_style::DimensionStyles::new(db, target),
+            nests: Nests::new(),
         }
     }
 
@@ -589,12 +608,30 @@ fn add_element(
     let (record, kind) = match (place, element) {
         (Place::Space(space), Placed::Model(element)) => {
             add::work(&element.shape, cx, &Ref::default())?;
-            let home = if space == MODEL {
-                Some(born.model())
-            } else {
-                index.definitions.get(&space).and_then(|definition| {
+            let definition = index.definitions.get(&space).copied();
+            if let (Some(definition), Shape::Symbol(symbol)) = (definition, &element.shape)
+                && definition.key.namespace == BLOCK
+                && symbol.key.namespace == BLOCK
+            {
+                let outer = definition.key.name.to_lowercase();
+                let inner = symbol.key.name.to_lowercase();
+                if nests_into(&index.nests, &plan.nests, &inner, &outer, cx)? {
+                    plan.reject(
+                        Diagnostic::new(codes::CHANGE_SYMBOL_CYCLE_INVALID)
+                            .with("id", id::space(space))
+                            .with("name", symbol.key.name.as_str()),
+                        cx,
+                    );
+                    return Ok(());
+                }
+                plan.nests.entry(outer).or_default().insert(inner);
+            }
+            let home = match definition {
+                None if space == MODEL => Some(born.model()),
+                None => None,
+                Some(definition) => {
                     definition_home(current.db, current.positions, definition, &element.shape)
-                })
+                }
             };
             let record = home
                 .and_then(|home| born.record(element, &InSpace(space), home, plan.added_records));
@@ -625,17 +662,52 @@ fn add_element(
     Ok(())
 }
 
+/// 記号の定義 `from` を置くと、その中を直接か間接にたどって定義 `to` に着くか（#333）。`to` の中に `from` を
+/// 足すと、定義の入れ子が輪になる。名前は小文字。図面の入れ子（`nests`）と、この変更の一覧で足した入れ子
+/// （`added`）をたどり、たどった定義ごとに作業量を 1 数える
+fn nests_into(
+    nests: &Nests,
+    added: &Nests,
+    from: &str,
+    to: &str,
+    cx: &mut Cx,
+) -> Result<bool, Error> {
+    let mut seen = BTreeSet::from([from]);
+    let mut next = vec![from];
+    while let Some(name) = next.pop() {
+        work(cx, 1, &Ref::default())?;
+        if name == to {
+            return Ok(true);
+        }
+        for inner in [nests.get(name), added.get(name)]
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if seen.insert(inner) {
+                next.push(inner);
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// 記号の定義の空間に足す図形の置き場所（決定 0177）。BLOCK の所有者のブロックのレコードを所有者とし、BLOCKS の
 /// 所の、その ENDBLK の前に置く。名前のない定義（寸法・表などを描いた部品）は AutoCAD が描き直して足した図形が
-/// 消えうるので、外部参照の定義は中身が外のファイルにあるので、足さない。記号は、定義の入れ子の輪を作りうるので
-/// 足さない。BLOCK のレコードかブロックのレコードがなければ `None`
+/// 消えうるので、外部参照の定義は中身が外のファイルにあるので、足さない。記号は、定義の入れ子が輪にならない
+/// ことを先に確かめる（#333）。BLOCK のレコードかブロックのレコードがなければ `None`
 fn definition_home<P>(
     db: &AcadDb,
     positions: &BTreeMap<Ref, usize>,
     definition: &SymbolDefinition,
     shape: &Shape<P>,
 ) -> Option<Home> {
-    if definition.anonymous || definition.external.is_some() || matches!(shape, Shape::Symbol(_)) {
+    if definition.anonymous || definition.external.is_some() {
+        return None;
+    }
+    if let Shape::Symbol(symbol) = shape
+        && (definition.key.namespace != BLOCK || symbol.key.namespace != BLOCK)
+    {
         return None;
     }
     let block = db.objects().get(*positions.get(&definition.source)?)?;

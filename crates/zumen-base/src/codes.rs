@@ -290,6 +290,20 @@ pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 記号の定義の中に足す記号が、その定義を直接か間接に置く（自分を含む）ので、定義の入れ子が輪になる（#333）
+///
+/// `change.symbol-cycle.invalid`（0.0.0 から）
+pub const CHANGE_SYMBOL_CYCLE_INVALID: Code = Code::new(
+    "change.symbol-cycle.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("name", ParamType::Text),
+    ],
+    &["id", "name"],
+);
+
 /// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）
 ///
 /// `change.xdata.unsupported`（0.0.0 から）
@@ -1545,6 +1559,7 @@ pub const ALL: &[Code] = &[
     CHANGE_ELEMENT_MISSING,
     CHANGE_ELEMENT_STALE,
     CHANGE_FORMAT_UNSUPPORTED,
+    CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_PLACEMENT_INVALID,

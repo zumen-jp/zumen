@@ -3820,17 +3820,20 @@ mod tests {
                 r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"{place}","geometry":{geometry}}}]}}"#
             )
         };
-        // 名前のない定義と、記号を定義に足すことは断り、何も変えない
-        for request in [
-            add("space/h33", line),
-            add(
-                "space/h30",
-                r#"{"shape":"symbol","name":"B","position":[0,0],"scale":[1,1],"rotation":0}"#,
+        // 名前のない定義に足すことと、定義に自分自身を足すこと（#333）は断り、何も変えない
+        for (request, code) in [
+            (add("space/h33", line), "change.edit.unsupported"),
+            (
+                add(
+                    "space/h30",
+                    r#"{"shape":"symbol","name":"B","position":[0,0],"scale":[1,1],"rotation":0}"#,
+                ),
+                "change.symbol-cycle.invalid",
             ),
         ] {
             let (status, response) = call(&mut session, &request);
             assert_eq!(status, Status::Failed, "{request}");
-            assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+            assert_eq!(text(&error(&response), "/code"), code);
         }
         assert_eq!(defined(&mut session), before);
         // 線分と引出線を定義に足す。読み直すと定義の要素の終わりに並び、apply が返す ID とハッシュで引ける
