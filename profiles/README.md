@@ -1,6 +1,6 @@
 # プロファイル
 
-基準・要領・社内標準を、コードとは別の、版のあるデータとして持ちます。形は [決定 0138](../docs/decisions/0138-profiles-as-versioned-data.md)（提案）にあります。
+基準・要領・社内標準を、コードとは別の、版のあるデータとして持ちます。形は [決定 0138](../docs/decisions/0138-profiles-as-versioned-data.md) に、照合は [決定 0173](../docs/decisions/0173-profile-checks.md) にあります。
 
 | id | 版 | 対象 |
 | --- | --- | --- |
