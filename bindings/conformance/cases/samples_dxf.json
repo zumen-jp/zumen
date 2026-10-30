@@ -1,0 +1,143 @@
+{
+  "description": "公開サンプル（決定 0171）の、ezdxf の text_alignments.dxf を開く。図面モデルの要約・要素の一覧と形の値・表の項目を返す。合成でない入力でも、応答がネイティブと wasm で同じになることを確かめる（#66）。INSERT_POINTS のレイヤは、定義がなく円が名前で使う。ファイルの LINE 10・TEXT 16・CIRCLE 32 は、すべて実寸の空間にある",
+  "steps": [
+    {
+      "push": {
+        "name": "text_alignments.dxf",
+        "file": "samples/dxf/text_alignments.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "text_alignments.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "text_alignments.dxf"
+      },
+      "expect": {
+        "/result/spaces/0/unit": "meter",
+        "/result/spaces/0/elements": {
+          "lines": 10,
+          "texts": 16
+        },
+        "/result/spaces/0/extent": {
+          "min_x": 0,
+          "min_y": -1.5,
+          "max_x": 35,
+          "max_y": 15
+        },
+        "/result/sheets/0/name": "Layout1",
+        "/result/sheets/0/elements": {
+          "lines": 0,
+          "texts": 0
+        },
+        "/diagnostics": []
+      },
+      "absent": [
+        "/result/spaces/1",
+        "/result/sheets/1"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "text_alignments.dxf",
+        "fields": [
+          "kind"
+        ],
+        "offset": 24,
+        "limit": 3
+      },
+      "expect": {
+        "/result/total": 58,
+        "/result/items": [
+          {
+            "id": "space/0/h47",
+            "kind": "text"
+          },
+          {
+            "id": "space/0/h48",
+            "kind": "line"
+          },
+          {
+            "id": "space/0/h49",
+            "kind": "circle"
+          }
+        ],
+        "/result/next_offset": 27
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "text_alignments.dxf",
+        "fields": [
+          "kind",
+          "layer",
+          "bbox",
+          "geometry"
+        ],
+        "offset": 10,
+        "limit": 1
+      },
+      "expect": {
+        "/result/items/0": {
+          "id": "space/0/h39",
+          "kind": "text",
+          "layer": "0",
+          "bbox": {
+            "min_x": 5,
+            "min_y": 0,
+            "max_x": 5,
+            "max_y": 0
+          },
+          "geometry": {
+            "shape": "text",
+            "content": "BOTTOM_CENTER",
+            "position": [
+              5,
+              0
+            ],
+            "height": 0.2,
+            "rotation": 0,
+            "style": "STANDARD",
+            "style_id": "text-style/h29"
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "text_alignments.dxf"
+      },
+      "expect": {
+        "/result/layers/0/name": "0",
+        "/result/layers/1/name": "Defpoints",
+        "/result/layers/1/printable": false,
+        "/result/layers/2": {
+          "id": "layer/2",
+          "name": "INSERT_POINTS",
+          "hash": "v2:982f04b0c9e916fb5624ba21052de5f8",
+          "defined": false
+        },
+        "/result/text_styles/0/name": "Standard"
+      },
+      "absent": [
+        "/result/layers/3"
+      ]
+    }
+  ]
+}
