@@ -1,7 +1,7 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
-//! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー、TypeScript・JavaScript の型と定数、
-//!   カタログとプロファイルの JSON を生成する
+//! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー、TypeScript・JavaScript と Python の
+//!   型と定数、カタログとプロファイルの JSON を生成する
 //! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、包みの版を確かめ、
 //!   生成したファイルが最新かを確かめる
 
@@ -10,6 +10,7 @@ mod catalog;
 mod formats;
 mod javascript;
 mod profiles;
+mod python;
 mod samples;
 mod scene;
 mod schema;
@@ -34,6 +35,9 @@ const JS_MESSAGES: &str = "bindings/js/src/messages.d.ts";
 const JS_CONSTANTS: &str = "bindings/js/src/constants.js";
 const JS_CONSTANTS_TYPES: &str = "bindings/js/src/constants.d.ts";
 const JS_PACKAGE: &str = "bindings/js/package.json";
+const PY_MESSAGES: &str = "bindings/python/zumen_provisional/messages.py";
+const PY_CONSTANTS: &str = "bindings/python/zumen_provisional/constants.py";
+const PY_PROJECT: &str = "bindings/python/pyproject.toml";
 const CATALOG_JA: &str = "catalog/ja.json";
 const CATALOG_EN: &str = "catalog/en.json";
 const FORMATS_MD: &str = "docs/formats/README.md";
@@ -122,6 +126,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     let profiles = profiles::generate(&root)?;
     samples::check(&root)?;
     check_package_version(JS_PACKAGE, &read(JS_PACKAGE)?)?;
+    check_pyproject_version(PY_PROJECT, &read(PY_PROJECT)?)?;
 
     let outputs = [
         (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
@@ -137,6 +142,11 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             JS_CONSTANTS_TYPES,
             javascript::render_constants_types(&boundary, &scene),
+        ),
+        (PY_MESSAGES, python::render_types(&schema)?),
+        (
+            PY_CONSTANTS,
+            python::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
         ),
         (CATALOG_JA, catalog::render_json("ja", PACKAGE_VERSION, &ja)),
         (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
@@ -164,6 +174,21 @@ fn check_package_version(path: &str, source: &str) -> Result<(), String> {
         Some(zumen_json::Value::String(version)) if version == PACKAGE_VERSION => Ok(()),
         _ => Err(format!(
             "{path} の version を、コアと同じ {PACKAGE_VERSION} にする（決定 0015）"
+        )),
+    }
+}
+
+/// Python の包みの pyproject.toml の版が、コアと同じかを確かめる（決定 0015）
+fn check_pyproject_version(path: &str, source: &str) -> Result<(), String> {
+    let value: toml::Table = toml::from_str(source).map_err(|e| format!("{path}: {e}"))?;
+    let version = value
+        .get("project")
+        .and_then(|project| project.get("version"))
+        .and_then(toml::Value::as_str);
+    match version {
+        Some(version) if version == PACKAGE_VERSION => Ok(()),
+        _ => Err(format!(
+            "{path} の project.version を、コアと同じ {PACKAGE_VERSION} にする（決定 0015）"
         )),
     }
 }

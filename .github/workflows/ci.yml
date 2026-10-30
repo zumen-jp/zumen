@@ -73,16 +73,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # python は、Python の包みの適合試験に使う版。docs/support.md の下限（3.9）と最新を、行で分けて試す（決定 0195）
           - name: Linux x64
             os: ubuntu-latest
+            python: '3.9'
+            library: libzumen_abi1.so
           - name: macOS arm64
             os: macos-latest
+            python: '3.x'
+            library: libzumen_abi1.dylib
           - name: Windows x64
             os: windows-latest
+            python: '3.x'
+            library: zumen_abi1.dll
           # 32 bit の Office の VBA のため、関数を stdcall で出す（決定 0011・0014）
           - name: Windows x86
             os: windows-latest
             target: i686-pc-windows-msvc
+            python: '3.9'
+            python-architecture: x86
+            library: zumen_abi1.dll
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,6 +102,16 @@ jobs:
         if: matrix.target
         run: rustup target add ${{ matrix.target }}
       - run: cargo test --workspace --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      - name: Python の包みの適合試験に使う Python を入れる
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.python-architecture }}
+      - name: Python の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0195）
+        shell: bash
+        run: |
+          cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          python bindings/python/tests/conformance.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
       - name: DLL が、飾りのない名前で境界の関数を出すことを確かめる（VBA の Declare のため）
         if: matrix.target == 'i686-pc-windows-msvc'
         shell: pwsh
