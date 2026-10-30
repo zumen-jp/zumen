@@ -14,7 +14,7 @@
 
 ## 文書
 
-- 次の作業と進め方: [docs/work.md](docs/work.md)
+- 次の作業の選び方: [docs/work.md](docs/work.md)（計画は [#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue）
 - 設計: [#1](https://github.com/zumen-jp/zumen/issues/1)
 - 決定の記録: [docs/decisions](docs/decisions/README.md)
 - 形式と権利の一覧: [docs/formats](docs/formats/README.md)（台帳から生成）
