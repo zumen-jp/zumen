@@ -9,11 +9,14 @@
 use std::collections::BTreeSet;
 
 use super::add::{Born, Target, int};
-use super::layer::{external, find, set_in, usable_name};
-use super::{count_transform_values, real, work};
+use super::layer::{external, find, set_in, table_end, usable_name};
+use super::{
+    Current, Plan, count_table_records, count_table_search, count_transform_values, insert_records,
+    real, record_at, removal, unsupported, work,
+};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
-use zumen_base::{Cx, Ref};
-use zumen_drawing::{Font, FontKind, TextStyle};
+use zumen_base::{Cx, Key, Ref};
+use zumen_drawing::{Drawing2D, Font, FontKind, Seen, TextStyle};
 use zumen_sdk::Error;
 
 /// 欄を書く順。ない欄は、この順で前にある欄の後に足す
@@ -317,4 +320,278 @@ pub(super) fn named_by_new(db: &AcadDb, name: &[u8], cx: &mut Cx) -> Result<bool
         }
     }
     Ok(false)
+}
+
+/// 文字スタイルの変更（決定 0163）。表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
+#[derive(Default)]
+pub(super) struct TextStyles {
+    records: Option<Vec<usize>>,
+    names: BTreeSet<Vec<u8>>,
+    added: Vec<Vec<Value>>,
+    renames: Vec<(Vec<u8>, Value)>,
+    removed: Vec<Vec<u8>>,
+}
+
+impl TextStyles {
+    /// 文字スタイルの表のレコードの位置と、小文字にした名前を作る。作ってあれば何もしない
+    fn index(
+        &mut self,
+        db: &AcadDb,
+        drawing: &Drawing2D,
+        born: &Born,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        if self.records.is_some() {
+            return Ok(());
+        }
+        let mut records = Vec::new();
+        for (position, object) in db.objects().iter().enumerate() {
+            work(cx, 1, &Ref::default())?;
+            if object.section == Section::Tables && object.kind == b"STYLE" {
+                count_transform_values(object, &Ref::default(), cx)?;
+                if let Some(Data::Text(name)) = object.first(2)
+                    && !name.is_empty()
+                {
+                    self.names.insert(name.to_ascii_lowercase());
+                }
+                if is_style(object) {
+                    records.push(position);
+                }
+            }
+        }
+        // 図形だけが指す名前も、既存の文字スタイルとして重複を防ぐ。
+        for style in drawing
+            .text_styles
+            .iter()
+            .filter(|style| style.definition.is_none())
+        {
+            work(cx, 1 + style.name.len() as u64 / 1024, &style.source)?;
+            if let Some(Value {
+                data: Data::Text(name),
+                ..
+            }) = born.text_value(2, &style.name)
+            {
+                self.names.insert(name.to_ascii_lowercase());
+            }
+        }
+        self.records = Some(records);
+        Ok(())
+    }
+
+    /// 足す文字スタイルを表に置き、名前を変えた文字スタイルを新しい名前で指す。除いた文字スタイルを、同じ
+    /// 一覧で足した図形が指していないかを確かめる。足した文字スタイルのハンドルを返す
+    pub(super) fn write_back(
+        self,
+        db: &mut AcadDb,
+        target: Target,
+        cx: &mut Cx,
+    ) -> Result<Vec<Option<u64>>, Error> {
+        let handles = insert_records(db, b"STYLE", self.added, target, cx)?;
+        for (old, new) in &self.renames {
+            rename(db, old, new, target, cx)?;
+        }
+        // 同じ一覧で足した図形は、除いた文字スタイルを指せない
+        for name in &self.removed {
+            if named_by_new(db, name, cx)? {
+                cx.report(unsupported("remove_text_style", "STYLE", target));
+                return Err(Error::Rejected);
+            }
+        }
+        Ok(handles)
+    }
+}
+
+/// 文字スタイルを置き換える（`Edit::ReplaceTextStyle`）
+pub(super) fn replace<'e>(
+    current: &Current<'_>,
+    plan: &mut Plan<'e>,
+    target_of: &'e Seen,
+    new: &TextStyle,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db,
+        drawing,
+        index,
+        born,
+        target,
+        ..
+    } = *current;
+    plan.text_styles.index(db, drawing, born, cx)?;
+    work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+    let Some(was) = plan.seen(&index.text_styles, target_of, index, cx)? else {
+        return Ok(());
+    };
+    let styles = plan.text_styles.records.as_deref().unwrap_or_default();
+    count_table_records(db, styles, &was.source, cx)?;
+    let found = (plan.targets.insert(target_of.id.as_str()) && was.source != Ref::default())
+        .then(|| record_at(db, styles, &was.source))
+        .flatten();
+    // DXF で名前を変えるなら、図形でないオブジェクトが名前で指していないかを先に調べる
+    let named = match found {
+        Some((_, object)) => {
+            count_transform_values(object, &was.source, cx)?;
+            match (object.first(2), born.text_value(2, &new.name)) {
+                (
+                    Some(Data::Text(old)),
+                    Some(Value {
+                        data: Data::Text(name),
+                        ..
+                    }),
+                ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
+                    named_elsewhere(db, old, cx, &was.source)?
+                }
+                _ => false,
+            }
+        }
+        None => false,
+    };
+    let planned = found.and_then(|(position, object)| {
+        let mut values = object.values.clone();
+        write(born, &mut values, new, Some((object, was)))?;
+        let Some(Data::Text(old)) = object.first(2) else {
+            return None;
+        };
+        let Some(Data::Text(name)) = find(&values, 2) else {
+            return None;
+        };
+        if !old.eq_ignore_ascii_case(name) {
+            // 名前を変えるなら、ほかの文字スタイルと重ならず、DXF の図形でないオブジェクトが名前で
+            // 指していないこと
+            let free = !plan.text_styles.names.contains(&name.to_ascii_lowercase()) && !named;
+            free.then_some(())?;
+            plan.text_styles.names.remove(&old.to_ascii_lowercase());
+            plan.text_styles.names.insert(name.to_ascii_lowercase());
+        }
+        if old != name {
+            let name = Value {
+                code: 7,
+                data: Data::Text(name.clone()),
+            };
+            plan.text_styles.renames.push((old.clone(), name));
+        }
+        Some((position, values))
+    });
+    match planned {
+        Some(planned) => plan.replaced.push(planned),
+        None => plan.reject(
+            unsupported("replace_text_style", "STYLE", target).at(was.source.clone()),
+            cx,
+        ),
+    }
+    Ok(())
+}
+
+/// 文字スタイルを除く（`Edit::RemoveTextStyle`）
+pub(super) fn remove<'e>(
+    current: &Current<'_>,
+    plan: &mut Plan<'e>,
+    target_of: &'e Seen,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db,
+        drawing,
+        index,
+        born,
+        target,
+        ..
+    } = *current;
+    plan.text_styles.index(db, drawing, born, cx)?;
+    let Some(was) = plan.seen(&index.text_styles, target_of, index, cx)? else {
+        return Ok(());
+    };
+    // 後ろのハンドルなし文字スタイルは並びの番号が ID なので、除くと別の ID になる
+    work(cx, drawing.text_styles.len() as u64, &was.source)?;
+    let unstable = drawing
+        .text_styles
+        .iter()
+        .skip_while(|style| !std::ptr::eq(*style, was))
+        .skip(1)
+        .any(|style| !matches!(style.source.key(), Some(Key::Handle(_))));
+    let styles = plan.text_styles.records.as_deref().unwrap_or_default();
+    count_table_records(db, styles, &was.source, cx)?;
+    let found =
+        (plan.targets.insert(target_of.id.as_str()) && was.source != Ref::default() && !unstable)
+            .then(|| record_at(db, styles, &was.source))
+            .flatten();
+    let planned = match found {
+        Some((position, object)) => {
+            count_transform_values(object, &was.source, cx)?;
+            match removable(object) {
+                true => removal(db, position, object, referenced, cx, &was.source)?
+                    .map(|skip| (skip, object)),
+                false => None,
+            }
+        }
+        None => None,
+    };
+    match planned {
+        Some((skip, object)) => {
+            if let Some(Data::Text(name)) = object.first(2) {
+                plan.text_styles.names.remove(&name.to_ascii_lowercase());
+                plan.text_styles.removed.push(name.clone());
+            }
+            plan.removed.extend(skip);
+        }
+        None => plan.reject(
+            unsupported("remove_text_style", "STYLE", target).at(was.source.clone()),
+            cx,
+        ),
+    }
+    Ok(())
+}
+
+/// 文字スタイルを足す（`Edit::AddTextStyle`）。Standard を写して書く
+pub(super) fn add(
+    current: &Current<'_>,
+    plan: &mut Plan<'_>,
+    new: &TextStyle,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db,
+        drawing,
+        born,
+        target,
+        ..
+    } = *current;
+    plan.text_styles.index(db, drawing, born, cx)?;
+    work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+    // 定義のない文字スタイルは表の後に並ぶため、表への追加でその ID がずれる。
+    work(cx, drawing.text_styles.len() as u64, &Ref::default())?;
+    let unstable = drawing
+        .text_styles
+        .iter()
+        .any(|style| style.definition.is_none());
+    let styles = plan.text_styles.records.as_deref().unwrap_or_default();
+    count_table_records(db, styles, &Ref::default(), cx)?;
+    let standard = styles.iter().find_map(|&position| {
+        db.objects()
+            .get(position)
+            .filter(|object| matches!(object.first(2), Some(Data::Text(name)) if fixed_name(name)))
+    });
+    if let Some(standard) = standard {
+        count_transform_values(standard, &Ref::default(), cx)?;
+    }
+    if target == Target::Dxf {
+        count_table_search(db, cx)?;
+    }
+    let planned = standard.and_then(|standard| {
+        let mut values = template(standard, target);
+        write(born, &mut values, new, None)?;
+        let Some(Data::Text(name)) = find(&values, 2) else {
+            return None;
+        };
+        let name = name.to_ascii_lowercase();
+        (!unstable
+            && (target != Target::Dxf || table_end(db, b"STYLE").is_some())
+            && plan.text_styles.names.insert(name))
+        .then_some(values)
+    });
+    match planned {
+        Some(values) => plan.text_styles.added.push(values),
+        None => plan.reject(unsupported("add_text_style", "STYLE", target), cx),
+    }
+    Ok(())
 }
