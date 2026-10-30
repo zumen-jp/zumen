@@ -229,3 +229,4 @@
 - [0193: DWG の見出しの区切りの大きさを変えて点の表し方を書き、境界で点の表し方を読み、P21 の見え方の割り当てを写す](0193-dwg-header-resize-and-point-style-read.md)（2026-10-31、採用）
 - [0194: TypeScript・JavaScript の包みは素の ESM と生成した .d.ts で書き、名前を仮にして公開しない](0194-typescript-javascript-wrapper.md)（2026-10-31、採用）
 - [0195: Python の包みは標準の ctypes と生成した TypedDict で書き、名前を仮にして公開しない](0195-python-wrapper.md)（2026-10-31、採用）
+- [0196: .NET の包みは関数ポインターの委譲で C ABI を呼び、生成した record と netstandard2.0・net8.0 の 2 つのアセンブリで書き、名前を仮にして公開しない](0196-dotnet-wrapper.md)（2026-10-31、採用）

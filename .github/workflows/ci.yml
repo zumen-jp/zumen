@@ -74,17 +74,21 @@ jobs:
       matrix:
         include:
           # python は、Python の包みの適合試験に使う版。docs/support.md の下限（3.9）と最新を、行で分けて試す（決定 0195）
+          # dotnet は、.NET の包みの適合試験に使う TFM。.NET 10 と、32 bit の .NET Framework 4.8 を試す（決定 0196）
           - name: Linux x64
             os: ubuntu-latest
             python: '3.9'
+            dotnet: net10.0
             library: libzumen_abi1.so
           - name: macOS arm64
             os: macos-latest
             python: '3.x'
+            dotnet: net10.0
             library: libzumen_abi1.dylib
           - name: Windows x64
             os: windows-latest
             python: '3.x'
+            dotnet: net10.0
             library: zumen_abi1.dll
           # 32 bit の Office の VBA のため、関数を stdcall で出す（決定 0011・0014）
           - name: Windows x86
@@ -92,6 +96,8 @@ jobs:
             target: i686-pc-windows-msvc
             python: '3.9'
             python-architecture: x86
+            dotnet: net48
+            dotnet-platform: x86
             library: zumen_abi1.dll
     runs-on: ${{ matrix.os }}
     steps:
@@ -112,6 +118,19 @@ jobs:
         run: |
           cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           python bindings/python/tests/conformance.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
+      - name: .NET の包みの適合試験に使う .NET の SDK を入れる
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: .NET の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0196）
+        shell: bash
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+          DOTNET_NOLOGO: '1'
+        run: >-
+          dotnet run --project bindings/dotnet/tests/Conformance --framework ${{ matrix.dotnet }}
+          ${{ matrix.dotnet-platform && format('-p:PlatformTarget={0}', matrix.dotnet-platform) || '' }}
+          -- "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
       - name: DLL が、飾りのない名前で境界の関数を出すことを確かめる（VBA の Declare のため）
         if: matrix.target == 'i686-pc-windows-msvc'
         shell: pwsh

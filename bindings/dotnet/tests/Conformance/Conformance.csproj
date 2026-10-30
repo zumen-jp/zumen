@@ -1,0 +1,25 @@
+<!--
+  .NET の包みの適合試験（決定 0196）。dotnet run -f net10.0 で流す。
+
+  Windows では .NET Framework 4.8（netstandard2.0 のアセンブリ）でも作り、32 bit（PlatformTarget を x86）で流す。
+  ほかの OS では .NET Framework の参照のアセンブリを取りに行かないように、net48 を作らない。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net10.0;net48</TargetFrameworks>
+    <AssemblyName>Zumen.Conformance</AssemblyName>
+    <RootNamespace>Zumen.Conformance</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Zumen.Provisional/Zumen.Provisional.csproj" />
+  </ItemGroup>
+
+</Project>

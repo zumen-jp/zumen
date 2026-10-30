@@ -1,0 +1,30 @@
+<!--
+  zumen の C ABI を、P/Invoke（関数ポインターの委譲）で呼ぶ薄い包み（決定 0011・0196）。
+
+  まだ公開しない。名前（Zumen.Provisional）は仮で、公開の時期と名前は利用者が決める（#317）。IsPackable を false にして、
+  dotnet pack で NuGet のパッケージを作らない。配る形（ネイティブのライブラリを入れたパッケージ、決定 0014）は、
+  公開の手順を決めるときに足す。版はコアと同じにし、AssemblyVersion は ABI の大版に固定する。どちらも cargo xtask codegen の検査が確かめる
+  （決定 0015）。強い名前は、鍵の扱いと合わせて公開の手順で付ける。
+
+  docs/support.md の下限に合わせ、.NET Framework 4.8 には netstandard2.0、.NET 8 以降には net8.0 のアセンブリを出す。
+  NuGet の依存を持たない。JSON の型つきの読み書き（System.Text.Json）は、標準で持つ net8.0 の側にだけある。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <AssemblyName>Zumen.Provisional</AssemblyName>
+    <RootNamespace>Zumen.Provisional</RootNamespace>
+    <Version>0.0.0</Version>
+    <!-- .NET Framework 4.8 のホストで同じ大版を 1 つとして扱うため、ABI の大版に固定する（決定 0015） -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>

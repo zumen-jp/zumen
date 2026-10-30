@@ -1,12 +1,13 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
-//! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー、TypeScript・JavaScript と Python の
-//!   型と定数、カタログとプロファイルの JSON を生成する
+//! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー、TypeScript・JavaScript・Python・.NET
+//!   の型と定数、カタログとプロファイルの JSON を生成する
 //! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、包みの版を確かめ、
 //!   生成したファイルが最新かを確かめる
 
 mod boundary;
 mod catalog;
+mod dotnet;
 mod formats;
 mod javascript;
 mod profiles;
@@ -38,6 +39,9 @@ const JS_PACKAGE: &str = "bindings/js/package.json";
 const PY_MESSAGES: &str = "bindings/python/zumen_provisional/messages.py";
 const PY_CONSTANTS: &str = "bindings/python/zumen_provisional/constants.py";
 const PY_PROJECT: &str = "bindings/python/pyproject.toml";
+const CS_MESSAGES: &str = "bindings/dotnet/Zumen.Provisional/Messages.g.cs";
+const CS_CONSTANTS: &str = "bindings/dotnet/Zumen.Provisional/Constants.g.cs";
+const CS_PROJECT: &str = "bindings/dotnet/Zumen.Provisional/Zumen.Provisional.csproj";
 const CATALOG_JA: &str = "catalog/ja.json";
 const CATALOG_EN: &str = "catalog/en.json";
 const FORMATS_MD: &str = "docs/formats/README.md";
@@ -127,6 +131,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     samples::check(&root)?;
     check_package_version(JS_PACKAGE, &read(JS_PACKAGE)?)?;
     check_pyproject_version(PY_PROJECT, &read(PY_PROJECT)?)?;
+    check_csproj_version(CS_PROJECT, &read(CS_PROJECT)?, boundary.versions.abi)?;
 
     let outputs = [
         (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
@@ -147,6 +152,11 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             PY_CONSTANTS,
             python::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
+        ),
+        (CS_MESSAGES, dotnet::render_types(&schema)?),
+        (
+            CS_CONSTANTS,
+            dotnet::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
         ),
         (CATALOG_JA, catalog::render_json("ja", PACKAGE_VERSION, &ja)),
         (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
@@ -191,6 +201,34 @@ fn check_pyproject_version(path: &str, source: &str) -> Result<(), String> {
             "{path} の project.version を、コアと同じ {PACKAGE_VERSION} にする（決定 0015）"
         )),
     }
+}
+
+/// .NET の包みの csproj の版が、コアと同じかを確かめる。AssemblyVersion は ABI の大版に固定する（決定 0015・0196）
+fn check_csproj_version(path: &str, source: &str, abi: u32) -> Result<(), String> {
+    let values = |tag: &str| -> Vec<String> {
+        let open = format!("<{tag}>");
+        let close = format!("</{tag}>");
+        source
+            .split(open.as_str())
+            .skip(1)
+            .filter_map(|rest| {
+                rest.split_once(close.as_str())
+                    .map(|(value, _)| value.trim().to_string())
+            })
+            .collect()
+    };
+    if values("Version") != [PACKAGE_VERSION] {
+        return Err(format!(
+            "{path} の Version を 1 つにし、コアと同じ {PACKAGE_VERSION} にする（決定 0015）"
+        ));
+    }
+    let assembly = format!("{abi}.0.0.0");
+    if values("AssemblyVersion") != [assembly.as_str()] {
+        return Err(format!(
+            "{path} の AssemblyVersion を 1 つにし、ABI の大版の {assembly} にする（決定 0015）"
+        ));
+    }
+    Ok(())
 }
 
 fn update_outputs(root: &Path, outputs: &[(&str, String)], mode: Mode) -> Result<(), String> {

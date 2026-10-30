@@ -14,6 +14,7 @@
 | wasm | `wasm.mjs`（Node.js 22 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、`node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm` |
 | TypeScript・JavaScript の包み（wasm） | `../js/test/conformance.mjs`（Node.js 22 以降） | 同じく作ったあと、`node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)） |
 | Python の包み（C ABI） | `../python/tests/conformance.py`（Python 3.9 以降） | `cargo build -p zumen-abi` のあと、`python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so`（macOS は `.dylib`、Windows は `zumen_abi1.dll`。[決定 0195](../../docs/decisions/0195-python-wrapper.md)） |
+| .NET の包み（C ABI） | `../dotnet/tests/Conformance`（.NET 10。Windows では .NET Framework 4.8 も） | `cargo build -p zumen-abi` のあと、`dotnet run --project bindings/dotnet/tests/Conformance --framework net10.0 -- target/debug/libzumen_abi1.so`（[決定 0196](../../docs/decisions/0196-dotnet-wrapper.md)） |
 
 JavaScript で流すものは、手順の読み方と応答の確かめ方を `cases.mjs` で共有します。各言語の結合を足すときは、その言語で同じ組を流すものを足し、CI に入れます（[決定 0006](../../docs/decisions/0006-language-tiers.md) の「適合試験に通る」）。
 
