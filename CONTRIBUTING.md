@@ -58,7 +58,7 @@ npm run lint:text
 
 ## 手順
 
-- 作業を選ぶときは、[次の作業と進め方](docs/work.md)で優先順と開始条件を確認してください。issue に範囲と完了条件を書き、PR で残る作業と一覧も更新してください。
+- 作業を選ぶときは、[作業の選び方](docs/work.md)に沿って、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue の並び・ラベル・依存で、優先順と開始条件を確認してください。issue に範囲と完了条件を書き、PR に残る作業を書いてください。
 - 最新の `main` からブランチを作り、PR を出してください。
 - コミットと PR のタイトルは Conventional Commits にします（例: `feat(dxf): 外部参照を読む`）。種別とスコープは英語、説明は日本語です。
 - 設計の判断を含む変更は、[docs/decisions](docs/decisions/README.md) に記録してください。
