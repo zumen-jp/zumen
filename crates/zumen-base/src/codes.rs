@@ -1268,9 +1268,32 @@ pub const PROFILE_TEXT_HEIGHT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 引出線つきの注記を、シーンに描かなかった（決定 0172）
+/// 引出線と引出線つきの注記の、記号の定義で決まるか大きさの決まらない端部記号を描かなかった。線は描いた（決定 0184）
+///
+/// `scene.arrowhead.dropped`（0.0.0 から）
+pub const SCENE_ARROWHEAD_DROPPED: Code = Code::new(
+    "scene.arrowhead.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 引出線つきの注記の記号の、属性の値を描かなかった。記号の中身は描いた（決定 0184）
+///
+/// `scene.callout-value.dropped`（0.0.0 から）
+pub const SCENE_CALLOUT_VALUE_DROPPED: Code = Code::new(
+    "scene.callout-value.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 引出線つきの注記を、シーンに描かなかった（決定 0172）（決定 0184 で、引出線つきの注記を描くので使わない）
 ///
 /// `scene.callout.dropped`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const SCENE_CALLOUT_DROPPED: Code = Code::new(
     "scene.callout.dropped",
     Severity::Warning,
@@ -1290,6 +1313,17 @@ pub const SCENE_CURVE_APPROXIMATED: Code = Code::new(
     &["tolerance"],
 );
 
+/// 表示の部品がない寸法を、定義点から補助線・寸法線と、書式の高さを持つ寸法値の文字で描いた。端部記号は描かない（決定 0184）
+///
+/// `scene.dimension.approximated`（0.0.0 から）
+pub const SCENE_DIMENSION_APPROXIMATED: Code = Code::new(
+    "scene.dimension.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// 表示の部品から描けない寸法を、シーンに描かなかった（決定 0172）
 ///
 /// `scene.dimension.dropped`（0.0.0 から）
@@ -1297,6 +1331,17 @@ pub const SCENE_DIMENSION_DROPPED: Code = Code::new(
     "scene.dimension.dropped",
     Severity::Warning,
     Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 当てはめる点を許容差で近づけるスプラインを、点を通る曲線で描いた（決定 0184）
+///
+/// `scene.fit-tolerance.approximated`（0.0.0 から）
+pub const SCENE_FIT_TOLERANCE_APPROXIMATED: Code = Code::new(
+    "scene.fit-tolerance.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
     &[],
     &[],
 );
@@ -1312,9 +1357,21 @@ pub const SCENE_GRADIENT_APPROXIMATED: Code = Code::new(
     &[],
 );
 
-/// ハッチングのパターンの線を、シーンに描かなかった。境界も描かない
+/// 線の間隔が許容差以下のパターンの線の組を、塗りで描いた（決定 0184）
+///
+/// `scene.hatch-pattern.approximated`（0.0.0 から）
+pub const SCENE_HATCH_PATTERN_APPROXIMATED: Code = Code::new(
+    "scene.hatch-pattern.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// ハッチングのパターンの線を、シーンに描かなかった。境界も描かない（決定 0184 で、パターンの線を描くので使わない）
 ///
 /// `scene.hatch-pattern.dropped`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const SCENE_HATCH_PATTERN_DROPPED: Code = Code::new(
     "scene.hatch-pattern.dropped",
     Severity::Warning,
@@ -1334,11 +1391,23 @@ pub const SCENE_LEADER_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 線種に添える形と文字を、シーンに描かなかった。線と間は描いた
+/// 線種に添える形と文字を、シーンに描かなかった。線と間は描いた（決定 0184 で、文字を描き、形は scene.line-type-shape.dropped で返すので使わない）
 ///
 /// `scene.line-type-mark.dropped`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const SCENE_LINE_TYPE_MARK_DROPPED: Code = Code::new(
     "scene.line-type-mark.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 線種に添える形（形のファイルの字形）を、シーンに描かなかった。線と間と文字は描いた（決定 0184）
+///
+/// `scene.line-type-shape.dropped`（0.0.0 から）
+pub const SCENE_LINE_TYPE_SHAPE_DROPPED: Code = Code::new(
+    "scene.line-type-shape.dropped",
     Severity::Warning,
     Some(Fidelity::Dropped),
     &[],
@@ -1356,9 +1425,21 @@ pub const SCENE_SPLINE_APPROXIMATED: Code = Code::new(
     &[],
 );
 
-/// 表を、シーンに描かなかった（決定 0172）
+/// 描いた部品がない表を、セルの枠の線と、高さの決まるセルの文字で描いた。枠の表示と色・セルの塗り・記号のセルは描かない（決定 0184）
+///
+/// `scene.table.approximated`（0.0.0 から）
+pub const SCENE_TABLE_APPROXIMATED: Code = Code::new(
+    "scene.table.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 表を、シーンに描かなかった（決定 0172）（決定 0184 で、表は描いた部品か行と列から描くので使わない）
 ///
 /// `scene.table.dropped`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const SCENE_TABLE_DROPPED: Code = Code::new(
     "scene.table.dropped",
     Severity::Warning,
@@ -1378,9 +1459,10 @@ pub const SCENE_UNDERLAY_CLIP_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった
+/// 画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった（決定 0184 で、DWF・DGN も画像として返すので使わない）
 ///
 /// `scene.underlay.dropped`（0.0.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const SCENE_UNDERLAY_DROPPED: Code = Code::new(
     "scene.underlay.dropped",
     Severity::Warning,
@@ -1644,14 +1726,21 @@ pub const ALL: &[Code] = &[
     PROFILE_SHEET_SIZE_UNSUPPORTED,
     PROFILE_TEXT_HEIGHT_INVALID,
     PROFILE_TEXT_HEIGHT_UNSUPPORTED,
+    SCENE_ARROWHEAD_DROPPED,
+    SCENE_CALLOUT_VALUE_DROPPED,
     SCENE_CALLOUT_DROPPED,
     SCENE_CURVE_APPROXIMATED,
+    SCENE_DIMENSION_APPROXIMATED,
     SCENE_DIMENSION_DROPPED,
+    SCENE_FIT_TOLERANCE_APPROXIMATED,
     SCENE_GRADIENT_APPROXIMATED,
+    SCENE_HATCH_PATTERN_APPROXIMATED,
     SCENE_HATCH_PATTERN_DROPPED,
     SCENE_LEADER_DROPPED,
     SCENE_LINE_TYPE_MARK_DROPPED,
+    SCENE_LINE_TYPE_SHAPE_DROPPED,
     SCENE_SPLINE_APPROXIMATED,
+    SCENE_TABLE_APPROXIMATED,
     SCENE_TABLE_DROPPED,
     SCENE_UNDERLAY_CLIP_DROPPED,
     SCENE_UNDERLAY_DROPPED,

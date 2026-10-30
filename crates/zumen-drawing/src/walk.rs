@@ -8,6 +8,9 @@
 //! など）で解く。
 //!
 //! 記号の属性は、記号の要素の次に、記号と同じ空間の要素として返す。属性の継承は、記号の配置で解く。
+//!
+//! [`Drawing2D::walk_parts`] は、寸法・表・引出線つきの注記を描いた部品（表示のための構成要素）の中へも、
+//! 記号と同じく進む（決定 0184）。
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -17,9 +20,9 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, Stop, codes};
 use crate::id::{self, DefinitionNamer, Namer, SheetNamer};
 use crate::transform::Point;
 use crate::{
-    Affine, Attribute, Color, Drawing2D, Element, Inherit, Inheritor, LayerId, Length, LineTypeId,
-    LineWeight, ModelPoint, ModelSpace, PaperLength, PaperPoint, Shape, Sheet, SheetId, SheetItem,
-    SpaceId, Style, Symbol, SymbolKey, View,
+    Affine, Attribute, CalloutContent, Clip, Color, Drawing2D, Element, Inherit, Inheritor,
+    LayerId, Length, LineTypeId, LineWeight, ModelPoint, ModelSpace, PaperLength, PaperPoint,
+    Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, View,
 };
 
 /// たどる起点
@@ -166,8 +169,30 @@ impl Drawing2D {
     /// 返す要素ごとに `work` を 1 と数え、配置の深さを `depth` で数える。道筋に同じ定義がもう一度現れる配置は
     /// たどらずに `drawing.placement.invalid` を返し、定義のない配置はたどらない
     pub fn walk(&self, origin: Origin, cx: &mut Cx<'_>) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
+        self.walk_with(origin, false, cx)
+    }
+
+    /// [`walk`](Self::walk) と同じく配置をたどり、寸法・表・引出線つきの注記を描いた部品の中へも進む
+    /// （決定 0184）。部品は、その要素を 1 段の配置とする記号の定義として返す。寸法の部品（DXF の名前のない
+    /// ブロック）は定義の空間の座標のまま、表の部品は挿入点へ移して、注記の記号は記号の配置で置く
+    pub fn walk_parts(
+        &self,
+        origin: Origin,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
+        self.walk_with(origin, true, cx)
+    }
+
+    fn walk_with(
+        &self,
+        origin: Origin,
+        parts: bool,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
         let mut walker = Walker {
             drawing: self,
+            parts,
+            by_name: BTreeMap::new(),
             names: BTreeMap::new(),
             spaces: BTreeMap::new(),
             keys: BTreeMap::new(),
@@ -318,6 +343,10 @@ impl<'a> Frame<'a> {
 
 struct Walker<'a> {
     drawing: &'a Drawing2D,
+    /// 部品の中へも進む
+    parts: bool,
+    /// 名前ごとの、記号の定義の添字。同じ名前があれば先のもの。寸法の部品は名前だけで指す
+    by_name: BTreeMap<&'a str, usize>,
     /// 空間と用紙ごとの、要素の ID
     names: BTreeMap<String, Rc<[String]>>,
     /// 記号の定義の空間ごとの、空間の ID
@@ -337,6 +366,9 @@ impl<'a> Walker<'a> {
             let name = namer.next(definition);
             self.spaces.entry(definition.space.id).or_insert(name);
             self.keys.entry(&definition.key).or_insert(index);
+            self.by_name
+                .entry(definition.key.name.as_str())
+                .or_insert(index);
         }
         Ok(())
     }
@@ -432,6 +464,19 @@ impl<'a> Walker<'a> {
             visit.printable &= !point.construction;
         }
         self.out.push(visit);
+        if self.parts
+            && let Some((definition, placement)) = self.part(&element.shape)
+        {
+            return self.inside(
+                element,
+                id,
+                frame,
+                definition,
+                vec![([0, 0], frame.transform.after(&placement))],
+                None,
+                cx,
+            );
+        }
         let Shape::Symbol(symbol) = &element.shape else {
             return Ok(());
         };
@@ -442,6 +487,59 @@ impl<'a> Walker<'a> {
         let Some(&definition) = self.keys.get(&symbol.key) else {
             return Ok(());
         };
+        let base = self.drawing.symbols.get(definition).and_then(|d| d.base);
+        let cells = symbol
+            .cells()
+            .map(|cell| (cell, frame.transform.after(&symbol.placement(base, cell))))
+            .collect();
+        self.inside(
+            element,
+            id,
+            frame,
+            definition,
+            cells,
+            symbol.clip.as_ref(),
+            cx,
+        )
+    }
+
+    /// 寸法・表・引出線つきの注記を描いた部品の、記号の定義の添字と、定義の空間から要素の空間への変換
+    fn part<P: Point>(&self, shape: &Shape<P>) -> Option<(usize, Affine)> {
+        match shape {
+            Shape::Dimension(dimension) => {
+                let name = dimension.block.as_deref()?;
+                Some((*self.by_name.get(name)?, Affine::IDENTITY))
+            }
+            Shape::Table(table) => {
+                let definition = *self.keys.get(table.drawn.as_ref()?)?;
+                let [x, y] = table.position.xy();
+                Some((definition, Affine::translation(x, y)))
+            }
+            Shape::Callout(callout) => match &callout.content {
+                CalloutContent::Symbol { symbol, .. } => {
+                    let definition = *self.keys.get(&symbol.key)?;
+                    let base = self.drawing.symbols.get(definition)?.base;
+                    Some((definition, symbol.placement(base, [0, 0])))
+                }
+                CalloutContent::None | CalloutContent::Text(_) => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// 記号の定義の中へ、配置ごとに進む。`cells` は格子の列と行と、定義の空間から起点への変換
+    #[allow(clippy::too_many_arguments)]
+    fn inside<P: Point>(
+        &mut self,
+        element: &'a Element<P>,
+        id: &str,
+        frame: &Frame<'a>,
+        definition: usize,
+        cells: Vec<([u32; 2], Affine)>,
+        clip: Option<&'a Clip>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), (Stop, Ref)> {
+        let at = || element.source.clone();
         if frame
             .placements
             .iter()
@@ -458,10 +556,9 @@ impl<'a> Walker<'a> {
             return Ok(());
         };
         cx.enter().map_err(|stop| (stop, at()))?;
-        for cell in symbol.cells() {
-            let placement = frame.transform.after(&symbol.placement(symbols.base, cell));
+        for (cell, placement) in cells {
             let mut clips = frame.clips.clone();
-            if let Some(clip) = &symbol.clip {
+            if let Some(clip) = clip {
                 let corners = match clip.vertices.as_slice() {
                     &[[x0, y0], [x1, y1]] => vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
                     vertices => vertices.to_vec(),

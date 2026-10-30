@@ -566,32 +566,32 @@ since = "0.0.0"
 status = "active"
 
 [codes."scene.callout.dropped"]
-description = "引出線つきの注記を、シーンに描かなかった（決定 0172）"
+description = "引出線つきの注記を、シーンに描かなかった（決定 0172）（決定 0184 で、引出線つきの注記を描くので使わない）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."scene.table.dropped"]
-description = "表を、シーンに描かなかった（決定 0172）"
+description = "表を、シーンに描かなかった（決定 0172）（決定 0184 で、表は描いた部品か行と列から描くので使わない）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."scene.hatch-pattern.dropped"]
-description = "ハッチングのパターンの線を、シーンに描かなかった。境界も描かない"
+description = "ハッチングのパターンの線を、シーンに描かなかった。境界も描かない（決定 0184 で、パターンの線を描くので使わない）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."scene.underlay.dropped"]
-description = "画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった"
+description = "画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった（決定 0184 で、DWF・DGN も画像として返すので使わない）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
-status = "active"
+status = "retired"
 
 [codes."scene.underlay-clip.dropped"]
 description = "下敷きの切り抜きを当てずに、下敷きの全体を描いた"
@@ -601,7 +601,56 @@ since = "0.0.0"
 status = "active"
 
 [codes."scene.line-type-mark.dropped"]
-description = "線種に添える形と文字を、シーンに描かなかった。線と間は描いた"
+description = "線種に添える形と文字を、シーンに描かなかった。線と間は描いた（決定 0184 で、文字を描き、形は scene.line-type-shape.dropped で返すので使わない）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "retired"
+
+[codes."scene.dimension.approximated"]
+description = "表示の部品がない寸法を、定義点から補助線・寸法線と、書式の高さを持つ寸法値の文字で描いた。端部記号は描かない（決定 0184）"
+severity = "info"
+fidelity = "approximated"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.table.approximated"]
+description = "描いた部品がない表を、セルの枠の線と、高さの決まるセルの文字で描いた。枠の表示と色・セルの塗り・記号のセルは描かない（決定 0184）"
+severity = "info"
+fidelity = "approximated"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.arrowhead.dropped"]
+description = "引出線と引出線つきの注記の、記号の定義で決まるか大きさの決まらない端部記号を描かなかった。線は描いた（決定 0184）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.callout-value.dropped"]
+description = "引出線つきの注記の記号の、属性の値を描かなかった。記号の中身は描いた（決定 0184）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.fit-tolerance.approximated"]
+description = "当てはめる点を許容差で近づけるスプラインを、点を通る曲線で描いた（決定 0184）"
+severity = "info"
+fidelity = "approximated"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.hatch-pattern.approximated"]
+description = "線の間隔が許容差以下のパターンの線の組を、塗りで描いた（決定 0184）"
+severity = "info"
+fidelity = "approximated"
+since = "0.0.0"
+status = "active"
+
+[codes."scene.line-type-shape.dropped"]
+description = "線種に添える形（形のファイルの字形）を、シーンに描かなかった。線と間と文字は描いた（決定 0184）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"

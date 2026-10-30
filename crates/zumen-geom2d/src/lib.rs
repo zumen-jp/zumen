@@ -423,6 +423,338 @@ pub fn dashes(points: &[Xy], pattern: &[f64]) -> Vec<Vec<Xy>> {
     out
 }
 
+/// 当てはめる点の間の媒介変数の取り方
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spacing {
+    /// 隣の点との距離に比例させる
+    Chord,
+    /// 隣の点との距離の平方根に比例させる
+    SquareRoot,
+    /// 等しい間隔にする
+    Uniform,
+}
+
+/// 3 次の B スプラインの、`t` での 4 つの基底関数の値（`span` は `knots[span] <= t < knots[span + 1]`）。
+/// The NURBS Book（Piegl・Tiller）の A2.2 の形
+fn basis(knots: &[f64], span: usize, t: f64) -> Option<[f64; 4]> {
+    let mut n = [1.0, 0.0, 0.0, 0.0];
+    let mut left = [0.0; 4];
+    let mut right = [0.0; 4];
+    for j in 1..4 {
+        *left.get_mut(j)? = t - *knots.get(span + 1 - j)?;
+        *right.get_mut(j)? = *knots.get(span + j)? - t;
+        let mut saved = 0.0;
+        for r in 0..j {
+            let denominator = *right.get(r + 1)? + *left.get(j - r)?;
+            let temp = if denominator == 0.0 {
+                0.0
+            } else {
+                *n.get(r)? / denominator
+            };
+            *n.get_mut(r)? = saved + *right.get(r + 1)? * temp;
+            saved = *left.get(j - r)? * temp;
+        }
+        *n.get_mut(j)? = saved;
+    }
+    Some(n)
+}
+
+/// 当てはめる点を通る 3 次のスプラインの、節点と制御点。The NURBS Book の 9.2.4 の、両端の接線を与える
+/// 補間による。媒介変数は 0〜1 にそろえ、節点は内側の点の媒介変数にする。接線（向き）の長さは、点を結ぶ
+/// 弦の長さの和にする。接線がなければ、端の 3 点を通る 2 次式の接線にする（2 点なら弦）。閉じるなら、
+/// 終わりに始めの点を足し、接線がなければ両端に、始めの点の前後の点を通る 2 次式の接線を使う。
+/// 点が 2 つ未満か、続く 2 点が重なるか、値が有限でなければ `None`
+pub fn interpolate(
+    points: &[Xy],
+    start: Option<Xy>,
+    end: Option<Xy>,
+    spacing: Spacing,
+    closed: bool,
+) -> Option<(Vec<f64>, Vec<Xy>)> {
+    let mut q = points.to_vec();
+    if closed && q.len() >= 3 && q.first() != q.last() {
+        q.push(*q.first()?);
+    }
+    if q.len() < 2 || q.iter().any(|p| !(p[0].is_finite() && p[1].is_finite())) {
+        return None;
+    }
+    let n = q.len() - 1;
+    let mut chord = 0.0;
+    let mut steps = Vec::with_capacity(n);
+    for w in q.windows(2) {
+        let [a, b] = w else { continue };
+        let d = distance(*a, *b);
+        if d <= 0.0 {
+            return None;
+        }
+        chord += d;
+        steps.push(match spacing {
+            Spacing::Chord => d,
+            Spacing::SquareRoot => d.sqrt(),
+            Spacing::Uniform => 1.0,
+        });
+    }
+    let total: f64 = steps.iter().sum();
+    if !(total.is_finite() && total > 0.0 && chord.is_finite()) {
+        return None;
+    }
+    let mut u = Vec::with_capacity(n + 1);
+    let mut walked = 0.0;
+    u.push(0.0);
+    for step in &steps {
+        walked += step;
+        u.push(walked / total);
+    }
+    *u.last_mut()? = 1.0;
+    let scaled = |t: Xy| {
+        let l = libm::hypot(t[0], t[1]);
+        (l > 0.0 && l.is_finite()).then(|| [t[0] / l * chord, t[1] / l * chord])
+    };
+    // 3 点 a・b・c を媒介変数の差 h0・h1 で通る 2 次式の、a・b・c での接線
+    let quadratic = |a: Xy, b: Xy, c: Xy, h0: f64, h1: f64, at: usize| {
+        let (ka, kb, kc) = match at {
+            0 => (
+                -(2.0 * h0 + h1) / (h0 * (h0 + h1)),
+                (h0 + h1) / (h0 * h1),
+                -h0 / (h1 * (h0 + h1)),
+            ),
+            1 => (
+                -h1 / (h0 * (h0 + h1)),
+                (h1 - h0) / (h0 * h1),
+                h0 / (h1 * (h0 + h1)),
+            ),
+            _ => (
+                h1 / (h0 * (h0 + h1)),
+                -(h0 + h1) / (h0 * h1),
+                (2.0 * h1 + h0) / (h1 * (h0 + h1)),
+            ),
+        };
+        [
+            ka * a[0] + kb * b[0] + kc * c[0],
+            ka * a[1] + kb * b[1] + kc * c[1],
+        ]
+    };
+    let first = *q.first()?;
+    let last = *q.last()?;
+    let seam = if closed && n >= 3 {
+        let (before, after) = (*q.get(n - 1)?, *q.get(1)?);
+        Some(quadratic(
+            before,
+            first,
+            after,
+            1.0 - *u.get(n - 1)?,
+            *u.get(1)?,
+            1,
+        ))
+    } else {
+        None
+    };
+    let estimate = |at_start: bool| -> Option<Xy> {
+        if let Some(seam) = seam {
+            return Some(seam);
+        }
+        if n == 1 {
+            return Some([last[0] - first[0], last[1] - first[1]]);
+        }
+        if at_start {
+            let (h0, h1) = (*u.get(1)?, *u.get(2)? - *u.get(1)?);
+            Some(quadratic(first, *q.get(1)?, *q.get(2)?, h0, h1, 0))
+        } else {
+            let h0 = *u.get(n - 1)? - *u.get(n - 2)?;
+            let h1 = 1.0 - *u.get(n - 1)?;
+            Some(quadratic(*q.get(n - 2)?, *q.get(n - 1)?, last, h0, h1, 2))
+        }
+    };
+    let d0 = match start.and_then(scaled) {
+        Some(d) => d,
+        None => estimate(true)?,
+    };
+    let dn = match end.and_then(scaled) {
+        Some(d) => d,
+        None => estimate(false)?,
+    };
+    let mut knots = vec![0.0; 4];
+    knots.extend(u.get(1..n)?.iter().copied());
+    knots.extend([1.0; 4]);
+    let a = *u.get(1)? / 3.0;
+    let b = (1.0 - *u.get(n - 1)?) / 3.0;
+    let p1 = [first[0] + d0[0] * a, first[1] + d0[1] * a];
+    let pn = [last[0] - dn[0] * b, last[1] - dn[1] * b];
+    // 内側の点 Q1〜Q(n-1) を通す、P2〜Pn の三重対角の連立方程式（Thomas の方法）
+    let m = n - 1;
+    let mut lower = Vec::with_capacity(m);
+    let mut diagonal = Vec::with_capacity(m);
+    let mut upper = Vec::with_capacity(m);
+    let mut rhs: Vec<Xy> = Vec::with_capacity(m);
+    for k in 1..n {
+        let [na, nb, nc, _] = basis(&knots, k + 3, *u.get(k)?)?;
+        let mut r = *q.get(k)?;
+        if k == 1 {
+            r = [r[0] - na * p1[0], r[1] - na * p1[1]];
+        }
+        if k == n - 1 {
+            r = [r[0] - nc * pn[0], r[1] - nc * pn[1]];
+        }
+        lower.push(na);
+        diagonal.push(nb);
+        upper.push(nc);
+        rhs.push(r);
+    }
+    for i in 1..m {
+        let w = *lower.get(i)? / *diagonal.get(i - 1)?;
+        *diagonal.get_mut(i)? -= w * *upper.get(i - 1)?;
+        let prev = *rhs.get(i - 1)?;
+        let r = rhs.get_mut(i)?;
+        *r = [r[0] - w * prev[0], r[1] - w * prev[1]];
+    }
+    let mut inner = vec![[0.0; 2]; m];
+    for i in (0..m).rev() {
+        let next = inner.get(i + 1).copied().unwrap_or([0.0; 2]);
+        let c = if i + 1 < m { *upper.get(i)? } else { 0.0 };
+        let r = *rhs.get(i)?;
+        let d = *diagonal.get(i)?;
+        *inner.get_mut(i)? = [(r[0] - c * next[0]) / d, (r[1] - c * next[1]) / d];
+    }
+    let mut control = vec![first, p1];
+    control.extend(inner);
+    control.push(pn);
+    control.push(last);
+    control
+        .iter()
+        .all(|p| p[0].is_finite() && p[1].is_finite())
+        .then_some((knots, control))
+}
+
+/// 点が輪の内側にあるか（偶奇の規則）。輪は閉じているものとする
+pub fn inside(ring: &[Xy], p: Xy) -> bool {
+    let mut odd = false;
+    let count = ring.len();
+    for i in 0..count {
+        let (Some(a), Some(b)) = (ring.get(i), ring.get((i + 1) % count)) else {
+            continue;
+        };
+        if (a[1] > p[1]) != (b[1] > p[1]) {
+            let x = a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0]);
+            if p[0] < x {
+                odd = !odd;
+            }
+        }
+    }
+    odd
+}
+
+/// 平行線の組の、輪に掛かる線の番号の範囲 `(最初, 最後)`。`k` 番目の線は、`base + k × offset` を通り、
+/// 向き `angle`（度）に引く。線の間隔が 0 か、輪がなければ `None`
+pub fn hatch_rows(rings: &[Vec<Xy>], angle: f64, base: Xy, offset: Xy) -> Option<(f64, f64)> {
+    let r = radians(angle);
+    let d = [libm::cos(r), libm::sin(r)];
+    let spacing = d[0] * offset[1] - d[1] * offset[0];
+    if !(spacing.is_finite() && spacing != 0.0) {
+        return None;
+    }
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for p in rings.iter().flatten() {
+        let s = (d[0] * (p[1] - base[1]) - d[1] * (p[0] - base[0])) / spacing;
+        lo = lo.min(s);
+        hi = hi.max(s);
+    }
+    (lo.is_finite() && hi.is_finite()).then(|| (libm::ceil(lo), libm::floor(hi)))
+}
+
+/// 平行線の組の `k` 番目の線の、輪の内側（偶奇の規則）の部分を、線と間の列（正は線、負は間、0 は点）で
+/// 分けた線。列は `base + k × offset` から測る。列が空なら実線
+pub fn hatch_row(
+    rings: &[Vec<Xy>],
+    angle: f64,
+    base: Xy,
+    offset: Xy,
+    k: f64,
+    dashes: &[f64],
+) -> Vec<Vec<Xy>> {
+    let r = radians(angle);
+    let d = [libm::cos(r), libm::sin(r)];
+    let o = [base[0] + k * offset[0], base[1] + k * offset[1]];
+    let side = |p: &Xy| d[0] * (p[1] - o[1]) - d[1] * (p[0] - o[0]);
+    let along = |p: &Xy| d[0] * (p[0] - o[0]) + d[1] * (p[1] - o[1]);
+    let mut cuts = Vec::new();
+    for ring in rings {
+        let count = ring.len();
+        for i in 0..count {
+            let (Some(a), Some(b)) = (ring.get(i), ring.get((i + 1) % count)) else {
+                continue;
+            };
+            let (sa, sb) = (side(a), side(b));
+            if (sa > 0.0) != (sb > 0.0) {
+                let f = sa / (sa - sb);
+                cuts.push(along(a) + (along(b) - along(a)) * f);
+            }
+        }
+    }
+    cuts.retain(|t| t.is_finite());
+    cuts.sort_by(f64::total_cmp);
+    let at = |t: f64| [o[0] + d[0] * t, o[1] + d[1] * t];
+    let total = period(dashes);
+    let mut out = Vec::new();
+    for &[t0, t1] in cuts.as_chunks::<2>().0 {
+        if dashes.is_empty() || !(total.is_finite() && total > 0.0) {
+            out.push(vec![at(t0), at(t1)]);
+            continue;
+        }
+        let mut pos = libm::floor(t0 / total) * total;
+        let mut steps = 0;
+        'walk: while pos <= t1 {
+            for value in dashes {
+                let end = pos + value.abs();
+                if *value > 0.0 {
+                    let (a, b) = (pos.max(t0), end.min(t1));
+                    if a < b {
+                        out.push(vec![at(a), at(b)]);
+                    }
+                } else if *value == 0.0 && pos >= t0 && pos <= t1 {
+                    out.push(vec![at(pos), at(pos)]);
+                }
+                pos = end;
+                steps += 1;
+                if pos > t1 || steps >= MAX_STEPS {
+                    break 'walk;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 線種の列の `index` 番目の要素が始まる位置と、そこでの線の向き（度）。列は折れ線の始点から当て、頂点を
+/// またいで続ける（[`dashes`] と同じ）。1 周の長さが 0 なら空
+pub fn starts(points: &[Xy], pattern: &[f64], index: usize) -> Vec<(Xy, f64)> {
+    let total = period(pattern);
+    if !(total.is_finite() && total > 0.0) || index >= pattern.len() {
+        return Vec::new();
+    }
+    let first: f64 = pattern.iter().take(index).map(|v| v.abs()).sum();
+    let mut out = Vec::new();
+    let mut next = first;
+    let mut walked = 0.0;
+    for pair in points.windows(2) {
+        let [a, b] = pair else { continue };
+        let segment = distance(*a, *b);
+        if segment <= 0.0 {
+            continue;
+        }
+        let direction = libm::atan2(b[1] - a[1], b[0] - a[0]).to_degrees();
+        while next <= walked + segment && out.len() < MAX_STEPS {
+            let f = (next - walked) / segment;
+            out.push((
+                [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f],
+                direction,
+            ));
+            next += total;
+        }
+        walked += segment;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -506,5 +838,77 @@ mod tests {
             ]
         );
         assert_eq!(dashes(&[[0.0, 0.0], [1.0, 0.0]], &[]).len(), 1);
+    }
+
+    #[test]
+    fn interpolated_splines_pass_through_their_points() {
+        let points = [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0], [3.0, 1.0]];
+        let (knots, control) = interpolate(&points, None, None, Spacing::Chord, false).unwrap();
+        assert_eq!(control.len(), points.len() + 2);
+        assert_eq!(knots.len(), control.len() + 4);
+        let curve = spline(3, &knots, &control, &[], 1e-6).unwrap();
+        for p in points {
+            let nearest = curve
+                .iter()
+                .map(|c| libm::hypot(c[0] - p[0], c[1] - p[1]))
+                .fold(f64::INFINITY, f64::min);
+            assert!(nearest < 1e-3, "{p:?} {nearest}");
+        }
+        // 直線に並ぶ点は、直線になる
+        let (k, c) = interpolate(
+            &[[0.0, 0.0], [1.0, 0.0], [3.0, 0.0]],
+            None,
+            None,
+            Spacing::Chord,
+            false,
+        )
+        .unwrap();
+        assert!(
+            spline(3, &k, &c, &[], 1e-9)
+                .unwrap()
+                .iter()
+                .all(|p| p[1].abs() < 1e-12)
+        );
+        // 接線を与えると、その向きで出る
+        let (_, c) = interpolate(
+            &[[0.0, 0.0], [1.0, 0.0]],
+            Some([0.0, 1.0]),
+            None,
+            Spacing::Chord,
+            false,
+        )
+        .unwrap();
+        assert!(close(c[1], [0.0, 1.0 / 3.0]));
+        assert!(
+            interpolate(&[[0.0, 0.0], [0.0, 0.0]], None, None, Spacing::Chord, false).is_none()
+        );
+    }
+
+    #[test]
+    fn hatch_rows_keep_the_inside_of_rings() {
+        let outer = vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        let hole = vec![[4.0, 4.0], [6.0, 4.0], [6.0, 6.0], [4.0, 6.0]];
+        let rings = vec![outer, hole];
+        let (lo, hi) = hatch_rows(&rings, 0.0, [0.0, 0.5], [0.0, 1.0]).unwrap();
+        assert_eq!((lo, hi), (-0.0, 9.0));
+        let row = hatch_row(&rings, 0.0, [0.0, 0.5], [0.0, 1.0], 4.0, &[]);
+        assert_eq!(
+            row,
+            vec![vec![[0.0, 4.5], [4.0, 4.5]], vec![[6.0, 4.5], [10.0, 4.5]]]
+        );
+        let dashed = hatch_row(&rings, 0.0, [0.0, 0.5], [0.0, 1.0], 0.0, &[3.0, -2.0]);
+        assert_eq!(dashed.len(), 2);
+        assert_eq!(dashed[1], vec![[5.0, 0.5], [8.0, 0.5]]);
+        assert!(hatch_rows(&rings, 0.0, [0.0, 0.0], [1.0, 0.0]).is_none());
+        assert!(inside(&rings[0], [5.0, 5.0]));
+        assert!(!inside(&rings[1], [1.0, 1.0]));
+    }
+
+    #[test]
+    fn starts_repeat_along_the_line() {
+        let found = starts(&[[0.0, 0.0], [5.0, 0.0], [5.0, 5.0]], &[2.0, -2.0], 1);
+        let places: Vec<Xy> = found.iter().map(|(p, _)| *p).collect();
+        assert_eq!(places, vec![[2.0, 0.0], [5.0, 1.0], [5.0, 5.0]]);
+        assert_eq!(found[1].1, 90.0);
     }
 }

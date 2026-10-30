@@ -8,7 +8,7 @@ pub const MAGIC: [u8; 4] = *b"ZMSC";
 /// 大版。区画の意味を変えるときに上げる
 pub const MAJOR: u16 = 1;
 /// 小版。区画か値を足すたびに上げる
-pub const MINOR: u16 = 0;
+pub const MINOR: u16 = 1;
 /// 番号の「なし」
 pub const NONE: u32 = u32::MAX;
 
@@ -529,6 +529,10 @@ pub mod text_flag {
     pub const STACK_UPPER: u8 = 16;
     /// 上下に重ねた文字の下
     pub const STACK_LOWER: u8 = 32;
+    /// 高さは文字枠の高さ（決定 0184）。height_frame と height_em のどちらもなければ、大文字の高さか、字形との関係が決まらない形式の宣言値
+    pub const HEIGHT_FRAME: u8 = 64;
+    /// 高さは em（決定 0184）
+    pub const HEIGHT_EM: u8 = 128;
 }
 
 /// 文書の点の基本の形
@@ -567,6 +571,10 @@ pub mod image_kind {
     pub const IMAGE: u8 = 0;
     /// PDF
     pub const PDF: u8 = 1;
+    /// DWF（決定 0184）
+    pub const DWF: u8 = 2;
+    /// DGN（決定 0184）
+    pub const DGN: u8 = 3;
 }
 
 /// 画像の辺のベクトルの意味

@@ -18,7 +18,7 @@
 # 大版。区画の意味を変えるときに上げる
 major = 1
 # 小版。区画か値を足すたびに上げる
-minor = 0
+minor = 1
 
 # 塊
 
@@ -451,6 +451,8 @@ items = [
   { name = "formatted", value = 8, description = "書式つきの文字の区間。基点は枠の基点で、行の中の位置は表示する側が送る" },
   { name = "stack_upper", value = 16, description = "上下に重ねた文字の上" },
   { name = "stack_lower", value = 32, description = "上下に重ねた文字の下" },
+  { name = "height_frame", value = 64, description = "高さは文字枠の高さ（決定 0184）。height_frame と height_em のどちらもなければ、大文字の高さか、字形との関係が決まらない形式の宣言値" },
+  { name = "height_em", value = 128, description = "高さは em（決定 0184）" },
 ]
 
 [[values]]
@@ -490,6 +492,8 @@ description = "下敷きの資源の種類"
 items = [
   { name = "image", value = 0, description = "画素の画像" },
   { name = "pdf", value = 1, description = "PDF" },
+  { name = "dwf", value = 2, description = "DWF（決定 0184）" },
+  { name = "dgn", value = 3, description = "DGN（決定 0184）" },
 ]
 
 [[values]]
