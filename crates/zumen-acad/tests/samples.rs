@@ -1,11 +1,10 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある、同じ図面の DWG（R2000・R2004・R2010 以降）と DXF を読み、表を比べる。
-//! フォルダーを指定しないときは何も確かめない。図面は Git に入れない。
+//! 試料の、同じ図面の DWG（R2000・R2004・R2010 以降）と DXF を読み、表を比べる。
+//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 //!
 //! `名前.dwg` と `名前_ascii.dxf` の組を探す。
 
 #[cfg(feature = "drawing")]
 mod by_source;
-#[cfg(feature = "drawing")]
 mod support;
 
 use std::collections::BTreeMap;
@@ -33,17 +32,9 @@ fn is_default(code: i16, data: &Data) -> bool {
 
 /// フォルダーの中の、読める版の DWG と同じ名前の DXF の組
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn pairs() -> Vec<(PathBuf, PathBuf)> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut found: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dwg"))
         .filter(|path| {
             let src = std::fs::read(path).unwrap();
@@ -98,17 +89,9 @@ fn close(found: &str, expected: &str) -> bool {
 
 /// フォルダーの中の、版が `version` の DWG
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn dwgs(version: &[u8]) -> Vec<PathBuf> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut found: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dwg"))
         .filter(|path| std::fs::read(path).unwrap().starts_with(version))
         .collect();
@@ -4291,22 +4274,15 @@ fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
 /// Shift_JIS）で指す（決定 0158）。どの文字スタイルも、名前で指すだけのものを含めて表にある
 #[test]
 #[cfg(feature = "drawing")]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings_name_the_fonts_of_their_text_styles() {
     use zumen_drawing::{FontKind, Shape};
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return;
-    };
+    let paths = support::sample_files();
     let mut japanese = 0;
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
+    for path in &paths {
         if !path.extension().is_some_and(|e| e == "dxf" || e == "dwg") {
             continue;
         }
-        let src = std::fs::read(&path).unwrap();
+        let src = std::fs::read(path).unwrap();
         let mut diag = Diagnostics::new();
         let mut budget = Budget::default();
         let cancel = CancelToken::new();
@@ -4352,7 +4328,7 @@ fn drawings_name_the_fonts_of_their_text_styles() {
             })
             .count();
     }
-    assert!(japanese > 0);
+    assert!(!paths.iter().any(|path| support::received(path)) || japanese > 0);
 }
 
 /// 試料のレイヤの名前・色・状態を変え、レイヤを 1 つ足して書き戻すと、読み直したレイヤは変えたものと同じに
@@ -4360,10 +4336,6 @@ fn drawings_name_the_fonts_of_their_text_styles() {
 /// 日本語の名前にも変える（決定 0162）
 #[cfg(feature = "drawing")]
 #[test]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings_take_back_renamed_restyled_and_added_layers() {
     use zumen_drawing::{
         Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Hash, LayerState, Seen,
@@ -4505,12 +4477,8 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
         assert_eq!(layer_names(&after), expected, "{}", path.display());
         Some(())
     }
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return;
-    };
-    let mut paths: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut paths: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
         .collect();
     paths.sort();
@@ -4538,10 +4506,6 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
 /// 試料の図面から、要素が使わない画層を除いて書き戻すと、開き直した図面にその画層がなく、ほかの画層の ID・
 /// 名前・状態・スタイルと、要素の画層は変わらない（決定 0162）
 #[test]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings_take_back_removed_layers() {
     use std::collections::BTreeSet;
     use zumen_drawing::{
@@ -4780,12 +4744,8 @@ fn drawings_take_back_removed_layers() {
         }
         false
     }
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return;
-    };
-    let mut paths: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut paths: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
         .collect();
     paths.sort();
@@ -4823,10 +4783,6 @@ fn drawings_take_back_removed_layers() {
 /// 読み直した文字スタイルは変えたものと同じになり、文字は名前を変えた文字スタイルを指す。R2010 から後の DWG は、
 /// 日本語の名前にも変える（決定 0163）
 #[test]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings_take_back_changed_text_styles() {
     use zumen_drawing::{
         Applied, Changes, Drawing2D, Edit, Element, Font, FontKind, Hash, Seen, Shape, TextStyle,
@@ -5002,12 +4958,8 @@ fn drawings_take_back_changed_text_styles() {
         }
         [1, removed]
     }
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return;
-    };
-    let mut paths: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut paths: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
         .collect();
     paths.sort();
@@ -5039,10 +4991,6 @@ fn drawings_take_back_changed_text_styles() {
 /// 変えたものと同じになり、要素とレイヤは名前を変えた線種を指す。R2010 から後の DWG は、日本語の名前にも変える
 /// （決定 0164）
 #[test]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings_take_back_changed_line_types() {
     use zumen_drawing::{
         Applied, Changes, Drawing2D, Edit, Hash, Inherit, LineType, LineTypeId, PatternBasis, Seen,
@@ -5216,12 +5164,8 @@ fn drawings_take_back_changed_line_types() {
         }
         [1, removed]
     }
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return;
-    };
-    let mut paths: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut paths: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
         .collect();
     paths.sort();
@@ -5253,10 +5197,6 @@ fn drawings_take_back_changed_line_types() {
 /// を除いて書き戻すと、読み直した寸法スタイルは変えたものと同じになり、寸法と引出線は名前を変えた寸法スタイルを指す。
 /// DXF は、端部記号もブロックの矢印に変える。R2010 から後の DWG は、日本語の名前にも変える（決定 0165）
 #[test]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings_take_back_changed_dimension_styles() {
     use zumen_drawing::{
         Applied, Arrowhead, Changes, DimensionStyle, Drawing2D, Edit, Hash, Seen, Shape, SymbolKey,
@@ -5465,12 +5405,8 @@ fn drawings_take_back_changed_dimension_styles() {
         }
         [1, removed]
     }
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return;
-    };
-    let mut paths: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut paths: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
         .collect();
     paths.sort();

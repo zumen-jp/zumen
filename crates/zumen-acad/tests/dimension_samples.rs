@@ -1,7 +1,9 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある DXF と DWG の寸法の、保存された測定値（DXF の 42）を、定義点から測った
-//! 値と比べる。長さは図面の単位、角度はラジアンであることを確かめる（docs/formats/dxf.md の推定した扱い）。
-//! フォルダーを指定しないときは何も確かめない。図面は Git に入れない。
+//! 試料の DXF と DWG の寸法の、保存された測定値（DXF の 42）を、定義点から測った値と
+//! 比べる。長さは図面の単位、角度はラジアンであることを確かめる（docs/formats/dxf.md の推定した扱い）。
+//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
+
+mod support;
 
 use std::f64::consts::PI;
 use std::path::PathBuf;
@@ -12,17 +14,9 @@ use zumen_sdk::{Codec, Lift};
 
 /// フォルダーの中の DXF と、読める版の DWG
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings() -> Vec<PathBuf> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut found: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| {
             let Some(extension) = path.extension() else {
                 return false;

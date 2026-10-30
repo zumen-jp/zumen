@@ -1,5 +1,5 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある DXF と DWG を、境界の `apply` で書き戻す。
-//! フォルダーを指定しないときは何も確かめない。図面は Git に入れない。
+//! 試料の DXF と DWG を、境界の `apply` で書き戻す。
+//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 
 use std::path::PathBuf;
 
@@ -14,11 +14,17 @@ use zumen_json::Value;
     reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn drawings() -> Vec<PathBuf> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
+    let dirs = [root.join("dxf"), root.join("dwg")]
+        .into_iter()
+        .filter(|dir| dir.is_dir())
+        .chain(
+            std::env::var_os("ZUMEN_SAMPLES")
+                .filter(|d| !d.is_empty())
+                .map(PathBuf::from),
+        );
+    let mut found: Vec<_> = dirs
+        .flat_map(|dir| std::fs::read_dir(dir).unwrap())
         .map(|entry| entry.unwrap().path())
         .filter(|path| {
             path.extension()
@@ -27,6 +33,18 @@ fn drawings() -> Vec<PathBuf> {
         .collect();
     found.sort();
     found
+}
+
+/// 受け取った図面（`ZUMEN_SAMPLES` のフォルダー）があるか。試料が持つはずの要素の数は、あるときだけ確かめる
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn received() -> bool {
+    std::env::var_os("ZUMEN_SAMPLES")
+        .filter(|d| !d.is_empty())
+        .is_some_and(|dir| drawings().iter().any(|path| path.starts_with(&dir)))
 }
 
 #[cfg(test)]
@@ -156,7 +174,7 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
         }
         checked += 1;
     }
-    assert!(drawings().is_empty() || checked > 0);
+    assert!(!received() || checked > 0);
 }
 
 /// 試料の DXF の実寸の空間の線を、`tables` が返したレイヤの ID で別のレイヤに移すと、開き直した線が
@@ -248,7 +266,7 @@ fn drawings_move_lines_to_layers_named_by_id() {
         );
         checked += 1;
     }
-    assert!(drawings().is_empty() || checked > 0);
+    assert!(!received() || checked > 0);
 }
 
 /// 要素の ID と形の値。要素が多い図面も、すべて読む
@@ -360,10 +378,7 @@ fn drawings_take_back_shapes_replaced_and_added_through_the_boundary() {
         }
         checked[usize::from(name.to_ascii_lowercase().ends_with(".dwg"))] += 1;
     }
-    assert!(
-        drawings().is_empty() || checked.iter().all(|n| *n > 0),
-        "{checked:?}"
-    );
+    assert!(!received() || checked.iter().all(|n| *n > 0), "{checked:?}");
 }
 
 /// 数の差が小さいほかは同じ値
@@ -450,10 +465,7 @@ fn drawings_take_back_ellipses_replaced_through_the_boundary() {
         );
         checked[usize::from(name.to_ascii_lowercase().ends_with(".dwg"))] += 1;
     }
-    assert!(
-        drawings().is_empty() || checked.iter().all(|n| *n > 0),
-        "{checked:?}"
-    );
+    assert!(!received() || checked.iter().all(|n| *n > 0), "{checked:?}");
 }
 
 /// 試料の実寸の空間に、境界の `add` で文字を足すと、開き直した文字の形とハッシュが、送った形と `apply` が
@@ -534,7 +546,7 @@ fn drawings_take_back_texts_added_through_the_boundary() {
         assert!(close(&found, &expected), "{name}: {found:?}");
     }
     assert!(
-        drawings().is_empty() || japanese.iter().all(|n| *n > 0),
+        !received() || japanese.iter().all(|n| *n > 0),
         "{japanese:?}"
     );
 }
@@ -692,7 +704,7 @@ fn drawings_take_back_texts_fitted_between_two_points() {
         moved[dwg] += 1;
     }
     assert!(
-        drawings().is_empty()
+        !received()
             || (replaced[0] > 0 && added.iter().all(|n| *n > 0) && moved.iter().all(|n| *n > 0)),
         "{replaced:?} {added:?} {moved:?} {skewed}"
     );
@@ -840,8 +852,7 @@ fn drawings_take_back_formatted_texts_through_the_boundary() {
         assert!(close(&found, &expected), "{name}: {found:?}");
     }
     assert!(
-        drawings().is_empty()
-            || (japanese.iter().all(|n| *n > 0) && replaced.iter().all(|n| *n > 0)),
+        !received() || (japanese.iter().all(|n| *n > 0) && replaced.iter().all(|n| *n > 0)),
         "{replaced:?} {japanese:?}"
     );
 }
@@ -992,7 +1003,7 @@ fn drawings_take_back_symbols_through_the_boundary() {
         valued[dwg] += 1;
     }
     assert!(
-        drawings().is_empty()
+        !received()
             || (replaced.iter().all(|n| *n > 0)
                 && added.iter().all(|n| *n > 0)
                 && valued.iter().all(|n| *n > 0)
@@ -1149,7 +1160,7 @@ fn drawings_take_back_splines_fitted_through_points() {
         moved[dwg] += 1;
     }
     assert!(
-        drawings().is_empty()
+        !received()
             || (replaced.iter().all(|n| *n > 0)
                 && added.iter().all(|n| *n > 0)
                 && moved.iter().all(|n| *n > 0)),
@@ -1247,7 +1258,7 @@ fn drawings_take_back_splines_through_the_boundary() {
         added[dwg] += 1;
     }
     assert!(
-        drawings().is_empty() || (replaced.iter().all(|n| *n > 0) && added.iter().all(|n| *n > 0)),
+        !received() || (replaced.iter().all(|n| *n > 0) && added.iter().all(|n| *n > 0)),
         "{replaced:?} {added:?}"
     );
 }
@@ -1326,7 +1337,7 @@ fn drawings_return_dimensions_but_do_not_write_them() {
         }
         assert_eq!(shapes(&mut session, "in"), found, "{}", path.display());
     }
-    assert!(drawings().is_empty() || returned > 0);
+    assert!(!received() || returned > 0);
 }
 
 /// 試料の属性を持つ記号（表題欄など）の属性の値を `replace` で変えると、ATTRIB の値だけが書き直され、読み直した
@@ -1402,7 +1413,7 @@ fn drawings_take_back_attribute_values_changed_through_the_boundary() {
         }
     }
     assert!(
-        drawings().is_empty() || changed.iter().all(|count| *count > 0),
+        !received() || changed.iter().all(|count| *count > 0),
         "{changed:?}"
     );
 }
@@ -1499,7 +1510,7 @@ fn drawings_refer_to_text_styles_by_their_ids() {
         );
         added[dwg] += 1;
     }
-    if !drawings().is_empty() {
+    if received() {
         assert!(referred.iter().all(|count| *count > 0), "{referred:?}");
         assert!(added.iter().all(|count| *count > 0), "{added:?}");
     }

@@ -1,6 +1,5 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある、同じ図面のバイナリの DXF（`名前_binary.dxf`）と
-//! ASCII の DXF（`名前_ascii.dxf`）を読み、比べる。フォルダーを指定しないときは何も確かめない。
-//! 図面は Git に入れない。
+//! 試料の、同じ図面のバイナリの DXF（`名前_binary.dxf`）と ASCII の DXF（`名前_ascii.dxf`）を読み、比べる。
+//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 
 mod support;
 
@@ -12,18 +11,10 @@ use zumen_sdk::{Codec, Lift, Transact, Transaction};
 
 /// バイナリと ASCII の DXF の組
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn pairs() -> Vec<(PathBuf, PathBuf)> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(dir)
-        .unwrap()
-        .filter_map(|entry| {
-            let path = entry.unwrap().path();
+    let mut found: Vec<_> = support::sample_files()
+        .into_iter()
+        .filter_map(|path| {
             let name = path.file_name()?.to_str()?.strip_suffix("_binary.dxf")?;
             let ascii = path.with_file_name(format!("{name}_ascii.dxf"));
             ascii.exists().then(|| (path.clone(), ascii))

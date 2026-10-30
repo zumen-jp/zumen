@@ -1,6 +1,8 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある DXF と DWG を、配置をたどって読む（決定 0159）。
+//! 試料の DXF と DWG を、配置をたどって読む（決定 0159）。
 //! 配置の中の要素の色・線種・線幅が、決定 0143 の関数で配置を通して解いた値と同じになる。
-//! フォルダーを指定しないときは何も確かめない。図面は Git に入れない。
+//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+
+mod support;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -13,17 +15,9 @@ use zumen_sdk::{Codec, Lift};
 
 /// フォルダーの中の DXF と DWG
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn samples() -> Vec<PathBuf> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut found: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
         .filter(|path| !path.to_string_lossy().ends_with("_binary.dxf"))
         .collect();
@@ -113,5 +107,5 @@ fn walking_placements_matches_the_placed_functions() {
         }
     }
     // 試料では、34 枚の図面の配置の中に 7 千ほどの要素がある
-    assert!(paths.is_empty() || (drawings > 0 && inside > 0));
+    assert!(!paths.iter().any(|path| support::received(path)) || (drawings > 0 && inside > 0));
 }

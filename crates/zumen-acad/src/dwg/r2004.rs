@@ -1022,19 +1022,27 @@ mod tests {
         assert_eq!(second.len(), first.len());
     }
 
-    /// `ZUMEN_SAMPLES` の R2004 からの DWG を、そのままと、読めた区切りをすべて置き換えて組み直す
+    /// 試料（公開サンプルの `samples/dwg` と `ZUMEN_SAMPLES` のフォルダー）の R2004 からの DWG を、そのままと、
+    /// 読めた区切りをすべて置き換えて組み直す
     #[test]
     #[allow(
         clippy::disallowed_methods,
         reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
     )]
     fn sample_containers_are_rebuilt() {
-        let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-            return;
-        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
+        let received = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty());
+        let dirs = Some(root)
+            .filter(|dir| dir.is_dir())
+            .into_iter()
+            .chain(received.clone().map(std::path::PathBuf::from));
+        let mut paths: Vec<_> = dirs
+            .flat_map(|dir| std::fs::read_dir(dir).unwrap())
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        paths.sort();
         let mut seen = 0;
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
+        for path in paths {
             let Ok(src) = std::fs::read(&path) else {
                 continue;
             };
@@ -1063,6 +1071,7 @@ mod tests {
             assert!(diag.is_empty(), "{path:?} {diag:?}");
             assert_eq!(sections(&again), sections(&container), "{path:?}");
         }
-        assert!(seen > 0);
+        // 受け取った図面には R2004 からの DWG がある
+        assert!(received.is_none() || seen > 0);
     }
 }

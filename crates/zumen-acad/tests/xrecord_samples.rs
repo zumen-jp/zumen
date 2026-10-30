@@ -1,5 +1,7 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある DXF・DWG で、拡張辞書の XRECORD を、決定 0157 の振り分けで
-//! 形式固有の情報に移す（決定 0148・0152）。フォルダーを指定しないときは何も確かめない。図面は Git に入れない。
+//! 試料の DXF・DWG で、拡張辞書の XRECORD を、決定 0157 の振り分けで形式固有の情報に移す（決定 0148・0152）。
+//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+
+mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -10,17 +12,9 @@ use zumen_sdk::{Codec, Lift};
 
 /// フォルダーの中の、ASCII の DXF と DWG
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn drawings() -> Vec<PathBuf> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut found: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf" || e == "dwg"))
         .filter(|path| !path.to_string_lossy().ends_with("_binary.dxf"))
         .collect();

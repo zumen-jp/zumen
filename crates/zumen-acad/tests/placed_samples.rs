@@ -1,5 +1,7 @@
-//! `ZUMEN_SAMPLES` のフォルダーにある DXF で、モデル空間に置いたブロックの中の図形の継承を、
-//! 配置で解く（決定 0143）。フォルダーを指定しないときは何も確かめない。図面は Git に入れない。
+//! 試料の DXF で、モデル空間に置いたブロックの中の図形の継承を、配置で解く（決定 0143）。
+//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+
+mod support;
 
 use std::path::PathBuf;
 use zumen_acad::Dxf;
@@ -9,17 +11,9 @@ use zumen_sdk::{Codec, Lift};
 
 /// フォルダーの中の DXF
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
-)]
 fn dxfs() -> Vec<PathBuf> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let mut found: Vec<_> = support::sample_files()
+        .into_iter()
         .filter(|path| path.extension().is_some_and(|e| e == "dxf"))
         .filter(|path| !path.to_string_lossy().ends_with("_binary.dxf"))
         .collect();
@@ -75,5 +69,5 @@ fn byblock_in_placed_blocks_is_resolved_by_the_placement() {
         }
     }
     // 試料には、どちらも千件ほどある
-    assert!(paths.is_empty() || (byblock > 0 && on_zero > 0));
+    assert!(!paths.iter().any(|path| support::received(path)) || (byblock > 0 && on_zero > 0));
 }

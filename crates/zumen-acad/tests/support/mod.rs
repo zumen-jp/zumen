@@ -1,5 +1,55 @@
 //! 図面の試料を比較するときの共通の処理。
 
+#![allow(dead_code)]
+
+use std::path::{Path, PathBuf};
+
+/// 試料のフォルダー。リポジトリの公開サンプル（`samples/dxf`・`samples/dwg` のうちあるもの）と、
+/// `ZUMEN_SAMPLES` のフォルダー（指定したとき）。受け取った図面はリポジトリに入れず、`ZUMEN_SAMPLES` で渡す
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+pub fn sample_dirs() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
+    let mut dirs: Vec<_> = ["dxf", "dwg"]
+        .iter()
+        .map(|format| root.join(format))
+        .filter(|dir| dir.is_dir())
+        .collect();
+    dirs.extend(
+        std::env::var_os("ZUMEN_SAMPLES")
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from),
+    );
+    dirs
+}
+
+/// `ZUMEN_SAMPLES` のフォルダーの試料か。試料が持つはずの要素の数は、受け取った図面があるときだけ確かめる
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+pub fn received(path: &Path) -> bool {
+    std::env::var_os("ZUMEN_SAMPLES")
+        .filter(|d| !d.is_empty())
+        .is_some_and(|dir| path.starts_with(dir))
+}
+
+/// 試料のフォルダーの中のファイル。パスの順に並べる
+#[cfg(test)]
+pub fn sample_files() -> Vec<PathBuf> {
+    let mut found: Vec<_> = sample_dirs()
+        .iter()
+        .flat_map(|dir| std::fs::read_dir(dir).unwrap())
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    found.sort();
+    found
+}
+
 /// 図面モデルの Debug 表示から、出所の `Ref` の値だけを除く。
 /// 文字列の中の同じ文字並びは図面の内容なので残す。出所の有無と個数も変えない。
 pub fn without_source_refs(text: &str) -> String {

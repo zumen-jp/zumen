@@ -1,4 +1,5 @@
-//! 試料の SXF（`ZUMEN_SAMPLES` のフォルダー）で確かめる。図面はリポジトリに入れない
+//! 試料の SXF で確かめる。試料は公開サンプルの `samples/sxf` と、受け取った図面を置く `ZUMEN_SAMPLES` の
+//! フォルダーから集める
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -15,11 +16,17 @@ use zumen_sxf::Sxf;
     reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn samples() -> Vec<PathBuf> {
-    let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
-        return Vec::new();
-    };
-    let mut found: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
+    let dirs = [root.join("sxf")]
+        .into_iter()
+        .filter(|dir| dir.is_dir())
+        .chain(
+            std::env::var_os("ZUMEN_SAMPLES")
+                .filter(|d| !d.is_empty())
+                .map(PathBuf::from),
+        );
+    let mut found: Vec<_> = dirs
+        .flat_map(|dir| std::fs::read_dir(dir).unwrap())
         .map(|entry| entry.unwrap().path())
         .filter(|path| {
             path.extension()
