@@ -40,7 +40,7 @@ use super::objects::{
     hatch_gradient, object_fields, owned, r2010_entity_fields, r2010_object_fields,
     skip_extended_data,
 };
-use super::{DwgFile, Release, header};
+use super::{DwgFile, Release, header, kinds};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value, uncaret};
 
 /// 図形の共通の欄のうち、表に置くもののグループ・コード
@@ -129,7 +129,6 @@ const MTEXT: &[i16] = &[
     10, 20, 30, 210, 220, 230, 11, 21, 31, 41, 40, 71, 72, 3, 1, 73, 44,
 ];
 
-/// MINSERT の型の番号
 const LWPOLYLINE: &[i16] = &[90, 70, 43, 38, 39, 10, 20, 40, 41, 42, 210, 220, 230];
 const SPLINE: &[i16] = &[
     70, 71, 72, 73, 74, 44, 12, 22, 32, 13, 23, 33, 42, 43, 40, 10, 20, 30, 41, 11, 21, 31,
@@ -138,23 +137,6 @@ const HATCH: &[i16] = &[
     10, 20, 30, 210, 220, 230, 2, 70, 71, 91, 92, 93, 72, 73, 74, 11, 21, 40, 42, 50, 51, 94, 95,
     96, 97, 75, 76, 52, 41, 77, 78, 53, 43, 44, 45, 46, 79, 49, 47, 98,
 ];
-const MINSERT_TYPE: i16 = 0x08;
-const LAYER_TYPE: i16 = 0x33;
-const LAYER_CONTROL_TYPE: u16 = 0x32;
-const STYLE_TYPE: i16 = 0x35;
-const STYLE_CONTROL_TYPE: u16 = 0x34;
-const LTYPE_TYPE: i16 = 0x39;
-const LTYPE_CONTROL_TYPE: u16 = 0x38;
-const APPID_TYPE: i16 = 0x43;
-const APPID_CONTROL_TYPE: u16 = 0x42;
-const DIMSTYLE_TYPE: i16 = 0x45;
-const DIMSTYLE_CONTROL_TYPE: u16 = 0x44;
-const VIEW_TYPE: i16 = 0x3D;
-const VIEW_CONTROL_TYPE: u16 = 0x3C;
-const VPORT_TYPE: i16 = 0x41;
-const VPORT_CONTROL_TYPE: u16 = 0x40;
-const BLOCK_RECORD_TYPE: i16 = 0x31;
-const BLOCK_RECORD_CONTROL_TYPE: u16 = 0x30;
 const VERTEX_2D: &[i16] = &[70, 10, 20, 30, 40, 41, 42, 50];
 const VERTEX_3D: &[i16] = &[70, 10, 20, 30];
 const FACE_RECORD: &[i16] = &[10, 20, 30, 70, 71, 72, 73, 74];
@@ -181,7 +163,6 @@ const DIMENSION_ALL: &[i16] = &[
     11, 21, 31, 70, 71, 42, 12, 22, 32, 72, 41, 1, 53, 51, 210, 220, 230, 10, 20, 30, 13, 23, 33,
     14, 24, 34, 15, 25, 35, 16, 26, 36, 40, 50, 52,
 ];
-const DIMENSION_TYPE: i16 = 0x14;
 /// DIMENSION の型ごとの、DXF の寸法の種類（70 の下の 3 ビット）
 const DIMENSION_KIND: [i16; 7] = [6, 0, 1, 5, 2, 4, 3];
 
@@ -667,7 +648,7 @@ impl DwgFile {
                 .iter()
                 .any(|value| matches!(value.code, 70 | 71 | 44 | 45));
         let (type_code, own) = if grid {
-            (MINSERT_TYPE, MINSERT)
+            (kinds::MINSERT, MINSERT)
         } else {
             (type_code, own)
         };
@@ -831,28 +812,32 @@ impl DwgFile {
         let view_codes = [VIEW, &[345, 346]].concat();
         let vport_codes = [VPORT, &[345, 346]].concat();
         // レコードと表のオブジェクトの型と、型ごとの欄のグループ・コード
-        let (type_code, control_type, own): (i16, u16, &[i16]) = match object.kind.as_slice() {
+        let (type_code, control_type, own): (u16, u16, &[i16]) = match object.kind.as_slice() {
             b"LAYER" => (
-                LAYER_TYPE,
-                LAYER_CONTROL_TYPE,
+                kinds::LAYER,
+                kinds::LAYER_CONTROL,
                 &[70, 62, 290, 370, 390, 347, 6],
             ),
-            b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE, STYLE),
-            b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE, &[70, 3, 72, 73, 40, 49, 74]),
-            b"APPID" => (APPID_TYPE, APPID_CONTROL_TYPE, &[70]),
-            b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE, &dimstyle_codes),
-            b"VIEW" => (VIEW_TYPE, VIEW_CONTROL_TYPE, &view_codes),
-            b"VPORT" => (VPORT_TYPE, VPORT_CONTROL_TYPE, &vport_codes),
+            b"STYLE" => (kinds::STYLE, kinds::STYLE_CONTROL, STYLE),
+            b"LTYPE" => (
+                kinds::LTYPE,
+                kinds::LTYPE_CONTROL,
+                &[70, 3, 72, 73, 40, 49, 74],
+            ),
+            b"APPID" => (kinds::APPID, kinds::APPID_CONTROL, &[70]),
+            b"DIMSTYLE" => (kinds::DIMSTYLE, kinds::DIMSTYLE_CONTROL, &dimstyle_codes),
+            b"VIEW" => (kinds::VIEW, kinds::VIEW_CONTROL, &view_codes),
+            b"VPORT" => (kinds::VPORT, kinds::VPORT_CONTROL, &vport_codes),
             b"BLOCK_RECORD" => (
-                BLOCK_RECORD_TYPE,
-                BLOCK_RECORD_CONTROL_TYPE,
+                kinds::BLOCK_RECORD,
+                kinds::BLOCK_RECORD_CONTROL,
                 &[70, 280, 281],
             ),
             _ => return None,
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
         // DIMSTYLE のハンドルは、DXF と同じく 105 に置く
-        let at = if type_code == DIMSTYLE_TYPE { 105 } else { 5 };
+        let at = if type_code == kinds::DIMSTYLE { 105 } else { 5 };
         let codes = [&[at, 330, 2], own].concat();
         if object
             .values
@@ -870,7 +855,7 @@ impl DwgFile {
             .count();
         (!name.is_empty() && same == 1).then_some(())?;
         // 名前のないブロックと空間のブロック（* で始まる）は足せない
-        (type_code != BLOCK_RECORD_TYPE || !name.starts_with(b"*")).then_some(())?;
+        (type_code != kinds::BLOCK_RECORD || !name.starts_with(b"*")).then_some(())?;
         let r2004 = self.release >= Release::R2004;
         // R2010 からは、文字列を文字列の流れに書き、外部参照の番号を持たない（決定 0094）
         let r2010 = self.release >= Release::R2010;
@@ -904,7 +889,7 @@ impl DwgFile {
         }
         // 外部参照のブロック
         handles.handle(5, 0);
-        if type_code == LAYER_TYPE {
+        if type_code == kinds::LAYER {
             let (flags, color) = layer_flags(object, false, 0)?;
             fields.bs(flags);
             cmc(&mut fields, color, self.release)?;
@@ -942,7 +927,7 @@ impl DwgFile {
                 handles.handle(5, material);
             }
             handles.handle(5, record_handle(db, b"LTYPE", text_of(object, 6)?)?);
-        } else if type_code == STYLE_TYPE {
+        } else if type_code == kinds::STYLE {
             // 形のファイル 1 と縦書き 4 の印、高さ・幅の係数・斜めの角度・生成の印・前の高さ・字体の名前
             let flags = small(object, 70)??;
             (flags & !(1 | 4) == 0).then_some(())?;
@@ -955,7 +940,7 @@ impl DwgFile {
             fields.bd(real(object, 42)??);
             string(&mut fields, object, 3)?;
             string(&mut fields, object, 4)?;
-        } else if type_code == LTYPE_TYPE {
+        } else if type_code == kinds::LTYPE {
             // 外部参照に依らない線種の、説明・揃え・要素の数・長さと、要素ごとの長さ。形も文字もない要素の
             // 形の番号・ずれ・尺度・回転は、試料の図面と同じく 0・0・0・1・0 とし、文字の領域は 0 で埋める
             let mut values = Cursor(
@@ -996,11 +981,11 @@ impl DwgFile {
                     fields.rc(0);
                 }
             }
-        } else if type_code == APPID_TYPE {
+        } else if type_code == kinds::APPID {
             // 使い道の分からない RC は、試料の図面と同じく 0 とする
             (small(object, 70)?? == 0).then_some(())?;
             fields.rc(0);
-        } else if type_code == VIEW_TYPE {
+        } else if type_code == kinds::VIEW {
             let (lighting, bits) = default_lighting();
             let associated = view_fields(
                 &mut fields,
@@ -1037,7 +1022,7 @@ impl DwgFile {
             if r2010 {
                 handles.handle(4, 0);
             }
-        } else if type_code == VPORT_TYPE {
+        } else if type_code == kinds::VPORT {
             // 使い道の分からないビットは、試料の図面と同じく偽とする
             let (lighting, bits) = default_lighting();
             vport_fields(
@@ -1061,7 +1046,7 @@ impl DwgFile {
             for code in [345, 346] {
                 handles.handle(5, ucs_handle(db, object, code)?);
             }
-        } else if type_code == BLOCK_RECORD_TYPE {
+        } else if type_code == kinds::BLOCK_RECORD {
             let block = block?;
             // 名前のない印・属性を持つ印・外部参照の印・重ねる外部参照の印・読み込んだ印と基点。属性を
             // 持つのは、ATTDEF を持つブロック
@@ -1170,11 +1155,11 @@ impl DwgFile {
         changes.insert(record, entry);
         if r2010 {
             let mut out = BitWriter::default();
-            out.bot(type_code);
+            out.bot(i16::try_from(type_code).ok()?);
             return Some((handle, r2010_assemble(out, fields, handles)?));
         }
         let mut out = BitWriter::default();
-        out.bs(type_code);
+        out.bs(i16::try_from(type_code).ok()?);
         out.rl(i32::try_from(out.len() + 32 + fields.len()).ok()?);
         for part in [fields, handles] {
             let len = part.len();
@@ -1385,10 +1370,10 @@ impl DwgFile {
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Option<()> {
         let (type_code, control_type) = match old.kind.as_slice() {
-            b"LAYER" => (LAYER_TYPE, LAYER_CONTROL_TYPE),
-            b"STYLE" => (STYLE_TYPE, STYLE_CONTROL_TYPE),
-            b"LTYPE" => (LTYPE_TYPE, LTYPE_CONTROL_TYPE),
-            b"DIMSTYLE" => (DIMSTYLE_TYPE, DIMSTYLE_CONTROL_TYPE),
+            b"LAYER" => (kinds::LAYER, kinds::LAYER_CONTROL),
+            b"STYLE" => (kinds::STYLE, kinds::STYLE_CONTROL),
+            b"LTYPE" => (kinds::LTYPE, kinds::LTYPE_CONTROL),
+            b"DIMSTYLE" => (kinds::DIMSTYLE, kinds::DIMSTYLE_CONTROL),
             _ => return None,
         };
         let (xdictionary, rest) = without_xdictionary(old);
@@ -1537,28 +1522,28 @@ const REMOVABLE: &[&[u8]] = &[
 
 /// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0060）。型ごとの欄を元のデータ
 /// なしで符号化でき、型ごとのハンドルが表のレコードか、足した図形を指すものだけか、ないもの
-const ADDABLE: &[(&[u8], i16, &[i16])] = &[
-    (b"LINE", 0x13, LINE),
-    (b"CIRCLE", 0x12, CIRCLE),
-    (b"ARC", 0x11, ARC),
-    (b"POINT", 0x1B, POINT),
-    (b"ELLIPSE", 0x23, ELLIPSE),
-    (b"RAY", 0x28, RAY),
-    (b"XLINE", 0x29, RAY),
-    (b"SOLID", 0x1F, SOLID),
-    (b"TRACE", 0x20, SOLID),
-    (b"3DFACE", 0x1C, FACE3D),
-    (b"TEXT", 0x01, TEXT),
-    (b"ATTDEF", 0x03, ATTDEF),
-    (b"INSERT", 0x07, INSERT),
-    (b"MTEXT", 0x2C, MTEXT),
-    (b"LWPOLYLINE", 0x4D, LWPOLYLINE),
-    (b"SPLINE", 0x24, SPLINE),
-    (b"ATTRIB", 0x02, ATTRIB),
-    (b"SEQEND", 0x06, &[]),
+const ADDABLE: &[(&[u8], u16, &[i16])] = &[
+    (b"LINE", kinds::LINE, LINE),
+    (b"CIRCLE", kinds::CIRCLE, CIRCLE),
+    (b"ARC", kinds::ARC, ARC),
+    (b"POINT", kinds::POINT, POINT),
+    (b"ELLIPSE", kinds::ELLIPSE, ELLIPSE),
+    (b"RAY", kinds::RAY, RAY),
+    (b"XLINE", kinds::XLINE, RAY),
+    (b"SOLID", kinds::SOLID, SOLID),
+    (b"TRACE", kinds::TRACE, SOLID),
+    (b"3DFACE", kinds::FACE3D, FACE3D),
+    (b"TEXT", kinds::TEXT, TEXT),
+    (b"ATTDEF", kinds::ATTDEF, ATTDEF),
+    (b"INSERT", kinds::INSERT, INSERT),
+    (b"MTEXT", kinds::MTEXT, MTEXT),
+    (b"LWPOLYLINE", kinds::LWPOLYLINE, LWPOLYLINE),
+    (b"SPLINE", kinds::SPLINE, SPLINE),
+    (b"ATTRIB", kinds::ATTRIB, ATTRIB),
+    (b"SEQEND", kinds::SEQEND, &[]),
     // 足したブロックのレコードの BLOCK と ENDBLK（決定 0068）。BLOCK の名前（2）と基点は、レコードに合わせる
-    (b"BLOCK", 0x04, &[2, 10, 20, 30]),
-    (b"ENDBLK", 0x05, &[]),
+    (b"BLOCK", kinds::BLOCK, &[2, 10, 20, 30]),
+    (b"ENDBLK", kinds::ENDBLK, &[]),
 ];
 
 /// 足したブロックのレコードが持つもの（決定 0068）
@@ -1581,7 +1566,7 @@ struct NewBlock {
 struct NewEntity<'a> {
     object: &'a Object,
     handle: u64,
-    type_code: i16,
+    type_code: u16,
     /// entmode。2 はモデル空間、1 は用紙空間、0 はほかのブロック
     mode: u8,
     /// 所有者のブロックのレコードのハンドル
@@ -1624,7 +1609,7 @@ impl NewEntity<'_> {
         common.bb(0);
         common.bs(small(object, 60)?.unwrap_or(0));
         common.rc(lineweight_index(-1)?.try_into().ok()?);
-        let mut fields = if r2004 && self.type_code == MINSERT_TYPE {
+        let mut fields = if r2004 && self.type_code == kinds::MINSERT {
             self.minsert()?
         } else {
             own_fields(BitWriter::default(), object, object, self.type_code, &[], 0)?
@@ -1634,7 +1619,7 @@ impl NewEntity<'_> {
         }
         // R2004 の属性を持つ INSERT は、型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0080）
         if r2004
-            && self.type_code != MINSERT_TYPE
+            && self.type_code != kinds::MINSERT
             && let Some((attribs, _)) = &self.children
         {
             fields.bl(i32::try_from(attribs.len()).ok()?);
@@ -1669,7 +1654,7 @@ impl NewEntity<'_> {
             handles.handle(3, *seqend);
         }
         let mut out = BitWriter::default();
-        out.bs(self.type_code);
+        out.bs(i16::try_from(self.type_code).ok()?);
         out.rl(i32::try_from(out.len() + 32 + common.len() + fields.len()).ok()?);
         for part in [common, fields, handles] {
             let len = part.len();
@@ -1694,7 +1679,7 @@ impl NewEntity<'_> {
     fn encode_r2010(&self, release: Release) -> Option<Vec<u8>> {
         let object = self.object;
         let mut out = BitWriter::default();
-        out.bot(self.type_code);
+        out.bot(i16::try_from(self.type_code).ok()?);
         out.handle(0, self.handle);
         // 拡張データと図形の絵がない
         out.bs(0);
@@ -1723,7 +1708,7 @@ impl NewEntity<'_> {
             b"ATTRIB" => r2010_attribute(&mut fields, object, &[], [0, 0], release)?,
             b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
-            _ if self.type_code == MINSERT_TYPE => {
+            _ if self.type_code == kinds::MINSERT => {
                 let minsert = self.minsert()?;
                 let len = minsert.len();
                 fields.copy(&minsert.into_bytes(), 0..len)?;
@@ -1731,7 +1716,7 @@ impl NewEntity<'_> {
             _ => fields = own_fields(fields, object, object, self.type_code, &[], 0)?,
         }
         // 属性を持つ INSERT は、R2004 と同じく型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0093）
-        if self.type_code != MINSERT_TYPE
+        if self.type_code != kinds::MINSERT
             && let Some((attribs, _)) = &self.children
         {
             fields.bl(i32::try_from(attribs.len()).ok()?);
@@ -2067,7 +2052,7 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
 /// 扱う（決定 0072）
 fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型で欄が分かれる
-    let type_code = Bits::with_release(data, Release::R2000).bs()?;
+    let type_code = u16::try_from(Bits::with_release(data, Release::R2000).bs()?).ok()?;
     let own = own_codes(&new.kind, type_code);
     if release == Release::R2004 && !R2004_KINDS.contains(&new.kind.as_slice()) {
         return None;
@@ -2106,7 +2091,7 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
         fields.copy(data, start..bits.pos())?;
         hatch(&mut fields, old, new)?;
         fields
-    } else if release == Release::R2004 && type_code == MINSERT_TYPE {
+    } else if release == Release::R2004 && type_code == kinds::MINSERT {
         r2004_minsert_fields(
             BitWriter::default,
             old,
@@ -2142,7 +2127,7 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
 }
 
 /// 種類 `kind`（型 `type_code`）の図形の、型ごとの欄の組の符号。扱わない種類は空
-fn own_codes(kind: &[u8], type_code: i16) -> &'static [i16] {
+fn own_codes(kind: &[u8], type_code: u16) -> &'static [i16] {
     match kind {
         b"LINE" => LINE,
         b"CIRCLE" => CIRCLE,
@@ -2160,20 +2145,20 @@ fn own_codes(kind: &[u8], type_code: i16) -> &'static [i16] {
         b"SPLINE" => SPLINE,
         b"HATCH" => HATCH,
         b"VERTEX" => match type_code {
-            0x0A => VERTEX_2D,
-            0x0B..=0x0D => VERTEX_3D,
-            0x0E => FACE_RECORD,
+            kinds::VERTEX_2D => VERTEX_2D,
+            kinds::VERTEX_3D..=kinds::VERTEX_PFACE => VERTEX_3D,
+            kinds::VERTEX_PFACE_FACE => FACE_RECORD,
             _ => &[],
         },
         b"POLYLINE" => match type_code {
-            0x0F => POLYLINE_2D,
-            0x10 => POLYLINE_3D,
-            0x1D => POLYFACE,
-            0x1E => MESH,
+            kinds::POLYLINE_2D => POLYLINE_2D,
+            kinds::POLYLINE_3D => POLYLINE_3D,
+            kinds::POLYLINE_PFACE => POLYFACE,
+            kinds::POLYLINE_MESH => MESH,
             _ => &[],
         },
         b"DIMENSION" => DIMENSION_ALL,
-        b"INSERT" if type_code == MINSERT_TYPE => MINSERT,
+        b"INSERT" if type_code == kinds::MINSERT => MINSERT,
         b"INSERT" => INSERT,
         b"TOLERANCE" => TOLERANCE,
         b"LEADER" => LEADER,
@@ -2194,7 +2179,7 @@ fn encode_r2010(
     new: &Object,
     release: Release,
 ) -> Option<Vec<u8>> {
-    let type_code = Bits::with_release(data, release).bot()?;
+    let type_code = u16::try_from(Bits::with_release(data, release).bot()?).ok()?;
     let own = own_codes(&new.kind, type_code);
     if !R2010_KINDS.contains(&new.kind.as_slice()) {
         return None;
@@ -2331,7 +2316,7 @@ fn with_modular_size(out: BitWriter, handles: usize) -> Option<Vec<u8>> {
 fn r2010_own_fields(
     old: &Object,
     new: &Object,
-    type_code: i16,
+    type_code: u16,
     data: &[u8],
     start: usize,
     end: usize,
@@ -2361,7 +2346,7 @@ fn r2010_own_fields(
         let mut fields = BitWriter::with_strings();
         r2010_mtext(&mut fields, new, data, start, end, release)?;
         Some(fields)
-    } else if new.kind == b"VERTEX" && type_code == 0x0A {
+    } else if new.kind == b"VERTEX" && type_code == kinds::VERTEX_2D {
         // 2D の頂点は、膨らみの後に頂点の番号（BL）を持つ。元のビットを写し、接線の向きを後に書く
         let mut bits = Bits::with_release(data, release);
         bits.seek(start);
@@ -2405,7 +2390,7 @@ fn r2010_own_fields(
         let mut fields = BitWriter::with_strings();
         spline(&mut fields, new, data, start, release)?;
         Some(fields)
-    } else if type_code == MINSERT_TYPE {
+    } else if type_code == kinds::MINSERT {
         r2004_minsert_fields(
             BitWriter::with_strings,
             old,
@@ -3031,7 +3016,7 @@ impl Entry {
 
 /// 型 `type_code` のレコードの表のオブジェクトのデータ `data` の、項目の数（BL）と項目のハンドルを `entry` の
 /// とおりに変えたもの（決定 0061・0162）。ハンドルの流れの後の埋めるビットは写さない
-fn add_entry(data: &[u8], entry: Entry, type_code: i16, release: Release) -> Option<Vec<u8>> {
+fn add_entry(data: &[u8], entry: Entry, type_code: u16, release: Release) -> Option<Vec<u8>> {
     let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut bits = Bits::with_release(data, release);
     bits.seek(size_at + 32);
@@ -3046,11 +3031,11 @@ fn add_entry(data: &[u8], entry: Entry, type_code: i16, release: Release) -> Opt
     // 寸法の体裁の表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く。ブロックの表は、
     // 項目の後にモデル空間と用紙空間のハンドルが続く（決定 0068）
     let extra = match type_code {
-        DIMSTYLE_TYPE => bits.rc()?,
-        BLOCK_RECORD_TYPE => 2,
+        kinds::DIMSTYLE => bits.rc()?,
+        kinds::BLOCK_RECORD => 2,
         _ => 0,
     };
-    if type_code == DIMSTYLE_TYPE {
+    if type_code == kinds::DIMSTYLE {
         fields.rc(extra);
     }
     (bits.pos() == handles_at).then_some(())?;
@@ -3085,7 +3070,7 @@ fn add_entry_r2010(
     data: &[u8],
     handles_at: usize,
     entry: Entry,
-    type_code: i16,
+    type_code: u16,
     release: Release,
 ) -> Option<Vec<u8>> {
     let mut bits = Bits::with_release(data, release);
@@ -3102,8 +3087,8 @@ fn add_entry_r2010(
     let count = bits.bl()?;
     let count_end = bits.pos();
     let extra = match type_code {
-        DIMSTYLE_TYPE => bits.rc()?,
-        BLOCK_RECORD_TYPE => 2,
+        kinds::DIMSTYLE => bits.rc()?,
+        kinds::BLOCK_RECORD => 2,
         _ => 0,
     };
     (bits.pos() == end).then_some(())?;
@@ -4147,7 +4132,7 @@ fn own_fields(
     mut fields: BitWriter,
     old: &Object,
     new: &Object,
-    type_code: i16,
+    type_code: u16,
     data: &[u8],
     start: usize,
 ) -> Option<BitWriter> {
@@ -4213,7 +4198,7 @@ fn own_fields(
             let kept = (real(old, 50) == real(new, 50))
                 .then(|| insert_rotation(data, start))
                 .flatten();
-            insert(&mut fields, new, type_code == MINSERT_TYPE, kept)?
+            insert(&mut fields, new, type_code == kinds::MINSERT, kept)?
         }
         b"TOLERANCE" => {
             let end = entity_fields(data, Release::R2000)?[3];
@@ -4244,7 +4229,7 @@ fn r2004_own_fields(
     writer: fn() -> BitWriter,
     old: &Object,
     new: &Object,
-    type_code: i16,
+    type_code: u16,
     data: &[u8],
     start: usize,
     handles_at: usize,
@@ -5170,13 +5155,13 @@ fn string(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
 
 /// VERTEX の欄（決定 0038）。2D の頂点は、始まりと終わりの幅が同じで 0 でなければ、負の始まりの幅だけを
 /// 書く。角度は度からラジアンに直す。多面の面は、点が 0 で印が 128 のものだけを受け付ける
-fn vertex(fields: &mut BitWriter, object: &Object, type_code: i16) -> Option<()> {
+fn vertex(fields: &mut BitWriter, object: &Object, type_code: u16) -> Option<()> {
     let flags = |object| small(object, 70).map(|flags| flags.unwrap_or(0));
     match type_code {
-        0x0A..=0x0D => {
+        kinds::VERTEX_2D..=kinds::VERTEX_PFACE => {
             fields.rc(u8::try_from(flags(object)?).ok()?);
             point3(fields, object, 10)?;
-            if type_code != 0x0A {
+            if type_code != kinds::VERTEX_2D {
                 return Some(());
             }
             let [start, end, bulge, tangent] =
@@ -5193,7 +5178,7 @@ fn vertex(fields: &mut BitWriter, object: &Object, type_code: i16) -> Option<()>
             fields.bd(bulge?);
             fields.bd(tangent?.to_radians());
         }
-        0x0E => {
+        kinds::VERTEX_PFACE_FACE => {
             zero_point(object)?;
             (flags(object)? == 128).then_some(())?;
             for code in 71..75 {
@@ -5211,7 +5196,7 @@ fn vertex(fields: &mut BitWriter, object: &Object, type_code: i16) -> Option<()>
 fn polyline(
     fields: &mut BitWriter,
     object: &Object,
-    type_code: i16,
+    type_code: u16,
     data: &[u8],
     start: usize,
 ) -> Option<()> {
@@ -5219,7 +5204,7 @@ fn polyline(
     let flags = small(object, 70)?;
     let surface = small(object, 75)?.unwrap_or(0);
     match type_code {
-        0x0F => {
+        kinds::POLYLINE_2D => {
             for code in [10, 20] {
                 (real(object, code)? == Some(0.0)).then_some(())?;
             }
@@ -5232,7 +5217,7 @@ fn polyline(
             fields.bd(real(object, 30)??);
             extrusion(fields, object)?;
         }
-        0x10 => {
+        kinds::POLYLINE_3D => {
             zero_point(object)?;
             let flags = flags?;
             let curve = match surface {
@@ -5259,14 +5244,14 @@ fn polyline(
             });
             fields.rc(old_closed & !1 | u8::try_from(flags & 1).ok()?);
         }
-        0x1D => {
+        kinds::POLYLINE_PFACE => {
             zero_point(object)?;
             (flags == Some(64)).then_some(())?;
             for code in [71, 72] {
                 fields.bs(small(object, code)??);
             }
         }
-        0x1E => {
+        kinds::POLYLINE_MESH => {
             zero_point(object)?;
             fields.bs(flags?);
             fields.bs(surface);
@@ -5286,12 +5271,12 @@ fn dimension(
     fields: &mut BitWriter,
     old: &Object,
     new: &Object,
-    type_code: i16,
+    type_code: u16,
     data: &[u8],
     start: usize,
     release: Release,
 ) -> Option<()> {
-    let at = usize::try_from(type_code.checked_sub(DIMENSION_TYPE)?).ok()?;
+    let at = usize::from(type_code.checked_sub(kinds::DIMENSION_ORDINATE)?);
     let (kind, own) = (*DIMENSION_KIND.get(at)?, *DIMENSION_KINDS.get(at)?);
     // ほかの型の欄があるものは受け付けない
     let allowed = |code| DIMENSION.contains(&code) || own.contains(&code);
@@ -5342,7 +5327,7 @@ fn dimension(
     let arrows = arrows_at..bits.pos();
     bits.rd()?;
     bits.rd()?;
-    let old_ordinate = if type_code == DIMENSION_TYPE {
+    let old_ordinate = if type_code == kinds::DIMENSION_ORDINATE {
         for _ in 0..9 {
             bits.bd()?;
         }
@@ -5351,7 +5336,11 @@ fn dimension(
         0
     };
     let flags = small(new, 70)??;
-    let ordinate = if type_code == DIMENSION_TYPE { 64 } else { 0 };
+    let ordinate = if type_code == kinds::DIMENSION_ORDINATE {
+        64
+    } else {
+        0
+    };
     (flags & !(32 | ordinate | 128) == kind).then_some(())?;
     let elevation = real(new, 31)??;
     let same = |code| real(new, code).map(|z| z.is_none_or(|z| z.to_bits() == elevation.to_bits()));
@@ -5416,7 +5405,7 @@ fn dimension(
             _ => {}
         }
     }
-    if type_code == DIMENSION_TYPE {
+    if type_code == kinds::DIMENSION_ORDINATE {
         fields.rc(old_ordinate & !1 | u8::from(flags & 64 != 0));
     }
     Some(())
@@ -5921,7 +5910,7 @@ mod layer_name_tests {
     /// 文字列とハンドルの流れを分けた LAYER のデータを、試験の中で作る。
     fn layer_data(release: Release, name: &str, external: bool) -> Vec<u8> {
         let mut head = BitWriter::default();
-        head.bot(LAYER_TYPE);
+        head.bot(i16::try_from(kinds::LAYER).unwrap());
         head.handle(0, 0x10);
         head.bs(0); // 拡張データなし
         head.bl(0); // 反応子なし
@@ -6001,7 +5990,7 @@ mod layer_name_tests {
                 let rewritten = encode_record_r2010(data, handles_at, &old, &new, release).unwrap();
                 let (data, handles_at) = split(&rewritten);
                 let mut bits = Bits::with_release(data, release);
-                assert_eq!(bits.bot(), Some(LAYER_TYPE));
+                assert_eq!(bits.bot(), i16::try_from(kinds::LAYER).ok());
                 let header = bits.pos();
                 let fields_end = bits.split_strings(handles_at).unwrap();
                 bits.seek(header);

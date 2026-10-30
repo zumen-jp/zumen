@@ -10,11 +10,14 @@
 use std::collections::BTreeSet;
 
 use super::add::{Born, Target, int};
-use super::layer::{external, find, set_in, usable_name};
-use super::{count_transform_values, real, work};
+use super::layer::{external, find, set_in, table_end, usable_name};
+use super::{
+    Current, Plan, count_line_type_change, count_table_records, count_table_search,
+    count_transform_values, insert_records, real, record_at, removal, unsupported, work,
+};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
-use zumen_base::{Cx, Ref};
-use zumen_drawing::{LineType, PatternBasis};
+use zumen_base::{Cx, Key, Ref};
+use zumen_drawing::{Drawing2D, Edit, Inherit, LineType, PatternBasis, Placed, Seen};
 use zumen_sdk::Error;
 
 /// 欄を書く順。ない欄は、この順で前にある欄の後に足す
@@ -298,4 +301,291 @@ pub(super) fn value_name(values: &[Value]) -> Option<&[u8]> {
         Some(Data::Text(name)) => Some(name),
         _ => None,
     }
+}
+
+/// 線種の変更（決定 0164）。表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
+#[derive(Default)]
+pub(super) struct LineTypes {
+    records: Option<Vec<usize>>,
+    names: BTreeSet<Vec<u8>>,
+    added: Vec<Vec<Value>>,
+    renames: Vec<(Vec<u8>, Value)>,
+    removed: Vec<Vec<u8>>,
+}
+
+impl LineTypes {
+    /// 線種の表のレコードの位置と、小文字にした名前を作る。作ってあれば何もしない
+    fn index(
+        &mut self,
+        db: &AcadDb,
+        drawing: &Drawing2D,
+        born: &Born,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        if self.records.is_some() {
+            return Ok(());
+        }
+        let mut records = Vec::new();
+        for (position, object) in db.objects().iter().enumerate() {
+            work(cx, 1, &Ref::default())?;
+            if is_line_type(object) {
+                count_transform_values(object, &Ref::default(), cx)?;
+                records.push(position);
+                if let Some(Data::Text(name)) = object.first(2) {
+                    self.names.insert(name.to_ascii_lowercase());
+                }
+            }
+        }
+        // 図形だけが指す名前も、既存の線種として重複を防ぐ。
+        for line_type in drawing
+            .line_types
+            .iter()
+            .filter(|line_type| line_type.definition.is_none())
+        {
+            work(
+                cx,
+                1 + line_type.name.len() as u64 / 1024,
+                &line_type.source,
+            )?;
+            if let Some(Value {
+                data: Data::Text(name),
+                ..
+            }) = born.text_value(2, &line_type.name)
+            {
+                self.names.insert(name.to_ascii_lowercase());
+            }
+        }
+        self.records = Some(records);
+        Ok(())
+    }
+
+    /// 足す線種を表に置き、名前を変えた線種を新しい名前で指す。除いた線種を、同じ一覧で足した図形と画層が
+    /// 指していないかを確かめる。足した線種のハンドルを返す
+    pub(super) fn write_back(
+        self,
+        db: &mut AcadDb,
+        target: Target,
+        cx: &mut Cx,
+    ) -> Result<Vec<Option<u64>>, Error> {
+        let handles = insert_records(db, b"LTYPE", self.added, target, cx)?;
+        for (old, new) in &self.renames {
+            rename(db, old, new, target, cx)?;
+        }
+        // 同じ一覧で足した図形と画層は、除いた線種を指せない
+        for name in &self.removed {
+            if named_by_new(db, name, cx)? {
+                cx.report(unsupported("remove_line_type", "LTYPE", target));
+                return Err(Error::Rejected);
+            }
+        }
+        Ok(handles)
+    }
+}
+
+/// 線種を置き換える（`Edit::ReplaceLineType`）
+pub(super) fn replace<'e>(
+    current: &Current<'_>,
+    plan: &mut Plan<'e>,
+    target_of: &'e Seen,
+    new: &LineType,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db,
+        drawing,
+        index,
+        born,
+        target,
+        ..
+    } = *current;
+    plan.line_types.index(db, drawing, born, cx)?;
+    work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+    count_line_type_change(new, cx)?;
+    let Some(was) = plan.seen(&index.line_types, target_of, index, cx)? else {
+        return Ok(());
+    };
+    let line_type_positions = plan.line_types.records.as_deref().unwrap_or_default();
+    count_table_records(db, line_type_positions, &was.source, cx)?;
+    let found = (plan.targets.insert(target_of.id.as_str()) && was.source != Ref::default())
+        .then(|| record_at(db, line_type_positions, &was.source))
+        .flatten();
+    // DXF で名前を変えるなら、図形と画層でないオブジェクトが名前で指していないかを先に調べる
+    let named = match found {
+        Some((_, object)) => {
+            count_transform_values(object, &was.source, cx)?;
+            match (object.first(2), born.text_value(2, &new.name)) {
+                (
+                    Some(Data::Text(old)),
+                    Some(Value {
+                        data: Data::Text(name),
+                        ..
+                    }),
+                ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
+                    named_elsewhere(db, old, cx, &was.source)?
+                }
+                _ => false,
+            }
+        }
+        None => false,
+    };
+    let planned = found.and_then(|(position, object)| {
+        let mut values = object.values.clone();
+        write(born, &mut values, new, Some((object, was)), target)?;
+        let Some(Data::Text(old)) = object.first(2) else {
+            return None;
+        };
+        let name = value_name(&values)?;
+        if !old.eq_ignore_ascii_case(name) {
+            // 名前を変えるなら、ほかの線種と重ならず、ほかのオブジェクトが名前で指していないこと
+            let free = !plan.line_types.names.contains(&name.to_ascii_lowercase())
+                && !fixed_name(name)
+                && !named;
+            free.then_some(())?;
+            plan.line_types.names.remove(&old.to_ascii_lowercase());
+            plan.line_types.names.insert(name.to_ascii_lowercase());
+        }
+        if old.as_slice() != name {
+            let name = Value {
+                code: 6,
+                data: Data::Text(name.to_vec()),
+            };
+            plan.line_types.renames.push((old.clone(), name));
+        }
+        Some((position, values))
+    });
+    match planned {
+        Some(planned) => plan.replaced.push(planned),
+        None => plan.reject(
+            unsupported("replace_line_type", "LTYPE", target).at(was.source.clone()),
+            cx,
+        ),
+    }
+    Ok(())
+}
+
+/// 線種を除く（`Edit::RemoveLineType`）
+pub(super) fn remove<'e>(
+    current: &Current<'_>,
+    plan: &mut Plan<'e>,
+    target_of: &'e Seen,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db,
+        drawing,
+        index,
+        born,
+        edits,
+        target,
+        ..
+    } = *current;
+    plan.line_types.index(db, drawing, born, cx)?;
+    let Some(was) = plan.seen(&index.line_types, target_of, index, cx)? else {
+        return Ok(());
+    };
+    // 同じ一覧で足す要素・スタイルを変える要素・変えて足すレイヤも、除く線種を指せない
+    work(cx, edits.len() as u64, &was.source)?;
+    let own = Inherit::Own(was.id);
+    let pointed = edits.iter().any(|other| match other {
+        Edit::Add { element, .. } => match element.as_ref() {
+            Placed::Model(element) => element.style.line_type == own,
+            Placed::Paper(element) => element.style.line_type == own,
+        },
+        Edit::Restyle { style, .. } => style.line_type == Some(own),
+        Edit::ReplaceLayer { layer, .. } | Edit::AddLayer { layer } => layer
+            .style
+            .is_some_and(|style| style.line_type == Some(was.id)),
+        _ => false,
+    });
+    // 後ろのハンドルなし線種は並びの番号が ID なので、除くと別の ID になる
+    work(cx, drawing.line_types.len() as u64, &was.source)?;
+    let unstable = drawing.line_types.iter().any(|line_type| {
+        line_type.id.0 > was.id.0 && !matches!(line_type.source.key(), Some(Key::Handle(_)))
+    });
+    let line_type_positions = plan.line_types.records.as_deref().unwrap_or_default();
+    count_table_records(db, line_type_positions, &was.source, cx)?;
+    let found = (plan.targets.insert(target_of.id.as_str())
+        && was.source != Ref::default()
+        && !pointed
+        && !unstable)
+        .then(|| record_at(db, line_type_positions, &was.source))
+        .flatten();
+    let planned = match found {
+        Some((position, object)) => {
+            count_transform_values(object, &was.source, cx)?;
+            match removable(object) {
+                true => removal(db, position, object, referenced, cx, &was.source)?
+                    .map(|skip| (skip, object)),
+                false => None,
+            }
+        }
+        None => None,
+    };
+    match planned {
+        Some((skip, object)) => {
+            if let Some(Data::Text(name)) = object.first(2) {
+                plan.line_types.names.remove(&name.to_ascii_lowercase());
+                plan.line_types.removed.push(name.clone());
+            }
+            plan.removed.extend(skip);
+        }
+        None => plan.reject(
+            unsupported("remove_line_type", "LTYPE", target).at(was.source.clone()),
+            cx,
+        ),
+    }
+    Ok(())
+}
+
+/// 線種を足す（`Edit::AddLineType`）。Continuous を写して書く
+pub(super) fn add(
+    current: &Current<'_>,
+    plan: &mut Plan<'_>,
+    new: &LineType,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db,
+        drawing,
+        born,
+        target,
+        ..
+    } = *current;
+    plan.line_types.index(db, drawing, born, cx)?;
+    work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
+    count_line_type_change(new, cx)?;
+    // 定義のない線種は表の後に並ぶため、表への追加でその ID がずれる。
+    work(cx, drawing.line_types.len() as u64, &Ref::default())?;
+    let unstable = drawing
+        .line_types
+        .iter()
+        .any(|line_type| line_type.definition.is_none());
+    let line_type_positions = plan.line_types.records.as_deref().unwrap_or_default();
+    count_table_records(db, line_type_positions, &Ref::default(), cx)?;
+    let continuous = line_type_positions.iter().find_map(|&position| {
+        db.objects().get(position).filter(|object| {
+            matches!(object.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"Continuous"))
+        })
+    });
+    if let Some(continuous) = continuous {
+        count_transform_values(continuous, &Ref::default(), cx)?;
+    }
+    if target == Target::Dxf {
+        count_table_search(db, cx)?;
+    }
+    let planned = continuous.and_then(|continuous| {
+        let mut values = template(continuous, target);
+        write(born, &mut values, new, None, target)?;
+        let name = value_name(&values)?.to_ascii_lowercase();
+        (!unstable
+            && !fixed_name(&name)
+            && (target != Target::Dxf || table_end(db, b"LTYPE").is_some())
+            && plan.line_types.names.insert(name))
+        .then_some(values)
+    });
+    match planned {
+        Some(values) => plan.line_types.added.push(values),
+        None => plan.reject(unsupported("add_line_type", "LTYPE", target), cx),
+    }
+    Ok(())
 }
