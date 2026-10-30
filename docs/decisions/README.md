@@ -223,3 +223,4 @@
 - [0187: 縦書きの文字を vmtx と GSUB の vert で置き、上下に重ねた文字と禁則を推定の規則で置く](0187-vertical-text-stacks-and-kinsoku.md)（2026-10-31、採用）
 - [0188: シーンの op でフォントを受け取り、文字を字形の形と変換で返す](0188-scene-fonts-and-glyph-outlines.md)（2026-10-31、採用）
 - [0189: 点の番号で合わせる部品と縦書きのカーニングを読み、欧文を倒し、小書きの仮名を禁則に足す](0189-composite-points-vertical-kerning-and-kana-kinsoku.md)（2026-10-31、採用）
+- [0190: P21 の点マーカーを記号の実体を足して書き戻し、文書の点の表し方を変える変更を足す](0190-drawing-apply-p21-markers-and-point-styles.md)（2026-10-31、採用）

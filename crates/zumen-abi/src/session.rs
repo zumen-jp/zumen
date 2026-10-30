@@ -1569,7 +1569,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":37}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":38}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -4615,6 +4615,39 @@ mod tests {
         let (status, response) = call(&mut session, &request);
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(shapes(&mut session, "a.dxf"), [replaced, added]);
+    }
+
+    #[test]
+    fn changes_the_point_style_of_a_document() {
+        // 文書の点の表し方を、DXF の見出しの $PDMODE・$PDSIZE に書く。applied は ID を持たない（決定 0190）
+        let mut session = Session::new(b"").unwrap();
+        let dxf = concat!(
+            "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$HANDSEED\n5\n20\n0\nENDSEC\n",
+            "0\nSECTION\n2\nENTITIES\n0\nPOINT\n5\n1A\n100\nAcDbEntity\n8\n0\n100\nAcDbPoint\n",
+            "10\n1.0\n20\n2.0\n30\n0.0\n0\nENDSEC\n0\nEOF\n",
+        );
+        session.push(b"a.dxf", dxf.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = shapes(&mut session, "a.dxf");
+        // 大きさは 0 より大きい有限の数
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"point_style","mark":"cross","size":0,"size_kind":"length"}]}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/params/pointer"), "/edits/0/size");
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"point_style","mark":"cross","circle":true,"size":2.5,"size_kind":"length"}]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert!(response.pointer("/result/applied/0/id").is_none());
+        assert!(response.pointer("/result/applied/0/hash").is_none());
+        let file = String::from_utf8(session.take(0).unwrap()).unwrap();
+        let (header, _) = file.split_once("ENTITIES").unwrap();
+        assert!(header.contains("$PDMODE\n 70\n35\n"), "{header}");
+        assert!(header.contains("$PDSIZE\n 40\n2.5\n"), "{header}");
+        assert_eq!(shapes(&mut session, "a.dxf"), before);
     }
 
     #[test]

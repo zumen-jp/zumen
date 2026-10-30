@@ -815,7 +815,8 @@
         { "$ref": "#/$defs/remove_line_type_edit" },
         { "$ref": "#/$defs/dimension_style_edit" },
         { "$ref": "#/$defs/add_dimension_style_edit" },
-        { "$ref": "#/$defs/remove_dimension_style_edit" }
+        { "$ref": "#/$defs/remove_dimension_style_edit" },
+        { "$ref": "#/$defs/point_style_edit" }
       ]
     },
     "restyle_edit": {
@@ -1103,6 +1104,30 @@
       },
       "required": ["kind", "id", "hash"],
       "additionalProperties": false
+    },
+    "point_style_edit": {
+      "description": "文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を書けない。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "point_style" },
+        "mark": { "description": "基本の形", "$ref": "#/$defs/point_mark" },
+        "circle": { "description": "円で囲む。書かなければ偽", "type": "boolean" },
+        "square": { "description": "四角で囲む。書かなければ偽", "type": "boolean" },
+        "size": { "description": "大きさ。0 より大きい有限の数。意味は size_kind で決まる", "type": "number" },
+        "size_kind": { "description": "大きさの意味", "$ref": "#/$defs/point_size_kind" }
+      },
+      "required": ["kind", "mark", "size", "size_kind"],
+      "additionalProperties": false
+    },
+    "point_mark": {
+      "description": "文書の点の基本の形。dot は小さな点、none はなし、plus は十字、cross はバツ、tick は上向きの短い線",
+      "type": "string",
+      "enum": ["dot", "none", "plus", "cross", "tick"]
+    },
+    "point_size_kind": {
+      "description": "文書の点の大きさの意味。length は点のある空間の長さ、screen は画面の高さに対する百分率",
+      "type": "string",
+      "enum": ["length", "screen"]
     },
     "add_layer_edit": {
       "description": "レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から",

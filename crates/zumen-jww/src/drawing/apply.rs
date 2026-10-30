@@ -207,6 +207,11 @@ impl Apply<Changes> for JwwFile {
                     cx.report(unsupported(change.name(), "dimension_style"));
                     None
                 }
+                // JWW は文書の点の表し方を持たない（決定 0190）
+                Edit::SetPointStyle { .. } => {
+                    cx.report(unsupported(change.name(), "point_style"));
+                    None
+                }
             };
             match result {
                 Some(result) => expected.push((change.name(), result)),

@@ -453,11 +453,12 @@ fn a_stale_document_is_refused() {
     assert_eq!(write(&file), src);
 }
 
-/// P21 の点マーカーは、置き換え・変換・追加・色の変更を書き戻さず、ファイルを変えない。P21 の点マーカーは、記号の
-/// 実体（SYMBOL_TARGET・DEFINED_SYMBOL）とマーカーの名前で表し、それを組み直す書き方をまだ持たない（決定 0183）
+/// P21 の点マーカーの置き換え・変換・色の変更・追加を、記号の実体（SYMBOL_TARGET・DEFINED_SYMBOL）と記号の見え方を
+/// 足して書き戻す（決定 0190）。読み直すと同じ点になり、元の実体はどこからも指されなければ除く。線種の変更と
+/// 鏡映は表せないので断り、ファイルを変えない
 #[test]
-fn point_markers_are_not_written_into_p21() {
-    use zumen_drawing::{Point, PointLook};
+fn point_markers_are_written_into_p21() {
+    use zumen_drawing::{MarkerKey, Point, PointLook};
     let data = [
         "#2=DRAUGHTING_PRE_DEFINED_COLOUR('green');",
         "#30=SYMBOL_COLOUR(#2);",
@@ -485,33 +486,160 @@ fn point_markers_are_not_written_into_p21() {
     let Shape::Point(point) = &marker.shape else {
         panic!("{:?}", marker.shape);
     };
-    assert!(matches!(point.look, PointLook::Marker { .. }));
-    let moved = Element {
-        shape: Shape::Point(Point {
-            position: paper(50.0, 50.0),
-            ..point.clone()
-        }),
-        ..marker.clone()
+    assert_eq!(
+        point.look,
+        PointLook::Marker {
+            key: MarkerKey {
+                namespace: "sxf.marker",
+                code: "2".to_owned(),
+            },
+            scale: 1.5,
+        }
+    );
+    let points = |file: &SxfFile| -> Vec<Element<PaperPoint>> {
+        lift(file).sheets[0]
+            .elements
+            .iter()
+            .filter(|element| matches!(element.shape, Shape::Point(_)))
+            .cloned()
+            .collect()
     };
-    for edit in [
-        Edit::Replace {
-            target: target.clone(),
-            element: Box::new(Placed::Paper(moved.clone())),
+    let near = |a: f64, b: f64| (a - b).abs() <= 1e-9;
+    // 置き換え: 位置・印（x）・回転・尺度
+    let moved = Point {
+        position: paper(50.0, 40.0),
+        rotation: 30.0,
+        look: PointLook::Marker {
+            key: MarkerKey {
+                namespace: "sxf.marker",
+                code: "7".to_owned(),
+            },
+            scale: 2.0,
         },
-        Edit::Transform {
+        construction: false,
+    };
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Replace {
             target: target.clone(),
-            transform: Affine::translation(10.0, 0.0),
-        },
-        Edit::Restyle {
+            element: Box::new(Placed::Paper(Element {
+                shape: Shape::Point(moved.clone()),
+                ..marker.clone()
+            })),
+        }],
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let applied = result.unwrap();
+    let written = write(&file);
+    let text = String::from_utf8(written.clone()).unwrap();
+    assert!(
+        text.contains("PRE_DEFINED_POINT_MARKER_SYMBOL('x')"),
+        "{text}"
+    );
+    // 元の記号の実体は、どこからも指されないので除く。見え方は元のまま
+    for gone in ["#33=", "#34=", "#35=", "#36=", "#37=", "#38="] {
+        assert!(!text.contains(gone), "{text}");
+    }
+    assert!(text.contains("#32=PRESENTATION_STYLE_ASSIGNMENT((#31));"));
+    let again = read(&written);
+    let [now] = points(&again).try_into().unwrap();
+    let Shape::Point(now_point) = &now.shape else {
+        panic!("{:?}", now.shape)
+    };
+    assert_eq!(now_point.position, moved.position);
+    assert_eq!(now_point.look, moved.look);
+    assert!(near(now_point.rotation, 30.0), "{}", now_point.rotation);
+    assert_eq!((now.layer, now.style), (marker.layer, marker.style));
+    assert_eq!(applied[0].hash, Some(Hash::element(&now)));
+    // 変換: 原点の周りに回す。回転は 90 度足される
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Transform {
+            target: target.clone(),
+            transform: Affine::rotation(0.0, 0.0, 90.0),
+        }],
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    result.unwrap();
+    let [now] = points(&read(&write(&file))).try_into().unwrap();
+    let Shape::Point(now_point) = &now.shape else {
+        panic!("{:?}", now.shape)
+    };
+    assert!(near(now_point.position.x, -6.0) && near(now_point.position.y, 5.0));
+    assert!(near(now_point.rotation, 90.0), "{}", now_point.rotation);
+    assert_eq!(now_point.look, point.look);
+    // 色の変更: 記号の見え方を足して置き換える
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Restyle {
             target: target.clone(),
             style: Restyle {
                 color: Some(sxf_color(1)),
                 ..Restyle::default()
             },
+        }],
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    result.unwrap();
+    let written = write(&file);
+    let text = String::from_utf8(written.clone()).unwrap();
+    for gone in ["#30=", "#31=", "#32="] {
+        assert!(!text.contains(gone), "{text}");
+    }
+    let [now] = points(&read(&written)).try_into().unwrap();
+    assert_eq!(now.style.color, sxf_color(1));
+    assert_eq!(now.shape, marker.shape);
+    // 追加: レイヤ L に、色を持つ点マーカーを足す
+    let mut file = read(&src);
+    let added = Element {
+        style: Style {
+            color: sxf_color(2),
+            ..marker.style
         },
-        Edit::Add {
+        shape: Shape::Point(moved.clone()),
+        ..marker.clone()
+    };
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Add {
             place: id::sheet(&drawing.sheets[0]),
-            element: Box::new(Placed::Paper(moved)),
+            element: Box::new(Placed::Paper(added)),
+        }],
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let applied = result.unwrap();
+    let again = read(&write(&file));
+    let found = points(&again);
+    assert_eq!(found.len(), 2);
+    let now = found
+        .iter()
+        .find(|element| Some(Hash::element(element)) == applied[0].hash)
+        .unwrap();
+    let Shape::Point(now_point) = &now.shape else {
+        panic!("{:?}", now.shape)
+    };
+    assert_eq!(now_point.position, moved.position);
+    assert_eq!(now_point.look, moved.look);
+    assert_eq!(now.style.color, sxf_color(2));
+    assert_eq!(now.layer, marker.layer);
+    assert_eq!(found[0], marker);
+    // 線種の変更と、鏡映は表せない
+    for edit in [
+        Edit::Restyle {
+            target: target.clone(),
+            style: Restyle {
+                line_type: Some(Inherit::Own(LineTypeId(0))),
+                ..Restyle::default()
+            },
+        },
+        Edit::Transform {
+            target: target.clone(),
+            transform: Affine {
+                m: [-1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            },
         },
     ] {
         let mut file = read(&src);

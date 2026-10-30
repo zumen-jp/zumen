@@ -3616,6 +3616,8 @@ pub enum Edit {
     AddDimensionStyle(AddDimensionStyleEdit),
     /// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から
     RemoveDimensionStyle(RemoveDimensionStyleEdit),
+    /// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を書けない。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
+    PointStyle(PointStyleEdit),
 }
 
 impl Edit {
@@ -3638,6 +3640,7 @@ impl Edit {
         "dimension_style",
         "add_dimension_style",
         "remove_dimension_style",
+        "point_style",
     ];
 
     /// 目印の欄（`kind`）の値
@@ -3660,6 +3663,7 @@ impl Edit {
             Self::DimensionStyle(_) => "dimension_style",
             Self::AddDimensionStyle(_) => "add_dimension_style",
             Self::RemoveDimensionStyle(_) => "remove_dimension_style",
+            Self::PointStyle(_) => "point_style",
         }
     }
 }
@@ -3695,6 +3699,7 @@ impl FromJson for Edit {
             "remove_dimension_style" => {
                 Self::RemoveDimensionStyle(RemoveDimensionStyleEdit::read_fields(&mut object)?)
             }
+            "point_style" => Self::PointStyle(PointStyleEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -3722,6 +3727,7 @@ impl ToJson for Edit {
             Self::DimensionStyle(value) => value.to_json(out),
             Self::AddDimensionStyle(value) => value.to_json(out),
             Self::RemoveDimensionStyle(value) => value.to_json(out),
+            Self::PointStyle(value) => value.to_json(out),
         }
     }
 }
@@ -4862,6 +4868,173 @@ impl ToJson for RemoveDimensionStyleEdit {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を書けない。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointStyleEdit {
+    /// 基本の形
+    pub mark: PointMark,
+    /// 円で囲む。書かなければ偽
+    pub circle: Option<bool>,
+    /// 四角で囲む。書かなければ偽
+    pub square: Option<bool>,
+    /// 大きさ。0 より大きい有限の数。意味は size_kind で決まる
+    pub size: f64,
+    /// 大きさの意味
+    pub size_kind: PointSizeKind,
+}
+
+impl PointStyleEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "point_style")?;
+        let mark = object.required("mark", PointMark::from_json)?;
+        let circle = object.optional("circle", json::boolean)?;
+        let square = object.optional("square", json::boolean)?;
+        let size = object.required("size", json::number)?;
+        let size_kind = object.required("size_kind", PointSizeKind::from_json)?;
+        Ok(Self {
+            mark,
+            circle,
+            square,
+            size,
+            size_kind,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("point_style");
+        out.key("mark");
+        self.mark.to_json(out);
+        if let Some(value) = &self.circle {
+            out.key("circle");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.square {
+            out.key("square");
+            out.bool(*value);
+        }
+        out.key("size");
+        out.float(self.size);
+        out.key("size_kind");
+        self.size_kind.to_json(out);
+    }
+}
+
+impl FromJson for PointStyleEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointStyleEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 文書の点の基本の形。dot は小さな点、none はなし、plus は十字、cross はバツ、tick は上向きの短い線
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PointMark {
+    /// `dot`
+    Dot,
+    /// `none`
+    None,
+    /// `plus`
+    Plus,
+    /// `cross`
+    Cross,
+    /// `tick`
+    Tick,
+}
+
+impl PointMark {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Dot, Self::None, Self::Plus, Self::Cross, Self::Tick];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Dot => "dot",
+            Self::None => "none",
+            Self::Plus => "plus",
+            Self::Cross => "cross",
+            Self::Tick => "tick",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "dot" => Some(Self::Dot),
+            "none" => Some(Self::None),
+            "plus" => Some(Self::Plus),
+            "cross" => Some(Self::Cross),
+            "tick" => Some(Self::Tick),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for PointMark {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for PointMark {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 文書の点の大きさの意味。length は点のある空間の長さ、screen は画面の高さに対する百分率
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PointSizeKind {
+    /// `length`
+    Length,
+    /// `screen`
+    Screen,
+}
+
+impl PointSizeKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Length, Self::Screen];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::Screen => "screen",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "length" => Some(Self::Length),
+            "screen" => Some(Self::Screen),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for PointSizeKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for PointSizeKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

@@ -4,15 +4,19 @@
 //! 足し、表記の実体がそれを指すようにする。形を変えるときは、幾何の実体を足し、表記の実体がそれを指すようにする。
 //! 見え方と幾何は、ほかの要素と共有しうるので、元の実体は書き換えない。除くときは、表記の実体と、用紙・レイヤ・
 //! 非表示・複合図形の定義の並びの中の参照を除く。どこからも指されなくなった幾何と見え方の実体も除く。
+//!
+//! 点マーカーは、記号の表記の実体（`ANNOTATION_SYMBOL_OCCURRENCE`）である。形を変えるときは、位置・向き・尺度の
+//! SYMBOL_TARGET と、マーカーの名前の DEFINED_SYMBOL を足し、色を変えるときは SYMBOL_COLOUR と記号の見え方を足して、
+//! 表記の実体がそれを指すようにする（決定 0190）。
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::Ref;
 use zumen_sdk::{Cx, Error};
 
-use super::{Arguments, Writer, line_end, newline, patched, work};
+use super::{Arguments, MARKER, Writer, line_end, newline, patched, work};
 use crate::drawing::{LINE_TYPES, WIDTHS};
-use crate::p21::{COLORS, Codes};
+use crate::p21::{COLORS, Codes, MARKERS};
 use crate::{Form, SxfFile, Value};
 
 /// 引数の場所。レコード・部分・引数の番号
@@ -27,7 +31,7 @@ const CONTAINERS: [(&str, usize); 4] = [
 ];
 
 /// どこからも指されなくなったら除く実体（幾何と見え方）
-const GARBAGE: [&str; 17] = [
+const GARBAGE: [&str; 20] = [
     "CARTESIAN_POINT",
     "DIRECTION",
     "VECTOR",
@@ -45,6 +49,9 @@ const GARBAGE: [&str; 17] = [
     "TEXT_STYLE_FOR_DEFINED_FONT",
     "SYMBOL_STYLE",
     "SYMBOL_COLOUR",
+    "SYMBOL_TARGET",
+    "DEFINED_SYMBOL",
+    "PRE_DEFINED_POINT_MARKER_SYMBOL",
 ];
 
 pub(super) struct P21<'f> {
@@ -190,9 +197,10 @@ impl<'f> P21<'f> {
         }
     }
 
-    /// 表記の実体の、見え方の並びと対象の引数の場所。曲線の表記の実体だけ
+    /// 表記の実体の、見え方の並びと対象の引数の場所。曲線と記号（点マーカー）の表記の実体だけ
     fn occurrence(&self, record: usize) -> Option<(Slot, Slot)> {
-        self.part(record, "ANNOTATION_CURVE_OCCURRENCE")?;
+        self.part(record, "ANNOTATION_CURVE_OCCURRENCE")
+            .or_else(|| self.part(record, "ANNOTATION_SYMBOL_OCCURRENCE"))?;
         let part = self.part(record, "STYLED_ITEM").or_else(|| {
             let entry = self.file.records().get(record)?;
             (entry.parts().len() == 1).then_some(0)
@@ -374,6 +382,40 @@ impl<'f> P21<'f> {
         }
     }
 
+    /// 点マーカーの記号の実体を足し、DEFINED_SYMBOL の番号を返す。引数は SFC の点マーカーと同じく、レイヤ・色・X・Y・
+    /// マーカーのコード・回転（度）・尺度。コードは、変換と同じマーカーの名前の表（1 から）で名前にする。向きは
+    /// DIRECTION、尺度は SYMBOL_TARGET の X と Y の倍率に書く
+    fn marker(&mut self, args: &Arguments) -> Option<u64> {
+        let value = |at: usize| args.values.get(at)?.parse::<f64>().ok();
+        let (x, y, angle, scale) = (value(2)?, value(3)?, value(5)?, value(6)?);
+        let code: usize = args.values.get(4)?.parse().ok()?;
+        let name = MARKERS.get(code.checked_sub(1)?)?;
+        // 尺度 0 は、読むと 1 になる
+        if scale == 0.0 {
+            return None;
+        }
+        let origin = self.point(x, y)?;
+        let radians = angle.to_radians();
+        let direction = self.instance(format!(
+            "DIRECTION(' ',({},{}))",
+            real(libm::cos(radians))?,
+            real(libm::sin(radians))?
+        ))?;
+        let placement = self.instance(format!("AXIS2_PLACEMENT_2D(' ',#{origin},#{direction})"))?;
+        let scale = real(scale)?;
+        let target = self.instance(format!("SYMBOL_TARGET(' ',#{placement},{scale},{scale})"))?;
+        let marker = self.instance(format!("PRE_DEFINED_POINT_MARKER_SYMBOL('{name}')"))?;
+        self.instance(format!("DEFINED_SYMBOL(' ',#{marker},#{target})"))
+    }
+
+    /// 記号の色（SYMBOL_COLOUR）と見え方の割り当てを足し、その番号を返す
+    fn symbol_style(&mut self, code: i64) -> Option<u64> {
+        let colour = self.color(code)?;
+        let symbol = self.instance(format!("SYMBOL_COLOUR(#{colour})"))?;
+        let style = self.instance(format!("SYMBOL_STYLE(' ',#{symbol})"))?;
+        self.instance(format!("PRESENTATION_STYLE_ASSIGNMENT((#{style}))"))
+    }
+
     fn circle(&mut self, x: f64, y: f64, radius: f64) -> Option<u64> {
         let center = self.point(x, y)?;
         let placement = self.instance(format!("AXIS2_PLACEMENT_2D(' ',#{center},$)"))?;
@@ -540,7 +582,11 @@ impl Writer for P21<'_> {
         Ok((|| {
             let (_, item) = self.occurrence(record)?;
             let was = self.reference(item)?;
-            let geometry = self.geometry(args)?;
+            let geometry = if args.name == MARKER {
+                self.marker(args)?
+            } else {
+                self.geometry(args)?
+            };
             self.args.insert(item, format!("#{geometry}"));
             self.loose.push(was);
             Some(())
@@ -591,7 +637,7 @@ impl Writer for P21<'_> {
         let codes: Vec<_> = args
             .values
             .iter()
-            .take(4)
+            .take(args.first())
             .enumerate()
             .filter_map(|(at, value)| value.parse().ok().map(|code| (at, code)))
             .collect();
@@ -602,6 +648,10 @@ impl Writer for P21<'_> {
     fn bytes(mut self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
         self.collect_garbage(cx)?;
         self.finish(src, cx)
+    }
+
+    fn markers(&self) -> bool {
+        true
     }
 }
 
@@ -740,6 +790,9 @@ impl P21<'_> {
         if style.is_empty() {
             return Some(());
         }
+        if self.part(record, "ANNOTATION_SYMBOL_OCCURRENCE").is_some() {
+            return self.symbol_codes(styles, &style);
+        }
         let mut list = self.list(styles)?;
         let (index, was, curve) = list.iter().enumerate().find_map(|(index, assignment)| {
             let slot = self.slot(*assignment, "PRESENTATION_STYLE_ASSIGNMENT", 0)?;
@@ -762,6 +815,43 @@ impl P21<'_> {
         self.loose.push(was);
         Some(())
     }
+
+    /// 点マーカーの色を変える。記号の見え方の割り当てを足し、元の記号の見え方の割り当てと置き換える。なければ並びの
+    /// 終わりへ足す。点マーカーは色（引数の 1）だけを持つ
+    fn symbol_codes(&mut self, styles: Slot, codes: &[(usize, i64)]) -> Option<()> {
+        let [(1, code)] = codes else {
+            return None;
+        };
+        let mut list = self.list(styles)?;
+        let found = list.iter().position(|assignment| {
+            self.slot(*assignment, "PRESENTATION_STYLE_ASSIGNMENT", 0)
+                .and_then(|slot| self.list(slot))
+                .is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|style| self.slot(*style, "SYMBOL_STYLE", 0).is_some())
+                })
+        });
+        let assignment = self.symbol_style(*code)?;
+        match found {
+            Some(index) => {
+                let was = *list.get(index)?;
+                if self
+                    .list(self.slot(was, "PRESENTATION_STYLE_ASSIGNMENT", 0)?)?
+                    .len()
+                    != 1
+                {
+                    return None;
+                }
+                *list.get_mut(index)? = assignment;
+                self.loose.push(was);
+            }
+            None => list.push(assignment),
+        }
+        self.lists.insert(styles, list);
+        Some(())
+    }
+
     fn remove_inner(&mut self, record: usize) -> Option<()> {
         let id = self.file.records().get(record)?.id()?;
         if self.instances.get(&id) != Some(&record) {
@@ -809,11 +899,24 @@ impl P21<'_> {
 
     fn add_inner(&mut self, args: &Arguments) -> Option<u64> {
         let code = |at: usize| args.values.get(at)?.parse::<i64>().ok();
-        let (layer, color, line_type, width) = (code(0)?, code(1)?, code(2)?, code(3)?);
         let sheet = self
             .instances
             .iter()
             .find_map(|(id, _)| self.slot(*id, "DRAWING_SHEET_REVISION", 1))?;
+        if args.name == MARKER {
+            let (layer, color) = (code(0)?, code(1)?);
+            let symbol = self.marker(args)?;
+            let assignment = self.symbol_style(color)?;
+            let id = self.instance(format!(
+                "ANNOTATION_SYMBOL_OCCURRENCE(' ',(#{assignment}),#{symbol})"
+            ))?;
+            let mut items = self.list(sheet)?;
+            items.push(id);
+            self.lists.insert(sheet, items);
+            self.layer(id, layer)?;
+            return Some(id);
+        }
+        let (layer, color, line_type, width) = (code(0)?, code(1)?, code(2)?, code(3)?);
         let geometry = self.geometry(args)?;
         let font = self.line_type(line_type)?;
         let colour = self.color(color)?;

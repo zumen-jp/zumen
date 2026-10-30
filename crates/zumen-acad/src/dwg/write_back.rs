@@ -23,8 +23,8 @@
 //! レコードは、一から符号化してオブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0068）。
 //! 足したブロックのレコードは、同じく足した BLOCK・ENDBLK と図形を揃えて書く（決定 0068）。
 //!
-//! 見出しの変数の INSUNITS と、用紙空間の PLIMMIN・PLIMMAX の変更は、見出しの変数の区切りの中で書き直す
-//! （決定 0069）。
+//! 見出しの変数の INSUNITS と、用紙空間の PLIMMIN・PLIMMAX と、PDMODE・PDSIZE の変更は、見出しの変数の区切りの中で
+//! 書き直す（決定 0069・0190）。
 //!
 //! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と、ほかの見出しの変数の変更は、まだ書き戻せない。
 
@@ -222,6 +222,9 @@ struct Changes {
     /// 新しい INSUNITS と、用紙空間の PLIMMIN・PLIMMAX（決定 0069）
     units: Option<i16>,
     limits: Option<[f64; 4]>,
+    /// 新しい PDMODE・PDSIZE（決定 0190）
+    point_mode: Option<i16>,
+    point_size: Option<f64>,
 }
 
 impl DwgFile {
@@ -265,6 +268,16 @@ impl DwgFile {
                     changes
                         .limits
                         .map_or(Ok(()), |limits| txn.set_paper_limits(limits))
+                })
+                .and_then(|()| {
+                    changes
+                        .point_mode
+                        .map_or(Ok(()), |mode| txn.set_point_mode(mode))
+                })
+                .and_then(|()| {
+                    changes
+                        .point_size
+                        .map_or(Ok(()), |size| txn.set_point_size(size))
                 }),
             Err(diagnostic) => Err(txn.reject(*diagnostic)),
         };
@@ -368,6 +381,7 @@ impl DwgFile {
             .collect();
         // 変えられるのは、このファイルの見出しの変数の区切りから読んだ変数だけ
         let (mut units, mut limits) = (None, None);
+        let (mut point_mode, mut point_size) = (None, None);
         for name in names
             .into_iter()
             .filter(|n| base.variable(n) != db.variable(n))
@@ -385,6 +399,21 @@ impl DwgFile {
                 }
                 b"$PLIMMIN" | b"$PLIMMAX" => {
                     limits = Some(paper_limits(db).ok_or_else(|| unsupported(name))?);
+                }
+                // 区切りの長さを変えないよう、BS・BD の幅が変わる値は受け付けない（決定 0190）
+                b"$PDMODE" => {
+                    let new = header_short(db, name)
+                        .filter(|&new| {
+                            header_short(base, name).map(bs_width) == Some(bs_width(new))
+                        })
+                        .ok_or_else(|| unsupported(name))?;
+                    point_mode = Some(new);
+                }
+                b"$PDSIZE" => {
+                    let new = header_real(db, name)
+                        .filter(|&new| header_real(base, name).map(bd_width) == Some(bd_width(new)))
+                        .ok_or_else(|| unsupported(name))?;
+                    point_size = Some(new);
                 }
                 _ => return Err(unsupported(name)),
             }
@@ -406,6 +435,8 @@ impl DwgFile {
             seed,
             units,
             limits,
+            point_mode,
+            point_size,
         })
     }
 
@@ -1475,14 +1506,41 @@ impl DwgFile {
 
 /// 表 `db` の INSUNITS。BS に収まる 70 の整数だけを持たなければ `None`（決定 0069）
 fn header_units(db: &AcadDb) -> Option<i16> {
-    match db.variable(b"$INSUNITS")? {
+    header_short(db, b"$INSUNITS")
+}
+
+/// 表 `db` の変数 `name`。BS に収まる 70 の整数だけを持たなければ `None`
+fn header_short(db: &AcadDb, name: &[u8]) -> Option<i16> {
+    match db.variable(name)? {
         [
             Value {
                 code: 70,
-                data: Data::Int(units),
+                data: Data::Int(value),
             },
-        ] => i16::try_from(*units).ok(),
+        ] => i16::try_from(*value).ok(),
         _ => None,
+    }
+}
+
+/// 表 `db` の変数 `name`。有限の 40 の実数だけを持たなければ `None`
+fn header_real(db: &AcadDb, name: &[u8]) -> Option<f64> {
+    match db.variable(name)? {
+        [
+            Value {
+                code: 40,
+                data: Data::Real(value),
+            },
+        ] if value.is_finite() => Some(*value),
+        _ => None,
+    }
+}
+
+/// BD で `value` を書くときのビットの数（ODS 2.5 の BITDOUBLE）
+fn bd_width(value: f64) -> u32 {
+    if value.to_bits() == 1.0f64.to_bits() || value.to_bits() == 0 {
+        2
+    } else {
+        66
     }
 }
 

@@ -44,7 +44,9 @@ pub(super) struct Header {
     pub(super) point_mode: i16,
     /// PDSIZE（点の大きさ）
     pub(super) point_size: f64,
-    /// データの中の、PLIMMIN と INSUNITS のビットの位置
+    /// データの中の、PDMODE・PDSIZE・PLIMMIN・INSUNITS のビットの位置
+    point_mode_at: usize,
+    point_size_at: usize,
     limits_at: usize,
     units_at: usize,
 }
@@ -322,6 +324,7 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     let at = first.iter().position(|(field, _)| matches!(field, Bs))?;
     skip_all(bits, first.get(..at)?)?;
     skip_all(bits, &[(Bs, 7)])?;
+    let point_mode_at = bits.pos();
     let point_mode = bits.bs()?;
     let (_, rest) = first.get(at)?;
     skip_all(bits, &[(Bs, rest.checked_sub(8)?)])?;
@@ -334,6 +337,7 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     skip_all(bits, first.get(..at)?)?;
     let line_type_scale = bits.bd()?;
     skip_all(bits, &[(Bd, 6)])?;
+    let point_size_at = bits.pos();
     let point_size = bits.bd()?;
     skip_all(bits, &[(Bd, 13)])?;
     skip_all(bits, first.get(at + 1..)?)?;
@@ -381,6 +385,8 @@ fn variables(bits: &mut Bits) -> Option<Header> {
         line_type_scale,
         point_mode,
         point_size,
+        point_mode_at,
+        point_size_at,
         limits_at,
         units_at,
     })
@@ -464,16 +470,37 @@ pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> 
     store(src, seed.start, seed.data_at, seed.crc_at, out)
 }
 
-/// `start` から始まる版 `release` の見出しの変数の区切りの、INSUNITS を `units` に、用紙空間の
-/// PLIMMIN・PLIMMAX を `limits` にし、区切りの CRC を直す（決定 0069・0078・0084）。`None` の変数は変えない。
-/// データの大きさ（バイト）が変わる値なら `None`。R2010 からは、主のデータの後の文字列とハンドルの流れが
-/// ずれないよう、ビットの数が変わる値でも `None`
+/// 書き直す見出しの変数。`None` の変数は変えない
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Values {
+    /// INSUNITS（決定 0069）
+    pub(super) units: Option<i16>,
+    /// 用紙空間の PLIMMIN・PLIMMAX（X・Y の順、決定 0069）
+    pub(super) limits: Option<[f64; 4]>,
+    /// PDMODE（決定 0190）
+    pub(super) point_mode: Option<i16>,
+    /// PDSIZE（決定 0190）
+    pub(super) point_size: Option<f64>,
+}
+
+impl Values {
+    /// 書き直す変数があるか
+    pub(super) fn any(&self) -> bool {
+        self.units.is_some()
+            || self.limits.is_some()
+            || self.point_mode.is_some()
+            || self.point_size.is_some()
+    }
+}
+
+/// `start` から始まる版 `release` の見出しの変数の区切りの、`values` の変数を書き直し、区切りの CRC を直す
+/// （決定 0069・0078・0084・0190）。データの大きさ（バイト）が変わる値なら `None`。R2010 からは、主のデータの後の
+/// 文字列とハンドルの流れがずれないよう、ビットの数が変わる値でも `None`
 pub(super) fn set_values(
     src: &mut [u8],
     start: usize,
     release: Release,
-    units: Option<i16>,
-    limits: Option<[f64; 4]>,
+    values: Values,
 ) -> Option<()> {
     first_fields(release)?;
     let (data, crc_at) = section(src, start, release)?;
@@ -481,15 +508,33 @@ pub(super) fn set_values(
     let data_at = crc_at - data.len();
     let found = variables(&mut streams(&data, release)?)?;
     let mut bits = Bits::with_release(&data, release);
-    bits.seek(found.units_at);
-    bits.bs()?;
     let mut out = BitWriter::default();
-    out.copy(&data, 0..found.limits_at)?;
-    for value in limits.unwrap_or(found.limits) {
+    // PDMODE（BS）
+    out.copy(&data, 0..found.point_mode_at)?;
+    bits.seek(found.point_mode_at);
+    bits.bs()?;
+    match values.point_mode {
+        Some(mode) => out.bs(mode),
+        None => out.copy(&data, found.point_mode_at..bits.pos())?,
+    }
+    // PDSIZE（BD）
+    out.copy(&data, bits.pos()..found.point_size_at)?;
+    bits.seek(found.point_size_at);
+    bits.bd()?;
+    match values.point_size {
+        Some(size) => out.bd(size),
+        None => out.copy(&data, found.point_size_at..bits.pos())?,
+    }
+    // PLIMMIN・PLIMMAX（RD）
+    out.copy(&data, bits.pos()..found.limits_at)?;
+    for value in values.limits.unwrap_or(found.limits) {
         out.rd(value);
     }
+    // INSUNITS（BS）
     out.copy(&data, found.limits_at + 4 * 64..found.units_at)?;
-    out.bs(units.unwrap_or(found.units));
+    bits.seek(found.units_at);
+    bits.bs()?;
+    out.bs(values.units.unwrap_or(found.units));
     if release >= Release::R2010 && out.len() != bits.pos() {
         return None;
     }

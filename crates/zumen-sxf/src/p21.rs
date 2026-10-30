@@ -73,7 +73,7 @@ const ARROWS: [&str; 11] = [
 const DEFAULT_ARROW: usize = 9;
 
 /// 点マーカーのコード 1〜7 の名前
-const MARKERS: [&str; 7] = [
+pub(crate) const MARKERS: [&str; 7] = [
     "asterisk", "circle", "dot", "plus", "square", "triangle", "x",
 ];
 

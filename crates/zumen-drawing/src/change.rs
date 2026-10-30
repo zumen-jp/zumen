@@ -2,7 +2,7 @@
 
 use crate::{
     Affine, Color, DimensionStyle, Element, Hash, Inherit, Layer, LayerId, LineType, LineTypeId,
-    LineWeight, ModelPoint, PaperPoint, Style, TextStyle,
+    LineWeight, ModelPoint, PaperPoint, PointStyle, Style, TextStyle,
 };
 
 /// 図面モデルへの変更の一覧（決定 0139）。要素を ID と読んだときのハッシュで指し（決定 0156）、並べた順に当てる
@@ -148,6 +148,12 @@ pub enum Edit {
         /// 除く寸法スタイル
         target: Seen,
     },
+    /// 文書の点の表し方（[`Drawing2D::point_style`](crate::Drawing2D::point_style)）を、これにする（決定 0190）。
+    /// 文書全体の設定なので要素を指さない。読んだときの文書は、[`Changes::document`] のハッシュで確かめる
+    SetPointStyle {
+        /// 新しい点の表し方
+        style: PointStyle,
+    },
 }
 
 /// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` の欄は変えない
@@ -186,6 +192,7 @@ impl Edit {
             Self::ReplaceDimensionStyle { .. } => "replace_dimension_style",
             Self::AddDimensionStyle { .. } => "add_dimension_style",
             Self::RemoveDimensionStyle { .. } => "remove_dimension_style",
+            Self::SetPointStyle { .. } => "point_style",
         }
     }
 }

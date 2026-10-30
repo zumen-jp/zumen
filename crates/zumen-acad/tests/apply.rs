@@ -4291,6 +4291,7 @@ fn e1_changes_have_no_edit_for_views() {
         Change::ReplaceDimensionStyle { .. }
         | Change::AddDimensionStyle { .. }
         | Change::RemoveDimensionStyle { .. } => "dimension style",
+        Change::SetPointStyle { .. } => "point style",
     };
     let file = testkit::read::<Dxf>(&src()).0.unwrap();
     let changes = by_source::convert(
@@ -4830,5 +4831,100 @@ fn callout_changes_the_records_cannot_hold_change_nothing() {
             "{change}"
         );
         assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src, "{change}");
+    }
+}
+
+/// 文書の点の表し方の変更を、見出しの `$PDMODE`・`$PDSIZE` に書き戻す（決定 0190）。変数がなければ足し、あれば
+/// 書き直す。読み直すと同じ点の表し方になり、要素は変わらない。大きさが正でないものと、一覧の中の 2 つ目の変更は
+/// 断り、ファイルを変えない
+#[test]
+fn point_styles_are_written_into_the_header() {
+    use zumen_drawing::{Edit as Change, PointMark, PointSize, PointStyle};
+    let run = |src: &[u8], edits: Vec<Change>| {
+        let mut file = testkit::read::<Dxf>(src).0.unwrap();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let result = zumen_sdk::Apply::apply(
+            &mut file,
+            &zumen_drawing::Changes {
+                edits,
+                document: None,
+            },
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        );
+        let codes = diag.iter().map(|d| d.code()).collect::<Vec<_>>();
+        (result, codes, testkit::write::<Dxf>(&file).unwrap())
+    };
+    let style = PointStyle {
+        mark: PointMark::Cross,
+        circle: true,
+        square: false,
+        size: PointSize::Length(2.5),
+    };
+    // 変数のない DXF には足す
+    let src = dxf(&[
+        (0, "POINT"),
+        (5, "1A"),
+        (100, "AcDbEntity"),
+        (8, "0"),
+        (100, "AcDbPoint"),
+        (10, "1.0"),
+        (20, "2.0"),
+        (30, "0.0"),
+    ]);
+    let before = lift(&testkit::read::<Dxf>(&src).0.unwrap());
+    assert_eq!(before.point_style, None);
+    let (result, codes, written) = run(&src, vec![Change::SetPointStyle { style }]);
+    assert_eq!(codes, []);
+    let applied = result.unwrap();
+    assert_eq!(
+        applied,
+        [zumen_drawing::Applied {
+            id: None,
+            hash: None
+        }]
+    );
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    assert_eq!(after.point_style, Some(style));
+    assert_eq!(elements(&after), elements(&before));
+    // ある変数は書き直す。画面の高さに対する百分率は負の値になる
+    let screen = PointStyle {
+        mark: PointMark::Tick,
+        circle: false,
+        square: true,
+        size: PointSize::Screen(10.0),
+    };
+    let (result, codes, again) = run(&written, vec![Change::SetPointStyle { style: screen }]);
+    assert_eq!(codes, []);
+    result.unwrap();
+    let text = String::from_utf8(again.clone()).unwrap();
+    assert!(text.contains("$PDMODE\n 70\n68\n"), "{text}");
+    assert!(text.contains("$PDSIZE\n 40\n-10.0\n"), "{text}");
+    assert_eq!(text.matches("$PDMODE").count(), 1);
+    let after = lift(&testkit::read::<Dxf>(&again).0.unwrap());
+    assert_eq!(after.point_style, Some(screen));
+    // 大きさが正で有限でないものと、2 つ目の変更は断る
+    for edits in [
+        vec![Change::SetPointStyle {
+            style: PointStyle {
+                size: PointSize::Length(0.0),
+                ..style
+            },
+        }],
+        vec![Change::SetPointStyle {
+            style: PointStyle {
+                size: PointSize::Screen(f64::NAN),
+                ..style
+            },
+        }],
+        vec![
+            Change::SetPointStyle { style },
+            Change::SetPointStyle { style: screen },
+        ],
+    ] {
+        let (result, codes, out) = run(&written, edits);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(out, written);
     }
 }

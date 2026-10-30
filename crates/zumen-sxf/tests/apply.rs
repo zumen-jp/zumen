@@ -767,3 +767,26 @@ fn point_markers_are_replaced_transformed_and_added() {
         assert_eq!(write(&file), src);
     }
 }
+
+/// SXF は文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に当たるものを持たない。点は既定義の印だけなので、その
+/// 変更を断り、ファイルを変えない（決定 0190）
+#[test]
+fn point_styles_are_refused() {
+    use zumen_drawing::{PointMark, PointSize, PointStyle};
+    let src = src();
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::SetPointStyle {
+            style: PointStyle {
+                mark: PointMark::Plus,
+                circle: false,
+                square: false,
+                size: PointSize::Length(1.0),
+            },
+        }],
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
+    assert_eq!(write(&file), src);
+}

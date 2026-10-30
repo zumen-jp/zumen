@@ -10,8 +10,9 @@ use zumen_base::{Ref, codes};
 use zumen_drawing::{
     Affine, Arrowhead, Changes, Color, ColorCode, ColorSystem, DimensionStyle, Drawing2D, Edit,
     Element, Hash, Inherit, Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeDefinition,
-    LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, PatternBasis, Placed, Restyle,
-    Seen, Shape, Style, SymbolKey, TextStyle, TextStyleDefinition, id,
+    LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, PatternBasis, Placed, PointMark,
+    PointSize, PointStyle, Restyle, Seen, Shape, Style, SymbolKey, TextStyle, TextStyleDefinition,
+    id,
 };
 
 use crate::geometry;
@@ -220,6 +221,9 @@ pub(crate) fn changes(
             }
             messages::Edit::RemoveDimensionStyle(edit) => Edit::RemoveDimensionStyle {
                 target: seen(&edit.id, &edit.hash, cx)?,
+            },
+            messages::Edit::PointStyle(edit) => Edit::SetPointStyle {
+                style: point_style(edit).ok_or_else(|| fail(cx, invalid_value(at("size"))))?,
             },
             messages::Edit::DimensionStyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
@@ -1473,4 +1477,26 @@ fn inherit<T>(inherit: messages::Inherit) -> Inherit<T> {
         messages::Inherit::Layer => Inherit::Layer,
         messages::Inherit::Block => Inherit::Block,
     }
+}
+
+/// 文書の点の表し方の変更（決定 0190）。大きさが 0 より大きい有限の数でなければ `None`
+fn point_style(edit: &messages::PointStyleEdit) -> Option<PointStyle> {
+    if !(edit.size > 0.0 && edit.size.is_finite()) {
+        return None;
+    }
+    Some(PointStyle {
+        mark: match edit.mark {
+            messages::PointMark::Dot => PointMark::Dot,
+            messages::PointMark::None => PointMark::None,
+            messages::PointMark::Plus => PointMark::Plus,
+            messages::PointMark::Cross => PointMark::Cross,
+            messages::PointMark::Tick => PointMark::Tick,
+        },
+        circle: edit.circle.unwrap_or(false),
+        square: edit.square.unwrap_or(false),
+        size: match edit.size_kind {
+            messages::PointSizeKind::Length => PointSize::Length(edit.size),
+            messages::PointSizeKind::Screen => PointSize::Screen(edit.size),
+        },
+    })
 }

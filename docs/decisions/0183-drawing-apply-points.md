@@ -34,6 +34,8 @@
 
 ## 参照
 
+- [決定 0190](0190-drawing-apply-p21-markers-and-point-styles.md) で、P21 の点マーカーの書き戻しと、文書の点の表し方の変更を足した。
+
 - [決定 0139](0139-drawing-apply.md)
 - [決定 0155](0155-drawing-apply-additions.md)
 - [決定 0160](0160-drawing-points.md)

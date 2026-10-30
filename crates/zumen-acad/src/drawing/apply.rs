@@ -18,8 +18,8 @@ use zumen_drawing::{
     Affine, Applied, Callout, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element,
     FormattedText, Hash, Horizontal, KnotParameterization, Layer, LayerId, Leader, Length,
     LineType, MarkContent, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement,
-    Polyline, Restyle, Rotation, Seen, Shape, SheetId, SpaceId, Spline, Style, Symbol,
-    SymbolDefinition, Text, TextStyle, Vertical, id, transform,
+    PointMark, PointSize, PointStyle, Polyline, Restyle, Rotation, Seen, Shape, SheetId, SpaceId,
+    Spline, Style, Symbol, SymbolDefinition, Text, TextStyle, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -291,6 +291,8 @@ enum ResultTarget {
     /// 表の項目（レイヤ・文字スタイル）は表の ID で探す
     Table(Option<String>),
     Removed,
+    /// 文書の設定（点の表し方）。ID もハッシュも持たない
+    Document,
 }
 
 /// 当てた変更の、書き戻した後の ID とハッシュ。鍵（ハンドル）を持たない要素の ID は、読み直すとずれうる
@@ -400,6 +402,7 @@ fn edit(
         text_styles,
         line_types,
         dimension_styles,
+        variables,
         ..
     } = plan;
     count_removals(db, &replaced, &removed, cx)?;
@@ -420,6 +423,9 @@ fn edit(
     let style_handles = text_styles.write_back(db, target, cx)?;
     let line_type_handles = line_types.write_back(db, target, cx)?;
     let dimension_style_handles = dimension_styles.write_back(db, target, cx)?;
+    for (name, values) in variables {
+        db.set_variable(name, values);
+    }
     Ok(results(
         changes,
         &index,
@@ -477,6 +483,8 @@ struct Plan<'e> {
     dimension_styles: dimension_style::DimensionStyles,
     /// この変更の一覧で記号の定義の中に足した記号。[`Index::nests`] と同じ形（#333）
     nests: Nests,
+    /// 書き直す見出しの変数（`$PDMODE`・`$PDSIZE`、決定 0190）
+    variables: Vec<(&'static [u8], Vec<Value>)>,
 }
 
 /// 記号の定義の名前（小文字）から、その中に置く記号の定義の名前（小文字）
@@ -497,6 +505,7 @@ impl<'e> Plan<'e> {
             line_types: line_type::LineTypes::default(),
             dimension_styles: dimension_style::DimensionStyles::new(db, target),
             nests: Nests::new(),
+            variables: Vec::new(),
         }
     }
 
@@ -546,6 +555,10 @@ impl<'e> Plan<'e> {
             Edit::Remove { target: target_of } => {
                 change_element(current, self, change, "remove", target_of, cx)
             }
+            Edit::SetPointStyle { style } => {
+                set_point_style(current, self, style, cx);
+                Ok(())
+            }
         }
     }
 
@@ -583,6 +596,71 @@ impl<'e> Plan<'e> {
 /// 変更が指す ID がない診断
 fn missing(id: &str, cx: &mut Cx) {
     cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
+}
+
+/// 文書の点の表し方を、見出しの `$PDMODE`（70）と `$PDSIZE`（40）に書く（`Edit::SetPointStyle`、決定 0190）。
+/// 値の決まりは読む側（DXF Reference「HEADER Section Group Codes」）と同じ。形は 0〜4 に、円で囲むなら 32、
+/// 四角で囲むなら 64 を足す。大きさは、長さなら正、画面の高さに対する百分率なら負の値にする。読んで同じ意味になる
+/// 変数は書き直さない。大きさが正で有限でなければ拒む。一覧の中で一度だけ変えられる
+fn set_point_style(current: &Current<'_>, plan: &mut Plan<'_>, style: &PointStyle, cx: &mut Cx) {
+    let size = match style.size {
+        PointSize::Length(length) if length > 0.0 && length.is_finite() => length,
+        PointSize::Screen(percent) if percent > 0.0 && percent.is_finite() => -percent,
+        _ => 0.0,
+    };
+    if size == 0.0 || !plan.targets.insert("point_style") {
+        plan.reject(
+            unsupported("point_style", "point_style", current.target),
+            cx,
+        );
+        return;
+    }
+    let mark = match style.mark {
+        PointMark::Dot => 0,
+        PointMark::None => 1,
+        PointMark::Plus => 2,
+        PointMark::Cross => 3,
+        PointMark::Tick => 4,
+    };
+    let mode = mark | if style.circle { 32 } else { 0 } | if style.square { 64 } else { 0 };
+    let mode = vec![Value {
+        code: 70,
+        data: Data::Int(mode),
+    }];
+    let same_mode = match current.db.variable(b"$PDMODE") {
+        None => mark == 0 && !style.circle && !style.square,
+        Some(values) => *values == mode,
+    };
+    // 0 は画面の高さの 5%
+    let meaning = |size: f64| match size {
+        size if size > 0.0 => PointSize::Length(size),
+        size if size < 0.0 => PointSize::Screen(-size),
+        _ => PointSize::Screen(5.0),
+    };
+    let same_size = match current.db.variable(b"$PDSIZE") {
+        None => meaning(0.0) == style.size,
+        Some(
+            [
+                Value {
+                    code: 40,
+                    data: Data::Real(was),
+                },
+            ],
+        ) if was.is_finite() => meaning(*was) == style.size,
+        Some(_) => false,
+    };
+    if !same_mode {
+        plan.variables.push((b"$PDMODE", mode));
+    }
+    if !same_size {
+        plan.variables.push((
+            b"$PDSIZE",
+            vec![Value {
+                code: 40,
+                data: Data::Real(size),
+            }],
+        ));
+    }
 }
 
 /// 要素を足す（`Edit::Add`）
@@ -924,7 +1002,8 @@ fn change_element<'e>(
             | Edit::RemoveLineType { .. }
             | Edit::ReplaceDimensionStyle { .. }
             | Edit::AddDimensionStyle { .. }
-            | Edit::RemoveDimensionStyle { .. },
+            | Edit::RemoveDimensionStyle { .. }
+            | Edit::SetPointStyle { .. },
             _,
         ) => None,
     };
@@ -1064,6 +1143,7 @@ fn results(
                     .flatten()
                     .map(|handle| format!("layer/h{handle:X}")),
             ),
+            Edit::SetPointStyle { .. } => ResultTarget::Document,
             Edit::ReplaceTextStyle { target, .. } => ResultTarget::Table(Some(target.id.clone())),
             Edit::AddTextStyle { .. } => ResultTarget::Table(
                 style_handles
@@ -1163,7 +1243,7 @@ fn settled(db: &AcadDb, targets: Vec<ResultTarget>, cx: &mut Cx) -> Result<Vec<A
                     .cloned()
                     .flatten(),
                 ResultTarget::Table(id) => id,
-                ResultTarget::Removed => None,
+                ResultTarget::Removed | ResultTarget::Document => None,
             };
             applied(&after, id, cx)
         })

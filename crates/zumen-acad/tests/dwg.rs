@@ -458,18 +458,31 @@ fn with_header_variables(
 /// [`with_header_variables`] と同じく、HANDSEED を `seed` にした見出しの変数の区切りを足したもの
 #[cfg(test)]
 fn with_header(
-    mut src: Vec<u8>,
+    src: Vec<u8>,
     paper: u64,
     model: u64,
     units: u16,
     limits: [f64; 4],
     seed: u64,
 ) -> Vec<u8> {
+    with_point_header(src, [paper, model, seed], units, limits, (0, 0.0))
+}
+
+/// [`with_header`] と同じく、PDMODE と PDSIZE を `point` にした見出しの変数の区切りを足したもの。`handles` は
+/// 用紙空間とモデル空間のブロックのレコードと、HANDSEED
+#[cfg(test)]
+fn with_point_header(
+    mut src: Vec<u8>,
+    [paper, model, seed]: [u64; 3],
+    units: u16,
+    limits: [f64; 4],
+    (point_mode, point_size): (u16, f64),
+) -> Vec<u8> {
     // 型（b・s・l・d・r・t・h は B・BS・BL・BD・RD・TV・H）と数を、R2000 の順に並べる。
-    // 用紙空間の LIMMIN・LIMMAX（P）と INSUNITS（U）と HANDSEED（S）には値を書く
+    // 用紙空間の LIMMIN・LIMMAX（P）と INSUNITS（U）と HANDSEED（S）と PDMODE（M）と PDSIZE（Z）には値を書く
     let space = "d9 r4 d10 h2 s1 h1 d18";
     let layout = format!(
-        "d4 t4 l2 h1 b20 s27 d21 t1 l8 s1 S1 h5 d1 d9 P4 d10 h2 s1 h1 d18 {space} \
+        "d4 t4 l2 h1 b20 s7 M1 s19 d7 Z1 d13 t1 l8 s1 S1 h5 d1 d9 P4 d10 h2 s1 h1 d18 {space} \
          t2 d9 b6 s3 d9 b1 s1 b4 s3 s11 b2 s4 b1 s1 h5 s2 h13 s2 t2 h3 l1 U1"
     );
     let mut w = BitWriter::default();
@@ -486,6 +499,8 @@ fn with_header(
                 "r" => w.rd(0.0),
                 "P" => w.rd(limits.next().unwrap()),
                 "U" => w.bs(units),
+                "M" => w.bs(point_mode),
+                "Z" => w.bd(point_size),
                 "S" => w.handle(0, seed),
                 _ => w.handle(5, 0),
             }
@@ -9588,6 +9603,124 @@ fn header_variables_are_written_back() {
         assert_eq!(out, Err(Error::Rejected));
         assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
     }
+}
+
+/// 見出しの変数の PDMODE・PDSIZE を書き戻す（決定 0190）。BS・BD の幅が変わる値は、区切りの長さが変わるので断る
+#[test]
+fn point_header_variables_are_written_back() {
+    let src = with_point_header(
+        dwg(&objects_with_a_block()),
+        [0x58, 0x1F, 0],
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+        (3, 2.5),
+    );
+    let (base, before) = objects(&src);
+    assert_eq!(base.variable(b"$PDMODE").unwrap()[0].data, Data::Int(3));
+    assert_eq!(base.variable(b"$PDSIZE").unwrap()[0].data, Data::Real(2.5));
+    let set = |db: &mut AcadDb, name: &[u8], code: i16, data: Data| {
+        db.set_variable(name, vec![Value { code, data }]);
+    };
+    let mut db = base.clone();
+    set(&mut db, b"$PDMODE", 70, Data::Int(34));
+    set(&mut db, b"$PDSIZE", 40, Data::Real(-10.0));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    let out = out.unwrap();
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    let (after, again) = objects(&out);
+    assert_eq!(codes_of(&again), codes_of(&before));
+    assert_eq!(after, db);
+    // BS の幅（3 から 0）と BD の幅（2.5 から 0）が変わる値は書き戻せない
+    for (name, code, data) in [
+        (b"$PDMODE".as_slice(), 70, Data::Int(0)),
+        (b"$PDSIZE".as_slice(), 40, Data::Real(0.0)),
+        (b"$PDSIZE".as_slice(), 40, Data::Real(f64::INFINITY)),
+    ] {
+        let mut changed = base.clone();
+        set(&mut changed, name, code, data);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &changed);
+        assert_eq!(out, Err(Error::Rejected));
+        assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
+    }
+}
+
+/// 文書の点の表し方の変更を、DWG の見出しの PDMODE・PDSIZE に書き戻す（決定 0190）。読み直すと同じ点の表し方に
+/// なる。BS の幅が変わる PDMODE（0 から 3 など）は断り、ファイルを変えない
+#[cfg(feature = "drawing")]
+#[test]
+fn drawing_point_styles_are_written_back_to_a_dwg() {
+    use zumen_drawing::{Changes, Drawing2D, Edit, PointMark, PointSize, PointStyle};
+    use zumen_sdk::{Apply, Lift};
+    let src = with_point_header(
+        dwg(&objects_with_a_block()),
+        [0x58, 0x1F, 0],
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+        (3, 2.5),
+    );
+    let lift = |src: &[u8]| -> Drawing2D {
+        let (file, mut diag) = read(src, Limits::default());
+        file.unwrap()
+            .lift(&mut Cx::new(
+                &mut Budget::default(),
+                &mut diag,
+                &CancelToken::new(),
+            ))
+            .unwrap()
+    };
+    assert_eq!(
+        lift(&src).point_style,
+        Some(PointStyle {
+            mark: PointMark::Cross,
+            circle: false,
+            square: false,
+            size: PointSize::Length(2.5),
+        })
+    );
+    let apply = |style: PointStyle| {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::SetPointStyle { style }],
+            },
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        );
+        let mut out = Vec::new();
+        Dwg::write(
+            &file,
+            &mut out,
+            &mut Cx::new(
+                &mut Budget::default(),
+                &mut Diagnostics::new(),
+                &CancelToken::new(),
+            ),
+        )
+        .unwrap();
+        (result, diag, out)
+    };
+    let style = PointStyle {
+        mark: PointMark::Plus,
+        circle: true,
+        square: false,
+        size: PointSize::Screen(7.5),
+    };
+    // 読みの警告（試験の表にない種類）だけが残る
+    let (result, diag, out) = apply(style);
+    result.unwrap();
+    assert!(!codes_of(&diag).contains(&codes::DWG_CHANGE_UNSUPPORTED));
+    assert_eq!(lift(&out).point_style, Some(style));
+    let (result, diag, out) = apply(PointStyle {
+        mark: PointMark::Dot,
+        circle: false,
+        ..style
+    });
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag).last(), Some(&codes::DWG_CHANGE_UNSUPPORTED));
+    assert_eq!(out, src);
 }
 
 /// 文字スタイルがない行も 7 の区切りを残し、高さ・色・枠を次の行と混ぜない

@@ -39,7 +39,7 @@ const STYLED: [&str; 8] = [
 /// 形を書き直せ、足せるフィーチャ
 const SHAPED: [&str; 4] = ["line", "polyline", "circle", "arc"];
 
-/// 点マーカー。レイヤと色のコードだけを引数の 0〜1 に持ち、SFC だけで書き直し、足す（決定 0183）
+/// 点マーカー。レイヤと色のコードだけを引数の 0〜1 に持つ。SFC（決定 0183）と P21（決定 0190）で書き直し、足す
 const MARKER: &str = "point_marker";
 
 /// 除けるフィーチャ。複合曲線と複合図形の定義・配置は、ほかのフィーチャが順の番号や名前で指すので除かない
@@ -284,6 +284,11 @@ impl Apply<Changes> for SxfFile {
                     cx.report(unsupported(format, change.name(), "dimension_style"));
                     None
                 }
+                // SXF は文書の点の表し方を持たない。点は既定義の印だけ（決定 0190）
+                Edit::SetPointStyle { .. } => {
+                    cx.report(unsupported(format, change.name(), "point_style"));
+                    None
+                }
             };
             match result {
                 Some(result) => expected.push((change.name(), result)),
@@ -325,7 +330,7 @@ impl Apply<Changes> for SxfFile {
                 Expected::Element(instance, element) => {
                     if let Some(found) = after.found(*instance) {
                         found.element.count_copy(cx, 2)?;
-                        // P21 の円弧の角度は、ラジアンで書いて度で読むので、最後の桁が違いうる
+                        // P21 の円弧と点マーカーの角度は、ラジアンか向きで書いて度で読むので、最後の桁が違いうる
                         (found.element.same(element)
                             || (self.mode() == Mode::P21 && found.element.near(element)))
                         .then_some(found)
@@ -504,6 +509,10 @@ impl<'a> Any<'a> {
     /// 出所を除いて、円弧の角度のほかは同じ値で、角度が近いか
     fn near(&self, placed: &Placed) -> bool {
         fn near<P: PartialEq>(a: &Element<P>, b: &Element<P>) -> bool {
+            let angle = |a: f64, b: f64| {
+                let turn = (a - b).rem_euclid(360.0);
+                turn.min(360.0 - turn) <= 1e-9 * a.abs().max(b.abs()).max(1.0)
+            };
             let shape = match (&a.shape, &b.shape) {
                 (
                     Shape::Curve(Edge::Arc {
@@ -521,15 +530,18 @@ impl<'a> Any<'a> {
                         counterclockwise: counterclockwise_b,
                     }),
                 ) => {
-                    let angle = |a: f64, b: f64| {
-                        let turn = (a - b).rem_euclid(360.0);
-                        turn.min(360.0 - turn) <= 1e-9 * a.abs().max(b.abs()).max(1.0)
-                    };
                     center == center_b
                         && radius == radius_b
                         && counterclockwise == counterclockwise_b
                         && angle(*start, *start_b)
                         && angle(*end, *end_b)
+                }
+                // P21 の点マーカーの回転は、向きの成分で書いて角度で読むので、最後の桁が違いうる（決定 0190）
+                (Shape::Point(a), Shape::Point(b)) => {
+                    a.position == b.position
+                        && a.look == b.look
+                        && a.construction == b.construction
+                        && angle(a.rotation, b.rotation)
                 }
                 (a, b) => a == b,
             };

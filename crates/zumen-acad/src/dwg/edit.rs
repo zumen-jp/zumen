@@ -16,7 +16,7 @@ use zumen_base::{Cx, Diagnostic, Kind, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{Bits, crc16, modular_char, push_modular_char, push_modular_short};
-use super::header::{self, handle_seed, set_handle_seed, set_values};
+use super::header::{self, Values, handle_seed, set_handle_seed, set_values};
 use super::{
     DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER,
     R2004_SECTIONS, Release, header_crc_mask, invalid, stopped,
@@ -36,8 +36,7 @@ pub struct DwgTxn<'a> {
     removed: BTreeSet<usize>,
     added: Vec<(u64, Vec<u8>)>,
     seed: Option<u64>,
-    units: Option<i16>,
-    limits: Option<[f64; 4]>,
+    values: Values,
     rejected: Option<Diagnostic>,
 }
 
@@ -100,13 +99,27 @@ impl DwgTxn<'_> {
     /// 見出しの変数の INSUNITS を `units` にする（決定 0069）。大きさ（バイト）が変わる値なら、確定のときに
     /// 失敗する
     pub fn set_units(&mut self, units: i16) -> Result<(), Error> {
-        self.units = Some(units);
+        self.values.units = Some(units);
         Ok(())
     }
 
     /// 見出しの変数の、用紙空間の PLIMMIN と PLIMMAX（X・Y の順）を `limits` にする（決定 0069）
     pub fn set_paper_limits(&mut self, limits: [f64; 4]) -> Result<(), Error> {
-        self.limits = Some(limits);
+        self.values.limits = Some(limits);
+        Ok(())
+    }
+
+    /// 見出しの変数の PDMODE（点の表し方）を `mode` にする（決定 0190）。大きさ（バイト）が変わる値なら、確定のときに
+    /// 失敗する
+    pub fn set_point_mode(&mut self, mode: i16) -> Result<(), Error> {
+        self.values.point_mode = Some(mode);
+        Ok(())
+    }
+
+    /// 見出しの変数の PDSIZE（点の大きさ）を `size` にする（決定 0190）。大きさ（バイト）が変わる値なら、確定のときに
+    /// 失敗する
+    pub fn set_point_size(&mut self, size: f64) -> Result<(), Error> {
+        self.values.point_size = Some(size);
         Ok(())
     }
 
@@ -127,8 +140,7 @@ impl Transaction for DwgTxn<'_> {
             && self.removed.is_empty()
             && self.added.is_empty()
             && self.seed.is_none()
-            && self.units.is_none()
-            && self.limits.is_none()
+            && !self.values.any()
         {
             return Ok(());
         }
@@ -153,7 +165,7 @@ impl Transaction for DwgTxn<'_> {
             .as_ref()
             .and_then(|container| container.section(R2004_SECTIONS[0]))
             .map(<[u8]>::to_vec);
-        let header_changed = self.seed.is_some() || self.units.is_some() || self.limits.is_some();
+        let header_changed = self.seed.is_some() || self.values.any();
         let (header_src, header) = match head.as_mut() {
             Some(head) => (head, Some(0)),
             None => (
@@ -177,9 +189,9 @@ impl Transaction for DwgTxn<'_> {
                     )
                 })?;
         }
-        if self.units.is_some() || self.limits.is_some() {
+        if self.values.any() {
             header
-                .and_then(|start| set_values(header_src, start, release, self.units, self.limits))
+                .and_then(|start| set_values(header_src, start, release, self.values))
                 .ok_or_else(|| {
                     invalid(
                         cx,
@@ -264,8 +276,7 @@ impl Transact for DwgFile {
             removed: BTreeSet::new(),
             added: Vec::new(),
             seed: None,
-            units: None,
-            limits: None,
+            values: Values::default(),
             rejected: None,
         }
     }
