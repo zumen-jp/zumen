@@ -1,6 +1,6 @@
 # プロファイル
 
-基準・要領・社内標準を、コードとは別の、版のあるデータとして持ちます。形は [決定 0138](../docs/decisions/0138-profiles-as-versioned-data.md) に、照合は [決定 0173](../docs/decisions/0173-profile-checks.md) にあります。
+基準・要領・社内標準を、コードとは別の、版のあるデータとして持ちます。形は [決定 0138](../docs/decisions/0138-profiles-as-versioned-data.md) に、照合は [決定 0173](../docs/decisions/0173-profile-checks.md)・[決定 0179](../docs/decisions/0179-profile-check-details.md) にあります。照合は、境界の `check` の op に `profile.json` を `zm_push` で渡して行います。
 
 | id | 版 | 対象 |
 | --- | --- | --- |

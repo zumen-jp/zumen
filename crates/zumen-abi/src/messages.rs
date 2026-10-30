@@ -29,6 +29,8 @@ pub enum Request {
     Tables(TablesRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から
     Scene(SceneRequest),
+    /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から
+    Check(CheckRequest),
 }
 
 impl Request {
@@ -43,6 +45,7 @@ impl Request {
         "apply",
         "tables",
         "scene",
+        "check",
     ];
 
     /// 目印の欄（`op`）の値
@@ -57,6 +60,7 @@ impl Request {
             Self::Apply(_) => "apply",
             Self::Tables(_) => "tables",
             Self::Scene(_) => "scene",
+            Self::Check(_) => "check",
         }
     }
 }
@@ -74,6 +78,7 @@ impl FromJson for Request {
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
             "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
+            "check" => Self::Check(CheckRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -93,6 +98,7 @@ impl ToJson for Request {
             Self::Apply(value) => value.to_json(out),
             Self::Tables(value) => value.to_json(out),
             Self::Scene(value) => value.to_json(out),
+            Self::Check(value) => value.to_json(out),
         }
     }
 }
@@ -5120,6 +5126,366 @@ impl FromJson for SceneCounts {
 }
 
 impl ToJson for SceneCounts {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+    pub profiles: Vec<String>,
+    /// 照合に使うプロファイル。profiles の中から選ぶ
+    pub profile: ProfileRef,
+    /// たどる起点。実寸の空間・記号の定義の空間・用紙の ID。書かなければ、すべての用紙から、用紙がなければ実寸の空間からたどる
+    pub from: Option<String>,
+    /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける
+    pub view: Option<u64>,
+    /// 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す指摘の数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+    /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+    pub palette: Option<String>,
+}
+
+impl CheckRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "check")?;
+        let doc = object.required("doc", json::string)?;
+        let profiles = object.required("profiles", |value| json::array(value, json::string))?;
+        let profile = object.required("profile", ProfileRef::from_json)?;
+        let from = object.optional("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        let palette = object.optional("palette", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            profiles,
+            profile,
+            from,
+            view,
+            offset,
+            limit,
+            palette,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("check");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("profiles");
+        out.array(&self.profiles, |out, item| out.string(item));
+        out.key("profile");
+        self.profile.to_json(out);
+        if let Some(value) = &self.from {
+            out.key("from");
+            out.string(value);
+        }
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.palette {
+            out.key("palette");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for CheckRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CheckRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// プロファイルの識別（決定 0138）
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProfileRef {
+    /// 基準の系統（mlit-cad など）
+    pub id: String,
+    /// 基準の版（2025-12 など）
+    pub edition: String,
+}
+
+impl ProfileRef {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let edition = object.required("edition", json::string)?;
+        Ok(Self { id, edition })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("edition");
+        out.string(&self.edition);
+    }
+}
+
+impl FromJson for ProfileRef {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ProfileRef {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 照合の結果。指摘は offset から limit 個まで
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckResult {
+    /// 照合に使ったプロファイルの鎖。extends の基から順
+    pub chain: Vec<ProfileIdentity>,
+    /// 照合した規則ごとの数。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
+    pub rules: Vec<CheckRule>,
+    /// 指摘。規則の順に、規則ごとにたどった順
+    pub findings: Vec<CheckFinding>,
+    /// 全体の指摘の数
+    pub total: u64,
+    /// 続きの最初の指摘の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl CheckResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let chain = object.required("chain", |value| {
+            json::array(value, ProfileIdentity::from_json)
+        })?;
+        let rules = object.required("rules", |value| json::array(value, CheckRule::from_json))?;
+        let findings = object.required("findings", |value| {
+            json::array(value, CheckFinding::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            chain,
+            rules,
+            findings,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("chain");
+        out.array(&self.chain, |out, item| item.to_json(out));
+        out.key("rules");
+        out.array(&self.rules, |out, item| item.to_json(out));
+        out.key("findings");
+        out.array(&self.findings, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for CheckResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CheckResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 照合に使ったプロファイルの識別と、データの直し
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProfileIdentity {
+    /// 基準の系統
+    pub id: String,
+    /// 基準の版
+    pub edition: String,
+    /// このデータの直し。1 から
+    pub revision: u64,
+}
+
+impl ProfileIdentity {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let edition = object.required("edition", json::string)?;
+        let revision =
+            object.required("revision", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            id,
+            edition,
+            revision,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("edition");
+        out.string(&self.edition);
+        out.key("revision");
+        out.uint(self.revision);
+    }
+}
+
+impl FromJson for ProfileIdentity {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ProfileIdentity {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 規則ごとの数
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckRule {
+    /// 規則の id
+    pub id: String,
+    /// 照合の種類（layer-name など）
+    pub check: String,
+    /// 指摘の数。照合できなかったものを除く
+    pub findings: u64,
+    /// 照合できなかった数
+    pub unsupported: u64,
+}
+
+impl CheckRule {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let check = object.required("check", json::string)?;
+        let findings =
+            object.required("findings", |value| json::uint(value, 0, 9007199254740991))?;
+        let unsupported = object.required("unsupported", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            id,
+            check,
+            findings,
+            unsupported,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("check");
+        out.string(&self.check);
+        out.key("findings");
+        out.uint(self.findings);
+        out.key("unsupported");
+        out.uint(self.unsupported);
+    }
+}
+
+impl FromJson for CheckRule {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CheckRule {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 指摘。diagnostic は診断と同じ形で、describe で文にできる。severity は規則の level で、照合できない値（profile.<種類>.unsupported）は info。count は 1
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckFinding {
+    /// 規則の id
+    pub rule: String,
+    /// code・重要度・場所（要素・実効のレイヤ・用紙の ID）・見つけた値
+    pub diagnostic: Diagnostic,
+}
+
+impl CheckFinding {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let rule = object.required("rule", json::string)?;
+        let diagnostic = object.required("diagnostic", Diagnostic::from_json)?;
+        Ok(Self { rule, diagnostic })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("rule");
+        out.string(&self.rule);
+        out.key("diagnostic");
+        self.diagnostic.to_json(out);
+    }
+}
+
+impl FromJson for CheckFinding {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CheckFinding {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

@@ -15,7 +15,8 @@
         { "$ref": "#/$defs/entities_request" },
         { "$ref": "#/$defs/apply_request" },
         { "$ref": "#/$defs/tables_request" },
-        { "$ref": "#/$defs/scene_request" }
+        { "$ref": "#/$defs/scene_request" },
+        { "$ref": "#/$defs/check_request" }
       ]
     },
     "request_common": {
@@ -1206,6 +1207,119 @@
         "images": { "description": "画像", "type": "integer", "minimum": 0 }
       },
       "required": ["chunks", "lines", "vertices", "faces", "texts", "points", "images"],
+      "additionalProperties": false
+    },
+    "check_request": {
+      "description": "開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "check" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" },
+        "profiles": {
+          "description": "プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "profile": { "description": "照合に使うプロファイル。profiles の中から選ぶ", "$ref": "#/$defs/profile_ref" },
+        "from": {
+          "description": "たどる起点。実寸の空間・記号の定義の空間・用紙の ID。書かなければ、すべての用紙から、用紙がなければ実寸の空間からたどる",
+          "type": "string"
+        },
+        "view": {
+          "description": "起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける",
+          "type": "integer",
+          "minimum": 0
+        },
+        "offset": {
+          "description": "返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す指摘の数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "palette": {
+          "description": "色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く",
+          "type": "string"
+        }
+      },
+      "required": ["op", "doc", "profiles", "profile"],
+      "unevaluatedProperties": false
+    },
+    "profile_ref": {
+      "description": "プロファイルの識別（決定 0138）",
+      "type": "object",
+      "properties": {
+        "id": { "description": "基準の系統（mlit-cad など）", "type": "string" },
+        "edition": { "description": "基準の版（2025-12 など）", "type": "string" }
+      },
+      "required": ["id", "edition"],
+      "additionalProperties": false
+    },
+    "check_result": {
+      "description": "照合の結果。指摘は offset から limit 個まで",
+      "type": "object",
+      "properties": {
+        "chain": {
+          "description": "照合に使ったプロファイルの鎖。extends の基から順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/profile_identity" }
+        },
+        "rules": {
+          "description": "照合した規則ごとの数。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す",
+          "type": "array",
+          "items": { "$ref": "#/$defs/check_rule" }
+        },
+        "findings": {
+          "description": "指摘。規則の順に、規則ごとにたどった順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/check_finding" }
+        },
+        "total": { "description": "全体の指摘の数", "type": "integer", "minimum": 0 },
+        "next_offset": {
+          "description": "続きの最初の指摘の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["chain", "rules", "findings", "total"],
+      "additionalProperties": false
+    },
+    "profile_identity": {
+      "description": "照合に使ったプロファイルの識別と、データの直し",
+      "type": "object",
+      "properties": {
+        "id": { "description": "基準の系統", "type": "string" },
+        "edition": { "description": "基準の版", "type": "string" },
+        "revision": { "description": "このデータの直し。1 から", "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "edition", "revision"],
+      "additionalProperties": false
+    },
+    "check_rule": {
+      "description": "規則ごとの数",
+      "type": "object",
+      "properties": {
+        "id": { "description": "規則の id", "type": "string" },
+        "check": { "description": "照合の種類（layer-name など）", "type": "string" },
+        "findings": { "description": "指摘の数。照合できなかったものを除く", "type": "integer", "minimum": 0 },
+        "unsupported": { "description": "照合できなかった数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "check", "findings", "unsupported"],
+      "additionalProperties": false
+    },
+    "check_finding": {
+      "description": "指摘。diagnostic は診断と同じ形で、describe で文にできる。severity は規則の level で、照合できない値（profile.<種類>.unsupported）は info。count は 1",
+      "type": "object",
+      "properties": {
+        "rule": { "description": "規則の id", "type": "string" },
+        "diagnostic": { "description": "code・重要度・場所（要素・実効のレイヤ・用紙の ID）・見つけた値", "$ref": "#/$defs/diagnostic" }
+      },
+      "required": ["rule", "diagnostic"],
       "additionalProperties": false
     },
     "table_item": {

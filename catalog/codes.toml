@@ -901,3 +901,150 @@ params = { kind = "text" }
 group-by = ["kind"]
 since = "0.0.0"
 status = "active"
+
+# プロファイルの照合（決定 0173・0179）。照合を始められないときの診断と、check の結果の指摘。
+# 指摘の重要度は規則の level を使い、ここの severity は使わない（決定 0173）
+
+[codes."profile.format.unsupported"]
+description = "プロファイルの入力を読めないか、書式の大版を読めない（決定 0138）"
+severity = "error"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.0.0"
+status = "active"
+
+[codes."profile.extends.missing"]
+description = "extends で指すプロファイルが、渡した入力にない"
+severity = "error"
+params = { id = "text", edition = "text" }
+group-by = ["id", "edition"]
+since = "0.0.0"
+status = "active"
+
+[codes."profile.extends.invalid"]
+description = "extends の鎖が輪になっている"
+severity = "error"
+params = { id = "text", edition = "text" }
+group-by = ["id", "edition"]
+since = "0.0.0"
+status = "active"
+
+[codes."profile.rule.unsupported"]
+description = "照合の種類を知らないか、欄か語彙を使えない規則を、照合しなかった"
+severity = "warning"
+params = { rule = "text", check = "text" }
+group-by = ["rule"]
+since = "0.0.0"
+status = "active"
+
+[codes."profile.layer-name.invalid"]
+description = "レイヤの名前が、規則の区切りと語彙に合わないか、長すぎる（指摘）"
+severity = "warning"
+params = { rule = "text", layer = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.color.invalid"]
+description = "要素の色が、語彙にない（指摘）。色は系統と符号（sxf:17 など）か #rrggbb"
+severity = "warning"
+params = { rule = "text", color = "text", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.color.unsupported"]
+description = "要素の色が、語彙の符号の列でも RGB でも決まらず、照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.line-type.invalid"]
+description = "要素の線種の名前が、語彙の形式の列にない（指摘）"
+severity = "warning"
+params = { rule = "text", line_type = "text", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.line-type.unsupported"]
+description = "線種が決まらないか、語彙が図面の形式の列を持たず、照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.line-width.invalid"]
+description = "要素の線幅（用紙の mm）が、語彙のどの値とも許容差の内で一致しない（指摘）"
+severity = "warning"
+params = { rule = "text", width = "float", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.line-width.unsupported"]
+description = "線幅を読まなかったか、決まらず、照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.text-height.invalid"]
+description = "文字の高さ（用紙の mm）が、語彙のどの値とも許容差の内で一致しない（指摘）。meaning は高さの意味（決定 0022）"
+severity = "warning"
+params = { rule = "text", height = "float", meaning = "key", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.text-height.unsupported"]
+description = "用紙を通さない実寸の文字か、縦横の尺度が違う配置の文字で、用紙の高さが決まらず、照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.characters.invalid"]
+description = "文字の内容が、語彙の範囲の文字を含む（指摘）。character は U+XXXX の形"
+severity = "warning"
+params = { rule = "text", character = "text", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.sheet-size.invalid"]
+description = "用紙の大きさが、向きを問わず、語彙のどの大きさとも許容差の内で一致しない（指摘）"
+severity = "warning"
+params = { rule = "text", width = "float", height = "float", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.sheet-size.unsupported"]
+description = "大きさのない用紙で、照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.orientation.invalid"]
+description = "用紙の向きが、規則の向きと違う（指摘）"
+severity = "warning"
+params = { rule = "text", orientation = "key", expected = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.orientation.unsupported"]
+description = "大きさのない用紙で、向きが決まらず、照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.scale.invalid"]
+description = "ビューの縮尺の分母の仮数が、語彙にない（指摘）。view は用紙のビューの番号"
+severity = "warning"
+params = { rule = "text", denominator = "float", view = "uint", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.scale.unsupported"]
+description = "空間の単位が分からないか、縦横の尺度が違うビューで、縮尺が決まらず、照合できない（指摘）"
+severity = "info"
+params = { rule = "text", view = "uint" }
+since = "0.0.0"
+status = "active"

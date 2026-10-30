@@ -57,7 +57,8 @@ impl Palette {
             .or_insert(rgb);
     }
 
-    fn get(&self, system: ColorSystem, code: u32) -> Option<[u8; 3]> {
+    /// 系統の符号の RGB。表になければ `None`
+    pub fn get(&self, system: ColorSystem, code: u32) -> Option<[u8; 3]> {
         self.entries.get(&(system_code(system), code)).copied()
     }
 }

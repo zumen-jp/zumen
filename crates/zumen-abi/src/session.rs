@@ -16,14 +16,15 @@ use zumen_sxf::{Sxf, SxfFile};
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::bounds;
 use crate::changes::changes;
+use crate::check;
 use crate::describe;
 use crate::geometry;
 use crate::messages::{
-    self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CloseRequest,
-    CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine, EntitiesRequest,
-    EntitiesResult, Entity, EntityField, EntityKind, Extent, Format, OpenRequest, OpenResult,
-    Request, RequestCommon, SceneRequest, SceneResult, SchemaVersion, SessionOptions, SheetSummary,
-    Source, SpaceSummary, TablesRequest, TablesResult,
+    self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CheckRequest,
+    CheckResult, CloseRequest, CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine,
+    EntitiesRequest, EntitiesResult, Entity, EntityField, EntityKind, Extent, Format, OpenRequest,
+    OpenResult, Request, RequestCommon, SceneRequest, SceneResult, SchemaVersion, SessionOptions,
+    SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
 };
 use crate::scene;
 use crate::tables::{
@@ -73,6 +74,15 @@ impl Doc {
             Doc::Dwg(_) => Dwg::FORMAT,
             Doc::Sxf(_) => Sxf::FORMAT,
             Doc::Jww(_) => Jww::FORMAT,
+        }
+    }
+
+    /// 形式の系統（capabilities の family）
+    fn family(&self) -> &'static str {
+        match self {
+            Doc::Dxf(_) | Doc::Dwg(_) => "acad",
+            Doc::Sxf(_) => "sxf",
+            Doc::Jww(_) => "jww",
         }
     }
 
@@ -267,6 +277,7 @@ impl Session {
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::Check(request) => self.check(request, &mut cx).map(|r| Box::new(r) as _),
         };
         result.ok()
     }
@@ -609,21 +620,7 @@ impl Session {
     /// 起点から配置をたどった 2D のシーンを、blob で返す（決定 0172）
     fn scene(&mut self, request: &SceneRequest, cx: &mut Cx<'_>) -> Result<SceneResult, Failed> {
         scene::check(request, cx)?;
-        let palette = match &request.palette {
-            None => zumen_scene::Palette::default(),
-            Some(name) => {
-                if !name::is_safe(name) {
-                    return Err(fail(cx, invalid_value("/palette")));
-                }
-                let Some(bytes) = self.inputs.get(name) else {
-                    return Err(fail(cx, input_missing(name)));
-                };
-                match scene::palette(bytes) {
-                    Some(palette) => palette,
-                    None => return Err(fail(cx, invalid_value("/palette"))),
-                }
-            }
-        };
+        let palette = self.palette(request.palette.as_deref(), cx)?;
         let drawing = self.lift(&request.doc, cx)?;
         let (mut result, bytes) = scene::scene(&drawing, request, palette, cx)?;
         result.blob = self.blobs.len() as u64;
@@ -632,6 +629,41 @@ impl Session {
             bytes,
         }));
         Ok(result)
+    }
+
+    /// 起点から配置をたどって、プロファイルで照合する（決定 0173・0179）
+    fn check(&mut self, request: &CheckRequest, cx: &mut Cx<'_>) -> Result<CheckResult, Failed> {
+        let palette = self.palette(request.palette.as_deref(), cx)?;
+        let mut profiles = Vec::with_capacity(request.profiles.len());
+        for (index, name) in request.profiles.iter().enumerate() {
+            if !name::is_safe(name) {
+                return Err(fail(cx, invalid_value(format!("/profiles/{index}"))));
+            }
+            let Some(bytes) = self.inputs.get(name) else {
+                return Err(fail(cx, input_missing(name)));
+            };
+            profiles.push((name.as_str(), bytes.as_slice()));
+        }
+        let family = match self.docs.get(&request.doc) {
+            Some(doc) => doc.family(),
+            None => "",
+        };
+        let drawing = self.lift(&request.doc, cx)?;
+        check::check(&drawing, request, &profiles, &palette, family, cx)
+    }
+
+    /// 色の表の入力を読む。名前がなければ空の表
+    fn palette(&self, name: Option<&str>, cx: &mut Cx<'_>) -> Result<zumen_scene::Palette, Failed> {
+        let Some(name) = name else {
+            return Ok(zumen_scene::Palette::default());
+        };
+        if !name::is_safe(name) {
+            return Err(fail(cx, invalid_value("/palette")));
+        }
+        let Some(bytes) = self.inputs.get(name) else {
+            return Err(fail(cx, input_missing(name)));
+        };
+        scene::palette(bytes).ok_or_else(|| fail(cx, invalid_value("/palette")))
     }
 
     /// 名前の文書を、図面モデルに変換する
@@ -977,6 +1009,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Apply(request) => &request.request_common,
         Request::Tables(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
+        Request::Check(request) => &request.request_common,
     }
 }
 
@@ -1059,7 +1092,7 @@ fn respond(
 }
 
 /// コアの診断を、メッセージの診断にする
-fn message_of(diagnostic: &Diagnostic) -> messages::Diagnostic {
+pub(crate) fn message_of(diagnostic: &Diagnostic) -> messages::Diagnostic {
     messages::Diagnostic {
         code: diagnostic.code().name().to_string(),
         severity: match diagnostic.severity() {
@@ -1500,7 +1533,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":33}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":34}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -1809,6 +1842,83 @@ mod tests {
             assert_eq!(status, Status::Failed, "{request}");
             assert_eq!(text(&response, "/diagnostics/0/code"), "call.value.invalid");
             assert_eq!(text(&response, "/diagnostics/0/params/pointer"), pointer);
+        }
+    }
+
+    #[test]
+    fn checks_documents_against_profiles_and_pages_the_findings() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        session
+            .push(
+                b"base.json",
+                br#"{"format":"0.1","id":"base","edition":"1","revision":2,
+                "vocabularies":{"who":{"values":[{"code":"C"}]},"what":{"values":[{"code":"STR"}]}},
+                "rules":[{"id":"layers","check":"layer-name","level":"error","parts":["who","what"],"separator":"-"}]}"#,
+            )
+            .unwrap();
+        session
+            .push(
+                b"child.json",
+                br#"{"format":"0.1","id":"child","edition":"1","revision":1,"extends":{"id":"base","edition":"1"},
+                "vocabularies":{"widths":{"values":[0.35]}},
+                "rules":[{"id":"widths","check":"line-width","level":"warning","vocabulary":"widths"}]}"#,
+            )
+            .unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let request = |rest: &str| {
+            format!(
+                r#"{{"v":1,"op":"check","doc":"a.dxf","profiles":["base.json","child.json"],"profile":{{"id":"child","edition":"1"}}{rest}}}"#
+            )
+        };
+        let (status, response) = call(&mut session, &request(r#","limit":1"#));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/chain/0/id"), "base");
+        assert_eq!(number(&response, "/result/chain/0/revision"), "2");
+        assert_eq!(text(&response, "/result/chain/1/id"), "child");
+        assert_eq!(text(&response, "/result/rules/0/id"), "layers");
+        assert_eq!(number(&response, "/result/rules/0/findings"), "1");
+        assert_eq!(text(&response, "/result/findings/0/rule"), "layers");
+        assert_eq!(
+            text(&response, "/result/findings/0/diagnostic/code"),
+            "profile.layer-name.invalid"
+        );
+        assert_eq!(
+            text(&response, "/result/findings/0/diagnostic/severity"),
+            "error"
+        );
+        assert_eq!(
+            text(&response, "/result/findings/0/diagnostic/params/layer"),
+            "0"
+        );
+        assert!(response.pointer("/result/findings/1").is_none());
+        let total = number(&response, "/result/total");
+        assert_eq!(number(&response, "/result/next_offset"), "1");
+        let (_, rest) = call(&mut session, &request(r#","offset":1"#));
+        assert_eq!(number(&rest, "/result/total"), total);
+        assert!(rest.pointer("/result/next_offset").is_none());
+        for (rest, code) in [
+            (r#","from":"space/9""#, "call.value.invalid"),
+            (r#","palette":"a.dxf""#, "call.value.invalid"),
+        ] {
+            let (status, response) = call(&mut session, &request(rest));
+            assert_eq!(status, Status::Failed, "{rest}");
+            assert_eq!(text(&response, "/diagnostics/0/code"), code);
+        }
+        for (profiles, code) in [
+            (r#"["child.json"]"#, "profile.extends.missing"),
+            (r#"["a.dxf"]"#, "profile.format.unsupported"),
+            (r#"["none.json"]"#, "call.input.missing"),
+            (r#"["base.json"]"#, "call.value.invalid"),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"check","doc":"a.dxf","profiles":{profiles},"profile":{{"id":"child","edition":"1"}}}}"#
+                ),
+            );
+            assert_eq!(status, Status::Failed, "{profiles}");
+            assert_eq!(text(&response, "/diagnostics/0/code"), code, "{profiles}");
         }
     }
 

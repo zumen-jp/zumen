@@ -12,6 +12,7 @@
 pub mod abi;
 mod bounds;
 mod changes;
+mod check;
 mod describe;
 pub mod ffi;
 mod geometry;

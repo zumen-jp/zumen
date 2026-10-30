@@ -11,6 +11,7 @@ publish.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
 zumen-json = { path = "../crates/zumen-json" }
+zumen-profile = { path = "../crates/zumen-profile" }
 
 [lints.rust]
 unsafe_code = "forbid"

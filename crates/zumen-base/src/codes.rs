@@ -984,6 +984,276 @@ pub const JWW_LIFT_INVALID: Code = Code::new(
 pub const JWW_TRAILER_INVALID: Code =
     Code::new("jww.trailer.invalid", Severity::Warning, None, &[], &[]);
 
+/// 文字の内容が、語彙の範囲の文字を含む（指摘）。character は U+XXXX の形
+///
+/// `profile.characters.invalid`（0.0.0 から）
+pub const PROFILE_CHARACTERS_INVALID: Code = Code::new(
+    "profile.characters.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("character", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 要素の色が、語彙にない（指摘）。色は系統と符号（sxf:17 など）か #rrggbb
+///
+/// `profile.color.invalid`（0.0.0 から）
+pub const PROFILE_COLOR_INVALID: Code = Code::new(
+    "profile.color.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("color", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 要素の色が、語彙の符号の列でも RGB でも決まらず、照合できない（指摘）
+///
+/// `profile.color.unsupported`（0.0.0 から）
+pub const PROFILE_COLOR_UNSUPPORTED: Code = Code::new(
+    "profile.color.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
+/// extends の鎖が輪になっている
+///
+/// `profile.extends.invalid`（0.0.0 から）
+pub const PROFILE_EXTENDS_INVALID: Code = Code::new(
+    "profile.extends.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edition", ParamType::Text),
+        Param::new("id", ParamType::Text),
+    ],
+    &["id", "edition"],
+);
+
+/// extends で指すプロファイルが、渡した入力にない
+///
+/// `profile.extends.missing`（0.0.0 から）
+pub const PROFILE_EXTENDS_MISSING: Code = Code::new(
+    "profile.extends.missing",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edition", ParamType::Text),
+        Param::new("id", ParamType::Text),
+    ],
+    &["id", "edition"],
+);
+
+/// プロファイルの入力を読めないか、書式の大版を読めない（決定 0138）
+///
+/// `profile.format.unsupported`（0.0.0 から）
+pub const PROFILE_FORMAT_UNSUPPORTED: Code = Code::new(
+    "profile.format.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// レイヤの名前が、規則の区切りと語彙に合わないか、長すぎる（指摘）
+///
+/// `profile.layer-name.invalid`（0.0.0 から）
+pub const PROFILE_LAYER_NAME_INVALID: Code = Code::new(
+    "profile.layer-name.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("layer", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 要素の線種の名前が、語彙の形式の列にない（指摘）
+///
+/// `profile.line-type.invalid`（0.0.0 から）
+pub const PROFILE_LINE_TYPE_INVALID: Code = Code::new(
+    "profile.line-type.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("line_type", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 線種が決まらないか、語彙が図面の形式の列を持たず、照合できない（指摘）
+///
+/// `profile.line-type.unsupported`（0.0.0 から）
+pub const PROFILE_LINE_TYPE_UNSUPPORTED: Code = Code::new(
+    "profile.line-type.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
+/// 要素の線幅（用紙の mm）が、語彙のどの値とも許容差の内で一致しない（指摘）
+///
+/// `profile.line-width.invalid`（0.0.0 から）
+pub const PROFILE_LINE_WIDTH_INVALID: Code = Code::new(
+    "profile.line-width.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("rule", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+        Param::new("width", ParamType::Float),
+    ],
+    &[],
+);
+
+/// 線幅を読まなかったか、決まらず、照合できない（指摘）
+///
+/// `profile.line-width.unsupported`（0.0.0 から）
+pub const PROFILE_LINE_WIDTH_UNSUPPORTED: Code = Code::new(
+    "profile.line-width.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
+/// 用紙の向きが、規則の向きと違う（指摘）
+///
+/// `profile.orientation.invalid`（0.0.0 から）
+pub const PROFILE_ORIENTATION_INVALID: Code = Code::new(
+    "profile.orientation.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("expected", ParamType::Text),
+        Param::new("orientation", ParamType::Key),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 大きさのない用紙で、向きが決まらず、照合できない（指摘）
+///
+/// `profile.orientation.unsupported`（0.0.0 から）
+pub const PROFILE_ORIENTATION_UNSUPPORTED: Code = Code::new(
+    "profile.orientation.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
+/// 照合の種類を知らないか、欄か語彙を使えない規則を、照合しなかった
+///
+/// `profile.rule.unsupported`（0.0.0 から）
+pub const PROFILE_RULE_UNSUPPORTED: Code = Code::new(
+    "profile.rule.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("check", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule"],
+);
+
+/// ビューの縮尺の分母の仮数が、語彙にない（指摘）。view は用紙のビューの番号
+///
+/// `profile.scale.invalid`（0.0.0 から）
+pub const PROFILE_SCALE_INVALID: Code = Code::new(
+    "profile.scale.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("denominator", ParamType::Float),
+        Param::new("rule", ParamType::Text),
+        Param::new("view", ParamType::UInt),
+        Param::new("vocabulary", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 空間の単位が分からないか、縦横の尺度が違うビューで、縮尺が決まらず、照合できない（指摘）
+///
+/// `profile.scale.unsupported`（0.0.0 から）
+pub const PROFILE_SCALE_UNSUPPORTED: Code = Code::new(
+    "profile.scale.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("rule", ParamType::Text),
+        Param::new("view", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 用紙の大きさが、向きを問わず、語彙のどの大きさとも許容差の内で一致しない（指摘）
+///
+/// `profile.sheet-size.invalid`（0.0.0 から）
+pub const PROFILE_SHEET_SIZE_INVALID: Code = Code::new(
+    "profile.sheet-size.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("height", ParamType::Float),
+        Param::new("rule", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+        Param::new("width", ParamType::Float),
+    ],
+    &[],
+);
+
+/// 大きさのない用紙で、照合できない（指摘）
+///
+/// `profile.sheet-size.unsupported`（0.0.0 から）
+pub const PROFILE_SHEET_SIZE_UNSUPPORTED: Code = Code::new(
+    "profile.sheet-size.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
+/// 文字の高さ（用紙の mm）が、語彙のどの値とも許容差の内で一致しない（指摘）。meaning は高さの意味（決定 0022）
+///
+/// `profile.text-height.invalid`（0.0.0 から）
+pub const PROFILE_TEXT_HEIGHT_INVALID: Code = Code::new(
+    "profile.text-height.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("height", ParamType::Float),
+        Param::new("meaning", ParamType::Key),
+        Param::new("rule", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 用紙を通さない実寸の文字か、縦横の尺度が違う配置の文字で、用紙の高さが決まらず、照合できない（指摘）
+///
+/// `profile.text-height.unsupported`（0.0.0 から）
+pub const PROFILE_TEXT_HEIGHT_UNSUPPORTED: Code = Code::new(
+    "profile.text-height.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
 /// 引出線つきの注記を、シーンに描かなかった（決定 0172）
 ///
 /// `scene.callout.dropped`（0.0.0 から）
@@ -1339,6 +1609,26 @@ pub const ALL: &[Code] = &[
     JWW_LIFT_DROPPED,
     JWW_LIFT_INVALID,
     JWW_TRAILER_INVALID,
+    PROFILE_CHARACTERS_INVALID,
+    PROFILE_COLOR_INVALID,
+    PROFILE_COLOR_UNSUPPORTED,
+    PROFILE_EXTENDS_INVALID,
+    PROFILE_EXTENDS_MISSING,
+    PROFILE_FORMAT_UNSUPPORTED,
+    PROFILE_LAYER_NAME_INVALID,
+    PROFILE_LINE_TYPE_INVALID,
+    PROFILE_LINE_TYPE_UNSUPPORTED,
+    PROFILE_LINE_WIDTH_INVALID,
+    PROFILE_LINE_WIDTH_UNSUPPORTED,
+    PROFILE_ORIENTATION_INVALID,
+    PROFILE_ORIENTATION_UNSUPPORTED,
+    PROFILE_RULE_UNSUPPORTED,
+    PROFILE_SCALE_INVALID,
+    PROFILE_SCALE_UNSUPPORTED,
+    PROFILE_SHEET_SIZE_INVALID,
+    PROFILE_SHEET_SIZE_UNSUPPORTED,
+    PROFILE_TEXT_HEIGHT_INVALID,
+    PROFILE_TEXT_HEIGHT_UNSUPPORTED,
     SCENE_CALLOUT_DROPPED,
     SCENE_CURVE_APPROXIMATED,
     SCENE_DIMENSION_DROPPED,

@@ -1,0 +1,20 @@
+[package]
+name = "zumen-profile"
+description = "zumen のプロファイルの照合。配置をたどって解いた図面モデルの値を、プロファイルの規則と語彙と比べる（決定 0138・0173）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# 縮尺の分母を仮数と 10 の累乗に分ける対数（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { path = "../zumen-base" }
+zumen-drawing = { path = "../zumen-drawing" }
+zumen-json = { path = "../zumen-json" }
+# 色の表（決定 0172）。scene の op と同じ形の表で、符号から RGB を引く
+zumen-scene = { path = "../zumen-scene" }
+
+[lints]
+workspace = true

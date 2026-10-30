@@ -1,0 +1,144 @@
+{
+  "description": "check は、起点から配置をたどって解いた値を、extends を解いたプロファイルの規則と語彙で照合し、指摘を診断と同じ形で返す（決定 0173・0179）。照合できない値は info の指摘にする。指摘と数が、ネイティブと wasm で同じになることを確かめる",
+  "steps": [
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nA1\n8\nC-STR\n62\n1\n6\nCONTINUOUS\n370\n35\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n0\nLINE\n5\nA2\n8\nBAD\n62\n3\n6\nDASHED\n370\n30\n10\n0.0\n20\n1.0\n11\n10.0\n21\n1.0\n0\nTEXT\n5\nA3\n8\nC-STR\n62\n1\n10\n0.0\n20\n5.0\n40\n2.5\n1\nABC\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "push": {
+        "name": "base.json",
+        "text": "{\"format\":\"0.1\",\"id\":\"base\",\"edition\":\"2025-12\",\"revision\":1,\"vocabularies\":{\"who\":{\"values\":[{\"code\":\"C\"},{\"code\":\"D\"}]},\"what\":{\"values\":[{\"code\":\"STR\"}]},\"color\":{\"values\":[{\"name\":\"赤\",\"rgb\":\"#ff0000\",\"sxf\":2}]},\"line-type\":{\"values\":[{\"name\":\"実線\",\"sxf\":\"continuous\",\"acad\":\"CONTINUOUS\"}]},\"width\":{\"values\":[0.13,0.18,0.25,0.35,0.5]},\"height\":{\"values\":[2.5,3.5]},\"letters\":{\"values\":[\"41\"]}},\"rules\":[{\"id\":\"layer-name\",\"check\":\"layer-name\",\"level\":\"error\",\"parts\":[\"who\",\"what\"],\"user-part\":true,\"separator\":\"-\",\"max-width\":256},{\"id\":\"color\",\"check\":\"color\",\"level\":\"warning\",\"vocabulary\":\"color\"},{\"id\":\"line-type\",\"check\":\"line-type\",\"level\":\"warning\",\"vocabulary\":\"line-type\"},{\"id\":\"line-width\",\"check\":\"line-width\",\"level\":\"warning\",\"vocabulary\":\"width\"},{\"id\":\"text-height\",\"check\":\"text-height\",\"level\":\"warning\",\"vocabulary\":\"height\"},{\"id\":\"characters\",\"check\":\"characters\",\"level\":\"warning\",\"vocabulary\":\"letters\"}]}"
+      }
+    },
+    {
+      "push": {
+        "name": "office.json",
+        "text": "{\"format\":\"0.1\",\"id\":\"office\",\"edition\":\"1\",\"revision\":2,\"extends\":{\"id\":\"base\",\"edition\":\"2025-12\"},\"rules\":[{\"id\":\"color\",\"check\":\"color\",\"level\":\"error\",\"vocabulary\":\"color\"}]}"
+      }
+    },
+    {
+      "push": {
+        "name": "palette.json",
+        "text": "{\"values\":[{\"name\":\"赤\",\"rgb\":\"#ff0000\",\"aci\":1}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "check",
+        "doc": "a.dxf",
+        "profiles": [
+          "base.json",
+          "office.json"
+        ],
+        "profile": {
+          "id": "office",
+          "edition": "1"
+        },
+        "palette": "palette.json"
+      },
+      "expect": {
+        "/result/chain": [
+          {
+            "id": "base",
+            "edition": "2025-12",
+            "revision": 1
+          },
+          {
+            "id": "office",
+            "edition": "1",
+            "revision": 2
+          }
+        ],
+        "/result/rules/0": {
+          "id": "layer-name",
+          "check": "layer-name",
+          "findings": 1,
+          "unsupported": 0
+        },
+        "/result/rules/1": {
+          "id": "color",
+          "check": "color",
+          "findings": 0,
+          "unsupported": 1
+        },
+        "/result/findings/0/diagnostic/code": "profile.layer-name.invalid",
+        "/result/findings/0/diagnostic/severity": "error",
+        "/result/findings/0/diagnostic/params/layer": "BAD",
+        "/result/findings/1/diagnostic/code": "profile.color.unsupported",
+        "/result/findings/1/diagnostic/severity": "info",
+        "/result/findings/3/diagnostic/params/width": 0.3,
+        "/result/findings/4/diagnostic/code": "profile.text-height.unsupported",
+        "/result/findings/5/diagnostic/params/character": "U+0041",
+        "/result/total": 6,
+        "/diagnostics": []
+      },
+      "absent": [
+        "/result/next_offset"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "check",
+        "doc": "a.dxf",
+        "profiles": [
+          "base.json",
+          "office.json"
+        ],
+        "profile": {
+          "id": "office",
+          "edition": "1"
+        },
+        "palette": "palette.json",
+        "offset": 2,
+        "limit": 2
+      },
+      "expect": {
+        "/result/findings/0/rule": "line-type",
+        "/result/findings/0/diagnostic/params/line_type": "DASHED",
+        "/result/findings/1/rule": "line-width",
+        "/result/total": 6,
+        "/result/next_offset": 4
+      },
+      "absent": [
+        "/result/findings/2"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "check",
+        "doc": "a.dxf",
+        "profiles": [
+          "office.json"
+        ],
+        "profile": {
+          "id": "office",
+          "edition": "1"
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "profile.extends.missing",
+        "/diagnostics/0/params/id": "base"
+      },
+      "absent": [
+        "/result"
+      ]
+    }
+  ]
+}

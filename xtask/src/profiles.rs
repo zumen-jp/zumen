@@ -9,27 +9,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-/// 読める書式の大版。小版が新しくても読み、知らない欄は配る側で読み飛ばす
-const FORMAT_MAJOR: &str = "0";
-
-/// 照合の種類と、規則に書ける欄
-const CHECKS: &[(&str, &[&str])] = &[
-    (
-        "layer-name",
-        &["parts", "user-part", "separator", "max-width"],
-    ),
-    ("color", &[]),
-    ("line-type", &[]),
-    ("line-width", &["tolerance"]),
-    ("text-height", &["tolerance"]),
-    ("characters", &[]),
-    ("sheet-size", &["tolerance"]),
-    ("orientation", &["orientation"]),
-    ("scale", &[]),
-];
-
-/// 語彙を使わない照合
-const WITHOUT_VOCABULARY: &[&str] = &["layer-name", "orientation"];
+// 読める書式の大版と、照合の種類と欄の一覧は、照合の crate から引く（決定 0173）
+use zumen_profile::{CHECKS, FORMAT_MAJOR, WITHOUT_VOCABULARY};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
