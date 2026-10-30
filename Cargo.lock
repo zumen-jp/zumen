@@ -311,6 +311,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-cli"
+version = "0.0.0"
+dependencies = [
+ "zumen-abi",
+ "zumen-base",
+ "zumen-conformance",
+ "zumen-json",
+]
+
+[[package]]
 name = "zumen-conformance"
 version = "0.0.0"
 dependencies = [

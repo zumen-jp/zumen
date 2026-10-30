@@ -1,0 +1,24 @@
+[package]
+name = "zumen-cli"
+description = "zumen の CLI と、標準入出力の JSON-RPC と MCP のサーバー（決定 0013・0197）。名前は仮で、公開しない"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# 実行ファイルの名前は zumen（決定 0013・0014）
+[[bin]]
+name = "zumen"
+path = "src/main.rs"
+
+[dependencies]
+zumen-abi = { path = "../../crates/zumen-abi" }
+zumen-base = { path = "../../crates/zumen-base" }
+zumen-json = { path = "../../crates/zumen-json" }
+
+[dev-dependencies]
+zumen-conformance = { path = "../conformance" }
+
+[lints]
+workspace = true

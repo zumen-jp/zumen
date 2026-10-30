@@ -230,3 +230,4 @@
 - [0194: TypeScript・JavaScript の包みは素の ESM と生成した .d.ts で書き、名前を仮にして公開しない](0194-typescript-javascript-wrapper.md)（2026-10-31、採用）
 - [0195: Python の包みは標準の ctypes と生成した TypedDict で書き、名前を仮にして公開しない](0195-python-wrapper.md)（2026-10-31、採用）
 - [0196: .NET の包みは関数ポインターの委譲で C ABI を呼び、生成した record と netstandard2.0・net8.0 の 2 つのアセンブリで書き、名前を仮にして公開しない](0196-dotnet-wrapper.md)（2026-10-31、採用）
+- [0197: CLI と MCP のサーバーは依存を足さずに書き、MCP は 2026-07-28 と前の版の両方に応える](0197-cli-and-mcp-server.md)（2026-10-31、提案）

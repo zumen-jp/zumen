@@ -1,12 +1,13 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
 //! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー、TypeScript・JavaScript・Python・.NET
-//!   の型と定数、カタログとプロファイルの JSON を生成する
+//!   の型と定数、CLI の MCP の道具の一覧、カタログとプロファイルの JSON を生成する
 //! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、包みの版を確かめ、
 //!   生成したファイルが最新かを確かめる
 
 mod boundary;
 mod catalog;
+mod cli;
 mod dotnet;
 mod formats;
 mod javascript;
@@ -42,6 +43,7 @@ const PY_PROJECT: &str = "bindings/python/pyproject.toml";
 const CS_MESSAGES: &str = "bindings/dotnet/Zumen.Provisional/Messages.g.cs";
 const CS_CONSTANTS: &str = "bindings/dotnet/Zumen.Provisional/Constants.g.cs";
 const CS_PROJECT: &str = "bindings/dotnet/Zumen.Provisional/Zumen.Provisional.csproj";
+const CLI_TOOLS: &str = "bindings/cli/src/tools.json";
 const CATALOG_JA: &str = "catalog/ja.json";
 const CATALOG_EN: &str = "catalog/en.json";
 const FORMATS_MD: &str = "docs/formats/README.md";
@@ -157,6 +159,10 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             CS_CONSTANTS,
             dotnet::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
+        ),
+        (
+            CLI_TOOLS,
+            cli::render(read("schema/messages.json")?.as_bytes())?,
         ),
         (CATALOG_JA, catalog::render_json("ja", PACKAGE_VERSION, &ja)),
         (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
