@@ -5,6 +5,8 @@
 //! 同じ欄を書く。名前を変えたら、DXF では、図形の画層の名前（8）と、XDATA の画層の名前（1003）と、
 //! 今の画層（`$CLAYER`）も書き直す。DWG の図形は画層をハンドルで指すので、足した図形のほかは書き直さない
 
+use std::collections::BTreeSet;
+
 use super::add::{Born, Target, int, line_weight};
 use super::{count_transform_values, work};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
@@ -312,13 +314,13 @@ pub(super) fn rename(
     Ok(())
 }
 
-/// 除く画層のレコード `record`（表の `position`）を、ほかが指しているか。要素の画層（DXF は名前の 8、DWG はハンドル）、
+/// 除く画層のレコード `record`（表の位置と、一緒に除く拡張辞書などの位置を `skip` に持つ）を、ほかが指しているか。要素の画層（DXF は名前の 8、DWG はハンドル）、
 /// XDATA の画層の名前（1003）、ほかのオブジェクトのハンドル（ビューポートの凍結・画層の状態・画層の索引など）、
 /// 見出しの変数（今の画層）を見る。DWG の表のオブジェクト（TABLE）の項目の並びは、共有の表に置かれず、
 /// 書き戻しが直す。それ以外の TABLE の値は検査する
 pub(super) fn referenced(
     db: &AcadDb,
-    position: usize,
+    skip: &BTreeSet<usize>,
     record: &Object,
     cx: &mut Cx,
     place: &Ref,
@@ -335,7 +337,7 @@ pub(super) fn referenced(
     for (at, object) in db.objects().iter().enumerate() {
         work(cx, 1, place)?;
         count_transform_values(object, place, cx)?;
-        if at != position && object.values.iter().any(points) {
+        if !skip.contains(&at) && object.values.iter().any(points) {
             return Ok(true);
         }
     }
@@ -355,15 +357,11 @@ pub(super) fn referenced(
 }
 
 /// 除ける画層のレコードか。0・Defpoints・外部参照に依る画層と、ハンドルを持たない（ID が並びの順で決まり、
-/// 除くと後の画層の ID が変わる）レコードと、拡張辞書か反応子を持つレコードは除かない
+/// 除くと後の画層の ID が変わる）レコードは除かない。拡張辞書は一緒に除く（決定 0170）
 pub(super) fn removable(record: &Object) -> bool {
     name_of(record).is_some_and(|name| !fixed_name(name))
         && !external(record)
         && record.handle().is_some_and(|handle| handle != 0)
-        && !record
-            .values
-            .iter()
-            .any(|value| matches!(value.code, 102 | 360))
 }
 
 /// DXF の表 `table`（LAYER・STYLE）の終わり（ENDTAB）の位置。足すレコードは、その前に置く

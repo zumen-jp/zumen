@@ -4433,7 +4433,9 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
 )]
 fn drawings_take_back_removed_layers() {
     use std::collections::BTreeSet;
-    use zumen_drawing::{Applied, Changes, Drawing2D, Edit, Hash, LayerId, Seen, id};
+    use zumen_drawing::{
+        Applied, Changes, Drawing2D, Edit, Element, Hash, LayerId, ModelPoint, Seen, id,
+    };
     use zumen_sdk::{Apply, Codec, Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Option<Drawing2D> {
         let mut diag = Diagnostics::new();
@@ -4471,8 +4473,96 @@ fn drawings_take_back_removed_layers() {
             })
             .collect()
     }
-    /// 除けた画層があれば `true`
-    fn check<C: Codec>(path: &Path, src: &[u8]) -> bool
+    /// 画層のレコードと、その拡張辞書のハンドル（決定 0170）
+    fn dictionaries(db: &AcadDb) -> BTreeMap<String, (u64, u64)> {
+        db.objects()
+            .iter()
+            .filter(|object| object.kind == b"LAYER")
+            .filter_map(|object| {
+                let at = object.values.iter().position(|value| {
+                    value.code == 102 && value.data == Data::Text(b"{ACAD_XDICTIONARY".to_vec())
+                })?;
+                let Some(Data::Handle(xdictionary)) = object.values.get(at + 1).map(|v| &v.data)
+                else {
+                    return None;
+                };
+                let Some(Data::Text(name)) = object.first(2) else {
+                    return None;
+                };
+                Some((
+                    String::from_utf8_lossy(name).into_owned(),
+                    (object.handle()?, *xdictionary),
+                ))
+            })
+            .collect()
+    }
+    /// バイト列の表。読めなければ `None`
+    fn reread(dwg: bool, src: &[u8]) -> Option<AcadDb> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        if dwg {
+            Dwg::read(src, &mut cx).ok()?.objects(&mut cx).ok()
+        } else {
+            Dxf::read(src, &mut cx).ok()?.objects(&mut cx).ok()
+        }
+    }
+    /// 画層 `name` の要素を除いて書き戻したバイト列。除けない要素があれば `None`
+    fn cleared<C: Codec>(src: &[u8], drawing: &Drawing2D, name: &str) -> Option<Vec<u8>>
+    where
+        C::File: Apply<Changes, Output = Vec<Applied>>,
+    {
+        let mut edits = Vec::new();
+        let mut note = |place: &str, elements: &[Element<ModelPoint>]| {
+            let mut namer = id::Namer::new(place);
+            for (index, element) in elements.iter().enumerate() {
+                let id = namer.next(index, element);
+                if drawing.layer(element.layer).is_some_and(|l| l.name == name) {
+                    let hash = Hash::element(element);
+                    edits.push(Edit::Remove {
+                        target: Seen { id, hash },
+                    });
+                }
+            }
+        };
+        for space in &drawing.spaces {
+            note(&id::space(space.id), &space.elements);
+        }
+        let mut definitions = id::DefinitionNamer::default();
+        for symbol in &drawing.symbols {
+            note(&definitions.next(symbol), &symbol.space.elements);
+        }
+        let mut sheets = id::SheetNamer::default();
+        for sheet in &drawing.sheets {
+            let place = sheets.next(sheet);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in sheet.elements.iter().enumerate() {
+                let id = namer.next(index, element);
+                if drawing.layer(element.layer).is_some_and(|l| l.name == name) {
+                    let hash = Hash::element(element);
+                    edits.push(Edit::Remove {
+                        target: Seen { id, hash },
+                    });
+                }
+            }
+        }
+        let mut file = testkit::read::<C>(src).0.ok()?;
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let changes = Changes {
+            edits,
+            document: None,
+        };
+        file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .ok()?;
+        testkit::write::<C>(&file).ok()
+    }
+    /// 除けた画層があれば `true`。`only` があれば、拡張辞書を持つ画層だけを除く。要素が使う画層は、先に
+    /// その要素を除いて書き戻してから除く。書き戻した図面に、除いた画層と拡張辞書と、それらを所有者とする
+    /// オブジェクトがないことも確かめる
+    fn check<C: Codec>(path: &Path, src: &[u8], only: Option<&BTreeMap<String, (u64, u64)>>) -> bool
     where
         C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
     {
@@ -4487,10 +4577,27 @@ fn drawings_take_back_removed_layers() {
                 layer.source.key().is_some()
                     && layer.name != "0"
                     && !layer.name.eq_ignore_ascii_case("Defpoints")
-                    && !used.contains(&layer.name)
+                    && match only {
+                        Some(only) => only.contains_key(&layer.name),
+                        None => !used.contains(&layer.name),
+                    }
             })
-            .take(32);
+            // 要素を除いて書き戻すのは重いので、拡張辞書を持つ画層は少しだけ試す
+            .take(if only.is_some() { 4 } else { 32 });
         for was in candidates {
+            let (src, drawing) = if used.contains(&was.name) {
+                let Some(src) = cleared::<C>(src, &drawing, &was.name) else {
+                    continue;
+                };
+                let drawing = lift(&testkit::read::<C>(&src).0.unwrap()).unwrap();
+                (src, drawing)
+            } else {
+                (src.to_vec(), drawing.clone())
+            };
+            let Some(was) = drawing.layers.iter().find(|layer| layer.name == was.name) else {
+                continue;
+            };
+            let src = src.as_slice();
             let mut file = testkit::read::<C>(src).0.unwrap();
             let mut diag = Diagnostics::new();
             let mut budget = Budget::default();
@@ -4539,6 +4646,25 @@ fn drawings_take_back_removed_layers() {
                 path.display()
             );
             assert_eq!(placed(&after), placed(&drawing), "{}", path.display());
+            if let Some(&(layer, xdictionary)) = only.and_then(|only| only.get(&was.name)) {
+                let db = reread(path.extension().is_some_and(|e| e == "dwg"), &written).unwrap();
+                for object in db.objects() {
+                    let handle = object.handle();
+                    assert!(
+                        handle != Some(layer) && handle != Some(xdictionary),
+                        "{}: {}",
+                        path.display(),
+                        was.name
+                    );
+                    let owner = object.owner();
+                    assert!(
+                        owner != Some(layer) && owner != Some(xdictionary),
+                        "{}: {}",
+                        path.display(),
+                        was.name
+                    );
+                }
+            }
             return true;
         }
         false
@@ -4553,23 +4679,32 @@ fn drawings_take_back_removed_layers() {
         .collect();
     paths.sort();
     let (mut dxf, mut dwg, mut modern) = (0, 0, 0);
+    // 拡張辞書を持つ画層を除けた図面の数（決定 0170）
+    let (mut with_dxf, mut with_dwg) = (0, 0);
     for path in paths {
         let src = std::fs::read(&path).unwrap();
+        let dwg_file = path.extension().is_some_and(|e| e == "dwg");
+        let held = reread(dwg_file, &src)
+            .map(|db| dictionaries(&db))
+            .unwrap_or_default();
         if path.extension().is_some_and(|e| e == "dxf") {
-            dxf += usize::from(check::<Dxf>(&path, &src));
+            dxf += usize::from(check::<Dxf>(&path, &src, None));
+            with_dxf += usize::from(check::<Dxf>(&path, &src, Some(&held)));
         } else {
             let late = src
                 .get(..6)
                 .is_some_and(|version| version >= b"AC1024".as_slice());
-            let removed = usize::from(check::<Dwg>(&path, &src));
+            let removed = usize::from(check::<Dwg>(&path, &src, None));
             match late {
                 true => modern += removed,
                 false => dwg += removed,
             }
+            with_dwg += usize::from(check::<Dwg>(&path, &src, Some(&held)));
         }
     }
     if !pairs().is_empty() {
         assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
+        assert!(with_dxf > 0 && with_dwg > 0, "{with_dxf} {with_dwg}");
     }
 }
 

@@ -9,6 +9,7 @@ mod add;
 mod dimension_style;
 mod layer;
 mod line_type;
+mod owned;
 mod text_style;
 use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
@@ -676,10 +677,9 @@ fn edit(
                     db.objects().get(position).map(|object| (position, object))
                 }) {
                     count_transform_values(object, &was.source, cx)?;
-                    if layer::removable(object)
-                        && !layer::referenced(db, position, object, cx, &was.source)?
-                    {
-                        Some(position)
+                    if layer::removable(object) {
+                        removal(db, position, object, layer::referenced, cx, &was.source)?
+                            .map(|skip| (position, skip))
                     } else {
                         None
                     }
@@ -687,11 +687,11 @@ fn edit(
                     None
                 };
                 match planned {
-                    Some(position) => {
+                    Some((position, skip)) => {
                         if let Some(name) = db.objects().get(position).and_then(layer::name_of) {
                             layer_names.remove(&name.to_ascii_lowercase());
                         }
-                        removed.push(position);
+                        removed.extend(skip);
                     }
                     None => {
                         cx.report(
@@ -857,19 +857,28 @@ fn edit(
                 let planned = match found {
                     Some((position, object)) => {
                         count_transform_values(object, &was.source, cx)?;
-                        (line_type::removable(object)
-                            && !line_type::referenced(db, position, object, cx, &was.source)?)
-                        .then_some((position, object))
+                        match line_type::removable(object) {
+                            true => removal(
+                                db,
+                                position,
+                                object,
+                                line_type::referenced,
+                                cx,
+                                &was.source,
+                            )?
+                            .map(|skip| (skip, object)),
+                            false => None,
+                        }
                     }
                     None => None,
                 };
                 match planned {
-                    Some((position, object)) => {
+                    Some((skip, object)) => {
                         if let Some(Data::Text(name)) = object.first(2) {
                             line_type_names.remove(&name.to_ascii_lowercase());
                             removed_line_types.push(name.clone());
                         }
-                        removed.push(position);
+                        removed.extend(skip);
                     }
                     None => {
                         cx.report(
@@ -1056,19 +1065,27 @@ fn edit(
                             }
                             _ => true,
                         };
-                        (dimension_style::removable(object)
-                            && !children
-                            && !dimension_style::referenced(db, position, object, cx, &was.source)?)
-                        .then_some((position, object))
+                        match dimension_style::removable(object) && !children {
+                            true => removal(
+                                db,
+                                position,
+                                object,
+                                dimension_style::referenced,
+                                cx,
+                                &was.source,
+                            )?
+                            .map(|skip| (skip, object)),
+                            false => None,
+                        }
                     }
                     None => None,
                 };
                 match planned {
-                    Some((position, object)) => {
+                    Some((skip, object)) => {
                         if let Some(Data::Text(name)) = object.first(2) {
                             dimension_style_names.remove(&name.to_ascii_lowercase());
                         }
-                        removed.push(position);
+                        removed.extend(skip);
                     }
                     None => {
                         cx.report(
@@ -1241,19 +1258,28 @@ fn edit(
                 let planned = match found {
                     Some((position, object)) => {
                         count_transform_values(object, &was.source, cx)?;
-                        (text_style::removable(object)
-                            && !text_style::referenced(db, position, object, cx, &was.source)?)
-                        .then_some((position, object))
+                        match text_style::removable(object) {
+                            true => removal(
+                                db,
+                                position,
+                                object,
+                                text_style::referenced,
+                                cx,
+                                &was.source,
+                            )?
+                            .map(|skip| (skip, object)),
+                            false => None,
+                        }
                     }
                     None => None,
                 };
                 match planned {
-                    Some((position, object)) => {
+                    Some((skip, object)) => {
                         if let Some(Data::Text(name)) = object.first(2) {
                             style_names.remove(&name.to_ascii_lowercase());
                             removed_styles.push(name.clone());
                         }
-                        removed.push(position);
+                        removed.extend(skip);
                     }
                     None => {
                         cx.report(
@@ -1555,6 +1581,26 @@ fn edit(
     }
     if rejected {
         return Err(Error::Rejected);
+    }
+    // remove は毎回、残る全オブジェクトを再索引し、値から参照を除く。
+    // 拡張辞書の子をまとめて除く場合も、変更する前に全回数分の作業を数える。
+    if !removed.is_empty() {
+        let mut values = 0u64;
+        for object in db.objects() {
+            work(cx, 1, &Ref::default())?;
+            values = values.saturating_add(object.values.len() as u64);
+        }
+        for (_, replacement) in &replaced {
+            values = values.saturating_add(replacement.len() as u64);
+        }
+        let per_remove = (db.objects().len() as u64)
+            .saturating_add(values)
+            .saturating_mul(2);
+        work(
+            cx,
+            per_remove.saturating_mul(removed.len() as u64),
+            &Ref::default(),
+        )?;
     }
     let insertion_work = born.insertion_work(&added, db.objects().len());
     if insertion_work > 0 {
@@ -2351,6 +2397,29 @@ fn moving_xdata(object: &Object) -> Option<i16> {
         .skip(start)
         .map(|v| v.code)
         .find(|code| matches!(code, 1011..=1013 | 1041 | 1042))
+}
+
+/// 除く表のレコードを、一緒に除く位置のほかが指すかを答える関数（`layer::referenced` など）
+type Referenced = fn(&AcadDb, &BTreeSet<usize>, &Object, &mut Cx, &Ref) -> Result<bool, Error>;
+
+/// 除く表のレコード `object`（表の `position`）と、一緒に除く拡張辞書とそれが持つオブジェクトの位置
+/// （決定 0170）。一緒に除くものを辿れないとき、レコードか一緒に除くものをほかが指すとき（`referenced`）は `None`
+fn removal(
+    db: &AcadDb,
+    position: usize,
+    object: &Object,
+    referenced: Referenced,
+    cx: &mut Cx,
+    place: &Ref,
+) -> Result<Option<BTreeSet<usize>>, Error> {
+    let Some(owned) = owned::owned(db, object, cx, place)? else {
+        return Ok(None);
+    };
+    let handles = owned.values().copied().collect();
+    let skip: BTreeSet<usize> = owned.into_keys().chain([position]).collect();
+    let free = !referenced(db, &skip, object, cx, place)?
+        && !owned::pointed(db, &skip, &handles, cx, place)?;
+    Ok(free.then_some(skip))
 }
 
 /// 続くレコード（POLYLINE の VERTEX、属性を持つ INSERT の ATTRIB、SEQEND）を持つ図形か

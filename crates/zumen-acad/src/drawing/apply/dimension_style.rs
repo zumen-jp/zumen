@@ -7,6 +7,8 @@
 //! 見出しの変数の寸法スタイルの名前（2。`$DIMSTYLE`）も書き直す。DWG の図形は寸法スタイルをハンドルで指すので、
 //! 図形は書き直さない
 
+use std::collections::BTreeSet;
+
 use super::add::{Born, Target, int};
 use super::layer::{external, set_in, usable_name};
 use super::{count_transform_values, real, work};
@@ -275,12 +277,12 @@ pub(super) fn rename(
     Ok(())
 }
 
-/// 除く寸法スタイルのレコード `record`（表の `position`）を、ほかが指しているか。すべてのオブジェクトの
+/// 除く寸法スタイルのレコード `record`（表の位置と、一緒に除く拡張辞書などの位置を `skip` に持つ）を、ほかが指しているか。すべてのオブジェクトの
 /// ハンドル（DWG の寸法・引出線、多重引出線のスタイル、DXF の表のオブジェクトの 340 など）と、寸法スタイルの
 /// レコードでないオブジェクトの名前（3）と、今の寸法スタイル（`$DIMSTYLE`）を見る
 pub(super) fn referenced(
     db: &AcadDb,
-    position: usize,
+    skip: &BTreeSet<usize>,
     record: &Object,
     cx: &mut Cx,
     place: &Ref,
@@ -291,7 +293,7 @@ pub(super) fn referenced(
     let handle = record.handle();
     for (at, object) in db.objects().iter().enumerate() {
         work(cx, 1, place)?;
-        if at == position {
+        if skip.contains(&at) {
             continue;
         }
         count_transform_values(object, place, cx)?;
@@ -323,13 +325,9 @@ pub(super) fn referenced(
 }
 
 /// 除ける寸法スタイルのレコードか。Standard・子の寸法スタイル・外部参照に依るものと、ハンドルを持たない
-/// レコードと、拡張辞書か反応子を持つレコードは除かない
+/// レコードは除かない。拡張辞書は一緒に除く（決定 0170）
 pub(super) fn removable(record: &Object) -> bool {
     matches!(record.first(2), Some(Data::Text(name)) if !fixed_name(name))
         && !external(record)
         && record.handle().is_some_and(|handle| handle != 0)
-        && !record
-            .values
-            .iter()
-            .any(|value| matches!(value.code, 102 | 360))
 }
