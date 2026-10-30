@@ -669,10 +669,12 @@ impl<'f> Lifter<'f> {
         let mut fields = vec![
             Field {
                 key: "size",
+                code: None,
                 value: FieldValue::Integer(kind),
             },
             Field {
                 key: "orientation",
+                code: None,
                 value: FieldValue::Integer(orientation),
             },
         ];
@@ -680,10 +682,12 @@ impl<'f> Lifter<'f> {
             fields.extend([
                 Field {
                     key: "width",
+                    code: None,
                     value: FieldValue::Real(size[0]),
                 },
                 Field {
                     key: "height",
+                    code: None,
                     value: FieldValue::Real(size[1]),
                 },
             ]);
@@ -1297,10 +1301,12 @@ impl<'f> Lifter<'f> {
             fields: vec![
                 Field {
                     key: "width",
+                    code: None,
                     value: FieldValue::Real(width),
                 },
                 Field {
                     key: "spacing",
+                    code: None,
                     value: FieldValue::Real(spacing),
                 },
             ],
@@ -1338,7 +1344,13 @@ impl<'f> Lifter<'f> {
             ))),
         };
         let mut fields = Vec::new();
-        let mut field = |key: &'static str, value: FieldValue| fields.push(Field { key, value });
+        let mut field = |key: &'static str, value: FieldValue| {
+            fields.push(Field {
+                key,
+                code: None,
+                value,
+            })
+        };
         let xy = |[x, y]: [f64; 2]| FieldValue::Point([x, y, 0.0]);
         let extensions = |fields: &mut dyn FnMut(&'static str, FieldValue), x: [usize; 2]| {
             let keys = [
@@ -1631,14 +1643,17 @@ impl<'f> Lifter<'f> {
                 first = first.or(Some(code(color)?));
                 fields.push(Field {
                     key: "color",
+                    code: None,
                     value: FieldValue::Integer(code(color)?),
                 });
                 fields.push(Field {
                     key: "line_type",
+                    code: None,
                     value: FieldValue::Integer(code(line_type)?),
                 });
                 fields.push(Field {
                     key: "line_width",
+                    code: None,
                     value: FieldValue::Integer(code(width)?),
                 });
                 let radians = angle.to_radians();
@@ -1672,6 +1687,7 @@ impl<'f> Lifter<'f> {
             for (key, at) in keys.into_iter().zip(3..) {
                 fields.push(Field {
                     key,
+                    code: None,
                     value: FieldValue::Real(args.num(at)?),
                 });
             }
@@ -1806,10 +1822,12 @@ impl<'f> Lifter<'f> {
             let radius = args.num(9).filter(|r| *r > 0.0)?;
             fields.push(Field {
                 key: "center",
+                code: None,
                 value: FieldValue::Point([args.num(7)?, args.num(8)?, 0.0]),
             });
             fields.push(Field {
                 key: "radius",
+                code: None,
                 value: FieldValue::Real(radius),
             });
         }
@@ -1824,10 +1842,12 @@ impl<'f> Lifter<'f> {
                     self.annotation(feature, arrow + 2, at, &source, cx)?;
                 fields.push(Field {
                     key: "text_width",
+                    code: None,
                     value: FieldValue::Real(width),
                 });
                 fields.push(Field {
                     key: "text_spacing",
+                    code: None,
                     value: FieldValue::Real(spacing),
                 });
                 CalloutContent::Text(Box::new(text))
@@ -2122,10 +2142,12 @@ fn attributes<C: Place>(name: &str, from: usize, at: &C, out: &mut Out, source: 
     }
     let mut fields = vec![Field {
         key: "name",
+        code: None,
         value: FieldValue::Text(name.to_owned()),
     }];
     fields.extend(name.split("$$").skip(1).map(|part| Field {
         key: "part",
+        code: None,
         value: FieldValue::Text(part.to_owned()),
     }));
     for index in from..at.count(out) {

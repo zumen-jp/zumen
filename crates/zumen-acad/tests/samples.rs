@@ -458,10 +458,13 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
             _ => {}
         }
     }
+    // 版の往復の XRECORD は、DWG の画層と DXF の線種の片側だけにあることがあり（決定 0152）、移さずに
+    // 診断する（決定 0157）。DWG と DXF で同じ名前になることは xrecord_samples.rs が確かめる
     let codes = diag
         .iter()
         .map(|d| d.code())
         .filter(|c| c.name().starts_with("dxf."))
+        .filter(|c| *c != codes::DXF_EXTENSION_DICTIONARY_UNSUPPORTED)
         .collect();
     (drawing, codes)
 }
@@ -1412,7 +1415,6 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
                     .iter()
                     .any(|their| their.name == ext.name && their.target == ext.target)
         });
-        support::without_unpaired_record_roundtrips(&mut ours, &mut theirs);
         for (ours, theirs) in ours.spaces.iter().zip(&mut theirs.spaces) {
             without_hooks(&ours.elements, &mut theirs.elements);
         }

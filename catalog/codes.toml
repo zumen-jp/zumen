@@ -587,6 +587,15 @@ group-by = ["type"]
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.extension-dictionary.unsupported"]
+description = "図形・画層・線種の拡張辞書の項目のうち、図面モデルの欄にする値で欄がまだないものと、AutoCAD の版の往復の XRECORD を、図面モデルに移さなかった。元の形式の値は残る（決定 0157）"
+severity = "info"
+fidelity = "dropped"
+params = { key = "text" }
+group-by = ["key"]
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.extension-dictionary.dropped"]
 description = "図形の拡張辞書の、XRECORD でない項目を、図面モデルに移さなかった"
 severity = "info"

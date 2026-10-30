@@ -4569,8 +4569,12 @@ fn e9_underlays_that_cannot_be_read_are_reported() {
 }
 
 /// XDATA の値
-fn field(key: &'static str, value: FieldValue) -> Field {
-    Field { key, value }
+fn field(key: &'static str, code: i16, value: FieldValue) -> Field {
+    Field {
+        key,
+        code: Some(code),
+        value,
+    }
 }
 
 #[test]
@@ -4638,7 +4642,7 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
         namespace: "dxf.xdata",
         name: name.to_owned(),
         version: Some("AC1027".to_owned()),
-        schema: 1,
+        schema: 2,
         target,
         basis,
         fields,
@@ -4656,17 +4660,17 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
                 room,
                 Basis::Model(text.clone()),
                 vec![
-                    field("string", FieldValue::Text("部屋".to_owned())),
-                    field("control", FieldValue::Text("{".to_owned())),
-                    field("integer", FieldValue::Integer(3)),
-                    field("layer", FieldValue::Text("A-AREA".to_owned())),
-                    field("control", FieldValue::Text("}".to_owned())),
-                    field("position", FieldValue::Point([10.0, 20.0, 0.0])),
-                    field("real", FieldValue::Real(0.5)),
-                    field("distance", FieldValue::Real(2.5)),
-                    field("scale", FieldValue::Real(1.5)),
-                    field("handle", FieldValue::Handle(0x1F)),
-                    field("binary", FieldValue::Bytes(vec![0x0A, 0xFF])),
+                    field("string", 1000, FieldValue::Text("部屋".to_owned())),
+                    field("control", 1002, FieldValue::Text("{".to_owned())),
+                    field("integer", 1070, FieldValue::Integer(3)),
+                    field("layer", 1003, FieldValue::Text("A-AREA".to_owned())),
+                    field("control", 1002, FieldValue::Text("}".to_owned())),
+                    field("position", 1011, FieldValue::Point([10.0, 20.0, 0.0])),
+                    field("real", 1040, FieldValue::Real(0.5)),
+                    field("distance", 1041, FieldValue::Real(2.5)),
+                    field("scale", 1042, FieldValue::Real(1.5)),
+                    field("handle", 1005, FieldValue::Handle(0x1F)),
+                    field("binary", 1004, FieldValue::Bytes(vec![0x0A, 0xFF])),
                 ],
                 text.source.clone(),
             ),
@@ -4684,7 +4688,7 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
                     index: 0
                 },
                 Basis::Model(door.elements[0].clone()),
-                vec![field("long", FieldValue::Integer(7))],
+                vec![field("long", 1071, FieldValue::Integer(7))],
                 door.elements[0].source.clone(),
             ),
         ]
@@ -5058,6 +5062,8 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
         (360, "B1"),
         (3, "ACAD_DIMASSOC"),
         (360, "B2"),
+        (3, "ACAD_XREC_ROUNDTRIP"),
+        (360, "B3"),
         (3, "GONE"),
         (360, "BF"),
         (0, "XRECORD"),
@@ -5073,6 +5079,8 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
         (10, "1.0"),
         (20, "2.0"),
         (30, "0.0"),
+        (11, "3.0"),
+        (21, "4.0"),
         (40, "0.5"),
         (280, "1"),
         (330, "A1"),
@@ -5081,6 +5089,12 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
         (5, "B2"),
         (330, "B0"),
         (100, "AcDbDimAssoc"),
+        (0, "XRECORD"),
+        (5, "B3"),
+        (330, "B0"),
+        (100, "AcDbXrecord"),
+        (280, "1"),
+        (102, "ACAD_ROUNDTRIP_2008_TABLE_ENTITY"),
     ];
     let src = sections(&[
         ("HEADER", &header),
@@ -5091,45 +5105,44 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
     let line = drawing.as_ref().unwrap().spaces[0].elements[0].clone();
     assert_eq!(
         found(&diag),
-        [(
-            codes::DXF_EXTENSION_DICTIONARY_DROPPED,
-            "Text(\"ACAD_DIMASSOC\") Text(\"DIMASSOC\")".to_owned(),
-            1,
-            vec![line.source.clone()],
-        )]
+        [
+            (
+                codes::DXF_EXTENSION_DICTIONARY_UNSUPPORTED,
+                "Text(\"ACAD_DIMASSOC\")".to_owned(),
+                1,
+                vec![line.source.clone()],
+            ),
+            (
+                codes::DXF_EXTENSION_DICTIONARY_UNSUPPORTED,
+                "Text(\"ACAD_XREC_ROUNDTRIP\")".to_owned(),
+                1,
+                vec![line.source.clone()],
+            ),
+        ]
     );
-    let code = |code: i64| field("code", FieldValue::Integer(code));
     assert_eq!(
         drawing.unwrap().extensions,
         [Extension {
             namespace: "dxf.xrecord",
             name: "ROOM".to_owned(),
             version: Some("AC1027".to_owned()),
-            schema: 1,
+            schema: 2,
             target: Target::Model {
                 space: MODEL,
                 index: 0,
             },
             basis: Basis::Model(line.clone()),
             fields: vec![
-                code(1),
-                field("text", FieldValue::Text("居間".to_owned())),
-                code(70),
-                field("integer", FieldValue::Integer(3)),
-                code(10),
-                field("real", FieldValue::Real(1.0)),
-                code(20),
-                field("real", FieldValue::Real(2.0)),
-                code(30),
-                field("real", FieldValue::Real(0.0)),
-                code(40),
-                field("real", FieldValue::Real(0.5)),
-                code(280),
-                field("integer", FieldValue::Integer(1)),
-                code(330),
-                field("handle", FieldValue::Handle(0xA1)),
-                code(310),
-                field("binary", FieldValue::Bytes(vec![0x0A, 0xFF])),
+                field("text", 1, FieldValue::Text("居間".to_owned())),
+                field("integer", 70, FieldValue::Integer(3)),
+                field("point", 10, FieldValue::Point([1.0, 2.0, 0.0])),
+                // Z の続かない点は合わせない
+                field("real", 11, FieldValue::Real(3.0)),
+                field("real", 21, FieldValue::Real(4.0)),
+                field("real", 40, FieldValue::Real(0.5)),
+                field("integer", 280, FieldValue::Integer(1)),
+                field("handle", 330, FieldValue::Handle(0xA1)),
+                field("binary", 310, FieldValue::Bytes(vec![0x0A, 0xFF])),
             ],
             source: line.source.clone(),
         }]
@@ -5203,7 +5216,6 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
     let (drawing, diag) = lift(&src, &mut Budget::default());
     assert_eq!(found(&diag), []);
     let mut drawing = drawing.unwrap();
-    let code = |code: i64| field("code", FieldValue::Integer(code));
     let line_type = drawing.line_types[0].clone();
     let layer = drawing.layers[0].clone();
     assert_eq!(
@@ -5213,23 +5225,20 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
                 namespace: "dxf.xrecord",
                 name: "NOTE".to_owned(),
                 version: Some("AC1018".to_owned()),
-                schema: 1,
+                schema: 2,
                 target: Target::LineType(line_type.id),
                 basis: Basis::LineType(line_type.clone()),
-                fields: vec![
-                    code(1),
-                    field("text", FieldValue::Text("dashed".to_owned()))
-                ],
+                fields: vec![field("text", 1, FieldValue::Text("dashed".to_owned()))],
                 source: line_type.source.clone(),
             },
             Extension {
                 namespace: "dxf.xrecord",
                 name: "SCALE".to_owned(),
                 version: Some("AC1018".to_owned()),
-                schema: 1,
+                schema: 2,
                 target: Target::Layer(layer.id),
                 basis: Basis::Layer(layer.clone()),
-                fields: vec![code(90), field("integer", FieldValue::Integer(2))],
+                fields: vec![field("integer", 90, FieldValue::Integer(2))],
                 source: layer.source.clone(),
             },
         ]
@@ -5706,7 +5715,7 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
         .iter()
         .map(|extension| {
             assert_eq!(extension.namespace, "dxf.entity");
-            assert_eq!(extension.schema, 1);
+            assert_eq!(extension.schema, 2);
             assert!(extension.is_current(&drawing));
             (extension.target, extension.fields.clone())
         })
@@ -5718,41 +5727,20 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
     assert_eq!(
         kept,
         [
-            (
-                at(0),
-                vec![Field {
-                    key: "thickness",
-                    value: FieldValue::Real(2.5),
-                }]
-            ),
+            (at(0), vec![field("thickness", 39, FieldValue::Real(2.5))]),
             (
                 at(1),
                 vec![
-                    Field {
-                        key: "thickness",
-                        value: FieldValue::Real(1.0),
-                    },
-                    Field {
-                        key: "line_type_generation",
-                        value: FieldValue::Integer(1),
-                    },
+                    field("thickness", 39, FieldValue::Real(1.0)),
+                    field("line_type_generation", 70, FieldValue::Integer(1)),
                 ]
             ),
             (
                 at(3),
                 vec![
-                    Field {
-                        key: "knot_tolerance",
-                        value: FieldValue::Real(1e-9),
-                    },
-                    Field {
-                        key: "control_tolerance",
-                        value: FieldValue::Real(1e-10),
-                    },
-                    Field {
-                        key: "fit_tolerance",
-                        value: FieldValue::Real(0.0),
-                    },
+                    field("knot_tolerance", 42, FieldValue::Real(1e-9)),
+                    field("control_tolerance", 43, FieldValue::Real(1e-10)),
+                    field("fit_tolerance", 44, FieldValue::Real(0.0)),
                 ]
             ),
         ]

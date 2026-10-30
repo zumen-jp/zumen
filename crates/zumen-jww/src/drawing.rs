@@ -519,6 +519,7 @@ impl Lifter<'_> {
         }
         let integer = |key, value: u32| Field {
             key,
+            code: None,
             value: FieldValue::Integer(i64::from(value)),
         };
         let extension = |namespace, name, fields| Extension {
@@ -544,6 +545,7 @@ impl Lifter<'_> {
                 vec![
                     Field {
                         key: "name",
+                        code: None,
                         value: FieldValue::Text(name),
                     },
                     integer("write_layer", group.write_layer),
@@ -637,10 +639,12 @@ impl Lifter<'_> {
             fields: vec![
                 Field {
                     key: "name",
+                    code: None,
                     value: FieldValue::Text(name),
                 },
                 Field {
                     key: "referenced",
+                    code: None,
                     value: FieldValue::Integer(i64::from(referenced)),
                 },
             ],
@@ -715,10 +719,12 @@ impl Lifter<'_> {
                 vec![
                     Field {
                         key: "curve",
+                        code: None,
                         value: FieldValue::Integer(i64::from(base.curve)),
                     },
                     Field {
                         key: "flag",
+                        code: None,
                         value: FieldValue::Integer(i64::from(base.flag)),
                     },
                 ],
@@ -785,10 +791,12 @@ impl Lifter<'_> {
         let mut fields = vec![
             Field {
                 key: "line_start",
+                code: None,
                 value: xy(start),
             },
             Field {
                 key: "line_end",
+                code: None,
                 value: xy(end),
             },
         ];
@@ -802,10 +810,12 @@ impl Lifter<'_> {
         let content = decode(unicode, content);
         fields.push(Field {
             key: "text_end",
+            code: None,
             value: xy(point(at, tx2, ty2)),
         });
         fields.push(Field {
             key: "text_spacing",
+            code: None,
             value: FieldValue::Real(spacing),
         });
         let (mut first, mut second) = (start, end);
@@ -813,6 +823,7 @@ impl Lifter<'_> {
             let mode = r.u16()?;
             fields.push(Field {
                 key: "sxf_mode",
+                code: None,
                 value: FieldValue::Integer(i64::from(mode)),
             });
             for (start_key, end_key) in [
@@ -823,10 +834,12 @@ impl Lifter<'_> {
                 let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
                 fields.push(Field {
                     key: start_key,
+                    code: None,
                     value: xy(point(at, x1, y1)),
                 });
                 fields.push(Field {
                     key: end_key,
+                    code: None,
                     value: xy(point(at, x2, y2)),
                 });
             }
@@ -838,7 +851,11 @@ impl Lifter<'_> {
                 if point_base.pen_style == POINT_SYMBOL {
                     r.skip(20)?;
                 }
-                fields.push(Field { key, value: xy(p) });
+                fields.push(Field {
+                    key,
+                    code: None,
+                    value: xy(p),
+                });
                 points.push(p);
             }
             // SXF の形を持つ寸法は、基準点を測る点とする（推定）
@@ -1137,6 +1154,7 @@ impl Lifter<'_> {
                 basis: Basis::Document,
                 fields: vec![Field {
                     key: "value",
+                    code: None,
                     value: FieldValue::Text(value.to_owned()),
                 }],
                 source: source.clone(),
@@ -1157,6 +1175,7 @@ impl Lifter<'_> {
                 basis: Basis::Document,
                 fields: vec![Field {
                     key: "position",
+                    code: None,
                     value: FieldValue::Point([x1, y1, 0.0]),
                 }],
                 source: source.clone(),
@@ -1169,10 +1188,12 @@ impl Lifter<'_> {
                 vec![
                     Field {
                         key: "kind",
+                        code: None,
                         value: FieldValue::Integer(i64::from(kind)),
                     },
                     Field {
                         key: "spacing",
+                        code: None,
                         value: FieldValue::Real(spacing),
                     },
                 ],
@@ -1231,6 +1252,7 @@ impl Lifter<'_> {
                 "jww.image",
                 vec![Field {
                     key: "extra",
+                    code: None,
                     value: FieldValue::Text(extra.to_owned()),
                 }],
             ));
