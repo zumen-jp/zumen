@@ -17,6 +17,7 @@ use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature};
 mod bits;
 mod edit;
 mod header;
+mod kinds;
 mod objects;
 mod r2004;
 mod write_back;

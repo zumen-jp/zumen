@@ -14,6 +14,17 @@ use std::ops::Range;
 
 use super::bits::Bits;
 use super::header::{self, Header};
+use super::kinds::{
+    APPID, APPID_CONTROL, ARC, ATTDEF, ATTRIB, BLOCK, BLOCK_RECORD, BLOCK_RECORD_CONTROL, CIRCLE,
+    DICTIONARY, DIMENSION_ALIGNED, DIMENSION_ANGULAR_2LINE, DIMENSION_ANGULAR_3PT,
+    DIMENSION_DIAMETER, DIMENSION_LINEAR, DIMENSION_ORDINATE, DIMENSION_RADIUS, DIMSTYLE,
+    DIMSTYLE_CONTROL, ELLIPSE, ENDBLK, FACE3D, GROUP, INSERT, LAYER, LAYER_CONTROL, LEADER, LINE,
+    LTYPE, LTYPE_CONTROL, LWPOLYLINE, MINSERT, MLINE, MLINESTYLE, MTEXT, POINT, POLYLINE_2D,
+    POLYLINE_3D, POLYLINE_MESH, POLYLINE_PFACE, RAY, SEQEND, SHAPE, SOLID, SPLINE, STYLE,
+    STYLE_CONTROL, TEXT, TOLERANCE, TRACE, UCS, UCS_CONTROL, VERTEX_2D, VERTEX_3D, VERTEX_MESH,
+    VERTEX_PFACE, VERTEX_PFACE_FACE, VIEW, VIEW_CONTROL, VIEWPORT, VP_ENT_HDR, VP_ENT_HDR_CONTROL,
+    VPORT, VPORT_CONTROL, XLINE,
+};
 use super::{COMMON_OBJECT, DwgFile, Entry, Release, stopped_at};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value, caret};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, SpecRef, codes};
@@ -33,60 +44,6 @@ const COMMON_ENTITY_HANDLES: SpecRef = SpecRef {
     section: "20.4.2 Common entity handle data",
 };
 
-const TEXT: u16 = 0x01;
-const ATTRIB: u16 = 0x02;
-const ATTDEF: u16 = 0x03;
-const TOLERANCE: u16 = 0x2E;
-const LEADER: u16 = 0x2D;
-const APPID: u16 = 0x43;
-const MLINE: u16 = 0x2F;
-const VIEWPORT: u16 = 0x22;
-const ARC: u16 = 0x11;
-const CIRCLE: u16 = 0x12;
-const LINE: u16 = 0x13;
-const INSERT: u16 = 0x07;
-const MINSERT: u16 = 0x08;
-const POINT: u16 = 0x1B;
-const FACE3D: u16 = 0x1C;
-const SOLID: u16 = 0x1F;
-const TRACE: u16 = 0x20;
-const SHAPE: u16 = 0x21;
-const ELLIPSE: u16 = 0x23;
-const SPLINE: u16 = 0x24;
-const RAY: u16 = 0x28;
-const XLINE: u16 = 0x29;
-const MTEXT: u16 = 0x2C;
-const LWPOLYLINE: u16 = 0x4D;
-const VERTEX_2D: u16 = 0x0A;
-const VERTEX_3D: u16 = 0x0B;
-const VERTEX_MESH: u16 = 0x0C;
-const VERTEX_PFACE: u16 = 0x0D;
-const VERTEX_PFACE_FACE: u16 = 0x0E;
-const POLYLINE_2D: u16 = 0x0F;
-const POLYLINE_3D: u16 = 0x10;
-const POLYLINE_PFACE: u16 = 0x1D;
-const POLYLINE_MESH: u16 = 0x1E;
-const DIMENSION_ORDINATE: u16 = 0x14;
-const DIMENSION_LINEAR: u16 = 0x15;
-const DIMENSION_ALIGNED: u16 = 0x16;
-const DIMENSION_ANGULAR_3PT: u16 = 0x17;
-const DIMENSION_ANGULAR_2LINE: u16 = 0x18;
-const DIMENSION_RADIUS: u16 = 0x19;
-const DIMENSION_DIAMETER: u16 = 0x1A;
-const BLOCK_RECORD: u16 = 0x31;
-const LAYER: u16 = 0x33;
-const STYLE: u16 = 0x35;
-const LTYPE: u16 = 0x39;
-
-/// DIMSTYLE の表のレコードの型。ハンドルのグループ・コードが 105
-const VIEW: u16 = 0x3D;
-const UCS: u16 = 0x3F;
-const VPORT: u16 = 0x41;
-const DIMSTYLE: u16 = 0x45;
-const MLINESTYLE: u16 = 0x49;
-const DICTIONARY: u16 = 0x2A;
-const GROUP: u16 = 0x48;
-
 /// 型から、DXF の名前と属する所。クラスで決まる型（500 以上）と、知らない型は `None`
 fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
     let entity = |name: &'static [u8]| Some((name, Section::Entities));
@@ -96,9 +53,9 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         TEXT => entity(b"TEXT"),
         ATTRIB => entity(b"ATTRIB"),
         ATTDEF => entity(b"ATTDEF"),
-        0x04 => Some((b"BLOCK", Section::Blocks)),
-        0x05 => Some((b"ENDBLK", Section::Blocks)),
-        0x06 => entity(b"SEQEND"),
+        BLOCK => Some((b"BLOCK", Section::Blocks)),
+        ENDBLK => Some((b"ENDBLK", Section::Blocks)),
+        SEQEND => entity(b"SEQEND"),
         INSERT | MINSERT => entity(b"INSERT"),
         VERTEX_2D..=VERTEX_PFACE_FACE => entity(b"VERTEX"),
         POLYLINE_2D | POLYLINE_3D | POLYLINE_PFACE | POLYLINE_MESH => entity(b"POLYLINE"),
@@ -125,19 +82,20 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
         TOLERANCE => entity(b"TOLERANCE"),
         LEADER => entity(b"LEADER"),
         MLINE => entity(b"MLINE"),
-        0x30 | 0x32 | 0x34 | 0x38 | 0x3C | 0x3E | 0x40 | 0x42 | 0x44 => table(b"TABLE"),
+        BLOCK_RECORD_CONTROL | LAYER_CONTROL | STYLE_CONTROL | LTYPE_CONTROL | VIEW_CONTROL
+        | UCS_CONTROL | VPORT_CONTROL | APPID_CONTROL | DIMSTYLE_CONTROL => table(b"TABLE"),
         BLOCK_RECORD => table(b"BLOCK_RECORD"),
         LAYER => table(b"LAYER"),
         STYLE => table(b"STYLE"),
         LTYPE => table(b"LTYPE"),
-        0x3D => table(b"VIEW"),
-        0x3F => table(b"UCS"),
-        0x41 => table(b"VPORT"),
+        VIEW => table(b"VIEW"),
+        UCS => table(b"UCS"),
+        VPORT => table(b"VPORT"),
         APPID => table(b"APPID"),
         DIMSTYLE => table(b"DIMSTYLE"),
         // DXF にない表。名前は DWG のもの
-        0x46 => table(b"VP_ENT_HDR_CONTROL"),
-        0x47 => table(b"VP_ENT_HDR"),
+        VP_ENT_HDR_CONTROL => table(b"VP_ENT_HDR_CONTROL"),
+        VP_ENT_HDR => table(b"VP_ENT_HDR"),
         GROUP => object(b"GROUP"),
         MLINESTYLE => object(b"MLINESTYLE"),
         0x4A => entity(b"OLE2FRAME"),
@@ -433,7 +391,7 @@ const BLOCK_FIELDS: &[i16] = &[70, 10, 20, 30, 1, 4];
 fn is_table_record(type_code: u16) -> bool {
     matches!(
         type_code,
-        BLOCK_RECORD | LAYER | STYLE | LTYPE | VIEW | UCS | VPORT | APPID | DIMSTYLE | 0x47
+        BLOCK_RECORD | LAYER | STYLE | LTYPE | VIEW | UCS | VPORT | APPID | DIMSTYLE | VP_ENT_HDR
     )
 }
 
