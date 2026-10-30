@@ -14,7 +14,7 @@ use super::{
     removal, unsupported, work,
 };
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
-use crate::drawing::source;
+use crate::drawing::{charset_of, source};
 use zumen_base::{Cx, Key, Ref};
 use zumen_drawing::{ColorSystem, Edit, Inherit, Layer, LayerState, LayerStyle, Placed, Seen};
 use zumen_sdk::Error;
@@ -53,13 +53,14 @@ pub(super) fn named_in_objects(
     cx: &mut Cx,
     at: &Ref,
 ) -> Result<bool, Error> {
+    let charset = charset_of(db);
     for object in db.objects() {
         work(cx, 1, at)?;
         if object.section == Section::Objects {
             count_transform_values(object, at, cx)?;
             if object.values.iter().any(|value| {
                 value.code == 8
-                    && matches!(&value.data, Data::Text(text) if text.eq_ignore_ascii_case(name))
+                    && matches!(&value.data, Data::Text(text) if charset.same(text, name))
             }) {
                 return Ok(true);
             }
@@ -273,8 +274,9 @@ pub(super) fn rename(
     target: Target,
     cx: &mut Cx,
 ) -> Result<(), Error> {
+    let charset = charset_of(db);
     let at = Ref::default();
-    let same = |data: &Data| matches!(data, Data::Text(name) if name.eq_ignore_ascii_case(old));
+    let same = |data: &Data| matches!(data, Data::Text(name) if charset.same(name, old));
     for position in 0..db.objects().len() {
         let Some(object) = db.object_mut(position) else {
             continue;
@@ -339,13 +341,14 @@ pub(super) fn referenced(
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<bool, Error> {
+    let charset = charset_of(db);
     let Some(name) = name_of(record) else {
         return Ok(true);
     };
     let handle = record.handle();
     let points = |value: &Value| match &value.data {
         Data::Handle(found) => handle == Some(*found),
-        Data::Text(text) => matches!(value.code, 8 | 1003) && text.eq_ignore_ascii_case(name),
+        Data::Text(text) => matches!(value.code, 8 | 1003) && charset.same(text, name),
         _ => false,
     };
     for (at, object) in db.objects().iter().enumerate() {
@@ -424,6 +427,7 @@ pub(super) struct Layers {
 impl Layers {
     /// 画層の表のレコードの位置と、小文字にした名前を作る。作ってあれば何もしない
     fn index(&mut self, db: &AcadDb, cx: &mut Cx) -> Result<(), Error> {
+        let charset = charset_of(db);
         if self.records.is_some() {
             return Ok(());
         }
@@ -434,7 +438,7 @@ impl Layers {
                 count_transform_values(object, &Ref::default(), cx)?;
                 records.push(position);
                 if let Some(name) = name_of(object) {
-                    self.names.insert(name.to_ascii_lowercase());
+                    self.names.insert(charset.fold(name));
                 }
             }
         }
@@ -466,6 +470,7 @@ pub(super) fn replace<'e>(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
+        charset,
         db,
         index,
         born,
@@ -502,7 +507,7 @@ pub(super) fn replace<'e>(
                 }),
             ) = (old, requested)
             {
-                if !old.eq_ignore_ascii_case(&name) {
+                if !charset.same(old, &name) {
                     named_in_objects(db, old, cx, &was.source)?
                 } else {
                     false
@@ -521,14 +526,13 @@ pub(super) fn replace<'e>(
         write(born, &mut values, new, Some((object, was)))?;
         let old = name_of(object)?;
         let name = value_name(&values)?;
-        if !old.eq_ignore_ascii_case(name) {
+        if !charset.same(old, name) {
             // 名前を変えるなら、ほかの画層と重ならず、DXF の OBJECTS が名前で指していないこと
-            let free = !plan.layers.names.contains(&name.to_ascii_lowercase())
-                && !fixed_name(name)
-                && !named;
+            let free =
+                !plan.layers.names.contains(&charset.fold(name)) && !fixed_name(name) && !named;
             free.then_some(())?;
-            plan.layers.names.remove(&old.to_ascii_lowercase());
-            plan.layers.names.insert(name.to_ascii_lowercase());
+            plan.layers.names.remove(&charset.fold(old));
+            plan.layers.names.insert(charset.fold(name));
         }
         if old != name {
             let name = Value {
@@ -557,6 +561,7 @@ pub(super) fn remove<'e>(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
+        charset,
         db,
         drawing,
         index,
@@ -613,7 +618,7 @@ pub(super) fn remove<'e>(
     match planned {
         Some((position, skip)) => {
             if let Some(name) = db.objects().get(position).and_then(name_of) {
-                plan.layers.names.remove(&name.to_ascii_lowercase());
+                plan.layers.names.remove(&charset.fold(name));
             }
             plan.removed.extend(skip);
         }
@@ -633,7 +638,11 @@ pub(super) fn add(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
-        db, born, target, ..
+        charset,
+        db,
+        born,
+        target,
+        ..
     } = *current;
     plan.layers.index(db, cx)?;
     work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
@@ -653,7 +662,7 @@ pub(super) fn add(
     let planned = zero.and_then(|zero| {
         let mut values = template(zero, target);
         write(born, &mut values, new, None)?;
-        let name = value_name(&values)?.to_ascii_lowercase();
+        let name = charset.fold(value_name(&values)?);
         (!fixed_name(&name)
             && (target != Target::Dxf || table_end(db, b"LAYER").is_some())
             && plan.layers.names.insert(name))

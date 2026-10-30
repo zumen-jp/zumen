@@ -203,6 +203,14 @@ params = { format = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."change.character.unsupported"]
+description = "2007 より前の版の DXF・DWG に書き戻す文字か名前に、見出しのコード・ページで表せない文字がある。符号化して戻すと別の文字になるもの（ANSI_932 の ¥・‾・− など）も含む（決定 0192）"
+severity = "error"
+params = { character = "text" }
+group-by = ["character"]
+since = "0.0.0"
+status = "active"
+
 [codes."change.symbol-cycle.invalid"]
 description = "記号の定義の中に足す記号が、その定義を直接か間接に置く（自分を含む）ので、定義の入れ子が輪になる（#333）"
 severity = "error"

@@ -196,7 +196,7 @@ fn text_styles_are_added_and_removed() {
     let mut added = standard.clone();
     added.name = "注記".to_owned();
     added.definition.as_mut().unwrap().font = shape("simplex.shx");
-    // R2000 の DXF には、ASCII でない名前を書けない
+    // コード・ページのない R2000 の DXF には、ASCII でない名前を書けない（決定 0192）
     let (result, found) = apply(
         &mut file,
         vec![Edit::AddTextStyle {
@@ -204,7 +204,13 @@ fn text_styles_are_added_and_removed() {
         }],
     );
     assert_eq!(result, Err(Error::Rejected));
-    assert_eq!(found, [codes::CHANGE_EDIT_UNSUPPORTED]);
+    assert_eq!(
+        found,
+        [
+            codes::CHANGE_EDIT_UNSUPPORTED,
+            codes::CHANGE_CHARACTER_UNSUPPORTED
+        ]
+    );
     added.name = "Added".to_owned();
     let (result, found) = apply(
         &mut file,

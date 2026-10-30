@@ -1071,19 +1071,14 @@ impl Lifter<'_> {
         let Data::Text(value) = data else {
             return Err(invalid(kind, code));
         };
-        let decoded = match self.charset {
-            Charset::Utf8 => core::str::from_utf8(value).ok().map(str::to_owned),
-            _ if value.is_ascii() => core::str::from_utf8(value).ok().map(str::to_owned),
-            Charset::ShiftJis => encoding_rs::SHIFT_JIS
-                .decode_without_bom_handling_and_without_replacement(value)
-                .map(std::borrow::Cow::into_owned),
-            Charset::Other => {
-                return Err(Box::new(
-                    Diagnostic::new(codes::DXF_CODE_PAGE_UNSUPPORTED).with("kind", text(kind)),
-                ));
-            }
-        };
-        decoded.ok_or_else(|| invalid(kind, code))
+        if self.charset == Charset::Other && !value.is_ascii() {
+            return Err(Box::new(
+                Diagnostic::new(codes::DXF_CODE_PAGE_UNSUPPORTED).with("kind", text(kind)),
+            ));
+        }
+        self.charset
+            .decode(value)
+            .ok_or_else(|| invalid(kind, code))
     }
 }
 
@@ -1137,12 +1132,102 @@ impl<'a> Values<'a> {
 /// 文字の値の符号化。2007 以降の版は UTF-8 で、それより前の版は `$DWGCODEPAGE` のコード・ページで決まる
 /// （DXF Reference の HEADER Section Group Codes）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Charset {
+pub(crate) enum Charset {
     Utf8,
     /// ANSI_932。WHATWG の Shift_JIS（Windows の 932 と同じ表）として戻す
     ShiftJis,
     /// 対応表のないコード・ページか、コード・ページがない。ASCII の文字だけを読む
     Other,
+}
+
+impl Charset {
+    /// 文字の値を戻す。戻せないバイト列と、対応表のないコード・ページの ASCII でない文字は `None`
+    pub(crate) fn decode(self, value: &[u8]) -> Option<String> {
+        match self {
+            Charset::Utf8 => core::str::from_utf8(value).ok().map(str::to_owned),
+            _ if value.is_ascii() => core::str::from_utf8(value).ok().map(str::to_owned),
+            Charset::ShiftJis => encoding_rs::SHIFT_JIS
+                .decode_without_bom_handling_and_without_replacement(value)
+                .map(std::borrow::Cow::into_owned),
+            Charset::Other => None,
+        }
+    }
+
+    /// 文字の値を符号化する。戻すと同じ文字にならない文字があれば、その最初の文字を返す（決定 0192）。
+    /// Shift_JIS の表は、読むときと同じ `encoding_rs` の表を逆に引く
+    pub(crate) fn encode(self, value: &str) -> Result<Vec<u8>, char> {
+        if self == Charset::Utf8 || value.is_ascii() {
+            return Ok(value.as_bytes().to_vec());
+        }
+        let encoded = match self {
+            Charset::ShiftJis => {
+                let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(value);
+                (!unmappable).then(|| bytes.into_owned())
+            }
+            _ => None,
+        };
+        match encoded {
+            // ¥（U+00A5）や −（U+2212）のように、符号化できても別の文字に戻るものは書かない
+            Some(bytes) if self.decode(&bytes).as_deref() == Some(value) => Ok(bytes),
+            _ => Err(value
+                .chars()
+                .find(|c| {
+                    let mut buffer = [0; 4];
+                    !self.round_trips(c.encode_utf8(&mut buffer))
+                })
+                .unwrap_or(char::REPLACEMENT_CHARACTER)),
+        }
+    }
+
+    /// 1 文字を符号化して戻すと、同じ文字になるか
+    fn round_trips(self, value: &str) -> bool {
+        match self {
+            Charset::Utf8 => true,
+            _ if value.is_ascii() => true,
+            Charset::ShiftJis => {
+                let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(value);
+                !unmappable && self.decode(&bytes).as_deref() == Some(value)
+            }
+            Charset::Other => false,
+        }
+    }
+
+    /// 名前を、大文字と小文字を区別せずに比べるための形にする。ASCII の文字だけを小文字にし、Shift_JIS の
+    /// 2 バイトの文字の 2 バイト目は変えない（読むときに、戻した文字の ASCII だけを小文字にするのと同じ）
+    pub(crate) fn fold(self, name: &[u8]) -> Vec<u8> {
+        if self != Charset::ShiftJis {
+            return name.to_ascii_lowercase();
+        }
+        let mut folded = Vec::with_capacity(name.len());
+        let mut trail = false;
+        for &byte in name {
+            if trail {
+                folded.push(byte);
+                trail = false;
+            } else {
+                folded.push(byte.to_ascii_lowercase());
+                trail = matches!(byte, 0x81..=0x9F | 0xE0..=0xFC);
+            }
+        }
+        folded
+    }
+
+    /// 2 つの名前が、大文字と小文字を区別せずに同じか
+    pub(crate) fn same(self, a: &[u8], b: &[u8]) -> bool {
+        a.len() == b.len() && self.fold(a) == self.fold(b)
+    }
+}
+
+/// 表 `db` の文字の値の符号化
+pub(crate) fn charset_of(db: &AcadDb) -> Charset {
+    let variable = |name: &[u8]| {
+        db.variable(name)
+            .and_then(|values| match values.first().map(|v| &v.data) {
+                Some(Data::Text(text)) => Some(text.trim_ascii()),
+                _ => None,
+            })
+    };
+    charset(variable(b"$ACADVER"), variable(b"$DWGCODEPAGE"))
 }
 
 fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {

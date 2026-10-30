@@ -8,9 +8,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Frame, contents, nonnegative, positive, real, turned};
+use super::{Encoder, Frame, contents, nonnegative, positive, real, turned};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
-use crate::drawing::{BLOCK, Home, mtext};
+use crate::drawing::{BLOCK, Charset, Home, mtext};
 use zumen_base::Ref;
 use zumen_drawing::{
     Attribute, ColorSystem, Drawing2D, Edge, Element, Fit, Flow, FormattedText, HeightMeaning,
@@ -55,8 +55,8 @@ pub(super) struct Born {
     markers: bool,
     /// 版（`$ACADVER`）。なければ空
     version: Vec<u8>,
-    /// 文字を UTF-8 で書けるか
-    unicode: bool,
+    /// 文字の値の符号化（決定 0192）
+    encoder: Encoder,
     target: Target,
     /// 表（LAYER・LTYPE・STYLE・BLOCK_RECORD・DIMSTYLE）ごとの、定義の名前。小文字にした名前から引く
     names: BTreeMap<&'static [u8], BTreeMap<String, String>>,
@@ -87,9 +87,9 @@ struct Annotation {
 const TABLES: [&[u8]; 5] = [b"LAYER", b"LTYPE", b"STYLE", b"BLOCK_RECORD", b"DIMSTYLE"];
 
 impl Born {
-    pub(super) fn new(db: &AcadDb, drawing: &Drawing2D, unicode: bool, target: Target) -> Self {
+    pub(super) fn new(db: &AcadDb, drawing: &Drawing2D, charset: Charset, target: Target) -> Self {
         let name = |object: &Object| match object.first(2) {
-            Some(Data::Text(name)) => Some(String::from_utf8_lossy(name).into_owned()),
+            Some(Data::Text(name)) => charset.decode(name),
             _ => None,
         };
         let mut names: BTreeMap<&'static [u8], BTreeMap<String, String>> = BTreeMap::new();
@@ -155,7 +155,7 @@ impl Born {
             owner,
             markers,
             version,
-            unicode,
+            encoder: Encoder::new(charset),
             target,
             names,
             layers: drawing
@@ -195,9 +195,17 @@ impl Born {
         self.string(code, name)
     }
 
-    /// 文字の値。2007 より前の版には、ASCII の文字だけを書く（読む側と同じ）
+    /// 文字の値。2007 より前の版は、コード・ページで符号化する。表せない文字があれば `None`（決定 0192）
     fn string(&self, code: i16, value: &str) -> Option<Value> {
-        (self.unicode || value.is_ascii()).then(|| text(code, value))
+        Some(Value {
+            code,
+            data: Data::Text(self.encoder.encode(value)?),
+        })
+    }
+
+    /// 書き戻す文字の符号化
+    pub(super) fn encoder(&self) -> &Encoder {
+        &self.encoder
     }
 
     /// 版が `release` 以後か
@@ -478,7 +486,7 @@ impl Born {
         self.target
     }
 
-    /// 文字の値。2007 より前の版に ASCII でない文字を書くなら `None`
+    /// 文字の値。2007 より前の版のコード・ページで表せない文字を書くなら `None`
     pub(super) fn text_value(&self, code: i16, value: &str) -> Option<Value> {
         self.string(code, value)
     }
@@ -691,7 +699,7 @@ impl Born {
         values.push(int(71, row * 3 + column));
         values.push(int(72, flow));
         values.push(text(1, ""));
-        contents(values, &lettering.content, self.unicode)?;
+        contents(values, &lettering.content, &self.encoder)?;
         values.push(style);
         let direction = match lettering.rotation {
             Rotation::Direction(direction) => Some(direction),

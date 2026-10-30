@@ -24,6 +24,7 @@
     "call.value.invalid": "要求の {pointer} の値の型か範囲が、正しくありません。",
     "call.version.unsupported": "要求の版（v = {version}）を、このコアは扱えません。",
     "catalog.file.invalid": "入力「{name}」は、カタログとして読めません。",
+    "change.character.unsupported": "文字 {character} は、2007 より前の版の図面のコード・ページで表せないので、書き戻せません。変更を反映しませんでした。",
     "change.document.stale": "文書が、変更の一覧を作ったときから変わっています。変更を反映しませんでした。",
     "change.edit.unsupported": "「{kind}」の要素の {edit} は、まだ {format} に書き戻せません。変更を反映しませんでした。",
     "change.element.missing": "変更が指す「{id}」が、図面にありません。変更を反映しませんでした。",

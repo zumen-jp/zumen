@@ -469,8 +469,8 @@ fn drawings_take_back_ellipses_replaced_through_the_boundary() {
 }
 
 /// 試料の実寸の空間に、境界の `add` で文字を足すと、開き直した文字の形とハッシュが、送った形と `apply` が
-/// 返したものと同じになる（決定 0139）。2007 より前の版は ASCII の文字だけを書くので、日本語の文字は
-/// `change.edit.unsupported` になり、ASCII の文字なら足せる
+/// 返したものと同じになる（決定 0139）。2007 より前の版はコード・ページで表せる文字だけを書くので（決定 0192）、
+/// ANSI_932 でない図面の日本語の文字は `change.edit.unsupported` になり、ASCII の文字なら足せる
 #[test]
 fn drawings_take_back_texts_added_through_the_boundary() {
     let mut japanese = [0, 0];
@@ -712,7 +712,8 @@ fn drawings_take_back_texts_fitted_between_two_points() {
 
 /// 試料の実寸の空間の書式つきの文字を、境界の `replace` で内容と位置だけ替え、`add` で書式つきの文字を足すと、
 /// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。2007 より前の版は
-/// ASCII の文字だけを書くので、日本語の内容は `change.edit.unsupported` になり、ASCII の内容なら足せる
+/// コード・ページで表せる文字だけを書くので（決定 0192）、ANSI_932 でない図面の日本語の内容は
+/// `change.edit.unsupported` になり、ASCII の内容なら足せる
 #[test]
 fn drawings_take_back_formatted_texts_through_the_boundary() {
     let number = |value: &Value, pointer: &str| zumen_json::number(value.pointer(pointer)?).ok();
@@ -1388,7 +1389,7 @@ fn drawings_take_back_attribute_values_changed_through_the_boundary() {
                 ),
             );
             if status != Status::Ok {
-                // 書式つきの値を持つ属性と、2007 より前の DXF の ASCII でない値は書けない
+                // 書式つきの値を持つ属性と、2007 より前の DXF のコード・ページで表せない値は書けない
                 assert_eq!(status, Status::Failed, "{} {sent}", path.display());
                 assert_eq!(shapes(&mut session, "in"), before, "{}", path.display());
                 continue;

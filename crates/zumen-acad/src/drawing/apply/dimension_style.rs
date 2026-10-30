@@ -16,6 +16,7 @@ use super::{
     real, record_at, removal, unsupported, work,
 };
 use crate::db::{AcadDb, Data, Object, Section, Value};
+use crate::drawing::{Charset, charset_of};
 use zumen_base::{Cx, Key, Ref};
 use zumen_drawing::{Arrowhead, DimensionStyle, Seen};
 use zumen_sdk::Error;
@@ -48,8 +49,12 @@ pub(super) fn fixed_name(name: &[u8]) -> bool {
 
 /// 名前 `name` の寸法スタイルの、寸法の種類ごとの子の寸法スタイル（`name$0` など）が、名前の一覧 `names`
 /// （小文字）にあるか
-pub(super) fn has_children<'n>(mut names: impl Iterator<Item = &'n Vec<u8>>, name: &[u8]) -> bool {
-    let prefix = [name.to_ascii_lowercase().as_slice(), b"$"].concat();
+pub(super) fn has_children<'n>(
+    mut names: impl Iterator<Item = &'n Vec<u8>>,
+    name: &[u8],
+    charset: Charset,
+) -> bool {
+    let prefix = [charset.fold(name).as_slice(), b"$"].concat();
     names.any(|other| other.starts_with(&prefix))
 }
 
@@ -151,8 +156,8 @@ fn set(values: &mut Vec<Value>, code: i16, value: Option<Value>) {
 }
 
 /// 寸法スタイルを名前で指すか。寸法・引出線・公差は 3 で、見出しの変数は 2 で指す
-fn names(value: &Value, code: i16, name: &[u8]) -> bool {
-    value.code == code && matches!(&value.data, Data::Text(text) if text.eq_ignore_ascii_case(name))
+fn names(value: &Value, code: i16, name: &[u8], charset: Charset) -> bool {
+    value.code == code && matches!(&value.data, Data::Text(text) if charset.same(text, name))
 }
 
 /// 寸法スタイルを名前（3）で書き直す図形か
@@ -169,11 +174,16 @@ fn may_name(object: &Object) -> bool {
 
 /// まだ表にない名前を図形や見出しが指しているか。新しい定義で既存の参照を変えないために調べる。
 pub(super) fn name_in_use(db: &AcadDb, name: &[u8], cx: &mut Cx, at: &Ref) -> Result<bool, Error> {
+    let charset = charset_of(db);
     for object in db.objects() {
         work(cx, 1, at)?;
         if may_name(object) {
             count_transform_values(object, at, cx)?;
-            if object.values.iter().any(|value| names(value, 3, name)) {
+            if object
+                .values
+                .iter()
+                .any(|value| names(value, 3, name, charset))
+            {
                 return Ok(true);
             }
         }
@@ -187,7 +197,7 @@ pub(super) fn name_in_use(db: &AcadDb, name: &[u8], cx: &mut Cx, at: &Ref) -> Re
             work(cx, 1 + bytes as u64 / 1024, at)?;
         }
         if variable.eq_ignore_ascii_case(b"$DIMSTYLE")
-            && values.iter().any(|value| names(value, 2, name))
+            && values.iter().any(|value| names(value, 2, name, charset))
         {
             return Ok(true);
         }
@@ -203,11 +213,16 @@ pub(super) fn named_elsewhere(
     cx: &mut Cx,
     at: &Ref,
 ) -> Result<bool, Error> {
+    let charset = charset_of(db);
     for object in db.objects() {
         work(cx, 1, at)?;
         if !dimensioned(object) && may_name(object) {
             count_transform_values(object, at, cx)?;
-            if object.values.iter().any(|value| names(value, 3, name)) {
+            if object
+                .values
+                .iter()
+                .any(|value| names(value, 3, name, charset))
+            {
                 return Ok(true);
             }
         }
@@ -225,6 +240,7 @@ pub(super) fn rename(
     target: Target,
     cx: &mut Cx,
 ) -> Result<(), Error> {
+    let charset = charset_of(db);
     if target != Target::Dxf {
         return Ok(());
     }
@@ -239,7 +255,7 @@ pub(super) fn rename(
             continue;
         }
         for value in &mut object.values {
-            if names(value, 3, old) {
+            if names(value, 3, old, charset) {
                 work(cx, 1 + new.len() as u64 / 1024, &at)?;
                 value.data = Data::Text(new.to_vec());
             }
@@ -258,12 +274,12 @@ pub(super) fn rename(
         .variables()
         .filter(|(name, values)| {
             name.eq_ignore_ascii_case(b"$DIMSTYLE")
-                && values.iter().any(|value| names(value, 2, old))
+                && values.iter().any(|value| names(value, 2, old, charset))
         })
         .map(|(name, values)| {
             let values = values
                 .iter()
-                .map(|value| match names(value, 2, old) {
+                .map(|value| match names(value, 2, old, charset) {
                     true => Value {
                         code: value.code,
                         data: Data::Text(new.to_vec()),
@@ -290,6 +306,7 @@ pub(super) fn referenced(
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<bool, Error> {
+    let charset = charset_of(db);
     let Some(Data::Text(name)) = record.first(2) else {
         return Ok(true);
     };
@@ -303,7 +320,7 @@ pub(super) fn referenced(
         let by_name = may_name(object);
         if object.values.iter().any(|value| match &value.data {
             Data::Handle(found) => handle == Some(*found),
-            _ => by_name && names(value, 3, name),
+            _ => by_name && names(value, 3, name, charset),
         }) {
             return Ok(true);
         }
@@ -319,7 +336,7 @@ pub(super) fn referenced(
         let dimstyle = variable.eq_ignore_ascii_case(b"$DIMSTYLE");
         if values.iter().any(|value| match &value.data {
             Data::Handle(found) => handle == Some(*found),
-            _ => dimstyle && names(value, 2, name),
+            _ => dimstyle && names(value, 2, name, charset),
         }) {
             return Ok(true);
         }
@@ -370,6 +387,7 @@ impl DimensionStyles {
     /// 寸法スタイルの表のレコードの位置と、小文字にした名前と、ブロックのレコードのハンドルを作る。作って
     /// あれば何もしない
     fn index(&mut self, db: &AcadDb, cx: &mut Cx) -> Result<(), Error> {
+        let charset = charset_of(db);
         if self.records.is_some() {
             return Ok(());
         }
@@ -381,7 +399,7 @@ impl DimensionStyles {
                 count_transform_values(object, &Ref::default(), cx)?;
                 records.push(position);
                 if let Some(Data::Text(name)) = object.first(2) {
-                    self.names.insert(name.to_ascii_lowercase());
+                    self.names.insert(charset.fold(name));
                 }
             }
             if self.block_handled
@@ -389,7 +407,7 @@ impl DimensionStyles {
                 && let (Some(Data::Text(name)), Some(handle)) = (object.first(2), object.handle())
             {
                 blocks
-                    .entry(name.to_ascii_lowercase())
+                    .entry(charset.fold(name))
                     .and_modify(|found| *found = None)
                     .or_insert(Some(handle));
             }
@@ -424,6 +442,7 @@ pub(super) fn replace<'e>(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
+        charset,
         db,
         index,
         born,
@@ -468,7 +487,7 @@ pub(super) fn replace<'e>(
                         data: Data::Text(name),
                         ..
                     }),
-                ) if !old.eq_ignore_ascii_case(&name) => name_in_use(db, &name, cx, &was.source)?,
+                ) if !charset.same(old, &name) => name_in_use(db, &name, cx, &was.source)?,
                 _ => false,
             }
         }
@@ -478,7 +497,7 @@ pub(super) fn replace<'e>(
     let block_of = |name: &str| -> Option<u64> {
         block_handles
             .as_ref()?
-            .get(name.as_bytes().to_ascii_lowercase().as_slice())
+            .get(charset.fold(&charset.encode(name).ok()?).as_slice())
             .copied()
             .flatten()
     };
@@ -492,24 +511,17 @@ pub(super) fn replace<'e>(
         let Some(Data::Text(name)) = find(&values, 2) else {
             return None;
         };
-        if old != name && (named || has_children(plan.dimension_styles.names.iter(), old)) {
+        if old != name && (named || has_children(plan.dimension_styles.names.iter(), old, charset))
+        {
             return None;
         }
-        if !old.eq_ignore_ascii_case(name) {
+        if !charset.same(old, name) {
             // 名前を変えるなら、ほかの寸法スタイルと重ならず、子の寸法スタイルを持たず、DXF の
             // 寸法などでないオブジェクトが名前で指していないこと
-            let free = !plan
-                .dimension_styles
-                .names
-                .contains(&name.to_ascii_lowercase())
-                && !new_name_used;
+            let free = !plan.dimension_styles.names.contains(&charset.fold(name)) && !new_name_used;
             free.then_some(())?;
-            plan.dimension_styles
-                .names
-                .remove(&old.to_ascii_lowercase());
-            plan.dimension_styles
-                .names
-                .insert(name.to_ascii_lowercase());
+            plan.dimension_styles.names.remove(&charset.fold(old));
+            plan.dimension_styles.names.insert(charset.fold(name));
         }
         if old != name {
             plan.dimension_styles
@@ -536,6 +548,7 @@ pub(super) fn remove<'e>(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
+        charset,
         db,
         drawing,
         index,
@@ -564,7 +577,9 @@ pub(super) fn remove<'e>(
         Some((position, object)) => {
             count_transform_values(object, &was.source, cx)?;
             let children = match object.first(2) {
-                Some(Data::Text(name)) => has_children(plan.dimension_styles.names.iter(), name),
+                Some(Data::Text(name)) => {
+                    has_children(plan.dimension_styles.names.iter(), name, charset)
+                }
                 _ => true,
             };
             match removable(object) && !children {
@@ -578,9 +593,7 @@ pub(super) fn remove<'e>(
     match planned {
         Some((skip, object)) => {
             if let Some(Data::Text(name)) = object.first(2) {
-                plan.dimension_styles
-                    .names
-                    .remove(&name.to_ascii_lowercase());
+                plan.dimension_styles.names.remove(&charset.fold(name));
             }
             plan.removed.extend(skip);
         }
@@ -600,7 +613,11 @@ pub(super) fn add(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
-        db, born, target, ..
+        charset,
+        db,
+        born,
+        target,
+        ..
     } = *current;
     plan.dimension_styles.index(db, cx)?;
     work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
@@ -637,7 +654,7 @@ pub(super) fn add(
     let block_of = |name: &str| -> Option<u64> {
         block_handles
             .as_ref()?
-            .get(name.as_bytes().to_ascii_lowercase().as_slice())
+            .get(charset.fold(&charset.encode(name).ok()?).as_slice())
             .copied()
             .flatten()
     };
@@ -648,7 +665,7 @@ pub(super) fn add(
         let Some(Data::Text(name)) = find(&values, 2) else {
             return None;
         };
-        let name = name.to_ascii_lowercase();
+        let name = charset.fold(name);
         (!new_name_used
             && (target != Target::Dxf || table_end(db, b"DIMSTYLE").is_some())
             && plan.dimension_styles.names.insert(name))

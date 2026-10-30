@@ -9893,3 +9893,194 @@ fn dwg_insert_keeps_negative_scales_and_rotation_after_write() {
         assert!((insert.real(50).unwrap().unwrap() - angle).abs() < 1e-9);
     }
 }
+
+/// コード・ページ ANSI_932（38）の R2000 の DWG の文字と画層の名前を、Shift_JIS で書き戻す（決定 0192）。
+/// 表せない文字があれば、どの変更も当てない
+#[cfg(feature = "drawing")]
+#[test]
+fn drawing_text_and_names_are_written_back_in_shift_jis_to_a_dwg() {
+    use zumen_drawing::{Changes, Drawing2D, Edit, Hash, Placed, Seen, Shape, id};
+    use zumen_sdk::{Apply, Lift};
+    let text = |w: &mut BitWriter, text: &[u8]| {
+        w.bs(text.len() as u16 + 1);
+        w.bytes(text);
+        w.bytes(&[0]);
+    };
+    let common = |w: &mut BitWriter, name: &[u8]| {
+        w.bl_zero();
+        text(w, name);
+        w.bit(false);
+        w.bs(0);
+        w.bit(false);
+    };
+    // 外形
+    let layer = object(
+        0x33,
+        0x41,
+        |w| {
+            common(w, b"\x8a\x4f\x8c\x60");
+            w.bs(0);
+            w.bs(7);
+        },
+        |w| {
+            w.handle(4, 2);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            w.handle(5, 0);
+            w.handle(5, 0);
+        },
+    );
+    let style = object(
+        0x35,
+        0x42,
+        |w| {
+            common(w, b"Standard");
+            w.bit(false);
+            w.bit(false);
+            w.bd(0.0);
+            w.bd(1.0);
+            w.bd(0.0);
+            w.bytes(&[0]);
+            w.bd(2.5);
+            text(w, b"txt");
+            text(w, b"");
+        },
+        |w| {
+            w.handle(4, 3);
+            w.handle(3, 0);
+            w.handle(5, 0);
+        },
+    );
+    // 図面
+    let note = object(
+        0x01,
+        0x43,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bytes(&[0xFF]);
+            w.rd(1.0);
+            w.rd(2.0);
+            w.bit(true);
+            w.bit(true);
+            w.rd(2.5);
+            w.bs(5);
+            w.bytes(b"\x90\x7d\x96\xca\0");
+        },
+        entity_handles_to(0x41, 0x42),
+    );
+    let mut objects = objects_with_a_block();
+    objects.extend([(0x41, layer), (0x42, style), (0x43, note)]);
+    objects.sort_by_key(|(handle, _)| *handle);
+    let mut src = dwg(&objects);
+    src[0x13..0x15].copy_from_slice(&38u16.to_le_bytes());
+    let src = with_header(src, 0x58, 0x1F, 4, [10.0, 10.0, 307.0, 220.0], 0x80);
+    let lift = |src: &[u8]| -> Drawing2D {
+        let (file, mut diag) = read(src, Limits::default());
+        file.unwrap()
+            .lift(&mut Cx::new(
+                &mut Budget::default(),
+                &mut diag,
+                &CancelToken::new(),
+            ))
+            .unwrap()
+    };
+    let apply = |edits: Vec<Edit>| {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                document: None,
+                edits,
+            },
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        );
+        let mut bytes = Vec::new();
+        Dwg::write(
+            &file,
+            &mut bytes,
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        (result, codes_of(&diag), bytes)
+    };
+    let drawing = lift(&src);
+    let space = &drawing.spaces[0];
+    let (index, element) = space
+        .elements
+        .iter()
+        .enumerate()
+        .find(|(_, element)| matches!(element.shape, Shape::Text(_)))
+        .unwrap();
+    let Shape::Text(was) = &element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    assert_eq!(was.content, "図面");
+    let place = id::space(space.id);
+    let mut namer = id::Namer::new(&place);
+    let target = Seen {
+        id: (0..=index)
+            .map(|at| namer.next(at, &space.elements[at]))
+            .last()
+            .unwrap(),
+        hash: Hash::element(element),
+    };
+    let outline = drawing.layers.iter().find(|l| l.name == "外形").unwrap();
+    let layer_target = Seen {
+        id: id::layer(outline),
+        hash: Hash::layer(outline),
+    };
+    let edits = |content: &str, name: &str| {
+        let mut changed = element.clone();
+        if let Shape::Text(text) = &mut changed.shape {
+            text.content = content.to_owned();
+        }
+        let mut renamed = outline.clone();
+        renamed.name = name.to_owned();
+        vec![
+            Edit::Replace {
+                target: target.clone(),
+                element: Box::new(Placed::Model(changed)),
+            },
+            Edit::ReplaceLayer {
+                target: layer_target.clone(),
+                layer: Box::new(renamed),
+            },
+        ]
+    };
+    let (result, found, written) = apply(edits("通り芯", "道路"));
+    assert!(result.is_ok(), "{found:?}");
+    let after = lift(&written);
+    let road = after.layers.iter().find(|l| l.name == "道路").unwrap();
+    let text = after.spaces[0]
+        .elements
+        .iter()
+        .find(|element| matches!(element.shape, Shape::Text(_)))
+        .unwrap();
+    assert_eq!(text.layer, road.id);
+    let Shape::Text(text) = &text.shape else {
+        panic!()
+    };
+    assert_eq!(text.content, "通り芯");
+    let contains = |part: &[u8]| written.windows(part.len()).any(|window| window == part);
+    assert!(contains(b"\x92\xca\x82\xe8\x90\x63"));
+    assert!(contains(b"\x93\xb9\x98\x48"));
+
+    // é は Shift_JIS にない。書ける変更と一緒でも、どれも当てない
+    for (content, name) in [("café", "道路"), ("通り芯", "€")] {
+        let (result, found, written) = apply(edits(content, name));
+        assert_eq!(result, Err(Error::Rejected));
+        // 試料の DWG を読むときの警告は除く
+        let found: Vec<_> = found
+            .into_iter()
+            .filter(|code| code.name().starts_with("change."))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                codes::CHANGE_EDIT_UNSUPPORTED,
+                codes::CHANGE_CHARACTER_UNSUPPORTED
+            ]
+        );
+        assert_eq!(written, src);
+    }
+}

@@ -424,7 +424,7 @@ fn texts_are_moved_rewritten_and_turned() {
 #[test]
 fn texts_that_the_records_cannot_hold_change_nothing() {
     use zumen_drawing::Placement;
-    // 2007 より前の版は、ASCII でない文字を書かない
+    // コード・ページのない 2007 より前の版は、ASCII でない文字を書かない（決定 0192）
     let src = texts("AC1015");
     let mut file = testkit::read::<Dxf>(&src).0.unwrap();
     let [left, centered] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
@@ -446,10 +446,13 @@ fn texts_that_the_records_cannot_hold_change_nothing() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(
         found,
-        [(
-            codes::CHANGE_EDIT_UNSUPPORTED,
-            vec![left.source.clone(), centered.source]
-        )]
+        [
+            (
+                codes::CHANGE_EDIT_UNSUPPORTED,
+                vec![left.source.clone(), centered.source]
+            ),
+            (codes::CHANGE_CHARACTER_UNSUPPORTED, vec![])
+        ]
     );
     let mut broken = left.clone();
     if let Shape::Text(text) = &mut broken.shape {
@@ -584,25 +587,38 @@ fn mtexts_that_the_records_cannot_hold_change_nothing() {
         Edit::Replace(Box::new(element))
     };
     let cases = [
-        // 2007 より前の版は、ASCII でない文字を書かない
-        edit(&first, &|text| {
-            text.content = "通り芯".to_owned();
-            text.spans = spans(&text.content);
-        }),
+        // コード・ページのない 2007 より前の版は、ASCII でない文字を書かない（決定 0192）
+        (
+            edit(&first, &|text| {
+                text.content = "通り芯".to_owned();
+                text.spans = spans(&text.content);
+            }),
+            true,
+        ),
         // 内容と合わない区間
-        edit(&first, &|text| text.spans.clear()),
+        (edit(&first, &|text| text.spans.clear()), false),
         // 改行は、値に書けない
-        edit(&first, &|text| text.content = "A\nB".to_owned()),
+        (
+            edit(&first, &|text| text.content = "A\nB".to_owned()),
+            false,
+        ),
         // 文字スタイルは変えられない
-        edit(&first, &|text| text.style = "OTHER".to_owned()),
+        (edit(&first, &|text| text.style = "OTHER".to_owned()), false),
         // 向きの形（角度か向き）は変えられない
-        edit(&second, &|text| text.rotation = Rotation::Angle(0.0)),
+        (
+            edit(&second, &|text| text.rotation = Rotation::Angle(0.0)),
+            false,
+        ),
     ];
-    for case in cases {
+    for (case, unencodable) in cases {
         let (result, found) = apply(&mut file, vec![case]);
         assert_eq!(result, Err(Error::Rejected));
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert_eq!(found[0].0, codes::CHANGE_EDIT_UNSUPPORTED);
+        let codes: Vec<_> = found.iter().map(|(code, _)| *code).collect();
+        let mut expected = vec![codes::CHANGE_EDIT_UNSUPPORTED];
+        if unencodable {
+            expected.push(codes::CHANGE_CHARACTER_UNSUPPORTED);
+        }
+        assert_eq!(codes, expected);
     }
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }

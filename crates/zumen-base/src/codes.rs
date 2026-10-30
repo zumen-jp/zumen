@@ -236,6 +236,17 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
+/// 2007 より前の版の DXF・DWG に書き戻す文字か名前に、見出しのコード・ページで表せない文字がある。符号化して戻すと別の文字になるもの（ANSI_932 の ¥・‾・− など）も含む（決定 0192）
+///
+/// `change.character.unsupported`（0.0.0 から）
+pub const CHANGE_CHARACTER_UNSUPPORTED: Code = Code::new(
+    "change.character.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("character", ParamType::Text)],
+    &["character"],
+);
+
 /// 変更の一覧が持つ文書のハッシュが、今の文書のハッシュと違う（決定 0156）
 ///
 /// `change.document.stale`（0.0.0 から）
@@ -1702,6 +1713,7 @@ pub const ALL: &[Code] = &[
     CALL_VALUE_INVALID,
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
+    CHANGE_CHARACTER_UNSUPPORTED,
     CHANGE_DOCUMENT_STALE,
     CHANGE_EDIT_UNSUPPORTED,
     CHANGE_ELEMENT_MISSING,

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{BLOCK, Home, MODEL, PaperFrame, attached, framed, mtext, source, text, work};
+use super::{BLOCK, Charset, Home, MODEL, PaperFrame, attached, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
@@ -367,15 +367,10 @@ fn edit(
     let mut quiet = Diagnostics::new();
     let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
     let index = Index::new(&drawing, cx)?;
-    // 2007 からの版は文字を UTF-8 で持つ。それより前は、ASCII の文字だけを書く（読む側と同じ）
-    let unicode = db
-        .variable(b"$ACADVER")
-        .and_then(|values| match values.first().map(|v| &v.data) {
-            Some(Data::Text(text)) => Some(text.trim_ascii() >= super::UTF8),
-            _ => None,
-        })
-        .unwrap_or(false);
-    let born = Born::new(db, &drawing, unicode, target);
+    // 2007 からの版は文字を UTF-8 で持つ。それより前は、見出しのコード・ページで符号化する（読む側と同じ、
+    // 決定 0192）
+    let charset = super::charset_of(db);
+    let born = Born::new(db, &drawing, charset, target);
     let mut plan = Plan::new(db, target);
     let current = Current {
         db,
@@ -385,11 +380,23 @@ fn edit(
         positions: &positions,
         frames: &frames,
         edits: &changes.edits,
-        unicode,
+        charset,
+        encoder: born.encoder(),
         target,
     };
     for change in &changes.edits {
+        let rejected = std::mem::take(&mut plan.rejected);
         plan.check(&current, change, cx)?;
+        // コード・ページで表せない文字のために拒んだなら、その文字を返す（決定 0192）
+        if let Some(character) = born.encoder().take()
+            && plan.rejected
+        {
+            cx.report(
+                Diagnostic::new(codes::CHANGE_CHARACTER_UNSUPPORTED)
+                    .with("character", format!("U+{:04X}", u32::from(character))),
+            );
+        }
+        plan.rejected |= rejected;
     }
     if plan.rejected {
         return Err(Error::Rejected);
@@ -453,6 +460,40 @@ fn unique_handles(db: &AcadDb, target: Target, cx: &mut Cx) -> Result<(), Error>
     Ok(())
 }
 
+/// 書き戻す文字の符号化。2007 より前の版のコード・ページで表せない文字は書かず、最初のものを覚えておく
+/// （決定 0192）
+pub(super) struct Encoder {
+    charset: Charset,
+    unencodable: std::cell::Cell<Option<char>>,
+}
+
+impl Encoder {
+    pub(super) fn new(charset: Charset) -> Self {
+        Self {
+            charset,
+            unencodable: std::cell::Cell::new(None),
+        }
+    }
+
+    /// 文字の値を符号化する。表せない文字があれば `None`
+    pub(super) fn encode(&self, value: &str) -> Option<Vec<u8>> {
+        match self.charset.encode(value) {
+            Ok(bytes) => Some(bytes),
+            Err(character) => {
+                if self.unencodable.get().is_none() {
+                    self.unencodable.set(Some(character));
+                }
+                None
+            }
+        }
+    }
+
+    /// 覚えておいた、表せない文字を取り出す
+    fn take(&self) -> Option<char> {
+        self.unencodable.take()
+    }
+}
+
 /// 変更を確かめる間に読む、今の表と図面モデル
 struct Current<'a> {
     db: &'a AcadDb,
@@ -463,7 +504,10 @@ struct Current<'a> {
     frames: &'a BTreeMap<SheetId, PaperFrame>,
     /// 変更の一覧。除く項目を、同じ一覧のほかの変更が指していないかを調べる
     edits: &'a [Edit],
-    unicode: bool,
+    /// 文字の値の符号化。名前を比べるときに使う
+    charset: Charset,
+    /// 書き戻す文字の符号化
+    encoder: &'a Encoder,
     target: Target,
 }
 
@@ -819,7 +863,7 @@ fn change_element<'e>(
         born,
         positions,
         frames,
-        unicode,
+        encoder,
         target,
         ..
     } = *current;
@@ -929,8 +973,8 @@ fn change_element<'e>(
                 .and_then(|anchor| {
                     let frame = InSpace(anchor.space);
                     let (written, followers) =
-                        revalued(db, positions, was, element, unicode, &frame)?;
-                    let values = replacement(was, &written, object, unicode, &frame)?;
+                        revalued(db, positions, was, element, encoder, &frame)?;
+                    let values = replacement(was, &written, object, encoder, &frame)?;
                     Some((values, followers))
                 })
                 .map(|(values, followers)| {
@@ -944,8 +988,8 @@ fn change_element<'e>(
                 .and_then(|anchor| {
                     let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
                     let (written, followers) =
-                        revalued(db, positions, was, element, unicode, &frame)?;
-                    let values = replacement(was, &written, object, unicode, &frame)?;
+                        revalued(db, positions, was, element, encoder, &frame)?;
+                    let values = replacement(was, &written, object, encoder, &frame)?;
                     Some((values, followers))
                 })
                 .map(|(values, followers)| {
@@ -967,7 +1011,7 @@ fn change_element<'e>(
             anchor(&was.shape)
                 .and_then(|anchor| {
                     let frame = InSpace(anchor.space);
-                    moved(db, positions, was, object, transform, unicode, &frame, true)
+                    moved(db, positions, was, object, transform, encoder, &frame, true)
                 })
                 .map(|values| {
                     replaced.push((position, values.object));
@@ -980,7 +1024,7 @@ fn change_element<'e>(
                 .and_then(|anchor| {
                     let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
                     moved(
-                        db, positions, was, object, transform, unicode, &frame, false,
+                        db, positions, was, object, transform, encoder, &frame, false,
                     )
                 })
                 .map(|values| {
@@ -1451,7 +1495,7 @@ fn moved<P: Copy + PartialEq + transform::Point>(
     was: &Element<P>,
     object: &Object,
     transform: &Affine,
-    unicode: bool,
+    encoder: &Encoder,
     frame: &impl Frame<P>,
     model: bool,
 ) -> Option<Moved> {
@@ -1477,7 +1521,7 @@ fn moved<P: Copy + PartialEq + transform::Point>(
             swung(&object.values, &frame.affine(transform))?
         }
         Shape::Callout(_) => return None,
-        _ => replacement(was, &written, object, unicode, frame)?,
+        _ => replacement(was, &written, object, encoder, frame)?,
     };
     if let (Shape::Text(before), Shape::Text(after)) = (&was.shape, &element.shape) {
         aligned_first(
@@ -1516,7 +1560,7 @@ fn moved<P: Copy + PartialEq + transform::Point>(
                 &attribute.text,
                 &original.text,
                 frame,
-                unicode,
+                encoder,
                 74,
             )?;
             aligned_first(
@@ -1622,7 +1666,7 @@ fn revalued<P: Clone + PartialEq>(
     positions: &BTreeMap<Ref, usize>,
     was: &Element<P>,
     element: &Element<P>,
-    unicode: bool,
+    encoder: &Encoder,
     frame: &impl Frame<P>,
 ) -> Option<(Element<P>, Followers)> {
     let (Shape::Symbol(symbol), Shape::Symbol(original)) = (&element.shape, &was.shape) else {
@@ -1655,7 +1699,7 @@ fn revalued<P: Clone + PartialEq>(
             &attribute.text,
             &before.text,
             frame,
-            unicode,
+            encoder,
             74,
         )?;
         followers.push((position, values));
@@ -1918,7 +1962,7 @@ fn replacement<P: PartialEq>(
     original: &Element<P>,
     element: &Element<P>,
     object: &Object,
-    unicode: bool,
+    encoder: &Encoder,
     frame: &impl Frame<P>,
 ) -> Option<Vec<Value>> {
     if element.layer != original.layer || element.style != original.style {
@@ -2011,10 +2055,10 @@ fn replacement<P: PartialEq>(
             values = lwpolyline(&values, line, was, frame)?;
         }
         (Shape::Text(text), Shape::Text(was), b"TEXT") => {
-            lettering(&mut values, text, was, frame, unicode, 73)?;
+            lettering(&mut values, text, was, frame, encoder, 73)?;
         }
         (Shape::Formatted(text), Shape::Formatted(was), b"MTEXT") => {
-            formatting(&mut values, text, was, frame, unicode)?;
+            formatting(&mut values, text, was, frame, encoder)?;
         }
         (Shape::Symbol(symbol), Shape::Symbol(was), b"INSERT") => {
             placing(&mut values, symbol, was, frame)?;
@@ -2026,7 +2070,7 @@ fn replacement<P: PartialEq>(
             dotting(&mut values, dot, was, frame)?;
         }
         (Shape::Callout(callout), Shape::Callout(was), b"MULTILEADER") => {
-            calling(&mut values, callout, was, frame, unicode)?;
+            calling(&mut values, callout, was, frame, encoder)?;
         }
         _ => return None,
     }
@@ -2241,7 +2285,7 @@ fn lettering<P: PartialEq>(
     text: &Text<P>,
     was: &Text<P>,
     frame: &impl Frame<P>,
-    unicode: bool,
+    encoder: &Encoder,
     vertical_code: i16,
 ) -> Option<()> {
     if text.style != was.style || text.height.meaning != was.height.meaning {
@@ -2294,11 +2338,11 @@ fn lettering<P: PartialEq>(
     if text.content != was.content {
         // DXF の値は 1 行なので、改行は書けない
         let content = &text.content;
-        if !(unicode || content.is_ascii()) || content.contains(['\n', '\r']) {
+        if content.contains(['\n', '\r']) {
             return None;
         }
         let slot = values.iter_mut().find(|v| v.code == 1)?;
-        slot.data = Data::Text(content.as_bytes().to_vec());
+        slot.data = Data::Text(encoder.encode(content)?);
     }
     if text.height.value != was.height.value {
         put(values, 40, positive(frame, &text.height.value)?, &[])?;
@@ -2332,7 +2376,7 @@ fn formatting<P: PartialEq>(
     text: &FormattedText<P>,
     was: &FormattedText<P>,
     frame: &impl Frame<P>,
-    unicode: bool,
+    encoder: &Encoder,
 ) -> Option<()> {
     if text.style != was.style
         || text.flow != was.flow
@@ -2346,7 +2390,7 @@ fn formatting<P: PartialEq>(
     }
     place(values, frame, [10, 20], &text.point, &was.point)?;
     if text.content != was.content {
-        contents(values, &text.content, unicode)?;
+        contents(values, &text.content, encoder)?;
     }
     if text.height.value != was.height.value {
         put(values, 40, positive(frame, &text.height.value)?, &[])?;
@@ -2613,39 +2657,54 @@ fn nonzero(value: f64) -> Option<f64> {
 }
 
 /// MTEXT の内容を、250 バイトずつの区切り（3）と最後の値（1）にして、元の内容の値の場所に置く。区切りは
-/// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）
-fn contents(values: &mut Vec<Value>, content: &str, unicode: bool) -> Option<()> {
-    if !(unicode || content.is_ascii()) || content.contains(['\n', '\r']) {
+/// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）。
+/// 2007 より前の版は、コード・ページで符号化したバイトで数える（決定 0192）
+fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder) -> Option<()> {
+    if content.contains(['\n', '\r']) {
         return None;
+    }
+    // 符号化したバイト列と、文字の境目の位置
+    let chars: Vec<char> = content.chars().collect();
+    let mut bytes = Vec::with_capacity(content.len());
+    let mut boundaries = vec![0];
+    let mut buffer = [0; 4];
+    for c in &chars {
+        bytes.extend(encoder.encode(c.encode_utf8(&mut buffer))?);
+        boundaries.push(bytes.len());
     }
     let at = values.iter().position(|v| matches!(v.code, 1 | 3))?;
     values.retain(|v| !matches!(v.code, 1 | 3));
     let mut chunks = Vec::new();
-    let mut rest = content;
-    while rest.len() > 250 {
-        let mut cut = (0..=250).rev().find(|at| rest.is_char_boundary(*at))?;
+    // 区切りの始まりの、文字の位置
+    let mut first = 0;
+    while bytes.len() - boundaries.get(first)? > 250 {
+        let start = *boundaries.get(first)?;
+        // 1 文字は 1 バイト以上なので、251 文字より先は見ない
+        let mut cut = (first + 1..boundaries.len().min(first + 251))
+            .rev()
+            .find(|&at| boundaries.get(at).is_some_and(|&end| end - start <= 250))?;
         // バイナリの DXF と DWG は、区切りごとに `^ ` や `^J` を戻す。末尾の `^` が対を持たなければ
-        // 次の区切りへ送る。`^^` は 1 組の表記なので、その間では切らない
-        let carets = rest
-            .as_bytes()
-            .get(..cut)?
+        // 次の区切りへ送る。`^^` は 1 組の表記なので、その間では切らない。Shift_JIS の 2 バイト目の `^` は
+        // 文字の一部なので数えない
+        let carets = chars
+            .get(first..cut)?
             .iter()
             .rev()
-            .take_while(|&&byte| byte == b'^')
+            .take_while(|&&c| c == '^')
             .count();
         if !carets.is_multiple_of(2) {
-            cut = cut.checked_sub(1)?;
+            cut = cut.checked_sub(1).filter(|&cut| cut > first)?;
         }
-        let (chunk, tail) = rest.split_at(cut);
         chunks.push(Value {
             code: 3,
-            data: Data::Text(chunk.as_bytes().to_vec()),
+            data: Data::Text(bytes.get(start..*boundaries.get(cut)?)?.to_vec()),
         });
-        rest = tail;
+        first = cut;
     }
+    let start = *boundaries.get(first)?;
     chunks.push(Value {
         code: 1,
-        data: Data::Text(rest.as_bytes().to_vec()),
+        data: Data::Text(bytes.get(start..)?.to_vec()),
     });
     values.splice(at..at, chunks);
     Some(())
@@ -2733,7 +2792,7 @@ fn calling<P: PartialEq>(
     callout: &Callout<P>,
     was: &Callout<P>,
     frame: &impl Frame<P>,
-    unicode: bool,
+    encoder: &Encoder,
 ) -> Option<()> {
     let content = match (&callout.content, &was.content) {
         (content, before) if content == before => None,
@@ -2753,15 +2812,15 @@ fn calling<P: PartialEq>(
                 && text.background == before.background
                 && text.style == before.style;
             let spans = mtext::spans(&text.content, &|value| frame.lifted(value));
+            let encoded = encoder.encode(&text.content)?;
             if !laid
                 || text.spans != spans
-                || !(unicode || text.content.is_ascii())
                 || text.content.contains(['\n', '\r'])
-                || text.content.len() > 250
+                || encoded.len() > 250
             {
                 return None;
             }
-            Some(text.content.as_bytes())
+            Some(encoded)
         }
         _ => return None,
     };
@@ -2810,10 +2869,10 @@ fn calling<P: PartialEq>(
                 seen = true;
             }
             (1, 301) => depth = 0,
-            (1, 304) if let Some(text) = content => {
+            (1, 304) if let Some(text) = &content => {
                 values.push(Value {
                     code: 304,
-                    data: Data::Text(text.to_vec()),
+                    data: Data::Text(text.clone()),
                 });
                 wrote = true;
                 continue;

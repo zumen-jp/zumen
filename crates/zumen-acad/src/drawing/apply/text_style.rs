@@ -15,6 +15,7 @@ use super::{
     real, record_at, removal, unsupported, work,
 };
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
+use crate::drawing::{Charset, charset_of};
 use zumen_base::{Cx, Key, Ref};
 use zumen_drawing::{Drawing2D, Font, FontKind, Seen, TextStyle};
 use zumen_sdk::Error;
@@ -164,8 +165,8 @@ fn value_flags(values: &[Value], code: i16) -> i64 {
 }
 
 /// 文字スタイルを名前（7）で指すか
-fn names(value: &Value, name: &[u8]) -> bool {
-    value.code == 7 && matches!(&value.data, Data::Text(text) if text.eq_ignore_ascii_case(name))
+fn names(value: &Value, name: &[u8], charset: Charset) -> bool {
+    value.code == 7 && matches!(&value.data, Data::Text(text) if charset.same(text, name))
 }
 
 /// DXF の図形でないオブジェクト（表の書式・寸法スタイルなど）が、文字スタイルを名前（7）で指すか
@@ -175,11 +176,16 @@ pub(super) fn named_elsewhere(
     cx: &mut Cx,
     at: &Ref,
 ) -> Result<bool, Error> {
+    let charset = charset_of(db);
     for object in db.objects() {
         work(cx, 1, at)?;
         if !matches!(object.section, Section::Entities | Section::Blocks) {
             count_transform_values(object, at, cx)?;
-            if object.values.iter().any(|value| names(value, name)) {
+            if object
+                .values
+                .iter()
+                .any(|value| names(value, name, charset))
+            {
                 return Ok(true);
             }
         }
@@ -197,6 +203,7 @@ pub(super) fn rename(
     target: Target,
     cx: &mut Cx,
 ) -> Result<(), Error> {
+    let charset = charset_of(db);
     let at = Ref::default();
     for position in 0..db.objects().len() {
         let Some(object) = db.object_mut(position) else {
@@ -213,7 +220,7 @@ pub(super) fn rename(
             continue;
         }
         for value in &mut object.values {
-            if names(value, old) {
+            if names(value, old, charset) {
                 if let Data::Text(text) = &new.data {
                     work(cx, 1 + text.len() as u64 / 1024, &at)?;
                 }
@@ -235,11 +242,11 @@ pub(super) fn rename(
     }
     let renamed: Vec<_> = db
         .variables()
-        .filter(|(_, values)| values.iter().any(|value| names(value, old)))
+        .filter(|(_, values)| values.iter().any(|value| names(value, old, charset)))
         .map(|(name, values)| {
             let values = values
                 .iter()
-                .map(|value| match names(value, old) {
+                .map(|value| match names(value, old, charset) {
                     true => Value {
                         code: value.code,
                         data: new.data.clone(),
@@ -267,13 +274,14 @@ pub(super) fn referenced(
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<bool, Error> {
+    let charset = charset_of(db);
     let Some(Data::Text(name)) = record.first(2) else {
         return Ok(true);
     };
     let handle = record.handle();
     let points = |value: &Value| match &value.data {
         Data::Handle(found) => handle == Some(*found),
-        _ => names(value, name),
+        _ => names(value, name, charset),
     };
     for (at, object) in db.objects().iter().enumerate() {
         work(cx, 1, place)?;
@@ -307,6 +315,7 @@ pub(super) fn removable(record: &Object) -> bool {
 
 /// 足した図形のうち、名前 `name` の文字スタイルを指すものがあるか
 pub(super) fn named_by_new(db: &AcadDb, name: &[u8], cx: &mut Cx) -> Result<bool, Error> {
+    let charset = charset_of(db);
     let at = Ref::default();
     for object in db.objects() {
         work(cx, 1, &at)?;
@@ -314,7 +323,11 @@ pub(super) fn named_by_new(db: &AcadDb, name: &[u8], cx: &mut Cx) -> Result<bool
             && matches!(object.section, Section::Entities | Section::Blocks)
         {
             count_transform_values(object, &at, cx)?;
-            if object.values.iter().any(|value| names(value, name)) {
+            if object
+                .values
+                .iter()
+                .any(|value| names(value, name, charset))
+            {
                 return Ok(true);
             }
         }
@@ -341,6 +354,7 @@ impl TextStyles {
         born: &Born,
         cx: &mut Cx,
     ) -> Result<(), Error> {
+        let charset = charset_of(db);
         if self.records.is_some() {
             return Ok(());
         }
@@ -352,7 +366,7 @@ impl TextStyles {
                 if let Some(Data::Text(name)) = object.first(2)
                     && !name.is_empty()
                 {
-                    self.names.insert(name.to_ascii_lowercase());
+                    self.names.insert(charset.fold(name));
                 }
                 if is_style(object) {
                     records.push(position);
@@ -371,7 +385,7 @@ impl TextStyles {
                 ..
             }) = born.text_value(2, &style.name)
             {
-                self.names.insert(name.to_ascii_lowercase());
+                self.names.insert(charset.fold(&name));
             }
         }
         self.records = Some(records);
@@ -410,6 +424,7 @@ pub(super) fn replace<'e>(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
+        charset,
         db,
         drawing,
         index,
@@ -438,7 +453,7 @@ pub(super) fn replace<'e>(
                         data: Data::Text(name),
                         ..
                     }),
-                ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
+                ) if target == Target::Dxf && !charset.same(old, &name) => {
                     named_elsewhere(db, old, cx, &was.source)?
                 }
                 _ => false,
@@ -455,13 +470,13 @@ pub(super) fn replace<'e>(
         let Some(Data::Text(name)) = find(&values, 2) else {
             return None;
         };
-        if !old.eq_ignore_ascii_case(name) {
+        if !charset.same(old, name) {
             // 名前を変えるなら、ほかの文字スタイルと重ならず、DXF の図形でないオブジェクトが名前で
             // 指していないこと
-            let free = !plan.text_styles.names.contains(&name.to_ascii_lowercase()) && !named;
+            let free = !plan.text_styles.names.contains(&charset.fold(name)) && !named;
             free.then_some(())?;
-            plan.text_styles.names.remove(&old.to_ascii_lowercase());
-            plan.text_styles.names.insert(name.to_ascii_lowercase());
+            plan.text_styles.names.remove(&charset.fold(old));
+            plan.text_styles.names.insert(charset.fold(name));
         }
         if old != name {
             let name = Value {
@@ -490,6 +505,7 @@ pub(super) fn remove<'e>(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
+        charset,
         db,
         drawing,
         index,
@@ -529,7 +545,7 @@ pub(super) fn remove<'e>(
     match planned {
         Some((skip, object)) => {
             if let Some(Data::Text(name)) = object.first(2) {
-                plan.text_styles.names.remove(&name.to_ascii_lowercase());
+                plan.text_styles.names.remove(&charset.fold(name));
                 plan.text_styles.removed.push(name.clone());
             }
             plan.removed.extend(skip);
@@ -550,6 +566,7 @@ pub(super) fn add(
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
+        charset,
         db,
         drawing,
         born,
@@ -583,7 +600,7 @@ pub(super) fn add(
         let Some(Data::Text(name)) = find(&values, 2) else {
             return None;
         };
-        let name = name.to_ascii_lowercase();
+        let name = charset.fold(name);
         (!unstable
             && (target != Target::Dxf || table_end(db, b"STYLE").is_some())
             && plan.text_styles.names.insert(name))

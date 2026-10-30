@@ -181,9 +181,15 @@ fn layers_are_renamed_restyled_and_their_entities_follow() {
             layer: Box::new(new.clone()),
         }],
     );
-    // R2000 の DXF に ASCII でない名前は書けない
+    // コード・ページのない R2000 の DXF に ASCII でない名前は書けない（決定 0192）
     assert_eq!(result.unwrap_err(), Error::Rejected);
-    assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+    assert_eq!(
+        codes,
+        [
+            codes::CHANGE_EDIT_UNSUPPORTED,
+            codes::CHANGE_CHARACTER_UNSUPPORTED
+        ]
+    );
 
     new.name = "Walls".to_owned();
     let (result, codes) = apply(
