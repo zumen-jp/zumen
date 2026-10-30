@@ -1,6 +1,6 @@
 //! 形の値（`geometry`）と図面モデルの形の行き来（決定 0139）。
 //!
-//! 線分・円・円弧・楕円・幅を持たない折れ線・文字・書式つきの文字・ブロックの記号・スプライン・寸法だけを扱う。点は要素の空間か用紙の座標、長さは同じ
+//! 線分・円・円弧・楕円・幅を持たない折れ線・文字・書式つきの文字・ブロックの記号・スプライン・寸法・引出線だけを扱う。点は要素の空間か用紙の座標、長さは同じ
 //! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use std::cell::Cell;
@@ -9,15 +9,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
     Affine, Attribute, Axis, Dimension, DimensionKind as Kind, DimensionText, Edge, Fit, Flow,
-    FormattedText, Grid, HeightMeaning, Horizontal, Label, Length, LineSpacing, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Spline, Symbol,
-    SymbolKey, Text, Vertex, Vertical,
+    FormattedText, Grid, HeightMeaning, Horizontal, Label, Leader, Length, LineSpacing,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, Polyline, Rotation, Shape, Spline,
+    Symbol, SymbolKey, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
 use crate::messages::{
     ArcGeometry, Attachment, CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind,
-    DimensionLabel, EllipseGeometry, FormattedTextGeometry, Geometry, LineGeometry,
+    DimensionLabel, EllipseGeometry, FormattedTextGeometry, Geometry, LeaderGeometry, LineGeometry,
     PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid, TextFit,
     TextGeometry,
 };
@@ -225,6 +225,19 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             })
         }
         Shape::Dimension(dimension) => Geometry::Dimension(dimension_geometry(dimension)?),
+        // 注記の ID は、同じ空間か用紙の要素の並びから、呼ぶ側が書く
+        Shape::Leader(leader) => Geometry::Leader(LeaderGeometry {
+            path: leader
+                .path
+                .iter()
+                .map(|point| Point::xy(*point).to_vec())
+                .collect(),
+            spline: leader.spline,
+            arrow: leader.arrow,
+            annotation: None,
+            style: leader.style.clone(),
+            style_id: None,
+        }),
         _ => return None,
     })
 }
@@ -1064,6 +1077,36 @@ pub(crate) fn shape_of<P: Spot>(
         (Geometry::Dimension(dimension), Some(Shape::Dimension(was))) => {
             Shape::Dimension(dimension_of(dimension, Some(was), origin)?)
         }
+        // 引出線は、経路・曲線か・矢印を替える。注記の参照は元のままにし、足すときは持たない。注記の ID が
+        // 元の注記を指すかは、呼ぶ側が確かめる
+        (Geometry::Leader(leader), was @ (None | Some(Shape::Leader(_)))) => {
+            let was = match was {
+                Some(Shape::Leader(was)) => Some(was),
+                _ => None,
+            };
+            if leader.path.len() < 2 {
+                return Err("geometry/path".to_string());
+            }
+            let path = leader
+                .path
+                .iter()
+                .enumerate()
+                .map(|(index, xy)| point(xy, &format!("path/{index}")))
+                .collect::<Result<Vec<_>, _>>()?;
+            if was.is_none() && leader.annotation.is_some() {
+                return Err("geometry/annotation".to_string());
+            }
+            if leader.style.is_empty() || was.is_some_and(|was| was.style != leader.style) {
+                return Err("geometry/style".to_string());
+            }
+            Shape::Leader(Leader {
+                path,
+                spline: leader.spline,
+                arrow: leader.arrow,
+                annotation: was.and_then(|was| was.annotation.clone()),
+                style: leader.style.clone(),
+            })
+        }
         _ => return mismatch(),
     })
 }
@@ -1247,6 +1290,7 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
         Shape::Curve(Edge::Spline(spline)) => {
             spline.control.first().or(spline.fit.first()).copied()
         }
+        Shape::Leader(leader) => leader.path.first().copied(),
         Shape::Dimension(dimension) => Some(match dimension.kind {
             Kind::Linear { first, .. }
             | Kind::Aligned { first, .. }

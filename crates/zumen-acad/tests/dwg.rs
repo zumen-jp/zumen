@@ -8737,6 +8737,299 @@ fn added_blocks_are_written_back() {
     assert_eq!(out, Err(Error::Rejected));
 }
 
+/// R2000 の DWG の引出線の経路と曲線かを、図面モデルの変更で置き換える（決定 0177）。矢印の印は DWG の LEADER の
+/// 欄にないので、変えると断り、ファイルを変えない
+#[cfg(feature = "drawing")]
+#[test]
+fn drawing_leaders_are_replaced_in_a_dwg() {
+    use zumen_drawing::{Changes, Drawing2D, Edit, Hash, Placed, Seen, Shape, id};
+    use zumen_sdk::{Apply, Lift};
+    let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
+    // 注釈の種類 3（なし）で、2 つの点を持つモデル空間の引出線。注記のハンドルは画層を指す
+    let leader = object(
+        0x2D,
+        0x40,
+        |w| {
+            entity_common(w, 2, 256, 1.0, 0);
+            w.bit(false);
+            w.bs(3);
+            w.bs(0);
+            w.bs(2);
+            for v in [0.0, 0.0, 0.0, 5.0, 5.0, 0.0, 5.0, 5.0, 0.0, 0.0, 0.0, 1.0] {
+                w.bd(v);
+            }
+            for v in [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
+                w.bd(v);
+            }
+            w.bd(1.0);
+            w.bd(1.0);
+            w.bit(true);
+            w.bit(false);
+            w.bs(0);
+            w.bit(false);
+            w.bit(false);
+        },
+        |w| {
+            entity_handles(0x10)(w);
+            w.handle(5, 0x10);
+            w.handle(5, 0x11);
+        },
+    );
+    let mut objects = objects_with_a_block();
+    objects.extend([(0x11, dimstyle), (0x40, leader)]);
+    objects.sort_by_key(|(handle, _)| *handle);
+    let src = with_header_variables(dwg(&objects), 0x58, 0x1F, 4, [10.0, 10.0, 307.0, 220.0]);
+    let lift = |src: &[u8]| -> Drawing2D {
+        let (file, mut diag) = read(src, Limits::default());
+        file.unwrap()
+            .lift(&mut Cx::new(
+                &mut Budget::default(),
+                &mut diag,
+                &CancelToken::new(),
+            ))
+            .unwrap()
+    };
+    let drawing = lift(&src);
+    let space = &drawing.spaces[0];
+    let (index, element) = space
+        .elements
+        .iter()
+        .enumerate()
+        .find(|(_, element)| matches!(element.shape, Shape::Leader(_)))
+        .unwrap();
+    let Shape::Leader(was) = &element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    assert_eq!(was.path.len(), 2);
+    assert_eq!(was.style, "ISO-25");
+    let place = id::space(space.id);
+    let mut namer = id::Namer::new(&place);
+    let target_id = (0..=index)
+        .map(|at| namer.next(at, &space.elements[at]))
+        .last()
+        .unwrap();
+    let apply = |shape: Shape<_>| {
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let mut changed = element.clone();
+        changed.shape = shape;
+        let result = file.apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Replace {
+                    target: Seen {
+                        id: target_id.clone(),
+                        hash: Hash::element(element),
+                    },
+                    element: Box::new(Placed::Model(changed)),
+                }],
+            },
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        );
+        let mut bytes = Vec::new();
+        Dwg::write(
+            &file,
+            &mut bytes,
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        (result, diag, bytes)
+    };
+    let mut moved = was.clone();
+    moved.path[0].x = 1.0;
+    moved.path.push(moved.path[1]);
+    moved.path[1].y = 2.0;
+    moved.spline = true;
+    let (result, diag, written) = apply(Shape::Leader(moved.clone()));
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    let again = lift(&written);
+    let found = again.spaces[0]
+        .elements
+        .iter()
+        .find_map(|element| match &element.shape {
+            Shape::Leader(leader) => Some(leader.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(found, moved);
+
+    let mut arrowed = was.clone();
+    arrowed.arrow = Some(true);
+    let (result, diag, written) = apply(Shape::Leader(arrowed));
+    assert_eq!(result.unwrap_err(), Error::Rejected);
+    assert!(!codes_of(&diag).is_empty());
+    assert_eq!(written, src);
+}
+
+/// 記号の定義の空間に、図面モデルの変更で要素を足す（決定 0177）。L1 の書き戻しでブロック Two を足した DWG を
+/// 作り、その定義に円を足して読み直す。引出線は DWG にまだ足せないので断り、ファイルを変えない
+#[cfg(feature = "drawing")]
+#[test]
+fn drawing_additions_go_into_symbol_definitions() {
+    use zumen_base::Ref;
+    use zumen_drawing::{
+        Changes, Drawing2D, Edit, Element, Inherit, Leader, Length, ModelLength, ModelPoint,
+        Placed, Shape, Style, id,
+    };
+    use zumen_sdk::{Apply, Lift};
+    let real = |code, value| Value {
+        code,
+        data: Data::Real(value),
+    };
+    let src = layer_table_with_seed();
+    let (base, _) = objects(&src);
+    let mut db = base.clone();
+    db.push(Object {
+        kind: b"BLOCK_RECORD".to_vec(),
+        section: Section::Tables,
+        values: vec![
+            Value {
+                code: 5,
+                data: Data::Handle(0x80),
+            },
+            Value {
+                code: 330,
+                data: Data::Handle(0x5F),
+            },
+            Value {
+                code: 2,
+                data: Data::Text(b"Two".to_vec()),
+            },
+        ],
+        origin: Origin::New,
+    });
+    let owned = |db: AcadDb, handle: u64, kind: &[u8], values: Vec<Value>| {
+        let mut db = with_added_values(&db, handle, kind, values);
+        let at = db.objects().len() - 1;
+        for value in &mut db.object_mut(at).unwrap().values {
+            if value.code == 330 {
+                value.data = Data::Handle(0x80);
+            }
+        }
+        db
+    };
+    let db = owned(
+        db,
+        0x81,
+        b"BLOCK",
+        vec![
+            Value {
+                code: 2,
+                data: Data::Text(b"Two".to_vec()),
+            },
+            real(10, 0.0),
+            real(20, 0.0),
+            real(30, 0.0),
+        ],
+    );
+    let db = owned(
+        db,
+        0x82,
+        b"LINE",
+        vec![
+            real(10, 0.0),
+            real(20, 0.0),
+            real(30, 0.0),
+            real(11, 1.0),
+            real(21, 1.0),
+            real(31, 0.0),
+        ],
+    );
+    let db = owned(db, 0x83, b"ENDBLK", Vec::new());
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &db);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let src = out.unwrap();
+
+    let lift = |src: &[u8]| -> Drawing2D {
+        let (file, mut diag) = read(src, Limits::default());
+        file.unwrap()
+            .lift(&mut Cx::new(
+                &mut Budget::default(),
+                &mut diag,
+                &CancelToken::new(),
+            ))
+            .unwrap()
+    };
+    let drawing = lift(&src);
+    let definition = drawing
+        .symbols
+        .iter()
+        .find(|symbol| symbol.key.name == "Two")
+        .unwrap();
+    let place = id::DefinitionNamer::default().next(definition);
+    assert_eq!(place, "space/h81");
+    assert_eq!(definition.space.elements.len(), 1);
+    let space = definition.space.id;
+    let at = |x: f64, y: f64| ModelPoint { space, x, y };
+    let element = |shape| Element {
+        source: Ref::default(),
+        layer: definition.space.elements[0].layer,
+        style: Style {
+            color: Inherit::Layer,
+            line_type: Inherit::Layer,
+            line_type_scale: 1.0,
+            line_weight: Some(Inherit::Layer),
+            transparency: Inherit::Layer,
+        },
+        shape,
+    };
+    let circle = element(Shape::Circle {
+        center: at(0.5, 0.5),
+        radius: Length::Model(ModelLength { space, value: 2.0 }),
+    });
+    let apply = |src: &[u8], shape| {
+        let mut file = read(src, Limits::default()).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let result = file.apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Add {
+                    place: place.clone(),
+                    element: Box::new(Placed::Model(element(shape))),
+                }],
+            },
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        );
+        let mut bytes = Vec::new();
+        Dwg::write(
+            &file,
+            &mut bytes,
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        (result, diag, bytes)
+    };
+    let (result, diag, written) = apply(&src, circle.shape.clone());
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    let again = lift(&written);
+    let definition = again
+        .symbols
+        .iter()
+        .find(|symbol| symbol.key.name == "Two")
+        .unwrap();
+    assert_eq!(definition.space.elements.len(), 2);
+    assert_eq!(definition.space.elements[1].shape, circle.shape);
+    assert!(again.spaces.iter().all(|space| {
+        space
+            .elements
+            .iter()
+            .all(|element| !matches!(element.shape, Shape::Circle { .. }))
+    }));
+
+    let leader = Shape::Leader(Leader {
+        path: vec![at(0.0, 0.0), at(1.0, 1.0)],
+        spline: false,
+        arrow: None,
+        annotation: None,
+        style: "Standard".to_owned(),
+    });
+    let (result, diag, written) = apply(&src, leader);
+    assert_eq!(result.unwrap_err(), Error::Rejected);
+    assert_eq!(codes_of(&diag), [codes::CHANGE_EDIT_UNSUPPORTED]);
+    assert_eq!(written, src);
+}
+
 #[test]
 fn header_variables_are_written_back() {
     let src = with_header_variables(

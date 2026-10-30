@@ -327,6 +327,9 @@ impl StyleIds {
             messages::Geometry::Dimension(dimension) => {
                 dimension.style_id = self.dimension.get(&dimension.style).cloned();
             }
+            messages::Geometry::Leader(leader) => {
+                leader.style_id = self.dimension.get(&leader.style).cloned();
+            }
             _ => {}
         }
     }

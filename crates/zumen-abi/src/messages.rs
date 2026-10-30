@@ -1158,6 +1158,8 @@ pub struct EntitiesRequest {
     pub fields: Option<Vec<EntityField>>,
     /// [最小の X, 最小の Y, 最大の X, 最大の Y]。範囲がこの長方形と重なるか接する要素だけを返す。空間か用紙それぞれの座標で比べる（決定 0118）
     pub region: Option<Vec<f64>>,
+    /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。小版 31 から（決定 0177）
+    pub place: Option<String>,
 }
 
 impl EntitiesRequest {
@@ -1170,6 +1172,7 @@ impl EntitiesRequest {
         let fields =
             object.optional("fields", |value| json::array(value, EntityField::from_json))?;
         let region = object.optional("region", |value| json::array(value, json::number))?;
+        let place = object.optional("place", json::string)?;
         Ok(Self {
             request_common,
             doc,
@@ -1177,6 +1180,7 @@ impl EntitiesRequest {
             limit,
             fields,
             region,
+            place,
         })
     }
 
@@ -1201,6 +1205,10 @@ impl EntitiesRequest {
         if let Some(value) = &self.region {
             out.key("region");
             out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.place {
+            out.key("place");
+            out.string(value);
         }
     }
 }
@@ -1291,7 +1299,7 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
     pub geometry: Option<Geometry>,
 }
 
@@ -1457,6 +1465,8 @@ pub enum Geometry {
     Spline(SplineGeometry),
     /// 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から
     Dimension(DimensionGeometry),
+    /// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときは注記を持たない。DWG は R2004 までの置き換えだけを書き戻す。小版 31 から
+    Leader(LeaderGeometry),
 }
 
 impl Geometry {
@@ -1472,6 +1482,7 @@ impl Geometry {
         "symbol",
         "spline",
         "dimension",
+        "leader",
     ];
 
     /// 目印の欄（`shape`）の値
@@ -1487,6 +1498,7 @@ impl Geometry {
             Self::Symbol(_) => "symbol",
             Self::Spline(_) => "spline",
             Self::Dimension(_) => "dimension",
+            Self::Leader(_) => "leader",
         }
     }
 }
@@ -1507,6 +1519,7 @@ impl FromJson for Geometry {
             "symbol" => Self::Symbol(SymbolGeometry::read_fields(&mut object)?),
             "spline" => Self::Spline(SplineGeometry::read_fields(&mut object)?),
             "dimension" => Self::Dimension(DimensionGeometry::read_fields(&mut object)?),
+            "leader" => Self::Leader(LeaderGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -1527,6 +1540,7 @@ impl ToJson for Geometry {
             Self::Symbol(value) => value.to_json(out),
             Self::Spline(value) => value.to_json(out),
             Self::Dimension(value) => value.to_json(out),
+            Self::Leader(value) => value.to_json(out),
         }
     }
 }
@@ -2373,6 +2387,87 @@ impl FromJson for DimensionGeometry {
 }
 
 impl ToJson for DimensionGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときは注記を持たない。DWG は R2004 までの置き換えだけを書き戻す。小版 31 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct LeaderGeometry {
+    /// 経路の頂点 [[X, Y], ...]。矢印の側から並べる。2 つ以上
+    pub path: Vec<Vec<f64>>,
+    /// 頂点を通る曲線で結ぶか。偽なら折れ線
+    pub spline: bool,
+    /// 始点に矢印を付けるか。書かなければ寸法スタイルに従う
+    pub arrow: Option<bool>,
+    /// 注記の要素の ID。同じ空間か用紙の要素で、entities が返したもの。注記がなければ書かない。置き換えるときは元と同じ ID だけを受け、足すときは受けない
+    pub annotation: Option<String>,
+    /// 寸法スタイルの元の名前。足すときは図面にある寸法スタイルの名前を指す。置き換えるときは元と同じ名前だけを受ける
+    pub style: String,
+    /// 寸法スタイルの ID。tables が返したもの。entities は、名前で引いた寸法スタイルの ID を返す。足す・置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける
+    pub style_id: Option<String>,
+}
+
+impl LeaderGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "leader")?;
+        let path = object.required("path", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let spline = object.required("spline", json::boolean)?;
+        let arrow = object.optional("arrow", json::boolean)?;
+        let annotation = object.optional("annotation", json::string)?;
+        let style = object.required("style", json::string)?;
+        let style_id = object.optional("style_id", json::string)?;
+        Ok(Self {
+            path,
+            spline,
+            arrow,
+            annotation,
+            style,
+            style_id,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("leader");
+        out.key("path");
+        out.array(&self.path, |out, item| {
+            out.array(item, |out, item| out.float(*item))
+        });
+        out.key("spline");
+        out.bool(self.spline);
+        if let Some(value) = &self.arrow {
+            out.key("arrow");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.annotation {
+            out.key("annotation");
+            out.string(value);
+        }
+        out.key("style");
+        out.string(&self.style);
+        if let Some(value) = &self.style_id {
+            out.key("style_id");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for LeaderGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LeaderGeometry {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -3447,7 +3542,7 @@ impl ToJson for ReplaceEdit {
 /// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct AddEdit {
-    /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分
+    /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。小版 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）
     pub place: String,
     /// レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0
     pub layer: Option<String>,

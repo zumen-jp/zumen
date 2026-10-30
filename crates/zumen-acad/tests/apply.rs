@@ -3665,7 +3665,7 @@ fn elements_of_symbol_definitions_are_changed_by_id() {
     assert_eq!(applied[0].hash, Some(line_id.hash));
     assert_eq!(applied[1].hash, Some(circle_id.hash));
 
-    // 定義の要素は除ける。定義の空間に足すことは、まだしない
+    // 定義の要素は除ける。ブロックのレコードを持たない定義の空間には足さない（決定 0177）
     let mut file = testkit::read::<Dxf>(&defined()).0.unwrap();
     let mut budget = Budget::default();
     let mut diag = Diagnostics::new();
@@ -4456,4 +4456,125 @@ fn e10_title_block_attribute_values_are_replaced() {
     assert!(text.contains("  1\nDWG A-101\n  2\nA\n"), "{text}");
     let after = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
     assert_eq!(after.last().unwrap().shape, element.shape);
+}
+
+/// ブロック B のレコードと定義（線分 1 本）を持つ R2000 の DXF
+#[cfg(test)]
+fn recorded_definition() -> Vec<u8> {
+    let tags: &[(i16, &str)] = &[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (9, "$ACADVER"),
+        (1, "AC1015"),
+        (9, "$HANDSEED"),
+        (5, "100"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "BLOCK_RECORD"),
+        (0, "BLOCK_RECORD"),
+        (5, "1F"),
+        (2, "*Model_Space"),
+        (0, "BLOCK_RECORD"),
+        (5, "20"),
+        (2, "B"),
+        (0, "ENDTAB"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (5, "30"),
+        (330, "20"),
+        (8, "0"),
+        (2, "B"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (0, "LINE"),
+        (5, "31"),
+        (330, "20"),
+        (8, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "0.0"),
+        (31, "0.0"),
+        (0, "ENDBLK"),
+        (5, "32"),
+        (330, "20"),
+        (8, "0"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ];
+    dxf_tags(tags)
+}
+
+#[cfg(test)]
+fn dxf_tags(tags: &[(i16, &str)]) -> Vec<u8> {
+    let mut out = String::new();
+    for (code, value) in tags {
+        out.push_str(&format!("{code:>3}\n{value}\n"));
+    }
+    out.into_bytes()
+}
+
+/// 定義の空間に足す線分は、ブロックのレコードを所有者とし、ENDBLK の前に置く。挿入の作業量を変える前に数え、
+/// 予算を超えればファイルを変えない（決定 0177）
+#[test]
+fn additions_to_symbol_definitions_go_before_endblk_within_the_budget() {
+    use zumen_base::{Kind, Limit, Limits};
+    use zumen_drawing::{Edit, Placed};
+    let src = recorded_definition();
+    let file = testkit::read::<Dxf>(&src).0.unwrap();
+    let drawing = lift(&file);
+    let [(_, line)] = <[_; 1]>::try_from(defined_elements(&drawing)).unwrap();
+    let mut added = line.clone();
+    added.source = Ref::default();
+    let Shape::Line { end, .. } = &mut added.shape else {
+        panic!("{:?}", added.shape);
+    };
+    end.y = 5.0;
+    let changes = zumen_drawing::Changes {
+        edits: vec![Edit::Add {
+            place: "space/h30".to_owned(),
+            element: Box::new(Placed::Model(added.clone())),
+        }],
+        document: None,
+    };
+    let cancel = CancelToken::new();
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let applied = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+    let used = budget.used(Kind::Work);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = defined_elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(after.len(), 2);
+    assert_eq!(after[1].1.shape, added.shape);
+    assert_eq!(applied[0].id.as_deref(), Some(after[1].0.id.as_str()));
+    let text = String::from_utf8(written).unwrap();
+    let line_at = text.rfind("LINE\n  5\n100\n330\n20\n").unwrap();
+    assert!(line_at < text.find("ENDBLK").unwrap(), "{text}");
+
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(used - 1)));
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &changes,
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }

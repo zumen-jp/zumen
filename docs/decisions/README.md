@@ -210,3 +210,4 @@
 - [0174: 計画の優先順と状態を、全体計画 #1 の下の issue の並び・ラベル・依存で持つ](0174-plan-in-issues.md)（2026-10-30、採用）
 - [0175: 2007 より前の版の ANSI_932 の文字は、zumen-acad が encoding_rs で Shift_JIS として戻す](0175-acad-code-page-shift-jis.md)（2026-10-30、採用）
 - [0176: 1 行の文字は、呼び出し側が渡す字形の寸法で置き、字形の座標を図面へ写す変換で返す](0176-text-layout-with-glyph-metrics.md)（2026-10-30、採用）
+- [0177: 引出線を形で置き換えて足し、記号の定義の中にも要素を足す](0177-drawing-apply-leaders-and-definitions.md)（2026-10-30、採用）

@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_base::{Key, Ref, codes, name};
-use zumen_drawing::{Applied, Drawing2D, Element, Encode, Hash, Placement, Shape, Unit, id};
+use zumen_drawing::{
+    Applied, Drawing2D, Element, Encode, Hash, Leader, Placement, Shape, Unit, id,
+};
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Apply, Codec, Lift};
@@ -405,14 +407,38 @@ impl Session {
             items: Vec::new(),
             style_ids: None,
         };
+        // 空間か用紙を指せば、その要素だけを返す。記号の定義の空間は、指したときだけ返す（決定 0177）
+        let wanted = |place: &str| {
+            request
+                .place
+                .as_deref()
+                .is_none_or(|wanted| wanted == place)
+        };
         for space in &drawing.spaces {
-            page.collect(&drawing, &id::space(space.id), &space.elements, cx)?;
+            let place = id::space(space.id);
+            if wanted(&place) {
+                page.collect(&drawing, &place, &space.elements, cx)?;
+            }
+        }
+        if request.place.is_some() {
+            let mut definitions = id::DefinitionNamer::default();
+            for definition in &drawing.symbols {
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| fail(cx, stop.to_diagnostic()))?;
+                let place = definitions.next(definition);
+                if wanted(&place) {
+                    page.collect(&drawing, &place, &definition.space.elements, cx)?;
+                }
+            }
         }
         let mut sheets = id::SheetNamer::default();
         for sheet in &drawing.sheets {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| fail(cx, stop.to_diagnostic()))?;
-            page.collect(&drawing, &sheets.next(sheet), &sheet.elements, cx)?;
+            let place = sheets.next(sheet);
+            if wanted(&place) {
+                page.collect(&drawing, &place, &sheet.elements, cx)?;
+            }
         }
         let total = page.position;
         Ok(EntitiesResult {
@@ -693,6 +719,9 @@ impl Page {
         cx: &mut Cx<'_>,
     ) -> Result<(), Failed> {
         let mut namer = id::Namer::new(place);
+        // 引出線の注記の出所から、同じ並びの要素の ID。注記を持つ引出線の形の値を返すときに作る。同じ出所の
+        // 要素が複数あれば、どれか決まらないので `None`
+        let mut annotations: Option<BTreeMap<&Ref, Option<String>>> = None;
         for (index, element) in elements.iter().enumerate() {
             let id = namer.next(index, element);
             let mut bbox = None;
@@ -762,9 +791,36 @@ impl Page {
                 if self.style_ids.is_none() {
                     self.style_ids = Some(StyleIds::new(drawing, cx)?);
                 }
+                let annotation = match &element.shape {
+                    Shape::Leader(Leader {
+                        annotation: Some(annotation),
+                        ..
+                    }) => {
+                        if annotations.is_none() {
+                            let mut found = BTreeMap::new();
+                            let mut namer = id::Namer::new(place);
+                            for (index, element) in elements.iter().enumerate() {
+                                cx.check(Kind::Work, 1).map_err(|stop| stop_at(cx, stop))?;
+                                let id = namer.next(index, element);
+                                found
+                                    .entry(&element.source)
+                                    .and_modify(|id: &mut Option<String>| *id = None)
+                                    .or_insert(Some(id));
+                            }
+                            annotations = Some(found);
+                        }
+                        annotations
+                            .as_ref()
+                            .and_then(|found| found.get(annotation).cloned().flatten())
+                    }
+                    _ => None,
+                };
                 geometry::geometry_of(&element.shape).map(|mut geometry| {
                     if let Some(ids) = &self.style_ids {
                         ids.fill(&mut geometry);
+                    }
+                    if let messages::Geometry::Leader(leader) = &mut geometry {
+                        leader.annotation = annotation;
                     }
                     geometry
                 })
@@ -1411,7 +1467,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":30}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":31}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3409,6 +3465,218 @@ mod tests {
             diagnostics.iter().next().unwrap().code(),
             codes::BUDGET_WORK_EXCEEDED
         );
+    }
+
+    /// 寸法スタイル Standard と、注記の MTEXT と、それを指す引出線を持つ R2000 の DXF。ブロック B と名前のない
+    /// ブロック *U1 は、ブロックのレコードを持つ
+    const LEADERS: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n\
+        9\n$HANDSEED\n5\n100\n0\nENDSEC\n\
+        0\nSECTION\n2\nTABLES\n\
+        0\nTABLE\n2\nLAYER\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nENDTAB\n\
+        0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n105\n27\n2\nStandard\n70\n0\n0\nENDTAB\n\
+        0\nTABLE\n2\nBLOCK_RECORD\n0\nBLOCK_RECORD\n5\n1F\n2\n*Model_Space\n\
+        0\nBLOCK_RECORD\n5\n20\n2\nB\n0\nBLOCK_RECORD\n5\n21\n2\n*U1\n0\nENDTAB\n0\nENDSEC\n\
+        0\nSECTION\n2\nBLOCKS\n\
+        0\nBLOCK\n5\n30\n330\n20\n8\n0\n2\nB\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n\
+        0\nLINE\n5\n31\n330\n20\n8\n0\n10\n0.0\n20\n0.0\n30\n0.0\n11\n1.0\n21\n0.0\n31\n0.0\n\
+        0\nENDBLK\n5\n32\n330\n20\n8\n0\n\
+        0\nBLOCK\n5\n33\n330\n21\n8\n0\n2\n*U1\n70\n1\n10\n0.0\n20\n0.0\n30\n0.0\n\
+        0\nENDBLK\n5\n34\n330\n21\n8\n0\n0\nENDSEC\n\
+        0\nSECTION\n2\nENTITIES\n\
+        0\nMTEXT\n5\n40\n330\n1F\n8\n0\n10\n10.0\n20\n5.0\n30\n0.0\n40\n2.5\n1\nNOTE\n\
+        0\nLEADER\n5\n41\n330\n1F\n8\n0\n3\nStandard\n71\n1\n72\n0\n73\n0\n74\n1\n75\n0\n\
+        40\n2.5\n41\n10.0\n76\n2\n10\n0.0\n20\n0.0\n30\n0.0\n10\n10.0\n20\n5.0\n30\n0.0\n340\n40\n\
+        0\nENDSEC\n0\nEOF\n";
+
+    #[test]
+    fn replaces_and_adds_leaders_by_their_geometry() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", LEADERS).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let leader = r#"{"shape":"leader","path":[[0,0],[10,5]],"spline":false,"arrow":true,"annotation":"space/0/h40","style":"Standard","style_id":"dimension-style/h27"}"#;
+        let before = shapes(&mut session, "a.dxf");
+        assert_eq!(before.len(), 2);
+        assert_eq!(before[1], leader);
+        let (id, hash) = seen(&mut session, "a.dxf").remove(1);
+        let replace = |geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+            )
+        };
+        let add = |geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+            )
+        };
+        // 注記と寸法スタイルは変えず、足す引出線は注記を持たない。合わない欄を指して失敗し、何も変えない
+        for (request, pointer) in [
+            (
+                replace(
+                    r#"{"shape":"leader","path":[[0,0],[10,5]],"spline":false,"style":"Standard"}"#,
+                ),
+                "/edits/0/geometry/annotation",
+            ),
+            (
+                replace(
+                    r#"{"shape":"leader","path":[[0,0],[10,5]],"spline":false,"annotation":"space/0/h41","style":"Standard"}"#,
+                ),
+                "/edits/0/geometry/annotation",
+            ),
+            (
+                replace(
+                    r#"{"shape":"leader","path":[[0,0],[10,5]],"spline":false,"annotation":"space/0/h40","style":"Other"}"#,
+                ),
+                "/edits/0/geometry/style",
+            ),
+            (
+                replace(
+                    r#"{"shape":"leader","path":[[0,0]],"spline":false,"annotation":"space/0/h40","style":"Standard"}"#,
+                ),
+                "/edits/0/geometry/path",
+            ),
+            (
+                add(
+                    r#"{"shape":"leader","path":[[0,0],[1,1]],"spline":false,"annotation":"space/0/h40","style":"Standard"}"#,
+                ),
+                "/edits/0/geometry/annotation",
+            ),
+            (
+                add(
+                    r#"{"shape":"leader","path":[[0,0],[1,1]],"spline":false,"style":"Other","style_id":"dimension-style/h27"}"#,
+                ),
+                "/edits/0/geometry/style_id",
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+        }
+        // 図面にない寸法スタイルの引出線は足さない
+        let (status, response) = call(
+            &mut session,
+            &add(r#"{"shape":"leader","path":[[0,0],[1,1]],"spline":false,"style":"Other"}"#),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+        assert_eq!(shapes(&mut session, "a.dxf"), before);
+
+        // 経路・曲線か・矢印を置き換え、注記のない引出線を足す
+        let replaced = r#"{"shape":"leader","path":[[1,1],[10,5],[20,5]],"spline":true,"arrow":false,"annotation":"space/0/h40","style":"Standard","style_id":"dimension-style/h27"}"#;
+        let added = r#"{"shape":"leader","path":[[0,10],[5,15]],"spline":false,"style":"Standard","style_id":"dimension-style/h27"}"#;
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{replaced}}},{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(shapes(&mut session, "a.dxf"), [&before[0], replaced, added]);
+        let after = seen(&mut session, "a.dxf");
+        assert_eq!(text(&response, "/result/applied/0/id"), id);
+        assert_eq!(text(&response, "/result/applied/1/id"), after[2].0);
+        assert_eq!(text(&response, "/result/applied/1/hash"), after[2].1);
+        // 矢印を寸法スタイルに従わせると、71 を除く
+        let (id, hash) = after[1].clone();
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{}}}]}}"#,
+            replaced.replace(r#""arrow":false,"#, "")
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            shapes(&mut session, "a.dxf")[1],
+            replaced.replace(r#""arrow":false,"#, "")
+        );
+    }
+
+    #[test]
+    fn leaders_are_not_added_to_r12_dxf() {
+        let mut session = Session::new(b"").unwrap();
+        let r12 = std::str::from_utf8(EDITABLE)
+            .unwrap()
+            .replace("AC1015", "AC1009");
+        session.push(b"a.dxf", r12.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = shapes(&mut session, "a.dxf");
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"leader","path":[[0,0],[1,1]],"spline":false,"style":"Standard"}}]}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+        assert_eq!(shapes(&mut session, "a.dxf"), before);
+    }
+
+    #[test]
+    fn adds_elements_to_symbol_definitions() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", LEADERS).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let defined = |session: &mut Session| {
+            let (_, response) = call(
+                session,
+                r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["hash","geometry"],"place":"space/h30"}"#,
+            );
+            let Some(Value::Array(items)) = response.pointer("/result/items") else {
+                panic!("{response:?}");
+            };
+            items
+                .iter()
+                .map(|item| {
+                    let mut out = Writer::new();
+                    out.value(item);
+                    String::from_utf8(out.into_bytes()).unwrap()
+                })
+                .collect::<Vec<_>>()
+        };
+        let line = r#"{"shape":"line","start":[0,0],"end":[1,0]}"#;
+        let before = defined(&mut session);
+        assert_eq!(before.len(), 1);
+        assert!(
+            before[0].starts_with(r#"{"id":"space/h30/h31""#),
+            "{before:?}"
+        );
+        // 場所を指さなければ、定義の中の要素は返さない
+        assert_eq!(shapes(&mut session, "a.dxf").len(), 2);
+        let add = |place: &str, geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"{place}","geometry":{geometry}}}]}}"#
+            )
+        };
+        // 名前のない定義と、記号を定義に足すことは断り、何も変えない
+        for request in [
+            add("space/h33", line),
+            add(
+                "space/h30",
+                r#"{"shape":"symbol","name":"B","position":[0,0],"scale":[1,1],"rotation":0}"#,
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+        }
+        assert_eq!(defined(&mut session), before);
+        // 線分と引出線を定義に足す。読み直すと定義の要素の終わりに並び、apply が返す ID とハッシュで引ける
+        let leader = r#"{"shape":"leader","path":[[0,0],[2,2]],"spline":false,"style":"Standard"}"#;
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/h30","geometry":{{"shape":"circle","center":[0,0],"radius":2}}}},{{"kind":"add","place":"space/h30","geometry":{leader}}}]}}"#
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let after = defined(&mut session);
+        assert_eq!(after.len(), 3);
+        assert_eq!(after[0], before[0]);
+        for (index, item) in [(0, &after[1]), (1, &after[2])] {
+            let id = text(&response, &format!("/result/applied/{index}/id"));
+            let hash = text(&response, &format!("/result/applied/{index}/hash"));
+            assert!(id.starts_with("space/h30/h"), "{id}");
+            assert!(
+                item.starts_with(&format!(r#"{{"id":"{id}","hash":"{hash}","#)),
+                "{item}"
+            );
+        }
+        assert!(after[1].ends_with(r#""geometry":{"shape":"circle","center":[0,0],"radius":2}}"#));
+        assert!(after[2].contains(r#""path":[[0,0],[2,2]]"#), "{}", after[2]);
+        // 実寸の空間の要素は変わらない
+        assert_eq!(shapes(&mut session, "a.dxf").len(), 2);
     }
 
     #[test]

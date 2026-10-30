@@ -73,6 +73,12 @@ pub(crate) fn changes(
                 .map_or(0, String::len)
                 .saturating_add(text.style_id.as_ref().map_or(0, String::len)),
             Some(messages::Geometry::Symbol(symbol)) => symbol.name.len(),
+            Some(messages::Geometry::Leader(leader)) => leader
+                .path
+                .len()
+                .saturating_add(leader.style.len())
+                .saturating_add(leader.style_id.as_ref().map_or(0, String::len))
+                .saturating_add(leader.annotation.as_ref().map_or(0, String::len)),
             _ => 0,
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -352,6 +358,38 @@ pub(crate) fn changes(
                 let geometry = named_style(&edit.geometry, tables.as_ref())
                     .map_err(|field| fail(cx, invalid_value(at(field))))?;
                 // 指した要素がなければ、除くときと同じく `change.element.missing` にする
+                // 引出線の注記は元のままにする。注記の ID は、元の注記の要素を指すものだけを受ける
+                if let messages::Geometry::Leader(leader) = &*geometry {
+                    let was = match elements.as_ref().and_then(|index| index.get(&edit.id)) {
+                        Some(FoundElement::Model(Element {
+                            shape: Shape::Leader(was),
+                            ..
+                        })) => Some(&was.annotation),
+                        Some(FoundElement::Paper(Element {
+                            shape: Shape::Leader(was),
+                            ..
+                        })) => Some(&was.annotation),
+                        _ => None,
+                    };
+                    if let (Some(was), Some(index)) = (was, elements.as_ref()) {
+                        let kept = match (&leader.annotation, was) {
+                            (Some(id), Some(was)) => index.get(id).is_some_and(|found| {
+                                let source = match found {
+                                    FoundElement::Model(found) => &found.source,
+                                    FoundElement::Paper(found) => &found.source,
+                                };
+                                source == was
+                            }),
+                            (Some(_), None) => false,
+                            (None, None) => true,
+                            // entities は、注記の要素がなければ ID を書かない
+                            (None, Some(was)) => !index.has_source(was, cx)?,
+                        };
+                        if !kept {
+                            return Err(fail(cx, invalid_value(at("geometry/annotation"))));
+                        }
+                    }
+                }
                 let element = match elements.as_ref().and_then(|index| index.get(&edit.id)) {
                     Some(FoundElement::Model(element)) => {
                         count_old_element(element, cx)?;
@@ -575,6 +613,21 @@ impl<'a> ElementLookup<'a> {
     pub(crate) fn get(&self, id: &str) -> Option<&FoundElement<'a>> {
         self.0.get(id)
     }
+
+    /// 出所が `source` の要素があるか
+    fn has_source(&self, source: &Ref, cx: &mut Cx<'_>) -> Result<bool, Failed> {
+        for found in self.0.values() {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let at = match found {
+                FoundElement::Model(found) => &found.source,
+                FoundElement::Paper(found) => &found.source,
+            };
+            if at == source {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 /// 足す先の検索を変更ごとに繰り返さないための索引。
@@ -596,6 +649,18 @@ impl PlaceLookup {
                     y: 0.0,
                 },
             );
+        }
+        // 記号の定義の空間（決定 0177）
+        let mut definitions = id::DefinitionNamer::default();
+        for definition in &drawing.symbols {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            spaces
+                .entry(definitions.next(definition))
+                .or_insert(ModelPoint {
+                    space: definition.space.id,
+                    x: 0.0,
+                    y: 0.0,
+                });
         }
         let mut sheets = BTreeMap::new();
         let mut namer = id::SheetNamer::default();
@@ -725,6 +790,7 @@ fn has_style_id(geometry: &messages::Geometry) -> bool {
     match geometry {
         messages::Geometry::Text(text) => text.style_id.is_some(),
         messages::Geometry::FormattedText(text) => text.style_id.is_some(),
+        messages::Geometry::Leader(leader) => leader.style_id.is_some(),
         _ => false,
     }
 }
@@ -737,6 +803,23 @@ fn named_style<'g>(
     let (style, wanted) = match geometry {
         messages::Geometry::Text(text) => (&text.style, &text.style_id),
         messages::Geometry::FormattedText(text) => (&text.style, &text.style_id),
+        // 引出線は寸法スタイルを指す。ID は、名前と同じ寸法スタイルを指すものだけを受ける
+        messages::Geometry::Leader(leader) => {
+            let Some(wanted) = &leader.style_id else {
+                return Ok(Cow::Borrowed(geometry));
+            };
+            let found = tables
+                .and_then(|tables| tables.dimension_styles.get(wanted.as_str()))
+                .ok_or("geometry/style_id")?;
+            if found.name != leader.style {
+                return Err("geometry/style_id");
+            }
+            let mut geometry = geometry.clone();
+            if let messages::Geometry::Leader(leader) = &mut geometry {
+                leader.style_id = None;
+            }
+            return Ok(Cow::Owned(geometry));
+        }
         _ => return Ok(Cow::Borrowed(geometry)),
     };
     let Some(wanted) = wanted else {

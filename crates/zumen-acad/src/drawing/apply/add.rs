@@ -13,8 +13,8 @@ use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::drawing::{BLOCK, Home, mtext};
 use zumen_drawing::{
     Attribute, ColorSystem, Drawing2D, Edge, Element, Fit, Flow, FormattedText, HeightMeaning,
-    Horizontal, Inherit, LayerId, LineTypeId, LineWeight, Placement, Polyline, Rotation, Shape,
-    Style, Symbol, Text, Vertical,
+    Horizontal, Inherit, LayerId, Leader, LineTypeId, LineWeight, Placement, Polyline, Rotation,
+    Shape, Style, Symbol, Text, Vertical,
 };
 
 /// 足す図形
@@ -55,7 +55,7 @@ pub(super) struct Born {
     /// 文字を UTF-8 で書けるか
     unicode: bool,
     target: Target,
-    /// 表（LAYER・LTYPE・STYLE・BLOCK_RECORD）ごとの、定義の名前。小文字にした名前から引く
+    /// 表（LAYER・LTYPE・STYLE・BLOCK_RECORD・DIMSTYLE）ごとの、定義の名前。小文字にした名前から引く
     names: BTreeMap<&'static [u8], BTreeMap<String, String>>,
     /// レイヤと線種の名前
     layers: BTreeMap<LayerId, String>,
@@ -69,7 +69,7 @@ pub(super) struct Born {
 }
 
 /// 名前で指す定義の表
-const TABLES: [&[u8]; 4] = [b"LAYER", b"LTYPE", b"STYLE", b"BLOCK_RECORD"];
+const TABLES: [&[u8]; 5] = [b"LAYER", b"LTYPE", b"STYLE", b"BLOCK_RECORD", b"DIMSTYLE"];
 
 impl Born {
     pub(super) fn new(db: &AcadDb, drawing: &Drawing2D, unicode: bool, target: Target) -> Self {
@@ -145,12 +145,14 @@ impl Born {
     }
 
     /// 表の `table` の、名前 `name` の定義を指す値。名前は大文字と小文字を区別せずに引き、定義の名前を書く。
-    /// 定義がなければ `None`。DXF で定義がないときは名前だけで指すが、文字スタイルは既定の Standard に限る
+    /// 定義がなければ `None`。DXF で定義がないときは名前だけで指すが、文字スタイルと寸法スタイルは既定の
+    /// Standard に限る
     fn named(&self, code: i16, table: &[u8], name: &str) -> Option<Value> {
         let name = match self.names.get(table) {
             Some(names) => names.get(&name.to_lowercase())?,
             None if self.target == Target::Dxf
-                && (table != b"STYLE" || name.eq_ignore_ascii_case("Standard")) =>
+                && ((table != b"STYLE" && table != b"DIMSTYLE")
+                    || name.eq_ignore_ascii_case("Standard")) =>
             {
                 name
             }
@@ -317,6 +319,10 @@ impl Born {
                 followers = self.placing(&mut values, frame, symbol, element.layer, home)?;
                 b"INSERT"
             }
+            Shape::Leader(leader) => {
+                self.leading(&mut values, frame, leader)?;
+                b"LEADER"
+            }
             _ => return None,
         };
         if !self.markers {
@@ -333,6 +339,40 @@ impl Born {
             home,
             followers,
         })
+    }
+
+    /// LEADER（DXF Reference「LEADER」）の値（決定 0177）。注記を持たない（73 = 3）引出線を、DXF Reference の
+    /// 並びで書く。鉤の線を持たず（75 = 0）、注記の大きさ（40・41）は 1、X 軸の向き（211）は (1, 0, 0)、ずれ（212・
+    /// 213）は 0 とする。矢印（71）は、寸法スタイルに従うなら書かない。LEADER を持たない R12 の DXF と、LEADER を
+    /// まだ足せない DWG には足さない
+    fn leading<P>(
+        &self,
+        values: &mut Vec<Value>,
+        frame: &impl Frame<P>,
+        leader: &Leader<P>,
+    ) -> Option<()> {
+        if self.dwg() || (!self.version.is_empty() && !self.since(b"AC1012")) {
+            return None;
+        }
+        if leader.path.len() < 2 || leader.annotation.is_some() {
+            return None;
+        }
+        values.push(text(100, "AcDbLeader"));
+        values.push(self.named(3, b"DIMSTYLE", &leader.style)?);
+        if let Some(arrow) = leader.arrow {
+            values.push(int(71, i64::from(arrow)));
+        }
+        values.push(int(72, i64::from(leader.spline)));
+        values.extend([int(73, 3), int(74, 1), int(75, 0)]);
+        values.extend([real(40, 1.0)?, real(41, 1.0)?]);
+        values.push(int(76, i64::try_from(leader.path.len()).ok()?));
+        for at in &leader.path {
+            point(values, frame, 10, at)?;
+        }
+        values.extend([real(211, 1.0)?, real(221, 0.0)?, real(231, 0.0)?]);
+        values.extend([real(212, 0.0)?, real(222, 0.0)?, real(232, 0.0)?]);
+        values.extend([real(213, 0.0)?, real(223, 0.0)?, real(233, 0.0)?]);
+        Some(())
     }
 
     /// DWG に書き戻すか
@@ -840,6 +880,7 @@ fn amount<P>(shape: &Shape<P>) -> u64 {
             .saturating_add(spline.fit.len()),
         Shape::Text(text) => text.content.len(),
         Shape::Formatted(text) => text.content.len(),
+        Shape::Leader(leader) => leader.path.len().saturating_add(leader.style.len()),
         Shape::Symbol(symbol) => symbol
             .attributes
             .len()

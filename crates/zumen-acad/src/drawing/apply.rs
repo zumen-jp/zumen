@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{MODEL, PaperFrame, attached, framed, mtext, source, text, work};
+use super::{Home, MODEL, PaperFrame, attached, framed, mtext, source, text, work};
 use add::{Born, Target, kind_of};
 
 mod add;
@@ -16,9 +16,10 @@ use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element, FormattedText, Hash,
-    Horizontal, KnotParameterization, Layer, LayerId, Length, LineType, MarkContent, ModelLength,
-    ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Seen,
-    Shape, SheetId, SpaceId, Spline, Style, Symbol, Text, TextStyle, Vertical, id, transform,
+    Horizontal, KnotParameterization, Layer, LayerId, Leader, Length, LineType, MarkContent,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle,
+    Rotation, Seen, Shape, SheetId, SpaceId, Spline, Style, Symbol, SymbolDefinition, Text,
+    TextStyle, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -116,6 +117,8 @@ struct Index<'a> {
     /// 寸法スタイル（決定 0165）
     dimension_styles: BTreeMap<String, &'a DimensionStyle>,
     places: BTreeMap<String, Place>,
+    /// 記号の定義の空間から、その定義（決定 0177）
+    definitions: BTreeMap<SpaceId, &'a SymbolDefinition>,
     /// 2 つ以上の要素を作った出所。1 つの要素だけを書き戻せない
     shared: BTreeSet<&'a Ref>,
 }
@@ -145,9 +148,11 @@ impl<'a> Index<'a> {
             }
             places.insert(place, Place::Space(space.id));
         }
-        // 記号の定義の中の要素も ID で指せる。定義の空間に足すことは、まだしない
+        // 記号の定義の中の要素も ID で指せる。定義の空間にも足せる（決定 0177）
         let mut definitions = id::DefinitionNamer::default();
+        let mut spaces = BTreeMap::new();
         for definition in &drawing.symbols {
+            spaces.insert(definition.space.id, definition);
             work(cx, 1, &definition.source)?;
             let place = definitions.next(definition);
             let mut namer = id::Namer::new(&place);
@@ -208,6 +213,7 @@ impl<'a> Index<'a> {
             line_types,
             dimension_styles,
             places,
+            definitions: spaces,
             shared,
         })
     }
@@ -583,9 +589,15 @@ fn add_element(
     let (record, kind) = match (place, element) {
         (Place::Space(space), Placed::Model(element)) => {
             add::work(&element.shape, cx, &Ref::default())?;
-            let record = (space == MODEL)
-                .then(|| born.record(element, &InSpace(MODEL), born.model(), plan.added_records))
-                .flatten();
+            let home = if space == MODEL {
+                Some(born.model())
+            } else {
+                index.definitions.get(&space).and_then(|definition| {
+                    definition_home(current.db, current.positions, definition, &element.shape)
+                })
+            };
+            let record = home
+                .and_then(|home| born.record(element, &InSpace(space), home, plan.added_records));
             (record, kind_of(&element.shape))
         }
         (Place::Sheet(sheet), Placed::Paper(element)) => {
@@ -611,6 +623,34 @@ fn add_element(
         None => plan.reject(unsupported("add", kind, target), cx),
     }
     Ok(())
+}
+
+/// 記号の定義の空間に足す図形の置き場所（決定 0177）。BLOCK の所有者のブロックのレコードを所有者とし、BLOCKS の
+/// 所の、その ENDBLK の前に置く。名前のない定義（寸法・表などを描いた部品）は AutoCAD が描き直して足した図形が
+/// 消えうるので、外部参照の定義は中身が外のファイルにあるので、足さない。記号は、定義の入れ子の輪を作りうるので
+/// 足さない。BLOCK のレコードかブロックのレコードがなければ `None`
+fn definition_home<P>(
+    db: &AcadDb,
+    positions: &BTreeMap<Ref, usize>,
+    definition: &SymbolDefinition,
+    shape: &Shape<P>,
+) -> Option<Home> {
+    if definition.anonymous || definition.external.is_some() || matches!(shape, Shape::Symbol(_)) {
+        return None;
+    }
+    let block = db.objects().get(*positions.get(&definition.source)?)?;
+    if block.kind != b"BLOCK" {
+        return None;
+    }
+    let owner = block.owner().filter(|&owner| {
+        db.get(owner)
+            .is_some_and(|record| record.kind == b"BLOCK_RECORD")
+    })?;
+    Some(Home {
+        owner: Some(owner),
+        blocks: true,
+        paper: false,
+    })
 }
 
 /// 要素を置き換える・スタイルを変える・動かす・除く（`Edit::{Replace,Restyle,Transform,Remove}`）。`edit` は
@@ -735,7 +775,7 @@ fn change_element<'e>(
     let replaced = &mut plan.replaced;
     let planned = match (change, found) {
         (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
-            Placed::Model(element) => anchor(&was.shape)
+            Placed::Model(element) => replaced_anchor(&was.shape)
                 .and_then(|anchor| {
                     let frame = InSpace(anchor.space);
                     let (written, followers) =
@@ -750,7 +790,7 @@ fn change_element<'e>(
             Placed::Paper(_) => None,
         },
         (Edit::Replace { element, .. }, Found::Paper(was)) => match element.as_ref() {
-            Placed::Paper(element) => anchor(&was.shape)
+            Placed::Paper(element) => replaced_anchor(&was.shape)
                 .and_then(|anchor| {
                     let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
                     let (written, followers) =
@@ -1722,9 +1762,76 @@ fn replacement<P: PartialEq>(
         (Shape::Symbol(symbol), Shape::Symbol(was), b"INSERT") => {
             placing(&mut values, symbol, was, frame)?;
         }
+        (Shape::Leader(leader), Shape::Leader(was), b"LEADER") => {
+            leading(&mut values, leader, was, frame)?;
+        }
         _ => return None,
     }
     Some(values)
+}
+
+/// LEADER（DXF Reference「LEADER」）の欄を直す。寸法スタイル（3）と注記（340）は変えない。経路が変われば、
+/// 頂点の数（76）の後の頂点（10・20・30）を書き直し、曲線か（72）と矢印（71）は変わったものだけを書く。矢印を
+/// 寸法スタイルに従わせるときは 71 を除く。注記の大きさと鉤の線（40・41・74・75）と、ずれ（212・213）は元のまま
+fn leading<P: PartialEq>(
+    values: &mut Vec<Value>,
+    leader: &Leader<P>,
+    was: &Leader<P>,
+    frame: &impl Frame<P>,
+) -> Option<()> {
+    if leader.style != was.style || leader.annotation != was.annotation {
+        return None;
+    }
+    if leader.path != was.path {
+        let mut vertices = Vec::with_capacity(leader.path.len().saturating_mul(3));
+        for point in &leader.path {
+            let [x, y] = frame.point(point)?;
+            vertices.extend([real(10, x)?, real(20, y)?, real(30, 0.0)?]);
+        }
+        // LEADER の 10・20・30 は頂点だけが持つ
+        values.retain(|v| !matches!(v.code, 10 | 20 | 30));
+        let count = values.iter().position(|v| v.code == 76)?;
+        values.get_mut(count)?.data = Data::Int(i64::try_from(leader.path.len()).ok()?);
+        values.splice(count + 1..count + 1, vertices);
+    }
+    // 矢印（71）は寸法スタイル（3）の後に、曲線か（72）は矢印の後に書く。どちらもなければ、図形の区切り（100）の
+    // 最後の後に書く（DXF Reference の並び）
+    let after = |values: &[Value], codes: &[i16]| {
+        codes
+            .iter()
+            .find_map(|code| values.iter().position(|v| v.code == *code))
+            .or_else(|| values.iter().rposition(|v| v.code == 100))
+    };
+    if leader.arrow != was.arrow {
+        values.retain(|v| v.code != 71);
+        if let Some(arrow) = leader.arrow {
+            let at = after(values, &[3])?;
+            values.insert(
+                at + 1,
+                Value {
+                    code: 71,
+                    data: Data::Int(i64::from(arrow)),
+                },
+            );
+        }
+    }
+    if leader.spline != was.spline {
+        let flag = Data::Int(i64::from(leader.spline));
+        match values.iter_mut().find(|v| v.code == 72) {
+            Some(slot) => slot.data = flag,
+            None => {
+                let at = after(values, &[71, 3])?;
+                values.insert(
+                    at + 1,
+                    Value {
+                        code: 72,
+                        data: flag,
+                    },
+                );
+            }
+        }
+    }
+    Some(())
 }
 
 /// ELLIPSE（DXF Reference「ELLIPSE」）の欄を直す。長軸の端（11・21）は中心からの向き、始まりと終わりの
@@ -2329,6 +2436,14 @@ fn insert(values: &mut Vec<Value>, code: i16, data: Data, after: &[i16]) -> Opti
         .find_map(|after| values.iter().position(|v| v.code == *after))?;
     values.insert(at + 1, Value { code, data });
     Some(())
+}
+
+/// 置き換えられる形の初めの点。引出線は置き換えだけで扱い、動かすことはまだしない
+fn replaced_anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
+    match shape {
+        Shape::Leader(leader) => leader.path.first().copied(),
+        shape => anchor(shape),
+    }
 }
 
 /// 置き換えられる形の初めの点。形の空間（用紙）を決める

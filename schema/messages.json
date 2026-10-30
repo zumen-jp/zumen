@@ -331,6 +331,10 @@
           "description": "[最小の X, 最小の Y, 最大の X, 最大の Y]。範囲がこの長方形と重なるか接する要素だけを返す。空間か用紙それぞれの座標で比べる（決定 0118）",
           "type": "array",
           "items": { "type": "number" }
+        },
+        "place": {
+          "description": "空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。小版 31 から（決定 0177）",
+          "type": "string"
         }
       },
       "required": ["op", "doc"],
@@ -375,7 +379,7 @@
           "type": "string"
         },
         "geometry": {
-          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
+          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から",
           "$ref": "#/$defs/geometry"
         }
       },
@@ -399,7 +403,8 @@
         { "$ref": "#/$defs/formatted_text_geometry" },
         { "$ref": "#/$defs/symbol_geometry" },
         { "$ref": "#/$defs/spline_geometry" },
-        { "$ref": "#/$defs/dimension_geometry" }
+        { "$ref": "#/$defs/dimension_geometry" },
+        { "$ref": "#/$defs/leader_geometry" }
       ]
     },
     "line_geometry": {
@@ -561,6 +566,21 @@
         "style_id": { "description": "寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から", "type": "string" }
       },
       "required": ["shape", "kind", "label", "style"],
+      "additionalProperties": false
+    },
+    "leader_geometry": {
+      "description": "引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときは注記を持たない。DWG は R2004 までの置き換えだけを書き戻す。小版 31 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "leader" },
+        "path": { "description": "経路の頂点 [[X, Y], ...]。矢印の側から並べる。2 つ以上", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "spline": { "description": "頂点を通る曲線で結ぶか。偽なら折れ線", "type": "boolean" },
+        "arrow": { "description": "始点に矢印を付けるか。書かなければ寸法スタイルに従う", "type": "boolean" },
+        "annotation": { "description": "注記の要素の ID。同じ空間か用紙の要素で、entities が返したもの。注記がなければ書かない。置き換えるときは元と同じ ID だけを受け、足すときは受けない", "type": "string" },
+        "style": { "description": "寸法スタイルの元の名前。足すときは図面にある寸法スタイルの名前を指す。置き換えるときは元と同じ名前だけを受ける", "type": "string" },
+        "style_id": { "description": "寸法スタイルの ID。tables が返したもの。entities は、名前で引いた寸法スタイルの ID を返す。足す・置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける", "type": "string" }
+      },
+      "required": ["shape", "path", "spline", "style"],
       "additionalProperties": false
     },
     "dimension_kind": {
@@ -782,7 +802,7 @@
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "add" },
-        "place": { "description": "足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分", "type": "string" },
+        "place": { "description": "足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。小版 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）", "type": "string" },
         "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0", "type": "string" },
         "layer_id": { "description": "レイヤの ID。tables が返したもの", "type": "string" },
         "color": { "description": "色。SXF はレイヤに従う色を書けないので、書く。小版 29 から", "$ref": "#/$defs/color_change" },
