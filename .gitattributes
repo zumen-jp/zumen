@@ -1,2 +1,7 @@
 # どの OS でも LF で取り出す。生成したファイルの検査が、改行の違いで落ちないように。
 * text=auto eol=lf
+
+# 公開サンプルは取得したままのバイト列で持つ。台帳のハッシュと合わせるため、改行を変えない（決定 0171）
+samples/** -text
+samples/README.md text eol=lf
+samples/ledger.toml text eol=lf

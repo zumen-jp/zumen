@@ -41,7 +41,7 @@ cargo run -p zumen-conformance -- --write
 
 ## 試験の組の書き方
 
-`cases/<名前>.json` に 1 件ずつ置きます。名前の順に流し、組ごとに新しい形（セッション）で始めます。入力は試験の中で作る合成のものにし、受け取った図面は使いません。
+`cases/<名前>.json` に 1 件ずつ置きます。名前の順に流し、組ごとに新しい形（セッション）で始めます。入力は試験の中で作る合成のものか、`samples/` の公開サンプル（[決定 0171](../../docs/decisions/0171-public-samples-in-git.md)）にし、受け取った図面は使いません。
 
 ```json
 {
@@ -63,7 +63,7 @@ cargo run -p zumen-conformance -- --write
 | 欄 | 中身 |
 | --- | --- |
 | `session` | セッションを作り直す。`options`（JSON の値）か `options_text`（文字列）で設定を渡す。どちらもなければ既定の設定 |
-| `push` | 入力を足す。名前は `name`（文字列）か `name_hex`、中身は `text`（UTF-8）か `hex`。どちらもなければ空 |
+| `push` | 入力を足す。名前は `name`（文字列）か `name_hex`、中身は `text`（UTF-8）か `hex` か `file`。`file` は、リポジトリの根から書いた `samples/` の中の公開サンプルの道筋（決定 0171）。どれもなければ空 |
 | `call` | 要求（JSON の値）を渡す |
 | `call_text` | 要求を、文字列のまま渡す。読めない JSON を試すのに使う |
 | `call_hex` | 要求を、16 進で書いたバイト列で渡す。UTF-8 でないものを試すのに使う |

@@ -358,19 +358,23 @@ fn is_decision(value: &str) -> bool {
 }
 
 fn url(errors: &mut Vec<String>, at: &str, value: &str) {
-    let host = value
-        .strip_prefix("https://")
-        .or_else(|| value.strip_prefix("http://"))
-        .and_then(|rest| rest.split(['/', '?', '#']).next());
-    if host.is_none_or(|h| h.is_empty() || h.starts_with(':') || h.contains('@'))
-        || value
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control() || c == '\\')
-    {
+    if !is_url(value) {
         errors.push(format!(
             "{at}: url はホストのある HTTP または HTTPS の URL にする"
         ));
     }
+}
+
+/// ホストのある HTTP または HTTPS の URL か
+pub(crate) fn is_url(value: &str) -> bool {
+    let host = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+        .and_then(|rest| rest.split(['/', '?', '#']).next());
+    host.is_some_and(|h| !h.is_empty() && !h.starts_with(':') && !h.contains('@'))
+        && !value
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '\\')
 }
 
 fn source(errors: &mut Vec<String>, at: &str, value: &str, checked: &str) {
@@ -380,7 +384,8 @@ fn source(errors: &mut Vec<String>, at: &str, value: &str, checked: &str) {
     }
 }
 
-fn is_date(value: &str) -> bool {
+/// 実在する日付 YYYY-MM-DD か
+pub(crate) fn is_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10
         || bytes[4] != b'-'

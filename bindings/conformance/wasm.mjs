@@ -197,6 +197,15 @@ function bytesOf(input, valueKey, textKey) {
   return new Uint8Array();
 }
 
+// 公開サンプル（決定 0171）を読む。道筋はリポジトリの根から書き、samples/ の中に限る
+function readSample(file) {
+  const parts = file.split("/");
+  if (parts[0] !== "samples" || parts.length < 2 || parts.slice(1).some((p) => p === "" || p === "." || p === ".." || p.includes("\\"))) {
+    throw new Error(`push の file は samples/ の中のファイルにする: ${file}`);
+  }
+  return new Uint8Array(readFileSync(join(repository, file)));
+}
+
 const hashes = [];
 const caseFiles = readdirSync(join(here, "cases"))
   .filter((name) => name.endsWith(".json"))
@@ -222,7 +231,11 @@ for (const file of caseFiles) {
       status = engine.sessionNew(bytesOf(input, "options", "options_text"));
     } else if (action === "push") {
       const nameBytes = Object.hasOwn(input, "name_hex") ? decodeHex(input.name_hex) : encoder.encode(input.name);
-      const data = Object.hasOwn(input, "hex") ? decodeHex(input.hex) : encoder.encode(input.text ?? "");
+      const data = Object.hasOwn(input, "hex")
+        ? decodeHex(input.hex)
+        : Object.hasOwn(input, "file")
+          ? readSample(input.file)
+          : encoder.encode(input.text ?? "");
       status = engine.push(nameBytes, data);
     } else if (action === "take") {
       const [taken, data] = engine.take(input);

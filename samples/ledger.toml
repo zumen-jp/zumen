@@ -1,0 +1,2 @@
+# 公開サンプルの台帳（決定 0171）。書き方は README.md にある。
+# `cargo xtask codegen --check` が、samples/ のファイルとこの台帳を照らす。

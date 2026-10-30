@@ -1,13 +1,18 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
 //! - `codegen`: 形式の一覧、Rust の定数と型、C のヘッダー、カタログとプロファイルの JSON を生成する
-//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイルを確かめ、生成したファイルが最新かを確かめる
+//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳を確かめ、生成したファイルが
+//!   最新かを確かめる
 
 mod boundary;
 mod catalog;
 mod formats;
 mod profiles;
+mod samples;
 mod schema;
+// 適合試験と同じ SHA-256 を使う
+#[path = "../../bindings/conformance/src/sha256.rs"]
+mod sha256;
 
 use std::fs;
 use std::io::Write;
@@ -97,6 +102,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     })?;
 
     let profiles = profiles::generate(&root)?;
+    samples::check(&root)?;
 
     let outputs = [
         (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
