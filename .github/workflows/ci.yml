@@ -62,6 +62,8 @@ jobs:
         run: npm ci --ignore-scripts
       - name: 型を確かめる
         run: npm run check
+      - name: TypeScript・JavaScript の包みの型を、サイトと同じ版の TypeScript で確かめる（決定 0194）
+        run: npx --no-install tsc -p ../bindings/js/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
 
@@ -135,6 +137,8 @@ jobs:
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: TypeScript・JavaScript の包みを通しても、同じハッシュの一覧になることを確かめる（決定 0194）
+        run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 
   deny:
     name: 依存の検査

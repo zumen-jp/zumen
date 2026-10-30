@@ -12,8 +12,9 @@
 | Rust から直接 | `tests/conformance.rs` | `cargo test -p zumen-conformance` |
 | C ABI（プロセスの中） | `tests/conformance.rs` | 同上 |
 | wasm | `wasm.mjs`（Node.js 22 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、`node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm` |
+| TypeScript・JavaScript の包み（wasm） | `../js/test/conformance.mjs`（Node.js 22 以降） | 同じく作ったあと、`node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)） |
 
-各言語の結合を足すときは、その言語で同じ組を流すものを足し、CI に入れます（[決定 0006](../../docs/decisions/0006-language-tiers.md) の「適合試験に通る」）。
+JavaScript で流すものは、手順の読み方と応答の確かめ方を `cases.mjs` で共有します。各言語の結合を足すときは、その言語で同じ組を流すものを足し、CI に入れます（[決定 0006](../../docs/decisions/0006-language-tiers.md) の「適合試験に通る」）。
 
 ## ハッシュの一覧を作り直す
 

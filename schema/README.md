@@ -4,8 +4,9 @@
 
 | ファイル | 中身 | 生成するもの |
 | --- | --- | --- |
-| `boundary.toml` | 版（ABI・メッセージのスキーマ）、状態コード、関数とその引数 | `bindings/c/include/zumen.h`、`crates/zumen-abi/src/abi.rs` |
-| `messages.json` | 要求・応答・op ごとの欄・診断・セッションの設定・カタログの形（JSON Schema 2020-12） | `crates/zumen-abi/src/messages.rs` |
+| `boundary.toml` | 版（ABI・メッセージのスキーマ）、状態コード、関数とその引数 | `bindings/c/include/zumen.h`、`crates/zumen-abi/src/abi.rs`、`bindings/js/src/constants.js`・`constants.d.ts` |
+| `messages.json` | 要求・応答・op ごとの欄・診断・セッションの設定・カタログの形（JSON Schema 2020-12） | `crates/zumen-abi/src/messages.rs`、`bindings/js/src/messages.d.ts` |
+| `scene.toml` | シーンの blob の配置（区画と値の組） | `crates/zumen-scene/src/layout.rs`、`bindings/js/src/constants.js`・`constants.d.ts` |
 
 生成したファイルもコミットします。CI の `cargo xtask codegen --check` が、元と合わないものを見つけます。
 

@@ -117,7 +117,7 @@ impl Member {
         }
     }
 
-    fn description(&self) -> &str {
+    pub(crate) fn description(&self) -> &str {
         match self {
             Member::Integer { description, .. }
             | Member::Number { description }
@@ -135,7 +135,7 @@ fn is_snake(text: &str) -> bool {
         && !text.ends_with('_')
 }
 
-fn pascal(text: &str) -> String {
+pub(crate) fn pascal(text: &str) -> String {
     text.split('_')
         .map(|word| {
             let mut chars = word.chars();
@@ -599,12 +599,12 @@ pub fn parse(source: &[u8]) -> Result<Schema, Vec<String>> {
 }
 
 impl Schema {
-    fn def(&self, name: &str) -> Option<&Def> {
+    pub(crate) fn def(&self, name: &str) -> Option<&Def> {
         self.defs.iter().find(|def| def.name == name)
     }
 
     /// 共用体の形のオブジェクトから、目印の欄の名前と値を引く
-    fn tag_of(&self, variant: &str) -> Option<(&str, &str)> {
+    pub(crate) fn tag_of(&self, variant: &str) -> Option<(&str, &str)> {
         match &self.def(variant)?.shape {
             Shape::Object { fields, .. } => fields.iter().find_map(|field| match &field.ty {
                 Ty::Const(value) => Some((field.name.as_str(), value.as_str())),

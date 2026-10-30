@@ -1,0 +1,24 @@
+{
+  "name": "@zumen-jp/zumen-provisional",
+  "version": "0.0.0",
+  "private": true,
+  "description": "zumen の wasm のモジュールを、TypeScript・JavaScript から呼ぶ薄い包み（決定 0194）。名前は仮で、公開しない",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node test/conformance.mjs ../../target/wasm32-unknown-unknown/release/zumen_abi1.wasm"
+  }
+}
