@@ -1,6 +1,6 @@
 [package]
 name = "zumen-c"
-description = "C のヘッダー（include/zumen.h）を、C と C++ のコンパイラーで確かめる試験。成果物には入らない"
+description = "C のヘッダーと C++ の包み（include/）を、C と C++ のコンパイラーで確かめ、適合試験を流す試験。成果物には入らない"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,12 @@ publish.workspace = true
 
 [dependencies]
 zumen-abi = { path = "../../crates/zumen-abi" }
+
+# 適合試験の組を、C と C++ の側に渡して流す（決定 0198）
+[dev-dependencies]
+zumen-conformance = { path = "../conformance" }
+zumen-json = { path = "../../crates/zumen-json" }
+zumen-scene = { path = "../../crates/zumen-scene" }
 
 # 試験の C と C++ を組み立てる。MIT OR Apache-2.0。ビルドの道具で、成果物には何も残さない（決定 0011）
 [build-dependencies]

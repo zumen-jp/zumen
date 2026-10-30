@@ -1,20 +1,37 @@
-//! 試験の C と C++ を、生成したヘッダー（include/zumen.h）で組み立てる（決定 0011）。
+//! 試験の C と C++ を、生成したヘッダー（include/zumen.h・zumen_scene.h）と C++ の包み（include/zumen.hpp）で
+//! 組み立てる（決定 0011・0198）。
 //!
 //! 警告を失敗にして、C99 と C++17（docs/support.md の下限）で通ることを確かめる。
 
 fn main() {
-    for path in ["include/zumen.h", "tests/smoke.c", "tests/smoke.cpp"] {
+    for path in [
+        "include/zumen.h",
+        "include/zumen_scene.h",
+        "include/zumen.hpp",
+        "tests/smoke.c",
+        "tests/smoke.cpp",
+        "tests/conformance.c",
+        "tests/conformance.cpp",
+    ] {
         println!("cargo:rerun-if-changed={path}");
     }
-    build("tests/smoke.c", false, "zumen_c_smoke");
-    build("tests/smoke.cpp", true, "zumen_cpp_smoke");
+    build(
+        &["tests/smoke.c", "tests/conformance.c"],
+        false,
+        "zumen_c_tests",
+    );
+    build(
+        &["tests/smoke.cpp", "tests/conformance.cpp"],
+        true,
+        "zumen_cpp_tests",
+    );
 }
 
-fn build(file: &str, cpp: bool, name: &str) {
+fn build(files: &[&str], cpp: bool, name: &str) {
     let mut build = cc::Build::new();
     build
         .cpp(cpp)
-        .file(file)
+        .files(files)
         .include("include")
         .warnings(true)
         .extra_warnings(true)

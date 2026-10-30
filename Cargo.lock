@@ -308,6 +308,9 @@ version = "0.0.0"
 dependencies = [
  "cc",
  "zumen-abi",
+ "zumen-conformance",
+ "zumen-json",
+ "zumen-scene",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `boundary.toml` | 版（ABI・メッセージのスキーマ）、状態コード、関数とその引数 | `bindings/c/include/zumen.h`、`crates/zumen-abi/src/abi.rs`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen_provisional/constants.py`、`bindings/dotnet/Zumen.Provisional/Constants.g.cs` |
 | `messages.json` | 要求・応答・op ごとの欄・診断・セッションの設定・カタログの形（JSON Schema 2020-12） | `crates/zumen-abi/src/messages.rs`、`bindings/js/src/messages.d.ts`、`bindings/python/zumen_provisional/messages.py`、`bindings/dotnet/Zumen.Provisional/Messages.g.cs`、`bindings/cli/src/tools.json`（MCP の道具） |
-| `scene.toml` | シーンの blob の配置（区画と値の組） | `crates/zumen-scene/src/layout.rs`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen_provisional/constants.py`、`bindings/dotnet/Zumen.Provisional/Constants.g.cs` |
+| `scene.toml` | シーンの blob の配置（区画と値の組） | `crates/zumen-scene/src/layout.rs`、`bindings/c/include/zumen_scene.h`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen_provisional/constants.py`、`bindings/dotnet/Zumen.Provisional/Constants.g.cs` |
 
 生成したファイルもコミットします。CI の `cargo xtask codegen --check` が、元と合わないものを見つけます。
 

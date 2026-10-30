@@ -1,6 +1,6 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
-//! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー、TypeScript・JavaScript・Python・.NET
+//! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー（シーンの配置を含む）、TypeScript・JavaScript・Python・.NET
 //!   の型と定数、CLI の MCP の道具の一覧、カタログとプロファイルの JSON を生成する
 //! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、包みの版を確かめ、
 //!   生成したファイルが最新かを確かめる
@@ -33,6 +33,7 @@ const ABI_RS: &str = "crates/zumen-abi/src/abi.rs";
 const MESSAGES_RS: &str = "crates/zumen-abi/src/messages.rs";
 const SCENE_RS: &str = "crates/zumen-scene/src/layout.rs";
 const HEADER: &str = "bindings/c/include/zumen.h";
+const SCENE_HEADER: &str = "bindings/c/include/zumen_scene.h";
 const JS_MESSAGES: &str = "bindings/js/src/messages.d.ts";
 const JS_CONSTANTS: &str = "bindings/js/src/constants.js";
 const JS_CONSTANTS_TYPES: &str = "bindings/js/src/constants.d.ts";
@@ -141,6 +142,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (MESSAGES_RS, rustfmt(&root, &schema::render(&schema))?),
         (SCENE_RS, rustfmt(&root, &scene::render_rust(&scene))?),
         (HEADER, boundary::render_header(&boundary)),
+        (SCENE_HEADER, scene::render_c_header(&scene)),
         (JS_MESSAGES, javascript::render_types(&schema)),
         (
             JS_CONSTANTS,

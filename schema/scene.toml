@@ -3,7 +3,8 @@
 # `scene` の op が返すシーンの blob は、見出し・区画の表・区画を 1 つのバッファーに並べる。
 # `cargo xtask codegen` が、ここから Rust の定数（crates/zumen-scene/src/layout.rs）と、TypeScript・JavaScript の
 # 定数と型（bindings/js/src/constants.js・constants.d.ts）と、Python の定数（bindings/python/zumen_provisional/constants.py）
-# と、.NET の定数（bindings/dotnet/Zumen.Provisional/Constants.g.cs）を作る。
+# と、.NET の定数（bindings/dotnet/Zumen.Provisional/Constants.g.cs）と、C・C++ の定数（bindings/c/include/zumen_scene.h）を
+# 作る。
 #
 # - 見出しは `ZMSC`、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）。続けて区画ごとに、
 #   始まりと長さ（u32、バイト）を置く。数はリトルエンディアン。各区画は 8 バイトの境界に置く。

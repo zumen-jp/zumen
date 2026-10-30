@@ -214,6 +214,132 @@ pub fn render_rust(scene: &Scene) -> String {
     out
 }
 
+/// `bindings/c/include/zumen_scene.h` の中身を作る。C99 と C++17 で、警告なしに通る形にする。
+pub fn render_c_header(scene: &Scene) -> String {
+    let mut out = String::new();
+    // 日本語のコメントを、MSVC が OS のコードページによらず UTF-8 として読むように（zumen.h と同じ）
+    out.push('\u{feff}');
+    out.push_str(
+        "/* 生成したファイル。手で直さない。\n * 元は schema/scene.toml で、`cargo xtask codegen` で作り直す。 */\n\n",
+    );
+    out.push_str(concat!(
+        "/*\n",
+        " * 2D のシーンの配置（決定 0137・0172・0178）。scene の op が返す blob の区画の番号・型・幅と、列に入れる値。\n",
+        " *\n",
+        " * - 見出しは ZMSC、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）。続けて区画ごとに、始まりと長さ\n",
+        " *   （u32、バイト）を置く。数はリトルエンディアン\n",
+        " * - 区画と値は足すだけにする。読み手は、知らない区画を読み飛ばし、大版が違えば読まない（決定 0015）\n",
+        " * - C++ の読み手は zumen.hpp の zumen::Scene にある\n",
+        " */\n\n",
+        "#ifndef ZUMEN_SCENE_H\n",
+        "#define ZUMEN_SCENE_H\n\n",
+        "#include <stddef.h>\n",
+        "#include <stdint.h>\n\n",
+        "#ifdef __cplusplus\n",
+        "extern \"C\" {\n",
+        "#endif\n\n",
+        "/* 見出しの始まりの 4 バイト */\n",
+        "#define ZM_SCENE_MAGIC \"ZMSC\"\n",
+    ));
+    let _ = writeln!(
+        out,
+        "/* 大版。区画の意味を変えるときに上げる */\n#define ZM_SCENE_MAJOR {}",
+        scene.versions.major
+    );
+    let _ = writeln!(
+        out,
+        "/* 小版。区画か値を足すたびに上げる */\n#define ZM_SCENE_MINOR {}",
+        scene.versions.minor
+    );
+    out.push_str("/* 番号の「なし」 */\n#define ZM_SCENE_NONE UINT32_C(4294967295)\n\n");
+    out.push_str("/* 区画の値の型 */\n");
+    for (index, (ty, ..)) in TYPES.iter().enumerate() {
+        let _ = writeln!(
+            out,
+            "#define ZM_SCENE_TYPE_{} {index}",
+            ty.to_ascii_uppercase()
+        );
+    }
+    let _ = writeln!(
+        out,
+        "\n/* 区画の数 */\n#define ZM_SCENE_SECTION_COUNT {}\n",
+        scene.sections.len()
+    );
+    out.push_str("/* 区画の番号 */\n");
+    for (index, section) in scene.sections.iter().enumerate() {
+        let _ = writeln!(
+            out,
+            "/* {}（{} × {}） */\n#define ZM_SCENE_SECTION_{} {index}",
+            section.description,
+            section.ty,
+            section.width,
+            section.name.to_ascii_uppercase()
+        );
+    }
+    for values in &scene.values {
+        let _ = writeln!(out, "\n/* {}（{}） */", values.description, values.ty);
+        for item in &values.items {
+            let _ = writeln!(
+                out,
+                "/* {} */\n#define ZM_SCENE_VALUE_{}_{} {}",
+                item.description,
+                values.name.to_ascii_uppercase(),
+                item.name.to_ascii_uppercase(),
+                item.value
+            );
+        }
+    }
+    out.push_str(concat!(
+        "\n/* 区画の定義 */\n",
+        "typedef struct zm_scene_section {\n",
+        "    /* 名前（schema/scene.toml の name） */\n",
+        "    const char *name;\n",
+        "    /* 値の型（ZM_SCENE_TYPE_*） */\n",
+        "    int32_t type;\n",
+        "    /* 行ごとの値の数 */\n",
+        "    uint32_t width;\n",
+        "} zm_scene_section;\n\n",
+        "/* 区画の定義を番号から引く。知らない番号なら NULL */\n",
+        "static inline const zm_scene_section *zm_scene_section_at(uint32_t index) {\n",
+    ));
+    let _ = writeln!(
+        out,
+        "    static const zm_scene_section sections[{}] = {{",
+        scene.sections.len()
+    );
+    for section in &scene.sections {
+        let _ = writeln!(
+            out,
+            "        {{\"{}\", ZM_SCENE_TYPE_{}, {}}},",
+            section.name,
+            section.ty.to_ascii_uppercase(),
+            section.width
+        );
+    }
+    out.push_str(concat!(
+        "    };\n",
+        "    return index < ZM_SCENE_SECTION_COUNT ? &sections[index] : NULL;\n",
+        "}\n\n",
+        "/* 値の型のバイト数。知らない型なら 0 */\n",
+        "static inline uint32_t zm_scene_type_size(int32_t type) {\n",
+        "    switch (type) {\n",
+    ));
+    for (index, (_, _, _, size)) in TYPES.iter().enumerate() {
+        let _ = writeln!(out, "    case {index}:\n        return {size};");
+    }
+    out.push_str(concat!(
+        "    default:\n",
+        "        return 0;\n",
+        "    }\n",
+        "}\n\n",
+        "#ifdef __cplusplus\n",
+        "}\n",
+        "#endif\n\n",
+        "#endif /* ZUMEN_SCENE_H */\n",
+    ));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +393,8 @@ mod tests {
         assert!(rust.contains("pub const A: usize = 0;"));
         assert!(rust.contains("pub const B: usize = 1;"));
         assert!(rust.contains("pub const MINOR: u16 = 2;"));
+        let header = render_c_header(&scene);
+        assert!(header.contains("#define ZM_SCENE_SECTION_B 1\n"));
+        assert!(header.contains("{\"a\", ZM_SCENE_TYPE_F64, 2},"));
     }
 }
