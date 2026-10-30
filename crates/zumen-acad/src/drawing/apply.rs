@@ -16,8 +16,8 @@ use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element, FormattedText, Hash,
-    Horizontal, Inherit, Layer, LayerId, Length, LineType, MarkContent, ModelLength, ModelPoint,
-    PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Shape, SheetId,
+    Horizontal, Layer, LayerId, Length, LineType, MarkContent, ModelLength, ModelPoint,
+    PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Seen, Shape, SheetId,
     SpaceId, Spline, Style, Symbol, Text, TextStyle, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
@@ -340,18 +340,7 @@ fn edit(
     target: Target,
     cx: &mut Cx,
 ) -> Result<Vec<ResultTarget>, Error> {
-    // ハンドルが重複すると、参照や ID が別のオブジェクトを指しうる。書き戻しは拒否する。
-    let mut handles = BTreeSet::new();
-    for object in db.objects() {
-        work(cx, 1, &source(object))?;
-        if let Some(handle) = object.handle()
-            && handle != 0
-            && !handles.insert(handle)
-        {
-            cx.report(unsupported("apply", "duplicate_handle", target).at(source(object)));
-            return Err(Error::Rejected);
-        }
-    }
+    unique_handles(db, target, cx)?;
     let positions = object_positions(db, cx)?;
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
@@ -366,1242 +355,35 @@ fn edit(
         })
         .unwrap_or(false);
     let born = Born::new(db, &drawing, unicode, target);
-    let mut replaced = Vec::new();
-    let mut removed = Vec::new();
-    let mut added = Vec::new();
-    let mut added_records = 0u64;
-    let mut rejected = false;
-    let mut targets = BTreeSet::new();
-    let mut attribute_counts = None;
-    let missing = |id: &str, cx: &mut Cx| {
-        cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
+    let mut plan = Plan::new(db, target);
+    let current = Current {
+        db,
+        drawing: &drawing,
+        index: &index,
+        born: &born,
+        positions: &positions,
+        frames: &frames,
+        edits: &changes.edits,
+        unicode,
+        target,
     };
-    // レイヤの変更（決定 0162）。画層の表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
-    let mut layer_records: Option<Vec<usize>> = None;
-    let mut layer_names: BTreeSet<Vec<u8>> = BTreeSet::new();
-    let mut added_layers = Vec::new();
-    let mut renames = Vec::new();
-    // 文字スタイルの変更（決定 0163）。表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
-    let mut style_records: Option<Vec<usize>> = None;
-    let mut style_names: BTreeSet<Vec<u8>> = BTreeSet::new();
-    let mut added_styles = Vec::new();
-    let mut style_renames = Vec::new();
-    let mut removed_styles = Vec::new();
-    // 線種の変更（決定 0164）。表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
-    let mut line_type_records: Option<Vec<usize>> = None;
-    let mut line_type_names: BTreeSet<Vec<u8>> = BTreeSet::new();
-    let mut added_line_types = Vec::new();
-    let mut line_type_renames = Vec::new();
-    let mut removed_line_types = Vec::new();
-    // 寸法スタイルの変更（決定 0165）。表のレコードの位置と、小文字にした名前は、要るときに一度だけ作る
-    let mut dimension_style_records: Option<Vec<usize>> = None;
-    let mut dimension_style_names: BTreeSet<Vec<u8>> = BTreeSet::new();
-    let mut added_dimension_styles = Vec::new();
-    let mut dimension_style_renames: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-    // ブロックのレコードのハンドルは、R2000 からの DXF だけが寸法スタイルに書ける。小文字の名前から引く
-    let mut block_handles: Option<BTreeMap<Vec<u8>, Option<u64>>> = None;
-    let block_handled = target == Target::Dxf
-        && db
-            .variable(b"$ACADVER")
-            .and_then(|values| match values.first().map(|v| &v.data) {
-                Some(Data::Text(text)) => Some(text.trim_ascii() >= b"AC1015".as_slice()),
-                _ => None,
-            })
-            .unwrap_or(false);
     for change in &changes.edits {
-        if let Edit::ReplaceDimensionStyle { .. }
-        | Edit::AddDimensionStyle { .. }
-        | Edit::RemoveDimensionStyle { .. } = change
-            && dimension_style_records.is_none()
-        {
-            let mut records = Vec::new();
-            let mut blocks = BTreeMap::new();
-            for (position, object) in db.objects().iter().enumerate() {
-                work(cx, 1, &Ref::default())?;
-                if dimension_style::is_dimension_style(object) {
-                    count_transform_values(object, &Ref::default(), cx)?;
-                    records.push(position);
-                    if let Some(Data::Text(name)) = object.first(2) {
-                        dimension_style_names.insert(name.to_ascii_lowercase());
-                    }
-                }
-                if block_handled
-                    && object.kind == b"BLOCK_RECORD"
-                    && let (Some(Data::Text(name)), Some(handle)) =
-                        (object.first(2), object.handle())
-                {
-                    blocks
-                        .entry(name.to_ascii_lowercase())
-                        .and_modify(|found| *found = None)
-                        .or_insert(Some(handle));
-                }
-            }
-            dimension_style_records = Some(records);
-            block_handles = Some(blocks);
-        }
-        let dimension_styles = dimension_style_records.as_deref().unwrap_or_default();
-        let block_of = |name: &str| -> Option<u64> {
-            block_handles
-                .as_ref()?
-                .get(name.as_bytes().to_ascii_lowercase().as_slice())
-                .copied()
-                .flatten()
-        };
-        let blocks: Option<dimension_style::Blocks<'_>> = block_handled.then_some(&block_of);
-        if let Edit::ReplaceLineType { .. } | Edit::AddLineType { .. } | Edit::RemoveLineType { .. } =
-            change
-            && line_type_records.is_none()
-        {
-            let mut records = Vec::new();
-            for (position, object) in db.objects().iter().enumerate() {
-                work(cx, 1, &Ref::default())?;
-                if line_type::is_line_type(object) {
-                    count_transform_values(object, &Ref::default(), cx)?;
-                    records.push(position);
-                    if let Some(Data::Text(name)) = object.first(2) {
-                        line_type_names.insert(name.to_ascii_lowercase());
-                    }
-                }
-            }
-            // 図形だけが指す名前も、既存の線種として重複を防ぐ。
-            for line_type in drawing
-                .line_types
-                .iter()
-                .filter(|line_type| line_type.definition.is_none())
-            {
-                work(
-                    cx,
-                    1 + line_type.name.len() as u64 / 1024,
-                    &line_type.source,
-                )?;
-                if let Some(Value {
-                    data: Data::Text(name),
-                    ..
-                }) = born.text_value(2, &line_type.name)
-                {
-                    line_type_names.insert(name.to_ascii_lowercase());
-                }
-            }
-            line_type_records = Some(records);
-        }
-        let line_type_positions = line_type_records.as_deref().unwrap_or_default();
-        if let Edit::ReplaceTextStyle { .. }
-        | Edit::AddTextStyle { .. }
-        | Edit::RemoveTextStyle { .. } = change
-            && style_records.is_none()
-        {
-            let mut records = Vec::new();
-            for (position, object) in db.objects().iter().enumerate() {
-                work(cx, 1, &Ref::default())?;
-                if object.section == Section::Tables && object.kind == b"STYLE" {
-                    count_transform_values(object, &Ref::default(), cx)?;
-                    if let Some(Data::Text(name)) = object.first(2)
-                        && !name.is_empty()
-                    {
-                        style_names.insert(name.to_ascii_lowercase());
-                    }
-                    if text_style::is_style(object) {
-                        records.push(position);
-                    }
-                }
-            }
-            // 図形だけが指す名前も、既存の文字スタイルとして重複を防ぐ。
-            for style in drawing
-                .text_styles
-                .iter()
-                .filter(|style| style.definition.is_none())
-            {
-                work(cx, 1 + style.name.len() as u64 / 1024, &style.source)?;
-                if let Some(Value {
-                    data: Data::Text(name),
-                    ..
-                }) = born.text_value(2, &style.name)
-                {
-                    style_names.insert(name.to_ascii_lowercase());
-                }
-            }
-            style_records = Some(records);
-        }
-        let styles = style_records.as_deref().unwrap_or_default();
-        if let Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } = change
-            && layer_records.is_none()
-        {
-            let mut records = Vec::new();
-            for (position, object) in db.objects().iter().enumerate() {
-                work(cx, 1, &Ref::default())?;
-                if layer::is_layer(object) {
-                    count_transform_values(object, &Ref::default(), cx)?;
-                    records.push(position);
-                    if let Some(name) = layer::name_of(object) {
-                        layer_names.insert(name.to_ascii_lowercase());
-                    }
-                }
-            }
-            layer_records = Some(records);
-        }
-        let records = layer_records.as_deref().unwrap_or_default();
-        let (edit, target_of) = match change {
-            Edit::ReplaceLayer {
-                target: target_of,
-                layer: new,
-            } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                let Some(&was) = index.layers.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                count_table_records(db, records, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
-                    .then(|| {
-                        records.iter().copied().find(|&position| {
-                            db.objects()
-                                .get(position)
-                                .is_some_and(|object| source(object) == was.source)
-                        })
-                    })
-                    .flatten()
-                    .and_then(|position| Some((position, db.objects().get(position)?)));
-                let named = if let Some((_, object)) = found {
-                    count_transform_values(object, &was.source, cx)?;
-                    if target == Target::Dxf {
-                        let old = layer::name_of(object);
-                        let requested = born.text_value(2, &new.name);
-                        if let (
-                            Some(old),
-                            Some(Value {
-                                data: Data::Text(name),
-                                ..
-                            }),
-                        ) = (old, requested)
-                        {
-                            if !old.eq_ignore_ascii_case(&name) {
-                                layer::named_in_objects(db, old, cx, &was.source)?
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-                let planned = found.and_then(|(position, object)| {
-                    let mut values = object.values.clone();
-                    layer::write(&born, &mut values, new, Some((object, was)))?;
-                    let old = layer::name_of(object)?;
-                    let name = layer::value_name(&values)?;
-                    if !old.eq_ignore_ascii_case(name) {
-                        // 名前を変えるなら、ほかの画層と重ならず、DXF の OBJECTS が名前で指していないこと
-                        let free = !layer_names.contains(&name.to_ascii_lowercase())
-                            && !layer::fixed_name(name)
-                            && !named;
-                        free.then_some(())?;
-                        layer_names.remove(&old.to_ascii_lowercase());
-                        layer_names.insert(name.to_ascii_lowercase());
-                    }
-                    if old != name {
-                        let name = Value {
-                            code: 2,
-                            data: Data::Text(name.to_vec()),
-                        };
-                        renames.push((old.to_vec(), name));
-                    }
-                    Some((position, values))
-                });
-                match planned {
-                    Some(planned) => replaced.push(planned),
-                    None => {
-                        cx.report(
-                            unsupported("replace_layer", "LAYER", target).at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::RemoveLayer { target: target_of } => {
-                let Some(&was) = index.layers.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                // 同じ一覧で足す要素とスタイルを変える要素も、除くレイヤを指せない
-                work(cx, changes.edits.len() as u64, &was.source)?;
-                let pointed = changes.edits.iter().any(|other| match other {
-                    Edit::Add { element, .. } => match element.as_ref() {
-                        Placed::Model(element) => element.layer == was.id,
-                        Placed::Paper(element) => element.layer == was.id,
-                    },
-                    Edit::Restyle { style, .. } => style.layer == Some(was.id),
-                    _ => false,
-                });
-                // 後ろのハンドルなしレイヤは並びの番号が ID なので、除くと別の ID になる
-                work(cx, drawing.layers.len() as u64, &was.source)?;
-                let unstable = drawing.layers.iter().any(|layer| {
-                    layer.id.0 > was.id.0 && !matches!(layer.source.key(), Some(Key::Handle(_)))
-                });
-                count_table_records(db, records, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str())
-                    && was.source != Ref::default()
-                    && !pointed
-                    && !unstable)
-                    .then(|| {
-                        records.iter().copied().find(|&position| {
-                            db.objects()
-                                .get(position)
-                                .is_some_and(|object| source(object) == was.source)
-                        })
-                    })
-                    .flatten();
-                let planned = if let Some((position, object)) = found.and_then(|position| {
-                    db.objects().get(position).map(|object| (position, object))
-                }) {
-                    count_transform_values(object, &was.source, cx)?;
-                    if layer::removable(object) {
-                        removal(db, position, object, layer::referenced, cx, &was.source)?
-                            .map(|skip| (position, skip))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                match planned {
-                    Some((position, skip)) => {
-                        if let Some(name) = db.objects().get(position).and_then(layer::name_of) {
-                            layer_names.remove(&name.to_ascii_lowercase());
-                        }
-                        removed.extend(skip);
-                    }
-                    None => {
-                        cx.report(
-                            unsupported("remove_layer", "LAYER", target).at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::AddLayer { layer: new } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                count_table_records(db, records, &Ref::default(), cx)?;
-                let zero = records.iter().find_map(|&position| {
-                    db.objects()
-                        .get(position)
-                        .filter(|object| layer::name_of(object) == Some(b"0"))
-                });
-                if let Some(zero) = zero {
-                    count_transform_values(zero, &Ref::default(), cx)?;
-                }
-                if target == Target::Dxf {
-                    count_table_search(db, cx)?;
-                }
-                let planned = zero.and_then(|zero| {
-                    let mut values = layer::template(zero, target);
-                    layer::write(&born, &mut values, new, None)?;
-                    let name = layer::value_name(&values)?.to_ascii_lowercase();
-                    (!layer::fixed_name(&name)
-                        && (target != Target::Dxf || layer::table_end(db, b"LAYER").is_some())
-                        && layer_names.insert(name))
-                    .then_some(values)
-                });
-                match planned {
-                    Some(values) => added_layers.push(values),
-                    None => {
-                        cx.report(unsupported("add_layer", "LAYER", target));
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::ReplaceLineType {
-                target: target_of,
-                line_type: new,
-            } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                count_line_type_change(new, cx)?;
-                let Some(&was) = index.line_types.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                count_table_records(db, line_type_positions, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
-                    .then(|| record_at(db, line_type_positions, &was.source))
-                    .flatten();
-                // DXF で名前を変えるなら、図形と画層でないオブジェクトが名前で指していないかを先に調べる
-                let named = match found {
-                    Some((_, object)) => {
-                        count_transform_values(object, &was.source, cx)?;
-                        match (object.first(2), born.text_value(2, &new.name)) {
-                            (
-                                Some(Data::Text(old)),
-                                Some(Value {
-                                    data: Data::Text(name),
-                                    ..
-                                }),
-                            ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
-                                line_type::named_elsewhere(db, old, cx, &was.source)?
-                            }
-                            _ => false,
-                        }
-                    }
-                    None => false,
-                };
-                let planned = found.and_then(|(position, object)| {
-                    let mut values = object.values.clone();
-                    line_type::write(&born, &mut values, new, Some((object, was)), target)?;
-                    let Some(Data::Text(old)) = object.first(2) else {
-                        return None;
-                    };
-                    let name = line_type::value_name(&values)?;
-                    if !old.eq_ignore_ascii_case(name) {
-                        // 名前を変えるなら、ほかの線種と重ならず、ほかのオブジェクトが名前で指していないこと
-                        let free = !line_type_names.contains(&name.to_ascii_lowercase())
-                            && !line_type::fixed_name(name)
-                            && !named;
-                        free.then_some(())?;
-                        line_type_names.remove(&old.to_ascii_lowercase());
-                        line_type_names.insert(name.to_ascii_lowercase());
-                    }
-                    if old.as_slice() != name {
-                        let name = Value {
-                            code: 6,
-                            data: Data::Text(name.to_vec()),
-                        };
-                        line_type_renames.push((old.clone(), name));
-                    }
-                    Some((position, values))
-                });
-                match planned {
-                    Some(planned) => replaced.push(planned),
-                    None => {
-                        cx.report(
-                            unsupported("replace_line_type", "LTYPE", target)
-                                .at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::RemoveLineType { target: target_of } => {
-                let Some(&was) = index.line_types.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                // 同じ一覧で足す要素・スタイルを変える要素・変えて足すレイヤも、除く線種を指せない
-                work(cx, changes.edits.len() as u64, &was.source)?;
-                let own = Inherit::Own(was.id);
-                let pointed = changes.edits.iter().any(|other| match other {
-                    Edit::Add { element, .. } => match element.as_ref() {
-                        Placed::Model(element) => element.style.line_type == own,
-                        Placed::Paper(element) => element.style.line_type == own,
-                    },
-                    Edit::Restyle { style, .. } => style.line_type == Some(own),
-                    Edit::ReplaceLayer { layer, .. } | Edit::AddLayer { layer } => layer
-                        .style
-                        .is_some_and(|style| style.line_type == Some(was.id)),
-                    _ => false,
-                });
-                // 後ろのハンドルなし線種は並びの番号が ID なので、除くと別の ID になる
-                work(cx, drawing.line_types.len() as u64, &was.source)?;
-                let unstable = drawing.line_types.iter().any(|line_type| {
-                    line_type.id.0 > was.id.0
-                        && !matches!(line_type.source.key(), Some(Key::Handle(_)))
-                });
-                count_table_records(db, line_type_positions, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str())
-                    && was.source != Ref::default()
-                    && !pointed
-                    && !unstable)
-                    .then(|| record_at(db, line_type_positions, &was.source))
-                    .flatten();
-                let planned = match found {
-                    Some((position, object)) => {
-                        count_transform_values(object, &was.source, cx)?;
-                        match line_type::removable(object) {
-                            true => removal(
-                                db,
-                                position,
-                                object,
-                                line_type::referenced,
-                                cx,
-                                &was.source,
-                            )?
-                            .map(|skip| (skip, object)),
-                            false => None,
-                        }
-                    }
-                    None => None,
-                };
-                match planned {
-                    Some((skip, object)) => {
-                        if let Some(Data::Text(name)) = object.first(2) {
-                            line_type_names.remove(&name.to_ascii_lowercase());
-                            removed_line_types.push(name.clone());
-                        }
-                        removed.extend(skip);
-                    }
-                    None => {
-                        cx.report(
-                            unsupported("remove_line_type", "LTYPE", target).at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::AddLineType { line_type: new } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                count_line_type_change(new, cx)?;
-                // 定義のない線種は表の後に並ぶため、表への追加でその ID がずれる。
-                work(cx, drawing.line_types.len() as u64, &Ref::default())?;
-                let unstable = drawing
-                    .line_types
-                    .iter()
-                    .any(|line_type| line_type.definition.is_none());
-                count_table_records(db, line_type_positions, &Ref::default(), cx)?;
-                let continuous = line_type_positions.iter().find_map(|&position| {
-                    db.objects().get(position).filter(|object| {
-                        matches!(object.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"Continuous"))
-                    })
-                });
-                if let Some(continuous) = continuous {
-                    count_transform_values(continuous, &Ref::default(), cx)?;
-                }
-                if target == Target::Dxf {
-                    count_table_search(db, cx)?;
-                }
-                let planned = continuous.and_then(|continuous| {
-                    let mut values = line_type::template(continuous, target);
-                    line_type::write(&born, &mut values, new, None, target)?;
-                    let name = line_type::value_name(&values)?.to_ascii_lowercase();
-                    (!unstable
-                        && !line_type::fixed_name(&name)
-                        && (target != Target::Dxf || layer::table_end(db, b"LTYPE").is_some())
-                        && line_type_names.insert(name))
-                    .then_some(values)
-                });
-                match planned {
-                    Some(values) => added_line_types.push(values),
-                    None => {
-                        cx.report(unsupported("add_line_type", "LTYPE", target));
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::ReplaceDimensionStyle {
-                target: target_of,
-                style: new,
-            } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                let Some(&was) = index.dimension_styles.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                count_table_records(db, dimension_styles, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
-                    .then(|| record_at(db, dimension_styles, &was.source))
-                    .flatten();
-                // DXF で名前を変えるなら、寸法などでないオブジェクトが名前で指していないかを先に調べる
-                let named = match found {
-                    Some((_, object)) => {
-                        count_transform_values(object, &was.source, cx)?;
-                        match (object.first(2), born.text_value(2, &new.name)) {
-                            (
-                                Some(Data::Text(old)),
-                                Some(Value {
-                                    data: Data::Text(name),
-                                    ..
-                                }),
-                            ) if target == Target::Dxf && old != &name => {
-                                dimension_style::named_elsewhere(db, old, cx, &was.source)?
-                            }
-                            _ => false,
-                        }
-                    }
-                    None => false,
-                };
-                let new_name_used = match found {
-                    Some((_, object)) if target == Target::Dxf => {
-                        match (object.first(2), born.text_value(2, &new.name)) {
-                            (
-                                Some(Data::Text(old)),
-                                Some(Value {
-                                    data: Data::Text(name),
-                                    ..
-                                }),
-                            ) if !old.eq_ignore_ascii_case(&name) => {
-                                dimension_style::name_in_use(db, &name, cx, &was.source)?
-                            }
-                            _ => false,
-                        }
-                    }
-                    _ => false,
-                };
-                let planned = found.and_then(|(position, object)| {
-                    let mut values = object.values.clone();
-                    dimension_style::write(&born, &mut values, new, Some((object, was)), blocks)?;
-                    let Some(Data::Text(old)) = object.first(2) else {
-                        return None;
-                    };
-                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
-                        return None;
-                    };
-                    if old != name
-                        && (named
-                            || dimension_style::has_children(dimension_style_names.iter(), old))
-                    {
-                        return None;
-                    }
-                    if !old.eq_ignore_ascii_case(name) {
-                        // 名前を変えるなら、ほかの寸法スタイルと重ならず、子の寸法スタイルを持たず、DXF の
-                        // 寸法などでないオブジェクトが名前で指していないこと
-                        let free = !dimension_style_names.contains(&name.to_ascii_lowercase())
-                            && !new_name_used;
-                        free.then_some(())?;
-                        dimension_style_names.remove(&old.to_ascii_lowercase());
-                        dimension_style_names.insert(name.to_ascii_lowercase());
-                    }
-                    if old != name {
-                        dimension_style_renames.push((old.clone(), name.clone()));
-                    }
-                    Some((position, values))
-                });
-                match planned {
-                    Some(planned) => replaced.push(planned),
-                    None => {
-                        cx.report(
-                            unsupported("replace_dimension_style", "DIMSTYLE", target)
-                                .at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::RemoveDimensionStyle { target: target_of } => {
-                let Some(&was) = index.dimension_styles.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                // 後ろのハンドルなし寸法スタイルは並びの番号が ID なので、除くと別の ID になる
-                work(cx, drawing.dimension_styles.len() as u64, &was.source)?;
-                let unstable = drawing
-                    .dimension_styles
-                    .iter()
-                    .skip_while(|style| !std::ptr::eq(*style, was))
-                    .skip(1)
-                    .any(|style| !matches!(style.source.key(), Some(Key::Handle(_))));
-                count_table_records(db, dimension_styles, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str())
-                    && was.source != Ref::default()
-                    && !unstable)
-                    .then(|| record_at(db, dimension_styles, &was.source))
-                    .flatten();
-                let planned = match found {
-                    Some((position, object)) => {
-                        count_transform_values(object, &was.source, cx)?;
-                        let children = match object.first(2) {
-                            Some(Data::Text(name)) => {
-                                dimension_style::has_children(dimension_style_names.iter(), name)
-                            }
-                            _ => true,
-                        };
-                        match dimension_style::removable(object) && !children {
-                            true => removal(
-                                db,
-                                position,
-                                object,
-                                dimension_style::referenced,
-                                cx,
-                                &was.source,
-                            )?
-                            .map(|skip| (skip, object)),
-                            false => None,
-                        }
-                    }
-                    None => None,
-                };
-                match planned {
-                    Some((skip, object)) => {
-                        if let Some(Data::Text(name)) = object.first(2) {
-                            dimension_style_names.remove(&name.to_ascii_lowercase());
-                        }
-                        removed.extend(skip);
-                    }
-                    None => {
-                        cx.report(
-                            unsupported("remove_dimension_style", "DIMSTYLE", target)
-                                .at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::AddDimensionStyle { style: new } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                let new_name_used = if target == Target::Dxf {
-                    match born.text_value(2, &new.name) {
-                        Some(Value {
-                            data: Data::Text(name),
-                            ..
-                        }) => dimension_style::name_in_use(db, &name, cx, &Ref::default())?,
-                        _ => false,
-                    }
-                } else {
-                    false
-                };
-                count_table_records(db, dimension_styles, &Ref::default(), cx)?;
-                // Standard を写す。なければ、表の初めの子でない寸法スタイルを写す
-                let named = |want: &dyn Fn(&[u8]) -> bool| {
-                    dimension_styles.iter().find_map(|&position| {
-                        db.objects().get(position).filter(|object| {
-                            matches!(object.first(2), Some(Data::Text(name)) if want(name))
-                        })
-                    })
-                };
-                let standard = named(&|name| name.eq_ignore_ascii_case(b"Standard"))
-                    .or_else(|| named(&|name| !name.is_empty() && !name.contains(&b'$')));
-                if let Some(standard) = standard {
-                    count_transform_values(standard, &Ref::default(), cx)?;
-                }
-                if target == Target::Dxf {
-                    count_table_search(db, cx)?;
-                }
-                let planned = standard.and_then(|standard| {
-                    let mut values = dimension_style::template(standard);
-                    dimension_style::write(&born, &mut values, new, None, blocks)?;
-                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
-                        return None;
-                    };
-                    let name = name.to_ascii_lowercase();
-                    (!new_name_used
-                        && (target != Target::Dxf || layer::table_end(db, b"DIMSTYLE").is_some())
-                        && dimension_style_names.insert(name))
-                    .then_some(values)
-                });
-                match planned {
-                    Some(values) => added_dimension_styles.push(values),
-                    None => {
-                        cx.report(unsupported("add_dimension_style", "DIMSTYLE", target));
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::ReplaceTextStyle {
-                target: target_of,
-                style: new,
-            } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                let Some(&was) = index.text_styles.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                count_table_records(db, styles, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str()) && was.source != Ref::default())
-                    .then(|| record_at(db, styles, &was.source))
-                    .flatten();
-                // DXF で名前を変えるなら、図形でないオブジェクトが名前で指していないかを先に調べる
-                let named = match found {
-                    Some((_, object)) => {
-                        count_transform_values(object, &was.source, cx)?;
-                        match (object.first(2), born.text_value(2, &new.name)) {
-                            (
-                                Some(Data::Text(old)),
-                                Some(Value {
-                                    data: Data::Text(name),
-                                    ..
-                                }),
-                            ) if target == Target::Dxf && !old.eq_ignore_ascii_case(&name) => {
-                                text_style::named_elsewhere(db, old, cx, &was.source)?
-                            }
-                            _ => false,
-                        }
-                    }
-                    None => false,
-                };
-                let planned = found.and_then(|(position, object)| {
-                    let mut values = object.values.clone();
-                    text_style::write(&born, &mut values, new, Some((object, was)))?;
-                    let Some(Data::Text(old)) = object.first(2) else {
-                        return None;
-                    };
-                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
-                        return None;
-                    };
-                    if !old.eq_ignore_ascii_case(name) {
-                        // 名前を変えるなら、ほかの文字スタイルと重ならず、DXF の図形でないオブジェクトが名前で
-                        // 指していないこと
-                        let free = !style_names.contains(&name.to_ascii_lowercase()) && !named;
-                        free.then_some(())?;
-                        style_names.remove(&old.to_ascii_lowercase());
-                        style_names.insert(name.to_ascii_lowercase());
-                    }
-                    if old != name {
-                        let name = Value {
-                            code: 7,
-                            data: Data::Text(name.clone()),
-                        };
-                        style_renames.push((old.clone(), name));
-                    }
-                    Some((position, values))
-                });
-                match planned {
-                    Some(planned) => replaced.push(planned),
-                    None => {
-                        cx.report(
-                            unsupported("replace_text_style", "STYLE", target)
-                                .at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::RemoveTextStyle { target: target_of } => {
-                let Some(&was) = index.text_styles.get(&target_of.id) else {
-                    missing(&target_of.id, cx);
-                    rejected = true;
-                    continue;
-                };
-                if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-                    cx.report(
-                        Diagnostic::new(codes::CHANGE_ELEMENT_STALE)
-                            .with("id", target_of.id.as_str()),
-                    );
-                    rejected = true;
-                    continue;
-                }
-                // 後ろのハンドルなし文字スタイルは並びの番号が ID なので、除くと別の ID になる
-                work(cx, drawing.text_styles.len() as u64, &was.source)?;
-                let unstable = drawing
-                    .text_styles
-                    .iter()
-                    .skip_while(|style| !std::ptr::eq(*style, was))
-                    .skip(1)
-                    .any(|style| !matches!(style.source.key(), Some(Key::Handle(_))));
-                count_table_records(db, styles, &was.source, cx)?;
-                let found = (targets.insert(target_of.id.as_str())
-                    && was.source != Ref::default()
-                    && !unstable)
-                    .then(|| record_at(db, styles, &was.source))
-                    .flatten();
-                let planned = match found {
-                    Some((position, object)) => {
-                        count_transform_values(object, &was.source, cx)?;
-                        match text_style::removable(object) {
-                            true => removal(
-                                db,
-                                position,
-                                object,
-                                text_style::referenced,
-                                cx,
-                                &was.source,
-                            )?
-                            .map(|skip| (skip, object)),
-                            false => None,
-                        }
-                    }
-                    None => None,
-                };
-                match planned {
-                    Some((skip, object)) => {
-                        if let Some(Data::Text(name)) = object.first(2) {
-                            style_names.remove(&name.to_ascii_lowercase());
-                            removed_styles.push(name.clone());
-                        }
-                        removed.extend(skip);
-                    }
-                    None => {
-                        cx.report(
-                            unsupported("remove_text_style", "STYLE", target)
-                                .at(was.source.clone()),
-                        );
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::AddTextStyle { style: new } => {
-                work(cx, 1 + new.name.len() as u64 / 1024, &Ref::default())?;
-                // 定義のない文字スタイルは表の後に並ぶため、表への追加でその ID がずれる。
-                work(cx, drawing.text_styles.len() as u64, &Ref::default())?;
-                let unstable = drawing
-                    .text_styles
-                    .iter()
-                    .any(|style| style.definition.is_none());
-                count_table_records(db, styles, &Ref::default(), cx)?;
-                let standard = styles.iter().find_map(|&position| {
-                    db.objects().get(position).filter(|object| {
-                        matches!(object.first(2), Some(Data::Text(name)) if text_style::fixed_name(name))
-                    })
-                });
-                if let Some(standard) = standard {
-                    count_transform_values(standard, &Ref::default(), cx)?;
-                }
-                if target == Target::Dxf {
-                    count_table_search(db, cx)?;
-                }
-                let planned = standard.and_then(|standard| {
-                    let mut values = text_style::template(standard, target);
-                    text_style::write(&born, &mut values, new, None)?;
-                    let Some(Data::Text(name)) = layer::find(&values, 2) else {
-                        return None;
-                    };
-                    let name = name.to_ascii_lowercase();
-                    (!unstable
-                        && (target != Target::Dxf || layer::table_end(db, b"STYLE").is_some())
-                        && style_names.insert(name))
-                    .then_some(values)
-                });
-                match planned {
-                    Some(values) => added_styles.push(values),
-                    None => {
-                        cx.report(unsupported("add_text_style", "STYLE", target));
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::Add { place, element } => {
-                let Some(&place) = index.places.get(place) else {
-                    missing(place, cx);
-                    rejected = true;
-                    continue;
-                };
-                let (record, kind) = match (place, element.as_ref()) {
-                    (Place::Space(space), Placed::Model(element)) => {
-                        add::work(&element.shape, cx, &Ref::default())?;
-                        let record = (space == MODEL)
-                            .then(|| {
-                                born.record(element, &InSpace(MODEL), born.model(), added_records)
-                            })
-                            .flatten();
-                        (record, kind_of(&element.shape))
-                    }
-                    (Place::Sheet(sheet), Placed::Paper(element)) => {
-                        add::work(&element.shape, cx, &Ref::default())?;
-                        let record = frames.get(&sheet).and_then(|&frame| {
-                            born.record(element, &OnSheet(sheet, frame), frame.home, added_records)
-                        });
-                        (record, kind_of(&element.shape))
-                    }
-                    (_, Placed::Model(element)) => (None, kind_of(&element.shape)),
-                    (_, Placed::Paper(element)) => (None, kind_of(&element.shape)),
-                };
-                match record {
-                    Some(record) => {
-                        added_records += record.count();
-                        added.push(record);
-                    }
-                    None => {
-                        cx.report(unsupported("add", kind, target));
-                        rejected = true;
-                    }
-                }
-                continue;
-            }
-            Edit::Replace {
-                target: target_of, ..
-            } => ("replace", target_of),
-            Edit::Restyle {
-                target: target_of, ..
-            } => ("restyle", target_of),
-            Edit::Transform {
-                target: target_of, ..
-            } => ("transform", target_of),
-            Edit::Remove { target: target_of } => ("remove", target_of),
-        };
-        let Some(&found) = index.elements.get(&target_of.id) else {
-            missing(&target_of.id, cx);
-            rejected = true;
-            continue;
-        };
-        if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
-            cx.report(
-                Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", target_of.id.as_str()),
-            );
-            rejected = true;
-            continue;
-        }
-        let at = match found {
-            Found::Model(element) => &element.source,
-            Found::Paper(element) => &element.source,
-        };
-        if !targets.insert(target_of.id.as_str()) {
-            let kind = match found {
-                Found::Model(element) => kind_of(&element.shape),
-                Found::Paper(element) => kind_of(&element.shape),
-            };
-            cx.report(unsupported(edit, kind, target).at(at.clone()));
-            rejected = true;
-            continue;
-        }
-        let object = (!index.shared.contains(at))
-            .then(|| positions.get(at).copied())
-            .flatten()
-            .and_then(|position| Some((position, db.objects().get(position)?)));
-        let Some((position, object)) = object else {
-            let kind = match found {
-                Found::Model(element) => kind_of(&element.shape),
-                Found::Paper(element) => kind_of(&element.shape),
-            };
-            cx.report(unsupported(edit, kind, target).at(at.clone()));
-            rejected = true;
-            continue;
-        };
-        // 置き換え値の比較と、元のレコードの複製に先立って作業量を数える。
-        if let Edit::Replace { element, .. } = change {
-            match element.as_ref() {
-                Placed::Model(element) => add::work(&element.shape, cx, at)?,
-                Placed::Paper(element) => add::work(&element.shape, cx, at)?,
-            }
-            // 属性の値を置き換えるときは、続く ATTRIB の値も複製する。
-            // その走査と複製を、実行する前に予算に含める。
-            match found {
-                Found::Model(was) => transform_work(db, &positions, was, object, cx)?,
-                Found::Paper(was) => transform_work(db, &positions, was, object, cx)?,
-            }
-        }
-        let reshaped = match (change, found) {
-            (Edit::Replace { element, .. }, Found::Model(was)) => {
-                matches!(element.as_ref(), Placed::Model(element) if element.shape != was.shape)
-            }
-            (Edit::Replace { element, .. }, Found::Paper(was)) => {
-                matches!(element.as_ref(), Placed::Paper(element) if element.shape != was.shape)
-            }
-            _ => false,
-        };
-        if reshaped && let Some(code) = moving_xdata(object) {
-            cx.report(
-                Diagnostic::new(codes::CHANGE_XDATA_UNSUPPORTED)
-                    .with("kind", text(&object.kind))
-                    .with("code", i64::from(code))
-                    .at(at.clone()),
-            );
-            rejected = true;
-            continue;
-        }
-        // 図面モデルに移せなかった ATTRIB も元のファイルには残る。INSERT だけを動かさない。
-        let moved_symbol = match (change, found) {
-            (Edit::Replace { element, .. }, Found::Model(was)) => {
-                matches!(element.as_ref(), Placed::Model(element) if symbol_moved(&was.shape, &element.shape))
-            }
-            (Edit::Replace { element, .. }, Found::Paper(was)) => {
-                matches!(element.as_ref(), Placed::Paper(element) if symbol_moved(&was.shape, &element.shape))
-            }
-            _ => false,
-        };
-        let lifted_count = match (change, found) {
-            (Edit::Transform { .. }, Found::Model(was)) => match &was.shape {
-                Shape::Symbol(symbol) => Some(symbol.attributes.len()),
-                _ => None,
-            },
-            (Edit::Transform { .. }, Found::Paper(was)) => match &was.shape {
-                Shape::Symbol(symbol) => Some(symbol.attributes.len()),
-                _ => None,
-            },
-            _ => None,
-        };
-        let count = if moved_symbol || lifted_count.is_some() {
-            if attribute_counts.is_none() {
-                attribute_counts = Some(attribute_counts_for(db, at, cx)?);
-            }
-            attribute_counts
-                .as_ref()
-                .and_then(|counts| counts.get(&position))
-                .copied()
-                .unwrap_or_default()
-        } else {
-            0
-        };
-        if lifted_count.is_some_and(|lifted| count != lifted) || (moved_symbol && count > 0) {
-            cx.report(unsupported(edit, &text(&object.kind), target).at(at.clone()));
-            rejected = true;
-            continue;
-        }
-        let planned = match (change, found) {
-            (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
-                Placed::Model(element) => anchor(&was.shape)
-                    .and_then(|anchor| {
-                        let frame = InSpace(anchor.space);
-                        let (written, followers) =
-                            revalued(db, &positions, was, element, unicode, &frame)?;
-                        let values = replacement(was, &written, object, unicode, &frame)?;
-                        Some((values, followers))
-                    })
-                    .map(|(values, followers)| {
-                        replaced.push((position, values));
-                        replaced.extend(followers);
-                    }),
-                Placed::Paper(_) => None,
-            },
-            (Edit::Replace { element, .. }, Found::Paper(was)) => match element.as_ref() {
-                Placed::Paper(element) => anchor(&was.shape)
-                    .and_then(|anchor| {
-                        let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
-                        let (written, followers) =
-                            revalued(db, &positions, was, element, unicode, &frame)?;
-                        let values = replacement(was, &written, object, unicode, &frame)?;
-                        Some((values, followers))
-                    })
-                    .map(|(values, followers)| {
-                        replaced.push((position, values));
-                        replaced.extend(followers);
-                    }),
-                Placed::Model(_) => None,
-            },
-            (Edit::Restyle { style, .. }, found) => {
-                let (layer, was) = match found {
-                    Found::Model(element) => (element.layer, &element.style),
-                    Found::Paper(element) => (element.layer, &element.style),
-                };
-                restyled(&born, object, layer, was, style, target, cx)?
-                    .map(|values| replaced.push((position, values)))
-            }
-            (Edit::Transform { transform, .. }, Found::Model(was)) => {
-                transform_work(db, &positions, was, object, cx)?;
-                anchor(&was.shape)
-                    .and_then(|anchor| {
-                        let frame = InSpace(anchor.space);
-                        moved(
-                            db, &positions, was, object, transform, unicode, &frame, true,
-                        )
-                    })
-                    .map(|values| {
-                        replaced.push((position, values.object));
-                        replaced.extend(values.followers);
-                    })
-            }
-            (Edit::Transform { transform, .. }, Found::Paper(was)) => {
-                transform_work(db, &positions, was, object, cx)?;
-                anchor(&was.shape)
-                    .and_then(|anchor| {
-                        let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
-                        moved(
-                            db, &positions, was, object, transform, unicode, &frame, false,
-                        )
-                    })
-                    .map(|values| {
-                        replaced.push((position, values.object));
-                        replaced.extend(values.followers);
-                    })
-            }
-            (Edit::Remove { .. }, _) => (!followed(object)).then(|| removed.push(position)),
-            (
-                Edit::Add { .. }
-                | Edit::ReplaceLayer { .. }
-                | Edit::AddLayer { .. }
-                | Edit::RemoveLayer { .. }
-                | Edit::ReplaceTextStyle { .. }
-                | Edit::AddTextStyle { .. }
-                | Edit::RemoveTextStyle { .. }
-                | Edit::ReplaceLineType { .. }
-                | Edit::AddLineType { .. }
-                | Edit::RemoveLineType { .. }
-                | Edit::ReplaceDimensionStyle { .. }
-                | Edit::AddDimensionStyle { .. }
-                | Edit::RemoveDimensionStyle { .. },
-                _,
-            ) => None,
-        };
-        if planned.is_none() {
-            cx.report(unsupported(edit, &text(&object.kind), target).at(at.clone()));
-            rejected = true;
-        }
+        plan.check(&current, change, cx)?;
     }
-    if rejected {
+    if plan.rejected {
         return Err(Error::Rejected);
     }
-    // remove は毎回、残る全オブジェクトを再索引し、値から参照を除く。
-    // 拡張辞書の子をまとめて除く場合も、変更する前に全回数分の作業を数える。
-    if !removed.is_empty() {
-        let mut values = 0u64;
-        for object in db.objects() {
-            work(cx, 1, &Ref::default())?;
-            values = values.saturating_add(object.values.len() as u64);
-        }
-        for (_, replacement) in &replaced {
-            values = values.saturating_add(replacement.len() as u64);
-        }
-        let per_remove = (db.objects().len() as u64)
-            .saturating_add(values)
-            .saturating_mul(2);
-        work(
-            cx,
-            per_remove.saturating_mul(removed.len() as u64),
-            &Ref::default(),
-        )?;
-    }
+    let Plan {
+        replaced,
+        mut removed,
+        added,
+        layers,
+        text_styles,
+        line_types,
+        dimension_styles,
+        ..
+    } = plan;
+    count_removals(db, &replaced, &removed, cx)?;
     let insertion_work = born.insertion_work(&added, db.objects().len());
     if insertion_work > 0 {
         work(cx, insertion_work, &Ref::default())?;
@@ -1614,113 +396,515 @@ fn edit(
     for position in removed.into_iter().rev() {
         db.remove(position);
     }
-    let mut handles = born.push(db, added).into_iter();
-    let mut layer_handles = Vec::with_capacity(added_layers.len());
-    for values in added_layers {
-        for object in db.objects() {
-            work(cx, 1, &Ref::default())?;
-            count_transform_values(object, &Ref::default(), cx)?;
-        }
-        let handle = add::next_free_handle(db, target);
-        let record = layer::record(b"LAYER", values, handle);
-        match target {
-            Target::Dxf => {
-                let at = layer::table_end(db, b"LAYER").ok_or(Error::Rejected)?;
-                db.insert(at, record);
-            }
-            Target::Dwg(_) => db.push(record),
-        }
-        layer_handles.push(handle);
-    }
-    for (old, new) in &renames {
-        layer::rename(db, old, new, target, cx)?;
-    }
-    let mut style_handles = Vec::with_capacity(added_styles.len());
-    for values in added_styles {
-        for object in db.objects() {
-            work(cx, 1, &Ref::default())?;
-            count_transform_values(object, &Ref::default(), cx)?;
-        }
-        let handle = add::next_free_handle(db, target);
-        let record = layer::record(b"STYLE", values, handle);
-        match target {
-            Target::Dxf => {
-                let at = layer::table_end(db, b"STYLE").ok_or(Error::Rejected)?;
-                db.insert(at, record);
-            }
-            Target::Dwg(_) => db.push(record),
-        }
-        style_handles.push(handle);
-    }
-    for (old, new) in &style_renames {
-        text_style::rename(db, old, new, target, cx)?;
-    }
-    // 同じ一覧で足した図形は、除いた文字スタイルを指せない
-    for name in &removed_styles {
-        if text_style::named_by_new(db, name, cx)? {
-            cx.report(unsupported("remove_text_style", "STYLE", target));
+    let handles = born.push(db, added);
+    let layer_handles = layers.write_back(db, target, cx)?;
+    let style_handles = text_styles.write_back(db, target, cx)?;
+    let line_type_handles = line_types.write_back(db, target, cx)?;
+    let dimension_style_handles = dimension_styles.write_back(db, target, cx)?;
+    Ok(results(
+        changes,
+        &index,
+        handles,
+        layer_handles,
+        style_handles,
+        line_type_handles,
+        dimension_style_handles,
+    ))
+}
+
+/// ハンドルが重複すると、参照や ID が別のオブジェクトを指しうる。書き戻しは拒否する。
+fn unique_handles(db: &AcadDb, target: Target, cx: &mut Cx) -> Result<(), Error> {
+    let mut handles = BTreeSet::new();
+    for object in db.objects() {
+        work(cx, 1, &source(object))?;
+        if let Some(handle) = object.handle()
+            && handle != 0
+            && !handles.insert(handle)
+        {
+            cx.report(unsupported("apply", "duplicate_handle", target).at(source(object)));
             return Err(Error::Rejected);
         }
     }
-    let mut line_type_handles = Vec::with_capacity(added_line_types.len());
-    for values in added_line_types {
-        for object in db.objects() {
-            work(cx, 1, &Ref::default())?;
-            count_transform_values(object, &Ref::default(), cx)?;
+    Ok(())
+}
+
+/// 変更を確かめる間に読む、今の表と図面モデル
+struct Current<'a> {
+    db: &'a AcadDb,
+    drawing: &'a Drawing2D,
+    index: &'a Index<'a>,
+    born: &'a Born,
+    positions: &'a BTreeMap<Ref, usize>,
+    frames: &'a BTreeMap<SheetId, PaperFrame>,
+    /// 変更の一覧。除く項目を、同じ一覧のほかの変更が指していないかを調べる
+    edits: &'a [Edit],
+    unicode: bool,
+    target: Target,
+}
+
+/// 確かめた変更から作る、表への書き込みの控え。拒んだ変更が 1 つでもあれば、表を変えない
+struct Plan<'e> {
+    replaced: Vec<(usize, Vec<Value>)>,
+    removed: Vec<usize>,
+    added: Vec<add::Record>,
+    added_records: u64,
+    rejected: bool,
+    /// 変えた項目の ID。同じ項目は一度だけ変えられる
+    targets: BTreeSet<&'e str>,
+    attribute_counts: Option<BTreeMap<usize, usize>>,
+    layers: layer::Layers,
+    text_styles: text_style::TextStyles,
+    line_types: line_type::LineTypes,
+    dimension_styles: dimension_style::DimensionStyles,
+}
+
+impl<'e> Plan<'e> {
+    fn new(db: &AcadDb, target: Target) -> Self {
+        Self {
+            replaced: Vec::new(),
+            removed: Vec::new(),
+            added: Vec::new(),
+            added_records: 0,
+            rejected: false,
+            targets: BTreeSet::new(),
+            attribute_counts: None,
+            layers: layer::Layers::default(),
+            text_styles: text_style::TextStyles::default(),
+            line_types: line_type::LineTypes::default(),
+            dimension_styles: dimension_style::DimensionStyles::new(db, target),
         }
-        let handle = add::next_free_handle(db, target);
-        let record = layer::record(b"LTYPE", values, handle);
-        match target {
-            Target::Dxf => {
-                let at = layer::table_end(db, b"LTYPE").ok_or(Error::Rejected)?;
-                db.insert(at, record);
+    }
+
+    /// 変更を 1 つ確かめて控える。当てられない変更は、診断を足して拒む
+    fn check(&mut self, current: &Current<'_>, change: &'e Edit, cx: &mut Cx) -> Result<(), Error> {
+        match change {
+            Edit::ReplaceLayer {
+                target: target_of,
+                layer: new,
+            } => layer::replace(current, self, target_of, new, cx),
+            Edit::RemoveLayer { target: target_of } => layer::remove(current, self, target_of, cx),
+            Edit::AddLayer { layer: new } => layer::add(current, self, new, cx),
+            Edit::ReplaceLineType {
+                target: target_of,
+                line_type: new,
+            } => line_type::replace(current, self, target_of, new, cx),
+            Edit::RemoveLineType { target: target_of } => {
+                line_type::remove(current, self, target_of, cx)
             }
-            Target::Dwg(_) => db.push(record),
+            Edit::AddLineType { line_type: new } => line_type::add(current, self, new, cx),
+            Edit::ReplaceDimensionStyle {
+                target: target_of,
+                style: new,
+            } => dimension_style::replace(current, self, target_of, new, cx),
+            Edit::RemoveDimensionStyle { target: target_of } => {
+                dimension_style::remove(current, self, target_of, cx)
+            }
+            Edit::AddDimensionStyle { style: new } => dimension_style::add(current, self, new, cx),
+            Edit::ReplaceTextStyle {
+                target: target_of,
+                style: new,
+            } => text_style::replace(current, self, target_of, new, cx),
+            Edit::RemoveTextStyle { target: target_of } => {
+                text_style::remove(current, self, target_of, cx)
+            }
+            Edit::AddTextStyle { style: new } => text_style::add(current, self, new, cx),
+            Edit::Add { place, element } => add_element(current, self, place, element, cx),
+            Edit::Replace {
+                target: target_of, ..
+            } => change_element(current, self, change, "replace", target_of, cx),
+            Edit::Restyle {
+                target: target_of, ..
+            } => change_element(current, self, change, "restyle", target_of, cx),
+            Edit::Transform {
+                target: target_of, ..
+            } => change_element(current, self, change, "transform", target_of, cx),
+            Edit::Remove { target: target_of } => {
+                change_element(current, self, change, "remove", target_of, cx)
+            }
         }
-        line_type_handles.push(handle);
     }
-    for (old, new) in &line_type_renames {
-        line_type::rename(db, old, new, target, cx)?;
+
+    /// 当てられない変更の診断を足し、表を変えないようにする
+    fn reject(&mut self, diagnostic: Diagnostic, cx: &mut Cx) {
+        cx.report(diagnostic);
+        self.rejected = true;
     }
-    // 同じ一覧で足した図形と画層は、除いた線種を指せない
-    for name in &removed_line_types {
-        if line_type::named_by_new(db, name, cx)? {
-            cx.report(unsupported("remove_line_type", "LTYPE", target));
-            return Err(Error::Rejected);
+
+    /// 変更が指す項目を `items` から引き、読んだときのハッシュと今のハッシュを比べる。項目がない・ハッシュが
+    /// 違うときは、診断を足して拒み、`None` を返す
+    fn seen<V: Copy>(
+        &mut self,
+        items: &BTreeMap<String, V>,
+        target_of: &Seen,
+        index: &Index<'_>,
+        cx: &mut Cx,
+    ) -> Result<Option<V>, Error> {
+        let Some(&found) = items.get(&target_of.id) else {
+            missing(&target_of.id, cx);
+            self.rejected = true;
+            return Ok(None);
+        };
+        if index.hash(&target_of.id, cx)? != Some(target_of.hash) {
+            self.reject(
+                Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", target_of.id.as_str()),
+                cx,
+            );
+            return Ok(None);
+        }
+        Ok(Some(found))
+    }
+}
+
+/// 変更が指す ID がない診断
+fn missing(id: &str, cx: &mut Cx) {
+    cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
+}
+
+/// 要素を足す（`Edit::Add`）
+fn add_element(
+    current: &Current<'_>,
+    plan: &mut Plan<'_>,
+    place: &str,
+    element: &Placed,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        index,
+        born,
+        frames,
+        target,
+        ..
+    } = *current;
+    let Some(&place) = index.places.get(place) else {
+        missing(place, cx);
+        plan.rejected = true;
+        return Ok(());
+    };
+    let (record, kind) = match (place, element) {
+        (Place::Space(space), Placed::Model(element)) => {
+            add::work(&element.shape, cx, &Ref::default())?;
+            let record = (space == MODEL)
+                .then(|| born.record(element, &InSpace(MODEL), born.model(), plan.added_records))
+                .flatten();
+            (record, kind_of(&element.shape))
+        }
+        (Place::Sheet(sheet), Placed::Paper(element)) => {
+            add::work(&element.shape, cx, &Ref::default())?;
+            let record = frames.get(&sheet).and_then(|&frame| {
+                born.record(
+                    element,
+                    &OnSheet(sheet, frame),
+                    frame.home,
+                    plan.added_records,
+                )
+            });
+            (record, kind_of(&element.shape))
+        }
+        (_, Placed::Model(element)) => (None, kind_of(&element.shape)),
+        (_, Placed::Paper(element)) => (None, kind_of(&element.shape)),
+    };
+    match record {
+        Some(record) => {
+            plan.added_records += record.count();
+            plan.added.push(record);
+        }
+        None => plan.reject(unsupported("add", kind, target), cx),
+    }
+    Ok(())
+}
+
+/// 要素を置き換える・スタイルを変える・動かす・除く（`Edit::{Replace,Restyle,Transform,Remove}`）。`edit` は
+/// 診断に書く変更の名前
+fn change_element<'e>(
+    current: &Current<'_>,
+    plan: &mut Plan<'e>,
+    change: &Edit,
+    edit: &str,
+    target_of: &'e Seen,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db,
+        index,
+        born,
+        positions,
+        frames,
+        unicode,
+        target,
+        ..
+    } = *current;
+    let Some(found) = plan.seen(&index.elements, target_of, index, cx)? else {
+        return Ok(());
+    };
+    let at = match found {
+        Found::Model(element) => &element.source,
+        Found::Paper(element) => &element.source,
+    };
+    if !plan.targets.insert(target_of.id.as_str()) {
+        let kind = match found {
+            Found::Model(element) => kind_of(&element.shape),
+            Found::Paper(element) => kind_of(&element.shape),
+        };
+        plan.reject(unsupported(edit, kind, target).at(at.clone()), cx);
+        return Ok(());
+    }
+    let object = (!index.shared.contains(at))
+        .then(|| positions.get(at).copied())
+        .flatten()
+        .and_then(|position| Some((position, db.objects().get(position)?)));
+    let Some((position, object)) = object else {
+        let kind = match found {
+            Found::Model(element) => kind_of(&element.shape),
+            Found::Paper(element) => kind_of(&element.shape),
+        };
+        plan.reject(unsupported(edit, kind, target).at(at.clone()), cx);
+        return Ok(());
+    };
+    // 置き換え値の比較と、元のレコードの複製に先立って作業量を数える。
+    if let Edit::Replace { element, .. } = change {
+        match element.as_ref() {
+            Placed::Model(element) => add::work(&element.shape, cx, at)?,
+            Placed::Paper(element) => add::work(&element.shape, cx, at)?,
+        }
+        // 属性の値を置き換えるときは、続く ATTRIB の値も複製する。
+        // その走査と複製を、実行する前に予算に含める。
+        match found {
+            Found::Model(was) => transform_work(db, positions, was, object, cx)?,
+            Found::Paper(was) => transform_work(db, positions, was, object, cx)?,
         }
     }
-    let mut dimension_style_handles = Vec::with_capacity(added_dimension_styles.len());
-    for values in added_dimension_styles {
+    let reshaped = match (change, found) {
+        (Edit::Replace { element, .. }, Found::Model(was)) => {
+            matches!(element.as_ref(), Placed::Model(element) if element.shape != was.shape)
+        }
+        (Edit::Replace { element, .. }, Found::Paper(was)) => {
+            matches!(element.as_ref(), Placed::Paper(element) if element.shape != was.shape)
+        }
+        _ => false,
+    };
+    if reshaped && let Some(code) = moving_xdata(object) {
+        plan.reject(
+            Diagnostic::new(codes::CHANGE_XDATA_UNSUPPORTED)
+                .with("kind", text(&object.kind))
+                .with("code", i64::from(code))
+                .at(at.clone()),
+            cx,
+        );
+        return Ok(());
+    }
+    // 図面モデルに移せなかった ATTRIB も元のファイルには残る。INSERT だけを動かさない。
+    let moved_symbol = match (change, found) {
+        (Edit::Replace { element, .. }, Found::Model(was)) => {
+            matches!(element.as_ref(), Placed::Model(element) if symbol_moved(&was.shape, &element.shape))
+        }
+        (Edit::Replace { element, .. }, Found::Paper(was)) => {
+            matches!(element.as_ref(), Placed::Paper(element) if symbol_moved(&was.shape, &element.shape))
+        }
+        _ => false,
+    };
+    let lifted_count = match (change, found) {
+        (Edit::Transform { .. }, Found::Model(was)) => match &was.shape {
+            Shape::Symbol(symbol) => Some(symbol.attributes.len()),
+            _ => None,
+        },
+        (Edit::Transform { .. }, Found::Paper(was)) => match &was.shape {
+            Shape::Symbol(symbol) => Some(symbol.attributes.len()),
+            _ => None,
+        },
+        _ => None,
+    };
+    let count = if moved_symbol || lifted_count.is_some() {
+        if plan.attribute_counts.is_none() {
+            plan.attribute_counts = Some(attribute_counts_for(db, at, cx)?);
+        }
+        plan.attribute_counts
+            .as_ref()
+            .and_then(|counts| counts.get(&position))
+            .copied()
+            .unwrap_or_default()
+    } else {
+        0
+    };
+    if lifted_count.is_some_and(|lifted| count != lifted) || (moved_symbol && count > 0) {
+        plan.reject(
+            unsupported(edit, &text(&object.kind), target).at(at.clone()),
+            cx,
+        );
+        return Ok(());
+    }
+    let replaced = &mut plan.replaced;
+    let planned = match (change, found) {
+        (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
+            Placed::Model(element) => anchor(&was.shape)
+                .and_then(|anchor| {
+                    let frame = InSpace(anchor.space);
+                    let (written, followers) =
+                        revalued(db, positions, was, element, unicode, &frame)?;
+                    let values = replacement(was, &written, object, unicode, &frame)?;
+                    Some((values, followers))
+                })
+                .map(|(values, followers)| {
+                    replaced.push((position, values));
+                    replaced.extend(followers);
+                }),
+            Placed::Paper(_) => None,
+        },
+        (Edit::Replace { element, .. }, Found::Paper(was)) => match element.as_ref() {
+            Placed::Paper(element) => anchor(&was.shape)
+                .and_then(|anchor| {
+                    let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                    let (written, followers) =
+                        revalued(db, positions, was, element, unicode, &frame)?;
+                    let values = replacement(was, &written, object, unicode, &frame)?;
+                    Some((values, followers))
+                })
+                .map(|(values, followers)| {
+                    replaced.push((position, values));
+                    replaced.extend(followers);
+                }),
+            Placed::Model(_) => None,
+        },
+        (Edit::Restyle { style, .. }, found) => {
+            let (layer, was) = match found {
+                Found::Model(element) => (element.layer, &element.style),
+                Found::Paper(element) => (element.layer, &element.style),
+            };
+            restyled(born, object, layer, was, style, target, cx)?
+                .map(|values| replaced.push((position, values)))
+        }
+        (Edit::Transform { transform, .. }, Found::Model(was)) => {
+            transform_work(db, positions, was, object, cx)?;
+            anchor(&was.shape)
+                .and_then(|anchor| {
+                    let frame = InSpace(anchor.space);
+                    moved(db, positions, was, object, transform, unicode, &frame, true)
+                })
+                .map(|values| {
+                    replaced.push((position, values.object));
+                    replaced.extend(values.followers);
+                })
+        }
+        (Edit::Transform { transform, .. }, Found::Paper(was)) => {
+            transform_work(db, positions, was, object, cx)?;
+            anchor(&was.shape)
+                .and_then(|anchor| {
+                    let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                    moved(
+                        db, positions, was, object, transform, unicode, &frame, false,
+                    )
+                })
+                .map(|values| {
+                    replaced.push((position, values.object));
+                    replaced.extend(values.followers);
+                })
+        }
+        (Edit::Remove { .. }, _) => (!followed(object)).then(|| plan.removed.push(position)),
+        (
+            Edit::Add { .. }
+            | Edit::ReplaceLayer { .. }
+            | Edit::AddLayer { .. }
+            | Edit::RemoveLayer { .. }
+            | Edit::ReplaceTextStyle { .. }
+            | Edit::AddTextStyle { .. }
+            | Edit::RemoveTextStyle { .. }
+            | Edit::ReplaceLineType { .. }
+            | Edit::AddLineType { .. }
+            | Edit::RemoveLineType { .. }
+            | Edit::ReplaceDimensionStyle { .. }
+            | Edit::AddDimensionStyle { .. }
+            | Edit::RemoveDimensionStyle { .. },
+            _,
+        ) => None,
+    };
+    if planned.is_none() {
+        plan.reject(
+            unsupported(edit, &text(&object.kind), target).at(at.clone()),
+            cx,
+        );
+    }
+    Ok(())
+}
+
+/// remove は毎回、残る全オブジェクトを再索引し、値から参照を除く。
+/// 拡張辞書の子をまとめて除く場合も、変更する前に全回数分の作業を数える。
+fn count_removals(
+    db: &AcadDb,
+    replaced: &[(usize, Vec<Value>)],
+    removed: &[usize],
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    if !removed.is_empty() {
+        let mut values = 0u64;
+        for object in db.objects() {
+            work(cx, 1, &Ref::default())?;
+            values = values.saturating_add(object.values.len() as u64);
+        }
+        for (_, replacement) in replaced {
+            values = values.saturating_add(replacement.len() as u64);
+        }
+        let per_remove = (db.objects().len() as u64)
+            .saturating_add(values)
+            .saturating_mul(2);
+        work(
+            cx,
+            per_remove.saturating_mul(removed.len() as u64),
+            &Ref::default(),
+        )?;
+    }
+    Ok(())
+}
+
+/// 足す表のレコード（LAYER・STYLE・LTYPE・DIMSTYLE）を、DXF は表の終わりに、DWG は後ろに置き、ハンドルを返す
+fn insert_records(
+    db: &mut AcadDb,
+    kind: &[u8],
+    added: Vec<Vec<Value>>,
+    target: Target,
+    cx: &mut Cx,
+) -> Result<Vec<Option<u64>>, Error> {
+    let mut handles = Vec::with_capacity(added.len());
+    for values in added {
         for object in db.objects() {
             work(cx, 1, &Ref::default())?;
             count_transform_values(object, &Ref::default(), cx)?;
         }
         let handle = add::next_free_handle(db, target);
-        let mut record = layer::record(b"DIMSTYLE", values, handle);
+        let mut record = layer::record(kind, values, handle);
         // 寸法スタイルのハンドルは 105 に置く（5 は DIMBLK の名前）
-        if handle.is_some()
+        if kind == b"DIMSTYLE"
+            && handle.is_some()
             && let Some(first) = record.values.first_mut()
         {
             first.code = 105;
         }
         match target {
             Target::Dxf => {
-                let at = layer::table_end(db, b"DIMSTYLE").ok_or(Error::Rejected)?;
+                let at = layer::table_end(db, kind).ok_or(Error::Rejected)?;
                 db.insert(at, record);
             }
             Target::Dwg(_) => db.push(record),
         }
-        dimension_style_handles.push(handle);
+        handles.push(handle);
     }
-    for (old, new) in &dimension_style_renames {
-        dimension_style::rename(db, old, new, target, cx)?;
-    }
+    Ok(handles)
+}
+
+/// 変更ごとに、書き戻した後の結果を探す鍵。要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く
+fn results(
+    changes: &Changes,
+    index: &Index<'_>,
+    handles: Vec<Option<u64>>,
+    layer_handles: Vec<Option<u64>>,
+    style_handles: Vec<Option<u64>>,
+    line_type_handles: Vec<Option<u64>>,
+    dimension_style_handles: Vec<Option<u64>>,
+) -> Vec<ResultTarget> {
+    let mut handles = handles.into_iter();
     let mut dimension_style_handles = dimension_style_handles.into_iter();
     let mut style_handles = style_handles.into_iter();
     let mut line_type_handles = line_type_handles.into_iter();
     let mut layer_handles = layer_handles.into_iter();
-    // 要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く
-    Ok(changes
+    changes
         .edits
         .iter()
         .map(|change| match change {
@@ -1776,7 +960,7 @@ fn edit(
                     .map(|handle| format!("text-style/h{handle:X}")),
             ),
         })
-        .collect())
+        .collect()
 }
 
 /// 表のレコード（画層・文字スタイル）を探す前に、名前と出所の探索に掛かる作業を数える。
