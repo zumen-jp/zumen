@@ -1,5 +1,6 @@
 //! 試料の DXF で、モデル空間に置いたブロックの中の図形の継承を、配置で解く（決定 0143）。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 

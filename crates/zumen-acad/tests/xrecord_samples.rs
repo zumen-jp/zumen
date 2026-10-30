@@ -1,5 +1,6 @@
 //! 試料の DXF・DWG で、拡張辞書の XRECORD を、決定 0157 の振り分けで形式固有の情報に移す（決定 0148・0152）。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 

@@ -1,5 +1,6 @@
 //! 試料の DXF・DWG で、ブロックのレコードの挿す単位を、記号の定義の空間の単位に移す（決定 0144）。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 

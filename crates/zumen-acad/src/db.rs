@@ -102,6 +102,7 @@ impl AcadDb {
     }
 
     /// 索引から位置を引く。ハンドルがなければ全体を探索しない。索引が古い場合の確認は呼ぶ側が行う。
+    #[cfg(feature = "drawing")]
     pub(crate) fn indexed_position(&self, handle: u64) -> Option<usize> {
         self.handles.get(&handle).copied()
     }

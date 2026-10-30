@@ -1,5 +1,6 @@
 //! 試料の、同じ図面のバイナリの DXF（`名前_binary.dxf`）と ASCII の DXF（`名前_ascii.dxf`）を読み、比べる。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 

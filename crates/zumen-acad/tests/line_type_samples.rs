@@ -1,5 +1,6 @@
 //! 試料の DXF・DWG で、線種の列の要素に添える形と文字を、線種の定義に移す（決定 0150）。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 

@@ -1,5 +1,6 @@
 //! 試料の DXF・DWG で、レイアウトごとの用紙を確かめる（決定 0145）。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 

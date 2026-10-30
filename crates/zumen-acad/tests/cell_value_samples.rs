@@ -1,5 +1,6 @@
 //! 試料の DXF・DWG で、表のセルの値の型・単位・表示の書式を移す（決定 0147）。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 

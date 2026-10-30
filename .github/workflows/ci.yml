@@ -25,6 +25,8 @@ jobs:
         run: rustup toolchain install
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: L1 だけを使う組（図面モデルなし）も lint する
+        run: cargo clippy --package zumen-acad --no-default-features --all-targets --locked -- -D warnings
       - name: wasm32 でだけ使うコードも lint する
         run: cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked -- -D warnings
       - name: 形式の権利と依存・診断・スキーマ・公開サンプルの台帳を確かめ、生成した文書とコードの更新漏れを調べる

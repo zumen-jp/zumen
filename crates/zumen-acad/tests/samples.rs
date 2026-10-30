@@ -54,7 +54,7 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
 
 /// 数を許容差で比べ、ほかの文字は同じであること。用紙の mm を図面の単位に戻すか、DWG のラジアンを度に戻すと、
 /// 最後の桁が違うことがある
-#[cfg(test)]
+#[cfg(all(test, feature = "drawing"))]
 fn close(found: &str, expected: &str) -> bool {
     fn tokens(text: &str) -> Vec<Result<f64, String>> {
         let mut out = Vec::new();
@@ -4539,6 +4539,7 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
 
 /// 試料の図面から、要素が使わない画層を除いて書き戻すと、開き直した図面にその画層がなく、ほかの画層の ID・
 /// 名前・状態・スタイルと、要素の画層は変わらない（決定 0162）
+#[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_removed_layers() {
     use std::collections::BTreeSet;
@@ -4816,6 +4817,7 @@ fn drawings_take_back_removed_layers() {
 /// 試料の文字スタイルの名前と定義を変え、文字スタイルを 1 つ足し、要素が使わない文字スタイルを除いて書き戻すと、
 /// 読み直した文字スタイルは変えたものと同じになり、文字は名前を変えた文字スタイルを指す。R2010 から後の DWG は、
 /// 日本語の名前にも変える（決定 0163）
+#[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_changed_text_styles() {
     use zumen_drawing::{
@@ -5024,6 +5026,7 @@ fn drawings_take_back_changed_text_styles() {
 /// 試料の線種の名前と定義を変え、線種を 1 つ足し、要素とレイヤが使わない線種を除いて書き戻すと、読み直した線種は
 /// 変えたものと同じになり、要素とレイヤは名前を変えた線種を指す。R2010 から後の DWG は、日本語の名前にも変える
 /// （決定 0164）
+#[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_changed_line_types() {
     use zumen_drawing::{
@@ -5230,6 +5233,7 @@ fn drawings_take_back_changed_line_types() {
 /// 試料の寸法スタイルの名前・大きさ・斜線・倍率を変え、寸法スタイルを 1 つ足し、寸法と引出線が使わない寸法スタイル
 /// を除いて書き戻すと、読み直した寸法スタイルは変えたものと同じになり、寸法と引出線は名前を変えた寸法スタイルを指す。
 /// DXF は、端部記号もブロックの矢印に変える。R2010 から後の DWG は、日本語の名前にも変える（決定 0165）
+#[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_changed_dimension_styles() {
     use zumen_drawing::{

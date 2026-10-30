@@ -1,5 +1,6 @@
 //! 試料の DXF・DWG で、MULTILEADER の線の色・線種・線幅と注記の色を移す（決定 0146）。
 //! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+#![cfg(feature = "drawing")]
 
 mod support;
 
