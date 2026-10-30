@@ -15,11 +15,11 @@ use crate::db::{AcadDb, Data, Object, Section, Value};
 use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
-    Affine, Applied, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element, FormattedText, Hash,
-    Horizontal, KnotParameterization, Layer, LayerId, Leader, Length, LineType, MarkContent,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle,
-    Rotation, Seen, Shape, SheetId, SpaceId, Spline, Style, Symbol, SymbolDefinition, Text,
-    TextStyle, Vertical, id, transform,
+    Affine, Applied, Callout, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element,
+    FormattedText, Hash, Horizontal, KnotParameterization, Layer, LayerId, Leader, Length,
+    LineType, MarkContent, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Placement,
+    Polyline, Restyle, Rotation, Seen, Shape, SheetId, SpaceId, Spline, Style, Symbol,
+    SymbolDefinition, Text, TextStyle, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -847,7 +847,7 @@ fn change_element<'e>(
     let replaced = &mut plan.replaced;
     let planned = match (change, found) {
         (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
-            Placed::Model(element) => replaced_anchor(&was.shape)
+            Placed::Model(element) => anchor(&was.shape)
                 .and_then(|anchor| {
                     let frame = InSpace(anchor.space);
                     let (written, followers) =
@@ -862,7 +862,7 @@ fn change_element<'e>(
             Placed::Paper(_) => None,
         },
         (Edit::Replace { element, .. }, Found::Paper(was)) => match element.as_ref() {
-            Placed::Paper(element) => replaced_anchor(&was.shape)
+            Placed::Paper(element) => anchor(&was.shape)
                 .and_then(|anchor| {
                     let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
                     let (written, followers) =
@@ -1403,6 +1403,9 @@ fn moved<P: Copy + PartialEq + transform::Point>(
             73,
         )?;
     }
+    if let Shape::Leader(_) = &was.shape {
+        directed(&mut values, transform)?;
+    }
     if moving_xdata(object).is_some() {
         if !model {
             return None;
@@ -1451,6 +1454,62 @@ fn moved<P: Copy + PartialEq + transform::Point>(
         object: values,
         followers,
     })
+}
+
+/// 動かした LEADER の X 軸の向き（211・221・231。DXF Reference「LEADER」）を、変換の向きで写す（決定 0185）。
+/// 向きがなければ (1, 0, 0) として写し、写した向きが (1, 0, 0) なら書かない。鉤の線と注記へのずれ（212・213）は
+/// 元のまま
+fn directed(values: &mut Vec<Value>, transform: &Affine) -> Option<()> {
+    let at = |values: &[Value], code: i16| values.iter().position(|v| v.code == code);
+    let read = |values: &[Value], code: i16| match values.iter().find(|v| v.code == code) {
+        Some(Value {
+            data: Data::Real(v),
+            ..
+        }) => Some(Some(*v)),
+        None => Some(None),
+        Some(_) => None,
+    };
+    let was = match [read(values, 211)?, read(values, 221)?, read(values, 231)?] {
+        [None, None, None] => [1.0, 0.0],
+        [Some(x), Some(y), z] if z.unwrap_or(0.0) == 0.0 => [x, y],
+        _ => return None,
+    };
+    let [x, y] = transform.direction(was);
+    let length = (x * x + y * y).sqrt();
+    if length == 0.0 {
+        return None;
+    }
+    let [x, y] = [x / length, y / length];
+    let present = at(values, 211).is_some();
+    if !present && [x, y] == [1.0, 0.0] {
+        return Some(());
+    }
+    if present {
+        for (code, v) in [(211, x), (221, y), (231, 0.0)] {
+            match at(values, code) {
+                Some(i) => values.get_mut(i)?.data = Data::Real(v),
+                None => insert(values, code, Data::Real(v), &[code - 10])?,
+            }
+        }
+    } else {
+        // DXF Reference の並びでは、X 軸の向きは押し出しの向き（210）の後、ずれ（212）の前に置く
+        let place = values
+            .iter()
+            .position(|v| matches!(v.code, 212 | 213 | 1001))
+            .unwrap_or(values.len());
+        let place = values
+            .iter()
+            .rposition(|v| matches!(v.code, 210 | 220 | 230))
+            .map_or(place, |i| i + 1);
+        values.splice(
+            place..place,
+            [(211, x), (221, y), (231, 0.0)].map(|(code, v)| Value {
+                code,
+                data: Data::Real(v),
+            }),
+        );
+    }
+    Some(())
 }
 
 /// 記号の属性の値の変更を、続く ATTRIB の値（1）に書く（表題欄の項目の書き換えなど）。値のほかの欄・数・順は
@@ -1839,6 +1898,9 @@ fn replacement<P: PartialEq>(
         }
         (Shape::Point(dot), Shape::Point(was), b"POINT") => {
             dotting(&mut values, dot, was, frame)?;
+        }
+        (Shape::Callout(callout), Shape::Callout(was), b"MULTILEADER") => {
+            calling(&mut values, callout, was, frame)?;
         }
         _ => return None,
     }
@@ -2532,12 +2594,120 @@ fn insert(values: &mut Vec<Value>, code: i16, data: Data, after: &[i16]) -> Opti
     Some(())
 }
 
-/// 置き換えられる形の初めの点。引出線は置き換えだけで扱い、動かすことはまだしない
-fn replaced_anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
-    match shape {
-        Shape::Leader(leader) => leader.path.first().copied(),
-        shape => anchor(shape),
+/// MULTILEADER（DXF Reference「MLEADER」）の枝を直す（決定 0185）。枝の線の頂点・集まる点・折れ曲がりだけを
+/// 書き、ほかの欄（注記・線の引き方・端部記号・大きさ・色・スタイル）は元と同じでなければならない。枝と線の数と、
+/// 集まる点と折れ曲がりの有無も元と同じとする。区切り（302 `LEADER{`・304 `LEADER_LINE{`）の中の、枝の 10・20
+/// （集まる点）・11・21（折れ曲がりの向き）・40（折れ曲がりの長さ）と、線の 10・20・30（頂点）を書き直す。線の
+/// 切れ目（線の 11・12、枝の 12・13）は頂点から決め直せないので、それを持つ線か枝を変えるときは書かない
+fn calling<P: PartialEq>(
+    values: &mut Vec<Value>,
+    callout: &Callout<P>,
+    was: &Callout<P>,
+    frame: &impl Frame<P>,
+) -> Option<()> {
+    if callout.content != was.content
+        || callout.path != was.path
+        || callout.arrowhead != was.arrowhead
+        || callout.arrow_size != was.arrow_size
+        || callout.landing != was.landing
+        || callout.scale != was.scale
+        || callout.line_style != was.line_style
+        || callout.content_color != was.content_color
+        || callout.style != was.style
+        || callout.branches.len() != was.branches.len()
+    {
+        return None;
     }
+    for (branch, old) in callout.branches.iter().zip(&was.branches) {
+        if branch.lines.len() != old.lines.len()
+            || branch.end.is_some() != old.end.is_some()
+            || branch.dogleg.is_some() != old.dogleg.is_some()
+            || branch.lines.iter().any(Vec::is_empty)
+        {
+            return None;
+        }
+    }
+    let marker =
+        |value: &Value, text: &[u8]| matches!(&value.data, Data::Text(t) if t.as_slice() == text);
+    // 0 は図形、1 は文脈、2 は枝、3 は線の中（読む側の `split_callout` と同じ区切り）
+    let mut depth = 0;
+    let mut seen = false;
+    let mut branches = 0_usize;
+    let mut lines = 0_usize;
+    let mut written = false;
+    let old = std::mem::take(values);
+    for value in old {
+        let branch = branches
+            .checked_sub(1)
+            .and_then(|at| Some((callout.branches.get(at)?, was.branches.get(at)?)));
+        let line = branch.and_then(|(branch, old)| {
+            let at = lines.checked_sub(1)?;
+            Some((branch.lines.get(at)?, old.lines.get(at)?))
+        });
+        match (depth, value.code) {
+            (0, 300) if !seen => {
+                depth = 1;
+                seen = true;
+            }
+            (1, 301) => depth = 0,
+            (1, 302) if marker(&value, b"LEADER{") => {
+                branches += 1;
+                lines = 0;
+                depth = 2;
+            }
+            (2, 303) => depth = 1,
+            (2, 304) if marker(&value, b"LEADER_LINE{") => {
+                lines += 1;
+                written = false;
+                depth = 3;
+            }
+            (3, 305) => {
+                if line.is_some_and(|(line, old)| line != old) && !written {
+                    return None;
+                }
+                depth = 2;
+            }
+            (2, code) => {
+                let (branch, old) = branch?;
+                if branch.end != old.end || branch.dogleg != old.dogleg {
+                    let replaced = match (code, &branch.end, &branch.dogleg) {
+                        (12 | 13, _, _) => return None,
+                        (10, Some(end), _) => Some(real(10, frame.point(end)?[0])?),
+                        (20, Some(end), _) => Some(real(20, frame.point(end)?[1])?),
+                        (11, _, Some(dogleg)) => Some(real(11, dogleg.direction[0])?),
+                        (21, _, Some(dogleg)) => Some(real(21, dogleg.direction[1])?),
+                        (40, _, Some(dogleg)) => Some(real(40, positive(frame, &dogleg.length)?)?),
+                        _ => None,
+                    };
+                    if let Some(replaced) = replaced {
+                        values.push(replaced);
+                        continue;
+                    }
+                }
+            }
+            (3, code) => {
+                let (line, old) = line?;
+                if line != old {
+                    match code {
+                        11 | 12 => return None,
+                        10 if !written => {
+                            for point in line {
+                                let [x, y] = frame.point(point)?;
+                                values.extend([real(10, x)?, real(20, y)?, real(30, 0.0)?]);
+                            }
+                            written = true;
+                            continue;
+                        }
+                        10 | 20 | 30 => continue,
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        values.push(value);
+    }
+    (seen && depth == 0 && branches == callout.branches.len()).then_some(())
 }
 
 /// 置き換えられる形の初めの点。形の空間（用紙）を決める
@@ -2557,6 +2727,15 @@ fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
         Shape::Curve(Edge::Spline(spline)) => {
             spline.control.first().or(spline.fit.first()).copied()
         }
+        Shape::Leader(leader) => leader.path.first().copied(),
+        Shape::Callout(callout) => callout.branches.iter().find_map(|branch| {
+            branch
+                .lines
+                .iter()
+                .find_map(|line| line.first())
+                .or(branch.end.as_ref())
+                .copied()
+        }),
         _ => None,
     }
 }

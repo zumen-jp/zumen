@@ -1495,9 +1495,9 @@ fn tolerance(bits: &mut Bits) -> Option<Vec<Value>> {
 }
 
 /// LEADER の欄（ODS 5.4.1 の 20.4.47、R2000）。注釈の種類（73）・注釈の高さと幅（40・41）・鉤の線の
-/// 向き（74）・頂点の数（76）と頂点（10）を置き、押し出しの向き（210）と X 軸の向き（211）は既定の値で
+/// 向き（74）・矢印の印（71）・頂点の数（76）と頂点（10）を置き、押し出しの向き（210）と X 軸の向き（211）は既定の値で
 /// なければ置く。DXF は寸法の体裁から鉤の線の点を足して書くことがあり、そのときは頂点が 1 つ多い
-fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
+pub(super) fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     bits.bit()?;
     let annotation = bits.bs()?;
     let path = bits.bs()?;
@@ -1525,6 +1525,8 @@ fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
         values.push(real(41, width));
     }
     values.push(int(74, i64::from(bits.bit()?)));
+    // 矢印の印。DWG の LEADER は必ず持つので、DXF と同じく 71 に置く（決定 0185）
+    values.push(int(71, i64::from(bits.bit()?)));
     values.push(int(76, i64::from(count)));
     values.extend(vertices);
     if reals(&direction) != [Some(1.0), Some(0.0), Some(0.0)] {

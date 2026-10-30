@@ -73,6 +73,7 @@ const R2010_KINDS: &[&[u8]] = &[
     b"TOLERANCE",
     b"VIEWPORT",
     b"SHAPE",
+    b"LEADER",
 ];
 
 const R2004_KINDS: &[&[u8]] = &[
@@ -170,7 +171,13 @@ const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
 const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
 const LEADER: &[i16] = &[
-    73, 72, 40, 41, 74, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231,
+    73, 72, 40, 41, 74, 71, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231,
+];
+/// 足す LEADER の欄。寸法スタイルの名前（3）と注記（340）は型ごとのハンドルに、鉤の線を持たないこと（75 = 0）と
+/// ずれ（212・213）も書く（決定 0185）
+const NEW_LEADER: &[i16] = &[
+    73, 72, 40, 41, 74, 71, 75, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231, 212, 222, 232, 213,
+    223, 233, 340,
 ];
 const LAYER: &[i16] = &[70, 62, 290, 370];
 const STYLE: &[i16] = &[70, 40, 41, 50, 71, 42, 3, 4];
@@ -656,6 +663,8 @@ impl DwgFile {
         // TEXT と ATTDEF は文字の体裁（7）を、INSERT はブロック（2）を指す
         let pointing: &[i16] = match object.kind.as_slice() {
             b"TEXT" | b"ATTDEF" | b"MTEXT" => &[7],
+            // LEADER は寸法スタイル（3）を指す（決定 0185）
+            b"LEADER" => &[3],
             b"ATTRIB" => &[7],
             // 属性が続くこと（66）は、1 だけ
             b"INSERT" if small(object, 66)?.is_none_or(|v| v == 1) => &[2, 66],
@@ -741,6 +750,13 @@ impl DwgFile {
                     false => Some(record_handle(db, b"STYLE", b"Standard")?),
                     true => Some(record_handle(db, b"STYLE", text_of(object, 7)?)?),
                 }
+            }
+            b"LEADER" => {
+                // 注記（340）は、図面にある MTEXT だけを指せる
+                if let Some(Data::Handle(annotation)) = object.first(340) {
+                    db.get(*annotation).filter(|found| found.kind == b"MTEXT")?;
+                }
+                Some(record_handle(db, b"DIMSTYLE", text_of(object, 3)?)?)
             }
             b"INSERT" => {
                 // 空間のブロックと、図形を持つブロックそのものは挿せない
@@ -1541,6 +1557,7 @@ const ADDABLE: &[(&[u8], u16, &[i16])] = &[
     (b"SPLINE", kinds::SPLINE, SPLINE),
     (b"ATTRIB", kinds::ATTRIB, ATTRIB),
     (b"SEQEND", kinds::SEQEND, &[]),
+    (b"LEADER", kinds::LEADER, NEW_LEADER),
     // 足したブロックのレコードの BLOCK と ENDBLK（決定 0068）。BLOCK の名前（2）と基点は、レコードに合わせる
     (b"BLOCK", kinds::BLOCK, &[2, 10, 20, 30]),
     (b"ENDBLK", kinds::ENDBLK, &[]),
@@ -1584,6 +1601,15 @@ struct NewEntity<'a> {
 }
 
 impl NewEntity<'_> {
+    /// 足す LEADER の注記（340）のハンドル。なければ 0
+    fn annotation(&self) -> Option<u64> {
+        match self.object.first(340) {
+            None => Some(0),
+            Some(Data::Handle(handle)) => Some(*handle),
+            Some(_) => None,
+        }
+    }
+
     /// 前後の図形のハンドルを `prev` と `next` にした、版 `release` の図形のデータ。共通の欄は、色（62）が
     /// なければ ByLayer、線種の尺度（48）がなければ 1、非表示（60）がなければ 0 にし、反応子と拡張辞書と
     /// 図形の絵を持たず、印刷スタイルと線の太さは ByLayer にする。R2000 では前後の図形のハンドルを持ち、
@@ -1636,6 +1662,10 @@ impl NewEntity<'_> {
         handles.handle(5, self.layer);
         if self.ltype.0 == 3 {
             handles.handle(5, self.ltype.1);
+        }
+        // LEADER は、寸法スタイルの前に注記を指す。なければ 0（決定 0185）
+        if object.kind == b"LEADER" {
+            handles.handle(5, self.annotation()?);
         }
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
@@ -1728,6 +1758,10 @@ impl NewEntity<'_> {
         handles.handle(5, self.layer);
         if self.ltype.0 == 3 {
             handles.handle(5, self.ltype.1);
+        }
+        // LEADER は、寸法スタイルの前に注記を指す。なければ 0（決定 0185）
+        if object.kind == b"LEADER" {
+            handles.handle(5, self.annotation()?);
         }
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
@@ -1900,7 +1934,8 @@ fn r2004_addable(object: &Object) -> bool {
     if object.section == Section::Tables {
         return RECORDS.contains(&object.kind.as_slice());
     }
-    const KINDS: [&[u8]; 20] = [
+    const KINDS: [&[u8]; 21] = [
+        b"LEADER",
         b"BLOCK",
         b"ENDBLK",
         b"LINE",
@@ -1995,7 +2030,8 @@ fn r2010_addable(object: &Object) -> bool {
     if matches!(kind, b"BLOCK" | b"ENDBLK") {
         return object.section == Section::Blocks;
     }
-    const KINDS: [&[u8]; 17] = [
+    const KINDS: [&[u8]; 18] = [
+        b"LEADER",
         b"LINE",
         b"CIRCLE",
         b"ARC",
@@ -2337,6 +2373,10 @@ fn r2010_own_fields(
     } else if new.kind == b"SHAPE" {
         let mut fields = BitWriter::with_strings();
         shape(&mut fields, new, data, [start, end], release)?;
+        Some(fields)
+    } else if new.kind == b"LEADER" {
+        let mut fields = BitWriter::with_strings();
+        leader(&mut fields, new, data, [start, end], release)?;
         Some(fields)
     } else if new.kind == b"DIMENSION" {
         let mut fields = BitWriter::with_strings();
@@ -4204,7 +4244,13 @@ fn own_fields(
             let end = entity_fields(data, Release::R2000)?[3];
             tolerance(&mut fields, old, new, data, [start, end], Release::R2000)?;
         }
-        b"LEADER" => leader(&mut fields, new, data, start)?,
+        b"LEADER" => {
+            let end = match data.is_empty() {
+                true => 0,
+                false => entity_fields(data, Release::R2000)?[3],
+            };
+            leader(&mut fields, new, data, [start, end], Release::R2000)?;
+        }
         b"MLINE" => mline(&mut fields, new)?,
         b"VIEWPORT" => {
             let end = entity_fields(data, Release::R2000)?[3];
@@ -5573,12 +5619,78 @@ fn tolerance(
     fields.copy(data, text_end..end)
 }
 
-/// LEADER の欄（決定 0040）。注釈の種類（73）・経路の種類（72、なければ 0）・頂点の数（76）と頂点（10）・
+/// LEADER の欄（決定 0040・0185）。注釈の種類（73）・経路の種類（72、なければ 0）・頂点の数（76）と頂点（10）・
 /// 押し出しの向き（なければ (0, 0, 1)）・X 軸の向き（211、なければ (1, 0, 0)）・注釈の高さと幅（40・41）・
-/// 鉤の線の向き（74）を書く。頂点が変わったら、表にない終わりの点の射影は終わりの頂点にする。表にない
-/// 鉤の線の点と差の欄と、後ろの欄は、元のビットを写す
-fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
-    let mut bits = Bits::with_release(data, Release::R2000);
+/// 鉤の線の向き（74）・矢印の印（71）を書く。頂点が変わったら、表にない終わりの点の射影は終わりの頂点にする。
+/// 表にない鉤の線の点と差の欄と、後ろの欄は、元のビットを写す。R2010 から後は表が注釈の高さと幅を持たないので、
+/// なければ元のビットを写す。`data` が空なら足す LEADER で、ずれ（212・213）を表から書き、後ろの欄（BS・B・B）
+/// を 0 にする。矢印の印がなければ（寸法スタイルに従う）書けない
+fn leader(
+    fields: &mut BitWriter,
+    object: &Object,
+    data: &[u8],
+    [start, end]: [usize; 2],
+    release: Release,
+) -> Option<()> {
+    let mut values = Cursor(
+        object
+            .values
+            .iter()
+            .filter(|value| matches!(value.code, 76 | 10 | 20 | 30))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .peekable(),
+    );
+    let mut vertices = Vec::new();
+    for _ in 0..values.int(76)? {
+        vertices.push([values.real(10)?, values.real(20)?, values.real(30)?]);
+    }
+    if values.0.next().is_some() || vertices.len() < 2 {
+        return None;
+    }
+    let hook = match small(object, 74)?? {
+        0 => false,
+        1 => true,
+        _ => return None,
+    };
+    let arrow = match small(object, 71)?? {
+        0 => false,
+        1 => true,
+        _ => return None,
+    };
+    let write_vertices = |fields: &mut BitWriter| -> Option<()> {
+        let last = *vertices.last()?;
+        fields.bl(i32::try_from(vertices.len()).ok()?);
+        for point in vertices.iter().chain([&last]) {
+            for value in point {
+                fields.bd(*value);
+            }
+        }
+        Some(())
+    };
+    if data.is_empty() {
+        // 鉤の線は持たない
+        if small(object, 75)?.is_some_and(|v| v != 0) {
+            return None;
+        }
+        fields.bit(false);
+        fields.bs(small(object, 73)?.unwrap_or(3));
+        fields.bs(small(object, 72)?.unwrap_or(0));
+        write_vertices(fields)?;
+        point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
+        point3_or(fields, object, 211, [1.0, 0.0, 0.0])?;
+        point3_or(fields, object, 212, [0.0; 3])?;
+        point3_or(fields, object, 213, [0.0; 3])?;
+        fields.bd(real(object, 40)?.unwrap_or(1.0));
+        fields.bd(real(object, 41)?.unwrap_or(0.0));
+        fields.bit(hook);
+        fields.bit(arrow);
+        fields.bs(0);
+        fields.bit(false);
+        fields.bit(false);
+        return Some(());
+    }
+    let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     bits.bit()?;
     let kinds_at = bits.pos();
@@ -5594,22 +5706,6 @@ fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
         bits.bd()?;
     }
     let points_end = bits.pos();
-    let mut values = Cursor(
-        object
-            .values
-            .iter()
-            .filter(|value| matches!(value.code, 76 | 10 | 20 | 30))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .peekable(),
-    );
-    let mut vertices = Vec::new();
-    for _ in 0..values.int(76)? {
-        vertices.push([values.real(10)?, values.real(20)?, values.real(30)?]);
-    }
-    if values.0.next().is_some() {
-        return None;
-    }
     for _ in 0..6 {
         bits.bd()?;
     }
@@ -5620,6 +5716,8 @@ fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
     let offsets_end = bits.pos();
     bits.bd()?;
     bits.bd()?;
+    let sizes_end = bits.pos();
+    bits.bit()?;
     bits.bit()?;
     let rest_at = bits.pos();
     fields.copy(data, start..kinds_at)?;
@@ -5628,25 +5726,22 @@ fn leader(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) ->
     if vertices == old {
         fields.copy(data, points_at..points_end)?;
     } else {
-        let last = *vertices.last()?;
-        fields.bl(i32::try_from(vertices.len()).ok()?);
-        for point in vertices.iter().chain([&last]) {
-            for value in point {
-                fields.bd(*value);
-            }
-        }
+        write_vertices(fields)?;
     }
     point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
     point3_or(fields, object, 211, [1.0, 0.0, 0.0])?;
     fields.copy(data, offsets_at..offsets_end)?;
-    fields.bd(real(object, 40)??);
-    fields.bd(real(object, 41)??);
-    fields.bit(match small(object, 74)?? {
-        0 => false,
-        1 => true,
+    match (real(object, 40)?, real(object, 41)?) {
+        (Some(height), Some(width)) => {
+            fields.bd(height);
+            fields.bd(width);
+        }
+        (None, None) if release >= Release::R2010 => fields.copy(data, offsets_end..sizes_end)?,
         _ => return None,
-    });
-    fields.copy(data, rest_at..entity_fields(data, Release::R2000)?[3])
+    }
+    fields.bit(hook);
+    fields.bit(arrow);
+    fields.copy(data, rest_at..end)
 }
 
 /// MLINE の欄（決定 0040）。値を表の並びで読み、DWG の並びで書く。頂点と線と区切りの数は、表の値の数に
@@ -6032,5 +6127,113 @@ mod layer_name_tests {
         let old = layer_object("xref|old", true);
         let new = layer_object("xref|new", true);
         assert!(encode_record_r2010(data, handles_at, &old, &new, release).is_none());
+    }
+}
+
+#[cfg(test)]
+mod leader_tests {
+    use super::*;
+
+    fn leader_object(path: &[[f64; 2]], arrow: i64) -> Object {
+        let int = |code, value| Value {
+            code,
+            data: Data::Int(value),
+        };
+        let real = |code, value| Value {
+            code,
+            data: Data::Real(value),
+        };
+        let mut values = vec![
+            Value {
+                code: 3,
+                data: Data::Text(b"Standard".to_vec()),
+            },
+            int(71, arrow),
+            int(72, 0),
+            int(73, 3),
+            int(74, 1),
+            int(75, 0),
+            real(40, 1.0),
+            real(41, 1.0),
+            int(76, i64::try_from(path.len()).unwrap()),
+        ];
+        for [x, y] in path {
+            values.extend([real(10, *x), real(20, *y), real(30, 0.0)]);
+        }
+        Object {
+            kind: b"LEADER".to_vec(),
+            section: Section::Entities,
+            origin: Origin::New,
+            values,
+        }
+    }
+
+    fn split(data: &[u8]) -> (&[u8], usize) {
+        let mut at = 0;
+        let handle_bits = usize::try_from(modular_char(data, &mut at, false).unwrap()).unwrap();
+        let data = data.get(at..).unwrap();
+        (data, data.len() * 8 - handle_bits)
+    }
+
+    /// R2010 から後の DWG に足した LEADER の欄と、経路と矢印の印（71）を置き換えた欄を、読み直す（決定 0185）。
+    /// 寸法スタイルに従う矢印（71 がない）は書けない
+    #[test]
+    fn r2010_leaders_are_added_and_replaced_with_their_arrow() {
+        for release in [Release::R2010, Release::R2013, Release::R2018] {
+            let old = leader_object(&[[0.0, 0.0], [5.0, 5.0]], 1);
+            let new = NewEntity {
+                object: &old,
+                handle: 0x40,
+                type_code: kinds::LEADER,
+                mode: 2,
+                owner: 0x1F,
+                layer: 0x10,
+                ltype: (0, 0),
+                pointed: Some(0x11),
+                embedded: None,
+                children: None,
+            };
+            let encoded = new.encode(0, 0, release).unwrap();
+            let read = |encoded: &[u8]| {
+                let (data, handles_at) = split(encoded);
+                let [_, start, _] = r2010_entity_fields(data, handles_at, release).unwrap();
+                let mut bits = Bits::with_release(data, release);
+                bits.seek(start);
+                let values = super::super::objects::leader(&mut bits).unwrap();
+                bits.seek(handles_at);
+                let handles: Vec<u64> = (0..3).map(|_| bits.handle().unwrap().value).collect();
+                (values, handles)
+            };
+            let (values, handles) = read(&encoded);
+            let first = |values: &[Value], code| {
+                values
+                    .iter()
+                    .find(|value| value.code == code)
+                    .map(|value| value.data.clone())
+            };
+            assert_eq!(first(&values, 71), Some(Data::Int(1)));
+            assert_eq!(first(&values, 73), Some(Data::Int(3)));
+            assert_eq!(first(&values, 76), Some(Data::Int(2)));
+            // 画層・注記（なし）・寸法スタイル
+            assert_eq!(handles, [0x10, 0, 0x11]);
+
+            let changed = leader_object(&[[1.0, 0.0], [5.0, 5.0], [9.0, 5.0]], 0);
+            let (data, handles_at) = split(&encoded);
+            let rewritten = encode_r2010(data, handles_at, &old, &changed, release).unwrap();
+            let (values, handles) = read(&rewritten);
+            assert_eq!(first(&values, 71), Some(Data::Int(0)));
+            assert_eq!(first(&values, 76), Some(Data::Int(3)));
+            let xs: Vec<_> = values
+                .iter()
+                .filter(|value| value.code == 10)
+                .map(|value| value.data.clone())
+                .collect();
+            assert_eq!(xs, [1.0, 5.0, 9.0].map(Data::Real));
+            assert_eq!(handles, [0x10, 0, 0x11]);
+
+            let mut following = changed.clone();
+            following.values.retain(|value| value.code != 71);
+            assert!(encode_r2010(data, handles_at, &old, &following, release).is_none());
+        }
     }
 }

@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::{Frame, contents, nonnegative, positive, real, turned};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::drawing::{BLOCK, Home, mtext};
+use zumen_base::Ref;
 use zumen_drawing::{
     Attribute, ColorSystem, Drawing2D, Edge, Element, Fit, Flow, FormattedText, HeightMeaning,
     Horizontal, Inherit, LayerId, Leader, LineTypeId, LineWeight, Placement, PointLook, Polyline,
@@ -66,6 +67,18 @@ pub(super) struct Born {
     next: Option<u64>,
     /// ENDBLK を持つブロックのレコードのハンドル。BLOCKS の所に足す図形は、その ENDBLK の前に置く
     ends: BTreeSet<u64>,
+    /// 引出線の注記にできる MTEXT。出所から引く（決定 0185）
+    annotations: BTreeMap<Ref, Annotation>,
+}
+
+/// 引出線の注記にできる MTEXT
+struct Annotation {
+    handle: u64,
+    /// 所有者のブロックのレコード
+    owner: Option<u64>,
+    /// 文字の高さ（40）と、枠の幅（41）
+    height: f64,
+    width: f64,
 }
 
 /// 名前で指す定義の表
@@ -116,8 +129,27 @@ impl Born {
             .filter(|object| object.kind == b"ENDBLK")
             .filter_map(Object::owner)
             .collect();
+        let annotations = db
+            .objects()
+            .iter()
+            .filter(|object| object.kind == b"MTEXT")
+            .filter_map(|object| {
+                let real = |code| match object.first(code) {
+                    Some(Data::Real(value)) => Some(*value),
+                    _ => None,
+                };
+                let annotation = Annotation {
+                    handle: object.handle()?,
+                    owner: object.owner(),
+                    height: real(40)?,
+                    width: real(41).unwrap_or(0.0),
+                };
+                Some((crate::drawing::source(object), annotation))
+            })
+            .collect();
         Born {
             ends,
+            annotations,
             owner,
             markers,
             version,
@@ -320,7 +352,7 @@ impl Born {
                 b"INSERT"
             }
             Shape::Leader(leader) => {
-                self.leading(&mut values, frame, leader)?;
+                self.leading(&mut values, frame, leader, home)?;
                 b"LEADER"
             }
             // POINT（DXF Reference「POINT」）。見え方は文書の点の表し方に従うので、既定義の印の点と作図の補助の
@@ -354,33 +386,53 @@ impl Born {
         })
     }
 
-    /// LEADER（DXF Reference「LEADER」）の値（決定 0177）。注記を持たない（73 = 3）引出線を、DXF Reference の
-    /// 並びで書く。鉤の線を持たず（75 = 0）、注記の大きさ（40・41）は 1、X 軸の向き（211）は (1, 0, 0)、ずれ（212・
-    /// 213）は 0 とする。矢印（71）は、寸法スタイルに従うなら書かない。LEADER を持たない R12 の DXF と、LEADER を
-    /// まだ足せない DWG には足さない
+    /// LEADER（DXF Reference「LEADER」）の値（決定 0177・0185）。DXF Reference の並びで書く。鉤の線を持たず
+    /// （75 = 0）、X 軸の向き（211）は (1, 0, 0)、ずれ（212・213）は 0 とする。注記がなければ 73 = 3 とし、注記の
+    /// 大きさ（40・41）は 1 とする。注記は、同じブロックのレコードが持つ MTEXT だけを指し（73 = 0、340）、注記の
+    /// 大きさはその文字の高さ（40）と枠の幅（41）とする（推定。AutoCAD は開くときに求め直す）。注記の側の
+    /// 反応子（102 `{ACAD_REACTORS`）は書かない。矢印（71）は、DXF では寸法スタイルに従うなら書かない。DWG の
+    /// LEADER は矢印の印を必ず持つので、寸法スタイルに従う矢印は DWG に足さない。LEADER を持たない R12 の DXF
+    /// にも足さない
     fn leading<P>(
         &self,
         values: &mut Vec<Value>,
         frame: &impl Frame<P>,
         leader: &Leader<P>,
+        home: Home,
     ) -> Option<()> {
-        if self.dwg() || (!self.version.is_empty() && !self.since(b"AC1012")) {
+        if !self.version.is_empty() && !self.since(b"AC1012") {
             return None;
         }
-        if leader.path.len() < 2 || leader.annotation.is_some() {
+        if leader.path.len() < 2 || (self.dwg() && leader.arrow.is_none()) {
             return None;
         }
+        let annotation = match &leader.annotation {
+            Some(source) => {
+                let found = self.annotations.get(source)?;
+                (found.owner.is_some() && found.owner == home.owner).then_some(found)?;
+                Some(found)
+            }
+            None => None,
+        };
         values.push(text(100, "AcDbLeader"));
         values.push(self.named(3, b"DIMSTYLE", &leader.style)?);
         if let Some(arrow) = leader.arrow {
             values.push(int(71, i64::from(arrow)));
         }
         values.push(int(72, i64::from(leader.spline)));
-        values.extend([int(73, 3), int(74, 1), int(75, 0)]);
-        values.extend([real(40, 1.0)?, real(41, 1.0)?]);
+        let (kind, height, width) =
+            annotation.map_or((3, 1.0, 1.0), |found| (0, found.height, found.width));
+        values.extend([int(73, kind), int(74, 1), int(75, 0)]);
+        values.extend([real(40, height)?, real(41, width)?]);
         values.push(int(76, i64::try_from(leader.path.len()).ok()?));
         for at in &leader.path {
             point(values, frame, 10, at)?;
+        }
+        if let Some(found) = annotation {
+            values.push(Value {
+                code: 340,
+                data: Data::Handle(found.handle),
+            });
         }
         values.extend([real(211, 1.0)?, real(221, 0.0)?, real(231, 0.0)?]);
         values.extend([real(212, 0.0)?, real(222, 0.0)?, real(232, 0.0)?]);

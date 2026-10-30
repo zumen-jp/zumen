@@ -218,3 +218,4 @@
 - [0182: 記号の定義の中に記号を足し、定義の入れ子が輪になる追加は断る](0182-drawing-apply-symbols-in-definitions.md)（2026-10-31、採用）
 - [0183: 点の要素を書き戻し、形式が表せない点は断る](0183-drawing-apply-points.md)（2026-10-31、採用）
 - [0184: シーンで寸法・表・引出線・ハッチングの線を描き、残る近似を診断で返す](0184-scene-annotations-and-approximations.md)（2026-10-31、採用）
+- [0185: 引出線の書き戻しを、注記つきの追加・DWG・変換と MULTILEADER の枝の置き換えへ広げる](0185-drawing-apply-leader-and-callout-write-back.md)（2026-10-31、採用）

@@ -1533,7 +1533,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":35}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":36}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3687,7 +3687,8 @@ mod tests {
                 r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
             )
         };
-        // 注記と寸法スタイルは変えず、足す引出線は注記を持たない。合わない欄を指して失敗し、何も変えない
+        // 注記と寸法スタイルは変えず、足す引出線の注記は図面にある要素を指す。合わない欄を指して失敗し、何も
+        // 変えない
         for (request, pointer) in [
             (
                 replace(
@@ -3715,7 +3716,7 @@ mod tests {
             ),
             (
                 add(
-                    r#"{"shape":"leader","path":[[0,0],[1,1]],"spline":false,"annotation":"space/0/h40","style":"Standard"}"#,
+                    r#"{"shape":"leader","path":[[0,0],[1,1]],"spline":false,"annotation":"space/0/h99","style":"Standard"}"#,
                 ),
                 "/edits/0/geometry/annotation",
             ),
@@ -3764,6 +3765,142 @@ mod tests {
             shapes(&mut session, "a.dxf")[1],
             replaced.replace(r#""arrow":false,"#, "")
         );
+    }
+
+    /// 注記を持つ引出線を足し、引出線を変換で動かす（決定 0185）。注記にできるのは同じ空間の MTEXT だけで、
+    /// ほかの要素を指す追加は断る
+    #[test]
+    fn adds_annotated_leaders_and_transforms_leaders() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", LEADERS).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = shapes(&mut session, "a.dxf");
+        let add = |annotation: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{{"shape":"leader","path":[[0,10],[10,5]],"spline":false,"arrow":true,"annotation":"{annotation}","style":"Standard"}}}}]}}"#
+            )
+        };
+        // 引出線を注記にはできない
+        let (status, response) = call(&mut session, &add("space/0/h41"));
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+        assert_eq!(shapes(&mut session, "a.dxf"), before);
+
+        let (status, response) = call(&mut session, &add("space/0/h40"));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let after = shapes(&mut session, "a.dxf");
+        assert_eq!(after.len(), 3);
+        assert_eq!(
+            after[2],
+            r#"{"shape":"leader","path":[[0,10],[10,5]],"spline":false,"arrow":true,"annotation":"space/0/h40","style":"Standard","style_id":"dimension-style/h27"}"#
+        );
+
+        // 変換は経路の頂点を写し、注記を保つ
+        let (id, hash) = seen(&mut session, "a.dxf")[1].clone();
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[0,-1,1,1,0,2]}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            shapes(&mut session, "a.dxf")[1],
+            r#"{"shape":"leader","path":[[1,2],[-4,12]],"spline":false,"arrow":true,"annotation":"space/0/h40","style":"Standard","style_id":"dimension-style/h27"}"#
+        );
+    }
+
+    /// 注記を持たない MULTILEADER を 1 つ持つ R2013 の DXF。枝は 1 つで、集まる点と右への折れ曲がりと線 1 本を持つ
+    const CALLOUTS: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n9\n$INSUNITS\n70\n4\n\
+        9\n$HANDSEED\n5\n100\n0\nENDSEC\n\
+        0\nSECTION\n2\nENTITIES\n\
+        0\nMULTILEADER\n5\n40\n8\n0\n300\nCONTEXT_DATA{\n40\n1.0\n140\n2.0\n290\n0\n296\n0\n\
+        302\nLEADER{\n290\n1\n291\n1\n10\n30.0\n20\n20.0\n30\n0.0\n11\n1.0\n21\n0.0\n31\n0.0\n90\n0\n40\n5.0\n\
+        304\nLEADER_LINE{\n10\n0.0\n20\n0.0\n30\n0.0\n91\n0\n305\n}\n303\n}\n301\n}\n\
+        170\n1\n42\n2.5\n290\n1\n\
+        0\nENDSEC\n0\nEOF\n";
+
+    /// 引出線つきの注記は、枝の線・集まる点・折れ曲がりだけを置き換え、足すことは断る（決定 0185）
+    #[test]
+    fn replaces_callout_branches_by_their_geometry() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", CALLOUTS).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let callout = |branches: &str, landing: bool| {
+            format!(
+                r#"{{"shape":"callout","branches":{branches},"path":"straight","landing":{landing},"arrow_size":2.5,"scale":1,"content":"none"}}"#
+            )
+        };
+        let before = shapes(&mut session, "a.dxf");
+        assert_eq!(
+            before,
+            [callout(
+                r#"[{"lines":[[[0,0]]],"end":[30,20],"dogleg":{"direction":[1,0],"length":5}}]"#,
+                true
+            )]
+        );
+        let (id, hash) = seen(&mut session, "a.dxf").remove(0);
+        let replace = |geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
+            )
+        };
+        let add = |geometry: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+            )
+        };
+        let one =
+            r#"{"lines":[[[0,0],[5,5]]],"end":[30,20],"dogleg":{"direction":[-1,0],"length":4}}"#;
+        let branch = &format!("[{one}]");
+        // 枝のほかの欄を変えたり、合わない枝を書いたりすると、その欄を指して失敗する
+        for (request, pointer) in [
+            (
+                replace(&callout(branch, false)),
+                "/edits/0/geometry/landing",
+            ),
+            (
+                replace(&callout(
+                    r#"[{"lines":[[[0,0]]],"end":[30,20],"dogleg":{"direction":[0,0],"length":4}}]"#,
+                    true,
+                )),
+                "/edits/0/geometry/branches/0/dogleg/direction",
+            ),
+            (
+                replace(&callout(r#"[{"lines":[[]]}]"#, true)),
+                "/edits/0/geometry/branches/0/lines/0",
+            ),
+            (
+                add(&callout(branch, true).replace(r#""none""#, r#""text","text":"A""#)),
+                "/edits/0/geometry/content",
+            ),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(
+                text(&error(&response), "/params/pointer"),
+                pointer,
+                "{request}"
+            );
+        }
+        // 枝の数と、集まる点の有無は変えられず、MULTILEADER はまだ足さない
+        for request in [
+            replace(&callout(&format!("[{one},{one}]"), true)),
+            replace(&callout(
+                r#"[{"lines":[[[0,0]]],"dogleg":{"direction":[1,0],"length":5}}]"#,
+                true,
+            )),
+            add(&callout(branch, true)),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&error(&response), "/code"), "change.edit.unsupported");
+        }
+        assert_eq!(shapes(&mut session, "a.dxf"), before);
+
+        let (status, response) = call(&mut session, &replace(&callout(branch, true)));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(shapes(&mut session, "a.dxf"), [callout(branch, true)]);
     }
 
     #[test]

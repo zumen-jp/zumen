@@ -1,6 +1,7 @@
 //! 形の値（`geometry`）と図面モデルの形の行き来（決定 0139）。
 //!
-//! 線分・円・円弧・楕円・幅を持たない折れ線・文字・書式つきの文字・ブロックの記号・スプライン・寸法・引出線・点だけを扱う。点は要素の空間か用紙の座標、長さは同じ
+//! 線分・円・円弧・楕円・幅を持たない折れ線・文字・書式つきの文字・ブロックの記号・スプライン・寸法・引出線・点・
+//! 引出線つきの注記（決定 0185）だけを扱う。点は要素の空間か用紙の座標、長さは同じ
 //! 単位、角度は度で反時計回り。円弧と楕円は、反時計回りにたどる形で返す。
 
 use std::cell::Cell;
@@ -8,18 +9,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
-    Affine, Attribute, Axis, Dimension, DimensionKind as Kind, DimensionText, Edge, Fit, Flow,
-    FormattedText, Grid, HeightMeaning, Horizontal, Label, Leader, Length, LineSpacing, MarkerKey,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, Placement, PointLook, Polyline, Rotation,
-    Shape, Spline, Symbol, SymbolKey, Text, Vertex, Vertical,
+    Affine, Attribute, Axis, Branch, Callout, CalloutContent, Dimension, DimensionKind as Kind,
+    DimensionText, Dogleg, Edge, Fit, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Label,
+    Leader, Length, LineSpacing, MarkerKey, ModelLength, ModelPoint, PaperLength, PaperPoint,
+    PathKind, Placement, PointLook, Polyline, Rotation, Shape, Spline, Symbol, SymbolKey, Text,
+    Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
 use crate::messages::{
-    ArcGeometry, Attachment, CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind,
-    DimensionLabel, EllipseGeometry, FormattedTextGeometry, Geometry, LeaderGeometry, LineGeometry,
-    PointGeometry, PointMarker, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry,
-    SymbolGrid, TextFit, TextGeometry,
+    ArcGeometry, Attachment, CalloutBranch, CalloutDogleg, CalloutGeometry, CalloutPath,
+    CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind, DimensionLabel,
+    EllipseGeometry, FormattedTextGeometry, Geometry, LeaderGeometry, LineGeometry, PointGeometry,
+    PointMarker, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid,
+    TextFit, TextGeometry,
 };
 
 /// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
@@ -241,6 +244,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             style: leader.style.clone(),
             style_id: None,
         }),
+        Shape::Callout(callout) => Geometry::Callout(callout_geometry(callout)?),
         Shape::Point(dot) => Geometry::Point(PointGeometry {
             position: xy(dot.position),
             rotation: dot.rotation,
@@ -259,6 +263,66 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
 }
 
 /// 寸法の形の値。定義点と違う座標の系の長さを持つものは `None`
+/// 引出線つきの注記の形の値。長さは、枝の初めの点の空間か用紙のもの
+fn callout_geometry<P: Spot>(callout: &Callout<P>) -> Option<CalloutGeometry> {
+    let origin = callout.branches.iter().find_map(|branch| {
+        branch
+            .lines
+            .iter()
+            .find_map(|line| line.first())
+            .or(branch.end.as_ref())
+            .copied()
+    })?;
+    let xy = |point: &P| Point::xy(*point).to_vec();
+    let (content, text, symbol) = match &callout.content {
+        CalloutContent::None => (crate::messages::CalloutContent::None, None, None),
+        CalloutContent::Text(text) => (
+            crate::messages::CalloutContent::Text,
+            Some(text.content.clone()),
+            None,
+        ),
+        CalloutContent::Symbol { symbol, .. } => (
+            crate::messages::CalloutContent::Symbol,
+            None,
+            Some(symbol.key.name.clone()),
+        ),
+    };
+    Some(CalloutGeometry {
+        branches: callout
+            .branches
+            .iter()
+            .map(|branch| {
+                Some(CalloutBranch {
+                    lines: branch
+                        .lines
+                        .iter()
+                        .map(|line| line.iter().map(xy).collect())
+                        .collect(),
+                    end: branch.end.as_ref().map(xy),
+                    dogleg: match &branch.dogleg {
+                        Some(dogleg) => Some(CalloutDogleg {
+                            direction: dogleg.direction.to_vec(),
+                            length: origin.length(dogleg.length)?,
+                        }),
+                        None => None,
+                    },
+                })
+            })
+            .collect::<Option<_>>()?,
+        path: match callout.path {
+            PathKind::Straight => CalloutPath::Straight,
+            PathKind::Spline => CalloutPath::Spline,
+            PathKind::Hidden => CalloutPath::Hidden,
+        },
+        landing: callout.landing,
+        arrow_size: origin.length(callout.arrow_size)?,
+        scale: callout.scale,
+        content,
+        text,
+        symbol,
+    })
+}
+
 fn dimension_geometry<P: Spot>(dimension: &Dimension<P>) -> Option<DimensionGeometry> {
     let xy = |point: P| Point::xy(point).to_vec();
     let (label, content) = match &dimension.label {
@@ -1123,6 +1187,58 @@ pub(crate) fn shape_of<P: Spot>(
                 style: leader.style.clone(),
             })
         }
+        // 引出線つきの注記は、枝だけを替える。ほかの欄は元の値と同じでなければならない（決定 0185）
+        (Geometry::Callout(callout), Some(Shape::Callout(was))) => {
+            let current = callout_geometry(was).ok_or("geometry")?;
+            for (field, same) in [
+                ("path", callout.path == current.path),
+                ("landing", callout.landing == current.landing),
+                ("arrow_size", callout.arrow_size == current.arrow_size),
+                ("scale", callout.scale == current.scale),
+                ("content", callout.content == current.content),
+                ("text", callout.text == current.text),
+                ("symbol", callout.symbol == current.symbol),
+            ] {
+                if !same {
+                    return Err(format!("geometry/{field}"));
+                }
+            }
+            Shape::Callout(Callout {
+                branches: branches_of(&callout.branches, origin)?,
+                ..was.clone()
+            })
+        }
+        // 足す注記は、中身を持たないものだけを作る。書き戻す側は、まだ MULTILEADER を足さない
+        (Geometry::Callout(callout), None) => {
+            if callout.content != crate::messages::CalloutContent::None
+                || callout.text.is_some()
+                || callout.symbol.is_some()
+            {
+                return Err("geometry/content".to_string());
+            }
+            Shape::Callout(Callout {
+                branches: branches_of(&callout.branches, origin)?,
+                content: CalloutContent::None,
+                path: match callout.path {
+                    CalloutPath::Straight => PathKind::Straight,
+                    CalloutPath::Spline => PathKind::Spline,
+                    CalloutPath::Hidden => PathKind::Hidden,
+                },
+                arrowhead: zumen_drawing::Arrowhead::Default,
+                arrow_size: origin.length_of(finite(callout.arrow_size, "arrow_size")?),
+                landing: callout.landing,
+                scale: positive(callout.scale, "scale").map(|_| callout.scale)?,
+                line_style: zumen_drawing::Style {
+                    color: zumen_drawing::Inherit::Block,
+                    line_type: zumen_drawing::Inherit::Block,
+                    line_type_scale: 1.0,
+                    line_weight: Some(zumen_drawing::Inherit::Block),
+                    transparency: zumen_drawing::Inherit::Block,
+                },
+                content_color: zumen_drawing::Inherit::Block,
+                style: None,
+            })
+        }
         // 点は、置き換えでも描き方（文書の点の表し方か既定義の印か）を変えない（決定 0183）
         (Geometry::Point(dot), was @ (None | Some(Shape::Point(_)))) => {
             let look = match &dot.marker {
@@ -1155,6 +1271,59 @@ pub(crate) fn shape_of<P: Spot>(
         }
         _ => return mismatch(),
     })
+}
+
+/// 引出線つきの注記の枝。線は 1 つ以上の頂点を持ち、折れ曲がりの向きは 0 でなく、長さは 0 以上とする
+fn branches_of<P: Spot>(branches: &[CalloutBranch], origin: P) -> Result<Vec<Branch<P>>, String> {
+    let point = |xy: &[f64], field: String| match *xy {
+        [x, y] if x.is_finite() && y.is_finite() => Ok(origin.at([x, y])),
+        _ => Err(format!("geometry/{field}")),
+    };
+    branches
+        .iter()
+        .enumerate()
+        .map(|(at, branch)| {
+            let lines = branch
+                .lines
+                .iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    if line.is_empty() {
+                        return Err(format!("geometry/branches/{at}/lines/{index}"));
+                    }
+                    line.iter()
+                        .enumerate()
+                        .map(|(vertex, xy)| {
+                            point(xy, format!("branches/{at}/lines/{index}/{vertex}"))
+                        })
+                        .collect()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let end = match &branch.end {
+                Some(xy) => Some(point(xy, format!("branches/{at}/end"))?),
+                None => None,
+            };
+            let dogleg = match &branch.dogleg {
+                Some(dogleg) => {
+                    let direction = match *dogleg.direction.as_slice() {
+                        [x, y] if x.is_finite() && y.is_finite() && (x != 0.0 || y != 0.0) => {
+                            [x, y]
+                        }
+                        _ => return Err(format!("geometry/branches/{at}/dogleg/direction")),
+                    };
+                    if !(dogleg.length.is_finite() && dogleg.length >= 0.0) {
+                        return Err(format!("geometry/branches/{at}/dogleg/length"));
+                    }
+                    Some(Dogleg {
+                        direction,
+                        length: origin.length_of(dogleg.length),
+                    })
+                }
+                None => None,
+            };
+            Ok(Branch { lines, end, dogleg })
+        })
+        .collect()
 }
 
 /// 足す記号の属性。AutoCAD が挿入するときと同じく、定義の属性の定義のうち値が決まっていないものを、記号の
@@ -1337,6 +1506,14 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
             spline.control.first().or(spline.fit.first()).copied()
         }
         Shape::Leader(leader) => leader.path.first().copied(),
+        Shape::Callout(callout) => callout.branches.iter().find_map(|branch| {
+            branch
+                .lines
+                .iter()
+                .find_map(|line| line.first())
+                .or(branch.end.as_ref())
+                .copied()
+        }),
         Shape::Point(dot) => Some(dot.position),
         Shape::Dimension(dimension) => Some(match dimension.kind {
             Kind::Linear { first, .. }

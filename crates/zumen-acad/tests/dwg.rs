@@ -2320,6 +2320,13 @@ fn multileaders_have_their_context_and_leaders() {
     assert_eq!(data(90, 0), Some(Data::Int(0xC000_0000_u32 as i32 as i64)));
     assert_eq!(data(91, 0), Some(Data::Int(0xC100_0000_u32 as i32 as i64)));
     assert_eq!(data(92, 1), Some(Data::Int(0xC300_0009_u32 as i32 as i64)));
+    // DWG の MULTILEADER は、まだ書き戻さない（決定 0185）
+    let mut changed = db.clone();
+    set_value(&mut changed, 0x44, 40, Data::Real(9.0));
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert_eq!(out, Err(Error::Rejected));
+    assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
 }
 
 #[test]
@@ -8737,12 +8744,16 @@ fn added_blocks_are_written_back() {
     assert_eq!(out, Err(Error::Rejected));
 }
 
-/// R2000 の DWG の引出線の経路と曲線かを、図面モデルの変更で置き換える（決定 0177）。矢印の印は DWG の LEADER の
-/// 欄にないので、変えると断り、ファイルを変えない
+/// R2000 の DWG の引出線の経路・曲線か・矢印を、図面モデルの変更で置き換え、変換で動かす（決定 0177・
+/// 0185）。矢印の印は DWG の LEADER が必ず持つので 71 として読み、書く。寸法スタイルに従う矢印（`None`）は
+/// 書けないので断り、ファイルを変えない
 #[cfg(feature = "drawing")]
 #[test]
 fn drawing_leaders_are_replaced_in_a_dwg() {
-    use zumen_drawing::{Changes, Drawing2D, Edit, Hash, Placed, Seen, Shape, id};
+    use zumen_drawing::{
+        Affine, Changes, Drawing2D, Edit, Element, Hash, Leader, ModelPoint, Placed, Seen, Shape,
+        id,
+    };
     use zumen_sdk::{Apply, Lift};
     let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
     // 注釈の種類 3（なし）で、2 つの点を持つモデル空間の引出線。注記のハンドルは画層を指す
@@ -8778,7 +8789,14 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
     let mut objects = objects_with_a_block();
     objects.extend([(0x11, dimstyle), (0x40, leader)]);
     objects.sort_by_key(|(handle, _)| *handle);
-    let src = with_header_variables(dwg(&objects), 0x58, 0x1F, 4, [10.0, 10.0, 307.0, 220.0]);
+    let src = with_header(
+        dwg(&objects),
+        0x58,
+        0x1F,
+        4,
+        [10.0, 10.0, 307.0, 220.0],
+        0x80,
+    );
     let lift = |src: &[u8]| -> Drawing2D {
         let (file, mut diag) = read(src, Limits::default());
         file.unwrap()
@@ -8788,6 +8806,16 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
                 &CancelToken::new(),
             ))
             .unwrap()
+    };
+    let leaders = |src: &[u8]| -> Vec<Leader<ModelPoint>> {
+        lift(src).spaces[0]
+            .elements
+            .iter()
+            .filter_map(|element| match &element.shape {
+                Shape::Leader(leader) => Some(leader.clone()),
+                _ => None,
+            })
+            .collect()
     };
     let drawing = lift(&src);
     let space = &drawing.spaces[0];
@@ -8802,27 +8830,27 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
     };
     assert_eq!(was.path.len(), 2);
     assert_eq!(was.style, "ISO-25");
+    assert_eq!(was.arrow, Some(false));
     let place = id::space(space.id);
     let mut namer = id::Namer::new(&place);
-    let target_id = (0..=index)
-        .map(|at| namer.next(at, &space.elements[at]))
-        .last()
-        .unwrap();
-    let apply = |shape: Shape<_>| {
+    let target = Seen {
+        id: (0..=index)
+            .map(|at| namer.next(at, &space.elements[at]))
+            .last()
+            .unwrap(),
+        hash: Hash::element(element),
+    };
+    let with = |leader: Leader<ModelPoint>| Element {
+        shape: Shape::Leader(leader),
+        ..element.clone()
+    };
+    let apply = |edit: Edit| {
         let mut file = read(&src, Limits::default()).0.unwrap();
         let mut diag = Diagnostics::new();
-        let mut changed = element.clone();
-        changed.shape = shape;
         let result = file.apply(
             &Changes {
                 document: None,
-                edits: vec![Edit::Replace {
-                    target: Seen {
-                        id: target_id.clone(),
-                        hash: Hash::element(element),
-                    },
-                    element: Box::new(Placed::Model(changed)),
-                }],
+                edits: vec![edit],
             },
             &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
         );
@@ -8835,29 +8863,40 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
         .unwrap();
         (result, diag, bytes)
     };
+    let replace = |leader: Leader<ModelPoint>| Edit::Replace {
+        target: target.clone(),
+        element: Box::new(Placed::Model(with(leader))),
+    };
     let mut moved = was.clone();
     moved.path[0].x = 1.0;
     moved.path.push(moved.path[1]);
     moved.path[1].y = 2.0;
     moved.spline = true;
-    let (result, diag, written) = apply(Shape::Leader(moved.clone()));
+    moved.arrow = Some(true);
+    let (result, diag, written) = apply(replace(moved.clone()));
     assert!(result.is_ok(), "{:?}", codes_of(&diag));
-    let again = lift(&written);
-    let found = again.spaces[0]
-        .elements
-        .iter()
-        .find_map(|element| match &element.shape {
-            Shape::Leader(leader) => Some(leader.clone()),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(found, moved);
+    assert_eq!(leaders(&written), [moved]);
 
-    let mut arrowed = was.clone();
-    arrowed.arrow = Some(true);
-    let (result, diag, written) = apply(Shape::Leader(arrowed));
+    // 変換は経路の頂点を写す
+    let (result, diag, written) = apply(Edit::Transform {
+        target: target.clone(),
+        transform: Affine::translation(1.0, 2.0),
+    });
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    let mut shifted = was.clone();
+    for point in &mut shifted.path {
+        point.x += 1.0;
+        point.y += 2.0;
+    }
+    assert_eq!(leaders(&written), [shifted]);
+
+    // 寸法スタイルに従う矢印は書けないので、書き戻しで断る。足すことは
+    // [`drawing_additions_go_into_symbol_definitions`] で確かめる
+    let mut following = was.clone();
+    following.arrow = None;
+    let (result, diag, written) = apply(replace(following));
     assert_eq!(result.unwrap_err(), Error::Rejected);
-    assert!(!codes_of(&diag).is_empty());
+    assert_eq!(codes_of(&diag).last(), Some(&codes::DWG_CHANGE_UNSUPPORTED));
     assert_eq!(written, src);
 }
 
@@ -9031,7 +9070,7 @@ fn drawing_points_are_written_back_to_a_dwg() {
 }
 
 /// 記号の定義の空間に、図面モデルの変更で要素を足す（決定 0177）。L1 の書き戻しでブロック Two を足した DWG を
-/// 作り、その定義に円を足して読み直す。引出線は DWG にまだ足せないので断り、ファイルを変えない
+/// 作り、その定義に円・点・引出線を足して読み直す。寸法スタイルに従う矢印の引出線は断り、ファイルを変えない
 #[cfg(feature = "drawing")]
 #[test]
 fn drawing_additions_go_into_symbol_definitions() {
@@ -9104,7 +9143,37 @@ fn drawing_additions_go_into_symbol_definitions() {
             real(31, 0.0),
         ],
     );
-    let db = owned(db, 0x83, b"ENDBLK", Vec::new());
+    // 引出線の注記にする MTEXT（決定 0185）
+    let db = owned(
+        db,
+        0x83,
+        b"MTEXT",
+        vec![
+            real(10, 2.0),
+            real(20, 2.0),
+            real(30, 0.0),
+            real(41, 10.0),
+            real(40, 2.5),
+            Value {
+                code: 71,
+                data: Data::Int(1),
+            },
+            Value {
+                code: 72,
+                data: Data::Int(1),
+            },
+            Value {
+                code: 1,
+                data: Data::Text(b"note".to_vec()),
+            },
+            Value {
+                code: 73,
+                data: Data::Int(1),
+            },
+            real(44, 1.0),
+        ],
+    );
+    let db = owned(db, 0x84, b"ENDBLK", Vec::new());
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &db);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
@@ -9128,7 +9197,7 @@ fn drawing_additions_go_into_symbol_definitions() {
         .unwrap();
     let place = id::DefinitionNamer::default().next(definition);
     assert_eq!(place, "space/h81");
-    assert_eq!(definition.space.elements.len(), 1);
+    assert_eq!(definition.space.elements.len(), 2);
     let space = definition.space.id;
     let at = |x: f64, y: f64| ModelPoint { space, x, y };
     let element = |shape| Element {
@@ -9177,8 +9246,8 @@ fn drawing_additions_go_into_symbol_definitions() {
         .iter()
         .find(|symbol| symbol.key.name == "Two")
         .unwrap();
-    assert_eq!(definition.space.elements.len(), 2);
-    assert_eq!(definition.space.elements[1].shape, circle.shape);
+    assert_eq!(definition.space.elements.len(), 3);
+    assert_eq!(definition.space.elements[2].shape, circle.shape);
     assert!(again.spaces.iter().all(|space| {
         space
             .elements
@@ -9204,23 +9273,65 @@ fn drawing_additions_go_into_symbol_definitions() {
         .iter()
         .find(|symbol| symbol.key.name == "Two")
         .unwrap();
-    let Shape::Point(dot) = &definition.space.elements[1].shape else {
+    let Shape::Point(dot) = &definition.space.elements[2].shape else {
         panic!("{:?}", definition.space.elements);
     };
     assert_eq!(dot.position, at(0.25, 0.75));
     assert!((dot.rotation - 30.0).abs() < 1e-9, "{}", dot.rotation);
 
-    let leader = Shape::Leader(Leader {
+    // 寸法スタイルに従う矢印（`None`）は、DWG の LEADER が矢印の印を必ず持つので足さない（決定 0185）
+    let mut leader = Leader {
         path: vec![at(0.0, 0.0), at(1.0, 1.0)],
         spline: false,
         arrow: None,
         annotation: None,
         style: "Standard".to_owned(),
-    });
-    let (result, diag, written) = apply(&src, leader);
+    };
+    let (result, diag, written) = apply(&src, Shape::Leader(leader.clone()));
     assert_eq!(result.unwrap_err(), Error::Rejected);
     assert_eq!(codes_of(&diag), [codes::CHANGE_EDIT_UNSUPPORTED]);
     assert_eq!(written, src);
+
+    // 矢印の印を持つ引出線は、注記がなくても、同じ定義の MTEXT を注記にしても足せる（決定 0185）
+    leader.arrow = Some(true);
+    let note = definition_note(&lift(&src));
+    for annotation in [None, Some(note.clone())] {
+        leader.annotation = annotation;
+        let (result, diag, written) = apply(&src, Shape::Leader(leader.clone()));
+        assert!(result.is_ok(), "{:?}", codes_of(&diag));
+        let again = lift(&written);
+        let definition = again
+            .symbols
+            .iter()
+            .find(|symbol| symbol.key.name == "Two")
+            .unwrap();
+        // 注記の出所は、書き戻しで MTEXT のバイトの位置が変わるので、読み直した図面から引く
+        let mut expected = leader.clone();
+        if expected.annotation.is_some() {
+            expected.annotation = Some(definition_note(&again));
+        }
+        assert_eq!(definition.space.elements[2].shape, Shape::Leader(expected));
+    }
+}
+
+/// 試験の図面の定義 Two の中の MTEXT の出所
+#[cfg(test)]
+#[cfg(feature = "drawing")]
+fn definition_note(drawing: &zumen_drawing::Drawing2D) -> zumen_base::Ref {
+    drawing
+        .symbols
+        .iter()
+        .find(|symbol| symbol.key.name == "Two")
+        .and_then(|definition| {
+            definition
+                .space
+                .elements
+                .iter()
+                .find(|element| matches!(element.shape, zumen_drawing::Shape::Formatted(_)))
+        })
+        .unwrap()
+        .source
+        .clone()
 }
 
 /// 記号の定義の中に、図面モデルの変更で記号を足す（#333）。L1 の書き戻しでブロック Two と Three を足した DWG を

@@ -1477,10 +1477,12 @@ pub enum Geometry {
     Spline(SplineGeometry),
     /// 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から
     Dimension(DimensionGeometry),
-    /// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときは注記を持たない。DWG は R2004 までの置き換えだけを書き戻す。小版 31 から
+    /// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（小版 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印の印を必ず持つので、arrow を書かない引出線は書けない（小版 36 から。それまでは R2004 までの置き換えだけ）。小版 31 から
     Leader(LeaderGeometry),
     /// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から
     Point(PointGeometry),
+    /// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかの欄は元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。小版 36 から
+    Callout(CalloutGeometry),
 }
 
 impl Geometry {
@@ -1498,6 +1500,7 @@ impl Geometry {
         "dimension",
         "leader",
         "point",
+        "callout",
     ];
 
     /// 目印の欄（`shape`）の値
@@ -1515,6 +1518,7 @@ impl Geometry {
             Self::Dimension(_) => "dimension",
             Self::Leader(_) => "leader",
             Self::Point(_) => "point",
+            Self::Callout(_) => "callout",
         }
     }
 }
@@ -1537,6 +1541,7 @@ impl FromJson for Geometry {
             "dimension" => Self::Dimension(DimensionGeometry::read_fields(&mut object)?),
             "leader" => Self::Leader(LeaderGeometry::read_fields(&mut object)?),
             "point" => Self::Point(PointGeometry::read_fields(&mut object)?),
+            "callout" => Self::Callout(CalloutGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -1559,6 +1564,7 @@ impl ToJson for Geometry {
             Self::Dimension(value) => value.to_json(out),
             Self::Leader(value) => value.to_json(out),
             Self::Point(value) => value.to_json(out),
+            Self::Callout(value) => value.to_json(out),
         }
     }
 }
@@ -2412,7 +2418,7 @@ impl ToJson for DimensionGeometry {
     }
 }
 
-/// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときは注記を持たない。DWG は R2004 までの置き換えだけを書き戻す。小版 31 から
+/// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（小版 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印の印を必ず持つので、arrow を書かない引出線は書けない（小版 36 から。それまでは R2004 までの置き換えだけ）。小版 31 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct LeaderGeometry {
     /// 経路の頂点 [[X, Y], ...]。矢印の側から並べる。2 つ以上
@@ -2421,7 +2427,7 @@ pub struct LeaderGeometry {
     pub spline: bool,
     /// 始点に矢印を付けるか。書かなければ寸法スタイルに従う
     pub arrow: Option<bool>,
-    /// 注記の要素の ID。同じ空間か用紙の要素で、entities が返したもの。注記がなければ書かない。置き換えるときは元と同じ ID だけを受け、足すときは受けない
+    /// 注記の要素の ID。同じ空間か用紙の要素で、entities が返したもの。注記がなければ書かない。置き換えるときは元と同じ ID だけを受ける。足すときは、同じ空間か用紙の書式つきの文字（MTEXT）を指す
     pub annotation: Option<String>,
     /// 寸法スタイルの元の名前。足すときは図面にある寸法スタイルの名前を指す。置き換えるときは元と同じ名前だけを受ける
     pub style: String,
@@ -2490,6 +2496,288 @@ impl ToJson for LeaderGeometry {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかの欄は元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。小版 36 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalloutGeometry {
+    /// 枝。入力の順
+    pub branches: Vec<CalloutBranch>,
+    /// 線の引き方
+    pub path: CalloutPath,
+    /// 線を注記に、水平の線（ランディング）でつなぐか
+    pub landing: bool,
+    /// 端部記号の大きさ
+    pub arrow_size: f64,
+    /// 大きさに掛ける倍率
+    pub scale: f64,
+    /// 注記の種類
+    pub content: CalloutContent,
+    /// 注記の書式つきの文字の元の内容。content が text のときだけ持つ
+    pub text: Option<String>,
+    /// 注記の記号のブロックの名前。content が symbol のときだけ持つ
+    pub symbol: Option<String>,
+}
+
+impl CalloutGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "callout")?;
+        let branches = object.required("branches", |value| {
+            json::array(value, CalloutBranch::from_json)
+        })?;
+        let path = object.required("path", CalloutPath::from_json)?;
+        let landing = object.required("landing", json::boolean)?;
+        let arrow_size = object.required("arrow_size", json::number)?;
+        let scale = object.required("scale", json::number)?;
+        let content = object.required("content", CalloutContent::from_json)?;
+        let text = object.optional("text", json::string)?;
+        let symbol = object.optional("symbol", json::string)?;
+        Ok(Self {
+            branches,
+            path,
+            landing,
+            arrow_size,
+            scale,
+            content,
+            text,
+            symbol,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("callout");
+        out.key("branches");
+        out.array(&self.branches, |out, item| item.to_json(out));
+        out.key("path");
+        self.path.to_json(out);
+        out.key("landing");
+        out.bool(self.landing);
+        out.key("arrow_size");
+        out.float(self.arrow_size);
+        out.key("scale");
+        out.float(self.scale);
+        out.key("content");
+        self.content.to_json(out);
+        if let Some(value) = &self.text {
+            out.key("text");
+            out.string(value);
+        }
+        if let Some(value) = &self.symbol {
+            out.key("symbol");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for CalloutGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalloutGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 引出線つきの注記の枝。何本かの線が 1 点に集まり、折れ曲がりで注記につながる
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalloutBranch {
+    /// 線ごとの頂点 [[[X, Y], ...], ...]。矢印の側から並べ、集まる点は含めない。線ごとに 1 つ以上
+    pub lines: Vec<Vec<Vec<f64>>>,
+    /// 線が集まる点 [X, Y]。元の形式が持たなければ書かない
+    pub end: Option<Vec<f64>>,
+    /// 集まる点から注記への折れ曲がり。なければ書かない
+    pub dogleg: Option<CalloutDogleg>,
+}
+
+impl CalloutBranch {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let lines = object.required("lines", |value| {
+            json::array(value, |value| {
+                json::array(value, |value| json::array(value, json::number))
+            })
+        })?;
+        let end = object.optional("end", |value| json::array(value, json::number))?;
+        let dogleg = object.optional("dogleg", CalloutDogleg::from_json)?;
+        Ok(Self { lines, end, dogleg })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("lines");
+        out.array(&self.lines, |out, item| {
+            out.array(item, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            })
+        });
+        if let Some(value) = &self.end {
+            out.key("end");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.dogleg {
+            out.key("dogleg");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for CalloutBranch {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalloutBranch {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 枝の折れ曲がり
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalloutDogleg {
+    /// 向き [X, Y]。長さは意味を持たない
+    pub direction: Vec<f64>,
+    /// 長さ
+    pub length: f64,
+}
+
+impl CalloutDogleg {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let direction = object.required("direction", |value| json::array(value, json::number))?;
+        let length = object.required("length", json::number)?;
+        Ok(Self { direction, length })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("direction");
+        out.array(&self.direction, |out, item| out.float(*item));
+        out.key("length");
+        out.float(self.length);
+    }
+}
+
+impl FromJson for CalloutDogleg {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalloutDogleg {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 引出線つきの注記の線の引き方。straight は折れ線、spline は頂点を通る曲線、hidden は線を描かない
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CalloutPath {
+    /// `straight`
+    Straight,
+    /// `spline`
+    Spline,
+    /// `hidden`
+    Hidden,
+}
+
+impl CalloutPath {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Straight, Self::Spline, Self::Hidden];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Straight => "straight",
+            Self::Spline => "spline",
+            Self::Hidden => "hidden",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "straight" => Some(Self::Straight),
+            "spline" => Some(Self::Spline),
+            "hidden" => Some(Self::Hidden),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for CalloutPath {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for CalloutPath {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 引出線つきの注記の中身の種類。none は注記を持たず、text は書式つきの文字、symbol は記号（バルーンなどの囲み）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CalloutContent {
+    /// `none`
+    None,
+    /// `text`
+    Text,
+    /// `symbol`
+    Symbol,
+}
+
+impl CalloutContent {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::None, Self::Text, Self::Symbol];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Text => "text",
+            Self::Symbol => "symbol",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "none" => Some(Self::None),
+            "text" => Some(Self::Text),
+            "symbol" => Some(Self::Symbol),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for CalloutContent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for CalloutContent {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

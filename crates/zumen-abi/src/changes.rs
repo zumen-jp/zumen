@@ -79,6 +79,19 @@ pub(crate) fn changes(
                 .saturating_add(leader.style.len())
                 .saturating_add(leader.style_id.as_ref().map_or(0, String::len))
                 .saturating_add(leader.annotation.as_ref().map_or(0, String::len)),
+            Some(messages::Geometry::Callout(callout)) => callout
+                .branches
+                .iter()
+                .map(|branch| {
+                    branch
+                        .lines
+                        .iter()
+                        .map(Vec::len)
+                        .fold(branch.lines.len(), usize::saturating_add)
+                })
+                .fold(callout.branches.len(), usize::saturating_add)
+                .saturating_add(callout.text.as_ref().map_or(0, String::len))
+                .saturating_add(callout.symbol.as_ref().map_or(0, String::len)),
             _ => 0,
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
@@ -468,8 +481,43 @@ pub(crate) fn changes(
                 };
                 let geometry = named_style(&edit.geometry, Some(tables))
                     .map_err(|field| fail(cx, invalid_value(at(field))))?;
-                let element = added(edit, &geometry, places, tables, definition)
+                // 足す引出線の注記は、図面にある要素の ID で指し、その出所を引出線に持たせる（決定 0185）。
+                // 注記の種類と置き場所は、書き戻す側が確かめる
+                let (geometry, annotation) = match &*geometry {
+                    messages::Geometry::Leader(leader) if leader.annotation.is_some() => {
+                        if elements.is_none() {
+                            elements = Some(ElementLookup::new(drawing, cx)?);
+                        }
+                        let source = leader
+                            .annotation
+                            .as_ref()
+                            .and_then(|id| elements.as_ref()?.get(id))
+                            .map(|found| match found {
+                                FoundElement::Model(found) => found.source.clone(),
+                                FoundElement::Paper(found) => found.source.clone(),
+                            })
+                            .ok_or_else(|| fail(cx, invalid_value(at("geometry/annotation"))))?;
+                        let mut bare = leader.clone();
+                        bare.annotation = None;
+                        (Cow::Owned(messages::Geometry::Leader(bare)), Some(source))
+                    }
+                    _ => (geometry, None),
+                };
+                let mut element = added(edit, &geometry, places, tables, definition)
                     .map_err(|field| fail(cx, invalid_value(at(&field))))?;
+                if let Some(source) = annotation {
+                    match &mut element {
+                        Placed::Model(Element {
+                            shape: Shape::Leader(leader),
+                            ..
+                        }) => leader.annotation = Some(source),
+                        Placed::Paper(Element {
+                            shape: Shape::Leader(leader),
+                            ..
+                        }) => leader.annotation = Some(source),
+                        _ => return Err(fail(cx, invalid_value(at("geometry")))),
+                    }
+                }
                 Edit::Add {
                     place: edit.place.clone(),
                     element: Box::new(element),

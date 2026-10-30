@@ -4703,3 +4703,132 @@ fn points_are_replaced_transformed_and_added() {
         assert_eq!(written, src);
     }
 }
+
+/// 枝 1 つ（集まる点と右への折れ曲がり、線 2 本）を持ち、注記を持たない MULTILEADER。2 本目の線は、切れ目
+/// （11・12）を `broken` のときだけ持つ
+#[cfg(test)]
+fn callouts(broken: bool) -> Vec<u8> {
+    let mut tags: Vec<(i16, &str)> = vec![
+        (0, "MULTILEADER"),
+        (5, "1A"),
+        (8, "0"),
+        (300, "CONTEXT_DATA{"),
+        (40, "1.0"),
+        (140, "2.0"),
+        (290, "0"),
+        (296, "0"),
+        (302, "LEADER{"),
+        (290, "1"),
+        (291, "1"),
+        (10, "30.0"),
+        (20, "20.0"),
+        (30, "0.0"),
+        (11, "1.0"),
+        (21, "0.0"),
+        (31, "0.0"),
+        (90, "0"),
+        (40, "5.0"),
+        (304, "LEADER_LINE{"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (30, "0.0"),
+        (91, "0"),
+        (305, "}"),
+        (304, "LEADER_LINE{"),
+        (10, "0.0"),
+        (20, "10.0"),
+        (30, "0.0"),
+        (10, "10.0"),
+        (20, "15.0"),
+        (30, "0.0"),
+    ];
+    if broken {
+        tags.extend([
+            (90, "0"),
+            (11, "2.0"),
+            (21, "11.0"),
+            (31, "0.0"),
+            (12, "4.0"),
+            (22, "12.0"),
+            (32, "0.0"),
+        ]);
+    }
+    tags.extend([
+        (91, "1"),
+        (305, "}"),
+        (303, "}"),
+        (301, "}"),
+        (170, "1"),
+        (42, "2.5"),
+        (290, "1"),
+    ]);
+    versioned("AC1027", &tags)
+}
+
+/// MULTILEADER は、枝の線の頂点・集まる点・折れ曲がりを書き直し、ほかの欄は元のまま残す（決定 0185）
+#[test]
+fn callout_branches_are_replaced() {
+    let mut file = testkit::read::<Dxf>(&callouts(false)).0.unwrap();
+    let [was] = <[_; 1]>::try_from(elements(&lift(&file))).unwrap();
+    let mut moved = was.clone();
+    let Shape::Callout(callout) = &mut moved.shape else {
+        panic!("{:?}", moved.shape);
+    };
+    let branch = &mut callout.branches[0];
+    // 1 本目の線は頂点を 1 つ足し、2 本目は元のまま
+    let first = branch.lines[0][0];
+    branch.lines[0] = vec![
+        ModelPoint { x: -1.0, ..first },
+        ModelPoint { y: 2.0, ..first },
+    ];
+    let end = branch.end.as_mut().unwrap();
+    end.x = 32.0;
+    let dogleg = branch.dogleg.as_mut().unwrap();
+    dogleg.direction = [-1.0, 0.0];
+    if let Length::Model(length) = &mut dogleg.length {
+        length.value = 6.0;
+    }
+    let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(moved.clone()))]);
+    assert_eq!(result, Ok(()));
+    assert_eq!(found, []);
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let again = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].shape, moved.shape);
+    // 文脈と図形の欄は、元の書き方のまま残る
+    let text = String::from_utf8(written).unwrap();
+    assert!(text.contains(" 42\n2.5\n290\n1\n"));
+    assert!(text.contains("140\n2.0\n290\n0\n296\n0\n"));
+}
+
+/// 枝の数・中身・切れ目を持つ線の頂点は書き直さず、何も変えない
+#[test]
+fn callout_changes_the_records_cannot_hold_change_nothing() {
+    for (broken, change) in [(false, 0), (false, 1), (false, 2), (true, 3)] {
+        let src = callouts(broken);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let [was] = <[_; 1]>::try_from(elements(&lift(&file))).unwrap();
+        let mut changed = was.clone();
+        let Shape::Callout(callout) = &mut changed.shape else {
+            panic!("{:?}", changed.shape);
+        };
+        match change {
+            // 枝を足す
+            0 => callout.branches.push(callout.branches[0].clone()),
+            // 線の引き方を変える
+            1 => callout.landing = !callout.landing,
+            // 折れ曲がりをなくす
+            2 => callout.branches[0].dogleg = None,
+            // 切れ目を持つ線の頂点を動かす
+            _ => callout.branches[0].lines[1][0].x = 1.0,
+        }
+        let (result, found) = apply(&mut file, vec![Edit::Replace(Box::new(changed))]);
+        assert_eq!(result, Err(Error::Rejected), "{change}");
+        assert_eq!(
+            found,
+            [(codes::CHANGE_EDIT_UNSUPPORTED, vec![was.source.clone()])],
+            "{change}"
+        );
+        assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src, "{change}");
+    }
+}

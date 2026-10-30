@@ -10,6 +10,8 @@
 //! 2・4。推定）ので、斜体の角度は変えない。書式つきの文字（MTEXT）は反転の印を持たないので、鏡映を含まない
 //! 相似でだけ写し、書式つきの属性を持つ記号も鏡映しない。格子の間隔は尺度を掛け、鏡映では、記号の Y の向きに
 //! 並ぶ行の間隔の符号を変える。
+//!
+//! 引出線は経路の頂点を写す。折れ線の引出線はどのアフィン変換でも、曲線の引出線は相似でだけ写す（決定 0185）。
 
 use crate::{
     Affine, Attribute, Edge, FormattedText, Height, Length, ModelLength, ModelPoint, PaperLength,
@@ -243,6 +245,17 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
             s => placing(symbol, transform, s)?,
         }),
         Shape::Point(dot) => Shape::Point(pointing(dot, transform, similar?)?),
+        // 引出線は経路の頂点を写す。頂点を通る曲線は弦の長さで点を割り振るので、曲線の引出線は相似でだけ写す
+        // （決定 0185）
+        Shape::Leader(leader) => {
+            if leader.spline {
+                similar?;
+            }
+            Shape::Leader(crate::Leader {
+                path: leader.path.iter().map(point).collect(),
+                ..leader.clone()
+            })
+        }
         _ => return None,
     })
 }
