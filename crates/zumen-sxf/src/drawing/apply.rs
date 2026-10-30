@@ -13,7 +13,7 @@ use zumen_drawing::{
     Inherit, LayerId, Length, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, Placed,
     Polyline, Seen, Shape, Style, id, transform,
 };
-use zumen_sdk::{Apply, Codec, Cx, Error, Lift};
+use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
 mod p21;
 
@@ -256,13 +256,13 @@ impl Apply<Changes> for SxfFile {
                         })
                 }
                 Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
-                    cx.report(unsupported(format, edit_name(change), "layer_feature"));
+                    cx.report(unsupported(format, change.name(), "layer_feature"));
                     None
                 }
                 Edit::ReplaceTextStyle { .. }
                 | Edit::AddTextStyle { .. }
                 | Edit::RemoveTextStyle { .. } => {
-                    cx.report(unsupported(format, edit_name(change), "text_font_feature"));
+                    cx.report(unsupported(format, change.name(), "text_font_feature"));
                     None
                 }
                 Edit::ReplaceLineType { .. }
@@ -270,7 +270,7 @@ impl Apply<Changes> for SxfFile {
                 | Edit::RemoveLineType { .. } => {
                     cx.report(unsupported(
                         format,
-                        edit_name(change),
+                        change.name(),
                         "user_defined_font_feature",
                     ));
                     None
@@ -278,12 +278,12 @@ impl Apply<Changes> for SxfFile {
                 Edit::ReplaceDimensionStyle { .. }
                 | Edit::AddDimensionStyle { .. }
                 | Edit::RemoveDimensionStyle { .. } => {
-                    cx.report(unsupported(format, edit_name(change), "dimension_style"));
+                    cx.report(unsupported(format, change.name(), "dimension_style"));
                     None
                 }
             };
             match result {
-                Some(result) => expected.push((edit_name(change), result)),
+                Some(result) => expected.push((change.name(), result)),
                 None => rejected = true,
             }
         }
@@ -372,17 +372,6 @@ impl Apply<Changes> for SxfFile {
         Ok(applied)
     }
 }
-
-/// 診断を混ぜずに読む・変換する。止めたときだけ、止めた理由を文脈に足す
-fn quietly<T>(cx: &mut Cx, run: impl FnOnce(&mut Cx) -> Result<T, Error>) -> Result<T, Error> {
-    let mut quiet = Diagnostics::new();
-    let result = run(&mut Cx::new(cx.budget, &mut quiet, cx.cancel));
-    if let Err(Error::Stopped(stop)) = &result {
-        cx.report(stop.to_diagnostic());
-    }
-    result
-}
-
 /// 当てた後に確かめること
 enum Expected {
     /// このインスタンスの要素がなくなる
@@ -390,30 +379,6 @@ enum Expected {
     /// このインスタンスの要素が、この値になる
     Element(u64, Box<Placed>),
 }
-
-/// 変更の名前。診断の `edit` に書く
-fn edit_name(edit: &Edit) -> &'static str {
-    match edit {
-        Edit::Replace { .. } => "replace",
-        Edit::Restyle { .. } => "restyle",
-        Edit::Transform { .. } => "transform",
-        Edit::Add { .. } => "add",
-        Edit::Remove { .. } => "remove",
-        Edit::ReplaceLayer { .. } => "replace_layer",
-        Edit::AddLayer { .. } => "add_layer",
-        Edit::RemoveLayer { .. } => "remove_layer",
-        Edit::ReplaceTextStyle { .. } => "replace_text_style",
-        Edit::AddTextStyle { .. } => "add_text_style",
-        Edit::RemoveTextStyle { .. } => "remove_text_style",
-        Edit::ReplaceLineType { .. } => "replace_line_type",
-        Edit::AddLineType { .. } => "add_line_type",
-        Edit::RemoveLineType { .. } => "remove_line_type",
-        Edit::ReplaceDimensionStyle { .. } => "replace_dimension_style",
-        Edit::AddDimensionStyle { .. } => "add_dimension_style",
-        Edit::RemoveDimensionStyle { .. } => "remove_dimension_style",
-    }
-}
-
 /// 当てられない変更の診断
 fn unsupported(format: &str, edit: &str, kind: &str) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)

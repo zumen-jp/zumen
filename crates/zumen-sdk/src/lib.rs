@@ -13,6 +13,8 @@ pub mod testkit;
 
 pub use zumen_base::{ByteRange, Cx, Stop};
 
+use zumen_base::Diagnostics;
+
 /// 読み書きが失敗した理由。詳しいことは、診断として文脈に足してある
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -39,6 +41,16 @@ impl From<Stop> for Error {
 pub trait Lift<M>: FileModel {
     /// 領域モデルを作る。予算の上限か中断の合図で止めたときだけ失敗する
     fn lift(&self, cx: &mut Cx) -> Result<M, Error>;
+}
+
+/// 診断を混ぜずに読む・変換する。止めたときだけ、止めた理由を文脈に足す
+pub fn quietly<T>(cx: &mut Cx, run: impl FnOnce(&mut Cx) -> Result<T, Error>) -> Result<T, Error> {
+    let mut quiet = Diagnostics::new();
+    let result = run(&mut Cx::new(cx.budget, &mut quiet, cx.cancel));
+    if let Err(Error::Stopped(stop)) = &result {
+        cx.report(stop.to_diagnostic());
+    }
+    result
 }
 
 /// L2 の領域モデルへの変更 `C` を、元の L1 にその場で書き戻す（決定 0008・0139）
