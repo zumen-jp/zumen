@@ -220,3 +220,4 @@
 - [0184: シーンで寸法・表・引出線・ハッチングの線を描き、残る近似を診断で返す](0184-scene-annotations-and-approximations.md)（2026-10-31、採用）
 - [0185: 引出線の書き戻しを、注記つきの追加・DWG・変換と MULTILEADER の枝の置き換えへ広げる](0185-drawing-apply-leader-and-callout-write-back.md)（2026-10-31、採用）
 - [0186: CFF・CFF2 の字形の命令をたどって正確な外形を求め、カーニングは GPOS か kern の表から読む](0186-read-cff-outlines-and-kerning.md)（2026-10-31、採用）
+- [0187: 縦書きの文字を vmtx と GSUB の vert で置き、上下に重ねた文字と禁則を推定の規則で置く](0187-vertical-text-stacks-and-kinsoku.md)（2026-10-31、採用）

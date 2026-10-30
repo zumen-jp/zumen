@@ -14,6 +14,10 @@
 //! - 外形: `loca` で引いた `glyf` の字形の見出しの xMin・yMin・xMax・yMax。輪郭はたどらない。
 //!   `glyf` がなければ、`CFF `・`CFF2` の字形の命令をたどった外形（[`cff`]、決定 0186）
 //! - カーニング: `GPOS` の pair adjustment か、なければ `kern` の形式 0（[`kern`]、決定 0186）
+//! - 縦書き: `vhea` の numOfLongVerMetrics と `vmtx` の advanceHeight・topSideBearing、`GSUB` の
+//!   `vrt2`（なければ `vert`）の single substitution（[`gsub`]、決定 0187）。どれも任意の表で、
+//!   なければ、または壊れていれば、縦書きの既定（[`crate::layout::VerticalGlyph::upright`]）と
+//!   置き換えなしで置く
 //!
 //! 受け取ったファイルは信用しない。位置と長さはすべて確かめ、足し算と掛け算は `u64` か
 //! 溢れを確かめて行い、`usize` の幅（32 ビットの wasm と 64 ビット）で結果が変わらないようにする。
@@ -22,9 +26,10 @@
 //! 副ルーチンの入れ子と、字形ごとの作業量に上限を設けてたどる。
 
 mod cff;
+mod gsub;
 mod kern;
 
-use crate::layout::{FontMetrics, Glyph, Glyphs};
+use crate::layout::{FontMetrics, Glyph, Glyphs, VerticalGlyph};
 
 /// 読めない理由
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +57,10 @@ pub struct Font<'a> {
     glyph_count: u16,
     outline: Outline<'a>,
     kerning: kern::Kerning<'a>,
+    /// 縦書きの送りと上の余白。`vhea`・`vmtx` がないか壊れていれば `None`
+    vmtx: Option<Vmtx<'a>>,
+    /// 縦書き用の字形への置き換え
+    vertical: gsub::Substitution<'a>,
     metrics: FontMetrics,
     fallback: Glyph,
 }
@@ -64,6 +73,27 @@ enum Outline<'a> {
         glyf: &'a [u8],
     },
     Cff(cff::Cff<'a>),
+}
+
+/// `vmtx` の表と、`vhea` の numOfLongVerMetrics（1 以上）。表は、字形の数だけの上の余白を持つ
+struct Vmtx<'a> {
+    table: &'a [u8],
+    long_metrics: u16,
+}
+
+impl Vmtx<'_> {
+    /// 字形の縦の送りと上の余白。numOfLongVerMetrics を超える字形は、最後の送りと、続く並びの上の余白
+    fn get(&self, id: u16) -> Option<(u16, i16)> {
+        let record = id.min(self.long_metrics - 1);
+        let advance = u16_at(self.table, usize::from(record) * 4)?;
+        let bearing = if id < self.long_metrics {
+            i16_at(self.table, usize::from(id) * 4 + 2)?
+        } else {
+            let at = usize::from(self.long_metrics) * 4 + usize::from(id - self.long_metrics) * 2;
+            i16_at(self.table, at)?
+        };
+        Some((advance, bearing))
+    }
 }
 
 /// 文字から字形の番号を引く `cmap` の副表
@@ -90,6 +120,9 @@ struct Tables<'a> {
     cff2: Option<&'a [u8]>,
     gpos: Option<&'a [u8]>,
     kern: Option<&'a [u8]>,
+    vhea: Option<&'a [u8]>,
+    vmtx: Option<&'a [u8]>,
+    gsub: Option<&'a [u8]>,
     /// 表の並びで見つけた CFF・CFF2 の表の名前（ファイルの外を指していても）
     cff_tag: Option<&'static str>,
 }
@@ -170,6 +203,8 @@ impl<'a> Font<'a> {
             glyph_count,
             outline,
             kerning: kern::Kerning::read(tables.gpos, tables.kern),
+            vmtx: vmtx(tables.vhea, tables.vmtx, glyph_count),
+            vertical: gsub::Substitution::read(tables.gsub),
             metrics: FontMetrics {
                 units_per_em: 0.0,
                 ascent: 0.0,
@@ -236,6 +271,17 @@ impl<'a> Font<'a> {
     }
 }
 
+/// `vhea`（numOfLongVerMetrics は 34）と `vmtx` を読む。`vmtx` が字形の数だけの記録を持たなければ使わない
+fn vmtx<'a>(vhea: Option<&[u8]>, vmtx: Option<&'a [u8]>, glyph_count: u16) -> Option<Vmtx<'a>> {
+    let long_metrics = u16_at(vhea?, 34)?.min(glyph_count);
+    let table = vmtx?;
+    let size = u64::from(long_metrics) * 4 + u64::from(glyph_count - long_metrics) * 2;
+    (long_metrics > 0 && table.len() as u64 >= size).then_some(Vmtx {
+        table,
+        long_metrics,
+    })
+}
+
 /// `glyf` の字形の見出しの外形
 fn glyf_bounds(loca: &[u8], long_loca: bool, glyf: &[u8], id: u16) -> Option<Option<[f64; 4]>> {
     let (start, end) = if long_loca {
@@ -259,6 +305,24 @@ fn glyf_bounds(loca: &[u8], long_loca: bool, glyf: &[u8], id: u16) -> Option<Opt
 }
 
 impl Font<'_> {
+    /// 字形の番号から、縦書きの字形を読む
+    fn vertical_by_id(&self, original: u16) -> Option<VerticalGlyph> {
+        let replaced = self.vertical.apply(original);
+        let (id, glyph) = match self.by_id(replaced) {
+            Some(glyph) => (replaced, glyph),
+            None => (original, self.by_id(original)?),
+        };
+        let mut out = VerticalGlyph::upright(glyph, &self.metrics);
+        out.substituted = id != original;
+        if let Some((advance, bearing)) = self.vmtx.as_ref().and_then(|vmtx| vmtx.get(id)) {
+            out.advance = f64::from(advance);
+            if let Some([_, _, _, top]) = glyph.bounds {
+                out.top = top + f64::from(bearing);
+            }
+        }
+        Some(out)
+    }
+
     /// 文字の字形の番号。`cmap` になく、字形 0 か字形の数を超える番号に当たる文字は `None`
     fn id(&self, ch: char) -> Option<u16> {
         let id = match self.cmap {
@@ -282,6 +346,18 @@ impl Glyphs for Font<'_> {
 
     fn fallback(&self) -> Glyph {
         self.fallback
+    }
+
+    /// `GSUB` で置き換えた字形を、`vmtx` の縦の送りで置く。縦の原点の高さは、外形の上に上の余白を
+    /// 足した値。外形のない字形と `vmtx` のないフォントは、既定の値にする。置き換えた先の字形が
+    /// 読めなければ置き換えない
+    fn vertical(&self, ch: char) -> Option<VerticalGlyph> {
+        self.vertical_by_id(self.id(ch)?)
+    }
+
+    fn vertical_fallback(&self) -> VerticalGlyph {
+        self.vertical_by_id(0)
+            .unwrap_or_else(|| VerticalGlyph::upright(self.fallback, &self.metrics))
     }
 
     /// `GPOS` か `kern` の表の値。どちらかの文字がフォントになければ詰めない
@@ -340,6 +416,9 @@ fn directory(data: &[u8], index: u32) -> Result<Tables<'_>, Unread> {
             b"glyf" => &mut tables.glyf,
             b"GPOS" => &mut tables.gpos,
             b"kern" => &mut tables.kern,
+            b"vhea" => &mut tables.vhea,
+            b"vmtx" => &mut tables.vmtx,
+            b"GSUB" => &mut tables.gsub,
             b"CFF " | b"CFF2" => {
                 let (slot, name) = if d == b' ' {
                     (&mut tables.cff, "CFF ")
@@ -862,12 +941,18 @@ mod tests {
                     for right in ['H', 'g'] {
                         let _ = font.kerning(ch, right);
                     }
+                    let _ = font.vertical(ch);
                 }
+                let _ = font.vertical_fallback();
             }
         };
         let mut kerned = tables();
         kerned.push((*b"GPOS", gpos(&[])));
         kerned.push((*b"kern", kern()));
+        kerned.extend(vertical_tables(&gsub(
+            &[(b"vert", &[0, 1]), (b"liga", &[2])],
+            1,
+        )));
         // TrueType・CFF・CFF2・カーニングの表のあるフォント
         for data in [
             assemble(tables()),
@@ -1533,5 +1618,168 @@ mod tests {
         tables.push((*b"kern", kern()));
         let data = assemble(tables);
         assert_eq!(Font::parse(&data, 0).unwrap().kerning('H', 'g'), -50.0);
+    }
+
+    /// 16 ビットの値の並び
+    fn halfwords(values: &[i32]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for &value in values {
+            put16(&mut out, value);
+        }
+        out
+    }
+
+    /// GSUB の表。lookup 0 は extension（type 7）を通した形式 1 で `H`（1）を +1 して `g`（2）に、
+    /// lookup 1 は形式 2 で空白（3）を `H`（1）に、lookup 2 は形式 1 で `g` を -1 して `H` にする。
+    /// lookup 1 には、同じ副表の位置を `copies` 個並べる。`features` は機能の名前と lookup の番号
+    fn gsub(features: &[(&[u8; 4], &[i32])], copies: usize) -> Vec<u8> {
+        let coverage = |glyph| halfwords(&[1, 1, glyph]);
+        let mut format1 = halfwords(&[1, 6, 1]);
+        format1.extend(coverage(1));
+        let mut extension = halfwords(&[1, 1]);
+        put32(&mut extension, 8);
+        extension.extend(&format1);
+        let mut format2 = halfwords(&[2, 8, 1, 1]);
+        format2.extend(coverage(3));
+        let mut back = halfwords(&[1, 6, -1]);
+        back.extend(coverage(2));
+        let lookup = |kind: i32, subtable: &[u8], copies: usize| {
+            let mut out = halfwords(&[kind, 0, copies as i32]);
+            for _ in 0..copies {
+                put16(&mut out, 6 + 2 * copies as i32);
+            }
+            out.extend(subtable);
+            out
+        };
+        let lookups = [
+            lookup(7, &extension, 1),
+            lookup(1, &format2, copies),
+            lookup(1, &back, 1),
+        ];
+        let mut list = halfwords(&[lookups.len() as i32]);
+        let mut at = 2 + 2 * lookups.len() as i32;
+        for lookup in &lookups {
+            put16(&mut list, at);
+            at += lookup.len() as i32;
+        }
+        for lookup in &lookups {
+            list.extend(lookup);
+        }
+        let mut records = halfwords(&[features.len() as i32]);
+        let mut bodies = Vec::new();
+        let mut at = 2 + 6 * features.len() as i32;
+        for (tag, indices) in features {
+            records.extend(*tag);
+            put16(&mut records, at);
+            let mut body = halfwords(&[0, indices.len() as i32]);
+            body.extend(halfwords(indices));
+            at += body.len() as i32;
+            bodies.extend(body);
+        }
+        records.extend(bodies);
+        let mut out = halfwords(&[1, 0, 0, 10, 10 + records.len() as i32]);
+        out.extend(records);
+        out.extend(list);
+        out
+    }
+
+    /// `vhea`・`vmtx`・`GSUB`。縦の送りは字形 0 が 1000、1 が 900（numOfLongVerMetrics は 2）で、
+    /// 上の余白は 100・80・50・0
+    fn vertical_tables(gsub: &[u8]) -> Tables {
+        let mut vhea = vec![0; 36];
+        vhea[0..4].copy_from_slice(&0x0001_1000u32.to_be_bytes());
+        vhea[34..36].copy_from_slice(&2u16.to_be_bytes());
+        let vmtx = halfwords(&[1000, 100, 900, 80, 50, 0]);
+        vec![
+            (*b"vhea", vhea),
+            (*b"vmtx", vmtx),
+            (*b"GSUB", gsub.to_vec()),
+        ]
+    }
+
+    fn with_vertical(gsub: &[u8]) -> Vec<u8> {
+        let mut tables = tables();
+        tables.extend(vertical_tables(gsub));
+        assemble(tables)
+    }
+
+    #[test]
+    fn reads_vertical_metrics_and_substitutions() {
+        let data = with_vertical(&gsub(&[(b"vert", &[0, 1]), (b"liga", &[2])], 1));
+        let font = Font::parse(&data, 0).unwrap();
+        // H は g に置き換え、g の縦の送り 900（最後の送り）と、外形の上 480 に上の余白 50 を足した原点
+        assert_eq!(
+            font.vertical('H'),
+            Some(VerticalGlyph {
+                glyph: font.glyph('g').unwrap(),
+                advance: 900.0,
+                top: 530.0,
+                substituted: true,
+            })
+        );
+        // 空白は H に置き換え、H の上の余白 80
+        let space = font.vertical(' ').unwrap();
+        assert_eq!([space.advance, space.top], [900.0, 800.0]);
+        assert!(space.substituted);
+        // liga の lookup は使わない
+        assert!(!font.vertical('g').unwrap().substituted);
+        assert_eq!(font.vertical('Q'), None);
+        let fallback = font.vertical_fallback();
+        assert_eq!([fallback.advance, fallback.top], [1000.0, 800.0]);
+
+        // vrt2 があれば vert は使わない
+        let data = with_vertical(&gsub(&[(b"vert", &[0]), (b"vrt2", &[1])], 1));
+        let font = Font::parse(&data, 0).unwrap();
+        assert!(!font.vertical('H').unwrap().substituted);
+        assert!(font.vertical(' ').unwrap().substituted);
+
+        // 縦書きの表がなければ、送りはアセンダーとディセンダーの和、原点はアセンダー
+        let data = assemble(tables());
+        let font = Font::parse(&data, 0).unwrap();
+        let glyph = font.vertical('H').unwrap();
+        assert_eq!([glyph.advance, glyph.top], [1150.0, 900.0]);
+        assert!(!glyph.substituted);
+    }
+
+    #[test]
+    fn ignores_broken_or_oversized_vertical_tables() {
+        // vmtx が字形の数だけの記録を持たなければ使わない
+        let mut tables = tables();
+        let mut vertical = vertical_tables(&gsub(&[(b"vert", &[0])], 1));
+        vertical[1].1.truncate(10);
+        tables.extend(vertical);
+        let data = assemble(tables);
+        let glyph = Font::parse(&data, 0).unwrap().vertical('g').unwrap();
+        assert_eq!([glyph.advance, glyph.top], [1150.0, 900.0]);
+
+        // 副表が 1024 を超える GSUB は読まない
+        let data = with_vertical(&gsub(&[(b"vert", &[0, 1])], 1024));
+        let font = Font::parse(&data, 0).unwrap();
+        assert!(!font.vertical('H').unwrap().substituted);
+        let data = with_vertical(&gsub(&[(b"vert", &[0, 1])], 1023));
+        assert!(
+            Font::parse(&data, 0)
+                .unwrap()
+                .vertical('H')
+                .unwrap()
+                .substituted
+        );
+
+        // 置き換えた先が字形の数を超えれば置き換えない。lookup の番号が lookup の数を超えれば読まない
+        let mut table = gsub(&[(b"vert", &[0])], 1);
+        for broken in [gsub(&[(b"vert", &[5])], 1), {
+            // lookup 0 の差分を +100 にする
+            let needle = halfwords(&[1, 6, 1, 1, 1, 1]);
+            let position = table
+                .windows(needle.len())
+                .position(|window| window == needle.as_slice())
+                .unwrap();
+            table[position + 4..position + 6].copy_from_slice(&100u16.to_be_bytes());
+            table
+        }] {
+            let data = with_vertical(&broken);
+            let font = Font::parse(&data, 0).unwrap();
+            assert!(!font.vertical('H').unwrap().substituted);
+        }
     }
 }

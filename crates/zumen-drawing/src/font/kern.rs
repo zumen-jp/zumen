@@ -74,13 +74,23 @@ impl<'a> Kerning<'a> {
 }
 
 /// `data` の `at` からの残り
-fn from(data: &[u8], at: impl Into<u64>) -> Option<&[u8]> {
+pub(super) fn from(data: &[u8], at: impl Into<u64>) -> Option<&[u8]> {
     data.get(usize::try_from(at.into()).ok()?..)
 }
 
 /// GPOS の `kern` の機能の lookup のうち、pair adjustment の副表を lookup の順に集める。
 /// 文字の並びの言語は分からないので、どの用字系の `kern` の機能の lookup も使う
 fn lookups(table: &[u8]) -> Option<Vec<Vec<&[u8]>>> {
+    let (indices, list) = feature_lookups(table, b"kern")?;
+    subtables(list, indices, 2, 9)
+}
+
+/// GSUB・GPOS の、機能 `tag` が指す lookup の番号（どの用字系のものも）と LookupList
+/// （Common Table Formats の Feature List・Lookup List の節）
+pub(super) fn feature_lookups<'a>(
+    table: &'a [u8],
+    tag: &[u8; 4],
+) -> Option<(BTreeSet<u16>, &'a [u8])> {
     // 見出し: majorVersion（0）・featureListOffset（6）・lookupListOffset（8）
     if u16_at(table, 0)? != 1 {
         return None;
@@ -92,7 +102,7 @@ fn lookups(table: &[u8]) -> Option<Vec<Vec<&[u8]>>> {
     // FeatureList: featureCount（0）、FeatureRecord（tag・featureOffset、6 バイト）
     for i in 0..usize::from(u16_at(features, 0)?) {
         let record = 2 + i * 6;
-        if features.get(record..record + 4)? != b"kern" {
+        if features.get(record..record + 4)? != tag {
             continue;
         }
         // Feature: featureParamsOffset（0）・lookupIndexCount（2）・lookupListIndices（4）
@@ -105,6 +115,17 @@ fn lookups(table: &[u8]) -> Option<Vec<Vec<&[u8]>>> {
             indices.insert(u16_at(feature, 4 + j * 2)?);
         }
     }
+    Some((indices, list))
+}
+
+/// lookup の番号の順に、種類 `kind`（extension の種類 `extension` を通したものを含む）の形式 1・2 の
+/// 副表を集める。副表のない lookup は除く。副表が [`SUBTABLES`] を超えれば `None`
+pub(super) fn subtables(
+    list: &[u8],
+    indices: BTreeSet<u16>,
+    kind: u16,
+    extension: u16,
+) -> Option<Vec<Vec<&[u8]>>> {
     // LookupList: lookupCount（0）・lookupOffsets（2）
     let count = u16_at(list, 0)?;
     let (mut lookups, mut total) = (Vec::new(), 0);
@@ -114,16 +135,16 @@ fn lookups(table: &[u8]) -> Option<Vec<Vec<&[u8]>>> {
         }
         // Lookup: lookupType（0）・lookupFlag（2）・subTableCount（4）・subtableOffsets（6）
         let lookup = from(list, u16_at(list, 2 + usize::from(index) * 2)?)?;
-        let kind = u16_at(lookup, 0)?;
-        if kind != 2 && kind != 9 {
+        let found = u16_at(lookup, 0)?;
+        if found != kind && found != extension {
             continue;
         }
         let mut subtables = Vec::new();
         for k in 0..usize::from(u16_at(lookup, 4)?) {
             let mut subtable = from(lookup, u16_at(lookup, 6 + k * 2)?)?;
-            if kind == 9 {
-                // Extension: posFormat（0）・extensionLookupType（2）・extensionOffset（4）
-                if u16_at(subtable, 0)? != 1 || u16_at(subtable, 2)? != 2 {
+            if found == extension {
+                // Extension: format（0）・extensionLookupType（2）・extensionOffset（4）
+                if u16_at(subtable, 0)? != 1 || u16_at(subtable, 2)? != kind {
                     continue;
                 }
                 subtable = from(subtable, u32_at(subtable, 4)?)?;
@@ -197,7 +218,7 @@ fn x_advance(data: &[u8], at: usize, format: u16) -> Option<i16> {
 }
 
 /// Coverage の番号（Common Table Formats の Coverage の節）
-fn coverage(table: &[u8], glyph: u16) -> Option<u16> {
+pub(super) fn coverage(table: &[u8], glyph: u16) -> Option<u16> {
     let count = usize::from(u16_at(table, 2)?);
     match u16_at(table, 0)? {
         // 形式 1: glyphCount（2）・glyphArray（4）

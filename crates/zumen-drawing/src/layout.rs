@@ -14,11 +14,11 @@
 //!   置く点（2 点の間では 2 点の中点）のまわりで当てる。
 //!
 //! 書式つきの文字（[`FormattedText`]）の折り返し・行送り・区間ごとの書式、DXF の特殊な符号、カーニングの
-//! 扱いは決定 0181 にある。縦書きは置かない。
+//! 扱いは決定 0181 にある。縦書き・上下に重ねた文字・禁則は決定 0187 にある。
 
 use crate::{
     Fit, Flow, Font, Format, FormattedText, HeightMeaning, Horizontal, Length, Piece, Placement,
-    Rotation, Scaled, Text, Vertical,
+    Rotation, Scaled, StackKind, Text, Vertical,
 };
 
 /// フォント全体の寸法。値は字形の単位で、上を正とする
@@ -55,6 +55,44 @@ pub trait Glyphs {
     fn kerning(&self, left: char, right: char) -> f64 {
         let _ = (left, right);
         0.0
+    }
+    /// 縦書きの字形。フォントになければ `None`。既定は横書きの字形を [`VerticalGlyph::upright`] で
+    /// 置く（決定 0187）
+    fn vertical(&self, ch: char) -> Option<VerticalGlyph> {
+        self.glyph(ch)
+            .map(|glyph| VerticalGlyph::upright(glyph, &self.metrics()))
+    }
+    /// フォントにない文字に使う、縦書きの字形。既定は [`Glyphs::fallback`] を
+    /// [`VerticalGlyph::upright`] で置く
+    fn vertical_fallback(&self) -> VerticalGlyph {
+        VerticalGlyph::upright(self.fallback(), &self.metrics())
+    }
+}
+
+/// 縦書きの 1 文字の字形の寸法。値は字形の単位（決定 0187）
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VerticalGlyph {
+    /// 置く字形（縦書き用の字形に置き換えた後）の横の送りと外形
+    pub glyph: Glyph,
+    /// 縦の送り
+    pub advance: f64,
+    /// 縦の原点の高さ。縦の原点は、字形の座標で（横の送りの半分, `top`）にあり、列の中心線の上で
+    /// 送りの始まりに合わせる
+    pub top: f64,
+    /// 縦書き用の字形に置き換えた。描く側も同じ置き換えを当てる
+    pub substituted: bool,
+}
+
+impl VerticalGlyph {
+    /// 縦書きの寸法を持たないフォントの既定（推定）。縦の送りはアセンダーとディセンダーの和、
+    /// 縦の原点はアセンダーの高さにし、置き換えない
+    pub fn upright(glyph: Glyph, metrics: &FontMetrics) -> Self {
+        Self {
+            glyph,
+            advance: metrics.ascent + metrics.descent,
+            top: metrics.ascent,
+            substituted: false,
+        }
     }
 }
 
@@ -93,7 +131,7 @@ pub enum Unplaced {
     /// 高さ・幅の倍率・字の間隔・行送り・枠の幅・向き・フォントの寸法・2 点の距離・送りの合計が 0 か
     /// 有限でないか、斜体の角度が 90 度以上
     Degenerate,
-    /// 縦書き。縦書きの字形の寸法を受け取らないので置かない（決定 0181）
+    /// 縦書き。決定 0181 で使い、決定 0187 で縦書きを置くようにしてからは返さない
     Vertical,
 }
 
@@ -228,18 +266,20 @@ pub trait Fonts {
 /// 書式つきの文字を置いた結果
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaidFormatted {
-    /// 置いた字形。内容の順
+    /// 置いた字形。内容の順で、上下に重ねた文字は上・下の順
     pub glyphs: Vec<PlacedGlyph>,
-    /// 行。上から順
+    /// 行。横書きでは上から、縦書きでは右から順
     pub lines: Vec<LineBox>,
-    /// 枠の幅と、内容の高さ（図面の長さ）
+    /// 横書きでは枠の幅と内容の高さ、縦書きでは内容の幅と枠の長さ（図面の長さ）
     pub size: [f64; 2],
     /// フォントになく、代わりの字形で置いた文字の数
     pub missing: usize,
     /// 区間で指定されたフォントが渡されず、文字スタイルのフォントで置いた区間の数
     pub substituted: usize,
-    /// 置かなかった区間の位置（上下に重ねた文字・測定値・解釈できない符号など）。入力の順
+    /// 置かなかった区間の位置（測定値・解釈できない符号、縦書きの上下に重ねた文字など）。入力の順
     pub skipped: Vec<usize>,
+    /// 置いた上下に重ねた文字。入力の順（決定 0187）
+    pub stacks: Vec<PlacedStack>,
 }
 
 /// 置いた 1 文字
@@ -251,9 +291,21 @@ pub struct PlacedGlyph {
     pub ch: char,
     /// 字形の単位の座標（字形の基準線の始まりが原点）を、図面の座標へ写す変換。形は [`Laid::transform`] と同じ
     pub transform: [f64; 6],
+    /// 縦書き用の字形に置き換えた（[`VerticalGlyph::substituted`]）
+    pub substituted: bool,
 }
 
-/// 行。値は図面の長さで、枠の左上から測る
+/// 置いた上下に重ねた文字
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlacedStack {
+    /// 区間の位置
+    pub span: usize,
+    /// 上下を分ける横線か斜線の両端（図面の座標）。公差は線を引かないので `None`
+    pub line: Option<[[f64; 2]; 2]>,
+}
+
+/// 行。値は図面の長さ。横書きでは枠の左上から測る。縦書きでは、`baseline` は内容の右から列の中心線まで、
+/// `offset` は枠の上から列の始まりまで、`width` は列の長さ
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LineBox {
     /// 行の字形の範囲（[`LaidFormatted::glyphs`] の位置、始まりと終わり）
@@ -269,9 +321,16 @@ pub struct LineBox {
 /// 既定の行送りの、文字の高さへの倍率（AutoCAD のヘルプの「1 行の行送りは文字の高さの 1.66 倍」から推定）
 const LINE_PITCH: f64 = 5.0 / 3.0;
 
+/// 上下に重ねた文字の、上下の段の高さの倍率（推定。AutoCAD のヘルプの重ねた文字の既定の大きさ 70% から）
+const STACK_SCALE: f64 = 0.7;
+/// 横線・公差で、中心の線から上下の段までの隙間の、区間の大文字の高さへの倍率（推定）
+const STACK_GAP: f64 = 0.1;
+/// 斜線の横の幅の、区間の大文字の高さへの倍率（推定）
+const STACK_SLANT: f64 = 0.5;
+
 /// 書式つきの文字を置く。枠の幅で折り返し、行送りと区間ごとの書式（高さ・幅の倍率・字の間隔・斜体・
 /// フォント・行の中の位置合わせ）を当てる。DXF の特殊な符号は解かないので、呼び出し側が [`decode`] で
-/// 解いてから渡す（決定 0181）
+/// 解いてから渡す（決定 0181）。縦書き・上下に重ねた文字・禁則は決定 0187 による
 pub fn place_formatted<P>(
     text: &FormattedText<P>,
     xy: impl Fn(&P) -> [f64; 2],
@@ -283,9 +342,6 @@ pub fn place_formatted<P>(
         Flow::TopToBottom => true,
         Flow::ByStyle => fonts.vertical(),
     };
-    if vertical {
-        return Err(Unplaced::Vertical);
-    }
     let reference = reference(&text.height.meaning, declared)?;
     let height = length(&text.height.value);
     let base = fonts.base().metrics();
@@ -326,39 +382,49 @@ pub fn place_formatted<P>(
         missing: 0,
         substituted: 0,
         skipped: Vec::new(),
+        stacks: Vec::new(),
     };
     let mut tokens = Vec::new();
     for (index, span) in text.spans.iter().enumerate() {
+        let font = || match &span.format.font {
+            Some(wanted) => fonts.font(wanted).ok_or(()),
+            None => Ok(fonts.base()),
+        };
         match &span.piece {
             Piece::Text(content) => {
-                let font = match &span.format.font {
-                    Some(wanted) => fonts.font(wanted).unwrap_or_else(|| {
-                        out.substituted += 1;
-                        fonts.base()
-                    }),
-                    None => fonts.base(),
-                };
+                let font = font().unwrap_or_else(|()| {
+                    out.substituted += 1;
+                    fonts.base()
+                });
                 let run = SpanRun::new(&span.format, font, reference, height)?;
                 let mut previous = None;
                 for ch in content.chars() {
-                    let glyph = font.glyph(ch).unwrap_or_else(|| {
-                        out.missing += 1;
-                        font.fallback()
-                    });
-                    let kern = previous.map_or(0.0, |left| font.kerning(left, ch) * run.sx);
+                    let item = if vertical {
+                        run.upright(index, ch, font, &mut out.missing)
+                    } else {
+                        run.item(index, ch, previous, font, &mut out.missing)
+                    };
                     previous = Some(ch);
-                    tokens.push(Some(Item {
-                        span: index,
-                        ch,
-                        advance: glyph.advance * run.sx * run.tracking,
-                        kern,
-                        space: ch.is_whitespace(),
-                        run,
-                    }));
+                    tokens.push(Some(item));
                 }
             }
             // 段組みは移さない（決定 0109）ので、段の区切りは段落の区切りとして置く
             Piece::Paragraph | Piece::Column => tokens.push(None),
+            // 縦書きの上下に重ねた文字は、向きの規則を決めていないので置かない
+            Piece::Stack { upper, lower, kind } if !vertical => {
+                let font = font().unwrap_or_else(|()| {
+                    out.substituted += 1;
+                    fonts.base()
+                });
+                let run = SpanRun::new(&span.format, font, reference, height)?;
+                tokens.push(Some(run.stack(
+                    index,
+                    [upper.as_str(), lower.as_str()],
+                    *kind,
+                    font,
+                    &mut out.missing,
+                )));
+            }
             Piece::Measurement | Piece::Below | Piece::Stack { .. } | Piece::Unparsed(_) => {
                 out.skipped.push(index);
             }
@@ -366,30 +432,89 @@ pub fn place_formatted<P>(
     }
 
     let lines = wrap(tokens, limit);
+    let frame = Frame {
+        point: xy(&text.point),
+        sin,
+        cos,
+    };
+    if vertical {
+        columns(text, &lines, &base, base_scale, limit, &frame, &mut out);
+    } else {
+        rows(text, &lines, &base, base_scale, limit, &frame, &mut out);
+    }
+    Ok(out)
+}
+
+/// 置く点と向き。枠の座標（右・上を正）を図面の座標へ写す
+struct Frame {
+    point: [f64; 2],
+    sin: f64,
+    cos: f64,
+}
+
+impl Frame {
+    fn map(&self, [x, y]: [f64; 2]) -> [f64; 2] {
+        [
+            self.point[0] + self.cos * x - self.sin * y,
+            self.point[1] + self.sin * x + self.cos * y,
+        ]
+    }
+
+    /// 字形の基準線の始まりを枠の座標 `at` に置き、倍率 `sx`・`sy` と斜体を当てる変換
+    fn glyph(&self, at: [f64; 2], sx: f64, sy: f64, shear: f64) -> [f64; 6] {
+        let [e, f] = self.map(at);
+        let (sin, cos) = (self.sin, self.cos);
+        [
+            cos * sx,
+            sin * sx,
+            cos * sy * shear - sin * sy,
+            sin * sy * shear + cos * sy,
+            e,
+            f,
+        ]
+    }
+}
+
+/// 行の送りの増分。2 行目からは、文字の高さ（固定でなければ行でいちばん高い字の高さ）の行送り
+fn pitch(text: &FormattedText<impl Sized>, height: f64, line: &[Item]) -> f64 {
+    let spacing = text.line_spacing.factor;
+    if text.line_spacing.exact {
+        LINE_PITCH * spacing * height
+    } else {
+        let tallest = line
+            .iter()
+            .map(|item| item.run.height)
+            .fold(height, f64::max);
+        LINE_PITCH * spacing * tallest
+    }
+}
+
+/// 横書きの行を置く（決定 0181）
+fn rows<P>(
+    text: &FormattedText<P>,
+    lines: &[Vec<Item>],
+    base: &FontMetrics,
+    base_scale: f64,
+    limit: Option<f64>,
+    frame: &Frame,
+    out: &mut LaidFormatted,
+) {
+    let height = length(&text.height.value);
     let base_cap = base.cap_height * base_scale;
     let base_descent = base.descent * base_scale;
     let mut depth = 0.0;
     let mut descent = base_descent;
     let mut boxes = Vec::new();
     for (number, line) in lines.iter().enumerate() {
-        let cap = line
-            .iter()
-            .map(|item| item.run.cap)
-            .fold(base_cap, f64::max);
-        let tallest = line
-            .iter()
-            .map(|item| item.run.height)
-            .fold(height, f64::max);
+        let cap = line.iter().map(|item| item.rise).fold(base_cap, f64::max);
         descent = line
             .iter()
-            .map(|item| item.run.descent)
+            .map(|item| item.drop)
             .fold(base_descent, f64::max);
         depth += if number == 0 {
             cap
-        } else if text.line_spacing.exact {
-            LINE_PITCH * spacing * height
         } else {
-            LINE_PITCH * spacing * tallest
+            pitch(text, height, line)
         };
         let width = extent(
             line.iter().rev().skip_while(|item| item.space).count(),
@@ -397,24 +522,23 @@ pub fn place_formatted<P>(
         );
         boxes.push((depth, cap, width));
     }
-    let frame = limit.unwrap_or_else(|| boxes.iter().map(|b| b.2).fold(0.0, f64::max));
+    let width = limit.unwrap_or_else(|| boxes.iter().map(|b| b.2).fold(0.0, f64::max));
     let total = depth + descent;
     let left = match text.horizontal {
         Horizontal::Left => 0.0,
-        Horizontal::Center | Horizontal::Middle => -frame / 2.0,
-        Horizontal::Right => -frame,
+        Horizontal::Center | Horizontal::Middle => -width / 2.0,
+        Horizontal::Right => -width,
     };
     let top = match text.vertical {
         Vertical::Top => 0.0,
         Vertical::Middle => total / 2.0,
         Vertical::Bottom | Vertical::Baseline => total,
     };
-    let [px, py] = xy(&text.point);
-    for (line, (depth, cap, width)) in lines.iter().zip(boxes) {
+    for (line, (depth, cap, line_width)) in lines.iter().zip(boxes) {
         let offset = match text.horizontal {
             Horizontal::Left => 0.0,
-            Horizontal::Center | Horizontal::Middle => (frame - width) / 2.0,
-            Horizontal::Right => frame - width,
+            Horizontal::Center | Horizontal::Middle => (width - line_width) / 2.0,
+            Horizontal::Right => width - line_width,
         };
         let start = out.glyphs.len();
         let mut pen = 0.0;
@@ -424,35 +548,136 @@ pub fn place_formatted<P>(
             }
             let run = &item.run;
             let shift = match run.align {
-                Vertical::Middle => (cap - run.cap) / 2.0,
-                Vertical::Top => cap - run.cap,
+                Vertical::Middle => (cap - item.rise) / 2.0,
+                Vertical::Top => cap - item.rise,
                 Vertical::Baseline | Vertical::Bottom => 0.0,
             };
             let x = left + offset + pen;
             let y = top - depth + shift;
-            out.glyphs.push(PlacedGlyph {
-                span: item.span,
-                ch: item.ch,
-                transform: [
-                    cos * run.sx,
-                    sin * run.sx,
-                    cos * run.sy * run.shear - sin * run.sy,
-                    sin * run.sy * run.shear + cos * run.sy,
-                    px + cos * x - sin * y,
-                    py + sin * x + cos * y,
-                ],
-            });
+            match &item.content {
+                Content::Char { ch, .. } => out.glyphs.push(PlacedGlyph {
+                    span: item.span,
+                    ch: *ch,
+                    transform: frame.glyph([x, y], run.sx, run.sy, run.shear),
+                    substituted: false,
+                }),
+                Content::Stack(stack) => {
+                    for &(ch, [gx, gy]) in &stack.glyphs {
+                        out.glyphs.push(PlacedGlyph {
+                            span: item.span,
+                            ch,
+                            transform: frame.glyph(
+                                [x + gx, y + gy],
+                                run.sx * STACK_SCALE,
+                                run.sy * STACK_SCALE,
+                                run.shear,
+                            ),
+                            substituted: false,
+                        });
+                    }
+                    out.stacks.push(PlacedStack {
+                        span: item.span,
+                        line: stack
+                            .line
+                            .map(|ends| ends.map(|[lx, ly]| frame.map([x + lx, y + ly]))),
+                    });
+                }
+            }
             pen += item.advance;
         }
         out.lines.push(LineBox {
             glyphs: [start, out.glyphs.len()],
             baseline: depth,
             offset,
-            width,
+            width: line_width,
         });
     }
-    out.size = [frame, total];
-    Ok(out)
+    out.size = [width, total];
+}
+
+/// 縦書きの列を置く（決定 0187）。列は上から下へ書き進め、右から左へ並べる
+fn columns<P>(
+    text: &FormattedText<P>,
+    lines: &[Vec<Item>],
+    base: &FontMetrics,
+    base_scale: f64,
+    limit: Option<f64>,
+    frame: &Frame,
+    out: &mut LaidFormatted,
+) {
+    let height = length(&text.height.value);
+    let base_em = base.units_per_em * base_scale;
+    let mut center = 0.0;
+    let mut half = base_em / 2.0;
+    let mut boxes = Vec::new();
+    for (number, line) in lines.iter().enumerate() {
+        // 列の太さは、列でいちばん幅の広い em
+        let thick = line.iter().map(|item| item.run.em).fold(base_em, f64::max);
+        half = thick / 2.0;
+        center += if number == 0 {
+            half
+        } else {
+            pitch(text, height, line)
+        };
+        let length = extent(
+            line.iter().rev().skip_while(|item| item.space).count(),
+            line,
+        );
+        boxes.push((center, length));
+    }
+    let total = center + half;
+    let span = limit.unwrap_or_else(|| boxes.iter().map(|b| b.1).fold(0.0, f64::max));
+    let left = match text.horizontal {
+        Horizontal::Left => 0.0,
+        Horizontal::Center | Horizontal::Middle => -total / 2.0,
+        Horizontal::Right => -total,
+    };
+    let top = match text.vertical {
+        Vertical::Top => 0.0,
+        Vertical::Middle => span / 2.0,
+        Vertical::Bottom | Vertical::Baseline => span,
+    };
+    for (line, (center, length)) in lines.iter().zip(boxes) {
+        let offset = match text.vertical {
+            Vertical::Top => 0.0,
+            Vertical::Middle => (span - length) / 2.0,
+            Vertical::Bottom | Vertical::Baseline => span - length,
+        };
+        let x = left + total - center;
+        let start = out.glyphs.len();
+        let mut pen = 0.0;
+        for item in line {
+            let run = &item.run;
+            if let Content::Char {
+                ch,
+                center,
+                top: rise,
+                substituted,
+            } = item.content
+            {
+                // 縦の原点（横の送りの半分, 縦の原点の高さ）を、列の中心線の送りの位置に合わせる
+                out.glyphs.push(PlacedGlyph {
+                    span: item.span,
+                    ch,
+                    transform: frame.glyph(
+                        [x - center, top - offset - pen - rise],
+                        run.sx,
+                        run.sy,
+                        run.shear,
+                    ),
+                    substituted,
+                });
+            }
+            pen += item.advance;
+        }
+        out.lines.push(LineBox {
+            glyphs: [start, out.glyphs.len()],
+            baseline: center,
+            offset,
+            width: length,
+        });
+    }
+    out.size = [total, span];
 }
 
 /// 区間の書式を当てた、字形の単位から図面の長さへの倍率と、行を決める寸法
@@ -468,6 +693,8 @@ struct SpanRun {
     cap: f64,
     /// ディセンダー（図面の長さ）
     descent: f64,
+    /// em の横の長さ（図面の長さ）。縦書きの列の太さに使う
+    em: f64,
     align: Vertical,
 }
 
@@ -510,21 +737,193 @@ impl SpanRun {
             height,
             cap: metrics.cap_height * sy,
             descent: metrics.descent * sy,
+            em: metrics.units_per_em * sy * width,
             align: format.align.unwrap_or(Vertical::Baseline),
         })
     }
+
+    /// 横書きの 1 文字
+    fn item(
+        self,
+        span: usize,
+        ch: char,
+        previous: Option<char>,
+        font: &dyn Glyphs,
+        missing: &mut usize,
+    ) -> Item {
+        let glyph = font.glyph(ch).unwrap_or_else(|| {
+            *missing += 1;
+            font.fallback()
+        });
+        Item {
+            span,
+            content: Content::Char {
+                ch,
+                center: 0.0,
+                top: 0.0,
+                substituted: false,
+            },
+            advance: glyph.advance * self.sx * self.tracking,
+            kern: previous.map_or(0.0, |left| font.kerning(left, ch) * self.sx),
+            space: ch.is_whitespace(),
+            rise: self.cap,
+            drop: self.descent,
+            run: self,
+        }
+    }
+
+    /// 縦書きの 1 文字。縦書きでは詰めない（`vkrn` を読まない）
+    fn upright(self, span: usize, ch: char, font: &dyn Glyphs, missing: &mut usize) -> Item {
+        let glyph = font.vertical(ch).unwrap_or_else(|| {
+            *missing += 1;
+            font.vertical_fallback()
+        });
+        Item {
+            span,
+            content: Content::Char {
+                ch,
+                center: glyph.glyph.advance / 2.0 * self.sx,
+                top: glyph.top * self.sy,
+                substituted: glyph.substituted,
+            },
+            advance: glyph.advance * self.sy * self.tracking,
+            kern: 0.0,
+            space: ch.is_whitespace(),
+            rise: self.cap,
+            drop: self.descent,
+            run: self,
+        }
+    }
+
+    /// 上下に重ねた文字（推定）。上下の段は区間の大きさの [`STACK_SCALE`] 倍で置く。
+    /// 横線と公差は、上下の段を区間の大文字の高さの半分の線から [`STACK_GAP`] だけ離して上下に置き、
+    /// 横線は短い段を中央に揃えて段の幅の線を引き、公差は左に揃えて線を引かない。斜線は上の段の上を
+    /// 大文字の高さに、下の段を基準線に置き、間に斜線を引く
+    fn stack(
+        self,
+        span: usize,
+        [upper, lower]: [&str; 2],
+        kind: StackKind,
+        font: &dyn Glyphs,
+        missing: &mut usize,
+    ) -> Item {
+        let sx = self.sx * STACK_SCALE;
+        let part = |content: &str, missing: &mut usize| {
+            let mut pen = 0.0;
+            let mut glyphs = Vec::new();
+            let mut previous = None;
+            for ch in content.chars() {
+                if let Some(left) = previous {
+                    pen += font.kerning(left, ch) * sx;
+                }
+                previous = Some(ch);
+                glyphs.push((ch, pen));
+                let glyph = font.glyph(ch).unwrap_or_else(|| {
+                    *missing += 1;
+                    font.fallback()
+                });
+                pen += glyph.advance * sx * self.tracking;
+            }
+            (glyphs, pen)
+        };
+        let (top, top_width) = part(upper, missing);
+        let (bottom, bottom_width) = part(lower, missing);
+        let cap = self.cap;
+        let part_cap = cap * STACK_SCALE;
+        let part_descent = self.descent * STACK_SCALE;
+        let (width, [top_x, bottom_x], [top_y, bottom_y], line) = match kind {
+            StackKind::Horizontal | StackKind::Tolerance => {
+                let width = top_width.max(bottom_width);
+                let axis = cap / 2.0;
+                let gap = cap * STACK_GAP;
+                let (xs, line) = if kind == StackKind::Horizontal {
+                    let xs = [(width - top_width) / 2.0, (width - bottom_width) / 2.0];
+                    (xs, Some([[0.0, axis], [width, axis]]))
+                } else {
+                    ([0.0, 0.0], None)
+                };
+                (width, xs, [axis + gap, axis - gap - part_cap], line)
+            }
+            StackKind::Diagonal => {
+                let slant = cap * STACK_SLANT;
+                let line = [[top_width, 0.0], [top_width + slant, cap]];
+                let width = top_width + slant + bottom_width;
+                (
+                    width,
+                    [0.0, top_width + slant],
+                    [cap - part_cap, 0.0],
+                    Some(line),
+                )
+            }
+        };
+        let glyphs = top
+            .into_iter()
+            .map(|(ch, x)| (ch, [top_x + x, top_y]))
+            .chain(
+                bottom
+                    .into_iter()
+                    .map(|(ch, x)| (ch, [bottom_x + x, bottom_y])),
+            )
+            .collect();
+        Item {
+            span,
+            content: Content::Stack(Box::new(Stack { glyphs, line })),
+            advance: width,
+            kern: 0.0,
+            space: false,
+            rise: (top_y + part_cap).max(cap),
+            drop: (part_descent - bottom_y).max(self.descent),
+            run: self,
+        }
+    }
 }
 
-/// 並べる 1 文字。送りと詰めは図面の長さ
-#[derive(Clone, Copy, Debug)]
+/// 並べる 1 文字か、上下に重ねた文字。送りと詰めは図面の長さ
+#[derive(Clone, Debug)]
 struct Item {
     span: usize,
-    ch: char,
+    content: Content,
+    /// 送り。縦書きでは縦の送り
     advance: f64,
     /// 前の文字との間に足す送り。行の始まりでは使わない
     kern: f64,
     space: bool,
+    /// 基準線から上の高さ。行でいちばん高いものを、行の大文字の高さにする
+    rise: f64,
+    /// 基準線から下の深さ。最後の行でいちばん深いものを、内容の下にする
+    drop: f64,
     run: SpanRun,
+}
+
+/// 並べるものの中身
+#[derive(Clone, Debug)]
+enum Content {
+    /// 1 文字。縦書きでは、縦の原点の横の位置（`center`）と高さ（`top`）を図面の長さで持つ
+    Char {
+        ch: char,
+        center: f64,
+        top: f64,
+        substituted: bool,
+    },
+    /// 上下に重ねた文字
+    Stack(Box<Stack>),
+}
+
+/// 上下に重ねた文字の字形と線。位置は、重ねた文字の送りの始まりと基準線を原点にした図面の長さ
+#[derive(Clone, Debug)]
+struct Stack {
+    glyphs: Vec<(char, [f64; 2])>,
+    line: Option<[[f64; 2]; 2]>,
+}
+
+impl Item {
+    /// 禁則の判断に使う文字。上下に重ねた文字は、英数字と同じく扱う
+    fn ch(&self) -> char {
+        match self.content {
+            Content::Char { ch, .. } => ch,
+            Content::Stack(_) => '0',
+        }
+    }
 }
 
 /// 行の始まりから `count` 文字の幅
@@ -543,7 +942,8 @@ fn extent(count: usize, line: &[Item]) -> f64 {
 }
 
 /// 文字を行に分ける。`None` は段落の区切り。`limit` があれば、その幅を超える前で折り返す。折り返す所は、
-/// 空白の後と、全角の文字の前後に限り、なければ文字の間で切る。空白は行の終わりにぶら下げる
+/// 空白の後と、全角の文字の前後に限り、禁則（[`breakable`]）を守る。なければ文字の間で切る。
+/// 空白は行の終わりにぶら下げる
 fn wrap(tokens: Vec<Option<Item>>, limit: Option<f64>) -> Vec<Vec<Item>> {
     let mut lines: Vec<Vec<Item>> = vec![Vec::new()];
     for token in tokens {
@@ -579,9 +979,52 @@ fn wrap(tokens: Vec<Option<Item>>, limit: Option<f64>) -> Vec<Vec<Item>> {
     lines
 }
 
-/// 2 文字の間で折り返せるか
+/// 2 文字の間で折り返せるか。行の始まりに置かない文字の前と、行の終わりに置かない文字の後では
+/// 折り返さない（禁則、決定 0187）
 fn breakable(before: &Item, after: &Item) -> bool {
-    !after.space && (before.space || wide(before.ch) || wide(after.ch))
+    let (left, right) = (before.ch(), after.ch());
+    !after.space && (before.space || wide(left) || wide(right)) && !no_start(right) && !no_end(left)
+}
+
+/// 行の始まりに置かない文字（禁則、決定 0187）。閉じ括弧（Unicode の一般カテゴリ Pe）と、
+/// 句読点・感嘆符・疑問符・コロン・セミコロン。全角形・半角形は、互換分解の先の文字に従う
+fn no_start(ch: char) -> bool {
+    match narrow(ch) {
+        ')' | ']' | '}' | '!' | ',' | '.' | ':' | ';' | '?' => true,
+        // 読点・句点
+        '\u{3001}' | '\u{3002}' => true,
+        // 〈〉《》「」『』【】と〔〕〖〗〘〙〚〛は、開きと閉じが交互に並び、奇数が閉じ
+        ch @ ('\u{3008}'..='\u{3011}' | '\u{3014}'..='\u{301B}') => u32::from(ch) % 2 == 1,
+        // 〞〟は閉じ、白の二重括弧の閉じ
+        '\u{301E}' | '\u{301F}' | '\u{FF60}' => true,
+        _ => false,
+    }
+}
+
+/// 行の終わりに置かない文字（禁則、決定 0187）。開き括弧（Unicode の一般カテゴリ Ps）。
+/// 全角形・半角形は、互換分解の先の文字に従う
+fn no_end(ch: char) -> bool {
+    match narrow(ch) {
+        '(' | '[' | '{' => true,
+        ch @ ('\u{3008}'..='\u{3011}' | '\u{3014}'..='\u{301B}') => u32::from(ch) % 2 == 0,
+        '\u{301D}' | '\u{FF5F}' => true,
+        _ => false,
+    }
+}
+
+/// 全角形（U+FF01〜U+FF5E）を ASCII に、半角の句読点と鉤括弧（U+FF61〜U+FF64）を全角に戻す
+/// （Unicode の互換分解の <wide>・<narrow> の対応）
+fn narrow(ch: char) -> char {
+    let code = u32::from(ch);
+    let mapped = match code {
+        0xFF01..=0xFF5E => code - 0xFEE0,
+        0xFF61 => 0x3002,
+        0xFF62 => 0x300C,
+        0xFF63 => 0x300D,
+        0xFF64 => 0x3001,
+        _ => code,
+    };
+    char::from_u32(mapped).unwrap_or(ch)
 }
 
 /// 全角の文字（漢字・かな・ハングル・全角形など）か
@@ -1187,37 +1630,42 @@ mod tests {
         assert_eq!(laid.substituted, 1);
     }
 
+    fn stack(upper: &str, lower: &str, kind: StackKind) -> Span {
+        span(Piece::Stack {
+            upper: upper.to_owned(),
+            lower: lower.to_owned(),
+            kind,
+        })
+    }
+
     #[test]
     fn formatted_skips_and_refuses() {
         let text = formatted(
             vec![
                 words("A"),
-                span(Piece::Stack {
-                    upper: "1".to_owned(),
-                    lower: "2".to_owned(),
-                    kind: StackKind::Horizontal,
-                }),
+                stack("1", "2", StackKind::Horizontal),
                 span(Piece::Unparsed("\\pxqc;".to_owned())),
                 span(Piece::Measurement),
             ],
             None,
         );
         let laid = flowed(&text);
-        assert_eq!(laid.skipped, vec![1, 2, 3]);
-        assert_eq!(laid.glyphs.len(), 1);
+        assert_eq!(laid.skipped, vec![2, 3]);
+        // 「1」「2」はフォントになく、代わりの字形で置く
+        assert_eq!(laid.glyphs.len(), 3);
+        assert_eq!(laid.missing, 2);
 
+        // 縦書きでは、上下に重ねた文字を置かない
         let mut vertical = text.clone();
         vertical.flow = Flow::TopToBottom;
-        assert_eq!(
-            place_formatted(&vertical, |p| *p, &HORIZONTAL, |_| None),
-            Err(Unplaced::Vertical)
-        );
+        let laid = place_formatted(&vertical, |p| *p, &HORIZONTAL, |_| None).unwrap();
+        assert_eq!(laid.skipped, vec![1, 2, 3]);
+        assert!(laid.stacks.is_empty());
         vertical.flow = Flow::ByStyle;
-        assert_eq!(
-            place_formatted(&vertical, |p| *p, &Set { vertical: true }, |_| None),
-            Err(Unplaced::Vertical)
-        );
-        assert!(place_formatted(&vertical, |p| *p, &HORIZONTAL, |_| None).is_ok());
+        let by_style = place_formatted(&vertical, |p| *p, &Set { vertical: true }, |_| None);
+        assert_eq!(by_style.unwrap().skipped, vec![1, 2, 3]);
+        let by_style = place_formatted(&vertical, |p| *p, &HORIZONTAL, |_| None);
+        assert_eq!(by_style.unwrap().skipped, vec![2, 3]);
 
         let mut degenerate = text;
         degenerate.line_spacing.factor = 0.0;
@@ -1248,5 +1696,186 @@ mod tests {
         assert_eq!(decoded.text, "%%uA\u{B0}");
         assert!(decoded.underline.is_empty());
         assert_eq!(decoded.unknown, 1);
+    }
+
+    /// 縦書きの寸法を持つ合成のフォント。「（」は縦書き用の字形に置き換え、縦の送り 1000・原点の高さ 880。
+    /// ほかの文字は合成のフォントの既定（縦の送り 1000、原点の高さ 800）
+    struct Upright;
+
+    impl Glyphs for Upright {
+        fn metrics(&self) -> FontMetrics {
+            Synthetic.metrics()
+        }
+
+        fn glyph(&self, ch: char) -> Option<Glyph> {
+            match ch {
+                '（' => Some(Glyph {
+                    advance: 1000.0,
+                    bounds: Some([600.0, -100.0, 900.0, 800.0]),
+                }),
+                _ => Synthetic.glyph(ch),
+            }
+        }
+
+        fn fallback(&self) -> Glyph {
+            Synthetic.fallback()
+        }
+
+        fn vertical(&self, ch: char) -> Option<VerticalGlyph> {
+            if ch == '（' {
+                return Some(VerticalGlyph {
+                    glyph: Glyph {
+                        advance: 1000.0,
+                        bounds: Some([100.0, 0.0, 900.0, 300.0]),
+                    },
+                    advance: 1000.0,
+                    top: 880.0,
+                    substituted: true,
+                });
+            }
+            self.glyph(ch)
+                .map(|glyph| VerticalGlyph::upright(glyph, &self.metrics()))
+        }
+    }
+
+    struct UprightSet;
+
+    impl Fonts for UprightSet {
+        fn base(&self) -> &dyn Glyphs {
+            &Upright
+        }
+
+        fn font(&self, _: &Font) -> Option<&dyn Glyphs> {
+            None
+        }
+
+        fn vertical(&self) -> bool {
+            true
+        }
+    }
+
+    fn columned(text: &FormattedText<[f64; 2]>) -> LaidFormatted {
+        let mut text = text.clone();
+        text.flow = Flow::ByStyle;
+        place_formatted(&text, |p| *p, &UprightSet, |_| None).unwrap()
+    }
+
+    #[test]
+    fn vertical_columns_run_down_and_to_the_left() {
+        let laid = columned(&formatted(
+            vec![words("A（"), span(Piece::Paragraph), words("A")],
+            None,
+        ));
+        assert_eq!(line_texts(&laid), ["A（", "A"]);
+        // 列の太さは em の 10。1 列目の中心は右から 5、2 列目は行送り 35/3 だけ左
+        let pitch = 7.0 * 5.0 / 3.0;
+        let total = 10.0 + pitch;
+        assert_near(laid.size, [total, 20.0]);
+        assert_near(
+            [laid.lines[0].baseline, laid.lines[1].baseline],
+            [5.0, 5.0 + pitch],
+        );
+        assert_near([laid.lines[0].width, laid.lines[1].width], [20.0, 10.0]);
+        // A は送りの半分 3 だけ中心から左、原点の高さ 8 だけ送りの始まりから下
+        assert_near(origin(&laid.glyphs[0]), [total - 5.0 - 3.0, -8.0]);
+        // 「（」は縦書き用の字形に置き換え、送りの半分 5、原点の高さ 8.8
+        assert!(laid.glyphs[1].substituted && !laid.glyphs[0].substituted);
+        assert_near(origin(&laid.glyphs[1]), [total - 10.0, -10.0 - 8.8]);
+        assert_near(origin(&laid.glyphs[2]), [total - 5.0 - pitch - 3.0, -8.0]);
+
+        // 右下を置く点に合わせ、短い列は下に揃える
+        let mut text = formatted(vec![words("AA"), span(Piece::Paragraph), words("A")], None);
+        text.horizontal = Horizontal::Right;
+        text.vertical = Vertical::Bottom;
+        let laid = columned(&text);
+        assert_near([laid.lines[1].offset, 0.0], [10.0, 0.0]);
+        assert_near(origin(&laid.glyphs[0]), [-8.0, 20.0 - 8.0]);
+        assert_near(origin(&laid.glyphs[2]), [-5.0 - pitch - 3.0, 10.0 - 8.0]);
+    }
+
+    #[test]
+    fn vertical_columns_wrap_at_the_frame() {
+        // 枠の幅は列の長さに当てる。送り 10 の文字を 25 で折る
+        let laid = columned(&formatted(vec![words("AAA")], Some(25.0)));
+        assert_eq!(line_texts(&laid), ["AA", "A"]);
+        assert_near(laid.size, [10.0 + 7.0 * 5.0 / 3.0, 25.0]);
+        // 横書きの向きと同じく、回す
+        let mut text = formatted(vec![words("A")], None);
+        text.rotation = Rotation::Angle(90.0);
+        let laid = columned(&text);
+        assert_near(origin(&laid.glyphs[0]), [8.0, 2.0]);
+    }
+
+    #[test]
+    fn stacks_fractions_and_tolerances() {
+        // 上下の段は 0.7 倍。A の幅は 4.2。横線は大文字の高さの半分 3.5 にあり、段は 0.7 だけ離れる
+        let laid = flowed(&formatted(
+            vec![words("A"), stack("A", "AA", StackKind::Horizontal)],
+            None,
+        ));
+        assert_eq!(line_texts(&laid), ["AAAA"]);
+        assert!(laid.skipped.is_empty());
+        // 上の段の上 9.1 が行の大文字の高さになり、下の段の下 2.1 + 1.4 が内容の下になる
+        assert_near([laid.lines[0].baseline, laid.size[1]], [9.1, 9.1 + 3.5]);
+        assert_near(laid.size, [6.0 + 8.4, 12.6]);
+        let scale = laid.glyphs[1].transform;
+        assert_near([scale[0], scale[3]], [0.007, 0.007]);
+        // 短い上の段は中央に揃う
+        assert_near(origin(&laid.glyphs[1]), [8.1, -9.1 + 4.2]);
+        assert_near(origin(&laid.glyphs[2]), [6.0, -9.1 - 2.1]);
+        assert_near(origin(&laid.glyphs[3]), [10.2, -9.1 - 2.1]);
+        assert_eq!(laid.stacks.len(), 1);
+        assert_eq!(laid.stacks[0].span, 1);
+        let [start, end] = laid.stacks[0].line.unwrap();
+        assert_near(start, [6.0, -5.6]);
+        assert_near(end, [14.4, -5.6]);
+
+        // 公差は左に揃え、線を引かない
+        let laid = flowed(&formatted(
+            vec![stack("A", "AA", StackKind::Tolerance)],
+            None,
+        ));
+        assert_near(origin(&laid.glyphs[0]), [0.0, -9.1 + 4.2]);
+        assert_eq!(laid.stacks[0].line, None);
+
+        // 斜線は、上の段の上を大文字の高さに、下の段を基準線に置き、間に幅 3.5 の線を引く
+        let laid = flowed(&formatted(vec![stack("A", "A", StackKind::Diagonal)], None));
+        assert_near(laid.size, [4.2 + 3.5 + 4.2, 7.0 + 2.0]);
+        assert_near(origin(&laid.glyphs[0]), [0.0, -7.0 + 2.1]);
+        assert_near(origin(&laid.glyphs[1]), [7.7, -7.0]);
+        let [start, end] = laid.stacks[0].line.unwrap();
+        assert_near(start, [4.2, -7.0]);
+        assert_near(end, [7.7, 0.0]);
+    }
+
+    #[test]
+    fn line_breaks_keep_kinsoku() {
+        // フォントにない文字は幅 10。閉じ括弧・句点は行の始まりに、開き括弧は行の終わりに置かない
+        for (content, expected) in [
+            ("字字」", ["字", "字」"]),
+            ("字字。", ["字", "字。"]),
+            ("字字！", ["字", "字！"]),
+            ("字字｡", ["字", "字｡"]),
+            ("字「字", ["字", "「字"]),
+            ("字（字", ["字", "（字"]),
+        ] {
+            let laid = flowed(&formatted(vec![words(content)], Some(25.0)));
+            assert_eq!(line_texts(&laid), expected, "{content}");
+        }
+        // 折り返す所がなければ、文字の間で切る
+        let laid = flowed(&formatted(vec![words("字」」")], Some(25.0)));
+        assert_eq!(line_texts(&laid), ["字」", "」"]);
+
+        for ch in [
+            '）', '〕', '』', '】', '〉', '》', ')', ',', '、', '?', '〟',
+        ] {
+            assert!(no_start(ch) && !no_end(ch), "{ch}");
+        }
+        for ch in ['（', '〔', '『', '【', '〈', '《', '(', '［', '｢', '〝'] {
+            assert!(no_end(ch) && !no_start(ch), "{ch}");
+        }
+        for ch in ['字', 'A', 'ー', 'ぁ', '・', '〜'] {
+            assert!(!no_start(ch) && !no_end(ch), "{ch}");
+        }
     }
 }
