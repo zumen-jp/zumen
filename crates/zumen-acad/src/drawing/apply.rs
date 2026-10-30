@@ -3103,3 +3103,120 @@ mod definition_id_tests {
         assert_eq!(index.elements.len(), 2);
     }
 }
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken};
+    use zumen_drawing::{ModelSpace, Sheet, SymbolDefinition, SymbolKey, Unit};
+
+    fn line<P: Copy>(start: P, end: P, source: Ref) -> Element<P> {
+        Element {
+            source,
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Line { start, end },
+        }
+    }
+
+    /// 書き戻しの索引は、形式固有の情報の付く先と同じ ID を要素に振る（決定 0156）
+    #[test]
+    fn index_names_elements_like_the_drawing_model() {
+        let at = |space, x| ModelPoint { space, x, y: 0.0 };
+        let on = |x| PaperPoint {
+            sheet: SheetId(1),
+            x,
+            y: 0.0,
+        };
+        let keyed = |record, handle| Ref::at_record(record).with_key(Key::Handle(handle));
+        let space = |id, elements| ModelSpace {
+            id,
+            unit: Unit::Millimeter,
+            elements,
+            order: Vec::new(),
+        };
+        let symbol = |name: &str, id, elements, source| SymbolDefinition {
+            key: SymbolKey {
+                namespace: "dxf.block",
+                name: name.to_owned(),
+            },
+            space: space(id, elements),
+            base: None,
+            attributes: Vec::new(),
+            anonymous: false,
+            external: None,
+            source,
+        };
+        let model = vec![
+            line(at(MODEL, 0.0), at(MODEL, 1.0), keyed(3, 0x2F)),
+            line(at(MODEL, 1.0), at(MODEL, 2.0), keyed(4, 0x2F)),
+            line(at(MODEL, 2.0), at(MODEL, 3.0), Ref::at_record(5)),
+            line(at(MODEL, 3.0), at(MODEL, 4.0), Ref::default()),
+        ];
+        let door = SpaceId(2);
+        let window = SpaceId(3);
+        let drawing = Drawing2D {
+            spaces: vec![space(MODEL, model)],
+            symbols: vec![
+                symbol(
+                    "DOOR",
+                    door,
+                    vec![line(at(door, 0.0), at(door, 1.0), keyed(8, 0x40))],
+                    keyed(7, 0x1F),
+                ),
+                symbol(
+                    "WINDOW",
+                    window,
+                    vec![line(at(window, 0.0), at(window, 1.0), Ref::at_record(10))],
+                    keyed(9, 0x1F),
+                ),
+            ],
+            sheets: vec![Sheet {
+                id: SheetId(1),
+                name: None,
+                size: None,
+                elements: vec![line(on(0.0), on(1.0), keyed(12, 0x50))],
+                views: Vec::new(),
+                order: Vec::new(),
+                source: keyed(11, 0x22),
+            }],
+            ..Drawing2D::default()
+        };
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let index = Index::new(&drawing, &mut cx).unwrap();
+        let mut named = Vec::new();
+        let _ = id::each_element(&drawing, |_, id, found| {
+            named.push((id, found.hash()));
+            Ok::<(), ()>(())
+        });
+        let indexed: Vec<_> = index
+            .elements
+            .iter()
+            .map(|(id, found)| {
+                let hash = match found {
+                    Found::Model(element) => Hash::element(element),
+                    Found::Paper(element) => Hash::element(element),
+                };
+                (id.clone(), hash)
+            })
+            .collect();
+        named.sort();
+        assert_eq!(indexed, named);
+        let ids: Vec<_> = named.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "sheet/h22/h50",
+                "space/0/e3",
+                "space/0/h2F",
+                "space/0/h2F/1",
+                "space/0/r5",
+                "space/h1F/1/r10",
+                "space/h1F/h40",
+            ]
+        );
+    }
+}

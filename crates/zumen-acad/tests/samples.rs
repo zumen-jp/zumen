@@ -405,6 +405,12 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
         Dxf::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
     };
     support::normalize_extensions(&mut drawing);
+    // 要素の ID は出所から作るので、出所を消す前に控える（決定 0156）
+    let mut ids = Vec::new();
+    let _ = zumen_drawing::id::each_element(&drawing, |_, id, _| {
+        ids.push(id);
+        Ok::<(), ()>(())
+    });
     let nowhere = Ref::at_record(0);
     for space in &mut drawing.spaces {
         space
@@ -434,11 +440,20 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
     for sheet in &mut drawing.sheets {
         sheet.elements.iter_mut().for_each(without_table_formats);
     }
+    // 拡張が持つ要素のハッシュも、書式を除いた要素で求め直す
+    let mut hashes = std::collections::BTreeMap::new();
+    let mut names = ids.into_iter();
+    let _ = zumen_drawing::id::each_element(&drawing, |_, _, element| {
+        if let Some(id) = names.next() {
+            hashes.insert(id, element.hash());
+        }
+        Ok::<(), ()>(())
+    });
     for extension in &mut drawing.extensions {
-        match &mut extension.basis {
-            zumen_drawing::Basis::Model(element) => without_table_formats(element),
-            zumen_drawing::Basis::Paper(element) => without_table_formats(element),
-            _ => {}
+        if let zumen_drawing::Target::Element(id) = &extension.target
+            && let Some(hash) = hashes.get(id)
+        {
+            extension.basis = zumen_drawing::Basis::Hash(*hash);
         }
     }
     // 版の往復の XRECORD は、DWG の画層と DXF の線種の片側だけにあることがあり（決定 0152）、移さずに
@@ -3664,12 +3679,24 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
             .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
             .unwrap();
         let moving = ["position", "displacement", "direction", "distance", "scale"];
+        let mut elements = std::collections::BTreeMap::new();
+        // 実寸の空間の要素だけを探す
+        let _ = zumen_drawing::id::each_element(&drawing, |at, id, element| {
+            if let (
+                zumen_drawing::Position::Model { space, .. },
+                zumen_drawing::id::Found::Model(element),
+            ) = (at, element)
+                && drawing.spaces.iter().any(|s| s.id == space)
+            {
+                elements.insert(id, element);
+            }
+            Ok::<(), ()>(())
+        });
         let found = drawing.extensions.iter().find_map(|extension| {
-            let Target::Model { space, index } = extension.target else {
+            let Target::Element(id) = &extension.target else {
                 return None;
             };
-            let space = drawing.spaces.iter().find(|s| s.id == space)?;
-            let element = space.elements.get(index)?;
+            let element = *elements.get(id)?;
             (extension.namespace == "dxf.xdata"
                 && extension.fields.iter().any(|f| moving.contains(&f.key))
                 && matches!(element.shape, Shape::Text(_)))

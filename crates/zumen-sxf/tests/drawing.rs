@@ -4,8 +4,8 @@ use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Key, Re
 use zumen_drawing::{
     Arrowhead, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge,
     FieldValue, Fill, Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight,
-    ModelLength, ModelPoint, PaperLength, PaperPoint, PatternOrigin, Rotation, Scaled, Shape,
-    SheetItem, SpaceId, SymbolKey, Target, UnderlayFrame, Vertical,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, PatternOrigin, Position, Rotation, Scaled,
+    Shape, SheetItem, SpaceId, SymbolKey, Target, UnderlayFrame, Vertical,
 };
 use zumen_sdk::{Lift, testkit};
 use zumen_sxf::{Sxf, SxfFile};
@@ -316,18 +316,25 @@ fn moves_text_with_its_box() {
     let extension = drawing
         .extensions
         .iter()
-        .find(|e| e.namespace == "sxf.text" && matches!(e.target, Target::Model { .. }))
+        .find(|e| {
+            e.namespace == "sxf.text"
+                && matches!(position(&drawing, &e.target), Some(Position::Model { .. }))
+        })
         .unwrap();
     assert_eq!(
-        extension.target,
-        Target::Model {
+        position(&drawing, &extension.target),
+        Some(Position::Model {
             space: SpaceId(0),
             index: 0
-        }
+        })
     );
     assert_eq!(extension.fields[0].value, FieldValue::Real(30.0));
     assert_eq!(extension.fields[1].value, FieldValue::Real(0.5));
     assert!(extension.is_current(&drawing));
+    // 付く先の文字を変えると失効する
+    let mut edited = drawing.clone();
+    edited.spaces[0].elements[0].layer = zumen_drawing::LayerId(99);
+    assert!(!extension.is_current(&edited));
 
     // 書く向きのない文字は横書き。フォントの定義がなければ、コードを報告する
     let space = &drawing.spaces[0];
@@ -852,8 +859,8 @@ fn keeps_attribute_mechanism_names_on_the_elements() {
     // 属性のグループの 2 本の線（用紙の 2 本目と 3 本目）に付け、グループの外の線には付けない
     let indices: Vec<_> = attributes
         .iter()
-        .map(|e| match e.target {
-            Target::Paper { index, .. } => index,
+        .map(|e| match position(&drawing, &e.target) {
+            Some(Position::Paper { index, .. }) => index,
             _ => panic!("{:?}", e.target),
         })
         .collect();
@@ -897,6 +904,22 @@ fn p21(instances: &str) -> Vec<u8> {
     format!("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n{instances}ENDSEC;\nEND-ISO-10303-21;\n").into_bytes()
 }
 
+/// 要素を指す付く先の、空間か用紙の中の位置
+#[cfg(test)]
+fn position(drawing: &Drawing2D, target: &Target) -> Option<Position> {
+    let Target::Element(wanted) = target else {
+        return None;
+    };
+    let mut found = None;
+    let _ = zumen_drawing::id::each_element(drawing, |at, id, _| {
+        if id == *wanted {
+            found = Some(at);
+        }
+        Ok::<(), ()>(())
+    });
+    found
+}
+
 #[cfg(test)]
 fn unsource<P>(elements: &mut [zumen_drawing::Element<P>]) {
     for element in elements {
@@ -912,6 +935,12 @@ fn unsource<P>(elements: &mut [zumen_drawing::Element<P>]) {
 /// 出どころを除いた図面モデル。SFC と P21 の比較に使う
 #[cfg(test)]
 fn unsourced(mut drawing: Drawing2D) -> Drawing2D {
+    // 要素の ID は出所から作るので、拡張の付く先を位置に控え、出所を除いた後の ID とハッシュで指し直す
+    let mut positions = std::collections::BTreeMap::new();
+    let _ = zumen_drawing::id::each_element(&drawing, |at, id, _| {
+        positions.insert(id, at);
+        Ok::<(), ()>(())
+    });
     for layer in &mut drawing.layers {
         layer.source = Ref::default();
     }
@@ -920,9 +949,6 @@ fn unsourced(mut drawing: Drawing2D) -> Drawing2D {
     }
     for extension in &mut drawing.extensions {
         extension.source = Ref::default();
-        if let zumen_drawing::Basis::Paper(element) = &mut extension.basis {
-            unsource(core::slice::from_mut(element));
-        }
     }
     for sheet in &mut drawing.sheets {
         unsource(&mut sheet.elements);
@@ -936,6 +962,20 @@ fn unsourced(mut drawing: Drawing2D) -> Drawing2D {
     for symbol in &mut drawing.symbols {
         symbol.source = Ref::default();
         unsource(&mut symbol.space.elements);
+    }
+    let mut found = std::collections::BTreeMap::new();
+    let _ = zumen_drawing::id::each_element(&drawing, |at, id, element| {
+        found.insert(at, (id, element.hash()));
+        Ok::<(), ()>(())
+    });
+    for extension in &mut drawing.extensions {
+        let Target::Element(id) = &extension.target else {
+            continue;
+        };
+        if let Some((id, hash)) = positions.get(id).and_then(|at| found.get(at)) {
+            extension.target = Target::Element(id.clone());
+            extension.basis = zumen_drawing::Basis::Hash(*hash);
+        }
     }
     drawing
 }

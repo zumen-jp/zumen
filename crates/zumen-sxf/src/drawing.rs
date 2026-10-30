@@ -7,21 +7,24 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Arrowhead, Basis, Boundary, Branch, Callout, CalloutContent, Color, ColorCode,
-    ColorSystem, Dimension, DimensionKind, DimensionText, Drawing2D, Edge, Element, Extension,
-    Field, FieldValue, Fill, Flow, Font, FontKind, Format, FormattedText, Hatch, HatchLoop, Height,
-    HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Length,
-    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength, ModelPoint,
-    ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Piece, Polyline, Resource, Rotation, Scaled, Shape, Sheet, SheetId, SheetItem,
-    SpaceId, Span, Spline, Style, Symbol, SymbolDefinition, SymbolKey, Target, TitleBlock,
-    TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
+    Affine, Arrowhead, Boundary, Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem,
+    Dimension, DimensionKind, DimensionText, Draft, Drawing2D, Edge, Element, Field, FieldValue,
+    Fill, Flow, Font, FontKind, Format, FormattedText, Hatch, HatchLoop, Height, HeightMeaning,
+    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Length, LineSpacing, LineType,
+    LineTypeDefinition, LineTypeId, LineWeight, ModelLength, ModelPoint, ModelSpace, PaperLength,
+    PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece, Polyline,
+    Position, Resource, Rotation, Scaled, Shape, Sheet, SheetId, SheetItem, SpaceId, Span, Spline,
+    Style, Symbol, SymbolDefinition, SymbolKey, TitleBlock, TitleItem, Underlay, UnderlayFrame,
+    UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
 use crate::{Mode, Quote, SxfFile, Value, p21};
 
 mod apply;
+
+/// 形式固有の情報の値の型の契約の版。どの `sxf.*` の名前空間も同じ版にする（決定 0115・0156・0157）
+const SCHEMA: u32 = 2;
 
 const SHEET: SheetId = SheetId(0);
 
@@ -244,14 +247,14 @@ trait Place {
     fn point(&self, x: f64, y: f64) -> Self::P;
     fn length(&self, value: f64) -> Length;
     fn element(&self, element: Element<Self::P>, out: &mut Out);
-    /// 次に足す要素を指す、拡張の対象と前提
-    fn target(&self, element: &Element<Self::P>, out: &Out) -> (Target, Basis);
+    /// 次に足す要素を指す、拡張の付く先の位置
+    fn target(&self, out: &Out) -> Position;
     /// 用紙なら、部分図を置くビューを足す
     fn view(&self, view: View, out: &mut Out) -> bool;
     /// 置く先の要素の数
     fn count(&self, out: &Out) -> usize;
-    /// 置く先の `index` の要素を指す、拡張の対象と前提
-    fn placed(&self, index: usize, out: &Out) -> Option<(Target, Basis)>;
+    /// 置く先の `index` の要素を指す、拡張の付く先の位置
+    fn placed(&self, index: usize, out: &Out) -> Option<Position>;
 }
 
 struct OnSheet;
@@ -272,12 +275,11 @@ impl Place for OnSheet {
         out.paper.push(element);
     }
 
-    fn target(&self, element: &Element<PaperPoint>, out: &Out) -> (Target, Basis) {
-        let target = Target::Paper {
+    fn target(&self, out: &Out) -> Position {
+        Position::Paper {
             sheet: SHEET,
             index: out.paper.len(),
-        };
-        (target, Basis::Paper(element.clone()))
+        }
     }
 
     fn view(&self, view: View, out: &mut Out) -> bool {
@@ -290,13 +292,11 @@ impl Place for OnSheet {
         out.paper.len()
     }
 
-    fn placed(&self, index: usize, out: &Out) -> Option<(Target, Basis)> {
-        let element = out.paper.get(index)?;
-        let target = Target::Paper {
+    fn placed(&self, index: usize, out: &Out) -> Option<Position> {
+        (index < out.paper.len()).then_some(Position::Paper {
             sheet: SHEET,
             index,
-        };
-        Some((target, Basis::Paper(element.clone())))
+        })
     }
 }
 
@@ -324,12 +324,11 @@ impl Place for InSpace {
         out.model.push(element);
     }
 
-    fn target(&self, element: &Element<ModelPoint>, out: &Out) -> (Target, Basis) {
-        let target = Target::Model {
+    fn target(&self, out: &Out) -> Position {
+        Position::Model {
             space: self.0,
             index: out.model.len(),
-        };
-        (target, Basis::Model(element.clone()))
+        }
     }
 
     fn view(&self, _: View, _: &mut Out) -> bool {
@@ -340,13 +339,11 @@ impl Place for InSpace {
         out.model.len()
     }
 
-    fn placed(&self, index: usize, out: &Out) -> Option<(Target, Basis)> {
-        let element = out.model.get(index)?;
-        let target = Target::Model {
+    fn placed(&self, index: usize, out: &Out) -> Option<Position> {
+        (index < out.model.len()).then_some(Position::Model {
             space: self.0,
             index,
-        };
-        Some((target, Basis::Model(element.clone())))
+        })
     }
 }
 
@@ -356,7 +353,7 @@ struct Out {
     views: Vec<View>,
     order: Vec<SheetItem>,
     model: Vec<Element<ModelPoint>>,
-    extensions: Vec<Extension>,
+    extensions: Vec<Draft>,
 }
 
 struct Lifter<'f> {
@@ -518,7 +515,7 @@ impl<'f> Lifter<'f> {
         }
         self.members(&sheet_members, &OnSheet, &mut out, &mut Vec::new(), cx)?;
         extensions.append(&mut out.extensions);
-        Ok(Drawing2D {
+        let mut drawing = Drawing2D {
             spaces,
             sheets: vec![Sheet {
                 id: SHEET,
@@ -531,11 +528,16 @@ impl<'f> Lifter<'f> {
             }],
             layers: self.layers,
             line_types: self.line_types,
-            extensions,
             title_blocks,
             symbols,
             ..Drawing2D::default()
-        })
+        };
+        // 要素がそろってから、形式固有の情報の付く先を ID とハッシュにする（決定 0156）
+        drawing.settle_extensions(extensions, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        Ok(drawing)
     }
 
     fn features_source(&self, indices: &[usize]) -> Ref {
@@ -655,7 +657,7 @@ impl<'f> Lifter<'f> {
         })
     }
 
-    fn sheet(&self, feature: Feature<'f>) -> Option<(Option<[PaperLength; 2]>, Extension)> {
+    fn sheet(&self, feature: Feature<'f>) -> Option<(Option<[PaperLength; 2]>, Draft)> {
         let args = self.args(feature);
         let kind = args.int(1)?;
         let orientation = args.int(2).unwrap_or(1);
@@ -695,13 +697,12 @@ impl<'f> Lifter<'f> {
         }
         Some((
             Some(size.map(PaperLength)),
-            Extension {
+            Draft {
                 namespace: "sxf.sheet",
                 name: args.text(0).unwrap_or_default(),
                 version: None,
-                schema: 1,
-                target: Target::Document,
-                basis: Basis::Document,
+                schema: SCHEMA,
+                at: Position::Document,
                 fields,
                 source: feature.source(),
             },
@@ -1296,14 +1297,13 @@ impl<'f> Lifter<'f> {
             source: source.clone(),
             shape,
         };
-        let (target, basis) = at.target(&element, out);
-        out.extensions.push(Extension {
+        let target = at.target(out);
+        out.extensions.push(Draft {
             namespace: "sxf.text",
             name: String::new(),
             version: None,
-            schema: 1,
-            target,
-            basis,
+            schema: SCHEMA,
+            at: target,
             fields: vec![
                 Field {
                     key: "width",
@@ -1545,14 +1545,13 @@ impl<'f> Lifter<'f> {
             block: None,
         });
         let element = self.element(feature, shape, cx);
-        let (target, basis) = at.target(&element, out);
-        out.extensions.push(Extension {
+        let target = at.target(out);
+        out.extensions.push(Draft {
             namespace: "sxf.dimension",
             name: String::new(),
             version: None,
-            schema: 1,
-            target,
-            basis,
+            schema: SCHEMA,
+            at: target,
             fields,
             source,
         });
@@ -1793,14 +1792,13 @@ impl<'f> Lifter<'f> {
             }),
         };
         if !fields.is_empty() {
-            let (target, basis) = at.target(&element, out);
-            out.extensions.push(Extension {
+            let target = at.target(out);
+            out.extensions.push(Draft {
                 namespace: "sxf.hatch",
                 name: String::new(),
                 version: None,
-                schema: 1,
-                target,
-                basis,
+                schema: SCHEMA,
+                at: target,
                 fields,
                 source,
             });
@@ -1884,14 +1882,13 @@ impl<'f> Lifter<'f> {
         });
         let element = self.element(feature, shape, cx);
         if !fields.is_empty() {
-            let (target, basis) = at.target(&element, out);
-            out.extensions.push(Extension {
+            let target = at.target(out);
+            out.extensions.push(Draft {
                 namespace: "sxf.callout",
                 name: String::new(),
                 version: None,
-                schema: 1,
-                target,
-                basis,
+                schema: SCHEMA,
+                at: target,
                 fields,
                 source,
             });
@@ -2161,16 +2158,15 @@ fn attributes<C: Place>(name: &str, from: usize, at: &C, out: &mut Out, source: 
         value: FieldValue::Text(part.to_owned()),
     }));
     for index in from..at.count(out) {
-        let Some((target, basis)) = at.placed(index, out) else {
+        let Some(target) = at.placed(index, out) else {
             continue;
         };
-        out.extensions.push(Extension {
+        out.extensions.push(Draft {
             namespace: "sxf.attribute",
             name: String::new(),
             version: None,
-            schema: 1,
-            target,
-            basis,
+            schema: SCHEMA,
+            at: target,
             fields: fields.clone(),
             source: source.clone(),
         });

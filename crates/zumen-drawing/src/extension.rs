@@ -2,13 +2,11 @@
 
 use zumen_base::Ref;
 
-use crate::{
-    Drawing2D, Element, Layer, LayerId, LineType, LineTypeId, ModelPoint, PaperPoint, SheetId,
-    SpaceId,
-};
+use crate::{Drawing2D, Hash, LayerId, LineTypeId, SheetId, SpaceId};
 
 /// 形式固有の情報（決定 0022・0115）。共通の要素にできない残りを、系統・版・型付きの値・出所と、
-/// 読んだときの付く先の値とともに持つ。付く先の値が変われば失効したものとし、古い値を書き戻さない
+/// 読んだときの付く先のハッシュとともに持つ。付く先のハッシュが変われば失効したものとし、古い値を書き戻さない
+/// （決定 0156）
 #[derive(Clone, Debug, PartialEq)]
 pub struct Extension {
     /// 名前空間（`dxf.xdata` など）。値の型の契約を決める
@@ -21,7 +19,7 @@ pub struct Extension {
     pub schema: u32,
     /// 付く先
     pub target: Target,
-    /// 読んだときの付く先の値
+    /// 読んだときの付く先のハッシュ
     pub basis: Basis,
     /// 型付きの値。順序は元の形式の順
     pub fields: Vec<Field>,
@@ -30,15 +28,38 @@ pub struct Extension {
 }
 
 impl Extension {
-    /// 付く先が読んだときのままか
+    /// 付く先が読んだときのままか。付く先の今のハッシュと比べる。要素を指すものは、図面全体の要素に ID を
+    /// 振り直して探すので、多くを比べるときは [`Drawing2D::current_extensions`] を使う
     pub fn is_current(&self, drawing: &Drawing2D) -> bool {
         drawing.basis(&self.target).as_ref() == Some(&self.basis)
     }
 }
 
-/// 形式固有の情報が付く先
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// 形式固有の情報が付く先（決定 0156）
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
+    /// 図面全体
+    Document,
+    /// 要素。実寸の空間・記号の定義の空間・用紙の要素を、要素の ID（[`crate::id`]）で指す
+    Element(String),
+    /// レイヤ（決定 0152）
+    Layer(LayerId),
+    /// 線種（決定 0152）
+    LineType(LineTypeId),
+}
+
+/// 形式固有の情報が依存する、読んだときの付く先のハッシュ（決定 0156）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Basis {
+    /// 図面全体。共通の欄には依存しない
+    Document,
+    /// 要素・レイヤ・線種のハッシュ（[`Hash::element`]・[`Hash::layer`]・[`Hash::line_type`]）
+    Hash(Hash),
+}
+
+/// 読み取りの途中の付く先。要素の ID は図面がそろってから決まるので、要素は空間か用紙の中の添字で指す
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Position {
     /// 図面全体
     Document,
     /// 実寸の空間か記号の定義の空間の、`index` 番目の要素
@@ -55,25 +76,30 @@ pub enum Target {
         /// 要素の添字
         index: usize,
     },
-    /// レイヤ（決定 0152）
+    /// レイヤ
     Layer(LayerId),
-    /// 線種（決定 0152）
+    /// 線種
     LineType(LineTypeId),
 }
 
-/// 形式固有の情報が依存する、付く先の値
+/// 付く先を位置で指す、読み取りの途中の形式固有の情報。要素がそろった後に
+/// [`Drawing2D::settle_extensions`] で、付く先を ID に、読んだときの値をハッシュにした [`Extension`] にする
 #[derive(Clone, Debug, PartialEq)]
-pub enum Basis {
-    /// 図面全体。共通の欄には依存しない
-    Document,
-    /// 実寸の要素の、レイヤ・スタイル・形と意味・出所
-    Model(Element<ModelPoint>),
-    /// 用紙の要素の、レイヤ・スタイル・形と意味・出所
-    Paper(Element<PaperPoint>),
-    /// レイヤの名前・状態・スタイル・出所
-    Layer(Layer),
-    /// 線種の名前・定義・出所
-    LineType(LineType),
+pub struct Draft {
+    /// 名前空間
+    pub namespace: &'static str,
+    /// 名前空間の中の元の名前
+    pub name: String,
+    /// 元の形式の版
+    pub version: Option<String>,
+    /// 名前空間の値の型の契約の版
+    pub schema: u32,
+    /// 付く先の位置
+    pub at: Position,
+    /// 型付きの値。順序は元の形式の順
+    pub fields: Vec<Field>,
+    /// 元の形式のレコード
+    pub source: Ref,
 }
 
 /// 形式固有の情報の 1 つの値

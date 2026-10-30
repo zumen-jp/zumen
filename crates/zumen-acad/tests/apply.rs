@@ -4393,7 +4393,7 @@ fn e4_e10_dimension_and_table_changes_are_refused_without_changing_the_file() {
 /// 動かす前の位置は戻らない
 #[test]
 fn e5_moving_a_text_keeps_its_xdata_and_extension_dictionary() {
-    use zumen_drawing::{Basis, Placement};
+    use zumen_drawing::{Basis, Hash, Placement, Target};
     let src = versioned(
         "AC1015",
         &[
@@ -4435,7 +4435,8 @@ fn e5_moving_a_text_keeps_its_xdata_and_extension_dictionary() {
     assert_eq!(elements(&again)[0].shape, moved.shape);
     let [room] = <[_; 1]>::try_from(again.current_extensions().collect::<Vec<_>>()).unwrap();
     assert_eq!(room.name, "ROOM");
-    assert_eq!(room.basis, Basis::Model(elements(&again)[0].clone()));
+    assert_eq!(room.target, Target::Element("space/0/h1A".to_owned()));
+    assert_eq!(room.basis, Basis::Hash(Hash::element(&elements(&again)[0])));
 }
 
 /// E10: 表題欄の項目（属性）の値は、置き換えで書き換えられ、読み直すと新しい値になる

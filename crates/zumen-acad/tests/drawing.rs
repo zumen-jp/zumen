@@ -21,6 +21,7 @@ use zumen_drawing::{
     Style, SymbolKey, Table, Target, Text, Transparency, Underlay, UnderlayFrame, UnderlayKind,
     Unit, ValueUnit, Vertex, Vertical,
 };
+use zumen_drawing::{Hash, id};
 use zumen_sdk::{Error, Lift, testkit};
 
 const MODEL: SpaceId = SpaceId(0);
@@ -4881,23 +4882,26 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
         namespace: "dxf.xdata",
         name: name.to_owned(),
         version: Some("AC1027".to_owned()),
-        schema: 2,
+        schema: 3,
         target,
         basis,
         fields,
         source,
     };
-    let room = Target::Model {
-        space: MODEL,
-        index: 0,
-    };
+    // 要素は ID で指し、読んだときのハッシュを持つ（決定 0156）
+    let room = Target::Element(id::Namer::new(&id::space(MODEL)).next(0, &text));
+    let parts = id::Namer::new(&id::definition(&drawing.symbols[0])).next(0, &door.elements[0]);
+    assert_eq!(
+        room,
+        Target::Element(format!("space/0/r{}", text.source.record().unwrap()))
+    );
     assert_eq!(
         drawing.extensions,
         [
             extension(
                 "ROOM",
-                room,
-                Basis::Model(text.clone()),
+                room.clone(),
+                Basis::Hash(Hash::element(&text)),
                 vec![
                     field("string", 1000, FieldValue::Text("部屋".to_owned())),
                     field("control", 1002, FieldValue::Text("{".to_owned())),
@@ -4916,27 +4920,31 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
             extension(
                 "EMPTY",
                 room,
-                Basis::Model(text.clone()),
+                Basis::Hash(Hash::element(&text)),
                 vec![],
                 text.source.clone()
             ),
             extension(
                 "PARTS",
-                Target::Model {
-                    space: door.id,
-                    index: 0
-                },
-                Basis::Model(door.elements[0].clone()),
+                Target::Element(parts),
+                Basis::Hash(Hash::element(&door.elements[0])),
                 vec![field("long", 1071, FieldValue::Integer(7))],
                 door.elements[0].source.clone(),
             ),
         ]
     );
     assert_eq!(drawing.current_extensions().count(), 3);
+    assert!(drawing.extensions.iter().all(|e| e.is_current(&drawing)));
 
     // 付く先でない要素の編集は、どれも失効させない
     drawing.spaces[0].elements[1].layer = LayerId(9);
     assert_eq!(drawing.stale_extensions().count(), 0);
+    // 要素を前に足しても、付く先は ID で指すので、別の要素を指さず失効もしない
+    let mut added = drawing.spaces[0].elements[1].clone();
+    added.source = Ref::default();
+    drawing.spaces[0].elements.insert(0, added);
+    assert_eq!(drawing.stale_extensions().count(), 0);
+    drawing.spaces[0].elements.remove(0);
     // 文字を動かすと、文字の XDATA は失効し、書き戻す一覧から外れる。動かす前の位置は戻らない
     let Shape::Text(moved) = &mut drawing.spaces[0].elements[0].shape else {
         panic!("文字ではない");
@@ -5365,12 +5373,9 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
             namespace: "dxf.xrecord",
             name: "ROOM".to_owned(),
             version: Some("AC1027".to_owned()),
-            schema: 2,
-            target: Target::Model {
-                space: MODEL,
-                index: 0,
-            },
-            basis: Basis::Model(line.clone()),
+            schema: 3,
+            target: Target::Element(id::Namer::new(&id::space(MODEL)).next(0, &line)),
+            basis: Basis::Hash(Hash::element(&line)),
             fields: vec![
                 field("text", 1, FieldValue::Text("居間".to_owned())),
                 field("integer", 70, FieldValue::Integer(3)),
@@ -5464,9 +5469,9 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
                 namespace: "dxf.xrecord",
                 name: "NOTE".to_owned(),
                 version: Some("AC1018".to_owned()),
-                schema: 2,
+                schema: 3,
                 target: Target::LineType(line_type.id),
-                basis: Basis::LineType(line_type.clone()),
+                basis: Basis::Hash(Hash::line_type(&line_type)),
                 fields: vec![field("text", 1, FieldValue::Text("dashed".to_owned()))],
                 source: line_type.source.clone(),
             },
@@ -5474,9 +5479,9 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
                 namespace: "dxf.xrecord",
                 name: "SCALE".to_owned(),
                 version: Some("AC1018".to_owned()),
-                schema: 2,
+                schema: 3,
                 target: Target::Layer(layer.id),
-                basis: Basis::Layer(layer.clone()),
+                basis: Basis::Hash(Hash::layer(&layer)),
                 fields: vec![field("integer", 90, FieldValue::Integer(2))],
                 source: layer.source.clone(),
             },
@@ -5489,6 +5494,9 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
         .map(|e| e.name.as_str())
         .collect();
     assert_eq!(stale, ["SCALE"]);
+    // 線種の定義を変えると、線種の XRECORD も失効する
+    drawing.line_types[0].name = "Dots".to_owned();
+    assert_eq!(drawing.current_extensions().count(), 0);
 }
 
 #[test]
@@ -5954,15 +5962,19 @@ fn thickness_and_spline_tolerances_are_kept_as_extensions() {
         .iter()
         .map(|extension| {
             assert_eq!(extension.namespace, "dxf.entity");
-            assert_eq!(extension.schema, 2);
+            assert_eq!(extension.schema, 3);
             assert!(extension.is_current(&drawing));
-            (extension.target, extension.fields.clone())
+            (extension.target.clone(), extension.fields.clone())
         })
         .collect();
-    let at = |index| Target::Model {
-        space: MODEL,
-        index,
-    };
+    let place = id::space(MODEL);
+    let mut namer = id::Namer::new(&place);
+    let ids: Vec<_> = elements
+        .iter()
+        .enumerate()
+        .map(|(index, element)| namer.next(index, element))
+        .collect();
+    let at = |index: usize| Target::Element(ids[index].clone());
     assert_eq!(
         kept,
         [

@@ -11,8 +11,8 @@ use super::{
 use crate::db::{AcadDb, Data, Object, Section};
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_drawing::{
-    Attribute, AttributeDefinition, AttributeValue, Basis, Clip, Grid, Length, ModelLength,
-    ModelPoint, ModelSpace, SpaceId, Symbol, SymbolDefinition, SymbolKey, Target,
+    Attribute, AttributeDefinition, AttributeValue, Clip, Grid, Length, ModelLength, ModelPoint,
+    ModelSpace, Position, SpaceId, Symbol, SymbolDefinition, SymbolKey,
 };
 use zumen_sdk::Error;
 
@@ -305,18 +305,11 @@ impl Lifter<'_> {
                         cx,
                     )
                     .map(|element| {
-                        let target = Target::Model {
+                        let at = Position::Model {
                             space,
                             index: elements.len(),
                         };
-                        self.extend(
-                            db,
-                            object,
-                            target,
-                            || Basis::Model(element.clone()),
-                            out,
-                            cx,
-                        );
+                        self.extend(db, object, at, out, cx);
                         elements.push(element);
                         handles.push(object.handle());
                     })

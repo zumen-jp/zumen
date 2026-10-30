@@ -9,7 +9,8 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
 use zumen_drawing::{
     Boundary, Color, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge, Element, Extension,
     FieldValue, Fill, Inherit, Label, LayerId, LayerState, Length, LineWeight, ModelLength,
-    ModelPoint, PaperLength, Placement, Shape, SpaceId, Target, UnderlayFrame, UnderlayKind, Unit,
+    ModelPoint, PaperLength, Placement, Position, Shape, SpaceId, Target, UnderlayFrame,
+    UnderlayKind, Unit,
 };
 use zumen_jww::Jww;
 use zumen_sdk::{Lift, testkit};
@@ -472,13 +473,30 @@ fn blocks_and_dimensions() {
         .find(|e| e.namespace == "jww.dimension")
         .unwrap();
     assert!(extension.is_current(&drawing));
-    assert_eq!(
-        extension.target,
-        Target::Model {
-            space: SpaceId(0),
-            index: 10
+    assert_eq!(extension.target, element_at(&drawing, SpaceId(0), 10));
+    // 付く先の要素を変えると失効する
+    let mut edited = drawing.clone();
+    let space = edited
+        .spaces
+        .iter_mut()
+        .find(|s| s.id == SpaceId(0))
+        .unwrap();
+    space.elements[10].layer = LayerId(99);
+    assert!(!extension.is_current(&edited));
+    assert_eq!(edited.stale_extensions().count(), 1);
+}
+
+/// 空間の添字の要素を指す付く先。要素の ID で指す（決定 0156）
+#[cfg(test)]
+fn element_at(drawing: &Drawing2D, space: SpaceId, index: usize) -> Target {
+    let mut found = None;
+    let _ = zumen_drawing::id::each_element(drawing, |at, id, _| {
+        if at == (Position::Model { space, index }) {
+            found = Some(id);
         }
-    );
+        Ok::<(), ()>(())
+    });
+    Target::Element(found.unwrap())
 }
 
 #[test]
@@ -522,13 +540,7 @@ fn images_and_edit_state() {
 
     // 曲線属性と属性のフラグ
     let entity = &find("jww.entity")[0];
-    assert_eq!(
-        entity.target,
-        Target::Model {
-            space: SpaceId(0),
-            index: 12
-        }
-    );
+    assert_eq!(entity.target, element_at(&drawing, SpaceId(0), 12));
     assert_eq!(entity.fields[1].value, FieldValue::Integer(0x20));
 
     // 書き込むグループ・グループの名前・レイヤの保護

@@ -14,10 +14,11 @@
 
 use std::collections::BTreeMap;
 
-use zumen_base::{Key, Ref};
+use zumen_base::{Cx, Key, Ref, Stop};
 
 use crate::{
-    DimensionStyle, Element, Layer, LineType, Sheet, SpaceId, SymbolDefinition, TextStyle,
+    DimensionStyle, Drawing2D, Element, Hash, Layer, LineType, ModelPoint, PaperPoint, Position,
+    Sheet, SpaceId, SymbolDefinition, TextStyle,
 };
 
 /// 空間の ID の文字列
@@ -163,6 +164,78 @@ impl<'a> Namer<'a> {
             n => format!("{}/{origin}/{n}", self.place),
         }
     }
+}
+
+/// 図面の中の要素
+#[derive(Clone, Copy, Debug)]
+pub enum Found<'a> {
+    /// 実寸の空間か記号の定義の空間の要素
+    Model(&'a Element<ModelPoint>),
+    /// 用紙の要素
+    Paper(&'a Element<PaperPoint>),
+}
+
+impl Found<'_> {
+    /// 要素のハッシュ
+    pub fn hash(self) -> Hash {
+        match self {
+            Self::Model(element) => Hash::element(element),
+            Self::Paper(element) => Hash::element(element),
+        }
+    }
+
+    /// 予算と中断の合図を確かめながら要素をハッシュする
+    pub fn hash_checked(self, cx: &mut Cx<'_>) -> Result<Hash, Stop> {
+        match self {
+            Self::Model(element) => Hash::element_checked(element, cx),
+            Self::Paper(element) => Hash::element_checked(element, cx),
+        }
+    }
+}
+
+/// 図面全体の要素に ID を振り、要素の位置（空間か用紙と、その中の添字）・ID・要素を `visit` に渡す。
+/// 実寸の空間、記号の定義の空間、用紙の順に、それぞれの要素の順にたどる。書き戻しが ID から要素を引く索引と
+/// 同じ振り方にする
+pub fn each_element<'a, E>(
+    drawing: &'a Drawing2D,
+    mut visit: impl FnMut(Position, String, Found<'a>) -> Result<(), E>,
+) -> Result<(), E> {
+    for model in &drawing.spaces {
+        let place = space(model.id);
+        let mut namer = Namer::new(&place);
+        for (index, element) in model.elements.iter().enumerate() {
+            let at = Position::Model {
+                space: model.id,
+                index,
+            };
+            visit(at, namer.next(index, element), Found::Model(element))?;
+        }
+    }
+    let mut definitions = DefinitionNamer::default();
+    for symbol in &drawing.symbols {
+        let place = definitions.next(symbol);
+        let mut namer = Namer::new(&place);
+        for (index, element) in symbol.space.elements.iter().enumerate() {
+            let at = Position::Model {
+                space: symbol.space.id,
+                index,
+            };
+            visit(at, namer.next(index, element), Found::Model(element))?;
+        }
+    }
+    let mut sheets = SheetNamer::default();
+    for paper in &drawing.sheets {
+        let place = sheets.next(paper);
+        let mut namer = Namer::new(&place);
+        for (index, element) in paper.elements.iter().enumerate() {
+            let at = Position::Paper {
+                sheet: paper.id,
+                index,
+            };
+            visit(at, namer.next(index, element), Found::Paper(element))?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

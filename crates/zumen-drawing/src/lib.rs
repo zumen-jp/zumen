@@ -21,7 +21,7 @@
 //! グラデーションの区別を持つ（[`Hatch`]）。表は、行と列の大きさとセルの結合・内容を持つ（[`Table`]）。下敷きは、資源を参照名で指し、置き方と切り抜きを持つ（[`Underlay`]）。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。要素の ID とハッシュは [`id`] と [`Hash`] で作る（決定 0156）。
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Cx, Kind, Ref, Stop};
 
@@ -46,7 +46,7 @@ mod walk;
 pub use callout::{AttributeValue, Branch, Callout, CalloutContent, Dogleg, PathKind};
 pub use change::{Applied, Changes, Edit, Placed, Restyle, Seen};
 pub use dimension::{Axis, Dimension, DimensionKind, DimensionText, Label, Leader, Measured};
-pub use extension::{Basis, Extension, Field, FieldValue, Target};
+pub use extension::{Basis, Draft, Extension, Field, FieldValue, Position, Target};
 pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
@@ -227,45 +227,86 @@ impl Drawing2D {
         self.symbols.iter().find(|symbol| symbol.key == *key)
     }
 
-    /// 付く先の、いまの値。図面と、実寸の空間・記号の定義の空間・用紙の要素と、レイヤ・線種を探す。
-    /// なければ `None`
+    /// 付く先の、いまのハッシュ（決定 0156）。要素は、図面全体の要素に ID を振って探す。なければ `None`
     pub fn basis(&self, target: &Target) -> Option<Basis> {
-        match *target {
-            Target::Document => Some(Basis::Document),
-            Target::Model { space, index } => self
-                .spaces
-                .iter()
-                .chain(self.symbols.iter().map(|symbol| &symbol.space))
-                .find(|candidate| candidate.id == space)?
-                .elements
-                .get(index)
-                .cloned()
-                .map(Basis::Model),
-            Target::Paper { sheet, index } => self
-                .sheets
-                .iter()
-                .find(|candidate| candidate.id == sheet)?
-                .elements
-                .get(index)
-                .cloned()
-                .map(Basis::Paper),
-            Target::Layer(id) => self.layer(id).cloned().map(Basis::Layer),
-            Target::LineType(id) => self.line_type(id).cloned().map(Basis::LineType),
-        }
+        Bases::new(self, [target]).basis(target)
     }
 
     /// 付く先が読んだときのままの、形式固有の情報。元の系統へ書き戻せるのは、これだけ
     pub fn current_extensions(&self) -> impl Iterator<Item = &Extension> {
+        let bases = Bases::new(
+            self,
+            self.extensions.iter().map(|extension| &extension.target),
+        );
         self.extensions
             .iter()
-            .filter(|extension| extension.is_current(self))
+            .filter(move |extension| bases.basis(&extension.target) == Some(extension.basis))
     }
 
     /// 付く先が変わったか、なくなった形式固有の情報。書き戻さず、更新するか、損失として診断する
     pub fn stale_extensions(&self) -> impl Iterator<Item = &Extension> {
+        let bases = Bases::new(
+            self,
+            self.extensions.iter().map(|extension| &extension.target),
+        );
         self.extensions
             .iter()
-            .filter(|extension| !extension.is_current(self))
+            .filter(move |extension| bases.basis(&extension.target) != Some(extension.basis))
+    }
+
+    /// 付く先を位置で指す読み取りの途中の形式固有の情報を、付く先の ID と今のハッシュを持つ形式固有の情報にして、
+    /// [`Self::extensions`] の後ろに足す。要素・レイヤ・線種をそろえた後に呼ぶ。付く先がないものは足さない
+    pub fn settle_extensions(&mut self, drafts: Vec<Draft>, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        let wanted: BTreeSet<Position> = drafts
+            .iter()
+            .map(|draft| draft.at)
+            .filter(|at| matches!(at, Position::Model { .. } | Position::Paper { .. }))
+            .collect();
+        let mut elements = BTreeMap::new();
+        if !wanted.is_empty() {
+            id::each_element(self, |at, id, element| {
+                if wanted.contains(&at) {
+                    elements.insert(at, (id, element.hash_checked(cx)?));
+                }
+                Ok::<(), Stop>(())
+            })?;
+        }
+        let mut settled = Vec::with_capacity(drafts.len());
+        for draft in drafts {
+            let (target, basis) = match draft.at {
+                Position::Document => (Target::Document, Basis::Document),
+                at @ (Position::Model { .. } | Position::Paper { .. }) => match elements.get(&at) {
+                    Some((id, hash)) => (Target::Element(id.clone()), Basis::Hash(*hash)),
+                    None => continue,
+                },
+                Position::Layer(id) => match self.layer(id) {
+                    Some(layer) => (
+                        Target::Layer(id),
+                        Basis::Hash(Hash::layer_checked(layer, cx)?),
+                    ),
+                    None => continue,
+                },
+                Position::LineType(id) => match self.line_type(id) {
+                    Some(line_type) => (
+                        Target::LineType(id),
+                        Basis::Hash(Hash::line_type_checked(line_type, cx)?),
+                    ),
+                    None => continue,
+                },
+            };
+            settled.push(Extension {
+                namespace: draft.namespace,
+                name: draft.name,
+                version: draft.version,
+                schema: draft.schema,
+                target,
+                basis,
+                fields: draft.fields,
+                source: draft.source,
+            });
+        }
+        self.extensions.append(&mut settled);
+        Ok(())
     }
 
     /// 要素の色。レイヤからの継承を解く。ブロックからの継承と、レイヤが値を持たないものは解かない
@@ -436,6 +477,46 @@ pub struct TitleItem {
     pub value: String,
     /// 値を表示する要素。元の形式が対応を持たなければ空
     pub display: Vec<Target>,
+}
+
+/// 形式固有の情報の付く先から、今のハッシュを引く索引。要素の ID は図面全体を 1 回たどって振る
+struct Bases<'a> {
+    drawing: &'a Drawing2D,
+    elements: BTreeMap<String, id::Found<'a>>,
+}
+
+impl<'a> Bases<'a> {
+    /// `targets` が要素を指すときだけ、要素の ID を振る
+    fn new<'t>(drawing: &'a Drawing2D, targets: impl IntoIterator<Item = &'t Target>) -> Self {
+        let wanted: BTreeSet<&str> = targets
+            .into_iter()
+            .filter_map(|target| match target {
+                Target::Element(id) => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        let mut elements = BTreeMap::new();
+        if !wanted.is_empty() {
+            let _ = id::each_element(drawing, |_, id, element| {
+                if wanted.contains(id.as_str()) {
+                    elements.entry(id).or_insert(element);
+                }
+                Ok::<(), core::convert::Infallible>(())
+            });
+        }
+        Self { drawing, elements }
+    }
+
+    fn basis(&self, target: &Target) -> Option<Basis> {
+        match target {
+            Target::Document => Some(Basis::Document),
+            Target::Element(id) => Some(Basis::Hash(self.elements.get(id)?.hash())),
+            Target::Layer(id) => Some(Basis::Hash(Hash::layer(self.drawing.layer(*id)?))),
+            Target::LineType(id) => {
+                Some(Basis::Hash(Hash::line_type(self.drawing.line_type(*id)?)))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -820,5 +901,124 @@ mod text_style_tests {
             Err((Stop::Cancelled, Ref::default()))
         );
         assert_eq!(drawing, original);
+    }
+
+    /// 形式固有の情報は、付く先を ID で指し、読んだときのハッシュを持つ。並べ替えでは失効せず、付く先を
+    /// 変えると失効する（決定 0156）
+    #[test]
+    fn extensions_point_by_ids_and_expire_when_their_targets_change() {
+        use zumen_base::{Budget, CancelToken, Diagnostics, Key};
+        let line = |x: f64, source: Ref| Element {
+            source,
+            layer: LayerId(0),
+            style: Style::BLOCK,
+            shape: Shape::Line {
+                start: ModelPoint {
+                    space: SpaceId(0),
+                    x,
+                    y: 0.0,
+                },
+                end: ModelPoint {
+                    space: SpaceId(0),
+                    x: x + 1.0,
+                    y: 0.0,
+                },
+            },
+        };
+        let mut drawing = Drawing2D {
+            spaces: vec![ModelSpace {
+                id: SpaceId(0),
+                unit: Unit::Millimeter,
+                elements: vec![
+                    line(0.0, Ref::at_record(1).with_key(Key::Handle(0x2F))),
+                    line(1.0, Ref::at_record(2)),
+                ],
+                order: Vec::new(),
+            }],
+            layers: vec![Layer {
+                id: LayerId(0),
+                name: "0".to_owned(),
+                state: None,
+                style: None,
+                follows_placement: false,
+                source: Ref::default(),
+                description: None,
+            }],
+            ..Drawing2D::default()
+        };
+        let draft = |at| Draft {
+            namespace: "test",
+            name: String::new(),
+            version: None,
+            schema: 1,
+            at,
+            fields: Vec::new(),
+            source: Ref::default(),
+        };
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        drawing
+            .settle_extensions(
+                vec![
+                    draft(Position::Document),
+                    draft(Position::Model {
+                        space: SpaceId(0),
+                        index: 1,
+                    }),
+                    draft(Position::Layer(LayerId(0))),
+                    // 付く先のないものは足さない
+                    draft(Position::Model {
+                        space: SpaceId(0),
+                        index: 2,
+                    }),
+                    draft(Position::LineType(LineTypeId(4))),
+                ],
+                &mut cx,
+            )
+            .unwrap();
+        let settled: Vec<_> = drawing
+            .extensions
+            .iter()
+            .map(|extension| (extension.target.clone(), extension.basis))
+            .collect();
+        let second = &drawing.spaces[0].elements[1];
+        assert_eq!(
+            settled,
+            [
+                (Target::Document, Basis::Document),
+                (
+                    Target::Element("space/0/r2".to_owned()),
+                    Basis::Hash(Hash::element(second))
+                ),
+                (
+                    Target::Layer(LayerId(0)),
+                    Basis::Hash(Hash::layer(&drawing.layers[0]))
+                ),
+            ]
+        );
+        assert_eq!(drawing.current_extensions().count(), 3);
+        assert!(drawing.extensions.iter().all(|e| e.is_current(&drawing)));
+
+        // 前に要素を足しても、同じ要素を指したまま失効しない
+        let added = line(5.0, Ref::default());
+        drawing.spaces[0].elements.insert(0, added);
+        assert_eq!(drawing.stale_extensions().count(), 0);
+        // 付く先でない要素を変えても失効しない
+        drawing.spaces[0].elements[1].layer = LayerId(3);
+        assert_eq!(drawing.stale_extensions().count(), 0);
+        // 付く先の要素を変えると失効する
+        drawing.spaces[0].elements[2].layer = LayerId(3);
+        let stale: Vec<_> = drawing.stale_extensions().map(|e| &e.target).collect();
+        assert_eq!(stale, [&Target::Element("space/0/r2".to_owned())]);
+        assert!(!drawing.extensions[1].is_current(&drawing));
+        // 付く先の要素を除いても失効する
+        drawing.spaces[0].elements.remove(2);
+        assert_eq!(drawing.basis(&drawing.extensions[1].target), None);
+        // レイヤを変えると、レイヤの情報も失効する
+        drawing.layers[0].name = "Wall".to_owned();
+        let current: Vec<_> = drawing.current_extensions().map(|e| &e.target).collect();
+        assert_eq!(current, [&Target::Document]);
     }
 }

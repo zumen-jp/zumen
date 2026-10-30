@@ -8,7 +8,7 @@ use super::{
 };
 use crate::db::{AcadDb, Data, Object, Value};
 use zumen_base::{Cx, Diagnostic, codes};
-use zumen_drawing::{Basis, Extension, Field, FieldValue, Target};
+use zumen_drawing::{Draft, Field, FieldValue, Position};
 use zumen_sdk::Error;
 
 /// 図面モデルの欄にする値で、欄がまだない拡張辞書の項目と、AutoCAD の版の往復の XRECORD（決定 0157）。
@@ -39,25 +39,23 @@ fn point_code(code: i16) -> Option<i16> {
 
 impl Lifter<'_> {
     /// 図形の XDATA（DXF Reference「Extended Data」、決定 0115）を、登録アプリケーション名（1001）ごとの
-    /// 形式固有の情報にして、図形の値とともに控える。最初の 1001 より前の XDATA の値と、読めない値を持つ
+    /// 形式固有の情報にして、図形の位置とともに控える。最初の 1001 より前の XDATA の値と、読めない値を持つ
     /// 名前の分は移さず、診断する。図面モデルの値にない図形の欄は、`dxf.entity` の拡張に控える（決定 0142）
     pub(super) fn extend(
         &self,
         db: &AcadDb,
         object: &Object,
-        target: Target,
-        basis: impl Fn() -> Basis,
+        at: Position,
         out: &mut Out,
         cx: &mut Cx,
     ) {
         match entity_fields(object) {
-            Ok(fields) if !fields.is_empty() => out.extensions.push(Extension {
+            Ok(fields) if !fields.is_empty() => out.extensions.push(Draft {
                 namespace: ENTITY,
                 name: String::new(),
                 version: self.version.clone(),
                 schema: ENTITY_SCHEMA,
-                target,
-                basis: basis(),
+                at,
                 fields,
                 source: source(object),
             }),
@@ -78,33 +76,31 @@ impl Lifter<'_> {
                 continue;
             };
             match self.xdata(&object.kind, name, values) {
-                Ok((name, fields)) => out.extensions.push(Extension {
+                Ok((name, fields)) => out.extensions.push(Draft {
                     namespace: XDATA,
                     name,
                     version: self.version.clone(),
                     schema: XDATA_SCHEMA,
-                    target,
-                    basis: basis(),
+                    at,
                     fields,
                     source: source(object),
                 }),
                 Err(diagnostic) => cx.report((*diagnostic).at(source(object))),
             }
         }
-        self.dictionary(db, object, target, &basis, out, cx);
+        self.dictionary(db, object, at, out, cx);
     }
 
     /// 図形の拡張辞書（`{ACAD_XDICTIONARY` の組の 360 が指す DICTIONARY。DXF Reference「Extension
     /// Dictionary and Persistent Reactors」、決定 0148）の XRECORD の項目を、項目の名前ごとの形式固有の
-    /// 情報にして、図形の値とともに控える。値は、グループ・コードを付けた型の値を順に並べる（決定 0157）。
+    /// 情報にして、図形の位置とともに控える。値は、グループ・コードを付けた型の値を順に並べる（決定 0157）。
     /// 図面モデルの欄にする値で、欄がまだない項目（[`unmapped`]）と、AutoCAD の版の往復の XRECORD は移さず、
     /// L1 に残して診断する。XRECORD でない項目と、読めない値を持つ XRECORD も移さず、診断する
     pub(super) fn dictionary(
         &self,
         db: &AcadDb,
         object: &Object,
-        target: Target,
-        basis: &impl Fn() -> Basis,
+        at: Position,
         out: &mut Out,
         cx: &mut Cx,
     ) {
@@ -161,13 +157,12 @@ impl Lifter<'_> {
                         )),
                     });
             match named {
-                Ok((name, fields)) => out.extensions.push(Extension {
+                Ok((name, fields)) => out.extensions.push(Draft {
                     namespace: XRECORD,
                     name,
                     version: self.version.clone(),
                     schema: XRECORD_SCHEMA,
-                    target,
-                    basis: basis(),
+                    at,
                     fields,
                     source: source(object),
                 }),

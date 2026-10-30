@@ -7,16 +7,16 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Boundary, Color, ColorCode, ColorSystem, Drawing2D, Edge, Element, Extension, Field,
+    Affine, Boundary, Color, ColorCode, ColorSystem, Draft, Drawing2D, Edge, Element, Field,
     FieldValue, Fill, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Layer,
     LayerId, LayerState, Length, LineType, LineTypeDefinition, LineTypeId, LineWeight, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Resource, Shape, Sheet, SheetId,
-    SheetItem, SpaceId, Style, Symbol, SymbolKey, Target, Text, Underlay, UnderlayFrame,
+    ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Position, Resource, Shape, Sheet,
+    SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, Text, Underlay, UnderlayFrame,
     UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_drawing::{
-    Basis, Dimension, DimensionKind, DimensionText, Font, FontKind, Format, Label, Piece, Scaled,
-    Span, SymbolDefinition,
+    Dimension, DimensionKind, DimensionText, Font, FontKind, Format, Label, Piece, Scaled, Span,
+    SymbolDefinition,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -24,6 +24,9 @@ use crate::parse::{Fail, Reader};
 use crate::{JwwFile, Record, RecordKind};
 
 mod apply;
+
+/// 形式固有の情報の値の型の契約の版。どの `jww.*` の名前空間も同じ版にする（決定 0115・0156・0157）
+const SCHEMA: u32 = 2;
 
 const SHEET: SheetId = SheetId(0);
 
@@ -108,6 +111,7 @@ impl Lift<Drawing2D> for JwwFile {
             definitions: BTreeMap::new(),
             images: images(self),
             own: Vec::new(),
+            drafts: Vec::new(),
             out: Drawing2D::default(),
         }
         .run(cx)
@@ -487,6 +491,8 @@ struct Lifter<'f> {
     images: BTreeMap<String, usize>,
     /// 変換中の要素に付ける拡張の名前空間と欄
     own: Vec<(&'static str, Vec<Field>)>,
+    /// 付く先を位置で指す拡張。要素がそろってから ID とハッシュにする（決定 0156）
+    drafts: Vec<Draft>,
     out: Drawing2D,
 }
 
@@ -508,7 +514,13 @@ impl Lifter<'_> {
                 _ => {}
             }
         }
-        Ok(self.finish())
+        let drafts = core::mem::take(&mut self.drafts);
+        let mut drawing = self.finish();
+        drawing.settle_extensions(drafts, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        Ok(drawing)
     }
 
     /// 書き込むグループとレイヤ・保護・グループの名前を、図面の拡張にする。保護しないレイヤは拡張にしない
@@ -522,13 +534,12 @@ impl Lifter<'_> {
             code: None,
             value: FieldValue::Integer(i64::from(value)),
         };
-        let extension = |namespace, name, fields| Extension {
+        let extension = |namespace, name, fields| Draft {
             namespace,
             name,
             version: Some(header.version.to_string()),
-            schema: 1,
-            target: Target::Document,
-            basis: Basis::Document,
+            schema: SCHEMA,
+            at: Position::Document,
             fields,
             source: Ref::at_record(0),
         };
@@ -562,7 +573,7 @@ impl Lifter<'_> {
                 }
             }
         }
-        self.out.extensions.extend(out);
+        self.drafts.extend(out);
     }
 
     /// 16 のレイヤグループの 16 のレイヤ。番号はグループ × 16 + レイヤ + 1
@@ -630,13 +641,12 @@ impl Lifter<'_> {
             external: None,
             source: source.clone(),
         });
-        self.out.extensions.push(Extension {
+        self.drafts.push(Draft {
             namespace: "jww.block",
             name: number.to_string(),
             version: Some(self.header.version.to_string()),
-            schema: 1,
-            target: Target::Document,
-            basis: Basis::Document,
+            schema: SCHEMA,
+            at: Position::Document,
             fields: vec![
                 Field {
                     key: "name",
@@ -732,16 +742,15 @@ impl Lifter<'_> {
             ));
         }
         for (namespace, fields) in self.own.drain(..) {
-            self.out.extensions.push(Extension {
+            self.drafts.push(Draft {
                 namespace,
                 name: String::new(),
                 version: Some(version.to_string()),
-                schema: 1,
-                target: Target::Model {
+                schema: SCHEMA,
+                at: Position::Model {
                     space: base.at.space,
                     index: elements.len(),
                 },
-                basis: Basis::Model(element.clone()),
                 fields,
                 source: source.clone(),
             });
@@ -1149,13 +1158,12 @@ impl Lifter<'_> {
         if [x1, y1] == SETTING_AT
             && let Some((key, value)) = setting(&content)
         {
-            self.out.extensions.push(Extension {
+            self.drafts.push(Draft {
                 namespace: "jww.setting",
                 name: key.to_owned(),
                 version: Some(self.header.version.to_string()),
-                schema: 1,
-                target: Target::Document,
-                basis: Basis::Document,
+                schema: SCHEMA,
+                at: Position::Document,
                 fields: vec![Field {
                     key: "value",
                     code: None,
@@ -1170,13 +1178,12 @@ impl Lifter<'_> {
         }
         if content.starts_with("^@") {
             // 画像のほかの制御文字は、描かずに元のまま持つ
-            self.out.extensions.push(Extension {
+            self.drafts.push(Draft {
                 namespace: "jww.control",
                 name: content,
                 version: Some(self.header.version.to_string()),
-                schema: 1,
-                target: Target::Document,
-                basis: Basis::Document,
+                schema: SCHEMA,
+                at: Position::Document,
                 fields: vec![Field {
                     key: "position",
                     code: None,

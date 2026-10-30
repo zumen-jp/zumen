@@ -34,10 +34,10 @@ use acad_table::report_cell_values;
 use extension::extension_work;
 use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Basis, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
-    Drawing2D, Edge, Element, Extension, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, Shape, Sheet, SheetId, SheetItem, SpaceId,
-    Spline, SymbolDefinition, SymbolKey, Target, TextStyle, Unit, View,
+    Arrowhead, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle, Draft,
+    Drawing2D, Edge, Element, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, Position, Shape, Sheet, SheetId, SheetItem,
+    SpaceId, Spline, SymbolDefinition, SymbolKey, TextStyle, Unit, View,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -65,13 +65,13 @@ const BLOCK: &str = "dxf.block";
 const XDATA: &str = "dxf.xdata";
 
 const POINT: &str = "dxf.point";
-const XDATA_SCHEMA: u32 = 2;
+const XDATA_SCHEMA: u32 = 3;
 /// 図面モデルの値にない図形の欄の拡張の名前空間と、値の型の契約の版（決定 0142・0157）
 const ENTITY: &str = "dxf.entity";
-const ENTITY_SCHEMA: u32 = 2;
+const ENTITY_SCHEMA: u32 = 3;
 /// 図形の拡張辞書の XRECORD の形式固有の情報の名前空間と、値の型の契約の版（決定 0148・0157）
 const XRECORD: &str = "dxf.xrecord";
-const XRECORD_SCHEMA: u32 = 2;
+const XRECORD_SCHEMA: u32 = 3;
 
 impl Lift<Drawing2D> for DxfFile {
     /// 表を作ってから変換する。型どおりに読めない値は、変換がその値を使うときに診断を返す
@@ -180,22 +180,19 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
                 continue;
             }
             // 画層と線種の拡張辞書の XRECORD は、移したレコードに付ける（決定 0152）
-            let (target, basis) = match kind {
+            let at = match kind {
                 b"LTYPE" => match out.line_types.last() {
-                    Some(line_type) => (
-                        Target::LineType(line_type.id),
-                        Basis::LineType(line_type.clone()),
-                    ),
+                    Some(line_type) => Position::LineType(line_type.id),
                     None => continue,
                 },
                 b"LAYER" => match out.layers.last() {
-                    Some(layer) => (Target::Layer(layer.id), Basis::Layer(layer.clone())),
+                    Some(layer) => Position::Layer(layer.id),
                     None => continue,
                 },
                 _ => continue,
             };
             extension_work(db, object, cx)?;
-            lifter.dictionary(db, object, target, &|| basis.clone(), &mut out, cx);
+            lifter.dictionary(db, object, at, &mut out, cx);
         }
     }
     let entities: Vec<&Object> = db
@@ -260,7 +257,6 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         dimension_styles: out.dimension_styles,
         text_styles: out.text_styles,
         symbols,
-        extensions: out.extensions,
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -331,6 +327,13 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         cx.report(stop.to_diagnostic().at(place));
         Error::Stopped(stop)
     })?;
+    // 要素がそろってから、形式固有の情報の付く先を ID とハッシュにする（決定 0156）
+    drawing
+        .settle_extensions(out.extensions, cx)
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
     Ok((drawing, out.frames))
 }
 
@@ -696,7 +699,7 @@ struct Out {
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
     text_styles: Vec<TextStyle>,
-    extensions: Vec<Extension>,
+    extensions: Vec<Draft>,
     /// 要素を置いた用紙ごとの座標の対応。中身のない用紙のものは、ID を付けるときに足す
     frames: BTreeMap<SheetId, PaperFrame>,
 }
@@ -793,18 +796,11 @@ impl Lifter<'_> {
                 let element =
                     self.element(db, object, source, attributes, point, length, out, cx)?;
                 paper_mm = Some(mm);
-                let target = Target::Paper {
+                let at = Position::Paper {
                     sheet: self.sheet,
                     index: out.paper.len(),
                 };
-                self.extend(
-                    db,
-                    object,
-                    target,
-                    || Basis::Paper(element.clone()),
-                    out,
-                    cx,
-                );
+                self.extend(db, object, at, out, cx);
                 out.sheet
                     .push((SheetItem::Element(out.paper.len()), object.handle()));
                 out.paper.push(element);
@@ -822,18 +818,11 @@ impl Lifter<'_> {
                 };
                 let element =
                     self.element(db, object, source, attributes, point, length, out, cx)?;
-                let target = Target::Model {
+                let at = Position::Model {
                     space: MODEL,
                     index: out.model.len(),
                 };
-                self.extend(
-                    db,
-                    object,
-                    target,
-                    || Basis::Model(element.clone()),
-                    out,
-                    cx,
-                );
+                self.extend(db, object, at, out, cx);
                 out.model_handles.push(object.handle());
                 out.model.push(element);
             }

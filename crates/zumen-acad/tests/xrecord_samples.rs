@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use zumen_acad::{Dwg, Dxf};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
-use zumen_drawing::{Basis, Drawing2D, Target};
+use zumen_drawing::{Drawing2D, Target};
 use zumen_sdk::{Codec, Lift};
 
 /// フォルダーの中の、ASCII の DXF と DWG
@@ -114,7 +114,7 @@ fn xrecords_of_layers_become_extensions() {
         for extension in &drawing.extensions {
             assert!(extension.is_current(&drawing));
             if extension.namespace == "dxf.xrecord" {
-                assert!(matches!(extension.basis, Basis::Layer(_)));
+                assert!(matches!(extension.target, Target::Layer(_)));
                 assert!(extension.fields.iter().all(|field| field.code.is_some()));
             }
         }
