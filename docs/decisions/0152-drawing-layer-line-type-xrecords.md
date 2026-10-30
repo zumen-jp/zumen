@@ -34,7 +34,7 @@ DWG の読み手は、図形でないオブジェクトの拡張辞書のハン�
 内容は次のとおり。
 
 - `Target` に、レイヤ（`Target::Layer`）と線種（`Target::LineType`）を足す。読んだときの値（`Basis::Layer`・`Basis::LineType`）は、レイヤと線種の名前・状態・定義・出所を持ち、変われば失効する。
-- 画層（LAYER）と線種（LTYPE）の表のレコードの拡張辞書の項目を、[決定 0148](0148-drawing-extension-dictionary-xrecords.md) と同じく、名前空間 `dxf.xrecord` の形式固有の情報にする。XRECORD でない項目は移さず、`dxf.extension-dictionary.dropped` を返す。
+- 画層（LAYER）と線種（LTYPE）の表のレコードの拡張辞書の項目を、[決定 0148](0148-drawing-extension-dictionary-xrecords.md) と同じく、名前空間 `dxf.xrecord` の形式固有の情報にする。後に[決定 0157](0157-drawing-model-fields-and-extensions.md) で、画層の透過性と説明はレイヤの値にし、注釈の尺度は欄を足すまで診断することにした。XRECORD でない項目は移さず、`dxf.extension-dictionary.dropped` を返す。
 - DWG の読み手は、図形でないオブジェクトの拡張辞書のハンドルも、DXF と同じく所有者の前に `102 {ACAD_XDICTIONARY`・360・`102 }` の組で置く。型ごとのハンドルを持たないオブジェクトで、ハンドルの流れが反応子と拡張辞書を読み切れなければ、拡張辞書を持たないとする。
 
 ## 影響
