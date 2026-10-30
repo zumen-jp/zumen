@@ -31,6 +31,7 @@
     "change.format.unsupported": "Changes cannot be applied to {format} documents yet. No change was applied.",
     "change.xdata.unsupported": "Cannot write back a change to the shape of a \"{kind}\" element, because it has XDATA that moves with the entity (group code {code}). No change was applied.",
     "drawing.mark-height.dropped": "Omitted the height of text in line type \"{name}\" because it cannot be represented as a finite number ({count}).",
+    "drawing.placement.invalid": "Did not walk into the symbol placement \"{id}\", because it places the same definition as an outer placement and forms a cycle ({count}).",
     "dwg.change.unsupported": "Cannot write back the change to \"{kind}\" to DWG yet. The changes were not applied.",
     "dwg.crc.invalid": "The CRC of the DWG {part} does not match in {count} places. Reading continued.",
     "dwg.data.invalid": "The type of the data for DWG object {record} cannot be read. The changes were not applied.",

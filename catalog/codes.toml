@@ -507,6 +507,17 @@ params = { from = "text", to = "text" }
 since = "0.0.0"
 status = "active"
 
+# 図面の領域モデルをたどる（決定 0159）
+
+[codes."drawing.placement.invalid"]
+description = "記号の配置が、道筋の外側の配置と同じ定義を置く（循環）ので、中をたどらなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "text" }
+group-by = ["id"]
+since = "0.0.0"
+status = "active"
+
 # DXF から図面の領域モデルへの変換（決定 0022）
 
 [codes."drawing.mark-height.dropped"]

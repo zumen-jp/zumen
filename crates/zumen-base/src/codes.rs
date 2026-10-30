@@ -315,6 +315,17 @@ pub const DRAWING_MARK_HEIGHT_DROPPED: Code = Code::new(
     &["name"],
 );
 
+/// 記号の配置が、道筋の外側の配置と同じ定義を置く（循環）ので、中をたどらなかった
+///
+/// `drawing.placement.invalid`（0.0.0 から）
+pub const DRAWING_PLACEMENT_INVALID: Code = Code::new(
+    "drawing.placement.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("id", ParamType::Text)],
+    &["id"],
+);
+
 /// この DWG から読んでいないオブジェクトの変更や、まだ符号化できない値の変更は、DWG に書き戻せない
 ///
 /// `dwg.change.unsupported`（0.0.0 から）
@@ -1134,6 +1145,7 @@ pub const ALL: &[Code] = &[
     CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_XDATA_UNSUPPORTED,
     DRAWING_MARK_HEIGHT_DROPPED,
+    DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,
     DWG_DATA_INVALID,

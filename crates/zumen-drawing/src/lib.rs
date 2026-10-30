@@ -40,6 +40,7 @@ mod table;
 mod text;
 pub mod transform;
 mod underlay;
+mod walk;
 
 pub use callout::{AttributeValue, Branch, Callout, CalloutContent, Dogleg, PathKind};
 pub use change::{Applied, Changes, Edit, Placed, Restyle, Seen};
@@ -70,6 +71,7 @@ pub use text::{
     Text, Vertical,
 };
 pub use underlay::{Clip, Resource, Underlay, UnderlayFrame, UnderlayKind};
+pub use walk::{Clipping, Item, Origin, Step, Visit};
 
 /// 図面。実寸の空間と用紙を、順序のある一覧で持つ
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -84,8 +86,12 @@ pub struct Drawing2D {
     pub line_types: Vec<LineType>,
     /// 文書全体の線種の倍率。元の形式が決めていなければ `None`
     pub line_type_scale: Option<f64>,
-    /// [`LineWeight::Default`] の線幅。元の形式が決めていなければ `None`
+    /// [`LineWeight::Default`] の線幅と、起点まで配置から継承する線幅。元の形式が決めていなければ `None`
     pub default_line_weight: Option<PaperLength>,
+    /// 起点まで配置から継承する色（決定 0159）。元の形式が決めていなければ `None`
+    pub default_color: Option<Color>,
+    /// 起点まで配置から継承する線種（決定 0159）。元の形式が決めていなければ `None`
+    pub default_line_type: Option<LineTypeId>,
     /// 寸法スタイル。順序は元の形式の定義の順
     pub dimension_styles: Vec<DimensionStyle>,
     /// 文字スタイル。順序は元の形式の定義の順。要素が名前で指すだけで、定義がないものは後ろに足す（決定 0158）
