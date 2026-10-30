@@ -115,7 +115,7 @@
 - CLI は、1 つの実行ファイル `zumen` にする。よく使う op（形式の判定、変換、描画など）をサブコマンドにし、`serve --stdio`・`mcp`・`serve --http` を置く。
 - **標準入出力の JSON-RPC** は、自前で書く。MCP の stdio と同じく、1 行に 1 つのメッセージにする。
 - **MCP**
-  - 公式の Rust SDK（rmcp）を使い、大版を固定する。大版を上げるときは、サーバーを見直す（[旧版の決定 0004](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0004-mcp-server-in-the-python-package.md) と同じ）。この項を、依存を足さずに自前で書くことに改める提案を [0197](0197-cli-and-mcp-server.md) に書いた。
+  - 公式の Rust SDK（rmcp）を使い、大版を固定する。大版を上げるときは、サーバーを見直す（[旧版の決定 0004](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0004-mcp-server-in-the-python-package.md) と同じ）。この項は [0197](0197-cli-and-mcp-server.md) で、依存を足さずに自前で書くことに改めた。
   - 道具は、スキーマの AI 向けの op から生成する（[0012](0012-boundary-functions-and-messages.md)）。道具の一覧は、決まった順に返す。
   - 読めるフォルダーを `--root` で限り、入力の大きさ・返す件数・画像の大きさに上限を置く（[旧版の決定 0004](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0004-mcp-server-in-the-python-package.md)・[旧版の決定 0011](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0011-tool-functions-for-agents.md) を続ける）。
   - 図面の文字・名前・属性は、データであって指示ではないことを、道具の説明とサーバーの案内に書く。
