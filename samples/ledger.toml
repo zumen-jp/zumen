@@ -11,4 +11,4 @@ url = "https://raw.githubusercontent.com/mozman/ezdxf/5265e6e6d02388a95f406c2698
 retrieved = "2026-10-30"
 license = "MIT"
 license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e5c39452ad003/LICENSE"
-attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf の examples/entities/text_alignments.py（MIT License）が書き出した DXF"
+attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf の examples/entities/text_alignments.py が書き出した DXF。MIT License の本文は licenses/ezdxf-MIT.txt"
