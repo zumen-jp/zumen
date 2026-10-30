@@ -12,10 +12,12 @@
 //! 並ぶ行の間隔の符号を変える。
 //!
 //! 引出線は経路の頂点を写す。折れ線の引出線はどのアフィン変換でも、曲線の引出線は相似でだけ写す（決定 0185）。
+//! 引出線つきの注記は、尺度を変えず鏡映を含まない相似（回転と平行移動）でだけ写す（決定 0191）。
 
 use crate::{
-    Affine, Attribute, Edge, FormattedText, Height, Length, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, Piece, Placement, Polyline, Rotation, Scaled, Shape, Symbol, Text, Vertex,
+    Affine, Attribute, Branch, Callout, CalloutContent, Dogleg, Edge, FormattedText, Height,
+    Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Piece, Placement, Polyline, Rotation,
+    Scaled, Shape, Symbol, Text, Vertex,
 };
 
 /// 変換で写せる点
@@ -256,7 +258,51 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
                 ..leader.clone()
             })
         }
+        Shape::Callout(callout) => Shape::Callout(calling(callout, transform, similar?)?),
         _ => return None,
+    })
+}
+
+/// 引出線つきの注記を写す（決定 0191）。端部記号・折れ曲がり・文字の大きさは、元の形式ではスタイルに従うことが
+/// あり、尺度を掛けるにはスタイルの上書きを推定することになるので、尺度を変える相似は写さない。鏡映は書式つきの
+/// 文字が表せない。記号の注記は、元の形式の変換の行列を確かめていないので写さない。枝の頂点と集まる点を写し、
+/// 折れ曲がりの向きを回す
+fn calling<P: Point>(
+    callout: &Callout<P>,
+    transform: &Affine,
+    s: Similarity,
+) -> Option<Callout<P>> {
+    if s.mirrored || (s.scale - 1.0).abs() > TOLERANCE {
+        return None;
+    }
+    let s = Similarity { scale: 1.0, ..s };
+    let content = match &callout.content {
+        CalloutContent::None => CalloutContent::None,
+        CalloutContent::Text(text) => {
+            CalloutContent::Text(Box::new(formatting(text, transform, s)?))
+        }
+        CalloutContent::Symbol { .. } => return None,
+    };
+    let branches = callout
+        .branches
+        .iter()
+        .map(|branch| Branch {
+            lines: branch
+                .lines
+                .iter()
+                .map(|line| line.iter().map(|p| transform.point(*p)).collect())
+                .collect(),
+            end: branch.end.map(|p| transform.point(p)),
+            dogleg: branch.dogleg.map(|dogleg| Dogleg {
+                direction: transform.direction(dogleg.direction),
+                ..dogleg
+            }),
+        })
+        .collect();
+    Some(Callout {
+        branches,
+        content,
+        ..callout.clone()
     })
 }
 

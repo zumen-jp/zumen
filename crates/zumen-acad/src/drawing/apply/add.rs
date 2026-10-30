@@ -27,6 +27,8 @@ pub(super) struct Record {
     home: Home,
     /// 図形の後に続き、図形が所有するレコード（ATTRIB と SEQEND）。種類と、ハンドルと所有者の後の値
     followers: Vec<(&'static [u8], Vec<Value>)>,
+    /// 足した図形を反応子（102 `{ACAD_REACTORS` の 330）として書く、注記の MTEXT のハンドル（決定 0191）
+    annotation: Option<u64>,
 }
 
 impl Record {
@@ -235,6 +237,7 @@ impl Born {
         let paper = home.paper && !(home.blocks && self.dwg());
         let mut values = self.entity(element.layer, &element.style, paper)?;
         let mut followers = Vec::new();
+        let mut annotation = None;
         let kind = match &element.shape {
             Shape::Line { start, end } | Shape::Curve(Edge::Line { start, end }) => {
                 values.push(text(100, "AcDbLine"));
@@ -352,7 +355,7 @@ impl Born {
                 b"INSERT"
             }
             Shape::Leader(leader) => {
-                self.leading(&mut values, frame, leader, home)?;
+                annotation = self.leading(&mut values, frame, leader, home)?;
                 b"LEADER"
             }
             // POINT（DXF Reference「POINT」）。見え方は文書の点の表し方に従うので、既定義の印の点と作図の補助の
@@ -383,23 +386,24 @@ impl Born {
             values,
             home,
             followers,
+            annotation,
         })
     }
 
     /// LEADER（DXF Reference「LEADER」）の値（決定 0177・0185）。DXF Reference の並びで書く。鉤の線を持たず
     /// （75 = 0）、X 軸の向き（211）は (1, 0, 0)、ずれ（212・213）は 0 とする。注記がなければ 73 = 3 とし、注記の
     /// 大きさ（40・41）は 1 とする。注記は、同じブロックのレコードが持つ MTEXT だけを指し（73 = 0、340）、注記の
-    /// 大きさはその文字の高さ（40）と枠の幅（41）とする（推定。AutoCAD は開くときに求め直す）。注記の側の
-    /// 反応子（102 `{ACAD_REACTORS`）は書かない。矢印（71）は、DXF では寸法スタイルに従うなら書かない。DWG の
-    /// LEADER は矢印の印を必ず持つので、寸法スタイルに従う矢印は DWG に足さない。LEADER を持たない R12 の DXF
-    /// にも足さない
+    /// 大きさはその文字の高さ（40）と枠の幅（41）とする（推定。AutoCAD は開くときに求め直す）。注記の MTEXT の
+    /// ハンドルを返し、[`Born::push`] がその MTEXT に反応子（102 `{ACAD_REACTORS`）を書く（決定 0191）。矢印（71）
+    /// は、DXF では寸法スタイルに従うなら書かない。DWG の LEADER は矢印の印を必ず持つので、寸法スタイルに従う
+    /// 矢印は DWG に足さない。LEADER を持たない R12 の DXF にも足さない
     fn leading<P>(
         &self,
         values: &mut Vec<Value>,
         frame: &impl Frame<P>,
         leader: &Leader<P>,
         home: Home,
-    ) -> Option<()> {
+    ) -> Option<Option<u64>> {
         if !self.version.is_empty() && !self.since(b"AC1012") {
             return None;
         }
@@ -437,7 +441,7 @@ impl Born {
         values.extend([real(211, 1.0)?, real(221, 0.0)?, real(231, 0.0)?]);
         values.extend([real(212, 0.0)?, real(222, 0.0)?, real(232, 0.0)?]);
         values.extend([real(213, 0.0)?, real(223, 0.0)?, real(233, 0.0)?]);
-        Some(())
+        Some(annotation.map(|found| found.handle))
     }
 
     /// DWG に書き戻すか
@@ -852,6 +856,7 @@ impl Born {
             values,
             home,
             followers,
+            annotation,
         } in added
         {
             // ATTRIB と SEQEND は、図形のすぐ後に置き、所有者を図形とする
@@ -898,8 +903,63 @@ impl Born {
                 // record が、続く ATTRIB と SEQEND と次の HANDSEED まで加算できることを確かめている。
                 next += 1;
             }
+            // 注記の MTEXT に、足した図形を反応子として書く。AutoCAD は、注記を動かすと引出線も動かす（決定 0191）
+            if let Some(note) = annotation
+                && let Some(at) = db
+                    .objects()
+                    .iter()
+                    .position(|object| object.kind == b"MTEXT" && object.handle() == Some(note))
+                && let Some(object) = db.object_mut(at)
+            {
+                react(&mut object.values, parent);
+            }
         }
         handles
+    }
+}
+
+/// 値 `values` の反応子の組（102 `{ACAD_REACTORS`・330・102 `}`）に、ハンドル `reactor` を足す。組がなければ、
+/// ハンドル（5）の後に作る（DXF Reference「Common Group Codes for Entities」の並び。拡張辞書の組より前）
+fn react(values: &mut Vec<Value>, reactor: u64) {
+    let marker = |value: &Value, text: &[u8]| {
+        value.code == 102 && matches!(&value.data, Data::Text(t) if t.as_slice() == text)
+    };
+    let entry = Value {
+        code: 330,
+        data: Data::Handle(reactor),
+    };
+    let close = values
+        .iter()
+        .position(|v| marker(v, b"{ACAD_REACTORS"))
+        .and_then(|open| {
+            values
+                .iter()
+                .skip(open)
+                .position(|v| marker(v, b"}"))
+                .map(|at| open + at)
+        });
+    match close {
+        Some(close) => values.insert(close, entry),
+        None => {
+            let at = values
+                .iter()
+                .position(|v| v.code == 5)
+                .map_or(0, |at| at + 1);
+            values.splice(
+                at..at,
+                [
+                    Value {
+                        code: 102,
+                        data: Data::Text(b"{ACAD_REACTORS".to_vec()),
+                    },
+                    entry,
+                    Value {
+                        code: 102,
+                        data: Data::Text(b"}".to_vec()),
+                    },
+                ],
+            );
+        }
     }
 }
 

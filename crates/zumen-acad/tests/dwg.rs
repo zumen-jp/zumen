@@ -2335,9 +2335,40 @@ fn multileaders_have_their_context_and_leaders() {
     assert_eq!(data(90, 0), Some(Data::Int(0xC000_0000_u32 as i32 as i64)));
     assert_eq!(data(91, 0), Some(Data::Int(0xC100_0000_u32 as i32 as i64)));
     assert_eq!(data(92, 1), Some(Data::Int(0xC300_0009_u32 as i32 as i64)));
-    // DWG の MULTILEADER は、まだ書き戻さない（決定 0185）
+    // DWG の MULTILEADER は、実数の値だけを書き戻す（決定 0191）。文脈の倍率（40）・枝の集まる点（10）・線の
+    // 2 つ目の頂点（10）を変えて読み直すと、その値だけが変わる
     let mut changed = db.clone();
-    set_value(&mut changed, 0x44, 40, Data::Real(9.0));
+    let at = changed
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(0x44))
+        .unwrap();
+    let values = &mut changed.object_mut(at).unwrap().values;
+    let nth = |values: &[Value], code: i16, nth: usize| {
+        values
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.code == code)
+            .nth(nth)
+            .unwrap()
+            .0
+    };
+    for (code, n, value) in [(40, 0, 9.0), (10, 1, -3.5), (10, 3, 1234.5678)] {
+        let at = nth(values, code, n);
+        values[at].data = Data::Real(value);
+    }
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let (out, diag) = written_back(&mut file, &changed);
+    assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
+    let (again, diag) = objects(&out.unwrap());
+    assert!(diag.is_empty(), "{:?}", codes_of(&diag));
+    assert_eq!(
+        again.get(0x44).unwrap().values,
+        changed.get(0x44).unwrap().values
+    );
+    // 実数でない値（文字）は、まだ書き戻さない
+    let mut changed = db.clone();
+    set_value(&mut changed, 0x44, 304, Data::Text(b"B".to_vec()));
     let mut file = read(&src, Limits::default()).0.unwrap();
     let (out, diag) = written_back(&mut file, &changed);
     assert_eq!(out, Err(Error::Rejected));
@@ -8771,7 +8802,8 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
     };
     use zumen_sdk::{Apply, Lift};
     let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
-    // 注釈の種類 3（なし）で、2 つの点を持つモデル空間の引出線。注記のハンドルは画層を指す
+    // 注釈の種類 3（なし）で、2 つの点を持つモデル空間の引出線。注記のハンドルは画層を指す。鉤の線の点の差
+    // （212）は (1, 0, 0)、注記への差（213）は (0, 2, 0)
     let leader = object(
         0x2D,
         0x40,
@@ -8784,7 +8816,7 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
             for v in [0.0, 0.0, 0.0, 5.0, 5.0, 0.0, 5.0, 5.0, 0.0, 0.0, 0.0, 1.0] {
                 w.bd(v);
             }
-            for v in [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
+            for v in [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 2.0, 0.0] {
                 w.bd(v);
             }
             w.bd(1.0);
@@ -8904,6 +8936,34 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
         point.y += 2.0;
     }
     assert_eq!(leaders(&written), [shifted]);
+    let offsets = |src: &[u8]| {
+        let (db, _) = self::objects(src);
+        let values = &db.get(0x40).unwrap().values;
+        [212, 222, 213, 223].map(|code| {
+            values
+                .iter()
+                .find(|v| v.code == code)
+                .map(|v| match v.data {
+                    Data::Real(value) => value,
+                    _ => f64::NAN,
+                })
+        })
+    };
+    assert_eq!(
+        offsets(&written),
+        [Some(1.0), Some(0.0), Some(0.0), Some(2.0)]
+    );
+
+    // 回す変換は、ずれ（212・213）も回す（決定 0191）
+    let (result, diag, written) = apply(Edit::Transform {
+        target: target.clone(),
+        transform: Affine::rotation(0.0, 0.0, 90.0),
+    });
+    assert!(result.is_ok(), "{:?}", codes_of(&diag));
+    let [a, b, c, d] = offsets(&written).map(Option::unwrap);
+    for (found, expected) in [(a, 0.0), (b, 1.0), (c, -2.0), (d, 0.0)] {
+        assert!((found - expected).abs() < 1e-12, "{found} {expected}");
+    }
 
     // 寸法スタイルに従う矢印は書けないので、書き戻しで断る。足すことは
     // [`drawing_additions_go_into_symbol_definitions`] で確かめる

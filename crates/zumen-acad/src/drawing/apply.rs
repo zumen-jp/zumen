@@ -1471,7 +1471,14 @@ fn moved<P: Copy + PartialEq + transform::Point>(
         },
         _ => element.clone(),
     };
-    let mut values = replacement(was, &written, object, unicode, frame)?;
+    // 引出線つきの注記は、注記の文脈の点と向きを、レコードの値のまま写す（決定 0191）
+    let mut values = match &was.shape {
+        Shape::Callout(_) if object.kind == b"MULTILEADER" => {
+            swung(&object.values, &frame.affine(transform))?
+        }
+        Shape::Callout(_) => return None,
+        _ => replacement(was, &written, object, unicode, frame)?,
+    };
     if let (Shape::Text(before), Shape::Text(after)) = (&was.shape, &element.shape) {
         aligned_first(
             &mut values,
@@ -1538,8 +1545,23 @@ fn moved<P: Copy + PartialEq + transform::Point>(
 
 /// 動かした LEADER の X 軸の向き（211・221・231。DXF Reference「LEADER」）を、変換の向きで写す（決定 0185）。
 /// 向きがなければ (1, 0, 0) として写し、写した向きが (1, 0, 0) なら書かない。鉤の線と注記へのずれ（212・213）は
-/// 元のまま
+/// 差なので、平行移動を含めずに写す（決定 0191）。なければ 0 なので書かない
 fn directed(values: &mut Vec<Value>, transform: &Affine) -> Option<()> {
+    for code in [212, 213] {
+        let at = values.iter().position(|v| v.code == code);
+        let next = |at: usize, code: i16| match values.get(at) {
+            Some(Value {
+                code: found,
+                data: Data::Real(v),
+            }) if *found == code => Some(*v),
+            _ => None,
+        };
+        if let Some(at) = at {
+            let [x, y] = transform.vector([next(at, code)?, next(at + 1, code + 10)?]);
+            values.get_mut(at)?.data = Data::Real(x);
+            values.get_mut(at + 1)?.data = Data::Real(y);
+        }
+    }
     let at = |values: &[Value], code: i16| values.iter().position(|v| v.code == code);
     let read = |values: &[Value], code: i16| match values.iter().find(|v| v.code == code) {
         Some(Value {
@@ -1757,6 +1779,8 @@ trait Frame<P> {
     fn length(&self, length: &Length) -> Option<f64>;
     /// レコードの長さを、読む側と同じく図面モデルの長さにする
     fn lifted(&self, value: f64) -> Length;
+    /// 図面モデルの点を写す変換 `transform` を、レコードの座標を写す変換にする
+    fn affine(&self, transform: &Affine) -> Affine;
 }
 
 /// 実寸の空間。点と長さは、レコードの値のまま
@@ -1780,6 +1804,10 @@ impl Frame<ModelPoint> for InSpace {
             value,
         })
     }
+
+    fn affine(&self, transform: &Affine) -> Affine {
+        *transform
+    }
 }
 
 /// 用紙。用紙の mm を、読むときと逆に、図面の単位に戻して原点を足す
@@ -1802,6 +1830,24 @@ impl Frame<PaperPoint> for OnSheet {
 
     fn lifted(&self, value: f64) -> Length {
         Length::Paper(PaperLength(value * self.1.mm))
+    }
+
+    /// レコードの点 `q` は用紙の点 `mm (q − o)` なので、`L p + t` は `L q + t / mm + o − L o` になる
+    fn affine(&self, transform: &Affine) -> Affine {
+        let PaperFrame {
+            origin: [x, y], mm, ..
+        } = self.1;
+        let [a, b, c, d, e, f] = transform.m;
+        Affine {
+            m: [
+                a,
+                b,
+                c / mm + x - (a * x + b * y),
+                d,
+                e,
+                f / mm + y - (d * x + e * y),
+            ],
+        }
     }
 }
 
@@ -1980,7 +2026,7 @@ fn replacement<P: PartialEq>(
             dotting(&mut values, dot, was, frame)?;
         }
         (Shape::Callout(callout), Shape::Callout(was), b"MULTILEADER") => {
-            calling(&mut values, callout, was, frame)?;
+            calling(&mut values, callout, was, frame, unicode)?;
         }
         _ => return None,
     }
@@ -2009,6 +2055,7 @@ fn dotting<P: PartialEq>(
 /// LEADER（DXF Reference「LEADER」）の欄を直す。寸法スタイル（3）と注記（340）は変えない。経路が変われば、
 /// 頂点の数（76）の後の頂点（10・20・30）を書き直し、曲線か（72）と矢印（71）は変わったものだけを書く。矢印を
 /// 寸法スタイルに従わせるときは 71 を除く。注記の大きさと鉤の線（40・41・74・75）と、ずれ（212・213）は元のまま
+/// （変換では [`directed`] がずれを写す）
 fn leading<P: PartialEq>(
     values: &mut Vec<Value>,
     leader: &Leader<P>,
@@ -2674,19 +2721,52 @@ fn insert(values: &mut Vec<Value>, code: i16, data: Data, after: &[i16]) -> Opti
     Some(())
 }
 
-/// MULTILEADER（DXF Reference「MLEADER」）の枝を直す（決定 0185）。枝の線の頂点・集まる点・折れ曲がりだけを
-/// 書き、ほかの欄（注記・線の引き方・端部記号・大きさ・色・スタイル）は元と同じでなければならない。枝と線の数と、
-/// 集まる点と折れ曲がりの有無も元と同じとする。区切り（302 `LEADER{`・304 `LEADER_LINE{`）の中の、枝の 10・20
-/// （集まる点）・11・21（折れ曲がりの向き）・40（折れ曲がりの長さ）と、線の 10・20・30（頂点）を書き直す。線の
-/// 切れ目（線の 11・12、枝の 12・13）は頂点から決め直せないので、それを持つ線か枝を変えるときは書かない
+/// MULTILEADER（DXF Reference「MLEADER」）の枝を直す（決定 0185）。枝の線の頂点・集まる点・折れ曲がりと、文字の
+/// 注記の内容（決定 0191）だけを書き、ほかの欄（注記の位置と体裁・線の引き方・端部記号・大きさ・色・スタイル）は
+/// 元と同じでなければならない。枝と線の数と、集まる点と折れ曲がりの有無も元と同じとする。区切り（302 `LEADER{`・
+/// 304 `LEADER_LINE{`）の中の、枝の 10・20（集まる点）・11・21（折れ曲がりの向き）・40（折れ曲がりの長さ）と、線の
+/// 10・20・30（頂点）を書き直す。線の切れ目（線の 11・12、枝の 12・13）は頂点から決め直せないので、それを持つ線か
+/// 枝を変えるときは書かない。文字の内容は文脈の 304 に 1 つの値で書くので、250 バイトまでとする（長い内容の
+/// 分け方を確かめていない）
 fn calling<P: PartialEq>(
     values: &mut Vec<Value>,
     callout: &Callout<P>,
     was: &Callout<P>,
     frame: &impl Frame<P>,
+    unicode: bool,
 ) -> Option<()> {
-    if callout.content != was.content
-        || callout.path != was.path
+    let content = match (&callout.content, &was.content) {
+        (content, before) if content == before => None,
+        (
+            zumen_drawing::CalloutContent::Text(text),
+            zumen_drawing::CalloutContent::Text(before),
+        ) => {
+            let laid = text.height == before.height
+                && text.point == before.point
+                && text.horizontal == before.horizontal
+                && text.vertical == before.vertical
+                && text.rotation == before.rotation
+                && text.width == before.width
+                && text.frame_height == before.frame_height
+                && text.flow == before.flow
+                && text.line_spacing == before.line_spacing
+                && text.background == before.background
+                && text.style == before.style;
+            let spans = mtext::spans(&text.content, &|value| frame.lifted(value));
+            if !laid
+                || text.spans != spans
+                || !(unicode || text.content.is_ascii())
+                || text.content.contains(['\n', '\r'])
+                || text.content.len() > 250
+            {
+                return None;
+            }
+            Some(text.content.as_bytes())
+        }
+        _ => return None,
+    };
+    let mut wrote = content.is_none();
+    if callout.path != was.path
         || callout.arrowhead != was.arrowhead
         || callout.arrow_size != was.arrow_size
         || callout.landing != was.landing
@@ -2730,6 +2810,14 @@ fn calling<P: PartialEq>(
                 seen = true;
             }
             (1, 301) => depth = 0,
+            (1, 304) if let Some(text) = content => {
+                values.push(Value {
+                    code: 304,
+                    data: Data::Text(text.to_vec()),
+                });
+                wrote = true;
+                continue;
+            }
             (1, 302) if marker(&value, b"LEADER{") => {
                 branches += 1;
                 lines = 0;
@@ -2787,7 +2875,100 @@ fn calling<P: PartialEq>(
         }
         values.push(value);
     }
-    (seen && depth == 0 && branches == callout.branches.len()).then_some(())
+    (seen && wrote && depth == 0 && branches == callout.branches.len()).then_some(())
+}
+
+/// 変換 `transform`（レコードの座標を写す、尺度を変えず鏡映を含まない相似）で動かした MULTILEADER（DXF
+/// Reference「MLEADER」）の値（決定 0191）。区切りは [`calling`] と同じ。文脈の注記の基点（10）・文字の位置（12）・
+/// 平面の原点（110）と、枝の集まる点（10）・切れ目（12・13）と、線の頂点（10）・切れ目（11・12）を点として写し、
+/// 文字の向き（13）・平面の X と Y の軸（111・112）・折れ曲がりの向き（枝の 11）を回し、文字の回転（42、ラジアン）
+/// に回転の角度を足す。大きさは変えない。図形の欄（区切りの外）は、点を持たないので変えない
+fn swung(values: &[Value], transform: &Affine) -> Option<Vec<Value>> {
+    enum Kind {
+        Point,
+        Vector,
+        Direction,
+    }
+    let s = transform.similarity()?;
+    let mut values = values.to_vec();
+    let marker =
+        |value: &Value, text: &[u8]| matches!(&value.data, Data::Text(t) if t.as_slice() == text);
+    let pair = |values: &[Value], at: usize, code: i16| -> Option<[f64; 2]> {
+        match (values.get(at)?, values.get(at + 1)?) {
+            (
+                Value {
+                    data: Data::Real(x),
+                    ..
+                },
+                Value {
+                    code: next,
+                    data: Data::Real(y),
+                },
+            ) if *next == code + 10 => Some([*x, *y]),
+            _ => None,
+        }
+    };
+    let mut depth = 0;
+    let mut seen = false;
+    let mut at = 0;
+    while let Some(value) = values.get(at) {
+        let code = value.code;
+        let kind = match (depth, code) {
+            (0, 300) if !seen => {
+                depth = 1;
+                seen = true;
+                None
+            }
+            (1, 301) => {
+                depth = 0;
+                None
+            }
+            (1, 302) if marker(value, b"LEADER{") => {
+                depth = 2;
+                None
+            }
+            (2, 303) => {
+                depth = 1;
+                None
+            }
+            (2, 304) if marker(value, b"LEADER_LINE{") => {
+                depth = 3;
+                None
+            }
+            (3, 305) => {
+                depth = 2;
+                None
+            }
+            (1, 42) => {
+                let Data::Real(angle) = value.data else {
+                    return None;
+                };
+                let turned = (angle.to_degrees() + s.rotation).rem_euclid(360.0);
+                values.get_mut(at)?.data = Data::Real(turned.to_radians());
+                None
+            }
+            (1, 10 | 12 | 110) | (2, 10 | 12 | 13) | (3, 10..=12) => Some(Kind::Point),
+            (1, 13 | 111 | 112) => Some(Kind::Vector),
+            (2, 11) => Some(Kind::Direction),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            let [x, y] = pair(&values, at, code)?;
+            let [x, y] = match kind {
+                Kind::Point => {
+                    let (x, y) = transform.apply(x, y);
+                    [x, y]
+                }
+                Kind::Vector => transform.vector([x, y]),
+                Kind::Direction => transform.direction([x, y]),
+            };
+            values.get_mut(at)?.data = Data::Real(x);
+            values.get_mut(at + 1)?.data = Data::Real(y);
+            at += 1;
+        }
+        at += 1;
+    }
+    (seen && depth == 0).then_some(values)
 }
 
 /// 置き換えられる形の初めの点。形の空間（用紙）を決める

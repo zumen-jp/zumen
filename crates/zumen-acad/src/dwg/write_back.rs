@@ -37,7 +37,7 @@ use zumen_sdk::{Error, Transact, Transaction};
 use super::bits::{BitWriter, Bits, Color, modular_char, push_modular_char};
 use super::objects::{
     DIM_FIELDS, Dim, block_links, dim_fields, entity_fields, entity_links, entity_refs,
-    hatch_gradient, object_fields, owned, r2010_entity_fields, r2010_object_fields,
+    hatch_gradient, multileader, object_fields, owned, r2010_entity_fields, r2010_object_fields,
     skip_extended_data,
 };
 use super::{DwgFile, Release, header, kinds};
@@ -171,7 +171,8 @@ const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];
 const TOLERANCE: &[i16] = &[10, 20, 30, 11, 21, 31, 210, 220, 230, 1];
 const LEADER: &[i16] = &[
-    73, 72, 40, 41, 74, 71, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231,
+    73, 72, 40, 41, 74, 71, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231, 212, 222, 232, 213, 223,
+    233,
 ];
 /// 足す LEADER の欄。寸法スタイルの名前（3）と注記（340）は型ごとのハンドルに、鉤の線を持たないこと（75 = 0）と
 /// ずれ（212・213）も書く（決定 0185）
@@ -325,6 +326,9 @@ impl DwgFile {
                 return Err(unsupported(b"ENTITIES"));
             }
             if old.values != object.values {
+                // 足した反応子の組は、ほかの欄と分けて、反応子の数とハンドルの流れに書く（決定 0191）
+                let (reactors, object) = without_reactors(old, object);
+                let object = &object;
                 // 拡張辞書の組は、読む側が置いたままのものだけを受け付け、型ごとの欄からは除く（決定 0148・0152）
                 let (old, object) = match (without_xdictionary(old), without_xdictionary(object)) {
                     ((before, old), (after, object)) if before == after => (old, object),
@@ -336,8 +340,25 @@ impl DwgFile {
                     .get(record)
                     .and_then(|entry| {
                         let data = self.data(entry);
+                        if old.values == object.values {
+                            return Some(if r2010 {
+                                let mut bytes = Vec::new();
+                                let bits =
+                                    data.len().checked_mul(8)?.checked_sub(entry.handles?)?;
+                                push_modular_char(&mut bytes, i64::try_from(bits).ok()?, false);
+                                bytes.extend_from_slice(data);
+                                bytes
+                            } else {
+                                data.to_vec()
+                            });
+                        }
                         // BLOCK と ENDBLK も、DWG では図形として書かれる。R2010 から後は、図形だけを扱う
                         match self.kind(entry.type_code)?.1 {
+                            Section::Entities | Section::Blocks
+                                if !r2010 && object.kind == b"MULTILEADER" =>
+                            {
+                                callout(data, old, object, self.release)
+                            }
                             Section::Entities | Section::Blocks if r2010 => {
                                 encode_r2010(data, entry.handles?, old, object, self.release)
                             }
@@ -354,6 +375,24 @@ impl DwgFile {
                             Section::Tables => encode_record(data, old, object, self.release),
                             Section::Objects => encode_object(data, old, object, self.release),
                             _ => None,
+                        }
+                    })
+                    .and_then(|data| {
+                        if reactors.is_empty() {
+                            return Some(data);
+                        }
+                        if !matches!(object.section, Section::Entities | Section::Blocks) {
+                            return None;
+                        }
+                        if r2010 {
+                            let mut skip = 0;
+                            let bits =
+                                usize::try_from(modular_char(&data, &mut skip, false)?).ok()?;
+                            let data = data.get(skip..)?;
+                            let handles_at = (data.len() * 8).checked_sub(bits)?;
+                            react(data, Some(handles_at), self.release, &reactors)
+                        } else {
+                            react(&data, None, self.release, &reactors)
                         }
                     })
                     .ok_or_else(|| unsupported(&object.kind))?;
@@ -2115,6 +2154,193 @@ fn offset(object: &Object) -> Option<usize> {
     match object.origin {
         Origin::Dwg { offset, .. } => Some(offset),
         Origin::Dxf { .. } | Origin::New => None,
+    }
+}
+
+/// MULTILEADER のデータ `data` の実数（BD）の値を、`old` から `new` に変えたもの（決定 0191）。読む側
+/// （`multileader`）で実数のビットの範囲を求め、変わった実数だけを符号化し直し、ほかのビットは元のまま写す。
+/// 値の数・並び・実数でない値は変えられない（枝の線の頂点の数、注記の文字、ハンドルなど）。R2004 までの版だけを
+/// 扱う。R2010 から後は、文字列の流れを分けた試験の図面をまだ作っていないので断る
+fn callout(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+    if old.values.len() != new.values.len() {
+        return None;
+    }
+    let mut changed = Vec::new();
+    for (at, (before, after)) in old.values.iter().zip(&new.values).enumerate() {
+        match (before, after) {
+            _ if before == after => {}
+            (
+                Value {
+                    code,
+                    data: Data::Real(_),
+                },
+                Value {
+                    code: next,
+                    data: Data::Real(value),
+                },
+            ) if code == next => changed.push((at, *value)),
+            _ => return None,
+        }
+    }
+    let mut bits = Bits::with_release(data, release);
+    let [size_at, _, start, end] = entity_fields(data, release)?;
+    bits.seek(start);
+    let mut reals = Vec::new();
+    let tagged = multileader(&mut bits, release, &mut 0, Some(&mut reals))?;
+    // 型ごとの欄の値は、文脈の区切り（R2010 からは、その前の版の 270）から並ぶ。読む側は 0 のハンドルと置かない
+    // ハンドルを除くので、読み直した値のハンドルは、表の値と符号が合わなければ飛ばす
+    let first = old.values.iter().position(|v| {
+        v.code == 300 && matches!(&v.data, Data::Text(t) if t.as_slice() == b"CONTEXT_DATA{")
+    })?;
+    let mut at = first.checked_sub(usize::from(release >= Release::R2010))?;
+    let mut found = BTreeMap::new();
+    for value in &tagged {
+        let same = old.values.get(at).is_some_and(|v| {
+            v.code == value.code
+                && matches!(v.data, Data::Real(_)) == matches!(value.data, Data::Real(_))
+        });
+        match value.data {
+            Data::Real(index) if same => {
+                found.insert(at, reals.get(index as usize)?.clone());
+            }
+            _ if same => {}
+            Data::Handle(_) => continue,
+            _ => return None,
+        }
+        at += 1;
+    }
+    let mut writes = Vec::with_capacity(changed.len());
+    for (at, value) in changed {
+        writes.push((found.get(&at)?.clone(), value));
+    }
+    writes.sort_by_key(|(range, _)| range.start);
+    let mut fields = BitWriter::default();
+    let mut pos = start;
+    for (range, value) in writes {
+        fields.copy(data, pos..range.start)?;
+        fields.bd(value);
+        pos = range.end;
+    }
+    fields.copy(data, pos..end)?;
+    let len = fields.len();
+    let mut out = BitWriter::default();
+    out.copy(data, 0..size_at)?;
+    out.rl(i32::try_from(start + len).ok()?);
+    out.copy(data, size_at + 32..start)?;
+    out.copy(&fields.into_bytes(), 0..len)?;
+    out.copy(data, end..data.len() * 8)?;
+    Some(out.into_bytes())
+}
+
+/// `old` になく `new` が持つ反応子の組（`102 {ACAD_REACTORS`・330・`102 }`）のハンドルと、組を除いた `new`。
+/// DWG を読む側は反応子を値に置かないので、組は書き戻しで足したものだけ（決定 0191）。`old` が組を持てば
+/// 何も除かない
+fn without_reactors(old: &Object, new: &Object) -> (Vec<u64>, Object) {
+    let marker = |value: &Value, text: &[u8]| {
+        value.code == 102 && matches!(&value.data, Data::Text(t) if t.as_slice() == text)
+    };
+    let open = |object: &Object| {
+        object
+            .values
+            .iter()
+            .position(|v| marker(v, b"{ACAD_REACTORS"))
+    };
+    let mut copy = new.clone();
+    let (None, Some(at)) = (open(old), open(new)) else {
+        return (Vec::new(), copy);
+    };
+    let Some(close) = new.values.iter().skip(at).position(|v| marker(v, b"}")) else {
+        return (Vec::new(), copy);
+    };
+    let mut handles = Vec::new();
+    for value in copy.values.drain(at..=at + close).skip(1) {
+        match value {
+            Value {
+                code: 330,
+                data: Data::Handle(handle),
+            } => handles.push(handle),
+            value if marker(&value, b"}") => {}
+            _ => return (Vec::new(), new.clone()),
+        }
+    }
+    (handles, copy)
+}
+
+/// 版 `release` の図形のデータ `data` の反応子に、ハンドル `reactors` を足したもの（決定 0191）。反応子の数（BL）
+/// を増やし、ハンドルの流れの反応子の終わりに柔らかい参照（符号 4）で書く。R2010 から後は、`handles_at` が
+/// ハンドルの流れの始まりで、`data` はハンドルの流れの大きさ（MC）の後。返すデータは、R2010 から後は MC から
+/// 始まる
+fn react(
+    data: &[u8],
+    handles_at: Option<usize>,
+    release: Release,
+    reactors: &[u64],
+) -> Option<Vec<u8>> {
+    let mut bits = Bits::with_release(data, release);
+    let (size_at, handles_at) = match handles_at {
+        Some(at) => {
+            bits.bot()?;
+            (None, at)
+        }
+        None => {
+            bits.bs()?;
+            let size_at = bits.pos();
+            (Some(size_at), usize::try_from(bits.rl()?).ok()?)
+        }
+    };
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    if bits.bit()? {
+        let size = if release >= Release::R2010 {
+            bits.bll()?
+        } else {
+            u64::try_from(bits.rl()?).ok()?
+        };
+        bits.skip_bytes(usize::try_from(size).ok()?)?;
+    }
+    let entmode = bits.bb()?;
+    let count_at = bits.pos();
+    let count = u32::try_from(bits.bl()?).ok()?;
+    let count_end = bits.pos();
+    if count_end > handles_at {
+        return None;
+    }
+    bits.seek(handles_at);
+    if entmode == 0 {
+        bits.handle()?;
+    }
+    for _ in 0..count {
+        bits.handle()?;
+    }
+    let insert_at = bits.pos();
+    let total = i32::try_from(u64::from(count).checked_add(reactors.len() as u64)?).ok()?;
+    let mut out = BitWriter::default();
+    match size_at {
+        Some(size_at) => {
+            let mut fields = BitWriter::default();
+            fields.copy(data, size_at + 32..count_at)?;
+            fields.bl(total);
+            fields.copy(data, count_end..handles_at)?;
+            out.copy(data, 0..size_at)?;
+            out.rl(i32::try_from(size_at + 32 + fields.len()).ok()?);
+            let len = fields.len();
+            out.copy(&fields.into_bytes(), 0..len)?;
+        }
+        None => {
+            out.copy(data, 0..count_at)?;
+            out.bl(total);
+            out.copy(data, count_end..handles_at)?;
+        }
+    }
+    let at = out.len();
+    out.copy(data, handles_at..insert_at)?;
+    for &reactor in reactors {
+        out.handle(4, reactor);
+    }
+    out.copy(data, insert_at..data.len() * 8)?;
+    match size_at {
+        Some(_) => Some(out.into_bytes()),
+        None => with_modular_size(out, at),
     }
 }
 
@@ -5768,8 +5994,9 @@ fn leader(
         bits.bd()?;
     }
     let offsets_at = bits.pos();
-    for _ in 0..6 {
-        bits.bd()?;
+    let mut offsets = [0.0; 6];
+    for slot in &mut offsets {
+        *slot = bits.bd()?;
     }
     let offsets_end = bits.pos();
     bits.bd()?;
@@ -5788,7 +6015,21 @@ fn leader(
     }
     point3_or(fields, object, 210, [0.0, 0.0, 1.0])?;
     point3_or(fields, object, 211, [1.0, 0.0, 0.0])?;
-    fields.copy(data, offsets_at..offsets_end)?;
+    // ずれ（212・213）は、読む側が 0 のとき置かないので、表になければ 0 とする。元と同じなら元のビットを写す
+    // （決定 0191）
+    let mut written = BitWriter::default();
+    point3_or(&mut written, object, 212, [0.0; 3])?;
+    point3_or(&mut written, object, 213, [0.0; 3])?;
+    let mut again = BitWriter::default();
+    for value in offsets {
+        again.bd(value);
+    }
+    if written.len() == again.len() && written.into_bytes() == again.into_bytes() {
+        fields.copy(data, offsets_at..offsets_end)?;
+    } else {
+        point3_or(fields, object, 212, [0.0; 3])?;
+        point3_or(fields, object, 213, [0.0; 3])?;
+    }
     match (real(object, 40)?, real(object, 41)?) {
         (Some(height), Some(width)) => {
             fields.bd(height);
@@ -6292,6 +6533,67 @@ mod leader_tests {
             let mut following = changed.clone();
             following.values.retain(|value| value.code != 71);
             assert!(encode_r2010(data, handles_at, &old, &following, release).is_none());
+        }
+    }
+
+    /// 図形に反応子を足すと、反応子の数とハンドルの流れの反応子が増え、型ごとの欄とほかのハンドルは変わらない
+    /// （決定 0191）
+    #[test]
+    fn reactors_are_added_to_entities() {
+        for release in [
+            Release::R2000,
+            Release::R2004,
+            Release::R2010,
+            Release::R2013,
+            Release::R2018,
+        ] {
+            let old = leader_object(&[[0.0, 0.0], [5.0, 5.0]], 1);
+            let new = NewEntity {
+                object: &old,
+                handle: 0x40,
+                type_code: kinds::LEADER,
+                mode: 2,
+                owner: 0x1F,
+                layer: 0x10,
+                ltype: (0, 0),
+                pointed: Some(0x11),
+                embedded: None,
+                children: None,
+            };
+            let encoded = new.encode(0, 0, release).unwrap();
+            // 反応子の数・反応子のハンドル・型ごとの値・後ろのハンドル
+            let read = |bytes: &[u8]| {
+                let (data, handles_at, start) = if release >= Release::R2010 {
+                    let (data, handles_at) = split(bytes);
+                    let [_, start, _] = r2010_entity_fields(data, handles_at, release).unwrap();
+                    (data.to_vec(), handles_at, start)
+                } else {
+                    let [_, _, start, handles_at] = entity_fields(bytes, release).unwrap();
+                    (bytes.to_vec(), handles_at, start)
+                };
+                let count = if release == Release::R2000 {
+                    entity_links(&data, 0x40).unwrap().reactors
+                } else {
+                    entity_refs(&data, release).unwrap().0
+                };
+                let mut bits = Bits::with_release(&data, release);
+                bits.seek(start);
+                let values = super::super::objects::leader(&mut bits).unwrap();
+                bits.seek(handles_at);
+                let reactors: Vec<u64> = (0..count).map(|_| bits.handle().unwrap().value).collect();
+                let rest: Vec<u64> = (0..3).map(|_| bits.handle().unwrap().value).collect();
+                (count, reactors, values, rest)
+            };
+            let (count, reactors, values, rest) = read(&encoded);
+            assert_eq!((count, reactors), (0, Vec::new()));
+            let reacted = if release >= Release::R2010 {
+                let (data, handles_at) = split(&encoded);
+                react(data, Some(handles_at), release, &[0x51, 0x52]).unwrap()
+            } else {
+                react(&encoded, None, release, &[0x51, 0x52]).unwrap()
+            };
+            let again = read(&reacted);
+            assert_eq!(again, (2, vec![0x51, 0x52], values, rest), "{release:?}");
         }
     }
 }

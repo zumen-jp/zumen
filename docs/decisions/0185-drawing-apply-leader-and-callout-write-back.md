@@ -31,6 +31,7 @@
 - 変換は 212・213（注記からのずれ）を元のまま残すので、回す変換の後は、注記との組の見え方が変わることがある。
 - DWG に新しく足す LEADER の注記の大きさ（40・41）は、注記がなければ 1 と 0 とする推定である。R2010 以降の置き換えで値がなければ、元のビットを写す。
 - MULTILEADER の注記の位置や中身の書き直し、DWG の MULTILEADER、追加は残る。
+- 反応子・212・213・MULTILEADER の一部は [決定 0191](0191-drawing-apply-multileaders-and-reactors.md) で足した。
 - 書き戻した LEADER と MULTILEADER は、AutoCAD でまだ開いて確かめていない。
 
 ## 参照

@@ -620,7 +620,7 @@ fn read(
                 // HATCH は型が固定でなく、クラスで決まる
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ if kind == b"IMAGE" => image(&mut bits, release)?,
-                _ if kind == b"MULTILEADER" => multileader(&mut bits, release, &mut slots)?,
+                _ if kind == b"MULTILEADER" => multileader(&mut bits, release, &mut slots, None)?,
                 _ if kind == b"ACAD_TABLE" && release < Release::R2010 => {
                     table(&mut bits, release, &mut slots)?
                 }
@@ -1514,9 +1514,9 @@ pub(super) fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     if path != 0 {
         values.push(int(72, i64::from(path)));
     }
-    // 鉤の線の点の差と、注釈への差。どちらも DXF で確かめていない
-    point3(bits, 212)?;
-    point3(bits, 213)?;
+    // 鉤の線の点の差と、注釈への差。どちらも DXF で確かめていない。0 でなければ、DXF と同じ 212・213 に置く
+    // （決定 0191）
+    let offsets = [point3(bits, 212)?, point3(bits, 213)?];
     // 注釈の枠の高さと幅。R2010 からは、DXF は注釈から求めた値を書き、DWG の値（図面では 1 と 0）とは
     // 違うので置かない
     let (height, width) = (bits.bd()?, bits.bd()?);
@@ -1531,6 +1531,11 @@ pub(super) fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     values.extend(vertices);
     if reals(&direction) != [Some(1.0), Some(0.0), Some(0.0)] {
         values.extend(direction);
+    }
+    for offset in offsets {
+        if reals(&offset) != [Some(0.0); 3] {
+            values.extend(offset);
+        }
     }
     if !is_up(&extrusion) {
         values.extend(extrusion);
@@ -2426,6 +2431,8 @@ const SLOT: u64 = 1 << 63;
 struct Slotted<'b, 'a> {
     bits: &'b mut Bits<'a>,
     slots: &'b mut u64,
+    /// 実数（BD）のビットの範囲を、読んだ順に足す所。あれば、実数の値の代わりに、その番号を置く（決定 0191）
+    reals: Option<&'b mut Vec<Range<usize>>>,
 }
 
 impl Slotted<'_, '_> {
@@ -2481,11 +2488,26 @@ impl Slotted<'_, '_> {
     }
 
     fn bd(&mut self, code: i16) -> Option<Value> {
-        Some(real(code, self.bits.bd()?))
+        let at = self.bits.pos();
+        let value = self.bits.bd()?;
+        Some(real(
+            code,
+            match &mut self.reals {
+                Some(reals) => {
+                    reals.push(at..self.bits.pos());
+                    (reals.len() - 1) as f64
+                }
+                None => value,
+            },
+        ))
     }
 
     fn point(&mut self, code: i16) -> Option<Vec<Value>> {
-        point3(self.bits, code)
+        Some(vec![
+            self.bd(code)?,
+            self.bd(code + 10)?,
+            self.bd(code + 20)?,
+        ])
     }
 
     fn count(&mut self) -> Option<usize> {
@@ -2497,10 +2519,16 @@ impl Slotted<'_, '_> {
 /// 300〜301 の区切りに置き、枝（302〜303）と線（304〜305）を、文脈の内容の後に置く（DWG では内容の前にある）。
 /// 文脈が文字を持つときも、DXF と同じく記号を持つ印（296）を偽で置く。線ごとの上書きの欄は、DXF と同じく上書きの
 /// 印（93）が立つものだけを置く。2 つの欄を持つ文脈と図形の上と下の寄せ方は、DWG では上・下の順だが、DXF の
-/// 下（272）・上（273）の順に置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）
-fn multileader(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value>> {
+/// 下（272）・上（273）の順に置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）。`reals` が
+/// あれば、実数のビットの範囲を足し、実数の値の代わりにその番号を置く（書き戻しが使う。決定 0191）
+pub(super) fn multileader(
+    bits: &mut Bits,
+    release: Release,
+    slots: &mut u64,
+    reals: Option<&mut Vec<Range<usize>>>,
+) -> Option<Vec<Value>> {
     let r2010 = release >= Release::R2010;
-    let mut r = Slotted { bits, slots };
+    let mut r = Slotted { bits, slots, reals };
     let mut values = Vec::new();
     if r2010 {
         values.push(r.bs(270)?);
@@ -2711,7 +2739,11 @@ fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value
     } else {
         0
     };
-    let mut r = Slotted { bits, slots };
+    let mut r = Slotted {
+        bits,
+        slots,
+        reals: None,
+    };
     // ハンドルの流れ: ブロック・属性（R2000 は最初と最後、R2004 は持つ数だけ）・SEQEND・表のスタイル・セル
     let block = r.handle();
     values.push(Value {
@@ -2831,7 +2863,11 @@ fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<V
     let attribs = values.iter().any(|v| v.code == 66);
     values.retain(|v| v.code != 66);
     let owned = if attribs { bits.bl()? } else { 0 };
-    let mut r = Slotted { bits, slots };
+    let mut r = Slotted {
+        bits,
+        slots,
+        reals: None,
+    };
     let block = r.handle();
     for _ in 0..owned {
         r.handle();

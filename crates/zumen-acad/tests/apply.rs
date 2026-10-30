@@ -4928,3 +4928,285 @@ fn point_styles_are_written_into_the_header() {
         assert_eq!(out, written);
     }
 }
+
+/// 図面モデルの変更 `edits` を当て、結果・診断の code・書いた DXF を返す
+#[cfg(test)]
+fn changed(src: &[u8], edits: Vec<zumen_drawing::Edit>) -> (Result<(), Error>, Vec<Code>, Vec<u8>) {
+    let mut file = testkit::read::<Dxf>(src).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let result = zumen_sdk::Apply::apply(
+        &mut file,
+        &zumen_drawing::Changes {
+            edits,
+            document: None,
+        },
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .map(|_| ());
+    let codes = diag.iter().map(|d| d.code()).collect();
+    (result, codes, testkit::write::<Dxf>(&file).unwrap())
+}
+
+/// 注記の MTEXT（40）と、鉤の線の点の差（212）と注記への差（213）を持つ LEADER（41）を持つ R2000 の DXF
+#[cfg(test)]
+const NOTED: &[u8] = b"  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1015\n  9\n$INSUNITS\n 70\n4\n\
+  9\n$HANDSEED\n  5\n100\n  0\nENDSEC\n\
+  0\nSECTION\n  2\nTABLES\n\
+  0\nTABLE\n  2\nLAYER\n  0\nLAYER\n  5\n10\n  2\n0\n 70\n0\n 62\n7\n  6\nCONTINUOUS\n  0\nENDTAB\n\
+  0\nTABLE\n  2\nDIMSTYLE\n  0\nDIMSTYLE\n105\n27\n  2\nStandard\n 70\n0\n  0\nENDTAB\n\
+  0\nTABLE\n  2\nBLOCK_RECORD\n  0\nBLOCK_RECORD\n  5\n1F\n  2\n*Model_Space\n  0\nENDTAB\n  0\nENDSEC\n\
+  0\nSECTION\n  2\nENTITIES\n\
+  0\nMTEXT\n  5\n40\n330\n1F\n  8\n0\n 10\n10.0\n 20\n5.0\n 30\n0.0\n 40\n2.5\n  1\nNOTE\n\
+  0\nLEADER\n  5\n41\n330\n1F\n  8\n0\n  3\nStandard\n 71\n1\n 72\n0\n 73\n0\n 74\n1\n 75\n0\n\
+ 40\n2.5\n 41\n10.0\n 76\n2\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 10\n10.0\n 20\n5.0\n 30\n0.0\n340\n40\n\
+212\n1.0\n222\n0.0\n232\n0.0\n213\n0.0\n223\n2.0\n233\n0.0\n\
+  0\nENDSEC\n  0\nEOF\n";
+
+/// 注記を持つ引出線を足すと、注記の MTEXT に、足した LEADER を反応子として書く（決定 0191）。2 つ足すと、同じ
+/// 組に続けて書く。読み直すと、足した引出線は同じ注記を指す
+#[test]
+fn added_leaders_become_reactors_of_their_notes() {
+    use zumen_drawing::{Edit as Change, Leader, Placed};
+    let drawing = lift(&testkit::read::<Dxf>(NOTED).0.unwrap());
+    let [note, _] = <[_; 2]>::try_from(elements(&drawing)).unwrap();
+    let at = |x: f64, y: f64| ModelPoint {
+        x,
+        y,
+        ..note_point(&note)
+    };
+    let leader = |y: f64| Change::Add {
+        place: "space/0".into(),
+        element: Box::new(Placed::Model(addition_element(Shape::Leader(Leader {
+            path: vec![at(0.0, y), at(10.0, 5.0)],
+            spline: false,
+            arrow: Some(true),
+            annotation: Some(note.source.clone()),
+            style: "Standard".into(),
+        })))),
+    };
+    let (result, codes, written) = changed(NOTED, vec![leader(10.0), leader(20.0)]);
+    assert_eq!(result, Ok(()), "{codes:?}");
+    let text = String::from_utf8(written.clone()).unwrap();
+    assert!(
+        text.contains("MTEXT\n  5\n40\n102\n{ACAD_REACTORS\n330\n100\n330\n101\n102\n}\n330\n1F\n"),
+        "{text}"
+    );
+    let again = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(again.len(), 4);
+    for element in &again[2..] {
+        let Shape::Leader(added) = &element.shape else {
+            panic!("{:?}", element.shape);
+        };
+        assert_eq!(added.annotation, Some(again[0].source.clone()));
+    }
+}
+
+/// 注記の MTEXT の位置
+#[cfg(test)]
+fn note_point(note: &Element<ModelPoint>) -> ModelPoint {
+    match &note.shape {
+        Shape::Formatted(text) => text.point,
+        shape => panic!("{shape:?}"),
+    }
+}
+
+/// 変換は、LEADER のずれ（212・213）を、平行移動を含めずに写す（決定 0191）
+#[test]
+fn transformed_leaders_turn_their_offsets() {
+    use zumen_drawing::Affine;
+    let file = testkit::read::<Dxf>(NOTED).0.unwrap();
+    let [_, (target, _)] = <[_; 2]>::try_from(seen(&lift(&file))).unwrap();
+    let (result, codes, written) = changed(
+        NOTED,
+        vec![zumen_drawing::Edit::Transform {
+            target,
+            transform: Affine {
+                m: [0.0, -1.0, 5.0, 1.0, 0.0, -2.0],
+            },
+        }],
+    );
+    assert_eq!(result, Ok(()), "{codes:?}");
+    let text = String::from_utf8(written).unwrap();
+    assert!(
+        text.contains("212\n0.0\n222\n1.0\n232\n0.0\n213\n-2.0\n223\n0.0\n233\n0.0\n"),
+        "{text}"
+    );
+}
+
+/// 文字の注記を持つ MULTILEADER（R2013）。注記の基点と平面の原点は (30, 20)、文字は (36, 21.25) から右へ書く。
+/// 枝は [`callouts`] と同じ
+#[cfg(test)]
+fn texted_callout() -> Vec<u8> {
+    versioned(
+        "AC1027",
+        &[
+            (0, "MULTILEADER"),
+            (5, "1A"),
+            (8, "0"),
+            (300, "CONTEXT_DATA{"),
+            (40, "1.0"),
+            (10, "30.0"),
+            (20, "20.0"),
+            (30, "0.0"),
+            (41, "2.5"),
+            (140, "2.0"),
+            (290, "1"),
+            (304, "NOTE"),
+            (11, "0.0"),
+            (21, "0.0"),
+            (31, "1.0"),
+            (12, "36.0"),
+            (22, "21.25"),
+            (32, "0.0"),
+            (13, "1.0"),
+            (23, "0.0"),
+            (33, "0.0"),
+            (42, "0.0"),
+            (43, "0.0"),
+            (44, "0.0"),
+            (45, "1.0"),
+            (170, "1"),
+            (171, "1"),
+            (172, "1"),
+            (110, "30.0"),
+            (120, "20.0"),
+            (130, "0.0"),
+            (111, "1.0"),
+            (121, "0.0"),
+            (131, "0.0"),
+            (112, "0.0"),
+            (122, "1.0"),
+            (132, "0.0"),
+            (297, "0"),
+            (302, "LEADER{"),
+            (290, "1"),
+            (291, "1"),
+            (10, "30.0"),
+            (20, "20.0"),
+            (30, "0.0"),
+            (11, "1.0"),
+            (21, "0.0"),
+            (31, "0.0"),
+            (90, "0"),
+            (40, "5.0"),
+            (304, "LEADER_LINE{"),
+            (10, "0.0"),
+            (20, "0.0"),
+            (30, "0.0"),
+            (91, "0"),
+            (305, "}"),
+            (303, "}"),
+            (301, "}"),
+            (170, "1"),
+            (42, "2.5"),
+            (290, "1"),
+        ],
+    )
+}
+
+/// MULTILEADER の変換は、回転と平行移動だけを写す（決定 0191）。枝・注記の文字・平面を写し、読み直すと図面モデルで
+/// 写した形と同じになる。尺度を変える変換と鏡映は、大きさのスタイルの上書きと文字の反転を表せないので断り、
+/// ファイルを変えない
+#[test]
+fn callouts_are_turned_and_moved() {
+    use zumen_drawing::{Affine, Edit as Change};
+    let src = texted_callout();
+    let file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(target, was)] = <[_; 1]>::try_from(seen(&lift(&file))).unwrap();
+    assert!(matches!(
+        &was.shape,
+        Shape::Callout(callout) if matches!(callout.content, zumen_drawing::CalloutContent::Text(_))
+    ));
+    let transform = Affine {
+        m: [0.0, -1.0, 5.0, 1.0, 0.0, -2.0],
+    };
+    let (result, codes, written) = changed(
+        &src,
+        vec![Change::Transform {
+            target: target.clone(),
+            transform,
+        }],
+    );
+    assert_eq!(result, Ok(()), "{codes:?}");
+    let again = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(
+        Some(&again[0].shape),
+        zumen_drawing::transform::transform(&was.shape, &transform).as_ref()
+    );
+    // 平面の原点と軸も回る
+    let text = String::from_utf8(written).unwrap();
+    assert!(
+        text.contains(
+            "110\n-15.0\n120\n28.0\n130\n0.0\n111\n0.0\n121\n1.0\n131\n0.0\n112\n-1.0\n122\n0.0\n"
+        ),
+        "{text}"
+    );
+    for m in [
+        [2.0, 0.0, 0.0, 0.0, 2.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0, -1.0, 0.0],
+    ] {
+        let (result, codes, written) = changed(
+            &src,
+            vec![Change::Transform {
+                target: target.clone(),
+                transform: Affine { m },
+            }],
+        );
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(written, src);
+    }
+}
+
+/// MULTILEADER の文字の注記は、内容だけを書き直す（決定 0191）。注記の位置の変更と、MULTILEADER の追加は断り、
+/// ファイルを変えない
+#[test]
+fn callout_texts_are_rewritten_but_not_moved_or_added() {
+    use zumen_drawing::{CalloutContent, Edit as Change, Placed};
+    let src = texted_callout();
+    let file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [(target, was)] = <[_; 1]>::try_from(seen(&lift(&file))).unwrap();
+    let with_text = |edit: &dyn Fn(&mut zumen_drawing::FormattedText<ModelPoint>)| {
+        let mut element = was.clone();
+        let Shape::Callout(callout) = &mut element.shape else {
+            panic!("{:?}", element.shape);
+        };
+        let CalloutContent::Text(text) = &mut callout.content else {
+            panic!("{:?}", callout.content);
+        };
+        edit(text);
+        element
+    };
+    let rewritten = with_text(&|text| {
+        text.content = "MEMO".into();
+        text.spans = zumen_acad::mtext_spans(&text.content, &|value| {
+            Length::Model(zumen_drawing::ModelLength {
+                space: text.point.space,
+                value,
+            })
+        });
+    });
+    let replace = |element: &Element<ModelPoint>| Change::Replace {
+        target: target.clone(),
+        element: Box::new(Placed::Model(element.clone())),
+    };
+    let (result, codes, written) = changed(&src, vec![replace(&rewritten)]);
+    assert_eq!(result, Ok(()), "{codes:?}");
+    let again = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+    assert_eq!(again[0].shape, rewritten.shape);
+    let text = String::from_utf8(written).unwrap();
+    assert!(text.contains("290\n1\n304\nMEMO\n 11\n"), "{text}");
+
+    let moved = with_text(&|text| text.point.x += 1.0);
+    let add = Change::Add {
+        place: "space/0".into(),
+        element: Box::new(Placed::Model(addition_element(was.shape.clone()))),
+    };
+    for edit in [replace(&moved), add] {
+        let (result, codes, written) = changed(&src, vec![edit]);
+        assert_eq!(result, Err(Error::Rejected));
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(written, src);
+    }
+}
