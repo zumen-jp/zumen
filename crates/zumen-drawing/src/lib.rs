@@ -32,6 +32,7 @@ mod extension;
 mod hash;
 mod hatch;
 pub mod id;
+pub mod layout;
 mod shape;
 mod space;
 mod style;
