@@ -208,3 +208,4 @@
 - [0172: 2D のシーンは、配置をたどって解いた値を、線・面・文字・点・画像の区画に並べ、`scene` の op で返す](0172-scene-sections-and-op.md)（2026-10-30、採用）
 - [0173: プロファイルの照合は `zumen-profile` に置き、`check` の op で、配置をたどって解いた図面モデルの値と語彙を比べる](0173-profile-checks.md)（2026-10-30、採用）
 - [0174: 計画の優先順と状態を、全体計画 #1 の下の issue の並び・ラベル・依存で持つ](0174-plan-in-issues.md)（2026-10-30、採用）
+- [0175: 2007 より前の版の ANSI_932 の文字は、zumen-acad が encoding_rs で Shift_JIS として戻す](0175-acad-code-page-shift-jis.md)（2026-10-30、採用）

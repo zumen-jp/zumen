@@ -135,11 +135,17 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
                 Some(Data::Text(text)) => Some(text.trim_ascii()),
                 _ => None,
             });
+    let code_page =
+        db.variable(b"$DWGCODEPAGE")
+            .and_then(|values| match values.first().map(|v| &v.data) {
+                Some(Data::Text(text)) => Some(text.trim_ascii()),
+                _ => None,
+            });
     let layouts = layout_index(db, cx)?;
     let lifter = Lifter {
         layouts: &layouts,
         sheet: SHEET,
-        unicode: version.is_some_and(|v| v >= UTF8),
+        charset: charset(version, code_page),
         fit_data: version.is_some_and(|v| v >= FIT_DATA),
         table_content: version.is_some_and(|v| v >= TABLE_CONTENT),
         version: version.map(|v| String::from_utf8_lossy(v).into_owned()),
@@ -701,8 +707,8 @@ struct Lifter<'a> {
     layouts: &'a BTreeMap<u64, usize>,
     /// ペーパー空間の図形を置く用紙
     sheet: SheetId,
-    /// 2007 以降の版なら、文字の値を UTF-8 として読む
-    unicode: bool,
+    /// 文字の値の符号化
+    charset: Charset,
     /// 2010 以降の版なら、DXF の HATCH の SPLINE の辺は当てはめる点（97）を持つ
     fit_data: bool,
     /// 2010 以降の版なら、DWG の表は内容を TABLECONTENT の形で持つ。DWG の読み手は、その書式と TABLESTYLE を
@@ -1022,7 +1028,7 @@ impl Lifter<'_> {
         }
     }
 
-    /// 文字の値。2007 より前の版の ASCII でない文字は、コード・ページを読まないので受け付けない
+    /// 文字の値。2007 より前の版の ASCII でない文字は、対応表のあるコード・ページのものだけを受け付ける
     fn string(&self, object: &Object, code: i16) -> Lifted<Option<String>> {
         match object.first(code) {
             Some(data) => self.decode(&object.kind, code, data).map(Some),
@@ -1035,16 +1041,19 @@ impl Lifter<'_> {
         let Data::Text(value) = data else {
             return Err(invalid(kind, code));
         };
-        if self.unicode || value.is_ascii() {
-            match core::str::from_utf8(value) {
-                Ok(value) => Ok(value.to_owned()),
-                Err(_) => Err(invalid(kind, code)),
+        let decoded = match self.charset {
+            Charset::Utf8 => core::str::from_utf8(value).ok().map(str::to_owned),
+            _ if value.is_ascii() => core::str::from_utf8(value).ok().map(str::to_owned),
+            Charset::ShiftJis => encoding_rs::SHIFT_JIS
+                .decode_without_bom_handling_and_without_replacement(value)
+                .map(std::borrow::Cow::into_owned),
+            Charset::Other => {
+                return Err(Box::new(
+                    Diagnostic::new(codes::DXF_CODE_PAGE_UNSUPPORTED).with("kind", text(kind)),
+                ));
             }
-        } else {
-            Err(Box::new(
-                Diagnostic::new(codes::DXF_CODE_PAGE_UNSUPPORTED).with("kind", text(kind)),
-            ))
-        }
+        };
+        decoded.ok_or_else(|| invalid(kind, code))
     }
 }
 
@@ -1092,6 +1101,27 @@ impl<'a> Values<'a> {
     /// 次の 0 以上の数
     fn count(&mut self, code: i16) -> Lifted<usize> {
         usize::try_from(self.int(code)?).map_err(|_| invalid(self.kind, code))
+    }
+}
+
+/// 文字の値の符号化。2007 以降の版は UTF-8 で、それより前の版は `$DWGCODEPAGE` のコード・ページで決まる
+/// （DXF Reference の HEADER Section Group Codes）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Charset {
+    Utf8,
+    /// ANSI_932。WHATWG の Shift_JIS（Windows の 932 と同じ表）として戻す
+    ShiftJis,
+    /// 対応表のないコード・ページか、コード・ページがない。ASCII の文字だけを読む
+    Other,
+}
+
+fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
+    if version.is_some_and(|v| v >= UTF8) {
+        Charset::Utf8
+    } else if code_page.is_some_and(|page| page.eq_ignore_ascii_case(b"ANSI_932")) {
+        Charset::ShiftJis
+    } else {
+        Charset::Other
     }
 }
 
@@ -1220,7 +1250,7 @@ mod tests {
         let lifter = Lifter {
             layouts: &layouts,
             sheet: SHEET,
-            unicode: true,
+            charset: Charset::Utf8,
             fit_data: true,
             table_content: true,
             version: None,

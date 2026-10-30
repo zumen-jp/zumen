@@ -53,7 +53,7 @@
     "dxf.cell-value.dropped": "Did not lift {count} table cell values of type {type}, which the drawing model does not hold; the displayed text was lifted.",
     "dxf.change.unsupported": "This change to a \"{kind}\" element cannot be written back yet. No change was applied.",
     "dxf.clip.dropped": "Could not read group code {code} of {count} block clips; lifted the blocks without clipping.",
-    "dxf.code-page.unsupported": "Did not lift {count} \"{kind}\" entities into the drawing model, because characters outside ASCII in code page versions cannot be read yet.",
+    "dxf.code-page.unsupported": "Did not lift {count} \"{kind}\" entities into the drawing model, because characters outside ASCII in a code page without a mapping table cannot be read.",
     "dxf.element.missing": "The element that the change points to is not in the drawing. No change was applied.",
     "dxf.entity.dropped": "Did not write {count} \"{kind}\" entities, which the target DXF version does not have.",
     "dxf.extension-dictionary.dropped": "Did not lift {count} extension dictionary entries \"{key}\" ({kind}), which are not XRECORDs.",
