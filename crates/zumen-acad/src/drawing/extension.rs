@@ -353,8 +353,8 @@ pub(super) fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Resul
 }
 
 /// 図面モデルの値にない図形の欄（決定 0142）。厚さ（39）は、平面の図形を Z の向きに押し出す長さで、上から
-/// 見た形を変えないので、0 でなければ `thickness` に控える。LWPOLYLINE・POLYLINE の線種の生成（70 の 128）は、
-/// 線種の模様を頂点ごとに切らずに続けることで、立っていれば `line_type_generation` を 1 とする
+/// 見た形を変えないので、0 でなければ `thickness` に控える。SPLINE の節点と制御点の許容差（42・43）も控える。
+/// 線種の生成（70 の 128）と当てはめの許容差（44）は、図面モデルの値に移す（決定 0157）
 fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
     let mut fields = Vec::new();
     let real = |code: i16| match object.first(code) {
@@ -385,21 +385,8 @@ fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
             value: FieldValue::Real(thickness),
         });
     }
-    if matches!(object.kind.as_slice(), b"LWPOLYLINE" | b"POLYLINE")
-        && matches!(object.first(70), Some(Data::Int(flags)) if flags & 128 != 0)
-    {
-        fields.push(Field {
-            key: "line_type_generation",
-            code: Some(70),
-            value: FieldValue::Integer(1),
-        });
-    }
     if object.kind == b"SPLINE" {
-        let tolerances = [
-            (42, "knot_tolerance"),
-            (43, "control_tolerance"),
-            (44, "fit_tolerance"),
-        ];
+        let tolerances = [(42, "knot_tolerance"), (43, "control_tolerance")];
         for (code, key) in tolerances {
             if let Some(tolerance) = real(code)? {
                 fields.push(Field {

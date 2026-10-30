@@ -276,6 +276,7 @@ fn polyline<P: Point>(
             .iter()
             .map(|[a, b]| [scaled(*a, scale), scaled(*b, scale)])
             .collect(),
+        line_type_generation: line.line_type_generation,
     })
 }
 

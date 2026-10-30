@@ -1107,6 +1107,7 @@ impl<'f> Lifter<'f> {
                     closed: false,
                     width: None,
                     vertex_widths: Vec::new(),
+                    line_type_generation: false,
                 }))
             })()
         } else if feature.is(b"circle") {
@@ -2262,6 +2263,8 @@ fn bezier<C: Place>(xs: &[f64], ys: &[f64], closed: bool, at: &C) -> Option<Spli
         end_tangent: None,
         closed,
         periodic: false,
+        fit_tolerance: None,
+        knot_parameterization: None,
     })
 }
 

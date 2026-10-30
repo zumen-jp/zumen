@@ -50,7 +50,7 @@ pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
 };
-pub use shape::{Edge, Element, Polyline, Shape, Spline, Vertex};
+pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};
 pub use space::{
     Affine, Length, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Sheet, SheetItem,
     Unit, View,

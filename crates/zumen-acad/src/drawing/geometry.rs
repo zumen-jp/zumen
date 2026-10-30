@@ -5,8 +5,8 @@ use super::{Lifted, Lifter, POINT, Values, check_spline, invalid, non_planar, te
 use crate::db::{Data, Object, Value};
 use zumen_base::{Diagnostic, codes};
 use zumen_drawing::{
-    Boundary, Edge, Fill, Hatch, HatchLoop, Islands, Length, Polyline, Shape, Spline, Symbol,
-    SymbolKey, Vertex,
+    Boundary, Edge, Fill, Hatch, HatchLoop, Islands, KnotParameterization, Length, Polyline, Shape,
+    Spline, Symbol, SymbolKey, Vertex,
 };
 
 impl Lifter<'_> {
@@ -228,11 +228,13 @@ impl Lifter<'_> {
             width if width > 0.0 => Some(length(width)),
             _ => return Err(invalid(kind, 43)),
         };
+        let flags = self.int(object, 70, 0)?;
         Ok(Polyline {
             vertices,
-            closed: self.int(object, 70, 0)? & 1 != 0,
+            closed: flags & 1 != 0,
             width,
             vertex_widths,
+            line_type_generation: flags & 128 != 0,
         })
     }
 
@@ -240,7 +242,8 @@ impl Lifter<'_> {
     /// の折れ線。曲線（2）かスプライン（4）で当てはめたものと、網（16）・多面（64）は、まだ移さない。頂点は VERTEX
     /// の点（10・20）と膨らみ（42）と、始まりと終わりの幅（40・41。なければ 0）。どの頂点の幅も同じなら一定の
     /// 幅にし、0 なら幅を持たない。POLYLINE の既定の幅（40・41）は、新しい頂点のためのものなので使わない。
-    /// 標高（POLYLINE の 30）か頂点の Z（30）が 0 でなければ平面に移さない。厚さ（39）と線種の生成（70 の 128）は、`dxf.entity` の拡張に控える（決定 0142）
+    /// 標高（POLYLINE の 30）か頂点の Z（30）が 0 でなければ平面に移さない。線種の生成（70 の 128）は折れ線の値にし
+    /// （決定 0157）、厚さ（39）は `dxf.entity` の拡張に控える（決定 0142）
     pub(super) fn polyline<P: Copy>(
         &self,
         object: &Object,
@@ -298,12 +301,14 @@ impl Lifter<'_> {
             closed: flags & 1 != 0,
             width,
             vertex_widths,
+            line_type_generation: flags & 128 != 0,
         })
     }
 
     /// SPLINE（DXF Reference「SPLINE」）。印（70）の 1 は閉じている、2 は周期的、4 は有理。次数（71）・節点
-    /// （40）・制御点（10・20・30）・重み（41）・当てはめる点（11・21・31）・接線（12・13）を持つ。節点・制御点・
-    /// 当てはめる点の数（72〜74）と合わなければ読めないとする。許容差（42〜44）は、まだ移さない
+    /// （40）・制御点（10・20・30）・重み（41）・当てはめる点（11・21・31）・接線（12・13）・当てはめの許容差（44）と、
+    /// 節点の取り方（[`knot_parameterization`]）を持つ（決定 0157）。節点・制御点・当てはめる点の数（72〜74）と
+    /// 合わなければ読めないとする。節点と制御点の許容差（42・43）は、`dxf.entity` の拡張に控える（決定 0142）
     pub(super) fn spline<P>(
         &self,
         object: &Object,
@@ -345,6 +350,14 @@ impl Lifter<'_> {
             end_tangent: tangent(13)?,
             closed: flags & 1 != 0,
             periodic: flags & 2 != 0,
+            fit_tolerance: match object.first(44) {
+                None => None,
+                Some(Data::Real(tolerance)) if tolerance.is_finite() && *tolerance >= 0.0 => {
+                    Some(*tolerance)
+                }
+                Some(_) => return Err(invalid(kind, 44)),
+            },
+            knot_parameterization: knot_parameterization(flags),
         };
         for (code, count) in [
             (72, spline.knots.len()),
@@ -359,5 +372,21 @@ impl Lifter<'_> {
         }
         check_spline(kind, &spline)?;
         Ok(spline)
+    }
+}
+
+/// SPLINE の印（70）の、当てはめる点で決まるスプライン（1024）の節点の取り方。32 は弦の長さ、64 は弦の長さの
+/// 平方根、128 は等しい間隔、256 は元の節点。DXF Reference の表にない印で、AutoCAD が書く値による（推定。試料で
+/// 128 を確かめた。決定 0157）。DWG の読み手も、R2013 からの節点の取り方を同じ印にして置く
+pub(crate) fn knot_parameterization(flags: i64) -> Option<KnotParameterization> {
+    if flags & 1024 == 0 {
+        return None;
+    }
+    match flags & (32 | 64 | 128 | 256) {
+        32 => Some(KnotParameterization::Chord),
+        64 => Some(KnotParameterization::SquareRoot),
+        128 => Some(KnotParameterization::Uniform),
+        256 => Some(KnotParameterization::Custom),
+        _ => None,
     }
 }

@@ -1330,6 +1330,8 @@ fn arguments<P: transform::Point>(shape: &Shape<P>) -> Option<Arguments> {
             closed: false,
             width: None,
             vertex_widths,
+            // SXF の折れ線は、線種の生成を持たない
+            line_type_generation: false,
         }) if vertex_widths.is_empty()
             && vertices.len() >= 2
             && vertices.iter().all(|vertex| vertex.bulge == 0.0) =>
@@ -1377,6 +1379,7 @@ mod tests {
                 closed: false,
                 width: None,
                 vertex_widths: Vec::new(),
+                line_type_generation: false,
             }),
             source: Ref::default(),
         };

@@ -3274,6 +3274,7 @@ fn e8_curves_keep_their_definition() {
                 closed: true,
                 width: None,
                 vertex_widths: vec![width(1.0, 2.0), width(0.0, 0.0), width(0.0, 0.0)],
+                line_type_generation: false,
             }),
             Shape::Polyline(Polyline {
                 vertices: vec![
@@ -3289,6 +3290,7 @@ fn e8_curves_keep_their_definition() {
                 closed: false,
                 width: Some(model(0.5)),
                 vertex_widths: vec![],
+                line_type_generation: false,
             }),
             Shape::Curve(Edge::Spline(Spline {
                 degree: 2,
@@ -3300,6 +3302,8 @@ fn e8_curves_keep_their_definition() {
                 end_tangent: None,
                 closed: false,
                 periodic: false,
+                fit_tolerance: None,
+                knot_parameterization: None,
             })),
             Shape::Curve(Edge::Spline(Spline {
                 degree: 3,
@@ -3311,6 +3315,8 @@ fn e8_curves_keep_their_definition() {
                 end_tangent: Some([0.0, 1.0]),
                 closed: true,
                 periodic: false,
+                fit_tolerance: None,
+                knot_parameterization: None,
             })),
         ]
     );
@@ -3375,6 +3381,8 @@ fn e8_hatch_spline_edges_read_fit_data_from_2010() {
             end_tangent: None,
             closed: false,
             periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
         })]
     };
     // 2010 より前は、当てはめる点を持たない。続く 97 は、境界を作った図形の数
@@ -3860,18 +3868,21 @@ fn old_polylines_become_polylines() {
                     [model(0.0), model(0.0)],
                     [model(0.0), model(0.0)],
                 ],
+                line_type_generation: false,
             }),
             Shape::Polyline(Polyline {
                 vertices: vec![corner(0.0, 0.0, 0.0), corner(1.0, 1.0, 0.0)],
                 closed: false,
                 width: Some(model(0.5)),
                 vertex_widths: Vec::new(),
+                line_type_generation: false,
             }),
             Shape::Polyline(Polyline {
                 vertices: vec![corner(0.0, 0.0, 0.0), corner(2.0, 3.0, 0.0)],
                 closed: false,
                 width: None,
                 vertex_widths: Vec::new(),
+                line_type_generation: false,
             }),
         ]
     );
@@ -5645,7 +5656,7 @@ fn solids_and_traces_are_filled_in_drawing_order_and_points_are_symbols() {
 }
 
 #[test]
-fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions() {
+fn thickness_and_spline_tolerances_are_kept_as_extensions() {
     let entities = [
         // 厚さを持つ線分
         entity(
@@ -5671,12 +5682,12 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
                 (20, "0.0"),
             ],
         ),
-        // 厚さが 0 で、線種の生成を立てない図形は、拡張を持たない
+        // 厚さが 0 の図形は、拡張を持たない
         entity(
             "CIRCLE",
             &[(39, "0.0"), (10, "0.0"), (20, "0.0"), (40, "1.0")],
         ),
-        // 許容差を持つ 1 次のスプライン
+        // 許容差を持つ 1 次のスプライン。当てはめの許容差（44）は、図面モデルの値に移す
         entity(
             "SPLINE",
             &[
@@ -5728,24 +5739,27 @@ fn thickness_line_type_generation_and_spline_tolerances_are_kept_as_extensions()
         kept,
         [
             (at(0), vec![field("thickness", 39, FieldValue::Real(2.5))]),
-            (
-                at(1),
-                vec![
-                    field("thickness", 39, FieldValue::Real(1.0)),
-                    field("line_type_generation", 70, FieldValue::Integer(1)),
-                ]
-            ),
+            (at(1), vec![field("thickness", 39, FieldValue::Real(1.0))]),
             (
                 at(3),
                 vec![
                     field("knot_tolerance", 42, FieldValue::Real(1e-9)),
                     field("control_tolerance", 43, FieldValue::Real(1e-10)),
-                    field("fit_tolerance", 44, FieldValue::Real(0.0)),
                 ]
             ),
         ]
     );
     assert_eq!(elements.len(), 4);
+    // 線種の生成（70 の 128）と当てはめの許容差（44）は、図面モデルの値になる（決定 0157）
+    assert!(matches!(
+        &elements[1].shape,
+        Shape::Polyline(line) if line.line_type_generation
+    ));
+    assert!(matches!(
+        &elements[3].shape,
+        Shape::Curve(Edge::Spline(spline)) if spline.fit_tolerance == Some(0.0)
+            && spline.knot_parameterization.is_none()
+    ));
 }
 
 #[test]

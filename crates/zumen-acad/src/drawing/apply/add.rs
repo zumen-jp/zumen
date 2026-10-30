@@ -261,14 +261,17 @@ impl Born {
                     return None;
                 }
                 values.push(text(100, "AcDbSpline"));
-                // 当てはめる点で決まるものは、制御点を書かず、読む側が求め直す。許容差は AutoCAD の既定の値とする
+                // 印（70）には、節点の取り方があれば、当てはめる点で決まること（1024）とそのビットも立てる
+                let flags = super::spline_flags(8, spline) | super::knot_flags(spline);
+                // 当てはめる点で決まるものは、制御点を書かず、読む側が求め直す。当てはめの許容差がなければ、
+                // AutoCAD の既定の値とする
                 if super::fitted(spline) {
                     let defined = super::fit_values(frame, spline)?;
-                    values.push(int(70, super::spline_flags(8, spline)));
+                    values.push(int(70, flags));
                     values.push(int(71, i64::from(spline.degree)));
                     values.extend([int(72, 0), int(73, 0)]);
                     values.push(int(74, i64::try_from(spline.fit.len()).ok()?));
-                    values.push(real(44, 1e-10)?);
+                    values.push(real(44, spline.fit_tolerance.unwrap_or(1e-10))?);
                     values.extend(defined);
                 } else {
                     if !super::controlled(spline) {
@@ -276,13 +279,16 @@ impl Born {
                     }
                     let defined = super::spline_values(frame, spline)?;
                     // 平面の印（8）を立てる
-                    values.push(int(70, super::spline_flags(8, spline)));
+                    values.push(int(70, flags));
                     values.push(int(71, i64::from(spline.degree)));
                     values.push(int(72, i64::try_from(spline.knots.len()).ok()?));
                     values.push(int(73, i64::try_from(spline.control.len()).ok()?));
                     values.push(int(74, 0));
                     // DXF Reference「SPLINE」: 節点と制御点の許容差の既定値。DWG はどちらも持つ
                     values.extend([real(42, 1e-7)?, real(43, 1e-7)?]);
+                    if let Some(tolerance) = spline.fit_tolerance {
+                        values.push(real(44, tolerance)?);
+                    }
                     values.extend(defined);
                 }
                 b"SPLINE"
@@ -886,7 +892,7 @@ fn lwpolyline<P>(values: &mut Vec<Value>, frame: &impl Frame<P>, line: &Polyline
         return None;
     }
     values.push(int(90, i64::try_from(count).ok()?));
-    values.push(int(70, i64::from(line.closed)));
+    values.push(int(70, super::polyline_flags(line)));
     if let Some(width) = &line.width {
         values.push(real(43, nonnegative(frame, width)?)?);
     }

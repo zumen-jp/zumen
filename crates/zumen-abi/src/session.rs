@@ -1141,7 +1141,7 @@ mod tests {
         for edit in [
             format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
             format!(
-                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v2:00000000000000000000000000000000","geometry":{geometry}}}"#
             ),
         ] {
             let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);
@@ -1341,7 +1341,7 @@ mod tests {
         for edit in [
             format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
             format!(
-                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v2:00000000000000000000000000000000","geometry":{geometry}}}"#
             ),
         ] {
             let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);
@@ -1378,6 +1378,8 @@ mod tests {
                 end_tangent: None,
                 closed: false,
                 periodic: false,
+                fit_tolerance: None,
+                knot_parameterization: None,
             })),
         };
         let mut page = Page {
@@ -1513,7 +1515,7 @@ mod tests {
         assert_eq!(status, Status::Ok);
         assert_eq!(text(&response, "/result/spaces/0/id"), "space/0");
         assert_eq!(text(&response, "/result/sheets/0/id"), "sheet/0");
-        assert!(text(&response, "/result/hash").starts_with("v1:"));
+        assert!(text(&response, "/result/hash").starts_with("v2:"));
         assert_eq!(text(&response, "/result/spaces/0/unit"), "millimeter");
         assert_eq!(number(&response, "/result/spaces/0/elements/lines"), "1");
         assert_eq!(number(&response, "/result/spaces/0/elements/texts"), "1");
@@ -1627,7 +1629,7 @@ mod tests {
             number(&b, "/result/items/1/source/record")
         );
         let hash = text(&a, "/result/items/0/hash");
-        assert!(hash.starts_with("v1:") && hash.len() == 35, "{hash}");
+        assert!(hash.starts_with("v2:") && hash.len() == 35, "{hash}");
         assert_eq!(hash, text(&b, "/result/items/1/hash"));
         assert_ne!(hash, text(&b, "/result/items/0/hash"));
         assert!(a.pointer("/result/items/0/kind").is_none());
@@ -1643,7 +1645,7 @@ mod tests {
             summary(&mut session, "a.dxf"),
             summary(&mut session, "b.dxf"),
         );
-        assert!(a.starts_with("v1:") && a != b, "{a} {b}");
+        assert!(a.starts_with("v2:") && a != b, "{a} {b}");
     }
 
     /// 応答の最初の error の診断
@@ -2403,7 +2405,7 @@ mod tests {
                 .iter()
                 .find(|item| text(item, "/name") == name)
                 .unwrap_or_else(|| panic!("{name}: {tables:?}"));
-            assert!(text(item, "/hash").starts_with("v1:"));
+            assert!(text(item, "/hash").starts_with("v2:"));
             text(item, "/id")
         };
         assert_eq!(item("layers", "0"), "layer/h10");
@@ -3767,12 +3769,12 @@ mod tests {
         let cases = [
             (
                 format!(r#""hash":"{hash}","kind":"remove","id":"{id}""#),
-                r#""hash":"v1:00""#,
+                r#""hash":"v2:00""#,
                 "call.value.invalid",
                 "/hash",
             ),
             (
-                format!(r#""kind":"remove","id":"{id}","hash":"v1:00""#),
+                format!(r#""kind":"remove","id":"{id}","hash":"v2:00""#),
                 "",
                 "call.value.invalid",
                 "/edits/0/hash",
@@ -4493,7 +4495,7 @@ mod tests {
         for edit in [
             format!(r#"{{"kind":"add","place":"space/0","geometry":{geometry}}}"#),
             format!(
-                r#"{{"kind":"replace","id":"space/0/h1","hash":"v1:00000000000000000000000000000000","geometry":{geometry}}}"#
+                r#"{{"kind":"replace","id":"space/0/h1","hash":"v2:00000000000000000000000000000000","geometry":{geometry}}}"#
             ),
         ] {
             let json = format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#);

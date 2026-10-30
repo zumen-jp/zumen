@@ -218,6 +218,8 @@ impl Lifter<'_> {
                     end_tangent: None,
                     closed: false,
                     periodic,
+                    fit_tolerance: None,
+                    knot_parameterization: None,
                 };
                 for _ in 0..knots {
                     spline.knots.push(values.real(40)?);

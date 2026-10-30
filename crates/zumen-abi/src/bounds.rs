@@ -589,6 +589,7 @@ mod tests {
                 closed: false,
                 width: None,
                 vertex_widths: Vec::new(),
+                line_type_generation: false,
             })
         };
         // 膨らみ 1 は半円。正なら反時計回りで、弦の右（下）にふくらむ

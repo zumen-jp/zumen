@@ -791,7 +791,7 @@ impl ToJson for DrawingRequest {
 /// 図面モデルの要約。移さなかった図形と値は、診断で返す
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawingResult {
-    /// 文書のハッシュ。open に渡したバイト列から作る。変更の一覧の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
+    /// 文書のハッシュ。open に渡したバイト列から作る。変更の一覧の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
     /// 実寸の空間。モデルの順
     pub spaces: Vec<SpaceSummary>,
@@ -1289,7 +1289,7 @@ pub struct Entity {
     pub source: Option<Source>,
     /// 形の定義から求めた範囲。文字の字形・線の太さ・記号の中身は含めない。囲む点がなければ持たない（決定 0118）
     pub bbox: Option<Extent>,
-    /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）
+    /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
     /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプラインだけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
     pub geometry: Option<Geometry>,
@@ -4783,7 +4783,7 @@ pub struct TableItem {
     pub id: String,
     /// 元の名前。翻訳しない
     pub name: String,
-    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    /// 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）
     pub hash: String,
 }
 
@@ -4829,7 +4829,7 @@ pub struct LayerItem {
     pub id: String,
     /// 元の名前。翻訳しない
     pub name: String,
-    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    /// 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）
     pub hash: String,
     /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から
     pub defined: bool,
@@ -4941,7 +4941,7 @@ pub struct LineTypeItem {
     pub id: String,
     /// 元の名前。翻訳しない
     pub name: String,
-    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    /// 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）
     pub hash: String,
     /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から
     pub defined: bool,
@@ -5038,7 +5038,7 @@ pub struct DimensionStyleItem {
     pub id: String,
     /// 元の名前。翻訳しない
     pub name: String,
-    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    /// 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）
     pub hash: String,
     /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
     pub ends: Option<Vec<String>>,
@@ -5334,7 +5334,7 @@ pub struct TextStyleItem {
     pub id: String,
     /// 元の名前。翻訳しない
     pub name: String,
-    /// 項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）
+    /// 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）
     pub hash: String,
     /// ファイルに定義がある。偽なら、ほかの欄を持たない
     pub defined: bool,

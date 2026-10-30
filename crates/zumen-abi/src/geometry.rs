@@ -644,6 +644,13 @@ pub(crate) fn shape_of<P: Spot>(
             // 置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない。DWG の場合（scenario）が
             // 変わるため
             let fitting = spline.fit.is_some();
+            // 当てはめの許容差と節点の取り方は、置き換える前の値のまま
+            let kept = match was {
+                Some(Shape::Curve(Edge::Spline(old))) => {
+                    (old.fit_tolerance, old.knot_parameterization)
+                }
+                _ => (None, None),
+            };
             if let Some(Shape::Curve(Edge::Spline(old))) = was
                 && !old.fit.is_empty()
                 && (!old.control.is_empty()
@@ -699,6 +706,8 @@ pub(crate) fn shape_of<P: Spot>(
                     end_tangent: tangent(&spline.end_tangent, "end_tangent")?,
                     closed: spline.closed,
                     periodic: spline.periodic,
+                    fit_tolerance: kept.0,
+                    knot_parameterization: kept.1,
                 })));
             }
             if spline.start_tangent.is_some() {
@@ -746,13 +755,17 @@ pub(crate) fn shape_of<P: Spot>(
                 end_tangent: None,
                 closed: spline.closed,
                 periodic: spline.periodic,
+                fit_tolerance: None,
+                knot_parameterization: None,
             }))
         }
         (Geometry::Polyline(line), was) => {
-            // 幅は置き換える前の値のまま。頂点ごとの幅は頂点の数で決まるので、持つものは置き換えない
-            let width = match was {
-                None => None,
-                Some(Shape::Polyline(old)) if old.vertex_widths.is_empty() => old.width,
+            // 幅と線種の生成は置き換える前の値のまま。頂点ごとの幅は頂点の数で決まるので、持つものは置き換えない
+            let (width, line_type_generation) = match was {
+                None => (None, false),
+                Some(Shape::Polyline(old)) if old.vertex_widths.is_empty() => {
+                    (old.width, old.line_type_generation)
+                }
                 Some(_) => return mismatch(),
             };
             if line.points.len() < 2 {
@@ -775,6 +788,7 @@ pub(crate) fn shape_of<P: Spot>(
                 closed: line.closed,
                 width,
                 vertex_widths: Vec::new(),
+                line_type_generation,
             })
         }
         // 足す文字は、AutoCAD の系統の TEXT の高さ（40）として書く。境界の apply が書けるのは DXF と DWG だけ

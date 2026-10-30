@@ -1424,10 +1424,20 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
         for (ours, theirs) in ours.symbols.iter().zip(&mut theirs.symbols) {
             without_hooks(&ours.space.elements, &mut theirs.space.elements);
         }
-        let (ours, theirs) = (
+        let (ours, mut theirs) = (
             comparable(&format!("{ours:?}")),
             comparable(&format!("{theirs:?}")),
         );
+        // R2013 より前の DWG は、スプラインの節点の取り方を図形の欄に持たない（DXF は 70 の 1024 と
+        // そのビットに書く）ので、比べない
+        if std::fs::read(&dwg).unwrap().get(..6) < Some(b"AC1027".as_slice()) {
+            for kind in ["Chord", "SquareRoot", "Uniform", "Custom"] {
+                theirs = theirs.replace(
+                    &format!("knot_parameterization: Some({kind})"),
+                    "knot_parameterization: None",
+                );
+            }
+        }
         assert!(
             nearly(&ours, &theirs),
             "{}\n{ours}\n{theirs}",
@@ -3383,6 +3393,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             closed: true,
             width: Some(length(0.25)),
             vertex_widths: Vec::new(),
+            line_type_generation: false,
         }),
         Shape::Text(Text {
             content: "zumen".to_owned(),
@@ -4175,6 +4186,66 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
             let id = zumen_drawing::id::sheet(sheet);
             assert!(id.starts_with("sheet/h"), "{id} {}", dwg.display());
         }
+    }
+}
+
+/// 同じ図面の DWG と DXF は、図面モデルに移した線種の生成・当てはめの許容差・節点の取り方（決定 0157）が
+/// 同じになる。R2013 より前の DWG は節点の取り方を図形の欄に持たないので、節点の取り方は R2013 からの組で比べる。
+/// 試料の横須賀の平面図は、線種の生成を立てた LWPOLYLINE を持つ
+#[test]
+#[cfg(feature = "drawing")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+)]
+fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
+    use zumen_drawing::{Edge, Element, KnotParameterization, ModelPoint, Shape};
+    type Moved = (bool, Option<f64>, Option<KnotParameterization>);
+    fn moved(elements: &[Element<ModelPoint>], knots: bool, out: &mut Vec<Moved>) {
+        for element in elements {
+            match &element.shape {
+                Shape::Polyline(line) => out.push((line.line_type_generation, None, None)),
+                Shape::Curve(Edge::Spline(spline)) => out.push((
+                    false,
+                    spline.fit_tolerance,
+                    spline.knot_parameterization.filter(|_| knots),
+                )),
+                _ => {}
+            }
+        }
+    }
+    let all = |path: &Path, knots: bool| {
+        let (drawing, _) = lifted(path);
+        let mut out = Vec::new();
+        for space in &drawing.spaces {
+            moved(&space.elements, knots, &mut out);
+        }
+        for symbol in &drawing.symbols {
+            moved(&symbol.space.elements, knots, &mut out);
+        }
+        out
+    };
+    let mut found = pairs();
+    if let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) {
+        let dwg = Path::new(&dir).join("jp-yokosuka-minami-survey-plan.dwg");
+        if dwg.exists() {
+            found.push((dwg.clone(), dwg.with_extension("dxf")));
+        }
+    }
+    let mut generated = 0;
+    let mut parameterized = 0;
+    for (dwg, dxf) in found {
+        let knots = std::fs::read(&dwg).unwrap().get(..6) >= Some(b"AC1027".as_slice());
+        let ours = all(&dwg, knots);
+        assert_eq!(ours, all(&dxf, knots), "{}", dwg.display());
+        generated += ours.iter().filter(|moved| moved.0).count();
+        parameterized += ours.iter().filter(|moved| moved.2.is_some()).count();
+    }
+    if std::env::var_os("ZUMEN_SAMPLES").is_some_and(|d| !d.is_empty()) {
+        assert!(
+            generated > 0 && parameterized > 0,
+            "{generated} {parameterized}"
+        );
     }
 }
 

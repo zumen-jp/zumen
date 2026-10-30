@@ -4455,7 +4455,8 @@ fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
 
 /// LWPOLYLINE の欄（R2000）。続く欄があるかの印は、値があるかから選ぶ。膨らみ（42）が 1 つでもあれば、
 /// すべての頂点の膨らみを書く（ないものは 0）。頂点ごとの幅（40・41）は、初めの頂点から続けて置く。
-/// 頂点ごとの幅があるときは、表にない一定の幅を元のまま残す。ほかの印のビットも元のまま写す。足した
+/// 頂点ごとの幅があるときは、表にない一定の幅を元のまま残す。閉じている（0x200）と線種の生成（0x100）は
+/// 70 の 1 と 128 から書き、ほかの印のビットは元のまま写す。足した
 /// LWPOLYLINE（`data` が空）では、どちらも 0 にする（決定 0056）
 fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
     let (old, old_width) = if data.is_empty() {
@@ -4494,11 +4495,12 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
         [Data::Int(count)] if usize::try_from(*count).ok()? == vertices.len() => {}
         _ => return None,
     }
-    let closed = match small(object, 70)? {
-        None | Some(0) => false,
-        Some(1) => true,
-        _ => return None,
-    };
+    // DXF の 70 は、閉じている（1）と線種の生成（128）だけを受け付ける
+    let flags70 = small(object, 70)?.unwrap_or(0);
+    if flags70 & !(1 | 128) != 0 {
+        return None;
+    }
+    let (closed, generation) = (flags70 & 1 != 0, flags70 & 128 != 0);
     let widths = vertices.iter().take_while(|v| v[2].is_some()).count();
     let (with, without) = vertices.split_at_checked(widths)?;
     if without.iter().any(|v| v[2].is_some() || v[3].is_some())
@@ -4519,7 +4521,7 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
         _ => return None,
     };
     let bulges = vertices.iter().any(|v| v[4].is_some());
-    let mut flags = old & !(0x3F | 0x200);
+    let mut flags = old & !(0x3F | 0x100 | 0x200);
     for (on, bit) in [
         (extrusion.is_some(), 1),
         (thickness.is_some(), 2),
@@ -4527,6 +4529,7 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
         (elevation.is_some(), 8),
         (bulges, 16),
         (widths > 0, 32),
+        (generation, 0x100),
         (closed, 0x200),
     ] {
         if on {
@@ -4784,7 +4787,7 @@ fn fit_bezier(
 /// 場合に合わない値があれば `None`。有理・閉じている・周期的の印は、印（70）があればその 4・1・2 を書き、
 /// なければ元のビットを写す。重みがあるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
 /// 当てはめる点（11）を持てば場合を 2、持たなければ 1 とし、閉じている・周期的の印を 0、有理の印を
-/// 重みがあるかにする（決定 0057・0059）
+/// 重みがあるかにする（決定 0057・0059）。節点の取り方（70 の 1024）を持つものは足さない（決定 0157）
 fn spline(
     fields: &mut BitWriter,
     object: &Object,
@@ -4795,6 +4798,10 @@ fn spline(
     let added = data.is_empty();
     let r2013 = release >= Release::R2013;
     let (scenario, flags_at, method) = if added {
+        // 節点の取り方（70 の 1024 とそのビット）は、足すスプラインでは書けない
+        if integer(object, 70)?.unwrap_or(0) & 1024 != 0 {
+            return None;
+        }
         let fitted = object.values.iter().any(|value| value.code == 11);
         (if fitted { 2 } else { 1 }, 0, None)
     } else {

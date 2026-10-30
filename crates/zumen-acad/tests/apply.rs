@@ -1057,6 +1057,7 @@ fn newcomers() -> Vec<Shape<ModelPoint>> {
             closed: true,
             width: None,
             vertex_widths: Vec::new(),
+            line_type_generation: false,
         }),
         Shape::Text(Text {
             content: "zumen".to_owned(),
@@ -1479,6 +1480,7 @@ fn additions_stop_before_visiting_vertices_over_the_work_budget() {
         closed: false,
         width: None,
         vertex_widths: vec![],
+        line_type_generation: false,
     });
     let mut file = testkit::read::<Dxf>(&src).0.unwrap();
     let mut budget = Budget::new(

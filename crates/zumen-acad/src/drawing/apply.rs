@@ -16,9 +16,9 @@ use crate::{Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, DimensionStyle, Drawing2D, Edge, Edit, Element, FormattedText, Hash,
-    Horizontal, Layer, LayerId, Length, LineType, MarkContent, ModelLength, ModelPoint,
-    PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Seen, Shape, SheetId,
-    SpaceId, Spline, Style, Symbol, Text, TextStyle, Vertical, id, transform,
+    Horizontal, KnotParameterization, Layer, LayerId, Length, LineType, MarkContent, ModelLength,
+    ModelPoint, PaperLength, PaperPoint, Placed, Placement, Polyline, Restyle, Rotation, Seen,
+    Shape, SheetId, SpaceId, Spline, Style, Symbol, Text, TextStyle, Vertical, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Error};
 
@@ -1763,7 +1763,7 @@ fn ellipse<P: PartialEq>(
 }
 
 /// LWPOLYLINE（DXF Reference「LWPOLYLINE」）の値を組み直す。頂点の前の値は写して、頂点の数（90）・閉じて
-/// いること（70 の 1）・一定の幅（43）を直し、頂点ごとに 10・20、頂点の ID（91）、頂点ごとの幅（40・41）、
+/// いること（70 の 1）・線種の生成（70 の 128）・一定の幅（43）を直し、頂点ごとに 10・20、頂点の ID（91）、頂点ごとの幅（40・41）、
 /// 0 でない膨らみ（42）を並べる。頂点の後の値（押し出しの向きなど）は写す。頂点の ID を持つのに頂点の数が
 /// 変わるもの、頂点の間にほかの値があるもの、一定の幅と頂点ごとの幅の両方を持つものは書き戻さない
 fn lwpolyline<P: PartialEq>(
@@ -1798,9 +1798,11 @@ fn lwpolyline<P: PartialEq>(
         Some(Value {
             data: Data::Int(flags),
             ..
-        }) => *flags = (*flags & !1) | i64::from(line.closed),
+        }) => *flags = (*flags & !(1 | 128)) | polyline_flags(line),
         Some(_) => return None,
-        None if line.closed => insert(&mut out, 70, Data::Int(1), &[90])?,
+        None if polyline_flags(line) != 0 => {
+            insert(&mut out, 70, Data::Int(polyline_flags(line)), &[90])?;
+        }
         None => {}
     }
     match &line.width {
@@ -1833,6 +1835,11 @@ fn lwpolyline<P: PartialEq>(
     }
     out.extend_from_slice(values.get(last + 1..)?);
     Some(out)
+}
+
+/// LWPOLYLINE・POLYLINE の印（70）の、閉じている（1）と線種の生成（128）
+fn polyline_flags<P>(line: &Polyline<P>) -> i64 {
+    i64::from(line.closed) | i64::from(line.line_type_generation) << 7
 }
 
 /// TEXT（DXF Reference「TEXT」）の欄を直す。内容（1）・高さ（40）・回転（50）・幅の倍率（41）・斜体の角度（51）・
@@ -2075,7 +2082,8 @@ fn placing<P: PartialEq>(
 /// （1・2・4）と、次数（71）・節点と制御点の数（72・73）・節点（40）・制御点（10・20・30）・重み（41）を書く。
 /// 当てはめる点で決まるものは、節点と制御点を書かず、当てはめる点の数（74）・当てはめる点（11・21・31）・
 /// 接線（12・13）を書き、制御点は読む側が求め直す。ほかの印と許容差（42〜44）は元のまま。制御点で決まる
-/// ものと当てはめる点で決まるものは、DWG の場合（scenario）が変わるので入れ替えない
+/// ものと当てはめる点で決まるものは、DWG の場合（scenario）が変わるので入れ替えない。当てはめの許容差と
+/// 節点の取り方は、DWG の書き戻しが元のビットを写すので、変えるものは書き戻さない（決定 0157）
 fn splining<P: PartialEq>(
     values: &mut Vec<Value>,
     spline: &Spline<P>,
@@ -2083,7 +2091,10 @@ fn splining<P: PartialEq>(
     frame: &impl Frame<P>,
 ) -> Option<()> {
     let fitting = fitted(spline) && fitted(was);
-    if !(fitting || controlled(spline) && controlled(was)) {
+    if !(fitting || controlled(spline) && controlled(was))
+        || spline.fit_tolerance != was.fit_tolerance
+        || spline.knot_parameterization != was.knot_parameterization
+    {
         return None;
     }
     let defined = if fitting {
@@ -2105,13 +2116,13 @@ fn splining<P: PartialEq>(
         (72, i64::try_from(spline.knots.len()).ok()?),
         (73, i64::try_from(spline.control.len()).ok()?),
     ];
-    // DWG の当てはめる点のスプラインは、閉じている・周期的の印を書かない。読んだ値に印がなければ足さず、
-    // 閉じている・周期的は変えない
-    if fitting && flags.is_none() && (spline.closed, spline.periodic) != (was.closed, was.periodic)
-    {
+    // DWG の当てはめる点のスプラインは、閉じている・周期的の印を書かない。読んだ値に印がないか、R2013 からの
+    // 当てはめる点で決まる印（1024）だけがあれば、印は直さず、閉じている・周期的は変えない
+    let kept = fitting && flags.is_none_or(|flags| flags & 1024 != 0);
+    if kept && (spline.closed, spline.periodic) != (was.closed, was.periodic) {
         return None;
     }
-    if !(fitting && flags.is_none()) {
+    if !kept {
         counts.insert(0, (70, spline_flags(flags.unwrap_or(8), spline)));
     }
     if fitting {
@@ -2168,6 +2179,17 @@ fn fit_values<P>(frame: &impl Frame<P>, spline: &Spline<P>) -> Option<Vec<Value>
         values.extend([real(11, x)?, real(21, y)?, real(31, 0.0)?]);
     }
     Some(values)
+}
+
+/// SPLINE の印（70）の、当てはめる点で決まること（1024）と節点の取り方（32・64・128・256）。取り方がなければ 0
+fn knot_flags<P>(spline: &Spline<P>) -> i64 {
+    match spline.knot_parameterization {
+        None => 0,
+        Some(KnotParameterization::Chord) => 1024 | 32,
+        Some(KnotParameterization::SquareRoot) => 1024 | 64,
+        Some(KnotParameterization::Uniform) => 1024 | 128,
+        Some(KnotParameterization::Custom) => 1024 | 256,
+    }
 }
 
 /// SPLINE の印（70）。`flags` の閉じている・周期的・有理（1・2・4）を、スプラインに合わせる
@@ -2475,6 +2497,8 @@ mod hash_budget_tests {
             end_tangent: None,
             closed: false,
             periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
         };
         let mut changed = spline.clone();
         changed.control[1].y = 1.0;
@@ -2862,6 +2886,7 @@ mod hash_budget_tests {
                 closed: false,
                 width: None,
                 vertex_widths: vec![],
+                line_type_generation: false,
             }),
         };
         let drawing = Drawing2D {

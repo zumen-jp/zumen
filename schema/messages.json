@@ -218,7 +218,7 @@
       "type": "object",
       "properties": {
         "hash": {
-          "description": "文書のハッシュ。open に渡したバイト列から作る。変更の一覧の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）",
+          "description": "文書のハッシュ。open に渡したバイト列から作る。変更の一覧の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）",
           "type": "string"
         },
         "spaces": {
@@ -371,7 +371,7 @@
           "$ref": "#/$defs/extent"
         },
         "hash": {
-          "description": "要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v1: と 32 桁の 16 進、決定 0156）",
+          "description": "要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）",
           "type": "string"
         },
         "geometry": {
@@ -1125,7 +1125,7 @@
           "type": "string"
         },
         "name": { "description": "元の名前。翻訳しない", "type": "string" },
-        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" }
+        "hash": { "description": "項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）", "type": "string" }
       },
       "required": ["id", "name", "hash"],
       "additionalProperties": false
@@ -1140,7 +1140,7 @@
         },
         "name": { "description": "元の名前。翻訳しない", "type": "string" },
         "hash": {
-          "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）",
+          "description": "項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）",
           "type": "string"
         },
         "defined": {
@@ -1176,7 +1176,7 @@
           "type": "string"
         },
         "name": { "description": "元の名前。翻訳しない", "type": "string" },
-        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" },
+        "hash": { "description": "項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）", "type": "string" },
         "defined": {
           "description": "ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から",
           "type": "boolean"
@@ -1213,7 +1213,7 @@
           "type": "string"
         },
         "name": { "description": "元の名前。翻訳しない", "type": "string" },
-        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" },
+        "hash": { "description": "項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）", "type": "string" },
         "ends": {
           "description": "寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から",
           "type": "array",
@@ -1276,7 +1276,7 @@
           "type": "string"
         },
         "name": { "description": "元の名前。翻訳しない", "type": "string" },
-        "hash": { "description": "項目のハッシュ（v1: と 32 桁の 16 進、決定 0156）", "type": "string" },
+        "hash": { "description": "項目のハッシュ（v2: と 32 桁の 16 進、決定 0156）", "type": "string" },
         "defined": { "description": "ファイルに定義がある。偽なら、ほかの欄を持たない", "type": "boolean" },
         "font": { "description": "主のフォント。ファイルが決めていなければ書かない", "$ref": "#/$defs/font" },
         "big_font": { "description": "大きいフォント（漢字などの形のファイル）。なければ書かない", "$ref": "#/$defs/font" },
