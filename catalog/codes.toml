@@ -780,6 +780,44 @@ group-by = ["key", "value"]
 since = "0.2.0"
 status = "active"
 
+# XML の L0（決定 0209）
+
+[codes."xml.document.invalid"]
+description = "XML の形になっていないので読めない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."xml.encoding.unsupported"]
+description = "UTF-8 と Shift_JIS のほかの文字コードなので、読まなかった"
+severity = "error"
+params = { encoding = "text" }
+group-by = ["encoding"]
+since = "0.2.0"
+status = "active"
+
+[codes."xml.entity.unsupported"]
+description = "DTD で宣言する実体の参照なので、戻さずにそのままの文字にした"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."xml.namespace.missing"]
+description = "宣言されていない名前空間の接頭辞なので、名前空間のない名前にした"
+severity = "warning"
+params = { prefix = "text" }
+group-by = ["prefix"]
+since = "0.2.0"
+status = "active"
+
+[codes."xml.dtd.dropped"]
+description = "文書型宣言（DTD）を処理しなかった。外部の DTD と実体も解決しない"
+severity = "info"
+since = "0.2.0"
+status = "active"
+
 # DXF から図面の領域モデルへの変換（決定 0022）
 
 [codes."drawing.mark-height.dropped"]

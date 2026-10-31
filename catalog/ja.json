@@ -165,6 +165,11 @@
     "sxf.schema.unsupported": "スキーマ「{schema}」のファイルは、SXF の図面（ASSOCIATIVE_DRAUGHTING）でないので、読めません。",
     "sxf.sfig-cycle.invalid": "作図グループ「{name}」は、自分を直接か間接に配置するので、展開しませんでした（{count} 件）。",
     "sxf.sfig.missing": "複合図形「{name}」の定義がないので、配置を図面モデルに移しませんでした（{count} 件）。",
+    "xml.document.invalid": "XML の形になっていないので、読めませんでした（{count} 件）。",
+    "xml.dtd.dropped": "文書型宣言（DTD）は処理しませんでした（{count} 件）。",
+    "xml.encoding.unsupported": "文字コード「{encoding}」は扱えないので、読みませんでした（{count} 件）。",
+    "xml.entity.unsupported": "実体の参照「{name}」は DTD で宣言するものなので、戻さずにそのままの文字にしました（{count} 件）。",
+    "xml.namespace.missing": "名前空間の接頭辞「{prefix}」が宣言されていないので、名前空間のない名前にしました（{count} 件）。",
     "zip.path.unsafe": "パスとして安全でない ZIP の項目の名前を、そのまま使いませんでした（{count} 件。最初は「{name}」）。"
   }
 }

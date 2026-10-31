@@ -165,6 +165,11 @@
     "sxf.schema.unsupported": "Cannot read a file with the schema \"{schema}\": it is not an SXF drawing (ASSOCIATIVE_DRAUGHTING).",
     "sxf.sfig-cycle.invalid": "The drawing group \"{name}\" places itself directly or indirectly, so it was not expanded ({count}).",
     "sxf.sfig.missing": "The composite figure \"{name}\" is not defined, so its placements were not moved ({count}).",
+    "xml.document.invalid": "Could not read the XML because it is not well-formed ({count}).",
+    "xml.dtd.dropped": "Did not process the document type declaration (DTD) ({count}).",
+    "xml.encoding.unsupported": "Did not read the XML because the encoding \"{encoding}\" is not supported ({count}).",
+    "xml.entity.unsupported": "Left the entity reference \"{name}\" as it is, because it is declared in a DTD ({count}).",
+    "xml.namespace.missing": "Read names with the undeclared namespace prefix \"{prefix}\" as names without a namespace ({count}).",
     "zip.path.unsafe": "Did not use {count} ZIP entry names that are unsafe as paths (the first is \"{name}\")."
   }
 }
