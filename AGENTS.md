@@ -26,7 +26,7 @@
 - 国土地理院のジオイド・モデルや座標変換のパラメーターを、Git・パッケージ・試験に入れない。利用者が入手して渡す（[決定 0019](docs/decisions/0019-coordinate-systems-and-gsi-data.md)）。
 - 実行時の依存とリンクする依存は、寛容なライセンス（MIT・Apache-2.0・BSD・ISC・Zlib など）に限る。GPL・AGPL・LGPL・MPL は入れない。Cargo の依存（build・dev を含む）と、生成したコードを成果物に入れる道具も、寛容なライセンスに限る（[決定 0011](docs/decisions/0011-bindings-through-ffi.md)）。
 - 依存を足す前に、ライセンス、WebAssembly で動くこと、決定性の規則（[決定 0007](docs/decisions/0007-single-rust-implementation.md)）を満たすことを確かめ、理由を記録する。
-- 仕様の本文・図・表を写さない。IFC のスキーマと、そこから生成したコードを同梱しない（旧版の決定 0028）。GPL の実装（LibreDWG など）のソースを読まない。
+- IFC のスキーマと、そこから生成したコードを同梱しない（旧版の決定 0028）。GPL の実装（LibreDWG など）のソースを読まない。
 
 ## 図面と秘密
 
