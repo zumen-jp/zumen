@@ -120,6 +120,6 @@
 
 ## 参照
 
-- [決定 0008](0008-model-layers-and-codecs.md)、[決定 0009](0009-diagnostics-and-catalog.md)、[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0024](0024-acad-table-write-back.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0115](0115-drawing-format-extensions.md)、[決定 0154](0154-drawing-apply-keeps-format-data.md)、[決定 0155](0155-drawing-apply-additions.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、[決定 0158](0158-drawing-text-styles.md)、[決定 0162](0162-drawing-layer-changes.md)
+- [決定 0008](0008-model-layers-and-codecs.md)、[決定 0009](0009-diagnostics-and-catalog.md)、[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0024](0024-acad-table-write-back.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0115](0115-drawing-format-extensions.md)、[決定 0154](0154-drawing-apply-keeps-format-data.md)、[決定 0155](0155-drawing-apply-additions.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、[決定 0158](0158-drawing-text-styles.md)、[決定 0162](0162-drawing-layer-changes.md)、[決定 0206](0206-convert-to-new-dxf.md)（lower を convert として足した）
 - DXF Reference「Group Codes That Apply to Extended Data」
 - #170

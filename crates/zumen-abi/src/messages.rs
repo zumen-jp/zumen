@@ -25,6 +25,8 @@ pub enum Request {
     Entities(EntitiesRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から
     Apply(ApplyRequest),
+    /// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から
+    Convert(ConvertRequest),
     /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から
     Tables(TablesRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から
@@ -43,6 +45,7 @@ impl Request {
         "drawing",
         "entities",
         "apply",
+        "convert",
         "tables",
         "scene",
         "check",
@@ -58,6 +61,7 @@ impl Request {
             Self::Drawing(_) => "drawing",
             Self::Entities(_) => "entities",
             Self::Apply(_) => "apply",
+            Self::Convert(_) => "convert",
             Self::Tables(_) => "tables",
             Self::Scene(_) => "scene",
             Self::Check(_) => "check",
@@ -76,6 +80,7 @@ impl FromJson for Request {
             "drawing" => Self::Drawing(DrawingRequest::read_fields(&mut object)?),
             "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
+            "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
             "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
             "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
             "check" => Self::Check(CheckRequest::read_fields(&mut object)?),
@@ -96,6 +101,7 @@ impl ToJson for Request {
             Self::Drawing(value) => value.to_json(out),
             Self::Entities(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
+            Self::Convert(value) => value.to_json(out),
             Self::Tables(value) => value.to_json(out),
             Self::Scene(value) => value.to_json(out),
             Self::Check(value) => value.to_json(out),
@@ -3596,6 +3602,121 @@ impl FromJson for ApplyResult {
 }
 
 impl ToJson for ApplyResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConvertRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 書く元の文書の名前。open で作ったもの
+    pub doc: String,
+    /// 書く形式の名前（capabilities の formats の id）。今は dxf だけ
+    pub format: String,
+    /// 作る文書の名前
+    pub to: String,
+}
+
+impl ConvertRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "convert")?;
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let to = object.required("to", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            format,
+            to,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("convert");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("to");
+        out.string(&self.to);
+    }
+}
+
+impl FromJson for ConvertRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConvertRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 書いた文書。書いたファイルは blobs の file で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConvertResult {
+    /// 作った文書の名前
+    pub doc: String,
+    /// 書いた形式の名前
+    pub format: String,
+    /// 書いたファイルのハッシュ。apply の前提条件に使う
+    pub hash: String,
+    /// 書いた要素の数。記号から離した属性の文字を含む
+    pub elements: u64,
+}
+
+impl ConvertResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let elements =
+            object.required("elements", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            doc,
+            format,
+            hash,
+            elements,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("elements");
+        out.uint(self.elements);
+    }
+}
+
+impl FromJson for ConvertResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConvertResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

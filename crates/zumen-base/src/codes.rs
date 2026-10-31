@@ -335,6 +335,42 @@ pub const CHANGE_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 別の形式に書くとき、記号の属性を、記号から離した文字として書いた（決定 0206）
+///
+/// `convert.attribute.drawn`（0.0.0 から）
+pub const CONVERT_ATTRIBUTE_DRAWN: Code = Code::new(
+    "convert.attribute.drawn",
+    Severity::Info,
+    None,
+    &[Param::new("format", ParamType::Text)],
+    &[],
+);
+
+/// 別の形式に書くとき、この種類の要素か定義を書けないので落とした（決定 0206）。件数は種類ごとに数える
+///
+/// `convert.element.unsupported`（0.0.0 から）
+pub const CONVERT_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "convert.element.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("format", ParamType::Text),
+        Param::new("kind", ParamType::Key),
+    ],
+    &["kind"],
+);
+
+/// この形式には、まだ別の形式から書けない（決定 0206）
+///
+/// `convert.format.unsupported`（0.0.0 から）
+pub const CONVERT_FORMAT_UNSUPPORTED: Code = Code::new(
+    "convert.format.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("format", ParamType::Text)],
+    &[],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -1781,6 +1817,9 @@ pub const ALL: &[Code] = &[
     CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,
+    CONVERT_ATTRIBUTE_DRAWN,
+    CONVERT_ELEMENT_UNSUPPORTED,
+    CONVERT_FORMAT_UNSUPPORTED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,

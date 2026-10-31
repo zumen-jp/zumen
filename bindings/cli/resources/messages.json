@@ -14,6 +14,7 @@
         { "$ref": "#/$defs/drawing_request" },
         { "$ref": "#/$defs/entities_request" },
         { "$ref": "#/$defs/apply_request" },
+        { "$ref": "#/$defs/convert_request" },
         { "$ref": "#/$defs/tables_request" },
         { "$ref": "#/$defs/scene_request" },
         { "$ref": "#/$defs/check_request" }
@@ -796,6 +797,31 @@
         }
       },
       "required": ["applied", "hash"],
+      "additionalProperties": false
+    },
+    "convert_request": {
+      "description": "開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "convert" },
+        "doc": { "description": "書く元の文書の名前。open で作ったもの", "type": "string" },
+        "format": { "description": "書く形式の名前（capabilities の formats の id）。今は dxf だけ", "type": "string" },
+        "to": { "description": "作る文書の名前", "type": "string" }
+      },
+      "required": ["op", "doc", "format", "to"],
+      "unevaluatedProperties": false
+    },
+    "convert_result": {
+      "description": "書いた文書。書いたファイルは blobs の file で返す",
+      "type": "object",
+      "properties": {
+        "doc": { "description": "作った文書の名前", "type": "string" },
+        "format": { "description": "書いた形式の名前", "type": "string" },
+        "hash": { "description": "書いたファイルのハッシュ。apply の前提条件に使う", "type": "string" },
+        "elements": { "description": "書いた要素の数。記号から離した属性の文字を含む", "type": "integer", "minimum": 0 }
+      },
+      "required": ["doc", "format", "hash", "elements"],
       "additionalProperties": false
     },
     "applied": {

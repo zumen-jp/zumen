@@ -47,6 +47,7 @@ namespace Zumen.Messages
             ["drawing"] = typeof(DrawingRequest),
             ["entities"] = typeof(EntitiesRequest),
             ["apply"] = typeof(ApplyRequest),
+            ["convert"] = typeof(ConvertRequest),
             ["tables"] = typeof(TablesRequest),
             ["scene"] = typeof(SceneRequest),
             ["check"] = typeof(CheckRequest),
@@ -1974,6 +1975,96 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("ids_shifted")]
         public bool? IdsShifted { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から
+    /// </summary>
+    public sealed record ConvertRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "convert";
+
+        /// <summary>
+        /// 書く元の文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 書く形式の名前（capabilities の formats の id）。今は dxf だけ
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 作る文書の名前
+        /// </summary>
+        [JsonPropertyName("to")]
+        public string To { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 書いた文書。書いたファイルは blobs の file で返す
+    /// </summary>
+    public sealed record ConvertResult
+    {
+        /// <summary>
+        /// 作った文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 書いた形式の名前
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 書いたファイルのハッシュ。apply の前提条件に使う
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 書いた要素の数。記号から離した属性の文字を含む
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public ulong Elements { get; init; }
     }
 
     /// <summary>
@@ -4268,6 +4359,7 @@ namespace Zumen.Messages
                 ["drawing"] = (typeof(DrawingRequest), typeof(DrawingResult)),
                 ["entities"] = (typeof(EntitiesRequest), typeof(EntitiesResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
+                ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),
                 ["tables"] = (typeof(TablesRequest), typeof(TablesResult)),
                 ["scene"] = (typeof(SceneRequest), typeof(SceneResult)),
                 ["check"] = (typeof(CheckRequest), typeof(CheckResult)),

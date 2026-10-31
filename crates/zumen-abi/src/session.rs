@@ -18,14 +18,16 @@ use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::bounds;
 use crate::changes::changes;
 use crate::check;
+use crate::convert;
 use crate::describe;
 use crate::geometry;
 use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CheckRequest,
-    CheckResult, CloseRequest, CloseResult, DrawingRequest, DrawingResult, ElementCounts, Engine,
-    EntitiesRequest, EntitiesResult, Entity, EntityField, EntityKind, Extent, Format, OpenRequest,
-    OpenResult, PointStyleSummary, Request, RequestCommon, SceneRequest, SceneResult,
-    SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
+    CheckResult, CloseRequest, CloseResult, ConvertRequest, ConvertResult, DrawingRequest,
+    DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField,
+    EntityKind, Extent, Format, OpenRequest, OpenResult, PointStyleSummary, Request, RequestCommon,
+    SceneRequest, SceneResult, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary,
+    TablesRequest, TablesResult,
 };
 use crate::scene;
 use crate::tables::{
@@ -306,6 +308,7 @@ impl Session {
             Request::Drawing(request) => self.drawing(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::Convert(request) => self.convert(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Check(request) => self.check(request, &mut cx).map(|r| Box::new(r) as _),
@@ -645,6 +648,47 @@ impl Session {
                 .collect(),
             hash: hash.to_string(),
             ids_shifted: ids_shifted.then_some(true),
+        })
+    }
+
+    /// 図面モデルを別の形式の新しいファイルに書き、新しい文書として開く（決定 0206）
+    fn convert(
+        &mut self,
+        request: &ConvertRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<ConvertResult, Failed> {
+        if !name::is_safe(&request.to) {
+            return Err(fail(cx, invalid_value("/to")));
+        }
+        if self.docs.contains_key(&request.to) {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", request.to.as_str()),
+            ));
+        }
+        if request.format != Dxf::FORMAT {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CONVERT_FORMAT_UNSUPPORTED)
+                    .with("format", request.format.as_str()),
+            ));
+        }
+        let drawing = self.lift(&request.doc, cx)?;
+        let converted = convert::to_dxf(&drawing, cx)?;
+        let hash =
+            Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        self.hashes.insert(request.to.clone(), hash);
+        self.docs
+            .insert(request.to.clone(), Doc::Dxf(converted.file));
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes: converted.bytes,
+        }));
+        Ok(ConvertResult {
+            doc: request.to.clone(),
+            format: Dxf::FORMAT.to_string(),
+            hash: hash.to_string(),
+            elements: converted.elements,
         })
     }
 
@@ -1096,6 +1140,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Drawing(request) => &request.request_common,
         Request::Entities(request) => &request.request_common,
         Request::Apply(request) => &request.request_common,
+        Request::Convert(request) => &request.request_common,
         Request::Tables(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Check(request) => &request.request_common,
@@ -1641,7 +1686,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":40}},"ops":["capabilities","open","close","describe","drawing","entities","apply","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":41}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -5401,5 +5446,140 @@ mod tests {
         );
         assert_eq!(call(&mut session, &request).0, Status::Failed);
         assert_eq!(seen(&mut session, "fit.dxf")[0], (id, hash));
+    }
+
+    /// レイヤ・線種・文字スタイル・属性を持つ記号・ハッチングを持つ R2000 の DXF
+    const CONVERTIBLE: &str = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n\
+        9\n$HANDSEED\n5\n90\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n\
+        0\nLTYPE\n5\n11\n2\nContinuous\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n\
+        0\nLTYPE\n5\n12\n2\nDashed\n70\n0\n3\n__ __\n72\n65\n73\n2\n40\n15.0\n49\n10.0\n74\n0\n49\n-5.0\n74\n0\n\
+        0\nENDTAB\n0\nTABLE\n2\nLAYER\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n6\nContinuous\n\
+        0\nLAYER\n5\n13\n2\nWall\n70\n0\n62\n1\n6\nDashed\n0\nENDTAB\n\
+        0\nTABLE\n2\nSTYLE\n0\nSTYLE\n5\n14\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n\
+        0\nSTYLE\n5\n15\n2\nNote\n70\n0\n40\n0.0\n41\n0.8\n50\n0.0\n71\n0\n42\n3.5\n3\nromans.shx\n4\n\n\
+        0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n\
+        0\nBLOCK\n5\n20\n8\n0\n2\nDOOR\n70\n2\n10\n1.0\n20\n2.0\n3\nDOOR\n\
+        0\nLINE\n5\n21\n8\n0\n10\n0.0\n20\n0.0\n11\n1.0\n21\n0.0\n\
+        0\nATTDEF\n5\n23\n8\n0\n10\n0.0\n20\n1.0\n40\n1.0\n1\n\n3\nNo\n2\nNO\n70\n0\n\
+        0\nENDBLK\n5\n22\n8\n0\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n\
+        0\nLINE\n5\n30\n8\nWall\n10\n0.0\n20\n0.0\n11\n100.0\n21\n0.0\n\
+        0\nCIRCLE\n5\n31\n8\n0\n6\nDashed\n10\n5.0\n20\n5.0\n40\n2.0\n\
+        0\nTEXT\n5\n32\n8\n0\n10\n0.0\n20\n10.0\n40\n2.5\n1\nABC\n7\nNote\n\
+        0\nINSERT\n5\n40\n8\n0\n66\n1\n2\nDOOR\n10\n50.0\n20\n5.0\n\
+        0\nATTRIB\n5\n41\n8\n0\n10\n50.0\n20\n6.0\n40\n1.0\n1\nD-1\n2\nNO\n70\n0\n\
+        0\nSEQEND\n5\n42\n8\n0\n\
+        0\nHATCH\n5\n50\n8\n0\n10\n0.0\n20\n0.0\n30\n0.0\n2\nSOLID\n70\n1\n71\n0\n91\n1\n\
+        92\n1\n93\n3\n72\n1\n10\n0.0\n20\n0.0\n11\n1.0\n21\n0.0\n72\n1\n10\n1.0\n20\n0.0\n11\n0.0\n21\n1.0\n\
+        72\n1\n10\n0.0\n20\n1.0\n11\n0.0\n21\n0.0\n97\n0\n75\n0\n76\n1\n98\n0\n\
+        0\nENDSEC\n0\nEOF\n";
+
+    fn codes_of(response: &Value) -> Vec<String> {
+        let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
+            return Vec::new();
+        };
+        (0..diagnostics.len())
+            .map(|index| text(response, &format!("/diagnostics/{index}/code")))
+            .collect()
+    }
+
+    #[test]
+    fn converts_a_drawing_to_a_new_dxf() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", CONVERTIBLE.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"b.dxf"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/doc"), "b.dxf");
+        // 線分・円・文字・記号と、記号から離した属性の文字。ハッチングは落とす
+        assert_eq!(number(&response, "/result/elements"), "5", "{response:?}");
+        let codes = codes_of(&response);
+        assert!(
+            codes.contains(&"convert.attribute.drawn".to_string()),
+            "{codes:?}"
+        );
+        assert!(
+            codes.contains(&"convert.element.unsupported".to_string()),
+            "{codes:?}"
+        );
+        let file = String::from_utf8(session.take(0).unwrap()).unwrap();
+        assert!(file.contains("\nDOOR\n"), "{file}");
+        // 書いた文書は、開いた文書と同じに使える
+        let (status, tables) = call(&mut session, r#"{"v":1,"op":"tables","doc":"b.dxf"}"#);
+        assert_eq!(status, Status::Ok, "{tables:?}");
+        let mut out = zumen_json::Writer::new();
+        out.value(&tables);
+        let tables = String::from_utf8(out.into_bytes()).unwrap();
+        for name in ["\"Wall\"", "\"Dashed\"", "\"Note\""] {
+            assert!(tables.contains(name), "{name}: {tables}");
+        }
+        let (status, entities) = call(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"b.dxf","fields":["geometry"]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{entities:?}");
+        let mut out = zumen_json::Writer::new();
+        out.value(&entities);
+        let entities = String::from_utf8(out.into_bytes()).unwrap();
+        for value in ["\"ABC\"", "\"D-1\"", "\"DOOR\""] {
+            assert!(entities.contains(value), "{value}: {entities}");
+        }
+    }
+
+    #[test]
+    fn converts_sfc_to_dxf() {
+        // SXF の要素は用紙にあるので、DXF の用紙に書く
+        let sfc = concat!(
+            "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\n",
+            "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n",
+            "/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n",
+            "/*SXF3\n#20 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')\nSXF3*/\n",
+            "/*SXF3\n#30 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\n",
+            "ENDSEC;\nEND-ISO-10303-21;\n",
+        );
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.sfc", sfc.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.sfc"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"convert","doc":"a.sfc","format":"dxf","to":"a.dxf"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/format"), "dxf");
+        assert_eq!(number(&response, "/result/elements"), "1", "{response:?}");
+        let (status, drawing) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        assert_eq!(status, Status::Ok, "{drawing:?}");
+        let mut out = zumen_json::Writer::new();
+        out.value(&drawing);
+        let drawing = String::from_utf8(out.into_bytes()).unwrap();
+        assert!(drawing.contains(r#""size":[420,297]"#), "{drawing}");
+        assert!(drawing.contains(r#""max_x":100"#), "{drawing}");
+    }
+
+    #[test]
+    fn refuses_conversions_it_cannot_write() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", CONVERTIBLE.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        for (request, code) in [
+            (
+                r#"{"v":1,"op":"convert","doc":"a.dxf","format":"sxf","to":"b.sfc"}"#,
+                "convert.format.unsupported",
+            ),
+            (
+                r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"a.dxf"}"#,
+                "call.document.exists",
+            ),
+            (
+                r#"{"v":1,"op":"convert","doc":"c.dxf","format":"dxf","to":"b.dxf"}"#,
+                "call.document.missing",
+            ),
+        ] {
+            let (status, response) = call(&mut session, request);
+            assert_eq!(status, Status::Failed, "{response:?}");
+            assert_eq!(codes_of(&response), vec![code.to_string()], "{request}");
+        }
     }
 }

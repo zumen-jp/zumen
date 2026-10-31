@@ -232,6 +232,28 @@ params = { kind = "text", code = "int" }
 since = "0.0.0"
 status = "active"
 
+[codes."convert.attribute.drawn"]
+description = "別の形式に書くとき、記号の属性を、記号から離した文字として書いた（決定 0206）"
+severity = "info"
+params = { format = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."convert.element.unsupported"]
+description = "別の形式に書くとき、この種類の要素か定義を書けないので落とした（決定 0206）。件数は種類ごとに数える"
+severity = "warning"
+params = { format = "text", kind = "key" }
+group-by = ["kind"]
+since = "0.0.0"
+status = "active"
+
+[codes."convert.format.unsupported"]
+description = "この形式には、まだ別の形式から書けない（決定 0206）"
+severity = "error"
+params = { format = "text" }
+since = "0.0.0"
+status = "active"
+
 # カタログ（決定 0009）
 
 [codes."catalog.file.invalid"]

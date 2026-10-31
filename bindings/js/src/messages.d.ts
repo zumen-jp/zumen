@@ -13,6 +13,7 @@ export type Request =
   | DrawingRequest
   | EntitiesRequest
   | ApplyRequest
+  | ConvertRequest
   | TablesRequest
   | SceneRequest
   | CheckRequest;
@@ -715,6 +716,30 @@ export interface ApplyResult {
   hash: string;
   /** true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から */
   ids_shifted?: boolean;
+}
+
+/** 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から */
+export interface ConvertRequest extends RequestCommon {
+  /** op の名前 */
+  op: "convert";
+  /** 書く元の文書の名前。open で作ったもの */
+  doc: string;
+  /** 書く形式の名前（capabilities の formats の id）。今は dxf だけ */
+  format: string;
+  /** 作る文書の名前 */
+  to: string;
+}
+
+/** 書いた文書。書いたファイルは blobs の file で返す */
+export interface ConvertResult {
+  /** 作った文書の名前 */
+  doc: string;
+  /** 書いた形式の名前 */
+  format: string;
+  /** 書いたファイルのハッシュ。apply の前提条件に使う */
+  hash: string;
+  /** 書いた要素の数。記号から離した属性の文字を含む */
+  elements: number;
 }
 
 /** 当てた変更 1 つの結果 */
@@ -1601,6 +1626,7 @@ export interface Operations {
   drawing: { request: DrawingRequest; result: DrawingResult };
   entities: { request: EntitiesRequest; result: EntitiesResult };
   apply: { request: ApplyRequest; result: ApplyResult };
+  convert: { request: ConvertRequest; result: ConvertResult };
   tables: { request: TablesRequest; result: TablesResult };
   scene: { request: SceneRequest; result: SceneResult };
   check: { request: CheckRequest; result: CheckResult };
