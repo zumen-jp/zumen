@@ -20,6 +20,7 @@
 | Java の包み（C ABI、JNA） | `../java/src/test/java/dev/zumen/Conformance.java`（Java 8 以降。Android 7.0 以降のエミュレーターでも） | `cargo build -p zumen-abi` と `sh bindings/java/fetch-jna.sh target/jna` のあと、`../java/README.md` の手順で作って流す（[決定 0224](../../docs/decisions/0224-java-kotlin-wrapper.md)）。毎晩 |
 | Swift の包み（C ABI の静的ライブラリ） | `../swift/Sources/ZumenConformance`（macOS 12・iOS 15 以降） | `sh bindings/swift/build-xcframework.sh debug aarch64-apple-darwin aarch64-apple-ios-sim` のあと、`bindings/swift` で `swift run ZumenConformance ../..`。iOS のシミュレーターは `sh bindings/swift/test-simulator.sh`（[決定 0225](../../docs/decisions/0225-swift-wrapper.md)） |
 | Go の包み（wasm、wazero） | `../go/conformance_test.go`（Go 1.26 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、モジュールを `bindings/go` に写し、`bindings/go` で `go test ./...`（[決定 0226](../../docs/decisions/0226-go-wrapper.md)）。毎晩 |
+| Dart の包み（C ABI、dart:ffi） | `../dart/tool/conformance.dart`（Dart 3.0 以降） | `cargo build -p zumen-abi` のあと、`bindings/dart` で `dart pub get` と `dart run tool/conformance.dart ../../target/debug/libzumen_abi1.so`（[決定 0227](../../docs/decisions/0227-dart-wrapper.md)）。毎晩 |
 | C のヘッダーと C++ の包み（C ABI） | `../c/tests/conformance.rs` | `cargo test -p zumen-c`。組の手順は Rust の試験の道具が読み、境界の関数は C と C++ の側から呼ぶ（[決定 0198](../../docs/decisions/0198-c-and-cpp-wrapper.md)） |
 | CLI（`zumen serve --stdio` と `zumen mcp`） | `../cli/tests/conformance.rs` | `cargo test -p zumen-cli`。MCP は道具で表せる組だけを流す（[決定 0197](../../docs/decisions/0197-cli-and-mcp-server.md)） |
 
