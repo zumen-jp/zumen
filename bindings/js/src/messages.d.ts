@@ -23,7 +23,9 @@ export type Request =
   | BuildingRequest
   | BuildingElementsRequest
   | IdsCheckRequest
-  | ReviewAdoptIdsRequest;
+  | ReviewAdoptIdsRequest
+  | BcfReadRequest
+  | BcfWriteRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -1903,6 +1905,69 @@ export interface ReviewAdoptIdsRequest extends RequestCommon {
   findings: number[];
 }
 
+/** zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から */
+export interface BcfReadRequest extends RequestCommon {
+  /** op の名前 */
+  op: "bcf_read";
+  /** BCF が指す建物モデルの文書の名前。open で IFC を開いたもの */
+  doc: string;
+  /** bcfzip の入力の名前（zm_push で渡した .bcf） */
+  input: string;
+  /** レビューの文書の対象の ID */
+  target: string;
+  /** 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す */
+  statuses?: BcfStatus[];
+}
+
+/** 状態の対応 */
+export interface BcfStatus {
+  /** BCF の TopicStatus の文字列 */
+  text: string;
+  /** 指摘の状態 */
+  status: ReviewStatus;
+}
+
+/** 指摘の状態（決定 0214） */
+export type ReviewStatus =
+  | "open"
+  | "resolved"
+  | "closed"
+  | (string & {});
+
+/** 読んだ bcfzip */
+export interface BcfReadResult {
+  /** BCF の版 */
+  version: string;
+  /** 指摘の数 */
+  topics: number;
+}
+
+/** zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から */
+export interface BcfWriteRequest extends RequestCommon {
+  /** op の名前 */
+  op: "bcf_write";
+  /** レビューの文書の入力の名前（zm_push で渡した JSON） */
+  review: string;
+  /** viewpoint にする 3D の場所の対象の ID */
+  target: string;
+  /** 元の bcfzip の入力の名前（zm_push で渡した .bcf）。書かなければ新しく書く */
+  original?: string;
+  /** 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す */
+  statuses?: BcfStatus[];
+  /** 種類のない指摘に書く TopicType */
+  kind?: string;
+  /** 作者のない指摘とコメントに書く作者 */
+  author?: string;
+  /** 日時のない指摘とコメントに書く日時（RFC 3339） */
+  date?: string;
+}
+
+/** 書いた bcfzip */
+export interface BcfWriteResult {
+  /** 書いた指摘の数 */
+  topics: number;
+}
+
 /** 表の項目 */
 export interface TableItem {
   /** ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。寸法スタイルは dimension-style/h1A か、寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156） */
@@ -2239,4 +2304,6 @@ export interface Operations {
   building_elements: { request: BuildingElementsRequest; result: BuildingElementsResult };
   ids_check: { request: IdsCheckRequest; result: IdsCheckResult };
   review_adopt_ids: { request: ReviewAdoptIdsRequest; result: unknown };
+  bcf_read: { request: BcfReadRequest; result: BcfReadResult };
+  bcf_write: { request: BcfWriteRequest; result: BcfWriteResult };
 }

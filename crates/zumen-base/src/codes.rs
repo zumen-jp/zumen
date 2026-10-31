@@ -5,6 +5,116 @@
 
 use crate::code::{Code, Fidelity, Param, ParamType, Severity};
 
+/// IFC の GlobalId でない要素の ID（`i` と番号）は BCF で指せないので、参照から除いた
+///
+/// `bcf.element.unsupported`（0.2.0 から）
+pub const BCF_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "bcf.element.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &[],
+);
+
+/// bcfzip の中の項目が、BCF 3.0 の形に合わない。name は項目の名前、near は合わなかった要素か属性
+///
+/// `bcf.file.invalid`（0.2.0 から）
+pub const BCF_FILE_INVALID: Code = Code::new(
+    "bcf.file.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("near", ParamType::Text),
+    ],
+    &["name"],
+);
+
+/// BCF に表せない場所なので、書かなかった。reason は plane（2D の場所）・target（ほかの対象）・camera（カメラがない）
+///
+/// `bcf.location.unsupported`（0.2.0 から）
+pub const BCF_LOCATION_UNSUPPORTED: Code = Code::new(
+    "bcf.location.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("location", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &["reason"],
+);
+
+/// 図形（赤入れ・変更雲・注記・写真）は BCF に表せないので、書かなかった
+///
+/// `bcf.markup.unsupported`（0.2.0 から）
+pub const BCF_MARKUP_UNSUPPORTED: Code = Code::new(
+    "bcf.markup.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 照合の結果の出所（規則と診断）は BCF に表せないので、落とした
+///
+/// `bcf.origin.dropped`（0.2.0 から）
+pub const BCF_ORIGIN_DROPPED: Code = Code::new(
+    "bcf.origin.dropped",
+    Severity::Info,
+    None,
+    &[Param::new("topic", ParamType::Text)],
+    &[],
+);
+
+/// 書く bcfzip が ZIP64 を要する大きさになる。ZIP64 は書かない（決定 0220）
+///
+/// `bcf.size.unsupported`（0.2.0 から）
+pub const BCF_SIZE_UNSUPPORTED: Code =
+    Code::new("bcf.size.unsupported", Severity::Error, None, &[], &[]);
+
+/// BCF で必須の値が指摘にないので、引数の値を書いた。field は BCF の要素か属性の名前
+///
+/// `bcf.value.assumed`（0.2.0 から）
+pub const BCF_VALUE_ASSUMED: Code = Code::new(
+    "bcf.value.assumed",
+    Severity::Info,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &["field"],
+);
+
+/// BCF で必須の値が、指摘にも引数にもない。field は BCF の要素か属性の名前
+///
+/// `bcf.value.missing`（0.2.0 から）
+pub const BCF_VALUE_MISSING: Code = Code::new(
+    "bcf.value.missing",
+    Severity::Error,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &["field"],
+);
+
+/// 読まない BCF の版。読むのは 3.0（決定 0220）
+///
+/// `bcf.version.unsupported`（0.2.0 から）
+pub const BCF_VERSION_UNSUPPORTED: Code = Code::new(
+    "bcf.version.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("version", ParamType::Text)],
+    &[],
+);
+
 /// 展開・復号で作ったバイト数が上限を超えた
 ///
 /// `budget.decoded-bytes.exceeded`（0.0.0 から）
@@ -2513,6 +2623,15 @@ pub const ZIP_SPLIT_UNSUPPORTED: Code =
 /// 台帳のすべての code（名前の順）
 #[allow(deprecated)]
 pub const ALL: &[Code] = &[
+    BCF_ELEMENT_UNSUPPORTED,
+    BCF_FILE_INVALID,
+    BCF_LOCATION_UNSUPPORTED,
+    BCF_MARKUP_UNSUPPORTED,
+    BCF_ORIGIN_DROPPED,
+    BCF_SIZE_UNSUPPORTED,
+    BCF_VALUE_ASSUMED,
+    BCF_VALUE_MISSING,
+    BCF_VERSION_UNSUPPORTED,
     BUDGET_DECODED_BYTES_EXCEEDED,
     BUDGET_DEPTH_EXCEEDED,
     BUDGET_ELEMENTS_EXCEEDED,

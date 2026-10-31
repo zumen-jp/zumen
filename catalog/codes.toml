@@ -1700,3 +1700,69 @@ params = { target = "text" }
 since = "0.2.0"
 status = "active"
 
+
+[codes."bcf.file.invalid"]
+description = "bcfzip の中の項目が、BCF 3.0 の形に合わない。name は項目の名前、near は合わなかった要素か属性"
+severity = "error"
+params = { name = "text", near = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.version.unsupported"]
+description = "読まない BCF の版。読むのは 3.0（決定 0220）"
+severity = "error"
+params = { version = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.location.unsupported"]
+description = "BCF に表せない場所なので、書かなかった。reason は plane（2D の場所）・target（ほかの対象）・camera（カメラがない）"
+severity = "warning"
+params = { topic = "text", location = "text", reason = "text" }
+group-by = ["reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.markup.unsupported"]
+description = "図形（赤入れ・変更雲・注記・写真）は BCF に表せないので、書かなかった"
+severity = "warning"
+params = { id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.element.unsupported"]
+description = "IFC の GlobalId でない要素の ID（`i` と番号）は BCF で指せないので、参照から除いた"
+severity = "warning"
+params = { topic = "text", id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.origin.dropped"]
+description = "照合の結果の出所（規則と診断）は BCF に表せないので、落とした"
+severity = "info"
+params = { topic = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.value.assumed"]
+description = "BCF で必須の値が指摘にないので、引数の値を書いた。field は BCF の要素か属性の名前"
+severity = "info"
+params = { topic = "text", field = "text" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.value.missing"]
+description = "BCF で必須の値が、指摘にも引数にもない。field は BCF の要素か属性の名前"
+severity = "error"
+params = { topic = "text", field = "text" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
+[codes."bcf.size.unsupported"]
+description = "書く bcfzip が ZIP64 を要する大きさになる。ZIP64 は書かない（決定 0220）"
+severity = "error"
+since = "0.2.0"
+status = "active"

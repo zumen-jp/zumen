@@ -27,6 +27,8 @@ Request = Union[
     "BuildingElementsRequest",
     "IdsCheckRequest",
     "ReviewAdoptIdsRequest",
+    "BcfReadRequest",
+    "BcfWriteRequest",
 ]
 
 
@@ -3332,6 +3334,132 @@ class ReviewAdoptIdsRequest(_ReviewAdoptIdsRequestRequired, _ReviewAdoptIdsReque
     "開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から"
 
 
+# zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+_BcfReadRequestRequired = TypedDict(
+    "_BcfReadRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["bcf_read"],
+        # BCF が指す建物モデルの文書の名前。open で IFC を開いたもの
+        "doc": str,
+        # bcfzip の入力の名前（zm_push で渡した .bcf）
+        "input": str,
+        # レビューの文書の対象の ID
+        "target": str,
+    },
+)
+_BcfReadRequestOptional = TypedDict(
+    "_BcfReadRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す
+        "statuses": List["BcfStatus"],
+    },
+    total=False,
+)
+
+
+class BcfReadRequest(_BcfReadRequestRequired, _BcfReadRequestOptional):
+    "zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から"
+
+
+# 状態の対応
+BcfStatus = TypedDict(
+    "BcfStatus",
+    {
+        # BCF の TopicStatus の文字列
+        "text": str,
+        # 指摘の状態
+        "status": "ReviewStatus",
+    },
+)
+
+# 指摘の状態（決定 0214）
+ReviewStatus = Union[
+    Literal[
+        "open",
+        "resolved",
+        "closed",
+    ],
+    str,
+]
+
+
+# 読んだ bcfzip
+BcfReadResult = TypedDict(
+    "BcfReadResult",
+    {
+        # BCF の版
+        "version": str,
+        # 指摘の数
+        "topics": int,
+    },
+)
+
+
+# zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+_BcfWriteRequestRequired = TypedDict(
+    "_BcfWriteRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["bcf_write"],
+        # レビューの文書の入力の名前（zm_push で渡した JSON）
+        "review": str,
+        # viewpoint にする 3D の場所の対象の ID
+        "target": str,
+    },
+)
+_BcfWriteRequestOptional = TypedDict(
+    "_BcfWriteRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 元の bcfzip の入力の名前（zm_push で渡した .bcf）。書かなければ新しく書く
+        "original": str,
+        # 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す
+        "statuses": List["BcfStatus"],
+        # 種類のない指摘に書く TopicType
+        "kind": str,
+        # 作者のない指摘とコメントに書く作者
+        "author": str,
+        # 日時のない指摘とコメントに書く日時（RFC 3339）
+        "date": str,
+    },
+    total=False,
+)
+
+
+class BcfWriteRequest(_BcfWriteRequestRequired, _BcfWriteRequestOptional):
+    "zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から"
+
+
+# 書いた bcfzip
+BcfWriteResult = TypedDict(
+    "BcfWriteResult",
+    {
+        # 書いた指摘の数
+        "topics": int,
+    },
+)
+
+
 # 表の項目
 TableItem = TypedDict(
     "TableItem",
@@ -3849,6 +3977,8 @@ Operation = Literal[
     "building_elements",
     "ids_check",
     "review_adopt_ids",
+    "bcf_read",
+    "bcf_write",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -3871,4 +4001,6 @@ OPERATIONS: Dict[str, Any] = {
     "building_elements": ("BuildingElementsRequest", "BuildingElementsResult"),
     "ids_check": ("IdsCheckRequest", "IdsCheckResult"),
     "review_adopt_ids": ("ReviewAdoptIdsRequest", "Dict[str, Any]"),
+    "bcf_read": ("BcfReadRequest", "BcfReadResult"),
+    "bcf_write": ("BcfWriteRequest", "BcfWriteResult"),
 }

@@ -47,6 +47,10 @@ pub enum Request {
     IdsCheck(IdsCheckRequest),
     /// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
     ReviewAdoptIds(ReviewAdoptIdsRequest),
+    /// zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+    BcfRead(BcfReadRequest),
+    /// zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+    BcfWrite(BcfWriteRequest),
 }
 
 impl Request {
@@ -70,6 +74,8 @@ impl Request {
         "building_elements",
         "ids_check",
         "review_adopt_ids",
+        "bcf_read",
+        "bcf_write",
     ];
 
     /// 目印の欄（`op`）の値
@@ -93,6 +99,8 @@ impl Request {
             Self::BuildingElements(_) => "building_elements",
             Self::IdsCheck(_) => "ids_check",
             Self::ReviewAdoptIds(_) => "review_adopt_ids",
+            Self::BcfRead(_) => "bcf_read",
+            Self::BcfWrite(_) => "bcf_write",
         }
     }
 }
@@ -123,6 +131,8 @@ impl FromJson for Request {
             "review_adopt_ids" => {
                 Self::ReviewAdoptIds(ReviewAdoptIdsRequest::read_fields(&mut object)?)
             }
+            "bcf_read" => Self::BcfRead(BcfReadRequest::read_fields(&mut object)?),
+            "bcf_write" => Self::BcfWrite(BcfWriteRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -151,6 +161,8 @@ impl ToJson for Request {
             Self::BuildingElements(value) => value.to_json(out),
             Self::IdsCheck(value) => value.to_json(out),
             Self::ReviewAdoptIds(value) => value.to_json(out),
+            Self::BcfRead(value) => value.to_json(out),
+            Self::BcfWrite(value) => value.to_json(out),
         }
     }
 }
@@ -9479,6 +9491,331 @@ impl FromJson for ReviewAdoptIdsRequest {
 }
 
 impl ToJson for ReviewAdoptIdsRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BcfReadRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// BCF が指す建物モデルの文書の名前。open で IFC を開いたもの
+    pub doc: String,
+    /// bcfzip の入力の名前（zm_push で渡した .bcf）
+    pub input: String,
+    /// レビューの文書の対象の ID
+    pub target: String,
+    /// 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す
+    pub statuses: Option<Vec<BcfStatus>>,
+}
+
+impl BcfReadRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "bcf_read")?;
+        let doc = object.required("doc", json::string)?;
+        let input = object.required("input", json::string)?;
+        let target = object.required("target", json::string)?;
+        let statuses =
+            object.optional("statuses", |value| json::array(value, BcfStatus::from_json))?;
+        Ok(Self {
+            request_common,
+            doc,
+            input,
+            target,
+            statuses,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("bcf_read");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("input");
+        out.string(&self.input);
+        out.key("target");
+        out.string(&self.target);
+        if let Some(value) = &self.statuses {
+            out.key("statuses");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for BcfReadRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BcfReadRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 状態の対応
+#[derive(Clone, Debug, PartialEq)]
+pub struct BcfStatus {
+    /// BCF の TopicStatus の文字列
+    pub text: String,
+    /// 指摘の状態
+    pub status: ReviewStatus,
+}
+
+impl BcfStatus {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let text = object.required("text", json::string)?;
+        let status = object.required("status", ReviewStatus::from_json)?;
+        Ok(Self { text, status })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("text");
+        out.string(&self.text);
+        out.key("status");
+        self.status.to_json(out);
+    }
+}
+
+impl FromJson for BcfStatus {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BcfStatus {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 指摘の状態（決定 0214）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ReviewStatus {
+    /// `open`
+    Open,
+    /// `resolved`
+    Resolved,
+    /// `closed`
+    Closed,
+}
+
+impl ReviewStatus {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Open, Self::Resolved, Self::Closed];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Resolved => "resolved",
+            Self::Closed => "closed",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "open" => Some(Self::Open),
+            "resolved" => Some(Self::Resolved),
+            "closed" => Some(Self::Closed),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ReviewStatus {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ReviewStatus {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 読んだ bcfzip
+#[derive(Clone, Debug, PartialEq)]
+pub struct BcfReadResult {
+    /// BCF の版
+    pub version: String,
+    /// 指摘の数
+    pub topics: u64,
+}
+
+impl BcfReadResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let version = object.required("version", json::string)?;
+        let topics = object.required("topics", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { version, topics })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("version");
+        out.string(&self.version);
+        out.key("topics");
+        out.uint(self.topics);
+    }
+}
+
+impl FromJson for BcfReadResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BcfReadResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BcfWriteRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// レビューの文書の入力の名前（zm_push で渡した JSON）
+    pub review: String,
+    /// viewpoint にする 3D の場所の対象の ID
+    pub target: String,
+    /// 元の bcfzip の入力の名前（zm_push で渡した .bcf）。書かなければ新しく書く
+    pub original: Option<String>,
+    /// 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す
+    pub statuses: Option<Vec<BcfStatus>>,
+    /// 種類のない指摘に書く TopicType
+    pub kind: Option<String>,
+    /// 作者のない指摘とコメントに書く作者
+    pub author: Option<String>,
+    /// 日時のない指摘とコメントに書く日時（RFC 3339）
+    pub date: Option<String>,
+}
+
+impl BcfWriteRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "bcf_write")?;
+        let review = object.required("review", json::string)?;
+        let target = object.required("target", json::string)?;
+        let original = object.optional("original", json::string)?;
+        let statuses =
+            object.optional("statuses", |value| json::array(value, BcfStatus::from_json))?;
+        let kind = object.optional("kind", json::string)?;
+        let author = object.optional("author", json::string)?;
+        let date = object.optional("date", json::string)?;
+        Ok(Self {
+            request_common,
+            review,
+            target,
+            original,
+            statuses,
+            kind,
+            author,
+            date,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("bcf_write");
+        out.key("review");
+        out.string(&self.review);
+        out.key("target");
+        out.string(&self.target);
+        if let Some(value) = &self.original {
+            out.key("original");
+            out.string(value);
+        }
+        if let Some(value) = &self.statuses {
+            out.key("statuses");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.kind {
+            out.key("kind");
+            out.string(value);
+        }
+        if let Some(value) = &self.author {
+            out.key("author");
+            out.string(value);
+        }
+        if let Some(value) = &self.date {
+            out.key("date");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BcfWriteRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BcfWriteRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 書いた bcfzip
+#[derive(Clone, Debug, PartialEq)]
+pub struct BcfWriteResult {
+    /// 書いた指摘の数
+    pub topics: u64,
+}
+
+impl BcfWriteResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let topics = object.required("topics", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { topics })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("topics");
+        out.uint(self.topics);
+    }
+}
+
+impl FromJson for BcfWriteResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BcfWriteResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

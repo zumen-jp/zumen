@@ -288,6 +288,7 @@ dependencies = [
  "libm",
  "zumen-acad",
  "zumen-base",
+ "zumen-bcf",
  "zumen-building",
  "zumen-drawing",
  "zumen-ids",
@@ -299,6 +300,7 @@ dependencies = [
  "zumen-scene",
  "zumen-sdk",
  "zumen-sxf",
+ "zumen-zip",
 ]
 
 [[package]]
@@ -315,6 +317,19 @@ dependencies = [
 [[package]]
 name = "zumen-base"
 version = "0.2.0"
+
+[[package]]
+name = "zumen-bcf"
+version = "0.2.0"
+dependencies = [
+ "blake3",
+ "zumen-base",
+ "zumen-json",
+ "zumen-review",
+ "zumen-sdk",
+ "zumen-xml",
+ "zumen-zip",
+]
 
 [[package]]
 name = "zumen-building"
