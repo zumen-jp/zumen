@@ -1882,6 +1882,81 @@ pub const XML_NAMESPACE_MISSING: Code = Code::new(
     &["prefix"],
 );
 
+/// 中央ディレクトリの終わりの記録がないか、中央ディレクトリが壊れていて、ZIP の書庫として読めない
+///
+/// `zip.archive.invalid`（0.2.0 から）
+pub const ZIP_ARCHIVE_INVALID: Code =
+    Code::new("zip.archive.invalid", Severity::Error, None, &[], &[]);
+
+/// 展開した項目の CRC-32 が、記録した値と合わない
+///
+/// `zip.crc.invalid`（0.2.0 から）
+pub const ZIP_CRC_INVALID: Code = Code::new(
+    "zip.crc.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 項目のデータを展開できない（deflate が壊れている・大きさが記録と合わない）
+///
+/// `zip.data.invalid`（0.2.0 から）
+pub const ZIP_DATA_INVALID: Code = Code::new(
+    "zip.data.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 同じ名前の項目が複数あるので、初めのものを使った
+///
+/// `zip.duplicate.dropped`（0.2.0 から）
+pub const ZIP_DUPLICATE_DROPPED: Code = Code::new(
+    "zip.duplicate.dropped",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 暗号化した項目は読まない（決定 0210）
+///
+/// `zip.encryption.unsupported`（0.2.0 から）
+pub const ZIP_ENCRYPTION_UNSUPPORTED: Code = Code::new(
+    "zip.encryption.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 局所の見出しが壊れているか、データが書庫の外にはみ出す項目を読まなかった
+///
+/// `zip.entry.invalid`（0.2.0 から）
+pub const ZIP_ENTRY_INVALID: Code = Code::new(
+    "zip.entry.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// stored と deflate でない圧縮の方式の項目は読まない（決定 0210）
+///
+/// `zip.method.unsupported`（0.2.0 から）
+pub const ZIP_METHOD_UNSUPPORTED: Code = Code::new(
+    "zip.method.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("method", ParamType::UInt),
+        Param::new("name", ParamType::Text),
+    ],
+    &[],
+);
+
 /// ZIP の項目の名前が、パスとして安全でない（`..`・絶対パス・ドライブ名・NUL を含む）
 ///
 /// `zip.path.unsafe`（0.0.0 から）
@@ -1892,6 +1967,23 @@ pub const ZIP_PATH_UNSAFE: Code = Code::new(
     &[Param::new("name", ParamType::Text)],
     &[],
 );
+
+/// データの範囲がほかの項目と重なる項目を読まなかった（決定 0210）
+///
+/// `zip.range.unsafe`（0.2.0 から）
+pub const ZIP_RANGE_UNSAFE: Code = Code::new(
+    "zip.range.unsafe",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 複数の部分に分けた ZIP の書庫は、読まない（決定 0210）
+///
+/// `zip.split.unsupported`（0.2.0 から）
+pub const ZIP_SPLIT_UNSUPPORTED: Code =
+    Code::new("zip.split.unsupported", Severity::Error, None, &[], &[]);
 
 /// 台帳のすべての code（名前の順）
 #[allow(deprecated)]
@@ -2062,5 +2154,14 @@ pub const ALL: &[Code] = &[
     XML_ENCODING_UNSUPPORTED,
     XML_ENTITY_UNSUPPORTED,
     XML_NAMESPACE_MISSING,
+    ZIP_ARCHIVE_INVALID,
+    ZIP_CRC_INVALID,
+    ZIP_DATA_INVALID,
+    ZIP_DUPLICATE_DROPPED,
+    ZIP_ENCRYPTION_UNSUPPORTED,
+    ZIP_ENTRY_INVALID,
+    ZIP_METHOD_UNSUPPORTED,
     ZIP_PATH_UNSAFE,
+    ZIP_RANGE_UNSAFE,
+    ZIP_SPLIT_UNSUPPORTED,
 ];

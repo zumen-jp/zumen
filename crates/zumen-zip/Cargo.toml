@@ -1,0 +1,17 @@
+[package]
+name = "zumen-zip"
+description = "zumen の ZIP の L0（決定 0210）。中央ディレクトリを読み、stored と deflate の項目を展開する"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+# UTF-8 の印のない名前を Shift_JIS として戻す。WHATWG の定義で、環境によらない（決定 0121）
+encoding_rs = "0.8.35"
+
+[lints]
+workspace = true

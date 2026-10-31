@@ -11,6 +11,7 @@ pub mod budget;
 pub mod cancel;
 pub mod code;
 pub mod codes;
+pub mod crc;
 pub mod cx;
 pub mod diag;
 pub mod name;

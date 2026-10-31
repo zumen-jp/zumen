@@ -273,6 +273,67 @@ params = { name = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."zip.archive.invalid"]
+description = "中央ディレクトリの終わりの記録がないか、中央ディレクトリが壊れていて、ZIP の書庫として読めない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."zip.split.unsupported"]
+description = "複数の部分に分けた ZIP の書庫は、読まない（決定 0210）"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."zip.entry.invalid"]
+description = "局所の見出しが壊れているか、データが書庫の外にはみ出す項目を読まなかった"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."zip.range.unsafe"]
+description = "データの範囲がほかの項目と重なる項目を読まなかった（決定 0210）"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."zip.encryption.unsupported"]
+description = "暗号化した項目は読まない（決定 0210）"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."zip.method.unsupported"]
+description = "stored と deflate でない圧縮の方式の項目は読まない（決定 0210）"
+severity = "warning"
+params = { name = "text", method = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."zip.duplicate.dropped"]
+description = "同じ名前の項目が複数あるので、初めのものを使った"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."zip.data.invalid"]
+description = "項目のデータを展開できない（deflate が壊れている・大きさが記録と合わない）"
+severity = "error"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."zip.crc.invalid"]
+description = "展開した項目の CRC-32 が、記録した値と合わない"
+severity = "error"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
 # AutoCAD の系統（決定 0008）
 
 [codes."dwg.version.unsupported"]
