@@ -39,6 +39,14 @@ pub enum Request {
     ReviewCarry(ReviewCarryRequest),
     /// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
     ReviewAdopt(ReviewAdoptRequest),
+    /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から
+    Building(BuildingRequest),
+    /// 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から
+    BuildingElements(BuildingElementsRequest),
+    /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
+    IdsCheck(IdsCheckRequest),
+    /// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
+    ReviewAdoptIds(ReviewAdoptIdsRequest),
 }
 
 impl Request {
@@ -58,6 +66,10 @@ impl Request {
         "validate",
         "review_carry",
         "review_adopt",
+        "building",
+        "building_elements",
+        "ids_check",
+        "review_adopt_ids",
     ];
 
     /// 目印の欄（`op`）の値
@@ -77,6 +89,10 @@ impl Request {
             Self::Validate(_) => "validate",
             Self::ReviewCarry(_) => "review_carry",
             Self::ReviewAdopt(_) => "review_adopt",
+            Self::Building(_) => "building",
+            Self::BuildingElements(_) => "building_elements",
+            Self::IdsCheck(_) => "ids_check",
+            Self::ReviewAdoptIds(_) => "review_adopt_ids",
         }
     }
 }
@@ -99,6 +115,14 @@ impl FromJson for Request {
             "validate" => Self::Validate(ValidateRequest::read_fields(&mut object)?),
             "review_carry" => Self::ReviewCarry(ReviewCarryRequest::read_fields(&mut object)?),
             "review_adopt" => Self::ReviewAdopt(ReviewAdoptRequest::read_fields(&mut object)?),
+            "building" => Self::Building(BuildingRequest::read_fields(&mut object)?),
+            "building_elements" => {
+                Self::BuildingElements(BuildingElementsRequest::read_fields(&mut object)?)
+            }
+            "ids_check" => Self::IdsCheck(IdsCheckRequest::read_fields(&mut object)?),
+            "review_adopt_ids" => {
+                Self::ReviewAdoptIds(ReviewAdoptIdsRequest::read_fields(&mut object)?)
+            }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -123,6 +147,10 @@ impl ToJson for Request {
             Self::Validate(value) => value.to_json(out),
             Self::ReviewCarry(value) => value.to_json(out),
             Self::ReviewAdopt(value) => value.to_json(out),
+            Self::Building(value) => value.to_json(out),
+            Self::BuildingElements(value) => value.to_json(out),
+            Self::IdsCheck(value) => value.to_json(out),
+            Self::ReviewAdoptIds(value) => value.to_json(out),
         }
     }
 }
@@ -6566,7 +6594,7 @@ impl ToJson for ValidateResult {
 pub struct ReviewCarryRequest {
     /// `request_common` の欄
     pub request_common: RequestCommon,
-    /// 新しい版の文書の名前。open で作ったもの
+    /// 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
     pub doc: String,
     /// レビューの文書の入力の名前（zm_push で渡した JSON）
     pub review: String,
@@ -6952,6 +6980,2505 @@ impl FromJson for ReviewAdoptResult {
 }
 
 impl ToJson for ReviewAdoptResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で IFC を開いたもの
+    pub doc: String,
+}
+
+impl BuildingRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "building")?;
+        let doc = object.required("doc", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("building");
+        out.key("doc");
+        out.string(&self.doc);
+    }
+}
+
+impl FromJson for BuildingRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 建物モデルの要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingResult {
+    /// IFC のスキーマの名前（FILE_SCHEMA の最初）
+    pub schema: String,
+    /// 入力のバイト列のハッシュ。review_carry の対象の版に使う
+    pub hash: String,
+    /// プロジェクトの要素の ID。なければ持たない
+    pub project: Option<String>,
+    /// プロジェクトの名前。なければ持たない
+    pub project_name: Option<String>,
+    /// プロジェクトの単位
+    pub units: Vec<BuildingUnit>,
+    /// 要素の数
+    pub elements: u64,
+    /// クラスごとの要素の数。クラスの名前の順
+    pub classes: Vec<ClassCount>,
+}
+
+impl BuildingResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let schema = object.required("schema", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let project = object.optional("project", json::string)?;
+        let project_name = object.optional("project_name", json::string)?;
+        let units =
+            object.required("units", |value| json::array(value, BuildingUnit::from_json))?;
+        let elements =
+            object.required("elements", |value| json::uint(value, 0, 9007199254740991))?;
+        let classes =
+            object.required("classes", |value| json::array(value, ClassCount::from_json))?;
+        Ok(Self {
+            schema,
+            hash,
+            project,
+            project_name,
+            units,
+            elements,
+            classes,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("schema");
+        out.string(&self.schema);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.project {
+            out.key("project");
+            out.string(value);
+        }
+        if let Some(value) = &self.project_name {
+            out.key("project_name");
+            out.string(value);
+        }
+        out.key("units");
+        out.array(&self.units, |out, item| item.to_json(out));
+        out.key("elements");
+        out.uint(self.elements);
+        out.key("classes");
+        out.array(&self.classes, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for BuildingResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 単位
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingUnit {
+    /// 単位の種類（LENGTHUNIT・AREAUNIT など）
+    pub kind: String,
+    /// SI の接頭辞（MILLI など）
+    pub prefix: Option<String>,
+    /// 単位の名前（METRE、換算する単位なら inch など）
+    pub name: String,
+    /// 換算する単位の、SI の単位での大きさ。SI の単位は持たない
+    pub scale: Option<f64>,
+}
+
+impl BuildingUnit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let prefix = object.optional("prefix", json::string)?;
+        let name = object.required("name", json::string)?;
+        let scale = object.optional("scale", json::number)?;
+        Ok(Self {
+            kind,
+            prefix,
+            name,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        if let Some(value) = &self.prefix {
+            out.key("prefix");
+            out.string(value);
+        }
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.scale {
+            out.key("scale");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for BuildingUnit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingUnit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// クラスの要素の数
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClassCount {
+    /// IFC のクラスの名前（IfcWall など）
+    pub name: String,
+    /// 要素の数
+    pub count: u64,
+}
+
+impl ClassCount {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let count = object.required("count", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { name, count })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        out.key("count");
+        out.uint(self.count);
+    }
+}
+
+impl FromJson for ClassCount {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ClassCount {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingElementsRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で IFC を開いたもの
+    pub doc: String,
+    /// 返す要素の ID。書けば、その要素だけを、書いた順に返す。ない ID は返さない
+    pub ids: Option<Vec<String>>,
+    /// IFC のクラスの名前。書けば、そのクラスの要素だけを返す。大文字と小文字を区別しない
+    pub class: Option<String>,
+    /// 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す
+    pub components: Option<Vec<BuildingComponent>>,
+    /// 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+}
+
+impl BuildingElementsRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "building_elements")?;
+        let doc = object.required("doc", json::string)?;
+        let ids = object.optional("ids", |value| json::array(value, json::string))?;
+        let class = object.optional("class", json::string)?;
+        let components = object.optional("components", |value| {
+            json::array(value, BuildingComponent::from_json)
+        })?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        Ok(Self {
+            request_common,
+            doc,
+            ids,
+            class,
+            components,
+            offset,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("building_elements");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.ids {
+            out.key("ids");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.class {
+            out.key("class");
+            out.string(value);
+        }
+        if let Some(value) = &self.components {
+            out.key("components");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for BuildingElementsRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingElementsRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingComponent {
+    /// `identity`
+    Identity,
+    /// `class`
+    Class,
+    /// `classification`
+    Classification,
+    /// `spatial`
+    Spatial,
+    /// `parent`
+    Parent,
+    /// `placement`
+    Placement,
+    /// `type_of`
+    TypeOf,
+    /// `properties`
+    Properties,
+    /// `quantities`
+    Quantities,
+    /// `material`
+    Material,
+    /// `opening`
+    Opening,
+    /// `group`
+    Group,
+    /// `connection`
+    Connection,
+    /// `level`
+    Level,
+    /// `zone`
+    Zone,
+    /// `style`
+    Style,
+    /// `relations`
+    Relations,
+}
+
+impl BuildingComponent {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Identity,
+        Self::Class,
+        Self::Classification,
+        Self::Spatial,
+        Self::Parent,
+        Self::Placement,
+        Self::TypeOf,
+        Self::Properties,
+        Self::Quantities,
+        Self::Material,
+        Self::Opening,
+        Self::Group,
+        Self::Connection,
+        Self::Level,
+        Self::Zone,
+        Self::Style,
+        Self::Relations,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::Class => "class",
+            Self::Classification => "classification",
+            Self::Spatial => "spatial",
+            Self::Parent => "parent",
+            Self::Placement => "placement",
+            Self::TypeOf => "type_of",
+            Self::Properties => "properties",
+            Self::Quantities => "quantities",
+            Self::Material => "material",
+            Self::Opening => "opening",
+            Self::Group => "group",
+            Self::Connection => "connection",
+            Self::Level => "level",
+            Self::Zone => "zone",
+            Self::Style => "style",
+            Self::Relations => "relations",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "identity" => Some(Self::Identity),
+            "class" => Some(Self::Class),
+            "classification" => Some(Self::Classification),
+            "spatial" => Some(Self::Spatial),
+            "parent" => Some(Self::Parent),
+            "placement" => Some(Self::Placement),
+            "type_of" => Some(Self::TypeOf),
+            "properties" => Some(Self::Properties),
+            "quantities" => Some(Self::Quantities),
+            "material" => Some(Self::Material),
+            "opening" => Some(Self::Opening),
+            "group" => Some(Self::Group),
+            "connection" => Some(Self::Connection),
+            "level" => Some(Self::Level),
+            "zone" => Some(Self::Zone),
+            "style" => Some(Self::Style),
+            "relations" => Some(Self::Relations),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 要素の一覧。offset から limit 個まで
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingElementsResult {
+    /// 要素
+    pub elements: Vec<BuildingElement>,
+    /// 選んだ要素の数
+    pub total: u64,
+    /// 続きの最初の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl BuildingElementsResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let elements = object.required("elements", |value| {
+            json::array(value, BuildingElement::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            elements,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("elements");
+        out.array(&self.elements, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for BuildingElementsResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingElementsResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingElement {
+    /// 要素の ID（GlobalId か、i と番号）
+    pub id: String,
+    /// 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207）
+    pub hash: String,
+    /// 名前・説明・タグ・長い名前
+    pub identity: Option<IdentityComponent>,
+    /// クラス
+    pub class: Option<ClassComponent>,
+    /// 分類の参照
+    pub classification: Option<Vec<ClassificationReference>>,
+    /// 空間の要素の種類と高さ
+    pub spatial: Option<SpatialComponent>,
+    /// 親と、参照される空間
+    pub parent: Option<ParentComponent>,
+    /// 配置
+    pub placement: Option<PlacementComponent>,
+    /// 型の要素の ID
+    pub type_of: Option<String>,
+    /// プロパティのセット
+    pub properties: Option<Vec<PropertySet>>,
+    /// 数量のセット
+    pub quantities: Option<Vec<QuantitySet>>,
+    /// 材料
+    pub material: Option<MaterialComponent>,
+    /// 開口と、埋める要素
+    pub opening: Option<OpeningComponent>,
+    /// 属するグループの要素の ID
+    pub group: Option<Vec<String>>,
+    /// 接続
+    pub connection: Option<Vec<ConnectionLink>>,
+    /// レベル
+    pub level: Option<LevelComponent>,
+    /// 区画
+    pub zone: Option<ZoneComponent>,
+    /// 表示のスタイル
+    pub style: Option<StyleComponent>,
+    /// 索引から求める関係
+    pub relations: Option<RelationsComponent>,
+}
+
+impl BuildingElement {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let identity = object.optional("identity", IdentityComponent::from_json)?;
+        let class = object.optional("class", ClassComponent::from_json)?;
+        let classification = object.optional("classification", |value| {
+            json::array(value, ClassificationReference::from_json)
+        })?;
+        let spatial = object.optional("spatial", SpatialComponent::from_json)?;
+        let parent = object.optional("parent", ParentComponent::from_json)?;
+        let placement = object.optional("placement", PlacementComponent::from_json)?;
+        let type_of = object.optional("type_of", json::string)?;
+        let properties = object.optional("properties", |value| {
+            json::array(value, PropertySet::from_json)
+        })?;
+        let quantities = object.optional("quantities", |value| {
+            json::array(value, QuantitySet::from_json)
+        })?;
+        let material = object.optional("material", MaterialComponent::from_json)?;
+        let opening = object.optional("opening", OpeningComponent::from_json)?;
+        let group = object.optional("group", |value| json::array(value, json::string))?;
+        let connection = object.optional("connection", |value| {
+            json::array(value, ConnectionLink::from_json)
+        })?;
+        let level = object.optional("level", LevelComponent::from_json)?;
+        let zone = object.optional("zone", ZoneComponent::from_json)?;
+        let style = object.optional("style", StyleComponent::from_json)?;
+        let relations = object.optional("relations", RelationsComponent::from_json)?;
+        Ok(Self {
+            id,
+            hash,
+            identity,
+            class,
+            classification,
+            spatial,
+            parent,
+            placement,
+            type_of,
+            properties,
+            quantities,
+            material,
+            opening,
+            group,
+            connection,
+            level,
+            zone,
+            style,
+            relations,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        if let Some(value) = &self.identity {
+            out.key("identity");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.class {
+            out.key("class");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.classification {
+            out.key("classification");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.spatial {
+            out.key("spatial");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.parent {
+            out.key("parent");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.placement {
+            out.key("placement");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.type_of {
+            out.key("type_of");
+            out.string(value);
+        }
+        if let Some(value) = &self.properties {
+            out.key("properties");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.quantities {
+            out.key("quantities");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.material {
+            out.key("material");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.opening {
+            out.key("opening");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.group {
+            out.key("group");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.connection {
+            out.key("connection");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.level {
+            out.key("level");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.zone {
+            out.key("zone");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.style {
+            out.key("style");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.relations {
+            out.key("relations");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for BuildingElement {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingElement {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 名前・説明・タグ・長い名前
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IdentityComponent {
+    /// 名前
+    pub name: Option<String>,
+    /// 説明
+    pub description: Option<String>,
+    /// タグ
+    pub tag: Option<String>,
+    /// 長い名前
+    pub long_name: Option<String>,
+}
+
+impl IdentityComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let description = object.optional("description", json::string)?;
+        let tag = object.optional("tag", json::string)?;
+        let long_name = object.optional("long_name", json::string)?;
+        Ok(Self {
+            name,
+            description,
+            tag,
+            long_name,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        if let Some(value) = &self.tag {
+            out.key("tag");
+            out.string(value);
+        }
+        if let Some(value) = &self.long_name {
+            out.key("long_name");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for IdentityComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IdentityComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// クラス
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClassComponent {
+    /// IFC4 のクラスの名前。IFC2X3 の StandardCase などは、元の名前を original に残して直す
+    pub name: String,
+    /// PredefinedType
+    pub predefined: Option<String>,
+    /// ObjectType など、USERDEFINED のときの名前
+    pub user_defined: Option<String>,
+    /// ファイルに書いた実体の名前
+    pub original: String,
+}
+
+impl ClassComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let predefined = object.optional("predefined", json::string)?;
+        let user_defined = object.optional("user_defined", json::string)?;
+        let original = object.required("original", json::string)?;
+        Ok(Self {
+            name,
+            predefined,
+            user_defined,
+            original,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.predefined {
+            out.key("predefined");
+            out.string(value);
+        }
+        if let Some(value) = &self.user_defined {
+            out.key("user_defined");
+            out.string(value);
+        }
+        out.key("original");
+        out.string(&self.original);
+    }
+}
+
+impl FromJson for ClassComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ClassComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 分類の参照
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClassificationReference {
+    /// 分類の体系の名前
+    pub system: Option<String>,
+    /// 体系の版
+    pub edition: Option<String>,
+    /// 分類の記号
+    pub code: Option<String>,
+    /// 分類の名前
+    pub name: Option<String>,
+}
+
+impl ClassificationReference {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let system = object.optional("system", json::string)?;
+        let edition = object.optional("edition", json::string)?;
+        let code = object.optional("code", json::string)?;
+        let name = object.optional("name", json::string)?;
+        Ok(Self {
+            system,
+            edition,
+            code,
+            name,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.system {
+            out.key("system");
+            out.string(value);
+        }
+        if let Some(value) = &self.edition {
+            out.key("edition");
+            out.string(value);
+        }
+        if let Some(value) = &self.code {
+            out.key("code");
+            out.string(value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for ClassificationReference {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ClassificationReference {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 単位とともに持つ値
+#[derive(Clone, Debug, PartialEq)]
+pub struct Measured {
+    /// 値
+    pub value: f64,
+    /// 単位。解けなければ持たない
+    pub unit: Option<BuildingUnit>,
+}
+
+impl Measured {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let value = object.required("value", json::number)?;
+        let unit = object.optional("unit", BuildingUnit::from_json)?;
+        Ok(Self { value, unit })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("value");
+        out.float(self.value);
+        if let Some(value) = &self.unit {
+            out.key("unit");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for Measured {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Measured {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 空間の要素
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpatialComponent {
+    /// site・building・storey・space・spatial_zone か、元の実体の名前
+    pub kind: String,
+    /// 高さ
+    pub elevation: Option<Measured>,
+    /// 基準の高さ
+    pub ref_elevation: Option<Measured>,
+}
+
+impl SpatialComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let elevation = object.optional("elevation", Measured::from_json)?;
+        let ref_elevation = object.optional("ref_elevation", Measured::from_json)?;
+        Ok(Self {
+            kind,
+            elevation,
+            ref_elevation,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        if let Some(value) = &self.elevation {
+            out.key("elevation");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.ref_elevation {
+            out.key("ref_elevation");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for SpatialComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SpatialComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 親
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParentComponent {
+    /// 親の要素
+    pub of: Option<Membership>,
+    /// 参照される空間の要素の ID
+    pub referenced_in: Vec<String>,
+}
+
+impl ParentComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let of = object.optional("of", Membership::from_json)?;
+        let referenced_in =
+            object.required("referenced_in", |value| json::array(value, json::string))?;
+        Ok(Self { of, referenced_in })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.of {
+            out.key("of");
+            value.to_json(out);
+        }
+        out.key("referenced_in");
+        out.array(&self.referenced_in, |out, item| out.string(item));
+    }
+}
+
+impl FromJson for ParentComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ParentComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 親との関係
+#[derive(Clone, Debug, PartialEq)]
+pub struct Membership {
+    /// 親の要素の ID
+    pub target: String,
+    /// 関係の種類
+    pub kind: ParentKind,
+    /// 入れ子の順。0 から
+    pub order: Option<u64>,
+}
+
+impl Membership {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let target = object.required("target", json::string)?;
+        let kind = object.required("kind", ParentKind::from_json)?;
+        let order = object.optional("order", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            target,
+            kind,
+            order,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("target");
+        out.string(&self.target);
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.order {
+            out.key("order");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for Membership {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Membership {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 配置
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlacementComponent {
+    /// 配置の親の要素の ID
+    pub relative_to: Option<String>,
+    /// 親をたどった世界の変換。3 行 4 列（回転と移動）。解けなければ持たない
+    pub world: Option<Vec<Vec<f64>>>,
+    /// 解けなかった配置の実体の名前
+    pub unsupported: Option<String>,
+}
+
+impl PlacementComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let relative_to = object.optional("relative_to", json::string)?;
+        let world = object.optional("world", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let unsupported = object.optional("unsupported", json::string)?;
+        Ok(Self {
+            relative_to,
+            world,
+            unsupported,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.relative_to {
+            out.key("relative_to");
+            out.string(value);
+        }
+        if let Some(value) = &self.world {
+            out.key("world");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.unsupported {
+            out.key("unsupported");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for PlacementComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PlacementComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 値
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingValue {
+    /// 値の型の名前（IfcLengthMeasure・IfcLabel など）
+    pub type_name: Option<String>,
+    /// 値の種類
+    pub kind: BuildingValueKind,
+    /// real と、2^53 − 1 までの integer の値
+    pub number: Option<f64>,
+    /// text と enumeration の値と、2^53 − 1 を超える integer の値
+    pub text: Option<String>,
+    /// boolean と logical の値。logical の不明は持たない
+    pub boolean: Option<bool>,
+    /// element の要素の ID
+    pub element: Option<String>,
+    /// list の値
+    pub items: Option<Vec<BuildingValue>>,
+}
+
+impl BuildingValue {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let type_name = object.optional("type_name", json::string)?;
+        let kind = object.required("kind", BuildingValueKind::from_json)?;
+        let number = object.optional("number", json::number)?;
+        let text = object.optional("text", json::string)?;
+        let boolean = object.optional("boolean", json::boolean)?;
+        let element = object.optional("element", json::string)?;
+        let items = object.optional("items", |value| {
+            json::array(value, BuildingValue::from_json)
+        })?;
+        Ok(Self {
+            type_name,
+            kind,
+            number,
+            text,
+            boolean,
+            element,
+            items,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.type_name {
+            out.key("type_name");
+            out.string(value);
+        }
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.number {
+            out.key("number");
+            out.float(*value);
+        }
+        if let Some(value) = &self.text {
+            out.key("text");
+            out.string(value);
+        }
+        if let Some(value) = &self.boolean {
+            out.key("boolean");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.element {
+            out.key("element");
+            out.string(value);
+        }
+        if let Some(value) = &self.items {
+            out.key("items");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for BuildingValue {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingValue {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// プロパティのセット
+#[derive(Clone, Debug, PartialEq)]
+pub struct PropertySet {
+    /// 名前
+    pub name: String,
+    /// プロパティ
+    pub properties: Vec<Property>,
+}
+
+impl PropertySet {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let properties = object.required("properties", |value| {
+            json::array(value, Property::from_json)
+        })?;
+        Ok(Self { name, properties })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        out.key("properties");
+        out.array(&self.properties, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for PropertySet {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PropertySet {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// プロパティ
+#[derive(Clone, Debug, PartialEq)]
+pub struct Property {
+    /// 名前
+    pub name: String,
+    /// 値。値がなければ持たない
+    pub value: Option<BuildingValue>,
+    /// 単位
+    pub unit: Option<BuildingUnit>,
+}
+
+impl Property {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let value = object.optional("value", BuildingValue::from_json)?;
+        let unit = object.optional("unit", BuildingUnit::from_json)?;
+        Ok(Self { name, value, unit })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.value {
+            out.key("value");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.unit {
+            out.key("unit");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for Property {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Property {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 数量のセット
+#[derive(Clone, Debug, PartialEq)]
+pub struct QuantitySet {
+    /// 名前
+    pub name: String,
+    /// 計測の方法
+    pub method: Option<String>,
+    /// 数量
+    pub quantities: Vec<Quantity>,
+}
+
+impl QuantitySet {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let method = object.optional("method", json::string)?;
+        let quantities = object.required("quantities", |value| {
+            json::array(value, Quantity::from_json)
+        })?;
+        Ok(Self {
+            name,
+            method,
+            quantities,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.method {
+            out.key("method");
+            out.string(value);
+        }
+        out.key("quantities");
+        out.array(&self.quantities, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for QuantitySet {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for QuantitySet {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 数量
+#[derive(Clone, Debug, PartialEq)]
+pub struct Quantity {
+    /// 名前
+    pub name: String,
+    /// 種類
+    pub kind: QuantityKind,
+    /// 値
+    pub value: Measured,
+    /// 式
+    pub formula: Option<String>,
+}
+
+impl Quantity {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let kind = object.required("kind", QuantityKind::from_json)?;
+        let value = object.required("value", Measured::from_json)?;
+        let formula = object.optional("formula", json::string)?;
+        Ok(Self {
+            name,
+            kind,
+            value,
+            formula,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        out.key("kind");
+        self.kind.to_json(out);
+        out.key("value");
+        self.value.to_json(out);
+        if let Some(value) = &self.formula {
+            out.key("formula");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for Quantity {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Quantity {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 材料
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaterialComponent {
+    /// 材料の組み方
+    pub kind: MaterialKind,
+    /// 部分
+    pub parts: Vec<MaterialPart>,
+    /// 層の向き
+    pub direction: Option<String>,
+    /// 層の基準からのずれ
+    pub offset: Option<Measured>,
+}
+
+impl MaterialComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", MaterialKind::from_json)?;
+        let parts =
+            object.required("parts", |value| json::array(value, MaterialPart::from_json))?;
+        let direction = object.optional("direction", json::string)?;
+        let offset = object.optional("offset", Measured::from_json)?;
+        Ok(Self {
+            kind,
+            parts,
+            direction,
+            offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        self.kind.to_json(out);
+        out.key("parts");
+        out.array(&self.parts, |out, item| item.to_json(out));
+        if let Some(value) = &self.direction {
+            out.key("direction");
+            out.string(value);
+        }
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for MaterialComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MaterialComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 材料の部分
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MaterialPart {
+    /// 材料の要素の ID
+    pub material: Option<String>,
+    /// 名前
+    pub name: Option<String>,
+    /// 厚さ
+    pub thickness: Option<Measured>,
+}
+
+impl MaterialPart {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let material = object.optional("material", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let thickness = object.optional("thickness", Measured::from_json)?;
+        Ok(Self {
+            material,
+            name,
+            thickness,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.material {
+            out.key("material");
+            out.string(value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.thickness {
+            out.key("thickness");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for MaterialPart {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MaterialPart {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開口
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OpeningComponent {
+    /// この開口が穴を開ける要素の ID
+    pub voids: Option<String>,
+    /// この要素が埋める開口の要素の ID
+    pub fills: Option<String>,
+}
+
+impl OpeningComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let voids = object.optional("voids", json::string)?;
+        let fills = object.optional("fills", json::string)?;
+        Ok(Self { voids, fills })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.voids {
+            out.key("voids");
+            out.string(value);
+        }
+        if let Some(value) = &self.fills {
+            out.key("fills");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for OpeningComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for OpeningComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 接続
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConnectionLink {
+    /// 関係の実体の名前
+    pub kind: String,
+    /// 接続する要素の ID
+    pub target: String,
+}
+
+impl ConnectionLink {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let target = object.required("target", json::string)?;
+        Ok(Self { kind, target })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        out.key("target");
+        out.string(&self.target);
+    }
+}
+
+impl FromJson for ConnectionLink {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConnectionLink {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// レベル
+#[derive(Clone, Debug, PartialEq)]
+pub struct LevelComponent {
+    /// 名前
+    pub name: Option<String>,
+    /// 種類
+    pub kind: Option<String>,
+    /// 高さ
+    pub height: Measured,
+    /// 基準
+    pub datum: Option<String>,
+}
+
+impl LevelComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let kind = object.optional("kind", json::string)?;
+        let height = object.required("height", Measured::from_json)?;
+        let datum = object.optional("datum", json::string)?;
+        Ok(Self {
+            name,
+            kind,
+            height,
+            datum,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.kind {
+            out.key("kind");
+            out.string(value);
+        }
+        out.key("height");
+        self.height.to_json(out);
+        if let Some(value) = &self.datum {
+            out.key("datum");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for LevelComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LevelComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 区画
+#[derive(Clone, Debug, PartialEq)]
+pub struct ZoneComponent {
+    /// 区画の種類
+    pub kind: Option<String>,
+    /// 構成する要素の ID
+    pub members: Vec<String>,
+}
+
+impl ZoneComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.optional("kind", json::string)?;
+        let members = object.required("members", |value| json::array(value, json::string))?;
+        Ok(Self { kind, members })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.kind {
+            out.key("kind");
+            out.string(value);
+        }
+        out.key("members");
+        out.array(&self.members, |out, item| out.string(item));
+    }
+}
+
+impl FromJson for ZoneComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ZoneComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 表示のスタイル
+#[derive(Clone, Debug, PartialEq)]
+pub struct StyleComponent {
+    /// 面の色の RGB（0 から 1）
+    pub surface_color: Option<Vec<f64>>,
+    /// 透明度（0 から 1）
+    pub transparency: Option<f64>,
+    /// 線の色の RGB（0 から 1）
+    pub curve_color: Option<Vec<f64>>,
+    /// 提示のレイヤの名前
+    pub layers: Vec<String>,
+}
+
+impl StyleComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let surface_color =
+            object.optional("surface_color", |value| json::array(value, json::number))?;
+        let transparency = object.optional("transparency", json::number)?;
+        let curve_color =
+            object.optional("curve_color", |value| json::array(value, json::number))?;
+        let layers = object.required("layers", |value| json::array(value, json::string))?;
+        Ok(Self {
+            surface_color,
+            transparency,
+            curve_color,
+            layers,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.surface_color {
+            out.key("surface_color");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.transparency {
+            out.key("transparency");
+            out.float(*value);
+        }
+        if let Some(value) = &self.curve_color {
+            out.key("curve_color");
+            out.array(value, |out, item| out.float(*item));
+        }
+        out.key("layers");
+        out.array(&self.layers, |out, item| out.string(item));
+    }
+}
+
+impl FromJson for StyleComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for StyleComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 索引から求める関係。要素の ID の列
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelationsComponent {
+    /// 子（集約・入れ子・包含）
+    pub children: Vec<String>,
+    /// 参照する要素
+    pub referenced: Vec<String>,
+    /// 型の実例
+    pub instances: Vec<String>,
+    /// 開口
+    pub openings: Vec<String>,
+    /// 開口を埋める要素
+    pub fillings: Vec<String>,
+    /// グループ・システム・区画の構成員
+    pub members: Vec<String>,
+}
+
+impl RelationsComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let children = object.required("children", |value| json::array(value, json::string))?;
+        let referenced = object.required("referenced", |value| json::array(value, json::string))?;
+        let instances = object.required("instances", |value| json::array(value, json::string))?;
+        let openings = object.required("openings", |value| json::array(value, json::string))?;
+        let fillings = object.required("fillings", |value| json::array(value, json::string))?;
+        let members = object.required("members", |value| json::array(value, json::string))?;
+        Ok(Self {
+            children,
+            referenced,
+            instances,
+            openings,
+            fillings,
+            members,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("children");
+        out.array(&self.children, |out, item| out.string(item));
+        out.key("referenced");
+        out.array(&self.referenced, |out, item| out.string(item));
+        out.key("instances");
+        out.array(&self.instances, |out, item| out.string(item));
+        out.key("openings");
+        out.array(&self.openings, |out, item| out.string(item));
+        out.key("fillings");
+        out.array(&self.fillings, |out, item| out.string(item));
+        out.key("members");
+        out.array(&self.members, |out, item| out.string(item));
+    }
+}
+
+impl FromJson for RelationsComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RelationsComponent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 親との関係の種類。集約・入れ子・包含
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ParentKind {
+    /// `aggregates`
+    Aggregates,
+    /// `nests`
+    Nests,
+    /// `contained`
+    Contained,
+}
+
+impl ParentKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Aggregates, Self::Nests, Self::Contained];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Aggregates => "aggregates",
+            Self::Nests => "nests",
+            Self::Contained => "contained",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "aggregates" => Some(Self::Aggregates),
+            "nests" => Some(Self::Nests),
+            "contained" => Some(Self::Contained),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ParentKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ParentKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 値の種類
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingValueKind {
+    /// `real`
+    Real,
+    /// `integer`
+    Integer,
+    /// `text`
+    Text,
+    /// `boolean`
+    Boolean,
+    /// `logical`
+    Logical,
+    /// `enumeration`
+    Enumeration,
+    /// `element`
+    Element,
+    /// `list`
+    List,
+}
+
+impl BuildingValueKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Real,
+        Self::Integer,
+        Self::Text,
+        Self::Boolean,
+        Self::Logical,
+        Self::Enumeration,
+        Self::Element,
+        Self::List,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Real => "real",
+            Self::Integer => "integer",
+            Self::Text => "text",
+            Self::Boolean => "boolean",
+            Self::Logical => "logical",
+            Self::Enumeration => "enumeration",
+            Self::Element => "element",
+            Self::List => "list",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "real" => Some(Self::Real),
+            "integer" => Some(Self::Integer),
+            "text" => Some(Self::Text),
+            "boolean" => Some(Self::Boolean),
+            "logical" => Some(Self::Logical),
+            "enumeration" => Some(Self::Enumeration),
+            "element" => Some(Self::Element),
+            "list" => Some(Self::List),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingValueKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingValueKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 数量の種類
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum QuantityKind {
+    /// `length`
+    Length,
+    /// `area`
+    Area,
+    /// `volume`
+    Volume,
+    /// `count`
+    Count,
+    /// `weight`
+    Weight,
+    /// `time`
+    Time,
+}
+
+impl QuantityKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Length,
+        Self::Area,
+        Self::Volume,
+        Self::Count,
+        Self::Weight,
+        Self::Time,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::Area => "area",
+            Self::Volume => "volume",
+            Self::Count => "count",
+            Self::Weight => "weight",
+            Self::Time => "time",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "length" => Some(Self::Length),
+            "area" => Some(Self::Area),
+            "volume" => Some(Self::Volume),
+            "count" => Some(Self::Count),
+            "weight" => Some(Self::Weight),
+            "time" => Some(Self::Time),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for QuantityKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for QuantityKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 材料の組み方。単一・層・断面・構成・一覧
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MaterialKind {
+    /// `single`
+    Single,
+    /// `layers`
+    Layers,
+    /// `profiles`
+    Profiles,
+    /// `constituents`
+    Constituents,
+    /// `list`
+    List,
+}
+
+impl MaterialKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Single,
+        Self::Layers,
+        Self::Profiles,
+        Self::Constituents,
+        Self::List,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Single => "single",
+            Self::Layers => "layers",
+            Self::Profiles => "profiles",
+            Self::Constituents => "constituents",
+            Self::List => "list",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "single" => Some(Self::Single),
+            "layers" => Some(Self::Layers),
+            "profiles" => Some(Self::Profiles),
+            "constituents" => Some(Self::Constituents),
+            "list" => Some(Self::List),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for MaterialKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for MaterialKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 仕様の結果。unknown は確かめられない facet があった
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IdsStatus {
+    /// `passed`
+    Passed,
+    /// `failed`
+    Failed,
+    /// `unknown`
+    Unknown,
+}
+
+impl IdsStatus {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Passed, Self::Failed, Self::Unknown];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "passed" => Some(Self::Passed),
+            "failed" => Some(Self::Failed),
+            "unknown" => Some(Self::Unknown),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for IdsStatus {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for IdsStatus {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdsCheckRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で IFC を開いたもの
+    pub doc: String,
+    /// IDS の入力の名前（zm_push で渡した .ids）
+    pub ids: String,
+    /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+    pub express: Option<String>,
+    /// 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+}
+
+impl IdsCheckRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "ids_check")?;
+        let doc = object.required("doc", json::string)?;
+        let ids = object.required("ids", json::string)?;
+        let express = object.optional("express", json::string)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        Ok(Self {
+            request_common,
+            doc,
+            ids,
+            express,
+            offset,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("ids_check");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("ids");
+        out.string(&self.ids);
+        if let Some(value) = &self.express {
+            out.key("express");
+            out.string(value);
+        }
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for IdsCheckRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IdsCheckRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 照合の結果。指摘は offset から limit 個まで
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdsCheckResult {
+    /// IDS の題
+    pub title: Option<String>,
+    /// 仕様ごとの結果。IDS の順
+    pub specifications: Vec<IdsSpecification>,
+    /// 指摘。仕様の順
+    pub findings: Vec<IdsFinding>,
+    /// 全体の指摘の数
+    pub total: u64,
+    /// 続きの最初の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl IdsCheckResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let title = object.optional("title", json::string)?;
+        let specifications = object.required("specifications", |value| {
+            json::array(value, IdsSpecification::from_json)
+        })?;
+        let findings = object.required("findings", |value| {
+            json::array(value, IdsFinding::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            title,
+            specifications,
+            findings,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.title {
+            out.key("title");
+            out.string(value);
+        }
+        out.key("specifications");
+        out.array(&self.specifications, |out, item| item.to_json(out));
+        out.key("findings");
+        out.array(&self.findings, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for IdsCheckResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IdsCheckResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 仕様の結果
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdsSpecification {
+    /// 名前
+    pub name: String,
+    /// 識別子
+    pub identifier: Option<String>,
+    /// 結果
+    pub status: IdsStatus,
+    /// 適用の条件に合う要素の数
+    pub applicable: u64,
+    /// 要件を満たさない要素の数
+    pub failed: u64,
+    /// 確かめられなかった要素の数
+    pub unsupported: u64,
+}
+
+impl IdsSpecification {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let identifier = object.optional("identifier", json::string)?;
+        let status = object.required("status", IdsStatus::from_json)?;
+        let applicable =
+            object.required("applicable", |value| json::uint(value, 0, 9007199254740991))?;
+        let failed = object.required("failed", |value| json::uint(value, 0, 9007199254740991))?;
+        let unsupported = object.required("unsupported", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            name,
+            identifier,
+            status,
+            applicable,
+            failed,
+            unsupported,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.identifier {
+            out.key("identifier");
+            out.string(value);
+        }
+        out.key("status");
+        self.status.to_json(out);
+        out.key("applicable");
+        out.uint(self.applicable);
+        out.key("failed");
+        out.uint(self.failed);
+        out.key("unsupported");
+        out.uint(self.unsupported);
+    }
+}
+
+impl FromJson for IdsSpecification {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IdsSpecification {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 指摘。diagnostic は診断と同じ形で、describe で文にできる
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdsFinding {
+    /// 仕様の名前
+    pub specification: String,
+    /// code・重要度・場所（要素の ID）・値
+    pub diagnostic: Diagnostic,
+}
+
+impl IdsFinding {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let specification = object.required("specification", json::string)?;
+        let diagnostic = object.required("diagnostic", Diagnostic::from_json)?;
+        Ok(Self {
+            specification,
+            diagnostic,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("specification");
+        out.string(&self.specification);
+        out.key("diagnostic");
+        self.diagnostic.to_json(out);
+    }
+}
+
+impl FromJson for IdsFinding {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IdsFinding {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewAdoptIdsRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で IFC を開いたもの
+    pub doc: String,
+    /// IDS の入力の名前（zm_push で渡した .ids）
+    pub ids: String,
+    /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+    pub express: Option<String>,
+    /// 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す
+    pub review: Option<String>,
+    /// 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す
+    pub target: String,
+    /// 取り込む指摘の番号の列。ids_check の指摘の並びの順で、0 から数える
+    pub findings: Vec<u64>,
+}
+
+impl ReviewAdoptIdsRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "review_adopt_ids")?;
+        let doc = object.required("doc", json::string)?;
+        let ids = object.required("ids", json::string)?;
+        let express = object.optional("express", json::string)?;
+        let review = object.optional("review", json::string)?;
+        let target = object.required("target", json::string)?;
+        let findings = object.required("findings", |value| {
+            json::array(value, |value| json::uint(value, 0, 9007199254740991))
+        })?;
+        Ok(Self {
+            request_common,
+            doc,
+            ids,
+            express,
+            review,
+            target,
+            findings,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("review_adopt_ids");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("ids");
+        out.string(&self.ids);
+        if let Some(value) = &self.express {
+            out.key("express");
+            out.string(value);
+        }
+        if let Some(value) = &self.review {
+            out.key("review");
+            out.string(value);
+        }
+        out.key("target");
+        out.string(&self.target);
+        out.key("findings");
+        out.array(&self.findings, |out, item| out.uint(*item));
+    }
+}
+
+impl FromJson for ReviewAdoptIdsRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewAdoptIdsRequest {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

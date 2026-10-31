@@ -16,6 +16,7 @@ use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
 use crate::bounds;
+use crate::building;
 use crate::changes::changes;
 use crate::check;
 use crate::convert;
@@ -25,7 +26,8 @@ use crate::messages::{
     self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CheckRequest,
     CheckResult, CloseRequest, CloseResult, ConvertRequest, ConvertResult, DrawingRequest,
     DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField,
-    EntityKind, Extent, Format, OpenRequest, OpenResult, PointStyleSummary, Request, RequestCommon,
+    EntityKind, Extent, Format, IdsCheckRequest, IdsCheckResult, IdsFinding, OpenRequest,
+    OpenResult, PointStyleSummary, Request, RequestCommon, ReviewAdoptIdsRequest,
     ReviewAdoptRequest, ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult, SceneRequest,
     SceneResult, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest,
     TablesResult,
@@ -59,6 +61,10 @@ pub struct Session {
     docs: BTreeMap<String, Doc>,
     /// `open` で作った文書の、元のバイト列のハッシュ（決定 0156）
     hashes: BTreeMap<String, Hash>,
+    /// `open` で作った建物モデルの文書（決定 0219）。名前は `docs` と分け合う
+    models: BTreeMap<String, building::Model>,
+    /// 実行中の op の名前。使えない文書の診断に書く
+    op: &'static str,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
     blobs: Vec<Option<Blob>>,
     /// 実行の形が `process` なら、子プロセスの CLI。要求をそのまま送る（決定 0013・0200）
@@ -136,6 +142,13 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 }
 
 /// 要求の値の型か範囲が合わないことの診断
+/// 文書の種類が op に合わない
+fn unsupported(name: &str, op: &str) -> Diagnostic {
+    Diagnostic::new(codes::CALL_DOCUMENT_UNSUPPORTED)
+        .with("name", name)
+        .with("op", op)
+}
+
 pub(crate) fn invalid_value(pointer: impl Into<String>) -> Diagnostic {
     Diagnostic::new(codes::CALL_VALUE_INVALID).with("pointer", pointer.into())
 }
@@ -186,6 +199,8 @@ impl Session {
             inputs: BTreeMap::new(),
             docs: BTreeMap::new(),
             hashes: BTreeMap::new(),
+            models: BTreeMap::new(),
+            op: "",
             blobs: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
             child,
@@ -301,6 +316,7 @@ impl Session {
             .time_limit_ms
             .and_then(|ms| watchdog::Watchdog::start(cancel, ms));
         let mut cx = Cx::new(&mut budget, diagnostics, cancel);
+        self.op = request.tag();
         let result: Result<Box<dyn ToJson>, Failed> = match &request {
             Request::Capabilities(_) => Ok(Box::new(capabilities())),
             Request::Open(request) => self.open(request, &mut cx).map(|r| Box::new(r) as _),
@@ -324,6 +340,19 @@ impl Session {
             Request::ReviewAdopt(request) => self
                 .review_adopt(request, &mut cx)
                 .map(|r| Box::new(r) as _),
+            Request::Building(request) => self
+                .model(&request.doc, "building", &mut cx)
+                .map(|model| Box::new(building::summary(model)) as _),
+            Request::BuildingElements(request) => self
+                .model(&request.doc, "building_elements", &mut cx)
+                .and_then(|model| building::elements(model, request, &mut cx))
+                .map(|r| Box::new(r) as _),
+            Request::IdsCheck(request) => {
+                self.ids_check(request, &mut cx).map(|r| Box::new(r) as _)
+            }
+            Request::ReviewAdoptIds(request) => self
+                .review_adopt_ids(request, &mut cx)
+                .map(|r| Box::new(r) as _),
         };
         result.ok()
     }
@@ -343,11 +372,15 @@ impl Session {
             return Err(fail(cx, input_missing(&request.input)));
         };
         let name = request.doc.as_ref().unwrap_or(&request.input);
-        if self.docs.contains_key(name) {
+        if self.docs.contains_key(name) || self.models.contains_key(name) {
             return Err(fail(
                 cx,
                 Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", name.as_str()),
             ));
+        }
+        // IFC-SPF は SXF と同じ始まりなので先に、ifcZIP は ZIP なので最後に試す（決定 0219）
+        if let Some(model) = building::read_spf(bytes, cx) {
+            return self.open_model(name.clone(), model?);
         }
         // 形式は、コーデックが持つ判定の規則で決める（決定 0007・0008）。入力の大きさは、コーデックが確かめる
         let doc = if Dxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
@@ -361,6 +394,8 @@ impl Session {
             Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?)
         } else if Jww::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
             Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
+        } else if let Some(model) = building::read_zip(bytes, cx) {
+            return self.open_model(name.clone(), model?);
         } else {
             cx.check(Kind::InputBytes, bytes.len() as u64)
                 .map_err(|stop| stopped(cx, stop))?;
@@ -380,6 +415,14 @@ impl Session {
         Ok(result)
     }
 
+    fn open_model(&mut self, name: String, model: building::Model) -> Result<OpenResult, Failed> {
+        self.models.insert(name.clone(), model);
+        Ok(OpenResult {
+            doc: name,
+            format: "ifc".to_string(),
+        })
+    }
+
     fn close(&mut self, request: &CloseRequest, cx: &mut Cx<'_>) -> Result<CloseResult, Failed> {
         let docs = request.docs.as_deref().unwrap_or_default();
         let inputs = request.inputs.as_deref().unwrap_or_default();
@@ -394,7 +437,7 @@ impl Session {
         }
         let mut missing = false;
         for doc in docs {
-            if !self.docs.contains_key(doc) {
+            if !self.docs.contains_key(doc) && !self.models.contains_key(doc) {
                 cx.report(Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.as_str()));
                 missing = true;
             }
@@ -412,6 +455,7 @@ impl Session {
         for doc in docs {
             self.docs.remove(doc);
             self.hashes.remove(doc);
+            self.models.remove(doc);
         }
         for input in inputs {
             self.inputs.remove(input);
@@ -759,12 +803,21 @@ impl Session {
         request: &ReviewCarryRequest,
         cx: &mut Cx<'_>,
     ) -> Result<ReviewCarryResult, Failed> {
-        let drawing = self.lift(&request.doc, cx)?;
-        let Some(hash) = self.hashes.get(&request.doc).copied() else {
-            return Err(fail(cx, invalid_value("/doc")));
+        let plan = match self.models.get(&request.doc) {
+            Some(model) => review::Plan {
+                hash: model.hash.to_string(),
+                elements: model.hashes(cx)?,
+            },
+            None => {
+                let drawing = self.lift(&request.doc, cx)?;
+                let Some(hash) = self.hashes.get(&request.doc) else {
+                    return Err(fail(cx, invalid_value("/doc")));
+                };
+                review::Plan::drawing(&drawing, hash.to_string(), cx)?
+            }
         };
         let bytes = self.input(&request.review, "/review", cx)?;
-        let (result, bytes) = review::carry(&drawing, &hash, bytes, request, cx)?;
+        let (result, bytes) = review::carry(plan, bytes, request, cx)?;
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
             bytes,
@@ -807,8 +860,91 @@ impl Session {
             Some(name) => Some(self.input(name, "/review", cx)?),
             None => None,
         };
+        let plan = review::Plan::drawing(&drawing, target.hash.clone(), cx)?;
+        let findings: Vec<(String, &messages::Diagnostic)> = findings
+            .iter()
+            .map(|f| (f.rule.clone(), &f.diagnostic))
+            .collect();
         let (result, bytes) =
-            review::adopt(&drawing, target, review, &findings, &request.findings, cx)?;
+            review::adopt(&plan, target, review, &findings, &request.findings, cx)?;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(result)
+    }
+
+    /// 名前の建物モデル。図面の文書なら、`op` を使えない
+    fn model(&self, doc: &str, op: &str, cx: &mut Cx<'_>) -> Result<&building::Model, Failed> {
+        if !name::is_safe(doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        match self.models.get(doc) {
+            Some(model) => Ok(model),
+            None if self.docs.contains_key(doc) => Err(fail(cx, unsupported(doc, op))),
+            None => Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc),
+            )),
+        }
+    }
+
+    /// 建物モデルを IDS で照合する（決定 0219）
+    fn ids_check(
+        &self,
+        request: &IdsCheckRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<IdsCheckResult, Failed> {
+        let model = self.model(&request.doc, "ids_check", cx)?;
+        let ids = self.input(&request.ids, "/ids", cx)?;
+        let express = match &request.express {
+            Some(name) => Some(self.input(name, "/express", cx)?),
+            None => None,
+        };
+        let (ids, report) = building::check(model, ids, express, cx)?;
+        Ok(building::ids_check(
+            &ids,
+            &report,
+            request.offset,
+            request.limit,
+        ))
+    }
+
+    /// 建物モデルを IDS で照合し、選んだ指摘をレビューの文書に取り込み、足した文書を blob で返す（決定 0219）
+    fn review_adopt_ids(
+        &mut self,
+        request: &ReviewAdoptIdsRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<ReviewAdoptResult, Failed> {
+        let model = self.model(&request.doc, "review_adopt_ids", cx)?;
+        let ids = self.input(&request.ids, "/ids", cx)?;
+        let express = match &request.express {
+            Some(name) => Some(self.input(name, "/express", cx)?),
+            None => None,
+        };
+        let (_, report) = building::check(model, ids, express, cx)?;
+        let findings: Vec<IdsFinding> = report.findings.iter().map(building::finding).collect();
+        let findings: Vec<(String, &messages::Diagnostic)> = findings
+            .iter()
+            .map(|f| (f.specification.clone(), &f.diagnostic))
+            .collect();
+        let plan = review::Plan {
+            hash: model.hash.to_string(),
+            elements: model.hashes(cx)?,
+        };
+        let target = zumen_review::Target {
+            id: request.target.clone(),
+            format: "ifc".to_string(),
+            hash: plan.hash.clone(),
+            name: Some(request.doc.clone()),
+            extra: Vec::new(),
+        };
+        let review = match &request.review {
+            Some(name) => Some(self.input(name, "/review", cx)?),
+            None => None,
+        };
+        let (result, bytes) =
+            review::adopt(&plan, target, review, &findings, &request.findings, cx)?;
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
             bytes,
@@ -869,6 +1005,9 @@ impl Session {
             return Err(fail(cx, invalid_value("/doc")));
         }
         let Some(found) = self.docs.get(doc) else {
+            if self.models.contains_key(doc) {
+                return Err(fail(cx, unsupported(doc, self.op)));
+            }
             return Err(fail(
                 cx,
                 Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc),
@@ -1233,6 +1372,10 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Validate(request) => &request.request_common,
         Request::ReviewCarry(request) => &request.request_common,
         Request::ReviewAdopt(request) => &request.request_common,
+        Request::Building(request) => &request.request_common,
+        Request::BuildingElements(request) => &request.request_common,
+        Request::IdsCheck(request) => &request.request_common,
+        Request::ReviewAdoptIds(request) => &request.request_common,
     }
 }
 
@@ -1775,7 +1918,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":43}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":44}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2094,6 +2237,244 @@ mod tests {
             .and_then(|v| zumen_json::uint(v, 0, u64::from(u32::MAX)).ok())
             .and_then(|id| u32::try_from(id).ok());
         id.and_then(|id| session.take(id)).unwrap_or_default()
+    }
+
+    /// 建物の op の試験に使う、小さな IFC4
+    const IFC: &[u8] = b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n\
+FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
+#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n\
+#10=IFCUNITASSIGNMENT((#11));\n\
+#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n\
+#20=IFCLOCALPLACEMENT($,#21);\n\
+#21=IFCAXIS2PLACEMENT3D(#22,$,$);\n\
+#22=IFCCARTESIANPOINT((0.,0.,3000.));\n\
+#34=IFCBUILDINGSTOREY('0000000000000000000034',$,'1F',$,$,#20,$,$,.ELEMENT.,3000.);\n\
+#40=IFCRELAGGREGATES('0000000000000000000040',$,$,$,#1,(#34));\n\
+#60=IFCRELCONTAINEDINSPATIALSTRUCTURE('0000000000000000000060',$,$,$,(#80),#34);\n\
+#61=IFCRELDEFINESBYPROPERTIES('0000000000000000000061',$,$,$,(#80),#62);\n\
+#62=IFCPROPERTYSET('0000000000000000000062',$,'Pset_DoorCommon',$,(#63));\n\
+#63=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);\n\
+#80=IFCDOOR('0000000000000000000080',$,'Door',$,$,$,$,'D-1',2100.,$,.DOOR.,$,$);\n\
+ENDSEC;\nEND-ISO-10303-21;\n";
+
+    /// IFC4 の一部を、属性の並びだけ写した小さなスキーマ
+    const EXPRESS: &[u8] = b"SCHEMA IFC4;
+TYPE IfcGloballyUniqueId = STRING (22) FIXED; END_TYPE;
+TYPE IfcLabel = STRING; END_TYPE;
+TYPE IfcText = STRING; END_TYPE;
+TYPE IfcIdentifier = STRING; END_TYPE;
+TYPE IfcPositiveLengthMeasure = IfcLengthMeasure; END_TYPE;
+TYPE IfcLengthMeasure = REAL; END_TYPE;
+TYPE IfcDoorTypeEnum = ENUMERATION OF (DOOR, GATE, USERDEFINED, NOTDEFINED); END_TYPE;
+ENTITY IfcRoot ABSTRACT;
+  GlobalId : IfcGloballyUniqueId;
+  OwnerHistory : OPTIONAL IfcRoot;
+  Name : OPTIONAL IfcLabel;
+  Description : OPTIONAL IfcText;
+END_ENTITY;
+ENTITY IfcDoor SUBTYPE OF (IfcRoot);
+  ObjectType : OPTIONAL IfcLabel;
+  ObjectPlacement : OPTIONAL IfcRoot;
+  Representation : OPTIONAL IfcRoot;
+  Tag : OPTIONAL IfcIdentifier;
+  OverallHeight : OPTIONAL IfcPositiveLengthMeasure;
+  OverallWidth : OPTIONAL IfcPositiveLengthMeasure;
+  PredefinedType : OPTIONAL IfcDoorTypeEnum;
+  OperationType : OPTIONAL IfcLabel;
+  UserDefinedOperationType : OPTIONAL IfcLabel;
+END_ENTITY;
+END_SCHEMA;
+";
+
+    /// 扉の属性を求める IDS。`Tag` は合い、`OverallWidth` は値がない
+    const IDS: &[u8] = b"<ids xmlns=\"http://standards.buildingsmart.org/IDS\"><info><title>t</title></info><specifications>\
+<specification name=\"tag\" ifcVersion=\"IFC4\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCDOOR</simpleValue></name></entity></applicability>\
+<requirements><attribute><name><simpleValue>Tag</simpleValue></name><value><simpleValue>D-1</simpleValue></value></attribute></requirements></specification>\
+<specification name=\"width\" ifcVersion=\"IFC4\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCDOOR</simpleValue></name></entity></applicability>\
+<requirements><attribute><name><simpleValue>OverallWidth</simpleValue></name></attribute></requirements></specification>\
+</specifications></ids>";
+
+    #[test]
+    fn opens_ifc_and_answers_the_building_ops() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.ifc", IFC).unwrap();
+        session.push(b"door.ids", IDS).unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        let (status, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.ifc"}"#);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/format"), "ifc");
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        // 名前は図面の文書と分け合う
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"open","input":"a.dxf","doc":"a.ifc"}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "call.document.exists"
+        );
+
+        let (_, response) = call(&mut session, r#"{"v":1,"op":"building","doc":"a.ifc"}"#);
+        assert_eq!(text(&response, "/result/schema"), "IFC4");
+        assert_eq!(text(&response, "/result/project"), "0000000000000000000001");
+        assert_eq!(number(&response, "/result/elements"), "3");
+        assert_eq!(text(&response, "/result/classes/1/name"), "IfcDoor");
+        assert_eq!(text(&response, "/result/units/0/prefix"), "MILLI");
+        let hash = text(&response, "/result/hash");
+
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"building_elements","doc":"a.ifc","class":"ifcdoor","components":["identity","properties","parent","relations"]}"#,
+        );
+        assert_eq!(number(&response, "/result/total"), "1");
+        assert_eq!(
+            text(&response, "/result/elements/0/id"),
+            "0000000000000000000080"
+        );
+        assert_eq!(text(&response, "/result/elements/0/identity/tag"), "D-1");
+        assert!(response.pointer("/result/elements/0/class").is_none());
+        assert_eq!(
+            text(&response, "/result/elements/0/parent/of/target"),
+            "0000000000000000000034"
+        );
+        assert_eq!(
+            text(&response, "/result/elements/0/parent/of/kind"),
+            "contained"
+        );
+        assert_eq!(
+            response.pointer("/result/elements/0/properties/0/properties/0/value/boolean"),
+            Some(&Value::Bool(true))
+        );
+        assert!(
+            response
+                .pointer("/result/elements/0/relations/children")
+                .is_some()
+        );
+
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"building_elements","doc":"a.ifc","limit":1,"offset":1,"components":["placement","class"]}"#,
+        );
+        assert_eq!(number(&response, "/result/total"), "3");
+        assert_eq!(number(&response, "/result/next_offset"), "2");
+        assert_eq!(
+            text(&response, "/result/elements/0/class/name"),
+            "IfcBuildingStorey"
+        );
+        assert_eq!(
+            number(&response, "/result/elements/0/placement/world/2/3"),
+            "3000"
+        );
+
+        // 図面の op と建物の op は、文書の種類が合わなければ使えない
+        for (request, name, op) in [
+            (
+                r#"{"v":1,"op":"drawing","doc":"a.ifc"}"#,
+                "a.ifc",
+                "drawing",
+            ),
+            (
+                r#"{"v":1,"op":"building","doc":"a.dxf"}"#,
+                "a.dxf",
+                "building",
+            ),
+        ] {
+            let (status, response) = call(&mut session, request);
+            assert_eq!(status, Status::Failed);
+            assert_eq!(
+                text(&response, "/diagnostics/0/code"),
+                "call.document.unsupported"
+            );
+            assert_eq!(text(&response, "/diagnostics/0/params/name"), name);
+            assert_eq!(text(&response, "/diagnostics/0/params/op"), op);
+        }
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"building_elements","doc":"a.ifc","components":["class","class"]}"#,
+        );
+        assert_eq!(
+            text(&response, "/diagnostics/0/params/pointer"),
+            "/components/1"
+        );
+
+        // EXPRESS がなければ、属性の要件は確かめられない
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"ids_check","doc":"a.ifc","ids":"door.ids"}"#,
+        );
+        assert_eq!(text(&response, "/result/title"), "t");
+        assert_eq!(text(&response, "/result/specifications/0/status"), "passed");
+        assert_eq!(
+            text(&response, "/result/specifications/1/status"),
+            "unknown"
+        );
+        assert_eq!(
+            text(&response, "/result/findings/0/diagnostic/severity"),
+            "info"
+        );
+        session.push(b"ifc4.exp", EXPRESS).unwrap();
+        let (_, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"ids_check","doc":"a.ifc","ids":"door.ids","express":"ifc4.exp"}"#,
+        );
+        assert_eq!(text(&response, "/result/specifications/1/status"), "failed");
+        assert_eq!(text(&response, "/result/findings/0/specification"), "width");
+        assert_eq!(
+            text(&response, "/result/findings/0/diagnostic/severity"),
+            "error"
+        );
+        assert_eq!(
+            text(&response, "/result/findings/0/diagnostic/at/0/id"),
+            "0000000000000000000080"
+        );
+
+        // 指摘をレビューの文書に取り込み、同じ版へ移す
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"review_adopt_ids","doc":"a.ifc","ids":"door.ids","express":"ifc4.exp","target":"model","findings":[0]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(number(&response, "/result/topics"), "1");
+        let review = blob_of(&mut session, &response);
+        let document = zumen_json::parse(&review).unwrap();
+        assert_eq!(
+            document.pointer("/targets/0/format"),
+            Some(&Value::String("ifc".to_string()))
+        );
+        assert_eq!(
+            document.pointer("/targets/0/hash"),
+            Some(&Value::String(hash.clone()))
+        );
+        assert_eq!(
+            document.pointer("/topics/0/origin/rule"),
+            Some(&Value::String("width".to_string()))
+        );
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"review_adopt_ids","doc":"a.ifc","ids":"door.ids","target":"model","findings":[1]}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&response, "/diagnostics/0/params/pointer"),
+            "/findings/0"
+        );
+        session.push(b"review.json", &review).unwrap();
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"review_carry","doc":"a.ifc","review":"review.json","target":"model"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/hash"), hash);
+        assert_eq!(text(&response, "/result/references/0/state"), "unchanged");
+
+        // 閉じれば、名前が空く
+        call(&mut session, r#"{"v":1,"op":"close","docs":["a.ifc"]}"#);
+        let (_, response) = call(&mut session, r#"{"v":1,"op":"building","doc":"a.ifc"}"#);
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "call.document.missing"
+        );
     }
 
     #[test]

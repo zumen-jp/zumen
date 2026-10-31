@@ -20,7 +20,11 @@
         { "$ref": "#/$defs/check_request" },
         { "$ref": "#/$defs/validate_request" },
         { "$ref": "#/$defs/review_carry_request" },
-        { "$ref": "#/$defs/review_adopt_request" }
+        { "$ref": "#/$defs/review_adopt_request" },
+        { "$ref": "#/$defs/building_request" },
+        { "$ref": "#/$defs/building_elements_request" },
+        { "$ref": "#/$defs/ids_check_request" },
+        { "$ref": "#/$defs/review_adopt_ids_request" }
       ]
     },
     "request_common": {
@@ -1571,7 +1575,7 @@
           "const": "review_carry"
         },
         "doc": {
-          "description": "新しい版の文書の名前。open で作ったもの",
+          "description": "新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く",
           "type": "string"
         },
         "review": {
@@ -1735,6 +1739,945 @@
       },
       "required": ["added", "topics"],
       "additionalProperties": false
+    },
+    "building_request": {
+      "description": "開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "building"
+        },
+        "doc": {
+          "description": "文書の名前。open で IFC を開いたもの",
+          "type": "string"
+        }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "building_result": {
+      "description": "建物モデルの要約",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "description": "IFC のスキーマの名前（FILE_SCHEMA の最初）",
+          "type": "string"
+        },
+        "hash": {
+          "description": "入力のバイト列のハッシュ。review_carry の対象の版に使う",
+          "type": "string"
+        },
+        "project": {
+          "description": "プロジェクトの要素の ID。なければ持たない",
+          "type": "string"
+        },
+        "project_name": {
+          "description": "プロジェクトの名前。なければ持たない",
+          "type": "string"
+        },
+        "units": {
+          "description": "プロジェクトの単位",
+          "type": "array",
+          "items": { "$ref": "#/$defs/building_unit" }
+        },
+        "elements": {
+          "description": "要素の数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "classes": {
+          "description": "クラスごとの要素の数。クラスの名前の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/class_count" }
+        }
+      },
+      "required": ["schema", "hash", "units", "elements", "classes"],
+      "additionalProperties": false
+    },
+    "building_unit": {
+      "description": "単位",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "単位の種類（LENGTHUNIT・AREAUNIT など）",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "SI の接頭辞（MILLI など）",
+          "type": "string"
+        },
+        "name": {
+          "description": "単位の名前（METRE、換算する単位なら inch など）",
+          "type": "string"
+        },
+        "scale": {
+          "description": "換算する単位の、SI の単位での大きさ。SI の単位は持たない",
+          "type": "number"
+        }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
+    "class_count": {
+      "description": "クラスの要素の数",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "IFC のクラスの名前（IfcWall など）",
+          "type": "string"
+        },
+        "count": {
+          "description": "要素の数",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["name", "count"],
+      "additionalProperties": false
+    },
+    "building_elements_request": {
+      "description": "開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "building_elements"
+        },
+        "doc": {
+          "description": "文書の名前。open で IFC を開いたもの",
+          "type": "string"
+        },
+        "ids": {
+          "description": "返す要素の ID。書けば、その要素だけを、書いた順に返す。ない ID は返さない",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "class": {
+          "description": "IFC のクラスの名前。書けば、そのクラスの要素だけを返す。大文字と小文字を区別しない",
+          "type": "string"
+        },
+        "components": {
+          "description": "返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す",
+          "type": "array",
+          "items": { "$ref": "#/$defs/building_component" }
+        },
+        "offset": {
+          "description": "返す最初の位置。前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "building_component": {
+      "description": "building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員",
+      "type": "string",
+      "enum": [
+        "identity",
+        "class",
+        "classification",
+        "spatial",
+        "parent",
+        "placement",
+        "type_of",
+        "properties",
+        "quantities",
+        "material",
+        "opening",
+        "group",
+        "connection",
+        "level",
+        "zone",
+        "style",
+        "relations"
+      ]
+    },
+    "building_elements_result": {
+      "description": "要素の一覧。offset から limit 個まで",
+      "type": "object",
+      "properties": {
+        "elements": {
+          "description": "要素",
+          "type": "array",
+          "items": { "$ref": "#/$defs/building_element" }
+        },
+        "total": {
+          "description": "選んだ要素の数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_offset": {
+          "description": "続きの最初の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["elements", "total"],
+      "additionalProperties": false
+    },
+    "building_element": {
+      "description": "建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "要素の ID（GlobalId か、i と番号）",
+          "type": "string"
+        },
+        "hash": {
+          "description": "要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207）",
+          "type": "string"
+        },
+        "identity": {
+          "description": "名前・説明・タグ・長い名前",
+          "$ref": "#/$defs/identity_component"
+        },
+        "class": {
+          "description": "クラス",
+          "$ref": "#/$defs/class_component"
+        },
+        "classification": {
+          "description": "分類の参照",
+          "type": "array",
+          "items": { "$ref": "#/$defs/classification_reference" }
+        },
+        "spatial": {
+          "description": "空間の要素の種類と高さ",
+          "$ref": "#/$defs/spatial_component"
+        },
+        "parent": {
+          "description": "親と、参照される空間",
+          "$ref": "#/$defs/parent_component"
+        },
+        "placement": {
+          "description": "配置",
+          "$ref": "#/$defs/placement_component"
+        },
+        "type_of": {
+          "description": "型の要素の ID",
+          "type": "string"
+        },
+        "properties": {
+          "description": "プロパティのセット",
+          "type": "array",
+          "items": { "$ref": "#/$defs/property_set" }
+        },
+        "quantities": {
+          "description": "数量のセット",
+          "type": "array",
+          "items": { "$ref": "#/$defs/quantity_set" }
+        },
+        "material": {
+          "description": "材料",
+          "$ref": "#/$defs/material_component"
+        },
+        "opening": {
+          "description": "開口と、埋める要素",
+          "$ref": "#/$defs/opening_component"
+        },
+        "group": {
+          "description": "属するグループの要素の ID",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "connection": {
+          "description": "接続",
+          "type": "array",
+          "items": { "$ref": "#/$defs/connection_link" }
+        },
+        "level": {
+          "description": "レベル",
+          "$ref": "#/$defs/level_component"
+        },
+        "zone": {
+          "description": "区画",
+          "$ref": "#/$defs/zone_component"
+        },
+        "style": {
+          "description": "表示のスタイル",
+          "$ref": "#/$defs/style_component"
+        },
+        "relations": {
+          "description": "索引から求める関係",
+          "$ref": "#/$defs/relations_component"
+        }
+      },
+      "required": ["id", "hash"],
+      "additionalProperties": false
+    },
+    "identity_component": {
+      "description": "名前・説明・タグ・長い名前",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "description": {
+          "description": "説明",
+          "type": "string"
+        },
+        "tag": {
+          "description": "タグ",
+          "type": "string"
+        },
+        "long_name": {
+          "description": "長い名前",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "class_component": {
+      "description": "クラス",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "IFC4 のクラスの名前。IFC2X3 の StandardCase などは、元の名前を original に残して直す",
+          "type": "string"
+        },
+        "predefined": {
+          "description": "PredefinedType",
+          "type": "string"
+        },
+        "user_defined": {
+          "description": "ObjectType など、USERDEFINED のときの名前",
+          "type": "string"
+        },
+        "original": {
+          "description": "ファイルに書いた実体の名前",
+          "type": "string"
+        }
+      },
+      "required": ["name", "original"],
+      "additionalProperties": false
+    },
+    "classification_reference": {
+      "description": "分類の参照",
+      "type": "object",
+      "properties": {
+        "system": {
+          "description": "分類の体系の名前",
+          "type": "string"
+        },
+        "edition": {
+          "description": "体系の版",
+          "type": "string"
+        },
+        "code": {
+          "description": "分類の記号",
+          "type": "string"
+        },
+        "name": {
+          "description": "分類の名前",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "measured": {
+      "description": "単位とともに持つ値",
+      "type": "object",
+      "properties": {
+        "value": {
+          "description": "値",
+          "type": "number"
+        },
+        "unit": {
+          "description": "単位。解けなければ持たない",
+          "$ref": "#/$defs/building_unit"
+        }
+      },
+      "required": ["value"],
+      "additionalProperties": false
+    },
+    "spatial_component": {
+      "description": "空間の要素",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "site・building・storey・space・spatial_zone か、元の実体の名前",
+          "type": "string"
+        },
+        "elevation": {
+          "description": "高さ",
+          "$ref": "#/$defs/measured"
+        },
+        "ref_elevation": {
+          "description": "基準の高さ",
+          "$ref": "#/$defs/measured"
+        }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "parent_component": {
+      "description": "親",
+      "type": "object",
+      "properties": {
+        "of": {
+          "description": "親の要素",
+          "$ref": "#/$defs/membership"
+        },
+        "referenced_in": {
+          "description": "参照される空間の要素の ID",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["referenced_in"],
+      "additionalProperties": false
+    },
+    "membership": {
+      "description": "親との関係",
+      "type": "object",
+      "properties": {
+        "target": {
+          "description": "親の要素の ID",
+          "type": "string"
+        },
+        "kind": {
+          "description": "関係の種類",
+          "$ref": "#/$defs/parent_kind"
+        },
+        "order": {
+          "description": "入れ子の順。0 から",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["target", "kind"],
+      "additionalProperties": false
+    },
+    "placement_component": {
+      "description": "配置",
+      "type": "object",
+      "properties": {
+        "relative_to": {
+          "description": "配置の親の要素の ID",
+          "type": "string"
+        },
+        "world": {
+          "description": "親をたどった世界の変換。3 行 4 列（回転と移動）。解けなければ持たない",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" }
+          }
+        },
+        "unsupported": {
+          "description": "解けなかった配置の実体の名前",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "building_value": {
+      "description": "値",
+      "type": "object",
+      "properties": {
+        "type_name": {
+          "description": "値の型の名前（IfcLengthMeasure・IfcLabel など）",
+          "type": "string"
+        },
+        "kind": {
+          "description": "値の種類",
+          "$ref": "#/$defs/building_value_kind"
+        },
+        "number": {
+          "description": "real と、2^53 − 1 までの integer の値",
+          "type": "number"
+        },
+        "text": {
+          "description": "text と enumeration の値と、2^53 − 1 を超える integer の値",
+          "type": "string"
+        },
+        "boolean": {
+          "description": "boolean と logical の値。logical の不明は持たない",
+          "type": "boolean"
+        },
+        "element": {
+          "description": "element の要素の ID",
+          "type": "string"
+        },
+        "items": {
+          "description": "list の値",
+          "type": "array",
+          "items": { "$ref": "#/$defs/building_value" }
+        }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "property_set": {
+      "description": "プロパティのセット",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "properties": {
+          "description": "プロパティ",
+          "type": "array",
+          "items": { "$ref": "#/$defs/property" }
+        }
+      },
+      "required": ["name", "properties"],
+      "additionalProperties": false
+    },
+    "property": {
+      "description": "プロパティ",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "value": {
+          "description": "値。値がなければ持たない",
+          "$ref": "#/$defs/building_value"
+        },
+        "unit": {
+          "description": "単位",
+          "$ref": "#/$defs/building_unit"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "quantity_set": {
+      "description": "数量のセット",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "method": {
+          "description": "計測の方法",
+          "type": "string"
+        },
+        "quantities": {
+          "description": "数量",
+          "type": "array",
+          "items": { "$ref": "#/$defs/quantity" }
+        }
+      },
+      "required": ["name", "quantities"],
+      "additionalProperties": false
+    },
+    "quantity": {
+      "description": "数量",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "kind": {
+          "description": "種類",
+          "$ref": "#/$defs/quantity_kind"
+        },
+        "value": {
+          "description": "値",
+          "$ref": "#/$defs/measured"
+        },
+        "formula": {
+          "description": "式",
+          "type": "string"
+        }
+      },
+      "required": ["name", "kind", "value"],
+      "additionalProperties": false
+    },
+    "material_component": {
+      "description": "材料",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "材料の組み方",
+          "$ref": "#/$defs/material_kind"
+        },
+        "parts": {
+          "description": "部分",
+          "type": "array",
+          "items": { "$ref": "#/$defs/material_part" }
+        },
+        "direction": {
+          "description": "層の向き",
+          "type": "string"
+        },
+        "offset": {
+          "description": "層の基準からのずれ",
+          "$ref": "#/$defs/measured"
+        }
+      },
+      "required": ["kind", "parts"],
+      "additionalProperties": false
+    },
+    "material_part": {
+      "description": "材料の部分",
+      "type": "object",
+      "properties": {
+        "material": {
+          "description": "材料の要素の ID",
+          "type": "string"
+        },
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "thickness": {
+          "description": "厚さ",
+          "$ref": "#/$defs/measured"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "opening_component": {
+      "description": "開口",
+      "type": "object",
+      "properties": {
+        "voids": {
+          "description": "この開口が穴を開ける要素の ID",
+          "type": "string"
+        },
+        "fills": {
+          "description": "この要素が埋める開口の要素の ID",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "connection_link": {
+      "description": "接続",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "関係の実体の名前",
+          "type": "string"
+        },
+        "target": {
+          "description": "接続する要素の ID",
+          "type": "string"
+        }
+      },
+      "required": ["kind", "target"],
+      "additionalProperties": false
+    },
+    "level_component": {
+      "description": "レベル",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "kind": {
+          "description": "種類",
+          "type": "string"
+        },
+        "height": {
+          "description": "高さ",
+          "$ref": "#/$defs/measured"
+        },
+        "datum": {
+          "description": "基準",
+          "type": "string"
+        }
+      },
+      "required": ["height"],
+      "additionalProperties": false
+    },
+    "zone_component": {
+      "description": "区画",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "区画の種類",
+          "type": "string"
+        },
+        "members": {
+          "description": "構成する要素の ID",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["members"],
+      "additionalProperties": false
+    },
+    "style_component": {
+      "description": "表示のスタイル",
+      "type": "object",
+      "properties": {
+        "surface_color": {
+          "description": "面の色の RGB（0 から 1）",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "transparency": {
+          "description": "透明度（0 から 1）",
+          "type": "number"
+        },
+        "curve_color": {
+          "description": "線の色の RGB（0 から 1）",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "layers": {
+          "description": "提示のレイヤの名前",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["layers"],
+      "additionalProperties": false
+    },
+    "relations_component": {
+      "description": "索引から求める関係。要素の ID の列",
+      "type": "object",
+      "properties": {
+        "children": {
+          "description": "子（集約・入れ子・包含）",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "referenced": {
+          "description": "参照する要素",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "instances": {
+          "description": "型の実例",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "openings": {
+          "description": "開口",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "fillings": {
+          "description": "開口を埋める要素",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "members": {
+          "description": "グループ・システム・区画の構成員",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["children", "referenced", "instances", "openings", "fillings", "members"],
+      "additionalProperties": false
+    },
+    "parent_kind": {
+      "description": "親との関係の種類。集約・入れ子・包含",
+      "type": "string",
+      "enum": ["aggregates", "nests", "contained"]
+    },
+    "building_value_kind": {
+      "description": "値の種類",
+      "type": "string",
+      "enum": ["real", "integer", "text", "boolean", "logical", "enumeration", "element", "list"]
+    },
+    "quantity_kind": {
+      "description": "数量の種類",
+      "type": "string",
+      "enum": ["length", "area", "volume", "count", "weight", "time"]
+    },
+    "material_kind": {
+      "description": "材料の組み方。単一・層・断面・構成・一覧",
+      "type": "string",
+      "enum": ["single", "layers", "profiles", "constituents", "list"]
+    },
+    "ids_status": {
+      "description": "仕様の結果。unknown は確かめられない facet があった",
+      "type": "string",
+      "enum": ["passed", "failed", "unknown"]
+    },
+    "ids_check_request": {
+      "description": "開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "ids_check"
+        },
+        "doc": {
+          "description": "文書の名前。open で IFC を開いたもの",
+          "type": "string"
+        },
+        "ids": {
+          "description": "IDS の入力の名前（zm_push で渡した .ids）",
+          "type": "string"
+        },
+        "express": {
+          "description": "EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす",
+          "type": "string"
+        },
+        "offset": {
+          "description": "返す最初の位置。前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      },
+      "required": ["op", "doc", "ids"],
+      "unevaluatedProperties": false
+    },
+    "ids_check_result": {
+      "description": "照合の結果。指摘は offset から limit 個まで",
+      "type": "object",
+      "properties": {
+        "title": {
+          "description": "IDS の題",
+          "type": "string"
+        },
+        "specifications": {
+          "description": "仕様ごとの結果。IDS の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/ids_specification" }
+        },
+        "findings": {
+          "description": "指摘。仕様の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/ids_finding" }
+        },
+        "total": {
+          "description": "全体の指摘の数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_offset": {
+          "description": "続きの最初の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["specifications", "findings", "total"],
+      "additionalProperties": false
+    },
+    "ids_specification": {
+      "description": "仕様の結果",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "identifier": {
+          "description": "識別子",
+          "type": "string"
+        },
+        "status": {
+          "description": "結果",
+          "$ref": "#/$defs/ids_status"
+        },
+        "applicable": {
+          "description": "適用の条件に合う要素の数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "description": "要件を満たさない要素の数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "unsupported": {
+          "description": "確かめられなかった要素の数",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["name", "status", "applicable", "failed", "unsupported"],
+      "additionalProperties": false
+    },
+    "ids_finding": {
+      "description": "指摘。diagnostic は診断と同じ形で、describe で文にできる",
+      "type": "object",
+      "properties": {
+        "specification": {
+          "description": "仕様の名前",
+          "type": "string"
+        },
+        "diagnostic": {
+          "description": "code・重要度・場所（要素の ID）・値",
+          "$ref": "#/$defs/diagnostic"
+        }
+      },
+      "required": ["specification", "diagnostic"],
+      "additionalProperties": false
+    },
+    "review_adopt_ids_request": {
+      "description": "開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "review_adopt_ids"
+        },
+        "doc": {
+          "description": "文書の名前。open で IFC を開いたもの",
+          "type": "string"
+        },
+        "ids": {
+          "description": "IDS の入力の名前（zm_push で渡した .ids）",
+          "type": "string"
+        },
+        "express": {
+          "description": "EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす",
+          "type": "string"
+        },
+        "review": {
+          "description": "足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す",
+          "type": "string"
+        },
+        "target": {
+          "description": "指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す",
+          "type": "string"
+        },
+        "findings": {
+          "description": "取り込む指摘の番号の列。ids_check の指摘の並びの順で、0 から数える",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "required": ["op", "doc", "ids", "target", "findings"],
+      "unevaluatedProperties": false
     },
     "table_item": {
       "description": "表の項目",

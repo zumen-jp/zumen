@@ -20,6 +20,7 @@
     "building.placement.unsupported": "The placement chain contains the placement \"{kind}\" that cannot be resolved, so the element was left without a placement ({count}).",
     "call.document.exists": "The document \"{name}\" is already open.",
     "call.document.missing": "There is no document \"{name}\".",
+    "call.document.unsupported": "Cannot use {op} on document \"{name}\".",
     "call.field.missing": "The request lacks the required field {pointer}.",
     "call.field.unsupported": "The request field {pointer} is unknown to this core or not allowed in this form.",
     "call.format.unsupported": "Could not detect the format of the input \"{name}\", or this core cannot read it.",

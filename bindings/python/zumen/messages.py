@@ -23,6 +23,10 @@ Request = Union[
     "ValidateRequest",
     "ReviewCarryRequest",
     "ReviewAdoptRequest",
+    "BuildingRequest",
+    "BuildingElementsRequest",
+    "IdsCheckRequest",
+    "ReviewAdoptIdsRequest",
 ]
 
 
@@ -2275,7 +2279,7 @@ _ReviewCarryRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["review_carry"],
-        # 新しい版の文書の名前。open で作ったもの
+        # 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
         "doc": str,
         # レビューの文書の入力の名前（zm_push で渡した JSON）
         "review": str,
@@ -2421,6 +2425,911 @@ ReviewAdoptResult = TypedDict(
         "topics": int,
     },
 )
+
+
+# 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から
+_BuildingRequestRequired = TypedDict(
+    "_BuildingRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["building"],
+        # 文書の名前。open で IFC を開いたもの
+        "doc": str,
+    },
+)
+_BuildingRequestOptional = TypedDict(
+    "_BuildingRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+    },
+    total=False,
+)
+
+
+class BuildingRequest(_BuildingRequestRequired, _BuildingRequestOptional):
+    "開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から"
+
+
+# 建物モデルの要約
+_BuildingResultRequired = TypedDict(
+    "_BuildingResultRequired",
+    {
+        # IFC のスキーマの名前（FILE_SCHEMA の最初）
+        "schema": str,
+        # 入力のバイト列のハッシュ。review_carry の対象の版に使う
+        "hash": str,
+        # プロジェクトの単位
+        "units": List["BuildingUnit"],
+        # 要素の数
+        "elements": int,
+        # クラスごとの要素の数。クラスの名前の順
+        "classes": List["ClassCount"],
+    },
+)
+_BuildingResultOptional = TypedDict(
+    "_BuildingResultOptional",
+    {
+        # プロジェクトの要素の ID。なければ持たない
+        "project": str,
+        # プロジェクトの名前。なければ持たない
+        "project_name": str,
+    },
+    total=False,
+)
+
+
+class BuildingResult(_BuildingResultRequired, _BuildingResultOptional):
+    "建物モデルの要約"
+
+
+# 単位
+_BuildingUnitRequired = TypedDict(
+    "_BuildingUnitRequired",
+    {
+        # 単位の種類（LENGTHUNIT・AREAUNIT など）
+        "kind": str,
+        # 単位の名前（METRE、換算する単位なら inch など）
+        "name": str,
+    },
+)
+_BuildingUnitOptional = TypedDict(
+    "_BuildingUnitOptional",
+    {
+        # SI の接頭辞（MILLI など）
+        "prefix": str,
+        # 換算する単位の、SI の単位での大きさ。SI の単位は持たない
+        "scale": float,
+    },
+    total=False,
+)
+
+
+class BuildingUnit(_BuildingUnitRequired, _BuildingUnitOptional):
+    "単位"
+
+
+# クラスの要素の数
+ClassCount = TypedDict(
+    "ClassCount",
+    {
+        # IFC のクラスの名前（IfcWall など）
+        "name": str,
+        # 要素の数
+        "count": int,
+    },
+)
+
+
+# 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から
+_BuildingElementsRequestRequired = TypedDict(
+    "_BuildingElementsRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["building_elements"],
+        # 文書の名前。open で IFC を開いたもの
+        "doc": str,
+    },
+)
+_BuildingElementsRequestOptional = TypedDict(
+    "_BuildingElementsRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 返す要素の ID。書けば、その要素だけを、書いた順に返す。ない ID は返さない
+        "ids": List[str],
+        # IFC のクラスの名前。書けば、そのクラスの要素だけを返す。大文字と小文字を区別しない
+        "class": str,
+        # 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す
+        "components": List["BuildingComponent"],
+        # 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
+        "offset": int,
+        # 返す数の上限。書かなければ 1000
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class BuildingElementsRequest(_BuildingElementsRequestRequired, _BuildingElementsRequestOptional):
+    "開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から"
+
+# building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
+BuildingComponent = Union[
+    Literal[
+        "identity",
+        "class",
+        "classification",
+        "spatial",
+        "parent",
+        "placement",
+        "type_of",
+        "properties",
+        "quantities",
+        "material",
+        "opening",
+        "group",
+        "connection",
+        "level",
+        "zone",
+        "style",
+        "relations",
+    ],
+    str,
+]
+
+
+# 要素の一覧。offset から limit 個まで
+_BuildingElementsResultRequired = TypedDict(
+    "_BuildingElementsResultRequired",
+    {
+        # 要素
+        "elements": List["BuildingElement"],
+        # 選んだ要素の数
+        "total": int,
+    },
+)
+_BuildingElementsResultOptional = TypedDict(
+    "_BuildingElementsResultOptional",
+    {
+        # 続きの最初の位置。続きがなければ持たない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class BuildingElementsResult(_BuildingElementsResultRequired, _BuildingElementsResultOptional):
+    "要素の一覧。offset から limit 個まで"
+
+
+# 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ
+_BuildingElementRequired = TypedDict(
+    "_BuildingElementRequired",
+    {
+        # 要素の ID（GlobalId か、i と番号）
+        "id": str,
+        # 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207）
+        "hash": str,
+    },
+)
+_BuildingElementOptional = TypedDict(
+    "_BuildingElementOptional",
+    {
+        # 名前・説明・タグ・長い名前
+        "identity": "IdentityComponent",
+        # クラス
+        "class": "ClassComponent",
+        # 分類の参照
+        "classification": List["ClassificationReference"],
+        # 空間の要素の種類と高さ
+        "spatial": "SpatialComponent",
+        # 親と、参照される空間
+        "parent": "ParentComponent",
+        # 配置
+        "placement": "PlacementComponent",
+        # 型の要素の ID
+        "type_of": str,
+        # プロパティのセット
+        "properties": List["PropertySet"],
+        # 数量のセット
+        "quantities": List["QuantitySet"],
+        # 材料
+        "material": "MaterialComponent",
+        # 開口と、埋める要素
+        "opening": "OpeningComponent",
+        # 属するグループの要素の ID
+        "group": List[str],
+        # 接続
+        "connection": List["ConnectionLink"],
+        # レベル
+        "level": "LevelComponent",
+        # 区画
+        "zone": "ZoneComponent",
+        # 表示のスタイル
+        "style": "StyleComponent",
+        # 索引から求める関係
+        "relations": "RelationsComponent",
+    },
+    total=False,
+)
+
+
+class BuildingElement(_BuildingElementRequired, _BuildingElementOptional):
+    "建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ"
+
+
+# 名前・説明・タグ・長い名前
+IdentityComponent = TypedDict(
+    "IdentityComponent",
+    {
+        # 名前
+        "name": str,
+        # 説明
+        "description": str,
+        # タグ
+        "tag": str,
+        # 長い名前
+        "long_name": str,
+    },
+    total=False,
+)
+
+
+# クラス
+_ClassComponentRequired = TypedDict(
+    "_ClassComponentRequired",
+    {
+        # IFC4 のクラスの名前。IFC2X3 の StandardCase などは、元の名前を original に残して直す
+        "name": str,
+        # ファイルに書いた実体の名前
+        "original": str,
+    },
+)
+_ClassComponentOptional = TypedDict(
+    "_ClassComponentOptional",
+    {
+        # PredefinedType
+        "predefined": str,
+        # ObjectType など、USERDEFINED のときの名前
+        "user_defined": str,
+    },
+    total=False,
+)
+
+
+class ClassComponent(_ClassComponentRequired, _ClassComponentOptional):
+    "クラス"
+
+
+# 分類の参照
+ClassificationReference = TypedDict(
+    "ClassificationReference",
+    {
+        # 分類の体系の名前
+        "system": str,
+        # 体系の版
+        "edition": str,
+        # 分類の記号
+        "code": str,
+        # 分類の名前
+        "name": str,
+    },
+    total=False,
+)
+
+
+# 単位とともに持つ値
+_MeasuredRequired = TypedDict(
+    "_MeasuredRequired",
+    {
+        # 値
+        "value": float,
+    },
+)
+_MeasuredOptional = TypedDict(
+    "_MeasuredOptional",
+    {
+        # 単位。解けなければ持たない
+        "unit": "BuildingUnit",
+    },
+    total=False,
+)
+
+
+class Measured(_MeasuredRequired, _MeasuredOptional):
+    "単位とともに持つ値"
+
+
+# 空間の要素
+_SpatialComponentRequired = TypedDict(
+    "_SpatialComponentRequired",
+    {
+        # site・building・storey・space・spatial_zone か、元の実体の名前
+        "kind": str,
+    },
+)
+_SpatialComponentOptional = TypedDict(
+    "_SpatialComponentOptional",
+    {
+        # 高さ
+        "elevation": "Measured",
+        # 基準の高さ
+        "ref_elevation": "Measured",
+    },
+    total=False,
+)
+
+
+class SpatialComponent(_SpatialComponentRequired, _SpatialComponentOptional):
+    "空間の要素"
+
+
+# 親
+_ParentComponentRequired = TypedDict(
+    "_ParentComponentRequired",
+    {
+        # 参照される空間の要素の ID
+        "referenced_in": List[str],
+    },
+)
+_ParentComponentOptional = TypedDict(
+    "_ParentComponentOptional",
+    {
+        # 親の要素
+        "of": "Membership",
+    },
+    total=False,
+)
+
+
+class ParentComponent(_ParentComponentRequired, _ParentComponentOptional):
+    "親"
+
+
+# 親との関係
+_MembershipRequired = TypedDict(
+    "_MembershipRequired",
+    {
+        # 親の要素の ID
+        "target": str,
+        # 関係の種類
+        "kind": "ParentKind",
+    },
+)
+_MembershipOptional = TypedDict(
+    "_MembershipOptional",
+    {
+        # 入れ子の順。0 から
+        "order": int,
+    },
+    total=False,
+)
+
+
+class Membership(_MembershipRequired, _MembershipOptional):
+    "親との関係"
+
+
+# 配置
+PlacementComponent = TypedDict(
+    "PlacementComponent",
+    {
+        # 配置の親の要素の ID
+        "relative_to": str,
+        # 親をたどった世界の変換。3 行 4 列（回転と移動）。解けなければ持たない
+        "world": List[List[float]],
+        # 解けなかった配置の実体の名前
+        "unsupported": str,
+    },
+    total=False,
+)
+
+
+# 値
+_BuildingValueRequired = TypedDict(
+    "_BuildingValueRequired",
+    {
+        # 値の種類
+        "kind": "BuildingValueKind",
+    },
+)
+_BuildingValueOptional = TypedDict(
+    "_BuildingValueOptional",
+    {
+        # 値の型の名前（IfcLengthMeasure・IfcLabel など）
+        "type_name": str,
+        # real と、2^53 − 1 までの integer の値
+        "number": float,
+        # text と enumeration の値と、2^53 − 1 を超える integer の値
+        "text": str,
+        # boolean と logical の値。logical の不明は持たない
+        "boolean": bool,
+        # element の要素の ID
+        "element": str,
+        # list の値
+        "items": List["BuildingValue"],
+    },
+    total=False,
+)
+
+
+class BuildingValue(_BuildingValueRequired, _BuildingValueOptional):
+    "値"
+
+
+# プロパティのセット
+PropertySet = TypedDict(
+    "PropertySet",
+    {
+        # 名前
+        "name": str,
+        # プロパティ
+        "properties": List["Property"],
+    },
+)
+
+
+# プロパティ
+_PropertyRequired = TypedDict(
+    "_PropertyRequired",
+    {
+        # 名前
+        "name": str,
+    },
+)
+_PropertyOptional = TypedDict(
+    "_PropertyOptional",
+    {
+        # 値。値がなければ持たない
+        "value": "BuildingValue",
+        # 単位
+        "unit": "BuildingUnit",
+    },
+    total=False,
+)
+
+
+class Property(_PropertyRequired, _PropertyOptional):
+    "プロパティ"
+
+
+# 数量のセット
+_QuantitySetRequired = TypedDict(
+    "_QuantitySetRequired",
+    {
+        # 名前
+        "name": str,
+        # 数量
+        "quantities": List["Quantity"],
+    },
+)
+_QuantitySetOptional = TypedDict(
+    "_QuantitySetOptional",
+    {
+        # 計測の方法
+        "method": str,
+    },
+    total=False,
+)
+
+
+class QuantitySet(_QuantitySetRequired, _QuantitySetOptional):
+    "数量のセット"
+
+
+# 数量
+_QuantityRequired = TypedDict(
+    "_QuantityRequired",
+    {
+        # 名前
+        "name": str,
+        # 種類
+        "kind": "QuantityKind",
+        # 値
+        "value": "Measured",
+    },
+)
+_QuantityOptional = TypedDict(
+    "_QuantityOptional",
+    {
+        # 式
+        "formula": str,
+    },
+    total=False,
+)
+
+
+class Quantity(_QuantityRequired, _QuantityOptional):
+    "数量"
+
+
+# 材料
+_MaterialComponentRequired = TypedDict(
+    "_MaterialComponentRequired",
+    {
+        # 材料の組み方
+        "kind": "MaterialKind",
+        # 部分
+        "parts": List["MaterialPart"],
+    },
+)
+_MaterialComponentOptional = TypedDict(
+    "_MaterialComponentOptional",
+    {
+        # 層の向き
+        "direction": str,
+        # 層の基準からのずれ
+        "offset": "Measured",
+    },
+    total=False,
+)
+
+
+class MaterialComponent(_MaterialComponentRequired, _MaterialComponentOptional):
+    "材料"
+
+
+# 材料の部分
+MaterialPart = TypedDict(
+    "MaterialPart",
+    {
+        # 材料の要素の ID
+        "material": str,
+        # 名前
+        "name": str,
+        # 厚さ
+        "thickness": "Measured",
+    },
+    total=False,
+)
+
+
+# 開口
+OpeningComponent = TypedDict(
+    "OpeningComponent",
+    {
+        # この開口が穴を開ける要素の ID
+        "voids": str,
+        # この要素が埋める開口の要素の ID
+        "fills": str,
+    },
+    total=False,
+)
+
+
+# 接続
+ConnectionLink = TypedDict(
+    "ConnectionLink",
+    {
+        # 関係の実体の名前
+        "kind": str,
+        # 接続する要素の ID
+        "target": str,
+    },
+)
+
+
+# レベル
+_LevelComponentRequired = TypedDict(
+    "_LevelComponentRequired",
+    {
+        # 高さ
+        "height": "Measured",
+    },
+)
+_LevelComponentOptional = TypedDict(
+    "_LevelComponentOptional",
+    {
+        # 名前
+        "name": str,
+        # 種類
+        "kind": str,
+        # 基準
+        "datum": str,
+    },
+    total=False,
+)
+
+
+class LevelComponent(_LevelComponentRequired, _LevelComponentOptional):
+    "レベル"
+
+
+# 区画
+_ZoneComponentRequired = TypedDict(
+    "_ZoneComponentRequired",
+    {
+        # 構成する要素の ID
+        "members": List[str],
+    },
+)
+_ZoneComponentOptional = TypedDict(
+    "_ZoneComponentOptional",
+    {
+        # 区画の種類
+        "kind": str,
+    },
+    total=False,
+)
+
+
+class ZoneComponent(_ZoneComponentRequired, _ZoneComponentOptional):
+    "区画"
+
+
+# 表示のスタイル
+_StyleComponentRequired = TypedDict(
+    "_StyleComponentRequired",
+    {
+        # 提示のレイヤの名前
+        "layers": List[str],
+    },
+)
+_StyleComponentOptional = TypedDict(
+    "_StyleComponentOptional",
+    {
+        # 面の色の RGB（0 から 1）
+        "surface_color": List[float],
+        # 透明度（0 から 1）
+        "transparency": float,
+        # 線の色の RGB（0 から 1）
+        "curve_color": List[float],
+    },
+    total=False,
+)
+
+
+class StyleComponent(_StyleComponentRequired, _StyleComponentOptional):
+    "表示のスタイル"
+
+
+# 索引から求める関係。要素の ID の列
+RelationsComponent = TypedDict(
+    "RelationsComponent",
+    {
+        # 子（集約・入れ子・包含）
+        "children": List[str],
+        # 参照する要素
+        "referenced": List[str],
+        # 型の実例
+        "instances": List[str],
+        # 開口
+        "openings": List[str],
+        # 開口を埋める要素
+        "fillings": List[str],
+        # グループ・システム・区画の構成員
+        "members": List[str],
+    },
+)
+
+# 親との関係の種類。集約・入れ子・包含
+ParentKind = Union[
+    Literal[
+        "aggregates",
+        "nests",
+        "contained",
+    ],
+    str,
+]
+
+# 値の種類
+BuildingValueKind = Union[
+    Literal[
+        "real",
+        "integer",
+        "text",
+        "boolean",
+        "logical",
+        "enumeration",
+        "element",
+        "list",
+    ],
+    str,
+]
+
+# 数量の種類
+QuantityKind = Union[
+    Literal[
+        "length",
+        "area",
+        "volume",
+        "count",
+        "weight",
+        "time",
+    ],
+    str,
+]
+
+# 材料の組み方。単一・層・断面・構成・一覧
+MaterialKind = Union[
+    Literal[
+        "single",
+        "layers",
+        "profiles",
+        "constituents",
+        "list",
+    ],
+    str,
+]
+
+# 仕様の結果。unknown は確かめられない facet があった
+IdsStatus = Union[
+    Literal[
+        "passed",
+        "failed",
+        "unknown",
+    ],
+    str,
+]
+
+
+# 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
+_IdsCheckRequestRequired = TypedDict(
+    "_IdsCheckRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["ids_check"],
+        # 文書の名前。open で IFC を開いたもの
+        "doc": str,
+        # IDS の入力の名前（zm_push で渡した .ids）
+        "ids": str,
+    },
+)
+_IdsCheckRequestOptional = TypedDict(
+    "_IdsCheckRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+        "express": str,
+        # 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
+        "offset": int,
+        # 返す数の上限。書かなければ 1000
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class IdsCheckRequest(_IdsCheckRequestRequired, _IdsCheckRequestOptional):
+    "開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から"
+
+
+# 照合の結果。指摘は offset から limit 個まで
+_IdsCheckResultRequired = TypedDict(
+    "_IdsCheckResultRequired",
+    {
+        # 仕様ごとの結果。IDS の順
+        "specifications": List["IdsSpecification"],
+        # 指摘。仕様の順
+        "findings": List["IdsFinding"],
+        # 全体の指摘の数
+        "total": int,
+    },
+)
+_IdsCheckResultOptional = TypedDict(
+    "_IdsCheckResultOptional",
+    {
+        # IDS の題
+        "title": str,
+        # 続きの最初の位置。続きがなければ持たない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class IdsCheckResult(_IdsCheckResultRequired, _IdsCheckResultOptional):
+    "照合の結果。指摘は offset から limit 個まで"
+
+
+# 仕様の結果
+_IdsSpecificationRequired = TypedDict(
+    "_IdsSpecificationRequired",
+    {
+        # 名前
+        "name": str,
+        # 結果
+        "status": "IdsStatus",
+        # 適用の条件に合う要素の数
+        "applicable": int,
+        # 要件を満たさない要素の数
+        "failed": int,
+        # 確かめられなかった要素の数
+        "unsupported": int,
+    },
+)
+_IdsSpecificationOptional = TypedDict(
+    "_IdsSpecificationOptional",
+    {
+        # 識別子
+        "identifier": str,
+    },
+    total=False,
+)
+
+
+class IdsSpecification(_IdsSpecificationRequired, _IdsSpecificationOptional):
+    "仕様の結果"
+
+
+# 指摘。diagnostic は診断と同じ形で、describe で文にできる
+IdsFinding = TypedDict(
+    "IdsFinding",
+    {
+        # 仕様の名前
+        "specification": str,
+        # code・重要度・場所（要素の ID）・値
+        "diagnostic": "Diagnostic",
+    },
+)
+
+
+# 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
+_ReviewAdoptIdsRequestRequired = TypedDict(
+    "_ReviewAdoptIdsRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["review_adopt_ids"],
+        # 文書の名前。open で IFC を開いたもの
+        "doc": str,
+        # IDS の入力の名前（zm_push で渡した .ids）
+        "ids": str,
+        # 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す
+        "target": str,
+        # 取り込む指摘の番号の列。ids_check の指摘の並びの順で、0 から数える
+        "findings": List[int],
+    },
+)
+_ReviewAdoptIdsRequestOptional = TypedDict(
+    "_ReviewAdoptIdsRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+        "express": str,
+        # 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す
+        "review": str,
+    },
+    total=False,
+)
+
+
+class ReviewAdoptIdsRequest(_ReviewAdoptIdsRequestRequired, _ReviewAdoptIdsRequestOptional):
+    "開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から"
 
 
 # 表の項目
@@ -2936,6 +3845,10 @@ Operation = Literal[
     "validate",
     "review_carry",
     "review_adopt",
+    "building",
+    "building_elements",
+    "ids_check",
+    "review_adopt_ids",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -2954,4 +3867,8 @@ OPERATIONS: Dict[str, Any] = {
     "validate": ("ValidateRequest", "ValidateResult"),
     "review_carry": ("ReviewCarryRequest", "ReviewCarryResult"),
     "review_adopt": ("ReviewAdoptRequest", "ReviewAdoptResult"),
+    "building": ("BuildingRequest", "BuildingResult"),
+    "building_elements": ("BuildingElementsRequest", "BuildingElementsResult"),
+    "ids_check": ("IdsCheckRequest", "IdsCheckResult"),
+    "review_adopt_ids": ("ReviewAdoptIdsRequest", "Dict[str, Any]"),
 }

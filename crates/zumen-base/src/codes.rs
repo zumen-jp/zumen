@@ -197,6 +197,20 @@ pub const CALL_DOCUMENT_MISSING: Code = Code::new(
     &["name"],
 );
 
+/// 文書の種類で使えない op。図面の op に建物モデルの文書を、建物モデルの op に図面の文書を渡した
+///
+/// `call.document.unsupported`（0.2.0 から）
+pub const CALL_DOCUMENT_UNSUPPORTED: Code = Code::new(
+    "call.document.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("op", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 要求に、必要な欄がない
 ///
 /// `call.field.missing`（0.0.0 から）
@@ -2515,6 +2529,7 @@ pub const ALL: &[Code] = &[
     BUILDING_PLACEMENT_UNSUPPORTED,
     CALL_DOCUMENT_EXISTS,
     CALL_DOCUMENT_MISSING,
+    CALL_DOCUMENT_UNSUPPORTED,
     CALL_FIELD_MISSING,
     CALL_FIELD_UNSUPPORTED,
     CALL_FORMAT_UNSUPPORTED,

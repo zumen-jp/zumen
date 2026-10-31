@@ -54,6 +54,10 @@ namespace Zumen.Messages
             ["validate"] = typeof(ValidateRequest),
             ["review_carry"] = typeof(ReviewCarryRequest),
             ["review_adopt"] = typeof(ReviewAdoptRequest),
+            ["building"] = typeof(BuildingRequest),
+            ["building_elements"] = typeof(BuildingElementsRequest),
+            ["ids_check"] = typeof(IdsCheckRequest),
+            ["review_adopt_ids"] = typeof(ReviewAdoptIdsRequest),
         };
     }
 
@@ -3726,7 +3730,7 @@ namespace Zumen.Messages
         public string Op { get; init; } = "review_carry";
 
         /// <summary>
-        /// 新しい版の文書の名前。open で作ったもの
+        /// 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
         /// </summary>
         [JsonPropertyName("doc")]
         public string Doc { get; init; } = default!;
@@ -3953,6 +3957,1296 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("topics")]
         public ulong Topics { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から
+    /// </summary>
+    public sealed record BuildingRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "building";
+
+        /// <summary>
+        /// 文書の名前。open で IFC を開いたもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 建物モデルの要約
+    /// </summary>
+    public sealed record BuildingResult
+    {
+        /// <summary>
+        /// IFC のスキーマの名前（FILE_SCHEMA の最初）
+        /// </summary>
+        [JsonPropertyName("schema")]
+        public string Schema { get; init; } = default!;
+
+        /// <summary>
+        /// 入力のバイト列のハッシュ。review_carry の対象の版に使う
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// プロジェクトの要素の ID。なければ持たない
+        /// </summary>
+        [JsonPropertyName("project")]
+        public string? Project { get; init; }
+
+        /// <summary>
+        /// プロジェクトの名前。なければ持たない
+        /// </summary>
+        [JsonPropertyName("project_name")]
+        public string? ProjectName { get; init; }
+
+        /// <summary>
+        /// プロジェクトの単位
+        /// </summary>
+        [JsonPropertyName("units")]
+        public IReadOnlyList<BuildingUnit> Units { get; init; } = default!;
+
+        /// <summary>
+        /// 要素の数
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public ulong Elements { get; init; }
+
+        /// <summary>
+        /// クラスごとの要素の数。クラスの名前の順
+        /// </summary>
+        [JsonPropertyName("classes")]
+        public IReadOnlyList<ClassCount> Classes { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 単位
+    /// </summary>
+    public sealed record BuildingUnit
+    {
+        /// <summary>
+        /// 単位の種類（LENGTHUNIT・AREAUNIT など）
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// SI の接頭辞（MILLI など）
+        /// </summary>
+        [JsonPropertyName("prefix")]
+        public string? Prefix { get; init; }
+
+        /// <summary>
+        /// 単位の名前（METRE、換算する単位なら inch など）
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 換算する単位の、SI の単位での大きさ。SI の単位は持たない
+        /// </summary>
+        [JsonPropertyName("scale")]
+        public double? Scale { get; init; }
+    }
+
+    /// <summary>
+    /// クラスの要素の数
+    /// </summary>
+    public sealed record ClassCount
+    {
+        /// <summary>
+        /// IFC のクラスの名前（IfcWall など）
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 要素の数
+        /// </summary>
+        [JsonPropertyName("count")]
+        public ulong Count { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から
+    /// </summary>
+    public sealed record BuildingElementsRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "building_elements";
+
+        /// <summary>
+        /// 文書の名前。open で IFC を開いたもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 返す要素の ID。書けば、その要素だけを、書いた順に返す。ない ID は返さない
+        /// </summary>
+        [JsonPropertyName("ids")]
+        public IReadOnlyList<string>? Ids { get; init; }
+
+        /// <summary>
+        /// IFC のクラスの名前。書けば、そのクラスの要素だけを返す。大文字と小文字を区別しない
+        /// </summary>
+        [JsonPropertyName("class")]
+        public string? Class { get; init; }
+
+        /// <summary>
+        /// 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す
+        /// </summary>
+        [JsonPropertyName("components")]
+        public IReadOnlyList<string>? Components { get; init; }
+
+        /// <summary>
+        /// 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す数の上限。書かなければ 1000
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
+    /// </summary>
+    public static class BuildingComponent
+    {
+        /// <summary>identity</summary>
+        public const string Identity = "identity";
+        /// <summary>class</summary>
+        public const string Class = "class";
+        /// <summary>classification</summary>
+        public const string Classification = "classification";
+        /// <summary>spatial</summary>
+        public const string Spatial = "spatial";
+        /// <summary>parent</summary>
+        public const string Parent = "parent";
+        /// <summary>placement</summary>
+        public const string Placement = "placement";
+        /// <summary>type_of</summary>
+        public const string TypeOf = "type_of";
+        /// <summary>properties</summary>
+        public const string Properties = "properties";
+        /// <summary>quantities</summary>
+        public const string Quantities = "quantities";
+        /// <summary>material</summary>
+        public const string Material = "material";
+        /// <summary>opening</summary>
+        public const string Opening = "opening";
+        /// <summary>group</summary>
+        public const string Group = "group";
+        /// <summary>connection</summary>
+        public const string Connection = "connection";
+        /// <summary>level</summary>
+        public const string Level = "level";
+        /// <summary>zone</summary>
+        public const string Zone = "zone";
+        /// <summary>style</summary>
+        public const string Style = "style";
+        /// <summary>relations</summary>
+        public const string Relations = "relations";
+    }
+
+    /// <summary>
+    /// 要素の一覧。offset から limit 個まで
+    /// </summary>
+    public sealed record BuildingElementsResult
+    {
+        /// <summary>
+        /// 要素
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public IReadOnlyList<BuildingElement> Elements { get; init; } = default!;
+
+        /// <summary>
+        /// 選んだ要素の数
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 続きの最初の位置。続きがなければ持たない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
+    /// 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ
+    /// </summary>
+    public sealed record BuildingElement
+    {
+        /// <summary>
+        /// 要素の ID（GlobalId か、i と番号）
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207）
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 名前・説明・タグ・長い名前
+        /// </summary>
+        [JsonPropertyName("identity")]
+        public IdentityComponent? Identity { get; init; }
+
+        /// <summary>
+        /// クラス
+        /// </summary>
+        [JsonPropertyName("class")]
+        public ClassComponent? Class { get; init; }
+
+        /// <summary>
+        /// 分類の参照
+        /// </summary>
+        [JsonPropertyName("classification")]
+        public IReadOnlyList<ClassificationReference>? Classification { get; init; }
+
+        /// <summary>
+        /// 空間の要素の種類と高さ
+        /// </summary>
+        [JsonPropertyName("spatial")]
+        public SpatialComponent? Spatial { get; init; }
+
+        /// <summary>
+        /// 親と、参照される空間
+        /// </summary>
+        [JsonPropertyName("parent")]
+        public ParentComponent? Parent { get; init; }
+
+        /// <summary>
+        /// 配置
+        /// </summary>
+        [JsonPropertyName("placement")]
+        public PlacementComponent? Placement { get; init; }
+
+        /// <summary>
+        /// 型の要素の ID
+        /// </summary>
+        [JsonPropertyName("type_of")]
+        public string? TypeOf { get; init; }
+
+        /// <summary>
+        /// プロパティのセット
+        /// </summary>
+        [JsonPropertyName("properties")]
+        public IReadOnlyList<PropertySet>? Properties { get; init; }
+
+        /// <summary>
+        /// 数量のセット
+        /// </summary>
+        [JsonPropertyName("quantities")]
+        public IReadOnlyList<QuantitySet>? Quantities { get; init; }
+
+        /// <summary>
+        /// 材料
+        /// </summary>
+        [JsonPropertyName("material")]
+        public MaterialComponent? Material { get; init; }
+
+        /// <summary>
+        /// 開口と、埋める要素
+        /// </summary>
+        [JsonPropertyName("opening")]
+        public OpeningComponent? Opening { get; init; }
+
+        /// <summary>
+        /// 属するグループの要素の ID
+        /// </summary>
+        [JsonPropertyName("group")]
+        public IReadOnlyList<string>? Group { get; init; }
+
+        /// <summary>
+        /// 接続
+        /// </summary>
+        [JsonPropertyName("connection")]
+        public IReadOnlyList<ConnectionLink>? Connection { get; init; }
+
+        /// <summary>
+        /// レベル
+        /// </summary>
+        [JsonPropertyName("level")]
+        public LevelComponent? Level { get; init; }
+
+        /// <summary>
+        /// 区画
+        /// </summary>
+        [JsonPropertyName("zone")]
+        public ZoneComponent? Zone { get; init; }
+
+        /// <summary>
+        /// 表示のスタイル
+        /// </summary>
+        [JsonPropertyName("style")]
+        public StyleComponent? Style { get; init; }
+
+        /// <summary>
+        /// 索引から求める関係
+        /// </summary>
+        [JsonPropertyName("relations")]
+        public RelationsComponent? Relations { get; init; }
+    }
+
+    /// <summary>
+    /// 名前・説明・タグ・長い名前
+    /// </summary>
+    public sealed record IdentityComponent
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 説明
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
+
+        /// <summary>
+        /// タグ
+        /// </summary>
+        [JsonPropertyName("tag")]
+        public string? Tag { get; init; }
+
+        /// <summary>
+        /// 長い名前
+        /// </summary>
+        [JsonPropertyName("long_name")]
+        public string? LongName { get; init; }
+    }
+
+    /// <summary>
+    /// クラス
+    /// </summary>
+    public sealed record ClassComponent
+    {
+        /// <summary>
+        /// IFC4 のクラスの名前。IFC2X3 の StandardCase などは、元の名前を original に残して直す
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// PredefinedType
+        /// </summary>
+        [JsonPropertyName("predefined")]
+        public string? Predefined { get; init; }
+
+        /// <summary>
+        /// ObjectType など、USERDEFINED のときの名前
+        /// </summary>
+        [JsonPropertyName("user_defined")]
+        public string? UserDefined { get; init; }
+
+        /// <summary>
+        /// ファイルに書いた実体の名前
+        /// </summary>
+        [JsonPropertyName("original")]
+        public string Original { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 分類の参照
+    /// </summary>
+    public sealed record ClassificationReference
+    {
+        /// <summary>
+        /// 分類の体系の名前
+        /// </summary>
+        [JsonPropertyName("system")]
+        public string? System { get; init; }
+
+        /// <summary>
+        /// 体系の版
+        /// </summary>
+        [JsonPropertyName("edition")]
+        public string? Edition { get; init; }
+
+        /// <summary>
+        /// 分類の記号
+        /// </summary>
+        [JsonPropertyName("code")]
+        public string? Code { get; init; }
+
+        /// <summary>
+        /// 分類の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+    }
+
+    /// <summary>
+    /// 単位とともに持つ値
+    /// </summary>
+    public sealed record Measured
+    {
+        /// <summary>
+        /// 値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public double Value { get; init; }
+
+        /// <summary>
+        /// 単位。解けなければ持たない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public BuildingUnit? Unit { get; init; }
+    }
+
+    /// <summary>
+    /// 空間の要素
+    /// </summary>
+    public sealed record SpatialComponent
+    {
+        /// <summary>
+        /// site・building・storey・space・spatial_zone か、元の実体の名前
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 高さ
+        /// </summary>
+        [JsonPropertyName("elevation")]
+        public Measured? Elevation { get; init; }
+
+        /// <summary>
+        /// 基準の高さ
+        /// </summary>
+        [JsonPropertyName("ref_elevation")]
+        public Measured? RefElevation { get; init; }
+    }
+
+    /// <summary>
+    /// 親
+    /// </summary>
+    public sealed record ParentComponent
+    {
+        /// <summary>
+        /// 親の要素
+        /// </summary>
+        [JsonPropertyName("of")]
+        public Membership? Of { get; init; }
+
+        /// <summary>
+        /// 参照される空間の要素の ID
+        /// </summary>
+        [JsonPropertyName("referenced_in")]
+        public IReadOnlyList<string> ReferencedIn { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 親との関係
+    /// </summary>
+    public sealed record Membership
+    {
+        /// <summary>
+        /// 親の要素の ID
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+
+        /// <summary>
+        /// 関係の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 入れ子の順。0 から
+        /// </summary>
+        [JsonPropertyName("order")]
+        public ulong? Order { get; init; }
+    }
+
+    /// <summary>
+    /// 配置
+    /// </summary>
+    public sealed record PlacementComponent
+    {
+        /// <summary>
+        /// 配置の親の要素の ID
+        /// </summary>
+        [JsonPropertyName("relative_to")]
+        public string? RelativeTo { get; init; }
+
+        /// <summary>
+        /// 親をたどった世界の変換。3 行 4 列（回転と移動）。解けなければ持たない
+        /// </summary>
+        [JsonPropertyName("world")]
+        public IReadOnlyList<IReadOnlyList<double>>? World { get; init; }
+
+        /// <summary>
+        /// 解けなかった配置の実体の名前
+        /// </summary>
+        [JsonPropertyName("unsupported")]
+        public string? Unsupported { get; init; }
+    }
+
+    /// <summary>
+    /// 値
+    /// </summary>
+    public sealed record BuildingValue
+    {
+        /// <summary>
+        /// 値の型の名前（IfcLengthMeasure・IfcLabel など）
+        /// </summary>
+        [JsonPropertyName("type_name")]
+        public string? TypeName { get; init; }
+
+        /// <summary>
+        /// 値の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// real と、2^53 − 1 までの integer の値
+        /// </summary>
+        [JsonPropertyName("number")]
+        public double? Number { get; init; }
+
+        /// <summary>
+        /// text と enumeration の値と、2^53 − 1 を超える integer の値
+        /// </summary>
+        [JsonPropertyName("text")]
+        public string? Text { get; init; }
+
+        /// <summary>
+        /// boolean と logical の値。logical の不明は持たない
+        /// </summary>
+        [JsonPropertyName("boolean")]
+        public bool? Boolean { get; init; }
+
+        /// <summary>
+        /// element の要素の ID
+        /// </summary>
+        [JsonPropertyName("element")]
+        public string? Element { get; init; }
+
+        /// <summary>
+        /// list の値
+        /// </summary>
+        [JsonPropertyName("items")]
+        public IReadOnlyList<BuildingValue>? Items { get; init; }
+    }
+
+    /// <summary>
+    /// プロパティのセット
+    /// </summary>
+    public sealed record PropertySet
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// プロパティ
+        /// </summary>
+        [JsonPropertyName("properties")]
+        public IReadOnlyList<Property> Properties { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// プロパティ
+    /// </summary>
+    public sealed record Property
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 値。値がなければ持たない
+        /// </summary>
+        [JsonPropertyName("value")]
+        public BuildingValue? Value { get; init; }
+
+        /// <summary>
+        /// 単位
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public BuildingUnit? Unit { get; init; }
+    }
+
+    /// <summary>
+    /// 数量のセット
+    /// </summary>
+    public sealed record QuantitySet
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 計測の方法
+        /// </summary>
+        [JsonPropertyName("method")]
+        public string? Method { get; init; }
+
+        /// <summary>
+        /// 数量
+        /// </summary>
+        [JsonPropertyName("quantities")]
+        public IReadOnlyList<Quantity> Quantities { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 数量
+    /// </summary>
+    public sealed record Quantity
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public Measured Value { get; init; } = default!;
+
+        /// <summary>
+        /// 式
+        /// </summary>
+        [JsonPropertyName("formula")]
+        public string? Formula { get; init; }
+    }
+
+    /// <summary>
+    /// 材料
+    /// </summary>
+    public sealed record MaterialComponent
+    {
+        /// <summary>
+        /// 材料の組み方
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 部分
+        /// </summary>
+        [JsonPropertyName("parts")]
+        public IReadOnlyList<MaterialPart> Parts { get; init; } = default!;
+
+        /// <summary>
+        /// 層の向き
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public string? Direction { get; init; }
+
+        /// <summary>
+        /// 層の基準からのずれ
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public Measured? Offset { get; init; }
+    }
+
+    /// <summary>
+    /// 材料の部分
+    /// </summary>
+    public sealed record MaterialPart
+    {
+        /// <summary>
+        /// 材料の要素の ID
+        /// </summary>
+        [JsonPropertyName("material")]
+        public string? Material { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 厚さ
+        /// </summary>
+        [JsonPropertyName("thickness")]
+        public Measured? Thickness { get; init; }
+    }
+
+    /// <summary>
+    /// 開口
+    /// </summary>
+    public sealed record OpeningComponent
+    {
+        /// <summary>
+        /// この開口が穴を開ける要素の ID
+        /// </summary>
+        [JsonPropertyName("voids")]
+        public string? Voids { get; init; }
+
+        /// <summary>
+        /// この要素が埋める開口の要素の ID
+        /// </summary>
+        [JsonPropertyName("fills")]
+        public string? Fills { get; init; }
+    }
+
+    /// <summary>
+    /// 接続
+    /// </summary>
+    public sealed record ConnectionLink
+    {
+        /// <summary>
+        /// 関係の実体の名前
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 接続する要素の ID
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// レベル
+    /// </summary>
+    public sealed record LevelComponent
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string? Kind { get; init; }
+
+        /// <summary>
+        /// 高さ
+        /// </summary>
+        [JsonPropertyName("height")]
+        public Measured Height { get; init; } = default!;
+
+        /// <summary>
+        /// 基準
+        /// </summary>
+        [JsonPropertyName("datum")]
+        public string? Datum { get; init; }
+    }
+
+    /// <summary>
+    /// 区画
+    /// </summary>
+    public sealed record ZoneComponent
+    {
+        /// <summary>
+        /// 区画の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string? Kind { get; init; }
+
+        /// <summary>
+        /// 構成する要素の ID
+        /// </summary>
+        [JsonPropertyName("members")]
+        public IReadOnlyList<string> Members { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 表示のスタイル
+    /// </summary>
+    public sealed record StyleComponent
+    {
+        /// <summary>
+        /// 面の色の RGB（0 から 1）
+        /// </summary>
+        [JsonPropertyName("surface_color")]
+        public IReadOnlyList<double>? SurfaceColor { get; init; }
+
+        /// <summary>
+        /// 透明度（0 から 1）
+        /// </summary>
+        [JsonPropertyName("transparency")]
+        public double? Transparency { get; init; }
+
+        /// <summary>
+        /// 線の色の RGB（0 から 1）
+        /// </summary>
+        [JsonPropertyName("curve_color")]
+        public IReadOnlyList<double>? CurveColor { get; init; }
+
+        /// <summary>
+        /// 提示のレイヤの名前
+        /// </summary>
+        [JsonPropertyName("layers")]
+        public IReadOnlyList<string> Layers { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 索引から求める関係。要素の ID の列
+    /// </summary>
+    public sealed record RelationsComponent
+    {
+        /// <summary>
+        /// 子（集約・入れ子・包含）
+        /// </summary>
+        [JsonPropertyName("children")]
+        public IReadOnlyList<string> Children { get; init; } = default!;
+
+        /// <summary>
+        /// 参照する要素
+        /// </summary>
+        [JsonPropertyName("referenced")]
+        public IReadOnlyList<string> Referenced { get; init; } = default!;
+
+        /// <summary>
+        /// 型の実例
+        /// </summary>
+        [JsonPropertyName("instances")]
+        public IReadOnlyList<string> Instances { get; init; } = default!;
+
+        /// <summary>
+        /// 開口
+        /// </summary>
+        [JsonPropertyName("openings")]
+        public IReadOnlyList<string> Openings { get; init; } = default!;
+
+        /// <summary>
+        /// 開口を埋める要素
+        /// </summary>
+        [JsonPropertyName("fillings")]
+        public IReadOnlyList<string> Fillings { get; init; } = default!;
+
+        /// <summary>
+        /// グループ・システム・区画の構成員
+        /// </summary>
+        [JsonPropertyName("members")]
+        public IReadOnlyList<string> Members { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 親との関係の種類。集約・入れ子・包含
+    /// </summary>
+    public static class ParentKind
+    {
+        /// <summary>aggregates</summary>
+        public const string Aggregates = "aggregates";
+        /// <summary>nests</summary>
+        public const string Nests = "nests";
+        /// <summary>contained</summary>
+        public const string Contained = "contained";
+    }
+
+    /// <summary>
+    /// 値の種類
+    /// </summary>
+    public static class BuildingValueKind
+    {
+        /// <summary>real</summary>
+        public const string Real = "real";
+        /// <summary>integer</summary>
+        public const string Integer = "integer";
+        /// <summary>text</summary>
+        public const string Text = "text";
+        /// <summary>boolean</summary>
+        public const string Boolean = "boolean";
+        /// <summary>logical</summary>
+        public const string Logical = "logical";
+        /// <summary>enumeration</summary>
+        public const string Enumeration = "enumeration";
+        /// <summary>element</summary>
+        public const string Element = "element";
+        /// <summary>list</summary>
+        public const string List = "list";
+    }
+
+    /// <summary>
+    /// 数量の種類
+    /// </summary>
+    public static class QuantityKind
+    {
+        /// <summary>length</summary>
+        public const string Length = "length";
+        /// <summary>area</summary>
+        public const string Area = "area";
+        /// <summary>volume</summary>
+        public const string Volume = "volume";
+        /// <summary>count</summary>
+        public const string Count = "count";
+        /// <summary>weight</summary>
+        public const string Weight = "weight";
+        /// <summary>time</summary>
+        public const string Time = "time";
+    }
+
+    /// <summary>
+    /// 材料の組み方。単一・層・断面・構成・一覧
+    /// </summary>
+    public static class MaterialKind
+    {
+        /// <summary>single</summary>
+        public const string Single = "single";
+        /// <summary>layers</summary>
+        public const string Layers = "layers";
+        /// <summary>profiles</summary>
+        public const string Profiles = "profiles";
+        /// <summary>constituents</summary>
+        public const string Constituents = "constituents";
+        /// <summary>list</summary>
+        public const string List = "list";
+    }
+
+    /// <summary>
+    /// 仕様の結果。unknown は確かめられない facet があった
+    /// </summary>
+    public static class IdsStatus
+    {
+        /// <summary>passed</summary>
+        public const string Passed = "passed";
+        /// <summary>failed</summary>
+        public const string Failed = "failed";
+        /// <summary>unknown</summary>
+        public const string Unknown = "unknown";
+    }
+
+    /// <summary>
+    /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
+    /// </summary>
+    public sealed record IdsCheckRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "ids_check";
+
+        /// <summary>
+        /// 文書の名前。open で IFC を開いたもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// IDS の入力の名前（zm_push で渡した .ids）
+        /// </summary>
+        [JsonPropertyName("ids")]
+        public string Ids { get; init; } = default!;
+
+        /// <summary>
+        /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+        /// </summary>
+        [JsonPropertyName("express")]
+        public string? Express { get; init; }
+
+        /// <summary>
+        /// 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す数の上限。書かなければ 1000
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 照合の結果。指摘は offset から limit 個まで
+    /// </summary>
+    public sealed record IdsCheckResult
+    {
+        /// <summary>
+        /// IDS の題
+        /// </summary>
+        [JsonPropertyName("title")]
+        public string? Title { get; init; }
+
+        /// <summary>
+        /// 仕様ごとの結果。IDS の順
+        /// </summary>
+        [JsonPropertyName("specifications")]
+        public IReadOnlyList<IdsSpecification> Specifications { get; init; } = default!;
+
+        /// <summary>
+        /// 指摘。仕様の順
+        /// </summary>
+        [JsonPropertyName("findings")]
+        public IReadOnlyList<IdsFinding> Findings { get; init; } = default!;
+
+        /// <summary>
+        /// 全体の指摘の数
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 続きの最初の位置。続きがなければ持たない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
+    /// 仕様の結果
+    /// </summary>
+    public sealed record IdsSpecification
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 識別子
+        /// </summary>
+        [JsonPropertyName("identifier")]
+        public string? Identifier { get; init; }
+
+        /// <summary>
+        /// 結果
+        /// </summary>
+        [JsonPropertyName("status")]
+        public string Status { get; init; } = default!;
+
+        /// <summary>
+        /// 適用の条件に合う要素の数
+        /// </summary>
+        [JsonPropertyName("applicable")]
+        public ulong Applicable { get; init; }
+
+        /// <summary>
+        /// 要件を満たさない要素の数
+        /// </summary>
+        [JsonPropertyName("failed")]
+        public ulong Failed { get; init; }
+
+        /// <summary>
+        /// 確かめられなかった要素の数
+        /// </summary>
+        [JsonPropertyName("unsupported")]
+        public ulong Unsupported { get; init; }
+    }
+
+    /// <summary>
+    /// 指摘。diagnostic は診断と同じ形で、describe で文にできる
+    /// </summary>
+    public sealed record IdsFinding
+    {
+        /// <summary>
+        /// 仕様の名前
+        /// </summary>
+        [JsonPropertyName("specification")]
+        public string Specification { get; init; } = default!;
+
+        /// <summary>
+        /// code・重要度・場所（要素の ID）・値
+        /// </summary>
+        [JsonPropertyName("diagnostic")]
+        public Diagnostic Diagnostic { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
+    /// </summary>
+    public sealed record ReviewAdoptIdsRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "review_adopt_ids";
+
+        /// <summary>
+        /// 文書の名前。open で IFC を開いたもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// IDS の入力の名前（zm_push で渡した .ids）
+        /// </summary>
+        [JsonPropertyName("ids")]
+        public string Ids { get; init; } = default!;
+
+        /// <summary>
+        /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+        /// </summary>
+        [JsonPropertyName("express")]
+        public string? Express { get; init; }
+
+        /// <summary>
+        /// 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す
+        /// </summary>
+        [JsonPropertyName("review")]
+        public string? Review { get; init; }
+
+        /// <summary>
+        /// 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+
+        /// <summary>
+        /// 取り込む指摘の番号の列。ids_check の指摘の並びの順で、0 から数える
+        /// </summary>
+        [JsonPropertyName("findings")]
+        public IReadOnlyList<ulong> Findings { get; init; } = default!;
     }
 
     /// <summary>
@@ -4754,6 +6048,10 @@ namespace Zumen.Messages
                 ["validate"] = (typeof(ValidateRequest), typeof(ValidateResult)),
                 ["review_carry"] = (typeof(ReviewCarryRequest), typeof(ReviewCarryResult)),
                 ["review_adopt"] = (typeof(ReviewAdoptRequest), typeof(ReviewAdoptResult)),
+                ["building"] = (typeof(BuildingRequest), typeof(BuildingResult)),
+                ["building_elements"] = (typeof(BuildingElementsRequest), typeof(BuildingElementsResult)),
+                ["ids_check"] = (typeof(IdsCheckRequest), typeof(IdsCheckResult)),
+                ["review_adopt_ids"] = (typeof(ReviewAdoptIdsRequest), typeof(JsonAny)),
             };
     }
 }
