@@ -9,6 +9,7 @@
 //!
 //! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lower` は、別の形式への変換を作るときに足す。
 
+mod root;
 pub mod testkit;
 
 pub use zumen_base::{ByteRange, Cx, Stop};
@@ -132,6 +133,14 @@ pub enum Signature {
         /// 先頭から順の行
         lines: &'static [&'static [u8]],
     },
+    /// XML の文書で、最初の要素の接頭辞を除いた名前が `name` で、その名前空間の名前が `namespace`。`namespace` が
+    /// `None` なら、名前空間を問わない。XML 宣言・注記・処理命令・文書型宣言は飛ばす（決定 0209）
+    XmlRoot {
+        /// 接頭辞を除いた名前
+        name: &'static [u8],
+        /// 名前空間の名前（URI）
+        namespace: Option<&'static [u8]>,
+    },
 }
 
 impl Signature {
@@ -148,6 +157,11 @@ impl Signature {
                     found
                         .next()
                         .is_some_and(|line| line.trim_ascii() == *expected)
+                })
+            }
+            Signature::XmlRoot { name, namespace } => {
+                root::root(head).is_some_and(|(found, declared)| {
+                    found == name && namespace.is_none_or(|namespace| declared == Some(namespace))
                 })
             }
         }
@@ -177,5 +191,34 @@ mod tests {
         assert!(sig.matches(b"  0\r\nSECTION\r\n  2\r\nHEADER\r\n"));
         assert!(!sig.matches(b"0\n"));
         assert!(!sig.matches(b"\n0\nSECTION\n"));
+    }
+
+    #[test]
+    fn xml_root_signature_reads_the_first_start_tag() {
+        let ids = Signature::XmlRoot {
+            name: b"ids",
+            namespace: Some(b"http://standards.buildingsmart.org/IDS"),
+        };
+        let doc = b"\xef\xbb\xbf<?xml version=\"1.0\"?>\n<!-- c -->\n<!DOCTYPE x [<!ENTITY a \"]>\">]>\n<?pi x?>\n<ids:ids xmlns:ids='http://standards.buildingsmart.org/IDS' xmlns:x=\"y\">";
+        assert!(ids.matches(doc));
+        // 既定の名前空間
+        assert!(ids.matches(b"<ids xmlns=\"http://standards.buildingsmart.org/IDS\"/>"));
+        // 名前空間が違うか、ない
+        assert!(!ids.matches(b"<ids xmlns=\"urn:other\">"));
+        assert!(!ids.matches(b"<ids>"));
+        assert!(!ids.matches(b"<x:ids xmlns=\"http://standards.buildingsmart.org/IDS\">"));
+        // 名前空間を問わない
+        let any = Signature::XmlRoot {
+            name: b"LandXML",
+            namespace: None,
+        };
+        assert!(
+            any.matches(b"<?xml version=\"1.0\" encoding=\"Shift_JIS\"?><LandXML version=\"1.2\">")
+        );
+        assert!(!any.matches(b"<LandXMLx>"));
+        // タグが先頭のバイト列の中で終わらない
+        assert!(!any.matches(b"<LandXML version=\"1."));
+        assert!(!any.matches(b"<!-- <LandXML> "));
+        assert!(!any.matches(b"text<LandXML>"));
     }
 }

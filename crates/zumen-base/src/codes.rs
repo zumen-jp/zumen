@@ -1838,6 +1838,50 @@ pub const SXF_SFIG_MISSING: Code = Code::new(
     &["name"],
 );
 
+/// XML の形になっていないので読めない
+///
+/// `xml.document.invalid`（0.2.0 から）
+pub const XML_DOCUMENT_INVALID: Code =
+    Code::new("xml.document.invalid", Severity::Error, None, &[], &[]);
+
+/// 文書型宣言（DTD）を処理しなかった。外部の DTD と実体も解決しない
+///
+/// `xml.dtd.dropped`（0.2.0 から）
+pub const XML_DTD_DROPPED: Code = Code::new("xml.dtd.dropped", Severity::Info, None, &[], &[]);
+
+/// UTF-8 と Shift_JIS のほかの文字コードなので、読まなかった
+///
+/// `xml.encoding.unsupported`（0.2.0 から）
+pub const XML_ENCODING_UNSUPPORTED: Code = Code::new(
+    "xml.encoding.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("encoding", ParamType::Text)],
+    &["encoding"],
+);
+
+/// DTD で宣言する実体の参照なので、戻さずにそのままの文字にした
+///
+/// `xml.entity.unsupported`（0.2.0 から）
+pub const XML_ENTITY_UNSUPPORTED: Code = Code::new(
+    "xml.entity.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 宣言されていない名前空間の接頭辞なので、名前空間のない名前にした
+///
+/// `xml.namespace.missing`（0.2.0 から）
+pub const XML_NAMESPACE_MISSING: Code = Code::new(
+    "xml.namespace.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("prefix", ParamType::Text)],
+    &["prefix"],
+);
+
 /// ZIP の項目の名前が、パスとして安全でない（`..`・絶対パス・ドライブ名・NUL を含む）
 ///
 /// `zip.path.unsafe`（0.0.0 から）
@@ -2013,5 +2057,10 @@ pub const ALL: &[Code] = &[
     SXF_SCHEMA_UNSUPPORTED,
     SXF_SFIG_CYCLE_INVALID,
     SXF_SFIG_MISSING,
+    XML_DOCUMENT_INVALID,
+    XML_DTD_DROPPED,
+    XML_ENCODING_UNSUPPORTED,
+    XML_ENTITY_UNSUPPORTED,
+    XML_NAMESPACE_MISSING,
     ZIP_PATH_UNSAFE,
 ];
