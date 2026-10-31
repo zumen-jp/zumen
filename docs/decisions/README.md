@@ -256,3 +256,4 @@
 - [0220: BCF 3.0 の bcfzip をレビューの文書に写して読み、元の bcfzip の知らない要素を保って書き戻す](0220-bcf-3-0.md)（2026-10-31、採用）
 - [0221: wasm のモジュールを、zumen-abi の feature で図面と BIM に分け、判定の規則とモジュールの表を schema/boundary.toml に置く](0221-wasm-modules.md)（2026-10-31、採用）
 - [0222: zumen-geom3d に 3D の型・カーネルと切断の trait・合成の形の組を置き、カーネルの候補は manifold-rust を第一にして試料で測る](0222-geom3d-types-and-kernel-trait.md)（2026-10-31、採用）
+- [0223: 確認申請のプロファイルは BIM 図面審査の入出力基準（初版 令和 8 年 3 月 24 日版）を出典にし、IFC で確かめられる項目と面積の測り方を持つ](0223-building-permit-profile-items.md)（2026-10-31、採用）
