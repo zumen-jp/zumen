@@ -187,6 +187,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             JAVA_CONSTANTS,
             java::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
+        ),
         (SWIFT_MESSAGES, swift::render_types(&schema)?),
         (
             SWIFT_CONSTANTS,
