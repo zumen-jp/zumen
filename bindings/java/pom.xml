@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Java の包み（決定 0224）。版はコアと同じにし、xtask が確かめる（決定 0015）。Maven Central に出す手順は #435 で決める -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>dev.zumen</groupId>
+  <artifactId>zumen</artifactId>
+  <version>0.2.0</version>
+  <packaging>jar</packaging>
+  <name>zumen</name>
+  <description>zumen の C ABI を JNA で呼ぶ包み</description>
+  <url>https://github.com/zumen-jp/zumen</url>
+  <licenses>
+    <license>
+      <name>MIT OR Apache-2.0</name>
+    </license>
+  </licenses>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- docs/support.md の下限 -->
+    <maven.compiler.release>8</maven.compiler.release>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <!-- Apache-2.0 と LGPL-2.1 以降の二重のライセンス。Apache-2.0 で使う -->
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna</artifactId>
+      <version>5.19.1</version>
+    </dependency>
+  </dependencies>
+</project>

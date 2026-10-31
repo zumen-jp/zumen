@@ -10,6 +10,7 @@ mod catalog;
 mod cli;
 mod dotnet;
 mod formats;
+mod java;
 mod javascript;
 mod profiles;
 mod python;
@@ -44,6 +45,9 @@ const PY_PROJECT: &str = "bindings/python/pyproject.toml";
 const CS_MESSAGES: &str = "bindings/dotnet/Zumen/Messages.g.cs";
 const CS_CONSTANTS: &str = "bindings/dotnet/Zumen/Constants.g.cs";
 const CS_PROJECT: &str = "bindings/dotnet/Zumen/Zumen.csproj";
+const JAVA_MESSAGES: &str = "bindings/java/src/main/java/dev/zumen/Messages.java";
+const JAVA_CONSTANTS: &str = "bindings/java/src/main/java/dev/zumen/Constants.java";
+const JAVA_PROJECT: &str = "bindings/java/pom.xml";
 const CLI_TOOLS: &str = "bindings/cli/src/tools.json";
 const CATALOG_JA: &str = "catalog/ja.json";
 /// CLI の MCP のリソース。crates.io の crate はフォルダーの外を読めないので、crate の中に写す（決定 0205）
@@ -148,6 +152,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     check_package_version(JS_PACKAGE, &read(JS_PACKAGE)?)?;
     check_pyproject_version(PY_PROJECT, &read(PY_PROJECT)?)?;
     check_csproj_version(CS_PROJECT, &read(CS_PROJECT)?, boundary.versions.abi)?;
+    check_pom_version(JAVA_PROJECT, &read(JAVA_PROJECT)?)?;
 
     let outputs = [
         (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
@@ -174,6 +179,11 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             CS_CONSTANTS,
             dotnet::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
+        ),
+        (JAVA_MESSAGES, java::render_types(&schema)?),
+        (
+            JAVA_CONSTANTS,
+            java::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
         ),
         (
             CLI_TOOLS,
@@ -230,6 +240,30 @@ fn check_pyproject_version(path: &str, source: &str) -> Result<(), String> {
         _ => Err(format!(
             "{path} の project.version を、コアと同じ {PACKAGE_VERSION} にする（決定 0015）"
         )),
+    }
+}
+
+/// Java の包みの pom.xml の、project の直下の version が、コアと同じかを確かめる（決定 0015・0224）
+fn check_pom_version(path: &str, source: &str) -> Result<(), String> {
+    // project の直下の version は、parent と dependencies より前の、最初の version に書く
+    let head = source
+        .split("<dependencies>")
+        .next()
+        .unwrap_or(source)
+        .split("<parent>")
+        .next()
+        .unwrap_or(source);
+    let versions: Vec<&str> = head
+        .split("<version>")
+        .skip(1)
+        .filter_map(|rest| rest.split_once("</version>").map(|(value, _)| value.trim()))
+        .collect();
+    if versions == [PACKAGE_VERSION] {
+        Ok(())
+    } else {
+        Err(format!(
+            "{path} の project の version を 1 つにし、コアと同じ {PACKAGE_VERSION} にする（決定 0015）。dependencies より前に書く"
+        ))
     }
 }
 
@@ -339,5 +373,23 @@ mod tests {
         );
         update_outputs(&dir.0, &outputs, Mode::Write).unwrap();
         assert!(update_outputs(&dir.0, &outputs, Mode::Check).is_ok());
+    }
+
+    #[test]
+    fn reads_the_project_version_of_a_pom() {
+        let pom = |version: &str| {
+            format!(
+                "<project><version>{version}</version><dependencies><dependency><version>5.19.1</version></dependency></dependencies></project>"
+            )
+        };
+        assert!(check_pom_version("pom.xml", &pom(PACKAGE_VERSION)).is_ok());
+        assert!(check_pom_version("pom.xml", &pom("0.0.0")).is_err());
+        assert!(
+            check_pom_version(
+                "pom.xml",
+                "<project><dependencies><version>1</version></dependencies></project>"
+            )
+            .is_err()
+        );
     }
 }

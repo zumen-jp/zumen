@@ -17,6 +17,7 @@
 | TypeScript・JavaScript の包み（ブラウザー） | `../js/test/browser/run.mjs`（Playwright） | 同じく作ったあと、`node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（[決定 0199](../../docs/decisions/0199-browser-conformance-with-playwright.md)、手順は `../js/README.md`） |
 | Python の包み（C ABI） | `../python/tests/conformance.py`（Python 3.9 以降） | `cargo build -p zumen-abi` のあと、`python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so`（macOS は `.dylib`、Windows は `zumen_abi1.dll`。[決定 0195](../../docs/decisions/0195-python-wrapper.md)） |
 | .NET の包み（C ABI） | `../dotnet/tests/Conformance`（.NET 10。Windows では .NET Framework 4.8 も） | `cargo build -p zumen-abi` のあと、`dotnet run --project bindings/dotnet/tests/Conformance --framework net10.0 -- target/debug/libzumen_abi1.so`（[決定 0196](../../docs/decisions/0196-dotnet-wrapper.md)） |
+| Java の包み（C ABI、JNA） | `../java/src/test/java/dev/zumen/Conformance.java`（Java 8 以降。Android 7.0 以降のエミュレーターでも） | `cargo build -p zumen-abi` と `sh bindings/java/fetch-jna.sh target/jna` のあと、`../java/README.md` の手順で作って流す（[決定 0224](../../docs/decisions/0224-java-kotlin-wrapper.md)）。毎晩 |
 | C のヘッダーと C++ の包み（C ABI） | `../c/tests/conformance.rs` | `cargo test -p zumen-c`。組の手順は Rust の試験の道具が読み、境界の関数は C と C++ の側から呼ぶ（[決定 0198](../../docs/decisions/0198-c-and-cpp-wrapper.md)） |
 | CLI（`zumen serve --stdio` と `zumen mcp`） | `../cli/tests/conformance.rs` | `cargo test -p zumen-cli`。MCP は道具で表せる組だけを流す（[決定 0197](../../docs/decisions/0197-cli-and-mcp-server.md)） |
 
