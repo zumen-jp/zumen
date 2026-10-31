@@ -12,6 +12,7 @@
 
 | キー | 名前 | 系統 | 領域 | 権利 | 置き場所 |
 | --- | --- | --- | --- | --- | --- |
+| [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` |
 | [bebridge](#format-bebridge) | BE-Bridge | bebridge | building | `unknown` | `none` |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` |
@@ -27,6 +28,36 @@
 | [sxf](#format-sxf) | SXF | sxf | drawing | `public` | `core` |
 
 ## 仕様の入手先
+
+### spec-bcf_api_3_0
+
+- 名前: BCF-API
+- 公開元: buildingSMART International
+- 版: 3.0（v3.0、2021-06-18）
+- 入手の条件: 無償公開
+- 入手先: [BCF-API](https://github.com/buildingSMART/BCF-API/tree/release_3_0)
+- 確認日: 2026-10-31
+- 補足: 文書と JSON のスキーマは CC BY-ND 4.0。実装についての記述はない。2.1 のブランチには、ライセンスの記述がない
+
+### spec-bcf_xml_2_1
+
+- 名前: BCF-XML
+- 公開元: buildingSMART International
+- 版: 2.1（v2.1、2017-01-16）
+- 入手の条件: 無償公開
+- 入手先: [BCF-XML](https://github.com/buildingSMART/BCF-XML/tree/release_2_1)
+- 確認日: 2026-10-31
+- 補足: ブランチ release\_2\_1 には、ライセンスの記述がない
+
+### spec-bcf_xml_3_0
+
+- 名前: BCF-XML
+- 公開元: buildingSMART International
+- 版: 3.0（v3.0、2021-06-18）
+- 入手の条件: 無償公開
+- 入手先: [BCF-XML](https://github.com/buildingSMART/BCF-XML/tree/release_3_0)
+- 確認日: 2026-10-31
+- 補足: 文書と XSD は CC BY-ND 4.0。実装についての記述はない
 
 ### spec-bebridge_6_1
 
@@ -55,6 +86,26 @@
 - 入手の条件: 無償公開
 - 入手先: [DXF Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm)
 - 確認日: 2026-10-24
+
+### spec-ifc_2x3_tc1
+
+- 名前: IFC2x Edition 3 Technical Corrigendum 1
+- 公開元: buildingSMART International
+- 版: IFC2x3 TC1（2007）
+- 入手の条件: 無償公開
+- 入手先: [IFC2x Edition 3 Technical Corrigendum 1](https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/)
+- 確認日: 2026-10-31
+- 補足: 文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-03-27 の写しで確かめた
+
+### spec-ifc_4_0_2_1
+
+- 名前: Industry Foundation Classes Version 4.0 - Addendum 2 - Technical Corrigendum 1
+- 公開元: buildingSMART International
+- 版: IFC 4.0.2.1（IFC4 ADD2 TC1。ISO 16739-1:2018 と同じ内容）
+- 入手の条件: 無償公開
+- 入手先: [Industry Foundation Classes Version 4.0 - Addendum 2 - Technical Corrigendum 1](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/)
+- 確認日: 2026-10-31
+- 補足: 文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた
 
 ### spec-ifc_4_3_2
 
@@ -133,6 +184,15 @@
 
 ## 形式ごとの根拠と記録
 
+### format-bcf
+
+- 名前: BCF
+- 権利の根拠: 3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がなく、zumen-jp/zumen#440 で確かめる。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない
+- 仕様: [bcf\_xml\_2\_1](#spec-bcf_xml_2_1)、[bcf\_xml\_3\_0](#spec-bcf_xml_3_0)、[bcf\_api\_3\_0](#spec-bcf_api_3_0)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm)（確認日: 2026-10-31）
+- issue: [zumen-jp/zumen#429](https://github.com/zumen-jp/zumen/issues/429)
+
 ### format-bebridge
 
 - 名前: BE-Bridge
@@ -178,10 +238,14 @@
 ### format-ifc
 
 - 名前: IFC
-- 権利の根拠: 文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC は buildingSMART International の商標
-- 仕様: [ifc\_4\_3\_2](#spec-ifc_4_3_2)
+- 権利の根拠: 文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 で、営利の利用との関係を zumen-jp/zumen#440 で確かめる。IFC は buildingSMART International の商標
+- 仕様: [ifc\_4\_3\_2](#spec-ifc_4_3_2)、[ifc\_2x3\_tc1](#spec-ifc_2x3_tc1)、[ifc\_4\_0\_2\_1](#spec-ifc_4_0_2_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）](https://github.com/buildingSMART/IFC4.x-development/blob/master/content/cover.md)（確認日: 2026-10-24）
+- 権利の根拠にした文書: [IFC4 ADD2 TC1 の文書の著作権の注記（IFC2X3 TC1 も同じ文面）](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm)（確認日: 2026-10-31）
+- 文書の補足: Internet Archive の写しで確かめた
+- 権利の根拠にした文書: [buildingSMART International の Intellectual Property Policy（2021-06）](https://www.buildingsmart.org/wp-content/uploads/2021/06/bSI-Intellectual-Property-Policy.pdf)（確認日: 2026-10-31）
+- 文書の補足: 実装の許諾の記述はない。Internet Archive の 2022-03-02 の写しで確かめた
 - 権利の根拠にした文書: [buildingSMART International の検証の道具（validate）](https://github.com/buildingSMART/validate)（確認日: 2026-10-24）
 - 照合するソフト: IfcOpenShell（手元でだけ使う）
 - サンプルの出どころ（Git に入れない）: 日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）

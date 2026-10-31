@@ -73,6 +73,51 @@ access = "public"
 url = "https://www.isgeoid.polimi.it/Geoid/ISG_format_v20_20200625.pdf"
 checked = "2026-10-31"
 
+[specs.ifc_2x3_tc1]
+title = "IFC2x Edition 3 Technical Corrigendum 1"
+publisher = "buildingSMART International"
+version = "IFC2x3 TC1（2007）"
+access = "public"
+url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/"
+checked = "2026-10-31"
+note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-03-27 の写しで確かめた"
+
+[specs.ifc_4_0_2_1]
+title = "Industry Foundation Classes Version 4.0 - Addendum 2 - Technical Corrigendum 1"
+publisher = "buildingSMART International"
+version = "IFC 4.0.2.1（IFC4 ADD2 TC1。ISO 16739-1:2018 と同じ内容）"
+access = "public"
+url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/"
+checked = "2026-10-31"
+note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた"
+
+[specs.bcf_xml_2_1]
+title = "BCF-XML"
+publisher = "buildingSMART International"
+version = "2.1（v2.1、2017-01-16）"
+access = "public"
+url = "https://github.com/buildingSMART/BCF-XML/tree/release_2_1"
+checked = "2026-10-31"
+note = "ブランチ release_2_1 には、ライセンスの記述がない"
+
+[specs.bcf_xml_3_0]
+title = "BCF-XML"
+publisher = "buildingSMART International"
+version = "3.0（v3.0、2021-06-18）"
+access = "public"
+url = "https://github.com/buildingSMART/BCF-XML/tree/release_3_0"
+checked = "2026-10-31"
+note = "文書と XSD は CC BY-ND 4.0。実装についての記述はない"
+
+[specs.bcf_api_3_0]
+title = "BCF-API"
+publisher = "buildingSMART International"
+version = "3.0（v3.0、2021-06-18）"
+access = "public"
+url = "https://github.com/buildingSMART/BCF-API/tree/release_3_0"
+checked = "2026-10-31"
+note = "文書と JSON のスキーマは CC BY-ND 4.0。実装についての記述はない。2.1 のブランチには、ライセンスの記述がない"
+
 [specs.stbridge_2_1_1]
 title = "ST-Bridge XML ファイル仕様書"
 publisher = "buildingSMART Japan"
@@ -218,9 +263,9 @@ notes = "ページの解釈は hayro-interpret（Apache-2.0 OR MIT）を使う�
 name = "IFC"
 family = "ifc"
 domains = ["building", "civil"]
-specs = ["ifc_4_3_2"]
+specs = ["ifc_4_3_2", "ifc_2x3_tc1", "ifc_4_0_2_1"]
 rights = "public"
-rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC は buildingSMART International の商標"
+rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 で、営利の利用との関係を zumen-jp/zumen#440 で確かめる。IFC は buildingSMART International の商標"
 place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（手元でだけ使う）"]
@@ -232,6 +277,18 @@ legacy-decisions = ["0028"]
 title = "IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）"
 url = "https://github.com/buildingSMART/IFC4.x-development/blob/master/content/cover.md"
 checked = "2026-10-24"
+
+[[formats.ifc.evidence]]
+title = "IFC4 ADD2 TC1 の文書の著作権の注記（IFC2X3 TC1 も同じ文面）"
+url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm"
+checked = "2026-10-31"
+note = "Internet Archive の写しで確かめた"
+
+[[formats.ifc.evidence]]
+title = "buildingSMART International の Intellectual Property Policy（2021-06）"
+url = "https://www.buildingsmart.org/wp-content/uploads/2021/06/bSI-Intellectual-Property-Policy.pdf"
+checked = "2026-10-31"
+note = "実装の許諾の記述はない。Internet Archive の 2022-03-02 の写しで確かめた"
 
 [[formats.ifc.evidence]]
 title = "buildingSMART International の検証の道具（validate）"
@@ -255,6 +312,22 @@ docs = ["docs/formats/crs.md"]
 [[formats.isg.evidence]]
 title = "「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）"
 url = "https://www.gsi.go.jp/common/000277542.pdf"
+checked = "2026-10-31"
+
+[formats.bcf]
+name = "BCF"
+family = "bcf"
+domains = ["review"]
+specs = ["bcf_xml_2_1", "bcf_xml_3_0", "bcf_api_3_0"]
+rights = "public"
+rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がなく、zumen-jp/zumen#440 で確かめる。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
+place = "core"
+basis = ["spec"]
+issues = ["zumen-jp/zumen#429"]
+
+[[formats.bcf.evidence]]
+title = "IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）"
+url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm"
 checked = "2026-10-31"
 
 [formats.stbridge]
