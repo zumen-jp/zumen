@@ -49,13 +49,26 @@ try {
 
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあります。`messages.dart` の型は、読んだ JSON のオブジェクト（`Map<String, Object?>`）を包む見方で、知らない欄もそのまま持ちます。欄はゲッターで読み（ない欄と形の違う値は `null`）、セッターで書きます。列挙は `String` で持ち、値を定数で出すので、知らない値も受け取れます。共用体は `asXxx` で形ごとの型に移します。`Operations` に op の名前があります。
 
+ゲッターが返す配列と辞書は変更できません。要素を変えるときは、新しい配列や辞書を作ってセッターに渡してください。入れ子の配列も同じです。配列・辞書の要素がメッセージの型なら、その欄は元の JSON を通して変更できます。
+
+```dart
+final request = CloseRequest()..inputs = ['a.dxf'];
+request.inputs = [...request.inputs!, 'b.dxf'];
+```
+
 dart:ffi の呼び出しは、終わるまで isolate を止めます。取り消したいときは `callBytesAsync` で呼び、待っている間に同じ isolate から `cancel` を呼びます。呼び出しが動いている間の `close` は、呼び出しが終わってから閉じます。
+
+取り消しは、処理が途中で合図を確認して止まる方式です。短い処理が取り消し前に終わる場合や、待っている isolate が止まっている間は、取り消しが間に合わない場合があります。非同期の呼び出しが終わるまでは、同じセッションのほかの操作は `busy` を返します。
 
 ## 試験
 
 ```bash
 cargo build -p zumen-abi
 cd bindings/dart && dart pub get && dart run tool/conformance.dart ../../target/debug/libzumen_abi1.so
+dart run tool/test_collections.dart
+dart run tool/test_async.dart ../../target/debug/libzumen_abi1.so
 ```
 
 `tool/conformance.dart` は、[適合試験](../conformance/README.md)の組をこの包みで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Linux x64 で Dart 3.0 と安定版、macOS arm64 と Windows x64 で安定版を流します。
+`tool/test_collections.dart` は、メッセージの配列・辞書の読み書きを確かめます。
+`tool/test_async.dart` は、取り消しとライブラリの相対パスを確かめます。

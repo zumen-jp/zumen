@@ -115,6 +115,8 @@ jobs:
           cd bindings/dart
           dart pub get
           dart analyze --fatal-infos
+          dart run tool/test_collections.dart
+          dart run tool/test_async.dart "$GITHUB_WORKSPACE/target/debug/${{ matrix.library }}"
           dart run tool/conformance.dart "$GITHUB_WORKSPACE/target/debug/${{ matrix.library }}" "$GITHUB_WORKSPACE"
 
   java:

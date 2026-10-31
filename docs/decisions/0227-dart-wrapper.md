@@ -38,12 +38,13 @@
 - **置き場所。** 包みを `bindings/dart` に置き、パッケージ `zumen` にする。依存は `ffi`（BSD-3-Clause）だけ。試験は `crypto`（BSD-3-Clause）を使う。
 - **形**
   - `Zumen.open`（道筋）か `Zumen.process`（静的にリンクしたもの）で読み込み、ABI の大版を確かめる。`Zumen.session`（`SessionOptions` の値）か `sessionBytes`（JSON のバイト列）でセッションを作る。
-  - `Session` が `push`・`pushBytes`・`call`・`callBytes`・`callText`・`take`・`cancel`・`close` を持ち、境界の関数（[0012](0012-boundary-functions-and-messages.md)）に 1 つずつ当たる。`callBytesAsync` は、`zm_call` を `Isolate.run` で別の isolate で呼ぶ。
+  - `Session` が `push`・`pushBytes`・`call`・`callBytes`・`callText`・`take`・`cancel`・`close` を持ち、境界の関数（[0012](0012-boundary-functions-and-messages.md)）に 1 つずつ当たる。`callBytesAsync` は、`zm_call` を `Isolate.run` で別の isolate で呼ぶ。終了までほかの操作は `busy` にし、開始前に取り消したときは呼び出さない。開始後は取り消しを終了まで再送する。取り消しは協調的で、短い処理が先に終わる場合や、待っている isolate が止まっている場合は間に合わないことがある。
   - コアが返したバッファーは、写したあとに包みの中で `zm_free` で返す。長さ 0 の入力にも NULL でない番地を渡す。
   - 状態が `ok` でなければ `ZumenException` を投げる。`failed` の応答も、`response` で読める。閉じたセッションへの呼び出しは NULL のまま境界に渡し、境界が `invalid` を返す。
   - シーンの blob は `Scene.read` で読む。区画は `u8`・`buffer`（写さない）か `u32`・`f32`・`f64`（写す）で引く。知らない区画は読み飛ばし、ない区画は空の列にし、大版が違えば読まない（[0137](0137-columnar-scene-transfer.md)）。
 - **生成するもの**（`cargo xtask codegen`）
   - `lib/src/messages.dart`: `schema/messages.json` の定義ごとのクラス（`Message` を継ぐ）。欄はゲッターとセッターで読み書きし（ない欄と形の違う値は `null`、`null` を書くと欄を除く）、名前はキャメルケースにする。Dart の語と `Message` のメンバーと重なる名前には `Field` を付け、列挙の値と op の名前で語と重なるものには `Value` を付ける。目印の欄（`op` など）は、作るときに入れる。列挙は文字列の定数、共用体は形ごとの見方に移す `asXxx`、op の名前は `Operations` に置く。名前が重なれば、生成を止める。
+  - 配列・辞書のゲッターは変更できない値を返す。要素を変えるときは新しい値をセッターに渡す。配列・辞書の要素がメッセージなら、その欄は元の JSON を通して変更できる。
   - `lib/src/constants.dart`: 版、状態コード（`Status` と名前）、シーンの区画の定義と値の組。
   - `pubspec.yaml` の `version` が、コアと同じかを確かめる。
 - **適合試験**

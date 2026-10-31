@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 
 /// 欄の値の形が、型と違う印
@@ -61,15 +62,59 @@ int asInt(Object? value) => value is int ? value : throw const _Mismatch();
 
 double asDouble(Object? value) => value is num ? value.toDouble() : throw const _Mismatch();
 
-Object? asJson(Object? value) => value;
+/// 型を定めない JSON の配列と辞書は、要素に触れたときに包む。深い値を一度にたどらない
+Object? asJson(Object? value) => switch (value) {
+      List() => _JsonList(value),
+      Map<String, Object?>() => _JsonMap(value),
+      _ => value,
+    };
 
-/// 配列を、要素ごとに読む。形の違う要素があれば、配列ごと読まない
+final class _JsonList extends ListBase<Object?> {
+  _JsonList(this._values);
+
+  final List _values;
+
+  @override
+  int get length => _values.length;
+
+  @override
+  set length(int length) => throw UnsupportedError('変更できない配列');
+
+  @override
+  Object? operator [](int index) => asJson(_values[index]);
+
+  @override
+  void operator []=(int index, Object? value) => throw UnsupportedError('変更できない配列');
+}
+
+final class _JsonMap extends MapBase<String, Object?> {
+  _JsonMap(this._values);
+
+  final Map<String, Object?> _values;
+
+  @override
+  Object? operator [](Object? key) => asJson(_values[key]);
+
+  @override
+  void operator []=(String key, Object? value) => throw UnsupportedError('変更できない辞書');
+
+  @override
+  void clear() => throw UnsupportedError('変更できない辞書');
+
+  @override
+  Iterable<String> get keys => _values.keys;
+
+  @override
+  Object? remove(Object? key) => throw UnsupportedError('変更できない辞書');
+}
+
+/// 配列を、要素ごとに読み、変更できない列で返す。形の違う要素があれば、配列ごと読まない
 List<T> Function(Object?) listOf<T>(T Function(Object?) decode) =>
-    (value) => value is List ? [for (final item in value) decode(item)] : throw const _Mismatch();
+    (value) => value is List ? List<T>.unmodifiable([for (final item in value) decode(item)]) : throw const _Mismatch();
 
-/// オブジェクトを、値ごとに読む。形の違う値があれば、オブジェクトごと読まない
+/// オブジェクトを、値ごとに読み、変更できない表で返す。形の違う値があれば、オブジェクトごと読まない
 Map<String, T> Function(Object?) mapOf<T>(T Function(Object?) decode) => (value) => value is Map<String, Object?>
-    ? {for (final entry in value.entries) entry.key: decode(entry.value)}
+    ? Map<String, T>.unmodifiable({for (final entry in value.entries) entry.key: decode(entry.value)})
     : throw const _Mismatch();
 
 /// オブジェクトを、メッセージの型で包む

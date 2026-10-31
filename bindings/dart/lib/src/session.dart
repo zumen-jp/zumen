@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -147,7 +149,10 @@ final class Zumen {
   factory Zumen.process() => Zumen._checked(null);
 
   factory Zumen._checked(String? path) {
-    final zumen = Zumen._(path, _Functions.load(path));
+    // 手元にあるファイルは、後から作業ディレクトリーが変わっても同じものを指す。
+    // 見つからない名前は、OS のライブラリ検索に任せる。
+    final resolved = path != null && File(path).existsSync() ? File(path).absolute.path : path;
+    final zumen = Zumen._(resolved, _Functions.load(resolved));
     final version = zumen.abiVersion;
     if (version != Constants.abiVersion) {
       throw StateError('ABI の大版が $version（この包みは ${Constants.abiVersion}）');
@@ -188,6 +193,10 @@ final class Session {
   Pointer<Void> _handle;
   int _running = 0;
   bool _closePending = false;
+  bool _cancelRequested = false;
+  bool _started = false;
+  bool _blobsInvalidated = false;
+  Timer? _cancelTimer;
 
   _Functions get _functions => _zumen._functions;
 
@@ -199,6 +208,7 @@ final class Session {
 
   /// 入力を、名前のバイト列で渡す
   void pushBytes(Uint8List name, Uint8List data) {
+    _ensureAvailable('zm_push');
     final code = _borrow(
       name,
       (namePtr, nameLength) =>
@@ -210,17 +220,50 @@ final class Session {
   }
 
   /// 要求の JSON の UTF-8 を渡し、応答のバイト列を受け取る（zm_call）
-  Uint8List callBytes(Uint8List request) => _result('zm_call', _call(_functions, _live, request));
+  Uint8List callBytes(Uint8List request) {
+    _ensureAvailable('zm_call');
+    _blobsInvalidated = false;
+    return _result('zm_call', _call(_functions, _live, request));
+  }
 
-  /// [callBytes] を別の isolate で呼ぶ。待っている間に [cancel] で止められる
+  /// [callBytes] を別の isolate で呼ぶ。終了まではほかの操作は busy を返す。
+  /// [cancel] は処理に停止を求めるが、処理が先に終わる場合や、この isolate が止まっている場合は間に合わないことがある。
   Future<Uint8List> callBytesAsync(Uint8List request) async {
+    _ensureAvailable('zm_call');
     final path = _zumen._path;
     final address = _live.address;
     _running++;
     try {
+      // 予約直後の cancel は、isolate を起こす前に受け取る。
+      await Future<void>.value();
+      if (_cancelRequested) {
+        _blobsInvalidated = true;
+        throw ZumenException(
+            'zm_call',
+            Status.failed,
+            _utf8(jsonEncode({
+              'v': Constants.schemaMajor,
+              'diagnostics': [
+                {
+                  'code': 'call.request.cancelled',
+                  'severity': 'error',
+                  'count': 1,
+                  'at': [],
+                  'params': <String, Object?>{}
+                },
+              ],
+              'blobs': [],
+            })));
+      }
+      _blobsInvalidated = false;
+      _started = true;
       final outcome = await _callInIsolate(path, address, request);
       return _result('zm_call', outcome);
     } finally {
+      _cancelTimer?.cancel();
+      _cancelTimer = null;
+      _started = false;
+      _cancelRequested = false;
       _running--;
       if (_running == 0 && _closePending) {
         _closeNow();
@@ -238,11 +281,25 @@ final class Session {
   }
 
   /// 直前の call が作ったバイナリの結果を、番号で取り出す（zm_take）
-  Uint8List take(int blob) => _result('zm_take', _withBuf(_functions, (buf) => _functions.take(_live, blob, buf)));
+  Uint8List take(int blob) {
+    _ensureAvailable('zm_take');
+    if (_blobsInvalidated) {
+      throw ZumenException('zm_take', Status.invalid, null);
+    }
+    return _result('zm_take', _withBuf(_functions, (buf) => _functions.take(_live, blob, buf)));
+  }
 
   /// 動いている呼び出しを止める（zm_cancel）。動いていなければ何もしない
   void cancel() {
     if (_handle != nullptr) {
+      if (_running > 0) {
+        _cancelRequested = true;
+        if (_started) {
+          // zm_call のトークンが登録される前に cancel が届いた場合も、
+          // 処理が終わるまで再送する。ほかの呼び出しはその間 busy にする。
+          _cancelTimer ??= Timer.periodic(const Duration(milliseconds: 1), (_) => _functions.cancel(_handle));
+        }
+      }
       _functions.cancel(_handle);
     }
   }
@@ -266,6 +323,15 @@ final class Session {
 
   /// 閉じたセッションは NULL のまま境界に渡し、境界が invalid を返す
   Pointer<Void> get _live => _closePending ? nullptr : _handle;
+
+  void _ensureAvailable(String operation) {
+    if (_live == nullptr) {
+      throw ZumenException(operation, Status.invalid, null);
+    }
+    if (_running > 0) {
+      throw ZumenException(operation, Status.busy, null);
+    }
+  }
 
   static Uint8List _result(String operation, (int, Uint8List?) outcome) {
     final (code, data) = outcome;
