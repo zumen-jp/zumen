@@ -18,7 +18,9 @@
         { "$ref": "#/$defs/tables_request" },
         { "$ref": "#/$defs/scene_request" },
         { "$ref": "#/$defs/check_request" },
-        { "$ref": "#/$defs/validate_request" }
+        { "$ref": "#/$defs/validate_request" },
+        { "$ref": "#/$defs/review_carry_request" },
+        { "$ref": "#/$defs/review_adopt_request" }
       ]
     },
     "request_common": {
@@ -1555,6 +1557,183 @@
         }
       },
       "required": ["schema", "file_schema", "express_hash", "rules_not_evaluated", "findings", "total"],
+      "additionalProperties": false
+    },
+    "review_carry_request": {
+      "description": "レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "review_carry"
+        },
+        "doc": {
+          "description": "新しい版の文書の名前。open で作ったもの",
+          "type": "string"
+        },
+        "review": {
+          "description": "レビューの文書の入力の名前（zm_push で渡した JSON）",
+          "type": "string"
+        },
+        "target": {
+          "description": "移す対象の ID。レビューの文書の targets の id",
+          "type": "string"
+        },
+        "offset": {
+          "description": "返す最初の参照の位置。前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す参照の数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      },
+      "required": ["op", "doc", "review", "target"],
+      "unevaluatedProperties": false
+    },
+    "review_carry_result": {
+      "description": "移した結果。参照は offset から limit 個まで。移した文書は blobs の file で返す",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "移す前の対象のハッシュ",
+          "type": "string"
+        },
+        "hash": {
+          "description": "移した後の対象のハッシュ。文書のハッシュ",
+          "type": "string"
+        },
+        "references": {
+          "description": "要素の参照ごとの状態。指摘の順に、場所の順、参照の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/carried_reference" }
+        },
+        "total": {
+          "description": "全体の参照の数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_offset": {
+          "description": "続きの最初の参照の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["from", "hash", "references", "total"],
+      "additionalProperties": false
+    },
+    "carried_reference": {
+      "description": "移した要素の参照",
+      "type": "object",
+      "properties": {
+        "topic": {
+          "description": "指摘の ID",
+          "type": "string"
+        },
+        "location": {
+          "description": "場所の ID",
+          "type": "string"
+        },
+        "element": {
+          "description": "要素の ID",
+          "type": "string"
+        },
+        "state": {
+          "description": "状態",
+          "$ref": "#/$defs/carried_state"
+        }
+      },
+      "required": ["topic", "location", "element", "state"],
+      "additionalProperties": false
+    },
+    "carried_state": {
+      "description": "移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない",
+      "type": "string",
+      "enum": ["unchanged", "changed", "removed"]
+    },
+    "review_adopt_request": {
+      "description": "開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "review_adopt"
+        },
+        "doc": {
+          "description": "照合する文書の名前。open で作ったもの",
+          "type": "string"
+        },
+        "profiles": {
+          "description": "プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "profile": {
+          "description": "照合に使うプロファイル。profiles の中から選ぶ",
+          "$ref": "#/$defs/profile_ref"
+        },
+        "from": {
+          "description": "たどる起点。実寸の空間・記号の定義の空間・用紙の ID。書かなければ、すべての用紙から、用紙がなければ実寸の空間からたどる",
+          "type": "string"
+        },
+        "view": {
+          "description": "起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける",
+          "type": "integer",
+          "minimum": 0
+        },
+        "file_name": {
+          "description": "照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から",
+          "type": "string"
+        },
+        "palette": {
+          "description": "色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く",
+          "type": "string"
+        },
+        "review": {
+          "description": "足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す",
+          "type": "string"
+        },
+        "target": {
+          "description": "指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す",
+          "type": "string"
+        },
+        "findings": {
+          "description": "取り込む指摘の番号の列。check の指摘の並びの順で、0 から数える",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "required": ["op", "doc", "profiles", "profile", "target", "findings"],
+      "unevaluatedProperties": false
+    },
+    "review_adopt_result": {
+      "description": "取り込んだ結果。足した文書は blobs の file で返す",
+      "type": "object",
+      "properties": {
+        "added": {
+          "description": "足した指摘の ID。取り込み済みで足さなかった指摘は持たない",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "topics": {
+          "description": "足した後の文書の指摘の数",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["added", "topics"],
       "additionalProperties": false
     },
     "table_item": {

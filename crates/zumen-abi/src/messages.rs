@@ -35,6 +35,10 @@ pub enum Request {
     Check(CheckRequest),
     /// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
     Validate(ValidateRequest),
+    /// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から
+    ReviewCarry(ReviewCarryRequest),
+    /// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
+    ReviewAdopt(ReviewAdoptRequest),
 }
 
 impl Request {
@@ -52,6 +56,8 @@ impl Request {
         "scene",
         "check",
         "validate",
+        "review_carry",
+        "review_adopt",
     ];
 
     /// 目印の欄（`op`）の値
@@ -69,6 +75,8 @@ impl Request {
             Self::Scene(_) => "scene",
             Self::Check(_) => "check",
             Self::Validate(_) => "validate",
+            Self::ReviewCarry(_) => "review_carry",
+            Self::ReviewAdopt(_) => "review_adopt",
         }
     }
 }
@@ -89,6 +97,8 @@ impl FromJson for Request {
             "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
             "check" => Self::Check(CheckRequest::read_fields(&mut object)?),
             "validate" => Self::Validate(ValidateRequest::read_fields(&mut object)?),
+            "review_carry" => Self::ReviewCarry(ReviewCarryRequest::read_fields(&mut object)?),
+            "review_adopt" => Self::ReviewAdopt(ReviewAdoptRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -111,6 +121,8 @@ impl ToJson for Request {
             Self::Scene(value) => value.to_json(out),
             Self::Check(value) => value.to_json(out),
             Self::Validate(value) => value.to_json(out),
+            Self::ReviewCarry(value) => value.to_json(out),
+            Self::ReviewAdopt(value) => value.to_json(out),
         }
     }
 }
@@ -6542,6 +6554,404 @@ impl FromJson for ValidateResult {
 }
 
 impl ToJson for ValidateResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewCarryRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 新しい版の文書の名前。open で作ったもの
+    pub doc: String,
+    /// レビューの文書の入力の名前（zm_push で渡した JSON）
+    pub review: String,
+    /// 移す対象の ID。レビューの文書の targets の id
+    pub target: String,
+    /// 返す最初の参照の位置。前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す参照の数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+}
+
+impl ReviewCarryRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "review_carry")?;
+        let doc = object.required("doc", json::string)?;
+        let review = object.required("review", json::string)?;
+        let target = object.required("target", json::string)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        Ok(Self {
+            request_common,
+            doc,
+            review,
+            target,
+            offset,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("review_carry");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("review");
+        out.string(&self.review);
+        out.key("target");
+        out.string(&self.target);
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for ReviewCarryRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewCarryRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 移した結果。参照は offset から limit 個まで。移した文書は blobs の file で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewCarryResult {
+    /// 移す前の対象のハッシュ
+    pub from: String,
+    /// 移した後の対象のハッシュ。文書のハッシュ
+    pub hash: String,
+    /// 要素の参照ごとの状態。指摘の順に、場所の順、参照の順
+    pub references: Vec<CarriedReference>,
+    /// 全体の参照の数
+    pub total: u64,
+    /// 続きの最初の参照の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl ReviewCarryResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let from = object.required("from", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let references = object.required("references", |value| {
+            json::array(value, CarriedReference::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            from,
+            hash,
+            references,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("from");
+        out.string(&self.from);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("references");
+        out.array(&self.references, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for ReviewCarryResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewCarryResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 移した要素の参照
+#[derive(Clone, Debug, PartialEq)]
+pub struct CarriedReference {
+    /// 指摘の ID
+    pub topic: String,
+    /// 場所の ID
+    pub location: String,
+    /// 要素の ID
+    pub element: String,
+    /// 状態
+    pub state: CarriedState,
+}
+
+impl CarriedReference {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let topic = object.required("topic", json::string)?;
+        let location = object.required("location", json::string)?;
+        let element = object.required("element", json::string)?;
+        let state = object.required("state", CarriedState::from_json)?;
+        Ok(Self {
+            topic,
+            location,
+            element,
+            state,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("topic");
+        out.string(&self.topic);
+        out.key("location");
+        out.string(&self.location);
+        out.key("element");
+        out.string(&self.element);
+        out.key("state");
+        self.state.to_json(out);
+    }
+}
+
+impl FromJson for CarriedReference {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CarriedReference {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CarriedState {
+    /// `unchanged`
+    Unchanged,
+    /// `changed`
+    Changed,
+    /// `removed`
+    Removed,
+}
+
+impl CarriedState {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Unchanged, Self::Changed, Self::Removed];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Unchanged => "unchanged",
+            Self::Changed => "changed",
+            Self::Removed => "removed",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "unchanged" => Some(Self::Unchanged),
+            "changed" => Some(Self::Changed),
+            "removed" => Some(Self::Removed),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for CarriedState {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for CarriedState {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewAdoptRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 照合する文書の名前。open で作ったもの
+    pub doc: String,
+    /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+    pub profiles: Vec<String>,
+    /// 照合に使うプロファイル。profiles の中から選ぶ
+    pub profile: ProfileRef,
+    /// たどる起点。実寸の空間・記号の定義の空間・用紙の ID。書かなければ、すべての用紙から、用紙がなければ実寸の空間からたどる
+    pub from: Option<String>,
+    /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける
+    pub view: Option<u64>,
+    /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+    pub file_name: Option<String>,
+    /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+    pub palette: Option<String>,
+    /// 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す
+    pub review: Option<String>,
+    /// 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す
+    pub target: String,
+    /// 取り込む指摘の番号の列。check の指摘の並びの順で、0 から数える
+    pub findings: Vec<u64>,
+}
+
+impl ReviewAdoptRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "review_adopt")?;
+        let doc = object.required("doc", json::string)?;
+        let profiles = object.required("profiles", |value| json::array(value, json::string))?;
+        let profile = object.required("profile", ProfileRef::from_json)?;
+        let from = object.optional("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let file_name = object.optional("file_name", json::string)?;
+        let palette = object.optional("palette", json::string)?;
+        let review = object.optional("review", json::string)?;
+        let target = object.required("target", json::string)?;
+        let findings = object.required("findings", |value| {
+            json::array(value, |value| json::uint(value, 0, 9007199254740991))
+        })?;
+        Ok(Self {
+            request_common,
+            doc,
+            profiles,
+            profile,
+            from,
+            view,
+            file_name,
+            palette,
+            review,
+            target,
+            findings,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("review_adopt");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("profiles");
+        out.array(&self.profiles, |out, item| out.string(item));
+        out.key("profile");
+        self.profile.to_json(out);
+        if let Some(value) = &self.from {
+            out.key("from");
+            out.string(value);
+        }
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.file_name {
+            out.key("file_name");
+            out.string(value);
+        }
+        if let Some(value) = &self.palette {
+            out.key("palette");
+            out.string(value);
+        }
+        if let Some(value) = &self.review {
+            out.key("review");
+            out.string(value);
+        }
+        out.key("target");
+        out.string(&self.target);
+        out.key("findings");
+        out.array(&self.findings, |out, item| out.uint(*item));
+    }
+}
+
+impl FromJson for ReviewAdoptRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewAdoptRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 取り込んだ結果。足した文書は blobs の file で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewAdoptResult {
+    /// 足した指摘の ID。取り込み済みで足さなかった指摘は持たない
+    pub added: Vec<String>,
+    /// 足した後の文書の指摘の数
+    pub topics: u64,
+}
+
+impl ReviewAdoptResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let added = object.required("added", |value| json::array(value, json::string))?;
+        let topics = object.required("topics", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { added, topics })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("added");
+        out.array(&self.added, |out, item| out.string(item));
+        out.key("topics");
+        out.uint(self.topics);
+    }
+}
+
+impl FromJson for ReviewAdoptResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewAdoptResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

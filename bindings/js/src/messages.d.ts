@@ -17,7 +17,9 @@ export type Request =
   | TablesRequest
   | SceneRequest
   | CheckRequest
-  | ValidateRequest;
+  | ValidateRequest
+  | ReviewCarryRequest
+  | ReviewAdoptRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -1334,6 +1336,89 @@ export interface ValidateResult {
   next_offset?: number;
 }
 
+/** レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から */
+export interface ReviewCarryRequest extends RequestCommon {
+  /** op の名前 */
+  op: "review_carry";
+  /** 新しい版の文書の名前。open で作ったもの */
+  doc: string;
+  /** レビューの文書の入力の名前（zm_push で渡した JSON） */
+  review: string;
+  /** 移す対象の ID。レビューの文書の targets の id */
+  target: string;
+  /** 返す最初の参照の位置。前の応答の next_offset を渡す。書かなければ 0 */
+  offset?: number;
+  /** 返す参照の数の上限。書かなければ 1000 */
+  limit?: number;
+}
+
+/** 移した結果。参照は offset から limit 個まで。移した文書は blobs の file で返す */
+export interface ReviewCarryResult {
+  /** 移す前の対象のハッシュ */
+  from: string;
+  /** 移した後の対象のハッシュ。文書のハッシュ */
+  hash: string;
+  /** 要素の参照ごとの状態。指摘の順に、場所の順、参照の順 */
+  references: CarriedReference[];
+  /** 全体の参照の数 */
+  total: number;
+  /** 続きの最初の参照の位置。続きがなければ持たない */
+  next_offset?: number;
+}
+
+/** 移した要素の参照 */
+export interface CarriedReference {
+  /** 指摘の ID */
+  topic: string;
+  /** 場所の ID */
+  location: string;
+  /** 要素の ID */
+  element: string;
+  /** 状態 */
+  state: CarriedState;
+}
+
+/** 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない */
+export type CarriedState =
+  | "unchanged"
+  | "changed"
+  | "removed"
+  | (string & {});
+
+/** 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から */
+export interface ReviewAdoptRequest extends RequestCommon {
+  /** op の名前 */
+  op: "review_adopt";
+  /** 照合する文書の名前。open で作ったもの */
+  doc: string;
+  /** プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す */
+  profiles: string[];
+  /** 照合に使うプロファイル。profiles の中から選ぶ */
+  profile: ProfileRef;
+  /** たどる起点。実寸の空間・記号の定義の空間・用紙の ID。書かなければ、すべての用紙から、用紙がなければ実寸の空間からたどる */
+  from?: string;
+  /** 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける */
+  view?: number;
+  /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から */
+  file_name?: string;
+  /** 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く */
+  palette?: string;
+  /** 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す */
+  review?: string;
+  /** 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す */
+  target: string;
+  /** 取り込む指摘の番号の列。check の指摘の並びの順で、0 から数える */
+  findings: number[];
+}
+
+/** 取り込んだ結果。足した文書は blobs の file で返す */
+export interface ReviewAdoptResult {
+  /** 足した指摘の ID。取り込み済みで足さなかった指摘は持たない */
+  added: string[];
+  /** 足した後の文書の指摘の数 */
+  topics: number;
+}
+
 /** 表の項目 */
 export interface TableItem {
   /** ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。寸法スタイルは dimension-style/h1A か、寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156） */
@@ -1664,4 +1749,6 @@ export interface Operations {
   scene: { request: SceneRequest; result: SceneResult };
   check: { request: CheckRequest; result: CheckResult };
   validate: { request: ValidateRequest; result: ValidateResult };
+  review_carry: { request: ReviewCarryRequest; result: ReviewCarryResult };
+  review_adopt: { request: ReviewAdoptRequest; result: ReviewAdoptResult };
 }
