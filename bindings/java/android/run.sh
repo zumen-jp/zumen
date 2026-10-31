@@ -3,6 +3,7 @@
 # 使い方: sh bindings/java/android/run.sh <置き場所>
 # 置き場所には、classes.zip（d8 で作った包みと試験と JNA の dex）、libjnidispatch.so、libzumen_abi1.so を置く。
 # dalvikvm ではなく app_process で流す。シェルの利用者は dalvik-cache に書けないため。
+# java.library.path は渡さない。システムのライブラリ（SHA-256 に使う libjavacrypto）を探せなくなるため。
 set -eu
 local=${1:?使い方: sh bindings/java/android/run.sh <置き場所>}
 remote=/data/local/tmp/zumen
@@ -16,7 +17,7 @@ adb push samples "$remote/repo/" >/dev/null
 
 # 終了の状態を、adb の版によらずに受け取るため、最後の行に書かせる
 output=$(adb shell "cd $remote && CLASSPATH=$remote/classes.zip app_process \
-  -Djava.library.path=$remote -Djna.boot.library.path=$remote -Djna.nosys=true \
+  -Djna.boot.library.path=$remote -Djna.nosys=true \
   $remote dev.zumen.Conformance $remote/libzumen_abi1.so $remote/repo; echo \"exit=\$?\"" | tr -d '\r')
 echo "$output"
 summary=$(echo "$output" | grep '^包みを通した試験の組' || true)
