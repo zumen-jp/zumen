@@ -2586,6 +2586,8 @@ _SessionOptionsOptional = TypedDict(
     {
         # 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
         "engine": "Engine",
+        # engine が `process` のときの、子プロセスにする CLI（zumen）の実行ファイルのパス。書かなければ、ライブラリと同じフォルダーの zumen を使う（決定 0013・0200）
+        "process_path": str,
     },
     total=False,
 )

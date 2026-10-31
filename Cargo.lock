@@ -321,6 +321,7 @@ dependencies = [
  "zumen-base",
  "zumen-conformance",
  "zumen-json",
+ "zumen-scene",
 ]
 
 [[package]]

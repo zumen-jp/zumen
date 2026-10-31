@@ -5,11 +5,15 @@
 //! - `zumen call`: 要求の JSON をそのまま渡す
 //! - `zumen <op> [ファイル]`: よく使う op の短い形。ファイルを入力にして open し、その文書で op を呼ぶ
 //! - `zumen serve --stdio`: 境界の関数を、標準入出力の JSON-RPC で出す（`serve.rs`）
+//! - `zumen serve --http`: 同じ JSON-RPC を HTTP で受ける（`http.rs`）
 //! - `zumen mcp`: MCP のサーバー（`mcp.rs`）
+//! - `zumen scene-info`: シーンの blob の区画を要約する（`scene.rs`）
 
 mod host;
+mod http;
 mod mcp;
 mod rpc;
+mod scene;
 mod serve;
 
 use std::fs;
@@ -28,14 +32,18 @@ const USAGE: &str = "\
   zumen call [--input 名前=ファイル]... [--options 設定の JSON] [--blobs フォルダー] <要求の JSON のファイル | ->
   zumen <op> [ファイル] [--欄 値]... [--blobs フォルダー]
   zumen serve --stdio
+  zumen serve --http [--listen アドレス:ポート]
   zumen mcp [--root フォルダー]
+  zumen scene-info <シーンの blob のファイル | ->
   zumen --version
 
 応答の JSON を標準出力に書く。終了コードは境界の状態（0 ok・1 failed・2 invalid・3 busy・4 panicked）で、
 引数とファイルの誤りは 64。
 <op> の短い形は、ファイルを入力にして open し、その文書を doc に入れて op を呼ぶ。open と capabilities は
 それだけを呼ぶ。--欄 の値は JSON として読み、読めなければ文字列にする。v は 1 にする。
---blobs を書くと、応答の blobs を <フォルダー>/<id>.<kind> に書き出す。";
+--blobs を書くと、応答の blobs を <フォルダー>/<id>.<kind> に書き出す。
+serve --http は既定で 127.0.0.1:24180 で待ち受け、待ち受けたアドレスを 1 行目に書く。
+scene-info は、scene の op が返すシーンの blob の、区画ごとの行の数を JSON で書く。";
 
 /// 引数とファイルの誤り
 const USAGE_ERROR: u8 = 64;
@@ -69,6 +77,14 @@ fn run(args: &[String]) -> Result<u8, String> {
                 rpc::serve(serve::Serve::new());
                 Ok(0)
             }
+            [flag] if flag == "--http" => {
+                http::serve(http::DEFAULT_LISTEN, http::Limits::default())?;
+                Ok(0)
+            }
+            [flag, listen, address] if flag == "--http" && listen == "--listen" => {
+                http::serve(address, http::Limits::default())?;
+                Ok(0)
+            }
             _ => Err(USAGE.to_string()),
         },
         "mcp" => {
@@ -83,6 +99,15 @@ fn run(args: &[String]) -> Result<u8, String> {
             Ok(0)
         }
         "call" => call(rest),
+        "scene-info" => match rest {
+            [path] => {
+                let mut summary = scene::summary(&read_file(path)?)?;
+                summary.push(b'\n');
+                write_out(&summary)?;
+                Ok(0)
+            }
+            _ => Err(USAGE.to_string()),
+        },
         op if !op.starts_with('-') => short(op, rest),
         _ => Err(USAGE.to_string()),
     }

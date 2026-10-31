@@ -17,6 +17,8 @@ mod describe;
 pub mod ffi;
 mod geometry;
 pub mod messages;
+#[cfg(not(target_family = "wasm"))]
+mod process;
 mod scene;
 mod session;
 mod tables;

@@ -7565,13 +7565,20 @@ pub struct SessionOptions {
     pub v: u64,
     /// 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
     pub engine: Option<Engine>,
+    /// engine が `process` のときの、子プロセスにする CLI（zumen）の実行ファイルのパス。書かなければ、ライブラリと同じフォルダーの zumen を使う（決定 0013・0200）
+    pub process_path: Option<String>,
 }
 
 impl SessionOptions {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let v = object.required("v", |value| json::uint(value, 1, 9007199254740991))?;
         let engine = object.optional("engine", Engine::from_json)?;
-        Ok(Self { v, engine })
+        let process_path = object.optional("process_path", json::string)?;
+        Ok(Self {
+            v,
+            engine,
+            process_path,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -7580,6 +7587,10 @@ impl SessionOptions {
         if let Some(value) = &self.engine {
             out.key("engine");
             value.to_json(out);
+        }
+        if let Some(value) = &self.process_path {
+            out.key("process_path");
+            out.string(value);
         }
     }
 }

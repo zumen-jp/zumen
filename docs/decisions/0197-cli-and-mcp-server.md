@@ -57,6 +57,7 @@ MCP と JSON-RPC は 2、引数は 2、セッションは 2 を選ぶ。依存�
 - 階層 1 の 3 つの条件（生成・境界の包み・適合試験）を、CLI・MCP で満たす。シーンの blob は CLI では読まず、ファイルか base64 のまま渡す。
 - MCP の版が変わったら、自分で追う。版の一覧を足し、`server/discover` と道具の結果の形を見直す。
 - `serve --http`、子プロセスの形（`engine` の `process`）、画像の大きさの上限、MCP の `resources` と進み具合の通知は、まだない。要るものと一緒に足す。
+- `serve --http`・`process`・MCP の `resources` と進み具合の通知・シーンの blob を読むことは、[0200](0200-cli-http-process-engine-and-mcp-resources.md) で作った。
 - 公開するまで、サブコマンド・メソッド・道具の形は変えてよい。公開してからは、境界と同じく足すだけにする。
 - 新しい op を足すと、`bindings/cli/src/tools.json` の差分が PR に並ぶ。
 

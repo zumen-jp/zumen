@@ -153,6 +153,12 @@ params = { name = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."call.process.caught"]
+description = "実行の形が process のとき、子プロセスの CLI が落ちたか、答えが読めなかった。子プロセスは捨てたので、セッションを作り直す（決定 0013・0200）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
 [codes."call.request.cancelled"]
 description = "中断の合図を受けて止めた"
 severity = "error"

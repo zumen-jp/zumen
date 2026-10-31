@@ -16,6 +16,7 @@ path = "src/main.rs"
 zumen-abi = { path = "../../crates/zumen-abi" }
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-json = { path = "../../crates/zumen-json" }
+zumen-scene = { path = "../../crates/zumen-scene" }
 
 [dev-dependencies]
 zumen-conformance = { path = "../conformance" }

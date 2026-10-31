@@ -16,12 +16,12 @@ use zumen_abi1::Status;
 use zumen_base::CancelToken;
 use zumen_json::{Value, Writer};
 
-use crate::host::{Host, base64_decode, base64_encode, compact, field};
-use crate::rpc::{Handler, INVALID_PARAMS, METHOD_NOT_FOUND, Outcome};
+use crate::host::{Answer, Host, base64_decode, base64_encode, compact, field};
+use crate::rpc::{Handler, INVALID_PARAMS, METHOD_NOT_FOUND, Notify, Outcome};
 
 /// バイト列の引数の書き方
 #[derive(Clone, Copy)]
-enum Form {
+pub enum Form {
     /// JSON の値を、空白を入れずに書いたもの
     Json,
     /// UTF-8 の文字列
@@ -33,7 +33,7 @@ enum Form {
 }
 
 /// 書き方の違う欄のうち、あるものからバイト列を作る。2 つ以上あれば誤り
-fn bytes(params: &Value, keys: &[(&str, Form)]) -> Result<Option<Vec<u8>>, String> {
+pub fn bytes(params: &Value, keys: &[(&str, Form)]) -> Result<Option<Vec<u8>>, String> {
     let present: Vec<(&str, Form, &Value)> = keys
         .iter()
         .filter_map(|(key, form)| field(params, key).map(|value| (*key, *form, value)))
@@ -62,11 +62,59 @@ fn bytes(params: &Value, keys: &[(&str, Form)]) -> Result<Option<Vec<u8>>, Strin
     }
 }
 
-fn status_only(status: Status) -> Vec<u8> {
+pub fn status_only(status: Status) -> Vec<u8> {
     let mut out = Writer::new();
     out.begin_object();
     out.key("status");
     out.string(status.name());
+    out.end_object();
+    out.into_bytes()
+}
+
+/// `call` の結果。応答の JSON は、書き換えないよう文字列のまま入れる
+pub fn call_result(answer: &Answer) -> Vec<u8> {
+    let mut out = Writer::new();
+    out.begin_object();
+    out.key("status");
+    out.string(answer.status.name());
+    if let Some(response) = &answer.response {
+        match std::str::from_utf8(response) {
+            Ok(text) => {
+                out.key("response");
+                out.string(text);
+            }
+            Err(_) => {
+                out.key("response_base64");
+                out.string(&base64_encode(response));
+            }
+        }
+    }
+    out.end_object();
+    out.into_bytes()
+}
+
+/// `take` の引数の blob の番号
+pub fn blob_param(params: &Value) -> Result<u32, String> {
+    match field(params, "blob") {
+        Some(Value::Number(n)) => n.to_safe_integer().and_then(|n| u32::try_from(n).ok()),
+        _ => None,
+    }
+    .ok_or_else(|| "blob は 0 以上の整数にする".to_string())
+}
+
+/// `take` の結果
+pub fn take_result(data: Option<&[u8]>) -> Vec<u8> {
+    let mut out = Writer::new();
+    out.begin_object();
+    out.key("status");
+    match data {
+        Some(data) => {
+            out.string(Status::Ok.name());
+            out.key("base64");
+            out.string(&base64_encode(data));
+        }
+        None => out.string(Status::Invalid.name()),
+    }
     out.end_object();
     out.into_bytes()
 }
@@ -147,52 +195,17 @@ impl Serve {
                 .ok_or_else(|| invalid("request がない".to_string()))?;
                 let answer = match &mut self.host {
                     Some(host) => host.call(&request, cancel),
-                    None => crate::host::Answer {
+                    None => Answer {
                         status: Status::Invalid,
                         response: None,
                     },
                 };
-                let mut out = Writer::new();
-                out.begin_object();
-                out.key("status");
-                out.string(answer.status.name());
-                if let Some(response) = &answer.response {
-                    match std::str::from_utf8(response) {
-                        Ok(text) => {
-                            out.key("response");
-                            out.string(text);
-                        }
-                        Err(_) => {
-                            out.key("response_base64");
-                            out.string(&base64_encode(response));
-                        }
-                    }
-                }
-                out.end_object();
-                Ok(out.into_bytes())
+                Ok(call_result(&answer))
             }
             "take" => {
-                let blob = match field(params, "blob") {
-                    Some(Value::Number(n)) => {
-                        n.to_safe_integer().and_then(|n| u32::try_from(n).ok())
-                    }
-                    _ => None,
-                }
-                .ok_or_else(|| invalid("blob は 0 以上の整数にする".to_string()))?;
+                let blob = blob_param(params).map_err(invalid)?;
                 let data = self.host.as_mut().and_then(|host| host.take(blob));
-                let mut out = Writer::new();
-                out.begin_object();
-                out.key("status");
-                match data {
-                    Some(data) => {
-                        out.string(Status::Ok.name());
-                        out.key("base64");
-                        out.string(&base64_encode(&data));
-                    }
-                    None => out.string(Status::Invalid.name()),
-                }
-                out.end_object();
-                Ok(out.into_bytes())
+                Ok(take_result(data.as_deref()))
             }
             _ => Err(Outcome::Error(
                 METHOD_NOT_FOUND,
@@ -206,7 +219,13 @@ impl Serve {
 impl Handler for Serve {
     const CANCEL: &'static str = "cancel";
 
-    fn handle(&mut self, method: &str, params: &Value, cancel: &CancelToken) -> Outcome {
+    fn handle(
+        &mut self,
+        method: &str,
+        params: &Value,
+        cancel: &CancelToken,
+        _notify: &Notify,
+    ) -> Outcome {
         match self.run(method, params, cancel) {
             Ok(result) => Outcome::Result(result),
             Err(outcome) => outcome,
@@ -220,7 +239,8 @@ mod tests {
 
     fn handle(serve: &mut Serve, method: &str, params: &str) -> String {
         let params = zumen_json::parse(params.as_bytes()).unwrap();
-        match serve.handle(method, &params, &CancelToken::new()) {
+        let notify: Notify = std::sync::Arc::new(|_: &[u8]| {});
+        match serve.handle(method, &params, &CancelToken::new(), &notify) {
             Outcome::Result(result) => String::from_utf8(result).unwrap(),
             Outcome::Error(code, text, _) => format!("error {code} {text}"),
         }

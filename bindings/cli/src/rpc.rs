@@ -33,12 +33,21 @@ pub enum Outcome {
     Error(i64, String, Option<Vec<u8>>),
 }
 
+/// 処理の途中で、通知の行（JSON-RPC の 1 つのメッセージ）を書くもの。どのスレッドからでも使える
+pub type Notify = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 /// メッセージを処理するもの
 pub trait Handler {
     /// 実行中の呼び出しを止めるメソッドの名前。このメソッドは主のスレッドに渡さない
     const CANCEL: &'static str;
-    /// メッセージを処理する
-    fn handle(&mut self, method: &str, params: &Value, cancel: &CancelToken) -> Outcome;
+    /// メッセージを処理する。`notify` で、応答の前に通知を書ける
+    fn handle(
+        &mut self,
+        method: &str,
+        params: &Value,
+        cancel: &CancelToken,
+        notify: &Notify,
+    ) -> Outcome;
 }
 
 type Output = Arc<Mutex<io::Stdout>>;
@@ -118,13 +127,17 @@ fn read_line(input: &mut impl BufRead) -> io::Result<Option<Line>> {
 }
 
 /// 読んだメッセージ。id がなければ通知
-struct Message {
-    id: Option<Value>,
-    method: String,
-    params: Value,
+pub struct Message {
+    /// 番号
+    pub id: Option<Value>,
+    /// メソッド
+    pub method: String,
+    /// 引数。なければ null
+    pub params: Value,
 }
 
-fn parse_message(line: &[u8]) -> Result<Message, (Value, i64, &'static str)> {
+/// 1 つのメッセージを読む。読めなければ、誤りの id・番号・文
+pub fn parse_message(line: &[u8]) -> Result<Message, (Value, i64, &'static str)> {
     let value = zumen_json::parse(line).map_err(|_| (Value::Null, PARSE_ERROR, "Parse error"))?;
     let id = field(&value, "id").cloned();
     let invalid = || {
@@ -195,10 +208,12 @@ pub fn serve<T: Handler>(mut handler: T) {
             }
         }
     });
+    let notify_output = Arc::clone(&output);
+    let notify: Notify = Arc::new(move |line: &[u8]| write_line(&notify_output, line));
     for message in receiver {
         let token = CancelToken::new();
         *current.lock().unwrap_or_else(PoisonError::into_inner) = token.clone();
-        let outcome = handler.handle(&message.method, &message.params, &token);
+        let outcome = handler.handle(&message.method, &message.params, &token, &notify);
         let Some(id) = &message.id else {
             continue;
         };

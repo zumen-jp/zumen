@@ -233,3 +233,4 @@
 - [0197: CLI と MCP のサーバーは依存を足さずに書き、MCP は 2026-07-28 と前の版の両方に応える](0197-cli-and-mcp-server.md)（2026-10-31、採用）
 - [0198: C・C++ はヘッダーだけの RAII の包みとシーンの読み手を足し、メッセージは JSON の文字列のまま渡す](0198-c-and-cpp-wrapper.md)（2026-10-31、採用）
 - [0199: TypeScript・JavaScript の包みの適合試験を、版を固定した Playwright でブラウザーの中で流す](0199-browser-conformance-with-playwright.md)（2026-10-31、採用）
+- [0200: serve --http は標準ライブラリで書き、process は C ABI のライブラリが CLI を起こし、MCP にリソースと進み具合の通知を足す](0200-cli-http-process-engine-and-mcp-resources.md)（2026-10-31、採用）

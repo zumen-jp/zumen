@@ -473,7 +473,7 @@ mod tests {
             unsafe { zm_session_new(b"{".as_ptr(), 1, &mut out) },
             Status::Invalid.code()
         );
-        let process = br#"{"v":1,"engine":"process"}"#;
+        let process = br#"{"v":1,"engine":"process","process_path":"no-such-folder/zumen"}"#;
         assert_eq!(
             unsafe { zm_session_new(process.as_ptr(), process.len(), &mut out) },
             Status::Failed.code()

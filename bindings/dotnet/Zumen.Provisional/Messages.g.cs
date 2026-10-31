@@ -4173,6 +4173,12 @@ namespace Zumen.Provisional.Messages
         /// </summary>
         [JsonPropertyName("engine")]
         public string? Engine { get; init; }
+
+        /// <summary>
+        /// engine が `process` のときの、子プロセスにする CLI（zumen）の実行ファイルのパス。書かなければ、ライブラリと同じフォルダーの zumen を使う（決定 0013・0200）
+        /// </summary>
+        [JsonPropertyName("process_path")]
+        public string? ProcessPath { get; init; }
     }
 
     /// <summary>

@@ -1,9 +1,9 @@
 {
-  "description": "セッションの設定。設定が読めなければ invalid、このライブラリにない実行の形なら failed（決定 0012・0013）",
+  "description": "セッションの設定。設定が読めなければ invalid、子プロセスの CLI を起こせないなど、実行の形を使えなければ failed（決定 0012・0013・0200）",
   "steps": [
     { "session": { "options": { "v": 1 } } },
     { "call": { "v": 1, "op": "capabilities" }, "expect": { "/result/abi": 1 } },
-    { "session": { "options": { "v": 1, "engine": "process" } }, "status": "failed" },
+    { "session": { "options": { "v": 1, "engine": "process", "process_path": "no-such-folder/zumen" } }, "status": "failed" },
     { "call": { "v": 1, "op": "capabilities" }, "status": "invalid" },
     { "session": { "options": { "v": 2 } }, "status": "invalid" },
     { "session": { "options": { "engine": "wasm" } }, "status": "invalid" },

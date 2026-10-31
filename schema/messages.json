@@ -1788,7 +1788,8 @@
       "type": "object",
       "properties": {
         "v": { "description": "メッセージのスキーマの大版。今は 1", "type": "integer", "minimum": 1 },
-        "engine": { "description": "実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）", "$ref": "#/$defs/engine" }
+        "engine": { "description": "実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）", "$ref": "#/$defs/engine" },
+        "process_path": { "description": "engine が `process` のときの、子プロセスにする CLI（zumen）の実行ファイルのパス。書かなければ、ライブラリと同じフォルダーの zumen を使う（決定 0013・0200）", "type": "string" }
       },
       "required": ["v"],
       "additionalProperties": false

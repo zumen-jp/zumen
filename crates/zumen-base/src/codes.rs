@@ -197,6 +197,12 @@ pub const CALL_OP_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 実行の形が process のとき、子プロセスの CLI が落ちたか、答えが読めなかった。子プロセスは捨てたので、セッションを作り直す（決定 0013・0200）
+///
+/// `call.process.caught`（0.0.0 から）
+pub const CALL_PROCESS_CAUGHT: Code =
+    Code::new("call.process.caught", Severity::Error, None, &[], &[]);
+
 /// 中断の合図を受けて止めた
 ///
 /// `call.request.cancelled`（0.0.0 から）
@@ -1709,6 +1715,7 @@ pub const ALL: &[Code] = &[
     CALL_INPUT_MISSING,
     CALL_JSON_INVALID,
     CALL_OP_UNSUPPORTED,
+    CALL_PROCESS_CAUGHT,
     CALL_REQUEST_CANCELLED,
     CALL_VALUE_INVALID,
     CALL_VERSION_UNSUPPORTED,

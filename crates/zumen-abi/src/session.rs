@@ -56,6 +56,9 @@ pub struct Session {
     hashes: BTreeMap<String, Hash>,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
     blobs: Vec<Option<Blob>>,
+    /// 実行の形が `process` なら、子プロセスの CLI。要求をそのまま送る（決定 0013・0200）
+    #[cfg(not(target_family = "wasm"))]
+    child: Option<crate::process::Child>,
 }
 
 /// 開いた文書。形式ごとのファイルモデル（L1）を持つ
@@ -146,19 +149,32 @@ impl Session {
     }
 
     pub(crate) fn for_engine(built: Engine, options: &[u8]) -> Result<Self, Status> {
-        let engine = if options.is_empty() {
-            built
+        let (engine, process_path) = if options.is_empty() {
+            (built, None)
         } else {
             let value = zumen_json::parse(options).map_err(|_| Status::Invalid)?;
             let options = SessionOptions::from_json(&value).map_err(|_| Status::Invalid)?;
             if options.v != SCHEMA_MAJOR {
                 return Err(Status::Invalid);
             }
-            options.engine.unwrap_or(built)
+            (options.engine.unwrap_or(built), options.process_path)
         };
-        // process（子プロセスの CLI）は、CLI と一緒に作る
-        if engine != built {
+        // process（子プロセスの CLI）は、ネイティブのライブラリだけが起こせる。起こせなければ failed
+        #[cfg(not(target_family = "wasm"))]
+        let child = if engine == Engine::Process && built == Engine::Native {
+            let path = crate::process::executable(process_path.as_deref()).ok_or(Status::Failed)?;
+            Some(crate::process::Child::spawn(&path).ok_or(Status::Failed)?)
+        } else if engine != built {
             return Err(Status::Failed);
+        } else {
+            None
+        };
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = process_path;
+            if engine != built {
+                return Err(Status::Failed);
+            }
         }
         Ok(Self {
             engine,
@@ -166,6 +182,8 @@ impl Session {
             docs: BTreeMap::new(),
             hashes: BTreeMap::new(),
             blobs: Vec::new(),
+            #[cfg(not(target_family = "wasm"))]
+            child,
         })
     }
 
@@ -176,6 +194,10 @@ impl Session {
         let name = core::str::from_utf8(name).map_err(|_| Status::Invalid)?;
         if !name::is_safe(name) {
             return Err(Status::Invalid);
+        }
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(child) = &mut self.child {
+            return child.push(name.as_bytes(), data);
         }
         self.inputs
             .entry(name.to_string())
@@ -189,6 +211,10 @@ impl Session {
     /// `cancel` は、この呼び出しの中断の合図。時間の上限があれば、その合図で止める。
     pub fn call(&mut self, request: &[u8], cancel: &CancelToken) -> Reply {
         self.blobs.clear();
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(child) = &mut self.child {
+            return process_reply(child.call(request, cancel));
+        }
         let mut diagnostics = Diagnostics::new();
         let result = self.run(request, cancel, &mut diagnostics);
         let status = if result.is_some() {
@@ -204,6 +230,10 @@ impl Session {
 
     /// 直前の呼び出しが作ったバイナリの結果を取り出す。番号がないか、取り出したあとなら `None`
     pub fn take(&mut self, blob: u32) -> Option<Vec<u8>> {
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(child) = &mut self.child {
+            return child.take(blob);
+        }
         let slot = self.blobs.get_mut(usize::try_from(blob).ok()?)?;
         slot.take().map(|blob| blob.bytes)
     }
@@ -1111,6 +1141,25 @@ fn limits(budget: Option<&messages::Budget>) -> Limits {
         }
     }
     limits
+}
+
+/// 子プロセスの答えを、呼び出しの答えにする。子プロセスを止めたときは、その理由の診断で失敗する
+#[cfg(not(target_family = "wasm"))]
+fn process_reply(answer: Result<(Status, Option<Vec<u8>>), crate::process::Failure>) -> Reply {
+    use crate::process::Failure;
+    let code = match answer {
+        Ok((status, Some(response))) => return Reply { status, response },
+        // 応答のない状態は、子プロセスの中のセッションが使えないときだけ起きる
+        Ok((_, None)) | Err(Failure::Caught) => codes::CALL_PROCESS_CAUGHT,
+        Err(Failure::Cancelled) => codes::CALL_REQUEST_CANCELLED,
+        Err(Failure::TimedOut) => codes::BUDGET_TIME_EXCEEDED,
+    };
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.report(Diagnostic::new(code));
+    Reply {
+        status: Status::Failed,
+        response: respond(None, &diagnostics, &[]),
+    }
 }
 
 /// 応答の JSON（`schema/messages.json` の `response`）を書く
@@ -4989,7 +5038,8 @@ mod tests {
         assert!(Session::new(br#"{"v":1}"#).is_ok());
         assert!(Session::new(br#"{"v":1,"engine":"native"}"#).is_ok());
         assert_eq!(
-            Session::new(br#"{"v":1,"engine":"process"}"#).err(),
+            Session::new(br#"{"v":1,"engine":"process","process_path":"no-such-folder/zumen"}"#)
+                .err(),
             Some(Status::Failed)
         );
         assert_eq!(Session::new(br#"{"v":2}"#).err(), Some(Status::Invalid));
