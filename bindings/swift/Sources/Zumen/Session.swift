@@ -74,7 +74,7 @@ public final class Session: @unchecked Sendable {
         return handle == nil
     }
 
-    /// 入力を名前で渡す（`zm_push`）。同じ名前なら置き換える
+    /// 名前のついた入力にバイト列を足す（`zm_push`）。同じ名前で何回か呼ぶと、後ろに足していく
     public func push(_ name: String, _ data: Data) throws {
         try push(nameData: Data(name.utf8), data)
     }

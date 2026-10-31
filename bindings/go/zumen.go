@@ -346,7 +346,7 @@ func (s *Session) withBuf(ctx context.Context, f func(buf uint32) (int32, error)
 	return code, data, nil
 }
 
-// Push は、入力を名前で渡す（zm_push）。同じ名前なら置き換える。
+// Push は、名前のついた入力にバイト列を足す（zm_push）。同じ名前で何回か呼ぶと、後ろに足していく。
 func (s *Session) Push(ctx context.Context, name string, data []byte) error {
 	return s.PushBytes(ctx, []byte(name), data)
 }

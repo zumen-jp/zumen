@@ -194,7 +194,7 @@ final class Session {
   /// 閉じたか
   bool get isClosed => _handle == nullptr || _closePending;
 
-  /// 入力を名前で渡す（zm_push）。同じ名前なら置き換える
+  /// 名前のついた入力にバイト列を足す（zm_push）。同じ名前で何回か呼ぶと、後ろに足していく
   void push(String name, Uint8List data) => pushBytes(_utf8(name), data);
 
   /// 入力を、名前のバイト列で渡す
