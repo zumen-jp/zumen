@@ -255,3 +255,4 @@
 - [0219: 境界では IFC を open で建物モデルの文書として開き、要約・要素と成分・IDS の照合を別の op で返す](0219-ifc-at-the-boundary.md)（2026-10-31、採用）
 - [0220: BCF 3.0 の bcfzip をレビューの文書に写して読み、元の bcfzip の知らない要素を保って書き戻す](0220-bcf-3-0.md)（2026-10-31、採用）
 - [0221: wasm のモジュールを、zumen-abi の feature で図面と BIM に分け、判定の規則とモジュールの表を schema/boundary.toml に置く](0221-wasm-modules.md)（2026-10-31、採用）
+- [0222: zumen-geom3d に 3D の型・カーネルと切断の trait・合成の形の組を置き、カーネルの候補は manifold-rust を第一にして試料で測る](0222-geom3d-types-and-kernel-trait.md)（2026-10-31、採用）

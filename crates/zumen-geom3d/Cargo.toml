@@ -1,0 +1,17 @@
+[package]
+name = "zumen-geom3d"
+description = "zumen の 3D の幾何。点・配置・メッシュと、形状表現を評価するカーネルと平面での切断の trait（決定 0018）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
+# 三角関数（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+
+[lints]
+workspace = true

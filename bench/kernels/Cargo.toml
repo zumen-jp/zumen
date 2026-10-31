@@ -1,0 +1,44 @@
+# 3D のカーネルの候補を、合成の形で比べる試作（#414）。コアのワークスペースには入れない。
+[package]
+name = "zumen-bench-kernels"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "compare"
+path = "src/main.rs"
+
+# wasm の大きさは、候補を 1 つずつ入れて測る（size.sh）
+[features]
+default = ["own", "manifold", "csgrs"]
+own = ["dep:i_overlay"]
+manifold = ["dep:manifold-rust"]
+csgrs = ["dep:csgrs", "dep:nalgebra"]
+
+[dependencies]
+zumen-base = { path = "../../crates/zumen-base" }
+zumen-geom2d = { path = "../../crates/zumen-geom2d" }
+zumen-geom3d = { path = "../../crates/zumen-geom3d" }
+earcutr = "0.5"
+nalgebra = { version = "0.33", optional = true }
+libm = "0.2.16"
+i_overlay = { version = "9", optional = true }
+csgrs = { version = "0.20.1", default-features = false, features = ["f64", "earcut"], optional = true }
+manifold-rust = { version = "0.19.1", default-features = false, optional = true }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+# csgrs が依存する core2 は、crates.io のすべての版が取り下げ（yank）られていて、新しく解決できない。
+# 比べるためだけに、上流のリポジトリの 0.4.0 の版を当てる
+[patch.crates-io]
+core2 = { git = "https://github.com/technocreatives/core2", rev = "545e84b" }
