@@ -334,6 +334,52 @@ params = { name = "text" }
 since = "0.2.0"
 status = "active"
 
+# 建物モデル（決定 0207・0212）
+
+[codes."building.global-id.invalid"]
+description = "GlobalId が 22 文字でないか、使えない文字を含むので、インスタンスの番号で ID を作った"
+severity = "warning"
+params = { global_id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."building.global-id.exists"]
+description = "同じ GlobalId がもうあるので、後の要素はインスタンスの番号で ID を作った"
+severity = "warning"
+params = { global_id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."building.id.exists"]
+description = "同じ ID の要素がもうあるので、要素を足さなかった"
+severity = "error"
+params = { id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."building.placement.invalid"]
+description = "配置の連鎖が循環するので、配置なしにした"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."building.placement.missing"]
+description = "配置の親の要素が配置を持たないので、配置なしにした"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."building.placement.unsupported"]
+description = "連鎖が解けない配置（通り芯や線形の配置など）を含むので、配置なしにした"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+since = "0.2.0"
+status = "active"
+
 # AutoCAD の系統（決定 0008）
 
 [codes."dwg.version.unsupported"]

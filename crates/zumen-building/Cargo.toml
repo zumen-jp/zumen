@@ -1,0 +1,16 @@
+[package]
+name = "zumen-building"
+description = "zumen の建物モデル（L2、決定 0207）。要素と成分、ID とハッシュ、配置の連鎖、関係の索引"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+# 要素のハッシュ（決定 0156）。C と asm を使わない pure の機能だけを使う
+blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
+
+[lints]
+workspace = true

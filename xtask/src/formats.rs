@@ -97,13 +97,15 @@ pub fn generate(root: &Path) -> Result<String, String> {
     let mut errors = check(&ledger, root, &decisions);
     errors.extend(check_bans(&ledger, &deny));
     if errors.is_empty() {
-        errors.extend(check_packages(&ledger, &metadata(root)?));
+        let metadata = metadata(root)?;
+        errors.extend(check_packages(&ledger, &metadata));
+        errors.extend(check_layers(&metadata));
     }
     if errors.is_empty() {
         Ok(render::render(&ledger, &decisions))
     } else {
         Err(format!(
-            "形式の権利の検査で問題がある:\n- {}",
+            "形式の権利と層の向きの検査で問題がある:\n- {}",
             errors.join("\n- ")
         ))
     }
@@ -513,6 +515,66 @@ fn check_bans(ledger: &Ledger, deny: &toml::Value) -> Vec<String> {
         .filter(|name| bans.is_none_or(|b| !b.iter().any(|v| full_ban(v, name))))
         .map(|name| format!("deny.toml: `{name}` を [bans].deny で例外・版の制限なく禁止する"))
         .collect()
+}
+
+/// 層の向き（決定 0008・0207）。左の crate は、右の crate に、依存をたどっても依存しない
+const LAYERS: &[(&str, &[&str])] = &[("zumen-building", &["zumen-ifc", "zumen-step"])];
+
+/// [`LAYERS`] の crate から依存をたどり、依存してはならない crate に届けば、その道筋を返す。左の crate では
+/// 試験だけの依存（dev）もたどる
+fn check_layers(metadata: &Value) -> Vec<String> {
+    let Some(Value::Array(packages)) = metadata.pointer("/packages") else {
+        return vec!["cargo metadata: packages の配列がない".to_string()];
+    };
+    let mut dependencies: BTreeMap<&str, Vec<(&str, bool)>> = BTreeMap::new();
+    for package in packages {
+        let Some(Value::String(name)) = package.pointer("/name") else {
+            continue;
+        };
+        let list = dependencies.entry(name.as_str()).or_default();
+        if let Some(Value::Array(found)) = package.pointer("/dependencies") {
+            for dependency in found {
+                if let Some(Value::String(target)) = dependency.pointer("/name") {
+                    let dev =
+                        matches!(dependency.pointer("/kind"), Some(Value::String(k)) if k == "dev");
+                    list.push((target.as_str(), dev));
+                }
+            }
+        }
+    }
+    let mut errors = Vec::new();
+    for (from, forbidden) in LAYERS {
+        // 幅優先にたどり、最初に届いた道筋を報告する
+        let mut came: BTreeMap<&str, &str> = BTreeMap::new();
+        let mut queue = std::collections::VecDeque::from([*from]);
+        while let Some(name) = queue.pop_front() {
+            for (target, dev) in dependencies.get(name).into_iter().flatten() {
+                if (*dev && name != *from) || *target == *from || came.contains_key(target) {
+                    continue;
+                }
+                came.insert(target, name);
+                queue.push_back(target);
+            }
+        }
+        for banned in *forbidden {
+            if !came.contains_key(banned) {
+                continue;
+            }
+            let mut path = vec![*banned];
+            while let Some(previous) = path.last().and_then(|n| came.get(n)) {
+                path.push(previous);
+                if *previous == *from {
+                    break;
+                }
+            }
+            path.reverse();
+            errors.push(format!(
+                "crate `{from}` は `{banned}` に依存してはならない（決定 0008・0207）: {}",
+                path.join(" → ")
+            ));
+        }
+    }
+    errors
 }
 
 fn check_packages(ledger: &Ledger, metadata: &Value) -> Vec<String> {

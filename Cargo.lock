@@ -313,6 +313,14 @@ name = "zumen-base"
 version = "0.2.0"
 
 [[package]]
+name = "zumen-building"
+version = "0.2.0"
+dependencies = [
+ "blake3",
+ "zumen-base",
+]
+
+[[package]]
 name = "zumen-c"
 version = "0.2.0"
 dependencies = [

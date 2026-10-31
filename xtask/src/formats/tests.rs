@@ -308,6 +308,28 @@ fn checks_all_packages_and_rejects_malformed_declarations() {
 }
 
 #[test]
+fn building_model_does_not_reach_ifc() {
+    let graph = |building: &str| {
+        packages(&format!(
+            r#"{{"packages":[{{"name":"zumen-building","dependencies":[{building}]}},{{"name":"zumen-base","dependencies":[]}},{{"name":"middle","dependencies":[{{"name":"zumen-step","kind":null}}]}},{{"name":"helper","dependencies":[{{"name":"zumen-ifc","kind":"dev"}}]}}]}}"#
+        ))
+    };
+    assert!(check_layers(&graph(r#"{"name":"zumen-base","kind":null}"#)).is_empty());
+    // 依存の依存の、試験だけの依存はたどらない
+    assert!(check_layers(&graph(r#"{"name":"helper","kind":null}"#)).is_empty());
+    let errors = check_layers(&graph(r#"{"name":"middle","kind":null}"#));
+    assert_eq!(errors.len(), 1);
+    assert!(
+        errors[0].ends_with("zumen-building → middle → zumen-step"),
+        "{errors:?}"
+    );
+    // 自分の試験だけの依存はたどる
+    let errors = check_layers(&graph(r#"{"name":"zumen-ifc","kind":"dev"}"#));
+    assert!(errors[0].contains("`zumen-ifc`"), "{errors:?}");
+    assert!(!check_layers(&packages(r#"{}"#)).is_empty());
+}
+
+#[test]
 fn renders_records_in_key_order_with_working_links() {
     let (_, ledger, decisions) = fixture();
     let output = render::render(&ledger, &decisions);

@@ -109,6 +109,72 @@ pub const BUDGET_WORK_EXCEEDED: Code = Code::new(
     &[],
 );
 
+/// 同じ GlobalId がもうあるので、後の要素はインスタンスの番号で ID を作った
+///
+/// `building.global-id.exists`（0.2.0 から）
+pub const BUILDING_GLOBAL_ID_EXISTS: Code = Code::new(
+    "building.global-id.exists",
+    Severity::Warning,
+    None,
+    &[Param::new("global_id", ParamType::Text)],
+    &[],
+);
+
+/// GlobalId が 22 文字でないか、使えない文字を含むので、インスタンスの番号で ID を作った
+///
+/// `building.global-id.invalid`（0.2.0 から）
+pub const BUILDING_GLOBAL_ID_INVALID: Code = Code::new(
+    "building.global-id.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("global_id", ParamType::Text)],
+    &[],
+);
+
+/// 同じ ID の要素がもうあるので、要素を足さなかった
+///
+/// `building.id.exists`（0.2.0 から）
+pub const BUILDING_ID_EXISTS: Code = Code::new(
+    "building.id.exists",
+    Severity::Error,
+    None,
+    &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 配置の連鎖が循環するので、配置なしにした
+///
+/// `building.placement.invalid`（0.2.0 から）
+pub const BUILDING_PLACEMENT_INVALID: Code = Code::new(
+    "building.placement.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 配置の親の要素が配置を持たないので、配置なしにした
+///
+/// `building.placement.missing`（0.2.0 から）
+pub const BUILDING_PLACEMENT_MISSING: Code = Code::new(
+    "building.placement.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 連鎖が解けない配置（通り芯や線形の配置など）を含むので、配置なしにした
+///
+/// `building.placement.unsupported`（0.2.0 から）
+pub const BUILDING_PLACEMENT_UNSUPPORTED: Code = Code::new(
+    "building.placement.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &[],
+);
+
 /// 開く文書の名前が、もう使われている
 ///
 /// `call.document.exists`（0.0.0 から）
@@ -2051,6 +2117,12 @@ pub const ALL: &[Code] = &[
     BUDGET_SEGMENTS_EXCEEDED,
     BUDGET_TIME_EXCEEDED,
     BUDGET_WORK_EXCEEDED,
+    BUILDING_GLOBAL_ID_EXISTS,
+    BUILDING_GLOBAL_ID_INVALID,
+    BUILDING_ID_EXISTS,
+    BUILDING_PLACEMENT_INVALID,
+    BUILDING_PLACEMENT_MISSING,
+    BUILDING_PLACEMENT_UNSUPPORTED,
     CALL_DOCUMENT_EXISTS,
     CALL_DOCUMENT_MISSING,
     CALL_FIELD_MISSING,
