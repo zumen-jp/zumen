@@ -47,6 +47,36 @@ jobs:
       - name: ブラウザーの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm
 
+  go:
+    name: Go の包みで適合試験（Go ${{ matrix.go }}）
+    # 階層 2 の Go は毎晩、サポート中の 2 つの大版で流す（docs/support.md、決定 0226）
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.26', '1.27']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust と、wasm32 の target を入れる
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+      - name: Go を入れる
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: bindings/go/go.sum
+      - name: すべての形式を入れた wasm のモジュールを作り、包みに写す（決定 0221）
+        run: |
+          cargo build --release --locked --target wasm32-unknown-unknown -p zumen-abi
+          cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm bindings/go/
+      - name: Go の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0226）
+        working-directory: bindings/go
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -count=1 -v ./...
+
   java:
     name: Java の包みで適合試験（${{ matrix.name }}）
     # 階層 2 の Java は毎晩流す。下限の Java 8 で作り、流す（docs/support.md、決定 0224）
