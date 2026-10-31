@@ -18,7 +18,7 @@
 - 設計: [#1](https://github.com/zumen-jp/zumen/issues/1)
 - 決定の記録: [docs/decisions](docs/decisions/README.md)
 - 形式と権利の一覧: [docs/formats](docs/formats/README.md)（台帳から生成）
-- 各言語への境界のスキーマ: [schema](schema/README.md)（C のヘッダーと C++ の包みは [bindings/c](bindings/c/README.md)、TypeScript・JavaScript の包みは [bindings/js](bindings/js/README.md)、Python の包みは [bindings/python](bindings/python/README.md)、.NET の包みは [bindings/dotnet](bindings/dotnet/README.md)、CLI と MCP のサーバーは [bindings/cli](bindings/cli/README.md)、適合試験は [bindings/conformance](bindings/conformance/README.md)）
+- 各言語への境界のスキーマ: [schema](schema/README.md)（C のヘッダーと C++ の包みは [bindings/c](bindings/c/README.md)、TypeScript・JavaScript の包みは [bindings/js](bindings/js/README.md)、Python の包みは [bindings/python](bindings/python/README.md)、.NET の包みは [bindings/dotnet](bindings/dotnet/README.md)、Java・Kotlin の包みは [bindings/java](bindings/java/README.md)、CLI と MCP のサーバーは [bindings/cli](bindings/cli/README.md)、適合試験は [bindings/conformance](bindings/conformance/README.md)）
 - 対応する環境と下限: [docs/support.md](docs/support.md)
 - 表記と用語の基準: [docs/style.md](docs/style.md)
 - 開発への参加: [CONTRIBUTING.md](CONTRIBUTING.md)（エージェント向けの規則は [AGENTS.md](AGENTS.md)）

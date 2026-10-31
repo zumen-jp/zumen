@@ -46,3 +46,98 @@ jobs:
         run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
       - name: ブラウザーの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm
+
+  java:
+    name: Java の包みで適合試験（${{ matrix.name }}）
+    # 階層 2 の Java は毎晩流す。下限の Java 8 で作り、流す（docs/support.md、決定 0224）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-latest
+            library: libzumen_abi1.so
+            separator: ':'
+          - name: macOS arm64
+            os: macos-latest
+            library: libzumen_abi1.dylib
+            separator: ':'
+          - name: Windows x64
+            os: windows-latest
+            library: zumen_abi1.dll
+            separator: ';'
+          # 32 bit の Windows では、関数を stdcall で呼ぶ（決定 0011）
+          - name: Windows x86
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            java-architecture: x86
+            library: zumen_abi1.dll
+            separator: ';'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust を入れる
+        run: rustup toolchain install
+      - name: 試験する target を入れる
+        if: matrix.target
+        run: rustup target add ${{ matrix.target }}
+      - name: Java 8 を入れる
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: '8'
+          architecture: ${{ matrix.java-architecture || '' }}
+      - name: JNA を Maven Central から取り、SHA-256 を確かめる
+        shell: bash
+        run: sh bindings/java/fetch-jna.sh target/jna
+      - name: Java の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
+        shell: bash
+        run: |
+          cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          mkdir -p target/java
+          javac -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
+          java -cp "target/java${{ matrix.separator }}target/jna/jna.jar" dev.zumen.Conformance "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
+
+  android:
+    name: Java の包みで適合試験（Android のエミュレーター、API 24）
+    # Kotlin（Android）は、Java の包みを使う。下限の Android 7.0（API 24）で流す（docs/support.md、決定 0224）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust と、エミュレーターの target を入れる
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-linux-android
+      - name: エミュレーターが KVM を使えるようにする
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: ネイティブのライブラリを、NDK で API 24 に向けて作る
+        run: |
+          bin="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$bin/x86_64-linux-android24-clang"
+          export CC_x86_64_linux_android="$bin/x86_64-linux-android24-clang"
+          export AR_x86_64_linux_android="$bin/llvm-ar"
+          cargo build --package zumen-abi --locked --release --target x86_64-linux-android
+      - name: JNA を Maven Central から取り、SHA-256 を確かめる
+        run: sh bindings/java/fetch-jna.sh target/jna
+      - name: 包みと試験を Java 8 のクラスにし、d8 で JNA の aar のクラスと一緒に dex にする
+        run: |
+          mkdir -p target/android target/java
+          javac --release 8 -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
+          (cd target/java && jar cf ../zumen.jar dev)
+          unzip -p target/jna/jna.aar classes.jar > target/jna/jna-android.jar
+          unzip -p target/jna/jna.aar jni/x86_64/libjnidispatch.so > target/android/libjnidispatch.so
+          cp target/x86_64-linux-android/release/libzumen_abi1.so target/android/
+          d8="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)d8"
+          "$d8" --release --min-api 24 --output target/android/classes.zip target/zumen.jar target/jna/jna-android.jar
+      - name: エミュレーターの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 24
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
+          script: sh bindings/java/android/run.sh target/android
