@@ -12,3 +12,339 @@ retrieved = "2026-10-30"
 license = "MIT"
 license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e5c39452ad003/LICENSE"
 attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf の examples/entities/text_alignments.py が書き出した DXF。MIT License の本文は licenses/ezdxf-MIT.txt"
+
+[[samples]]
+path = "dwg/zumen-arcdim-r2004.dwg"
+sha256 = "5b3fed52811d2fc210f150a4fcdb0b7db498ec0498c8157b198ffea5e6c3c979"
+bytes = 65837
+title = "zumen-arcdim-r2004.dwg（弧長寸法（ARC_DIMENSION）。R2004 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-arcdim-r2004_ascii.dxf"
+sha256 = "39188eedff9992bb2de00666f3f1a9b75248e11931f0a52648792b6712b4dec5"
+bytes = 266163
+title = "zumen-arcdim-r2004_ascii.dxf（弧長寸法（ARC_DIMENSION）。R2004 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-arcdim-r2018.dwg"
+sha256 = "86f977d9bcf19d8a9f7d8bd3aca83be8b4be55473968a0ab5ff6eddd1ff39292"
+bytes = 41272
+title = "zumen-arcdim-r2018.dwg（弧長寸法（ARC_DIMENSION）。R2018 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-arcdim-r2018_ascii.dxf"
+sha256 = "68b6299529f74baad57f78086dc758f6b7cfc940191b6622fec3f0b7baf15daf"
+bytes = 175521
+title = "zumen-arcdim-r2018_ascii.dxf（弧長寸法（ARC_DIMENSION）。R2018 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-layout-r2000.dwg"
+sha256 = "67c0eb33f14d968324b1c39c58bb3c7650a7ff899be1fea77efbd8fd61dd566e"
+bytes = 333633
+title = "zumen-layout-r2000.dwg（印刷の尺度が 1:1 でないレイアウト。R2000 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-layout-r2000_ascii.dxf"
+sha256 = "baa14b9ab376d23e6eefd26b513a32177cb173dfda1d427103464e7380120c80"
+bytes = 228280
+title = "zumen-layout-r2000_ascii.dxf（印刷の尺度が 1:1 でないレイアウト。R2000 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-layout-r2004.dwg"
+sha256 = "8454092d3eb0ed222ca38b31a51235e663b9dd38c06f4282ff19c0ca2da148d7"
+bytes = 59500
+title = "zumen-layout-r2004.dwg（印刷の尺度が 1:1 でないレイアウト。R2004 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-layout-r2004_ascii.dxf"
+sha256 = "746d2eee6bf5242fca1e1086b0a7f667a850d8447dac63c0d548844fef734484"
+bytes = 225448
+title = "zumen-layout-r2004_ascii.dxf（印刷の尺度が 1:1 でないレイアウト。R2004 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-layout-r2018.dwg"
+sha256 = "e19c7136cc61f5c89dd6122ed0f82cdf7d532b9dfc018a108ca9a839b402edb3"
+bytes = 33974
+title = "zumen-layout-r2018.dwg（印刷の尺度が 1:1 でないレイアウト。R2018 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-layout-r2018_ascii.dxf"
+sha256 = "1d80589a6c6f4cc779d6449ed983607474fc3fd9758723dcba644ac86cd8470b"
+bytes = 134414
+title = "zumen-layout-r2018_ascii.dxf（印刷の尺度が 1:1 でないレイアウト。R2018 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-minsert-r2000.dwg"
+sha256 = "6e554ff17cff95bbec75a0f822a95d24377d58d3a53ced599dda523d95c13650"
+bytes = 178144
+title = "zumen-minsert-r2000.dwg（MINSERT（属性なしと属性つき）。R2000 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-minsert-r2000_ascii.dxf"
+sha256 = "60afd12a31cd01c233807acd0747f345820d820d79db0ffc26c59eb4917d0e3c"
+bytes = 216145
+title = "zumen-minsert-r2000_ascii.dxf（MINSERT（属性なしと属性つき）。R2000 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-minsert-r2004.dwg"
+sha256 = "b9cb55b5cbf91c03751def3d0862c67f7471d1171fd4efc20171ee3b0bf127c2"
+bytes = 58248
+title = "zumen-minsert-r2004.dwg（MINSERT（属性なしと属性つき）。R2004 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-minsert-r2004_ascii.dxf"
+sha256 = "773466535ea258f30d496504e41f80832bef0d1cafe36484360e5e961f315cd5"
+bytes = 215852
+title = "zumen-minsert-r2004_ascii.dxf（MINSERT（属性なしと属性つき）。R2004 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-minsert-r2018.dwg"
+sha256 = "61286223bb18d6636f1f7b67253ba5527051df52fceec4c833bb9e8379513269"
+bytes = 34261
+title = "zumen-minsert-r2018.dwg（MINSERT（属性なしと属性つき）。R2018 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-minsert-r2018_ascii.dxf"
+sha256 = "54eada1e269c6d0135a0ad8b64b960b1e3d988e834379bfe0b5af04cc2ebed68"
+bytes = 123775
+title = "zumen-minsert-r2018_ascii.dxf（MINSERT（属性なしと属性つき）。R2018 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-a-r2000.dwg"
+sha256 = "8888c1390415e42500c136afbbdc6ef29ebf6bd4e0e795c2a0e4fb0933fcff89"
+bytes = 227591
+title = "zumen-points-a-r2000.dwg（点（PDMODE 34・PDSIZE 5）。R2000 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-a-r2000_ascii.dxf"
+sha256 = "8bed9c5c146b8d049e53aecf0daae5f2e109dcd459073d338d750154f4b6c473"
+bytes = 217855
+title = "zumen-points-a-r2000_ascii.dxf（点（PDMODE 34・PDSIZE 5）。R2000 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-a-r2018.dwg"
+sha256 = "159b7fcbd0242ae9980d075a6b339149b7e4c0a5d85ca421aad894fe7260fd32"
+bytes = 33173
+title = "zumen-points-a-r2018.dwg（点（PDMODE 34・PDSIZE 5）。R2018 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-a-r2018_ascii.dxf"
+sha256 = "3ca60b373608804e1ddea103f1e34254ad39184333300620872cc3b8abad8dbc"
+bytes = 124957
+title = "zumen-points-a-r2018_ascii.dxf（点（PDMODE 34・PDSIZE 5）。R2018 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-b-r2000.dwg"
+sha256 = "cd69581a7d5a0f02ae21ba65b760dcf4983c93def430fb7d39b2199d4415e8bb"
+bytes = 227591
+title = "zumen-points-b-r2000.dwg（点（PDMODE 99・PDSIZE -10）。R2000 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-b-r2000_ascii.dxf"
+sha256 = "7855e8a46207e6534632359bdde16896a602777ee22518e6b760fe503564e9e0"
+bytes = 217925
+title = "zumen-points-b-r2000_ascii.dxf（点（PDMODE 99・PDSIZE -10）。R2000 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-b-r2018.dwg"
+sha256 = "5c3069f91fcf5efb6b5c5196bd778d56e2bcdf79da6fba7c6886ba19e4a54dcb"
+bytes = 33846
+title = "zumen-points-b-r2018.dwg（点（PDMODE 99・PDSIZE -10）。R2018 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-points-b-r2018_ascii.dxf"
+sha256 = "34e8383007181ab8082234313154a85eebc88334010f4939f2fedaa56bf24a1f"
+bytes = 126330
+title = "zumen-points-b-r2018_ascii.dxf（点（PDMODE 99・PDSIZE -10）。R2018 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-xclip-r2013.dwg"
+sha256 = "a1728a3a92b181ff09a05bb3a230e6ade3d943ac352182b1ebda88d850e64894"
+bytes = 35320
+title = "zumen-xclip-r2013.dwg（ブロックの切り抜き（長方形・多角形・反転）。R2013 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-xclip-r2013_ascii.dxf"
+sha256 = "aa71c3087b7187699562c633708af2437d0b70404de3b3cc5feae37b97ca17b5"
+bytes = 128449
+title = "zumen-xclip-r2013_ascii.dxf（ブロックの切り抜き（長方形・多角形・反転）。R2013 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-xclip-r2018.dwg"
+sha256 = "b3b71240f055da90bfc3f61cf4d25e83680b6e7138f018b300c5585e1070b4d7"
+bytes = 32277
+title = "zumen-xclip-r2018.dwg（ブロックの切り抜き（長方形・多角形・反転）。R2018 の DWG）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "dwg/zumen-xclip-r2018_ascii.dxf"
+sha256 = "ada8626807ba9d2d6f803fe88fc3455c0b6657a44602b56799e27ed58f9c9cdb"
+bytes = 124464
+title = "zumen-xclip-r2018_ascii.dxf（ブロックの切り抜き（長方形・多角形・反転）。R2018 の DXF）"
+publisher = "zumen-jp"
+url = "https://github.com/zumen-jp/zumen/blob/main/xtask/autocad/samples.lsp"
+retrieved = "2026-10-31"
+license = "CC0-1.0"
+license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
+attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
