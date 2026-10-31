@@ -421,17 +421,27 @@ mod tests {
     #[cfg(unix)]
     fn silent() -> (PathBuf, Child) {
         use std::os::unix::fs::PermissionsExt;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        // 呼ぶたびに別のフォルダーにする。動いている子のファイルを書き直さない
         let dir = std::env::temp_dir().join(format!(
-            "zumen-abi-process-{}-{:?}",
+            "zumen-abi-process-{}-{}",
             std::process::id(),
-            thread::current().id()
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("zumen");
         std::fs::write(&path, "#!/bin/sh\nexec sleep 60\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let child = Child::spawn(&path).unwrap();
-        (dir, child)
+        // Linux では、ほかの試験のスレッドが fork した子が書き込みの記述子を exec まで
+        // 持つので、書いたばかりのファイルの実行が ETXTBSY で一時的に失敗しうる
+        for _ in 0..100 {
+            if let Some(child) = Child::spawn(&path) {
+                return (dir, child);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("{} を動かせない", path.display());
     }
 
     #[cfg(unix)]
@@ -447,11 +457,13 @@ mod tests {
             child.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new()),
             Err(Failure::Caught)
         );
-        let (_, mut child) = silent();
+        let (other, mut child) = silent();
         let cancel = CancelToken::new();
         cancel.cancel();
         let answer = child.call(br#"{"v":1,"op":"capabilities"}"#, &cancel);
         assert_eq!(answer, Err(Failure::Cancelled));
-        std::fs::remove_dir_all(&dir).unwrap();
+        for dir in [dir, other] {
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 }
