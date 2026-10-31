@@ -54,7 +54,7 @@ target/debug/zumen call --input a.dxf=samples/dxf/text_alignments.dxf request.js
 
 ## 子プロセスの形
 
-ネイティブのライブラリは、セッションの設定を `{"v":1,"engine":"process"}` にすると、この CLI を `serve --stdio` で子プロセスとして起こし、同じメッセージを送ります。実行ファイルは `process_path` で渡すか、ライブラリと同じフォルダーに置きます（Windows では、今は `process_path` が要ります）。
+ネイティブのライブラリは、セッションの設定を `{"v":1,"engine":"process"}` にすると、この CLI を `serve --stdio` で子プロセスとして起こし、同じメッセージを送ります。実行ファイルは `process_path` で渡すか、ライブラリと同じフォルダーに置きます。子プロセスのメモリには 8 GiB の上限を付けます（Linux と Windows。macOS では付けられません、[決定 0201](../../docs/decisions/0201-process-engine-memory-limit-and-host-safety.md)）。
 
 ## MCP
 

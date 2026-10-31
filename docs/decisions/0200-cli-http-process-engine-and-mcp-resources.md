@@ -79,6 +79,7 @@ HTTP は 2、`process` は 1、リソースは 2 を選ぶ。依存は足さな�
   - Node.js の包みの `process`。今の JavaScript の包みは同期の API で、子プロセスとのやり取りは非同期になるので、非同期のセッションの形を決めてから作る。Go の包みは、まだない。
   - 画像の大きさの上限（描画の op と一緒に作る）。
 - 公開するまで、HTTP の道筋・メソッド・上限の値は変えてよい。
+- 残りのうち、メモリの上限・Windows で探すこと・SIGPIPE は [0201](0201-process-engine-memory-limit-and-host-safety.md) で作り、Node.js と画像の上限を見送る理由を書いた。
 
 ## 参照
 
