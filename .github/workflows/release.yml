@@ -19,7 +19,7 @@ env:
   CRATES: >-
     -p zumen-json -p zumen-base -p zumen-sdk -p zumen-crs -p zumen-step -p zumen-geom2d -p zumen-drawing -p zumen-acad
     -p zumen-json -p zumen-base -p zumen-sdk -p zumen-crs -p zumen-step -p zumen-geom2d -p zumen-drawing -p zumen-acad
-    -p zumen-jww -p zumen-sxf -p zumen-xml -p zumen-zip -p zumen-scene -p zumen-profile -p zumen-abi -p zumen -p zumen-cli
+    -p zumen-jww -p zumen-sxf -p zumen-xml -p zumen-zip -p zumen-ifc -p zumen-scene -p zumen-profile -p zumen-abi -p zumen -p zumen-cli
 
 jobs:
   version:

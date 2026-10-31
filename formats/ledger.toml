@@ -270,8 +270,9 @@ place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（手元でだけ使う）"]
 samples = ["日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）"]
-decisions = ["0008", "0207"]
+decisions = ["0008", "0207", "0211"]
 legacy-decisions = ["0028"]
+docs = ["docs/formats/ifc.md"]
 
 [[formats.ifc.evidence]]
 title = "IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）"

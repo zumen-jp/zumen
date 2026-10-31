@@ -879,6 +879,53 @@ severity = "info"
 since = "0.2.0"
 status = "active"
 
+# IFC の L1（決定 0207・0211）
+
+[codes."ifc.file.invalid"]
+description = "ISO 10303-21 の始まり・DATA の節・終わりのどれかがない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.record.invalid"]
+description = "文の形が読めないので、レコードにせずに、次の文から読んだ"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.schema.unsupported"]
+description = "FILE_SCHEMA がないか、最初のスキーマの名前が IFC で始まらない"
+severity = "error"
+params = { schema = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.duplicate.dropped"]
+description = "同じ番号のインスタンスが複数あるので、番号で引くときは初めのものを使う"
+severity = "warning"
+params = { id = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.reference.missing"]
+description = "値の中の参照が、ファイルにない番号を指す"
+severity = "warning"
+params = { id = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.entry.missing"]
+description = "ifcZIP の書庫に、IFC-SPF（.ifc）の項目がない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.entry.unsupported"]
+description = "IFC-SPF（.ifc）の項目が複数ある ifcZIP の書庫は読まない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
 # DXF から図面の領域モデルへの変換（決定 0022）
 
 [codes."drawing.mark-height.dropped"]

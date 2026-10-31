@@ -371,6 +371,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-ifc"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-sdk",
+ "zumen-step",
+ "zumen-sxf",
+ "zumen-zip",
+]
+
+[[package]]
 name = "zumen-json"
 version = "0.2.0"
 
