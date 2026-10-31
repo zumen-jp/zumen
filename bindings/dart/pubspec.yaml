@@ -1,0 +1,14 @@
+name: zumen
+description: zumen のネイティブのライブラリの C ABI を dart:ffi で呼ぶ包み（決定 0227）。
+version: 0.2.0
+# pub.dev にはまだ出さない（段階 2 の別の子 issue）
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  ffi: '>=2.0.2 <3.0.0'
+
+dev_dependencies:
+  crypto: ^3.0.3
