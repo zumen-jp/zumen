@@ -1,5 +1,5 @@
 {
-  "description": "open は、SXF の判定の規則に合う入力を SXF のコーデックで読む。FILE_SCHEMA が SXF の図面のスキーマでない入力（IFC など、同じ ISO-10303-21 の始まりを持つもの）は、診断を返して失敗する。drawing は、SFC を図面モデルに変換し、P21 は SFC と同じ形のフィーチャに組み直して同じ変換に通す（決定 0120・0121・0132）。SFC の図形は用紙の座標で、部分図の外の図形は用紙に置く。入力は試験の中で作る合成の SFC と、同じ図面の P21 で、レイヤ・線分・A3 の用紙を持つ",
+  "description": "open は、SXF の判定の規則に合う入力を SXF のコーデックで読む。FILE_SCHEMA が SXF の図面のスキーマでない入力（AP203 など、同じ ISO-10303-21 の始まりを持つもの）は、診断を返して失敗する。FILE_SCHEMA が IFC の入力は、SXF より先に IFC として開く（決定 0219、cases/building.json）。drawing は、SFC を図面モデルに変換し、P21 は SFC と同じ形のフィーチャに組み直して同じ変換に通す（決定 0120・0121・0132）。SFC の図形は用紙の座標で、部分図の外の図形は用紙に置く。入力は試験の中で作る合成の SFC と、同じ図面の P21 で、レイヤ・線分・A3 の用紙を持つ",
   "steps": [
     {
       "push": {
@@ -10,7 +10,7 @@
     {
       "push": {
         "name": "b.sfc",
-        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
       }
     },
     {
@@ -124,7 +124,7 @@
       "status": "failed",
       "expect": {
         "/diagnostics/0/code": "sxf.schema.unsupported",
-        "/diagnostics/0/params/schema": "IFC4"
+        "/diagnostics/0/params/schema": "CONFIG_CONTROL_DESIGN"
       },
       "absent": [
         "/result"

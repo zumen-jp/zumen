@@ -11,6 +11,7 @@
 
 pub mod abi;
 mod bounds;
+mod building;
 mod changes;
 mod check;
 mod convert;

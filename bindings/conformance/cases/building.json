@@ -1,0 +1,228 @@
+{
+  "description": "open は、FILE_SCHEMA が IFC の入力を、図面の形式より先に IFC として開き、建物モデルの文書にする（決定 0219）。building は要約を、building_elements は選んだ要素と成分を、ids_check は IDS の照合の結果を返す。EXPRESS を渡せば、IFC の属性を EXPRESS の名前で照らす。review_adopt_ids は照合の指摘をレビューの文書に取り込み、review_carry は建物モデルの要素のハッシュで文書を移す。図面の op は建物モデルの文書に使えない。入力は試験の中で書いた小さな IFC4・IDS・EXPRESS",
+  "steps": [
+    {
+      "push": {
+        "name": "a.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n#10=IFCUNITASSIGNMENT((#11));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#20=IFCLOCALPLACEMENT($,#21);\n#21=IFCAXIS2PLACEMENT3D(#22,$,$);\n#22=IFCCARTESIANPOINT((0.,0.,3000.));\n#34=IFCBUILDINGSTOREY('0000000000000000000034',$,'1F',$,$,#20,$,$,.ELEMENT.,3000.);\n#40=IFCRELAGGREGATES('0000000000000000000040',$,$,$,#1,(#34));\n#60=IFCRELCONTAINEDINSPATIALSTRUCTURE('0000000000000000000060',$,$,$,(#80),#34);\n#61=IFCRELDEFINESBYPROPERTIES('0000000000000000000061',$,$,$,(#80),#62);\n#62=IFCPROPERTYSET('0000000000000000000062',$,'Pset_DoorCommon',$,(#63));\n#63=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);\n#80=IFCDOOR('0000000000000000000080',$,'Door',$,$,$,$,'D-1',2100.,$,.DOOR.,$,$);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "door.ids",
+        "text": "<ids xmlns=\"http://standards.buildingsmart.org/IDS\"><info><title>t</title></info><specifications><specification name=\"tag\" ifcVersion=\"IFC4\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCDOOR</simpleValue></name></entity></applicability><requirements><attribute><name><simpleValue>Tag</simpleValue></name><value><simpleValue>D-1</simpleValue></value></attribute></requirements></specification><specification name=\"width\" ifcVersion=\"IFC4\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCDOOR</simpleValue></name></entity></applicability><requirements><attribute><name><simpleValue>OverallWidth</simpleValue></name></attribute></requirements></specification></specifications></ids>"
+      }
+    },
+    {
+      "push": {
+        "name": "ifc4.exp",
+        "text": "SCHEMA IFC4;\nTYPE IfcGloballyUniqueId = STRING (22) FIXED; END_TYPE;\nTYPE IfcLabel = STRING; END_TYPE;\nTYPE IfcText = STRING; END_TYPE;\nTYPE IfcIdentifier = STRING; END_TYPE;\nTYPE IfcPositiveLengthMeasure = IfcLengthMeasure; END_TYPE;\nTYPE IfcLengthMeasure = REAL; END_TYPE;\nTYPE IfcDoorTypeEnum = ENUMERATION OF (DOOR, GATE, USERDEFINED, NOTDEFINED); END_TYPE;\nENTITY IfcRoot ABSTRACT;\n  GlobalId : IfcGloballyUniqueId;\n  OwnerHistory : OPTIONAL IfcRoot;\n  Name : OPTIONAL IfcLabel;\n  Description : OPTIONAL IfcText;\nEND_ENTITY;\nENTITY IfcDoor SUBTYPE OF (IfcRoot);\n  ObjectType : OPTIONAL IfcLabel;\n  ObjectPlacement : OPTIONAL IfcRoot;\n  Representation : OPTIONAL IfcRoot;\n  Tag : OPTIONAL IfcIdentifier;\n  OverallHeight : OPTIONAL IfcPositiveLengthMeasure;\n  OverallWidth : OPTIONAL IfcPositiveLengthMeasure;\n  PredefinedType : OPTIONAL IfcDoorTypeEnum;\n  OperationType : OPTIONAL IfcLabel;\n  UserDefinedOperationType : OPTIONAL IfcLabel;\nEND_ENTITY;\nEND_SCHEMA;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.ifc"
+      },
+      "expect": {
+        "/result/doc": "a.ifc",
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building",
+        "doc": "a.ifc"
+      },
+      "expect": {
+        "/result/schema": "IFC4",
+        "/result/project": "0000000000000000000001",
+        "/result/project_name": "Project",
+        "/result/elements": 3,
+        "/result/classes": [
+          {
+            "name": "IfcBuildingStorey",
+            "count": 1
+          },
+          {
+            "name": "IfcDoor",
+            "count": 1
+          },
+          {
+            "name": "IfcProject",
+            "count": 1
+          }
+        ],
+        "/result/units/0/prefix": "MILLI"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcdoor",
+        "components": [
+          "identity",
+          "properties",
+          "parent"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/elements/0/id": "0000000000000000000080",
+        "/result/elements/0/identity/tag": "D-1",
+        "/result/elements/0/parent/of": {
+          "target": "0000000000000000000034",
+          "kind": "contained"
+        },
+        "/result/elements/0/properties/0/properties/0/value/boolean": true
+      },
+      "absent": [
+        "/result/elements/0/class",
+        "/result/next_offset"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "offset": 1,
+        "limit": 1,
+        "components": [
+          "class",
+          "placement"
+        ]
+      },
+      "expect": {
+        "/result/total": 3,
+        "/result/next_offset": 2,
+        "/result/elements/0/class/name": "IfcBuildingStorey",
+        "/result/elements/0/placement/world": [
+          [
+            1,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            3000
+          ]
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "a.ifc"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.document.unsupported",
+        "/diagnostics/0/params/name": "a.ifc",
+        "/diagnostics/0/params/op": "drawing"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "ids_check",
+        "doc": "a.ifc",
+        "ids": "door.ids"
+      },
+      "expect": {
+        "/result/title": "t",
+        "/result/specifications/0/status": "passed",
+        "/result/specifications/1/status": "unknown",
+        "/result/findings/0/diagnostic/code": "ids.requirement.unsupported",
+        "/result/findings/0/diagnostic/severity": "info"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "ids_check",
+        "doc": "a.ifc",
+        "ids": "door.ids",
+        "express": "ifc4.exp"
+      },
+      "expect": {
+        "/result/specifications/1/status": "failed",
+        "/result/total": 1,
+        "/result/findings/0/specification": "width",
+        "/result/findings/0/diagnostic/severity": "error",
+        "/result/findings/0/diagnostic/at/0/id": "0000000000000000000080"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_adopt_ids",
+        "doc": "a.ifc",
+        "ids": "door.ids",
+        "express": "ifc4.exp",
+        "target": "model",
+        "findings": [
+          0
+        ]
+      },
+      "expect": {
+        "/result/topics": 1,
+        "/blobs/0/kind": "file"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_adopt_ids",
+        "doc": "a.ifc",
+        "ids": "door.ids",
+        "target": "model",
+        "findings": [
+          1
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/findings/0"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "close",
+        "docs": [
+          "a.ifc"
+        ]
+      },
+      "expect": {
+        "/result": {}
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building",
+        "doc": "a.ifc"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.document.missing"
+      }
+    }
+  ]
+}

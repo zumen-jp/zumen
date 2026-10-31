@@ -1,29 +1,34 @@
-//! `review_carry` と `review_adopt` の op（決定 0214・0218）。レビューの文書を入力で受け、図面の要素の ID と
-//! ハッシュで新しい版へ移すか、照合の指摘を取り込んで、文書を blob で返す。
+//! `review_carry`・`review_adopt`・`review_adopt_ids` の op（決定 0214・0218・0219）。レビューの文書を入力で
+//! 受け、図面か建物モデルの要素の ID とハッシュで新しい版へ移すか、照合の指摘を取り込んで、文書を blob で返す。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Cx, Stop};
-use zumen_drawing::{Drawing2D, Hash};
+use zumen_drawing::Drawing2D;
 use zumen_json::{ToJson, Writer};
 use zumen_review::{Adopted, Change, Reference, Review, Target, Version};
 
 use crate::messages::{
-    self, CarriedState, CheckFinding, ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult,
+    self, CarriedState, ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult,
 };
 use crate::session::{Failed, fail, invalid_value, stopped};
 
 /// limit を書かなかったときに返す参照の数
 const LIMIT: u64 = 1000;
 
-/// 図面の文書の版。要素の ID とハッシュ（決定 0156）
-struct Plan {
-    hash: String,
-    elements: BTreeMap<String, String>,
+/// 文書の版。文書のハッシュと、要素の ID とハッシュ（決定 0156・0207）
+pub(crate) struct Plan {
+    pub(crate) hash: String,
+    pub(crate) elements: BTreeMap<String, String>,
 }
 
 impl Plan {
-    fn new(drawing: &Drawing2D, hash: String, cx: &mut Cx<'_>) -> Result<Self, Failed> {
+    /// 図面の文書の版
+    pub(crate) fn drawing(
+        drawing: &Drawing2D,
+        hash: String,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Failed> {
         let mut elements = BTreeMap::new();
         zumen_drawing::id::each_element(drawing, |_, id, found| {
             let hash = found.hash_checked(cx)?;
@@ -53,16 +58,14 @@ fn state(change: Change) -> CarriedState {
     }
 }
 
-/// レビューの文書の対象を、図面の文書の版へ移す。移した文書のバイト列も返す
+/// レビューの文書の対象を、文書の版へ移す。移した文書のバイト列も返す
 pub(crate) fn carry(
-    drawing: &Drawing2D,
-    hash: &Hash,
+    plan: Plan,
     review: &[u8],
     request: &ReviewCarryRequest,
     cx: &mut Cx<'_>,
 ) -> Result<(ReviewCarryResult, Vec<u8>), Failed> {
     let review = Review::read(review, cx).map_err(|_| Failed)?;
-    let plan = Plan::new(drawing, hash.to_string(), cx)?;
     let from = review
         .targets
         .iter()
@@ -97,12 +100,13 @@ pub(crate) fn carry(
     ))
 }
 
-/// 照合の指摘のうち `chosen` の番号のものを、レビューの文書に取り込む。足した文書のバイト列も返す
+/// 照合の指摘（規則の ID と診断）のうち `chosen` の番号のものを、レビューの文書に取り込む。足した文書の
+/// バイト列も返す
 pub(crate) fn adopt(
-    drawing: &Drawing2D,
+    plan: &Plan,
     target: Target,
     review: Option<&[u8]>,
-    findings: &[CheckFinding],
+    findings: &[(String, &messages::Diagnostic)],
     chosen: &[u64],
     cx: &mut Cx<'_>,
 ) -> Result<(ReviewAdoptResult, Vec<u8>), Failed> {
@@ -110,20 +114,19 @@ pub(crate) fn adopt(
         Some(bytes) => Review::read(bytes, cx).map_err(|_| Failed)?,
         None => Review::default(),
     };
-    let plan = Plan::new(drawing, target.hash.clone(), cx)?;
     let mut adopted = Vec::with_capacity(chosen.len());
     for (index, number) in chosen.iter().enumerate() {
-        let Some(finding) = usize::try_from(*number).ok().and_then(|n| findings.get(n)) else {
+        let Some((rule, finding)) = usize::try_from(*number).ok().and_then(|n| findings.get(n))
+        else {
             return Err(fail(cx, invalid_value(format!("/findings/{index}"))));
         };
         let mut out = Writer::new();
-        finding.diagnostic.to_json(&mut out);
+        finding.to_json(&mut out);
         let Ok(diagnostic) = zumen_json::parse(&out.into_bytes()) else {
             return Err(fail(cx, invalid_value(format!("/findings/{index}"))));
         };
-        // 診断の場所のうち、図面の要素の ID だけを参照にする。レイヤや用紙の ID は要素ではない
+        // 診断の場所のうち、要素の ID だけを参照にする。レイヤや用紙の ID は要素ではない
         let elements = finding
-            .diagnostic
             .at
             .iter()
             .filter_map(|place| place.id.as_ref())
@@ -135,7 +138,7 @@ pub(crate) fn adopt(
             })
             .collect();
         adopted.push(Adopted {
-            rule: finding.rule.clone(),
+            rule: rule.clone(),
             diagnostic,
             elements,
         });

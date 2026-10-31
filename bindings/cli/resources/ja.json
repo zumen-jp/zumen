@@ -20,6 +20,7 @@
     "building.placement.unsupported": "解けない配置「{kind}」を含むので、配置なしにしました（{count} 件）。",
     "call.document.exists": "文書「{name}」はもう開いています。",
     "call.document.missing": "文書「{name}」がありません。",
+    "call.document.unsupported": "文書「{name}」には、{op} を使えません。",
     "call.field.missing": "要求に、必要な欄 {pointer} がありません。",
     "call.field.unsupported": "要求の欄 {pointer} は、このコアが知らないか、この形では使えません。",
     "call.format.unsupported": "入力「{name}」の形式を判定できないか、このコアでは読めない形式です。",

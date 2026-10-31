@@ -147,6 +147,13 @@ group-by = ["name"]
 since = "0.0.0"
 status = "active"
 
+[codes."call.document.unsupported"]
+description = "文書の種類で使えない op。図面の op に建物モデルの文書を、建物モデルの op に図面の文書を渡した"
+severity = "error"
+params = { name = "text", op = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."call.format.unsupported"]
 description = "入力の形式を判定できない。または、このコアでは読めない形式"
 severity = "error"

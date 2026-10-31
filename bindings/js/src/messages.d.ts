@@ -19,7 +19,11 @@ export type Request =
   | CheckRequest
   | ValidateRequest
   | ReviewCarryRequest
-  | ReviewAdoptRequest;
+  | ReviewAdoptRequest
+  | BuildingRequest
+  | BuildingElementsRequest
+  | IdsCheckRequest
+  | ReviewAdoptIdsRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -1340,7 +1344,7 @@ export interface ValidateResult {
 export interface ReviewCarryRequest extends RequestCommon {
   /** op の名前 */
   op: "review_carry";
-  /** 新しい版の文書の名前。open で作ったもの */
+  /** 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く */
   doc: string;
   /** レビューの文書の入力の名前（zm_push で渡した JSON） */
   review: string;
@@ -1417,6 +1421,486 @@ export interface ReviewAdoptResult {
   added: string[];
   /** 足した後の文書の指摘の数 */
   topics: number;
+}
+
+/** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から */
+export interface BuildingRequest extends RequestCommon {
+  /** op の名前 */
+  op: "building";
+  /** 文書の名前。open で IFC を開いたもの */
+  doc: string;
+}
+
+/** 建物モデルの要約 */
+export interface BuildingResult {
+  /** IFC のスキーマの名前（FILE_SCHEMA の最初） */
+  schema: string;
+  /** 入力のバイト列のハッシュ。review_carry の対象の版に使う */
+  hash: string;
+  /** プロジェクトの要素の ID。なければ持たない */
+  project?: string;
+  /** プロジェクトの名前。なければ持たない */
+  project_name?: string;
+  /** プロジェクトの単位 */
+  units: BuildingUnit[];
+  /** 要素の数 */
+  elements: number;
+  /** クラスごとの要素の数。クラスの名前の順 */
+  classes: ClassCount[];
+}
+
+/** 単位 */
+export interface BuildingUnit {
+  /** 単位の種類（LENGTHUNIT・AREAUNIT など） */
+  kind: string;
+  /** SI の接頭辞（MILLI など） */
+  prefix?: string;
+  /** 単位の名前（METRE、換算する単位なら inch など） */
+  name: string;
+  /** 換算する単位の、SI の単位での大きさ。SI の単位は持たない */
+  scale?: number;
+}
+
+/** クラスの要素の数 */
+export interface ClassCount {
+  /** IFC のクラスの名前（IfcWall など） */
+  name: string;
+  /** 要素の数 */
+  count: number;
+}
+
+/** 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から */
+export interface BuildingElementsRequest extends RequestCommon {
+  /** op の名前 */
+  op: "building_elements";
+  /** 文書の名前。open で IFC を開いたもの */
+  doc: string;
+  /** 返す要素の ID。書けば、その要素だけを、書いた順に返す。ない ID は返さない */
+  ids?: string[];
+  /** IFC のクラスの名前。書けば、そのクラスの要素だけを返す。大文字と小文字を区別しない */
+  class?: string;
+  /** 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す */
+  components?: BuildingComponent[];
+  /** 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0 */
+  offset?: number;
+  /** 返す数の上限。書かなければ 1000 */
+  limit?: number;
+}
+
+/** building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員 */
+export type BuildingComponent =
+  | "identity"
+  | "class"
+  | "classification"
+  | "spatial"
+  | "parent"
+  | "placement"
+  | "type_of"
+  | "properties"
+  | "quantities"
+  | "material"
+  | "opening"
+  | "group"
+  | "connection"
+  | "level"
+  | "zone"
+  | "style"
+  | "relations"
+  | (string & {});
+
+/** 要素の一覧。offset から limit 個まで */
+export interface BuildingElementsResult {
+  /** 要素 */
+  elements: BuildingElement[];
+  /** 選んだ要素の数 */
+  total: number;
+  /** 続きの最初の位置。続きがなければ持たない */
+  next_offset?: number;
+}
+
+/** 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ */
+export interface BuildingElement {
+  /** 要素の ID（GlobalId か、i と番号） */
+  id: string;
+  /** 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207） */
+  hash: string;
+  /** 名前・説明・タグ・長い名前 */
+  identity?: IdentityComponent;
+  /** クラス */
+  class?: ClassComponent;
+  /** 分類の参照 */
+  classification?: ClassificationReference[];
+  /** 空間の要素の種類と高さ */
+  spatial?: SpatialComponent;
+  /** 親と、参照される空間 */
+  parent?: ParentComponent;
+  /** 配置 */
+  placement?: PlacementComponent;
+  /** 型の要素の ID */
+  type_of?: string;
+  /** プロパティのセット */
+  properties?: PropertySet[];
+  /** 数量のセット */
+  quantities?: QuantitySet[];
+  /** 材料 */
+  material?: MaterialComponent;
+  /** 開口と、埋める要素 */
+  opening?: OpeningComponent;
+  /** 属するグループの要素の ID */
+  group?: string[];
+  /** 接続 */
+  connection?: ConnectionLink[];
+  /** レベル */
+  level?: LevelComponent;
+  /** 区画 */
+  zone?: ZoneComponent;
+  /** 表示のスタイル */
+  style?: StyleComponent;
+  /** 索引から求める関係 */
+  relations?: RelationsComponent;
+}
+
+/** 名前・説明・タグ・長い名前 */
+export interface IdentityComponent {
+  /** 名前 */
+  name?: string;
+  /** 説明 */
+  description?: string;
+  /** タグ */
+  tag?: string;
+  /** 長い名前 */
+  long_name?: string;
+}
+
+/** クラス */
+export interface ClassComponent {
+  /** IFC4 のクラスの名前。IFC2X3 の StandardCase などは、元の名前を original に残して直す */
+  name: string;
+  /** PredefinedType */
+  predefined?: string;
+  /** ObjectType など、USERDEFINED のときの名前 */
+  user_defined?: string;
+  /** ファイルに書いた実体の名前 */
+  original: string;
+}
+
+/** 分類の参照 */
+export interface ClassificationReference {
+  /** 分類の体系の名前 */
+  system?: string;
+  /** 体系の版 */
+  edition?: string;
+  /** 分類の記号 */
+  code?: string;
+  /** 分類の名前 */
+  name?: string;
+}
+
+/** 単位とともに持つ値 */
+export interface Measured {
+  /** 値 */
+  value: number;
+  /** 単位。解けなければ持たない */
+  unit?: BuildingUnit;
+}
+
+/** 空間の要素 */
+export interface SpatialComponent {
+  /** site・building・storey・space・spatial_zone か、元の実体の名前 */
+  kind: string;
+  /** 高さ */
+  elevation?: Measured;
+  /** 基準の高さ */
+  ref_elevation?: Measured;
+}
+
+/** 親 */
+export interface ParentComponent {
+  /** 親の要素 */
+  of?: Membership;
+  /** 参照される空間の要素の ID */
+  referenced_in: string[];
+}
+
+/** 親との関係 */
+export interface Membership {
+  /** 親の要素の ID */
+  target: string;
+  /** 関係の種類 */
+  kind: ParentKind;
+  /** 入れ子の順。0 から */
+  order?: number;
+}
+
+/** 配置 */
+export interface PlacementComponent {
+  /** 配置の親の要素の ID */
+  relative_to?: string;
+  /** 親をたどった世界の変換。3 行 4 列（回転と移動）。解けなければ持たない */
+  world?: number[][];
+  /** 解けなかった配置の実体の名前 */
+  unsupported?: string;
+}
+
+/** 値 */
+export interface BuildingValue {
+  /** 値の型の名前（IfcLengthMeasure・IfcLabel など） */
+  type_name?: string;
+  /** 値の種類 */
+  kind: BuildingValueKind;
+  /** real と、2^53 − 1 までの integer の値 */
+  number?: number;
+  /** text と enumeration の値と、2^53 − 1 を超える integer の値 */
+  text?: string;
+  /** boolean と logical の値。logical の不明は持たない */
+  boolean?: boolean;
+  /** element の要素の ID */
+  element?: string;
+  /** list の値 */
+  items?: BuildingValue[];
+}
+
+/** プロパティのセット */
+export interface PropertySet {
+  /** 名前 */
+  name: string;
+  /** プロパティ */
+  properties: Property[];
+}
+
+/** プロパティ */
+export interface Property {
+  /** 名前 */
+  name: string;
+  /** 値。値がなければ持たない */
+  value?: BuildingValue;
+  /** 単位 */
+  unit?: BuildingUnit;
+}
+
+/** 数量のセット */
+export interface QuantitySet {
+  /** 名前 */
+  name: string;
+  /** 計測の方法 */
+  method?: string;
+  /** 数量 */
+  quantities: Quantity[];
+}
+
+/** 数量 */
+export interface Quantity {
+  /** 名前 */
+  name: string;
+  /** 種類 */
+  kind: QuantityKind;
+  /** 値 */
+  value: Measured;
+  /** 式 */
+  formula?: string;
+}
+
+/** 材料 */
+export interface MaterialComponent {
+  /** 材料の組み方 */
+  kind: MaterialKind;
+  /** 部分 */
+  parts: MaterialPart[];
+  /** 層の向き */
+  direction?: string;
+  /** 層の基準からのずれ */
+  offset?: Measured;
+}
+
+/** 材料の部分 */
+export interface MaterialPart {
+  /** 材料の要素の ID */
+  material?: string;
+  /** 名前 */
+  name?: string;
+  /** 厚さ */
+  thickness?: Measured;
+}
+
+/** 開口 */
+export interface OpeningComponent {
+  /** この開口が穴を開ける要素の ID */
+  voids?: string;
+  /** この要素が埋める開口の要素の ID */
+  fills?: string;
+}
+
+/** 接続 */
+export interface ConnectionLink {
+  /** 関係の実体の名前 */
+  kind: string;
+  /** 接続する要素の ID */
+  target: string;
+}
+
+/** レベル */
+export interface LevelComponent {
+  /** 名前 */
+  name?: string;
+  /** 種類 */
+  kind?: string;
+  /** 高さ */
+  height: Measured;
+  /** 基準 */
+  datum?: string;
+}
+
+/** 区画 */
+export interface ZoneComponent {
+  /** 区画の種類 */
+  kind?: string;
+  /** 構成する要素の ID */
+  members: string[];
+}
+
+/** 表示のスタイル */
+export interface StyleComponent {
+  /** 面の色の RGB（0 から 1） */
+  surface_color?: number[];
+  /** 透明度（0 から 1） */
+  transparency?: number;
+  /** 線の色の RGB（0 から 1） */
+  curve_color?: number[];
+  /** 提示のレイヤの名前 */
+  layers: string[];
+}
+
+/** 索引から求める関係。要素の ID の列 */
+export interface RelationsComponent {
+  /** 子（集約・入れ子・包含） */
+  children: string[];
+  /** 参照する要素 */
+  referenced: string[];
+  /** 型の実例 */
+  instances: string[];
+  /** 開口 */
+  openings: string[];
+  /** 開口を埋める要素 */
+  fillings: string[];
+  /** グループ・システム・区画の構成員 */
+  members: string[];
+}
+
+/** 親との関係の種類。集約・入れ子・包含 */
+export type ParentKind =
+  | "aggregates"
+  | "nests"
+  | "contained"
+  | (string & {});
+
+/** 値の種類 */
+export type BuildingValueKind =
+  | "real"
+  | "integer"
+  | "text"
+  | "boolean"
+  | "logical"
+  | "enumeration"
+  | "element"
+  | "list"
+  | (string & {});
+
+/** 数量の種類 */
+export type QuantityKind =
+  | "length"
+  | "area"
+  | "volume"
+  | "count"
+  | "weight"
+  | "time"
+  | (string & {});
+
+/** 材料の組み方。単一・層・断面・構成・一覧 */
+export type MaterialKind =
+  | "single"
+  | "layers"
+  | "profiles"
+  | "constituents"
+  | "list"
+  | (string & {});
+
+/** 仕様の結果。unknown は確かめられない facet があった */
+export type IdsStatus =
+  | "passed"
+  | "failed"
+  | "unknown"
+  | (string & {});
+
+/** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から */
+export interface IdsCheckRequest extends RequestCommon {
+  /** op の名前 */
+  op: "ids_check";
+  /** 文書の名前。open で IFC を開いたもの */
+  doc: string;
+  /** IDS の入力の名前（zm_push で渡した .ids） */
+  ids: string;
+  /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす */
+  express?: string;
+  /** 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0 */
+  offset?: number;
+  /** 返す数の上限。書かなければ 1000 */
+  limit?: number;
+}
+
+/** 照合の結果。指摘は offset から limit 個まで */
+export interface IdsCheckResult {
+  /** IDS の題 */
+  title?: string;
+  /** 仕様ごとの結果。IDS の順 */
+  specifications: IdsSpecification[];
+  /** 指摘。仕様の順 */
+  findings: IdsFinding[];
+  /** 全体の指摘の数 */
+  total: number;
+  /** 続きの最初の位置。続きがなければ持たない */
+  next_offset?: number;
+}
+
+/** 仕様の結果 */
+export interface IdsSpecification {
+  /** 名前 */
+  name: string;
+  /** 識別子 */
+  identifier?: string;
+  /** 結果 */
+  status: IdsStatus;
+  /** 適用の条件に合う要素の数 */
+  applicable: number;
+  /** 要件を満たさない要素の数 */
+  failed: number;
+  /** 確かめられなかった要素の数 */
+  unsupported: number;
+}
+
+/** 指摘。diagnostic は診断と同じ形で、describe で文にできる */
+export interface IdsFinding {
+  /** 仕様の名前 */
+  specification: string;
+  /** code・重要度・場所（要素の ID）・値 */
+  diagnostic: Diagnostic;
+}
+
+/** 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から */
+export interface ReviewAdoptIdsRequest extends RequestCommon {
+  /** op の名前 */
+  op: "review_adopt_ids";
+  /** 文書の名前。open で IFC を開いたもの */
+  doc: string;
+  /** IDS の入力の名前（zm_push で渡した .ids） */
+  ids: string;
+  /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす */
+  express?: string;
+  /** 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す */
+  review?: string;
+  /** 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す */
+  target: string;
+  /** 取り込む指摘の番号の列。ids_check の指摘の並びの順で、0 から数える */
+  findings: number[];
 }
 
 /** 表の項目 */
@@ -1751,4 +2235,8 @@ export interface Operations {
   validate: { request: ValidateRequest; result: ValidateResult };
   review_carry: { request: ReviewCarryRequest; result: ReviewCarryResult };
   review_adopt: { request: ReviewAdoptRequest; result: ReviewAdoptResult };
+  building: { request: BuildingRequest; result: BuildingResult };
+  building_elements: { request: BuildingElementsRequest; result: BuildingElementsResult };
+  ids_check: { request: IdsCheckRequest; result: IdsCheckResult };
+  review_adopt_ids: { request: ReviewAdoptIdsRequest; result: unknown };
 }
