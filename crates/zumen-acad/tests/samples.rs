@@ -1413,6 +1413,82 @@ fn dwg_header_variables_match_the_dxf_of_the_same_drawing() {
     }
 }
 
+/// AutoCAD が作った点の試料。名前を固定して、試料がなければ試験も失敗する。
+#[cfg(test)]
+fn autocad_point_samples() -> [(&'static str, i64, f64); 4] {
+    [
+        ("zumen-points-a-r2000", 34, 5.0),
+        ("zumen-points-a-r2018", 34, 5.0),
+        ("zumen-points-b-r2000", 99, -10.0),
+        ("zumen-points-b-r2018", 99, -10.0),
+    ]
+}
+
+#[cfg(test)]
+fn autocad_point_path(stem: &str, suffix: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../samples/dwg")
+        .join(format!("{stem}{suffix}"))
+}
+
+/// AutoCAD で指定した正と負の PDSIZE と、PDMODE を DWG・DXF の両方から読む（#316）。
+#[test]
+fn autocad_point_header_values_match_the_values_set_in_autocad() {
+    for (stem, mode, size) in autocad_point_samples() {
+        for suffix in [".dwg", "_ascii.dxf"] {
+            let path = autocad_point_path(stem, suffix);
+            let db = table(&path);
+            let value = |name: &[u8], code| {
+                db.variable(name)
+                    .and_then(|values| values.iter().find(|value| value.code == code))
+                    .map(|value| &value.data)
+            };
+            assert_eq!(
+                value(b"$PDMODE", 70),
+                Some(&Data::Int(mode)),
+                "{}",
+                path.display()
+            );
+            assert_eq!(
+                value(b"$PDSIZE", 40),
+                Some(&Data::Real(size)),
+                "{}",
+                path.display()
+            );
+        }
+    }
+}
+
+/// 点の表し方も、AutoCAD で設定した形と大きさに移す（決定 0160）。
+#[cfg(feature = "drawing")]
+#[test]
+fn autocad_point_header_values_lift_to_the_expected_style() {
+    use zumen_drawing::{PointMark, PointSize, PointStyle};
+    for (stem, mode, _) in autocad_point_samples() {
+        let expected = if mode == 34 {
+            PointStyle {
+                mark: PointMark::Plus,
+                circle: true,
+                square: false,
+                size: PointSize::Length(5.0),
+            }
+        } else {
+            assert_eq!(mode, 99);
+            PointStyle {
+                mark: PointMark::Cross,
+                circle: true,
+                square: true,
+                size: PointSize::Screen(10.0),
+            }
+        };
+        for suffix in [".dwg", "_ascii.dxf"] {
+            let path = autocad_point_path(stem, suffix);
+            let (drawing, _) = lifted(&path);
+            assert_eq!(drawing.point_style, Some(expected), "{}", path.display());
+        }
+    }
+}
+
 #[cfg(feature = "drawing")]
 #[test]
 fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
