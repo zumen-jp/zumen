@@ -3,6 +3,7 @@
 //! IFC-SPF（ISO 10303-21）を、スキーマを知らずにインスタンスのグラフとして読む。レコードは `zumen-step` で読み、
 //! インスタンスの番号から位置を引く表と、値の中の参照（`#n`）の引き方を置く。知らない実体も元のバイトのまま持ち、
 //! 変えずに書くと元のバイト列に戻る。版（IFC2X3・IFC4・IFC4X3）は問わない。
+//! IFC2X3・IFC4・IFC4X3 のファイルは、建物モデル（L2）に変換できる（決定 0215）。
 
 use core::ops::Range;
 use std::collections::BTreeMap;
@@ -13,6 +14,8 @@ use zumen_step::Dialect;
 
 pub use zumen_step::{Form, Part, Quote, Record, Value};
 
+#[cfg(feature = "building")]
+mod building;
 mod zip;
 
 pub use zip::{IfcZip, IfcZipFile};

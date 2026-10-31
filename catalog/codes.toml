@@ -972,6 +972,77 @@ severity = "error"
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.version.unsupported"]
+description = "IFC2X3・IFC4・IFC4X3 でない版のファイルからは、建物モデルを作らない"
+severity = "error"
+params = { schema = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.global-id.missing"]
+description = "GlobalId のない実体なので、インスタンスの番号で ID を作った"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.text.invalid"]
+description = "文字列のエスケープか UTF-8 が読めない所を、置き換えの文字にした"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.unit.missing"]
+description = "値の単位が解けないので、単位なしにした"
+severity = "warning"
+params = { type = "key" }
+group-by = ["type"]
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.attribute.invalid"]
+description = "意味を持つ位置の値が、期待した型でないので読まなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key", position = "uint" }
+group-by = ["kind", "position"]
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.parent.exists"]
+description = "要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.placement.invalid"]
+description = "配置の連鎖が循環するか、参照が欠けるか、軸を作れないので、配置なしにした"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.placement.unsupported"]
+description = "通り芯や線形の配置は、種類だけを持ち、解けない配置にした"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.entity.dropped"]
+description = "建物モデルに写さない実体を、L1 に残した。件数は種類ごとに数える"
+severity = "info"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
 # DXF から図面の領域モデルへの変換（決定 0022）
 
 [codes."drawing.mark-height.dropped"]

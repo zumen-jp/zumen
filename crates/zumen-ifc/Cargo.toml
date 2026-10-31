@@ -12,6 +12,14 @@ zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-step = { version = "0.2.0", path = "../zumen-step" }
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
+zumen-building = { version = "0.2.0", path = "../zumen-building", optional = true }
+# 配置の軸の長さ。std の数学の関数は環境で値が違いうる（決定 0007）
+libm = { version = "0.2.16", default-features = false, optional = true }
+
+[features]
+default = ["building"]
+# 建物モデル（L2）への変換。L1 だけを使うなら外せる
+building = ["dep:zumen-building", "dep:libm"]
 
 [lints]
 workspace = true
