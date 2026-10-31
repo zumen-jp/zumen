@@ -50,7 +50,7 @@
 - **適合試験**
   - `conformance_test.go` が、`bindings/conformance` の組を包みのメソッドで流す。状態・応答の値・ハッシュの一覧が `hashes.txt` と一致することと、シーンの blob を読み手で読んで応答の数と合うことを確かめる。型を渡す `Call` と、取り消しも確かめる。
   - 毎晩（`nightly.yml`）、Linux で Go 1.26 と 1.27 のジョブを流す。
-- **`process`。** 包みはまだ作らない。`SessionOptions` の `engine` に `process` を渡すと、Node.js の包みと同じく、wasm のモジュールが `failed` を返す。子プロセスに分けたい使い方が出るまでは、CLI の `zumen serve --stdio` を `os/exec` で起こし、同じ JSON-RPC を送れば同じ結果になる。
+- **`process`。** 包みはまだ作らない。`SessionOptions` の `engine` に `process` を渡すと、Node.js の包みと同じく、wasm のモジュールが `failed` を返す。子プロセスに分けたい使い方が出るまでは、CLI の `zumen serve --stdio` を `os/exec` で起こし、同じ JSON-RPC を送れば同じ結果になる。使い方を待つ issue は #462。
 
 ## 影響
 
@@ -66,4 +66,4 @@
 
 - [0006](0006-language-tiers.md)、[0011](0011-bindings-through-ffi.md)、[0012](0012-boundary-functions-and-messages.md)、[0013](0013-boundary-in-four-forms.md)、[0014](0014-platforms-signing-and-distribution.md)、[0015](0015-add-only-boundary-and-version-floors.md)、[0137](0137-columnar-scene-transfer.md)、[0201](0201-process-engine-memory-limit-and-host-safety.md)、[0221](0221-wasm-modules.md)、[0224](0224-java-kotlin-wrapper.md)、[0225](0225-swift-wrapper.md)
 - [docs/support.md](../support.md)、[bindings/go](../../bindings/go/README.md)
-- #432
+- #432、#462
