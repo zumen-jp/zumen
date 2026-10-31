@@ -52,3 +52,9 @@
 3. `cargo xtask codegen --check` で、ファイルと台帳の一対一・ハッシュとバイト数・ライセンス・大きさを確かめます。
 4. ライセンスが本文や著作権表示の同梱を求める場合は、その条件を満たすように本文を `licenses/` に置き、台帳の表示の文から参照します。
 5. PR に、ライセンスの本文の URL と、再配布を認める箇所を書きます。
+
+## AutoCAD で作った図面
+
+`dwg/zumen-*` は、zumen-jp が AutoCAD 2027 で作った図面です（#316）。ライセンスは CC0 1.0 です。主題ごとに 1 つの図面を作り、版ごとに DWG と、同じ図面の DXF（`_ascii.dxf`）を対で置きます。試験は、この対の表と図面モデルを比べます。
+
+作り直すときは、`xtask/autocad/make.sh` を使います。SSH でつなぐ Windows の AutoCAD の accoreconsole で `xtask/autocad/samples.lsp` を流し、できた図面を `dwg/` に置きます。そのあと、台帳のハッシュとバイト数を直します。AutoCAD は保存のたびに、Windows のログイン名を図面の DWGPROPS に書きます。

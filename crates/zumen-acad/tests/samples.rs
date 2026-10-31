@@ -52,6 +52,13 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
     found
 }
 
+/// 受け取った図面（`ZUMEN_SAMPLES`）の組があるか。試料の中に、試験が確かめる種類の要素があることは、受け取った
+/// 図面にだけ求める。公開サンプル（`samples/dwg`）は、主題ごとに要素をしぼって作る（#316）
+#[cfg(test)]
+fn received_pairs() -> bool {
+    pairs().iter().any(|(dwg, _)| support::received(dwg))
+}
+
 /// 数を許容差で比べ、ほかの文字は同じであること。用紙の mm を図面の単位に戻すか、DWG のラジアンを度に戻すと、
 /// 最後の桁が違うことがある
 #[cfg(all(test, feature = "drawing"))]
@@ -297,10 +304,13 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     matches!((name(&dwg_objects, data), name(&dxf_objects, theirs)),
                         (Some(Data::Text(a)), Some(Data::Text(b))) if a.starts_with(b"*U") && b.starts_with(b"*U"))
                 };
-                // 書き直したブロックは、名前の番号も変わる。表の ACAD_TABLE と、表のブロックの中の INSERT が指す
+                // 書き直したブロックは、名前の番号も変わる。表の ACAD_TABLE と、表のブロックの中の INSERT が指す。
+                // 用紙のブロック（`*Paper_Space0` など）の番号も、DXF を書くときに振り直す
                 let rewritten = |data: &Data, theirs: &Data| {
                     matches!((data, theirs), (Data::Text(a), Data::Text(b))
-                        if a.starts_with(b"*U") && b.starts_with(b"*U"))
+                        if [b"*U".as_slice(), b"*Paper_Space"]
+                            .iter()
+                            .any(|prefix| a.starts_with(prefix) && b.starts_with(prefix)))
                 };
                 // DXF の TABLESTYLE は文字スタイル（7）を名前で書き、DWG はハンドルで持つ
                 let style_name = |data: &Data, theirs: &Data| match data {
@@ -311,8 +321,12 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                         .is_some_and(|v| &v.data == theirs),
                     _ => false,
                 };
+                // DXF は 16 桁で 1 になる挿入の尺度（41〜43）を、既定の値として省く。DWG は最後の桁が違う値を持つ
+                let unit_scale = theirs.is_none()
+                    && matches!((value.code, &value.data), (41..=43, Data::Real(r)) if (r - 1.0).abs() < 1e-15);
                 assert!(
-                    theirs.is_some_and(|theirs| same(&value.data, theirs)
+                    unit_scale
+                        || theirs.is_some_and(|theirs| same(&value.data, theirs)
                         || (object.kind == b"TABLESTYLE"
                             && value.code == 7
                             && style_name(&value.data, theirs))
@@ -656,7 +670,7 @@ fn r2010_and_later_table_cell_values_end_with_the_displayed_text() {
             }
         }
     }
-    assert!(pairs().is_empty() || checked > 0);
+    assert!(!received_pairs() || checked > 0);
 }
 
 /// 試料の線を ID と読んだときのハッシュで指して動かし、図形を 1 つ足すと、apply が返す ID とハッシュは、
@@ -775,7 +789,7 @@ fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
             assert!(check::<Dxf>(&binary));
         }
     }
-    assert!(pairs().is_empty() || checked > 0);
+    assert!(!received_pairs() || checked > 0);
 }
 
 /// 試料の線のスタイルを ID で変えると、形は変わらず、変えた欄だけが読み直したときに変わっている。DWG は
@@ -935,7 +949,7 @@ fn drawings_take_back_restyled_lines() {
         checked += usize::from(check::<Dwg>(&dwg, false));
         checked += usize::from(check::<Dxf>(&dxf, true));
     }
-    assert!(pairs().is_empty() || checked > 0);
+    assert!(!received_pairs() || checked > 0);
 }
 
 /// 試料の線・円・弧・折れ線・文字・記号（INSERT）を、種類ごとに 1 つずつ ID で回して動かすと、読み直した形は変換で
@@ -1119,8 +1133,9 @@ fn drawings_take_back_transformed_elements() {
                 path.display()
             );
         }
-        // 格子に並べる記号は試料にないので、属性を除いた記号を 3 列 2 行で足してから、回して動かし、鏡映する。
-        // DWG は MINSERT として足す。R2000 より前の DWG には、まだ足せない
+        // 格子に並べる記号は試料にないので、属性と切り抜きを除いた記号を 3 列 2 行で足してから、回して動かし、
+        // 鏡映する。切り抜きを持つ記号は足さない（add.rs の placing）。DWG は MINSERT として足す。R2000 より前の
+        // DWG には、まだ足せない
         let minsert = !src.starts_with(b"AC10") || src.as_slice() >= b"AC1015".as_slice();
         if let Some((_, _, element)) = targets.iter().find(|(kind, _, _)| *kind == "symbol")
             && let Shape::Symbol(symbol) = &element.shape
@@ -1140,6 +1155,7 @@ fn drawings_take_back_transformed_elements() {
                     row_spacing: spacing(450.0),
                 }),
                 attributes: Vec::new(),
+                clip: None,
                 ..symbol.clone()
             });
             let mut diag = Diagnostics::new();
@@ -1231,7 +1247,7 @@ fn drawings_take_back_transformed_elements() {
             assert!(mirrors.contains(&"symbol"));
         }
     }
-    assert!(pairs().is_empty() || lines > 0);
+    assert!(!received_pairs() || lines > 0);
 }
 
 /// 試料の記号の定義の中の線を ID で動かすと、読み直した線は動いていて、ID は変わらない（決定 0139・0156）
@@ -1321,7 +1337,7 @@ fn drawings_take_back_lines_moved_inside_symbol_definitions() {
         checked += usize::from(check::<Dwg>(&dwg));
         checked += usize::from(check::<Dxf>(&dxf));
     }
-    assert!(pairs().is_empty() || checked > 0);
+    assert!(!received_pairs() || checked > 0);
 }
 
 /// 図面モデルで動かした線を、DWG に書き戻して読み直すと、同じ所に動いている（決定 0139）
@@ -1369,7 +1385,7 @@ fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
         assert_eq!(after[index].shape, moved.shape, "{}", dwg.display());
         checked += 1;
     }
-    assert!(pairs().is_empty() || checked > 0);
+    assert!(!received_pairs() || checked > 0);
 }
 
 /// DWG の見出しから読んだ変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE・PDSIZE）は、同じ図面の DXF の HEADER と同じ値を
@@ -3331,7 +3347,7 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
         check::<Dwg>(&dwg, &mut kinds);
         check::<Dxf>(&dxf, &mut kinds);
     }
-    assert!(pairs().is_empty() || kinds.len() == 6, "{kinds:?}");
+    assert!(!received_pairs() || kinds.len() == 6, "{kinds:?}");
 }
 
 /// 図面モデルで足した線分・円・円弧・楕円・軽量の折れ線・文字・記号を、DWG と DXF に書き戻して読み直すと、
@@ -3662,7 +3678,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
         check(&dwg, true, &mut symbols);
         check(&dxf, false, &mut symbols);
     }
-    assert!(pairs().is_empty() || symbols > 0);
+    assert!(!received_pairs() || symbols > 0);
 }
 
 /// 図形とともに動く XDATA（位置・変位・向き・距離・倍率）を持つ図形の形を変えると、DWG も DXF も何も反映しない
@@ -3748,7 +3764,7 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
     for (dwg, dxf) in pairs() {
         checked += check::<Dwg>(&dwg) + check::<Dxf>(&dxf);
     }
-    assert!(pairs().is_empty() || checked >= 2, "{checked}");
+    assert!(!received_pairs() || checked >= 2, "{checked}");
 }
 
 /// 図面モデルで用紙の要素を動かして、DWG と DXF に書き戻して読み直すと、同じ所に動いている。今のレイアウトの
@@ -4532,7 +4548,7 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
             }
         }
     }
-    if !pairs().is_empty() {
+    if received_pairs() {
         assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
     }
 }
@@ -4808,7 +4824,7 @@ fn drawings_take_back_removed_layers() {
             with_dwg += usize::from(check::<Dwg>(&path, &src, Some(&held)));
         }
     }
-    if !pairs().is_empty() {
+    if received_pairs() {
         assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
         assert!(with_dxf > 0 && with_dwg > 0, "{with_dxf} {with_dwg}");
     }
@@ -5017,7 +5033,7 @@ fn drawings_take_back_changed_text_styles() {
             *count += found;
         }
     }
-    if !pairs().is_empty() {
+    if received_pairs() {
         assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
         assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
     }
@@ -5224,7 +5240,7 @@ fn drawings_take_back_changed_line_types() {
             *count += found;
         }
     }
-    if !pairs().is_empty() {
+    if received_pairs() {
         assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
         assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
     }
@@ -5466,7 +5482,7 @@ fn drawings_take_back_changed_dimension_styles() {
             *count += found;
         }
     }
-    if !pairs().is_empty() {
+    if received_pairs() {
         assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
         assert!(counts.iter().all(|[_, removed]| *removed > 0), "{counts:?}");
     }
