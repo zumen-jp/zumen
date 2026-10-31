@@ -33,6 +33,8 @@ pub enum Request {
     Scene(SceneRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から
     Check(CheckRequest),
+    /// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
+    Validate(ValidateRequest),
 }
 
 impl Request {
@@ -49,6 +51,7 @@ impl Request {
         "tables",
         "scene",
         "check",
+        "validate",
     ];
 
     /// 目印の欄（`op`）の値
@@ -65,6 +68,7 @@ impl Request {
             Self::Tables(_) => "tables",
             Self::Scene(_) => "scene",
             Self::Check(_) => "check",
+            Self::Validate(_) => "validate",
         }
     }
 }
@@ -84,6 +88,7 @@ impl FromJson for Request {
             "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
             "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
             "check" => Self::Check(CheckRequest::read_fields(&mut object)?),
+            "validate" => Self::Validate(ValidateRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -105,6 +110,7 @@ impl ToJson for Request {
             Self::Tables(value) => value.to_json(out),
             Self::Scene(value) => value.to_json(out),
             Self::Check(value) => value.to_json(out),
+            Self::Validate(value) => value.to_json(out),
         }
     }
 }
@@ -6386,6 +6392,156 @@ impl FromJson for CheckFinding {
 }
 
 impl ToJson for CheckFinding {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValidateRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// IFC の入力の名前（zm_push で渡した .ifc か .ifczip）
+    pub input: String,
+    /// EXPRESS の入力の名前（zm_push で渡した .exp）
+    pub express: String,
+    /// 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す指摘の数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+}
+
+impl ValidateRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "validate")?;
+        let input = object.required("input", json::string)?;
+        let express = object.required("express", json::string)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        Ok(Self {
+            request_common,
+            input,
+            express,
+            offset,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("validate");
+        out.key("input");
+        out.string(&self.input);
+        out.key("express");
+        out.string(&self.express);
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for ValidateRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ValidateRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValidateResult {
+    /// EXPRESS のスキーマの名前（大文字）
+    pub schema: String,
+    /// IFC の FILE_SCHEMA の名前
+    pub file_schema: String,
+    /// EXPRESS のバイト列のハッシュ（v2: と 32 桁の 16 進）。どの EXPRESS でチェックしたかを残す
+    pub express_hash: String,
+    /// 評価しなかった規則（WHERE・UNIQUE・RULE）の数。確認できなかった項目
+    pub rules_not_evaluated: u64,
+    /// 指摘。インスタンスの番号の順に、属性の順。診断と同じ形で、describe で文にできる。count は 1
+    pub findings: Vec<Diagnostic>,
+    /// 全体の指摘の数
+    pub total: u64,
+    /// 続きの最初の指摘の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl ValidateResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let schema = object.required("schema", json::string)?;
+        let file_schema = object.required("file_schema", json::string)?;
+        let express_hash = object.required("express_hash", json::string)?;
+        let rules_not_evaluated = object.required("rules_not_evaluated", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        let findings = object.required("findings", |value| {
+            json::array(value, Diagnostic::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            schema,
+            file_schema,
+            express_hash,
+            rules_not_evaluated,
+            findings,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("schema");
+        out.string(&self.schema);
+        out.key("file_schema");
+        out.string(&self.file_schema);
+        out.key("express_hash");
+        out.string(&self.express_hash);
+        out.key("rules_not_evaluated");
+        out.uint(self.rules_not_evaluated);
+        out.key("findings");
+        out.array(&self.findings, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for ValidateResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ValidateResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

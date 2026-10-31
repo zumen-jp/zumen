@@ -17,7 +17,8 @@
         { "$ref": "#/$defs/convert_request" },
         { "$ref": "#/$defs/tables_request" },
         { "$ref": "#/$defs/scene_request" },
-        { "$ref": "#/$defs/check_request" }
+        { "$ref": "#/$defs/check_request" },
+        { "$ref": "#/$defs/validate_request" }
       ]
     },
     "request_common": {
@@ -1501,6 +1502,59 @@
         "diagnostic": { "description": "code・重要度・場所（要素・実効のレイヤ・用紙の ID）・見つけた値", "$ref": "#/$defs/diagnostic" }
       },
       "required": ["rule", "diagnostic"],
+      "additionalProperties": false
+    },
+    "validate_request": {
+      "description": "zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "validate" },
+        "input": { "description": "IFC の入力の名前（zm_push で渡した .ifc か .ifczip）", "type": "string" },
+        "express": { "description": "EXPRESS の入力の名前（zm_push で渡した .exp）", "type": "string" },
+        "offset": {
+          "description": "返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す指摘の数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      },
+      "required": ["op", "input", "express"],
+      "unevaluatedProperties": false
+    },
+    "validate_result": {
+      "description": "スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す",
+      "type": "object",
+      "properties": {
+        "schema": { "description": "EXPRESS のスキーマの名前（大文字）", "type": "string" },
+        "file_schema": { "description": "IFC の FILE_SCHEMA の名前", "type": "string" },
+        "express_hash": {
+          "description": "EXPRESS のバイト列のハッシュ（v2: と 32 桁の 16 進）。どの EXPRESS でチェックしたかを残す",
+          "type": "string"
+        },
+        "rules_not_evaluated": {
+          "description": "評価しなかった規則（WHERE・UNIQUE・RULE）の数。確認できなかった項目",
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "description": "指摘。インスタンスの番号の順に、属性の順。診断と同じ形で、describe で文にできる。count は 1",
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        },
+        "total": { "description": "全体の指摘の数", "type": "integer", "minimum": 0 },
+        "next_offset": {
+          "description": "続きの最初の指摘の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["schema", "file_schema", "express_hash", "rules_not_evaluated", "findings", "total"],
       "additionalProperties": false
     },
     "table_item": {

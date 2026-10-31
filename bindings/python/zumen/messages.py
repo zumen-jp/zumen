@@ -20,6 +20,7 @@ Request = Union[
     "TablesRequest",
     "SceneRequest",
     "CheckRequest",
+    "ValidateRequest",
 ]
 
 
@@ -2194,6 +2195,76 @@ CheckFinding = TypedDict(
 )
 
 
+# zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
+_ValidateRequestRequired = TypedDict(
+    "_ValidateRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["validate"],
+        # IFC の入力の名前（zm_push で渡した .ifc か .ifczip）
+        "input": str,
+        # EXPRESS の入力の名前（zm_push で渡した .exp）
+        "express": str,
+    },
+)
+_ValidateRequestOptional = TypedDict(
+    "_ValidateRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
+        "offset": int,
+        # 返す指摘の数の上限。書かなければ 1000
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class ValidateRequest(_ValidateRequestRequired, _ValidateRequestOptional):
+    "zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から"
+
+
+# スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す
+_ValidateResultRequired = TypedDict(
+    "_ValidateResultRequired",
+    {
+        # EXPRESS のスキーマの名前（大文字）
+        "schema": str,
+        # IFC の FILE_SCHEMA の名前
+        "file_schema": str,
+        # EXPRESS のバイト列のハッシュ（v2: と 32 桁の 16 進）。どの EXPRESS でチェックしたかを残す
+        "express_hash": str,
+        # 評価しなかった規則（WHERE・UNIQUE・RULE）の数。確認できなかった項目
+        "rules_not_evaluated": int,
+        # 指摘。インスタンスの番号の順に、属性の順。診断と同じ形で、describe で文にできる。count は 1
+        "findings": List["Diagnostic"],
+        # 全体の指摘の数
+        "total": int,
+    },
+)
+_ValidateResultOptional = TypedDict(
+    "_ValidateResultOptional",
+    {
+        # 続きの最初の指摘の位置。続きがなければ持たない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class ValidateResult(_ValidateResultRequired, _ValidateResultOptional):
+    "スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す"
+
+
 # 表の項目
 TableItem = TypedDict(
     "TableItem",
@@ -2704,6 +2775,7 @@ Operation = Literal[
     "tables",
     "scene",
     "check",
+    "validate",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -2719,4 +2791,5 @@ OPERATIONS: Dict[str, Any] = {
     "tables": ("TablesRequest", "TablesResult"),
     "scene": ("SceneRequest", "SceneResult"),
     "check": ("CheckRequest", "CheckResult"),
+    "validate": ("ValidateRequest", "ValidateResult"),
 }

@@ -4,6 +4,7 @@
 //! インスタンスの番号から位置を引く表と、値の中の参照（`#n`）の引き方を置く。知らない実体も元のバイトのまま持ち、
 //! 変えずに書くと元のバイト列に戻る。版（IFC2X3・IFC4・IFC4X3）は問わない。
 //! IFC2X3・IFC4・IFC4X3 のファイルは、建物モデル（L2）に変換できる（決定 0215）。
+//! 利用者が渡す EXPRESS に照らして、インスタンスをチェックできる（決定 0216）。
 
 use core::ops::Range;
 use std::collections::BTreeMap;
@@ -16,8 +17,10 @@ pub use zumen_step::{Form, Part, Quote, Record, Value};
 
 #[cfg(feature = "building")]
 mod building;
+mod express;
 mod zip;
 
+pub use express::{Express, check};
 pub use zip::{IfcZip, IfcZipFile};
 
 /// IFC-SPF のコーデック

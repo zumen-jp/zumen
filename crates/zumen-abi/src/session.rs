@@ -33,6 +33,7 @@ use crate::scene;
 use crate::tables::{
     StyleIds, dimension_style_item, layer_item, line_type_item, table_id, text_style_item,
 };
+use crate::validate;
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
 const ENTITIES_LIMIT: u64 = 1000;
@@ -312,6 +313,9 @@ impl Session {
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
             Request::Check(request) => self.check(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::Validate(request) => {
+                validate::validate(&self.inputs, request, &mut cx).map(|r| Box::new(r) as _)
+            }
         };
         result.ok()
     }
@@ -1144,6 +1148,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Tables(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Check(request) => &request.request_common,
+        Request::Validate(request) => &request.request_common,
     }
 }
 
@@ -1686,7 +1691,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":41}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":42}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2072,6 +2077,77 @@ mod tests {
             );
             assert_eq!(status, Status::Failed, "{profiles}");
             assert_eq!(text(&response, "/diagnostics/0/code"), code, "{profiles}");
+        }
+    }
+
+    #[test]
+    fn validates_ifc_against_pushed_express_and_pages_the_findings() {
+        let mut session = Session::new(b"").unwrap();
+        session
+            .push(
+                b"tiny.exp",
+                b"SCHEMA IFCTINY;\nTYPE LabelT = STRING; WHERE WR1 : TRUE; END_TYPE;\n\
+                ENTITY Wall;\n  Name : LabelT;\n  Tag : OPTIONAL LabelT;\nEND_ENTITY;\nEND_SCHEMA;\n",
+            )
+            .unwrap();
+        session
+            .push(
+                b"a.ifc",
+                b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n\
+                FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
+                #1=WALL('a',$);\n#2=WALL(1,$);\n#3=WALL($,$);\n#4=DOOR();\nENDSEC;\nEND-ISO-10303-21;\n",
+            )
+            .unwrap();
+        let request = |rest: &str| {
+            format!(r#"{{"v":1,"op":"validate","input":"a.ifc","express":"tiny.exp"{rest}}}"#)
+        };
+        let (status, response) = call(&mut session, &request(r#","limit":2"#));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/schema"), "IFCTINY");
+        assert_eq!(text(&response, "/result/file_schema"), "IFC4");
+        assert!(text(&response, "/result/express_hash").starts_with("v2:"));
+        assert_eq!(number(&response, "/result/rules_not_evaluated"), "1");
+        assert_eq!(number(&response, "/result/total"), "3");
+        assert_eq!(number(&response, "/result/next_offset"), "2");
+        assert_eq!(
+            text(&response, "/result/findings/0/code"),
+            "express.value.invalid"
+        );
+        assert_eq!(
+            text(&response, "/result/findings/0/params/attribute"),
+            "NAME"
+        );
+        assert_eq!(
+            text(&response, "/result/findings/1/code"),
+            "express.value.missing"
+        );
+        let diagnostics: Vec<_> = (0..2)
+            .map(|i| text(&response, &format!("/diagnostics/{i}/code")))
+            .collect();
+        assert_eq!(
+            diagnostics,
+            ["express.schema.mixed", "express.rule.unsupported"]
+        );
+        let (_, rest) = call(&mut session, &request(r#","offset":2"#));
+        assert_eq!(
+            text(&rest, "/result/findings/0/code"),
+            "express.entity.missing"
+        );
+        assert!(rest.pointer("/result/next_offset").is_none());
+
+        session.push(b"bad.exp", b"SCHEMA X;").unwrap();
+        for (input, express, code) in [
+            ("a.ifc", "none.exp", "call.input.missing"),
+            ("../a.ifc", "tiny.exp", "call.value.invalid"),
+            ("a.ifc", "bad.exp", "express.file.invalid"),
+            ("tiny.exp", "tiny.exp", "ifc.file.invalid"),
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &format!(r#"{{"v":1,"op":"validate","input":"{input}","express":"{express}"}}"#),
+            );
+            assert_eq!(status, Status::Failed, "{input} {express}");
+            assert_eq!(text(&response, "/diagnostics/0/code"), code, "{response:?}");
         }
     }
 
