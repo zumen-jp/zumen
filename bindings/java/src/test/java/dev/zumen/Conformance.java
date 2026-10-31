@@ -27,7 +27,7 @@ import java.util.Map;
  * <p>bindings/conformance/cases/*.json を、包みのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
  * 一覧が hashes.txt と一致することを確かめる。シーンの blob は、包みの読み手で読み、応答の数と合うかを確かめる。
  * 手順の読み方と応答の確かめ方は、Python の側（bindings/python/tests/conformance.py）と同じ規則で書く。
- * Android のエミュレーターでも、同じクラスを dalvikvm で流す。
+ * Android のエミュレーターでも、同じクラスを d8 で dex にして app_process で流す。
  */
 public final class Conformance {
     /** 手順の種類。手順は、どれか 1 つの欄を持つ */
