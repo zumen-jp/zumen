@@ -94,6 +94,9 @@ final class _Functions {
       _Functions(path == null ? DynamicLibrary.process() : DynamicLibrary.open(path));
 }
 
+/// 文字列の UTF-8 のバイト列（Dart 3.0 の utf8.encode は List<int> を返す）
+Uint8List _utf8(String text) => Uint8List.fromList(utf8.encode(text));
+
 /// data を、ネイティブのメモリに写して body に渡す。長さ 0 でも NULL でない番地を渡す
 R _borrow<R>(Uint8List data, R Function(Pointer<Uint8> ptr, int length) body) {
   final ptr = malloc<Uint8>(data.isEmpty ? 1 : data.length);
@@ -157,7 +160,7 @@ final class Zumen {
 
   /// 設定（session_options）を値で渡して、セッションを作る。null なら既定の設定
   Session session([SessionOptions? options]) =>
-      sessionBytes(options == null ? Uint8List(0) : utf8.encode(jsonEncode(options)));
+      sessionBytes(options == null ? Uint8List(0) : _utf8(jsonEncode(options)));
 
   /// 設定を JSON の UTF-8 のバイト列で渡して、セッションを作る。長さが 0 なら既定の設定
   Session sessionBytes(Uint8List options) {
@@ -192,7 +195,7 @@ final class Session {
   bool get isClosed => _handle == nullptr || _closePending;
 
   /// 入力を名前で渡す（zm_push）。同じ名前なら置き換える
-  void push(String name, Uint8List data) => pushBytes(utf8.encode(name), data);
+  void push(String name, Uint8List data) => pushBytes(_utf8(name), data);
 
   /// 入力を、名前のバイト列で渡す
   void pushBytes(Uint8List name, Uint8List data) {
@@ -226,11 +229,11 @@ final class Session {
   }
 
   /// 要求を JSON の文字列で渡し、応答の文字列を受け取る
-  String callText(String request) => utf8.decode(callBytes(utf8.encode(request)));
+  String callText(String request) => utf8.decode(callBytes(_utf8(request)));
 
   /// 要求の値（要求の型か、JSON にできる値）を渡し、応答を読む
   Response call(Object request) {
-    final value = jsonDecode(utf8.decode(callBytes(utf8.encode(jsonEncode(request)))));
+    final value = jsonDecode(utf8.decode(callBytes(_utf8(jsonEncode(request)))));
     return Response.fromJson(value as Map<String, Object?>);
   }
 
