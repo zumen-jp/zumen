@@ -7,7 +7,6 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -368,7 +367,7 @@ public final class Json {
                 }
                 char c = text.charAt(at++);
                 if (c == ']') {
-                    return Collections.unmodifiableList(out).isEmpty() ? out : out;
+                    return out;
                 }
                 if (c != ',') {
                     throw error(", か ] がない");

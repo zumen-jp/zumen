@@ -94,6 +94,7 @@ jobs:
         shell: bash
         run: |
           cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          mkdir -p target/java
           javac -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
           java -cp "target/java${{ matrix.separator }}target/jna/jna.jar" dev.zumen.Conformance "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
 
