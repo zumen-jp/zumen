@@ -23,6 +23,7 @@ mod process;
 mod scene;
 mod session;
 mod tables;
+mod validate;
 
 pub use abi::Status;
 pub use session::{Reply, Session};

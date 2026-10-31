@@ -1131,6 +1131,113 @@ pub const DXF_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 抽象の実体を、そのままインスタンスにしている
+///
+/// `express.abstract.invalid`（0.2.0 から）
+pub const EXPRESS_ABSTRACT_INVALID: Code = Code::new(
+    "express.abstract.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// インスタンスの属性の数が、EXPRESS の実体の属性の数と違う
+///
+/// `express.attribute-count.invalid`（0.2.0 から）
+pub const EXPRESS_ATTRIBUTE_COUNT_INVALID: Code = Code::new(
+    "express.attribute-count.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("expected", ParamType::UInt),
+        Param::new("found", ParamType::UInt),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["kind", "found"],
+);
+
+/// インスタンスの実体の名前が、EXPRESS にない
+///
+/// `express.entity.missing`（0.2.0 から）
+pub const EXPRESS_ENTITY_MISSING: Code = Code::new(
+    "express.entity.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 利用者が渡した EXPRESS を読めないか、宣言のない名前・循環する型を使っている
+///
+/// `express.file.invalid`（0.2.0 から）
+pub const EXPRESS_FILE_INVALID: Code = Code::new(
+    "express.file.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("line", ParamType::UInt),
+        Param::new("near", ParamType::Text),
+    ],
+    &[],
+);
+
+/// EXPRESS の WHERE・UNIQUE・RULE の規則は評価しない
+///
+/// `express.rule.unsupported`（0.2.0 から）
+pub const EXPRESS_RULE_UNSUPPORTED: Code = Code::new(
+    "express.rule.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rules", ParamType::UInt)],
+    &[],
+);
+
+/// IFC の FILE_SCHEMA の名前が、渡した EXPRESS のスキーマの名前と違う。そのままチェックする
+///
+/// `express.schema.mixed`（0.2.0 から）
+pub const EXPRESS_SCHEMA_MIXED: Code = Code::new(
+    "express.schema.mixed",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("file_schema", ParamType::Text),
+        Param::new("schema", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 属性の値が、EXPRESS の型に合わない
+///
+/// `express.value.invalid`（0.2.0 から）
+pub const EXPRESS_VALUE_INVALID: Code = Code::new(
+    "express.value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("attribute", ParamType::Text),
+        Param::new("expected", ParamType::Text),
+        Param::new("kind", ParamType::Text),
+        Param::new("position", ParamType::UInt),
+    ],
+    &["kind", "position"],
+);
+
+/// 省略できない属性が $ になっている
+///
+/// `express.value.missing`（0.2.0 から）
+pub const EXPRESS_VALUE_MISSING: Code = Code::new(
+    "express.value.missing",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("attribute", ParamType::Text),
+        Param::new("kind", ParamType::Text),
+        Param::new("position", ParamType::UInt),
+    ],
+    &["kind", "position"],
+);
+
 /// 意味を持つ位置の値が、期待した型でないので読まなかった
 ///
 /// `ifc.attribute.invalid`（0.2.0 から）
@@ -2305,6 +2412,14 @@ pub const ALL: &[Code] = &[
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
     DXF_XDATA_UNSUPPORTED,
+    EXPRESS_ABSTRACT_INVALID,
+    EXPRESS_ATTRIBUTE_COUNT_INVALID,
+    EXPRESS_ENTITY_MISSING,
+    EXPRESS_FILE_INVALID,
+    EXPRESS_RULE_UNSUPPORTED,
+    EXPRESS_SCHEMA_MIXED,
+    EXPRESS_VALUE_INVALID,
+    EXPRESS_VALUE_MISSING,
     IFC_ATTRIBUTE_INVALID,
     IFC_DUPLICATE_DROPPED,
     IFC_ENTITY_DROPPED,

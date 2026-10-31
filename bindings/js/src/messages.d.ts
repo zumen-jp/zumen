@@ -16,7 +16,8 @@ export type Request =
   | ConvertRequest
   | TablesRequest
   | SceneRequest
-  | CheckRequest;
+  | CheckRequest
+  | ValidateRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -1301,6 +1302,38 @@ export interface CheckFinding {
   diagnostic: Diagnostic;
 }
 
+/** zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から */
+export interface ValidateRequest extends RequestCommon {
+  /** op の名前 */
+  op: "validate";
+  /** IFC の入力の名前（zm_push で渡した .ifc か .ifczip） */
+  input: string;
+  /** EXPRESS の入力の名前（zm_push で渡した .exp） */
+  express: string;
+  /** 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0 */
+  offset?: number;
+  /** 返す指摘の数の上限。書かなければ 1000 */
+  limit?: number;
+}
+
+/** スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す */
+export interface ValidateResult {
+  /** EXPRESS のスキーマの名前（大文字） */
+  schema: string;
+  /** IFC の FILE_SCHEMA の名前 */
+  file_schema: string;
+  /** EXPRESS のバイト列のハッシュ（v2: と 32 桁の 16 進）。どの EXPRESS でチェックしたかを残す */
+  express_hash: string;
+  /** 評価しなかった規則（WHERE・UNIQUE・RULE）の数。確認できなかった項目 */
+  rules_not_evaluated: number;
+  /** 指摘。インスタンスの番号の順に、属性の順。診断と同じ形で、describe で文にできる。count は 1 */
+  findings: Diagnostic[];
+  /** 全体の指摘の数 */
+  total: number;
+  /** 続きの最初の指摘の位置。続きがなければ持たない */
+  next_offset?: number;
+}
+
 /** 表の項目 */
 export interface TableItem {
   /** ID。表のレコードがハンドルを持てば layer/h10・line-type/h14、なければ読んだ順の番号（layer/2）。寸法スタイルは dimension-style/h1A か、寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156） */
@@ -1630,4 +1663,5 @@ export interface Operations {
   tables: { request: TablesRequest; result: TablesResult };
   scene: { request: SceneRequest; result: SceneResult };
   check: { request: CheckRequest; result: CheckResult };
+  validate: { request: ValidateRequest; result: ValidateResult };
 }

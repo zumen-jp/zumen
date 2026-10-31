@@ -1,0 +1,96 @@
+{
+  "description": "validate は、zm_push で渡した IFC を、zm_push で渡した EXPRESS に照らしてチェックし、指摘を診断と同じ形で返す（決定 0216）。WHERE・UNIQUE・RULE は評価せず、数を返す。指摘と数が、ネイティブと wasm で同じになることを確かめる",
+  "steps": [
+    {
+      "push": {
+        "name": "tiny.exp",
+        "text": "SCHEMA IFCTINY;\nTYPE LabelT = STRING; WHERE WR1 : TRUE; END_TYPE;\nTYPE KindE = ENUMERATION OF (A, B); END_TYPE;\nENTITY Root ABSTRACT;\n  Name : LabelT;\nEND_ENTITY;\nENTITY Wall SUBTYPE OF (Root);\n  Kind : KindE;\n  Tags : OPTIONAL LIST [1:?] OF LabelT;\nEND_ENTITY;\nEND_SCHEMA;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "a.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=WALL('a',.A.,('x'));\n#2=WALL('b',.C.,());\n#3=ROOT('c');\n#4=WALL($,.B.,$);\n#5=DOOR();\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "validate",
+        "input": "a.ifc",
+        "express": "tiny.exp",
+        "limit": 3
+      },
+      "expect": {
+        "/result/schema": "IFCTINY",
+        "/result/file_schema": "IFC4",
+        "/result/rules_not_evaluated": 1,
+        "/result/total": 5,
+        "/result/next_offset": 3,
+        "/result/findings/0/code": "express.value.invalid",
+        "/result/findings/0/params/attribute": "KIND",
+        "/result/findings/1/code": "express.value.invalid",
+        "/result/findings/1/params/attribute": "TAGS",
+        "/result/findings/2/code": "express.abstract.invalid",
+        "/diagnostics/0/code": "express.schema.mixed",
+        "/diagnostics/1/code": "express.rule.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "validate",
+        "input": "a.ifc",
+        "express": "tiny.exp",
+        "offset": 3
+      },
+      "expect": {
+        "/result/findings/0/code": "express.value.missing",
+        "/result/findings/1/code": "express.entity.missing"
+      },
+      "absent": [
+        "/result/next_offset",
+        "/result/findings/2"
+      ]
+    },
+    {
+      "push": {
+        "name": "bad.exp",
+        "text": "SCHEMA IFCTINY;\nENTITY Wall;\n  Kind : MissingT;\nEND_ENTITY;\nEND_SCHEMA;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "validate",
+        "input": "a.ifc",
+        "express": "bad.exp"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "express.file.invalid"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "validate",
+        "input": "a.ifc",
+        "express": "tiny.exp",
+        "budget": {
+          "work": 5
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      },
+      "absent": [
+        "/result"
+      ]
+    }
+  ]
+}

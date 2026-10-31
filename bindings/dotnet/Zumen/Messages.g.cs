@@ -51,6 +51,7 @@ namespace Zumen.Messages
             ["tables"] = typeof(TablesRequest),
             ["scene"] = typeof(SceneRequest),
             ["check"] = typeof(CheckRequest),
+            ["validate"] = typeof(ValidateRequest),
         };
     }
 
@@ -3568,6 +3569,120 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
+    /// </summary>
+    public sealed record ValidateRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "validate";
+
+        /// <summary>
+        /// IFC の入力の名前（zm_push で渡した .ifc か .ifczip）
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+
+        /// <summary>
+        /// EXPRESS の入力の名前（zm_push で渡した .exp）
+        /// </summary>
+        [JsonPropertyName("express")]
+        public string Express { get; init; } = default!;
+
+        /// <summary>
+        /// 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す指摘の数の上限。書かなければ 1000
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す
+    /// </summary>
+    public sealed record ValidateResult
+    {
+        /// <summary>
+        /// EXPRESS のスキーマの名前（大文字）
+        /// </summary>
+        [JsonPropertyName("schema")]
+        public string Schema { get; init; } = default!;
+
+        /// <summary>
+        /// IFC の FILE_SCHEMA の名前
+        /// </summary>
+        [JsonPropertyName("file_schema")]
+        public string FileSchema { get; init; } = default!;
+
+        /// <summary>
+        /// EXPRESS のバイト列のハッシュ（v2: と 32 桁の 16 進）。どの EXPRESS でチェックしたかを残す
+        /// </summary>
+        [JsonPropertyName("express_hash")]
+        public string ExpressHash { get; init; } = default!;
+
+        /// <summary>
+        /// 評価しなかった規則（WHERE・UNIQUE・RULE）の数。確認できなかった項目
+        /// </summary>
+        [JsonPropertyName("rules_not_evaluated")]
+        public ulong RulesNotEvaluated { get; init; }
+
+        /// <summary>
+        /// 指摘。インスタンスの番号の順に、属性の順。診断と同じ形で、describe で文にできる。count は 1
+        /// </summary>
+        [JsonPropertyName("findings")]
+        public IReadOnlyList<Diagnostic> Findings { get; init; } = default!;
+
+        /// <summary>
+        /// 全体の指摘の数
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 続きの最初の指摘の位置。続きがなければ持たない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
     /// 表の項目
     /// </summary>
     public sealed record TableItem
@@ -4363,6 +4478,7 @@ namespace Zumen.Messages
                 ["tables"] = (typeof(TablesRequest), typeof(TablesResult)),
                 ["scene"] = (typeof(SceneRequest), typeof(SceneResult)),
                 ["check"] = (typeof(CheckRequest), typeof(CheckResult)),
+                ["validate"] = (typeof(ValidateRequest), typeof(ValidateResult)),
             };
     }
 }

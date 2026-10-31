@@ -1043,6 +1043,67 @@ group-by = ["kind"]
 since = "0.2.0"
 status = "active"
 
+[codes."express.file.invalid"]
+description = "利用者が渡した EXPRESS を読めないか、宣言のない名前・循環する型を使っている"
+severity = "error"
+params = { line = "uint", near = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."express.schema.mixed"]
+description = "IFC の FILE_SCHEMA の名前が、渡した EXPRESS のスキーマの名前と違う。そのままチェックする"
+severity = "warning"
+params = { schema = "text", file_schema = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."express.rule.unsupported"]
+description = "EXPRESS の WHERE・UNIQUE・RULE の規則は評価しない"
+severity = "info"
+params = { rules = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."express.entity.missing"]
+description = "インスタンスの実体の名前が、EXPRESS にない"
+severity = "warning"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."express.abstract.invalid"]
+description = "抽象の実体を、そのままインスタンスにしている"
+severity = "warning"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."express.attribute-count.invalid"]
+description = "インスタンスの属性の数が、EXPRESS の実体の属性の数と違う"
+severity = "warning"
+params = { kind = "text", expected = "uint", found = "uint" }
+group-by = ["kind", "found"]
+since = "0.2.0"
+status = "active"
+
+[codes."express.value.invalid"]
+description = "属性の値が、EXPRESS の型に合わない"
+severity = "warning"
+params = { kind = "text", position = "uint", attribute = "text", expected = "text" }
+group-by = ["kind", "position"]
+since = "0.2.0"
+status = "active"
+
+[codes."express.value.missing"]
+description = "省略できない属性が $ になっている"
+severity = "warning"
+params = { kind = "text", position = "uint", attribute = "text" }
+group-by = ["kind", "position"]
+since = "0.2.0"
+status = "active"
+
 # DXF から図面の領域モデルへの変換（決定 0022）
 
 [codes."drawing.mark-height.dropped"]

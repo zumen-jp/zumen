@@ -22,6 +22,7 @@ zumen-json = { version = "0.2.0", path = "../zumen-json" }
 zumen-profile = { version = "0.2.0", path = "../zumen-profile" }
 zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
 zumen-jww = { version = "0.2.0", path = "../zumen-jww" }
+zumen-ifc = { version = "0.2.0", path = "../zumen-ifc", default-features = false }
 zumen-sxf = { version = "0.2.0", path = "../zumen-sxf" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 
