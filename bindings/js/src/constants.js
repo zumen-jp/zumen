@@ -33,6 +33,74 @@ export const WASM_EXPORTS = Object.freeze([
   "zm_take",
 ]);
 
+/** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */
+export const MODULES = Object.freeze({
+  drawing: Object.freeze({
+    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー",
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt"]),
+  }),
+  bim: Object.freeze({
+    description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF",
+    formats: Object.freeze(["ifc"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write"]),
+  }),
+});
+
+/** open が形式を判定する順と規則。rules のどれかに合えば format とする */
+export const DETECTION = Object.freeze([
+  Object.freeze({
+    format: "ifc",
+    module: "bim",
+    rules: Object.freeze([
+      Object.freeze({ kind: "step_schema", prefix: "IFC" }),
+    ]),
+  }),
+  Object.freeze({
+    format: "dxf",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "lines", lines: Object.freeze(["0", "SECTION"]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x75, 0x74, 0x6f, 0x43, 0x41, 0x44, 0x20, 0x42, 0x69, 0x6e, 0x61, 0x72, 0x79, 0x20, 0x44, 0x58, 0x46, 0x0d, 0x0a, 0x1a, 0x00]) }),
+    ]),
+  }),
+  Object.freeze({
+    format: "dwg",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x31, 0x32]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x31, 0x34]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x31, 0x35]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x31, 0x38]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x32, 0x31]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x32, 0x34]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x32, 0x37]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x43, 0x31, 0x30, 0x33, 0x32]) }),
+    ]),
+  }),
+  Object.freeze({
+    format: "sxf",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "lines", lines: Object.freeze(["ISO-10303-21;"]) }),
+    ]),
+  }),
+  Object.freeze({
+    format: "jww",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x4a, 0x77, 0x77, 0x44, 0x61, 0x74, 0x61, 0x2e]) }),
+    ]),
+  }),
+  Object.freeze({
+    format: "ifc",
+    module: "bim",
+    rules: Object.freeze([
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x50, 0x4b, 0x03, 0x04]) }),
+    ]),
+  }),
+]);
+
 /** シーンの見出しの始まりの 4 バイト */
 export const SCENE_MAGIC = "ZMSC";
 /** シーンの大版。区画の意味を変えるときに上げる */

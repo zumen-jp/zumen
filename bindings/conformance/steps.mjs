@@ -109,3 +109,19 @@ export function checkResponse(at, step, response, failures) {
     }
   }
 }
+
+/**
+ * 組を流す wasm のモジュールの名前（決定 0221）。`modules` は包みの MODULES。組の `module` があればそれを、なければ
+ * 組が呼ぶ op（どのモジュールにもない op は除く）をすべて持つ最初のモジュールを返す。`all` は、すべてのモジュールを
+ * 入れたコアでだけ流す組。どのモジュールでも流せなければ undefined
+ */
+export function moduleOf(testCase, modules) {
+  if (testCase.module !== undefined) {
+    return testCase.module;
+  }
+  const names = Object.keys(modules);
+  const ops = testCase.steps
+    .map((step) => step.call?.op)
+    .filter((op) => typeof op === "string" && names.some((name) => modules[name].ops.includes(op)));
+  return names.find((name) => ops.every((op) => modules[name].ops.includes(op)));
+}

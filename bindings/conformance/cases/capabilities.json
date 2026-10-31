@@ -1,5 +1,6 @@
 {
-  "description": "capabilities は、ABI とスキーマの版と、使える op・形式を返す（決定 0012・0015）",
+  "description": "capabilities は、ABI とスキーマの版と、使える op・形式を返す（決定 0012・0015）。capabilities は、モジュールが持つ op と形式だけを返すので、すべてのモジュールを入れたコアでだけ流す（決定 0221）",
+  "module": "all",
   "steps": [
     {
       "call": { "v": 1, "op": "capabilities" },

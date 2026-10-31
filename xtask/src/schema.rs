@@ -604,6 +604,17 @@ impl Schema {
     }
 
     /// 共用体の形のオブジェクトから、目印の欄の名前と値を引く
+    /// 要求（`request`）の目印の値（op）。スキーマの順
+    pub(crate) fn request_tags(&self) -> Vec<&str> {
+        match self.def("request").map(|def| &def.shape) {
+            Some(Shape::Union { variants }) => variants
+                .iter()
+                .filter_map(|variant| self.tag_of(variant).map(|(_, value)| value))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     pub(crate) fn tag_of(&self, variant: &str) -> Option<(&str, &str)> {
         match &self.def(variant)?.shape {
             Shape::Object { fields, .. } => fields.iter().find_map(|field| match &field.ty {

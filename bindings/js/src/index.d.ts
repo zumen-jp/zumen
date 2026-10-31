@@ -1,6 +1,6 @@
 // zumen の wasm のモジュールを呼ぶ薄い包みの型（決定 0011・0194）。要求と応答の型は messages.d.ts に生成する。
 
-import type { StatusName } from "./constants.js";
+import type { Detection, ModuleName, StatusName } from "./constants.js";
 import type { Operations, Request, Response, SessionOptions } from "./messages.js";
 
 export * from "./constants.js";
@@ -64,3 +64,28 @@ export declare function load(
 
 /** モジュールを、コンパイルしたものかバイト列から、同期で読み込む */
 export declare function loadSync(source: WebAssembly.Module | Bytes): Zumen;
+
+/** 入力の形式を、コアと同じ順と規則で判定する（決定 0221）。どの形式でもなければ undefined */
+export declare function detect(bytes: Bytes): Detection | undefined;
+
+/** op を持つ wasm のモジュールの名前 */
+export declare function modulesWith(op: string): ModuleName[];
+
+/** 分けた wasm のモジュールを、要るときに 1 度だけ読み込む */
+export declare class Modules {
+  private constructor();
+  /** 名前のモジュールを読み込む */
+  get(name: ModuleName): Promise<Zumen>;
+  /** 入力の形式を判定し、その形式を持つモジュールを読み込む。どの形式でもなければ undefined */
+  forInput(bytes: Bytes): Promise<Zumen | undefined>;
+  /** op を持つモジュールのうち、読み込めるものの最初を読み込む */
+  forOp(op: string): Promise<Zumen>;
+}
+
+/**
+ * 分けた wasm のモジュール（決定 0013・0221）を、要るときに読み込む。`loaders` は、モジュールの名前から、
+ * `load` に渡せるもの（fetch の応答など）を返す関数を引く表
+ */
+export declare function loadModules(
+  loaders: Partial<Record<ModuleName, () => Parameters<typeof load>[0]>>,
+): Modules;

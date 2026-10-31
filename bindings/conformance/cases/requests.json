@@ -1,5 +1,6 @@
 {
-  "description": "読めない要求は、理由の診断を付けて失敗にし、result を持たない（決定 0012）",
+  "description": "読めない要求は、理由の診断を付けて失敗にし、result を持たない（決定 0012）。capabilities の応答を比べるので、すべてのモジュールを入れたコアでだけ流す（決定 0221）",
+  "module": "all",
   "steps": [
     {
       "call_text": "{",

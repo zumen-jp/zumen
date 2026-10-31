@@ -29,6 +29,13 @@ jobs:
         with:
           # docs/support.md の Node.js の下限
           node-version: 22
+      - name: 分けた wasm のモジュールを作る（決定 0221）
+        run: |
+          mkdir -p modules
+          for module in drawing bim; do
+            cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked --no-default-features --features $module
+            cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_$module.wasm
+          done
       - name: ブラウザーに配るのと同じ形で作る（決定 0007）
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ブラウザーを動かす道具（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
@@ -38,4 +45,4 @@ jobs:
         working-directory: bindings/js/test/browser
         run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
       - name: ブラウザーの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
-        run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+        run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm

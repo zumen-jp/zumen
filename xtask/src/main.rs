@@ -124,6 +124,15 @@ fn codegen(mode: Mode) -> Result<(), String> {
         )
     })?;
 
+    let ops = schema.request_tags();
+    let errors = boundary::check_ops(&boundary, &ops);
+    if !errors.is_empty() {
+        return Err(format!(
+            "schema/boundary.toml のモジュールに問題がある:\n- {}",
+            errors.join("\n- ")
+        ));
+    }
+
     let scene: scene::Scene = toml::from_str(&read("schema/scene.toml")?)
         .map_err(|e| format!("schema/scene.toml: {e}"))?;
     let errors = scene::check(&scene);

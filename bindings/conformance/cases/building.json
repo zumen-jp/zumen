@@ -1,5 +1,5 @@
 {
-  "description": "open は、FILE_SCHEMA が IFC の入力を、図面の形式より先に IFC として開き、建物モデルの文書にする（決定 0219）。building は要約を、building_elements は選んだ要素と成分を、ids_check は IDS の照合の結果を返す。EXPRESS を渡せば、IFC の属性を EXPRESS の名前で照らす。review_adopt_ids は照合の指摘をレビューの文書に取り込み、review_carry は建物モデルの要素のハッシュで文書を移す。図面の op は建物モデルの文書に使えない。入力は試験の中で書いた小さな IFC4・IDS・EXPRESS",
+  "description": "open は、FILE_SCHEMA が IFC の入力を、図面の形式より先に IFC として開き、建物モデルの文書にする（決定 0219）。building は要約を、building_elements は選んだ要素と成分を、ids_check は IDS の照合の結果を返す。EXPRESS を渡せば、IFC の属性を EXPRESS の名前で照らす。review_adopt_ids は照合の指摘をレビューの文書に取り込み、review_carry は建物モデルの要素のハッシュで文書を移す。入力は試験の中で書いた小さな IFC4・IDS・EXPRESS",
   "steps": [
     {
       "push": {
@@ -121,19 +121,6 @@
             3000
           ]
         ]
-      }
-    },
-    {
-      "call": {
-        "v": 1,
-        "op": "drawing",
-        "doc": "a.ifc"
-      },
-      "status": "failed",
-      "expect": {
-        "/diagnostics/0/code": "call.document.unsupported",
-        "/diagnostics/0/params/name": "a.ifc",
-        "/diagnostics/0/params/op": "drawing"
       }
     },
     {

@@ -29,6 +29,39 @@ export declare const STATUS: Readonly<Record<number, StatusName>>;
 /** wasm のモジュールが出す関数 */
 export declare const WASM_EXPORTS: readonly string[];
 
+/** wasm のモジュールの名前（決定 0013・0221） */
+export type ModuleName =
+  /** 図面（DXF・DWG・SXF・JWW）と、図面のレビュー */
+  | "drawing"
+  /** IFC と建物モデル、EXPRESS・IDS の照合と BCF */
+  | "bim";
+
+/** wasm のモジュールが持つ形式と op */
+export interface ModuleInfo {
+  readonly description: string;
+  readonly formats: readonly string[];
+  readonly ops: readonly string[];
+}
+
+/** wasm のモジュール。名前から引く */
+export declare const MODULES: Readonly<Record<ModuleName, ModuleInfo>>;
+
+/** 形式の判定の規則（zumen-sdk の Signature） */
+export type DetectionRule =
+  | { readonly kind: "bytes"; readonly offset: number; readonly bytes: readonly number[] }
+  | { readonly kind: "lines"; readonly lines: readonly string[] }
+  | { readonly kind: "step_schema"; readonly prefix: string };
+
+/** 形式の判定。rules のどれかに合えば format とする */
+export interface Detection {
+  readonly format: string;
+  readonly module: ModuleName;
+  readonly rules: readonly DetectionRule[];
+}
+
+/** open が形式を判定する順と規則 */
+export declare const DETECTION: readonly Detection[];
+
 /** シーンの見出しの始まりの 4 バイト */
 export declare const SCENE_MAGIC: "ZMSC";
 /** シーンの大版。区画の意味を変えるときに上げる */

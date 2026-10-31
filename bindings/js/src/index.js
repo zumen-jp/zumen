@@ -7,6 +7,9 @@ import { ABI_VERSION, STATUS, WASM_EXPORTS } from "./constants.js";
 
 export * from "./constants.js";
 export { Scene, readScene } from "./scene.js";
+export { detect, modulesWith } from "./modules.js";
+
+import { Modules } from "./modules.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -239,4 +242,12 @@ export async function load(source) {
 export function loadSync(source) {
   const module = source instanceof WebAssembly.Module ? source : new WebAssembly.Module(toBytes(source));
   return new Zumen(new WebAssembly.Instance(module, {}));
+}
+
+/**
+ * 分けた wasm のモジュール（決定 0013・0221）を、要るときに読み込む。`loaders` は、モジュールの名前（MODULES）から、
+ * `load` に渡せるもの（fetch の応答など）を返す関数を引く表
+ */
+export function loadModules(loaders) {
+  return new Modules(loaders, load);
 }
