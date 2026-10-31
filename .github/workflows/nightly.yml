@@ -76,6 +76,48 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go test -count=1 -v ./...
+  dart:
+    name: Dart の包みで適合試験（${{ matrix.name }}）
+    # 階層 2 の Dart は毎晩流す。下限の Dart 3.0 と、今の安定版で流す（docs/support.md、決定 0227）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Dart 3.0、Linux x64
+            os: ubuntu-latest
+            sdk: 3.0.0
+            library: libzumen_abi1.so
+          - name: 安定版、Linux x64
+            os: ubuntu-latest
+            sdk: stable
+            library: libzumen_abi1.so
+          - name: 安定版、macOS arm64
+            os: macos-latest
+            sdk: stable
+            library: libzumen_abi1.dylib
+          - name: 安定版、Windows x64
+            os: windows-latest
+            sdk: stable
+            library: zumen_abi1.dll
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust を入れる
+        run: rustup toolchain install
+      - name: Dart を入れる
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: ${{ matrix.sdk }}
+      - name: Dart の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0227）
+        shell: bash
+        run: |
+          cargo build --package zumen-abi --locked
+          cd bindings/dart
+          dart pub get
+          dart analyze --fatal-infos
+          dart run tool/test_collections.dart
+          dart run tool/test_async.dart "$GITHUB_WORKSPACE/target/debug/${{ matrix.library }}"
+          dart run tool/conformance.dart "$GITHUB_WORKSPACE/target/debug/${{ matrix.library }}" "$GITHUB_WORKSPACE"
 
   java:
     name: Java の包みで適合試験（${{ matrix.name }}）

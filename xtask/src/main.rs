@@ -8,6 +8,7 @@
 mod boundary;
 mod catalog;
 mod cli;
+mod dart;
 mod dotnet;
 mod formats;
 mod go;
@@ -54,6 +55,9 @@ const JAVA_CONSTANTS: &str = "bindings/java/src/main/java/dev/zumen/Constants.ja
 const JAVA_PROJECT: &str = "bindings/java/pom.xml";
 const SWIFT_MESSAGES: &str = "bindings/swift/Sources/Zumen/Messages.swift";
 const SWIFT_CONSTANTS: &str = "bindings/swift/Sources/Zumen/Constants.swift";
+const DART_MESSAGES: &str = "bindings/dart/lib/src/messages.dart";
+const DART_CONSTANTS: &str = "bindings/dart/lib/src/constants.dart";
+const DART_PUBSPEC: &str = "bindings/dart/pubspec.yaml";
 const CLI_TOOLS: &str = "bindings/cli/src/tools.json";
 const CATALOG_JA: &str = "catalog/ja.json";
 /// CLI の MCP のリソース。crates.io の crate はフォルダーの外を読めないので、crate の中に写す（決定 0205）
@@ -159,6 +163,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     check_pyproject_version(PY_PROJECT, &read(PY_PROJECT)?)?;
     check_csproj_version(CS_PROJECT, &read(CS_PROJECT)?, boundary.versions.abi)?;
     check_pom_version(JAVA_PROJECT, &read(JAVA_PROJECT)?)?;
+    check_pubspec_version(DART_PUBSPEC, &read(DART_PUBSPEC)?)?;
 
     let outputs = [
         (CODES_RS, rustfmt(&root, &catalog::render(&registry))?),
@@ -200,6 +205,11 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             SWIFT_CONSTANTS,
             swift::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
+        ),
+        (DART_MESSAGES, dart::render_types(&schema)?),
+        (
+            DART_CONSTANTS,
+            dart::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
         ),
         (
             CLI_TOOLS,
@@ -256,6 +266,29 @@ fn check_pyproject_version(path: &str, source: &str) -> Result<(), String> {
         _ => Err(format!(
             "{path} の project.version を、コアと同じ {PACKAGE_VERSION} にする（決定 0015）"
         )),
+    }
+}
+
+/// Dart の包みの pubspec.yaml の、行の頭の version が、コアと同じかを確かめる（決定 0015・0227）
+fn check_pubspec_version(path: &str, source: &str) -> Result<(), String> {
+    let versions: Vec<&str> = source
+        .lines()
+        .filter_map(|line| line.strip_prefix("version:"))
+        .map(|value| {
+            value
+                .split('#')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .trim_matches(['"', '\''])
+        })
+        .collect();
+    if versions == [PACKAGE_VERSION] {
+        Ok(())
+    } else {
+        Err(format!(
+            "{path} の version を 1 つにし、コアと同じ {PACKAGE_VERSION} にする（決定 0015）"
+        ))
     }
 }
 
@@ -389,6 +422,16 @@ mod tests {
         );
         update_outputs(&dir.0, &outputs, Mode::Write).unwrap();
         assert!(update_outputs(&dir.0, &outputs, Mode::Check).is_ok());
+    }
+
+    #[test]
+    fn reads_the_version_of_a_pubspec() {
+        let pubspec = |version: &str| {
+            format!("name: zumen\nversion: {version}\nenvironment:\n  sdk: ^3.0.0\n")
+        };
+        assert!(check_pubspec_version("pubspec.yaml", &pubspec(PACKAGE_VERSION)).is_ok());
+        assert!(check_pubspec_version("pubspec.yaml", &pubspec("0.0.1")).is_err());
+        assert!(check_pubspec_version("pubspec.yaml", "name: zumen\n").is_err());
     }
 
     #[test]
