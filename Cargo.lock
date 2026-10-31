@@ -380,12 +380,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-ids"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-building",
+ "zumen-sdk",
+ "zumen-xml",
+]
+
+[[package]]
 name = "zumen-ifc"
 version = "0.2.0"
 dependencies = [
  "libm",
  "zumen-base",
  "zumen-building",
+ "zumen-ids",
  "zumen-sdk",
  "zumen-step",
  "zumen-sxf",

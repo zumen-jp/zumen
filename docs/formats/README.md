@@ -17,6 +17,7 @@
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` |
+| [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` |
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` |
 | [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `core` |
@@ -86,6 +87,16 @@
 - 入手の条件: 無償公開
 - 入手先: [DXF Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm)
 - 確認日: 2026-10-24
+
+### spec-ids_1_0
+
+- 名前: Information Delivery Specification（IDS）
+- 公開元: buildingSMART International
+- 版: 1.0.0（2024-06-03）
+- 入手の条件: 無償公開
+- 入手先: [Information Delivery Specification（IDS）](https://github.com/buildingSMART/IDS)
+- 確認日: 2026-10-31
+- 補足: 文書と XSD は CC BY-ND 4.0。実装についての記述はない
 
 ### spec-ifc_2x3_tc1
 
@@ -234,6 +245,17 @@
 - サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）・ezdwg の試験の図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 形式の文書: [docs/formats/dxf.md](../../docs/formats/dxf.md)
+
+### format-ids
+
+- 名前: IDS（Information Delivery Specification）
+- 権利の根拠: 文書と XSD は CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。XSD と、そこから生成したコードは同梱しない。照合は文書の記述から書く
+- 仕様: [ids\_1\_0](#spec-ids_1_0)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [IDS のリポジトリのライセンス（LICENSE）](https://github.com/buildingSMART/IDS/blob/development/LICENSE)（確認日: 2026-10-31）
+- 記録: [決定 0207](../decisions/0207-building-model-components.md)
+- 記録: [決定 0217](../decisions/0217-ids-check.md)
+- issue: [zumen-jp/zumen#411](https://github.com/zumen-jp/zumen/issues/411)
 
 ### format-ifc
 

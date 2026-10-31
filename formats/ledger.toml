@@ -91,6 +91,15 @@ url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/"
 checked = "2026-10-31"
 note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた"
 
+[specs.ids_1_0]
+title = "Information Delivery Specification（IDS）"
+publisher = "buildingSMART International"
+version = "1.0.0（2024-06-03）"
+access = "public"
+url = "https://github.com/buildingSMART/IDS"
+checked = "2026-10-31"
+note = "文書と XSD は CC BY-ND 4.0。実装についての記述はない"
+
 [specs.bcf_xml_2_1]
 title = "BCF-XML"
 publisher = "buildingSMART International"
@@ -313,6 +322,23 @@ docs = ["docs/formats/crs.md"]
 [[formats.isg.evidence]]
 title = "「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）"
 url = "https://www.gsi.go.jp/common/000277542.pdf"
+checked = "2026-10-31"
+
+[formats.ids]
+name = "IDS（Information Delivery Specification）"
+family = "ids"
+domains = ["building"]
+specs = ["ids_1_0"]
+rights = "public"
+rights-note = "文書と XSD は CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。XSD と、そこから生成したコードは同梱しない。照合は文書の記述から書く"
+place = "core"
+basis = ["spec"]
+decisions = ["0207", "0217"]
+issues = ["zumen-jp/zumen#411"]
+
+[[formats.ids.evidence]]
+title = "IDS のリポジトリのライセンス（LICENSE）"
+url = "https://github.com/buildingSMART/IDS/blob/development/LICENSE"
 checked = "2026-10-31"
 
 [formats.bcf]

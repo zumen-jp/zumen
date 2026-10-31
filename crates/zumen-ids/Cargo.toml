@@ -1,0 +1,20 @@
+[package]
+name = "zumen-ids"
+description = "zumen の IDS（Information Delivery Specification）の読み取りと、建物モデルでの照合（決定 0207・0217）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["ids"]
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-building = { version = "0.2.0", path = "../zumen-building" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+
+[lints]
+workspace = true

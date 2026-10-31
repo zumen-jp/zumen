@@ -518,7 +518,10 @@ fn check_bans(ledger: &Ledger, deny: &toml::Value) -> Vec<String> {
 }
 
 /// 層の向き（決定 0008・0207）。左の crate は、右の crate に、依存をたどっても依存しない
-const LAYERS: &[(&str, &[&str])] = &[("zumen-building", &["zumen-ifc", "zumen-step"])];
+const LAYERS: &[(&str, &[&str])] = &[
+    ("zumen-building", &["zumen-ifc", "zumen-step"]),
+    ("zumen-ids", &["zumen-ifc", "zumen-step"]),
+];
 
 /// [`LAYERS`] の crate から依存をたどり、依存してはならない crate に届けば、その道筋を返す。左の crate では
 /// 試験だけの依存（dev）もたどる

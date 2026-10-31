@@ -237,7 +237,7 @@ const ENTITIES: &[Entity] = &[
 ];
 
 /// 値の型の名前と、値の単位の種類（`IfcUnitEnum`）。単位を持たない型は `None`
-const MEASURES: &[(&str, Option<&str>)] = &[
+pub(crate) const MEASURES: &[(&str, Option<&str>)] = &[
     ("IfcLengthMeasure", Some("LENGTHUNIT")),
     ("IfcPositiveLengthMeasure", Some("LENGTHUNIT")),
     ("IfcNonNegativeLengthMeasure", Some("LENGTHUNIT")),
@@ -1818,7 +1818,7 @@ fn refs(value: Option<&Value>) -> Vec<u64> {
 }
 
 /// 文字列を戻す。置き換えの文字を使ったかも返す
-fn decode(raw: &[u8]) -> (String, bool) {
+pub(crate) fn decode(raw: &[u8]) -> (String, bool) {
     let mut invalid = false;
     let mut written = 0usize;
     let text = zumen_step::decode(raw, |rest| {

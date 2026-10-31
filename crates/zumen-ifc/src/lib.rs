@@ -18,9 +18,13 @@ pub use zumen_step::{Form, Part, Quote, Record, Value};
 #[cfg(feature = "building")]
 mod building;
 mod express;
+#[cfg(feature = "ids")]
+mod ids;
 mod zip;
 
 pub use express::{Express, check};
+#[cfg(feature = "ids")]
+pub use ids::IdsLookup;
 pub use zip::{IfcZip, IfcZipFile};
 
 /// IFC-SPF のコーデック
