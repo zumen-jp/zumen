@@ -10,7 +10,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 
 ## 判定
 
-- 先頭の行が `ISO-10303-21;` なら SXF の候補とする。
+- 先頭の行が `ISO-10303-21;` なら SXF の候補とする。`FILE_SCHEMA` の最初の名前が `IFC` で始まるものは、先に IFC の判定の規則で分ける（[ifc.md](ifc.md)）。
 - `FILE_SCHEMA` の最初の文字列の、最初の語（空白か `{` の前まで）を、大文字と小文字を区別せずに `ASSOCIATIVE_DRAUGHTING` と比べる。違えば `sxf.schema.unsupported` を返す。IFC などを空の図面として読まないため。`FILE_SCHEMA` がない古い SXF は読む（推定。旧版の扱いを引き継ぐ）。
 - `FILE_DESCRIPTION` の最初の文字列に `feature_mode` があるか、データの節にフィーチャのコメントがあれば SFC、ほかは P21 とする。`AP202` とある P21 では、`/*SXF` で始まるコメントもただのコメントとする（推定）。
 

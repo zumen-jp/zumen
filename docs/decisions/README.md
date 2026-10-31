@@ -244,3 +244,4 @@
 - [0208: 記号の反転した切り抜きは、SPATIAL_FILTER の拡張辞書の XRECORD にある元の境界から読む](0208-inverted-symbol-clips.md)（2026-10-31、採用）
 - [0209: XML の L0 は、依存を足さずに zumen-xml で読み、ルートの要素と名前空間で形式を判定する](0209-xml-l0-without-dependency.md)（2026-10-31、採用）
 - [0210: ZIP の L0 は、inflate を含めて依存を足さずに zumen-zip で読み、ZIP64 は読み、暗号化は読まない](0210-zip-l0-without-dependency.md)（2026-10-31、採用）
+- [0211: IFC の L1 は zumen-step の文に番号の表を置き、IFC と SXF は FILE_SCHEMA の名前の判定で分ける](0211-ifc-l1-instance-graph.md)（2026-10-31、採用）

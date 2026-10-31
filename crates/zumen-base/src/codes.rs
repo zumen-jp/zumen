@@ -1065,6 +1065,61 @@ pub const DXF_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 同じ番号のインスタンスが複数あるので、番号で引くときは初めのものを使う
+///
+/// `ifc.duplicate.dropped`（0.2.0 から）
+pub const IFC_DUPLICATE_DROPPED: Code = Code::new(
+    "ifc.duplicate.dropped",
+    Severity::Warning,
+    None,
+    &[Param::new("id", ParamType::UInt)],
+    &[],
+);
+
+/// ifcZIP の書庫に、IFC-SPF（.ifc）の項目がない
+///
+/// `ifc.entry.missing`（0.2.0 から）
+pub const IFC_ENTRY_MISSING: Code = Code::new("ifc.entry.missing", Severity::Error, None, &[], &[]);
+
+/// IFC-SPF（.ifc）の項目が複数ある ifcZIP の書庫は読まない
+///
+/// `ifc.entry.unsupported`（0.2.0 から）
+pub const IFC_ENTRY_UNSUPPORTED: Code =
+    Code::new("ifc.entry.unsupported", Severity::Error, None, &[], &[]);
+
+/// ISO 10303-21 の始まり・DATA の節・終わりのどれかがない
+///
+/// `ifc.file.invalid`（0.2.0 から）
+pub const IFC_FILE_INVALID: Code = Code::new("ifc.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 文の形が読めないので、レコードにせずに、次の文から読んだ
+///
+/// `ifc.record.invalid`（0.2.0 から）
+pub const IFC_RECORD_INVALID: Code =
+    Code::new("ifc.record.invalid", Severity::Warning, None, &[], &[]);
+
+/// 値の中の参照が、ファイルにない番号を指す
+///
+/// `ifc.reference.missing`（0.2.0 から）
+pub const IFC_REFERENCE_MISSING: Code = Code::new(
+    "ifc.reference.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("id", ParamType::UInt)],
+    &[],
+);
+
+/// FILE_SCHEMA がないか、最初のスキーマの名前が IFC で始まらない
+///
+/// `ifc.schema.unsupported`（0.2.0 から）
+pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
+    "ifc.schema.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("schema", ParamType::Text)],
+    &[],
+);
+
 /// ネイティブの境界でパニックを捕まえた。不具合なので直す
 ///
 /// `internal.panic.caught`（0.0.0 から）
@@ -2081,6 +2136,13 @@ pub const ALL: &[Code] = &[
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
     DXF_XDATA_UNSUPPORTED,
+    IFC_DUPLICATE_DROPPED,
+    IFC_ENTRY_MISSING,
+    IFC_ENTRY_UNSUPPORTED,
+    IFC_FILE_INVALID,
+    IFC_RECORD_INVALID,
+    IFC_REFERENCE_MISSING,
+    IFC_SCHEMA_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
     JWW_BODY_INVALID,
     JWW_FILE_INVALID,

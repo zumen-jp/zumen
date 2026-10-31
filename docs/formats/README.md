@@ -251,7 +251,9 @@
 - サンプルの出どころ（Git に入れない）: 日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0207](../decisions/0207-building-model-components.md)
+- 記録: [決定 0211](../decisions/0211-ifc-l1-instance-graph.md)
 - 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
+- 形式の文書: [docs/formats/ifc.md](../../docs/formats/ifc.md)
 
 ### format-isg
 

@@ -10,6 +10,7 @@
 //! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lower` は、別の形式への変換を作るときに足す。
 
 mod root;
+mod schema;
 pub mod testkit;
 
 pub use zumen_base::{ByteRange, Cx, Stop};
@@ -141,6 +142,12 @@ pub enum Signature {
         /// 名前空間の名前（URI）
         namespace: Option<&'static [u8]>,
     },
+    /// ISO 10303-21 の交換構造で、見出しの `FILE_SCHEMA` の最初のスキーマの名前が、ASCII の大文字と小文字を
+    /// 区別せずに `prefix` で始まる。同じ始まりの行の SXF と IFC を分ける
+    StepSchema {
+        /// スキーマの名前の始まり
+        prefix: &'static [u8],
+    },
 }
 
 impl Signature {
@@ -164,6 +171,10 @@ impl Signature {
                     found == name && namespace.is_none_or(|namespace| declared == Some(namespace))
                 })
             }
+            Signature::StepSchema { prefix } => schema::schema(head).is_some_and(|name| {
+                name.get(..prefix.len())
+                    .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+            }),
         }
     }
 }
@@ -220,5 +231,33 @@ mod tests {
         assert!(!any.matches(b"<LandXML version=\"1."));
         assert!(!any.matches(b"<!-- <LandXML> "));
         assert!(!any.matches(b"text<LandXML>"));
+    }
+
+    #[test]
+    fn step_schema_signature_reads_the_header() {
+        let ifc = Signature::StepSchema { prefix: b"IFC" };
+        let head = |schema: &str| {
+            format!(
+                "ISO-10303-21;\nHEADER;\n/* FILE_SCHEMA(('X')) */\nFILE_DESCRIPTION(('ViewDefinition [x]', 'it''s FILE_SCHEMA((''Y''))'),'2;1');\nFILE_NAME('a.ifc','2026-10-31T00:00:00',(''),(''),'','','');\nFILE_SCHEMA (( '{schema}' ));\nENDSEC;\nDATA;\n"
+            )
+        };
+        for schema in ["IFC2X3", "IFC4", "IFC4X3_ADD2", "ifc4"] {
+            assert!(ifc.matches(head(schema).as_bytes()), "{schema}");
+        }
+        let sxf = head("ASSOCIATIVE_DRAUGHTING { 1 0 10303 202 1 1 4 }");
+        assert!(!ifc.matches(sxf.as_bytes()));
+        assert!(
+            Signature::StepSchema {
+                prefix: b"ASSOCIATIVE_DRAUGHTING"
+            }
+            .matches(sxf.as_bytes())
+        );
+        // 見出しの外・先頭のバイト列の外の名前は読まない
+        assert!(
+            !ifc.matches(b"ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=FILE_SCHEMA((('IFC4')));")
+        );
+        assert!(!ifc.matches(b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4"));
+        assert!(!ifc.matches(b"HEADER;\nFILE_SCHEMA(('IFC4'));"));
+        assert!(!ifc.matches(b"ISO-10303-21;\n/* FILE_SCHEMA(('IFC4')); "));
     }
 }

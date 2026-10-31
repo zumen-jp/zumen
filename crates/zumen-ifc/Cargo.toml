@@ -1,0 +1,21 @@
+[package]
+name = "zumen-ifc"
+description = "zumen の IFC の L1（決定 0207・0211）。スキーマを知らないインスタンスのグラフと、IFC-SPF・ifcZIP のコーデック"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-step = { version = "0.2.0", path = "../zumen-step" }
+zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# SXF のコーデックが IFC を読まないことを確かめる
+zumen-sxf = { path = "../zumen-sxf" }
