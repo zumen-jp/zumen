@@ -17,6 +17,7 @@ mod python;
 mod samples;
 mod scene;
 mod schema;
+mod swift;
 // 適合試験と同じ SHA-256 を使う
 #[path = "../../bindings/conformance/src/sha256.rs"]
 mod sha256;
@@ -48,6 +49,8 @@ const CS_PROJECT: &str = "bindings/dotnet/Zumen/Zumen.csproj";
 const JAVA_MESSAGES: &str = "bindings/java/src/main/java/dev/zumen/Messages.java";
 const JAVA_CONSTANTS: &str = "bindings/java/src/main/java/dev/zumen/Constants.java";
 const JAVA_PROJECT: &str = "bindings/java/pom.xml";
+const SWIFT_MESSAGES: &str = "bindings/swift/Sources/Zumen/Messages.swift";
+const SWIFT_CONSTANTS: &str = "bindings/swift/Sources/Zumen/Constants.swift";
 const CLI_TOOLS: &str = "bindings/cli/src/tools.json";
 const CATALOG_JA: &str = "catalog/ja.json";
 /// CLI の MCP のリソース。crates.io の crate はフォルダーの外を読めないので、crate の中に写す（決定 0205）
@@ -184,6 +187,10 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             JAVA_CONSTANTS,
             java::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
+        (SWIFT_MESSAGES, swift::render_types(&schema)?),
+        (
+            SWIFT_CONSTANTS,
+            swift::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
         ),
         (
             CLI_TOOLS,
