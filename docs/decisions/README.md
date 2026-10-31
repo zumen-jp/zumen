@@ -246,3 +246,4 @@
 - [0210: ZIP の L0 は、inflate を含めて依存を足さずに zumen-zip で読み、ZIP64 は読み、暗号化は読まない](0210-zip-l0-without-dependency.md)（2026-10-31、採用）
 - [0211: IFC の L1 は zumen-step の文に番号の表を置き、IFC と SXF は FILE_SCHEMA の名前の判定で分ける](0211-ifc-l1-instance-graph.md)（2026-10-31、採用）
 - [0212: 建物モデルは成分を要素の番号の列で持ち、ハッシュには持つ成分だけを種類の名前とともに入れ、層の向きを xtask で確かめる](0212-building-model-storage-and-hash.md)（2026-10-31、採用）
+- [0213: 3D のシーンは、2D と同じ入れ物の別の種類にし、形をインスタンスで使い回すメッシュの区画に並べ、`scene3d` の op で返す](0213-scene3d-sections-and-op.md)（2026-10-31、採用）
