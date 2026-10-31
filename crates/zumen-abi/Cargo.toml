@@ -23,11 +23,15 @@ zumen-profile = { version = "0.2.0", path = "../zumen-profile" }
 zumen-review = { version = "0.2.0", path = "../zumen-review" }
 zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
 zumen-jww = { version = "0.2.0", path = "../zumen-jww" }
+zumen-bcf = { version = "0.2.0", path = "../zumen-bcf" }
 zumen-building = { version = "0.2.0", path = "../zumen-building" }
 zumen-ifc = { version = "0.2.0", path = "../zumen-ifc" }
 zumen-ids = { version = "0.2.0", path = "../zumen-ids" }
 zumen-sxf = { version = "0.2.0", path = "../zumen-sxf" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[dev-dependencies]
+zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [lints]
 workspace = true

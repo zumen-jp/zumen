@@ -1,0 +1,26 @@
+[package]
+name = "zumen-bcf"
+description = "zumen の BCF: BCF 3.0 の bcfzip を読み書きし、レビューの文書の指摘と 3D の場所に写す（決定 0214・0220）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["bcf"]
+
+[dependencies]
+# レビューの文書の ID が UUID でないとき、BCF の Guid を入力から決める
+blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-review = { version = "0.2.0", path = "../zumen-review" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-json = { path = "../zumen-json" }

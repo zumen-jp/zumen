@@ -4,9 +4,12 @@
 //! CRC-32 を確かめる。ZIP64 は読み、分けた書庫・暗号化した項目・ほかの圧縮の方式は読まない。
 //!
 //! 安全でない名前・範囲の重なる項目・壊れた見出しの項目は、読まずに診断を返し、残りの項目を読む。
+//!
+//! [`write`] は、項目を stored で並べた書庫を書く（決定 0220）。
 
 mod inflate;
 mod read;
+mod write;
 
 use core::ops::Range;
 use std::borrow::Cow;
@@ -16,6 +19,7 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_sdk::Error;
 
 pub use read::read;
+pub use write::write;
 
 /// 圧縮の方式
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

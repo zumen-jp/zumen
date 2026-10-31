@@ -522,6 +522,17 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("zumen-building", &["zumen-ifc", "zumen-step"]),
     ("zumen-ids", &["zumen-ifc", "zumen-step"]),
     (
+        "zumen-bcf",
+        &[
+            "zumen-acad",
+            "zumen-building",
+            "zumen-ifc",
+            "zumen-jww",
+            "zumen-step",
+            "zumen-sxf",
+        ],
+    ),
+    (
         "zumen-review",
         &[
             "zumen-acad",

@@ -58,6 +58,8 @@ namespace Zumen.Messages
             ["building_elements"] = typeof(BuildingElementsRequest),
             ["ids_check"] = typeof(IdsCheckRequest),
             ["review_adopt_ids"] = typeof(ReviewAdoptIdsRequest),
+            ["bcf_read"] = typeof(BcfReadRequest),
+            ["bcf_write"] = typeof(BcfWriteRequest),
         };
     }
 
@@ -5250,6 +5252,217 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+    /// </summary>
+    public sealed record BcfReadRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "bcf_read";
+
+        /// <summary>
+        /// BCF が指す建物モデルの文書の名前。open で IFC を開いたもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// bcfzip の入力の名前（zm_push で渡した .bcf）
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+
+        /// <summary>
+        /// レビューの文書の対象の ID
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+
+        /// <summary>
+        /// 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す
+        /// </summary>
+        [JsonPropertyName("statuses")]
+        public IReadOnlyList<BcfStatus>? Statuses { get; init; }
+    }
+
+    /// <summary>
+    /// 状態の対応
+    /// </summary>
+    public sealed record BcfStatus
+    {
+        /// <summary>
+        /// BCF の TopicStatus の文字列
+        /// </summary>
+        [JsonPropertyName("text")]
+        public string Text { get; init; } = default!;
+
+        /// <summary>
+        /// 指摘の状態
+        /// </summary>
+        [JsonPropertyName("status")]
+        public string Status { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 指摘の状態（決定 0214）
+    /// </summary>
+    public static class ReviewStatus
+    {
+        /// <summary>open</summary>
+        public const string Open = "open";
+        /// <summary>resolved</summary>
+        public const string Resolved = "resolved";
+        /// <summary>closed</summary>
+        public const string Closed = "closed";
+    }
+
+    /// <summary>
+    /// 読んだ bcfzip
+    /// </summary>
+    public sealed record BcfReadResult
+    {
+        /// <summary>
+        /// BCF の版
+        /// </summary>
+        [JsonPropertyName("version")]
+        public string Version { get; init; } = default!;
+
+        /// <summary>
+        /// 指摘の数
+        /// </summary>
+        [JsonPropertyName("topics")]
+        public ulong Topics { get; init; }
+    }
+
+    /// <summary>
+    /// zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+    /// </summary>
+    public sealed record BcfWriteRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "bcf_write";
+
+        /// <summary>
+        /// レビューの文書の入力の名前（zm_push で渡した JSON）
+        /// </summary>
+        [JsonPropertyName("review")]
+        public string Review { get; init; } = default!;
+
+        /// <summary>
+        /// viewpoint にする 3D の場所の対象の ID
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+
+        /// <summary>
+        /// 元の bcfzip の入力の名前（zm_push で渡した .bcf）。書かなければ新しく書く
+        /// </summary>
+        [JsonPropertyName("original")]
+        public string? Original { get; init; }
+
+        /// <summary>
+        /// 指摘の状態と BCF の TopicStatus の文字列の対応の表。書かなければ Open・Resolved・Closed。読むとき、表にない文字列は open にし、元の文字列を status_label に残す
+        /// </summary>
+        [JsonPropertyName("statuses")]
+        public IReadOnlyList<BcfStatus>? Statuses { get; init; }
+
+        /// <summary>
+        /// 種類のない指摘に書く TopicType
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string? Kind { get; init; }
+
+        /// <summary>
+        /// 作者のない指摘とコメントに書く作者
+        /// </summary>
+        [JsonPropertyName("author")]
+        public string? Author { get; init; }
+
+        /// <summary>
+        /// 日時のない指摘とコメントに書く日時（RFC 3339）
+        /// </summary>
+        [JsonPropertyName("date")]
+        public string? Date { get; init; }
+    }
+
+    /// <summary>
+    /// 書いた bcfzip
+    /// </summary>
+    public sealed record BcfWriteResult
+    {
+        /// <summary>
+        /// 書いた指摘の数
+        /// </summary>
+        [JsonPropertyName("topics")]
+        public ulong Topics { get; init; }
+    }
+
+    /// <summary>
     /// 表の項目
     /// </summary>
     public sealed record TableItem
@@ -6052,6 +6265,8 @@ namespace Zumen.Messages
                 ["building_elements"] = (typeof(BuildingElementsRequest), typeof(BuildingElementsResult)),
                 ["ids_check"] = (typeof(IdsCheckRequest), typeof(IdsCheckResult)),
                 ["review_adopt_ids"] = (typeof(ReviewAdoptIdsRequest), typeof(JsonAny)),
+                ["bcf_read"] = (typeof(BcfReadRequest), typeof(BcfReadResult)),
+                ["bcf_write"] = (typeof(BcfWriteRequest), typeof(BcfWriteResult)),
             };
     }
 }

@@ -478,3 +478,34 @@ fn places_point_at_the_central_directory_header() {
         b"PK\x01\x02"
     );
 }
+
+#[test]
+fn writes_stored_entries_that_read_back_the_same() {
+    let entries: [(&str, &[u8]); 3] = [
+        ("topic/", b""),
+        ("topic/markup.bcf", b"<Markup/>"),
+        ("\u{56f3}\u{9762}.txt", b"zumen"),
+    ];
+    let bytes = zumen_zip::write(&entries).unwrap();
+    // 同じ項目からは同じバイト列
+    assert_eq!(zumen_zip::write(&entries).unwrap(), bytes);
+    let (archive, diag) = with(Limits::default(), |cx| zumen_zip::read(&bytes, cx));
+    assert!(diag.is_empty(), "{diag:?}");
+    let archive = archive.unwrap();
+    let names: Vec<&str> = archive.entries().iter().map(|e| e.name()).collect();
+    assert_eq!(
+        names,
+        ["topic/", "topic/markup.bcf", "\u{56f3}\u{9762}.txt"]
+    );
+    assert!(archive.entries()[0].is_directory());
+    for (name, data) in &entries[1..] {
+        let entry = archive.find(name).unwrap();
+        assert_eq!(entry.method(), Method::Stored);
+        let (extracted, _) = with(Limits::default(), |cx| archive.extract(entry, cx));
+        assert_eq!(extracted.unwrap(), *data);
+    }
+    // 空の書庫も読める
+    let empty = zumen_zip::write(&[]).unwrap();
+    let (archive, _) = with(Limits::default(), |cx| zumen_zip::read(&empty, cx));
+    assert!(archive.unwrap().entries().is_empty());
+}

@@ -15,6 +15,7 @@ use zumen_sdk::{Apply, Codec, Lift};
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
+use crate::bcf;
 use crate::bounds;
 use crate::building;
 use crate::changes::changes;
@@ -23,14 +24,14 @@ use crate::convert;
 use crate::describe;
 use crate::geometry;
 use crate::messages::{
-    self, ApplyRequest, ApplyResult, BlobKind, ByteRange, CapabilitiesResult, CheckRequest,
-    CheckResult, CloseRequest, CloseResult, ConvertRequest, ConvertResult, DrawingRequest,
-    DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField,
-    EntityKind, Extent, Format, IdsCheckRequest, IdsCheckResult, IdsFinding, OpenRequest,
-    OpenResult, PointStyleSummary, Request, RequestCommon, ReviewAdoptIdsRequest,
-    ReviewAdoptRequest, ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult, SceneRequest,
-    SceneResult, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest,
-    TablesResult,
+    self, ApplyRequest, ApplyResult, BcfReadRequest, BcfReadResult, BcfWriteRequest,
+    BcfWriteResult, BlobKind, ByteRange, CapabilitiesResult, CheckRequest, CheckResult,
+    CloseRequest, CloseResult, ConvertRequest, ConvertResult, DrawingRequest, DrawingResult,
+    ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField, EntityKind,
+    Extent, Format, IdsCheckRequest, IdsCheckResult, IdsFinding, OpenRequest, OpenResult,
+    PointStyleSummary, Request, RequestCommon, ReviewAdoptIdsRequest, ReviewAdoptRequest,
+    ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult, SceneRequest, SceneResult,
+    SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
 };
 use crate::review;
 use crate::scene;
@@ -353,6 +354,10 @@ impl Session {
             Request::ReviewAdoptIds(request) => self
                 .review_adopt_ids(request, &mut cx)
                 .map(|r| Box::new(r) as _),
+            Request::BcfRead(request) => self.bcf_read(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::BcfWrite(request) => {
+                self.bcf_write(request, &mut cx).map(|r| Box::new(r) as _)
+            }
         };
         result.ok()
     }
@@ -952,6 +957,41 @@ impl Session {
         Ok(result)
     }
 
+    /// bcfzip を読み、開いた建物モデルを対象にしたレビューの文書を blob で返す（決定 0220）
+    fn bcf_read(
+        &mut self,
+        request: &BcfReadRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<BcfReadResult, Failed> {
+        let model = self.model(&request.doc, "bcf_read", cx)?;
+        let bytes = self.input(&request.input, "/input", cx)?;
+        let (result, bytes) = bcf::read(model, bytes, request, cx)?;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(result)
+    }
+
+    /// レビューの文書を bcfzip に書き、blob で返す（決定 0220）
+    fn bcf_write(
+        &mut self,
+        request: &BcfWriteRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<BcfWriteResult, Failed> {
+        let review = self.input(&request.review, "/review", cx)?;
+        let original = match &request.original {
+            Some(name) => Some(self.input(name, "/original", cx)?),
+            None => None,
+        };
+        let (result, bytes) = bcf::write(review, original, request, cx)?;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(result)
+    }
+
     /// シーンの文字を置くフォントの入力を読む（決定 0188）
     fn fonts(
         &self,
@@ -1376,6 +1416,8 @@ fn common(request: &Request) -> &RequestCommon {
         Request::BuildingElements(request) => &request.request_common,
         Request::IdsCheck(request) => &request.request_common,
         Request::ReviewAdoptIds(request) => &request.request_common,
+        Request::BcfRead(request) => &request.request_common,
+        Request::BcfWrite(request) => &request.request_common,
     }
 }
 
@@ -1918,7 +1960,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":44}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":45}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2467,6 +2509,77 @@ END_SCHEMA;
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(text(&response, "/result/hash"), hash);
         assert_eq!(text(&response, "/result/references/0/state"), "unchanged");
+
+        // BCF の topic をレビューの文書にし、要素のハッシュを建物モデルで埋めて、bcfzip に書き戻す
+        let topic = "6e4a7c1c-1111-4c3b-9a3e-0f6c3a2b1d01";
+        let view = "0b2c3d4e-2222-4f5a-8b6c-7d8e9f0a1b02";
+        let markup = format!(
+            "<Markup><Topic Guid=\"{topic}\" TopicType=\"Issue\" TopicStatus=\"Done\">\
+<Title>t</Title><CreationDate>2026-10-01T09:00:00Z</CreationDate><CreationAuthor>a</CreationAuthor>\
+<Viewpoints><ViewPoint Guid=\"{view}\"><Viewpoint>v.bcfv</Viewpoint></ViewPoint></Viewpoints></Topic></Markup>"
+        );
+        let visinfo = format!(
+            "<VisualizationInfo Guid=\"{view}\"><Components><Selection>\
+<Component IfcGuid=\"0000000000000000000080\"/></Selection></Components><PerspectiveCamera>\
+<CameraViewPoint><X>0</X><Y>0</Y><Z>0</Z></CameraViewPoint><CameraDirection><X>1</X><Y>0</Y><Z>0</Z></CameraDirection>\
+<CameraUpVector><X>0</X><Y>0</Y><Z>1</Z></CameraUpVector><FieldOfView>60</FieldOfView><AspectRatio>1</AspectRatio>\
+</PerspectiveCamera></VisualizationInfo>"
+        );
+        let markup_name = format!("{topic}/markup.bcf");
+        let visinfo_name = format!("{topic}/v.bcfv");
+        let bcfzip = zumen_zip::write(&[
+            ("bcf.version", br#"<Version VersionId="3.0"/>"#.as_slice()),
+            (&markup_name, markup.as_bytes()),
+            (&visinfo_name, visinfo.as_bytes()),
+        ])
+        .unwrap();
+        session.push(b"a.bcf", &bcfzip).unwrap();
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"bcf_read","doc":"a.ifc","input":"a.bcf","target":"model","statuses":[{"text":"Done","status":"resolved"}]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/version"), "3.0");
+        assert_eq!(number(&response, "/result/topics"), "1");
+        let review = blob_of(&mut session, &response);
+        let document = zumen_json::parse(&review).unwrap();
+        assert_eq!(
+            document.pointer("/topics/0/status"),
+            Some(&Value::String("resolved".to_string()))
+        );
+        assert_eq!(
+            document.pointer("/targets/0/hash"),
+            Some(&Value::String(hash.clone()))
+        );
+        assert!(matches!(
+            document.pointer("/topics/0/locations/0/selected/0/hash"),
+            Some(Value::String(_))
+        ));
+        session.push(b"bcf.json", &review).unwrap();
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"bcf_write","review":"bcf.json","target":"model","original":"a.bcf","statuses":[{"text":"Done","status":"resolved"}]}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(number(&response, "/result/topics"), "1");
+        let written = blob_of(&mut session, &response);
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let archive = zumen_zip::read(&written, &mut cx).unwrap();
+        let entry = archive.find(&markup_name).unwrap();
+        assert_eq!(archive.extract(entry, &mut cx).unwrap(), markup.as_bytes());
+        // 建物モデルでない文書は読めない
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"bcf_read","doc":"missing.ifc","input":"a.bcf","target":"model"}"#,
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(
+            text(&response, "/diagnostics/0/code"),
+            "call.document.missing"
+        );
 
         // 閉じれば、名前が空く
         call(&mut session, r#"{"v":1,"op":"close","docs":["a.ifc"]}"#);
