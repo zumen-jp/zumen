@@ -16,12 +16,48 @@ use zumen_drawing::{
 };
 use zumen_sdk::Error;
 
+/// 反転した切り抜き（AutoCAD 2015 から、決定 0208）の元の境界。AutoCAD は、SPATIAL_FILTER の境界に、外枠から元の
+/// 境界を切り欠いた多角形を書く。元の境界の点を、SPATIAL_FILTER の拡張辞書の `ACAD_XREC_ROUNDTRIP` の XRECORD の
+/// `ACAD_INVERTEDCLIP_ROUNDTRIP`（102）の後に、そのときの多角形の写しを `ACAD_INVERTEDCLIP_ROUNDTRIP_COMPARE` の後に
+/// 置く（点は 10・20・30）。写しが今の境界と合うときだけ、元の境界を返す。合わなければ、反転を知らないソフトが境界を
+/// 変えたものとして、境界をそのまま使う
+fn inverted_boundary(db: &AcadDb, filter: &Object, boundary: &[[f64; 2]]) -> Option<Vec<[f64; 2]>> {
+    let record = xdictionary(filter)
+        .and_then(|handle| entry(db, handle, b"ACAD_XREC_ROUNDTRIP"))
+        .and_then(|handle| db.get(handle))
+        .filter(|record| record.kind == b"XRECORD")?;
+    let mut sections: BTreeMap<&[u8], Vec<[f64; 3]>> = BTreeMap::new();
+    let mut current = None;
+    for value in &record.values {
+        match (value.code, &value.data) {
+            (102, Data::Text(name)) => current = Some(name.as_slice()),
+            (10, Data::Real(x)) => sections.entry(current?).or_default().push([*x, 0.0, 0.0]),
+            (code @ (20 | 30), Data::Real(v)) => {
+                let [_, y, z] = sections.get_mut(current?)?.last_mut()?;
+                *if code == 20 { y } else { z } = *v;
+            }
+            _ => {}
+        }
+    }
+    let flat = |name: &[u8]| -> Option<Vec<[f64; 2]>> {
+        sections
+            .get(name)?
+            .iter()
+            .map(|&[x, y, z]| (z == 0.0 && x.is_finite() && y.is_finite()).then_some([x, y]))
+            .collect()
+    };
+    let original = flat(b"ACAD_INVERTEDCLIP_ROUNDTRIP")?;
+    (original.len() >= 2 && flat(b"ACAD_INVERTEDCLIP_ROUNDTRIP_COMPARE")? == boundary)
+        .then_some(original)
+}
+
 impl Lifter<'_> {
     /// INSERT の切り抜き（XCLIP、決定 0149）。拡張辞書の `ACAD_FILTER` の辞書の `SPATIAL` が指す SPATIAL_FILTER の、
     /// 境界の点（10・20）を、境界の変換と挿入の逆の変換（40 の 12 ずつ。3 行 4 列を行の順）で、記号の定義の空間に
     /// 写す（推定。試料の図面で、挿入の逆の変換が挿入点と尺度の逆になることを確かめた）。境界の向き（210〜230）が
     /// Z でないもの、境界の原点（11〜31）が 0 でないもの、点が 2 つより少ないものは読めないとする。前と後ろで切るか
-    /// （72・73）は平面の形を変えず、境界を表示するか（71）は移さない
+    /// （72・73）は平面の形を変えず、境界を表示するか（71）は移さない。反転した切り抜きは、元の境界を内側を隠す
+    /// 切り抜きにする（`inverted_boundary`、決定 0208）
     pub(super) fn symbol_clip(&self, db: &AcadDb, object: &Object) -> Lifted<Option<Clip>> {
         let Some(filter) = xdictionary(object)
             .and_then(|handle| entry(db, handle, b"ACAD_FILTER"))
@@ -67,6 +103,13 @@ impl Lifter<'_> {
         for _ in 0..count {
             points.push([real(take(10)?, 10)?, real(take(20)?, 20)?]);
         }
+        let inverted = match inverted_boundary(db, filter, &points) {
+            Some(boundary) => {
+                points = boundary;
+                true
+            }
+            None => false,
+        };
         let normal = [
             real(take(210)?, 210)?,
             real(take(220)?, 220)?,
@@ -124,10 +167,7 @@ impl Lifter<'_> {
                 vertices = vec![*a, *c];
             }
         }
-        Ok(Some(Clip {
-            vertices,
-            inverted: false,
-        }))
+        Ok(Some(Clip { vertices, inverted }))
     }
 
     /// BLOCKS の節の BLOCK を、記号の定義にする（決定 0112）。中身は、所有者（330）をたどって着くブロックの

@@ -340,6 +340,13 @@ pub(super) fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Resul
                     .filter(|filter| filter.kind == b"SPATIAL_FILTER")
                 {
                     work(cx, filter.values.len() as u64, &source)?;
+                    // 反転した切り抜きの元の境界（block.rs の inverted_boundary）
+                    if let Some(record) = xdictionary(filter)
+                        .and_then(|handle| entry(db, handle, b"ACAD_XREC_ROUNDTRIP"))
+                        .and_then(|handle| db.get(handle))
+                    {
+                        work(cx, record.values.len() as u64, &source)?;
+                    }
                 }
             }
         }
