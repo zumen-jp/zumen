@@ -20,6 +20,7 @@ caught = "境界で捕まえた"
 missing = "名指ししたものがない"
 exists = "名指しした名前が、もう使われている"
 stale = "読んだときと今とで、名指ししたものが違う"
+mixed = "基準・成果の違う値を一緒に使った"
 
 # 予算（決定 0010）
 
@@ -735,6 +736,48 @@ severity = "info"
 params = { key = "text" }
 group-by = ["key"]
 since = "0.0.0"
+status = "active"
+
+# 座標系と標高（決定 0019）
+
+[codes."crs.height-realization.assumed"]
+description = "形式が標高の成果（測地成果2011・2024）を書いていないので、成果を仮定した"
+severity = "info"
+params = { realization = "text" }
+group-by = ["realization"]
+since = "0.2.0"
+status = "active"
+
+[codes."crs.height-realization.mixed"]
+description = "成果の違う標高を一緒に使った。同じ地点でも数十 cm 違うことがある"
+severity = "warning"
+params = { first = "text", second = "text" }
+group-by = ["first", "second"]
+since = "0.2.0"
+status = "active"
+
+[codes."crs.height-datum.unsupported"]
+description = "基準の違う高さ（標高と楕円体高など）の差は、引き算で決まらないので求めなかった"
+severity = "warning"
+params = { first = "text", second = "text" }
+group-by = ["first", "second"]
+since = "0.2.0"
+status = "active"
+
+[codes."crs.geoid.invalid"]
+description = "渡されたジオイドの格子（ISG format 2.0）が壊れていて読めない"
+severity = "error"
+params = { key = "text" }
+group-by = ["key"]
+since = "0.2.0"
+status = "active"
+
+[codes."crs.geoid.unsupported"]
+description = "渡されたジオイドの格子は、扱わない形（点の並び・投影の座標・フィートの値・ほかの並びや版）なので読まなかった"
+severity = "error"
+params = { key = "text", value = "text" }
+group-by = ["key", "value"]
+since = "0.2.0"
 status = "active"
 
 # DXF から図面の領域モデルへの変換（決定 0022）

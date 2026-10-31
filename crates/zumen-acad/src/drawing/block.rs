@@ -11,8 +11,8 @@ use super::{
 use crate::db::{AcadDb, Data, Object, Section};
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_drawing::{
-    Attribute, AttributeDefinition, AttributeValue, Clip, Grid, Length, ModelLength, ModelPoint,
-    ModelSpace, Position, SpaceId, Symbol, SymbolDefinition, SymbolKey,
+    Attribute, AttributeDefinition, AttributeValue, Axes, Clip, Grid, Length, ModelLength,
+    ModelPoint, ModelSpace, Position, SpaceId, Symbol, SymbolDefinition, SymbolKey,
 };
 use zumen_sdk::Error;
 
@@ -380,6 +380,7 @@ impl Lifter<'_> {
             space: ModelSpace {
                 id: space,
                 unit,
+                axes: Axes::EastNorth,
                 order,
                 elements,
             },

@@ -34,8 +34,8 @@ use acad_table::report_cell_values;
 use extension::extension_work;
 use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle, Draft,
-    Drawing2D, Edge, Element, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
+    Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
+    Draft, Drawing2D, Edge, Element, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
     ModelPoint, ModelSpace, PaperLength, PaperPoint, PointMark, PointSize, PointStyle, Position,
     Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, SymbolDefinition, SymbolKey, TextStyle,
     Unit, View,
@@ -256,6 +256,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     drawing.spaces.push(ModelSpace {
         id: MODEL,
         unit,
+        axes: Axes::EastNorth,
         elements: out.model,
         order: arrange(
             model_keys.as_ref(),

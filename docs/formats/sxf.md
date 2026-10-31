@@ -55,7 +55,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 - ハッチングは、指す複合曲線の曲線の辺を並べた輪にする。表示する複合曲線は、曲線を複合曲線の色・線種・線幅で置き、線のハッチングの要素の色は 1 本目の線の色にする（推定。[決定 0129](../decisions/0129-sxf-hatches-and-composite-curves.md)）。
 - 作図部品は名前空間 `sxf.sfig` の記号の定義に、既定義シンボルは名前空間 `sxf.symbol` の名前のキーにする。色を指定しない既定義シンボルの色はレイヤに従う（推定）。部分図の中の部分図は、外の部分図のビューに重ねたビューにする（[決定 0130](../decisions/0130-sxf-parts-symbols-and-nested-views.md)）。
 - 名前が `$$ATR` で始まる複合図形の要素に、名前と `$$` で区切った値を `sxf.attribute` の拡張で付ける。背景色などの値は解かない（[決定 0131](../decisions/0131-sxf-attribute-mechanism.md)）。
-- 測地座標系の部分図は、X と Y を入れ替えて用紙へ置く。
+- 測地座標系の部分図は、実寸の空間の `axes` を `Axes::NorthEast`（X が北、Y が東）にし、点はファイルの X・Y のまま持つ。ビューの変換が、東・北の順に直してから用紙へ置く（[決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)、[crs.md](crs.md)）。
 - まだ移さない種類と、読めない値は、`sxf.lift.dropped`・`sxf.lift.invalid` で報告する。
 
 ## P21 の組み直し

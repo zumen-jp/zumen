@@ -17,6 +17,7 @@
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` |
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` |
+| [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `core` |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `core` |
 | [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` |
@@ -63,6 +64,15 @@
 - 入手の条件: 無償公開
 - 入手先: [IFC 4.3.2 Documentation](https://ifc43-docs.standards.buildingsmart.org/)
 - 確認日: 2026-10-24
+
+### spec-isg_2_0
+
+- 名前: The ISG-format (version 2.0)
+- 公開元: International Service for the Geoid
+- 版: 2.0（2020-06-25）
+- 入手の条件: 無償公開
+- 入手先: [The ISG-format (version 2.0)](https://www.isgeoid.polimi.it/Geoid/ISG_format_v20_20200625.pdf)
+- 確認日: 2026-10-31
 
 ### spec-iso_32000_2_2020
 
@@ -178,6 +188,18 @@
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0207](../decisions/0207-building-model-components.md)
 - 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
+
+### format-isg
+
+- 名前: ISG 形式（ジオイド高と基準面補正量の格子）
+- 権利の根拠: ISG が書式の文書を公開している。実装を制限する記述はない。国土地理院のジオイド・モデル（JPGEO2024 など）は基本測量の測量成果で、複製と使用に測量法の承認が要る場合があるので、同梱せず利用者が渡す（決定 0019）
+- 仕様: [isg\_2\_0](#spec-isg_2_0)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）](https://www.gsi.go.jp/common/000277542.pdf)（確認日: 2026-10-31）
+- 照合するソフト: 国土地理院の内挿計算プログラム（geoidcalc）
+- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・試験に入れない
+- 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
+- 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 
 ### format-jwc
 

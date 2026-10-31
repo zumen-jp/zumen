@@ -1,6 +1,7 @@
 //! 実寸の空間と用紙、それぞれの点と長さ、単位、ビューとアフィン変換。
 
 use zumen_base::Ref;
+pub use zumen_crs::Axes;
 
 use crate::{Element, LayerId, SheetId, SpaceId};
 
@@ -42,6 +43,9 @@ pub struct ModelSpace {
     pub id: SpaceId,
     /// 文書の長さの単位
     pub unit: Unit,
+    /// 点の X・Y の並び。`NorthEast` なら X が北、Y が東の測量の向き（SXF の測地座標系の部分図）で、ビューの
+    /// 変換が東・北の順に直す（決定 0019）
+    pub axes: Axes,
     /// 要素。順序は入力の順
     pub elements: Vec<Element<ModelPoint>>,
     /// 描く順。`elements` の添字を、先に描くものから並べる

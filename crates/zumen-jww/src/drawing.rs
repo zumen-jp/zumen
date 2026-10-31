@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Boundary, Color, ColorCode, ColorSystem, Draft, Drawing2D, Edge, Element, Field,
+    Affine, Axes, Boundary, Color, ColorCode, ColorSystem, Draft, Drawing2D, Edge, Element, Field,
     FieldValue, Fill, Hatch, HatchLoop, Height, HeightMeaning, Horizontal, Inherit, Islands, Layer,
     LayerId, LayerState, Length, LineType, LineTypeDefinition, LineTypeId, LineWeight, MarkerKey,
     ModelLength, ModelPoint, ModelSpace, PaperLength, PatternBasis, Placement, Point, PointLook,
@@ -628,6 +628,7 @@ impl Lifter<'_> {
             space: ModelSpace {
                 id: space,
                 unit: Unit::Millimeter,
+                axes: Axes::EastNorth,
                 elements: Vec::new(),
                 order: Vec::new(),
             },
@@ -1406,6 +1407,7 @@ impl Lifter<'_> {
             self.out.spaces.push(ModelSpace {
                 id,
                 unit: Unit::Millimeter,
+                axes: Axes::EastNorth,
                 order: (0..elements.len()).collect(),
                 elements,
             });

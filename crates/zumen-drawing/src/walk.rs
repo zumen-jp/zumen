@@ -784,6 +784,7 @@ mod tests {
         ModelSpace {
             id,
             unit: crate::Unit::Millimeter,
+            axes: crate::Axes::EastNorth,
             order: (0..elements.len()).collect(),
             elements,
         }
