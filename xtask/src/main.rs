@@ -10,6 +10,7 @@ mod catalog;
 mod cli;
 mod dotnet;
 mod formats;
+mod go;
 mod java;
 mod javascript;
 mod profiles;
@@ -46,6 +47,8 @@ const PY_PROJECT: &str = "bindings/python/pyproject.toml";
 const CS_MESSAGES: &str = "bindings/dotnet/Zumen/Messages.g.cs";
 const CS_CONSTANTS: &str = "bindings/dotnet/Zumen/Constants.g.cs";
 const CS_PROJECT: &str = "bindings/dotnet/Zumen/Zumen.csproj";
+const GO_MESSAGES: &str = "bindings/go/messages.go";
+const GO_CONSTANTS: &str = "bindings/go/constants.go";
 const JAVA_MESSAGES: &str = "bindings/java/src/main/java/dev/zumen/Messages.java";
 const JAVA_CONSTANTS: &str = "bindings/java/src/main/java/dev/zumen/Constants.java";
 const JAVA_PROJECT: &str = "bindings/java/pom.xml";
@@ -182,6 +185,11 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (
             CS_CONSTANTS,
             dotnet::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
+        ),
+        (GO_MESSAGES, go::render_types(&schema)?),
+        (
+            GO_CONSTANTS,
+            go::render_constants(PACKAGE_VERSION, &boundary, &scene)?,
         ),
         (JAVA_MESSAGES, java::render_types(&schema)?),
         (
