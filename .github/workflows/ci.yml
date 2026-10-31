@@ -75,8 +75,9 @@ jobs:
         include:
           # python は、Python の包みの適合試験に使う版。docs/support.md の下限（3.9）と最新を、行で分けて試す（決定 0195）
           # dotnet は、.NET の包みの適合試験に使う TFM。.NET 10 と、32 bit の .NET Framework 4.8 を試す（決定 0196）
+          # Python 3.9 は、Ubuntu 26.04 の setup-python にない。下限を試す行は 24.04 に留める
           - name: Linux x64
-            os: ubuntu-latest
+            os: ubuntu-24.04
             python: '3.9'
             dotnet: net10.0
             library: libzumen_abi1.so
