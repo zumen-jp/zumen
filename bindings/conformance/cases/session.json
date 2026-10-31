@@ -1,5 +1,6 @@
 {
-  "description": "セッションの設定。設定が読めなければ invalid、子プロセスの CLI を起こせないなど、実行の形を使えなければ failed（決定 0012・0013・0200）",
+  "description": "セッションの設定。設定が読めなければ invalid、子プロセスの CLI を起こせないなど、実行の形を使えなければ failed（決定 0012・0013・0200）。capabilities の応答を比べるので、すべてのモジュールを入れたコアでだけ流す（決定 0221）",
+  "module": "all",
   "steps": [
     { "session": { "options": { "v": 1 } } },
     { "call": { "v": 1, "op": "capabilities" }, "expect": { "/result/abi": 1 } },

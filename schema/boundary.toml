@@ -142,3 +142,69 @@ params = [
     { name = "ptr", type = "bytes_mut", description = "zm_alloc が返したもの" },
     { name = "len", type = "size", description = "zm_alloc に渡したバイト数" },
 ]
+
+# wasm のモジュール（決定 0013・0221）。名前は zumen-abi の Cargo の feature の名前でもあり、モジュールは、その feature
+# だけを入れて作る。どのモジュールも同じ関数を出し、持たない op には call.op.unsupported を返す。ネイティブのライブラリと
+# CLI は、すべての feature を入れる。どの op も、どれかのモジュールに置く。
+
+[[modules]]
+name = "drawing"
+description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー"
+formats = ["dxf", "dwg", "sxf", "jww"]
+ops = [
+    "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
+    "check", "review_carry", "review_adopt",
+]
+
+[[modules]]
+name = "bim"
+description = "IFC と建物モデル、EXPRESS・IDS の照合と BCF"
+formats = ["ifc"]
+ops = [
+    "capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements",
+    "ids_check", "review_adopt_ids", "bcf_read", "bcf_write",
+]
+
+# open が入力の形式を判定する順と規則（決定 0007・0219）。規則は、形式のコーデックの SIGNATURES と同じにする
+# （zumen-abi の試験が確かめる）。JavaScript の包みは、この順で判定し、形式を持つモジュールを読み込む。
+# 規則の形: bytes（offset の位置から続くバイト列）・lines（先頭の行）・step-schema（ISO 10303-21 の FILE_SCHEMA の始まり）
+
+[[detection]]
+format = "ifc"
+module = "bim"
+rules = [{ step-schema = "IFC" }]
+
+[[detection]]
+format = "dxf"
+module = "drawing"
+rules = [{ lines = ["0", "SECTION"] }, { offset = 0, bytes = "AutoCAD Binary DXF\r\n\u001a\u0000" }]
+
+[[detection]]
+format = "dwg"
+module = "drawing"
+rules = [
+    { offset = 0, bytes = "AC1012" },
+    { offset = 0, bytes = "AC1014" },
+    { offset = 0, bytes = "AC1015" },
+    { offset = 0, bytes = "AC1018" },
+    { offset = 0, bytes = "AC1021" },
+    { offset = 0, bytes = "AC1024" },
+    { offset = 0, bytes = "AC1027" },
+    { offset = 0, bytes = "AC1032" },
+]
+
+[[detection]]
+format = "sxf"
+module = "drawing"
+rules = [{ lines = ["ISO-10303-21;"] }]
+
+[[detection]]
+format = "jww"
+module = "drawing"
+rules = [{ offset = 0, bytes = "JwwData." }]
+
+# ifcZIP。ZIP の署名はほかの形式とも重なるので、最後に試す
+[[detection]]
+format = "ifc"
+module = "bim"
+rules = [{ offset = 0, bytes = "PK\u0003\u0004" }]

@@ -144,6 +144,27 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 
 /// 要求の値の型か範囲が合わないことの診断
 /// 文書の種類が op に合わない
+/// 図面の形式なら読む。どの図面の形式でもなければ `None`。形式は、コーデックが持つ判定の規則で決める
+/// （決定 0007・0008）。入力の大きさは、コーデックが確かめる
+#[cfg(feature = "drawing")]
+fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
+    // 失敗の理由は、コーデックが診断として足してある
+    let doc = if Dxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        Doc::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
+    } else if Dwg::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        // 読めるのは R2000（AC1015）だけ。ほかの版は、コーデックが診断を足して失敗する
+        Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
+    } else if Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
+        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?)
+    } else if Jww::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(doc))
+}
+
 fn unsupported(name: &str, op: &str) -> Diagnostic {
     Diagnostic::new(codes::CALL_DOCUMENT_UNSUPPORTED)
         .with("name", name)
@@ -290,6 +311,14 @@ impl Session {
                 .report(Diagnostic::new(codes::CALL_VERSION_UNSUPPORTED).with("version", version));
             return None;
         }
+        // wasm のモジュールは、持つ op だけを入れて作る。持たない op は、欄を読む前に断る（決定 0013・0221）
+        if let Some(zumen_json::Value::String(op)) = value.pointer("/op")
+            && Request::TAGS.contains(&op.as_str())
+            && !crate::abi::has_op(op)
+        {
+            diagnostics.report(Diagnostic::new(codes::CALL_OP_UNSUPPORTED).with("op", op.as_str()));
+            return None;
+        }
         let request = match Request::from_json(&value) {
             Ok(request) => request,
             Err(invalid) => {
@@ -325,39 +354,57 @@ impl Session {
             Request::Describe(request) => {
                 describe::describe(&self.inputs, request, &mut cx).map(|r| Box::new(r) as _)
             }
+            #[cfg(feature = "drawing")]
             Request::Drawing(request) => self.drawing(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Convert(request) => self.convert(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Check(request) => self.check(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "bim")]
             Request::Validate(request) => {
                 validate::validate(&self.inputs, request, &mut cx).map(|r| Box::new(r) as _)
             }
             Request::ReviewCarry(request) => self
                 .review_carry(request, &mut cx)
                 .map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::ReviewAdopt(request) => self
                 .review_adopt(request, &mut cx)
                 .map(|r| Box::new(r) as _),
+            #[cfg(feature = "bim")]
             Request::Building(request) => self
                 .model(&request.doc, "building", &mut cx)
                 .map(|model| Box::new(building::summary(model)) as _),
+            #[cfg(feature = "bim")]
             Request::BuildingElements(request) => self
                 .model(&request.doc, "building_elements", &mut cx)
                 .and_then(|model| building::elements(model, request, &mut cx))
                 .map(|r| Box::new(r) as _),
+            #[cfg(feature = "bim")]
             Request::IdsCheck(request) => {
                 self.ids_check(request, &mut cx).map(|r| Box::new(r) as _)
             }
+            #[cfg(feature = "bim")]
             Request::ReviewAdoptIds(request) => self
                 .review_adopt_ids(request, &mut cx)
                 .map(|r| Box::new(r) as _),
+            #[cfg(feature = "bim")]
             Request::BcfRead(request) => self.bcf_read(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "bim")]
             Request::BcfWrite(request) => {
                 self.bcf_write(request, &mut cx).map(|r| Box::new(r) as _)
             }
+            // 入れなかったモジュールの op は、上で断った
+            #[allow(unreachable_patterns)]
+            _ => Err(Failed),
         };
         result.ok()
     }
@@ -383,41 +430,33 @@ impl Session {
                 Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", name.as_str()),
             ));
         }
-        // IFC-SPF は SXF と同じ始まりなので先に、ifcZIP は ZIP なので最後に試す（決定 0219）
+        // IFC-SPF は SXF と同じ始まりなので先に、ifcZIP は ZIP なので最後に試す（決定 0219）。モジュールには、
+        // 持つ形式の判定だけを入れる（決定 0221）
+        #[cfg(feature = "bim")]
         if let Some(model) = building::read_spf(bytes, cx) {
             return self.open_model(name.clone(), model?);
         }
-        // 形式は、コーデックが持つ判定の規則で決める（決定 0007・0008）。入力の大きさは、コーデックが確かめる
-        let doc = if Dxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
-            // 失敗の理由は、コーデックが診断として足してある
-            Doc::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
-        } else if Dwg::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
-            // 読めるのは R2000（AC1015）だけ。ほかの版は、コーデックが診断を足して失敗する
-            Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
-        } else if Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
-            // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
-            Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?)
-        } else if Jww::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
-            Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
-        } else if let Some(model) = building::read_zip(bytes, cx) {
+        #[cfg(feature = "drawing")]
+        if let Some(doc) = read_drawing(bytes, cx)? {
+            let result = OpenResult {
+                doc: name.clone(),
+                format: doc.format().to_string(),
+            };
+            let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
+            self.hashes.insert(name.clone(), hash);
+            self.docs.insert(name.clone(), doc);
+            return Ok(result);
+        }
+        #[cfg(feature = "bim")]
+        if let Some(model) = building::read_zip(bytes, cx) {
             return self.open_model(name.clone(), model?);
-        } else {
-            cx.check(Kind::InputBytes, bytes.len() as u64)
-                .map_err(|stop| stopped(cx, stop))?;
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_FORMAT_UNSUPPORTED)
-                    .with("name", request.input.as_str()),
-            ));
-        };
-        let result = OpenResult {
-            doc: name.clone(),
-            format: doc.format().to_string(),
-        };
-        let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
-        self.hashes.insert(name.clone(), hash);
-        self.docs.insert(name.clone(), doc);
-        Ok(result)
+        }
+        cx.check(Kind::InputBytes, bytes.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        Err(fail(
+            cx,
+            Diagnostic::new(codes::CALL_FORMAT_UNSUPPORTED).with("name", request.input.as_str()),
+        ))
     }
 
     fn open_model(&mut self, name: String, model: building::Model) -> Result<OpenResult, Failed> {
@@ -813,12 +852,21 @@ impl Session {
                 hash: model.hash.to_string(),
                 elements: model.hashes(cx)?,
             },
+            #[cfg(feature = "drawing")]
             None => {
                 let drawing = self.lift(&request.doc, cx)?;
                 let Some(hash) = self.hashes.get(&request.doc) else {
                     return Err(fail(cx, invalid_value("/doc")));
                 };
                 review::Plan::drawing(&drawing, hash.to_string(), cx)?
+            }
+            #[cfg(not(feature = "drawing"))]
+            None => {
+                return Err(fail(
+                    cx,
+                    Diagnostic::new(codes::CALL_DOCUMENT_MISSING)
+                        .with("name", request.doc.as_str()),
+                ));
             }
         };
         let bytes = self.input(&request.review, "/review", cx)?;
@@ -1071,7 +1119,12 @@ fn capabilities() -> CapabilitiesResult {
             major: SCHEMA_MAJOR,
             minor: SCHEMA_MINOR,
         },
-        ops: Request::TAGS.iter().map(|op| op.to_string()).collect(),
+        // wasm のモジュールは、持つ op と形式だけを返す（決定 0221）
+        ops: Request::TAGS
+            .iter()
+            .filter(|op| crate::abi::has_op(op))
+            .map(|op| op.to_string())
+            .collect(),
         // ID の規則の版。AutoCAD の系統はハンドルで、SXF はインスタンスの番号で ID を作る 2（決定 0156）
         // 書けるのは、apply で書き戻せる形式（決定 0139）。SXF は SFC と P21 に書き戻す（決定 0167・0169）
         formats: [
@@ -1081,6 +1134,7 @@ fn capabilities() -> CapabilitiesResult {
             (Jww::FORMAT, "jww", true, 1),
         ]
         .into_iter()
+        .filter(|_| cfg!(feature = "drawing"))
         .map(|(id, family, write, id_rules)| Format {
             id: id.to_string(),
             family: family.to_string(),

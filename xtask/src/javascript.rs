@@ -6,7 +6,7 @@
 
 use std::fmt::Write;
 
-use crate::boundary::Boundary;
+use crate::boundary::{Boundary, RuleKind};
 use crate::scene::Scene;
 use crate::schema::{Def, Member, Schema, Shape, Ty, pascal};
 
@@ -183,6 +183,66 @@ fn wasm_exports(boundary: &Boundary) -> Vec<&str> {
     names
 }
 
+/// wasm のモジュールの表と、形式の判定の順と規則（決定 0013・0221）
+fn render_modules(out: &mut String, boundary: &Boundary) {
+    let list = |items: &[String]| {
+        items
+            .iter()
+            .map(|item| quote(item))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    out.push_str("\n/** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */\nexport const MODULES = Object.freeze({\n");
+    for module in &boundary.modules {
+        let _ = writeln!(
+            out,
+            "  {}: Object.freeze({{\n    description: {},\n    formats: Object.freeze([{}]),\n    ops: Object.freeze([{}]),\n  }}),",
+            module.name,
+            quote(&module.description),
+            list(&module.formats),
+            list(&module.ops)
+        );
+    }
+    out.push_str("});\n\n/** open が形式を判定する順と規則。rules のどれかに合えば format とする */\nexport const DETECTION = Object.freeze([\n");
+    for detection in &boundary.detection {
+        let _ = writeln!(
+            out,
+            "  Object.freeze({{\n    format: {},\n    module: {},\n    rules: Object.freeze([",
+            quote(&detection.format),
+            quote(&detection.module)
+        );
+        for rule in &detection.rules {
+            match rule.kind() {
+                Some(RuleKind::Bytes { offset, bytes }) => {
+                    let bytes: Vec<String> = bytes.iter().map(|b| format!("0x{b:02x}")).collect();
+                    let _ = writeln!(
+                        out,
+                        "      Object.freeze({{ kind: \"bytes\", offset: {offset}, bytes: Object.freeze([{}]) }}),",
+                        bytes.join(", ")
+                    );
+                }
+                Some(RuleKind::Lines(lines)) => {
+                    let _ = writeln!(
+                        out,
+                        "      Object.freeze({{ kind: \"lines\", lines: Object.freeze([{}]) }}),",
+                        list(lines)
+                    );
+                }
+                Some(RuleKind::StepSchema(prefix)) => {
+                    let _ = writeln!(
+                        out,
+                        "      Object.freeze({{ kind: \"step_schema\", prefix: {} }}),",
+                        quote(prefix)
+                    );
+                }
+                None => {}
+            }
+        }
+        out.push_str("    ]),\n  }),\n");
+    }
+    out.push_str("]);\n");
+}
+
 /// `bindings/js/src/constants.js` の中身を作る
 pub fn render_constants(version: &str, boundary: &Boundary, scene: &Scene) -> String {
     let mut out = String::new();
@@ -219,6 +279,7 @@ pub fn render_constants(version: &str, boundary: &Boundary, scene: &Scene) -> St
         let _ = writeln!(out, "  {},", quote(name));
     }
     out.push_str("]);\n");
+    render_modules(&mut out, boundary);
 
     out.push_str(
         "\n/** シーンの見出しの始まりの 4 バイト */\nexport const SCENE_MAGIC = \"ZMSC\";\n",
@@ -288,6 +349,20 @@ pub fn render_constants_types(boundary: &Boundary, scene: &Scene) -> String {
     }
     out.push_str(";\n\n/** 状態コードの名前。値から引く */\nexport declare const STATUS: Readonly<Record<number, StatusName>>;\n");
     out.push_str("\n/** wasm のモジュールが出す関数 */\nexport declare const WASM_EXPORTS: readonly string[];\n");
+    out.push_str("\n/** wasm のモジュールの名前（決定 0013・0221） */\nexport type ModuleName =");
+    for module in &boundary.modules {
+        let _ = write!(
+            out,
+            "\n  /** {} */\n  | {}",
+            module.description,
+            quote(&module.name)
+        );
+    }
+    out.push_str(";\n\n/** wasm のモジュールが持つ形式と op */\nexport interface ModuleInfo {\n  readonly description: string;\n  readonly formats: readonly string[];\n  readonly ops: readonly string[];\n}\n");
+    out.push_str("\n/** wasm のモジュール。名前から引く */\nexport declare const MODULES: Readonly<Record<ModuleName, ModuleInfo>>;\n");
+    out.push_str("\n/** 形式の判定の規則（zumen-sdk の Signature） */\nexport type DetectionRule =\n  | { readonly kind: \"bytes\"; readonly offset: number; readonly bytes: readonly number[] }\n  | { readonly kind: \"lines\"; readonly lines: readonly string[] }\n  | { readonly kind: \"step_schema\"; readonly prefix: string };\n");
+    out.push_str("\n/** 形式の判定。rules のどれかに合えば format とする */\nexport interface Detection {\n  readonly format: string;\n  readonly module: ModuleName;\n  readonly rules: readonly DetectionRule[];\n}\n");
+    out.push_str("\n/** open が形式を判定する順と規則 */\nexport declare const DETECTION: readonly Detection[];\n");
 
     out.push_str(
         "\n/** シーンの見出しの始まりの 4 バイト */\nexport declare const SCENE_MAGIC: \"ZMSC\";\n",

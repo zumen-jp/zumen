@@ -9,6 +9,12 @@
 //!
 //! ライブラリのファイル名には、ABI の大版を入れる（`zumen_abi1.dll` など、決定 0015）。
 
+// モジュールを分けて作るときは、入れなかった op からしか呼ばない関数が残る（決定 0221）
+#![cfg_attr(
+    not(all(feature = "drawing", feature = "bim")),
+    allow(dead_code, unused_imports, unused_variables)
+)]
+
 pub mod abi;
 mod bcf;
 mod bounds;

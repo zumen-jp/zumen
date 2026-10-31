@@ -38,6 +38,27 @@ try {
 | `Session.push`・`call`・`callBytes`・`take`・`cancel`・`close` | 境界の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
 | `readScene` | シーンの blob を、区画ごとの型付き配列で読む（`schema/scene.toml`） |
 
+### 分けたモジュール
+
+図面と BIM を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`）もあります（[決定 0221](../../docs/decisions/0221-wasm-modules.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
+
+```js
+import { detect, loadModules } from "./src/index.js";
+
+const modules = loadModules({
+  drawing: () => fetch("/zumen_abi1_drawing.wasm"),
+  bim: () => fetch("/zumen_abi1_bim.wasm"),
+});
+const zumen = await modules.forInput(bytes); // 形式を判定し（detect）、それを開けるモジュールを返す。判定できなければ undefined
+const viewer = await modules.forOp("scene"); // op を持つモジュール
+```
+
+| 名前 | 中身 |
+| --- | --- |
+| `detect` | 入力を、`open` と同じ順と規則で判定し、合った `DETECTION` の行（`format`・`module`）を返す（どれでもなければ `undefined`） |
+| `modulesWith` | op を持つモジュールの名前 |
+| `loadModules` | `Modules.get`・`forInput`・`forOp` で、モジュールを読み込んで覚えておく |
+
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`call` の型は要求の `op` から結果の型を引きます。
 
 ## 試験
@@ -55,4 +76,10 @@ node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zume
 npm ci --prefix bindings/js/test/browser --ignore-scripts
 npx --prefix bindings/js/test/browser playwright install chromium
 node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```
+
+分けたモジュールでは、`test/modules.mjs` が、モジュールごとの op と、`detect` が `open` と同じ形式を選ぶことを確かめ、組ごとに合うモジュールで適合試験を流します。`test/browser/run.mjs` に分けたモジュールを渡すと、ブラウザーの中でも同じことをします。
+
+```bash
+node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_abi1_bim.wasm
 ```

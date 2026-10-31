@@ -61,12 +61,17 @@ function checkScene(at, blob, result, failures) {
  * - cases: cases.mjs の loadCases が返す組
  * - readSample: samples/ の中のファイルの道筋から、中身の Uint8Array を返す
  * - sha256: バイト列から、SHA-256 の 16 進の文字列を返す（非同期でよい）
+ * - pick: 分けた wasm のモジュールで流すとき、組から、流すモジュール（load で読み込んだもの）を返す。組のあとの試験は
+ *   zumen で流す
  */
-export async function runConformance({ zumen, cases, readSample, sha256 }) {
+export async function runConformance({ zumen: base, cases, readSample, sha256, pick }) {
   const failures = [];
   const hashes = [];
   let scenes = 0;
-  for (const { name, steps } of cases) {
+  for (const testCase of cases) {
+    const { name, steps } = testCase;
+    // 分けたモジュールで流すときは、組ごとにモジュールを選ぶ（決定 0221）
+    const zumen = pick ? pick(testCase) : base;
     let session = null;
     // 直前の応答が返したシーンの blob の番号と結果
     let lastScene = null;
@@ -127,7 +132,7 @@ export async function runConformance({ zumen, cases, readSample, sha256 }) {
 
   // 値を渡す call と、閉じたあとの呼び出し
   {
-    const session = zumen.open({ v: SCHEMA_MAJOR });
+    const session = base.open({ v: SCHEMA_MAJOR });
     const response = session.call({ v: SCHEMA_MAJOR, op: "capabilities" });
     if (response.v !== SCHEMA_MAJOR || typeof response.result?.package !== "string") {
       failures.push(`call の応答が capabilities の形でない: ${JSON.stringify(response).slice(0, 200)}`);
@@ -149,7 +154,7 @@ export async function runConformance({ zumen, cases, readSample, sha256 }) {
 
   // 値を渡す call と、閉じたあとの呼び出し
   {
-    const session = zumen.open({ v: SCHEMA_MAJOR });
+    const session = base.open({ v: SCHEMA_MAJOR });
     const response = session.call({ v: SCHEMA_MAJOR, op: "capabilities" });
     if (response.v !== SCHEMA_MAJOR || typeof response.result?.package !== "string") {
       failures.push(`call の応答が capabilities の形でない: ${JSON.stringify(response).slice(0, 200)}`);

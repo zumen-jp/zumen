@@ -29,6 +29,12 @@ jobs:
         run: cargo clippy --package zumen-acad --no-default-features --all-targets --locked -- -D warnings
       - name: wasm32 でだけ使うコードも lint する
         run: cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: 分けた wasm のモジュール（feature を 1 つだけ入れたもの）も lint する（決定 0221）
+        run: |
+          for module in drawing bim; do
+            cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked --no-default-features --features $module -- -D warnings
+            cargo clippy --package zumen-abi --all-targets --locked --no-default-features --features $module -- -D warnings
+          done
       - name: 形式の権利と依存・診断・スキーマ・公開サンプルの台帳を確かめ、生成した文書とコードの更新漏れを調べる
         run: cargo xtask codegen --check
 
@@ -173,10 +179,20 @@ jobs:
         with:
           # docs/support.md の Node.js の下限
           node-version: 22
+      - name: 分けた wasm のモジュールを作り、持つ op と形式だけに答えることを確かめる（決定 0013・0221）
+        run: |
+          mkdir -p modules
+          for module in drawing bim; do
+            cargo test --package zumen-abi --locked --no-default-features --features $module --test modules
+            cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked --no-default-features --features $module
+            cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_$module.wasm
+          done
       - name: ブラウザーに配るのと同じ形で作る（決定 0007）
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: 分けたモジュールを包みで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
+        run: node bindings/js/test/modules.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm
       - name: TypeScript・JavaScript の包みを通しても、同じハッシュの一覧になることを確かめる（決定 0194）
         run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: ブラウザーを動かす道具（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
@@ -186,7 +202,7 @@ jobs:
         working-directory: bindings/js/test/browser
         run: npx --no-install playwright install --with-deps --only-shell chromium
       - name: ブラウザー（Chromium）の中で包みを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
-        run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+        run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm
 
   deny:
     name: 依存の検査

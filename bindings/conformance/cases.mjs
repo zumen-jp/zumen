@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { pushOf as pushWith } from "./steps.mjs";
 
-export { ACTIONS, bytesOf, checkResponse, decodeHex, pointer, requestOf, same, samplePath } from "./steps.mjs";
+export { ACTIONS, bytesOf, checkResponse, decodeHex, moduleOf, pointer, requestOf, same, samplePath } from "./steps.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const repository = join(here, "..", "..");
@@ -30,17 +30,18 @@ export function loadCases() {
   return readdirSync(join(here, "cases"))
     .filter((file) => file.endsWith(".json"))
     .sort()
-    .map((file) => ({
-      name: file.slice(0, -".json".length),
-      steps: JSON.parse(readFileSync(join(here, "cases", file), "utf8")).steps,
-    }));
+    .map((file) => {
+      const { steps, module } = JSON.parse(readFileSync(join(here, "cases", file), "utf8"));
+      return { name: file.slice(0, -".json".length), steps, module };
+    });
 }
 
-/** ハッシュの一覧が hashes.txt と一致するかを確かめる */
-export function compareHashes(hashes, failures) {
+/** ハッシュの一覧が hashes.txt と一致するかを確かめる。`names` を渡せば、その組の行だけと比べる */
+export function compareHashes(hashes, failures, names) {
   const expected = readFileSync(join(here, "hashes.txt"), "utf8")
     .split("\n")
-    .filter((line) => line !== "" && !line.startsWith("#"));
+    .filter((line) => line !== "" && !line.startsWith("#"))
+    .filter((line) => names === undefined || names.includes(line.slice(0, line.indexOf(" "))));
   if (JSON.stringify(hashes) !== JSON.stringify(expected)) {
     const missing = expected.filter((line) => !hashes.includes(line)).map((line) => `- ${line}`);
     const extra = hashes.filter((line) => !expected.includes(line)).map((line) => `+ ${line}`);

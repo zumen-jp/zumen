@@ -85,6 +85,189 @@ pub const WASM_FUNCTIONS: &[&str] = &[
     "zm_dealloc",
 ];
 
+/// wasm のモジュール（決定 0013・0221）
+pub struct Module {
+    /// 名前。zumen-abi の feature の名前
+    pub name: &'static str,
+    /// 読める形式
+    pub formats: &'static [&'static str],
+    /// 持つ op
+    pub ops: &'static [&'static str],
+}
+
+/// wasm のモジュール
+pub const MODULES: &[Module] = &[
+    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー
+    Module {
+        name: "drawing",
+        formats: &["dxf", "dwg", "sxf", "jww"],
+        ops: &[
+            "capabilities",
+            "open",
+            "close",
+            "describe",
+            "drawing",
+            "entities",
+            "apply",
+            "convert",
+            "tables",
+            "scene",
+            "check",
+            "review_carry",
+            "review_adopt",
+        ],
+    },
+    // IFC と建物モデル、EXPRESS・IDS の照合と BCF
+    Module {
+        name: "bim",
+        formats: &["ifc"],
+        ops: &[
+            "capabilities",
+            "open",
+            "close",
+            "describe",
+            "validate",
+            "review_carry",
+            "building",
+            "building_elements",
+            "ids_check",
+            "review_adopt_ids",
+            "bcf_read",
+            "bcf_write",
+        ],
+    },
+];
+
+/// このビルドに入れたモジュールのどれかが、op を持つか
+pub fn has_op(op: &str) -> bool {
+    (cfg!(feature = "drawing")
+        && matches!(
+            op,
+            "capabilities"
+                | "open"
+                | "close"
+                | "describe"
+                | "drawing"
+                | "entities"
+                | "apply"
+                | "convert"
+                | "tables"
+                | "scene"
+                | "check"
+                | "review_carry"
+                | "review_adopt"
+        ))
+        || (cfg!(feature = "bim")
+            && matches!(
+                op,
+                "capabilities"
+                    | "open"
+                    | "close"
+                    | "describe"
+                    | "validate"
+                    | "review_carry"
+                    | "building"
+                    | "building_elements"
+                    | "ids_check"
+                    | "review_adopt_ids"
+                    | "bcf_read"
+                    | "bcf_write"
+            ))
+}
+
+/// 形式の判定。`rules` のどれかに合えば、`format` とする
+pub struct Detection {
+    /// 形式
+    pub format: &'static str,
+    /// 形式を持つモジュール
+    pub module: &'static str,
+    /// 規則
+    pub rules: &'static [zumen_sdk::Signature],
+}
+
+/// open が形式を判定する順と規則
+pub const DETECTION: &[Detection] = &[
+    Detection {
+        format: "ifc",
+        module: "bim",
+        rules: &[zumen_sdk::Signature::StepSchema { prefix: b"IFC" }],
+    },
+    Detection {
+        format: "dxf",
+        module: "drawing",
+        rules: &[
+            zumen_sdk::Signature::Lines {
+                lines: &[b"0", b"SECTION"],
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AutoCAD Binary DXF\x0d\x0a\x1a\x00",
+            },
+        ],
+    },
+    Detection {
+        format: "dwg",
+        module: "drawing",
+        rules: &[
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1012",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1014",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1015",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1018",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1021",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1024",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1027",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"AC1032",
+            },
+        ],
+    },
+    Detection {
+        format: "sxf",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::Lines {
+            lines: &[b"ISO-10303-21;"],
+        }],
+    },
+    Detection {
+        format: "jww",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::Bytes {
+            offset: 0,
+            bytes: b"JwwData.",
+        }],
+    },
+    Detection {
+        format: "ifc",
+        module: "bim",
+        rules: &[zumen_sdk::Signature::Bytes {
+            offset: 0,
+            bytes: b"PK\x03\x04",
+        }],
+    },
+];
+
 // 関数の形が schema/boundary.toml と合うことを、コンパイルで確かめる
 const _: unsafe extern "system" fn() -> u32 = crate::ffi::zm_abi_version;
 const _: unsafe extern "system" fn(*const u8, usize, *mut *mut crate::ffi::SessionHandle) -> i32 =

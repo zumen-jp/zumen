@@ -12,6 +12,69 @@ pub struct Boundary {
     pub versions: Versions,
     pub status: Vec<Status>,
     pub functions: Vec<Function>,
+    /// wasm のモジュール（決定 0013・0221）
+    #[serde(default)]
+    pub modules: Vec<Module>,
+    /// open が形式を判定する順と規則
+    #[serde(default)]
+    pub detection: Vec<Detection>,
+}
+
+/// wasm のモジュール。名前は zumen-abi の feature の名前
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Module {
+    pub name: String,
+    pub description: String,
+    pub formats: Vec<String>,
+    pub ops: Vec<String>,
+}
+
+/// 形式の判定。`rules` のどれかに合えば、`format` とする
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Detection {
+    pub format: String,
+    pub module: String,
+    pub rules: Vec<Rule>,
+}
+
+/// 判定の規則（zumen-sdk の `Signature`）。どれか 1 つの欄を書く
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Rule {
+    /// `bytes` の位置
+    pub offset: Option<usize>,
+    /// `offset` から続くバイト列
+    pub bytes: Option<String>,
+    /// 先頭の行
+    pub lines: Option<Vec<String>>,
+    /// ISO 10303-21 の `FILE_SCHEMA` の最初の名前の始まり
+    pub step_schema: Option<String>,
+}
+
+/// 判定の規則の形
+pub enum RuleKind<'a> {
+    Bytes { offset: usize, bytes: &'a [u8] },
+    Lines(&'a [String]),
+    StepSchema(&'a str),
+}
+
+impl Rule {
+    /// 規則の形。欄の組み合わせが合わなければ `None`
+    pub fn kind(&self) -> Option<RuleKind<'_>> {
+        match (&self.offset, &self.bytes, &self.lines, &self.step_schema) {
+            (Some(offset), Some(bytes), None, None) => Some(RuleKind::Bytes {
+                offset: *offset,
+                bytes: bytes.as_bytes(),
+            }),
+            (None, None, Some(lines), None) if !lines.is_empty() => Some(RuleKind::Lines(lines)),
+            (None, None, None, Some(prefix)) if !prefix.is_empty() => {
+                Some(RuleKind::StepSchema(prefix))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// 版
@@ -180,7 +243,91 @@ pub fn check(boundary: &Boundary) -> Vec<String> {
             }
         }
     }
+
+    let mut modules = BTreeSet::new();
+    for module in &boundary.modules {
+        let name = &module.name;
+        if !is_snake(name) || !modules.insert(name.as_str()) {
+            errors.push(format!(
+                "モジュール `{name}`: 名前が使えないか、重なっている"
+            ));
+        }
+        if module.description.trim().is_empty() {
+            errors.push(format!("モジュール `{name}`: description が空"));
+        }
+        if module.ops.is_empty() {
+            errors.push(format!("モジュール `{name}`: ops が空"));
+        }
+        let mut ops = BTreeSet::new();
+        for op in &module.ops {
+            if !ops.insert(op.as_str()) {
+                errors.push(format!("モジュール `{name}`: op `{op}` が重なっている"));
+            }
+        }
+    }
+    for detection in &boundary.detection {
+        let format = &detection.format;
+        match boundary.modules.iter().find(|m| m.name == detection.module) {
+            Some(module) if module.formats.contains(format) => {}
+            _ => errors.push(format!(
+                "形式の判定 `{format}`: モジュール `{}` がないか、その形式を持たない",
+                detection.module
+            )),
+        }
+        if detection.rules.is_empty() || detection.rules.iter().any(|rule| rule.kind().is_none()) {
+            errors.push(format!(
+                "形式の判定 `{format}`: 規則は offset と bytes・lines・step-schema のどれか 1 つにする"
+            ));
+        }
+    }
     errors
+}
+
+/// どの op も、どれかのモジュールに置き、モジュールにはスキーマにある op だけを置く
+pub fn check_ops(boundary: &Boundary, ops: &[&str]) -> Vec<String> {
+    let mut errors = Vec::new();
+    if boundary.modules.is_empty() {
+        return errors;
+    }
+    for op in ops {
+        if !boundary
+            .modules
+            .iter()
+            .any(|module| module.ops.iter().any(|o| o == op))
+        {
+            errors.push(format!("op `{op}` が、どのモジュールにもない"));
+        }
+    }
+    for module in &boundary.modules {
+        for op in &module.ops {
+            if !ops.contains(&op.as_str()) {
+                errors.push(format!(
+                    "モジュール `{}`: op `{op}` がスキーマにない",
+                    module.name
+                ));
+            }
+        }
+    }
+    errors
+}
+
+/// バイト列を Rust のバイト列の式にする
+fn byte_literal(bytes: &[u8]) -> String {
+    let mut out = String::from("b\"");
+    for &byte in bytes {
+        match byte {
+            b'"' | b'\\' => {
+                out.push('\\');
+                out.push(char::from(byte));
+            }
+            0x20..=0x7e => out.push(char::from(byte)),
+            _ => {
+                let _ = write!(out, "\\x{byte:02x}");
+            }
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn c_type(name: &str) -> &'static str {
@@ -439,6 +586,86 @@ pub fn render_rust(boundary: &Boundary) -> String {
             .filter(|function| has_target(function, target))
         {
             let _ = writeln!(out, "    \"{}\",", function.name);
+        }
+        out.push_str("];\n\n");
+    }
+
+    if !boundary.modules.is_empty() {
+        out.push_str("/// wasm のモジュール（決定 0013・0221）\npub struct Module {\n    /// 名前。zumen-abi の feature の名前\n    pub name: &'static str,\n    /// 読める形式\n    pub formats: &'static [&'static str],\n    /// 持つ op\n    pub ops: &'static [&'static str],\n}\n\n");
+        out.push_str("/// wasm のモジュール\npub const MODULES: &[Module] = &[\n");
+        for module in &boundary.modules {
+            let list = |items: &[String]| {
+                items
+                    .iter()
+                    .map(|item| format!("\"{item}\""))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let _ = writeln!(
+                out,
+                "    // {}\n    Module {{ name: \"{}\", formats: &[{}], ops: &[{}] }},",
+                module.description,
+                module.name,
+                list(&module.formats),
+                list(&module.ops)
+            );
+        }
+        out.push_str("];\n\n/// このビルドに入れたモジュールのどれかが、op を持つか\npub fn has_op(op: &str) -> bool {\n    ");
+        let terms: Vec<String> = boundary
+            .modules
+            .iter()
+            .map(|module| {
+                let ops: Vec<String> = module.ops.iter().map(|op| format!("\"{op}\"")).collect();
+                format!(
+                    "(cfg!(feature = \"{}\") && matches!(op, {}))",
+                    module.name,
+                    ops.join(" | ")
+                )
+            })
+            .collect();
+        out.push_str(&terms.join(" || "));
+        out.push_str("\n}\n\n");
+    }
+    if !boundary.detection.is_empty() {
+        out.push_str("/// 形式の判定。`rules` のどれかに合えば、`format` とする\npub struct Detection {\n    /// 形式\n    pub format: &'static str,\n    /// 形式を持つモジュール\n    pub module: &'static str,\n    /// 規則\n    pub rules: &'static [zumen_sdk::Signature],\n}\n\n");
+        out.push_str("/// open が形式を判定する順と規則\npub const DETECTION: &[Detection] = &[\n");
+        for detection in &boundary.detection {
+            let _ = writeln!(
+                out,
+                "    Detection {{ format: \"{}\", module: \"{}\", rules: &[",
+                detection.format, detection.module
+            );
+            for rule in &detection.rules {
+                match rule.kind() {
+                    Some(RuleKind::Bytes { offset, bytes }) => {
+                        let _ = writeln!(
+                            out,
+                            "        zumen_sdk::Signature::Bytes {{ offset: {offset}, bytes: {} }},",
+                            byte_literal(bytes)
+                        );
+                    }
+                    Some(RuleKind::Lines(lines)) => {
+                        let lines: Vec<String> = lines
+                            .iter()
+                            .map(|line| byte_literal(line.as_bytes()))
+                            .collect();
+                        let _ = writeln!(
+                            out,
+                            "        zumen_sdk::Signature::Lines {{ lines: &[{}] }},",
+                            lines.join(", ")
+                        );
+                    }
+                    Some(RuleKind::StepSchema(prefix)) => {
+                        let _ = writeln!(
+                            out,
+                            "        zumen_sdk::Signature::StepSchema {{ prefix: {} }},",
+                            byte_literal(prefix.as_bytes())
+                        );
+                    }
+                    None => {}
+                }
+            }
+            out.push_str("    ] },\n");
         }
         out.push_str("];\n\n");
     }
