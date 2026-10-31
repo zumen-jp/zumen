@@ -1581,3 +1581,66 @@ severity = "info"
 params = { rule = "text", view = "uint" }
 since = "0.0.0"
 status = "active"
+
+[codes."ids.file.invalid"]
+description = "IDS の XML の構造が、IDS 1.0 に合わない。near は合わなかった要素か属性"
+severity = "error"
+params = { near = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.facet.unsupported"]
+description = "知らない facet。その facet は確かめられないとする"
+severity = "info"
+params = { kind = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.restriction.unsupported"]
+description = "読まない値の制約か、読めない式。その制約は確かめられないとする"
+severity = "info"
+params = { kind = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.version.mixed"]
+description = "仕様の対象の IFC の版に、建物モデルのスキーマがない"
+severity = "warning"
+params = { specification = "text", schema = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.applicability.missing"]
+description = "必須の仕様に、適用の条件に合う要素がない（指摘）"
+severity = "error"
+params = { specification = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.applicability.exists"]
+description = "禁じる仕様の、適用の条件に合う要素がある（指摘）"
+severity = "error"
+params = { specification = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.applicability.unsupported"]
+description = "要素が適用の条件に合うかを確かめられない（指摘）"
+severity = "info"
+params = { specification = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.requirement.invalid"]
+description = "要素が要件の facet を満たさない（指摘）。任意の要件なら warning で返す"
+severity = "error"
+params = { specification = "text", facet = "text", cardinality = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ids.requirement.unsupported"]
+description = "要素が要件の facet を満たすかを確かめられない（指摘）"
+severity = "info"
+params = { specification = "text", facet = "text" }
+since = "0.2.0"
+status = "active"

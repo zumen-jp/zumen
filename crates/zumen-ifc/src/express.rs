@@ -39,6 +39,8 @@ struct Entity {
 #[derive(Clone, Debug, PartialEq)]
 struct Attribute {
     name: String,
+    /// 書いたままの名前
+    written: String,
     ty: Type,
     optional: bool,
 }
@@ -71,10 +73,36 @@ enum TypeDef {
     Select(String, Vec<String>),
 }
 
+/// 実体の明示の属性の名前と型（IDS の照合が使う）
+#[cfg(feature = "ids")]
+#[derive(Clone, Debug)]
+pub(crate) struct Explicit {
+    /// 書いたままの名前
+    pub(crate) name: String,
+    pub(crate) derived: bool,
+    /// 宣言の型の名前（大文字）。名前のない型なら `None`
+    pub(crate) type_name: Option<String>,
+    pub(crate) base: Base,
+}
+
+/// 定義された型をたどった、もとの単純な型
+#[cfg(feature = "ids")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Base {
+    Integer,
+    Real,
+    Boolean,
+    Logical,
+    Other,
+}
+
 /// 実体のインスタンスの属性の 1 つ
 #[derive(Clone, Debug)]
 struct Slot {
     name: String,
+    /// 書いたままの名前。IDS の照合が使う
+    #[cfg_attr(not(feature = "ids"), expect(dead_code))]
+    written: String,
     ty: Type,
     optional: bool,
     derived: bool,
@@ -222,6 +250,7 @@ impl Express {
             for attribute in &entity.attributes {
                 slots.push(Slot {
                     name: attribute.name.clone(),
+                    written: attribute.written.clone(),
                     ty: attribute.ty.clone(),
                     optional: attribute.optional,
                     derived: false,
@@ -240,6 +269,50 @@ impl Express {
             }
         }
         slots
+    }
+
+    /// 実体の明示の属性を、インスタンスに書く順に。導く属性も位置を持つ。知らない実体なら `None`
+    #[cfg(feature = "ids")]
+    pub(crate) fn explicit(&self, kind: &str) -> Option<Vec<Explicit>> {
+        self.entities.get(kind)?;
+        Some(
+            self.slots(kind)
+                .into_iter()
+                .map(|slot| {
+                    let type_name = match &slot.ty {
+                        Type::Named(name) => Some(name.clone()),
+                        _ => None,
+                    };
+                    Explicit {
+                        base: self.base(&slot.ty),
+                        name: slot.written,
+                        derived: slot.derived,
+                        type_name,
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    /// 定義された型をたどった、もとの単純な型
+    #[cfg(feature = "ids")]
+    fn base(&self, ty: &Type) -> Base {
+        let mut ty = ty;
+        // 型の循環は読むときに断っている。深さは念のため
+        for _ in 0..64 {
+            match ty {
+                Type::Integer => return Base::Integer,
+                Type::Real | Type::Number => return Base::Real,
+                Type::Boolean => return Base::Boolean,
+                Type::Logical => return Base::Logical,
+                Type::Named(name) => match self.types.get(name) {
+                    Some(TypeDef::Defined(_, inner)) => ty = inner,
+                    _ => return Base::Other,
+                },
+                _ => return Base::Other,
+            }
+        }
+        Base::Other
     }
 
     /// 選択の型が受ける実体と定義された型（大文字）。入れ子の選択もたどる
@@ -330,6 +403,8 @@ fn invalid(cx: &mut Cx, line: u64, near: &str) -> Error {
 struct Token {
     /// 名前は大文字にする。文字列は `'` を含めたまま
     text: String,
+    /// 書いたままの字句
+    written: String,
     line: u64,
 }
 
@@ -396,7 +471,11 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                 }
                 let text =
                     String::from_utf8_lossy(src.get(start..at).unwrap_or_default()).into_owned();
-                tokens.push(Token { text, line });
+                tokens.push(Token {
+                    written: text.clone(),
+                    text,
+                    line,
+                });
             }
             c if c.is_ascii_alphanumeric() || c == b'_' => {
                 let start = at;
@@ -413,9 +492,14 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                         at += 1;
                     }
                 }
-                let text = String::from_utf8_lossy(src.get(start..at).unwrap_or_default())
-                    .to_ascii_uppercase();
-                tokens.push(Token { text, line });
+                let written =
+                    String::from_utf8_lossy(src.get(start..at).unwrap_or_default()).into_owned();
+                let text = written.to_ascii_uppercase();
+                tokens.push(Token {
+                    text,
+                    written,
+                    line,
+                });
             }
             _ => {
                 // 2 文字の記号
@@ -426,7 +510,11 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                 };
                 let text =
                     String::from_utf8_lossy(src.get(at..at + len).unwrap_or_default()).into_owned();
-                tokens.push(Token { text, line });
+                tokens.push(Token {
+                    written: text.clone(),
+                    text,
+                    line,
+                });
                 at += len;
             }
         }
@@ -718,12 +806,13 @@ impl Parser<'_> {
             let optional = self.eat("OPTIONAL");
             let ty = self.ty()?;
             self.expect(";")?;
-            for (inherited, name) in names {
+            for (inherited, name, written) in names {
                 if inherited {
                     entity.redeclared.push((name, ty.clone(), optional));
                 } else {
                     entity.attributes.push(Attribute {
                         name,
+                        written,
                         ty: ty.clone(),
                         optional,
                     });
@@ -742,7 +831,7 @@ impl Parser<'_> {
                         self.peek(),
                         Some("INVERSE" | "UNIQUE" | "WHERE" | "END_ENTITY") | None
                     ) {
-                        let (inherited, name) = self.attribute_name()?;
+                        let (inherited, name, _) = self.attribute_name()?;
                         if inherited {
                             entity.derived.push(name);
                         }
@@ -766,18 +855,22 @@ impl Parser<'_> {
     }
 
     /// 属性の名前。`SELF\上位.名前` なら、上位の属性を宣言し直したもの。`RENAMED` の名前は読み飛ばす
-    fn attribute_name(&mut self) -> Parsed<(bool, String)> {
-        if self.eat("SELF") {
+    fn attribute_name(&mut self) -> Parsed<(bool, String, String)> {
+        let inherited = self.eat("SELF");
+        if inherited {
             self.expect("\\")?;
             self.name()?;
             self.expect(".")?;
-            let name = self.name()?;
-            if self.eat("RENAMED") {
-                self.name()?;
-            }
-            return Ok((true, name));
         }
-        Ok((false, self.name()?))
+        let name = self.name()?;
+        let written = self
+            .tokens
+            .get(self.at.saturating_sub(1))
+            .map_or_else(|| name.clone(), |t| t.written.clone());
+        if inherited && self.eat("RENAMED") {
+            self.name()?;
+        }
+        Ok((inherited, name, written))
     }
 
     /// `END_TYPE` などまでの `WHERE` の規則の数
@@ -884,6 +977,7 @@ impl Checker<'_> {
                     .iter()
                     .map(|a| Slot {
                         name: a.name.clone(),
+                        written: a.written.clone(),
                         ty: a.ty.clone(),
                         optional: a.optional,
                         derived: derived_elsewhere.contains(&a.name),

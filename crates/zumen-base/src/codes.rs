@@ -1238,6 +1238,115 @@ pub const EXPRESS_VALUE_MISSING: Code = Code::new(
     &["kind", "position"],
 );
 
+/// 禁じる仕様の、適用の条件に合う要素がある（指摘）
+///
+/// `ids.applicability.exists`（0.2.0 から）
+pub const IDS_APPLICABILITY_EXISTS: Code = Code::new(
+    "ids.applicability.exists",
+    Severity::Error,
+    None,
+    &[Param::new("specification", ParamType::Text)],
+    &[],
+);
+
+/// 必須の仕様に、適用の条件に合う要素がない（指摘）
+///
+/// `ids.applicability.missing`（0.2.0 から）
+pub const IDS_APPLICABILITY_MISSING: Code = Code::new(
+    "ids.applicability.missing",
+    Severity::Error,
+    None,
+    &[Param::new("specification", ParamType::Text)],
+    &[],
+);
+
+/// 要素が適用の条件に合うかを確かめられない（指摘）
+///
+/// `ids.applicability.unsupported`（0.2.0 から）
+pub const IDS_APPLICABILITY_UNSUPPORTED: Code = Code::new(
+    "ids.applicability.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("specification", ParamType::Text)],
+    &[],
+);
+
+/// 知らない facet。その facet は確かめられないとする
+///
+/// `ids.facet.unsupported`（0.2.0 から）
+pub const IDS_FACET_UNSUPPORTED: Code = Code::new(
+    "ids.facet.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &[],
+);
+
+/// IDS の XML の構造が、IDS 1.0 に合わない。near は合わなかった要素か属性
+///
+/// `ids.file.invalid`（0.2.0 から）
+pub const IDS_FILE_INVALID: Code = Code::new(
+    "ids.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("near", ParamType::Text)],
+    &[],
+);
+
+/// 要素が要件の facet を満たさない（指摘）。任意の要件なら warning で返す
+///
+/// `ids.requirement.invalid`（0.2.0 から）
+pub const IDS_REQUIREMENT_INVALID: Code = Code::new(
+    "ids.requirement.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("cardinality", ParamType::Text),
+        Param::new("facet", ParamType::Text),
+        Param::new("specification", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 要素が要件の facet を満たすかを確かめられない（指摘）
+///
+/// `ids.requirement.unsupported`（0.2.0 から）
+pub const IDS_REQUIREMENT_UNSUPPORTED: Code = Code::new(
+    "ids.requirement.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("facet", ParamType::Text),
+        Param::new("specification", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 読まない値の制約か、読めない式。その制約は確かめられないとする
+///
+/// `ids.restriction.unsupported`（0.2.0 から）
+pub const IDS_RESTRICTION_UNSUPPORTED: Code = Code::new(
+    "ids.restriction.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &[],
+);
+
+/// 仕様の対象の IFC の版に、建物モデルのスキーマがない
+///
+/// `ids.version.mixed`（0.2.0 から）
+pub const IDS_VERSION_MIXED: Code = Code::new(
+    "ids.version.mixed",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("schema", ParamType::Text),
+        Param::new("specification", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 意味を持つ位置の値が、期待した型でないので読まなかった
 ///
 /// `ifc.attribute.invalid`（0.2.0 から）
@@ -2420,6 +2529,15 @@ pub const ALL: &[Code] = &[
     EXPRESS_SCHEMA_MIXED,
     EXPRESS_VALUE_INVALID,
     EXPRESS_VALUE_MISSING,
+    IDS_APPLICABILITY_EXISTS,
+    IDS_APPLICABILITY_MISSING,
+    IDS_APPLICABILITY_UNSUPPORTED,
+    IDS_FACET_UNSUPPORTED,
+    IDS_FILE_INVALID,
+    IDS_REQUIREMENT_INVALID,
+    IDS_REQUIREMENT_UNSUPPORTED,
+    IDS_RESTRICTION_UNSUPPORTED,
+    IDS_VERSION_MIXED,
     IFC_ATTRIBUTE_INVALID,
     IFC_DUPLICATE_DROPPED,
     IFC_ENTITY_DROPPED,
