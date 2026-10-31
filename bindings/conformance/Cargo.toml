@@ -8,6 +8,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+zumen = { path = "../../crates/zumen" }
 zumen-abi = { path = "../../crates/zumen-abi" }
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-json = { path = "../../crates/zumen-json" }

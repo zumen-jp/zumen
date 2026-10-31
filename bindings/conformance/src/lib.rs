@@ -4,7 +4,8 @@
 //! （JSON Pointer で指す）を確かめる。あわせて、応答とバイナリの結果のハッシュ（SHA-256）の一覧を作る。
 //! 一覧は `hashes.txt` と一致しなければならない（決定 0007）。
 //!
-//! この crate は、Rust の 2 つの形を受け持つ。コアを直接呼ぶ [`Direct`] と、C ABI の関数を呼ぶ [`CAbi`]。
+//! この crate は、Rust の 3 つの形を受け持つ。コアを直接呼ぶ [`Direct`]、C ABI の関数を呼ぶ [`CAbi`]、
+//! 利用者向けの `zumen` の crate を通す [`Wrapper`]。
 //! wasm のモジュールは `wasm.mjs` が流す。試験の組の書き方は `README.md` にある。
 
 use std::fs;
@@ -16,8 +17,10 @@ use zumen_base::CancelToken;
 use zumen_json::{Value, Writer};
 
 mod sha256;
+mod wrapper;
 
 pub use sha256::hex as sha256_hex;
+pub use wrapper::Wrapper;
 
 /// ハッシュの一覧の先頭に書く説明
 const HASHES_HEADER: &str = "\

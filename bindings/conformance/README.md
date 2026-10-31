@@ -11,6 +11,7 @@
 | --- | --- | --- |
 | Rust から直接 | `tests/conformance.rs` | `cargo test -p zumen-conformance` |
 | C ABI（プロセスの中） | `tests/conformance.rs` | 同上 |
+| Rust の利用者向けの crate（`zumen`） | `tests/conformance.rs`（`src/wrapper.rs`） | 同上。シーンの blob を crate の読み手で読み、応答の数と比べる（[決定 0203](../../docs/decisions/0203-rust-user-crate.md)） |
 | wasm | `wasm.mjs`（Node.js 22 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、`node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm` |
 | TypeScript・JavaScript の包み（wasm） | `../js/test/conformance.mjs`（Node.js 22 以降） | 同じく作ったあと、`node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)） |
 | TypeScript・JavaScript の包み（ブラウザー） | `../js/test/browser/run.mjs`（Playwright） | 同じく作ったあと、`node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（[決定 0199](../../docs/decisions/0199-browser-conformance-with-playwright.md)、手順は `../js/README.md`） |

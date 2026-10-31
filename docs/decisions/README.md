@@ -236,3 +236,4 @@
 - [0200: serve --http は標準ライブラリで書き、process は C ABI のライブラリが CLI を起こし、MCP にリソースと進み具合の通知を足す](0200-cli-http-process-engine-and-mcp-resources.md)（2026-10-31、採用）
 - [0201: 子プロセスのメモリの上限は Linux の setrlimit と Windows のジョブ・オブジェクトで付け、Windows でもライブラリの場所から CLI を探し、Node.js の process はまだ作らない](0201-process-engine-memory-limit-and-host-safety.md)（2026-10-31、採用）
 - [0202: AutoCAD の形のフォント（SHX）は読まず、代わりのフォントで置いて診断を返す](0202-do-not-read-shx-fonts.md)（2026-10-31、採用）
+- [0203: Rust の利用者向けの入口は、zumen-abi を包む `zumen` の crate にし、シーンの読み手を持たせる](0203-rust-user-crate.md)（2026-10-31、採用）

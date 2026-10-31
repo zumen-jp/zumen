@@ -1,0 +1,19 @@
+[package]
+name = "zumen"
+description = "zumen を Rust から使う入口。境界の関数と、スキーマで定めたメッセージの型と、シーンの読み手（決定 0017・0203）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# 階層 1 の Rust の下限（docs/support.md）
+rust-version = "1.99"
+
+[dependencies]
+zumen-abi = { path = "../zumen-abi" }
+zumen-base = { path = "../zumen-base" }
+zumen-json = { path = "../zumen-json" }
+zumen-scene = { path = "../zumen-scene" }
+
+[lints]
+workspace = true
