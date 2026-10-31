@@ -398,6 +398,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-geom3d"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-geom2d",
+]
+
+[[package]]
 name = "zumen-ids"
 version = "0.2.0"
 dependencies = [
