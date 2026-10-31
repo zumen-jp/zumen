@@ -242,6 +242,16 @@ impl<'a> ObjectReader<'a> {
         }
     }
 
+    /// 読まなかった欄を、読んだ順に返す。知らない欄を書き戻すまで保つ文書が使う
+    pub fn rest(self) -> Vec<(String, Value)> {
+        self.members
+            .iter()
+            .zip(&self.read)
+            .filter(|(_, read)| !**read)
+            .map(|(member, _)| member.clone())
+            .collect()
+    }
+
     /// 読まなかった欄があれば、最初のものを知らない欄として返す
     pub fn finish(self) -> Result<(), Invalid> {
         match self

@@ -293,6 +293,7 @@ dependencies = [
  "zumen-json",
  "zumen-jww",
  "zumen-profile",
+ "zumen-review",
  "zumen-scene",
  "zumen-sdk",
  "zumen-sxf",
@@ -427,6 +428,18 @@ dependencies = [
  "zumen-drawing",
  "zumen-json",
  "zumen-scene",
+]
+
+[[package]]
+name = "zumen-review"
+version = "0.2.0"
+dependencies = [
+ "blake3",
+ "zumen-base",
+ "zumen-building",
+ "zumen-drawing",
+ "zumen-json",
+ "zumen-sdk",
 ]
 
 [[package]]

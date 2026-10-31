@@ -20,6 +20,7 @@ zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }
 zumen-profile = { version = "0.2.0", path = "../zumen-profile" }
+zumen-review = { version = "0.2.0", path = "../zumen-review" }
 zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
 zumen-jww = { version = "0.2.0", path = "../zumen-jww" }
 zumen-ifc = { version = "0.2.0", path = "../zumen-ifc", default-features = false }

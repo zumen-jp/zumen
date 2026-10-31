@@ -21,6 +21,8 @@ Request = Union[
     "SceneRequest",
     "CheckRequest",
     "ValidateRequest",
+    "ReviewCarryRequest",
+    "ReviewAdoptRequest",
 ]
 
 
@@ -2265,6 +2267,162 @@ class ValidateResult(_ValidateResultRequired, _ValidateResultOptional):
     "スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す"
 
 
+# レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から
+_ReviewCarryRequestRequired = TypedDict(
+    "_ReviewCarryRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["review_carry"],
+        # 新しい版の文書の名前。open で作ったもの
+        "doc": str,
+        # レビューの文書の入力の名前（zm_push で渡した JSON）
+        "review": str,
+        # 移す対象の ID。レビューの文書の targets の id
+        "target": str,
+    },
+)
+_ReviewCarryRequestOptional = TypedDict(
+    "_ReviewCarryRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 返す最初の参照の位置。前の応答の next_offset を渡す。書かなければ 0
+        "offset": int,
+        # 返す参照の数の上限。書かなければ 1000
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class ReviewCarryRequest(_ReviewCarryRequestRequired, _ReviewCarryRequestOptional):
+    "レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から"
+
+
+# 移した結果。参照は offset から limit 個まで。移した文書は blobs の file で返す
+_ReviewCarryResultRequired = TypedDict(
+    "_ReviewCarryResultRequired",
+    {
+        # 移す前の対象のハッシュ
+        "from": str,
+        # 移した後の対象のハッシュ。文書のハッシュ
+        "hash": str,
+        # 要素の参照ごとの状態。指摘の順に、場所の順、参照の順
+        "references": List["CarriedReference"],
+        # 全体の参照の数
+        "total": int,
+    },
+)
+_ReviewCarryResultOptional = TypedDict(
+    "_ReviewCarryResultOptional",
+    {
+        # 続きの最初の参照の位置。続きがなければ持たない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class ReviewCarryResult(_ReviewCarryResultRequired, _ReviewCarryResultOptional):
+    "移した結果。参照は offset から limit 個まで。移した文書は blobs の file で返す"
+
+
+# 移した要素の参照
+CarriedReference = TypedDict(
+    "CarriedReference",
+    {
+        # 指摘の ID
+        "topic": str,
+        # 場所の ID
+        "location": str,
+        # 要素の ID
+        "element": str,
+        # 状態
+        "state": "CarriedState",
+    },
+)
+
+# 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない
+CarriedState = Union[
+    Literal[
+        "unchanged",
+        "changed",
+        "removed",
+    ],
+    str,
+]
+
+
+# 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
+_ReviewAdoptRequestRequired = TypedDict(
+    "_ReviewAdoptRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["review_adopt"],
+        # 照合する文書の名前。open で作ったもの
+        "doc": str,
+        # プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+        "profiles": List[str],
+        # 照合に使うプロファイル。profiles の中から選ぶ
+        "profile": "ProfileRef",
+        # 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す
+        "target": str,
+        # 取り込む指摘の番号の列。check の指摘の並びの順で、0 から数える
+        "findings": List[int],
+    },
+)
+_ReviewAdoptRequestOptional = TypedDict(
+    "_ReviewAdoptRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # たどる起点。実寸の空間・記号の定義の空間・用紙の ID。書かなければ、すべての用紙から、用紙がなければ実寸の空間からたどる
+        "from": str,
+        # 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける
+        "view": int,
+        # 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+        "file_name": str,
+        # 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+        "palette": str,
+        # 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す
+        "review": str,
+    },
+    total=False,
+)
+
+
+class ReviewAdoptRequest(_ReviewAdoptRequestRequired, _ReviewAdoptRequestOptional):
+    "開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から"
+
+
+# 取り込んだ結果。足した文書は blobs の file で返す
+ReviewAdoptResult = TypedDict(
+    "ReviewAdoptResult",
+    {
+        # 足した指摘の ID。取り込み済みで足さなかった指摘は持たない
+        "added": List[str],
+        # 足した後の文書の指摘の数
+        "topics": int,
+    },
+)
+
+
 # 表の項目
 TableItem = TypedDict(
     "TableItem",
@@ -2776,6 +2934,8 @@ Operation = Literal[
     "scene",
     "check",
     "validate",
+    "review_carry",
+    "review_adopt",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -2792,4 +2952,6 @@ OPERATIONS: Dict[str, Any] = {
     "scene": ("SceneRequest", "SceneResult"),
     "check": ("CheckRequest", "CheckResult"),
     "validate": ("ValidateRequest", "ValidateResult"),
+    "review_carry": ("ReviewCarryRequest", "ReviewCarryResult"),
+    "review_adopt": ("ReviewAdoptRequest", "ReviewAdoptResult"),
 }

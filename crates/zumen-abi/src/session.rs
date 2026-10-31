@@ -26,9 +26,11 @@ use crate::messages::{
     CheckResult, CloseRequest, CloseResult, ConvertRequest, ConvertResult, DrawingRequest,
     DrawingResult, ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField,
     EntityKind, Extent, Format, OpenRequest, OpenResult, PointStyleSummary, Request, RequestCommon,
-    SceneRequest, SceneResult, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary,
-    TablesRequest, TablesResult,
+    ReviewAdoptRequest, ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult, SceneRequest,
+    SceneResult, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest,
+    TablesResult,
 };
+use crate::review;
 use crate::scene;
 use crate::tables::{
     StyleIds, dimension_style_item, layer_item, line_type_item, table_id, text_style_item,
@@ -316,6 +318,12 @@ impl Session {
             Request::Validate(request) => {
                 validate::validate(&self.inputs, request, &mut cx).map(|r| Box::new(r) as _)
             }
+            Request::ReviewCarry(request) => self
+                .review_carry(request, &mut cx)
+                .map(|r| Box::new(r) as _),
+            Request::ReviewAdopt(request) => self
+                .review_adopt(request, &mut cx)
+                .map(|r| Box::new(r) as _),
         };
         result.ok()
     }
@@ -734,6 +742,80 @@ impl Session {
         check::check(&drawing, request, &profiles, &palette, family, cx)
     }
 
+    /// 入力の名前のバイト列。`pointer` は名前を書いた欄
+    fn input(&self, name: &str, pointer: &str, cx: &mut Cx<'_>) -> Result<&[u8], Failed> {
+        if !name::is_safe(name) {
+            return Err(fail(cx, invalid_value(pointer)));
+        }
+        match self.inputs.get(name) {
+            Some(bytes) => Ok(bytes),
+            None => Err(fail(cx, input_missing(name))),
+        }
+    }
+
+    /// レビューの文書の対象を、文書の版へ移し、移した文書を blob で返す（決定 0218）
+    fn review_carry(
+        &mut self,
+        request: &ReviewCarryRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<ReviewCarryResult, Failed> {
+        let drawing = self.lift(&request.doc, cx)?;
+        let Some(hash) = self.hashes.get(&request.doc).copied() else {
+            return Err(fail(cx, invalid_value("/doc")));
+        };
+        let bytes = self.input(&request.review, "/review", cx)?;
+        let (result, bytes) = review::carry(&drawing, &hash, bytes, request, cx)?;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(result)
+    }
+
+    /// 文書を照合し、選んだ指摘をレビューの文書に取り込み、足した文書を blob で返す（決定 0218）
+    fn review_adopt(
+        &mut self,
+        request: &ReviewAdoptRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<ReviewAdoptResult, Failed> {
+        let check = CheckRequest {
+            request_common: request.request_common.clone(),
+            doc: request.doc.clone(),
+            profiles: request.profiles.clone(),
+            profile: request.profile.clone(),
+            from: request.from.clone(),
+            view: request.view,
+            file_name: request.file_name.clone(),
+            offset: None,
+            limit: Some(u64::MAX),
+            palette: request.palette.clone(),
+        };
+        let findings = self.check(&check, cx)?.findings;
+        let drawing = self.lift(&request.doc, cx)?;
+        let (Some(hash), Some(doc)) = (self.hashes.get(&request.doc), self.docs.get(&request.doc))
+        else {
+            return Err(fail(cx, invalid_value("/doc")));
+        };
+        let target = zumen_review::Target {
+            id: request.target.clone(),
+            format: doc.format().to_string(),
+            hash: hash.to_string(),
+            name: Some(request.doc.clone()),
+            extra: Vec::new(),
+        };
+        let review = match &request.review {
+            Some(name) => Some(self.input(name, "/review", cx)?),
+            None => None,
+        };
+        let (result, bytes) =
+            review::adopt(&drawing, target, review, &findings, &request.findings, cx)?;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(result)
+    }
+
     /// シーンの文字を置くフォントの入力を読む（決定 0188）
     fn fonts(
         &self,
@@ -1149,6 +1231,8 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Scene(request) => &request.request_common,
         Request::Check(request) => &request.request_common,
         Request::Validate(request) => &request.request_common,
+        Request::ReviewCarry(request) => &request.request_common,
+        Request::ReviewAdopt(request) => &request.request_common,
     }
 }
 
@@ -1691,7 +1775,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":42}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":43}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2000,6 +2084,116 @@ mod tests {
             assert_eq!(status, Status::Failed, "{request}");
             assert_eq!(text(&response, "/diagnostics/0/code"), "call.value.invalid");
             assert_eq!(text(&response, "/diagnostics/0/params/pointer"), pointer);
+        }
+    }
+
+    /// 応答の最初の blob を取り出す
+    fn blob_of(session: &mut Session, response: &Value) -> Vec<u8> {
+        let id = response
+            .pointer("/blobs/0/id")
+            .and_then(|v| zumen_json::uint(v, 0, u64::from(u32::MAX)).ok())
+            .and_then(|id| u32::try_from(id).ok());
+        id.and_then(|id| session.take(id)).unwrap_or_default()
+    }
+
+    #[test]
+    fn adopts_check_findings_and_carries_them_to_the_document() {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", EDITABLE).unwrap();
+        session
+            .push(
+                b"base.json",
+                br#"{"format":"0.1","id":"base","edition":"1","revision":1,
+                "vocabularies":{"widths":{"values":[0.13]}},
+                "rules":[{"id":"widths","check":"line-width","level":"warning","vocabulary":"widths"}]}"#,
+            )
+            .unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let adopt = |rest: &str| {
+            format!(
+                r#"{{"v":1,"op":"review_adopt","doc":"a.dxf","profiles":["base.json"],"profile":{{"id":"base","edition":"1"}},"target":"plan"{rest}}}"#
+            )
+        };
+        let (status, response) = call(&mut session, &adopt(r#","findings":[0,1]"#));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(number(&response, "/result/topics"), "2");
+        let topic = text(&response, "/result/added/0");
+        assert_eq!(text(&response, "/blobs/0/kind"), "file");
+        let blob = u32::try_from(
+            response
+                .pointer("/blobs/0/id")
+                .and_then(|v| zumen_json::uint(v, 0, u64::from(u32::MAX)).ok())
+                .unwrap(),
+        )
+        .unwrap();
+        let review = session.take(blob).unwrap();
+        let document = zumen_json::parse(&review).unwrap();
+        assert_eq!(
+            document.pointer("/topics/0/origin/rule"),
+            Some(&Value::String("widths".to_string()))
+        );
+        assert_eq!(
+            document.pointer("/topics/0/origin/diagnostic/code"),
+            Some(&Value::String("profile.line-width.unsupported".to_string()))
+        );
+        session.push(b"review.json", &review).unwrap();
+        // 取り込み済みの指摘は足さない
+        let (_, again) = call(
+            &mut session,
+            &adopt(r#","review":"review.json","findings":[0]"#),
+        );
+        assert!(again.pointer("/result/added/0").is_none(), "{again:?}");
+        assert_eq!(number(&again, "/result/topics"), "2");
+
+        let carry = |review: &str, target: &str| {
+            format!(
+                r#"{{"v":1,"op":"review_carry","doc":"a.dxf","review":"{review}","target":"{target}"}}"#
+            )
+        };
+        let (status, response) = call(&mut session, &carry("review.json", "plan"));
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(
+            text(&response, "/result/from"),
+            text(&response, "/result/hash")
+        );
+        let total: u64 = number(&response, "/result/total").parse().unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(text(&response, "/result/references/0/topic"), topic);
+        assert_eq!(text(&response, "/result/references/0/state"), "unchanged");
+        assert_eq!(text(&response, "/blobs/0/kind"), "file");
+        // 参照のハッシュが違えば changed、要素がなければ removed
+        let mut changed = String::from_utf8(review).unwrap();
+        // 対象・1 つ目の要素・2 つ目の要素の順にハッシュがある。2 つ目の要素のハッシュを変える
+        let at = changed.match_indices(r#""hash":"v2:"#).nth(2).unwrap().0 + 11;
+        changed.insert(at, '0');
+        let changed = changed.replacen(r#"{"id":"space/0/h"#, r#"{"id":"space/0/gone"#, 1);
+        session.push(b"changed.json", changed.as_bytes()).unwrap();
+        let (_, response) = call(&mut session, &carry("changed.json", "plan"));
+        assert_eq!(
+            text(&response, "/result/references/0/state"),
+            "removed",
+            "{response:?}"
+        );
+        assert_eq!(text(&response, "/result/references/1/state"), "changed");
+        let carried = blob_of(&mut session, &response);
+        let carried = zumen_json::parse(&carried).unwrap();
+        assert_eq!(
+            carried.pointer("/topics/0/locations/0/carried/state"),
+            Some(&Value::String("removed".to_string()))
+        );
+        assert_eq!(
+            carried.pointer("/topics/1/locations/0/carried/state"),
+            Some(&Value::String("changed".to_string()))
+        );
+        for (request, code) in [
+            (carry("review.json", "model"), "review.target.missing"),
+            (carry("a.dxf", "plan"), "review.file.invalid"),
+            (carry("none.json", "plan"), "call.input.missing"),
+            (adopt(r#","findings":[9]"#), "call.value.invalid"),
+        ] {
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed, "{request}");
+            assert_eq!(text(&response, "/diagnostics/0/code"), code, "{request}");
         }
     }
 

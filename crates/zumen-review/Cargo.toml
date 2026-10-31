@@ -1,0 +1,22 @@
+[package]
+name = "zumen-review"
+description = "zumen のレビューの文書: 赤入れと BIM の指摘を、対象の要素の ID とハッシュでつなぎ、新しい版へ移す（決定 0214・0218）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 照合の結果から作る指摘の ID（UUID）を、入力から決める
+blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-json = { version = "0.2.0", path = "../zumen-json" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-building = { path = "../zumen-building" }
+zumen-drawing = { path = "../zumen-drawing" }

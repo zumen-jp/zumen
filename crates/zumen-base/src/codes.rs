@@ -1872,6 +1872,83 @@ pub const PROFILE_TEXT_HEIGHT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 指摘の文書の JSON の形が合わない。pointer は合わなかった欄の JSON Pointer か、構文の誤りのバイト位置
+///
+/// `review.file.invalid`（0.2.0 から）
+pub const REVIEW_FILE_INVALID: Code = Code::new(
+    "review.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("pointer", ParamType::Text)],
+    &[],
+);
+
+/// 指摘の文書ではない JSON。format は書いてあった形式の名
+///
+/// `review.format.unsupported`（0.2.0 から）
+pub const REVIEW_FORMAT_UNSUPPORTED: Code = Code::new(
+    "review.format.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("format", ParamType::Text)],
+    &[],
+);
+
+/// 指摘の文書の中で、同じ種類の ID が重なる
+///
+/// `review.id.exists`（0.2.0 から）
+pub const REVIEW_ID_EXISTS: Code = Code::new(
+    "review.id.exists",
+    Severity::Error,
+    None,
+    &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 指摘の文書の参照の先（対象・トピック・場所）が、文書の中にない
+///
+/// `review.reference.missing`（0.2.0 から）
+pub const REVIEW_REFERENCE_MISSING: Code = Code::new(
+    "review.reference.missing",
+    Severity::Error,
+    None,
+    &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 引き継ぐ・取り込む対象が、指摘の文書にない
+///
+/// `review.target.missing`（0.2.0 から）
+pub const REVIEW_TARGET_MISSING: Code = Code::new(
+    "review.target.missing",
+    Severity::Error,
+    None,
+    &[Param::new("target", ParamType::Text)],
+    &[],
+);
+
+/// 取り込む指摘の対象の形式かハッシュが、文書の同じ ID の対象と違う。先に引き継ぐ
+///
+/// `review.target.stale`（0.2.0 から）
+pub const REVIEW_TARGET_STALE: Code = Code::new(
+    "review.target.stale",
+    Severity::Error,
+    None,
+    &[Param::new("target", ParamType::Text)],
+    &[],
+);
+
+/// 読めない版の指摘の文書
+///
+/// `review.version.unsupported`（0.2.0 から）
+pub const REVIEW_VERSION_UNSUPPORTED: Code = Code::new(
+    "review.version.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("version", ParamType::UInt)],
+    &[],
+);
+
 /// 引出線と引出線つきの注記の、記号の定義で決まるか大きさの決まらない端部記号を描かなかった。線は描いた（決定 0184）
 ///
 /// `scene.arrowhead.dropped`（0.0.0 から）
@@ -2585,6 +2662,13 @@ pub const ALL: &[Code] = &[
     PROFILE_SHEET_SIZE_UNSUPPORTED,
     PROFILE_TEXT_HEIGHT_INVALID,
     PROFILE_TEXT_HEIGHT_UNSUPPORTED,
+    REVIEW_FILE_INVALID,
+    REVIEW_FORMAT_UNSUPPORTED,
+    REVIEW_ID_EXISTS,
+    REVIEW_REFERENCE_MISSING,
+    REVIEW_TARGET_MISSING,
+    REVIEW_TARGET_STALE,
+    REVIEW_VERSION_UNSUPPORTED,
     SCENE_ARROWHEAD_DROPPED,
     SCENE_CALLOUT_VALUE_DROPPED,
     SCENE_CALLOUT_DROPPED,

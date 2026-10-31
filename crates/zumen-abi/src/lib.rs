@@ -20,6 +20,7 @@ mod geometry;
 pub mod messages;
 #[cfg(not(target_family = "wasm"))]
 mod process;
+mod review;
 mod scene;
 mod session;
 mod tables;

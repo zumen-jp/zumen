@@ -1644,3 +1644,52 @@ severity = "info"
 params = { specification = "text", facet = "text" }
 since = "0.2.0"
 status = "active"
+[codes."review.file.invalid"]
+description = "指摘の文書の JSON の形が合わない。pointer は合わなかった欄の JSON Pointer か、構文の誤りのバイト位置"
+severity = "error"
+params = { pointer = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.format.unsupported"]
+description = "指摘の文書ではない JSON。format は書いてあった形式の名"
+severity = "error"
+params = { format = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.version.unsupported"]
+description = "読めない版の指摘の文書"
+severity = "error"
+params = { version = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.id.exists"]
+description = "指摘の文書の中で、同じ種類の ID が重なる"
+severity = "error"
+params = { id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.reference.missing"]
+description = "指摘の文書の参照の先（対象・トピック・場所）が、文書の中にない"
+severity = "error"
+params = { id = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.target.missing"]
+description = "引き継ぐ・取り込む対象が、指摘の文書にない"
+severity = "error"
+params = { target = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.target.stale"]
+description = "取り込む指摘の対象の形式かハッシュが、文書の同じ ID の対象と違う。先に引き継ぐ"
+severity = "error"
+params = { target = "text" }
+since = "0.2.0"
+status = "active"
+

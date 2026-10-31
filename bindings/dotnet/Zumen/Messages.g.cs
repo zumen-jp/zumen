@@ -52,6 +52,8 @@ namespace Zumen.Messages
             ["scene"] = typeof(SceneRequest),
             ["check"] = typeof(CheckRequest),
             ["validate"] = typeof(ValidateRequest),
+            ["review_carry"] = typeof(ReviewCarryRequest),
+            ["review_adopt"] = typeof(ReviewAdoptRequest),
         };
     }
 
@@ -3683,6 +3685,277 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から
+    /// </summary>
+    public sealed record ReviewCarryRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "review_carry";
+
+        /// <summary>
+        /// 新しい版の文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// レビューの文書の入力の名前（zm_push で渡した JSON）
+        /// </summary>
+        [JsonPropertyName("review")]
+        public string Review { get; init; } = default!;
+
+        /// <summary>
+        /// 移す対象の ID。レビューの文書の targets の id
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+
+        /// <summary>
+        /// 返す最初の参照の位置。前の応答の next_offset を渡す。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す参照の数の上限。書かなければ 1000
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 移した結果。参照は offset から limit 個まで。移した文書は blobs の file で返す
+    /// </summary>
+    public sealed record ReviewCarryResult
+    {
+        /// <summary>
+        /// 移す前の対象のハッシュ
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 移した後の対象のハッシュ。文書のハッシュ
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 要素の参照ごとの状態。指摘の順に、場所の順、参照の順
+        /// </summary>
+        [JsonPropertyName("references")]
+        public IReadOnlyList<CarriedReference> References { get; init; } = default!;
+
+        /// <summary>
+        /// 全体の参照の数
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 続きの最初の参照の位置。続きがなければ持たない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
+    /// 移した要素の参照
+    /// </summary>
+    public sealed record CarriedReference
+    {
+        /// <summary>
+        /// 指摘の ID
+        /// </summary>
+        [JsonPropertyName("topic")]
+        public string Topic { get; init; } = default!;
+
+        /// <summary>
+        /// 場所の ID
+        /// </summary>
+        [JsonPropertyName("location")]
+        public string Location { get; init; } = default!;
+
+        /// <summary>
+        /// 要素の ID
+        /// </summary>
+        [JsonPropertyName("element")]
+        public string Element { get; init; } = default!;
+
+        /// <summary>
+        /// 状態
+        /// </summary>
+        [JsonPropertyName("state")]
+        public string State { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない
+    /// </summary>
+    public static class CarriedState
+    {
+        /// <summary>unchanged</summary>
+        public const string Unchanged = "unchanged";
+        /// <summary>changed</summary>
+        public const string Changed = "changed";
+        /// <summary>removed</summary>
+        public const string Removed = "removed";
+    }
+
+    /// <summary>
+    /// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
+    /// </summary>
+    public sealed record ReviewAdoptRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "review_adopt";
+
+        /// <summary>
+        /// 照合する文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+        /// </summary>
+        [JsonPropertyName("profiles")]
+        public IReadOnlyList<string> Profiles { get; init; } = default!;
+
+        /// <summary>
+        /// 照合に使うプロファイル。profiles の中から選ぶ
+        /// </summary>
+        [JsonPropertyName("profile")]
+        public ProfileRef Profile { get; init; } = default!;
+
+        /// <summary>
+        /// たどる起点。実寸の空間・記号の定義の空間・用紙の ID。書かなければ、すべての用紙から、用紙がなければ実寸の空間からたどる
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string? From { get; init; }
+
+        /// <summary>
+        /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける
+        /// </summary>
+        [JsonPropertyName("view")]
+        public ulong? View { get; init; }
+
+        /// <summary>
+        /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+        /// </summary>
+        [JsonPropertyName("file_name")]
+        public string? FileName { get; init; }
+
+        /// <summary>
+        /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+        /// </summary>
+        [JsonPropertyName("palette")]
+        public string? Palette { get; init; }
+
+        /// <summary>
+        /// 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す
+        /// </summary>
+        [JsonPropertyName("review")]
+        public string? Review { get; init; }
+
+        /// <summary>
+        /// 指摘が指す対象の ID。文書になければ、文書の形式とハッシュで足す
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+
+        /// <summary>
+        /// 取り込む指摘の番号の列。check の指摘の並びの順で、0 から数える
+        /// </summary>
+        [JsonPropertyName("findings")]
+        public IReadOnlyList<ulong> Findings { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 取り込んだ結果。足した文書は blobs の file で返す
+    /// </summary>
+    public sealed record ReviewAdoptResult
+    {
+        /// <summary>
+        /// 足した指摘の ID。取り込み済みで足さなかった指摘は持たない
+        /// </summary>
+        [JsonPropertyName("added")]
+        public IReadOnlyList<string> Added { get; init; } = default!;
+
+        /// <summary>
+        /// 足した後の文書の指摘の数
+        /// </summary>
+        [JsonPropertyName("topics")]
+        public ulong Topics { get; init; }
+    }
+
+    /// <summary>
     /// 表の項目
     /// </summary>
     public sealed record TableItem
@@ -4479,6 +4752,8 @@ namespace Zumen.Messages
                 ["scene"] = (typeof(SceneRequest), typeof(SceneResult)),
                 ["check"] = (typeof(CheckRequest), typeof(CheckResult)),
                 ["validate"] = (typeof(ValidateRequest), typeof(ValidateResult)),
+                ["review_carry"] = (typeof(ReviewCarryRequest), typeof(ReviewCarryResult)),
+                ["review_adopt"] = (typeof(ReviewAdoptRequest), typeof(ReviewAdoptResult)),
             };
     }
 }
