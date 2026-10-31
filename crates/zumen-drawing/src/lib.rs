@@ -56,8 +56,8 @@ pub use hatch::{
 pub use point::{MarkerKey, Point, PointLook, PointMark, PointSize, PointStyle};
 pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};
 pub use space::{
-    Affine, Length, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Sheet, SheetItem,
-    Unit, View,
+    Affine, Axes, Length, ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Sheet,
+    SheetItem, Unit, View,
 };
 pub use style::{
     Arrowhead, Color, ColorCode, ColorSystem, DimensionStyle, Inherit, Inheritor, Layer, LayerId,
@@ -934,6 +934,7 @@ mod text_style_tests {
             spaces: vec![ModelSpace {
                 id: SpaceId(0),
                 unit: Unit::Millimeter,
+                axes: Axes::EastNorth,
                 elements: vec![
                     line(0.0, Ref::at_record(1).with_key(Key::Handle(0x2F))),
                     line(1.0, Ref::at_record(2)),

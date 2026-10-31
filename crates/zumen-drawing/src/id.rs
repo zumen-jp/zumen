@@ -310,6 +310,7 @@ mod tests {
             space: ModelSpace {
                 id: SpaceId(3),
                 unit: Unit::Millimeter,
+                axes: crate::Axes::EastNorth,
                 elements: Vec::new(),
                 order: Vec::new(),
             },

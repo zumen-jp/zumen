@@ -1,0 +1,17 @@
+[package]
+name = "zumen-crs"
+description = "zumen の座標系と標高（決定 0019）。空間ごとの座標の型、平面直角座標の換算、ジオイドの格子の補間"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 換算の三角関数と双曲線関数（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true

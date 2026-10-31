@@ -17,7 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   # crates.io に出す順。依存される側が先（決定 0205）
   CRATES: >-
-    -p zumen-json -p zumen-base -p zumen-geom2d -p zumen-drawing -p zumen-sdk -p zumen-acad
+    -p zumen-json -p zumen-base -p zumen-sdk -p zumen-crs -p zumen-geom2d -p zumen-drawing -p zumen-acad
     -p zumen-jww -p zumen-sxf -p zumen-scene -p zumen-profile -p zumen-abi -p zumen -p zumen-cli
 
 jobs:

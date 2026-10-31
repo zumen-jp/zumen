@@ -2,8 +2,8 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
-    Arrowhead, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D, Edge,
-    FieldValue, Fill, Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight,
+    Arrowhead, Axes, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D,
+    Edge, FieldValue, Fill, Flow, HeightMeaning, Horizontal, Inherit, Label, Length, LineWeight,
     MarkerKey, ModelLength, ModelPoint, PaperLength, PaperPoint, PatternOrigin, Point, PointLook,
     Position, Rotation, Scaled, Shape, SheetItem, SpaceId, SymbolKey, Target, UnderlayFrame,
     Vertical,
@@ -229,6 +229,8 @@ fn sub_figures_become_spaces_placed_by_views() {
         })
         .unwrap();
     assert!(north.x.abs() < 1e-12 && (north.y - 1.0).abs() < 1e-12);
+    assert_eq!(drawing.spaces[0].axes, Axes::EastNorth);
+    assert_eq!(drawing.spaces[1].axes, Axes::NorthEast);
 
     // 作図グループは、配置の値によらず、そのまま展開する
     assert_eq!(

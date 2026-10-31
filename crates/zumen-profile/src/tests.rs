@@ -2,7 +2,7 @@
 
 use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 use zumen_drawing::{
-    ColorCode, Horizontal, Inherit, Layer, LineType, LineTypeId, LineWeight, ModelLength,
+    Axes, ColorCode, Horizontal, Inherit, Layer, LineType, LineTypeId, LineWeight, ModelLength,
     ModelPoint, ModelSpace, PaperLength, PaperPoint, Placement, Sheet, SheetId, SheetItem, SpaceId,
     Style, Text, Unit, Vertical, View,
 };
@@ -134,6 +134,7 @@ fn drawing() -> Drawing2D {
         spaces: vec![ModelSpace {
             id: MODEL,
             unit: Unit::Millimeter,
+            axes: Axes::EastNorth,
             order: (0..elements.len()).collect(),
             elements,
         }],

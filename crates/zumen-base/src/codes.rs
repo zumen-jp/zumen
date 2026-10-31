@@ -371,6 +371,70 @@ pub const CONVERT_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 渡されたジオイドの格子（ISG format 2.0）が壊れていて読めない
+///
+/// `crs.geoid.invalid`（0.2.0 から）
+pub const CRS_GEOID_INVALID: Code = Code::new(
+    "crs.geoid.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("key", ParamType::Text)],
+    &["key"],
+);
+
+/// 渡されたジオイドの格子は、扱わない形（点の並び・投影の座標・フィートの値・ほかの並びや版）なので読まなかった
+///
+/// `crs.geoid.unsupported`（0.2.0 から）
+pub const CRS_GEOID_UNSUPPORTED: Code = Code::new(
+    "crs.geoid.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("key", ParamType::Text),
+        Param::new("value", ParamType::Text),
+    ],
+    &["key", "value"],
+);
+
+/// 基準の違う高さ（標高と楕円体高など）の差は、引き算で決まらないので求めなかった
+///
+/// `crs.height-datum.unsupported`（0.2.0 から）
+pub const CRS_HEIGHT_DATUM_UNSUPPORTED: Code = Code::new(
+    "crs.height-datum.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("first", ParamType::Text),
+        Param::new("second", ParamType::Text),
+    ],
+    &["first", "second"],
+);
+
+/// 形式が標高の成果（測地成果2011・2024）を書いていないので、成果を仮定した
+///
+/// `crs.height-realization.assumed`（0.2.0 から）
+pub const CRS_HEIGHT_REALIZATION_ASSUMED: Code = Code::new(
+    "crs.height-realization.assumed",
+    Severity::Info,
+    None,
+    &[Param::new("realization", ParamType::Text)],
+    &["realization"],
+);
+
+/// 成果の違う標高を一緒に使った。同じ地点でも数十 cm 違うことがある
+///
+/// `crs.height-realization.mixed`（0.2.0 から）
+pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
+    "crs.height-realization.mixed",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("first", ParamType::Text),
+        Param::new("second", ParamType::Text),
+    ],
+    &["first", "second"],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -1820,6 +1884,11 @@ pub const ALL: &[Code] = &[
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,
+    CRS_GEOID_INVALID,
+    CRS_GEOID_UNSUPPORTED,
+    CRS_HEIGHT_DATUM_UNSUPPORTED,
+    CRS_HEIGHT_REALIZATION_ASSUMED,
+    CRS_HEIGHT_REALIZATION_MIXED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,

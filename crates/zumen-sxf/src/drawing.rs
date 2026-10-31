@@ -7,15 +7,15 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Arrowhead, Boundary, Branch, Callout, CalloutContent, Color, ColorCode, ColorSystem,
-    Dimension, DimensionKind, DimensionText, Draft, Drawing2D, Edge, Element, Field, FieldValue,
-    Fill, Flow, Font, FontKind, Format, FormattedText, Hatch, HatchLoop, Height, HeightMeaning,
-    Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Length, LineSpacing, LineType,
-    LineTypeDefinition, LineTypeId, LineWeight, MarkerKey, ModelLength, ModelPoint, ModelSpace,
-    PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine, PatternOrigin, Piece,
-    Point, PointLook, Polyline, Position, Resource, Rotation, Scaled, Shape, Sheet, SheetId,
-    SheetItem, SpaceId, Span, Spline, Style, Symbol, SymbolDefinition, SymbolKey, TitleBlock,
-    TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
+    Affine, Arrowhead, Axes, Boundary, Branch, Callout, CalloutContent, Color, ColorCode,
+    ColorSystem, Dimension, DimensionKind, DimensionText, Draft, Drawing2D, Edge, Element, Field,
+    FieldValue, Fill, Flow, Font, FontKind, Format, FormattedText, Hatch, HatchLoop, Height,
+    HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Length,
+    LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, MarkerKey, ModelLength,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
+    PatternOrigin, Piece, Point, PointLook, Polyline, Position, Resource, Rotation, Scaled, Shape,
+    Sheet, SheetId, SheetItem, SpaceId, Span, Spline, Style, Symbol, SymbolDefinition, SymbolKey,
+    TitleBlock, TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -491,6 +491,7 @@ impl<'f> Lifter<'f> {
             let model = ModelSpace {
                 id: space,
                 unit: Unit::Millimeter,
+                axes: axes(flag),
                 order: (0..out.model.len()).collect(),
                 elements: core::mem::take(&mut out.model),
             };
@@ -909,7 +910,7 @@ impl<'f> Lifter<'f> {
                         [args.num(2)?, args.num(3)?],
                         args.num(4)?,
                         [args.num(5)?, args.num(6)?],
-                        flag == 2,
+                        axes(flag),
                     )
                 })() else {
                     invalid(cx, feature);
@@ -987,7 +988,7 @@ impl<'f> Lifter<'f> {
                             [args.num(2)?, args.num(3)?],
                             args.num(4)?,
                             [args.num(5)?, args.num(6)?],
-                            flag == 2,
+                            axes(flag),
                         )
                     })();
                     let Some(placed) = placed else {
@@ -2126,18 +2127,32 @@ fn ellipse<C: Place>(
     }))
 }
 
-/// 部分図の配置。部分図の点を、尺度・回転・移動の順に用紙へ写す。測地座標系は X と Y を入れ替えてから写す
-fn placement([x, y]: [f64; 2], angle: f64, [sx, sy]: [f64; 2], geodetic: bool) -> Option<Affine> {
+/// 部分図の点の並び。測地座標系の部分図（2）は X が北、Y が東（決定 0019）
+fn axes(flag: i64) -> Axes {
+    if flag == 2 {
+        Axes::NorthEast
+    } else {
+        Axes::EastNorth
+    }
+}
+
+/// 部分図の配置。部分図の点を、東・北の順に直してから、尺度・回転・移動の順に用紙へ写す
+fn placement([x, y]: [f64; 2], angle: f64, [sx, sy]: [f64; 2], axes: Axes) -> Option<Affine> {
     if sx == 0.0 || sy == 0.0 {
         return None;
     }
     let radians = angle.to_radians();
     let (cos, sin) = (libm::cos(radians), libm::sin(radians));
-    let m = if geodetic {
-        [-sy * sin, sx * cos, x, sy * cos, sx * sin, y]
-    } else {
-        [sx * cos, -sy * sin, x, sx * sin, sy * cos, y]
+    let placed = Affine {
+        m: [sx * cos, -sy * sin, x, sx * sin, sy * cos, y],
     };
+    let m = compose(
+        placed,
+        Affine {
+            m: axes.to_east_north(),
+        },
+    )
+    .m;
     m.iter().all(|v| v.is_finite()).then_some(Affine { m })
 }
 

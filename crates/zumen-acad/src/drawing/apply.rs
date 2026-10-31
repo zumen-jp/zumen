@@ -3191,7 +3191,7 @@ mod duplicate_handle_tests {
 mod hash_budget_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Key, Kind, Limit, Limits};
-    use zumen_drawing::{LayerId, ModelSpace, Style, Unit, Vertex};
+    use zumen_drawing::{Axes, LayerId, ModelSpace, Style, Unit, Vertex};
 
     #[test]
     fn linear_spline_is_not_replaced_with_an_unverified_curve() {
@@ -3302,6 +3302,7 @@ mod hash_budget_tests {
             space: ModelSpace {
                 id: SpaceId(1),
                 unit: Unit::Unknown,
+                axes: Axes::EastNorth,
                 elements: vec![Element {
                     source: Ref::at_record(2),
                     layer: LayerId(0),
@@ -3602,6 +3603,7 @@ mod hash_budget_tests {
             spaces: vec![ModelSpace {
                 id: SpaceId(0),
                 unit: Unit::Unknown,
+                axes: Axes::EastNorth,
                 elements: vec![element],
                 order: vec![0],
             }],
@@ -3677,6 +3679,7 @@ mod hash_budget_tests {
             spaces: vec![ModelSpace {
                 id: MODEL,
                 unit: Unit::Unknown,
+                axes: Axes::EastNorth,
                 elements: vec![element.clone(), element],
                 order: vec![0, 1],
             }],
@@ -3760,7 +3763,7 @@ mod hash_budget_tests {
 mod definition_id_tests {
     use super::*;
     use zumen_base::Key;
-    use zumen_drawing::{ModelSpace, SymbolDefinition, SymbolKey, Unit};
+    use zumen_drawing::{Axes, ModelSpace, SymbolDefinition, SymbolKey, Unit};
 
     #[test]
     fn duplicate_definition_handles_have_distinct_index_entries() {
@@ -3789,6 +3792,7 @@ mod definition_id_tests {
                 space: ModelSpace {
                     id: space,
                     unit: Unit::Millimeter,
+                    axes: Axes::EastNorth,
                     elements: vec![element],
                     order: vec![],
                 },
@@ -3817,7 +3821,7 @@ mod definition_id_tests {
 mod index_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken};
-    use zumen_drawing::{ModelSpace, Sheet, SymbolDefinition, SymbolKey, Unit};
+    use zumen_drawing::{Axes, ModelSpace, Sheet, SymbolDefinition, SymbolKey, Unit};
 
     fn line<P: Copy>(start: P, end: P, source: Ref) -> Element<P> {
         Element {
@@ -3841,6 +3845,7 @@ mod index_tests {
         let space = |id, elements| ModelSpace {
             id,
             unit: Unit::Millimeter,
+            axes: Axes::EastNorth,
             elements,
             order: Vec::new(),
         };
