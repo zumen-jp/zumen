@@ -2,7 +2,7 @@
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes};
 use zumen_sdk::{Codec, Error, testkit};
-use zumen_sxf::{Form, Marker, Mode, Quote, Sxf, SxfFile, Value};
+use zumen_sxf::{Form, Marker, Mode, Quote, SfcRecord, Sxf, SxfFile, Value};
 
 const SFC: &[u8] = b"ISO-10303-21;\r
 HEADER;\r

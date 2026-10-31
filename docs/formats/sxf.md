@@ -4,7 +4,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 
 ## 対象
 
-- SFC と P21。どちらも ISO 10303-21 の交換構造に入る（[決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)）。
+- SFC と P21。どちらも ISO 10303-21 の交換構造に入る（[決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)）交換構造の読み取りと文字列のエスケープの戻し方は、IFC と共有する crate `zumen-step` が行う。SFC のフィーチャのコメントの印（`/*SXF`・`/*SXF3`・`/*SXF3.1`）と、AP202 と書いた P21 でそれを読まないことは、`zumen-sxf` が読み方として渡す（[決定 0207](../decisions/0207-building-model-components.md)）。
 - 圧縮した SFZ・P2Z は、まだ読まない。
 - SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC と P21 を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 の組み直しは、下の「P21 の組み直し」に記録する。
 

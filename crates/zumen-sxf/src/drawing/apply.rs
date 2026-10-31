@@ -22,7 +22,7 @@ use super::{
     sfc_records, work,
 };
 use crate::p21::records as p21_records;
-use crate::{Marker, Mode, Quote, Sxf, SxfFile, Value};
+use crate::{Marker, Mode, Quote, SfcRecord, Sxf, SxfFile, Value};
 
 /// レイヤ・色・線種・線幅のコードを引数の 0〜3 に持ち、スタイルを変えられるフィーチャ
 const STYLED: [&str; 8] = [

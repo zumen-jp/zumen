@@ -2,6 +2,7 @@
 //!
 //! SFC と P21 は、どちらも ISO 10303-21 の交換構造（`ISO-10303-21;` で始まり、見出しとデータの節を持つ）に入る。
 //! 文（`;` で終わるもの）と、SFC のフィーチャのコメント（`/*SXF` から `SXF*/` まで）を、レコードとして元のバイト範囲のまま読む。
+//! 交換構造の読み取りは `zumen-step` が行い、SFC のフィーチャのコメントの印と診断を [`Dialect`] で渡す（決定 0207）。
 //! 値は元のバイト列の範囲で持ち、文字列のエスケープと文字コードは戻さない。戻すのは図面モデルへの変換で行う。
 //! SFC と P21 は図面モデル（L2）に変換できる（決定 0121・0132）。
 
@@ -9,12 +10,13 @@
 mod drawing;
 #[cfg(feature = "drawing")]
 mod p21;
-mod parse;
 
 use core::ops::Range;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{ByteRange, Codec, Cx, Error, FileModel, RecordInfo, Signature, Stop};
+use zumen_step::Dialect;
+pub use zumen_step::{Form, Part, Quote, Record, Value};
 
 /// SXF のコーデック
 #[derive(Clone, Copy, Debug)]
@@ -41,7 +43,7 @@ pub enum Marker {
 }
 
 impl Marker {
-    /// 長いものから順に並べた、印・開き・閉じ
+    /// 長いものから順に並べた、印・開き・閉じ。[`DIALECT`] の `features` と同じ順
     const ALL: [(Marker, &'static [u8], &'static [u8]); 3] = [
         (Marker::Sxf31, b"/*SXF3.1", b"SXF3.1*/"),
         (Marker::Sxf3, b"/*SXF3", b"SXF3*/"),
@@ -49,110 +51,30 @@ impl Marker {
     ];
 }
 
-/// レコードの形
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Form {
-    /// 引数のない語（`HEADER;` など）
-    Keyword,
-    /// 名前と引数（`FILE_NAME(…);`・`#1=LINE(…);`・SFC のフィーチャ）
-    Entity,
-    /// 部分を並べた複合のインスタンス（`#1=(A() B());`）
-    Complex,
-}
+/// SXF の交換構造の読み方。AP202 と書いた P21 では、`/*SXF` もただのコメントとする（推定。docs/formats/sxf.md）
+const DIALECT: Dialect = Dialect {
+    record_invalid: codes::SXF_RECORD_INVALID,
+    file_invalid: codes::SXF_FILE_INVALID,
+    features: &[
+        (b"/*SXF3.1", b"SXF3.1*/"),
+        (b"/*SXF3", b"SXF3*/"),
+        (b"/*SXF", b"SXF*/"),
+    ],
+    plain_if_described: Some(b"AP202"),
+};
 
-/// レコード。文か、SFC のフィーチャのコメント
-#[derive(Clone, Debug, PartialEq)]
-pub struct Record {
-    span: Range<usize>,
-    id: Option<u64>,
-    marker: Option<Marker>,
-    form: Form,
-    parts: Vec<Part>,
-}
-
-impl Record {
-    /// 元のバイト範囲。文は `;` まで、フィーチャはコメントの閉じまで
-    pub fn span(&self) -> Range<usize> {
-        self.span.clone()
-    }
-
-    /// インスタンスの番号（`#n`）。見出しの文と語にはない
-    pub fn id(&self) -> Option<u64> {
-        self.id
-    }
-
+/// SFC のフィーチャのコメントの印を持つレコード
+pub trait SfcRecord {
     /// SFC のフィーチャのコメントの印。文にはない
-    pub fn marker(&self) -> Option<Marker> {
-        self.marker
-    }
-
-    /// 形
-    pub fn form(&self) -> Form {
-        self.form
-    }
-
-    /// 部分。語と名前と引数のものは 1 つ、複合のインスタンスは書いた順
-    pub fn parts(&self) -> &[Part] {
-        &self.parts
-    }
+    fn marker(&self) -> Option<Marker>;
 }
 
-/// 名前と引数
-#[derive(Clone, Debug, PartialEq)]
-pub struct Part {
-    name: Range<usize>,
-    args: Vec<Value>,
-}
-
-impl Part {
-    /// 名前の範囲
-    pub fn name(&self) -> Range<usize> {
-        self.name.clone()
+impl SfcRecord for Record {
+    fn marker(&self) -> Option<Marker> {
+        self.feature()
+            .and_then(|index| Marker::ALL.get(index))
+            .map(|(marker, _, _)| *marker)
     }
-
-    /// 引数
-    pub fn args(&self) -> &[Value] {
-        &self.args
-    }
-}
-
-/// 文字列の囲み方
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Quote {
-    /// `'…'`。P21 は `''` で `'` を表す。SFC は次の `'` で閉じる
-    Plain,
-    /// SFC の `\'…\'`。Shift_JIS の 2 バイト目と `\\` を飛ばし、後に `,` か `)` が続く `\'` で閉じる
-    Backslash,
-}
-
-/// 引数の値。範囲は元のバイト列の中を指す
-#[derive(Clone, Debug, PartialEq)]
-pub enum Value {
-    /// `$`（値がない）
-    Null,
-    /// `*`（導く値）
-    Derived,
-    /// `#n`（インスタンスの参照）
-    Ref(u64),
-    /// `.E.` の内側
-    Enum(Range<usize>),
-    /// 文字列の内側。エスケープは戻さない
-    Text {
-        /// 内側の範囲
-        raw: Range<usize>,
-        /// 囲み方
-        quote: Quote,
-    },
-    /// 数
-    Number(Range<usize>),
-    /// `"…"` の内側の 16 進
-    Binary(Range<usize>),
-    /// 型を付けた値（`LENGTH_MEASURE(1.)`）
-    Typed(Part),
-    /// `(…)`
-    List(Vec<Value>),
-    /// SFC の、囲まない値。前後の空白を除いた範囲
-    Token(Range<usize>),
 }
 
 /// SXF のファイルモデル（L1）。元のバイト列と、そのレコード
@@ -182,7 +104,7 @@ impl SxfFile {
     /// レコードの種類。語と名前と引数のものはその名前、複合のインスタンスは最初の部分の名前
     pub fn kind(&self, record: &Record) -> &[u8] {
         record
-            .parts
+            .parts()
             .first()
             .map(|part| self.bytes(part.name()))
             .unwrap_or_default()
@@ -199,8 +121,8 @@ impl FileModel for SxfFile {
         Some(RecordInfo {
             kind: self.kind(record),
             bytes: Some(ByteRange {
-                start: record.span.start as u64,
-                end: record.span.end as u64,
+                start: record.span().start as u64,
+                end: record.span().end as u64,
             }),
         })
     }
@@ -222,7 +144,7 @@ impl Codec for Sxf {
     fn read(src: &[u8], cx: &mut Cx) -> Result<SxfFile, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop, None))?;
-        let read = parse::read(src, cx)?;
+        let read = zumen_step::read(src, &DIALECT, cx)?;
         let schema = read.schema.map(|range| src.get(range).unwrap_or_default());
         if let Some(schema) = schema {
             let name = schema
@@ -239,9 +161,21 @@ impl Codec for Sxf {
         }
         cx.check(Kind::Work, 1 + src.len() as u64 / 1024)
             .map_err(|stop| stopped(cx, stop, None))?;
+        let described = read
+            .description
+            .and_then(|range| src.get(range))
+            .is_some_and(|text| {
+                text.windows(b"feature_mode".len())
+                    .any(|window| window.eq_ignore_ascii_case(b"feature_mode"))
+            });
+        let found_feature = read.records.iter().any(|record| record.feature().is_some());
         Ok(SxfFile {
             src: src.to_vec(),
-            mode: read.mode,
+            mode: if described || found_feature {
+                Mode::Sfc
+            } else {
+                Mode::P21
+            },
             records: read.records,
         })
     }
@@ -252,9 +186,9 @@ impl Codec for Sxf {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
             // レコードの間（空白・コメント・読めなかった文）は、そのまま写す
-            out.extend_from_slice(file.bytes(end..record.span.start));
+            out.extend_from_slice(file.bytes(end..record.span().start));
             out.extend_from_slice(file.bytes(record.span()));
-            end = record.span.end;
+            end = record.span().end;
         }
         out.extend_from_slice(file.bytes(end..file.src.len()));
         Ok(())
