@@ -19,7 +19,7 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Cx, Error, Lift};
 
-use crate::{Mode, Quote, SxfFile, Value, p21};
+use crate::{Mode, Quote, SfcRecord, SxfFile, Value, p21};
 
 mod apply;
 

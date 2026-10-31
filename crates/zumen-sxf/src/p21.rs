@@ -1650,101 +1650,24 @@ fn sheet_kind(name: &str) -> Option<(i64, i64)> {
     Some((kind, orientation))
 }
 
-/// ISO 10303-21 の文字列のエスケープ（`''`・`\X2\…\X0\`・`\X4\…\X0\`・`\X\hh`・`\S\c`・`\P?\`・`\\`）を戻す。
-/// 規格の外の 8 ビットのバイトは、Shift_JIS として読む（推定。旧版の扱いを引き継ぐ）
+/// ISO 10303-21 の文字列のエスケープを戻す。規格の外の 8 ビットのバイトは、Shift_JIS として読む（推定。旧版の扱いを
+/// 引き継ぐ）
 fn decode(raw: &[u8]) -> String {
-    let mut out: Vec<u16> = Vec::with_capacity(raw.len());
-    let mut rest = raw;
-    while let Some((&byte, tail)) = rest.split_first() {
-        if byte == b'\'' && tail.first() == Some(&b'\'') {
-            out.push(u16::from(b'\''));
-            rest = tail.get(1..).unwrap_or_default();
-            continue;
+    zumen_step::decode(raw, |rest| {
+        // 2 バイトの文字の 2 バイト目は 0x40〜0x7E（\ を含む）のこともあるので、1 バイト目の次も含める
+        let mut len = 0;
+        while let Some(&b) = rest.get(len) {
+            if b < 0x80 {
+                break;
+            }
+            len += if matches!(b, 0x81..=0x9f | 0xe0..=0xfc) {
+                2
+            } else {
+                1
+            };
         }
-        if byte == b'\\' {
-            if let Some((units, after)) = hex_run(rest, b"\\X2\\", 4) {
-                out.extend(units.iter().map(|unit| *unit as u16));
-                rest = after;
-                continue;
-            }
-            if let Some((units, after)) = hex_run(rest, b"\\X4\\", 8) {
-                for unit in units {
-                    let c = char::from_u32(unit).unwrap_or(char::REPLACEMENT_CHARACTER);
-                    out.extend(c.encode_utf16(&mut [0; 2]).iter());
-                }
-                rest = after;
-                continue;
-            }
-            if let Some(after) = rest.strip_prefix(b"\\X\\")
-                && let Some(hex) = after
-                    .get(..2)
-                    .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))
-            {
-                out.push(hex_value(hex) as u16);
-                rest = after.get(2..).unwrap_or_default();
-                continue;
-            }
-            if let Some(after) = rest.strip_prefix(b"\\S\\")
-                && let Some((&c, after)) = after.split_first()
-            {
-                out.push(u16::from(c.wrapping_add(128)));
-                rest = after;
-                continue;
-            }
-            if let [b'\\', b'P', page, b'\\', after @ ..] = rest
-                && (b'A'..=b'I').contains(page)
-            {
-                rest = after;
-                continue;
-            }
-            if tail.first() == Some(&b'\\') {
-                out.push(u16::from(b'\\'));
-                rest = tail.get(1..).unwrap_or_default();
-                continue;
-            }
-        }
-        if byte >= 0x80 {
-            // 2 バイトの文字の 2 バイト目は 0x40〜0x7E（\ を含む）のこともあるので、1 バイト目の次も含める
-            let mut len = 0;
-            while let Some(&b) = rest.get(len) {
-                if b < 0x80 {
-                    break;
-                }
-                len += if matches!(b, 0x81..=0x9f | 0xe0..=0xfc) {
-                    2
-                } else {
-                    1
-                };
-            }
-            let (run, after) = rest.split_at(len.min(rest.len()));
-            let (text, _) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(run);
-            out.extend(text.encode_utf16());
-            rest = after;
-            continue;
-        }
-        out.push(u16::from(byte));
-        rest = tail;
-    }
-    String::from_utf16_lossy(&out)
-}
-
-/// `\X2\` などで始まり、`\X0\` で閉じる 16 進の並び。width 桁ずつの値と、閉じの後
-fn hex_run<'a>(rest: &'a [u8], open: &[u8], width: usize) -> Option<(Vec<u32>, &'a [u8])> {
-    let after = rest.strip_prefix(open)?;
-    let run = after
-        .iter()
-        .take_while(|byte| byte.is_ascii_hexdigit())
-        .count();
-    if !run.is_multiple_of(width) {
-        return None;
-    }
-    let (hex, close) = after.split_at(run);
-    let close = close.strip_prefix(b"\\X0\\")?;
-    Some((hex.chunks(width).map(hex_value).collect(), close))
-}
-
-fn hex_value(hex: &[u8]) -> u32 {
-    hex.iter().fold(0, |value, byte| {
-        value * 16 + char::from(*byte).to_digit(16).unwrap_or_default()
+        let run = rest.get(..len.min(rest.len())).unwrap_or_default();
+        let (text, _) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(run);
+        (text.into_owned(), run.len())
     })
 }

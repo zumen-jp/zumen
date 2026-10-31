@@ -416,6 +416,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-step"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-sdk",
+]
+
+[[package]]
 name = "zumen-sxf"
 version = "0.2.0"
 dependencies = [
@@ -424,4 +432,5 @@ dependencies = [
  "zumen-base",
  "zumen-drawing",
  "zumen-sdk",
+ "zumen-step",
 ]

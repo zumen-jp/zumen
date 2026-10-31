@@ -13,6 +13,7 @@ formats = ["sxf"]
 [dependencies]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-step = { version = "0.2.0", path = "../zumen-step" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
 # Shift_JIS の名前と文字を戻す。WHATWG の Shift_JIS で、環境によらない（決定 0121）
 encoding_rs = { version = "0.8.35", optional = true }

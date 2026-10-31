@@ -1,19 +1,11 @@
-//! ISO 10303-21 の交換構造と、SFC のフィーチャのコメントを、レコードに分けて読む（決定 0120）。
+//! ISO 10303-21 の交換構造と、フィーチャのコメントを、レコードに分けて読む（決定 0120）。
 
 use core::ops::Range;
 
-use zumen_base::{Diagnostic, Kind, Ref, codes};
+use zumen_base::{Diagnostic, Kind, Ref};
 use zumen_sdk::{Cx, Error, Stop};
 
-use crate::{Form, Marker, Mode, Part, Quote, Record, Value, stopped};
-
-/// 読んだ結果
-pub(crate) struct Read {
-    pub(crate) mode: Mode,
-    pub(crate) records: Vec<Record>,
-    /// `FILE_SCHEMA` の最初のスキーマの文字列の内側
-    pub(crate) schema: Option<Range<usize>>,
-}
+use crate::{Dialect, Exchange, Form, Part, Quote, Record, Value};
 
 /// 読めない理由
 enum Fail {
@@ -45,22 +37,21 @@ enum Section {
 const START: &[u8] = b"ISO-10303-21";
 const END: &[u8] = b"END-ISO-10303-21";
 
-/// 交換構造を読む。始まり・`DATA` の節・終わりのどれかがなければ、読めないとする
-pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
+/// 交換構造を読む。始まり・`DATA` の節・終わりのどれかがなければ、[`Dialect::file_invalid`] を報告して読めない
+/// とする。読めない文とコメントは [`Dialect::record_invalid`] を報告して飛ばす。レコードは予算のレコードで数える
+pub fn read(src: &[u8], dialect: &Dialect, cx: &mut Cx) -> Result<Exchange, Error> {
     let mut p = Parser {
         src,
         pos: 0,
         end: src.len(),
-        sfc: false,
+        in_feature: false,
     };
     let mut records = Vec::new();
     let mut section = Section::Start;
     let mut saw_data = false;
     let mut description = None;
     let mut schema = None;
-    // AP202 と書いた P21 では、`/*SXF` もただのコメントとする（推定。docs/formats/sxf.md）
     let mut features = true;
-    let mut found_feature = false;
     while section != Section::Done {
         p.skip_white();
         if p.pos >= p.end {
@@ -68,9 +59,11 @@ pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
         }
         let start = p.pos;
         if p.starts(b"/*") {
-            if section == Section::Data && features && p.starts(b"/*SXF") {
-                if let Some(record) = feature(&mut p, cx)? {
-                    found_feature = true;
+            if section == Section::Data
+                && features
+                && dialect.features.iter().any(|(open, _)| p.starts(open))
+            {
+                if let Some(record) = feature(&mut p, dialect, cx)? {
                     push(&mut records, record, cx)?;
                 }
                 continue;
@@ -78,7 +71,7 @@ pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
             match find(src, b"*/", start + 2, p.end) {
                 Some(at) => p.pos = at + 2,
                 None => {
-                    invalid(cx, start..p.end);
+                    invalid(cx, dialect, start..p.end);
                     p.pos = p.end;
                 }
             }
@@ -87,10 +80,12 @@ pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
         let record = match p.statement(cx) {
             Ok(record) => record,
             Err(Fail::Stop(stop)) => return Err(stopped(cx, stop, Some(start..p.pos))),
-            Err(Fail::Syntax) if section == Section::Start => return Err(file_invalid(cx)),
+            Err(Fail::Syntax) if section == Section::Start => {
+                return Err(file_invalid(cx, dialect));
+            }
             Err(Fail::Syntax) => {
                 p.pos = find(src, b";", p.pos, p.end).map_or(p.end, |at| at + 1);
-                invalid(cx, start..p.pos);
+                invalid(cx, dialect, start..p.pos);
                 continue;
             }
         };
@@ -102,14 +97,16 @@ pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
         let keyword = matches!(record.form, Form::Keyword | Form::Entity) && record.id.is_none();
         match section {
             Section::Start if keyword && name == START => section = Section::Outside,
-            Section::Start => return Err(file_invalid(cx)),
+            Section::Start => return Err(file_invalid(cx, dialect)),
             _ if keyword && name == END => section = Section::Done,
             _ if keyword && name == b"DATA" => {
                 section = Section::Data;
                 saw_data = true;
-                features = !description
-                    .clone()
-                    .is_some_and(|range: Range<usize>| contains(src.get(range), b"AP202"));
+                features = !dialect.plain_if_described.is_some_and(|word| {
+                    description
+                        .clone()
+                        .is_some_and(|range: Range<usize>| contains(src.get(range), word))
+                });
             }
             _ if keyword && name == b"ENDSEC" => section = Section::Outside,
             Section::Outside if name == b"FILE_DESCRIPTION" => description = first_text(&record),
@@ -119,16 +116,11 @@ pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
         push(&mut records, record, cx)?;
     }
     if !saw_data || section != Section::Done {
-        return Err(file_invalid(cx));
+        return Err(file_invalid(cx, dialect));
     }
-    let described = description.is_some_and(|range| contains(src.get(range), b"feature_mode"));
-    Ok(Read {
-        mode: if described || found_feature {
-            Mode::Sfc
-        } else {
-            Mode::P21
-        },
+    Ok(Exchange {
         records,
+        description,
         schema,
     })
 }
@@ -141,15 +133,19 @@ fn push(records: &mut Vec<Record>, record: Record, cx: &mut Cx) -> Result<(), Er
     Ok(())
 }
 
-/// SFC のフィーチャのコメントを読む。閉じがないか、中が読めなければ、診断してレコードにしない
-fn feature(p: &mut Parser, cx: &mut Cx) -> Result<Option<Record>, Error> {
+/// フィーチャのコメントを読む。閉じがないか、中が読めなければ、診断してレコードにしない
+fn feature(p: &mut Parser, dialect: &Dialect, cx: &mut Cx) -> Result<Option<Record>, Error> {
     let start = p.pos;
-    let Some(&(marker, open, close)) = Marker::ALL.iter().find(|(_, open, _)| p.starts(open))
+    let Some((index, &(open, close))) = dialect
+        .features
+        .iter()
+        .enumerate()
+        .find(|(_, (open, _))| p.starts(open))
     else {
         return Ok(None);
     };
     let Some(closing) = find(p.src, close, start + open.len(), p.end) else {
-        invalid(cx, start..p.end);
+        invalid(cx, dialect, start..p.end);
         p.pos = p.end;
         return Ok(None);
     };
@@ -159,34 +155,44 @@ fn feature(p: &mut Parser, cx: &mut Cx) -> Result<Option<Record>, Error> {
         src: p.src,
         pos: start + open.len(),
         end: closing,
-        sfc: true,
+        in_feature: true,
     };
     match inner.feature(cx) {
         Ok((id, part)) => Ok(Some(Record {
             span,
             id: Some(id),
-            marker: Some(marker),
+            feature: Some(index),
             form: Form::Entity,
             parts: vec![part],
         })),
         Err(Fail::Syntax) => {
-            invalid(cx, span);
+            invalid(cx, dialect, span);
             Ok(None)
         }
         Err(Fail::Stop(stop)) => Err(stopped(cx, stop, Some(span))),
     }
 }
 
-fn invalid(cx: &mut Cx, range: Range<usize>) {
+fn invalid(cx: &mut Cx, dialect: &Dialect, range: Range<usize>) {
     cx.report(
-        Diagnostic::new(codes::SXF_RECORD_INVALID)
+        Diagnostic::new(dialect.record_invalid)
             .at(Ref::at_bytes(range.start as u64, range.end as u64)),
     );
 }
 
-fn file_invalid(cx: &mut Cx) -> Error {
-    cx.report(Diagnostic::new(codes::SXF_FILE_INVALID));
+fn file_invalid(cx: &mut Cx, dialect: &Dialect) -> Error {
+    cx.report(Diagnostic::new(dialect.file_invalid));
     Error::Invalid
+}
+
+/// 止めた理由を報告する。扱っていたバイト範囲があれば、場所にする（決定 0119）
+fn stopped(cx: &mut Cx, stop: Stop, place: Option<Range<usize>>) -> Error {
+    let diagnostic = stop.to_diagnostic();
+    cx.report(match place {
+        Some(range) => diagnostic.at(Ref::at_bytes(range.start as u64, range.end as u64)),
+        None => diagnostic,
+    });
+    Error::Stopped(stop)
 }
 
 /// 最初の引数の並びの、最初の文字列
@@ -214,7 +220,7 @@ fn find(src: &[u8], pattern: &[u8], from: usize, end: usize) -> Option<usize> {
         .map(|at| from + at)
 }
 
-/// Shift_JIS の 2 バイトの文字の 1 バイト目（推定。docs/formats/sxf.md）
+/// Shift_JIS の 2 バイトの文字の 1 バイト目。フィーチャの `\'…\'` の中で飛ばす（推定。docs/formats/sxf.md）
 fn is_lead_byte(byte: u8) -> bool {
     matches!(byte, 0x81..=0x9f | 0xe0..=0xfc)
 }
@@ -230,10 +236,10 @@ fn is_name(byte: u8) -> bool {
 struct Parser<'s> {
     src: &'s [u8],
     pos: usize,
-    /// 読む範囲の終わり。SFC のフィーチャでは、コメントの閉じの前
+    /// 読む範囲の終わり。フィーチャでは、コメントの閉じの前
     end: usize,
-    /// SFC のフィーチャの中か
-    sfc: bool,
+    /// フィーチャのコメントの中か
+    in_feature: bool,
 }
 
 impl Parser<'_> {
@@ -265,7 +271,7 @@ impl Parser<'_> {
     fn skip_space(&mut self) {
         loop {
             self.skip_white();
-            if self.sfc || !self.starts(b"/*") {
+            if self.in_feature || !self.starts(b"/*") {
                 return;
             }
             self.pos = find(self.src, b"*/", self.pos + 2, self.end).map_or(self.end, |at| at + 2);
@@ -359,13 +365,13 @@ impl Parser<'_> {
         Ok(Record {
             span: start..self.pos,
             id,
-            marker: None,
+            feature: None,
             form,
             parts,
         })
     }
 
-    /// SFC のフィーチャ `#n = 名前(引数)`。後に空白のほかは続かない
+    /// フィーチャ `#n = 名前(引数)`。後に空白のほかは続かない
     fn feature(&mut self, cx: &mut Cx) -> Result<(u64, Part), Fail> {
         self.expect(b'#')?;
         let id = self.number()?;
@@ -425,7 +431,7 @@ impl Parser<'_> {
         if byte == b'\'' {
             return self.plain();
         }
-        if self.sfc {
+        if self.in_feature {
             if byte == b'\\' && self.byte(self.pos + 1) == Some(b'\'') {
                 return self.backslash();
             }
@@ -501,14 +507,14 @@ impl Parser<'_> {
         Ok(Value::Number(start..self.pos))
     }
 
-    /// `'…'`。P21 は `''` を飛ばす
+    /// `'…'`。文では `''` を飛ばす
     fn plain(&mut self) -> Result<Value, Fail> {
         self.pos += 1;
         let start = self.pos;
         loop {
             match self.peek() {
                 None => return Err(Fail::Syntax),
-                Some(b'\'') if !self.sfc && self.byte(self.pos + 1) == Some(b'\'') => {
+                Some(b'\'') if !self.in_feature && self.byte(self.pos + 1) == Some(b'\'') => {
                     self.pos += 2;
                 }
                 Some(b'\'') => break,
@@ -523,7 +529,7 @@ impl Parser<'_> {
         })
     }
 
-    /// SFC の `\'…\'`
+    /// フィーチャの `\'…\'`
     fn backslash(&mut self) -> Result<Value, Fail> {
         self.pos += 2;
         let start = self.pos;
@@ -556,7 +562,7 @@ impl Parser<'_> {
         }
     }
 
-    /// SFC の、囲まない値。`,` か `)` の前まで
+    /// フィーチャの、囲まない値。`,` か `)` の前まで
     fn token(&mut self) -> Value {
         let start = self.pos;
         while self.peek().is_some_and(|b| b != b',' && b != b')') {

@@ -1,0 +1,15 @@
+[package]
+name = "zumen-step"
+description = "zumen の ISO 10303-21 の交換構造（L0）。文と値を元のバイト範囲で持つレコードと、文字列のエスケープの戻し方"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true
