@@ -443,3 +443,12 @@ dependencies = [
  "zumen-base",
  "zumen-sdk",
 ]
+
+[[package]]
+name = "zumen-zip"
+version = "0.2.0"
+dependencies = [
+ "encoding_rs",
+ "zumen-base",
+ "zumen-sdk",
+]
