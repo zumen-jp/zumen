@@ -1131,6 +1131,20 @@ pub const DXF_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 意味を持つ位置の値が、期待した型でないので読まなかった
+///
+/// `ifc.attribute.invalid`（0.2.0 から）
+pub const IFC_ATTRIBUTE_INVALID: Code = Code::new(
+    "ifc.attribute.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Key),
+        Param::new("position", ParamType::UInt),
+    ],
+    &["kind", "position"],
+);
+
 /// 同じ番号のインスタンスが複数あるので、番号で引くときは初めのものを使う
 ///
 /// `ifc.duplicate.dropped`（0.2.0 から）
@@ -1140,6 +1154,17 @@ pub const IFC_DUPLICATE_DROPPED: Code = Code::new(
     None,
     &[Param::new("id", ParamType::UInt)],
     &[],
+);
+
+/// 建物モデルに写さない実体を、L1 に残した。件数は種類ごとに数える
+///
+/// `ifc.entity.dropped`（0.2.0 から）
+pub const IFC_ENTITY_DROPPED: Code = Code::new(
+    "ifc.entity.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
 );
 
 /// ifcZIP の書庫に、IFC-SPF（.ifc）の項目がない
@@ -1157,6 +1182,45 @@ pub const IFC_ENTRY_UNSUPPORTED: Code =
 ///
 /// `ifc.file.invalid`（0.2.0 から）
 pub const IFC_FILE_INVALID: Code = Code::new("ifc.file.invalid", Severity::Error, None, &[], &[]);
+
+/// GlobalId のない実体なので、インスタンスの番号で ID を作った
+///
+/// `ifc.global-id.missing`（0.2.0 から）
+pub const IFC_GLOBAL_ID_MISSING: Code =
+    Code::new("ifc.global-id.missing", Severity::Warning, None, &[], &[]);
+
+/// 要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった
+///
+/// `ifc.parent.exists`（0.2.0 から）
+pub const IFC_PARENT_EXISTS: Code = Code::new(
+    "ifc.parent.exists",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 配置の連鎖が循環するか、参照が欠けるか、軸を作れないので、配置なしにした
+///
+/// `ifc.placement.invalid`（0.2.0 から）
+pub const IFC_PLACEMENT_INVALID: Code = Code::new(
+    "ifc.placement.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 通り芯や線形の配置は、種類だけを持ち、解けない配置にした
+///
+/// `ifc.placement.unsupported`（0.2.0 から）
+pub const IFC_PLACEMENT_UNSUPPORTED: Code = Code::new(
+    "ifc.placement.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
 
 /// 文の形が読めないので、レコードにせずに、次の文から読んだ
 ///
@@ -1180,6 +1244,39 @@ pub const IFC_REFERENCE_MISSING: Code = Code::new(
 /// `ifc.schema.unsupported`（0.2.0 から）
 pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
     "ifc.schema.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("schema", ParamType::Text)],
+    &[],
+);
+
+/// 文字列のエスケープか UTF-8 が読めない所を、置き換えの文字にした
+///
+/// `ifc.text.invalid`（0.2.0 から）
+pub const IFC_TEXT_INVALID: Code = Code::new(
+    "ifc.text.invalid",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 値の単位が解けないので、単位なしにした
+///
+/// `ifc.unit.missing`（0.2.0 から）
+pub const IFC_UNIT_MISSING: Code = Code::new(
+    "ifc.unit.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("type", ParamType::Key)],
+    &["type"],
+);
+
+/// IFC2X3・IFC4・IFC4X3 でない版のファイルからは、建物モデルを作らない
+///
+/// `ifc.version.unsupported`（0.2.0 から）
+pub const IFC_VERSION_UNSUPPORTED: Code = Code::new(
+    "ifc.version.unsupported",
     Severity::Error,
     None,
     &[Param::new("schema", ParamType::Text)],
@@ -2208,13 +2305,22 @@ pub const ALL: &[Code] = &[
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
     DXF_XDATA_UNSUPPORTED,
+    IFC_ATTRIBUTE_INVALID,
     IFC_DUPLICATE_DROPPED,
+    IFC_ENTITY_DROPPED,
     IFC_ENTRY_MISSING,
     IFC_ENTRY_UNSUPPORTED,
     IFC_FILE_INVALID,
+    IFC_GLOBAL_ID_MISSING,
+    IFC_PARENT_EXISTS,
+    IFC_PLACEMENT_INVALID,
+    IFC_PLACEMENT_UNSUPPORTED,
     IFC_RECORD_INVALID,
     IFC_REFERENCE_MISSING,
     IFC_SCHEMA_UNSUPPORTED,
+    IFC_TEXT_INVALID,
+    IFC_UNIT_MISSING,
+    IFC_VERSION_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
     JWW_BODY_INVALID,
     JWW_FILE_INVALID,

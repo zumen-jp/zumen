@@ -382,7 +382,9 @@ dependencies = [
 name = "zumen-ifc"
 version = "0.2.0"
 dependencies = [
+ "libm",
  "zumen-base",
+ "zumen-building",
  "zumen-sdk",
  "zumen-step",
  "zumen-sxf",

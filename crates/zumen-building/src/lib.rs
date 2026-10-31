@@ -30,6 +30,21 @@ pub struct Source {
     pub instance: Option<u64>,
     /// ファイルに書いてあった GlobalId。使えずに `i` と番号で ID を作ったときも、元の文字列を残す
     pub global_id: Option<String>,
+    /// 局所の変換に畳んだ、どの要素も持たない中間の配置のインスタンスの番号。内側から順
+    pub folded_placements: Vec<u64>,
+    /// 成分を付けた関係
+    pub relations: Vec<RelationSource>,
+}
+
+/// 成分を付けた関係の出所（決定 0207）
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelationSource {
+    /// 関係のインスタンスの番号
+    pub instance: u64,
+    /// 関係の GlobalId
+    pub global_id: Option<String>,
+    /// 関係の並びの中の、この要素の位置（0 から）。並びでなければ `None`
+    pub position: Option<u32>,
 }
 
 /// 要素。ID と出所だけを持つ
@@ -222,6 +237,7 @@ impl Building {
             source: Source {
                 instance: Some(instance),
                 global_id: global_id.map(str::to_owned),
+                ..Source::default()
             },
         });
         self.ids.insert(id, element);
@@ -231,6 +247,13 @@ impl Building {
     /// 要素
     pub fn element(&self, element: ElementRef) -> Option<&Element> {
         self.elements.get(element.0 as usize)
+    }
+
+    /// 要素の出所を変える
+    pub fn source_mut(&mut self, element: ElementRef) -> Option<&mut Source> {
+        self.elements
+            .get_mut(element.0 as usize)
+            .map(|element| &mut element.source)
     }
 
     /// 要素の一覧。ファイルに書いた順
