@@ -1,16 +1,23 @@
 # zumen の C ABI を、Python の ctypes で呼ぶ薄い包み（決定 0011・0195）。
 #
-# まだ公開しない。名前（zumen-provisional）は仮で、公開の時期と名前は利用者が決める（#317）。
-# 「Private :: Do Not Upload」の分類があると、PyPI は受け付けない。
-# 配る形（ネイティブのライブラリを入れた wheel、決定 0014）と build-system は、公開の手順を決めるときに足す。
+# PyPI の zumen で配る（決定 0003・0205）。wheel は対象ごとにネイティブのライブラリを zumen/_native に入れ、
+# build_wheel.py（標準ライブラリだけ）で作る。build-system は使わない。
 # 版はコアと同じにし、`cargo xtask codegen --check` が確かめる（決定 0015）。
 
 [project]
-name = "zumen-provisional"
-version = "0.0.0"
-description = "zumen の C ABI を、Python の ctypes で呼ぶ薄い包み（決定 0195）。名前は仮で、公開しない"
+name = "zumen"
+version = "0.2.0"
+description = "日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、Python の包み"
 license = "MIT OR Apache-2.0"
 # docs/support.md の Python の下限
 requires-python = ">=3.9"
 dependencies = []
-classifiers = ["Private :: Do Not Upload"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Natural Language :: Japanese",
+  "Topic :: Scientific/Engineering",
+]
+readme = "README.md"
+
+[project.urls]
+Repository = "https://github.com/zumen-jp/zumen"

@@ -16,7 +16,7 @@ using JsonAny = System.Text.Json.JsonElement;
 using JsonAny = System.Object;
 #endif
 
-namespace Zumen.Provisional.Messages
+namespace Zumen.Messages
 {
 #if !NET
     /// <summary>欄の JSON での名前。netstandard2.0 には System.Text.Json がないので、包みの中に代わりを置く</summary>

@@ -12,10 +12,10 @@ using System.Threading;
 #if NET
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Zumen.Provisional.Messages;
+using Zumen.Messages;
 #endif
 
-namespace Zumen.Provisional
+namespace Zumen
 {
     /// <summary>境界の関数が ok でない状態を返した</summary>
     public sealed class ZumenException : Exception
@@ -119,6 +119,41 @@ namespace Zumen.Provisional
         /// </summary>
         public static ZumenLibrary Load(string path) =>
             new ZumenLibrary(Loader.Open(System.IO.Path.GetFullPath(path)));
+
+        /// <summary>
+        /// NuGet のパッケージに入れたネイティブのライブラリを読み込む（決定 0205）。
+        /// アプリのディレクトリと、その下の runtimes/{rid}/native を順に探す。
+        /// </summary>
+        public static ZumenLibrary Load()
+        {
+            var name = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "zumen_abi1.dll"
+                : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "libzumen_abi1.dylib"
+                : "libzumen_abi1.so";
+            var os = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "win"
+                : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx"
+                : "linux";
+            var arch = RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.X86 => "x86",
+                Architecture.X64 => "x64",
+                Architecture.Arm64 => "arm64",
+                var other => other.ToString().ToLowerInvariant(),
+            };
+            var root = AppContext.BaseDirectory;
+            var candidates = new[]
+            {
+                System.IO.Path.Combine(root, name),
+                System.IO.Path.Combine(root, "runtimes", os + "-" + arch, "native", name),
+            };
+            foreach (var candidate in candidates)
+            {
+                if (System.IO.File.Exists(candidate))
+                {
+                    return Load(candidate);
+                }
+            }
+            throw new DllNotFoundException("zumen のネイティブのライブラリがない: " + string.Join("、", candidates));
+        }
 
         /// <summary>ABI の大版</summary>
         public uint AbiVersion => AbiVersionFn();

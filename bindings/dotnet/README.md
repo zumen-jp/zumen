@@ -2,20 +2,20 @@
 
 ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、P/Invoke で呼ぶ薄い包みです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0196](../../docs/decisions/0196-dotnet-wrapper.md)）。.NET Framework 4.8 には netstandard2.0、.NET 8 以降には net8.0 のアセンブリを出します。
 
-- まだ公開しません。プロジェクトとアセンブリの名前（`Zumen.Provisional`）は仮で、公開の時期と名前は利用者が決めます（#317）。`IsPackable` を `false` にしています。
+- NuGet の `Zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。パッケージには、対象ごとのネイティブのライブラリを `runtimes/{rid}/native` に入れます。
 - NuGet の依存はありません。型つきの要求と応答（System.Text.Json）は、標準で持つ net8.0 の側にだけあります。netstandard2.0 の側では、JSON の文字列かバイト列で読み書きします。
-- ネイティブのライブラリは包みに入れず、利用者が道筋を渡します。32 bit の Windows では、関数を stdcall で呼びます。
-- `Zumen.Provisional/Messages.g.cs`・`Zumen.Provisional/Constants.g.cs` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
+- `ZumenLibrary.Load()` は、パッケージに入れたライブラリを読みます。手で作ったライブラリは `Load(道筋)` で読みます。32 bit の Windows では、関数を stdcall で呼びます。
+- `Zumen/Messages.g.cs`・`Zumen/Constants.g.cs` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
 ## 使い方
 
 ```csharp
 using System;
 using System.IO;
-using Zumen.Provisional;
-using Zumen.Provisional.Messages;
+using Zumen;
+using Zumen.Messages;
 
-var zumen = ZumenLibrary.Load("target/release/zumen_abi1.dll");
+var zumen = ZumenLibrary.Load(); // 手で作ったものは Load("target/release/zumen_abi1.dll")
 using var session = zumen.Open();
 session.Push("a.dxf", File.ReadAllBytes("a.dxf"));
 try
@@ -34,12 +34,12 @@ catch (ZumenException error)
 
 | 名前 | 中身 |
 | --- | --- |
-| `ZumenLibrary.Load` | ライブラリを読み込み、関数と ABI の大版を確かめる |
+| `ZumenLibrary.Load` | ライブラリを読み込み、関数と ABI の大版を確かめる。道筋を渡さなければ、パッケージに入れたものを読む |
 | `ZumenLibrary.Open` | セッションを作る（`zm_session_new`）。`using` で閉じる |
 | `Session.Push`・`Call`・`CallBytes`・`Take`・`Cancel`・`Dispose` | 境界の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenException` を投げる |
 | `Scene.Read` | シーンの blob を読む。区画は `Column<T>`（net8.0、写さない `ReadOnlySpan<T>`）か `ToArray<T>` で引く（`schema/scene.toml`） |
 
-要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`Zumen.Provisional.Messages` に record の型があります。`Operations.Types` が、op から要求と結果の型を引きます。列挙は `string` で持ち、値を定数で出すので、知らない値も受け取れます。形が値で決まる欄（`geometry`・`edit` など）は `JsonElement`（netstandard2.0 では `object`）で持ち、目印の値から `Geometry.Variants` などで型を引いて読み直します。`Cancel` は、ほかのスレッドから呼べます。
+要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`Zumen.Messages` に record の型があります。`Operations.Types` が、op から要求と結果の型を引きます。列挙は `string` で持ち、値を定数で出すので、知らない値も受け取れます。形が値で決まる欄（`geometry`・`edit` など）は `JsonElement`（netstandard2.0 では `object`）で持ち、目印の値から `Geometry.Variants` などで型を引いて読み直します。`Cancel` は、ほかのスレッドから呼べます。
 
 ## 試験
 

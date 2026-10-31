@@ -2,7 +2,7 @@
 // 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。
 
 /** パッケージの版（決定 0015） */
-export const VERSION = "0.0.0";
+export const VERSION = "0.2.0";
 /** ABI の大版 */
 export const ABI_VERSION = 1;
 /** メッセージのスキーマの大版（要求と応答の v） */

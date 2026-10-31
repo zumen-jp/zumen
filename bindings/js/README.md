@@ -2,7 +2,7 @@
 
 wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js（22 以降）から呼ぶ薄い包みです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)）。
 
-- まだ公開しません。`package.json` の名前は仮で、公開の時期と名前は利用者が決めます（#317）。
+- npm の `@zumen-jp/zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。包みには `zumen_abi1.wasm` を入れ、`@zumen-jp/zumen/zumen_abi1.wasm` で取り出せます。
 - 素の ESM の JavaScript で書き、ビルドも npm の依存もありません。型は `.d.ts` にあります。
 - `src/messages.d.ts`・`src/constants.js`・`src/constants.d.ts` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
@@ -12,8 +12,8 @@ wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js�
 import { readFileSync } from "node:fs";
 import { ZumenError, load, readScene } from "./src/index.js";
 
-// ブラウザーでは load(fetch("zumen_abi1.wasm")) と書けます
-const zumen = await load(readFileSync("target/wasm32-unknown-unknown/release/zumen_abi1.wasm"));
+// ブラウザーでは load(fetch(wasm の URL)) と書けます
+const zumen = await load(readFileSync(new URL(import.meta.resolve("@zumen-jp/zumen/zumen_abi1.wasm"))));
 const session = zumen.open();
 try {
   session.push("a.dxf", readFileSync("a.dxf"));

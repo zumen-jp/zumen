@@ -54,3 +54,4 @@
 
 - [#349](https://github.com/zumen-jp/zumen/issues/349)、[#317](https://github.com/zumen-jp/zumen/issues/317)
 - [0006](0006-language-tiers.md)、[0007](0007-single-rust-implementation.md)、[0011](0011-bindings-through-ffi.md)、[0012](0012-boundary-functions-and-messages.md)、[0014](0014-platforms-signing-and-distribution.md)、[0015](0015-add-only-boundary-and-version-floors.md)、[0137](0137-columnar-scene-transfer.md)
+- 名前と公開: [0205: 版 0.2.0 から、タグを push してワークフローで crates.io・npm・PyPI・NuGet と GitHub の Release に出す](0205-release-and-publishing.md)

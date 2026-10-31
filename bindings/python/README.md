@@ -2,17 +2,17 @@
 
 ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、標準ライブラリの ctypes で呼ぶ薄い包みです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0195](../../docs/decisions/0195-python-wrapper.md)）。Python 3.9 以降で動きます。
 
-- まだ公開しません。`pyproject.toml` の名前（`zumen-provisional`）とモジュールの名前（`zumen_provisional`）は仮で、公開の時期と名前は利用者が決めます（#317）。
-- 依存はなく、ネイティブの拡張も作りません。ネイティブのライブラリは包みに入れず、利用者が道筋を渡します。
-- `zumen_provisional/messages.py`・`zumen_provisional/constants.py` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
+- PyPI の `zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。wheel は、対象ごとにネイティブのライブラリを `zumen/_native` に入れ、`load()` が道筋なしでそれを読みます。wheel は `build_wheel.py`（標準ライブラリだけ）で作ります。
+- 依存はなく、ネイティブの拡張も作りません。手元で作ったライブラリを使うときは、`load` に道筋を渡します。
+- `zumen/messages.py`・`zumen/constants.py` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
 ## 使い方
 
 ```python
 from pathlib import Path
-from zumen_provisional import ZumenError, load, read_scene
+from zumen import ZumenError, load, read_scene
 
-zumen = load("target/release/libzumen_abi1.so")
+zumen = load()  # 手元で作ったものは load("target/release/libzumen_abi1.so")
 with zumen.open() as session:
     session.push("a.dxf", Path("a.dxf").read_bytes())
     try:
@@ -27,7 +27,7 @@ with zumen.open() as session:
 
 | 名前 | 中身 |
 | --- | --- |
-| `load` | ライブラリを読み込み、関数と ABI の大版を確かめる。32 bit の Windows では stdcall で呼ぶ |
+| `load` | ライブラリを読み込み、関数と ABI の大版を確かめる。道筋を渡さなければ wheel に入れたものを読む。32 bit の Windows では stdcall で呼ぶ |
 | `Zumen.open` | セッションを作る（`zm_session_new`）。`with` の文で閉じられる |
 | `Session.push`・`call`・`call_bytes`・`take`・`cancel`・`close` | 境界の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
 | `read_scene` | シーンの blob を、区画ごとの memoryview で読む（`schema/scene.toml`） |

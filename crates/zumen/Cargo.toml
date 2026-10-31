@@ -5,15 +5,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+publish = true
 # 階層 1 の Rust の下限（docs/support.md）
 rust-version = "1.99"
 
 [dependencies]
-zumen-abi = { path = "../zumen-abi" }
-zumen-base = { path = "../zumen-base" }
-zumen-json = { path = "../zumen-json" }
-zumen-scene = { path = "../zumen-scene" }
+zumen-abi = { version = "0.2.0", path = "../zumen-abi" }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-json = { version = "0.2.0", path = "../zumen-json" }
+zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
 
 [lints]
 workspace = true

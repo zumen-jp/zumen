@@ -5,14 +5,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+publish = true
 
 [dependencies]
 # 角度と範囲の計算（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { path = "../zumen-base" }
-zumen-drawing = { path = "../zumen-drawing" }
-zumen-geom2d = { path = "../zumen-geom2d" }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
 
 [dev-dependencies]
 zumen-acad = { path = "../zumen-acad" }

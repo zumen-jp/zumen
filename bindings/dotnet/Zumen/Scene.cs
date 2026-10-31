@@ -12,7 +12,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 #endif
 
-namespace Zumen.Provisional
+namespace Zumen
 {
     /// <summary>シーンの区画の定義</summary>
     public sealed class SceneSection

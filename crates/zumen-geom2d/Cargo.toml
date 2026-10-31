@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+publish = true
 
 [dependencies]
 # 三角関数（決定 0007）。どの対象でも同じ値にする

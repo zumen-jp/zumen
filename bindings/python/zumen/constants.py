@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Literal, Mapping, NamedTuple, Tuple
 
 # パッケージの版（決定 0015）
-VERSION = "0.0.0"
+VERSION = "0.2.0"
 # ABI の大版
 ABI_VERSION = 1
 # メッセージのスキーマの大版（要求と応答の v）

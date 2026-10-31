@@ -19,7 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../Zumen.Provisional/Zumen.Provisional.csproj" />
+    <ProjectReference Include="../../Zumen/Zumen.csproj" />
   </ItemGroup>
 
 </Project>

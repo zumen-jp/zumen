@@ -1,8 +1,12 @@
 {
-  "name": "@zumen-jp/zumen-provisional",
-  "version": "0.0.0",
-  "private": true,
-  "description": "zumen の wasm のモジュールを、TypeScript・JavaScript から呼ぶ薄い包み（決定 0194）。名前は仮で、公開しない",
+  "name": "@zumen-jp/zumen",
+  "version": "0.2.0",
+  "description": "日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、wasm と TypeScript・JavaScript の包み",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumen-jp/zumen.git",
+    "directory": "bindings/js"
+  },
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "engines": {
@@ -12,10 +16,12 @@
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
-    }
+    },
+    "./zumen_abi1.wasm": "./zumen_abi1.wasm"
   },
   "files": [
-    "src"
+    "src",
+    "zumen_abi1.wasm"
   ],
   "sideEffects": false,
   "scripts": {

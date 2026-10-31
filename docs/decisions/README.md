@@ -238,3 +238,4 @@
 - [0202: AutoCAD の形のフォント（SHX）は読まず、代わりのフォントで置いて診断を返す](0202-do-not-read-shx-fonts.md)（2026-10-31、採用）
 - [0203: Rust の利用者向けの入口は、zumen-abi を包む `zumen` の crate にし、シーンの読み手を持たせる](0203-rust-user-crate.md)（2026-10-31、採用）
 - [0204: プロファイルに、用紙の大きさごとの線幅とファイルの名前の照合を足し、mlit-cad に表の値を足す](0204-profile-sheet-line-widths-and-file-names.md)（2026-10-31、採用）
+- [0205: 版 0.2.0 から、タグを push してワークフローで crates.io・npm・PyPI・NuGet と GitHub の Release に出す](0205-release-and-publishing.md)（2026-10-31、採用）

@@ -1,7 +1,7 @@
 {
   "v": 1,
   "lang": "ja",
-  "package": "0.0.0",
+  "package": "0.2.0",
   "number": { "group_separator": ",", "decimal_separator": "." },
   "codes": {
     "budget.decoded-bytes.exceeded": "展開・復号したバイト数が上限（{limit}）を超えたので、止めました。",

@@ -3,3 +3,7 @@
 __pycache__/
 bin/
 obj/
+/bindings/js/zumen_abi1.wasm
+/bindings/dotnet/Zumen/runtimes/
+/bindings/python/zumen/_native/
+/bindings/python/dist/

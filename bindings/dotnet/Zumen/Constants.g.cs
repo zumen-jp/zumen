@@ -7,13 +7,13 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace Zumen.Provisional
+namespace Zumen
 {
     /// <summary>版（決定 0015）</summary>
     public static class Versions
     {
         /// <summary>パッケージの版</summary>
-        public const string Package = "0.0.0";
+        public const string Package = "0.2.0";
 
         /// <summary>ABI の大版</summary>
         public const uint Abi = 1;

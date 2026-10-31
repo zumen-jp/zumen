@@ -5,15 +5,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+publish = true
 
 [package.metadata.zumen]
 formats = ["dxf", "dwg"]
 
 [dependencies]
-zumen-base = { path = "../zumen-base" }
-zumen-sdk = { path = "../zumen-sdk" }
-zumen-drawing = { path = "../zumen-drawing", optional = true }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
 # 2007 より前の版の Shift_JIS（ANSI_932）の文字を戻す。WHATWG の Shift_JIS で、環境によらない（決定 0175）
 encoding_rs = { version = "0.8.35", optional = true }
 

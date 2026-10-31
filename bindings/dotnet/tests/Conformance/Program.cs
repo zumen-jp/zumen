@@ -17,10 +17,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using Zumen.Provisional;
+using Zumen;
 #if NET
 using System.Text.Json;
-using Zumen.Provisional.Messages;
+using Zumen.Messages;
 #endif
 
 namespace Zumen.Conformance

@@ -209,12 +209,26 @@ class Zumen:
         return Session(self._core, handle.value)
 
 
-def load(path: Union[str, os.PathLike]) -> Zumen:
+def _bundled() -> str:
+    """wheel に入れたネイティブのライブラリの道筋（決定 0205）"""
+    if sys.platform == "win32":
+        name = "zumen_abi1.dll"
+    elif sys.platform == "darwin":
+        name = "libzumen_abi1.dylib"
+    else:
+        name = "libzumen_abi1.so"
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "_native", name)
+
+
+def load(path: Union[str, os.PathLike, None] = None) -> Zumen:
     """ネイティブのライブラリを、ファイルの道筋から読み込み、ABI の大版を確かめる。
 
+    道筋を渡さなければ、wheel に入れたライブラリ（zumen/_native）を読む（決定 0205）。
     32 bit の Windows では、関数を stdcall で呼ぶ（決定 0011）。
     """
-    path = os.path.abspath(os.fspath(path))
+    path = os.path.abspath(os.fspath(path)) if path is not None else _bundled()
+    if not os.path.isfile(path):
+        raise OSError(f"zumen のネイティブのライブラリがない: {path}")
     if sys.platform == "win32" and struct.calcsize("P") == 4:
         library: ctypes.CDLL = ctypes.WinDLL(path)
     else:

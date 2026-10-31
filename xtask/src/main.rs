@@ -38,14 +38,18 @@ const JS_MESSAGES: &str = "bindings/js/src/messages.d.ts";
 const JS_CONSTANTS: &str = "bindings/js/src/constants.js";
 const JS_CONSTANTS_TYPES: &str = "bindings/js/src/constants.d.ts";
 const JS_PACKAGE: &str = "bindings/js/package.json";
-const PY_MESSAGES: &str = "bindings/python/zumen_provisional/messages.py";
-const PY_CONSTANTS: &str = "bindings/python/zumen_provisional/constants.py";
+const PY_MESSAGES: &str = "bindings/python/zumen/messages.py";
+const PY_CONSTANTS: &str = "bindings/python/zumen/constants.py";
 const PY_PROJECT: &str = "bindings/python/pyproject.toml";
-const CS_MESSAGES: &str = "bindings/dotnet/Zumen.Provisional/Messages.g.cs";
-const CS_CONSTANTS: &str = "bindings/dotnet/Zumen.Provisional/Constants.g.cs";
-const CS_PROJECT: &str = "bindings/dotnet/Zumen.Provisional/Zumen.Provisional.csproj";
+const CS_MESSAGES: &str = "bindings/dotnet/Zumen/Messages.g.cs";
+const CS_CONSTANTS: &str = "bindings/dotnet/Zumen/Constants.g.cs";
+const CS_PROJECT: &str = "bindings/dotnet/Zumen/Zumen.csproj";
 const CLI_TOOLS: &str = "bindings/cli/src/tools.json";
 const CATALOG_JA: &str = "catalog/ja.json";
+/// CLI の MCP のリソース。crates.io の crate はフォルダーの外を読めないので、crate の中に写す（決定 0205）
+const CLI_SCHEMA: &str = "bindings/cli/resources/messages.json";
+const CLI_CATALOG_JA: &str = "bindings/cli/resources/ja.json";
+const CLI_CATALOG_EN: &str = "bindings/cli/resources/en.json";
 const CATALOG_EN: &str = "catalog/en.json";
 const FORMATS_MD: &str = "docs/formats/README.md";
 
@@ -166,8 +170,17 @@ fn codegen(mode: Mode) -> Result<(), String> {
             CLI_TOOLS,
             cli::render(read("schema/messages.json")?.as_bytes())?,
         ),
+        (CLI_SCHEMA, read("schema/messages.json")?),
         (CATALOG_JA, catalog::render_json("ja", PACKAGE_VERSION, &ja)),
         (CATALOG_EN, catalog::render_json("en", PACKAGE_VERSION, &en)),
+        (
+            CLI_CATALOG_JA,
+            catalog::render_json("ja", PACKAGE_VERSION, &ja),
+        ),
+        (
+            CLI_CATALOG_EN,
+            catalog::render_json("en", PACKAGE_VERSION, &en),
+        ),
         (FORMATS_MD, formats),
     ];
     let outputs: Vec<(&str, String)> = outputs

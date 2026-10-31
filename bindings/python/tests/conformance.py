@@ -22,7 +22,7 @@ from typing import Any, Callable, List, Optional, Tuple
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from zumen_provisional import (
+from zumen import (
     SCENE_MAJOR,
     SCENE_SECTIONS,
     SCHEMA_MAJOR,

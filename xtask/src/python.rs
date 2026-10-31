@@ -147,7 +147,7 @@ fn render_object(
     );
 }
 
-/// `bindings/python/zumen_provisional/messages.py` の中身を作る
+/// `bindings/python/zumen/messages.py` の中身を作る
 pub fn render_types(schema: &Schema) -> Result<String, String> {
     if let Some(def) = schema
         .defs
@@ -291,7 +291,7 @@ fn render_operations(out: &mut String, schema: &Schema) {
     out.push_str("}\n");
 }
 
-/// `bindings/python/zumen_provisional/constants.py` の中身を作る
+/// `bindings/python/zumen/constants.py` の中身を作る
 pub fn render_constants(
     version: &str,
     boundary: &Boundary,

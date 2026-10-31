@@ -66,3 +66,4 @@ MCP と JSON-RPC は 2、引数は 2、セッションは 2 を選ぶ。依存�
 - [#352](https://github.com/zumen-jp/zumen/issues/352)、[#317](https://github.com/zumen-jp/zumen/issues/317)
 - [0006](0006-language-tiers.md)、[0011](0011-bindings-through-ffi.md)、[0012](0012-boundary-functions-and-messages.md)、[0013](0013-boundary-in-four-forms.md)、[0014](0014-platforms-signing-and-distribution.md)、[0015](0015-add-only-boundary-and-version-floors.md)、[0195](0195-python-wrapper.md)
 - [JSON-RPC 2.0](https://www.jsonrpc.org/specification)、[MCP 2026-07-28 の変更点](https://modelcontextprotocol.io/specification/2026-07-28/changelog)、[版と互換](https://modelcontextprotocol.io/specification/2026-07-28/basic/lifecycle)、[server/discover](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)、[道具](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
+- 名前と公開: [0205: 版 0.2.0 から、タグを push してワークフローで crates.io・npm・PyPI・NuGet と GitHub の Release に出す](0205-release-and-publishing.md)

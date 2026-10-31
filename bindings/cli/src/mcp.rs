@@ -54,21 +54,21 @@ const RESOURCES: &[(&str, &str, &str, &str, &str)] = &[
         "messages.json",
         "application/schema+json",
         "要求と応答のメッセージの JSON Schema（op の道具の入力と、応答の形）",
-        include_str!("../../../schema/messages.json"),
+        include_str!("../resources/messages.json"),
     ),
     (
         "zumen://catalog/ja.json",
         "ja.json",
         "application/json",
         "診断の code の日本語の文（describe の op に push して使う）",
-        include_str!("../../../catalog/ja.json"),
+        include_str!("../resources/ja.json"),
     ),
     (
         "zumen://catalog/en.json",
         "en.json",
         "application/json",
         "診断の code の英語の文（describe の op に push して使う）",
-        include_str!("../../../catalog/en.json"),
+        include_str!("../resources/en.json"),
     ),
 ];
 

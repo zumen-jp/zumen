@@ -262,7 +262,7 @@ fn render_variants(out: &mut String, schema: &Schema, name: &str, variants: &[St
     out.push_str("        };\n    }\n");
 }
 
-/// `bindings/dotnet/Zumen.Provisional/Messages.g.cs` の中身を作る
+/// `bindings/dotnet/Zumen/Messages.g.cs` の中身を作る
 pub fn render_types(schema: &Schema) -> Result<String, String> {
     if let Some(def) = schema
         .defs
@@ -285,7 +285,7 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
     );
     out.push_str("// 形が値で決まるもの（共用体）は JsonAny（net8.0 は JsonElement、netstandard2.0 は object）で持ち、\n");
     out.push_str("// 目印の値から型を引いて読み直す。\n\n");
-    out.push_str("#nullable enable\n\nusing System.Collections.Generic;\n#if NET\nusing System.Text.Json.Serialization;\nusing JsonAny = System.Text.Json.JsonElement;\n#else\nusing JsonAny = System.Object;\n#endif\n\nnamespace Zumen.Provisional.Messages\n{\n");
+    out.push_str("#nullable enable\n\nusing System.Collections.Generic;\n#if NET\nusing System.Text.Json.Serialization;\nusing JsonAny = System.Text.Json.JsonElement;\n#else\nusing JsonAny = System.Object;\n#endif\n\nnamespace Zumen.Messages\n{\n");
     out.push_str("#if !NET\n    /// <summary>欄の JSON での名前。netstandard2.0 には System.Text.Json がないので、包みの中に代わりを置く</summary>\n    [global::System.AttributeUsage(global::System.AttributeTargets.Property)]\n    internal sealed class JsonPropertyNameAttribute : global::System.Attribute\n    {\n        public JsonPropertyNameAttribute(string name) => Name = name;\n\n        public string Name { get; }\n    }\n#endif\n");
     for def in &schema.defs {
         let name = pascal(&def.name);
@@ -441,7 +441,7 @@ fn render_operations(out: &mut String, schema: &Schema) {
     out.push_str("            };\n    }\n");
 }
 
-/// `bindings/dotnet/Zumen.Provisional/Constants.g.cs` の中身を作る
+/// `bindings/dotnet/Zumen/Constants.g.cs` の中身を作る
 pub fn render_constants(
     version: &str,
     boundary: &Boundary,
@@ -452,7 +452,7 @@ pub fn render_constants(
     out.push_str(
         "// 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。\n\n",
     );
-    out.push_str("#nullable enable\n\nusing System;\nusing System.Collections.Generic;\nusing System.Runtime.InteropServices;\n\nnamespace Zumen.Provisional\n{\n");
+    out.push_str("#nullable enable\n\nusing System;\nusing System.Collections.Generic;\nusing System.Runtime.InteropServices;\n\nnamespace Zumen\n{\n");
 
     let versions = &boundary.versions;
     out.push_str(

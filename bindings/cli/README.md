@@ -2,7 +2,7 @@
 
 zumen のコアを同じプロセスで動かす実行ファイル `zumen` です（[決定 0013](../../docs/decisions/0013-boundary-in-four-forms.md)・[決定 0197](../../docs/decisions/0197-cli-and-mcp-server.md)・[決定 0200](../../docs/decisions/0200-cli-http-process-engine-and-mcp-resources.md)）。境界と同じ要求と応答（[schema/messages.json](../../schema/messages.json)）を、書き換えずに運びます。
 
-- まだ公開しません。crate の名前（`zumen-cli`）は仮で、公開の時期と名前は利用者が決めます（#317）。
+- crates.io の `zumen-cli` で配り（`cargo install zumen-cli`）、対象ごとの実行ファイルを GitHub の Release に置きます（[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。
 - 依存はワークスペースの crate だけです。引数は標準ライブラリで読み、JSON-RPC と MCP も自前で書きます。
 - `src/tools.json`（MCP の op の道具の一覧）は、`schema/messages.json` から `cargo xtask codegen` で生成します。手で直さないでください。
 

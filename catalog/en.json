@@ -1,7 +1,7 @@
 {
   "v": 1,
   "lang": "en",
-  "package": "0.0.0",
+  "package": "0.2.0",
   "number": { "group_separator": ",", "decimal_separator": "." },
   "codes": {
     "budget.decoded-bytes.exceeded": "Stopped: the decoded data exceeds the limit ({limit} bytes).",
