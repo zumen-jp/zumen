@@ -258,3 +258,4 @@
 - [0222: zumen-geom3d に 3D の型・カーネルと切断の trait・合成の形の組を置き、カーネルの候補は manifold-rust を第一にして試料で測る](0222-geom3d-types-and-kernel-trait.md)（2026-10-31、採用）
 - [0223: 確認申請のプロファイルは BIM 図面審査の入出力基準（初版 令和 8 年 3 月 24 日版）を出典にし、IFC で確かめられる項目と面積の測り方を持つ](0223-building-permit-profile-items.md)（2026-10-31、採用）
 - [0224: Java・Kotlin の包みは JNA で C ABI を呼び、型は JSON の表を包む見方として生成し、毎晩 Java 8 と Android 7.0 のエミュレーターで流す](0224-java-kotlin-wrapper.md)（2026-10-31、採用）
+- [0225: Swift の包みは静的ライブラリの XCFramework を module map で呼び、型は JSON の表を包む構造体として生成し、毎晩 macOS と iOS のシミュレーターで流す](0225-swift-wrapper.md)（2026-10-31、採用）

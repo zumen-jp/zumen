@@ -141,3 +141,20 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
           script: sh bindings/java/android/run.sh target/android
+  swift:
+    name: Swift の包みで適合試験（macOS と iOS のシミュレーター）
+    # 決定 0225。下限は iOS 15・macOS 12（docs/support.md）
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust と、Apple の対象を入れる
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+      - name: 配るのと同じ対象で、XCFramework を作る
+        run: sh bindings/swift/build-xcframework.sh debug
+      - name: macOS で、SwiftPM で作った包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる
+        working-directory: bindings/swift
+        run: swift run ZumenConformance "$GITHUB_WORKSPACE"
+      - name: iOS のシミュレーターで、同じことを確かめる
+        run: sh bindings/swift/test-simulator.sh
