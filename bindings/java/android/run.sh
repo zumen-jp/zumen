@@ -7,6 +7,7 @@ set -eu
 local=${1:?使い方: sh bindings/java/android/run.sh <置き場所>}
 remote=/data/local/tmp/zumen
 
+adb logcat -c
 adb shell rm -rf "$remote"
 adb shell mkdir -p "$remote/repo/bindings/conformance"
 adb push "$local/classes.zip" "$local/libjnidispatch.so" "$local/libzumen_abi1.so" "$remote/" >/dev/null
@@ -22,4 +23,8 @@ summary=$(echo "$output" | grep '^包みを通した試験の組' || true)
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -n "$summary" ]; then
   printf '### Java の包みの適合試験（Android のエミュレーター）\n\n%s\n' "$summary" >> "$GITHUB_STEP_SUMMARY"
 fi
-echo "$output" | grep -q '^exit=0$'
+if ! echo "$output" | grep -q '^exit=0$'; then
+  # 落ちた理由（ART・リンカー・SELinux）を、ログに残す
+  adb logcat -d -t 300 | tr -d '\r'
+  exit 1
+fi
