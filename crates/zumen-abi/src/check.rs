@@ -26,6 +26,7 @@ pub(crate) fn check(
         origins,
         palette,
         family,
+        file_name: request.file_name.as_deref(),
     };
     let report = zumen_profile::check(
         drawing,

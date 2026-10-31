@@ -1137,6 +1137,34 @@ params = { rule = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."profile.line-width-by-sheet.invalid"]
+description = "要素の線幅（用紙の mm）が、起点の用紙の大きさの行のどの線幅とも許容差の内で一致しない（指摘）。sheet は語彙の用紙の名前"
+severity = "warning"
+params = { rule = "text", width = "float", sheet = "text", vocabulary = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.line-width-by-sheet.unsupported"]
+description = "線幅を読まなかったか、決まらず、用紙の大きさごとの線幅と照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.file-name.invalid"]
+description = "ファイルの名前が規則に合わない（指摘）。reason は length（全体の文字の数）・extension（拡張子）・part（決まった部分）・user-length（利用者が決める部分の文字の数）・user-characters（利用者が決める部分の半角の文字）"
+severity = "warning"
+params = { rule = "text", name = "text", reason = "key" }
+since = "0.0.0"
+status = "active"
+
+[codes."profile.file-name.unsupported"]
+description = "check の要求に file_name がなく、ファイルの名前を照合できない（指摘）"
+severity = "info"
+params = { rule = "text" }
+since = "0.0.0"
+status = "active"
+
 [codes."profile.orientation.invalid"]
 description = "用紙の向きが、規則の向きと違う（指摘）"
 severity = "warning"

@@ -34,10 +34,15 @@ pub const CHECKS: &[(&str, &[&str])] = &[
     ("sheet-size", &["tolerance"]),
     ("orientation", &["orientation"]),
     ("scale", &[]),
+    ("line-width-by-sheet", &["tolerance", "sheets"]),
+    (
+        "file-name",
+        &["parts", "user-part", "extensions", "max-length"],
+    ),
 ];
 
 /// 語彙を使わない照合
-pub const WITHOUT_VOCABULARY: &[&str] = &["layer-name", "orientation"];
+pub const WITHOUT_VOCABULARY: &[&str] = &["layer-name", "orientation", "file-name"];
 
 /// `tolerance` を書かないときに、同じとみなす差（mm、決定 0173）
 pub const DEFAULT_TOLERANCE: f64 = 1e-6;
@@ -57,6 +62,8 @@ pub struct Options<'a> {
     pub palette: &'a Palette,
     /// 図面の形式の系統（`acad`・`sxf`・`jww`）。線種の語彙の、比べる列の名前にする
     pub family: &'a str,
+    /// 照合するファイルの名前（拡張子を含む）。`file-name` の規則で比べる。なければ、その規則は照合できない
+    pub file_name: Option<&'a str>,
 }
 
 /// 照合の結果
@@ -266,6 +273,31 @@ enum Plan {
         vocabulary: String,
         mantissas: Vec<f64>,
     },
+    LineWidthBySheet {
+        vocabulary: String,
+        /// 用紙の大きさ（mm）と、その用紙で使える線幅
+        rows: Vec<([f64; 2], String, Vec<f64>)>,
+        tolerance: f64,
+    },
+    FileName {
+        parts: Vec<NamePart>,
+        /// 利用者が決める部分の始めの文字列と、始めの文字列を含めた文字の数の上限
+        user_part: Option<(String, usize)>,
+        extensions: Vec<String>,
+        max_length: Option<usize>,
+    },
+}
+
+/// ファイルの名前の部分
+#[derive(Clone, Debug)]
+enum NamePart {
+    /// 決まった数の文字。文字はどれかの範囲に入る
+    Fixed {
+        length: usize,
+        ranges: Vec<(char, char)>,
+    },
+    /// 語彙の符号のどれか
+    Codes(Vec<String>),
 }
 
 /// レイヤの名前の部分の語彙の値
@@ -458,6 +490,98 @@ fn plan(
                 .filter(|m| (1.0..10.0).contains(m))
                 .collect(),
         },
+        "line-width-by-sheet" => {
+            let sheets = match vocabularies
+                .get(text(rule.get_key("sheets")?)?)?
+                .get_key("values")?
+            {
+                Value::Array(values) => values.as_slice(),
+                _ => return None,
+            };
+            let mut rows = Vec::new();
+            for value in values()? {
+                let Value::Object(object) = value else {
+                    return None;
+                };
+                let name = text(value.get_key("sheet")?)?;
+                let sheet = sheets
+                    .iter()
+                    .find(|sheet| sheet.get_key("name").and_then(text) == Some(name))?;
+                let size = [
+                    number(sheet.get_key("width")?)?,
+                    number(sheet.get_key("height")?)?,
+                ];
+                let widths = object
+                    .iter()
+                    .filter(|(key, _)| *key != "sheet")
+                    .map(|(_, width)| number(width))
+                    .collect::<Option<Vec<_>>>()?;
+                rows.push((size, name.to_string(), widths));
+            }
+            Plan::LineWidthBySheet {
+                vocabulary: name()?.to_string(),
+                rows,
+                tolerance: tolerance()?,
+            }
+        }
+        "file-name" => {
+            let Value::Array(items) = rule.get_key("parts")? else {
+                return None;
+            };
+            let mut parts = Vec::with_capacity(items.len());
+            for item in items {
+                let part = match (item.get_key("vocabulary"), item.get_key("length")) {
+                    (Some(name), None) => {
+                        let Value::Array(values) =
+                            vocabularies.get(text(name)?)?.get_key("values")?
+                        else {
+                            return None;
+                        };
+                        let codes = values
+                            .iter()
+                            .map(|value| text(value.get_key("code")?).map(str::to_string))
+                            .collect::<Option<Vec<_>>>()?;
+                        NamePart::Codes(codes)
+                    }
+                    (None, Some(Value::Number(length))) => NamePart::Fixed {
+                        length: usize::try_from(length.to_safe_integer()?)
+                            .ok()
+                            .filter(|n| *n > 0)?,
+                        ranges: char_ranges(text(item.get_key("characters")?)?)?,
+                    },
+                    _ => return None,
+                };
+                parts.push(part);
+            }
+            let user_part = match rule.get_key("user-part") {
+                None => None,
+                Some(user) => {
+                    let prefix = text(user.get_key("prefix")?)?.to_string();
+                    let Value::Number(max) = user.get_key("max-length")? else {
+                        return None;
+                    };
+                    Some((prefix, usize::try_from(max.to_safe_integer()?).ok()?))
+                }
+            };
+            let Value::Array(extensions) = rule.get_key("extensions")? else {
+                return None;
+            };
+            let extensions = extensions
+                .iter()
+                .map(|e| text(e).map(str::to_string))
+                .collect::<Option<Vec<_>>>()?;
+            let max_length = match rule.get_key("max-length") {
+                None => None,
+                Some(Value::Number(n)) => Some(usize::try_from(n.to_safe_integer()?).ok()?),
+                Some(_) => return None,
+            };
+            Plan::FileName {
+                parts,
+                user_part,
+                extensions,
+                max_length,
+            }
+        }
         _ => return None,
     };
     Some((level, plan))
@@ -494,6 +618,93 @@ fn range(text: &str) -> Option<(u32, u32)> {
     let first = u32::from_str_radix(first, 16).ok()?;
     let last = u32::from_str_radix(last, 16).ok()?;
     (first <= last).then_some((first, last))
+}
+
+/// `0-9A-Z` の形の文字の範囲。1 文字だけも書ける
+fn char_ranges(text: &str) -> Option<Vec<(char, char)>> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut ranges = Vec::new();
+    let mut rest = chars.as_slice();
+    while let Some((&first, tail)) = rest.split_first() {
+        match tail {
+            ['-', last, tail @ ..] => {
+                if first > *last {
+                    return None;
+                }
+                ranges.push((first, *last));
+                rest = tail;
+            }
+            _ => {
+                ranges.push((first, first));
+                rest = tail;
+            }
+        }
+    }
+    (!ranges.is_empty()).then_some(ranges)
+}
+
+/// ファイルの名前が規則に合うか。合わなければ理由の鍵を返す
+fn file_name_problem(
+    name: &str,
+    parts: &[NamePart],
+    user_part: Option<&(String, usize)>,
+    extensions: &[String],
+    max_length: Option<usize>,
+) -> Option<&'static str> {
+    if max_length.is_some_and(|max| name.chars().count() > max) {
+        return Some("length");
+    }
+    let Some((stem, extension)) = name.rsplit_once('.') else {
+        return Some("extension");
+    };
+    if !extensions.iter().any(|known| known == extension) {
+        return Some("extension");
+    }
+    let mut rest = stem;
+    for part in parts {
+        match part {
+            NamePart::Fixed { length, ranges } => {
+                let mut chars = rest.char_indices();
+                for _ in 0..*length {
+                    match chars.next() {
+                        Some((_, c)) if ranges.iter().any(|(a, b)| (*a..=*b).contains(&c)) => {}
+                        _ => return Some("part"),
+                    }
+                }
+                rest = chars.as_str();
+            }
+            NamePart::Codes(codes) => {
+                let Some(code) = codes
+                    .iter()
+                    .filter(|code| rest.starts_with(code.as_str()))
+                    .max_by_key(|code| code.len())
+                else {
+                    return Some("part");
+                };
+                rest = rest.get(code.len()..).unwrap_or_default();
+            }
+        }
+    }
+    if rest.is_empty() {
+        return None;
+    }
+    let Some((prefix, max)) = user_part else {
+        return Some("part");
+    };
+    let Some(user) = rest.strip_prefix(prefix.as_str()) else {
+        return Some("part");
+    };
+    if rest.chars().count() > *max {
+        return Some("user-length");
+    }
+    // 半角の文字は、英大文字と数字に限る
+    if user
+        .chars()
+        .any(|c| c.is_ascii() && !(c.is_ascii_uppercase() || c.is_ascii_digit()))
+    {
+        return Some("user-characters");
+    }
+    None
 }
 
 /// 1 つの規則の指摘を集める
@@ -535,6 +746,8 @@ struct Context<'a> {
     sheets: Vec<(usize, bool, Vec<usize>)>,
     /// 用紙の ID
     sheet_ids: Vec<String>,
+    /// 照合するファイルの名前
+    file_name: Option<&'a str>,
 }
 
 impl<'a> Context<'a> {
@@ -571,6 +784,7 @@ impl<'a> Context<'a> {
             visits,
             sheets,
             sheet_ids,
+            file_name: options.file_name,
         })
     }
 
@@ -601,6 +815,25 @@ impl<'a> Context<'a> {
                     }
                 }
             }
+            Plan::FileName {
+                parts,
+                user_part,
+                extensions,
+                max_length,
+            } => match self.file_name {
+                Some(name) => {
+                    if let Some(reason) =
+                        file_name_problem(name, parts, user_part.as_ref(), extensions, *max_length)
+                    {
+                        out.invalid(
+                            Diagnostic::new(codes::PROFILE_FILE_NAME_INVALID)
+                                .with("name", name)
+                                .with("reason", Param::Key(reason)),
+                        );
+                    }
+                }
+                None => out.unsupported(Diagnostic::new(codes::PROFILE_FILE_NAME_UNSUPPORTED)),
+            },
             Plan::Orientation { .. } | Plan::SheetSize { .. } | Plan::Scale { .. } => {
                 for (at, whole, views) in &self.sheets {
                     work(cx)?;
@@ -680,6 +913,40 @@ impl<'a> Context<'a> {
                 }
                 _ => out.unsupported(at(Diagnostic::new(codes::PROFILE_LINE_WIDTH_UNSUPPORTED))),
             },
+            Plan::LineWidthBySheet {
+                vocabulary,
+                rows,
+                tolerance,
+            } if summary.lines => {
+                // 用紙を通さない要素と、表にない大きさの用紙は比べない
+                let Some([w, h]) = sheet
+                    .and_then(|at| self.drawing.sheets.get(at))
+                    .and_then(|s| s.size)
+                else {
+                    return;
+                };
+                let near = |a: f64, b: f64| (a - b).abs() <= *tolerance;
+                let Some((_, name, widths)) = rows.iter().find(|([sw, sh], _, _)| {
+                    (near(w.0, *sw) && near(h.0, *sh)) || (near(w.0, *sh) && near(h.0, *sw))
+                }) else {
+                    return;
+                };
+                match visit.line_weight {
+                    Some(width) if width.0.is_finite() => {
+                        if !widths.iter().any(|v| (v - width.0).abs() <= *tolerance) {
+                            out.invalid(at(Diagnostic::new(
+                                codes::PROFILE_LINE_WIDTH_BY_SHEET_INVALID,
+                            )
+                            .with("width", width.0)
+                            .with("sheet", name.as_str())
+                            .with("vocabulary", vocabulary.as_str())));
+                        }
+                    }
+                    _ => out.unsupported(at(Diagnostic::new(
+                        codes::PROFILE_LINE_WIDTH_BY_SHEET_UNSUPPORTED,
+                    ))),
+                }
+            }
             Plan::TextHeight {
                 vocabulary,
                 values,

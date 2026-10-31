@@ -1084,6 +1084,32 @@ pub const PROFILE_EXTENDS_MISSING: Code = Code::new(
     &["id", "edition"],
 );
 
+/// ファイルの名前が規則に合わない（指摘）。reason は length（全体の文字の数）・extension（拡張子）・part（決まった部分）・user-length（利用者が決める部分の文字の数）・user-characters（利用者が決める部分の半角の文字）
+///
+/// `profile.file-name.invalid`（0.0.0 から）
+pub const PROFILE_FILE_NAME_INVALID: Code = Code::new(
+    "profile.file-name.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("reason", ParamType::Key),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// check の要求に file_name がなく、ファイルの名前を照合できない（指摘）
+///
+/// `profile.file-name.unsupported`（0.0.0 から）
+pub const PROFILE_FILE_NAME_UNSUPPORTED: Code = Code::new(
+    "profile.file-name.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
 /// プロファイルの入力を読めないか、書式の大版を読めない（決定 0138）
 ///
 /// `profile.format.unsupported`（0.0.0 から）
@@ -1129,6 +1155,33 @@ pub const PROFILE_LINE_TYPE_INVALID: Code = Code::new(
 /// `profile.line-type.unsupported`（0.0.0 から）
 pub const PROFILE_LINE_TYPE_UNSUPPORTED: Code = Code::new(
     "profile.line-type.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("rule", ParamType::Text)],
+    &[],
+);
+
+/// 要素の線幅（用紙の mm）が、起点の用紙の大きさの行のどの線幅とも許容差の内で一致しない（指摘）。sheet は語彙の用紙の名前
+///
+/// `profile.line-width-by-sheet.invalid`（0.0.0 から）
+pub const PROFILE_LINE_WIDTH_BY_SHEET_INVALID: Code = Code::new(
+    "profile.line-width-by-sheet.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("rule", ParamType::Text),
+        Param::new("sheet", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+        Param::new("width", ParamType::Float),
+    ],
+    &[],
+);
+
+/// 線幅を読まなかったか、決まらず、用紙の大きさごとの線幅と照合できない（指摘）
+///
+/// `profile.line-width-by-sheet.unsupported`（0.0.0 から）
+pub const PROFILE_LINE_WIDTH_BY_SHEET_UNSUPPORTED: Code = Code::new(
+    "profile.line-width-by-sheet.unsupported",
     Severity::Info,
     None,
     &[Param::new("rule", ParamType::Text)],
@@ -1796,10 +1849,14 @@ pub const ALL: &[Code] = &[
     PROFILE_COLOR_UNSUPPORTED,
     PROFILE_EXTENDS_INVALID,
     PROFILE_EXTENDS_MISSING,
+    PROFILE_FILE_NAME_INVALID,
+    PROFILE_FILE_NAME_UNSUPPORTED,
     PROFILE_FORMAT_UNSUPPORTED,
     PROFILE_LAYER_NAME_INVALID,
     PROFILE_LINE_TYPE_INVALID,
     PROFILE_LINE_TYPE_UNSUPPORTED,
+    PROFILE_LINE_WIDTH_BY_SHEET_INVALID,
+    PROFILE_LINE_WIDTH_BY_SHEET_UNSUPPORTED,
     PROFILE_LINE_WIDTH_INVALID,
     PROFILE_LINE_WIDTH_UNSUPPORTED,
     PROFILE_ORIENTATION_INVALID,

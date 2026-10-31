@@ -3326,6 +3326,12 @@ namespace Zumen.Provisional.Messages
         public ulong? View { get; init; }
 
         /// <summary>
+        /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+        /// </summary>
+        [JsonPropertyName("file_name")]
+        public string? FileName { get; init; }
+
+        /// <summary>
         /// 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
         /// </summary>
         [JsonPropertyName("offset")]

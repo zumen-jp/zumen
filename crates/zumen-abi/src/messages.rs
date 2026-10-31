@@ -5919,6 +5919,8 @@ pub struct CheckRequest {
     pub from: Option<String>,
     /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける
     pub view: Option<u64>,
+    /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+    pub file_name: Option<String>,
     /// 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
     pub offset: Option<u64>,
     /// 返す指摘の数の上限。書かなければ 1000
@@ -5936,6 +5938,7 @@ impl CheckRequest {
         let profile = object.required("profile", ProfileRef::from_json)?;
         let from = object.optional("from", json::string)?;
         let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let file_name = object.optional("file_name", json::string)?;
         let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
         let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
         let palette = object.optional("palette", json::string)?;
@@ -5946,6 +5949,7 @@ impl CheckRequest {
             profile,
             from,
             view,
+            file_name,
             offset,
             limit,
             palette,
@@ -5969,6 +5973,10 @@ impl CheckRequest {
         if let Some(value) = &self.view {
             out.key("view");
             out.uint(*value);
+        }
+        if let Some(value) = &self.file_name {
+            out.key("file_name");
+            out.string(value);
         }
         if let Some(value) = &self.offset {
             out.key("offset");

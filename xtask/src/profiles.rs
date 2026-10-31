@@ -289,11 +289,33 @@ pub fn check(profile: &Profile, specs: &BTreeSet<String>) -> Vec<String> {
         }
         if let Some(parts) = rule.params.get("parts").and_then(toml::Value::as_array) {
             for part in parts {
-                match part.as_str() {
+                // file-name の部分は、語彙（vocabulary）か、文字の数と範囲（length・characters）の表
+                let name = match part {
+                    toml::Value::Table(table) => match table.get("vocabulary") {
+                        Some(name) => name.as_str(),
+                        None if table.contains_key("length")
+                            && table.contains_key("characters") =>
+                        {
+                            continue;
+                        }
+                        None => None,
+                    },
+                    _ => part.as_str(),
+                };
+                match name {
                     Some(name) if profile.vocabularies.contains_key(name) => {}
                     _ => errors.push(format!("{place}: parts に vocabularies にない語彙 {part}")),
                 }
             }
+        }
+        if let Some(sheets) = rule.params.get("sheets")
+            && !sheets
+                .as_str()
+                .is_some_and(|name| profile.vocabularies.contains_key(name))
+        {
+            errors.push(format!(
+                "{place}: sheets に vocabularies にない語彙 {sheets}"
+            ));
         }
         if let Some(orientation) = rule.params.get("orientation")
             && !matches!(orientation.as_str(), Some("landscape" | "portrait"))

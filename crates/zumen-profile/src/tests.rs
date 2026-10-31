@@ -181,6 +181,7 @@ fn run(
         origins,
         palette: &palette,
         family,
+        file_name: None,
     };
     let result = check(
         drawing,
@@ -220,7 +221,7 @@ fn checks_a_drawing_against_mlit_cad() {
         vec![Identity {
             id: "mlit-cad".to_string(),
             edition: "2025-12".to_string(),
-            revision: 1,
+            revision: 2,
         }]
     );
     assert_eq!(
@@ -245,6 +246,23 @@ fn checks_a_drawing_against_mlit_cad() {
                 "profile.characters.invalid",
                 Severity::Warning
             ),
+            // A3 の線幅は 0.13・0.25・0.5・0.7（表 1-7）
+            (
+                "line-width-by-sheet",
+                "profile.line-width-by-sheet.invalid",
+                Severity::Info
+            ),
+            (
+                "line-width-by-sheet",
+                "profile.line-width-by-sheet.invalid",
+                Severity::Info
+            ),
+            (
+                "line-width-by-sheet",
+                "profile.line-width-by-sheet.invalid",
+                Severity::Info
+            ),
+            ("file-name", "profile.file-name.unsupported", Severity::Info),
         ]
     );
     let params = |at: usize| report.findings[at].diagnostic.params().to_vec();
@@ -253,6 +271,7 @@ fn checks_a_drawing_against_mlit_cad() {
     assert!(params(2).contains(&("color", Param::Text("#123456".to_string()))));
     assert!(params(5).contains(&("height", Param::Float(3.0))));
     assert!(params(6).contains(&("character", Param::Text("U+2460".to_string()))));
+    assert!(params(7).contains(&("sheet", Param::Text("A3".to_string()))));
     // 要素・実効のレイヤ・起点の用紙の ID
     let places: Vec<Option<&str>> = report.findings[1]
         .diagnostic
@@ -276,9 +295,11 @@ fn checks_a_drawing_against_mlit_cad() {
             ("line-width", 1, 0),
             ("text-height", 1, 0),
             ("characters", 1, 0),
+            ("line-width-by-sheet", 3, 0),
             ("sheet-size", 0, 0),
             ("orientation", 0, 0),
             ("scale", 0, 0),
+            ("file-name", 0, 1),
         ]
     );
 }
@@ -319,6 +340,7 @@ fn reports_values_it_cannot_check_as_info() {
                 Severity::Info
             ),
             ("scale", "profile.scale.invalid", Severity::Info),
+            ("file-name", "profile.file-name.unsupported", Severity::Info),
         ]
     );
     assert!(
@@ -376,10 +398,13 @@ fn resolves_extends_by_replacing_rules_and_vocabularies() {
         .iter()
         .map(|p| (p.id.as_str(), p.revision))
         .collect();
-    assert_eq!(chain, vec![("mlit-cad", 1), ("office", 3)]);
-    // 知らない種類の規則は照合せず、診断で返す
+    assert_eq!(chain, vec![("mlit-cad", 2), ("office", 3)]);
+    // 知らない種類の規則と、用紙の名前を引けなくなった規則は照合せず、診断で返す
     let codes: Vec<&str> = diagnostics.iter().map(|d| d.code().name()).collect();
-    assert_eq!(codes, vec!["profile.rule.unsupported"]);
+    assert_eq!(
+        codes,
+        vec!["profile.rule.unsupported", "profile.rule.unsupported"]
+    );
     let rules: Vec<&str> = report.rules.iter().map(|r| r.id.as_str()).collect();
     assert_eq!(
         rules,
@@ -393,6 +418,7 @@ fn resolves_extends_by_replacing_rules_and_vocabularies() {
             "sheet-size",
             "orientation",
             "scale",
+            "file-name",
             "portrait",
         ]
     );
@@ -519,4 +545,50 @@ fn splits_scales_and_layer_names() {
     assert!(!ok("C", true));
     assert!(!ok("C-STR-ああ", true));
     assert!(ok("C-STR-ｱｱ", true));
+}
+
+#[test]
+fn checks_file_names_by_parts() {
+    let parts = vec![
+        NamePart::Fixed {
+            length: 3,
+            ranges: char_ranges("0-9").unwrap(),
+        },
+        NamePart::Codes(vec!["S".into(), "D".into(), "C".into(), "M".into()]),
+        NamePart::Fixed {
+            length: 1,
+            ranges: char_ranges("0-9A-Z").unwrap(),
+        },
+        NamePart::Fixed {
+            length: 2,
+            ranges: char_ranges("A-Z").unwrap(),
+        },
+        NamePart::Fixed {
+            length: 1,
+            ranges: char_ranges("0-9A-Z").unwrap(),
+        },
+    ];
+    let user = ("-".to_string(), 52);
+    let extensions = vec!["P21".to_string(), "P2Z".to_string()];
+    let problem = |name: &str| file_name_problem(name, &parts, Some(&user), &extensions, Some(64));
+    assert_eq!(problem("001D0PL1.P21"), None);
+    assert_eq!(problem("001D0PL1-区間平面図.P2Z"), None);
+    assert_eq!(problem("001D0PL1-AB12.P21"), None);
+    assert_eq!(problem("001D0PL1.dxf"), Some("extension"));
+    assert_eq!(problem("001D0PL1"), Some("extension"));
+    assert_eq!(problem("001X0PL1.P21"), Some("part"));
+    assert_eq!(problem("01D0PL1.P21"), Some("part"));
+    assert_eq!(problem("001D0pl1.P21"), Some("part"));
+    assert_eq!(problem("001D0PL1_平面図.P21"), Some("part"));
+    assert_eq!(problem("001D0PL1-plan.P21"), Some("user-characters"));
+    // 全体の上限（64）の内なら、利用者が決める部分の上限（52）は越えない。全体の上限を外して確かめる
+    let long = format!("001D0PL1-{}.P21", "図".repeat(52));
+    assert_eq!(
+        file_name_problem(&long, &parts, Some(&user), &extensions, None),
+        Some("user-length")
+    );
+    let longer = format!("001D0PL1-{}.P21", "図".repeat(60));
+    assert_eq!(problem(&longer), Some("length"));
+    assert_eq!(char_ranges("9-0"), None);
+    assert_eq!(char_ranges(""), None);
 }

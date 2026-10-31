@@ -3,7 +3,7 @@
   "format": "0.1",
   "id": "mlit-cad",
   "license": "CC-BY-4.0",
-  "revision": 1,
+  "revision": 2,
   "rules": [
     {
       "check": "layer-name",
@@ -73,11 +73,24 @@
       "vocabulary": "dependent-characters"
     },
     {
+      "check": "line-width-by-sheet",
+      "id": "line-width-by-sheet",
+      "level": "info",
+      "sheets": "sheet",
+      "source": {
+        "document": "main",
+        "item": "表 1-7",
+        "section": "1-5-10"
+      },
+      "vocabulary": "line-width-by-sheet"
+    },
+    {
       "check": "sheet-size",
       "id": "sheet-size",
       "level": "warning",
       "source": {
-        "document": "main",
+        "document": "manual",
+        "item": "解説表 1-1",
         "section": "1-4-1"
       },
       "vocabulary": "sheet"
@@ -101,6 +114,43 @@
         "section": "1-4-5"
       },
       "vocabulary": "scale"
+    },
+    {
+      "check": "file-name",
+      "extensions": ["P21", "P2Z"],
+      "id": "file-name",
+      "level": "warning",
+      "max-length": 64,
+      "parts": [
+        {
+          "characters": "0-9",
+          "length": 3
+        },
+        {
+          "vocabulary": "responsibility"
+        },
+        {
+          "characters": "0-9A-Z",
+          "length": 1
+        },
+        {
+          "characters": "A-Z",
+          "length": 2
+        },
+        {
+          "characters": "0-9A-Z",
+          "length": 1
+        }
+      ],
+      "source": {
+        "document": "main",
+        "item": "図 1-5",
+        "section": "1-5-2"
+      },
+      "user-part": {
+        "max-length": 52,
+        "prefix": "-"
+      }
     }
   ],
   "sources": {
@@ -125,6 +175,44 @@
   "standard-code": "土木 202512-01",
   "title": "CAD製図基準（土木）",
   "vocabularies": {
+    "border": {
+      "source": {
+        "document": "main",
+        "item": "表 1-2",
+        "section": "1-4-3"
+      },
+      "unit": "mm",
+      "values": [
+        {
+          "a": 28,
+          "a-bound": 56,
+          "b": 28,
+          "sheet": "A0",
+          "width": 2
+        },
+        {
+          "a": 20,
+          "a-bound": 40,
+          "b": 20,
+          "sheet": "A1",
+          "width": 1.4
+        },
+        {
+          "a": 14,
+          "a-bound": 28,
+          "b": 14,
+          "sheet": "A2",
+          "width": 1
+        },
+        {
+          "a": 10,
+          "a-bound": 20,
+          "b": 10,
+          "sheet": "A3",
+          "width": 0.7
+        }
+      ]
+    },
     "color": {
       "source": {
         "document": "manual",
@@ -366,6 +454,48 @@
       "unit": "mm",
       "values": [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1, 1.4, 2]
     },
+    "line-width-by-sheet": {
+      "source": {
+        "document": "main",
+        "item": "表 1-7",
+        "section": "1-5-10"
+      },
+      "unit": "mm",
+      "values": [
+        {
+          "border": 2,
+          "dimension": 0.13,
+          "extra-thick": 1.4,
+          "sheet": "A0",
+          "thick": 0.7,
+          "thin": 0.35
+        },
+        {
+          "border": 1.4,
+          "dimension": 0.13,
+          "extra-thick": 1,
+          "sheet": "A1",
+          "thick": 0.5,
+          "thin": 0.25
+        },
+        {
+          "border": 1,
+          "dimension": 0.13,
+          "extra-thick": 0.7,
+          "sheet": "A2",
+          "thick": 0.35,
+          "thin": 0.18
+        },
+        {
+          "border": 0.7,
+          "dimension": 0.13,
+          "extra-thick": 0.5,
+          "sheet": "A3",
+          "thick": 0.25,
+          "thin": 0.13
+        }
+      ]
+    },
     "responsibility": {
       "source": {
         "document": "main",
@@ -433,35 +563,157 @@
     },
     "sheet": {
       "source": {
-        "document": "main",
+        "document": "manual",
+        "item": "解説表 1-1",
         "section": "1-4-1"
       },
       "unit": "mm",
       "values": [
         {
+          "class": 1,
           "height": 841,
           "name": "A0",
           "width": 1189
         },
         {
+          "class": 1,
           "height": 594,
           "name": "A1",
           "width": 841
         },
         {
+          "class": 1,
           "height": 420,
           "name": "A2",
           "width": 594
         },
         {
+          "class": 1,
           "height": 297,
           "name": "A3",
           "width": 420
         },
         {
+          "class": 1,
           "height": 210,
           "name": "A4",
           "width": 297
+        },
+        {
+          "class": 2,
+          "height": 420,
+          "name": "A3X3",
+          "width": 891
+        },
+        {
+          "class": 2,
+          "height": 420,
+          "name": "A3X4",
+          "width": 1189
+        },
+        {
+          "class": 2,
+          "height": 297,
+          "name": "A4X3",
+          "width": 630
+        },
+        {
+          "class": 2,
+          "height": 297,
+          "name": "A4X4",
+          "width": 841
+        },
+        {
+          "class": 2,
+          "height": 297,
+          "name": "A4X5",
+          "width": 1051
+        },
+        {
+          "class": 3,
+          "height": 1189,
+          "name": "A0X2",
+          "width": 1682
+        },
+        {
+          "avoid": true,
+          "class": 3,
+          "height": 1189,
+          "name": "A0X3",
+          "width": 2523
+        },
+        {
+          "class": 3,
+          "height": 841,
+          "name": "A1X3",
+          "width": 1783
+        },
+        {
+          "avoid": true,
+          "class": 3,
+          "height": 841,
+          "name": "A1X4",
+          "width": 2378
+        },
+        {
+          "class": 3,
+          "height": 594,
+          "name": "A2X3",
+          "width": 1261
+        },
+        {
+          "class": 3,
+          "height": 594,
+          "name": "A2X4",
+          "width": 1682
+        },
+        {
+          "class": 3,
+          "height": 594,
+          "name": "A2X5",
+          "width": 2102
+        },
+        {
+          "class": 3,
+          "height": 420,
+          "name": "A3X5",
+          "width": 1486
+        },
+        {
+          "class": 3,
+          "height": 420,
+          "name": "A3X6",
+          "width": 1783
+        },
+        {
+          "class": 3,
+          "height": 420,
+          "name": "A3X7",
+          "width": 2080
+        },
+        {
+          "class": 3,
+          "height": 297,
+          "name": "A4X6",
+          "width": 1261
+        },
+        {
+          "class": 3,
+          "height": 297,
+          "name": "A4X7",
+          "width": 1471
+        },
+        {
+          "class": 3,
+          "height": 297,
+          "name": "A4X8",
+          "width": 1682
+        },
+        {
+          "class": 3,
+          "height": 297,
+          "name": "A4X9",
+          "width": 1892
         }
       ]
     },
@@ -473,6 +725,48 @@
       },
       "unit": "mm",
       "values": [1.8, 2.5, 3.5, 5, 7, 10, 14, 20]
+    },
+    "title-block": {
+      "source": {
+        "document": "main",
+        "item": "表 1-3",
+        "section": "1-4-4"
+      },
+      "unit": "mm",
+      "values": [
+        {
+          "a": 14,
+          "b": 84,
+          "c": 28,
+          "d": 42,
+          "e": 140,
+          "sheet": "A0"
+        },
+        {
+          "a": 10,
+          "b": 60,
+          "c": 20,
+          "d": 30,
+          "e": 100,
+          "sheet": "A1"
+        },
+        {
+          "a": 7,
+          "b": 42,
+          "c": 14,
+          "d": 21,
+          "e": 70,
+          "sheet": "A2"
+        },
+        {
+          "a": 5,
+          "b": 30,
+          "c": 10,
+          "d": 15,
+          "e": 50,
+          "sheet": "A3"
+        }
+      ]
     }
   }
 }

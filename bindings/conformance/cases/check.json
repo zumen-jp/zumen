@@ -1,5 +1,5 @@
 {
-  "description": "check は、起点から配置をたどって解いた値を、extends を解いたプロファイルの規則と語彙で照合し、指摘を診断と同じ形で返す（決定 0173・0179）。照合できない値は info の指摘にする。指摘と数が、ネイティブと wasm で同じになることを確かめる",
+  "description": "check は、起点から配置をたどって解いた値を、extends を解いたプロファイルの規則と語彙で照合し、指摘を診断と同じ形で返す（決定 0173・0179）。照合できない値は info の指摘にする。指摘と数が、ネイティブと wasm で同じになることを確かめる。file_name を渡せば、ファイルの名前を file-name の規則で照合する（決定 0204）",
   "steps": [
     {
       "push": {
@@ -139,6 +139,70 @@
       "absent": [
         "/result"
       ]
+    },
+    {
+      "push": {
+        "name": "names.json",
+        "text": "{\"format\":\"0.1\",\"id\":\"names\",\"edition\":\"1\",\"revision\":1,\"vocabularies\":{\"who\":{\"values\":[{\"code\":\"C\"},{\"code\":\"D\"}]}},\"rules\":[{\"id\":\"file-name\",\"check\":\"file-name\",\"level\":\"warning\",\"parts\":[{\"length\":3,\"characters\":\"0-9\"},{\"vocabulary\":\"who\"},{\"length\":2,\"characters\":\"A-Z\"}],\"user-part\":{\"prefix\":\"-\",\"max-length\":10},\"extensions\":[\"P21\"],\"max-length\":20}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "check",
+        "doc": "a.dxf",
+        "profiles": [
+          "names.json"
+        ],
+        "profile": {
+          "id": "names",
+          "edition": "1"
+        },
+        "file_name": "001CPL-平面図.P21"
+      },
+      "expect": {
+        "/result/total": 0,
+        "/result/rules/0/findings": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "check",
+        "doc": "a.dxf",
+        "profiles": [
+          "names.json"
+        ],
+        "profile": {
+          "id": "names",
+          "edition": "1"
+        },
+        "file_name": "001XPL.P21"
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/findings/0/diagnostic/code": "profile.file-name.invalid",
+        "/result/findings/0/diagnostic/params/reason": "part",
+        "/result/findings/0/diagnostic/severity": "warning"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "check",
+        "doc": "a.dxf",
+        "profiles": [
+          "names.json"
+        ],
+        "profile": {
+          "id": "names",
+          "edition": "1"
+        }
+      },
+      "expect": {
+        "/result/rules/0/unsupported": 1,
+        "/result/findings/0/diagnostic/code": "profile.file-name.unsupported"
+      }
     }
   ]
 }
