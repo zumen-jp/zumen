@@ -1,0 +1,105 @@
+{
+  "description": "open は、CityGML 2.0 の根 CityModel で CityGML を見分け、地理の領域モデル（決定 0233、#379）に移す。geo は、座標系（PLATEAU の EPSG:6697 は、JGD2011 の経緯度 6668 と標高 6695）と地物の型ごとの数を返し、id で指した地物の分類コード・属性・形の要約を返す。建築物の LOD2 の立体は、壁の面を xlink:href で引き、同じ文書にない参照は診断する。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "city.gml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<core:CityModel xmlns:core=\"http://www.opengis.net/citygml/2.0\"\n  xmlns:bldg=\"http://www.opengis.net/citygml/building/2.0\"\n  xmlns:tran=\"http://www.opengis.net/citygml/transportation/2.0\"\n  xmlns:gen=\"http://www.opengis.net/citygml/generics/2.0\"\n  xmlns:gml=\"http://www.opengis.net/gml\"\n  xmlns:xlink=\"http://www.w3.org/1999/xlink\"\n  xmlns:uro=\"https://www.geospatial.jp/iur/uro/3.1\">\n  <gml:boundedBy>\n    <gml:Envelope srsName=\"http://www.opengis.net/def/crs/EPSG/0/6697\" srsDimension=\"3\">\n      <gml:lowerCorner>35.0 139.0 0</gml:lowerCorner>\n      <gml:upperCorner>35.1 139.1 10</gml:upperCorner>\n    </gml:Envelope>\n  </gml:boundedBy>\n  <core:cityObjectMember>\n    <bldg:Building gml:id=\"bldg_1\">\n      <gml:name>庁舎</gml:name>\n      <gen:stringAttribute name=\"建物ID\"><gen:value>13101-bldg-1</gen:value></gen:stringAttribute>\n      <gen:genericAttributeSet name=\"浸水\">\n        <gen:measureAttribute name=\"深さ\"><gen:value uom=\"m\">0.5</gen:value></gen:measureAttribute>\n      </gen:genericAttributeSet>\n      <bldg:class codeSpace=\"../../codelists/Building_class.xml\">3001</bldg:class>\n      <bldg:measuredHeight uom=\"m\">9.5</bldg:measuredHeight>\n      <bldg:storeysAboveGround>3</bldg:storeysAboveGround>\n      <bldg:yearOfConstruction>1990</bldg:yearOfConstruction>\n      <bldg:lod0RoofEdge>\n        <gml:MultiSurface>\n          <gml:surfaceMember>\n            <gml:Polygon>\n              <gml:exterior><gml:LinearRing><gml:posList>35.0 139.0 0 35.0 139.001 0 35.001 139.001 0 35.0 139.0 0</gml:posList></gml:LinearRing></gml:exterior>\n            </gml:Polygon>\n          </gml:surfaceMember>\n        </gml:MultiSurface>\n      </bldg:lod0RoofEdge>\n      <bldg:lod2Solid>\n        <gml:Solid>\n          <gml:exterior>\n            <gml:CompositeSurface>\n              <gml:surfaceMember xlink:href=\"#wall_poly\"/>\n              <gml:surfaceMember xlink:href=\"#missing\"/>\n            </gml:CompositeSurface>\n          </gml:exterior>\n        </gml:Solid>\n      </bldg:lod2Solid>\n      <bldg:boundedBy>\n        <bldg:WallSurface gml:id=\"wall_1\">\n          <bldg:lod2MultiSurface>\n            <gml:MultiSurface>\n              <gml:surfaceMember>\n                <gml:Polygon gml:id=\"wall_poly\">\n                  <gml:exterior><gml:LinearRing><gml:posList>35.0 139.0 0 35.0 139.001 0 35.0 139.001 9.5 35.0 139.0 9.5 35.0 139.0 0</gml:posList></gml:LinearRing></gml:exterior>\n                </gml:Polygon>\n              </gml:surfaceMember>\n            </gml:MultiSurface>\n          </bldg:lod2MultiSurface>\n        </bldg:WallSurface>\n      </bldg:boundedBy>\n      <uro:buildingDetailAttribute>\n        <uro:BuildingDetailAttribute>\n          <uro:surveyYear>2020</uro:surveyYear>\n          <uro:buildingStructureType codeSpace=\"../../codelists/BuildingDetailAttribute_buildingStructureType.xml\">601</uro:buildingStructureType>\n        </uro:BuildingDetailAttribute>\n      </uro:buildingDetailAttribute>\n    </bldg:Building>\n  </core:cityObjectMember>\n  <core:cityObjectMember>\n    <tran:Road>\n      <tran:function codeSpace=\"../../codelists/Road_function.xml\">1</tran:function>\n      <tran:lod1MultiSurface>\n        <gml:MultiSurface>\n          <gml:surfaceMember>\n            <gml:Polygon>\n              <gml:exterior><gml:LinearRing><gml:posList>35.0 139.0 0 35.0 139.01 0 35.0001 139.01 0 35.0 139.0 0</gml:posList></gml:LinearRing></gml:exterior>\n            </gml:Polygon>\n          </gml:surfaceMember>\n        </gml:MultiSurface>\n      </tran:lod1MultiSurface>\n      <tran:lod0Network>\n        <gml:MultiCurve>\n          <gml:curveMember><gml:LineString><gml:posList>35.0 139.0 0 35.0 139.01 0</gml:posList></gml:LineString></gml:curveMember>\n        </gml:MultiCurve>\n      </tran:lod0Network>\n    </tran:Road>\n  </core:cityObjectMember>\n</core:CityModel>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "city.gml"
+      },
+      "expect": {
+        "/result/format": "citygml",
+        "/diagnostics/0/code": "citygml.reference.unsupported",
+        "/diagnostics/0/params/href": "#missing"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "city.gml"
+      },
+      "expect": {
+        "/result/crs": 6668,
+        "/result/height": 6695,
+        "/result/features": 3,
+        "/result/kinds": [
+          {
+            "kind": "bldg:Building",
+            "count": 1
+          },
+          {
+            "kind": "bldg:WallSurface",
+            "count": 1
+          },
+          {
+            "kind": "tran:Road",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "city.gml",
+        "id": "bldg_1"
+      },
+      "expect": {
+        "/result/feature/name": "庁舎",
+        "/result/feature/code": "3001",
+        "/result/feature/children": 1,
+        "/result/feature/attributes/0": {
+          "name": "gen:建物ID",
+          "kind": "text",
+          "value": "13101-bldg-1"
+        },
+        "/result/feature/attributes/2": {
+          "name": "bldg:measuredHeight",
+          "kind": "measure",
+          "value": "9.5",
+          "unit": "m"
+        },
+        "/result/feature/geometries/1": {
+          "lod": 2,
+          "form": "solid",
+          "points": 4,
+          "faces": 1
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "city.gml",
+        "id": "wall_1"
+      },
+      "expect": {
+        "/result/feature/parent": "bldg_1",
+        "/result/feature/geometries/0/form": "solid"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "city.gml",
+        "id": "なし"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/id"
+      }
+    }
+  ]
+}

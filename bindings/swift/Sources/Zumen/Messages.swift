@@ -133,6 +133,11 @@ public struct Request: Message {
     public var asCivilDrawingRequest: CivilDrawingRequest? {
         taggedView("op", "civil_drawing")
     }
+
+    /// op が geo の形なら、その見方。違えば nil
+    public var asGeoRequest: GeoRequest? {
+        taggedView("op", "geo")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -8403,6 +8408,317 @@ public struct PointcloudPoints: Message {
     }
 }
 
+/// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+public struct GeoRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("geo")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// open で開いた CityGML の文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 中身を返す地物の ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+}
+
+/// 地理の領域モデルの要約
+public struct GeoResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 平面の座標系の EPSG のコード。分からなければ書かない
+    public var crs: Int64? {
+        get { readField("crs") }
+        set { writeField("crs", newValue) }
+    }
+
+    /// 高さの座標系の EPSG のコード。分からなければ書かない
+    public var height: Int64? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 地物の数
+    public var features: Int64? {
+        get { readField("features") }
+        set { writeField("features", newValue) }
+    }
+
+    /// 地物の型ごとの数。型の名前の順
+    public var kinds: [GeoKind]? {
+        get { readField("kinds") }
+        set { writeField("kinds", newValue) }
+    }
+
+    /// id で指した地物の中身
+    public var feature: GeoFeature? {
+        get { readField("feature") }
+        set { writeField("feature", newValue) }
+    }
+}
+
+/// 地物の型と数
+public struct GeoKind: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 型。名前空間の接頭辞をつけた元の名前
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 地物の数
+    public var count: Int64? {
+        get { readField("count") }
+        set { writeField("count", newValue) }
+    }
+}
+
+/// 地物の中身
+public struct GeoFeature: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 分類コード。元の値の文字のまま
+    public var code: String? {
+        get { readField("code") }
+        set { writeField("code", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 親の地物の ID
+    public var parent: String? {
+        get { readField("parent") }
+        set { writeField("parent", newValue) }
+    }
+
+    /// 子の地物の数
+    public var children: Int64? {
+        get { readField("children") }
+        set { writeField("children", newValue) }
+    }
+
+    /// 属性。入力の順
+    public var attributes: [GeoAttribute]? {
+        get { readField("attributes") }
+        set { writeField("attributes", newValue) }
+    }
+
+    /// 形。入力の順
+    public var geometries: [GeoGeometry]? {
+        get { readField("geometries") }
+        set { writeField("geometries", newValue) }
+    }
+}
+
+/// 属性
+public struct GeoAttribute: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 名前。接頭辞をつけた元の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 値の型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 値の文字
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+
+    /// 単位つきの量の単位
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// コードの一覧（codeSpace）
+    public var space: String? {
+        get { readField("space") }
+        set { writeField("space", newValue) }
+    }
+}
+
+/// 属性の値の型
+///
+/// 列挙の値。知らない値も受け取る
+public enum GeoValueKind {
+    public static let text = "text"
+    public static let integer = "integer"
+    public static let real = "real"
+    public static let bool = "bool"
+    public static let date = "date"
+    public static let code = "code"
+    public static let measure = "measure"
+}
+
+/// 形の種類
+///
+/// 列挙の値。知らない値も受け取る
+public enum GeoForm {
+    public static let point = "point"
+    public static let line = "line"
+    public static let area = "area"
+    public static let solid = "solid"
+}
+
+/// 形の要約
+public struct GeoGeometry: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// LOD。2D の地物は書かない
+    public var lod: Int64? {
+        get { readField("lod") }
+        set { writeField("lod", newValue) }
+    }
+
+    /// 形の種類
+    public var form: String? {
+        get { readField("form") }
+        set { writeField("form", newValue) }
+    }
+
+    /// 点の数。立体と面の集まりは、面の輪の点の数の和
+    public var points: Int64? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 立体と面の集まりの面の数
+    public var faces: Int64? {
+        get { readField("faces") }
+        set { writeField("faces", newValue) }
+    }
+}
+
 /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
 public struct CivilDrawingRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -9027,4 +9343,5 @@ public enum Operations {
     public static let pointcloud = "pointcloud"
     public static let deviation = "deviation"
     public static let civilDrawing = "civil_drawing"
+    public static let geo = "geo"
 }

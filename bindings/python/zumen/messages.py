@@ -33,6 +33,7 @@ Request = Union[
     "PointcloudRequest",
     "DeviationRequest",
     "CivilDrawingRequest",
+    "GeoRequest",
 ]
 
 
@@ -4392,6 +4393,193 @@ class PointcloudPoints(_PointcloudPointsRequired, _PointcloudPointsOptional):
     "選んだ点。どの列も、選んだ点の順で同じ長さにする"
 
 
+# open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+_GeoRequestRequired = TypedDict(
+    "_GeoRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["geo"],
+        # open で開いた CityGML の文書の名前
+        "doc": str,
+    },
+)
+_GeoRequestOptional = TypedDict(
+    "_GeoRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 中身を返す地物の ID
+        "id": str,
+    },
+    total=False,
+)
+
+
+class GeoRequest(_GeoRequestRequired, _GeoRequestOptional):
+    "open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から"
+
+
+# 地理の領域モデルの要約
+_GeoResultRequired = TypedDict(
+    "_GeoResultRequired",
+    {
+        # 地物の数
+        "features": int,
+        # 地物の型ごとの数。型の名前の順
+        "kinds": List["GeoKind"],
+    },
+)
+_GeoResultOptional = TypedDict(
+    "_GeoResultOptional",
+    {
+        # 平面の座標系の EPSG のコード。分からなければ書かない
+        "crs": int,
+        # 高さの座標系の EPSG のコード。分からなければ書かない
+        "height": int,
+        # id で指した地物の中身
+        "feature": "GeoFeature",
+    },
+    total=False,
+)
+
+
+class GeoResult(_GeoResultRequired, _GeoResultOptional):
+    "地理の領域モデルの要約"
+
+
+# 地物の型と数
+GeoKind = TypedDict(
+    "GeoKind",
+    {
+        # 型。名前空間の接頭辞をつけた元の名前
+        "kind": str,
+        # 地物の数
+        "count": int,
+    },
+)
+
+
+# 地物の中身
+_GeoFeatureRequired = TypedDict(
+    "_GeoFeatureRequired",
+    {
+        # ID
+        "id": str,
+        # 型
+        "kind": str,
+        # 子の地物の数
+        "children": int,
+        # 属性。入力の順
+        "attributes": List["GeoAttribute"],
+        # 形。入力の順
+        "geometries": List["GeoGeometry"],
+    },
+)
+_GeoFeatureOptional = TypedDict(
+    "_GeoFeatureOptional",
+    {
+        # 分類コード。元の値の文字のまま
+        "code": str,
+        # 名前
+        "name": str,
+        # 親の地物の ID
+        "parent": str,
+    },
+    total=False,
+)
+
+
+class GeoFeature(_GeoFeatureRequired, _GeoFeatureOptional):
+    "地物の中身"
+
+
+# 属性
+_GeoAttributeRequired = TypedDict(
+    "_GeoAttributeRequired",
+    {
+        # 名前。接頭辞をつけた元の名前
+        "name": str,
+        # 値の型
+        "kind": "GeoValueKind",
+        # 値の文字
+        "value": str,
+    },
+)
+_GeoAttributeOptional = TypedDict(
+    "_GeoAttributeOptional",
+    {
+        # 単位つきの量の単位
+        "unit": str,
+        # コードの一覧（codeSpace）
+        "space": str,
+    },
+    total=False,
+)
+
+
+class GeoAttribute(_GeoAttributeRequired, _GeoAttributeOptional):
+    "属性"
+
+# 属性の値の型
+GeoValueKind = Union[
+    Literal[
+        "text",
+        "integer",
+        "real",
+        "bool",
+        "date",
+        "code",
+        "measure",
+    ],
+    str,
+]
+
+# 形の種類
+GeoForm = Union[
+    Literal[
+        "point",
+        "line",
+        "area",
+        "solid",
+    ],
+    str,
+]
+
+
+# 形の要約
+_GeoGeometryRequired = TypedDict(
+    "_GeoGeometryRequired",
+    {
+        # 形の種類
+        "form": "GeoForm",
+        # 点の数。立体と面の集まりは、面の輪の点の数の和
+        "points": int,
+    },
+)
+_GeoGeometryOptional = TypedDict(
+    "_GeoGeometryOptional",
+    {
+        # LOD。2D の地物は書かない
+        "lod": int,
+        # 立体と面の集まりの面の数
+        "faces": int,
+    },
+    total=False,
+)
+
+
+class GeoGeometry(_GeoGeometryRequired, _GeoGeometryOptional):
+    "形の要約"
+
+
 # open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
 _CivilDrawingRequestRequired = TypedDict(
     "_CivilDrawingRequestRequired",
@@ -4693,6 +4881,7 @@ Operation = Literal[
     "pointcloud",
     "deviation",
     "civil_drawing",
+    "geo",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -4721,4 +4910,5 @@ OPERATIONS: Dict[str, Any] = {
     "pointcloud": ("PointcloudRequest", "PointcloudResult"),
     "deviation": ("DeviationRequest", "DeviationResult"),
     "civil_drawing": ("CivilDrawingRequest", "CivilDrawingResult"),
+    "geo": ("GeoRequest", "GeoResult"),
 }

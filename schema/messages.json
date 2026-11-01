@@ -30,7 +30,8 @@
         { "$ref": "#/$defs/civil_request" },
         { "$ref": "#/$defs/pointcloud_request" },
         { "$ref": "#/$defs/deviation_request" },
-        { "$ref": "#/$defs/civil_drawing_request" }
+        { "$ref": "#/$defs/civil_drawing_request" },
+        { "$ref": "#/$defs/geo_request" }
       ]
     },
     "request_common": {
@@ -3465,6 +3466,130 @@
         "level": { "description": "選んだいちばん深い段", "type": "integer", "minimum": 0 }
       },
       "required": ["positions", "truncated", "level"],
+      "additionalProperties": false
+    },
+    "geo_request": {
+      "description": "open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "geo"
+        },
+        "doc": {
+          "description": "open で開いた CityGML の文書の名前",
+          "type": "string"
+        },
+        "id": {
+          "description": "中身を返す地物の ID",
+          "type": "string"
+        }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "geo_result": {
+      "description": "地理の領域モデルの要約",
+      "type": "object",
+      "properties": {
+        "crs": {
+          "description": "平面の座標系の EPSG のコード。分からなければ書かない",
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "description": "高さの座標系の EPSG のコード。分からなければ書かない",
+          "type": "integer",
+          "minimum": 0
+        },
+        "features": {
+          "description": "地物の数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "kinds": {
+          "description": "地物の型ごとの数。型の名前の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/geo_kind" }
+        },
+        "feature": {
+          "description": "id で指した地物の中身",
+          "$ref": "#/$defs/geo_feature"
+        }
+      },
+      "required": ["features", "kinds"],
+      "additionalProperties": false
+    },
+    "geo_kind": {
+      "description": "地物の型と数",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "型。名前空間の接頭辞をつけた元の名前", "type": "string" },
+        "count": { "description": "地物の数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["kind", "count"],
+      "additionalProperties": false
+    },
+    "geo_feature": {
+      "description": "地物の中身",
+      "type": "object",
+      "properties": {
+        "id": { "description": "ID", "type": "string" },
+        "kind": { "description": "型", "type": "string" },
+        "code": { "description": "分類コード。元の値の文字のまま", "type": "string" },
+        "name": { "description": "名前", "type": "string" },
+        "parent": { "description": "親の地物の ID", "type": "string" },
+        "children": { "description": "子の地物の数", "type": "integer", "minimum": 0 },
+        "attributes": {
+          "description": "属性。入力の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/geo_attribute" }
+        },
+        "geometries": {
+          "description": "形。入力の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/geo_geometry" }
+        }
+      },
+      "required": ["id", "kind", "children", "attributes", "geometries"],
+      "additionalProperties": false
+    },
+    "geo_attribute": {
+      "description": "属性",
+      "type": "object",
+      "properties": {
+        "name": { "description": "名前。接頭辞をつけた元の名前", "type": "string" },
+        "kind": { "description": "値の型", "$ref": "#/$defs/geo_value_kind" },
+        "value": { "description": "値の文字", "type": "string" },
+        "unit": { "description": "単位つきの量の単位", "type": "string" },
+        "space": { "description": "コードの一覧（codeSpace）", "type": "string" }
+      },
+      "required": ["name", "kind", "value"],
+      "additionalProperties": false
+    },
+    "geo_value_kind": {
+      "description": "属性の値の型",
+      "type": "string",
+      "enum": ["text", "integer", "real", "bool", "date", "code", "measure"]
+    },
+    "geo_form": {
+      "description": "形の種類",
+      "type": "string",
+      "enum": ["point", "line", "area", "solid"]
+    },
+    "geo_geometry": {
+      "description": "形の要約",
+      "type": "object",
+      "properties": {
+        "lod": { "description": "LOD。2D の地物は書かない", "type": "integer", "minimum": 0, "maximum": 4 },
+        "form": { "description": "形の種類", "$ref": "#/$defs/geo_form" },
+        "points": { "description": "点の数。立体と面の集まりは、面の輪の点の数の和", "type": "integer", "minimum": 0 },
+        "faces": { "description": "立体と面の集まりの面の数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["form", "points"],
       "additionalProperties": false
     },
     "civil_drawing_request": {

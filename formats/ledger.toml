@@ -674,6 +674,7 @@ basis = ["spec"]
 known-crates = ["nusamai-citygml", "ecitygml-io"]
 verify = ["PLATEAU VIEW", "QGIS"]
 samples = ["PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない"]
+docs = ["docs/formats/citygml.md"]
 issues = ["zumen-jp/zumen#379"]
 
 [[formats.citygml.evidence]]

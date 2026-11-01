@@ -64,6 +64,7 @@ namespace Zumen.Messages
             ["pointcloud"] = typeof(PointcloudRequest),
             ["deviation"] = typeof(DeviationRequest),
             ["civil_drawing"] = typeof(CivilDrawingRequest),
+            ["geo"] = typeof(GeoRequest),
         };
     }
 
@@ -6904,6 +6905,270 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+    /// </summary>
+    public sealed record GeoRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "geo";
+
+        /// <summary>
+        /// open で開いた CityGML の文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 中身を返す地物の ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+    }
+
+    /// <summary>
+    /// 地理の領域モデルの要約
+    /// </summary>
+    public sealed record GeoResult
+    {
+        /// <summary>
+        /// 平面の座標系の EPSG のコード。分からなければ書かない
+        /// </summary>
+        [JsonPropertyName("crs")]
+        public ulong? Crs { get; init; }
+
+        /// <summary>
+        /// 高さの座標系の EPSG のコード。分からなければ書かない
+        /// </summary>
+        [JsonPropertyName("height")]
+        public ulong? Height { get; init; }
+
+        /// <summary>
+        /// 地物の数
+        /// </summary>
+        [JsonPropertyName("features")]
+        public ulong Features { get; init; }
+
+        /// <summary>
+        /// 地物の型ごとの数。型の名前の順
+        /// </summary>
+        [JsonPropertyName("kinds")]
+        public IReadOnlyList<GeoKind> Kinds { get; init; } = default!;
+
+        /// <summary>
+        /// id で指した地物の中身
+        /// </summary>
+        [JsonPropertyName("feature")]
+        public GeoFeature? Feature { get; init; }
+    }
+
+    /// <summary>
+    /// 地物の型と数
+    /// </summary>
+    public sealed record GeoKind
+    {
+        /// <summary>
+        /// 型。名前空間の接頭辞をつけた元の名前
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 地物の数
+        /// </summary>
+        [JsonPropertyName("count")]
+        public ulong Count { get; init; }
+    }
+
+    /// <summary>
+    /// 地物の中身
+    /// </summary>
+    public sealed record GeoFeature
+    {
+        /// <summary>
+        /// ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 分類コード。元の値の文字のまま
+        /// </summary>
+        [JsonPropertyName("code")]
+        public string? Code { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 親の地物の ID
+        /// </summary>
+        [JsonPropertyName("parent")]
+        public string? Parent { get; init; }
+
+        /// <summary>
+        /// 子の地物の数
+        /// </summary>
+        [JsonPropertyName("children")]
+        public ulong Children { get; init; }
+
+        /// <summary>
+        /// 属性。入力の順
+        /// </summary>
+        [JsonPropertyName("attributes")]
+        public IReadOnlyList<GeoAttribute> Attributes { get; init; } = default!;
+
+        /// <summary>
+        /// 形。入力の順
+        /// </summary>
+        [JsonPropertyName("geometries")]
+        public IReadOnlyList<GeoGeometry> Geometries { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 属性
+    /// </summary>
+    public sealed record GeoAttribute
+    {
+        /// <summary>
+        /// 名前。接頭辞をつけた元の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 値の型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 値の文字
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+
+        /// <summary>
+        /// 単位つきの量の単位
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string? Unit { get; init; }
+
+        /// <summary>
+        /// コードの一覧（codeSpace）
+        /// </summary>
+        [JsonPropertyName("space")]
+        public string? Space { get; init; }
+    }
+
+    /// <summary>
+    /// 属性の値の型
+    /// </summary>
+    public static class GeoValueKind
+    {
+        /// <summary>text</summary>
+        public const string Text = "text";
+        /// <summary>integer</summary>
+        public const string Integer = "integer";
+        /// <summary>real</summary>
+        public const string Real = "real";
+        /// <summary>bool</summary>
+        public const string Bool = "bool";
+        /// <summary>date</summary>
+        public const string Date = "date";
+        /// <summary>code</summary>
+        public const string Code = "code";
+        /// <summary>measure</summary>
+        public const string Measure = "measure";
+    }
+
+    /// <summary>
+    /// 形の種類
+    /// </summary>
+    public static class GeoForm
+    {
+        /// <summary>point</summary>
+        public const string Point = "point";
+        /// <summary>line</summary>
+        public const string Line = "line";
+        /// <summary>area</summary>
+        public const string Area = "area";
+        /// <summary>solid</summary>
+        public const string Solid = "solid";
+    }
+
+    /// <summary>
+    /// 形の要約
+    /// </summary>
+    public sealed record GeoGeometry
+    {
+        /// <summary>
+        /// LOD。2D の地物は書かない
+        /// </summary>
+        [JsonPropertyName("lod")]
+        public uint? Lod { get; init; }
+
+        /// <summary>
+        /// 形の種類
+        /// </summary>
+        [JsonPropertyName("form")]
+        public string Form { get; init; } = default!;
+
+        /// <summary>
+        /// 点の数。立体と面の集まりは、面の輪の点の数の和
+        /// </summary>
+        [JsonPropertyName("points")]
+        public ulong Points { get; init; }
+
+        /// <summary>
+        /// 立体と面の集まりの面の数
+        /// </summary>
+        [JsonPropertyName("faces")]
+        public ulong? Faces { get; init; }
+    }
+
+    /// <summary>
     /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
     /// </summary>
     public sealed record CivilDrawingRequest
@@ -7432,6 +7697,7 @@ namespace Zumen.Messages
                 ["pointcloud"] = (typeof(PointcloudRequest), typeof(PointcloudResult)),
                 ["deviation"] = (typeof(DeviationRequest), typeof(DeviationResult)),
                 ["civil_drawing"] = (typeof(CivilDrawingRequest), typeof(CivilDrawingResult)),
+                ["geo"] = (typeof(GeoRequest), typeof(GeoResult)),
             };
     }
 }

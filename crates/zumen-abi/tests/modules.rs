@@ -7,6 +7,7 @@ use zumen_abi1::Session;
 use zumen_abi1::abi::{DETECTION, MODULES, Status, has_op};
 use zumen_acad::{Dwg, Dxf};
 use zumen_base::CancelToken;
+use zumen_citygml::CityGml;
 use zumen_e57::E57;
 use zumen_ifc::{Ifc, IfcZip};
 use zumen_jww::Jww;
@@ -41,6 +42,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("sxf", Sxf::SIGNATURES),
         ("jww", Jww::SIGNATURES),
         ("landxml", LandXml::SIGNATURES),
+        ("citygml", CityGml::SIGNATURES),
         ("ifc", IfcZip::SIGNATURES),
     ];
     assert_eq!(DETECTION.len(), expected.len());

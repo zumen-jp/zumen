@@ -1946,6 +1946,39 @@ params = { station = "text", places = "uint" }
 since = "0.2.0"
 status = "active"
 
+# CityGML（決定 0233、#379）
+
+[codes."citygml.element.unsupported"]
+description = "地理の領域モデルに移さない要素なので、読まなかった"
+severity = "warning"
+params = { element = "text" }
+group-by = ["element"]
+since = "0.2.0"
+status = "active"
+
+[codes."citygml.value.invalid"]
+description = "要素の値が読めないので、その値か形を地理の領域モデルに移さなかった"
+severity = "warning"
+params = { element = "text", field = "text" }
+group-by = ["element", "field"]
+since = "0.2.0"
+status = "active"
+
+[codes."citygml.crs.unsupported"]
+description = "座標系（srsName）を書いていないか、扱わない座標系なので、座標系を不明にし、形を移さなかった"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."citygml.reference.unsupported"]
+description = "形の参照（xlink:href）が同じ文書の gml:id を指さないので、参照した形を移さなかった"
+severity = "warning"
+params = { href = "text" }
+group-by = ["href"]
+since = "0.2.0"
+status = "active"
+
 # J-LandXML（決定 0230、#368）
 
 [codes."landxml.element.unsupported"]

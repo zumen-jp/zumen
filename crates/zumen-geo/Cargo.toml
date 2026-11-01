@@ -1,0 +1,16 @@
+[package]
+name = "zumen-geo"
+description = "zumen の地理の領域モデル（地物・属性・LOD ごとの形、決定 0233）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+
+[lints]
+workspace = true

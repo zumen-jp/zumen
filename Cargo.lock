@@ -346,12 +346,15 @@ dependencies = [
  "zumen-base",
  "zumen-bcf",
  "zumen-building",
+ "zumen-citygml",
  "zumen-civil",
  "zumen-civil-drawing",
  "zumen-crs",
  "zumen-drawing",
  "zumen-e57",
+ "zumen-geo",
  "zumen-geom2d",
+ "zumen-geom3d",
  "zumen-ids",
  "zumen-ifc",
  "zumen-json",
@@ -430,6 +433,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-citygml"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-crs",
+ "zumen-geo",
+ "zumen-geom3d",
+ "zumen-sdk",
+ "zumen-xml",
+]
+
+[[package]]
 name = "zumen-civil"
 version = "0.2.0"
 dependencies = [
@@ -502,6 +517,15 @@ dependencies = [
  "zumen-crs",
  "zumen-pointcloud",
  "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-geo"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-crs",
+ "zumen-geom3d",
 ]
 
 [[package]]

@@ -59,6 +59,8 @@ pub enum Request {
     Deviation(DeviationRequest),
     /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
     CivilDrawing(CivilDrawingRequest),
+    /// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+    Geo(GeoRequest),
 }
 
 impl Request {
@@ -88,6 +90,7 @@ impl Request {
         "pointcloud",
         "deviation",
         "civil_drawing",
+        "geo",
     ];
 
     /// 目印の欄（`op`）の値
@@ -117,6 +120,7 @@ impl Request {
             Self::Pointcloud(_) => "pointcloud",
             Self::Deviation(_) => "deviation",
             Self::CivilDrawing(_) => "civil_drawing",
+            Self::Geo(_) => "geo",
         }
     }
 }
@@ -153,6 +157,7 @@ impl FromJson for Request {
             "pointcloud" => Self::Pointcloud(PointcloudRequest::read_fields(&mut object)?),
             "deviation" => Self::Deviation(DeviationRequest::read_fields(&mut object)?),
             "civil_drawing" => Self::CivilDrawing(CivilDrawingRequest::read_fields(&mut object)?),
+            "geo" => Self::Geo(GeoRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -187,6 +192,7 @@ impl ToJson for Request {
             Self::Pointcloud(value) => value.to_json(out),
             Self::Deviation(value) => value.to_json(out),
             Self::CivilDrawing(value) => value.to_json(out),
+            Self::Geo(value) => value.to_json(out),
         }
     }
 }
@@ -12482,6 +12488,509 @@ impl FromJson for PointcloudPoints {
 }
 
 impl ToJson for PointcloudPoints {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// open で開いた CityGML の文書の名前
+    pub doc: String,
+    /// 中身を返す地物の ID
+    pub id: Option<String>,
+}
+
+impl GeoRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "geo")?;
+        let doc = object.required("doc", json::string)?;
+        let id = object.optional("id", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            id,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("geo");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for GeoRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地理の領域モデルの要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoResult {
+    /// 平面の座標系の EPSG のコード。分からなければ書かない
+    pub crs: Option<u64>,
+    /// 高さの座標系の EPSG のコード。分からなければ書かない
+    pub height: Option<u64>,
+    /// 地物の数
+    pub features: u64,
+    /// 地物の型ごとの数。型の名前の順
+    pub kinds: Vec<GeoKind>,
+    /// id で指した地物の中身
+    pub feature: Option<GeoFeature>,
+}
+
+impl GeoResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let crs = object.optional("crs", |value| json::uint(value, 0, 9007199254740991))?;
+        let height = object.optional("height", |value| json::uint(value, 0, 9007199254740991))?;
+        let features =
+            object.required("features", |value| json::uint(value, 0, 9007199254740991))?;
+        let kinds = object.required("kinds", |value| json::array(value, GeoKind::from_json))?;
+        let feature = object.optional("feature", GeoFeature::from_json)?;
+        Ok(Self {
+            crs,
+            height,
+            features,
+            kinds,
+            feature,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.crs {
+            out.key("crs");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.uint(*value);
+        }
+        out.key("features");
+        out.uint(self.features);
+        out.key("kinds");
+        out.array(&self.kinds, |out, item| item.to_json(out));
+        if let Some(value) = &self.feature {
+            out.key("feature");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for GeoResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地物の型と数
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoKind {
+    /// 型。名前空間の接頭辞をつけた元の名前
+    pub kind: String,
+    /// 地物の数
+    pub count: u64,
+}
+
+impl GeoKind {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let count = object.required("count", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { kind, count })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        out.key("count");
+        out.uint(self.count);
+    }
+}
+
+impl FromJson for GeoKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地物の中身
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoFeature {
+    /// ID
+    pub id: String,
+    /// 型
+    pub kind: String,
+    /// 分類コード。元の値の文字のまま
+    pub code: Option<String>,
+    /// 名前
+    pub name: Option<String>,
+    /// 親の地物の ID
+    pub parent: Option<String>,
+    /// 子の地物の数
+    pub children: u64,
+    /// 属性。入力の順
+    pub attributes: Vec<GeoAttribute>,
+    /// 形。入力の順
+    pub geometries: Vec<GeoGeometry>,
+}
+
+impl GeoFeature {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let kind = object.required("kind", json::string)?;
+        let code = object.optional("code", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let parent = object.optional("parent", json::string)?;
+        let children =
+            object.required("children", |value| json::uint(value, 0, 9007199254740991))?;
+        let attributes = object.required("attributes", |value| {
+            json::array(value, GeoAttribute::from_json)
+        })?;
+        let geometries = object.required("geometries", |value| {
+            json::array(value, GeoGeometry::from_json)
+        })?;
+        Ok(Self {
+            id,
+            kind,
+            code,
+            name,
+            parent,
+            children,
+            attributes,
+            geometries,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("kind");
+        out.string(&self.kind);
+        if let Some(value) = &self.code {
+            out.key("code");
+            out.string(value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.parent {
+            out.key("parent");
+            out.string(value);
+        }
+        out.key("children");
+        out.uint(self.children);
+        out.key("attributes");
+        out.array(&self.attributes, |out, item| item.to_json(out));
+        out.key("geometries");
+        out.array(&self.geometries, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for GeoFeature {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoFeature {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 属性
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoAttribute {
+    /// 名前。接頭辞をつけた元の名前
+    pub name: String,
+    /// 値の型
+    pub kind: GeoValueKind,
+    /// 値の文字
+    pub value: String,
+    /// 単位つきの量の単位
+    pub unit: Option<String>,
+    /// コードの一覧（codeSpace）
+    pub space: Option<String>,
+}
+
+impl GeoAttribute {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let kind = object.required("kind", GeoValueKind::from_json)?;
+        let value = object.required("value", json::string)?;
+        let unit = object.optional("unit", json::string)?;
+        let space = object.optional("space", json::string)?;
+        Ok(Self {
+            name,
+            kind,
+            value,
+            unit,
+            space,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        out.key("kind");
+        self.kind.to_json(out);
+        out.key("value");
+        out.string(&self.value);
+        if let Some(value) = &self.unit {
+            out.key("unit");
+            out.string(value);
+        }
+        if let Some(value) = &self.space {
+            out.key("space");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for GeoAttribute {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoAttribute {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 属性の値の型
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum GeoValueKind {
+    /// `text`
+    Text,
+    /// `integer`
+    Integer,
+    /// `real`
+    Real,
+    /// `bool`
+    Bool,
+    /// `date`
+    Date,
+    /// `code`
+    Code,
+    /// `measure`
+    Measure,
+}
+
+impl GeoValueKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Text,
+        Self::Integer,
+        Self::Real,
+        Self::Bool,
+        Self::Date,
+        Self::Code,
+        Self::Measure,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Integer => "integer",
+            Self::Real => "real",
+            Self::Bool => "bool",
+            Self::Date => "date",
+            Self::Code => "code",
+            Self::Measure => "measure",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "text" => Some(Self::Text),
+            "integer" => Some(Self::Integer),
+            "real" => Some(Self::Real),
+            "bool" => Some(Self::Bool),
+            "date" => Some(Self::Date),
+            "code" => Some(Self::Code),
+            "measure" => Some(Self::Measure),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for GeoValueKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for GeoValueKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 形の種類
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum GeoForm {
+    /// `point`
+    Point,
+    /// `line`
+    Line,
+    /// `area`
+    Area,
+    /// `solid`
+    Solid,
+}
+
+impl GeoForm {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Point, Self::Line, Self::Area, Self::Solid];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Point => "point",
+            Self::Line => "line",
+            Self::Area => "area",
+            Self::Solid => "solid",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "point" => Some(Self::Point),
+            "line" => Some(Self::Line),
+            "area" => Some(Self::Area),
+            "solid" => Some(Self::Solid),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for GeoForm {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for GeoForm {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 形の要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoGeometry {
+    /// LOD。2D の地物は書かない
+    pub lod: Option<u64>,
+    /// 形の種類
+    pub form: GeoForm,
+    /// 点の数。立体と面の集まりは、面の輪の点の数の和
+    pub points: u64,
+    /// 立体と面の集まりの面の数
+    pub faces: Option<u64>,
+}
+
+impl GeoGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let lod = object.optional("lod", |value| json::uint(value, 0, 4))?;
+        let form = object.required("form", GeoForm::from_json)?;
+        let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
+        let faces = object.optional("faces", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            lod,
+            form,
+            points,
+            faces,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.lod {
+            out.key("lod");
+            out.uint(*value);
+        }
+        out.key("form");
+        self.form.to_json(out);
+        out.key("points");
+        out.uint(self.points);
+        if let Some(value) = &self.faces {
+            out.key("faces");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for GeoGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoGeometry {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

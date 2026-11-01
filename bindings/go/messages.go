@@ -150,6 +150,11 @@ func (u Request) AsCivilDrawingRequest() *CivilDrawingRequest {
 	return asTagged[CivilDrawingRequest](u, "op", "civil_drawing")
 }
 
+// AsGeoRequest は、op が geo の形なら、その型で読む。違えば nil。
+func (u Request) AsGeoRequest() *GeoRequest {
+	return asTagged[GeoRequest](u, "op", "geo")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4450,6 +4455,170 @@ type PointcloudPoints struct {
 	Level *int64 `json:"level,omitempty"`
 }
 
+// GeoRequest: open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+type GeoRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// open で開いた CityGML の文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 中身を返す地物の ID
+	Id *string `json:"id,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m GeoRequest) MarshalJSON() ([]byte, error) {
+	type plain GeoRequest
+	m.Op = "geo"
+	return json.Marshal(plain(m))
+}
+
+// GeoResult: 地理の領域モデルの要約
+type GeoResult struct {
+	// 平面の座標系の EPSG のコード。分からなければ書かない
+	Crs *int64 `json:"crs,omitempty"`
+
+	// 高さの座標系の EPSG のコード。分からなければ書かない
+	Height *int64 `json:"height,omitempty"`
+
+	// 地物の数
+	Features *int64 `json:"features,omitempty"`
+
+	// 地物の型ごとの数。型の名前の順
+	Kinds []GeoKind `json:"kinds,omitempty"`
+
+	// id で指した地物の中身
+	Feature *GeoFeature `json:"feature,omitempty"`
+}
+
+// GeoKind: 地物の型と数
+type GeoKind struct {
+	// 型。名前空間の接頭辞をつけた元の名前
+	Kind *string `json:"kind,omitempty"`
+
+	// 地物の数
+	Count *int64 `json:"count,omitempty"`
+}
+
+// GeoFeature: 地物の中身
+type GeoFeature struct {
+	// ID
+	Id *string `json:"id,omitempty"`
+
+	// 型
+	Kind *string `json:"kind,omitempty"`
+
+	// 分類コード。元の値の文字のまま
+	Code *string `json:"code,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// 親の地物の ID
+	Parent *string `json:"parent,omitempty"`
+
+	// 子の地物の数
+	Children *int64 `json:"children,omitempty"`
+
+	// 属性。入力の順
+	Attributes []GeoAttribute `json:"attributes,omitempty"`
+
+	// 形。入力の順
+	Geometries []GeoGeometry `json:"geometries,omitempty"`
+}
+
+// GeoAttribute: 属性
+type GeoAttribute struct {
+	// 名前。接頭辞をつけた元の名前
+	Name *string `json:"name,omitempty"`
+
+	// 値の型
+	Kind *GeoValueKind `json:"kind,omitempty"`
+
+	// 値の文字
+	Value *string `json:"value,omitempty"`
+
+	// 単位つきの量の単位
+	Unit *string `json:"unit,omitempty"`
+
+	// コードの一覧（codeSpace）
+	Space *string `json:"space,omitempty"`
+}
+
+// GeoValueKind: 属性の値の型
+//
+// 列挙の値。知らない値も受け取る。
+type GeoValueKind string
+
+// GeoValueKindText は text。
+const GeoValueKindText GeoValueKind = "text"
+
+// GeoValueKindInteger は integer。
+const GeoValueKindInteger GeoValueKind = "integer"
+
+// GeoValueKindReal は real。
+const GeoValueKindReal GeoValueKind = "real"
+
+// GeoValueKindBool は bool。
+const GeoValueKindBool GeoValueKind = "bool"
+
+// GeoValueKindDate は date。
+const GeoValueKindDate GeoValueKind = "date"
+
+// GeoValueKindCode は code。
+const GeoValueKindCode GeoValueKind = "code"
+
+// GeoValueKindMeasure は measure。
+const GeoValueKindMeasure GeoValueKind = "measure"
+
+// GeoForm: 形の種類
+//
+// 列挙の値。知らない値も受け取る。
+type GeoForm string
+
+// GeoFormPoint は point。
+const GeoFormPoint GeoForm = "point"
+
+// GeoFormLine は line。
+const GeoFormLine GeoForm = "line"
+
+// GeoFormArea は area。
+const GeoFormArea GeoForm = "area"
+
+// GeoFormSolid は solid。
+const GeoFormSolid GeoForm = "solid"
+
+// GeoGeometry: 形の要約
+type GeoGeometry struct {
+	// LOD。2D の地物は書かない
+	Lod *int64 `json:"lod,omitempty"`
+
+	// 形の種類
+	Form *GeoForm `json:"form,omitempty"`
+
+	// 点の数。立体と面の集まりは、面の輪の点の数の和
+	Points *int64 `json:"points,omitempty"`
+
+	// 立体と面の集まりの面の数
+	Faces *int64 `json:"faces,omitempty"`
+}
+
 // CivilDrawingRequest: open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
 type CivilDrawingRequest struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4784,3 +4953,6 @@ const OpDeviation = "deviation"
 
 // OpCivilDrawing は、op の名前 civil_drawing。
 const OpCivilDrawing = "civil_drawing"
+
+// OpGeo は、op の名前 geo。
+const OpGeo = "geo"

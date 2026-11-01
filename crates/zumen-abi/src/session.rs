@@ -26,6 +26,8 @@ use crate::check;
 use crate::civil;
 use crate::convert;
 use crate::describe;
+#[cfg(feature = "drawing")]
+use crate::geo;
 use crate::geometry;
 use crate::messages::{
     self, ApplyRequest, ApplyResult, BcfReadRequest, BcfReadResult, BcfWriteRequest,
@@ -72,6 +74,8 @@ pub struct Session {
     models: BTreeMap<String, building::Model>,
     /// `open` で作った土木の領域モデルの文書（J-LandXML、決定 0230）。名前は `docs` と分け合う
     civils: BTreeMap<String, zumen_civil::CivilModel>,
+    /// `open` で作った地理の領域モデルの文書（CityGML、決定 0233）。名前は `docs` と分け合う
+    geos: BTreeMap<String, zumen_geo::GeoModel>,
     /// 開いた点群（決定 0232）
     clouds: BTreeMap<String, zumen_pointcloud::PointCloud>,
     /// 実行中の op の名前。使えない文書の診断に書く
@@ -233,6 +237,7 @@ impl Session {
             hashes: BTreeMap::new(),
             models: BTreeMap::new(),
             civils: BTreeMap::new(),
+            geos: BTreeMap::new(),
             clouds: BTreeMap::new(),
             op: "",
             blobs: Vec::new(),
@@ -428,6 +433,8 @@ impl Session {
             Request::CivilDrawing(request) => self
                 .civil_drawing(request, &mut cx)
                 .map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
+            Request::Geo(request) => self.geo(request, &mut cx).map(|r| Box::new(r) as _),
             // 入れなかったモジュールの op は、上で断った
             #[allow(unreachable_patterns)]
             _ => Err(Failed),
@@ -454,6 +461,7 @@ impl Session {
             || self.models.contains_key(name)
             || self.civils.contains_key(name)
             || self.clouds.contains_key(name)
+            || self.geos.contains_key(name)
         {
             return Err(fail(
                 cx,
@@ -530,6 +538,17 @@ impl Session {
                 done: None,
             });
         }
+        // CityGML も XML の根で見分ける（決定 0233）
+        #[cfg(feature = "drawing")]
+        if let Some(model) = geo::read(bytes, cx) {
+            self.geos.insert(name.clone(), model?);
+            return Ok(OpenResult {
+                doc: name.clone(),
+                format: zumen_citygml::CityGml::FORMAT.to_string(),
+                needs: None,
+                done: None,
+            });
+        }
         #[cfg(feature = "bim")]
         if let Some(model) = building::read_zip(bytes, cx) {
             return self.open_model(name.clone(), model?, cx);
@@ -582,6 +601,7 @@ impl Session {
                 && !self.models.contains_key(doc)
                 && !self.civils.contains_key(doc)
                 && !self.clouds.contains_key(doc)
+                && !self.geos.contains_key(doc)
             {
                 cx.report(Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.as_str()));
                 missing = true;
@@ -602,6 +622,7 @@ impl Session {
             self.hashes.remove(doc);
             self.models.remove(doc);
             self.civils.remove(doc);
+            self.geos.remove(doc);
             self.clouds.remove(doc);
         }
         for input in inputs {
@@ -1039,7 +1060,8 @@ impl Session {
             Some(model) => Ok(model),
             None if self.docs.contains_key(doc)
                 || self.civils.contains_key(doc)
-                || self.clouds.contains_key(doc) =>
+                || self.clouds.contains_key(doc)
+                || self.geos.contains_key(doc) =>
             {
                 Err(fail(cx, unsupported(doc, op)))
             }
@@ -1130,7 +1152,8 @@ impl Session {
                     Some(model) => Some(model),
                     None if self.docs.contains_key(doc)
                         || self.models.contains_key(doc)
-                        || self.clouds.contains_key(doc) =>
+                        || self.clouds.contains_key(doc)
+                        || self.geos.contains_key(doc) =>
                     {
                         return Err(fail(cx, unsupported(doc, "civil")));
                     }
@@ -1144,6 +1167,33 @@ impl Session {
             }
         };
         civil::civil(request, model, cx)
+    }
+
+    /// 開いた CityGML の地理の領域モデルの要約と、地物の中身（決定 0233）
+    #[cfg(feature = "drawing")]
+    fn geo(
+        &self,
+        request: &messages::GeoRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::GeoResult, Failed> {
+        let doc = &request.doc;
+        if !name::is_safe(doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        match self.geos.get(doc) {
+            Some(model) => geo::geo(request, model, cx),
+            None if self.docs.contains_key(doc)
+                || self.models.contains_key(doc)
+                || self.civils.contains_key(doc)
+                || self.clouds.contains_key(doc) =>
+            {
+                Err(fail(cx, unsupported(doc, "geo")))
+            }
+            None => Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
+            )),
+        }
     }
 
     /// bcfzip を読み、開いた建物モデルを対象にしたレビューの文書を blob で返す（決定 0220）
@@ -1244,7 +1294,8 @@ impl Session {
             Some(model) => model,
             None if self.docs.contains_key(doc)
                 || self.models.contains_key(doc)
-                || self.clouds.contains_key(doc) =>
+                || self.clouds.contains_key(doc)
+                || self.geos.contains_key(doc) =>
             {
                 return Err(fail(cx, unsupported(doc, "deviation")));
             }
@@ -1282,6 +1333,7 @@ impl Session {
             || self.models.contains_key(to)
             || self.civils.contains_key(to)
             || self.clouds.contains_key(to)
+            || self.geos.contains_key(to)
         {
             return Err(fail(
                 cx,
@@ -1292,7 +1344,8 @@ impl Session {
             Some(model) => model,
             None if self.docs.contains_key(doc)
                 || self.models.contains_key(doc)
-                || self.clouds.contains_key(doc) =>
+                || self.clouds.contains_key(doc)
+                || self.geos.contains_key(doc) =>
             {
                 return Err(fail(cx, unsupported(doc, "civil_drawing")));
             }
@@ -1340,7 +1393,8 @@ impl Session {
             Some(cloud) => Ok(cloud),
             None if self.docs.contains_key(doc)
                 || self.models.contains_key(doc)
-                || self.civils.contains_key(doc) =>
+                || self.civils.contains_key(doc)
+                || self.geos.contains_key(doc) =>
             {
                 Err(fail(cx, unsupported(doc, "pointcloud")))
             }
@@ -1371,6 +1425,7 @@ impl Session {
             if self.models.contains_key(doc)
                 || self.civils.contains_key(doc)
                 || self.clouds.contains_key(doc)
+                || self.geos.contains_key(doc)
             {
                 return Err(fail(cx, unsupported(doc, self.op)));
             }
@@ -1411,6 +1466,7 @@ fn capabilities() -> CapabilitiesResult {
             (Sxf::FORMAT, "sxf", true, 2),
             (Jww::FORMAT, "jww", true, 1),
             (zumen_landxml::LandXml::FORMAT, "landxml", false, 1),
+            (zumen_citygml::CityGml::FORMAT, "citygml", false, 1),
             (zumen_las::Las::FORMAT, "las", false, 1),
             (zumen_ply::Ply::FORMAT, "ply", false, 1),
             (zumen_xyz::Xyz::FORMAT, "xyz", false, 1),
@@ -1759,6 +1815,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Pointcloud(request) => &request.request_common,
         Request::Deviation(request) => &request.request_common,
         Request::CivilDrawing(request) => &request.request_common,
+        Request::Geo(request) => &request.request_common,
     }
 }
 
@@ -2301,7 +2358,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":51}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":52}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

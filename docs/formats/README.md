@@ -452,6 +452,7 @@
 - サンプルの出どころ（Git に入れない）: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない
 - 既知の crate: nusamai-citygml・ecitygml-io
 - issue: [zumen-jp/zumen#379](https://github.com/zumen-jp/zumen/issues/379)
+- 形式の文書: [docs/formats/citygml.md](../../docs/formats/citygml.md)
 
 ### format-csv
 

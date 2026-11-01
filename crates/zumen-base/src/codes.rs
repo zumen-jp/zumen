@@ -525,6 +525,53 @@ pub const CHANGE_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 座標系（srsName）を書いていないか、扱わない座標系なので、座標系を不明にし、形を移さなかった
+///
+/// `citygml.crs.unsupported`（0.2.0 から）
+pub const CITYGML_CRS_UNSUPPORTED: Code = Code::new(
+    "citygml.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 地理の領域モデルに移さない要素なので、読まなかった
+///
+/// `citygml.element.unsupported`（0.2.0 から）
+pub const CITYGML_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "citygml.element.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 形の参照（xlink:href）が同じ文書の gml:id を指さないので、参照した形を移さなかった
+///
+/// `citygml.reference.unsupported`（0.2.0 から）
+pub const CITYGML_REFERENCE_UNSUPPORTED: Code = Code::new(
+    "citygml.reference.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("href", ParamType::Text)],
+    &["href"],
+);
+
+/// 要素の値が読めないので、その値か形を地理の領域モデルに移さなかった
+///
+/// `citygml.value.invalid`（0.2.0 から）
+pub const CITYGML_VALUE_INVALID: Code = Code::new(
+    "citygml.value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("field", ParamType::Text),
+    ],
+    &["element", "field"],
+);
+
 /// 図面モデルの形のない緩和曲線を、許容差の内の折れ線にして図に出した（決定 0231）。curve は種類の名前
 ///
 /// `civil.curve.approximated`（0.2.0 から）
@@ -3333,6 +3380,10 @@ pub const ALL: &[Code] = &[
     CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,
+    CITYGML_CRS_UNSUPPORTED,
+    CITYGML_ELEMENT_UNSUPPORTED,
+    CITYGML_REFERENCE_UNSUPPORTED,
+    CITYGML_VALUE_INVALID,
     CIVIL_CURVE_APPROXIMATED,
     CIVIL_CURVE_UNSUPPORTED,
     CIVIL_DISTANCE_MISSING,

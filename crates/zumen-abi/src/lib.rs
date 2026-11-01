@@ -29,6 +29,8 @@ mod civil;
 mod convert;
 mod describe;
 pub mod ffi;
+#[cfg(feature = "drawing")]
+mod geo;
 mod geometry;
 pub mod messages;
 #[cfg(feature = "drawing")]

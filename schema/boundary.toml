@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 51
+schema-minor = 52
 
 # 状態コード。理由は応答の診断で返す
 
@@ -149,12 +149,12 @@ params = [
 
 [[modules]]
 name = "drawing"
-description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）"
-formats = ["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz", "e57"]
+description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）"
+formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "las", "ply", "xyz", "e57"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation",
-    "civil_drawing",
+    "civil_drawing", "geo",
 ]
 
 [[modules]]
@@ -227,6 +227,11 @@ rules = [{ offset = 0, bytes = "JwwData." }]
 format = "landxml"
 module = "drawing"
 rules = [{ xml-root = "LandXML", namespace = "http://www.landxml.org/schema/LandXML-1.2" }]
+
+[[detection]]
+format = "citygml"
+module = "drawing"
+rules = [{ xml-root = "CityModel", namespace = "http://www.opengis.net/citygml/2.0" }]
 
 # ifcZIP。ZIP の署名はほかの形式とも重なるので、最後に試す
 [[detection]]

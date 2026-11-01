@@ -1,0 +1,25 @@
+[package]
+name = "zumen-citygml"
+description = "zumen の CityGML 2.0（PLATEAU の 3D 都市モデルと i-UR を含む）の読み取りと、地理の領域モデルへの移し（#379）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["citygml"]
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
+zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-base = { path = "../zumen-base" }

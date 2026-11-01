@@ -87,6 +87,9 @@ class Request extends Message {
 
   /// op が civil_drawing の形なら、その見方。違えば null
   CivilDrawingRequest? get asCivilDrawingRequest => taggedView('op', 'civil_drawing', CivilDrawingRequest.fromJson);
+
+  /// op が geo の形なら、その見方。違えば null
+  GeoRequest? get asGeoRequest => taggedView('op', 'geo', GeoRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -5458,6 +5461,211 @@ class PointcloudPoints extends Message {
   set level(int? value) => writeField('level', value);
 }
 
+/// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+class GeoRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  GeoRequest() : super({'op': 'geo'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// open で開いた CityGML の文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 中身を返す地物の ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+}
+
+/// 地理の領域モデルの要約
+class GeoResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  GeoResult() : super({});
+
+  /// 平面の座標系の EPSG のコード。分からなければ書かない
+  int? get crs => readField('crs', asInt);
+  set crs(int? value) => writeField('crs', value);
+
+  /// 高さの座標系の EPSG のコード。分からなければ書かない
+  int? get height => readField('height', asInt);
+  set height(int? value) => writeField('height', value);
+
+  /// 地物の数
+  int? get features => readField('features', asInt);
+  set features(int? value) => writeField('features', value);
+
+  /// 地物の型ごとの数。型の名前の順
+  List<GeoKind>? get kinds => readField('kinds', listOf(objectOf(GeoKind.fromJson)));
+  set kinds(List<GeoKind>? value) => writeField('kinds', value);
+
+  /// id で指した地物の中身
+  GeoFeature? get feature => readField('feature', objectOf(GeoFeature.fromJson));
+  set feature(GeoFeature? value) => writeField('feature', value);
+}
+
+/// 地物の型と数
+class GeoKind extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoKind.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  GeoKind() : super({});
+
+  /// 型。名前空間の接頭辞をつけた元の名前
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 地物の数
+  int? get count => readField('count', asInt);
+  set count(int? value) => writeField('count', value);
+}
+
+/// 地物の中身
+class GeoFeature extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoFeature.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  GeoFeature() : super({});
+
+  /// ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 分類コード。元の値の文字のまま
+  String? get code => readField('code', asString);
+  set code(String? value) => writeField('code', value);
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 親の地物の ID
+  String? get parent => readField('parent', asString);
+  set parent(String? value) => writeField('parent', value);
+
+  /// 子の地物の数
+  int? get children => readField('children', asInt);
+  set children(int? value) => writeField('children', value);
+
+  /// 属性。入力の順
+  List<GeoAttribute>? get attributes => readField('attributes', listOf(objectOf(GeoAttribute.fromJson)));
+  set attributes(List<GeoAttribute>? value) => writeField('attributes', value);
+
+  /// 形。入力の順
+  List<GeoGeometry>? get geometries => readField('geometries', listOf(objectOf(GeoGeometry.fromJson)));
+  set geometries(List<GeoGeometry>? value) => writeField('geometries', value);
+}
+
+/// 属性
+class GeoAttribute extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoAttribute.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  GeoAttribute() : super({});
+
+  /// 名前。接頭辞をつけた元の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 値の型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 値の文字
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+
+  /// 単位つきの量の単位
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// コードの一覧（codeSpace）
+  String? get space => readField('space', asString);
+  set space(String? value) => writeField('space', value);
+}
+
+/// 属性の値の型
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class GeoValueKind {
+  static const text = 'text';
+  static const integer = 'integer';
+  static const real = 'real';
+  static const bool = 'bool';
+  static const date = 'date';
+  static const code = 'code';
+  static const measure = 'measure';
+}
+
+/// 形の種類
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class GeoForm {
+  static const point = 'point';
+  static const line = 'line';
+  static const area = 'area';
+  static const solid = 'solid';
+}
+
+/// 形の要約
+class GeoGeometry extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoGeometry.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  GeoGeometry() : super({});
+
+  /// LOD。2D の地物は書かない
+  int? get lod => readField('lod', asInt);
+  set lod(int? value) => writeField('lod', value);
+
+  /// 形の種類
+  String? get form => readField('form', asString);
+  set form(String? value) => writeField('form', value);
+
+  /// 点の数。立体と面の集まりは、面の輪の点の数の和
+  int? get points => readField('points', asInt);
+  set points(int? value) => writeField('points', value);
+
+  /// 立体と面の集まりの面の数
+  int? get faces => readField('faces', asInt);
+  set faces(int? value) => writeField('faces', value);
+}
+
 /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
 class CivilDrawingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -5866,4 +6074,5 @@ abstract final class Operations {
   static const pointcloud = 'pointcloud';
   static const deviation = 'deviation';
   static const civilDrawing = 'civil_drawing';
+  static const geo = 'geo';
 }

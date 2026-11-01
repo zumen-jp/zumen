@@ -29,7 +29,8 @@ export type Request =
   | CivilRequest
   | PointcloudRequest
   | DeviationRequest
-  | CivilDrawingRequest;
+  | CivilDrawingRequest
+  | GeoRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2521,6 +2522,103 @@ export interface PointcloudPoints {
   level: number;
 }
 
+/** open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
+export interface GeoRequest extends RequestCommon {
+  /** op の名前 */
+  op: "geo";
+  /** open で開いた CityGML の文書の名前 */
+  doc: string;
+  /** 中身を返す地物の ID */
+  id?: string;
+}
+
+/** 地理の領域モデルの要約 */
+export interface GeoResult {
+  /** 平面の座標系の EPSG のコード。分からなければ書かない */
+  crs?: number;
+  /** 高さの座標系の EPSG のコード。分からなければ書かない */
+  height?: number;
+  /** 地物の数 */
+  features: number;
+  /** 地物の型ごとの数。型の名前の順 */
+  kinds: GeoKind[];
+  /** id で指した地物の中身 */
+  feature?: GeoFeature;
+}
+
+/** 地物の型と数 */
+export interface GeoKind {
+  /** 型。名前空間の接頭辞をつけた元の名前 */
+  kind: string;
+  /** 地物の数 */
+  count: number;
+}
+
+/** 地物の中身 */
+export interface GeoFeature {
+  /** ID */
+  id: string;
+  /** 型 */
+  kind: string;
+  /** 分類コード。元の値の文字のまま */
+  code?: string;
+  /** 名前 */
+  name?: string;
+  /** 親の地物の ID */
+  parent?: string;
+  /** 子の地物の数 */
+  children: number;
+  /** 属性。入力の順 */
+  attributes: GeoAttribute[];
+  /** 形。入力の順 */
+  geometries: GeoGeometry[];
+}
+
+/** 属性 */
+export interface GeoAttribute {
+  /** 名前。接頭辞をつけた元の名前 */
+  name: string;
+  /** 値の型 */
+  kind: GeoValueKind;
+  /** 値の文字 */
+  value: string;
+  /** 単位つきの量の単位 */
+  unit?: string;
+  /** コードの一覧（codeSpace） */
+  space?: string;
+}
+
+/** 属性の値の型 */
+export type GeoValueKind =
+  | "text"
+  | "integer"
+  | "real"
+  | "bool"
+  | "date"
+  | "code"
+  | "measure"
+  | (string & {});
+
+/** 形の種類 */
+export type GeoForm =
+  | "point"
+  | "line"
+  | "area"
+  | "solid"
+  | (string & {});
+
+/** 形の要約 */
+export interface GeoGeometry {
+  /** LOD。2D の地物は書かない */
+  lod?: number;
+  /** 形の種類 */
+  form: GeoForm;
+  /** 点の数。立体と面の集まりは、面の輪の点の数の和 */
+  points: number;
+  /** 立体と面の集まりの面の数 */
+  faces?: number;
+}
+
 /** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から */
 export interface CivilDrawingRequest extends RequestCommon {
   /** op の名前 */
@@ -2713,4 +2811,5 @@ export interface Operations {
   pointcloud: { request: PointcloudRequest; result: PointcloudResult };
   deviation: { request: DeviationRequest; result: DeviationResult };
   civil_drawing: { request: CivilDrawingRequest; result: CivilDrawingResult };
+  geo: { request: GeoRequest; result: GeoResult };
 }

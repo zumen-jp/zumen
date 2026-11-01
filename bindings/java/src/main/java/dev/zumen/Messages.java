@@ -181,6 +181,11 @@ public final class Messages {
         public CivilDrawingRequest asCivilDrawingRequest() {
             return "civil_drawing".equals(json.get("op")) ? new CivilDrawingRequest(json) : null;
         }
+
+        /** op が geo の形なら、その見方。違えば null */
+        public GeoRequest asGeoRequest() {
+            return "geo".equals(json.get("op")) ? new GeoRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -13641,6 +13646,513 @@ public final class Messages {
         }
     }
 
+    /** open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
+    public static final class GeoRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public GeoRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "geo");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public GeoRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public GeoRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public GeoRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public GeoRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public GeoRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public GeoRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** open で開いた CityGML の文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public GeoRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 中身を返す地物の ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public GeoRequest withId(String value) {
+            put("id", value);
+            return this;
+        }
+    }
+
+    /** 地理の領域モデルの要約 */
+    public static final class GeoResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 平面の座標系の EPSG のコード。分からなければ書かない */
+        public Long getCrs() {
+            return Json.read(json.get("crs"), Json::integer);
+        }
+
+        /** {@link #getCrs()} を書く。null なら欄を除く */
+        public GeoResult withCrs(Long value) {
+            put("crs", value);
+            return this;
+        }
+
+        /** 高さの座標系の EPSG のコード。分からなければ書かない */
+        public Long getHeight() {
+            return Json.read(json.get("height"), Json::integer);
+        }
+
+        /** {@link #getHeight()} を書く。null なら欄を除く */
+        public GeoResult withHeight(Long value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 地物の数 */
+        public Long getFeatures() {
+            return Json.read(json.get("features"), Json::integer);
+        }
+
+        /** {@link #getFeatures()} を書く。null なら欄を除く */
+        public GeoResult withFeatures(Long value) {
+            put("features", value);
+            return this;
+        }
+
+        /** 地物の型ごとの数。型の名前の順 */
+        public List<GeoKind> getKinds() {
+            return Json.read(json.get("kinds"), v0 -> Json.list(v0, GeoKind::of));
+        }
+
+        /** {@link #getKinds()} を書く。null なら欄を除く */
+        public GeoResult withKinds(List<GeoKind> value) {
+            put("kinds", value);
+            return this;
+        }
+
+        /** id で指した地物の中身 */
+        public GeoFeature getFeature() {
+            return Json.read(json.get("feature"), GeoFeature::of);
+        }
+
+        /** {@link #getFeature()} を書く。null なら欄を除く */
+        public GeoResult withFeature(GeoFeature value) {
+            put("feature", value);
+            return this;
+        }
+    }
+
+    /** 地物の型と数 */
+    public static final class GeoKind extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoKind(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoKind of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoKind(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoKind() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 型。名前空間の接頭辞をつけた元の名前 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public GeoKind withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 地物の数 */
+        public Long getCount() {
+            return Json.read(json.get("count"), Json::integer);
+        }
+
+        /** {@link #getCount()} を書く。null なら欄を除く */
+        public GeoKind withCount(Long value) {
+            put("count", value);
+            return this;
+        }
+    }
+
+    /** 地物の中身 */
+    public static final class GeoFeature extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoFeature(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoFeature of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoFeature(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoFeature() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public GeoFeature withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public GeoFeature withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 分類コード。元の値の文字のまま */
+        public String getCode() {
+            return Json.read(json.get("code"), Json::string);
+        }
+
+        /** {@link #getCode()} を書く。null なら欄を除く */
+        public GeoFeature withCode(String value) {
+            put("code", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public GeoFeature withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 親の地物の ID */
+        public String getParent() {
+            return Json.read(json.get("parent"), Json::string);
+        }
+
+        /** {@link #getParent()} を書く。null なら欄を除く */
+        public GeoFeature withParent(String value) {
+            put("parent", value);
+            return this;
+        }
+
+        /** 子の地物の数 */
+        public Long getChildren() {
+            return Json.read(json.get("children"), Json::integer);
+        }
+
+        /** {@link #getChildren()} を書く。null なら欄を除く */
+        public GeoFeature withChildren(Long value) {
+            put("children", value);
+            return this;
+        }
+
+        /** 属性。入力の順 */
+        public List<GeoAttribute> getAttributes() {
+            return Json.read(json.get("attributes"), v0 -> Json.list(v0, GeoAttribute::of));
+        }
+
+        /** {@link #getAttributes()} を書く。null なら欄を除く */
+        public GeoFeature withAttributes(List<GeoAttribute> value) {
+            put("attributes", value);
+            return this;
+        }
+
+        /** 形。入力の順 */
+        public List<GeoGeometry> getGeometries() {
+            return Json.read(json.get("geometries"), v0 -> Json.list(v0, GeoGeometry::of));
+        }
+
+        /** {@link #getGeometries()} を書く。null なら欄を除く */
+        public GeoFeature withGeometries(List<GeoGeometry> value) {
+            put("geometries", value);
+            return this;
+        }
+    }
+
+    /** 属性 */
+    public static final class GeoAttribute extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoAttribute(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoAttribute of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoAttribute(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoAttribute() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 名前。接頭辞をつけた元の名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public GeoAttribute withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 値の型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public GeoAttribute withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 値の文字 */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null なら欄を除く */
+        public GeoAttribute withValue(String value) {
+            put("value", value);
+            return this;
+        }
+
+        /** 単位つきの量の単位 */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null なら欄を除く */
+        public GeoAttribute withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** コードの一覧（codeSpace） */
+        public String getSpace() {
+            return Json.read(json.get("space"), Json::string);
+        }
+
+        /** {@link #getSpace()} を書く。null なら欄を除く */
+        public GeoAttribute withSpace(String value) {
+            put("space", value);
+            return this;
+        }
+    }
+
+    /**
+     * 属性の値の型
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class GeoValueKind {
+        private GeoValueKind() {}
+
+        public static final String TEXT = "text";
+
+        public static final String INTEGER = "integer";
+
+        public static final String REAL = "real";
+
+        public static final String BOOL = "bool";
+
+        public static final String DATE = "date";
+
+        public static final String CODE = "code";
+
+        public static final String MEASURE = "measure";
+    }
+
+    /**
+     * 形の種類
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class GeoForm {
+        private GeoForm() {}
+
+        public static final String POINT = "point";
+
+        public static final String LINE = "line";
+
+        public static final String AREA = "area";
+
+        public static final String SOLID = "solid";
+    }
+
+    /** 形の要約 */
+    public static final class GeoGeometry extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoGeometry(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoGeometry of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoGeometry(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoGeometry() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** LOD。2D の地物は書かない */
+        public Long getLod() {
+            return Json.read(json.get("lod"), Json::integer);
+        }
+
+        /** {@link #getLod()} を書く。null なら欄を除く */
+        public GeoGeometry withLod(Long value) {
+            put("lod", value);
+            return this;
+        }
+
+        /** 形の種類 */
+        public String getForm() {
+            return Json.read(json.get("form"), Json::string);
+        }
+
+        /** {@link #getForm()} を書く。null なら欄を除く */
+        public GeoGeometry withForm(String value) {
+            put("form", value);
+            return this;
+        }
+
+        /** 点の数。立体と面の集まりは、面の輪の点の数の和 */
+        public Long getPoints() {
+            return Json.read(json.get("points"), Json::integer);
+        }
+
+        /** {@link #getPoints()} を書く。null なら欄を除く */
+        public GeoGeometry withPoints(Long value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 立体と面の集まりの面の数 */
+        public Long getFaces() {
+            return Json.read(json.get("faces"), Json::integer);
+        }
+
+        /** {@link #getFaces()} を書く。null なら欄を除く */
+        public GeoGeometry withFaces(Long value) {
+            put("faces", value);
+            return this;
+        }
+    }
+
     /** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から */
     public static final class CivilDrawingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -14687,5 +15199,7 @@ public final class Messages {
         public static final String DEVIATION = "deviation";
 
         public static final String CIVIL_DRAWING = "civil_drawing";
+
+        public static final String GEO = "geo";
     }
 }

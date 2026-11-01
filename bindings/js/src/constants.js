@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマの大版（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマの小版 */
-export const SCHEMA_MINOR = 51;
+export const SCHEMA_MINOR = 52;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -36,9 +36,9 @@ export const WASM_EXPORTS = Object.freeze([
 /** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
-    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz", "e57"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation", "civil_drawing"]),
+    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）",
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "las", "ply", "xyz", "e57"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation", "civil_drawing", "geo"]),
   }),
   bim: Object.freeze({
     description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF",
@@ -118,6 +118,13 @@ export const DETECTION = Object.freeze([
     module: "drawing",
     rules: Object.freeze([
       Object.freeze({ kind: "xml_root", name: "LandXML", namespace: "http://www.landxml.org/schema/LandXML-1.2" }),
+    ]),
+  }),
+  Object.freeze({
+    format: "citygml",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "xml_root", name: "CityModel", namespace: "http://www.opengis.net/citygml/2.0" }),
     ]),
   }),
   Object.freeze({
