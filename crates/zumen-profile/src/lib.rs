@@ -60,10 +60,11 @@ pub const CHECKS: &[(&str, &[&str])] = &[
             "extension",
             "folder",
             "depth",
+            "prefix",
         ],
     ),
     ("delivery-required", &["folders", "except", "when", "names"]),
-    ("delivery-link", &["folders", "except", "when"]),
+    ("delivery-link", &["folders", "except", "when", "elements"]),
     ("delivery-unreferenced", &["folders", "except", "when"]),
     (
         "delivery-standard",
@@ -74,6 +75,14 @@ pub const CHECKS: &[(&str, &[&str])] = &[
         &["folders", "except", "when", "fullwidth-alphanumerics"],
     ),
     ("delivery-doctype", &["folders", "except", "when", "values"]),
+    (
+        "delivery-photo-date",
+        &["folders", "except", "when", "entry", "file", "date"],
+    ),
+    (
+        "delivery-photo-pixels",
+        &["folders", "except", "when", "min", "max"],
+    ),
 ];
 
 /// 語彙を使わない照合
@@ -89,6 +98,8 @@ pub const WITHOUT_VOCABULARY: &[&str] = &[
     "delivery-standard",
     "delivery-characters",
     "delivery-doctype",
+    "delivery-photo-date",
+    "delivery-photo-pixels",
 ];
 
 /// `tolerance` を書かないときに、同じとみなす差（mm、決定 0173）

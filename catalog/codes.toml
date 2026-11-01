@@ -1756,6 +1756,34 @@ params = { rule = "text", managed = "text", found = "text" }
 since = "0.2.0"
 status = "active"
 
+[codes."profile.delivery-photo-date.invalid"]
+description = "写真の管理ファイルの撮影年月日が、写真の Exif の撮影の日と違う（指摘、#388）"
+severity = "warning"
+params = { rule = "text", managed = "text", name = "text", found = "text", taken = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-photo-date.unsupported"]
+description = "撮影年月日の要素か、写真の Exif の撮影の日時がないので、確認できない（指摘、#388）"
+severity = "info"
+params = { rule = "text", managed = "text", name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-photo-pixels.invalid"]
+description = "写真の画素数が、規則の範囲の外にある（指摘、#388）"
+severity = "warning"
+params = { rule = "text", name = "text", pixels = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-photo-pixels.unsupported"]
+description = "写真が JPEG でないか、画素数を読めないので、確認できない（指摘、#388）"
+severity = "info"
+params = { rule = "text", name = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."ids.file.invalid"]
 description = "IDS の XML の構造が、IDS 1.0 に合わない。near は合わなかった要素か属性"
 severity = "error"

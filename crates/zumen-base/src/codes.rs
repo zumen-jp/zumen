@@ -2483,6 +2483,67 @@ pub const PROFILE_DELIVERY_NAME_INVALID: Code = Code::new(
     &[],
 );
 
+/// 写真の管理ファイルの撮影年月日が、写真の Exif の撮影の日と違う（指摘、#388）
+///
+/// `profile.delivery-photo-date.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_PHOTO_DATE_INVALID: Code = Code::new(
+    "profile.delivery-photo-date.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("found", ParamType::Text),
+        Param::new("managed", ParamType::Text),
+        Param::new("name", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+        Param::new("taken", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 撮影年月日の要素か、写真の Exif の撮影の日時がないので、確認できない（指摘、#388）
+///
+/// `profile.delivery-photo-date.unsupported`（0.2.0 から）
+pub const PROFILE_DELIVERY_PHOTO_DATE_UNSUPPORTED: Code = Code::new(
+    "profile.delivery-photo-date.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("managed", ParamType::Text),
+        Param::new("name", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 写真の画素数が、規則の範囲の外にある（指摘、#388）
+///
+/// `profile.delivery-photo-pixels.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_PHOTO_PIXELS_INVALID: Code = Code::new(
+    "profile.delivery-photo-pixels.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("pixels", ParamType::UInt),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 写真が JPEG でないか、画素数を読めないので、確認できない（指摘、#388）
+///
+/// `profile.delivery-photo-pixels.unsupported`（0.2.0 から）
+pub const PROFILE_DELIVERY_PHOTO_PIXELS_UNSUPPORTED: Code = Code::new(
+    "profile.delivery-photo-pixels.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 規則が求めるファイルが成果品の中にない（指摘、決定 0241）
 ///
 /// `profile.delivery-required.invalid`（0.2.0 から）
@@ -3798,6 +3859,10 @@ pub const ALL: &[Code] = &[
     PROFILE_DELIVERY_DOCTYPE_INVALID,
     PROFILE_DELIVERY_LINK_INVALID,
     PROFILE_DELIVERY_NAME_INVALID,
+    PROFILE_DELIVERY_PHOTO_DATE_INVALID,
+    PROFILE_DELIVERY_PHOTO_DATE_UNSUPPORTED,
+    PROFILE_DELIVERY_PHOTO_PIXELS_INVALID,
+    PROFILE_DELIVERY_PHOTO_PIXELS_UNSUPPORTED,
     PROFILE_DELIVERY_REQUIRED_INVALID,
     PROFILE_DELIVERY_STANDARD_INVALID,
     PROFILE_DELIVERY_STANDARD_UNSUPPORTED,

@@ -5,7 +5,7 @@
 ## 対象
 
 - 工事完成図書・土木設計業務などの電子納品要領の成果品。要領の版では読み方を変えない。
-- 成果品の中の図面・写真は、この読み取りでは開かない。
+- 成果品の中の図面は、この読み取りでは開かない。JPEG（SOI で始まるファイル）は、写真の照合のために、`zumen-photo` で Exif の撮影の日時と画素数だけを読む（#388）。その読み取りの診断は足さない。
 
 ## 入力
 
@@ -35,15 +35,17 @@
 
 | 種類 | 欄 | 指摘 |
 | --- | --- | --- |
-| `delivery-name` | `characters`・`stem`・`extension`・`folder`・`depth` | 名前の文字・拡張子を除いた長さ・拡張子の長さ・フォルダーの名前の長さ・部分の数が外れる（`profile.delivery-name.invalid`） |
+| `delivery-name` | `characters`・`stem`・`extension`・`folder`・`depth`・`prefix` | 名前の文字・拡張子を除いた長さ・拡張子の長さ・フォルダーの名前の長さ・部分の数が外れるか、ファイルの名前が `prefix` で始まらない（`profile.delivery-name.invalid`） |
 | `delivery-required` | `names` | 名前のファイルがない（`profile.delivery-required.invalid`） |
-| `delivery-link` | なし | 管理ファイルが指すファイルがない（`profile.delivery-link.invalid`） |
+| `delivery-link` | `elements` | 管理ファイルが指すファイルがない（`profile.delivery-link.invalid`）。`elements` を書けば、その名前の要素だけを照らす |
 | `delivery-unreferenced` | なし | どの管理ファイルも指さないファイル。管理ファイルそのものは除く（`profile.delivery-unreferenced.invalid`） |
 | `delivery-standard` | `element`・`values` | 要素の値が、どの値とも違う（`profile.delivery-standard.invalid`）。要素がなければ確認できない（`profile.delivery-standard.unsupported`、`info`） |
 | `delivery-characters` | `fullwidth-alphanumerics` | 値に、JIS X 0201 のラテン文字と JIS X 0208 の外の文字がある（`profile.delivery-characters.invalid`）。半角の片仮名、13 区の特殊文字、IBM の拡張は外。`fullwidth-alphanumerics = false` なら、全角の英数字も外 |
 | `delivery-doctype` | `values` | DTD の名前が、どの値とも違うか、文書型宣言がない（`profile.delivery-doctype.invalid`） |
+| `delivery-photo-date` | `entry`・`file`・`date` | 写真 1 枚の記録（`entry`）の下の、撮影の日の要素（`date`）の値が、ファイルの名前の要素（`file`）が指す写真の Exif の撮影の日（日時の始めの `YYYY-MM-DD`）と違う（`profile.delivery-photo-date.invalid`）。日の要素か Exif の撮影の日時がなければ確認できない（`profile.delivery-photo-date.unsupported`、`info`）。ファイルが見つからない記録は飛ばす（`delivery-link` が指摘する） |
+| `delivery-photo-pixels` | `min`・`max` | 写真の画素数（フレームの見出しの幅 × 高さ）が範囲の外にある（`profile.delivery-photo-pixels.invalid`）。JPEG でないか画素数を読めなければ確認できない（`profile.delivery-photo-pixels.unsupported`、`info`） |
 
-プロファイルは `profiles/mlit-delivery-const`（工事完成図書の電子納品等要領、令和 8 年 2 月）と `profiles/mlit-delivery-design`（土木設計業務等の電子納品要領、令和 8 年 2 月）です。適用要領基準の要素の名前は、表の項目の名前を選んだ値です（DTD を読まないので、実物で確かめていません）。
+プロファイルは `profiles/mlit-delivery-const`（工事完成図書の電子納品等要領、令和 8 年 2 月）と `profiles/mlit-delivery-design`（土木設計業務等の電子納品要領、令和 8 年 2 月）です。どちらも、`PHOTO` をデジタル写真管理情報基準（令和 5 年 3 月）の規則で照らします（#388）。管理ファイルの名前と DTD、写真と参考図のファイルの名前、管理ファイルが指すファイル、適用要領基準、使う文字、撮影年月日と Exif、有効画素数の目安です。Exif との突き合わせと、画素数の範囲（100〜300 万画素、範囲の外は `info`）は、基準の目安から選んだ照合です。写真の編集の有無は、ここでは確かめません（電子小黒板の #389）。適用要領基準の要素の名前は、表の項目の名前を選んだ値です（DTD を読まないので、実物で確かめていません）。
 
 ## 上限
 

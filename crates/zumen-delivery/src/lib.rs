@@ -31,6 +31,19 @@ pub struct File {
     pub name: String,
     /// 大きさ（バイト）
     pub size: u64,
+    /// JPEG（SOI で始まる）なら、写真の情報（#388）
+    pub picture: Option<Picture>,
+}
+
+/// 写真のファイルの情報。Exif とフレームの見出しから読む
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Picture {
+    /// 画素の幅
+    pub width: Option<u16>,
+    /// 画素の高さ
+    pub height: Option<u16>,
+    /// 撮影の日時（`YYYY-MM-DDTHH:MM:SS`）
+    pub taken: Option<String>,
 }
 
 /// 管理ファイル
@@ -107,15 +120,16 @@ pub fn read(files: &[(&str, &[u8])], cx: &mut Cx) -> Result<Package, Error> {
     sorted.sort_by(|a, b| a.0.cmp(b.0));
     sorted.dedup_by(|a, b| a.0 == b.0);
     let mut package = Package {
-        files: sorted
-            .iter()
-            .map(|(name, bytes)| File {
-                name: (*name).to_string(),
-                size: bytes.len() as u64,
-            })
-            .collect(),
+        files: Vec::with_capacity(sorted.len()),
         managed: Vec::new(),
     };
+    for (name, bytes) in &sorted {
+        package.files.push(File {
+            name: (*name).to_string(),
+            size: bytes.len() as u64,
+            picture: picture(bytes, cx)?,
+        });
+    }
     for (name, bytes) in &sorted {
         if !is_managed(name) {
             continue;
@@ -125,6 +139,27 @@ pub fn read(files: &[(&str, &[u8])], cx: &mut Cx) -> Result<Package, Error> {
         }
     }
     Ok(package)
+}
+
+/// JPEG なら、写真の情報を読む。写真の読み取りの診断は足さない（照合の規則が、読めた値だけを使う）
+fn picture(bytes: &[u8], cx: &mut Cx) -> Result<Option<Picture>, Error> {
+    if !bytes.starts_with(&[0xFF, 0xD8]) {
+        return Ok(None);
+    }
+    let mut quiet = Diagnostics::new();
+    let read = {
+        let mut inner = Cx::new(cx.budget, &mut quiet, cx.cancel);
+        zumen_photo::read(bytes, &mut inner)
+    };
+    match read {
+        Ok(photo) => Ok(Some(Picture {
+            width: photo.width,
+            height: photo.height,
+            taken: photo.taken,
+        })),
+        Err(Error::Stopped(stop)) => Err(stopped(cx, stop)),
+        Err(_) => Ok(Some(Picture::default())),
+    }
 }
 
 /// ZIP の成果品を読む。ディレクトリの項目は除く。展開した量は予算（`decoded-bytes`）で数える

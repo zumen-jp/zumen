@@ -507,6 +507,7 @@ dependencies = [
  "encoding_rs",
  "zumen-base",
  "zumen-json",
+ "zumen-photo",
  "zumen-profile",
  "zumen-sdk",
  "zumen-xml",

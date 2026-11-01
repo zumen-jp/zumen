@@ -1,13 +1,14 @@
 # 工事完成図書の電子納品等要領（令和 8 年 2 月）の、成果品の照合のプロファイル（決定 0138・0241）。
 # 要領の表から、照合に要る値（フォルダー・管理ファイル・DTD の名前、名前の文字と長さ、適用要領基準の値）だけを
-# 持つ。DTD・作成例・本文は写さない。値の出典は各項の source に書く。DRAWINGF・PHOTO・BORING・ICON の中身は、
+# 持つ。DTD・作成例・本文は写さない。値の出典は各項の source に書く。DRAWINGF・BORING・ICON の中身は、
 # それぞれの基準に従うので、ここでは照らさない。
+# PHOTO は、デジタル写真管理情報基準（sources.photo）の規則で照らす。
 # この元から、`cargo xtask codegen` が profile.json を作る。
 
 format = "0.1"
 id = "mlit-delivery-const"
 edition = "2026-02"
-revision = 1
+revision = 2
 title = "工事完成図書の電子納品等要領"
 license = "CC-BY-4.0"
 
@@ -16,6 +17,13 @@ title = "工事完成図書の電子納品等要領"
 publisher = "国土交通省"
 version = "令和 8 年 2 月"
 url = "https://www.cals-ed.go.jp/mg/wp-content/uploads/const_R8.2_1.pdf"
+checked = "2026-11-02"
+
+[sources.photo]
+title = "デジタル写真管理情報基準"
+publisher = "国土交通省"
+version = "令和 5 年 3 月（令和 5 年 12 月 正誤訂正版）"
+url = "https://www.cals-ed.go.jp/mg/wp-content/uploads/photo9.pdf"
 checked = "2026-11-02"
 
 # 名前は半角英数大文字（§3・§6）。ファイルの名前は 8 文字、拡張子は 3 文字が基本で、オリジナルファイルの拡張子は
@@ -154,3 +162,100 @@ level = "error"
 source = { document = "main", section = "6" }
 folders = ["OTHRS/OTHRS.XML"]
 values = ["OTHRS05.DTD"]
+
+# PHOTO の中身は、デジタル写真管理情報基準に従う（#388）。写真は PIC、参考図は DRA に、階層を作らずに置く（§2）。
+[[rules]]
+id = "photo-index"
+check = "delivery-required"
+level = "error"
+source = { document = "photo", section = "5" }
+when = "PHOTO/"
+names = ["PHOTO/PHOTO.XML"]
+
+[[rules]]
+id = "photo-doctype"
+check = "delivery-doctype"
+level = "error"
+source = { document = "photo", section = "5" }
+folders = ["PHOTO/PHOTO.XML"]
+values = ["PHOTO05.DTD"]
+
+# 写真は P、参考図は D で始め、7 文字の英数字を続ける。拡張子は 4 文字まで（§5、図 5-1・5-2）。
+[[rules]]
+id = "photo-name"
+check = "delivery-name"
+level = "warning"
+source = { document = "photo", section = "5", item = "図 5-1" }
+folders = ["PHOTO/PIC/"]
+characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+prefix = "P"
+stem = 8
+extension = 4
+depth = 3
+
+[[rules]]
+id = "photo-drawing-name"
+check = "delivery-name"
+level = "warning"
+source = { document = "photo", section = "5", item = "図 5-2" }
+folders = ["PHOTO/DRA/"]
+characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+prefix = "D"
+stem = 8
+extension = 4
+depth = 3
+
+# 管理ファイルが名前を書く要素（表 3-1）。日本語名の要素は、ファイルを指さない。
+[[rules]]
+id = "photo-link"
+check = "delivery-link"
+level = "error"
+source = { document = "photo", section = "3", item = "表 3-1" }
+folders = ["PHOTO/PHOTO.XML"]
+elements = ["写真ファイル名", "参考図ファイル名"]
+
+[[rules]]
+id = "photo-unreferenced"
+check = "delivery-unreferenced"
+level = "warning"
+source = { document = "photo", section = "3", item = "表 3-1", basis = "chosen" }
+folders = ["PHOTO/PIC/", "PHOTO/DRA/"]
+
+# 適用要領基準の値は、改定履歴の表の値。
+[[rules]]
+id = "photo-standard"
+check = "delivery-standard"
+level = "error"
+source = { document = "photo", section = "3", item = "表 3-1" }
+folders = ["PHOTO/PHOTO.XML"]
+element = "適用要領基準"
+values = ["土木202303-01"]
+
+[[rules]]
+id = "photo-characters"
+check = "delivery-characters"
+level = "warning"
+source = { document = "photo", section = "9-2" }
+folders = ["PHOTO/PHOTO.XML"]
+fullwidth-alphanumerics = false
+
+# 撮影年月日（表 3-1）を、写真の Exif の撮影の日と比べる。Exif との突き合わせは基準にないので、選んだ照合とする。
+[[rules]]
+id = "photo-date"
+check = "delivery-photo-date"
+level = "warning"
+source = { document = "photo", section = "3", item = "表 3-1", basis = "chosen" }
+folders = ["PHOTO/PHOTO.XML"]
+entry = "写真情報"
+file = "写真ファイル名"
+date = "撮影年月日"
+
+# 有効画素数は 100〜300 万画素程度を指標とする（§7 の解説）。「程度」なので、範囲の外は info にする。
+[[rules]]
+id = "photo-pixels"
+check = "delivery-photo-pixels"
+level = "info"
+source = { document = "photo", section = "7", basis = "chosen" }
+folders = ["PHOTO/PIC/"]
+min = 1000000
+max = 3000000

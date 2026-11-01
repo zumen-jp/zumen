@@ -10,6 +10,8 @@
 //! - `delivery-standard`: 管理ファイルの要素の値（適用要領基準など）
 //! - `delivery-characters`: 管理ファイルの値の文字（JIS X 0201 のラテン文字と JIS X 0208）
 //! - `delivery-doctype`: 管理ファイルの DTD の名前と版
+//! - `delivery-photo-date`: 写真の管理ファイルの撮影年月日と、写真の Exif の撮影の日（#388）
+//! - `delivery-photo-pixels`: 写真の画素数（#388）
 
 use std::collections::BTreeSet;
 
@@ -32,6 +34,8 @@ struct Name {
     folder: Option<usize>,
     /// 名前の部分の数の上限（ファイルの名前を含む）
     depth: Option<usize>,
+    /// ファイルの名前の始まり（写真の `P` など）
+    prefix: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +44,10 @@ enum Plan {
     Required {
         names: Vec<String>,
     },
-    Link,
+    Link {
+        /// 照らす要素の名前。空ならすべて
+        elements: Vec<String>,
+    },
     Unreferenced,
     Standard {
         element: String,
@@ -51,6 +58,18 @@ enum Plan {
     },
     Doctype {
         values: Vec<String>,
+    },
+    PhotoDate {
+        /// 写真 1 枚の記録の要素の名前
+        entry: String,
+        /// その中の、写真のファイルの名前の要素の名前
+        file: String,
+        /// その中の、撮影の日（`YYYY-MM-DD`）の要素の名前
+        date: String,
+    },
+    PhotoPixels {
+        min: Option<usize>,
+        max: Option<usize>,
     },
 }
 
@@ -116,11 +135,17 @@ fn plan(check: &str, object: &Object) -> Option<Plan> {
             extension: limit(object.get("extension"))?,
             folder: limit(object.get("folder"))?,
             depth: limit(object.get("depth"))?,
+            prefix: match object.get("prefix") {
+                None => None,
+                some => Some(text(some)?.to_string()),
+            },
         }),
         "delivery-required" => Plan::Required {
             names: texts(object.get("names")).filter(|names| !names.is_empty())?,
         },
-        "delivery-link" => Plan::Link,
+        "delivery-link" => Plan::Link {
+            elements: texts(object.get("elements"))?,
+        },
         "delivery-unreferenced" => Plan::Unreferenced,
         "delivery-standard" => Plan::Standard {
             element: text(object.get("element"))?.to_string(),
@@ -135,6 +160,15 @@ fn plan(check: &str, object: &Object) -> Option<Plan> {
         },
         "delivery-doctype" => Plan::Doctype {
             values: texts(object.get("values")).filter(|values| !values.is_empty())?,
+        },
+        "delivery-photo-date" => Plan::PhotoDate {
+            entry: text(object.get("entry"))?.to_string(),
+            file: text(object.get("file"))?.to_string(),
+            date: text(object.get("date"))?.to_string(),
+        },
+        "delivery-photo-pixels" => Plan::PhotoPixels {
+            min: limit(object.get("min"))?,
+            max: limit(object.get("max"))?,
         },
         _ => return None,
     })
@@ -241,6 +275,13 @@ fn name_reason(name: &str, plan: &Name) -> Option<&'static str> {
         }
     }
     let file = file.first().copied().unwrap_or_default();
+    if plan
+        .prefix
+        .as_ref()
+        .is_some_and(|prefix| !file.starts_with(prefix.as_str()))
+    {
+        return Some("名前の始まり");
+    }
     let (stem, extension) = file.rsplit_once('.').unwrap_or((file, ""));
     if !characters(stem) || !characters(extension) {
         return Some("文字");
@@ -266,6 +307,23 @@ fn records(managed: &Managed) -> Vec<&Record> {
     let mut out = Vec::new();
     walk(&managed.root, &mut out);
     out
+}
+
+/// 記録の下（自分を除く）で、名前が `name` の最初の記録
+fn below<'a>(record: &'a Record, name: &str) -> Option<&'a Record> {
+    let mut out = Vec::new();
+    walk(record, &mut out);
+    out.into_iter().skip(1).find(|found| found.name == name)
+}
+
+/// 照合できなかったことを表す指摘か。数を分け、水準を info にする
+fn is_unsupported(diagnostic: &Diagnostic) -> bool {
+    [
+        codes::PROFILE_DELIVERY_STANDARD_UNSUPPORTED,
+        codes::PROFILE_DELIVERY_PHOTO_DATE_UNSUPPORTED,
+        codes::PROFILE_DELIVERY_PHOTO_PIXELS_UNSUPPORTED,
+    ]
+    .contains(&diagnostic.code())
 }
 
 /// 文字が、JIS X 0201 のラテン文字（空白と制御の文字を含む）か JIS X 0208 の文字か。`alphanumerics` が偽なら、
@@ -325,7 +383,6 @@ pub fn check(
         .collect();
     for rule in rules(values, cx) {
         let mut findings = Vec::new();
-        let mut unsupported = 0;
         let active = rule.when.as_ref().is_none_or(|head| {
             package
                 .files
@@ -363,10 +420,13 @@ pub fn check(
                     }
                 }
             }
-            Plan::Link => {
+            Plan::Link { elements } => {
                 for managed in targets() {
                     for record in records(managed) {
                         cx.check(Kind::Work, 1)?;
+                        if !elements.is_empty() && !elements.contains(&record.name) {
+                            continue;
+                        }
                         let Some(link) = record.file.as_ref().filter(|link| !link.found) else {
                             continue;
                         };
@@ -400,7 +460,6 @@ pub fn check(
                         .filter(|record| record.name == *element)
                         .collect();
                     if found.is_empty() {
-                        unsupported += 1;
                         findings.push(
                             Diagnostic::new(codes::PROFILE_DELIVERY_STANDARD_UNSUPPORTED)
                                 .with("managed", managed.name.as_str())
@@ -456,7 +515,75 @@ pub fn check(
                     }
                 }
             }
+            Plan::PhotoDate { entry, file, date } => {
+                for managed in targets() {
+                    for record in records(managed).into_iter().filter(|r| r.name == *entry) {
+                        cx.check(Kind::Work, 1)?;
+                        // ファイルが見つからないことは、delivery-link が指摘する
+                        let Some(link) = below(record, file)
+                            .and_then(|found| found.file.as_ref())
+                            .filter(|link| link.found)
+                        else {
+                            continue;
+                        };
+                        let written = below(record, date).and_then(|found| found.value.as_deref());
+                        let taken = package
+                            .file(&link.name)
+                            .and_then(|found| found.picture.as_ref())
+                            .and_then(|picture| picture.taken.as_deref())
+                            .and_then(|taken| taken.get(..10));
+                        let (Some(written), Some(taken)) = (written, taken) else {
+                            findings.push(
+                                Diagnostic::new(codes::PROFILE_DELIVERY_PHOTO_DATE_UNSUPPORTED)
+                                    .with("managed", managed.name.as_str())
+                                    .with("name", link.name.as_str())
+                                    .at(at(&managed.name))
+                                    .at(record.source.clone()),
+                            );
+                            continue;
+                        };
+                        if written.trim() != taken {
+                            findings.push(
+                                Diagnostic::new(codes::PROFILE_DELIVERY_PHOTO_DATE_INVALID)
+                                    .with("managed", managed.name.as_str())
+                                    .with("name", link.name.as_str())
+                                    .with("found", written.trim())
+                                    .with("taken", taken)
+                                    .at(at(&managed.name))
+                                    .at(record.source.clone()),
+                            );
+                        }
+                    }
+                }
+            }
+            Plan::PhotoPixels { min, max } => {
+                for file in package.files.iter().filter(|file| rule.covers(&file.name)) {
+                    cx.check(Kind::Work, 1)?;
+                    let size = file
+                        .picture
+                        .as_ref()
+                        .and_then(|picture| Some((picture.width?, picture.height?)));
+                    let Some((width, height)) = size else {
+                        findings.push(
+                            Diagnostic::new(codes::PROFILE_DELIVERY_PHOTO_PIXELS_UNSUPPORTED)
+                                .with("name", file.name.as_str())
+                                .at(at(&file.name)),
+                        );
+                        continue;
+                    };
+                    let pixels = usize::from(width) * usize::from(height);
+                    if min.is_some_and(|min| pixels < min) || max.is_some_and(|max| pixels > max) {
+                        findings.push(
+                            Diagnostic::new(codes::PROFILE_DELIVERY_PHOTO_PIXELS_INVALID)
+                                .with("name", file.name.as_str())
+                                .with("pixels", pixels as u64)
+                                .at(at(&file.name)),
+                        );
+                    }
+                }
+            }
         }
+        let unsupported = findings.iter().filter(|d| is_unsupported(d)).count() as u64;
         report.rules.push(RuleSummary {
             id: rule.id.clone(),
             check: rule.check.clone(),
@@ -466,7 +593,7 @@ pub fn check(
         report
             .findings
             .extend(findings.into_iter().map(|diagnostic| {
-                let unsupported = diagnostic.code() == codes::PROFILE_DELIVERY_STANDARD_UNSUPPORTED;
+                let unsupported = is_unsupported(&diagnostic);
                 let mut finding = rule.finding(diagnostic);
                 if unsupported {
                     finding.level = Severity::Info;

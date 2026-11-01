@@ -3,7 +3,7 @@
   "format": "0.1",
   "id": "mlit-delivery-design",
   "license": "CC-BY-4.0",
-  "revision": 1,
+  "revision": 2,
   "rules": [
     {
       "check": "delivery-required",
@@ -117,6 +117,136 @@
         "section": "3"
       },
       "values": ["REGIST07.DTD"]
+    },
+    {
+      "check": "delivery-required",
+      "id": "photo-index",
+      "level": "error",
+      "names": ["PHOTO/PHOTO.XML"],
+      "source": {
+        "document": "photo",
+        "section": "5"
+      },
+      "when": "PHOTO/"
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["PHOTO/PHOTO.XML"],
+      "id": "photo-doctype",
+      "level": "error",
+      "source": {
+        "document": "photo",
+        "section": "5"
+      },
+      "values": ["PHOTO05.DTD"]
+    },
+    {
+      "characters": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
+      "check": "delivery-name",
+      "depth": 3,
+      "extension": 4,
+      "folders": ["PHOTO/PIC/"],
+      "id": "photo-name",
+      "level": "warning",
+      "prefix": "P",
+      "source": {
+        "document": "photo",
+        "item": "図 5-1",
+        "section": "5"
+      },
+      "stem": 8
+    },
+    {
+      "characters": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
+      "check": "delivery-name",
+      "depth": 3,
+      "extension": 4,
+      "folders": ["PHOTO/DRA/"],
+      "id": "photo-drawing-name",
+      "level": "warning",
+      "prefix": "D",
+      "source": {
+        "document": "photo",
+        "item": "図 5-2",
+        "section": "5"
+      },
+      "stem": 8
+    },
+    {
+      "check": "delivery-link",
+      "elements": ["写真ファイル名", "参考図ファイル名"],
+      "folders": ["PHOTO/PHOTO.XML"],
+      "id": "photo-link",
+      "level": "error",
+      "source": {
+        "document": "photo",
+        "item": "表 3-1",
+        "section": "3"
+      }
+    },
+    {
+      "check": "delivery-unreferenced",
+      "folders": ["PHOTO/PIC/", "PHOTO/DRA/"],
+      "id": "photo-unreferenced",
+      "level": "warning",
+      "source": {
+        "basis": "chosen",
+        "document": "photo",
+        "item": "表 3-1",
+        "section": "3"
+      }
+    },
+    {
+      "check": "delivery-standard",
+      "element": "適用要領基準",
+      "folders": ["PHOTO/PHOTO.XML"],
+      "id": "photo-standard",
+      "level": "error",
+      "source": {
+        "document": "photo",
+        "item": "表 3-1",
+        "section": "3"
+      },
+      "values": ["土木202303-01"]
+    },
+    {
+      "check": "delivery-characters",
+      "folders": ["PHOTO/PHOTO.XML"],
+      "fullwidth-alphanumerics": false,
+      "id": "photo-characters",
+      "level": "warning",
+      "source": {
+        "document": "photo",
+        "section": "9-2"
+      }
+    },
+    {
+      "check": "delivery-photo-date",
+      "date": "撮影年月日",
+      "entry": "写真情報",
+      "file": "写真ファイル名",
+      "folders": ["PHOTO/PHOTO.XML"],
+      "id": "photo-date",
+      "level": "warning",
+      "source": {
+        "basis": "chosen",
+        "document": "photo",
+        "item": "表 3-1",
+        "section": "3"
+      }
+    },
+    {
+      "check": "delivery-photo-pixels",
+      "folders": ["PHOTO/PIC/"],
+      "id": "photo-pixels",
+      "level": "info",
+      "max": 3000000,
+      "min": 1000000,
+      "source": {
+        "basis": "chosen",
+        "document": "photo",
+        "section": "7"
+      }
     }
   ],
   "sources": {
@@ -126,6 +256,13 @@
       "title": "土木設計業務等の電子納品要領",
       "url": "https://www.cals-ed.go.jp/mg/wp-content/uploads/design_R8.2_1.pdf",
       "version": "令和 8 年 2 月"
+    },
+    "photo": {
+      "checked": "2026-11-02",
+      "publisher": "国土交通省",
+      "title": "デジタル写真管理情報基準",
+      "url": "https://www.cals-ed.go.jp/mg/wp-content/uploads/photo9.pdf",
+      "version": "令和 5 年 3 月（令和 5 年 12 月 正誤訂正版）"
     }
   },
   "title": "土木設計業務等の電子納品要領"
