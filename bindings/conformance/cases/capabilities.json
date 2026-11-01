@@ -17,7 +17,8 @@
           { "id": "landxml", "family": "landxml", "read": true, "write": false, "id_rules": 1 },
           { "id": "las", "family": "las", "read": true, "write": false, "id_rules": 1 },
           { "id": "ply", "family": "ply", "read": true, "write": false, "id_rules": 1 },
-          { "id": "xyz", "family": "xyz", "read": true, "write": false, "id_rules": 1 }
+          { "id": "xyz", "family": "xyz", "read": true, "write": false, "id_rules": 1 },
+          { "id": "e57", "family": "e57", "read": true, "write": false, "id_rules": 1 }
         ],
         "/diagnostics": [],
         "/blobs": []
