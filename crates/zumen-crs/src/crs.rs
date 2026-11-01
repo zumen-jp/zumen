@@ -205,3 +205,66 @@ fn epsg_code(name: &str) -> Option<u32> {
     }
     digits.parse().ok()
 }
+
+/// WKT（LAS・E57 の座標系）から、EPSG のコード（WKT1 の `AUTHORITY["EPSG","6677"]`、WKT2 の `ID["EPSG",6677]`）を読む。高さの
+/// 座標系（`VERT_CS`・`VERTCRS`）の中のコードは高さに、ほかは水平に分ける
+pub fn wkt_codes(text: &str) -> (Vec<u32>, Vec<u32>) {
+    let (mut horizontal, mut vertical) = (Vec::new(), Vec::new());
+    // 高さの座標系の中にいる間は、その括弧の深さを持つ
+    let mut depth = 0usize;
+    let mut vertical_from: Option<usize> = None;
+    let mut word = String::new();
+    let chars = text.char_indices();
+    for (at, c) in chars {
+        match c {
+            '[' | '(' => {
+                depth += 1;
+                let name = word.trim().to_ascii_uppercase();
+                if vertical_from.is_none()
+                    && matches!(name.as_str(), "VERT_CS" | "VERTCRS" | "VERTICALCRS")
+                {
+                    vertical_from = Some(depth);
+                }
+                if matches!(name.as_str(), "AUTHORITY" | "ID") {
+                    let rest = text.get(at + 1..).unwrap_or_default();
+                    if let Some(code) = epsg(rest) {
+                        if vertical_from.is_some() {
+                            vertical.push(code);
+                        } else {
+                            horizontal.push(code);
+                        }
+                    }
+                }
+                word.clear();
+            }
+            ']' | ')' => {
+                if vertical_from == Some(depth) {
+                    vertical_from = None;
+                }
+                depth = depth.saturating_sub(1);
+                word.clear();
+            }
+            ',' => word.clear(),
+            _ => word.push(c),
+        }
+    }
+    // 外側の座標系のコードは後ろに書くので、投影の座標系が先に来るよう、後ろから並べる
+    horizontal.reverse();
+    vertical.reverse();
+    horizontal.sort_by_key(|code| Crs::from_epsg(*code) == Some(Crs::Geographic));
+    (horizontal, vertical)
+}
+
+/// `"EPSG","6677"]` か `"EPSG",6677]` の続きから、コード
+fn epsg(rest: &str) -> Option<u32> {
+    let (authority, rest) = rest.split_once(',')?;
+    if !authority
+        .trim()
+        .trim_matches('"')
+        .eq_ignore_ascii_case("EPSG")
+    {
+        return None;
+    }
+    let end = rest.find([']', ')', ','])?;
+    rest.get(..end)?.trim().trim_matches('"').parse().ok()
+}

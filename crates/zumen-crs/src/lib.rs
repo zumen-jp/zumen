@@ -15,7 +15,7 @@ pub mod height;
 pub mod point;
 pub mod projection;
 
-pub use crs::{Crs, VerticalCrs, Zone};
+pub use crs::{Crs, VerticalCrs, Zone, wkt_codes};
 pub use grid::{Grid, Model, Undulation};
 pub use height::{Height, HeightDatum, Realization};
 pub use point::{Axes, GeoPoint, MapConversion, MapPoint, MapPosition, ProjectPoint};

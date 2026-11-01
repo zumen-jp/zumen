@@ -7,6 +7,7 @@ use zumen_abi1::Session;
 use zumen_abi1::abi::{DETECTION, MODULES, Status, has_op};
 use zumen_acad::{Dwg, Dxf};
 use zumen_base::CancelToken;
+use zumen_e57::E57;
 use zumen_ifc::{Ifc, IfcZip};
 use zumen_jww::Jww;
 use zumen_landxml::LandXml;
@@ -34,6 +35,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("ifc", Ifc::SIGNATURES),
         ("las", <Las as Codec>::SIGNATURES),
         ("ply", Ply::SIGNATURES),
+        ("e57", E57::SIGNATURES),
         ("dxf", Dxf::SIGNATURES),
         ("dwg", Dwg::SIGNATURES),
         ("sxf", Sxf::SIGNATURES),

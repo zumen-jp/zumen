@@ -37,6 +37,7 @@ zumen-landxml = { version = "0.2.0", path = "../zumen-landxml" }
 zumen-las = { version = "0.2.0", path = "../zumen-las" }
 zumen-ply = { version = "0.2.0", path = "../zumen-ply" }
 zumen-pointcloud = { version = "0.2.0", path = "../zumen-pointcloud" }
+zumen-e57 = { version = "0.2.0", path = "../zumen-e57" }
 zumen-xyz = { version = "0.2.0", path = "../zumen-xyz" }
 zumen-building = { version = "0.2.0", path = "../zumen-building" }
 zumen-ifc = { version = "0.2.0", path = "../zumen-ifc" }

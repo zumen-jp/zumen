@@ -37,7 +37,7 @@ export const WASM_EXPORTS = Object.freeze([
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
     description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz"]),
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz", "e57"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "pointcloud"]),
   }),
   bim: Object.freeze({
@@ -68,6 +68,13 @@ export const DETECTION = Object.freeze([
     module: "drawing",
     rules: Object.freeze([
       Object.freeze({ kind: "lines", lines: Object.freeze(["ply"]) }),
+    ]),
+  }),
+  Object.freeze({
+    format: "e57",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x53, 0x54, 0x4d, 0x2d, 0x45, 0x35, 0x37]) }),
     ]),
   }),
   Object.freeze({

@@ -723,6 +723,7 @@ references = [
 known-crates = ["e57"]
 verify = ["CloudCompare"]
 samples = ["libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）"]
+docs = ["docs/formats/e57.md"]
 issues = ["zumen-jp/zumen#373"]
 
 [[formats.e57.evidence]]

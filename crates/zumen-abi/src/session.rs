@@ -484,7 +484,7 @@ impl Session {
                 },
             });
         }
-        // PLY と、名指した XYZ
+        // PLY・E57 と、名指した XYZ
         #[cfg(feature = "drawing")]
         if let Some(opened) = pointcloud::read_whole(bytes, request.format.as_deref(), cx) {
             let (format, cloud) = opened?;

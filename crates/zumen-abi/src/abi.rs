@@ -100,7 +100,9 @@ pub const MODULES: &[Module] = &[
     // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）
     Module {
         name: "drawing",
-        formats: &["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz"],
+        formats: &[
+            "dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz", "e57",
+        ],
         ops: &[
             "capabilities",
             "open",
@@ -208,6 +210,14 @@ pub const DETECTION: &[Detection] = &[
         format: "ply",
         module: "drawing",
         rules: &[zumen_sdk::Signature::Lines { lines: &[b"ply"] }],
+    },
+    Detection {
+        format: "e57",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::Bytes {
+            offset: 0,
+            bytes: b"ASTM-E57",
+        }],
     },
     Detection {
         format: "dxf",

@@ -514,6 +514,7 @@
 - サンプルの出どころ（Git に入れない）: libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）
 - 既知の crate: e57
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+- 形式の文書: [docs/formats/e57.md](../../docs/formats/e57.md)
 
 ### format-extdm
 

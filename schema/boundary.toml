@@ -150,7 +150,7 @@ params = [
 [[modules]]
 name = "drawing"
 description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）"
-formats = ["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz"]
+formats = ["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz", "e57"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud",
@@ -186,6 +186,12 @@ rules = [{ offset = 0, bytes = "LASF" }]
 format = "ply"
 module = "drawing"
 rules = [{ lines = ["ply"] }]
+
+# E57。全体を渡す
+[[detection]]
+format = "e57"
+module = "drawing"
+rules = [{ offset = 0, bytes = "ASTM-E57" }]
 
 [[detection]]
 format = "dxf"

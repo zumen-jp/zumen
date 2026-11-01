@@ -1,0 +1,24 @@
+[package]
+name = "zumen-e57"
+description = "zumen の E57 の点群の読み取りと、点群の領域モデルへの移し（#373）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["e57"]
+
+[dependencies]
+# E57 のページと XML と点の圧縮を読む（MIT）。依存の理由は docs/formats/e57.md
+e57 = { version = "0.11.13", default-features = false }
+# 球の座標の換算・姿勢の回転・丸め（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-pointcloud = { version = "0.2.0", path = "../zumen-pointcloud" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true

@@ -1398,6 +1398,107 @@ pub const DXF_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 点群の領域モデルに持たない点の欄か、一部のスキャンだけが持つ属性を、移さなかった（決定 0232）
+///
+/// `e57.attribute.dropped`（0.2.0 から）
+pub const E57_ATTRIBUTE_DROPPED: Code = Code::new(
+    "e57.attribute.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("attribute", ParamType::Text)],
+    &["attribute"],
+);
+
+/// 直交の座標も球の座標も持たないスキャンなので、移さなかった
+///
+/// `e57.coordinates.missing`（0.2.0 から）
+pub const E57_COORDINATES_MISSING: Code = Code::new(
+    "e57.coordinates.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("scan", ParamType::UInt)],
+    &[],
+);
+
+/// 座標系の記述から EPSG のコードを読めないので、座標系を不明にした
+///
+/// `e57.crs.invalid`（0.2.0 から）
+pub const E57_CRS_INVALID: Code = Code::new("e57.crs.invalid", Severity::Warning, None, &[], &[]);
+
+/// 座標系の記述（coordinateMetadata）がないので、座標系を不明にした
+///
+/// `e57.crs.missing`（0.2.0 から）
+pub const E57_CRS_MISSING: Code = Code::new("e57.crs.missing", Severity::Warning, None, &[], &[]);
+
+/// 扱わない水平の座標系（平面直角座標系の JGD2011 でないもの）なので、座標系を不明にした
+///
+/// `e57.crs.unsupported`（0.2.0 から）
+pub const E57_CRS_UNSUPPORTED: Code = Code::new(
+    "e57.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("epsg", ParamType::UInt)],
+    &[],
+);
+
+/// ASTM-E57 の始まりか、ページ・XML・点のデータが読めない
+///
+/// `e57.file.invalid`（0.2.0 から）
+pub const E57_FILE_INVALID: Code = Code::new(
+    "e57.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Text)],
+    &[],
+);
+
+/// 画像（images2D）は点群の領域モデルに持たないので、移さなかった
+///
+/// `e57.image.dropped`（0.2.0 から）
+pub const E57_IMAGE_DROPPED: Code = Code::new(
+    "e57.image.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("images", ParamType::UInt)],
+    &[],
+);
+
+/// 座標の状態が無効か、向きだけの点を、移さなかった
+///
+/// `e57.point.dropped`（0.2.0 から）
+pub const E57_POINT_DROPPED: Code = Code::new(
+    "e57.point.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("points", ParamType::UInt)],
+    &[],
+);
+
+/// 点のデータが、スキャンの点の数より短いか壊れているので、読めた点だけを読んだ
+///
+/// `e57.points.invalid`（0.2.0 から）
+pub const E57_POINTS_INVALID: Code = Code::new(
+    "e57.points.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("expected", ParamType::UInt),
+        Param::new("found", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 扱わない高さの座標系なので、高さの座標系を不明にした
+///
+/// `e57.vertical-crs.unsupported`（0.2.0 から）
+pub const E57_VERTICAL_CRS_UNSUPPORTED: Code = Code::new(
+    "e57.vertical-crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("epsg", ParamType::UInt)],
+    &[],
+);
+
 /// 抽象の実体を、そのままインスタンスにしている
 ///
 /// `express.abstract.invalid`（0.2.0 から）
@@ -3127,6 +3228,16 @@ pub const ALL: &[Code] = &[
     DXF_VERSION_UNSUPPORTED,
     DXF_VIEWPORT_UNSUPPORTED,
     DXF_XDATA_UNSUPPORTED,
+    E57_ATTRIBUTE_DROPPED,
+    E57_COORDINATES_MISSING,
+    E57_CRS_INVALID,
+    E57_CRS_MISSING,
+    E57_CRS_UNSUPPORTED,
+    E57_FILE_INVALID,
+    E57_IMAGE_DROPPED,
+    E57_POINT_DROPPED,
+    E57_POINTS_INVALID,
+    E57_VERTICAL_CRS_UNSUPPORTED,
     EXPRESS_ABSTRACT_INVALID,
     EXPRESS_ATTRIBUTE_COUNT_INVALID,
     EXPRESS_ENTITY_MISSING,

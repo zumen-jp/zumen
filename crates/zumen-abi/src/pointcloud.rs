@@ -1,4 +1,4 @@
-//! 点群（LAS・LAZ）の `open` と `pointcloud` の op（決定 0232）。
+//! 点群（LAS・LAZ・PLY・XYZ・E57）の `open` と `pointcloud` の op（決定 0232）。
 //!
 //! 入力は範囲で読む。`open` の入力を全体の初めの部分とし、`<入力の名前>#<start>-<end>` の名前で渡された入力を
 //! 範囲の表に足す。足りない範囲は `needs` で返す。
@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use zumen_base::{ByteRange, Cx};
+use zumen_e57::E57;
 use zumen_las::Las;
 use zumen_ply::Ply;
 use zumen_pointcloud::{PointCloud, Query, select};
@@ -90,7 +91,7 @@ pub(crate) fn read(
     })
 }
 
-/// 全体を渡す点群の形式（PLY と、名指した XYZ）なら読み、点群の領域モデルに移す。ほかの形式なら `None`
+/// 全体を渡す点群の形式（PLY・E57 と、名指した XYZ）なら読み、点群の領域モデルに移す。ほかの形式なら `None`
 pub(crate) fn read_whole(
     bytes: &[u8],
     format: Option<&str>,
@@ -111,6 +112,9 @@ pub(crate) fn read_whole(
     }
     if Ply::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
         return Some(open::<Ply>(bytes, cx));
+    }
+    if E57::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        return Some(open::<E57>(bytes, cx));
     }
     None
 }

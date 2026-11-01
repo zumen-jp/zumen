@@ -2024,3 +2024,79 @@ description = "XYZ は座標系を書かないので、座標系を不明にし�
 severity = "warning"
 since = "0.2.0"
 status = "active"
+
+# E57 の読み取りと、点群の領域モデルへの移し（#373）
+
+[codes."e57.file.invalid"]
+description = "ASTM-E57 の始まりか、ページ・XML・点のデータが読めない"
+severity = "error"
+params = { reason = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."e57.points.invalid"]
+description = "点のデータが、スキャンの点の数より短いか壊れているので、読めた点だけを読んだ"
+severity = "warning"
+fidelity = "dropped"
+params = { expected = "uint", found = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."e57.coordinates.missing"]
+description = "直交の座標も球の座標も持たないスキャンなので、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { scan = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."e57.point.dropped"]
+description = "座標の状態が無効か、向きだけの点を、移さなかった"
+severity = "info"
+fidelity = "dropped"
+params = { points = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."e57.attribute.dropped"]
+description = "点群の領域モデルに持たない点の欄か、一部のスキャンだけが持つ属性を、移さなかった（決定 0232）"
+severity = "info"
+fidelity = "dropped"
+params = { attribute = "text" }
+group-by = ["attribute"]
+since = "0.2.0"
+status = "active"
+
+[codes."e57.image.dropped"]
+description = "画像（images2D）は点群の領域モデルに持たないので、移さなかった"
+severity = "info"
+fidelity = "dropped"
+params = { images = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."e57.crs.missing"]
+description = "座標系の記述（coordinateMetadata）がないので、座標系を不明にした"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."e57.crs.invalid"]
+description = "座標系の記述から EPSG のコードを読めないので、座標系を不明にした"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."e57.crs.unsupported"]
+description = "扱わない水平の座標系（平面直角座標系の JGD2011 でないもの）なので、座標系を不明にした"
+severity = "warning"
+params = { epsg = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."e57.vertical-crs.unsupported"]
+description = "扱わない高さの座標系なので、高さの座標系を不明にした"
+severity = "warning"
+params = { epsg = "uint" }
+since = "0.2.0"
+status = "active"
