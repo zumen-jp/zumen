@@ -1,0 +1,99 @@
+# 土木設計業務等の電子納品要領（令和 8 年 2 月）の、成果品の照合のプロファイル（決定 0138・0241）。
+# 要領の表から、照合に要る値（フォルダー・管理ファイル・DTD の名前、適用要領基準の値）だけを持つ。DTD・作成例・
+# 本文は写さない。DRAWING・PHOTO・SURVEY・BORING・ICON・BIMCIM の中身は、それぞれの基準に従うので、ここでは
+# 照らさない。
+# この元から、`cargo xtask codegen` が profile.json を作る。
+
+format = "0.1"
+id = "mlit-delivery-design"
+edition = "2026-02"
+revision = 1
+title = "土木設計業務等の電子納品要領"
+license = "CC-BY-4.0"
+
+[sources.main]
+title = "土木設計業務等の電子納品要領"
+publisher = "国土交通省"
+version = "令和 8 年 2 月"
+url = "https://www.cals-ed.go.jp/mg/wp-content/uploads/design_R8.2_1.pdf"
+checked = "2026-11-02"
+
+[[rules]]
+id = "index"
+check = "delivery-required"
+level = "error"
+source = { document = "main", section = "4", item = "表 4-1" }
+names = ["INDEX_D.XML"]
+
+[[rules]]
+id = "report"
+check = "delivery-required"
+level = "error"
+source = { document = "main", section = "3" }
+when = "REPORT/"
+names = ["REPORT/REPORT.XML"]
+
+[[rules]]
+id = "open-report"
+check = "delivery-required"
+level = "error"
+source = { document = "main", section = "3" }
+when = "OPENREP/"
+names = ["OPENREP/OPENREP.XML"]
+
+[[rules]]
+id = "register"
+check = "delivery-required"
+level = "error"
+source = { document = "main", section = "3" }
+when = "REGISTER/"
+names = ["REGISTER/REGISTER.XML"]
+
+[[rules]]
+id = "link"
+check = "delivery-link"
+level = "error"
+source = { document = "main", section = "4" }
+folders = ["INDEX_D.XML", "REPORT/", "OPENREP/", "REGISTER/"]
+
+# 要素の名前は、表 4-1 の項目の名前とする（選んだ値）。
+[[rules]]
+id = "standard"
+check = "delivery-standard"
+level = "error"
+source = { document = "main", section = "4", item = "表 4-1", basis = "chosen" }
+folders = ["INDEX_D.XML"]
+element = "適用要領基準"
+values = ["土木202602-01"]
+
+[[rules]]
+id = "doctype-index"
+check = "delivery-doctype"
+level = "error"
+source = { document = "main", section = "3", item = "表 4-1" }
+folders = ["INDEX_D.XML"]
+values = ["INDE_D08.DTD"]
+
+[[rules]]
+id = "doctype-report"
+check = "delivery-doctype"
+level = "error"
+source = { document = "main", section = "3" }
+folders = ["REPORT/REPORT.XML"]
+values = ["REP05.DTD"]
+
+[[rules]]
+id = "doctype-open-report"
+check = "delivery-doctype"
+level = "error"
+source = { document = "main", section = "3" }
+folders = ["OPENREP/OPENREP.XML"]
+values = ["OPREP01.DTD"]
+
+[[rules]]
+id = "doctype-register"
+check = "delivery-doctype"
+level = "error"
+source = { document = "main", section = "3" }
+folders = ["REGISTER/REGISTER.XML"]
+values = ["REGIST07.DTD"]

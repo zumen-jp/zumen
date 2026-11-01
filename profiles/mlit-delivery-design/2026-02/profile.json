@@ -1,0 +1,132 @@
+{
+  "edition": "2026-02",
+  "format": "0.1",
+  "id": "mlit-delivery-design",
+  "license": "CC-BY-4.0",
+  "revision": 1,
+  "rules": [
+    {
+      "check": "delivery-required",
+      "id": "index",
+      "level": "error",
+      "names": ["INDEX_D.XML"],
+      "source": {
+        "document": "main",
+        "item": "表 4-1",
+        "section": "4"
+      }
+    },
+    {
+      "check": "delivery-required",
+      "id": "report",
+      "level": "error",
+      "names": ["REPORT/REPORT.XML"],
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "when": "REPORT/"
+    },
+    {
+      "check": "delivery-required",
+      "id": "open-report",
+      "level": "error",
+      "names": ["OPENREP/OPENREP.XML"],
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "when": "OPENREP/"
+    },
+    {
+      "check": "delivery-required",
+      "id": "register",
+      "level": "error",
+      "names": ["REGISTER/REGISTER.XML"],
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "when": "REGISTER/"
+    },
+    {
+      "check": "delivery-link",
+      "folders": ["INDEX_D.XML", "REPORT/", "OPENREP/", "REGISTER/"],
+      "id": "link",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "4"
+      }
+    },
+    {
+      "check": "delivery-standard",
+      "element": "適用要領基準",
+      "folders": ["INDEX_D.XML"],
+      "id": "standard",
+      "level": "error",
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "表 4-1",
+        "section": "4"
+      },
+      "values": ["土木202602-01"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["INDEX_D.XML"],
+      "id": "doctype-index",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "item": "表 4-1",
+        "section": "3"
+      },
+      "values": ["INDE_D08.DTD"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["REPORT/REPORT.XML"],
+      "id": "doctype-report",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "values": ["REP05.DTD"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["OPENREP/OPENREP.XML"],
+      "id": "doctype-open-report",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "values": ["OPREP01.DTD"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["REGISTER/REGISTER.XML"],
+      "id": "doctype-register",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "values": ["REGIST07.DTD"]
+    }
+  ],
+  "sources": {
+    "main": {
+      "checked": "2026-11-02",
+      "publisher": "国土交通省",
+      "title": "土木設計業務等の電子納品要領",
+      "url": "https://www.cals-ed.go.jp/mg/wp-content/uploads/design_R8.2_1.pdf",
+      "version": "令和 8 年 2 月"
+    }
+  },
+  "title": "土木設計業務等の電子納品要領"
+}

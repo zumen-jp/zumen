@@ -1,0 +1,203 @@
+{
+  "edition": "2026-02",
+  "format": "0.1",
+  "id": "mlit-delivery-const",
+  "license": "CC-BY-4.0",
+  "revision": 1,
+  "rules": [
+    {
+      "characters": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
+      "check": "delivery-name",
+      "except": ["BIMCIM/", "DRAWINGF/", "DRAWINGS/", "BORING/", "ICON/"],
+      "extension": 4,
+      "folder": 8,
+      "id": "name",
+      "level": "warning",
+      "source": {
+        "document": "main",
+        "section": "6"
+      },
+      "stem": 8
+    },
+    {
+      "check": "delivery-name",
+      "depth": 3,
+      "folders": ["PLAN/", "MEET/", "REGISTER/", "OTHRS/"],
+      "id": "depth",
+      "level": "warning",
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "section": "3"
+      }
+    },
+    {
+      "check": "delivery-required",
+      "id": "index",
+      "level": "error",
+      "names": ["INDEX_C.XML"],
+      "source": {
+        "document": "main",
+        "item": "表 4-1",
+        "section": "4"
+      }
+    },
+    {
+      "check": "delivery-required",
+      "id": "plan",
+      "level": "error",
+      "names": ["PLAN/PLAN.XML"],
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "when": "PLAN/"
+    },
+    {
+      "check": "delivery-required",
+      "id": "meet",
+      "level": "error",
+      "names": ["MEET/MEET.XML"],
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "when": "MEET/"
+    },
+    {
+      "check": "delivery-required",
+      "id": "register",
+      "level": "error",
+      "names": ["REGISTER/REGISTER.XML", "REGISTER/PRE-PIC.JPG", "REGISTER/POST-PIC.JPG"],
+      "source": {
+        "document": "main",
+        "item": "表 4-2",
+        "section": "4"
+      },
+      "when": "REGISTER/"
+    },
+    {
+      "check": "delivery-required",
+      "id": "others",
+      "level": "error",
+      "names": ["OTHRS/OTHRS.XML"],
+      "source": {
+        "document": "main",
+        "section": "3"
+      },
+      "when": "OTHRS/"
+    },
+    {
+      "check": "delivery-link",
+      "folders": ["INDEX_C.XML", "PLAN/", "MEET/", "REGISTER/", "OTHRS/"],
+      "id": "link",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "4"
+      }
+    },
+    {
+      "check": "delivery-unreferenced",
+      "folders": ["PLAN/ORG/", "MEET/ORG/", "OTHRS/"],
+      "id": "unreferenced",
+      "level": "warning",
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "表 4-3",
+        "section": "4"
+      }
+    },
+    {
+      "check": "delivery-standard",
+      "element": "適用要領基準",
+      "folders": ["INDEX_C.XML"],
+      "id": "standard",
+      "level": "error",
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "表 4-1",
+        "section": "4"
+      },
+      "values": ["土木202602-01"]
+    },
+    {
+      "check": "delivery-characters",
+      "folders": ["INDEX_C.XML", "PLAN/", "MEET/", "REGISTER/", "OTHRS/"],
+      "fullwidth-alphanumerics": false,
+      "id": "characters",
+      "level": "warning",
+      "source": {
+        "document": "main",
+        "section": "8-2"
+      }
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["INDEX_C.XML"],
+      "id": "doctype-index",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "6"
+      },
+      "values": ["INDE_C09.DTD"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["PLAN/PLAN.XML"],
+      "id": "doctype-plan",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "6"
+      },
+      "values": ["PLAN05.DTD"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["MEET/MEET.XML"],
+      "id": "doctype-meet",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "6"
+      },
+      "values": ["MEET05.DTD"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["REGISTER/REGISTER.XML"],
+      "id": "doctype-register",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "6"
+      },
+      "values": ["REGIST06.DTD"]
+    },
+    {
+      "check": "delivery-doctype",
+      "folders": ["OTHRS/OTHRS.XML"],
+      "id": "doctype-others",
+      "level": "error",
+      "source": {
+        "document": "main",
+        "section": "6"
+      },
+      "values": ["OTHRS05.DTD"]
+    }
+  ],
+  "sources": {
+    "main": {
+      "checked": "2026-11-02",
+      "publisher": "国土交通省",
+      "title": "工事完成図書の電子納品等要領",
+      "url": "https://www.cals-ed.go.jp/mg/wp-content/uploads/const_R8.2_1.pdf",
+      "version": "令和 8 年 2 月"
+    }
+  },
+  "title": "工事完成図書の電子納品等要領"
+}

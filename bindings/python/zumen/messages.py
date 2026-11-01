@@ -4394,7 +4394,7 @@ class PointcloudPoints(_PointcloudPointsRequired, _PointcloudPointsOptional):
     "選んだ点。どの列も、選んだ点の順で同じ長さにする"
 
 
-# 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+# 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から
 _DeliveryCheckRequestRequired = TypedDict(
     "_DeliveryCheckRequestRequired",
     {
@@ -4433,7 +4433,7 @@ _DeliveryCheckRequestOptional = TypedDict(
 
 
 class DeliveryCheckRequest(_DeliveryCheckRequestRequired, _DeliveryCheckRequestOptional):
-    "電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から"
+    "電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から"
 
 
 # 成果品の要約と、照合の結果。照合の結果は check と同じ形

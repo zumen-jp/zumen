@@ -48,6 +48,32 @@ pub const CHECKS: &[(&str, &[&str])] = &[
             "work", "part", "slope", "mean", "each", "density", "exclude",
         ],
     ),
+    // 電子納品の成果品（決定 0241）。`delivery_check` の op だけで使う
+    (
+        "delivery-name",
+        &[
+            "folders",
+            "except",
+            "when",
+            "characters",
+            "stem",
+            "extension",
+            "folder",
+            "depth",
+        ],
+    ),
+    ("delivery-required", &["folders", "except", "when", "names"]),
+    ("delivery-link", &["folders", "except", "when"]),
+    ("delivery-unreferenced", &["folders", "except", "when"]),
+    (
+        "delivery-standard",
+        &["folders", "except", "when", "element", "values"],
+    ),
+    (
+        "delivery-characters",
+        &["folders", "except", "when", "fullwidth-alphanumerics"],
+    ),
+    ("delivery-doctype", &["folders", "except", "when", "values"]),
 ];
 
 /// 語彙を使わない照合
@@ -56,6 +82,13 @@ pub const WITHOUT_VOCABULARY: &[&str] = &[
     "orientation",
     "file-name",
     "surface-elevation",
+    "delivery-name",
+    "delivery-required",
+    "delivery-link",
+    "delivery-unreferenced",
+    "delivery-standard",
+    "delivery-characters",
+    "delivery-doctype",
 ];
 
 /// `tolerance` を書かないときに、同じとみなす差（mm、決定 0173）

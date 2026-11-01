@@ -11,7 +11,11 @@ publish = true
 formats = ["delivery"]
 
 [dependencies]
+# 管理ファイルの文字が JIS X 0208 にあるかを、Shift_JIS に直して確かめる
+encoding_rs = "0.8.35"
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-json = { version = "0.2.0", path = "../zumen-json" }
+zumen-profile = { version = "0.2.0", path = "../zumen-profile" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }

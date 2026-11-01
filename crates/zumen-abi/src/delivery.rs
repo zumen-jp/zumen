@@ -1,10 +1,10 @@
-//! 電子納品の成果品（決定 0241）の境界の処理。成果品を読み、管理ファイルの要約を返す。照合の種類は #384 で足す。
+//! 電子納品の成果品（決定 0241）の境界の処理。成果品を読み、管理ファイルの要約と、プロファイルの規則と照らした指摘を返す。
 
 use zumen_base::Cx;
 use zumen_delivery::{Package, Record};
 
-use crate::check::{identity_of, profile_failed};
-use crate::messages::{DeliveryCheckRequest, DeliveryCheckResult, DeliveryManaged};
+use crate::check::{LIMIT, finding_of, identity_of, profile_failed};
+use crate::messages::{CheckRule, DeliveryCheckRequest, DeliveryCheckResult, DeliveryManaged};
 use crate::session::{Failed, stopped};
 
 /// 成果品の入力
@@ -30,14 +30,26 @@ pub(crate) fn delivery_check(
         // ほかの理由は、読む処理が診断として足してある
         _ => Failed,
     })?;
-    let chain = match &request.profile {
-        None => Vec::new(),
+    let (chain, report) = match &request.profile {
+        None => (Vec::new(), zumen_delivery::Report::default()),
         Some(profile) => {
-            zumen_profile::rules(profiles, &profile.id, &profile.edition, cx)
-                .map_err(|error| profile_failed(cx, error))?
-                .0
+            let (chain, values) = zumen_profile::rules(profiles, &profile.id, &profile.edition, cx)
+                .map_err(|error| profile_failed(cx, error))?;
+            let report =
+                zumen_delivery::check(&package, &values, cx).map_err(|stop| stopped(cx, stop))?;
+            (chain, report)
         }
     };
+    let total = report.findings.len() as u64;
+    let start = request.offset.unwrap_or(0);
+    let end = start.saturating_add(request.limit.unwrap_or(LIMIT));
+    let findings = report
+        .findings
+        .iter()
+        .skip(usize::try_from(start).unwrap_or(usize::MAX))
+        .take(usize::try_from(end - start).unwrap_or(usize::MAX))
+        .map(finding_of)
+        .collect();
     Ok(DeliveryCheckResult {
         files: package.files.len() as u64,
         managed: package
@@ -57,10 +69,19 @@ pub(crate) fn delivery_check(
             })
             .collect(),
         chain: chain.into_iter().map(identity_of).collect(),
-        rules: Vec::new(),
-        findings: Vec::new(),
-        total: 0,
-        next_offset: None,
+        rules: report
+            .rules
+            .into_iter()
+            .map(|rule| CheckRule {
+                id: rule.id,
+                check: rule.check,
+                findings: rule.findings,
+                unsupported: rule.unsupported,
+            })
+            .collect(),
+        findings,
+        total,
+        next_offset: (end < total).then_some(end),
     })
 }
 

@@ -6,6 +6,8 @@
 | --- | --- | --- |
 | `mlit-cad` | [2025-12](mlit-cad/2025-12/profile.toml) | CAD製図基準（土木、令和 7 年 12 月） |
 | `mlit-earthwork` | [2026-03](mlit-earthwork/2026-03/profile.toml) | 土木工事施工管理基準及び規格値（案）の土工の面管理（令和 8 年 3 月） |
+| `mlit-delivery-const` | [2026-02](mlit-delivery-const/2026-02/profile.toml) | 工事完成図書の電子納品等要領（令和 8 年 2 月、`delivery_check` の op） |
+| `mlit-delivery-design` | [2026-02](mlit-delivery-design/2026-02/profile.toml) | 土木設計業務等の電子納品要領（令和 8 年 2 月、`delivery_check` の op） |
 
 ## 直し方
 

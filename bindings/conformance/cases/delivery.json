@@ -1,5 +1,5 @@
 {
-  "description": "delivery_check は、電子納品の成果品（決定 0241、#383）を、root の下の入力の名前の集まりか、ZIP の入力で受けて読み、管理ファイル（起点と直下のフォルダーの .XML）の DTD の名前・記録の数と、管理ファイルが指すが成果品にないファイルの名前を返す。管理ファイルは Shift_JIS でも読み、DTD は処理しない。照合の種類はまだない（#384）。",
+  "description": "delivery_check は、電子納品の成果品（決定 0241、#383）を、root の下の入力の名前の集まりか、ZIP の入力で受けて読み、管理ファイル（起点と直下のフォルダーの .XML）の DTD の名前・記録の数と、管理ファイルが指すが成果品にないファイルの名前を返す。管理ファイルは Shift_JIS でも読み、DTD は処理しない。プロファイルを渡すと、電子納品の照合の種類（#384）の規則と照らし、指摘を返す。",
   "module": "drawing",
   "steps": [
     {
@@ -62,6 +62,36 @@
         "/result/managed/0/missing": [
           "DRAWING/D0PL002Z.P21"
         ]
+      }
+    },
+    {
+      "push": {
+        "name": "profile.json",
+        "text": "{\n  \"edition\": \"2026-02\",\n  \"format\": \"0.1\",\n  \"id\": \"mlit-delivery-const\",\n  \"license\": \"CC-BY-4.0\",\n  \"revision\": 1,\n  \"rules\": [\n    {\n      \"characters\": \"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-\",\n      \"check\": \"delivery-name\",\n      \"except\": [\"BIMCIM/\", \"DRAWINGF/\", \"DRAWINGS/\", \"BORING/\", \"ICON/\"],\n      \"extension\": 4,\n      \"folder\": 8,\n      \"id\": \"name\",\n      \"level\": \"warning\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"6\"\n      },\n      \"stem\": 8\n    },\n    {\n      \"check\": \"delivery-name\",\n      \"depth\": 3,\n      \"folders\": [\"PLAN/\", \"MEET/\", \"REGISTER/\", \"OTHRS/\"],\n      \"id\": \"depth\",\n      \"level\": \"warning\",\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"section\": \"3\"\n      }\n    },\n    {\n      \"check\": \"delivery-required\",\n      \"id\": \"index\",\n      \"level\": \"error\",\n      \"names\": [\"INDEX_C.XML\"],\n      \"source\": {\n        \"document\": \"main\",\n        \"item\": \"表 4-1\",\n        \"section\": \"4\"\n      }\n    },\n    {\n      \"check\": \"delivery-required\",\n      \"id\": \"plan\",\n      \"level\": \"error\",\n      \"names\": [\"PLAN/PLAN.XML\"],\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"3\"\n      },\n      \"when\": \"PLAN/\"\n    },\n    {\n      \"check\": \"delivery-required\",\n      \"id\": \"meet\",\n      \"level\": \"error\",\n      \"names\": [\"MEET/MEET.XML\"],\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"3\"\n      },\n      \"when\": \"MEET/\"\n    },\n    {\n      \"check\": \"delivery-required\",\n      \"id\": \"register\",\n      \"level\": \"error\",\n      \"names\": [\"REGISTER/REGISTER.XML\", \"REGISTER/PRE-PIC.JPG\", \"REGISTER/POST-PIC.JPG\"],\n      \"source\": {\n        \"document\": \"main\",\n        \"item\": \"表 4-2\",\n        \"section\": \"4\"\n      },\n      \"when\": \"REGISTER/\"\n    },\n    {\n      \"check\": \"delivery-required\",\n      \"id\": \"others\",\n      \"level\": \"error\",\n      \"names\": [\"OTHRS/OTHRS.XML\"],\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"3\"\n      },\n      \"when\": \"OTHRS/\"\n    },\n    {\n      \"check\": \"delivery-link\",\n      \"folders\": [\"INDEX_C.XML\", \"PLAN/\", \"MEET/\", \"REGISTER/\", \"OTHRS/\"],\n      \"id\": \"link\",\n      \"level\": \"error\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"4\"\n      }\n    },\n    {\n      \"check\": \"delivery-unreferenced\",\n      \"folders\": [\"PLAN/ORG/\", \"MEET/ORG/\", \"OTHRS/\"],\n      \"id\": \"unreferenced\",\n      \"level\": \"warning\",\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"表 4-3\",\n        \"section\": \"4\"\n      }\n    },\n    {\n      \"check\": \"delivery-standard\",\n      \"element\": \"適用要領基準\",\n      \"folders\": [\"INDEX_C.XML\"],\n      \"id\": \"standard\",\n      \"level\": \"error\",\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"表 4-1\",\n        \"section\": \"4\"\n      },\n      \"values\": [\"土木202602-01\"]\n    },\n    {\n      \"check\": \"delivery-characters\",\n      \"folders\": [\"INDEX_C.XML\", \"PLAN/\", \"MEET/\", \"REGISTER/\", \"OTHRS/\"],\n      \"fullwidth-alphanumerics\": false,\n      \"id\": \"characters\",\n      \"level\": \"warning\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"8-2\"\n      }\n    },\n    {\n      \"check\": \"delivery-doctype\",\n      \"folders\": [\"INDEX_C.XML\"],\n      \"id\": \"doctype-index\",\n      \"level\": \"error\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"6\"\n      },\n      \"values\": [\"INDE_C09.DTD\"]\n    },\n    {\n      \"check\": \"delivery-doctype\",\n      \"folders\": [\"PLAN/PLAN.XML\"],\n      \"id\": \"doctype-plan\",\n      \"level\": \"error\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"6\"\n      },\n      \"values\": [\"PLAN05.DTD\"]\n    },\n    {\n      \"check\": \"delivery-doctype\",\n      \"folders\": [\"MEET/MEET.XML\"],\n      \"id\": \"doctype-meet\",\n      \"level\": \"error\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"6\"\n      },\n      \"values\": [\"MEET05.DTD\"]\n    },\n    {\n      \"check\": \"delivery-doctype\",\n      \"folders\": [\"REGISTER/REGISTER.XML\"],\n      \"id\": \"doctype-register\",\n      \"level\": \"error\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"6\"\n      },\n      \"values\": [\"REGIST06.DTD\"]\n    },\n    {\n      \"check\": \"delivery-doctype\",\n      \"folders\": [\"OTHRS/OTHRS.XML\"],\n      \"id\": \"doctype-others\",\n      \"level\": \"error\",\n      \"source\": {\n        \"document\": \"main\",\n        \"section\": \"6\"\n      },\n      \"values\": [\"OTHRS05.DTD\"]\n    }\n  ],\n  \"sources\": {\n    \"main\": {\n      \"checked\": \"2026-11-02\",\n      \"publisher\": \"国土交通省\",\n      \"title\": \"工事完成図書の電子納品等要領\",\n      \"url\": \"https://www.cals-ed.go.jp/mg/wp-content/uploads/const_R8.2_1.pdf\",\n      \"version\": \"令和 8 年 2 月\"\n    }\n  },\n  \"title\": \"工事完成図書の電子納品等要領\"\n}\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_check",
+        "root": "納品/",
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-delivery-const",
+          "edition": "2026-02"
+        },
+        "limit": 1
+      },
+      "expect": {
+        "/result/chain/0/id": "mlit-delivery-const",
+        "/result/total": 2,
+        "/result/next_offset": 1,
+        "/result/findings/0/rule": "standard",
+        "/result/findings/0/diagnostic/code": "profile.delivery-standard.unsupported",
+        "/result/findings/0/diagnostic/severity": "info",
+        "/diagnostics": []
       }
     },
     {

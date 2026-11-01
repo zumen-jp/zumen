@@ -9,7 +9,7 @@ use crate::messages::{self, CheckFinding, CheckRequest, CheckResult, CheckRule, 
 use crate::session::{Failed, fail, invalid_value, message_of};
 
 /// limit を書かなかったときに返す指摘の数
-const LIMIT: u64 = 1000;
+pub(crate) const LIMIT: u64 = 1000;
 
 /// 照合して、指摘の一部を返す。`profiles` は入力の名前とバイト列
 pub(crate) fn check(

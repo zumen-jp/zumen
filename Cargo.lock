@@ -502,7 +502,10 @@ dependencies = [
 name = "zumen-delivery"
 version = "0.2.0"
 dependencies = [
+ "encoding_rs",
  "zumen-base",
+ "zumen-json",
+ "zumen-profile",
  "zumen-sdk",
  "zumen-xml",
  "zumen-zip",

@@ -1700,6 +1700,62 @@ params = { rule = "text", density = "float", required = "float" }
 since = "0.2.0"
 status = "active"
 
+[codes."profile.delivery-name.invalid"]
+description = "成果品の中のフォルダーかファイルの名前が、規則の文字・長さ・深さを外れる（指摘、決定 0241）"
+severity = "warning"
+params = { rule = "text", name = "text", reason = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-required.invalid"]
+description = "規則が求めるファイルが成果品の中にない（指摘、決定 0241）"
+severity = "warning"
+params = { rule = "text", name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-link.invalid"]
+description = "管理ファイルが指すファイルが成果品の中にない（指摘、決定 0241）"
+severity = "warning"
+params = { rule = "text", managed = "text", name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-unreferenced.invalid"]
+description = "フォルダーの中のファイルを、どの管理ファイルも指さない（指摘、決定 0241）"
+severity = "warning"
+params = { rule = "text", name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-standard.invalid"]
+description = "管理ファイルの要素の値（適用要領基準など）が、規則の値のどれとも違う（指摘、決定 0241）"
+severity = "warning"
+params = { rule = "text", managed = "text", element = "text", found = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-standard.unsupported"]
+description = "管理ファイルに、規則が比べる要素がないので、確認できない（指摘、決定 0241）"
+severity = "info"
+params = { rule = "text", managed = "text", element = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-characters.invalid"]
+description = "管理ファイルの値に、規則の文字の範囲（JIS X 0208 など）の外の文字がある（指摘、決定 0241）"
+severity = "warning"
+params = { rule = "text", managed = "text", element = "text", character = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.delivery-doctype.invalid"]
+description = "管理ファイルの DTD の名前が、規則の名前のどれとも違うか、文書型宣言がない（指摘、決定 0241）"
+severity = "warning"
+params = { rule = "text", managed = "text", found = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."ids.file.invalid"]
 description = "IDS の XML の構造が、IDS 1.0 に合わない。near は合わなかった要素か属性"
 severity = "error"

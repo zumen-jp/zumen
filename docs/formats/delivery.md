@@ -24,7 +24,26 @@
 ## ファイルの名前の解決
 
 - 値がファイルの名前の形（空白を含まず、英字で始まる 1〜4 文字の英数字の拡張子を持つ）なら、管理ファイルのフォルダーにつないだ名前に解き、成果品の中にあるかを持つ。`4.0` のような数は、ファイルの名前にしない。
-- `delivery_check` は、管理ファイルごとに、ファイルの名前の形の値の数と、成果品の中に見つからない名前を返す。見つからないことを指摘にする照合は、#384 で足す。
+- そこになく、値がフォルダーを含まなければ、管理ファイルのフォルダーの下のフォルダー（`ORG`・`ORG001` など）で同じ名前のファイルを探し、1 つだけならそれに解く。
+- `delivery_check` は、管理ファイルごとに、ファイルの名前の形の値の数と、成果品の中に見つからない名前を返す。
+
+## 照合
+
+プロファイル（`profiles`・`profile`）を渡すと、`delivery-` で始まる照合の種類の規則と照らします（#384）。ほかの種類の規則（図面の照合など）は飛ばし、知らない `delivery-` の種類と読めない規則は `profile.rule.unsupported` を返して照らしません（決定 0179）。照合は `zumen-delivery` の `check` で、規則の値は `zumen-profile` の `rules` で解きます。
+
+どの種類も、`folders`（照らす名前の頭。書かなければすべて）・`except`（照らさない名前の頭）・`when`（この頭の名前のファイルがあるときだけ照らす）を書けます。
+
+| 種類 | 欄 | 指摘 |
+| --- | --- | --- |
+| `delivery-name` | `characters`・`stem`・`extension`・`folder`・`depth` | 名前の文字・拡張子を除いた長さ・拡張子の長さ・フォルダーの名前の長さ・部分の数が外れる（`profile.delivery-name.invalid`） |
+| `delivery-required` | `names` | 名前のファイルがない（`profile.delivery-required.invalid`） |
+| `delivery-link` | なし | 管理ファイルが指すファイルがない（`profile.delivery-link.invalid`） |
+| `delivery-unreferenced` | なし | どの管理ファイルも指さないファイル。管理ファイルそのものは除く（`profile.delivery-unreferenced.invalid`） |
+| `delivery-standard` | `element`・`values` | 要素の値が、どの値とも違う（`profile.delivery-standard.invalid`）。要素がなければ確認できない（`profile.delivery-standard.unsupported`、`info`） |
+| `delivery-characters` | `fullwidth-alphanumerics` | 値に、JIS X 0201 のラテン文字と JIS X 0208 の外の文字がある（`profile.delivery-characters.invalid`）。半角の片仮名、13 区の特殊文字、IBM の拡張は外。`fullwidth-alphanumerics = false` なら、全角の英数字も外 |
+| `delivery-doctype` | `values` | DTD の名前が、どの値とも違うか、文書型宣言がない（`profile.delivery-doctype.invalid`） |
+
+プロファイルは `profiles/mlit-delivery-const`（工事完成図書の電子納品等要領、令和 8 年 2 月）と `profiles/mlit-delivery-design`（土木設計業務等の電子納品要領、令和 8 年 2 月）です。適用要領基準の要素の名前は、表の項目の名前を選んだ値です（DTD を読まないので、実物で確かめていません）。
 
 ## 上限
 

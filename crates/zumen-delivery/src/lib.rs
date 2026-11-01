@@ -11,6 +11,10 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
 use zumen_sdk::Error;
 use zumen_xml::{Document, Element, Node};
 
+mod check;
+
+pub use check::{Report, check};
+
 /// 成果品
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Package {
@@ -241,7 +245,8 @@ impl Reader<'_> {
     }
 
     /// 値がファイルの名前の形（空白を含まず、英字で始まる 1〜4 文字の拡張子を持つ）なら、管理ファイルの
-    /// フォルダーからの名前に解く
+    /// フォルダーからの名前に解く。そこになく、値がフォルダーを含まなければ、管理ファイルのフォルダーの下の
+    /// フォルダー（`ORG` など）で同じ名前のファイルを探し、1 つだけならそれにする
     fn link(&self, value: &str) -> Option<Link> {
         let (stem, extension) = value.rsplit_once('.')?;
         let looks = !stem.is_empty()
@@ -259,7 +264,26 @@ impl Reader<'_> {
             Some(folder) => format!("{folder}/{value}"),
             None => value.to_string(),
         };
-        let found = self.package.file(&name).is_some();
-        Some(Link { name, found })
+        if self.package.file(&name).is_some() {
+            return Some(Link { name, found: true });
+        }
+        if let Some(folder) = self.folder
+            && !value.contains('/')
+        {
+            let head = format!("{folder}/");
+            let tail = format!("/{value}");
+            let mut below = self
+                .package
+                .files
+                .iter()
+                .filter(|file| file.name.starts_with(&head) && file.name.ends_with(&tail));
+            if let (Some(file), None) = (below.next(), below.next()) {
+                return Some(Link {
+                    name: file.name.clone(),
+                    found: true,
+                });
+            }
+        }
+        Some(Link { name, found: false })
     }
 }

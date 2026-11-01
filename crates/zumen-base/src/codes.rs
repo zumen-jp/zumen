@@ -2368,6 +2368,126 @@ pub const PROFILE_COLOR_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 管理ファイルの値に、規則の文字の範囲（JIS X 0208 など）の外の文字がある（指摘、決定 0241）
+///
+/// `profile.delivery-characters.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_CHARACTERS_INVALID: Code = Code::new(
+    "profile.delivery-characters.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("character", ParamType::Text),
+        Param::new("element", ParamType::Text),
+        Param::new("managed", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 管理ファイルの DTD の名前が、規則の名前のどれとも違うか、文書型宣言がない（指摘、決定 0241）
+///
+/// `profile.delivery-doctype.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_DOCTYPE_INVALID: Code = Code::new(
+    "profile.delivery-doctype.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("found", ParamType::Text),
+        Param::new("managed", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 管理ファイルが指すファイルが成果品の中にない（指摘、決定 0241）
+///
+/// `profile.delivery-link.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_LINK_INVALID: Code = Code::new(
+    "profile.delivery-link.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("managed", ParamType::Text),
+        Param::new("name", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 成果品の中のフォルダーかファイルの名前が、規則の文字・長さ・深さを外れる（指摘、決定 0241）
+///
+/// `profile.delivery-name.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_NAME_INVALID: Code = Code::new(
+    "profile.delivery-name.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 規則が求めるファイルが成果品の中にない（指摘、決定 0241）
+///
+/// `profile.delivery-required.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_REQUIRED_INVALID: Code = Code::new(
+    "profile.delivery-required.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 管理ファイルの要素の値（適用要領基準など）が、規則の値のどれとも違う（指摘、決定 0241）
+///
+/// `profile.delivery-standard.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_STANDARD_INVALID: Code = Code::new(
+    "profile.delivery-standard.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("found", ParamType::Text),
+        Param::new("managed", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 管理ファイルに、規則が比べる要素がないので、確認できない（指摘、決定 0241）
+///
+/// `profile.delivery-standard.unsupported`（0.2.0 から）
+pub const PROFILE_DELIVERY_STANDARD_UNSUPPORTED: Code = Code::new(
+    "profile.delivery-standard.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("managed", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
+/// フォルダーの中のファイルを、どの管理ファイルも指さない（指摘、決定 0241）
+///
+/// `profile.delivery-unreferenced.invalid`（0.2.0 から）
+pub const PROFILE_DELIVERY_UNREFERENCED_INVALID: Code = Code::new(
+    "profile.delivery-unreferenced.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
 /// extends の鎖が輪になっている
 ///
 /// `profile.extends.invalid`（0.0.0 から）
@@ -3567,6 +3687,14 @@ pub const ALL: &[Code] = &[
     PROFILE_CHARACTERS_INVALID,
     PROFILE_COLOR_INVALID,
     PROFILE_COLOR_UNSUPPORTED,
+    PROFILE_DELIVERY_CHARACTERS_INVALID,
+    PROFILE_DELIVERY_DOCTYPE_INVALID,
+    PROFILE_DELIVERY_LINK_INVALID,
+    PROFILE_DELIVERY_NAME_INVALID,
+    PROFILE_DELIVERY_REQUIRED_INVALID,
+    PROFILE_DELIVERY_STANDARD_INVALID,
+    PROFILE_DELIVERY_STANDARD_UNSUPPORTED,
+    PROFILE_DELIVERY_UNREFERENCED_INVALID,
     PROFILE_EXTENDS_INVALID,
     PROFILE_EXTENDS_MISSING,
     PROFILE_FILE_NAME_INVALID,
