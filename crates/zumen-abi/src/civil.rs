@@ -340,6 +340,10 @@ pub(crate) fn civil_drawing(
     .ok_or_else(|| fail(cx, invalid_value("/sheet")))?;
     // DXF には用紙を 1 枚だけ書けるので、選んだ用紙を先頭に置き、ほかは除く
     let sheet = drawing.sheets.swap_remove(index);
+    // 選んだ用紙が置く空間だけを残す。ほかの用紙の空間をモデル空間に重ねて書かない（決定 0240）
+    drawing
+        .spaces
+        .retain(|space| sheet.views.iter().any(|view| view.space == space.id));
     drawing.sheets = vec![sheet];
     let result = CivilDrawingResult {
         doc: request.to.clone(),

@@ -188,7 +188,11 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
             }
         }
     }
-    for space in &drawing.spaces {
+    for space in drawing
+        .spaces
+        .iter()
+        .filter(|space| modelled(drawing, space.id))
+    {
         for element in &space.elements {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
             maps.element(element, &model, &mut edits, &mut lost);
@@ -237,6 +241,9 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     let Some(view) = sheet.views.get(index) else {
                         continue;
                     };
+                    if port(view, sheet).is_some() {
+                        continue;
+                    }
                     let space = drawing.spaces.iter().find(|space| space.id == view.space);
                     let Some(space) = space.filter(|_| bake::bakes(view)) else {
                         lost.add("view");
@@ -764,9 +771,122 @@ fn template(
             "0\nPOINT\n5\n{handle}\n8\n0\n67\n1\n10\n0.0\n20\n0.0\n30\n0.0\n"
         ));
     }
+    if let Some(sheet) = drawing.sheets.first() {
+        out.push_str(&viewports(sheet, mm, &mut next));
+    }
     out.push_str("0\nENDSEC\n0\nEOF\n");
     let placeholder = placeholder.and_then(|handle| u64::from_str_radix(&handle, 16).ok());
     (out.into_bytes(), placeholder)
+}
+
+/// 実寸の空間 `space` を、DXF のモデル空間に書くか。どの用紙のビューにも置かれない空間と、書く用紙（1 枚目）が
+/// 焼き込まないビューで置く空間を書く。焼き込むビューだけが置く空間は、用紙に焼き込んだ要素と重ねて書かない
+/// （決定 0240）
+fn modelled(drawing: &Drawing2D, space: SpaceId) -> bool {
+    let mut views = drawing
+        .sheets
+        .iter()
+        .flat_map(|sheet| &sheet.views)
+        .filter(|view| view.space == space)
+        .peekable();
+    views.peek().is_none()
+        || drawing.sheets.first().is_some_and(|sheet| {
+            sheet
+                .views
+                .iter()
+                .any(|view| view.space == space && !bake::bakes(view))
+        })
+}
+
+/// DXF の VIEWPORT で書けるビューの、用紙の中心と幅・高さ（mm）と、実寸の中心と高さ
+struct Port {
+    center: [f64; 2],
+    size: [f64; 2],
+    target: [f64; 2],
+    height: f64,
+}
+
+/// ビューを VIEWPORT で書けるなら、その値（決定 0240）。読む側（`zumen-acad`）が扱う形に合わせ、回転と鏡映の
+/// ない相似で、表示しないレイヤを持たないものだけを書く。枠は、切り抜きが軸に沿った長方形ならそれ、切り抜きが
+/// なければ用紙の全体にする
+fn port(view: &zumen_drawing::View, sheet: &zumen_drawing::Sheet) -> Option<Port> {
+    let similar = view.transform.similarity()?;
+    let turned = similar.rotation.rem_euclid(360.0);
+    if similar.mirrored || turned.min(360.0 - turned) > 1e-9 || !view.hidden_layers.is_empty() {
+        return None;
+    }
+    let [x0, y0, x1, y1] = match view.clip.as_slice() {
+        [] => {
+            let [width, height] = sheet.size?;
+            [0.0, 0.0, width.0, height.0]
+        }
+        corners @ [_, _, _, _] => {
+            let xs = corners.iter().map(|p| p.x);
+            let ys = corners.iter().map(|p| p.y);
+            let box_ = [
+                xs.clone().fold(f64::INFINITY, f64::min),
+                ys.clone().fold(f64::INFINITY, f64::min),
+                xs.fold(f64::NEG_INFINITY, f64::max),
+                ys.fold(f64::NEG_INFINITY, f64::max),
+            ];
+            let on = |v: f64, a: f64, b: f64| v == a || v == b;
+            corners
+                .iter()
+                .all(|p| on(p.x, box_[0], box_[2]) && on(p.y, box_[1], box_[3]))
+                .then_some(box_)?
+        }
+        _ => return None,
+    };
+    let size = [x1 - x0, y1 - y0];
+    if !(size.iter().all(|v| v.is_finite() && *v > 0.0)) {
+        return None;
+    }
+    let center = [(x0 + x1) / 2.0, (y0 + y1) / 2.0];
+    let [_, _, c, _, _, f] = view.transform.m;
+    let scale = similar.scale;
+    Some(Port {
+        center,
+        size,
+        target: [(center[0] - c) / scale, (center[1] - f) / scale],
+        height: size[1] / scale,
+    })
+}
+
+/// 用紙のビューのうち VIEWPORT で書けるものと、用紙そのものを表すビューポート（69 = 1）。用紙の値は、図面の
+/// 単位（1 単位が `mm` mm）で書く
+fn viewports(sheet: &zumen_drawing::Sheet, mm: f64, next: &mut impl FnMut() -> String) -> String {
+    let ports: Vec<Port> = sheet
+        .views
+        .iter()
+        .filter_map(|view| port(view, sheet))
+        .collect();
+    if ports.is_empty() {
+        return String::new();
+    }
+    let entity = |handle: String, id: usize, port: &Port| {
+        let [cx, cy] = port.center.map(|v| v / mm);
+        let [width, height] = port.size.map(|v| v / mm);
+        let [tx, ty] = port.target;
+        format!(
+            "0\nVIEWPORT\n5\n{handle}\n8\n0\n67\n1\n10\n{cx:?}\n20\n{cy:?}\n30\n0.0\n40\n{width:?}\n41\n{height:?}\n68\n1\n69\n{id}\n12\n{tx:?}\n22\n{ty:?}\n45\n{:?}\n",
+            port.height
+        )
+    };
+    let mut out = String::new();
+    // 用紙そのもののビューポートは、用紙の全体を用紙の単位で映す
+    if let Some([width, height]) = sheet.size {
+        let whole = Port {
+            center: [width.0 / 2.0, height.0 / 2.0],
+            size: [width.0, height.0],
+            target: [width.0 / 2.0 / mm, height.0 / 2.0 / mm],
+            height: height.0 / mm,
+        };
+        out.push_str(&entity(next(), 1, &whole));
+    }
+    for (index, port) in ports.iter().enumerate() {
+        out.push_str(&entity(next(), index + 2, port));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -896,5 +1016,62 @@ mod tests {
             };
             assert!(written.iter().any(same), "{shape:?}");
         }
+    }
+
+    #[test]
+    fn a_plan_view_is_written_as_a_viewport_and_reads_back_the_same() {
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let (read, view) = {
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let model = model();
+            let mut drawing = zumen_civil_drawing::drawing(
+                &model,
+                &model.alignments[0],
+                &zumen_civil_drawing::Options::default(),
+                &mut cx,
+            )
+            .unwrap();
+            // 平面図の用紙だけを書く
+            drawing.sheets.truncate(1);
+            let view = drawing.sheets[0].views[0].clone();
+            assert!(port(&view, &drawing.sheets[0]).is_some());
+            let Ok(converted) = to_dxf(&drawing, &mut cx) else {
+                panic!("書けない");
+            };
+            let Ok(read) = lift(&converted.file, &mut cx) else {
+                panic!("読めない");
+            };
+            (read, view)
+        };
+        let codes: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert!(
+            !codes.contains(&codes::CONVERT_VIEW_APPROXIMATED),
+            "{codes:?}"
+        );
+        let [found] = read.sheets[0].views.as_slice() else {
+            panic!("{:?}", read.sheets[0].views);
+        };
+        for (a, b) in found.transform.m.iter().zip(view.transform.m) {
+            assert!(
+                (a - b).abs() < 1e-9,
+                "{:?} {:?}",
+                found.transform,
+                view.transform
+            );
+        }
+        // 平面図の空間の線形は、モデル空間に書く
+        let space = read
+            .spaces
+            .iter()
+            .find(|space| space.id == found.space)
+            .unwrap();
+        assert!(
+            space
+                .elements
+                .iter()
+                .any(|e| matches!(e.shape, Shape::Line { .. } | Shape::Polyline(_)))
+        );
     }
 }

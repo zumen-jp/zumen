@@ -273,3 +273,4 @@
 - [0237: 日本測地系と JGD2000 の座標は、利用者が渡す TKY2JGD・PatchJGD の格子で経緯度を直して JGD2011 にする](0237-datum-transformations.md)（2026-11-02、採用）
 - [0238: 横と縦の尺度の違うビューは、DXF に書くとき用紙の要素に焼き込む](0238-bake-anisotropic-views.md)（2026-11-02、採用）
 - [0239: 土木の図の作図の値はプロファイルの語彙から読み、civil_drawing の op で DXF の文書にする](0239-civil-drawing-op.md)（2026-11-02、採用）
+- [0240: 相似のビューは DXF のビューポートで書き、モデル空間には書く用紙が焼き込まずに見せる空間だけを書く](0240-write-similar-views-as-viewports.md)（2026-11-02、採用）

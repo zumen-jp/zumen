@@ -1,5 +1,5 @@
 {
-  "description": "civil_drawing は、J-LandXML の線形から平面図・縦断図・横断図を作り、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239、#470）。プロファイルを渡さなければ作図の慣習の値を使う。プロファイルの civil-drawing の語彙で縦断図の尺度と測点の間隔を、text-height の語彙で文字の高さを決める（2.5 mm が語彙にないので、次に大きい 3.5 mm）。作った文書は scene に渡せる。",
+  "description": "civil_drawing は、J-LandXML の線形から平面図・縦断図・横断図を作り、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239、#470）。プロファイルを渡さなければ作図の慣習の値を使う。プロファイルの civil-drawing の語彙で縦断図の尺度と測点の間隔を、text-height の語彙で文字の高さを決める（2.5 mm が語彙にないので、次に大きい 3.5 mm）。作った文書は scene に渡せる。平面図は、相似のビューをビューポートで書くので、用紙に線がなくても scene に線形の線が出る（決定 0240、#480）。",
   "module": "drawing",
   "steps": [
     {
@@ -34,6 +34,30 @@
         "/result/options/plan": 1000,
         "/result/options/text_height": 2.5,
         "/result/options/station_pitch": 20
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "plan.dxf"
+      },
+      "expect": {
+        "/result/sheets/0/views": 1,
+        "/result/sheets/0/elements/lines": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "plan.dxf",
+        "from": "sheet/0"
+      },
+      "expect": {
+        "/result/from": "sheet/0",
+        "/result/counts/lines": 8,
+        "/blobs/0/kind": "scene"
       }
     },
     {
