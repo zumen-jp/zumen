@@ -269,3 +269,69 @@ fn every_sheet_draws_in_the_scene() {
     assert_eq!(out.sheets[1].id, SheetId(1));
     assert_eq!(out.spaces[1].id, SpaceId(1));
 }
+
+#[test]
+fn vertical_arcs_and_clothoids_are_drawn_at_the_computed_heights() {
+    let mut line = alignment();
+    line.cross_sections.clear();
+    let arc = Vertical {
+        start_distance: 0.0,
+        start_height: 50.0,
+        start_gradient: 0.03,
+        length: 100.0,
+        kind: VerticalKind::CircularArc { radius: 2000.0 },
+        source: Ref::default(),
+    };
+    // クロソイドは、円弧の終わりの高さと勾配から続ける
+    let (height, gradient) = zumen_civil::elevation(0, &arc, 100.0).unwrap();
+    line.vertical = vec![
+        arc,
+        Vertical {
+            start_distance: 100.0,
+            start_height: height,
+            start_gradient: gradient,
+            length: 60.0,
+            kind: VerticalKind::Clothoid {
+                start_radius: Some(-3000.0),
+                end_radius: None,
+            },
+            source: Ref::default(),
+        },
+    ];
+    let model = CivilModel {
+        alignments: vec![line],
+        ..CivilModel::default()
+    };
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    {
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let out = drawing(&model, &model.alignments[0], &Options::default(), &mut cx).unwrap();
+        let profile = &out.spaces[1];
+        let curves: Vec<_> = profile
+            .elements
+            .iter()
+            .filter_map(|e| match &e.shape {
+                Shape::Polyline(polyline) => Some(polyline),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(curves.len(), 2);
+        for polyline in curves {
+            assert!(polyline.vertices.len() > 2);
+            for vertex in &polyline.vertices {
+                let found = zumen_civil::place(&model.alignments[0], vertex.point.x, &mut cx)
+                    .unwrap()
+                    .height
+                    .unwrap();
+                assert!((found - vertex.point.y).abs() < 1e-9, "{vertex:?} {found}");
+            }
+        }
+    }
+    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+    assert!(
+        !codes.contains(&codes::CIVIL_CURVE_UNSUPPORTED),
+        "{codes:?}"
+    );
+}

@@ -273,6 +273,31 @@ fn map(point: [f64; 2]) -> ModelPoint {
 }
 
 /// 弦の誤差が `tolerance` より小さくなる刻みの数。`curvature` はいちばん大きい曲率
+/// 縦断の円弧とクロソイドの区間を、曲率 `curvature` で決めた刻みで点にする（決定 0236）。高さを計算できなければ、
+/// 理由を知らせて `None`
+fn curve(
+    index: usize,
+    segment: &Vertical,
+    curvature: f64,
+    tolerance: f64,
+    cx: &mut Cx<'_>,
+) -> Result<Option<Vec<[f64; 2]>>, Stop> {
+    let steps = steps(segment.length, curvature, tolerance);
+    cx.check(Kind::Elements, steps as u64)?;
+    let mut points = Vec::with_capacity(steps + 1);
+    for step in 0..=steps {
+        let u = segment.length * step as f64 / steps as f64;
+        match zumen_civil::elevation(index, segment, u) {
+            Ok((height, _)) => points.push([segment.start_distance + u, height]),
+            Err(diagnostic) => {
+                cx.report(*diagnostic);
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(points))
+}
+
 fn steps(length: f64, curvature: f64, tolerance: f64) -> usize {
     let step = if curvature > 0.0 && tolerance > 0.0 {
         libm::sqrt(8.0 * tolerance / curvature)
@@ -612,18 +637,27 @@ fn profile(alignment: &Alignment, options: &Options, cx: &mut Cx<'_>) -> Result<
                     .collect();
                 polyline(points, false)
             }
-            VerticalKind::CircularArc { .. } | VerticalKind::Clothoid { .. } => {
-                let curve = if matches!(segment.kind, VerticalKind::CircularArc { .. }) {
-                    "circular_arc"
-                } else {
-                    "clothoid"
+            VerticalKind::CircularArc { radius } => {
+                let Some(points) = curve(index, segment, 1.0 / radius.abs(), tolerance, cx)? else {
+                    continue;
                 };
-                cx.report(
-                    Diagnostic::new(codes::CIVIL_CURVE_UNSUPPORTED)
-                        .with("index", index as u64)
-                        .with("curve", curve),
-                );
-                continue;
+                corners.extend(points.iter().map(|[d, h]| [*d, *h]));
+                polyline(points.iter().map(|[d, h]| point(*d, *h)).collect(), false)
+            }
+            VerticalKind::Clothoid {
+                start_radius,
+                end_radius,
+            } => {
+                let sharpest = [start_radius, end_radius]
+                    .iter()
+                    .flatten()
+                    .map(|radius| 1.0 / radius.abs())
+                    .fold(0.0, f64::max);
+                let Some(points) = curve(index, segment, sharpest, tolerance, cx)? else {
+                    continue;
+                };
+                corners.extend(points.iter().map(|[d, h]| [*d, *h]));
+                polyline(points.iter().map(|[d, h]| point(*d, *h)).collect(), false)
             }
         };
         corners.extend([[d0, h0], [d0 + length, h0 + g0 * length]]);

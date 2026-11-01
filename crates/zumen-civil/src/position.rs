@@ -180,37 +180,41 @@ fn height(segments: &[Vertical], distance: f64) -> Result<Option<(f64, f64)>, Bo
         if !(0.0..=segment.length).contains(&u) {
             continue;
         }
-        let (h0, g0) = (segment.start_height, segment.start_gradient);
-        return match segment.kind {
-            VerticalKind::ConstantGradient => Ok(Some((h0 + g0 * u, g0))),
-            VerticalKind::Parabola { end_gradient } => {
-                let change = (end_gradient - g0) / segment.length;
-                Ok(Some((h0 + g0 * u + change * u * u / 2.0, g0 + change * u)))
-            }
-            VerticalKind::CircularArc { radius } => arc(h0, g0, radius, u)
-                .map(Some)
-                .ok_or_else(|| invalid(index, "radius")),
-            VerticalKind::Clothoid {
-                start_radius,
-                end_radius,
-            } => {
-                // 縦断の面（追加距離と高さ）で、上に凸に曲がるものは時計回りなので、曲率を負にする
-                let inverse = |radius: Option<f64>, field| match radius {
-                    None => Ok(0.0),
-                    Some(radius) if radius.is_finite() && radius != 0.0 => Ok(-1.0 / radius),
-                    Some(_) => Err(invalid(index, field)),
-                };
-                let curvatures = [
-                    inverse(start_radius, "start_radius")?,
-                    inverse(end_radius, "end_radius")?,
-                ];
-                clothoid(h0, g0, curvatures, segment.length, u)
-                    .map(Some)
-                    .ok_or_else(|| invalid(index, "length"))
-            }
-        };
+        return elevation(index, segment, u).map(Some);
     }
     Ok(None)
+}
+
+/// 縦断線形の区間 `segment`（`index` 番目）の、初めから水平に `u` の所の高さと勾配。区間の値が使えなければ、
+/// 理由の診断を返す
+pub fn elevation(index: usize, segment: &Vertical, u: f64) -> Result<(f64, f64), Box<Diagnostic>> {
+    let (h0, g0) = (segment.start_height, segment.start_gradient);
+    match segment.kind {
+        VerticalKind::ConstantGradient => Ok((h0 + g0 * u, g0)),
+        VerticalKind::Parabola { end_gradient } => {
+            let change = (end_gradient - g0) / segment.length;
+            Ok((h0 + g0 * u + change * u * u / 2.0, g0 + change * u))
+        }
+        VerticalKind::CircularArc { radius } => {
+            arc(h0, g0, radius, u).ok_or_else(|| invalid(index, "radius"))
+        }
+        VerticalKind::Clothoid {
+            start_radius,
+            end_radius,
+        } => {
+            // 縦断の面（追加距離と高さ）で、上に凸に曲がるものは時計回りなので、曲率を負にする
+            let inverse = |radius: Option<f64>, field| match radius {
+                None => Ok(0.0),
+                Some(radius) if radius.is_finite() && radius != 0.0 => Ok(-1.0 / radius),
+                Some(_) => Err(invalid(index, field)),
+            };
+            let curvatures = [
+                inverse(start_radius, "start_radius")?,
+                inverse(end_radius, "end_radius")?,
+            ];
+            clothoid(h0, g0, curvatures, segment.length, u).ok_or_else(|| invalid(index, "length"))
+        }
+    }
 }
 
 /// 縦断の円弧の、初めから水平に `u` の所の高さと勾配。半径は上に凸のものを正にする。勾配の角を θ とすると、
