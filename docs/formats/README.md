@@ -14,8 +14,11 @@
 | --- | --- | --- | --- | --- | --- |
 | [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` |
 | [bebridge](#format-bebridge) | BE-Bridge | bebridge | building | `unknown` | `none` |
+| [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |
 | [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` |
+| [csv](#format-csv) | CSV | csv | delivery | `public` | `core` |
+| [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` |
 | [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` |
@@ -24,17 +27,21 @@
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` |
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` |
 | [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` |
+| [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `core` |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `core` |
 | [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` |
+| [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` |
+| [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |
 | [sxf](#format-sxf) | SXF | sxf | drawing | `public` | `core` |
+| [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `core` |
 | [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` |
 
 ## 仕様の入手先
@@ -126,6 +133,73 @@
 - 確認日: 2026-11-01
 - 補足: 買う。販売のページは、規格を AI で扱うことを禁じる。本文は読まない
 
+### spec-ecma_376_5
+
+- 名前: ECMA-376 Office Open XML File Formats
+- 公開元: Ecma International
+- 版: 第 5 版（Part 1 は 2016-12、Part 2 は 2021-12）
+- 入手の条件: 無償公開
+- 入手先: [ECMA-376 Office Open XML File Formats](https://ecma-international.org/publications-and-standards/standards/ecma-376/)
+- 確認日: 2026-11-01
+
+### spec-ed_boring_r8_2
+
+- 名前: 地質・土質調査成果電子納品要領（ボーリング交換用データ BED0500.DTD を含む）
+- 公開元: 国土交通省
+- 版: 令和 8 年 2 月
+- 入手の条件: 無償公開
+- 入手先: [地質・土質調査成果電子納品要領（ボーリング交換用データ BED0500.DTD を含む）](https://www.cals-ed.go.jp/cri_point/)
+- 確認日: 2026-11-01
+- 補足: DTD は https://www.cals-ed.go.jp/cri\_dtdxml/ の boring\_R8.2.zip に入っている
+
+### spec-ed_const_r8_2
+
+- 名前: 工事完成図書の電子納品等要領
+- 公開元: 国土交通省
+- 版: 令和 8 年 2 月（令和 8 年 4 月 1 日から契約する工事に適用）
+- 入手の条件: 無償公開
+- 入手先: [工事完成図書の電子納品等要領](https://www.cals-ed.go.jp/cri_point/)
+- 確認日: 2026-11-01
+- 補足: 管理ファイルの DTD と作成例は https://www.cals-ed.go.jp/cri\_dtdxml/ に置く。頁の転載と改変を禁じるので、DTD は同梱しない
+
+### spec-ed_design_r8_2
+
+- 名前: 土木設計業務等の電子納品要領
+- 公開元: 国土交通省
+- 版: 令和 8 年 2 月
+- 入手の条件: 無償公開
+- 入手先: [土木設計業務等の電子納品要領](https://www.cals-ed.go.jp/cri_point/)
+- 確認日: 2026-11-01
+
+### spec-ed_eizen_r3
+
+- 名前: 営繕工事電子納品要領・建築設計業務等電子納品要領
+- 公開元: 国土交通省大臣官房官庁営繕部
+- 版: 令和 3 年改定
+- 入手の条件: 無償公開
+- 入手先: [営繕工事電子納品要領・建築設計業務等電子納品要領](https://www.mlit.go.jp/gobuild/gobuild_tk2_000017.html)
+- 確認日: 2026-11-01
+- 補足: 管理ファイルの DTD の置き場所は確かめられない
+
+### spec-ed_photo_r5_3
+
+- 名前: デジタル写真管理情報基準
+- 公開元: 国土交通省
+- 版: 令和 5 年 3 月（正誤の修正 2023-12-01）
+- 入手の条件: 無償公開
+- 入手先: [デジタル写真管理情報基準](https://www.cals-ed.go.jp/cri_point/)
+- 確認日: 2026-11-01
+
+### spec-exif_3_1
+
+- 名前: CIPA DC-008 Exchangeable image file format for digital still cameras: Exif
+- 公開元: 一般社団法人カメラ映像機器工業会（CIPA）
+- 版: DC-008-2026（Exif 3.1、2026-01-30）
+- 入手の条件: 無償公開
+- 入手先: [CIPA DC-008 Exchangeable image file format for digital still cameras: Exif](https://www.cipa.jp/e/std/std-sec.html)
+- 確認日: 2026-11-01
+- 補足: XMP での Exif は CIPA DC-010-2026
+
 ### spec-extdm_a1_291
 
 - 名前: 拡張ディジタルマッピング実装規約（案）改訂版（技術資料 A1-No.291）
@@ -214,6 +288,16 @@
 - 確認日: 2026-11-01
 - 補足: PDF に XSD の本文を載せる。著作権と複製の記述は見当たらない。国土交通省も同じ PDF を載せる
 
+### spec-jpeg_t81
+
+- 名前: ITU-T T.81 Digital compression and coding of continuous-tone still images
+- 公開元: ITU-T
+- 版: 09/92
+- 入手の条件: 有償
+- 入手先: [ITU-T T.81 Digital compression and coding of continuous-tone still images](https://www.itu.int/rec/T-REC-T.81)
+- 確認日: 2026-11-01
+- 補足: ITU の頁は有償とする。JPEG の展開は許容のライセンスの crate に任せる
+
 ### spec-jww_7_02
 
 - 名前: Jw\_cad のデータ形式（jwdatafmt.txt）
@@ -222,6 +306,16 @@
 - 入手の条件: 無償公開
 - 入手先: [Jw\_cad のデータ形式（jwdatafmt.txt）](https://www.jwcad.net/jwdatafmt.txt)
 - 確認日: 2026-10-24
+
+### spec-kokuban_jcomsia
+
+- 名前: デジタル工事写真の小黒板情報連携機能の実装規約と信憑性確認（改ざん検知機能）
+- 公開元: 一般社団法人施工管理ソフトウェア産業協会（J-COMSIA）
+- 版: Ver.1.1（版の日付は確かめられない）
+- 入手の条件: 会員などに限定
+- 入手先: [デジタル工事写真の小黒板情報連携機能の実装規約と信憑性確認（改ざん検知機能）](https://www.jcomsia.org/kokuban)
+- 確認日: 2026-11-01
+- 補足: 公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）
 
 ### spec-las_1_4_r15
 
@@ -262,6 +356,15 @@
 - 確認日: 2026-11-01
 - 補足: サイトの内容は PDL 1.0。CityGML 3.0 に合わせた応用スキーマの案も公開している
 
+### spec-rfc_4180
+
+- 名前: RFC 4180 Common Format and MIME Type for Comma-Separated Values (CSV) Files
+- 公開元: IETF
+- 版: 2005-10
+- 入手の条件: 無償公開
+- 入手先: [RFC 4180 Common Format and MIME Type for Comma-Separated Values (CSV) Files](https://www.rfc-editor.org/rfc/rfc4180)
+- 確認日: 2026-11-01
+
 ### spec-stbridge_2_1_1
 
 - 名前: ST-Bridge XML ファイル仕様書
@@ -291,6 +394,16 @@
 - 確認日: 2026-10-24
 - 補足: 2026-10-24 はサイトにつながらず、Internet Archive の 2026-02-04 の写しで確かめた
 
+### spec-xmp_2012
+
+- 名前: XMP Specification Part 1
+- 公開元: Adobe
+- 版: 2012-04
+- 入手の条件: 無償公開
+- 入手先: [XMP Specification Part 1](https://github.com/adobe/XMP-Toolkit-SDK)
+- 確認日: 2026-11-01
+- 補足: XMP Specification Public Patent License で出している。ISO 16684-1:2019 は有償
+
 ## 形式ごとの根拠と記録
 
 ### format-bcf
@@ -309,6 +422,16 @@
 - 仕様: [bebridge\_6\_1](#spec-bebridge_6_1)
 - 権利の根拠にした文書: [BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」](https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf)（確認日: 2026-10-24）
 - issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
+
+### format-boring
+
+- 名前: ボーリング交換用データ（BED）
+- 権利の根拠: 国土交通省が要領と DTD を無償で公開している。実装を制限する記述はない。DTD は転載が禁じられているので同梱しない
+- 仕様: [ed\_boring\_r8\_2](#spec-ed_boring_r8_2)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-01）
+- サンプルの出どころ（Git に入れない）: 国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる
+- issue: [zumen-jp/zumen#390](https://github.com/zumen-jp/zumen/issues/390)
 
 ### format-cedxm
 
@@ -329,6 +452,28 @@
 - サンプルの出どころ（Git に入れない）: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない
 - 既知の crate: nusamai-citygml・ecitygml-io
 - issue: [zumen-jp/zumen#379](https://github.com/zumen-jp/zumen/issues/379)
+
+### format-csv
+
+- 名前: CSV
+- 権利の根拠: IETF の RFC で、誰でも読める。実装を制限する記述はない
+- 仕様: [rfc\_4180](#spec-rfc_4180)
+- 実装の根拠: spec
+- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
+
+### format-delivery
+
+- 名前: 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など）
+- 権利の根拠: 国土交通省が要領・基準と DTD を誰でも無償で入手できる形で公開している。実装を制限する記述はない。電子納品の頁は転載と改変を禁じるので、DTD・作成例・本文は写さず同梱しない
+- 仕様: [ed\_const\_r8\_2](#spec-ed_const_r8_2)、[ed\_design\_r8\_2](#spec-ed_design_r8_2)、[ed\_eizen\_r3](#spec-ed_eizen_r3)、[ed\_photo\_r5\_3](#spec-ed_photo_r5_3)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [国土交通省 電子納品に関する要領・基準の「リンク・著作権」](https://www.cals-ed.go.jp/copyright/)（確認日: 2026-11-01）
+- 照合するソフト: 国土交通省の電子納品チェックシステム（手元でだけ使う）
+- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る
+- issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
+- issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
+- issue: [zumen-jp/zumen#388](https://github.com/zumen-jp/zumen/issues/388)
 
 ### format-dwg
 
@@ -436,6 +581,15 @@
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 
+### format-jpeg
+
+- 名前: 工事写真（JPEG と Exif・XMP）
+- 権利の根拠: Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP の区画だけを読む
+- 仕様: [jpeg\_t81](#spec-jpeg_t81)、[exif\_3\_1](#spec-exif_3_1)、[xmp\_2012](#spec-xmp_2012)
+- 実装の根拠: spec
+- サンプルの出どころ（Git に入れない）: 個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる
+- issue: [zumen-jp/zumen#387](https://github.com/zumen-jp/zumen/issues/387)
+
 ### format-jwc
 
 - 名前: JWC（Jw\_cad for DOS の図面）
@@ -474,6 +628,16 @@
 - 記録: [決定 0135](../decisions/0135-jww-blocks-and-dimensions.md)
 - 記録: [決定 0136](../decisions/0136-jww-images-and-edit-state.md)
 - 形式の文書: [docs/formats/jww.md](../../docs/formats/jww.md)
+
+### format-kokuban
+
+- 名前: 電子小黒板の情報と信憑性確認（改ざん検知）
+- 権利の根拠: J-COMSIA の実装規約は公開されておらず、協会の会員か検定を受けるソフトの作り手に出すものとみられる。改ざん検知は SHA-256 のハッシュを使うとだけ公開している。zumen は規約を持たない
+- 仕様: [kokuban\_jcomsia](#spec-kokuban_jcomsia)
+- 権利の根拠にした文書: [J-COMSIA の合格ソフトの一覧（信憑性確認の Ver.1 と Ver.1.1）](https://www.jcomsia.org/kokuban/software/?v=2)（確認日: 2026-11-01）
+- 権利の根拠にした文書: [J-COMSIA の入会の案内](https://www.jcomsia.org/nyukai/)（確認日: 2026-11-01）
+- 照合するソフト: J-COMSIA の信憑性チェックツール（利用の登録が要る）
+- issue: [zumen-jp/zumen#389](https://github.com/zumen-jp/zumen/issues/389)
 
 ### format-landxml
 
@@ -522,6 +686,15 @@
 - 照合するソフト: CloudCompare・MeshLab
 - サンプルの出どころ（Git に入れない）: 試験の中で作る
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+
+### format-saf
+
+- 名前: SXF の属性ファイル（SAF）
+- 権利の根拠: SXF Ver.3.1 仕様書の附属書（属性付加機構）に含まれ、SXF と同じ扱い。実装を制限する記述はない。附属書の名前は解説の記事で確かめた
+- 仕様: [sxf\_3\_1](#spec-sxf_3_1)
+- 実装の根拠: spec
+- 照合するソフト: SXF ブラウザ
+- issue: [zumen-jp/zumen#386](https://github.com/zumen-jp/zumen/issues/386)
 
 ### format-sima
 
@@ -577,6 +750,15 @@
 - 記録: [決定 0131](../decisions/0131-sxf-attribute-mechanism.md)
 - 記録: [決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
+
+### format-xlsx
+
+- 名前: Excel の表（xlsx）
+- 権利の根拠: Ecma International が ECMA-376 を無償で公開している。実装を制限する記述はない
+- 仕様: [ecma\_376\_5](#spec-ecma_376_5)
+- 実装の根拠: spec
+- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
 
 ### format-xyz
 

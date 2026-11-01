@@ -232,6 +232,101 @@ url = "https://store.astm.org/e2807-11r26.html"
 checked = "2026-11-01"
 note = "買う。販売のページは、規格を AI で扱うことを禁じる。本文は読まない"
 
+[specs.ed_const_r8_2]
+title = "工事完成図書の電子納品等要領"
+publisher = "国土交通省"
+version = "令和 8 年 2 月（令和 8 年 4 月 1 日から契約する工事に適用）"
+access = "public"
+url = "https://www.cals-ed.go.jp/cri_point/"
+checked = "2026-11-01"
+note = "管理ファイルの DTD と作成例は https://www.cals-ed.go.jp/cri_dtdxml/ に置く。頁の転載と改変を禁じるので、DTD は同梱しない"
+
+[specs.ed_design_r8_2]
+title = "土木設計業務等の電子納品要領"
+publisher = "国土交通省"
+version = "令和 8 年 2 月"
+access = "public"
+url = "https://www.cals-ed.go.jp/cri_point/"
+checked = "2026-11-01"
+
+[specs.ed_eizen_r3]
+title = "営繕工事電子納品要領・建築設計業務等電子納品要領"
+publisher = "国土交通省大臣官房官庁営繕部"
+version = "令和 3 年改定"
+access = "public"
+url = "https://www.mlit.go.jp/gobuild/gobuild_tk2_000017.html"
+checked = "2026-11-01"
+note = "管理ファイルの DTD の置き場所は確かめられない"
+
+[specs.ed_photo_r5_3]
+title = "デジタル写真管理情報基準"
+publisher = "国土交通省"
+version = "令和 5 年 3 月（正誤の修正 2023-12-01）"
+access = "public"
+url = "https://www.cals-ed.go.jp/cri_point/"
+checked = "2026-11-01"
+
+[specs.ed_boring_r8_2]
+title = "地質・土質調査成果電子納品要領（ボーリング交換用データ BED0500.DTD を含む）"
+publisher = "国土交通省"
+version = "令和 8 年 2 月"
+access = "public"
+url = "https://www.cals-ed.go.jp/cri_point/"
+checked = "2026-11-01"
+note = "DTD は https://www.cals-ed.go.jp/cri_dtdxml/ の boring_R8.2.zip に入っている"
+
+[specs.jpeg_t81]
+title = "ITU-T T.81 Digital compression and coding of continuous-tone still images"
+publisher = "ITU-T"
+version = "09/92"
+access = "paid"
+url = "https://www.itu.int/rec/T-REC-T.81"
+checked = "2026-11-01"
+note = "ITU の頁は有償とする。JPEG の展開は許容のライセンスの crate に任せる"
+
+[specs.exif_3_1]
+title = "CIPA DC-008 Exchangeable image file format for digital still cameras: Exif"
+publisher = "一般社団法人カメラ映像機器工業会（CIPA）"
+version = "DC-008-2026（Exif 3.1、2026-01-30）"
+access = "public"
+url = "https://www.cipa.jp/e/std/std-sec.html"
+checked = "2026-11-01"
+note = "XMP での Exif は CIPA DC-010-2026"
+
+[specs.xmp_2012]
+title = "XMP Specification Part 1"
+publisher = "Adobe"
+version = "2012-04"
+access = "public"
+url = "https://github.com/adobe/XMP-Toolkit-SDK"
+checked = "2026-11-01"
+note = "XMP Specification Public Patent License で出している。ISO 16684-1:2019 は有償"
+
+[specs.ecma_376_5]
+title = "ECMA-376 Office Open XML File Formats"
+publisher = "Ecma International"
+version = "第 5 版（Part 1 は 2016-12、Part 2 は 2021-12）"
+access = "public"
+url = "https://ecma-international.org/publications-and-standards/standards/ecma-376/"
+checked = "2026-11-01"
+
+[specs.rfc_4180]
+title = "RFC 4180 Common Format and MIME Type for Comma-Separated Values (CSV) Files"
+publisher = "IETF"
+version = "2005-10"
+access = "public"
+url = "https://www.rfc-editor.org/rfc/rfc4180"
+checked = "2026-11-01"
+
+[specs.kokuban_jcomsia]
+title = "デジタル工事写真の小黒板情報連携機能の実装規約と信憑性確認（改ざん検知機能）"
+publisher = "一般社団法人施工管理ソフトウェア産業協会（J-COMSIA）"
+version = "Ver.1.1（版の日付は確かめられない）"
+access = "members"
+url = "https://www.jcomsia.org/kokuban"
+checked = "2026-11-01"
+note = "公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）"
+
 # 形式。キーは英小文字と数字だけにする。
 
 [formats.sxf]
@@ -663,3 +758,107 @@ basis = ["inferred"]
 verify = ["CloudCompare"]
 samples = ["試験の中で作る"]
 issues = ["zumen-jp/zumen#373"]
+
+[formats.delivery]
+name = "電子納品の管理ファイル（INDEX_C.XML・PHOTO.XML など）"
+family = "delivery"
+domains = ["delivery"]
+specs = ["ed_const_r8_2", "ed_design_r8_2", "ed_eizen_r3", "ed_photo_r5_3"]
+rights = "public"
+rights-note = "国土交通省が要領・基準と DTD を誰でも無償で入手できる形で公開している。実装を制限する記述はない。電子納品の頁は転載と改変を禁じるので、DTD・作成例・本文は写さず同梱しない"
+place = "core"
+basis = ["spec"]
+verify = ["国土交通省の電子納品チェックシステム（手元でだけ使う）"]
+samples = ["再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る"]
+issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
+
+[[formats.delivery.evidence]]
+title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"
+url = "https://www.cals-ed.go.jp/copyright/"
+checked = "2026-11-01"
+
+[formats.saf]
+name = "SXF の属性ファイル（SAF）"
+family = "sxf"
+domains = ["drawing", "delivery"]
+specs = ["sxf_3_1"]
+rights = "public"
+rights-note = "SXF Ver.3.1 仕様書の附属書（属性付加機構）に含まれ、SXF と同じ扱い。実装を制限する記述はない。附属書の名前は解説の記事で確かめた"
+place = "core"
+basis = ["spec"]
+verify = ["SXF ブラウザ"]
+issues = ["zumen-jp/zumen#386"]
+
+[formats.jpeg]
+name = "工事写真（JPEG と Exif・XMP）"
+family = "jpeg"
+domains = ["delivery"]
+specs = ["jpeg_t81", "exif_3_1", "xmp_2012"]
+rights = "public"
+rights-note = "Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP の区画だけを読む"
+place = "core"
+basis = ["spec"]
+samples = ["個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる"]
+issues = ["zumen-jp/zumen#387"]
+
+[formats.kokuban]
+name = "電子小黒板の情報と信憑性確認（改ざん検知）"
+family = "jpeg"
+domains = ["delivery"]
+specs = ["kokuban_jcomsia"]
+rights = "permission"
+rights-note = "J-COMSIA の実装規約は公開されておらず、協会の会員か検定を受けるソフトの作り手に出すものとみられる。改ざん検知は SHA-256 のハッシュを使うとだけ公開している。zumen は規約を持たない"
+place = "none"
+verify = ["J-COMSIA の信憑性チェックツール（利用の登録が要る）"]
+issues = ["zumen-jp/zumen#389"]
+
+[[formats.kokuban.evidence]]
+title = "J-COMSIA の合格ソフトの一覧（信憑性確認の Ver.1 と Ver.1.1）"
+url = "https://www.jcomsia.org/kokuban/software/?v=2"
+checked = "2026-11-01"
+
+[[formats.kokuban.evidence]]
+title = "J-COMSIA の入会の案内"
+url = "https://www.jcomsia.org/nyukai/"
+checked = "2026-11-01"
+
+[formats.boring]
+name = "ボーリング交換用データ（BED）"
+family = "boring"
+domains = ["delivery"]
+specs = ["ed_boring_r8_2"]
+rights = "public"
+rights-note = "国土交通省が要領と DTD を無償で公開している。実装を制限する記述はない。DTD は転載が禁じられているので同梱しない"
+place = "core"
+basis = ["spec"]
+samples = ["国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる"]
+issues = ["zumen-jp/zumen#390"]
+
+[[formats.boring.evidence]]
+title = "KuniJiban の利用規約"
+url = "https://www.kunijiban.pwri.go.jp/jp/terms.html"
+checked = "2026-11-01"
+
+[formats.xlsx]
+name = "Excel の表（xlsx）"
+family = "xlsx"
+domains = ["delivery"]
+specs = ["ecma_376_5"]
+rights = "public"
+rights-note = "Ecma International が ECMA-376 を無償で公開している。実装を制限する記述はない"
+place = "core"
+basis = ["spec"]
+samples = ["試験の中で作る"]
+issues = ["zumen-jp/zumen#391"]
+
+[formats.csv]
+name = "CSV"
+family = "csv"
+domains = ["delivery"]
+specs = ["rfc_4180"]
+rights = "public"
+rights-note = "IETF の RFC で、誰でも読める。実装を制限する記述はない"
+place = "core"
+basis = ["spec"]
+samples = ["試験の中で作る"]
+issues = ["zumen-jp/zumen#391"]
