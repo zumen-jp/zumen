@@ -175,6 +175,11 @@ func (u Request) AsBoringRequest() *BoringRequest {
 	return asTagged[BoringRequest](u, "op", "boring")
 }
 
+// AsBuildingApplyRequest は、op が building_apply の形なら、その型で読む。違えば nil。
+func (u Request) AsBuildingApplyRequest() *BuildingApplyRequest {
+	return asTagged[BuildingApplyRequest](u, "op", "building_apply")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -3425,6 +3430,148 @@ const IdsStatusFailed IdsStatus = "failed"
 // IdsStatusUnknown は unknown。
 const IdsStatusUnknown IdsStatus = "unknown"
 
+// BuildingApplyRequest: 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+type BuildingApplyRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で IFC を開いたもの
+	Doc *string `json:"doc,omitempty"`
+
+	// 読んだときの文書のハッシュ（building の hash）。書けば、今の文書と同じときだけ当てる
+	Hash *string `json:"hash,omitempty"`
+
+	// 変更。並べた順に当てる
+	Edits []BuildingEdit `json:"edits,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m BuildingApplyRequest) MarshalJSON() ([]byte, error) {
+	type plain BuildingApplyRequest
+	m.Op = "building_apply"
+	return json.Marshal(plain(m))
+}
+
+// BuildingEdit: 建物の要素 1 つへの変更。kind の値で形が決まる
+//
+// 読んだ JSON をそのまま持つ。形は As で始まるメソッドで読み、BuildingEditOf で作る。
+type BuildingEdit json.RawMessage
+
+// BuildingEditOf は、形の値を JSON にして BuildingEdit にする。
+func BuildingEditOf(value any) (BuildingEdit, error) {
+	data, err := json.Marshal(value)
+	return BuildingEdit(data), err
+}
+
+// MarshalJSON は、持っている JSON をそのまま書く。
+func (u BuildingEdit) MarshalJSON() ([]byte, error) {
+	return rawJSON(u), nil
+}
+
+// UnmarshalJSON は、読んだ JSON をそのまま持つ。
+func (u *BuildingEdit) UnmarshalJSON(data []byte) error {
+	*u = append((*u)[:0], data...)
+	return nil
+}
+
+// AsBuildingPropertyEdit は、kind が property の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingPropertyEdit() *BuildingPropertyEdit {
+	return asTagged[BuildingPropertyEdit](u, "kind", "property")
+}
+
+// AsBuildingAttributeEdit は、kind が attribute の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAttributeEdit() *BuildingAttributeEdit {
+	return asTagged[BuildingAttributeEdit](u, "kind", "attribute")
+}
+
+// BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
+type BuildingPropertyEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 変える要素の ID。building_elements が返したもの
+	Id *string `json:"id,omitempty"`
+
+	// 読んだときの要素のハッシュ。building_elements が返したもの
+	Hash *string `json:"hash,omitempty"`
+
+	// プロパティのセットの名前（Pset_WallCommon など）
+	Set *string `json:"set,omitempty"`
+
+	// プロパティの名前
+	Name *string `json:"name,omitempty"`
+
+	// 値。type_name は要る。kind は real・integer・text・boolean・logical のどれか
+	Value *BuildingValue `json:"value,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m BuildingPropertyEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingPropertyEdit
+	m.Kind = "property"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAttributeEdit: 要素（IfcRoot）の名前か説明を変える
+type BuildingAttributeEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 変える要素の ID。building_elements が返したもの
+	Id *string `json:"id,omitempty"`
+
+	// 読んだときの要素のハッシュ。building_elements が返したもの
+	Hash *string `json:"hash,omitempty"`
+
+	// 変える属性
+	Attribute *BuildingAttribute `json:"attribute,omitempty"`
+
+	// 値。書かなければ、値をなくす
+	Value *string `json:"value,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m BuildingAttributeEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAttributeEdit
+	m.Kind = "attribute"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAttribute: 変えられる IfcRoot の属性。name は Name、description は Description
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingAttribute string
+
+// BuildingAttributeName は name。
+const BuildingAttributeName BuildingAttribute = "name"
+
+// BuildingAttributeDescription は description。
+const BuildingAttributeDescription BuildingAttribute = "description"
+
+// BuildingApplyResult: 当てた変更の結果。書き戻したファイルは blobs の file で返す
+type BuildingApplyResult struct {
+	// 変更ごとの結果。要求の edits と同じ順
+	Applied []Applied `json:"applied,omitempty"`
+
+	// 書き戻した文書のハッシュ。次の building_apply の前提条件に使う
+	Hash *string `json:"hash,omitempty"`
+}
+
 // IdsCheckRequest: 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 type IdsCheckRequest struct {
 	// メッセージのスキーマの大版。今は 1
@@ -5549,3 +5696,6 @@ const OpSheet = "sheet"
 
 // OpBoring は、op の名前 boring。
 const OpBoring = "boring"
+
+// OpBuildingApply は、op の名前 building_apply。
+const OpBuildingApply = "building_apply"

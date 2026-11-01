@@ -53,7 +53,7 @@ impl Version {
 
 /// 実体の分け方。属性の位置は分け方ごとに同じ
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Category {
+pub(crate) enum Category {
     /// `IfcProject`。5 ObjectType・6 LongName・7 Phase・8 RepresentationContexts・9 UnitsInContext
     Project,
     /// `IfcSpatialStructureElement`（IFC4 からは `IfcSpatialElement`）。6 ObjectPlacement・8 LongName
@@ -377,6 +377,20 @@ struct Lifter<'f> {
     units: BTreeMap<u64, Option<Unit>>,
     definitions: BTreeMap<u64, Option<Definition>>,
     materials: BTreeMap<u64, Option<Material>>,
+}
+
+/// 実体の名前（大文字）の種類。その版にない実体と、表にない実体は `None`
+pub(crate) fn category(kind: &[u8], schema: &[u8]) -> Option<Category> {
+    let version = Version::of(schema)?;
+    ENTITIES
+        .iter()
+        .find(|e| {
+            e.name.as_bytes().eq_ignore_ascii_case(kind)
+                && e.predefined
+                    .get(version.column())
+                    .is_some_and(|&at| at != ABSENT)
+        })
+        .map(|e| e.category)
 }
 
 impl<'f> Lifter<'f> {

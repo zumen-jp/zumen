@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 57
+schema-minor = 58
 
 # 状態コード。理由は応答の診断で返す
 
@@ -163,7 +163,7 @@ description = "IFC と建物モデル、EXPRESS・IDS の照合と BCF"
 formats = ["ifc"]
 ops = [
     "capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements",
-    "ids_check", "review_adopt_ids", "bcf_read", "bcf_write",
+    "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply",
 ]
 
 # open が入力の形式を判定する順と規則（決定 0007・0219）。規則は、形式のコーデックの SIGNATURES と同じにする

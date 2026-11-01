@@ -34,7 +34,8 @@ export type Request =
   | DeliveryCheckRequest
   | PhotoRequest
   | SheetRequest
-  | BoringRequest;
+  | BoringRequest
+  | BuildingApplyRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -1862,6 +1863,67 @@ export type IdsStatus =
   | "unknown"
   | (string & {});
 
+/** 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から */
+export interface BuildingApplyRequest extends RequestCommon {
+  /** op の名前 */
+  op: "building_apply";
+  /** 文書の名前。open で IFC を開いたもの */
+  doc: string;
+  /** 読んだときの文書のハッシュ（building の hash）。書けば、今の文書と同じときだけ当てる */
+  hash?: string;
+  /** 変更。並べた順に当てる */
+  edits: BuildingEdit[];
+}
+
+/** 建物の要素 1 つへの変更。kind の値で形が決まる */
+export type BuildingEdit =
+  | BuildingPropertyEdit
+  | BuildingAttributeEdit;
+
+/** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
+export interface BuildingPropertyEdit {
+  /** 変更の種類 */
+  kind: "property";
+  /** 変える要素の ID。building_elements が返したもの */
+  id: string;
+  /** 読んだときの要素のハッシュ。building_elements が返したもの */
+  hash: string;
+  /** プロパティのセットの名前（Pset_WallCommon など） */
+  set: string;
+  /** プロパティの名前 */
+  name: string;
+  /** 値。type_name は要る。kind は real・integer・text・boolean・logical のどれか */
+  value: BuildingValue;
+}
+
+/** 要素（IfcRoot）の名前か説明を変える */
+export interface BuildingAttributeEdit {
+  /** 変更の種類 */
+  kind: "attribute";
+  /** 変える要素の ID。building_elements が返したもの */
+  id: string;
+  /** 読んだときの要素のハッシュ。building_elements が返したもの */
+  hash: string;
+  /** 変える属性 */
+  attribute: BuildingAttribute;
+  /** 値。書かなければ、値をなくす */
+  value?: string;
+}
+
+/** 変えられる IfcRoot の属性。name は Name、description は Description */
+export type BuildingAttribute =
+  | "name"
+  | "description"
+  | (string & {});
+
+/** 当てた変更の結果。書き戻したファイルは blobs の file で返す */
+export interface BuildingApplyResult {
+  /** 変更ごとの結果。要求の edits と同じ順 */
+  applied: Applied[];
+  /** 書き戻した文書のハッシュ。次の building_apply の前提条件に使う */
+  hash: string;
+}
+
 /** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から */
 export interface IdsCheckRequest extends RequestCommon {
   /** op の名前 */
@@ -3162,4 +3224,5 @@ export interface Operations {
   photo: { request: PhotoRequest; result: PhotoResult };
   sheet: { request: SheetRequest; result: SheetResult };
   boring: { request: BoringRequest; result: BoringResult };
+  building_apply: { request: BuildingApplyRequest; result: BuildingApplyResult };
 }

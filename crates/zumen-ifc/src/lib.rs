@@ -20,11 +20,15 @@ pub use zumen_step::{Form, Part, Quote, Record, Value};
 mod building;
 #[cfg(feature = "civil")]
 mod civil;
+#[cfg(feature = "building")]
+mod edit;
 mod express;
 #[cfg(feature = "ids")]
 mod ids;
 mod zip;
 
+#[cfg(feature = "building")]
+pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
 pub use express::{Express, check};
 #[cfg(feature = "ids")]
 pub use ids::IdsLookup;
@@ -71,6 +75,12 @@ const DIALECT: Dialect = Dialect {
 pub(crate) const SCHEMA: &[u8] = b"IFC";
 
 impl IfcFile {
+    /// 元のバイト列
+    #[cfg(feature = "building")]
+    pub(crate) fn source(&self) -> &[u8] {
+        &self.src
+    }
+
     /// 元のバイト列の範囲。外なら空
     pub fn bytes(&self, range: Range<usize>) -> &[u8] {
         self.src.get(range).unwrap_or_default()

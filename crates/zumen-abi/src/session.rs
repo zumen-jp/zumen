@@ -439,6 +439,10 @@ impl Session {
                 .and_then(|model| building::elements(model, request, &mut cx))
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "bim")]
+            Request::BuildingApply(request) => self
+                .building_apply(request, &mut cx)
+                .map(|r| Box::new(r) as _),
+            #[cfg(feature = "bim")]
             Request::IdsCheck(request) => {
                 self.ids_check(request, &mut cx).map(|r| Box::new(r) as _)
             }
@@ -1120,6 +1124,32 @@ impl Session {
             .collect();
         let (result, bytes) =
             review::adopt(&plan, target, review, &findings, &request.findings, cx)?;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(result)
+    }
+
+    /// 変更の一覧を IFC に当てて書き戻し、書き戻したファイルを blob で返す（決定 0244）
+    #[cfg(feature = "bim")]
+    fn building_apply(
+        &mut self,
+        request: &messages::BuildingApplyRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::BuildingApplyResult, Failed> {
+        let model = self.model(&request.doc, "building_apply", cx)?;
+        // 書き出しが予算や中断で止まっても、元の文書は変更しない。
+        let (updated, result, bytes) = building::apply(model, request, cx)?;
+        // IFC4.3 の線形の土木の領域モデルも、書き戻したものから作り直す（決定 0235）
+        #[cfg(feature = "drawing")]
+        {
+            self.civils.remove(&request.doc);
+            if let Some(civil) = civil::from_ifc(&updated.file, cx)? {
+                self.civils.insert(request.doc.clone(), civil);
+            }
+        }
+        self.models.insert(request.doc.clone(), updated);
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
             bytes,
@@ -1916,6 +1946,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::ReviewAdopt(request) => &request.request_common,
         Request::Building(request) => &request.request_common,
         Request::BuildingElements(request) => &request.request_common,
+        Request::BuildingApply(request) => &request.request_common,
         Request::IdsCheck(request) => &request.request_common,
         Request::ReviewAdoptIds(request) => &request.request_common,
         Request::BcfRead(request) => &request.request_common,
@@ -2471,7 +2502,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":57}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":58}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2846,6 +2877,99 @@ END_SCHEMA;
 <specification name=\"width\" ifcVersion=\"IFC4\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCDOOR</simpleValue></name></entity></applicability>\
 <requirements><attribute><name><simpleValue>OverallWidth</simpleValue></name></attribute></requirements></specification>\
 </specifications></ids>";
+
+    /// 扉の ID とハッシュ
+    #[cfg(feature = "bim")]
+    fn door(session: &mut Session) -> String {
+        let (_, response) = call(
+            session,
+            r#"{"v":1,"op":"building_elements","doc":"a.ifc","class":"ifcdoor"}"#,
+        );
+        text(&response, "/result/elements/0/hash")
+    }
+
+    #[cfg(feature = "bim")]
+    #[test]
+    fn applies_edits_to_ifc_and_keeps_other_bytes() {
+        for zipped in [false, true] {
+            let mut session = Session::new(b"").unwrap();
+            let input = if zipped {
+                zumen_zip::write(&[("model/a.ifc", IFC)]).unwrap()
+            } else {
+                IFC.to_vec()
+            };
+            session.push(b"a.ifc", &input).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.ifc"}"#);
+            let (_, response) = call(&mut session, r#"{"v":1,"op":"building","doc":"a.ifc"}"#);
+            let document = text(&response, "/result/hash");
+            let hash = door(&mut session);
+            let request = format!(
+                r#"{{"v":1,"op":"building_apply","doc":"a.ifc","hash":"{document}","edits":[{{"kind":"property","id":"0000000000000000000080","hash":"{hash}","set":"Pset_DoorCommon","name":"IsExternal","value":{{"kind":"boolean","type_name":"IfcBoolean","boolean":false}}}},{{"kind":"attribute","id":"0000000000000000000080","hash":"{hash}","attribute":"name","value":"扉"}}]}}"#
+            );
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Ok, "{response:?}");
+            // 次の呼び出しの前に取り出す
+            let blob = blob_of(&mut session, &response);
+            assert_eq!(
+                text(&response, "/result/applied/0/id"),
+                "0000000000000000000080"
+            );
+            let after = door(&mut session);
+            assert_eq!(text(&response, "/result/applied/1/hash"), after);
+            assert_ne!(after, hash);
+            let written = if zipped {
+                assert!(blob.starts_with(b"PK\x03\x04"));
+                let mut budget = Budget::default();
+                let mut diag = Diagnostics::new();
+                let cancel = CancelToken::new();
+                let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+                let archive = zumen_zip::read(&blob, &mut cx).unwrap();
+                let entry = archive.entries().first().unwrap();
+                assert_eq!(entry.name(), "model/a.ifc");
+                archive.extract(entry, &mut cx).unwrap()
+            } else {
+                blob
+            };
+            let written = String::from_utf8(written).unwrap();
+            let original = String::from_utf8(IFC.to_vec()).unwrap();
+            // 書き直したのは、扉とプロパティの 2 つのインスタンスだけ
+            assert_eq!(
+                written
+                    .lines()
+                    .filter(|line| !original.lines().any(|o| o == *line))
+                    .collect::<Vec<_>>(),
+                [
+                    "#63=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.F.),$);",
+                    "#80=IFCDOOR('0000000000000000000080',$,'\\X2\\6249\\X0\\',$,$,$,$,'D-1',2100.,$,.DOOR.,$,$);",
+                ]
+            );
+            let (_, response) = call(
+                &mut session,
+                r#"{"v":1,"op":"building_elements","doc":"a.ifc","class":"ifcdoor","components":["identity","properties"]}"#,
+            );
+            assert_eq!(text(&response, "/result/elements/0/identity/name"), "扉");
+            // 前のハッシュでは当てない
+            let (status, response) = call(&mut session, &request);
+            assert_eq!(status, Status::Failed);
+            assert_eq!(
+                text(&response, "/diagnostics/0/code"),
+                "change.document.stale"
+            );
+            let stale = request.replace(&format!(r#""hash":"{document}","#), "");
+            let (status, response) = call(&mut session, &stale);
+            assert_eq!(status, Status::Failed);
+            assert_eq!(
+                text(&response, "/diagnostics/0/code"),
+                "change.element.stale"
+            );
+            let missing = stale.replace("0000000000000000000080", "0000000000000000000099");
+            let (_, response) = call(&mut session, &missing);
+            assert_eq!(
+                text(&response, "/diagnostics/0/code"),
+                "change.element.missing"
+            );
+        }
+    }
 
     #[test]
     fn opens_ifc_and_answers_the_building_ops() {

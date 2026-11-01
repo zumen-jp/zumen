@@ -206,6 +206,11 @@ public final class Messages {
         public BoringRequest asBoringRequest() {
             return "boring".equals(json.get("op")) ? new BoringRequest(json) : null;
         }
+
+        /** op が building_apply の形なら、その見方。違えば null */
+        public BuildingApplyRequest asBuildingApplyRequest() {
+            return "building_apply".equals(json.get("op")) ? new BuildingApplyRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -10105,6 +10110,364 @@ public final class Messages {
         public static final String UNKNOWN = "unknown";
     }
 
+    /** 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から */
+    public static final class BuildingApplyRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingApplyRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingApplyRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingApplyRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public BuildingApplyRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "building_apply");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で IFC を開いたもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 読んだときの文書のハッシュ（building の hash）。書けば、今の文書と同じときだけ当てる */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 変更。並べた順に当てる */
+        public List<BuildingEdit> getEdits() {
+            return Json.read(json.get("edits"), v0 -> Json.list(v0, BuildingEdit::of));
+        }
+
+        /** {@link #getEdits()} を書く。null なら欄を除く */
+        public BuildingApplyRequest withEdits(List<BuildingEdit> value) {
+            put("edits", value);
+            return this;
+        }
+    }
+
+    /** 建物の要素 1 つへの変更。kind の値で形が決まる */
+    public static final class BuildingEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingEdit(json);
+        }
+
+        /** kind が property の形なら、その見方。違えば null */
+        public BuildingPropertyEdit asBuildingPropertyEdit() {
+            return "property".equals(json.get("kind")) ? new BuildingPropertyEdit(json) : null;
+        }
+
+        /** kind が attribute の形なら、その見方。違えば null */
+        public BuildingAttributeEdit asBuildingAttributeEdit() {
+            return "attribute".equals(json.get("kind")) ? new BuildingAttributeEdit(json) : null;
+        }
+    }
+
+    /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
+    public static final class BuildingPropertyEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingPropertyEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingPropertyEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingPropertyEdit(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public BuildingPropertyEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "property");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public BuildingPropertyEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 変える要素の ID。building_elements が返したもの */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public BuildingPropertyEdit withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 読んだときの要素のハッシュ。building_elements が返したもの */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null なら欄を除く */
+        public BuildingPropertyEdit withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** プロパティのセットの名前（Pset_WallCommon など） */
+        public String getSet() {
+            return Json.read(json.get("set"), Json::string);
+        }
+
+        /** {@link #getSet()} を書く。null なら欄を除く */
+        public BuildingPropertyEdit withSet(String value) {
+            put("set", value);
+            return this;
+        }
+
+        /** プロパティの名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public BuildingPropertyEdit withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 値。type_name は要る。kind は real・integer・text・boolean・logical のどれか */
+        public BuildingValue getValue() {
+            return Json.read(json.get("value"), BuildingValue::of);
+        }
+
+        /** {@link #getValue()} を書く。null なら欄を除く */
+        public BuildingPropertyEdit withValue(BuildingValue value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 要素（IfcRoot）の名前か説明を変える */
+    public static final class BuildingAttributeEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingAttributeEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingAttributeEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingAttributeEdit(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public BuildingAttributeEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "attribute");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public BuildingAttributeEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 変える要素の ID。building_elements が返したもの */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public BuildingAttributeEdit withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 読んだときの要素のハッシュ。building_elements が返したもの */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null なら欄を除く */
+        public BuildingAttributeEdit withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 変える属性 */
+        public String getAttribute() {
+            return Json.read(json.get("attribute"), Json::string);
+        }
+
+        /** {@link #getAttribute()} を書く。null なら欄を除く */
+        public BuildingAttributeEdit withAttribute(String value) {
+            put("attribute", value);
+            return this;
+        }
+
+        /** 値。書かなければ、値をなくす */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null なら欄を除く */
+        public BuildingAttributeEdit withValue(String value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /**
+     * 変えられる IfcRoot の属性。name は Name、description は Description
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BuildingAttribute {
+        private BuildingAttribute() {}
+
+        public static final String NAME = "name";
+
+        public static final String DESCRIPTION = "description";
+    }
+
+    /** 当てた変更の結果。書き戻したファイルは blobs の file で返す */
+    public static final class BuildingApplyResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingApplyResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingApplyResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingApplyResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingApplyResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 変更ごとの結果。要求の edits と同じ順 */
+        public List<Applied> getApplied() {
+            return Json.read(json.get("applied"), v0 -> Json.list(v0, Applied::of));
+        }
+
+        /** {@link #getApplied()} を書く。null なら欄を除く */
+        public BuildingApplyResult withApplied(List<Applied> value) {
+            put("applied", value);
+            return this;
+        }
+
+        /** 書き戻した文書のハッシュ。次の building_apply の前提条件に使う */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null なら欄を除く */
+        public BuildingApplyResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+    }
+
     /** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から */
     public static final class IdsCheckRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -17110,5 +17473,7 @@ public final class Messages {
         public static final String SHEET = "sheet";
 
         public static final String BORING = "boring";
+
+        public static final String BUILDING_APPLY = "building_apply";
     }
 }

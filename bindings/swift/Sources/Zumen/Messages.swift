@@ -158,6 +158,11 @@ public struct Request: Message {
     public var asBoringRequest: BoringRequest? {
         taggedView("op", "boring")
     }
+
+    /// op が building_apply の形なら、その見方。違えば nil
+    public var asBuildingApplyRequest: BuildingApplyRequest? {
+        taggedView("op", "building_apply")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -6265,6 +6270,231 @@ public enum IdsStatus {
     public static let unknown = "unknown"
 }
 
+/// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+public struct BuildingApplyRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("building_apply")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 文書の名前。open で IFC を開いたもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 読んだときの文書のハッシュ（building の hash）。書けば、今の文書と同じときだけ当てる
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 変更。並べた順に当てる
+    public var edits: [BuildingEdit]? {
+        get { readField("edits") }
+        set { writeField("edits", newValue) }
+    }
+}
+
+/// 建物の要素 1 つへの変更。kind の値で形が決まる
+public struct BuildingEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// kind が property の形なら、その見方。違えば nil
+    public var asBuildingPropertyEdit: BuildingPropertyEdit? {
+        taggedView("kind", "property")
+    }
+
+    /// kind が attribute の形なら、その見方。違えば nil
+    public var asBuildingAttributeEdit: BuildingAttributeEdit? {
+        taggedView("kind", "attribute")
+    }
+}
+
+/// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
+public struct BuildingPropertyEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("property")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 変える要素の ID。building_elements が返したもの
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// プロパティのセットの名前（Pset_WallCommon など）
+    public var set: String? {
+        get { readField("set") }
+        set { writeField("set", newValue) }
+    }
+
+    /// プロパティの名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 値。type_name は要る。kind は real・integer・text・boolean・logical のどれか
+    public var value: BuildingValue? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 要素（IfcRoot）の名前か説明を変える
+public struct BuildingAttributeEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("attribute")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 変える要素の ID。building_elements が返したもの
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 変える属性
+    public var attribute: String? {
+        get { readField("attribute") }
+        set { writeField("attribute", newValue) }
+    }
+
+    /// 値。書かなければ、値をなくす
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 変えられる IfcRoot の属性。name は Name、description は Description
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingAttribute {
+    public static let name = "name"
+    public static let description = "description"
+}
+
+/// 当てた変更の結果。書き戻したファイルは blobs の file で返す
+public struct BuildingApplyResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 変更ごとの結果。要求の edits と同じ順
+    public var applied: [Applied]? {
+        get { readField("applied") }
+        set { writeField("applied", newValue) }
+    }
+
+    /// 書き戻した文書のハッシュ。次の building_apply の前提条件に使う
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+}
+
 /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 public struct IdsCheckRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -10516,4 +10746,5 @@ public enum Operations {
     public static let photo = "photo"
     public static let sheet = "sheet"
     public static let boring = "boring"
+    public static let buildingApply = "building_apply"
 }

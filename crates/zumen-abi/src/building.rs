@@ -1,19 +1,21 @@
-//! IFC の建物モデルの文書と、`building`・`building_elements`・`ids_check` の op（決定 0207・0217・0219）。
+//! IFC の建物モデルの文書と、`building`・`building_elements`・`building_apply`・`ids_check` の op（決定 0207・0217・0219・
+//! 0244）。
 
 use std::collections::BTreeMap;
 
-use zumen_base::{Cx, Stop};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Stop, codes};
 use zumen_building::{
     Building, ElementRef, Hash, Id, Literal, Local, MaterialKind, Opening, ParentKind,
     QuantityKind, Relations, SpatialKind, TypedValue, Unit,
 };
 use zumen_ids::{Ids, Report};
-use zumen_ifc::{Ifc, IfcFile, IfcZip};
+use zumen_ifc::{Edit, Ifc, IfcFile, IfcZip, NewLiteral, NewValue, RootAttribute};
 use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
-    self, BuildingComponent, BuildingElement, BuildingElementsRequest, BuildingElementsResult,
-    BuildingResult, BuildingUnit, BuildingValue, BuildingValueKind, ClassComponent, ClassCount,
+    self, BuildingApplyRequest, BuildingApplyResult, BuildingAttribute, BuildingComponent,
+    BuildingEdit, BuildingElement, BuildingElementsRequest, BuildingElementsResult, BuildingResult,
+    BuildingUnit, BuildingValue, BuildingValueKind, ClassComponent, ClassCount,
     ClassificationReference, ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding,
     IdsSpecification, IdsStatus, LevelComponent, MaterialComponent, MaterialPart, Measured,
     Membership, OpeningComponent, ParentComponent, PlacementComponent, Property, PropertySet,
@@ -34,6 +36,8 @@ pub(crate) struct Model {
     pub(crate) file: IfcFile,
     pub(crate) building: Building,
     pub(crate) hash: Hash,
+    /// ifcZIP で開いたなら、中の IFC-SPF の項目の名前
+    pub(crate) entry: Option<String>,
 }
 
 /// IFC-SPF なら読む。IFC-SPF でなければ `None`
@@ -44,7 +48,7 @@ pub(crate) fn read_spf(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Fa
     Some(
         Ifc::read(bytes, cx)
             .map_err(|_| Failed)
-            .and_then(|file| model(file, bytes, cx)),
+            .and_then(|file| model(file, bytes, None, cx)),
     )
 }
 
@@ -56,17 +60,175 @@ pub(crate) fn read_zip(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Fa
     Some(
         IfcZip::read(bytes, cx)
             .map_err(|_| Failed)
-            .and_then(|zipped| model(zipped.ifc().clone(), bytes, cx)),
+            .and_then(|zipped| {
+                let entry = Some(zipped.name().to_owned());
+                model(zipped.ifc().clone(), bytes, entry, cx)
+            }),
     )
 }
 
-fn model(file: IfcFile, bytes: &[u8], cx: &mut Cx<'_>) -> Result<Model, Failed> {
+fn model(
+    file: IfcFile,
+    bytes: &[u8],
+    entry: Option<String>,
+    cx: &mut Cx<'_>,
+) -> Result<Model, Failed> {
     let building = file.lift(cx).map_err(|_| Failed)?;
     let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
     Ok(Model {
         file,
         building,
         hash,
+        entry,
+    })
+}
+
+/// 変更の一覧を IFC に当て、書き戻した文書と結果と、書き戻したファイルを返す（決定 0244）。元の文書は変えない
+pub(crate) fn apply(
+    model: &Model,
+    request: &BuildingApplyRequest,
+    cx: &mut Cx<'_>,
+) -> Result<(Model, BuildingApplyResult, Vec<u8>), Failed> {
+    if let Some(text) = &request.hash {
+        let hash = text
+            .parse::<Hash>()
+            .map_err(|()| fail(cx, invalid_value("/hash")))?;
+        if hash != model.hash {
+            return Err(fail(cx, Diagnostic::new(codes::CHANGE_DOCUMENT_STALE)));
+        }
+    }
+    let mut edits = Vec::with_capacity(request.edits.len());
+    let mut targets = Vec::with_capacity(request.edits.len());
+    let mut rejected = false;
+    for (index, edit) in request.edits.iter().enumerate() {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        let (id, hash) = match edit {
+            BuildingEdit::Property(edit) => (&edit.id, &edit.hash),
+            BuildingEdit::Attribute(edit) => (&edit.id, &edit.hash),
+        };
+        let expected = hash
+            .parse::<Hash>()
+            .map_err(|()| fail(cx, invalid_value(format!("/edits/{index}/hash"))))?;
+        // 値の形は、要素を引く前に確かめる
+        let value = match edit {
+            BuildingEdit::Property(edit) => Some(
+                new_value(&edit.value)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("/edits/{index}/value"))))?,
+            ),
+            BuildingEdit::Attribute(_) => None,
+        };
+        let Some(element) = id.parse::<Id>().ok().and_then(|id| model.building.find(id)) else {
+            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id.as_str()));
+            rejected = true;
+            continue;
+        };
+        let current = Hash::element_checked(&model.building, element, cx)
+            .map_err(|stop| stopped(cx, stop))?;
+        if current != Some(expected) {
+            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", id.as_str()));
+            rejected = true;
+            continue;
+        }
+        let instance = model
+            .building
+            .element(element)
+            .and_then(|e| e.source().instance)
+            .unwrap_or_default();
+        edits.push(match (edit, value) {
+            (BuildingEdit::Property(edit), Some(value)) => Edit::Property {
+                element: instance,
+                set: edit.set.clone(),
+                name: edit.name.clone(),
+                value,
+            },
+            (BuildingEdit::Property(_), None) => return Err(Failed),
+            (BuildingEdit::Attribute(edit), _) => Edit::Attribute {
+                element: instance,
+                attribute: match edit.attribute {
+                    BuildingAttribute::Name => RootAttribute::Name,
+                    BuildingAttribute::Description => RootAttribute::Description,
+                },
+                value: edit.value.clone(),
+            },
+        });
+        targets.push(element);
+    }
+    if rejected {
+        return Err(Failed);
+    }
+    let applied = zumen_ifc::apply(&model.file, &edits, &model.hash.0, cx).map_err(|_| Failed)?;
+    // 書き戻したものを読み直す。読んだときの診断は、開いたときに返したので捨てる
+    let mut scratch = Diagnostics::new();
+    let reread = {
+        let mut inner = Cx {
+            budget: &mut *cx.budget,
+            diag: &mut scratch,
+            cancel: cx.cancel,
+        };
+        Ifc::read(&applied.bytes, &mut inner)
+            .and_then(|file| file.lift(&mut inner).map(|building| (file, building)))
+    };
+    let (file, building) = match reread {
+        Ok(read) => read,
+        Err(zumen_sdk::Error::Stopped(stop)) => return Err(stopped(cx, stop)),
+        // 書いたものを読めないのは不具合
+        Err(_) => return Err(fail(cx, Diagnostic::new(codes::INTERNAL_PANIC_CAUGHT))),
+    };
+    let bytes = match &model.entry {
+        Some(entry) => zumen_zip::write(&[(entry.as_str(), &applied.bytes)])
+            .ok_or_else(|| fail(cx, Diagnostic::new(codes::INTERNAL_PANIC_CAUGHT)))?,
+        None => applied.bytes,
+    };
+    let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+    let updated = Model {
+        file,
+        building,
+        hash,
+        entry: model.entry.clone(),
+    };
+    let mut results = Vec::with_capacity(targets.len());
+    for element in targets {
+        // 変えた要素の ID は変わらない。足したインスタンスは、元の要素の後ろに並ぶ
+        let id = model.building.id(element);
+        let after = id.and_then(|id| updated.building.find(id));
+        let hash = match after {
+            Some(after) => Hash::element_checked(&updated.building, after, cx)
+                .map_err(|stop| stopped(cx, stop))?,
+            None => None,
+        };
+        results.push(messages::Applied {
+            id: after.and(id).map(|id| id.to_string()),
+            hash: hash.map(|hash| hash.to_string()),
+        });
+    }
+    let result = BuildingApplyResult {
+        applied: results,
+        hash: updated.hash.to_string(),
+    };
+    Ok((updated, result, bytes))
+}
+
+/// 境界の値を、書く値にする。書けない種類か、欄が足りなければ `None`
+fn new_value(value: &BuildingValue) -> Option<NewValue> {
+    let literal = match value.kind {
+        BuildingValueKind::Real => NewLiteral::Real(value.number.filter(|n| n.is_finite())?),
+        BuildingValueKind::Integer => match (value.number, &value.text) {
+            (Some(number), None) => {
+                // 2^53 − 1 までの整数だけを数で受ける
+                (number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_991.0)
+                    .then_some(NewLiteral::Integer(number as i64))?
+            }
+            (None, Some(text)) => NewLiteral::Integer(text.parse().ok()?),
+            _ => return None,
+        },
+        BuildingValueKind::Text => NewLiteral::Text(value.text.clone()?),
+        BuildingValueKind::Boolean => NewLiteral::Boolean(value.boolean?),
+        BuildingValueKind::Logical => NewLiteral::Logical(value.boolean),
+        _ => return None,
+    };
+    Some(NewValue {
+        type_name: value.type_name.clone()?,
+        literal,
     })
 }
 

@@ -84,7 +84,7 @@ impl Codec for IfcZip {
         })
     }
 
-    /// 元の書庫のバイト列をそのまま書く。インスタンスを変える操作はまだない（#393）
+    /// 元の書庫のバイト列をそのまま書く。変更を当てたものの包み直しは、`zumen-abi` の building_apply がする（決定 0244）
     fn write(file: &IfcZipFile, out: &mut Vec<u8>, _cx: &mut Cx) -> Result<(), Error> {
         out.extend_from_slice(&file.src);
         Ok(())

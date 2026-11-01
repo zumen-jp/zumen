@@ -69,6 +69,7 @@ namespace Zumen.Messages
             ["photo"] = typeof(PhotoRequest),
             ["sheet"] = typeof(SheetRequest),
             ["boring"] = typeof(BoringRequest),
+            ["building_apply"] = typeof(BuildingApplyRequest),
         };
     }
 
@@ -5069,6 +5070,189 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+    /// </summary>
+    public sealed record BuildingApplyRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "building_apply";
+
+        /// <summary>
+        /// 文書の名前。open で IFC を開いたもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 読んだときの文書のハッシュ（building の hash）。書けば、今の文書と同じときだけ当てる
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string? Hash { get; init; }
+
+        /// <summary>
+        /// 変更。並べた順に当てる
+        /// </summary>
+        [JsonPropertyName("edits")]
+        public IReadOnlyList<JsonAny> Edits { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 建物の要素 1 つへの変更。kind の値で形が決まる
+    /// </summary>
+    public static class BuildingEdit
+    {
+        /// <summary>目印の欄の名前</summary>
+        public const string Tag = "kind";
+
+        /// <summary>目印の値と、その形の型</summary>
+        public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
+        {
+            ["property"] = typeof(BuildingPropertyEdit),
+            ["attribute"] = typeof(BuildingAttributeEdit),
+        };
+    }
+
+    /// <summary>
+    /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
+    /// </summary>
+    public sealed record BuildingPropertyEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "property";
+
+        /// <summary>
+        /// 変える要素の ID。building_elements が返したもの
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 読んだときの要素のハッシュ。building_elements が返したもの
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// プロパティのセットの名前（Pset_WallCommon など）
+        /// </summary>
+        [JsonPropertyName("set")]
+        public string Set { get; init; } = default!;
+
+        /// <summary>
+        /// プロパティの名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 値。type_name は要る。kind は real・integer・text・boolean・logical のどれか
+        /// </summary>
+        [JsonPropertyName("value")]
+        public BuildingValue Value { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 要素（IfcRoot）の名前か説明を変える
+    /// </summary>
+    public sealed record BuildingAttributeEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "attribute";
+
+        /// <summary>
+        /// 変える要素の ID。building_elements が返したもの
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 読んだときの要素のハッシュ。building_elements が返したもの
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 変える属性
+        /// </summary>
+        [JsonPropertyName("attribute")]
+        public string Attribute { get; init; } = default!;
+
+        /// <summary>
+        /// 値。書かなければ、値をなくす
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string? Value { get; init; }
+    }
+
+    /// <summary>
+    /// 変えられる IfcRoot の属性。name は Name、description は Description
+    /// </summary>
+    public static class BuildingAttribute
+    {
+        /// <summary>name</summary>
+        public const string Name = "name";
+        /// <summary>description</summary>
+        public const string Description = "description";
+    }
+
+    /// <summary>
+    /// 当てた変更の結果。書き戻したファイルは blobs の file で返す
+    /// </summary>
+    public sealed record BuildingApplyResult
+    {
+        /// <summary>
+        /// 変更ごとの結果。要求の edits と同じ順
+        /// </summary>
+        [JsonPropertyName("applied")]
+        public IReadOnlyList<Applied> Applied { get; init; } = default!;
+
+        /// <summary>
+        /// 書き戻した文書のハッシュ。次の building_apply の前提条件に使う
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+    }
+
+    /// <summary>
     /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
     /// </summary>
     public sealed record IdsCheckRequest
@@ -8671,6 +8855,7 @@ namespace Zumen.Messages
                 ["photo"] = (typeof(PhotoRequest), typeof(PhotoResult)),
                 ["sheet"] = (typeof(SheetRequest), typeof(SheetResult)),
                 ["boring"] = (typeof(BoringRequest), typeof(BoringResult)),
+                ["building_apply"] = (typeof(BuildingApplyRequest), typeof(BuildingApplyResult)),
             };
     }
 }

@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマの大版（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマの小版 */
-export const SCHEMA_MINOR = 57;
+export const SCHEMA_MINOR = 58;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -43,7 +43,7 @@ export const MODULES = Object.freeze({
   bim: Object.freeze({
     description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF",
     formats: Object.freeze(["ifc"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply"]),
   }),
 });
 

@@ -1,0 +1,175 @@
+{
+  "description": "building_apply は、building_elements が返す ID とハッシュで要素を指す変更の一覧を、開いた IFC に当てて書き戻す。プロパティのセットの値を変え・足し、要素の名前と説明を変える。名前を挙げないインスタンスは元のバイト列のまま書き、足すインスタンスはデータの節の終わりに書く。書き戻したファイルを blobs で返し、文書を書き戻したものに替える。読んだときのハッシュが今と違う変更と、書けない種類の値は、何も変えずに失敗する（決定 0207・0244）。入力は試験の中で書いた小さな IFC4",
+  "steps": [
+    {
+      "push": {
+        "name": "a.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n#10=IFCUNITASSIGNMENT((#11));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#20=IFCLOCALPLACEMENT($,#21);\n#21=IFCAXIS2PLACEMENT3D(#22,$,$);\n#22=IFCCARTESIANPOINT((0.,0.,3000.));\n#34=IFCBUILDINGSTOREY('0000000000000000000034',$,'1F',$,$,#20,$,$,.ELEMENT.,3000.);\n#40=IFCRELAGGREGATES('0000000000000000000040',$,$,$,#1,(#34));\n#60=IFCRELCONTAINEDINSPATIALSTRUCTURE('0000000000000000000060',$,$,$,(#80),#34);\n#61=IFCRELDEFINESBYPROPERTIES('0000000000000000000061',$,$,$,(#80),#62);\n#62=IFCPROPERTYSET('0000000000000000000062',$,'Pset_DoorCommon',$,(#63));\n#63=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);\n#80=IFCDOOR('0000000000000000000080',$,'Door',$,$,$,$,'D-1',2100.,$,.DOOR.,$,$);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "hash": "v1:6ae83d7a004bb953c808ae825b6c75cc",
+        "edits": [
+          {
+            "kind": "property",
+            "id": "0000000000000000000080",
+            "hash": "v1:ff70eef55c7c9a7a7e4236fb0d0112ab",
+            "set": "Pset_DoorCommon",
+            "name": "IsExternal",
+            "value": {
+              "kind": "boolean",
+              "type_name": "IfcBoolean",
+              "boolean": false
+            }
+          },
+          {
+            "kind": "property",
+            "id": "0000000000000000000080",
+            "hash": "v1:ff70eef55c7c9a7a7e4236fb0d0112ab",
+            "set": "Pset_DoorCommon",
+            "name": "FireRating",
+            "value": {
+              "kind": "text",
+              "type_name": "IfcLabel",
+              "text": "EI30"
+            }
+          },
+          {
+            "kind": "property",
+            "id": "0000000000000000000080",
+            "hash": "v1:ff70eef55c7c9a7a7e4236fb0d0112ab",
+            "set": "Zumen_Check",
+            "name": "Width",
+            "value": {
+              "kind": "real",
+              "type_name": "IfcPositiveLengthMeasure",
+              "number": 900
+            }
+          },
+          {
+            "kind": "attribute",
+            "id": "0000000000000000000080",
+            "hash": "v1:ff70eef55c7c9a7a7e4236fb0d0112ab",
+            "attribute": "description",
+            "value": "玄関の扉"
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "0000000000000000000080",
+        "/result/applied/3/id": "0000000000000000000080",
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcdoor",
+        "components": [
+          "identity",
+          "properties"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/identity/description": "玄関の扉"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "property",
+            "id": "0000000000000000000080",
+            "hash": "v1:ff70eef55c7c9a7a7e4236fb0d0112ab",
+            "set": "Pset_DoorCommon",
+            "name": "IsExternal",
+            "value": {
+              "kind": "boolean",
+              "type_name": "IfcBoolean",
+              "boolean": false
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.element.stale",
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "hash": "v1:6ae83d7a004bb953c808ae825b6c75cc",
+        "edits": [
+          {
+            "kind": "property",
+            "id": "0000000000000000000080",
+            "hash": "v1:ff70eef55c7c9a7a7e4236fb0d0112ab",
+            "set": "Pset_DoorCommon",
+            "name": "IsExternal",
+            "value": {
+              "kind": "boolean",
+              "type_name": "IfcBoolean",
+              "boolean": false
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.document.stale"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "property",
+            "id": "0000000000000000000080",
+            "hash": "v1:ff70eef55c7c9a7a7e4236fb0d0112ab",
+            "set": "Pset_DoorCommon",
+            "name": "IsExternal",
+            "value": {
+              "kind": "enumeration",
+              "type_name": "IfcLabel",
+              "text": "X"
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid"
+      }
+    }
+  ]
+}

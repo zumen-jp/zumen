@@ -69,6 +69,8 @@ pub enum Request {
     Sheet(SheetRequest),
     /// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
     Boring(BoringRequest),
+    /// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+    BuildingApply(BuildingApplyRequest),
 }
 
 impl Request {
@@ -103,6 +105,7 @@ impl Request {
         "photo",
         "sheet",
         "boring",
+        "building_apply",
     ];
 
     /// 目印の欄（`op`）の値
@@ -137,6 +140,7 @@ impl Request {
             Self::Photo(_) => "photo",
             Self::Sheet(_) => "sheet",
             Self::Boring(_) => "boring",
+            Self::BuildingApply(_) => "building_apply",
         }
     }
 }
@@ -180,6 +184,9 @@ impl FromJson for Request {
             "photo" => Self::Photo(PhotoRequest::read_fields(&mut object)?),
             "sheet" => Self::Sheet(SheetRequest::read_fields(&mut object)?),
             "boring" => Self::Boring(BoringRequest::read_fields(&mut object)?),
+            "building_apply" => {
+                Self::BuildingApply(BuildingApplyRequest::read_fields(&mut object)?)
+            }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -219,6 +226,7 @@ impl ToJson for Request {
             Self::Photo(value) => value.to_json(out),
             Self::Sheet(value) => value.to_json(out),
             Self::Boring(value) => value.to_json(out),
+            Self::BuildingApply(value) => value.to_json(out),
         }
     }
 }
@@ -9293,6 +9301,322 @@ impl FromJson for IdsStatus {
 impl ToJson for IdsStatus {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
+    }
+}
+
+/// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingApplyRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で IFC を開いたもの
+    pub doc: String,
+    /// 読んだときの文書のハッシュ（building の hash）。書けば、今の文書と同じときだけ当てる
+    pub hash: Option<String>,
+    /// 変更。並べた順に当てる
+    pub edits: Vec<BuildingEdit>,
+}
+
+impl BuildingApplyRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "building_apply")?;
+        let doc = object.required("doc", json::string)?;
+        let hash = object.optional("hash", json::string)?;
+        let edits =
+            object.required("edits", |value| json::array(value, BuildingEdit::from_json))?;
+        Ok(Self {
+            request_common,
+            doc,
+            hash,
+            edits,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("building_apply");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
+        out.key("edits");
+        out.array(&self.edits, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for BuildingApplyRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingApplyRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 建物の要素 1 つへの変更。kind の値で形が決まる
+#[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum BuildingEdit {
+    /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
+    Property(BuildingPropertyEdit),
+    /// 要素（IfcRoot）の名前か説明を変える
+    Attribute(BuildingAttributeEdit),
+}
+
+impl BuildingEdit {
+    /// 目印の欄（`kind`）の値（スキーマの順）
+    pub const TAGS: &[&str] = &["property", "attribute"];
+
+    /// 目印の欄（`kind`）の値
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Property(_) => "property",
+            Self::Attribute(_) => "attribute",
+        }
+    }
+}
+
+impl FromJson for BuildingEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = match object.tag("kind")? {
+            "property" => Self::Property(BuildingPropertyEdit::read_fields(&mut object)?),
+            "attribute" => Self::Attribute(BuildingAttributeEdit::read_fields(&mut object)?),
+            other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
+        };
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingEdit {
+    fn to_json(&self, out: &mut Writer) {
+        match self {
+            Self::Property(value) => value.to_json(out),
+            Self::Attribute(value) => value.to_json(out),
+        }
+    }
+}
+
+/// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingPropertyEdit {
+    /// 変える要素の ID。building_elements が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    pub hash: String,
+    /// プロパティのセットの名前（Pset_WallCommon など）
+    pub set: String,
+    /// プロパティの名前
+    pub name: String,
+    /// 値。type_name は要る。kind は real・integer・text・boolean・logical のどれか
+    pub value: BuildingValue,
+}
+
+impl BuildingPropertyEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "property")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let set = object.required("set", json::string)?;
+        let name = object.required("name", json::string)?;
+        let value = object.required("value", BuildingValue::from_json)?;
+        Ok(Self {
+            id,
+            hash,
+            set,
+            name,
+            value,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("property");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("set");
+        out.string(&self.set);
+        out.key("name");
+        out.string(&self.name);
+        out.key("value");
+        self.value.to_json(out);
+    }
+}
+
+impl FromJson for BuildingPropertyEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingPropertyEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素（IfcRoot）の名前か説明を変える
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingAttributeEdit {
+    /// 変える要素の ID。building_elements が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    pub hash: String,
+    /// 変える属性
+    pub attribute: BuildingAttribute,
+    /// 値。書かなければ、値をなくす
+    pub value: Option<String>,
+}
+
+impl BuildingAttributeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "attribute")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let attribute = object.required("attribute", BuildingAttribute::from_json)?;
+        let value = object.optional("value", json::string)?;
+        Ok(Self {
+            id,
+            hash,
+            attribute,
+            value,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("attribute");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("attribute");
+        self.attribute.to_json(out);
+        if let Some(value) = &self.value {
+            out.key("value");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BuildingAttributeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingAttributeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 変えられる IfcRoot の属性。name は Name、description は Description
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingAttribute {
+    /// `name`
+    Name,
+    /// `description`
+    Description,
+}
+
+impl BuildingAttribute {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Name, Self::Description];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Description => "description",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "name" => Some(Self::Name),
+            "description" => Some(Self::Description),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingAttribute {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingAttribute {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 当てた変更の結果。書き戻したファイルは blobs の file で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingApplyResult {
+    /// 変更ごとの結果。要求の edits と同じ順
+    pub applied: Vec<Applied>,
+    /// 書き戻した文書のハッシュ。次の building_apply の前提条件に使う
+    pub hash: String,
+}
+
+impl BuildingApplyResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let applied = object.required("applied", |value| json::array(value, Applied::from_json))?;
+        let hash = object.required("hash", json::string)?;
+        Ok(Self { applied, hash })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("applied");
+        out.array(&self.applied, |out, item| item.to_json(out));
+        out.key("hash");
+        out.string(&self.hash);
+    }
+}
+
+impl FromJson for BuildingApplyResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingApplyResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 

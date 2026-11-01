@@ -277,3 +277,4 @@
 - [0241: 電子納品の成果品は、名前の集まりか ZIP で受け、delivery_check の op でプロファイルと照らす](0241-delivery-package-check.md)（2026-11-02、採用）
 - [0242: 地質・土質調査の成果は crate `zumen-geology` に置き、ボーリング交換用データを boring の op で読む](0242-geology-boring-data.md)（2026-11-02、採用）
 - [0243: プラグインはプロセスで 1 度 install して窓口に登録し、wasm ではコアの図面のモジュールに足した別のモジュールにする](0243-plugin-bundling.md)（2026-11-02、採用）
+- [0244: IFC のその場の編集は、L1 で触れたインスタンスだけを書き直し、building_apply の op で当てる](0244-ifc-in-place-edit.md)（2026-11-02、採用）

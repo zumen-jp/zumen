@@ -38,6 +38,7 @@ Request = Union[
     "PhotoRequest",
     "SheetRequest",
     "BoringRequest",
+    "BuildingApplyRequest",
 ]
 
 
@@ -3225,6 +3226,117 @@ IdsStatus = Union[
 ]
 
 
+# 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+_BuildingApplyRequestRequired = TypedDict(
+    "_BuildingApplyRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["building_apply"],
+        # 文書の名前。open で IFC を開いたもの
+        "doc": str,
+        # 変更。並べた順に当てる
+        "edits": List["BuildingEdit"],
+    },
+)
+_BuildingApplyRequestOptional = TypedDict(
+    "_BuildingApplyRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 読んだときの文書のハッシュ（building の hash）。書けば、今の文書と同じときだけ当てる
+        "hash": str,
+    },
+    total=False,
+)
+
+
+class BuildingApplyRequest(_BuildingApplyRequestRequired, _BuildingApplyRequestOptional):
+    "開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から"
+
+# 建物の要素 1 つへの変更。kind の値で形が決まる
+BuildingEdit = Union[
+    "BuildingPropertyEdit",
+    "BuildingAttributeEdit",
+]
+
+
+# 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
+BuildingPropertyEdit = TypedDict(
+    "BuildingPropertyEdit",
+    {
+        # 変更の種類
+        "kind": Literal["property"],
+        # 変える要素の ID。building_elements が返したもの
+        "id": str,
+        # 読んだときの要素のハッシュ。building_elements が返したもの
+        "hash": str,
+        # プロパティのセットの名前（Pset_WallCommon など）
+        "set": str,
+        # プロパティの名前
+        "name": str,
+        # 値。type_name は要る。kind は real・integer・text・boolean・logical のどれか
+        "value": "BuildingValue",
+    },
+)
+
+
+# 要素（IfcRoot）の名前か説明を変える
+_BuildingAttributeEditRequired = TypedDict(
+    "_BuildingAttributeEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["attribute"],
+        # 変える要素の ID。building_elements が返したもの
+        "id": str,
+        # 読んだときの要素のハッシュ。building_elements が返したもの
+        "hash": str,
+        # 変える属性
+        "attribute": "BuildingAttribute",
+    },
+)
+_BuildingAttributeEditOptional = TypedDict(
+    "_BuildingAttributeEditOptional",
+    {
+        # 値。書かなければ、値をなくす
+        "value": str,
+    },
+    total=False,
+)
+
+
+class BuildingAttributeEdit(_BuildingAttributeEditRequired, _BuildingAttributeEditOptional):
+    "要素（IfcRoot）の名前か説明を変える"
+
+# 変えられる IfcRoot の属性。name は Name、description は Description
+BuildingAttribute = Union[
+    Literal[
+        "name",
+        "description",
+    ],
+    str,
+]
+
+
+# 当てた変更の結果。書き戻したファイルは blobs の file で返す
+BuildingApplyResult = TypedDict(
+    "BuildingApplyResult",
+    {
+        # 変更ごとの結果。要求の edits と同じ順
+        "applied": List["Applied"],
+        # 書き戻した文書のハッシュ。次の building_apply の前提条件に使う
+        "hash": str,
+    },
+)
+
+
 # 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 _IdsCheckRequestRequired = TypedDict(
     "_IdsCheckRequestRequired",
@@ -5518,6 +5630,7 @@ Operation = Literal[
     "photo",
     "sheet",
     "boring",
+    "building_apply",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -5551,4 +5664,5 @@ OPERATIONS: Dict[str, Any] = {
     "photo": ("PhotoRequest", "PhotoResult"),
     "sheet": ("SheetRequest", "SheetResult"),
     "boring": ("BoringRequest", "BoringResult"),
+    "building_apply": ("BuildingApplyRequest", "BuildingApplyResult"),
 }
