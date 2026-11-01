@@ -73,6 +73,33 @@ jobs:
       - name: WASI のランタイム（node:wasi）の上の serve --stdio で流し、hashes.txt と一致することを確かめる
         run: node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm
 
+  tier3:
+    name: 階層 3 の言語のサンプル
+    # docs/tier3.md の 4 つの形のサンプルを、ランナーに入っている Ruby・PHP・PowerShell で流す（決定 0006・0013、#404）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust と、wasm32-wasip1 の target を入れる
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-wasip1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # docs/support.md の Node.js の下限
+          node-version: 22
+      - name: C ABI のライブラリと、ネイティブと WASI の CLI を作る
+        run: |
+          cargo build --release --locked -p zumen-abi -p zumen-cli
+          cargo build --release --locked -p zumen-cli --target wasm32-wasip1
+      - name: 4 つの形のサンプルを流し、書いたものが expected.txt と同じことを確かめる
+        run: |
+          drawing=samples/dwg/zumen-layout-r2000_ascii.dxf
+          expected=examples/tier3/expected.txt
+          ruby examples/tier3/ruby/c_abi.rb target/release/libzumen_abi1.so $drawing | diff $expected -
+          php examples/tier3/php/stdio.php $drawing target/release/zumen serve --stdio | diff $expected -
+          php examples/tier3/php/stdio.php $drawing node bindings/conformance/wasi.mjs target/wasm32-wasip1/release/zumen.wasm serve --stdio | diff $expected -
+          pwsh examples/tier3/powershell/http.ps1 -Zumen target/release/zumen -Drawing $drawing | diff $expected -
+
   go:
     name: Go の包みで適合試験（Go ${{ matrix.go }}）
     # 階層 2 の Go は毎晩、サポート中の 2 つの大版で流す（docs/support.md、決定 0226）
