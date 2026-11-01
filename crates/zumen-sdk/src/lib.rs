@@ -6,16 +6,19 @@
 //! - [`Apply`] は、L2 の変更を元の L1 へその場で書き戻す
 //! - [`ranged`] は、入りきらない入力を範囲で読む仕組み（決定 0232）
 //! - [`Signature`] は、形式の判定の規則。コーデックがデータとして持つ
-//! - [`testkit`] は、往復・決定性・レコードの範囲を確かめる試験の道具
+//! - [`Registration`] は、形式を台帳と同じキーと権利で窓口に知らせる記述（[`detect`] で判定する）
+//! - [`testkit`] は、往復・決定性・レコードの範囲・予算で止まる所・ID の契約を確かめる試験の道具
 //!
 //! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lower` は、別の形式への変換を作るときに足す。
 
 pub mod ranged;
+mod register;
 mod root;
 mod schema;
 pub mod testkit;
 mod zip;
 
+pub use register::{Registration, Rights, detect};
 pub use zumen_base::{ByteRange, Cx, Stop};
 
 use zumen_base::Diagnostics;

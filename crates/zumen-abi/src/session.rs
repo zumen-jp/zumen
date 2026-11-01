@@ -30,6 +30,7 @@ use crate::convert;
 #[cfg(feature = "drawing")]
 use crate::delivery;
 use crate::describe;
+use crate::formats;
 #[cfg(feature = "drawing")]
 use crate::geo;
 use crate::geometry;
@@ -175,20 +176,21 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 #[cfg(feature = "drawing")]
 fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
     // 失敗の理由は、コーデックが診断として足してある
-    let doc = if Dxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+    let format = zumen_sdk::detect(formats::DRAWING, bytes).map(|registration| registration.format);
+    let doc = if format == Some(Dxf::FORMAT) {
         Doc::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
-    } else if Dwg::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+    } else if format == Some(Dwg::FORMAT) {
         // 読めるのは R2000（AC1015）だけ。ほかの版は、コーデックが診断を足して失敗する
         Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
-    } else if Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+    } else if format == Some(Sxf::FORMAT) {
         // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
         Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None)
+    } else if format == Some(Jww::FORMAT) {
+        Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
     } else if let Some((sxf, archive)) = packed::read(bytes, cx)? {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
         Doc::Sxf(file, Some(Box::new(archive)))
-    } else if Jww::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
-        Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
     } else {
         return Ok(None);
     };
@@ -1554,30 +1556,19 @@ fn capabilities() -> CapabilitiesResult {
             .filter(|op| crate::abi::has_op(op))
             .map(|op| op.to_string())
             .collect(),
-        // ID の規則の版。AutoCAD の系統はハンドルで、SXF はインスタンスの番号で ID を作る 2（決定 0156）
-        // 書けるのは、apply で書き戻せる形式（決定 0139）。SXF は SFC と P21 に書き戻す（決定 0167・0169）
-        formats: [
-            (Dxf::FORMAT, "acad", true, 2),
-            (Dwg::FORMAT, "acad", true, 2),
-            (Sxf::FORMAT, "sxf", true, 2),
-            (Jww::FORMAT, "jww", true, 1),
-            (zumen_landxml::LandXml::FORMAT, "landxml", false, 1),
-            (zumen_citygml::CityGml::FORMAT, "citygml", false, 1),
-            (zumen_las::Las::FORMAT, "las", false, 1),
-            (zumen_ply::Ply::FORMAT, "ply", false, 1),
-            (zumen_xyz::Xyz::FORMAT, "xyz", false, 1),
-            (zumen_e57::E57::FORMAT, "e57", false, 1),
-        ]
-        .into_iter()
-        .filter(|_| cfg!(feature = "drawing"))
-        .map(|(id, family, write, id_rules)| Format {
-            id: id.to_string(),
-            family: family.to_string(),
-            read: true,
-            write,
-            id_rules,
-        })
-        .collect(),
+        // 登録した形式（#398）
+        formats: formats::DRAWING
+            .iter()
+            .chain(formats::READ_ONLY)
+            .filter(|_| cfg!(feature = "drawing"))
+            .map(|registration| Format {
+                id: registration.format.to_string(),
+                family: registration.family.to_string(),
+                read: true,
+                write: registration.write,
+                id_rules: registration.id_rules,
+            })
+            .collect(),
     }
 }
 

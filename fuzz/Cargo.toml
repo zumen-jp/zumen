@@ -1,0 +1,50 @@
+# fuzz の target（#398、決定 0017）。cargo-fuzz で動かす。動かし方は fuzz/README.md。
+# ワークスペースの外に置き、配る成果物には入れない。
+
+[package]
+name = "zumen-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+zumen-acad = { path = "../crates/zumen-acad" }
+zumen-jww = { path = "../crates/zumen-jww" }
+zumen-sdk = { path = "../crates/zumen-sdk" }
+zumen-sxf = { path = "../crates/zumen-sxf" }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "dxf"
+path = "fuzz_targets/dxf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dwg"
+path = "fuzz_targets/dwg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sxf"
+path = "fuzz_targets/sxf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jww"
+path = "fuzz_targets/jww.rs"
+test = false
+doc = false
+bench = false

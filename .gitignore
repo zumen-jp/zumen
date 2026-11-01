@@ -7,3 +7,7 @@ obj/
 /bindings/dotnet/Zumen/runtimes/
 /bindings/python/zumen/_native/
 /bindings/python/dist/
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/Cargo.lock

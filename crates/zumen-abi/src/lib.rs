@@ -33,6 +33,7 @@ mod convert;
 mod delivery;
 mod describe;
 pub mod ffi;
+mod formats;
 #[cfg(feature = "drawing")]
 mod geo;
 mod geometry;

@@ -20,6 +20,9 @@ allow = [
     "0BSD",
     "BSL-1.0",
     "Unicode-3.0",
+    # fuzz（fuzz/、#398）の libfuzzer-sys が同梱する LLVM の libFuzzer。寛容なライセンスで、fuzz の道具にだけ使い、
+    # 配る成果物には入らない
+    "NCSA",
 ]
 confidence-threshold = 0.93
 exceptions = []
