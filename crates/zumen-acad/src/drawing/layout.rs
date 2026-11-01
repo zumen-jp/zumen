@@ -51,9 +51,11 @@ impl Lifter<'_> {
         let info = layout.map(|(_, layout)| self.layout_info(layout));
         let limits = info.as_ref().and_then(|info| info.limits);
         let id = SheetId(out.filled_layouts.saturating_add(1));
+        let mm = layout.and_then(|(_, layout)| plot_mm(layout)).or(self.mm);
         let lifter = Lifter {
             sheet: id,
             origin: limits.map_or([0.0, 0.0], |[min, _]| min),
+            mm,
             ..self.clone()
         };
         let paper = std::mem::take(&mut out.paper);
@@ -86,7 +88,7 @@ impl Lifter<'_> {
         if empty && layout.is_none() {
             return Ok(());
         }
-        let size = match (limits, self.mm) {
+        let size = match (limits, mm) {
             (Some([[x0, y0], [x1, y1]]), Some(mm)) => {
                 let size = [(x1 - x0) * mm, (y1 - y0) * mm];
                 size.iter().all(|s| *s > 0.0).then(|| size.map(PaperLength))
@@ -100,7 +102,7 @@ impl Lifter<'_> {
         }
         // 中身のない用紙に足す要素は、レイアウトのブロックのレコードを所有者とし、ペーパー空間の印を付ける。
         // 今のレイアウト（`*Paper_Space`）のものは ENTITIES の所に、ほかのレイアウトのものはそのブロックに置く
-        let frame = match (record, self.mm) {
+        let frame = match (record, mm) {
             (Some(record), Some(mm)) if empty => {
                 let current = matches!(record.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"*Paper_Space"));
                 Some(PaperFrame {
@@ -293,4 +295,27 @@ impl Lifter<'_> {
         }
         Ok((record, space, sort))
     }
+}
+
+/// LAYOUT の印刷の設定から、用紙の 1 単位の mm の数を決める（決定 0229）。尺度は、標準の尺度の印（最初の
+/// 70 の 16）があれば 147、なければ 142 ÷ 143 とし、印刷の単位（72）の mm を掛ける。尺度が正の有限の値で
+/// ないか、印刷の単位が画素か読めなければ、決めない
+pub(super) fn plot_mm(layout: &Object) -> Option<f64> {
+    let real = |code| match layout.first(code) {
+        Some(Data::Real(value)) => Some(*value),
+        _ => None,
+    };
+    let standard = matches!(layout.first(70), Some(Data::Int(flags)) if flags & 16 != 0);
+    let scale = if standard {
+        real(147)?
+    } else {
+        real(142)? / real(143)?
+    };
+    let unit = match layout.first(72) {
+        Some(Data::Int(0)) => 25.4,
+        Some(Data::Int(1)) => 1.0,
+        _ => return None,
+    };
+    let mm = scale * unit;
+    (mm.is_finite() && mm > 0.0).then_some(mm)
 }

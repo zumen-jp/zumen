@@ -133,3 +133,37 @@ fn empty_sheets_take_ids_after_the_filled_ones() {
         );
     }
 }
+
+/// AutoCAD で作った試料（#316）の用紙の大きさは、LAYOUT の範囲を、印刷の尺度と単位で mm にした値になる
+/// （決定 0229）。見出しの `$INSUNITS` はどれも mm だが、A3-1to2 の範囲は 840 × 594、Letter-inch の範囲は
+/// 11 × 8.5 だった
+#[test]
+fn autocad_layout_sheets_take_millimeters_from_plot_settings() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
+    for version in ["r2000", "r2004", "r2018"] {
+        for path in [
+            dir.join(format!("zumen-layout-{version}.dwg")),
+            dir.join(format!("zumen-layout-{version}_ascii.dxf")),
+        ] {
+            let at = path.display();
+            let drawing = lift(&path).unwrap_or_else(|| panic!("{at}"));
+            for (name, width, height) in [
+                ("A3-1to1", 420.0, 297.0),
+                ("A3-1to2", 420.0, 297.0),
+                ("Letter-inch", 279.4, 215.9),
+            ] {
+                let sheet = drawing
+                    .sheets
+                    .iter()
+                    .find(|sheet| sheet.name.as_deref() == Some(name))
+                    .unwrap_or_else(|| panic!("{at}: {name}"));
+                let [w, h] = sheet.size.unwrap_or_else(|| panic!("{at}: {name}"));
+                // 試料の Letter-inch の範囲は、11 × 8.5 よりわずかに小さい値で保存されている
+                assert!(
+                    (w.0 - width).abs() < 1e-3 && (h.0 - height).abs() < 1e-3,
+                    "{at}: {name} {w:?} {h:?}"
+                );
+            }
+        }
+    }
+}

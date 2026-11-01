@@ -153,6 +153,19 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         unit,
         origin: limits(b"$PLIMMIN").unwrap_or_default(),
     };
+    // 今のレイアウトの用紙の単位は、ペーパー空間の図形の所有者を指す LAYOUT の印刷の設定で決める（決定 0229）
+    let current_mm = db
+        .objects()
+        .iter()
+        .filter(|object| object.section == Section::Entities)
+        .find(|object| matches!(object.first(67), Some(Data::Int(1))))
+        .and_then(|object| object.owner())
+        .and_then(|handle| lifter.layout_of(db, handle))
+        .and_then(|(_, layout)| layout::plot_mm(layout));
+    let lifter = Lifter {
+        mm: current_mm.or(lifter.mm),
+        ..lifter
+    };
     let mut out = Out::default();
     // 画層が線種を指すので、線種の表を先に移す
     for kind in [&b"LTYPE"[..], b"LAYER", b"DIMSTYLE", b"STYLE"] {
