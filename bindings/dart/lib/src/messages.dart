@@ -78,6 +78,9 @@ class Request extends Message {
 
   /// op が civil の形なら、その見方。違えば null
   CivilRequest? get asCivilRequest => taggedView('op', 'civil', CivilRequest.fromJson);
+
+  /// op が pointcloud の形なら、その見方。違えば null
+  PointcloudRequest? get asPointcloudRequest => taggedView('op', 'pointcloud', PointcloudRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -293,6 +296,10 @@ class OpenRequest extends Message {
   /// 作る文書の名前。書かなければ入力の名前
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
+
+  /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+  int? get size => readField('size', asInt);
+  set size(int? value) => writeField('size', value);
 }
 
 /// 作った文書
@@ -310,6 +317,35 @@ class OpenResult extends Message {
   /// 判定した形式の名前
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
+
+  /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+  List<InputRange>? get needs => readField('needs', listOf(objectOf(InputRange.fromJson)));
+  set needs(List<InputRange>? value) => writeField('needs', value);
+
+  /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+  List<InputRange>? get done => readField('done', listOf(objectOf(InputRange.fromJson)));
+  set done(List<InputRange>? value) => writeField('done', value);
+}
+
+/// 入力の範囲と、その範囲を渡す入力の名前
+class InputRange extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  InputRange.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  InputRange() : super({});
+
+  /// 範囲を渡す入力の名前。<入力の名前>#<start>-<end>
+  String? get input => readField('input', asString);
+  set input(String? value) => writeField('input', value);
+
+  /// 範囲の初め（バイト）
+  int? get start => readField('start', asInt);
+  set start(int? value) => writeField('start', value);
+
+  /// 範囲の終わり（バイト、含まない）
+  int? get end => readField('end', asInt);
+  set end(int? value) => writeField('end', value);
 }
 
 /// 文書と入力を捨てる。名指ししたものが 1 つでもなければ、何も捨てない
@@ -5272,6 +5308,146 @@ class CivilPosition extends Message {
   set gradient(double? value) => writeField('gradient', value);
 }
 
+/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+class PointcloudRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PointcloudRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  PointcloudRequest() : super({'op': 'pointcloud'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// open で開いた点群の文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 点を選ぶ範囲。書かなければ全体
+  PointcloudBox? get region => readField('region', objectOf(PointcloudBox.fromJson));
+  set region(PointcloudBox? value) => writeField('region', value);
+
+  /// 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段
+  double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(double? value) => writeField('tolerance', value);
+
+  /// 返す点の数の上限。書かなければ点を返さず、要約だけを返す
+  int? get limit => readField('limit', asInt);
+  set limit(int? value) => writeField('limit', value);
+}
+
+/// 地図の空間の箱。北・東・標高（メートル）の最小と最大
+class PointcloudBox extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PointcloudBox.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  PointcloudBox() : super({});
+
+  /// 最小の北・東・標高
+  List<double>? get min => readField('min', listOf(asDouble));
+  set min(List<double>? value) => writeField('min', value);
+
+  /// 最大の北・東・標高
+  List<double>? get max => readField('max', listOf(asDouble));
+  set max(List<double>? value) => writeField('max', value);
+}
+
+/// 点群の要約と、選んだ点
+class PointcloudResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PointcloudResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  PointcloudResult() : super({});
+
+  /// 点の数
+  int? get points => readField('points', asInt);
+  set points(int? value) => writeField('points', value);
+
+  /// 点の範囲。点がなければ書かない
+  PointcloudBox? get bounds => readField('bounds', objectOf(PointcloudBox.fromJson));
+  set bounds(PointcloudBox? value) => writeField('bounds', value);
+
+  /// 水平の座標系の EPSG のコード。分からなければ書かない
+  int? get crs => readField('crs', asInt);
+  set crs(int? value) => writeField('crs', value);
+
+  /// 高さの座標系の EPSG のコード。分からなければ書かない
+  int? get vertical => readField('vertical', asInt);
+  set vertical(int? value) => writeField('vertical', value);
+
+  /// 点が持つ属性（position・intensity・classification・color・returns・time）
+  List<String>? get attributes => readField('attributes', listOf(asString));
+  set attributes(List<String>? value) => writeField('attributes', value);
+
+  /// 八分木のいちばん深い段
+  int? get depth => readField('depth', asInt);
+  set depth(int? value) => writeField('depth', value);
+
+  /// 八分木の節の数
+  int? get nodes => readField('nodes', asInt);
+  set nodes(int? value) => writeField('nodes', value);
+
+  /// 選んだ点。limit を書いたときに返す
+  PointcloudPoints? get selected => readField('selected', objectOf(PointcloudPoints.fromJson));
+  set selected(PointcloudPoints? value) => writeField('selected', value);
+}
+
+/// 選んだ点。どの列も、選んだ点の順で同じ長さにする
+class PointcloudPoints extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PointcloudPoints.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  PointcloudPoints() : super({});
+
+  /// 北・東・標高（メートル）
+  List<List<double>>? get positions => readField('positions', listOf(listOf(asDouble)));
+  set positions(List<List<double>>? value) => writeField('positions', value);
+
+  /// 強度。点群が持つときに返す
+  List<int>? get intensity => readField('intensity', listOf(asInt));
+  set intensity(List<int>? value) => writeField('intensity', value);
+
+  /// 分類。点群が持つときに返す
+  List<int>? get classification => readField('classification', listOf(asInt));
+  set classification(List<int>? value) => writeField('classification', value);
+
+  /// 色（赤・緑・青。16 ビット）。点群が持つときに返す
+  List<List<int>>? get color => readField('color', listOf(listOf(asInt)));
+  set color(List<List<int>>? value) => writeField('color', value);
+
+  /// limit のために選ばなかった点がある
+  bool? get truncated => readField('truncated', asBool);
+  set truncated(bool? value) => writeField('truncated', value);
+
+  /// 選んだいちばん深い段
+  int? get level => readField('level', asInt);
+  set level(int? value) => writeField('level', value);
+}
+
 /// describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 class Catalog extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -5341,4 +5517,5 @@ abstract final class Operations {
   static const bcfRead = 'bcf_read';
   static const bcfWrite = 'bcf_write';
   static const civil = 'civil';
+  static const pointcloud = 'pointcloud';
 }

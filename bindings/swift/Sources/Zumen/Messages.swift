@@ -118,6 +118,11 @@ public struct Request: Message {
     public var asCivilRequest: CivilRequest? {
         taggedView("op", "civil")
     }
+
+    /// op が pointcloud の形なら、その見方。違えば nil
+    public var asPointcloudRequest: PointcloudRequest? {
+        taggedView("op", "pointcloud")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -458,6 +463,12 @@ public struct OpenRequest: Message {
         get { readField("doc") }
         set { writeField("doc", newValue) }
     }
+
+    /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+    public var size: Int64? {
+        get { readField("size") }
+        set { writeField("size", newValue) }
+    }
 }
 
 /// 作った文書
@@ -485,6 +496,52 @@ public struct OpenResult: Message {
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }
+    }
+
+    /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+    public var needs: [InputRange]? {
+        get { readField("needs") }
+        set { writeField("needs", newValue) }
+    }
+
+    /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+    public var done: [InputRange]? {
+        get { readField("done") }
+        set { writeField("done", newValue) }
+    }
+}
+
+/// 入力の範囲と、その範囲を渡す入力の名前
+public struct InputRange: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 範囲を渡す入力の名前。<入力の名前>#<start>-<end>
+    public var input: String? {
+        get { readField("input") }
+        set { writeField("input", newValue) }
+    }
+
+    /// 範囲の初め（バイト）
+    public var start: Int64? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 範囲の終わり（バイト、含まない）
+    public var end: Int64? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
     }
 }
 
@@ -8110,6 +8167,226 @@ public struct CivilPosition: Message {
     }
 }
 
+/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+public struct PointcloudRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("pointcloud")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// open で開いた点群の文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 点を選ぶ範囲。書かなければ全体
+    public var region: PointcloudBox? {
+        get { readField("region") }
+        set { writeField("region", newValue) }
+    }
+
+    /// 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 返す点の数の上限。書かなければ点を返さず、要約だけを返す
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+}
+
+/// 地図の空間の箱。北・東・標高（メートル）の最小と最大
+public struct PointcloudBox: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 最小の北・東・標高
+    public var min: [Double]? {
+        get { readField("min") }
+        set { writeField("min", newValue) }
+    }
+
+    /// 最大の北・東・標高
+    public var max: [Double]? {
+        get { readField("max") }
+        set { writeField("max", newValue) }
+    }
+}
+
+/// 点群の要約と、選んだ点
+public struct PointcloudResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 点の数
+    public var points: Int64? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 点の範囲。点がなければ書かない
+    public var bounds: PointcloudBox? {
+        get { readField("bounds") }
+        set { writeField("bounds", newValue) }
+    }
+
+    /// 水平の座標系の EPSG のコード。分からなければ書かない
+    public var crs: Int64? {
+        get { readField("crs") }
+        set { writeField("crs", newValue) }
+    }
+
+    /// 高さの座標系の EPSG のコード。分からなければ書かない
+    public var vertical: Int64? {
+        get { readField("vertical") }
+        set { writeField("vertical", newValue) }
+    }
+
+    /// 点が持つ属性（position・intensity・classification・color・returns・time）
+    public var attributes: [String]? {
+        get { readField("attributes") }
+        set { writeField("attributes", newValue) }
+    }
+
+    /// 八分木のいちばん深い段
+    public var depth: Int64? {
+        get { readField("depth") }
+        set { writeField("depth", newValue) }
+    }
+
+    /// 八分木の節の数
+    public var nodes: Int64? {
+        get { readField("nodes") }
+        set { writeField("nodes", newValue) }
+    }
+
+    /// 選んだ点。limit を書いたときに返す
+    public var selected: PointcloudPoints? {
+        get { readField("selected") }
+        set { writeField("selected", newValue) }
+    }
+}
+
+/// 選んだ点。どの列も、選んだ点の順で同じ長さにする
+public struct PointcloudPoints: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 北・東・標高（メートル）
+    public var positions: [[Double]]? {
+        get { readField("positions") }
+        set { writeField("positions", newValue) }
+    }
+
+    /// 強度。点群が持つときに返す
+    public var intensity: [Int64]? {
+        get { readField("intensity") }
+        set { writeField("intensity", newValue) }
+    }
+
+    /// 分類。点群が持つときに返す
+    public var classification: [Int64]? {
+        get { readField("classification") }
+        set { writeField("classification", newValue) }
+    }
+
+    /// 色（赤・緑・青。16 ビット）。点群が持つときに返す
+    public var color: [[Int64]]? {
+        get { readField("color") }
+        set { writeField("color", newValue) }
+    }
+
+    /// limit のために選ばなかった点がある
+    public var truncated: Bool? {
+        get { readField("truncated") }
+        set { writeField("truncated", newValue) }
+    }
+
+    /// 選んだいちばん深い段
+    public var level: Int64? {
+        get { readField("level") }
+        set { writeField("level", newValue) }
+    }
+}
+
 /// describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 public struct Catalog: Message {
     /// 包んでいる JSON のオブジェクト
@@ -8207,4 +8484,5 @@ public enum Operations {
     public static let bcfRead = "bcf_read"
     public static let bcfWrite = "bcf_write"
     public static let civil = "civil"
+    public static let pointcloud = "pointcloud"
 }

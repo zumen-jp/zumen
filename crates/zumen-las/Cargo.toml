@@ -1,0 +1,22 @@
+[package]
+name = "zumen-las"
+description = "zumen の LAS・LAZ の点群の読み取りと、点群の領域モデルへの移し（#371）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["las"]
+
+[dependencies]
+# LAZ の展開（docs/formats/las.md）。Apache-2.0。浮動小数の計算と HashMap の順を使わず、std::io だけで wasm でも動く
+laz = { version = "0.13.0", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-pointcloud = { version = "0.2.0", path = "../zumen-pointcloud" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true

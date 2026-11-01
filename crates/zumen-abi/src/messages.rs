@@ -53,6 +53,8 @@ pub enum Request {
     BcfWrite(BcfWriteRequest),
     /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
     Civil(CivilRequest),
+    /// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+    Pointcloud(PointcloudRequest),
 }
 
 impl Request {
@@ -79,6 +81,7 @@ impl Request {
         "bcf_read",
         "bcf_write",
         "civil",
+        "pointcloud",
     ];
 
     /// 目印の欄（`op`）の値
@@ -105,6 +108,7 @@ impl Request {
             Self::BcfRead(_) => "bcf_read",
             Self::BcfWrite(_) => "bcf_write",
             Self::Civil(_) => "civil",
+            Self::Pointcloud(_) => "pointcloud",
         }
     }
 }
@@ -138,6 +142,7 @@ impl FromJson for Request {
             "bcf_read" => Self::BcfRead(BcfReadRequest::read_fields(&mut object)?),
             "bcf_write" => Self::BcfWrite(BcfWriteRequest::read_fields(&mut object)?),
             "civil" => Self::Civil(CivilRequest::read_fields(&mut object)?),
+            "pointcloud" => Self::Pointcloud(PointcloudRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -169,6 +174,7 @@ impl ToJson for Request {
             Self::BcfRead(value) => value.to_json(out),
             Self::BcfWrite(value) => value.to_json(out),
             Self::Civil(value) => value.to_json(out),
+            Self::Pointcloud(value) => value.to_json(out),
         }
     }
 }
@@ -561,6 +567,8 @@ pub struct OpenRequest {
     pub input: String,
     /// 作る文書の名前。書かなければ入力の名前
     pub doc: Option<String>,
+    /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+    pub size: Option<u64>,
 }
 
 impl OpenRequest {
@@ -569,10 +577,12 @@ impl OpenRequest {
         object.constant("op", "open")?;
         let input = object.required("input", json::string)?;
         let doc = object.optional("doc", json::string)?;
+        let size = object.optional("size", |value| json::uint(value, 0, 9007199254740991))?;
         Ok(Self {
             request_common,
             input,
             doc,
+            size,
         })
     }
 
@@ -585,6 +595,10 @@ impl OpenRequest {
         if let Some(value) = &self.doc {
             out.key("doc");
             out.string(value);
+        }
+        if let Some(value) = &self.size {
+            out.key("size");
+            out.uint(*value);
         }
     }
 }
@@ -613,13 +627,24 @@ pub struct OpenResult {
     pub doc: String,
     /// 判定した形式の名前
     pub format: String,
+    /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+    pub needs: Option<Vec<InputRange>>,
+    /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+    pub done: Option<Vec<InputRange>>,
 }
 
 impl OpenResult {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let doc = object.required("doc", json::string)?;
         let format = object.required("format", json::string)?;
-        Ok(Self { doc, format })
+        let needs = object.optional("needs", |value| json::array(value, InputRange::from_json))?;
+        let done = object.optional("done", |value| json::array(value, InputRange::from_json))?;
+        Ok(Self {
+            doc,
+            format,
+            needs,
+            done,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -627,6 +652,14 @@ impl OpenResult {
         out.string(&self.doc);
         out.key("format");
         out.string(&self.format);
+        if let Some(value) = &self.needs {
+            out.key("needs");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.done {
+            out.key("done");
+            out.array(value, |out, item| item.to_json(out));
+        }
     }
 }
 
@@ -640,6 +673,52 @@ impl FromJson for OpenResult {
 }
 
 impl ToJson for OpenResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 入力の範囲と、その範囲を渡す入力の名前
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputRange {
+    /// 範囲を渡す入力の名前。<入力の名前>#<start>-<end>
+    pub input: String,
+    /// 範囲の初め（バイト）
+    pub start: u64,
+    /// 範囲の終わり（バイト、含まない）
+    pub end: u64,
+}
+
+impl InputRange {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let input = object.required("input", json::string)?;
+        let start = object.required("start", |value| json::uint(value, 0, 9007199254740991))?;
+        let end = object.required("end", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { input, start, end })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("input");
+        out.string(&self.input);
+        out.key("start");
+        out.uint(self.start);
+        out.key("end");
+        out.uint(self.end);
+    }
+}
+
+impl FromJson for InputRange {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for InputRange {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -12095,6 +12174,294 @@ impl FromJson for CivilPosition {
 }
 
 impl ToJson for CivilPosition {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointcloudRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// open で開いた点群の文書の名前
+    pub doc: String,
+    /// 点を選ぶ範囲。書かなければ全体
+    pub region: Option<PointcloudBox>,
+    /// 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段
+    pub tolerance: Option<f64>,
+    /// 返す点の数の上限。書かなければ点を返さず、要約だけを返す
+    pub limit: Option<u64>,
+}
+
+impl PointcloudRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "pointcloud")?;
+        let doc = object.required("doc", json::string)?;
+        let region = object.optional("region", PointcloudBox::from_json)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            request_common,
+            doc,
+            region,
+            tolerance,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("pointcloud");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.region {
+            out.key("region");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for PointcloudRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointcloudRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地図の空間の箱。北・東・標高（メートル）の最小と最大
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointcloudBox {
+    /// 最小の北・東・標高
+    pub min: Vec<f64>,
+    /// 最大の北・東・標高
+    pub max: Vec<f64>,
+}
+
+impl PointcloudBox {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let min = object.required("min", |value| json::array(value, json::number))?;
+        let max = object.required("max", |value| json::array(value, json::number))?;
+        Ok(Self { min, max })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("min");
+        out.array(&self.min, |out, item| out.float(*item));
+        out.key("max");
+        out.array(&self.max, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for PointcloudBox {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointcloudBox {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 点群の要約と、選んだ点
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointcloudResult {
+    /// 点の数
+    pub points: u64,
+    /// 点の範囲。点がなければ書かない
+    pub bounds: Option<PointcloudBox>,
+    /// 水平の座標系の EPSG のコード。分からなければ書かない
+    pub crs: Option<u64>,
+    /// 高さの座標系の EPSG のコード。分からなければ書かない
+    pub vertical: Option<u64>,
+    /// 点が持つ属性（position・intensity・classification・color・returns・time）
+    pub attributes: Vec<String>,
+    /// 八分木のいちばん深い段
+    pub depth: u64,
+    /// 八分木の節の数
+    pub nodes: u64,
+    /// 選んだ点。limit を書いたときに返す
+    pub selected: Option<PointcloudPoints>,
+}
+
+impl PointcloudResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
+        let bounds = object.optional("bounds", PointcloudBox::from_json)?;
+        let crs = object.optional("crs", |value| json::uint(value, 0, 9007199254740991))?;
+        let vertical =
+            object.optional("vertical", |value| json::uint(value, 0, 9007199254740991))?;
+        let attributes = object.required("attributes", |value| json::array(value, json::string))?;
+        let depth = object.required("depth", |value| json::uint(value, 0, 9007199254740991))?;
+        let nodes = object.required("nodes", |value| json::uint(value, 0, 9007199254740991))?;
+        let selected = object.optional("selected", PointcloudPoints::from_json)?;
+        Ok(Self {
+            points,
+            bounds,
+            crs,
+            vertical,
+            attributes,
+            depth,
+            nodes,
+            selected,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("points");
+        out.uint(self.points);
+        if let Some(value) = &self.bounds {
+            out.key("bounds");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.crs {
+            out.key("crs");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            out.uint(*value);
+        }
+        out.key("attributes");
+        out.array(&self.attributes, |out, item| out.string(item));
+        out.key("depth");
+        out.uint(self.depth);
+        out.key("nodes");
+        out.uint(self.nodes);
+        if let Some(value) = &self.selected {
+            out.key("selected");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for PointcloudResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointcloudResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 選んだ点。どの列も、選んだ点の順で同じ長さにする
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointcloudPoints {
+    /// 北・東・標高（メートル）
+    pub positions: Vec<Vec<f64>>,
+    /// 強度。点群が持つときに返す
+    pub intensity: Option<Vec<u64>>,
+    /// 分類。点群が持つときに返す
+    pub classification: Option<Vec<u64>>,
+    /// 色（赤・緑・青。16 ビット）。点群が持つときに返す
+    pub color: Option<Vec<Vec<u64>>>,
+    /// limit のために選ばなかった点がある
+    pub truncated: bool,
+    /// 選んだいちばん深い段
+    pub level: u64,
+}
+
+impl PointcloudPoints {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let positions = object.required("positions", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let intensity = object.optional("intensity", |value| {
+            json::array(value, |value| json::uint(value, 0, 9007199254740991))
+        })?;
+        let classification = object.optional("classification", |value| {
+            json::array(value, |value| json::uint(value, 0, 9007199254740991))
+        })?;
+        let color = object.optional("color", |value| {
+            json::array(value, |value| {
+                json::array(value, |value| json::uint(value, 0, 9007199254740991))
+            })
+        })?;
+        let truncated = object.required("truncated", json::boolean)?;
+        let level = object.required("level", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            positions,
+            intensity,
+            classification,
+            color,
+            truncated,
+            level,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("positions");
+        out.array(&self.positions, |out, item| {
+            out.array(item, |out, item| out.float(*item))
+        });
+        if let Some(value) = &self.intensity {
+            out.key("intensity");
+            out.array(value, |out, item| out.uint(*item));
+        }
+        if let Some(value) = &self.classification {
+            out.key("classification");
+            out.array(value, |out, item| out.uint(*item));
+        }
+        if let Some(value) = &self.color {
+            out.key("color");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.uint(*item))
+            });
+        }
+        out.key("truncated");
+        out.bool(self.truncated);
+        out.key("level");
+        out.uint(self.level);
+    }
+}
+
+impl FromJson for PointcloudPoints {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PointcloudPoints {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

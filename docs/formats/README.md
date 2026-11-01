@@ -664,6 +664,7 @@
 - サンプルの出どころ（Git に入れない）: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
 - 既知の crate: las・laz
 - issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
+- 形式の文書: [docs/formats/las.md](../../docs/formats/las.md)
 
 ### format-pdf
 

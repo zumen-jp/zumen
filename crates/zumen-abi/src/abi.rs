@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマの大版。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマの小版。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 47;
+pub const SCHEMA_MINOR: u64 = 48;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +100,7 @@ pub const MODULES: &[Module] = &[
     // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）
     Module {
         name: "drawing",
-        formats: &["dxf", "dwg", "sxf", "jww", "landxml"],
+        formats: &["dxf", "dwg", "sxf", "jww", "landxml", "las"],
         ops: &[
             "capabilities",
             "open",
@@ -116,6 +116,7 @@ pub const MODULES: &[Module] = &[
             "review_carry",
             "review_adopt",
             "civil",
+            "pointcloud",
         ],
     },
     // IFC と建物モデル、EXPRESS・IDS の照合と BCF
@@ -158,6 +159,7 @@ pub fn has_op(op: &str) -> bool {
                 | "review_carry"
                 | "review_adopt"
                 | "civil"
+                | "pointcloud"
         ))
         || (cfg!(feature = "bim")
             && matches!(
@@ -193,6 +195,14 @@ pub const DETECTION: &[Detection] = &[
         format: "ifc",
         module: "bim",
         rules: &[zumen_sdk::Signature::StepSchema { prefix: b"IFC" }],
+    },
+    Detection {
+        format: "las",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::Bytes {
+            offset: 0,
+            bytes: b"LASF",
+        }],
     },
     Detection {
         format: "dxf",

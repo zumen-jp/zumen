@@ -4,11 +4,13 @@
 //! - [`Transact`]・[`Transaction`] は、L1 の変更を確かめてからまとめて反映する仕組み
 //! - [`Lift`] は、L1 から L2 の領域モデルを作る変換
 //! - [`Apply`] は、L2 の変更を元の L1 へその場で書き戻す
+//! - [`ranged`] は、入りきらない入力を範囲で読む仕組み（決定 0232）
 //! - [`Signature`] は、形式の判定の規則。コーデックがデータとして持つ
 //! - [`testkit`] は、往復・決定性・レコードの範囲を確かめる試験の道具
 //!
 //! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lower` は、別の形式への変換を作るときに足す。
 
+pub mod ranged;
 mod root;
 mod schema;
 pub mod testkit;

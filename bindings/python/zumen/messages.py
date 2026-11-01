@@ -30,6 +30,7 @@ Request = Union[
     "BcfReadRequest",
     "BcfWriteRequest",
     "CivilRequest",
+    "PointcloudRequest",
 ]
 
 
@@ -195,6 +196,8 @@ _OpenRequestOptional = TypedDict(
         "time_limit_ms": int,
         # 作る文書の名前。書かなければ入力の名前
         "doc": str,
+        # 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+        "size": int,
     },
     total=False,
 )
@@ -205,13 +208,41 @@ class OpenRequest(_OpenRequestRequired, _OpenRequestOptional):
 
 
 # 作った文書
-OpenResult = TypedDict(
-    "OpenResult",
+_OpenResultRequired = TypedDict(
+    "_OpenResultRequired",
     {
         # 文書の名前
         "doc": str,
         # 判定した形式の名前
         "format": str,
+    },
+)
+_OpenResultOptional = TypedDict(
+    "_OpenResultOptional",
+    {
+        # 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+        "needs": List["InputRange"],
+        # 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+        "done": List["InputRange"],
+    },
+    total=False,
+)
+
+
+class OpenResult(_OpenResultRequired, _OpenResultOptional):
+    "作った文書"
+
+
+# 入力の範囲と、その範囲を渡す入力の名前
+InputRange = TypedDict(
+    "InputRange",
+    {
+        # 範囲を渡す入力の名前。<入力の名前>#<start>-<end>
+        "input": str,
+        # 範囲の初め（バイト）
+        "start": int,
+        # 範囲の終わり（バイト、含まない）
+        "end": int,
     },
 )
 
@@ -4243,6 +4274,120 @@ class CivilPosition(_CivilPositionRequired, _CivilPositionOptional):
     "線形の上の 1 つの所"
 
 
+# open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+_PointcloudRequestRequired = TypedDict(
+    "_PointcloudRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["pointcloud"],
+        # open で開いた点群の文書の名前
+        "doc": str,
+    },
+)
+_PointcloudRequestOptional = TypedDict(
+    "_PointcloudRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 点を選ぶ範囲。書かなければ全体
+        "region": "PointcloudBox",
+        # 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段
+        "tolerance": float,
+        # 返す点の数の上限。書かなければ点を返さず、要約だけを返す
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class PointcloudRequest(_PointcloudRequestRequired, _PointcloudRequestOptional):
+    "open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から"
+
+
+# 地図の空間の箱。北・東・標高（メートル）の最小と最大
+PointcloudBox = TypedDict(
+    "PointcloudBox",
+    {
+        # 最小の北・東・標高
+        "min": List[float],
+        # 最大の北・東・標高
+        "max": List[float],
+    },
+)
+
+
+# 点群の要約と、選んだ点
+_PointcloudResultRequired = TypedDict(
+    "_PointcloudResultRequired",
+    {
+        # 点の数
+        "points": int,
+        # 点が持つ属性（position・intensity・classification・color・returns・time）
+        "attributes": List[str],
+        # 八分木のいちばん深い段
+        "depth": int,
+        # 八分木の節の数
+        "nodes": int,
+    },
+)
+_PointcloudResultOptional = TypedDict(
+    "_PointcloudResultOptional",
+    {
+        # 点の範囲。点がなければ書かない
+        "bounds": "PointcloudBox",
+        # 水平の座標系の EPSG のコード。分からなければ書かない
+        "crs": int,
+        # 高さの座標系の EPSG のコード。分からなければ書かない
+        "vertical": int,
+        # 選んだ点。limit を書いたときに返す
+        "selected": "PointcloudPoints",
+    },
+    total=False,
+)
+
+
+class PointcloudResult(_PointcloudResultRequired, _PointcloudResultOptional):
+    "点群の要約と、選んだ点"
+
+
+# 選んだ点。どの列も、選んだ点の順で同じ長さにする
+_PointcloudPointsRequired = TypedDict(
+    "_PointcloudPointsRequired",
+    {
+        # 北・東・標高（メートル）
+        "positions": List[List[float]],
+        # limit のために選ばなかった点がある
+        "truncated": bool,
+        # 選んだいちばん深い段
+        "level": int,
+    },
+)
+_PointcloudPointsOptional = TypedDict(
+    "_PointcloudPointsOptional",
+    {
+        # 強度。点群が持つときに返す
+        "intensity": List[int],
+        # 分類。点群が持つときに返す
+        "classification": List[int],
+        # 色（赤・緑・青。16 ビット）。点群が持つときに返す
+        "color": List[List[int]],
+    },
+    total=False,
+)
+
+
+class PointcloudPoints(_PointcloudPointsRequired, _PointcloudPointsOptional):
+    "選んだ点。どの列も、選んだ点の順で同じ長さにする"
+
+
 # describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 Catalog = TypedDict(
     "Catalog",
@@ -4295,6 +4440,7 @@ Operation = Literal[
     "bcf_read",
     "bcf_write",
     "civil",
+    "pointcloud",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -4320,4 +4466,5 @@ OPERATIONS: Dict[str, Any] = {
     "bcf_read": ("BcfReadRequest", "BcfReadResult"),
     "bcf_write": ("BcfWriteRequest", "BcfWriteResult"),
     "civil": ("CivilRequest", "CivilResult"),
+    "pointcloud": ("PointcloudRequest", "PointcloudResult"),
 }

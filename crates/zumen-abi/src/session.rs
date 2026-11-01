@@ -35,6 +35,8 @@ use crate::messages::{
     ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult, SceneRequest, SceneResult,
     SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
 };
+#[cfg(feature = "drawing")]
+use crate::pointcloud;
 use crate::review;
 use crate::scene;
 use crate::tables::{
@@ -68,6 +70,8 @@ pub struct Session {
     models: BTreeMap<String, building::Model>,
     /// `open` で作った土木の領域モデルの文書（J-LandXML、決定 0230）。名前は `docs` と分け合う
     civils: BTreeMap<String, zumen_civil::CivilModel>,
+    /// 開いた点群（決定 0232）
+    clouds: BTreeMap<String, zumen_pointcloud::PointCloud>,
     /// 実行中の op の名前。使えない文書の診断に書く
     op: &'static str,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
@@ -227,6 +231,7 @@ impl Session {
             hashes: BTreeMap::new(),
             models: BTreeMap::new(),
             civils: BTreeMap::new(),
+            clouds: BTreeMap::new(),
             op: "",
             blobs: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
@@ -409,6 +414,10 @@ impl Session {
             }
             #[cfg(feature = "drawing")]
             Request::Civil(request) => self.civil(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
+            Request::Pointcloud(request) => {
+                self.pointcloud(request, &mut cx).map(|r| Box::new(r) as _)
+            }
             // 入れなかったモジュールの op は、上で断った
             #[allow(unreachable_patterns)]
             _ => Err(Failed),
@@ -434,6 +443,7 @@ impl Session {
         if self.docs.contains_key(name)
             || self.models.contains_key(name)
             || self.civils.contains_key(name)
+            || self.clouds.contains_key(name)
         {
             return Err(fail(
                 cx,
@@ -446,11 +456,35 @@ impl Session {
         if let Some(model) = building::read_spf(bytes, cx) {
             return self.open_model(name.clone(), model?);
         }
+        // LAS・LAZ は範囲で読む（決定 0232）
+        #[cfg(feature = "drawing")]
+        if let Some(opened) = pointcloud::read(&request.input, &self.inputs, request.size, cx) {
+            let format = zumen_las::Las::FORMAT.to_string();
+            return Ok(match opened? {
+                pointcloud::Opened::Cloud(cloud, done) => {
+                    self.clouds.insert(name.clone(), *cloud);
+                    OpenResult {
+                        doc: name.clone(),
+                        format,
+                        needs: None,
+                        done: Some(done).filter(|done| !done.is_empty()),
+                    }
+                }
+                pointcloud::Opened::Need(needs) => OpenResult {
+                    doc: name.clone(),
+                    format,
+                    needs: Some(needs),
+                    done: None,
+                },
+            });
+        }
         #[cfg(feature = "drawing")]
         if let Some(doc) = read_drawing(bytes, cx)? {
             let result = OpenResult {
                 doc: name.clone(),
                 format: doc.format().to_string(),
+                needs: None,
+                done: None,
             };
             let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
             self.hashes.insert(name.clone(), hash);
@@ -464,6 +498,8 @@ impl Session {
             return Ok(OpenResult {
                 doc: name.clone(),
                 format: zumen_landxml::LandXml::FORMAT.to_string(),
+                needs: None,
+                done: None,
             });
         }
         #[cfg(feature = "bim")]
@@ -483,6 +519,8 @@ impl Session {
         Ok(OpenResult {
             doc: name,
             format: "ifc".to_string(),
+            needs: None,
+            done: None,
         })
     }
 
@@ -503,6 +541,7 @@ impl Session {
             if !self.docs.contains_key(doc)
                 && !self.models.contains_key(doc)
                 && !self.civils.contains_key(doc)
+                && !self.clouds.contains_key(doc)
             {
                 cx.report(Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.as_str()));
                 missing = true;
@@ -523,6 +562,7 @@ impl Session {
             self.hashes.remove(doc);
             self.models.remove(doc);
             self.civils.remove(doc);
+            self.clouds.remove(doc);
         }
         for input in inputs {
             self.inputs.remove(input);
@@ -957,7 +997,10 @@ impl Session {
         }
         match self.models.get(doc) {
             Some(model) => Ok(model),
-            None if self.docs.contains_key(doc) || self.civils.contains_key(doc) => {
+            None if self.docs.contains_key(doc)
+                || self.civils.contains_key(doc)
+                || self.clouds.contains_key(doc) =>
+            {
                 Err(fail(cx, unsupported(doc, op)))
             }
             None => Err(fail(
@@ -1045,7 +1088,10 @@ impl Session {
                 }
                 match self.civils.get(doc) {
                     Some(model) => Some(model),
-                    None if self.docs.contains_key(doc) || self.models.contains_key(doc) => {
+                    None if self.docs.contains_key(doc)
+                        || self.models.contains_key(doc)
+                        || self.clouds.contains_key(doc) =>
+                    {
                         return Err(fail(cx, unsupported(doc, "civil")));
                     }
                     None => {
@@ -1142,13 +1188,42 @@ impl Session {
         scene::palette(bytes).ok_or_else(|| fail(cx, invalid_value("/palette")))
     }
 
+    /// 開いた点群の要約と、条件に合う点（決定 0232）
+    #[cfg(feature = "drawing")]
+    fn pointcloud(
+        &self,
+        request: &messages::PointcloudRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::PointcloudResult, Failed> {
+        let doc = &request.doc;
+        if !name::is_safe(doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        match self.clouds.get(doc) {
+            Some(cloud) => pointcloud::pointcloud(request, cloud, cx),
+            None if self.docs.contains_key(doc)
+                || self.models.contains_key(doc)
+                || self.civils.contains_key(doc) =>
+            {
+                Err(fail(cx, unsupported(doc, "pointcloud")))
+            }
+            None => Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
+            )),
+        }
+    }
+
     /// 名前の文書を、図面モデルに変換する
     fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
         let Some(found) = self.docs.get(doc) else {
-            if self.models.contains_key(doc) || self.civils.contains_key(doc) {
+            if self.models.contains_key(doc)
+                || self.civils.contains_key(doc)
+                || self.clouds.contains_key(doc)
+            {
                 return Err(fail(cx, unsupported(doc, self.op)));
             }
             return Err(fail(
@@ -1188,6 +1263,7 @@ fn capabilities() -> CapabilitiesResult {
             (Sxf::FORMAT, "sxf", true, 2),
             (Jww::FORMAT, "jww", true, 1),
             (zumen_landxml::LandXml::FORMAT, "landxml", false, 1),
+            (zumen_las::Las::FORMAT, "las", false, 1),
         ]
         .into_iter()
         .filter(|_| cfg!(feature = "drawing"))
@@ -1529,6 +1605,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::BcfRead(request) => &request.request_common,
         Request::BcfWrite(request) => &request.request_common,
         Request::Civil(request) => &request.request_common,
+        Request::Pointcloud(request) => &request.request_common,
     }
 }
 
@@ -2071,7 +2148,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":47}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":48}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

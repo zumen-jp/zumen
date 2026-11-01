@@ -61,6 +61,7 @@ namespace Zumen.Messages
             ["bcf_read"] = typeof(BcfReadRequest),
             ["bcf_write"] = typeof(BcfWriteRequest),
             ["civil"] = typeof(CivilRequest),
+            ["pointcloud"] = typeof(PointcloudRequest),
         };
     }
 
@@ -345,6 +346,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("doc")]
         public string? Doc { get; init; }
+
+        /// <summary>
+        /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+        /// </summary>
+        [JsonPropertyName("size")]
+        public ulong? Size { get; init; }
     }
 
     /// <summary>
@@ -363,6 +370,42 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("format")]
         public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+        /// </summary>
+        [JsonPropertyName("needs")]
+        public IReadOnlyList<InputRange>? Needs { get; init; }
+
+        /// <summary>
+        /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+        /// </summary>
+        [JsonPropertyName("done")]
+        public IReadOnlyList<InputRange>? Done { get; init; }
+    }
+
+    /// <summary>
+    /// 入力の範囲と、その範囲を渡す入力の名前
+    /// </summary>
+    public sealed record InputRange
+    {
+        /// <summary>
+        /// 範囲を渡す入力の名前。&lt;入力の名前&gt;#&lt;start&gt;-&lt;end&gt;
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+
+        /// <summary>
+        /// 範囲の初め（バイト）
+        /// </summary>
+        [JsonPropertyName("start")]
+        public ulong Start { get; init; }
+
+        /// <summary>
+        /// 範囲の終わり（バイト、含まない）
+        /// </summary>
+        [JsonPropertyName("end")]
+        public ulong End { get; init; }
     }
 
     /// <summary>
@@ -6673,6 +6716,186 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+    /// </summary>
+    public sealed record PointcloudRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "pointcloud";
+
+        /// <summary>
+        /// open で開いた点群の文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 点を選ぶ範囲。書かなければ全体
+        /// </summary>
+        [JsonPropertyName("region")]
+        public PointcloudBox? Region { get; init; }
+
+        /// <summary>
+        /// 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double? Tolerance { get; init; }
+
+        /// <summary>
+        /// 返す点の数の上限。書かなければ点を返さず、要約だけを返す
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public ulong? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 地図の空間の箱。北・東・標高（メートル）の最小と最大
+    /// </summary>
+    public sealed record PointcloudBox
+    {
+        /// <summary>
+        /// 最小の北・東・標高
+        /// </summary>
+        [JsonPropertyName("min")]
+        public IReadOnlyList<double> Min { get; init; } = default!;
+
+        /// <summary>
+        /// 最大の北・東・標高
+        /// </summary>
+        [JsonPropertyName("max")]
+        public IReadOnlyList<double> Max { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 点群の要約と、選んだ点
+    /// </summary>
+    public sealed record PointcloudResult
+    {
+        /// <summary>
+        /// 点の数
+        /// </summary>
+        [JsonPropertyName("points")]
+        public ulong Points { get; init; }
+
+        /// <summary>
+        /// 点の範囲。点がなければ書かない
+        /// </summary>
+        [JsonPropertyName("bounds")]
+        public PointcloudBox? Bounds { get; init; }
+
+        /// <summary>
+        /// 水平の座標系の EPSG のコード。分からなければ書かない
+        /// </summary>
+        [JsonPropertyName("crs")]
+        public ulong? Crs { get; init; }
+
+        /// <summary>
+        /// 高さの座標系の EPSG のコード。分からなければ書かない
+        /// </summary>
+        [JsonPropertyName("vertical")]
+        public ulong? Vertical { get; init; }
+
+        /// <summary>
+        /// 点が持つ属性（position・intensity・classification・color・returns・time）
+        /// </summary>
+        [JsonPropertyName("attributes")]
+        public IReadOnlyList<string> Attributes { get; init; } = default!;
+
+        /// <summary>
+        /// 八分木のいちばん深い段
+        /// </summary>
+        [JsonPropertyName("depth")]
+        public ulong Depth { get; init; }
+
+        /// <summary>
+        /// 八分木の節の数
+        /// </summary>
+        [JsonPropertyName("nodes")]
+        public ulong Nodes { get; init; }
+
+        /// <summary>
+        /// 選んだ点。limit を書いたときに返す
+        /// </summary>
+        [JsonPropertyName("selected")]
+        public PointcloudPoints? Selected { get; init; }
+    }
+
+    /// <summary>
+    /// 選んだ点。どの列も、選んだ点の順で同じ長さにする
+    /// </summary>
+    public sealed record PointcloudPoints
+    {
+        /// <summary>
+        /// 北・東・標高（メートル）
+        /// </summary>
+        [JsonPropertyName("positions")]
+        public IReadOnlyList<IReadOnlyList<double>> Positions { get; init; } = default!;
+
+        /// <summary>
+        /// 強度。点群が持つときに返す
+        /// </summary>
+        [JsonPropertyName("intensity")]
+        public IReadOnlyList<ulong>? Intensity { get; init; }
+
+        /// <summary>
+        /// 分類。点群が持つときに返す
+        /// </summary>
+        [JsonPropertyName("classification")]
+        public IReadOnlyList<ulong>? Classification { get; init; }
+
+        /// <summary>
+        /// 色（赤・緑・青。16 ビット）。点群が持つときに返す
+        /// </summary>
+        [JsonPropertyName("color")]
+        public IReadOnlyList<IReadOnlyList<ulong>>? Color { get; init; }
+
+        /// <summary>
+        /// limit のために選ばなかった点がある
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool Truncated { get; init; }
+
+        /// <summary>
+        /// 選んだいちばん深い段
+        /// </summary>
+        [JsonPropertyName("level")]
+        public ulong Level { get; init; }
+    }
+
+    /// <summary>
     /// describe に使うカタログのファイル。catalog/&lt;言語&gt;.toml から生成し、zm_push で渡す（決定 0009）
     /// </summary>
     public sealed record Catalog
@@ -6754,6 +6977,7 @@ namespace Zumen.Messages
                 ["bcf_read"] = (typeof(BcfReadRequest), typeof(BcfReadResult)),
                 ["bcf_write"] = (typeof(BcfWriteRequest), typeof(BcfWriteResult)),
                 ["civil"] = (typeof(CivilRequest), typeof(CivilResult)),
+                ["pointcloud"] = (typeof(PointcloudRequest), typeof(PointcloudResult)),
             };
     }
 }

@@ -26,7 +26,8 @@ export type Request =
   | ReviewAdoptIdsRequest
   | BcfReadRequest
   | BcfWriteRequest
-  | CivilRequest;
+  | CivilRequest
+  | PointcloudRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -117,6 +118,8 @@ export interface OpenRequest extends RequestCommon {
   input: string;
   /** 作る文書の名前。書かなければ入力の名前 */
   doc?: string;
+  /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から */
+  size?: number;
 }
 
 /** 作った文書 */
@@ -125,6 +128,20 @@ export interface OpenResult {
   doc: string;
   /** 判定した形式の名前 */
   format: string;
+  /** 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から */
+  needs?: InputRange[];
+  /** 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から */
+  done?: InputRange[];
+}
+
+/** 入力の範囲と、その範囲を渡す入力の名前 */
+export interface InputRange {
+  /** 範囲を渡す入力の名前。<入力の名前>#<start>-<end> */
+  input: string;
+  /** 範囲の初め（バイト） */
+  start: number;
+  /** 範囲の終わり（バイト、含まない） */
+  end: number;
 }
 
 /** 文書と入力を捨てる。名指ししたものが 1 つでもなければ、何も捨てない */
@@ -2442,6 +2459,64 @@ export interface CivilPosition {
   gradient?: number;
 }
 
+/** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から */
+export interface PointcloudRequest extends RequestCommon {
+  /** op の名前 */
+  op: "pointcloud";
+  /** open で開いた点群の文書の名前 */
+  doc: string;
+  /** 点を選ぶ範囲。書かなければ全体 */
+  region?: PointcloudBox;
+  /** 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段 */
+  tolerance?: number;
+  /** 返す点の数の上限。書かなければ点を返さず、要約だけを返す */
+  limit?: number;
+}
+
+/** 地図の空間の箱。北・東・標高（メートル）の最小と最大 */
+export interface PointcloudBox {
+  /** 最小の北・東・標高 */
+  min: number[];
+  /** 最大の北・東・標高 */
+  max: number[];
+}
+
+/** 点群の要約と、選んだ点 */
+export interface PointcloudResult {
+  /** 点の数 */
+  points: number;
+  /** 点の範囲。点がなければ書かない */
+  bounds?: PointcloudBox;
+  /** 水平の座標系の EPSG のコード。分からなければ書かない */
+  crs?: number;
+  /** 高さの座標系の EPSG のコード。分からなければ書かない */
+  vertical?: number;
+  /** 点が持つ属性（position・intensity・classification・color・returns・time） */
+  attributes: string[];
+  /** 八分木のいちばん深い段 */
+  depth: number;
+  /** 八分木の節の数 */
+  nodes: number;
+  /** 選んだ点。limit を書いたときに返す */
+  selected?: PointcloudPoints;
+}
+
+/** 選んだ点。どの列も、選んだ点の順で同じ長さにする */
+export interface PointcloudPoints {
+  /** 北・東・標高（メートル） */
+  positions: number[][];
+  /** 強度。点群が持つときに返す */
+  intensity?: number[];
+  /** 分類。点群が持つときに返す */
+  classification?: number[];
+  /** 色（赤・緑・青。16 ビット）。点群が持つときに返す */
+  color?: number[][];
+  /** limit のために選ばなかった点がある */
+  truncated: boolean;
+  /** 選んだいちばん深い段 */
+  level: number;
+}
+
 /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
 export interface Catalog {
   /** カタログの形の大版。今は 1 */
@@ -2487,4 +2562,5 @@ export interface Operations {
   bcf_read: { request: BcfReadRequest; result: BcfReadResult };
   bcf_write: { request: BcfWriteRequest; result: BcfWriteResult };
   civil: { request: CivilRequest; result: CivilResult };
+  pointcloud: { request: PointcloudRequest; result: PointcloudResult };
 }

@@ -693,6 +693,7 @@ basis = ["spec"]
 known-crates = ["las", "laz"]
 verify = ["CloudCompare", "PDAL", "LAStools の lasinfo"]
 samples = ["laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）"]
+docs = ["docs/formats/las.md"]
 issues = ["zumen-jp/zumen#371"]
 
 [[formats.las.evidence]]

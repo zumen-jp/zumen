@@ -28,6 +28,8 @@ mod describe;
 pub mod ffi;
 mod geometry;
 pub mod messages;
+#[cfg(feature = "drawing")]
+mod pointcloud;
 #[cfg(not(target_family = "wasm"))]
 mod process;
 mod review;

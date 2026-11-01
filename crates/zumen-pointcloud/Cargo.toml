@@ -1,0 +1,17 @@
+[package]
+name = "zumen-pointcloud"
+description = "zumen の点群の領域モデル（L2、決定 0232）。地図の空間の列の点と、八分木の索引"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 八分木の節の大きさ（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+
+[lints]
+workspace = true

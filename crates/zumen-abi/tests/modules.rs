@@ -10,6 +10,7 @@ use zumen_base::CancelToken;
 use zumen_ifc::{Ifc, IfcZip};
 use zumen_jww::Jww;
 use zumen_landxml::LandXml;
+use zumen_las::Las;
 use zumen_sdk::Codec;
 use zumen_sxf::Sxf;
 
@@ -30,6 +31,7 @@ fn call(session: &mut Session, request: &str) -> (Status, String) {
 fn detection_follows_the_codecs_in_the_order_open_tries() {
     let expected = [
         ("ifc", Ifc::SIGNATURES),
+        ("las", <Las as Codec>::SIGNATURES),
         ("dxf", Dxf::SIGNATURES),
         ("dwg", Dwg::SIGNATURES),
         ("sxf", Sxf::SIGNATURES),

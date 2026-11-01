@@ -1894,6 +1894,99 @@ pub const LANDXML_VALUE_INVALID: Code = Code::new(
     &["element", "field"],
 );
 
+/// 点群の領域モデルに持たない点の属性を、移さなかった（決定 0232）
+///
+/// `las.attribute.dropped`（0.2.0 から）
+pub const LAS_ATTRIBUTE_DROPPED: Code = Code::new(
+    "las.attribute.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("attribute", ParamType::Text)],
+    &["attribute"],
+);
+
+/// 座標系のレコードがないので、座標系を不明にした
+///
+/// `las.crs.missing`（0.2.0 から）
+pub const LAS_CRS_MISSING: Code = Code::new("las.crs.missing", Severity::Warning, None, &[], &[]);
+
+/// 扱わない水平の座標系（平面直角座標系の JGD2011 でないもの）なので、座標系を不明にした
+///
+/// `las.crs.unsupported`（0.2.0 から）
+pub const LAS_CRS_UNSUPPORTED: Code = Code::new(
+    "las.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("epsg", ParamType::UInt)],
+    &[],
+);
+
+/// LASF の始まりか見出しがないか、見出しの値が合わない
+///
+/// `las.file.invalid`（0.2.0 から）
+pub const LAS_FILE_INVALID: Code = Code::new("las.file.invalid", Severity::Error, None, &[], &[]);
+
+/// LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった
+///
+/// `las.laz.invalid`（0.2.0 から）
+pub const LAS_LAZ_INVALID: Code = Code::new(
+    "las.laz.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Text)],
+    &[],
+);
+
+/// 点の形式が 0〜10 のどれでもない
+///
+/// `las.point-format.unsupported`（0.2.0 から）
+pub const LAS_POINT_FORMAT_UNSUPPORTED: Code = Code::new(
+    "las.point-format.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("format", ParamType::UInt)],
+    &[],
+);
+
+/// 点のレコードが、見出しの点の数より短いので、読めた点だけを読んだ
+///
+/// `las.points.invalid`（0.2.0 から）
+pub const LAS_POINTS_INVALID: Code = Code::new(
+    "las.points.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("expected", ParamType::UInt),
+        Param::new("found", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 扱わない高さの座標系なので、高さの座標系を不明にした
+///
+/// `las.vertical-crs.unsupported`（0.2.0 から）
+pub const LAS_VERTICAL_CRS_UNSUPPORTED: Code = Code::new(
+    "las.vertical-crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("epsg", ParamType::UInt)],
+    &[],
+);
+
+/// 可変長のレコード（VLR・EVLR）が範囲から外れるので、残りを読まなかった
+///
+/// `las.vlr.invalid`（0.2.0 から）
+pub const LAS_VLR_INVALID: Code = Code::new(
+    "las.vlr.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("expected", ParamType::UInt),
+        Param::new("found", ParamType::UInt),
+    ],
+    &[],
+);
+
 /// 文字の内容が、語彙の範囲の文字を含む（指摘）。character は U+XXXX の形
 ///
 /// `profile.characters.invalid`（0.0.0 から）
@@ -3010,6 +3103,15 @@ pub const ALL: &[Code] = &[
     LANDXML_FACE_DROPPED,
     LANDXML_HEIGHT_DATUM_UNSUPPORTED,
     LANDXML_VALUE_INVALID,
+    LAS_ATTRIBUTE_DROPPED,
+    LAS_CRS_MISSING,
+    LAS_CRS_UNSUPPORTED,
+    LAS_FILE_INVALID,
+    LAS_LAZ_INVALID,
+    LAS_POINT_FORMAT_UNSUPPORTED,
+    LAS_POINTS_INVALID,
+    LAS_VERTICAL_CRS_UNSUPPORTED,
+    LAS_VLR_INVALID,
     PROFILE_CHARACTERS_INVALID,
     PROFILE_COLOR_INVALID,
     PROFILE_COLOR_UNSUPPORTED,

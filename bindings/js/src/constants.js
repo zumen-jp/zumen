@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマの大版（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマの小版 */
-export const SCHEMA_MINOR = 47;
+export const SCHEMA_MINOR = 48;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -37,8 +37,8 @@ export const WASM_EXPORTS = Object.freeze([
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
     description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil"]),
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "las"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "pointcloud"]),
   }),
   bim: Object.freeze({
     description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF",
@@ -54,6 +54,13 @@ export const DETECTION = Object.freeze([
     module: "bim",
     rules: Object.freeze([
       Object.freeze({ kind: "step_schema", prefix: "IFC" }),
+    ]),
+  }),
+  Object.freeze({
+    format: "las",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x4c, 0x41, 0x53, 0x46]) }),
     ]),
   }),
   Object.freeze({

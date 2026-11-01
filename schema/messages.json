@@ -27,7 +27,8 @@
         { "$ref": "#/$defs/review_adopt_ids_request" },
         { "$ref": "#/$defs/bcf_read_request" },
         { "$ref": "#/$defs/bcf_write_request" },
-        { "$ref": "#/$defs/civil_request" }
+        { "$ref": "#/$defs/civil_request" },
+        { "$ref": "#/$defs/pointcloud_request" }
       ]
     },
     "request_common": {
@@ -142,7 +143,12 @@
       "properties": {
         "op": { "description": "op の名前", "const": "open" },
         "input": { "description": "読む入力の名前。zm_push で渡したもの", "type": "string" },
-        "doc": { "description": "作る文書の名前。書かなければ入力の名前", "type": "string" }
+        "doc": { "description": "作る文書の名前。書かなければ入力の名前", "type": "string" },
+        "size": {
+          "description": "入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から",
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "required": ["op", "input"],
       "unevaluatedProperties": false
@@ -152,9 +158,30 @@
       "type": "object",
       "properties": {
         "doc": { "description": "文書の名前", "type": "string" },
-        "format": { "description": "判定した形式の名前", "type": "string" }
+        "format": { "description": "判定した形式の名前", "type": "string" },
+        "needs": {
+          "description": "読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/input_range" }
+        },
+        "done": {
+          "description": "読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/input_range" }
+        }
       },
       "required": ["doc", "format"],
+      "additionalProperties": false
+    },
+    "input_range": {
+      "description": "入力の範囲と、その範囲を渡す入力の名前",
+      "type": "object",
+      "properties": {
+        "input": { "description": "範囲を渡す入力の名前。<入力の名前>#<start>-<end>", "type": "string" },
+        "start": { "description": "範囲の初め（バイト）", "type": "integer", "minimum": 0 },
+        "end": { "description": "範囲の終わり（バイト、含まない）", "type": "integer", "minimum": 0 }
+      },
+      "required": ["input", "start", "end"],
       "additionalProperties": false
     },
     "close_request": {
@@ -3359,6 +3386,79 @@
         "gradient": { "description": "縦断線形の勾配。高さと同じく、求められなければ書かない", "type": "number" }
       },
       "required": ["distance", "station", "northing", "easting", "direction"],
+      "additionalProperties": false
+    },
+    "pointcloud_request": {
+      "description": "open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "pointcloud" },
+        "doc": { "description": "open で開いた点群の文書の名前", "type": "string" },
+        "region": { "description": "点を選ぶ範囲。書かなければ全体", "$ref": "#/$defs/pointcloud_box" },
+        "tolerance": {
+          "description": "許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段",
+          "type": "number"
+        },
+        "limit": {
+          "description": "返す点の数の上限。書かなければ点を返さず、要約だけを返す",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "pointcloud_box": {
+      "description": "地図の空間の箱。北・東・標高（メートル）の最小と最大",
+      "type": "object",
+      "properties": {
+        "min": { "description": "最小の北・東・標高", "type": "array", "items": { "type": "number" } },
+        "max": { "description": "最大の北・東・標高", "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["min", "max"],
+      "additionalProperties": false
+    },
+    "pointcloud_result": {
+      "description": "点群の要約と、選んだ点",
+      "type": "object",
+      "properties": {
+        "points": { "description": "点の数", "type": "integer", "minimum": 0 },
+        "bounds": { "description": "点の範囲。点がなければ書かない", "$ref": "#/$defs/pointcloud_box" },
+        "crs": { "description": "水平の座標系の EPSG のコード。分からなければ書かない", "type": "integer", "minimum": 0 },
+        "vertical": { "description": "高さの座標系の EPSG のコード。分からなければ書かない", "type": "integer", "minimum": 0 },
+        "attributes": {
+          "description": "点が持つ属性（position・intensity・classification・color・returns・time）",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "depth": { "description": "八分木のいちばん深い段", "type": "integer", "minimum": 0 },
+        "nodes": { "description": "八分木の節の数", "type": "integer", "minimum": 0 },
+        "selected": { "description": "選んだ点。limit を書いたときに返す", "$ref": "#/$defs/pointcloud_points" }
+      },
+      "required": ["points", "attributes", "depth", "nodes"],
+      "additionalProperties": false
+    },
+    "pointcloud_points": {
+      "description": "選んだ点。どの列も、選んだ点の順で同じ長さにする",
+      "type": "object",
+      "properties": {
+        "positions": {
+          "description": "北・東・標高（メートル）",
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "number" } }
+        },
+        "intensity": { "description": "強度。点群が持つときに返す", "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "classification": { "description": "分類。点群が持つときに返す", "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "color": {
+          "description": "色（赤・緑・青。16 ビット）。点群が持つときに返す",
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+        },
+        "truncated": { "description": "limit のために選ばなかった点がある", "type": "boolean" },
+        "level": { "description": "選んだいちばん深い段", "type": "integer", "minimum": 0 }
+      },
+      "required": ["positions", "truncated", "level"],
       "additionalProperties": false
     },
     "catalog": {

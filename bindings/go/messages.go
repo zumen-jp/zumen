@@ -135,6 +135,11 @@ func (u Request) AsCivilRequest() *CivilRequest {
 	return asTagged[CivilRequest](u, "op", "civil")
 }
 
+// AsPointcloudRequest は、op が pointcloud の形なら、その型で読む。違えば nil。
+func (u Request) AsPointcloudRequest() *PointcloudRequest {
+	return asTagged[PointcloudRequest](u, "op", "pointcloud")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -275,6 +280,9 @@ type OpenRequest struct {
 
 	// 作る文書の名前。書かなければ入力の名前
 	Doc *string `json:"doc,omitempty"`
+
+	// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+	Size *int64 `json:"size,omitempty"`
 }
 
 // MarshalJSON は、目印の欄を入れて書く。
@@ -291,6 +299,24 @@ type OpenResult struct {
 
 	// 判定した形式の名前
 	Format *string `json:"format,omitempty"`
+
+	// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+	Needs []InputRange `json:"needs,omitempty"`
+
+	// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+	Done []InputRange `json:"done,omitempty"`
+}
+
+// InputRange: 入力の範囲と、その範囲を渡す入力の名前
+type InputRange struct {
+	// 範囲を渡す入力の名前。<入力の名前>#<start>-<end>
+	Input *string `json:"input,omitempty"`
+
+	// 範囲の初め（バイト）
+	Start *int64 `json:"start,omitempty"`
+
+	// 範囲の終わり（バイト、含まない）
+	End *int64 `json:"end,omitempty"`
 }
 
 // CloseRequest: 文書と入力を捨てる。名指ししたものが 1 つでもなければ、何も捨てない
@@ -4314,6 +4340,103 @@ type CivilPosition struct {
 	Gradient *float64 `json:"gradient,omitempty"`
 }
 
+// PointcloudRequest: open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+type PointcloudRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// open で開いた点群の文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 点を選ぶ範囲。書かなければ全体
+	Region *PointcloudBox `json:"region,omitempty"`
+
+	// 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 返す点の数の上限。書かなければ点を返さず、要約だけを返す
+	Limit *int64 `json:"limit,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m PointcloudRequest) MarshalJSON() ([]byte, error) {
+	type plain PointcloudRequest
+	m.Op = "pointcloud"
+	return json.Marshal(plain(m))
+}
+
+// PointcloudBox: 地図の空間の箱。北・東・標高（メートル）の最小と最大
+type PointcloudBox struct {
+	// 最小の北・東・標高
+	Min []float64 `json:"min,omitempty"`
+
+	// 最大の北・東・標高
+	Max []float64 `json:"max,omitempty"`
+}
+
+// PointcloudResult: 点群の要約と、選んだ点
+type PointcloudResult struct {
+	// 点の数
+	Points *int64 `json:"points,omitempty"`
+
+	// 点の範囲。点がなければ書かない
+	Bounds *PointcloudBox `json:"bounds,omitempty"`
+
+	// 水平の座標系の EPSG のコード。分からなければ書かない
+	Crs *int64 `json:"crs,omitempty"`
+
+	// 高さの座標系の EPSG のコード。分からなければ書かない
+	Vertical *int64 `json:"vertical,omitempty"`
+
+	// 点が持つ属性（position・intensity・classification・color・returns・time）
+	Attributes []string `json:"attributes,omitempty"`
+
+	// 八分木のいちばん深い段
+	Depth *int64 `json:"depth,omitempty"`
+
+	// 八分木の節の数
+	Nodes *int64 `json:"nodes,omitempty"`
+
+	// 選んだ点。limit を書いたときに返す
+	Selected *PointcloudPoints `json:"selected,omitempty"`
+}
+
+// PointcloudPoints: 選んだ点。どの列も、選んだ点の順で同じ長さにする
+type PointcloudPoints struct {
+	// 北・東・標高（メートル）
+	Positions [][]float64 `json:"positions,omitempty"`
+
+	// 強度。点群が持つときに返す
+	Intensity []int64 `json:"intensity,omitempty"`
+
+	// 分類。点群が持つときに返す
+	Classification []int64 `json:"classification,omitempty"`
+
+	// 色（赤・緑・青。16 ビット）。点群が持つときに返す
+	Color [][]int64 `json:"color,omitempty"`
+
+	// limit のために選ばなかった点がある
+	Truncated *bool `json:"truncated,omitempty"`
+
+	// 選んだいちばん深い段
+	Level *int64 `json:"level,omitempty"`
+}
+
 // Catalog: describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 type Catalog struct {
 	// カタログの形の大版。今は 1
@@ -4403,3 +4526,6 @@ const OpBcfWrite = "bcf_write"
 
 // OpCivil は、op の名前 civil。
 const OpCivil = "civil"
+
+// OpPointcloud は、op の名前 pointcloud。
+const OpPointcloud = "pointcloud"

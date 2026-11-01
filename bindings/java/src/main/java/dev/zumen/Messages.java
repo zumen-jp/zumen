@@ -166,6 +166,11 @@ public final class Messages {
         public CivilRequest asCivilRequest() {
             return "civil".equals(json.get("op")) ? new CivilRequest(json) : null;
         }
+
+        /** op が pointcloud の形なら、その見方。違えば null */
+        public PointcloudRequest asPointcloudRequest() {
+            return "pointcloud".equals(json.get("op")) ? new PointcloudRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -719,6 +724,17 @@ public final class Messages {
             put("doc", value);
             return this;
         }
+
+        /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から */
+        public Long getSize() {
+            return Json.read(json.get("size"), Json::integer);
+        }
+
+        /** {@link #getSize()} を書く。null なら欄を除く */
+        public OpenRequest withSize(Long value) {
+            put("size", value);
+            return this;
+        }
     }
 
     /** 作った文書 */
@@ -758,6 +774,80 @@ public final class Messages {
         /** {@link #getFormat()} を書く。null なら欄を除く */
         public OpenResult withFormat(String value) {
             put("format", value);
+            return this;
+        }
+
+        /** 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から */
+        public List<InputRange> getNeeds() {
+            return Json.read(json.get("needs"), v0 -> Json.list(v0, InputRange::of));
+        }
+
+        /** {@link #getNeeds()} を書く。null なら欄を除く */
+        public OpenResult withNeeds(List<InputRange> value) {
+            put("needs", value);
+            return this;
+        }
+
+        /** 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から */
+        public List<InputRange> getDone() {
+            return Json.read(json.get("done"), v0 -> Json.list(v0, InputRange::of));
+        }
+
+        /** {@link #getDone()} を書く。null なら欄を除く */
+        public OpenResult withDone(List<InputRange> value) {
+            put("done", value);
+            return this;
+        }
+    }
+
+    /** 入力の範囲と、その範囲を渡す入力の名前 */
+    public static final class InputRange extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public InputRange(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static InputRange of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new InputRange(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public InputRange() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 範囲を渡す入力の名前。<入力の名前>#<start>-<end> */
+        public String getInput() {
+            return Json.read(json.get("input"), Json::string);
+        }
+
+        /** {@link #getInput()} を書く。null なら欄を除く */
+        public InputRange withInput(String value) {
+            put("input", value);
+            return this;
+        }
+
+        /** 範囲の初め（バイト） */
+        public Long getStart() {
+            return Json.read(json.get("start"), Json::integer);
+        }
+
+        /** {@link #getStart()} を書く。null なら欄を除く */
+        public InputRange withStart(Long value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 範囲の終わり（バイト、含まない） */
+        public Long getEnd() {
+            return Json.read(json.get("end"), Json::integer);
+        }
+
+        /** {@link #getEnd()} を書く。null なら欄を除く */
+        public InputRange withEnd(Long value) {
+            put("end", value);
             return this;
         }
     }
@@ -13167,6 +13257,369 @@ public final class Messages {
         }
     }
 
+    /** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から */
+    public static final class PointcloudRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PointcloudRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PointcloudRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PointcloudRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public PointcloudRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "pointcloud");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public PointcloudRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public PointcloudRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public PointcloudRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public PointcloudRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public PointcloudRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public PointcloudRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** open で開いた点群の文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public PointcloudRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 点を選ぶ範囲。書かなければ全体 */
+        public PointcloudBox getRegion() {
+            return Json.read(json.get("region"), PointcloudBox::of);
+        }
+
+        /** {@link #getRegion()} を書く。null なら欄を除く */
+        public PointcloudRequest withRegion(PointcloudBox value) {
+            put("region", value);
+            return this;
+        }
+
+        /** 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null なら欄を除く */
+        public PointcloudRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 返す点の数の上限。書かなければ点を返さず、要約だけを返す */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null なら欄を除く */
+        public PointcloudRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+    }
+
+    /** 地図の空間の箱。北・東・標高（メートル）の最小と最大 */
+    public static final class PointcloudBox extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PointcloudBox(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PointcloudBox of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PointcloudBox(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public PointcloudBox() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 最小の北・東・標高 */
+        public List<Double> getMin() {
+            return Json.read(json.get("min"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMin()} を書く。null なら欄を除く */
+        public PointcloudBox withMin(List<Double> value) {
+            put("min", value);
+            return this;
+        }
+
+        /** 最大の北・東・標高 */
+        public List<Double> getMax() {
+            return Json.read(json.get("max"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMax()} を書く。null なら欄を除く */
+        public PointcloudBox withMax(List<Double> value) {
+            put("max", value);
+            return this;
+        }
+    }
+
+    /** 点群の要約と、選んだ点 */
+    public static final class PointcloudResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PointcloudResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PointcloudResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PointcloudResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public PointcloudResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 点の数 */
+        public Long getPoints() {
+            return Json.read(json.get("points"), Json::integer);
+        }
+
+        /** {@link #getPoints()} を書く。null なら欄を除く */
+        public PointcloudResult withPoints(Long value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 点の範囲。点がなければ書かない */
+        public PointcloudBox getBounds() {
+            return Json.read(json.get("bounds"), PointcloudBox::of);
+        }
+
+        /** {@link #getBounds()} を書く。null なら欄を除く */
+        public PointcloudResult withBounds(PointcloudBox value) {
+            put("bounds", value);
+            return this;
+        }
+
+        /** 水平の座標系の EPSG のコード。分からなければ書かない */
+        public Long getCrs() {
+            return Json.read(json.get("crs"), Json::integer);
+        }
+
+        /** {@link #getCrs()} を書く。null なら欄を除く */
+        public PointcloudResult withCrs(Long value) {
+            put("crs", value);
+            return this;
+        }
+
+        /** 高さの座標系の EPSG のコード。分からなければ書かない */
+        public Long getVertical() {
+            return Json.read(json.get("vertical"), Json::integer);
+        }
+
+        /** {@link #getVertical()} を書く。null なら欄を除く */
+        public PointcloudResult withVertical(Long value) {
+            put("vertical", value);
+            return this;
+        }
+
+        /** 点が持つ属性（position・intensity・classification・color・returns・time） */
+        public List<String> getAttributes() {
+            return Json.read(json.get("attributes"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getAttributes()} を書く。null なら欄を除く */
+        public PointcloudResult withAttributes(List<String> value) {
+            put("attributes", value);
+            return this;
+        }
+
+        /** 八分木のいちばん深い段 */
+        public Long getDepth() {
+            return Json.read(json.get("depth"), Json::integer);
+        }
+
+        /** {@link #getDepth()} を書く。null なら欄を除く */
+        public PointcloudResult withDepth(Long value) {
+            put("depth", value);
+            return this;
+        }
+
+        /** 八分木の節の数 */
+        public Long getNodes() {
+            return Json.read(json.get("nodes"), Json::integer);
+        }
+
+        /** {@link #getNodes()} を書く。null なら欄を除く */
+        public PointcloudResult withNodes(Long value) {
+            put("nodes", value);
+            return this;
+        }
+
+        /** 選んだ点。limit を書いたときに返す */
+        public PointcloudPoints getSelected() {
+            return Json.read(json.get("selected"), PointcloudPoints::of);
+        }
+
+        /** {@link #getSelected()} を書く。null なら欄を除く */
+        public PointcloudResult withSelected(PointcloudPoints value) {
+            put("selected", value);
+            return this;
+        }
+    }
+
+    /** 選んだ点。どの列も、選んだ点の順で同じ長さにする */
+    public static final class PointcloudPoints extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PointcloudPoints(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PointcloudPoints of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PointcloudPoints(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public PointcloudPoints() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 北・東・標高（メートル） */
+        public List<List<Double>> getPositions() {
+            return Json.read(json.get("positions"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getPositions()} を書く。null なら欄を除く */
+        public PointcloudPoints withPositions(List<List<Double>> value) {
+            put("positions", value);
+            return this;
+        }
+
+        /** 強度。点群が持つときに返す */
+        public List<Long> getIntensity() {
+            return Json.read(json.get("intensity"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getIntensity()} を書く。null なら欄を除く */
+        public PointcloudPoints withIntensity(List<Long> value) {
+            put("intensity", value);
+            return this;
+        }
+
+        /** 分類。点群が持つときに返す */
+        public List<Long> getClassification() {
+            return Json.read(json.get("classification"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getClassification()} を書く。null なら欄を除く */
+        public PointcloudPoints withClassification(List<Long> value) {
+            put("classification", value);
+            return this;
+        }
+
+        /** 色（赤・緑・青。16 ビット）。点群が持つときに返す */
+        public List<List<Long>> getColor() {
+            return Json.read(json.get("color"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::integer)));
+        }
+
+        /** {@link #getColor()} を書く。null なら欄を除く */
+        public PointcloudPoints withColor(List<List<Long>> value) {
+            put("color", value);
+            return this;
+        }
+
+        /** limit のために選ばなかった点がある */
+        public Boolean getTruncated() {
+            return Json.read(json.get("truncated"), Json::bool);
+        }
+
+        /** {@link #getTruncated()} を書く。null なら欄を除く */
+        public PointcloudPoints withTruncated(Boolean value) {
+            put("truncated", value);
+            return this;
+        }
+
+        /** 選んだいちばん深い段 */
+        public Long getLevel() {
+            return Json.read(json.get("level"), Json::integer);
+        }
+
+        /** {@link #getLevel()} を書く。null なら欄を除く */
+        public PointcloudPoints withLevel(Long value) {
+            put("level", value);
+            return this;
+        }
+    }
+
     /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
     public static final class Catalog extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -13327,5 +13780,7 @@ public final class Messages {
         public static final String BCF_WRITE = "bcf_write";
 
         public static final String CIVIL = "civil";
+
+        public static final String POINTCLOUD = "pointcloud";
     }
 }

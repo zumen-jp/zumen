@@ -18,7 +18,7 @@ env:
   # crates.io に出す順。依存される側が先（決定 0205）
   CRATES: >-
     -p zumen-json -p zumen-base -p zumen-sdk -p zumen-crs -p zumen-step -p zumen-geom2d -p zumen-geom3d -p zumen-drawing -p zumen-acad
-    -p zumen-jww -p zumen-sxf -p zumen-xml -p zumen-zip -p zumen-building -p zumen-ids -p zumen-ifc -p zumen-review -p zumen-bcf -p zumen-civil -p zumen-civil-drawing -p zumen-landxml
+    -p zumen-jww -p zumen-sxf -p zumen-xml -p zumen-zip -p zumen-building -p zumen-ids -p zumen-ifc -p zumen-review -p zumen-bcf -p zumen-civil -p zumen-civil-drawing -p zumen-landxml -p zumen-pointcloud -p zumen-las
     -p zumen-scene -p zumen-profile -p zumen-abi -p zumen -p zumen-cli
 
 jobs:

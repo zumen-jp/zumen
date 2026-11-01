@@ -1897,3 +1897,70 @@ params = { surface = "text", triangle = "uint" }
 group-by = ["surface"]
 since = "0.2.0"
 status = "active"
+
+# LAS・LAZ の読み取りと、点群の領域モデルへの移し（#371）
+
+[codes."las.file.invalid"]
+description = "LASF の始まりか見出しがないか、見出しの値が合わない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."las.point-format.unsupported"]
+description = "点の形式が 0〜10 のどれでもない"
+severity = "error"
+params = { format = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."las.points.invalid"]
+description = "点のレコードが、見出しの点の数より短いので、読めた点だけを読んだ"
+severity = "warning"
+fidelity = "dropped"
+params = { expected = "uint", found = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."las.vlr.invalid"]
+description = "可変長のレコード（VLR・EVLR）が範囲から外れるので、残りを読まなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { expected = "uint", found = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."las.laz.invalid"]
+description = "LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった"
+severity = "error"
+params = { reason = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."las.attribute.dropped"]
+description = "点群の領域モデルに持たない点の属性を、移さなかった（決定 0232）"
+severity = "info"
+fidelity = "dropped"
+params = { attribute = "text" }
+group-by = ["attribute"]
+since = "0.2.0"
+status = "active"
+
+[codes."las.crs.missing"]
+description = "座標系のレコードがないので、座標系を不明にした"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."las.crs.unsupported"]
+description = "扱わない水平の座標系（平面直角座標系の JGD2011 でないもの）なので、座標系を不明にした"
+severity = "warning"
+params = { epsg = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."las.vertical-crs.unsupported"]
+description = "扱わない高さの座標系なので、高さの座標系を不明にした"
+severity = "warning"
+params = { epsg = "uint" }
+since = "0.2.0"
+status = "active"
