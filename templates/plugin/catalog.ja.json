@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "lang": "ja",
+  "package": "0.2.0",
+  "number": { "group_separator": ",", "decimal_separator": "." },
+  "codes": {
+    "zumen_lines.file.invalid": "1 行目が「ZUMEN-LINES 1」でないので、zumen の線分の一覧として読めません。",
+    "zumen_lines.line.invalid": "{line} 行目を 4 つの数として読めないので、飛ばしました。"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "zumen_lines",
+  "module": "drawing",
+  "formats": [
+    {
+      "format": "zumen_lines",
+      "rules": [{ "kind": "lines", "lines": ["ZUMEN-LINES 1"] }]
+    }
+  ]
+}

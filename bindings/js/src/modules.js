@@ -387,23 +387,34 @@ export function modulesWith(op) {
  *
  * `loaders` は、モジュールの名前から、読み込む関数（`load` に渡せるものを返す）を引く表。持たないモジュールは使えない。
  * `load` は、包みの `load`。
+ *
+ * `plugins` は、プラグインを束ねたモジュール（決定 0017・0243）の一覧。1 つは、名前（`name`）、形式ごとの判定の規則
+ * （`formats`、DETECTION の項目と同じ `format` と `rules`）、持つ op（`ops`）、読み込む関数（`load`）を持つ。コアの
+ * どの形式でもない入力を、一覧の順に、その規則で試す。
  */
 export class Modules {
   #loaders;
   #load;
+  #plugins;
   #loaded = new Map();
 
-  constructor(loaders, load) {
+  constructor(loaders, load, plugins = []) {
     this.#loaders = loaders;
     this.#load = load;
+    this.#plugins = plugins;
   }
 
-  /** 名前のモジュールを読み込む */
+  #plugin(name) {
+    return this.#plugins.find((plugin) => plugin.name === name);
+  }
+
+  /** 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く */
   get(name) {
     let loaded = this.#loaded.get(name);
     if (loaded === undefined) {
-      const loader = this.#loaders[name];
-      if (MODULES[name] === undefined || typeof loader !== "function") {
+      const plugin = MODULES[name] === undefined ? this.#plugin(name) : undefined;
+      const loader = plugin === undefined ? this.#loaders[name] : plugin.load;
+      if ((MODULES[name] === undefined && plugin === undefined) || typeof loader !== "function") {
         return Promise.reject(new Error(`wasm のモジュール ${name} を読み込めない`));
       }
       loaded = this.#load(loader());
@@ -412,15 +423,33 @@ export class Modules {
     return loaded;
   }
 
+  /** 入力の形式を判定する。コアの形式でなければ、プラグインの規則で試す。どの形式でもなければ undefined */
+  detect(bytes) {
+    const detection = detect(bytes);
+    if (detection !== undefined) {
+      return detection;
+    }
+    const head = view(bytes);
+    for (const plugin of this.#plugins) {
+      const format = plugin.formats.find((candidate) => candidate.rules.some((rule) => matches(head, rule)));
+      if (format !== undefined) {
+        return { format: format.format, module: plugin.name, rules: format.rules };
+      }
+    }
+    return undefined;
+  }
+
   /** 入力の形式を判定し、その形式を持つモジュールを読み込む。どの形式でもなければ undefined */
   forInput(bytes) {
-    const detection = detect(bytes);
+    const detection = this.detect(bytes);
     return detection === undefined ? Promise.resolve(undefined) : this.get(detection.module);
   }
 
-  /** op を持つモジュールのうち、読み込めるものの最初を読み込む */
+  /** op を持つモジュールのうち、読み込めるものの最初を読み込む。コアのモジュールの後に、プラグインのモジュールを試す */
   forOp(op) {
-    const name = modulesWith(op).find((candidate) => typeof this.#loaders[candidate] === "function");
+    const name =
+      modulesWith(op).find((candidate) => typeof this.#loaders[candidate] === "function") ??
+      this.#plugins.find((plugin) => plugin.ops.includes(op))?.name;
     return name === undefined ? Promise.reject(new Error(`op ${op} を持つモジュールがない`)) : this.get(name);
   }
 }

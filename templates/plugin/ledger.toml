@@ -1,0 +1,12 @@
+# プラグインの形式の台帳（決定 0017）。書き方はコアの formats/README.md と同じにし、place を "plugin" にする。
+# キーは、コアの台帳のキーとぶつからないものにする。診断の code は、このキーと `.` で始める。
+
+[formats.zumen_lines]
+name = "zumen の線分の一覧（プラグインのひな形の試験の形式）"
+family = "zumen_lines"
+domains = ["drawing"]
+rights = "public"
+rights-note = "このひな形のために決めた形式。仕様は src/lib.rs の説明にある"
+place = "plugin"
+repository = "https://github.com/zumen-jp/zumen/tree/main/templates/plugin"
+decisions = ["0017", "0243"]

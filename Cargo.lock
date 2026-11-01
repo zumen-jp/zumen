@@ -648,6 +648,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-plugin-template"
+version = "0.2.0"
+dependencies = [
+ "zumen-abi",
+ "zumen-base",
+ "zumen-cli",
+ "zumen-drawing",
+ "zumen-json",
+ "zumen-sdk",
+]
+
+[[package]]
 name = "zumen-ply"
 version = "0.2.0"
 dependencies = [

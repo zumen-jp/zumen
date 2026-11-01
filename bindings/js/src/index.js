@@ -69,6 +69,10 @@ class Core {
       throw new Error(`ABI の大版が ${version}（この包みは ${ABI_VERSION}）`);
     }
     this.e = exports;
+    // プラグインを束ねたモジュール（決定 0243）は、使う前にプラグインを登録する
+    if (typeof exports.zm_plugin_init === "function") {
+      exports.zm_plugin_init();
+    }
   }
 
   // メモリは確保で育つと作り直されるので、毎回取り直す
@@ -246,8 +250,9 @@ export function loadSync(source) {
 
 /**
  * 分けた wasm のモジュール（決定 0013・0221）を、要るときに読み込む。`loaders` は、モジュールの名前（MODULES）から、
- * `load` に渡せるもの（fetch の応答など）を返す関数を引く表
+ * `load` に渡せるもの（fetch の応答など）を返す関数を引く表。`plugins` は、プラグインを束ねたモジュール（決定 0243）の
+ * 一覧で、コアのどの形式でもない入力を、その判定の規則で試す
  */
-export function loadModules(loaders) {
-  return new Modules(loaders, load);
+export function loadModules(loaders, plugins = []) {
+  return new Modules(loaders, load, plugins);
 }

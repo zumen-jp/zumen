@@ -71,11 +71,25 @@ export declare function detect(bytes: Bytes): Detection | undefined;
 /** op を持つ wasm のモジュールの名前 */
 export declare function modulesWith(op: string): ModuleName[];
 
+/** プラグインを束ねた wasm のモジュール（決定 0243） */
+export interface PluginModule {
+  /** モジュールの名前。コアのモジュールの名前と違うもの */
+  name: string;
+  /** 形式ごとの判定の規則。DETECTION の項目と同じ形 */
+  formats: { format: string; rules: Detection["rules"] }[];
+  /** 持つ op */
+  ops: string[];
+  /** `load` に渡せるもの（fetch の応答など）を返す */
+  load: () => Parameters<typeof load>[0];
+}
+
 /** 分けた wasm のモジュールを、要るときに 1 度だけ読み込む */
 export declare class Modules {
   private constructor();
-  /** 名前のモジュールを読み込む */
-  get(name: ModuleName): Promise<Zumen>;
+  /** 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く */
+  get(name: ModuleName | string): Promise<Zumen>;
+  /** 入力の形式を判定する。コアの形式でなければ、プラグインの規則で試す。どの形式でもなければ undefined */
+  detect(bytes: Bytes): { format: string; module: string; rules: Detection["rules"] } | undefined;
   /** 入力の形式を判定し、その形式を持つモジュールを読み込む。どの形式でもなければ undefined */
   forInput(bytes: Bytes): Promise<Zumen | undefined>;
   /** op を持つモジュールのうち、読み込めるものの最初を読み込む */
@@ -84,8 +98,9 @@ export declare class Modules {
 
 /**
  * 分けた wasm のモジュール（決定 0013・0221）を、要るときに読み込む。`loaders` は、モジュールの名前から、
- * `load` に渡せるもの（fetch の応答など）を返す関数を引く表
+ * `load` に渡せるもの（fetch の応答など）を返す関数を引く表。`plugins` は、プラグインを束ねたモジュールの一覧
  */
 export declare function loadModules(
   loaders: Partial<Record<ModuleName, () => Parameters<typeof load>[0]>>,
+  plugins?: PluginModule[],
 ): Modules;

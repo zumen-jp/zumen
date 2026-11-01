@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "bindings/c", "bindings/cli", "bindings/conformance", "xtask"]
+members = ["crates/*", "bindings/c", "bindings/cli", "bindings/conformance", "templates/plugin", "xtask"]
 resolver = "3"
 
 [workspace.package]

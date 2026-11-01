@@ -41,6 +41,7 @@ pub mod messages;
 mod packed;
 #[cfg(feature = "drawing")]
 mod photo;
+mod plugin;
 #[cfg(feature = "drawing")]
 mod pointcloud;
 #[cfg(not(target_family = "wasm"))]
@@ -54,4 +55,5 @@ mod tables;
 mod validate;
 
 pub use abi::Status;
+pub use plugin::{Plugin, install};
 pub use session::{Reply, Session};

@@ -1,7 +1,7 @@
 //! 診断の code と、台帳で決まる性質（決定 0009）。
 //!
-//! code は、台帳（`catalog/codes.toml`）から生成した [`crate::codes`] の定数だけを使う。
-//! この crate の外では、新しい code を作れない。
+//! コアの code は、台帳（`catalog/codes.toml`）から生成した [`crate::codes`] の定数だけを使う。外部のプラグインは、
+//! 自分の台帳の code を [`Code::plugin`] で作る（決定 0017・0243）。
 
 use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
@@ -57,6 +57,11 @@ impl Param {
         Self { name, ty }
     }
 
+    /// 外部のプラグインの code の値（決定 0243）
+    pub const fn plugin(name: &'static str, ty: ParamType) -> Self {
+        Self::new(name, ty)
+    }
+
     /// 値の名前
     pub const fn name(&self) -> &'static str {
         self.name
@@ -93,6 +98,18 @@ impl Code {
             params,
             group_by,
         }
+    }
+
+    /// 外部のプラグインの code（決定 0017・0243）。名前は、プラグインの形式のキーと `.` で始める
+    /// （`<キー>.file.invalid` など）。コアの crate は使わない
+    pub const fn plugin(
+        name: &'static str,
+        severity: Severity,
+        fidelity: Option<Fidelity>,
+        params: &'static [Param],
+        group_by: &'static [&'static str],
+    ) -> Self {
+        Self::new(name, severity, fidelity, params, group_by)
     }
 
     /// 変わらない名前（`budget.records.exceeded` など）

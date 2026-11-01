@@ -1,0 +1,38 @@
+# 外部のプラグインのひな形（決定 0017・0243）。写して使うときは、path を外し、version だけにする
+[package]
+name = "zumen-plugin-template"
+description = "zumen の外部のプラグインのひな形と、3 つの束ね方の試験（#399）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# 形式は、コアの台帳（formats/ledger.toml）でなく、プラグインの台帳（ledger.toml）に書く。そのため、コアの crate
+# のような package.metadata.zumen は持たない
+
+# rlib は Rust から束ねるため、cdylib は wasm のモジュールにするため
+[lib]
+name = "zumen_plugin_template"
+crate-type = ["cdylib", "rlib"]
+
+# 「コアとプラグイン」の CLI。各言語からは process の形で使う
+[[bin]]
+name = "zumen-lines"
+path = "src/main.rs"
+
+[dependencies]
+# wasm のモジュールは、コアの図面のモジュール（決定 0221）にプラグインを足したものにする
+zumen-abi = { version = "0.2.0", path = "../../crates/zumen-abi", default-features = false, features = ["drawing"] }
+zumen-base = { version = "0.2.0", path = "../../crates/zumen-base" }
+zumen-drawing = { version = "0.2.0", path = "../../crates/zumen-drawing" }
+zumen-sdk = { version = "0.2.0", path = "../../crates/zumen-sdk" }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+zumen-cli = { version = "0.2.0", path = "../../bindings/cli" }
+
+[dev-dependencies]
+zumen-json = { path = "../../crates/zumen-json" }
+
+[lints]
+workspace = true

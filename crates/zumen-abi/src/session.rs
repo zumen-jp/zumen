@@ -11,7 +11,7 @@ use zumen_drawing::{
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
-use zumen_sdk::{Apply, Codec, Lift};
+use zumen_sdk::{Apply, Codec, Lift, Registration};
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
@@ -49,6 +49,7 @@ use crate::packed;
 use crate::packed::Packed;
 #[cfg(feature = "drawing")]
 use crate::photo;
+use crate::plugin;
 #[cfg(feature = "drawing")]
 use crate::pointcloud;
 use crate::review;
@@ -107,6 +108,8 @@ enum Doc {
     /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）
     Sxf(SxfFile, Option<Box<Packed>>),
     Jww(JwwFile),
+    /// プラグインの形式（決定 0243）。読むだけで、図面モデルを持つ
+    Plugin(Registration, Drawing2D),
 }
 
 impl Doc {
@@ -117,6 +120,7 @@ impl Doc {
             Doc::Dwg(_) => Dwg::FORMAT,
             Doc::Sxf(..) => Sxf::FORMAT,
             Doc::Jww(_) => Jww::FORMAT,
+            Doc::Plugin(registration, _) => registration.format,
         }
     }
 
@@ -126,6 +130,7 @@ impl Doc {
             Doc::Dxf(_) | Doc::Dwg(_) => "acad",
             Doc::Sxf(..) => "sxf",
             Doc::Jww(_) => "jww",
+            Doc::Plugin(registration, _) => registration.family,
         }
     }
 
@@ -136,6 +141,7 @@ impl Doc {
             Doc::Dwg(file) => file.lift(cx),
             Doc::Sxf(file, _) => file.lift(cx),
             Doc::Jww(file) => file.lift(cx),
+            Doc::Plugin(_, drawing) => Ok(drawing.clone()),
         }
     }
 }
@@ -191,6 +197,15 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
         Doc::Sxf(file, Some(Box::new(archive)))
+    } else if let Some(plugin) = plugin::installed()
+        .iter()
+        .find(|plugin| plugin.registration.matches(bytes))
+    {
+        // コアのどの形式でもなければ、登録したプラグインを順に試す（決定 0243）
+        Doc::Plugin(
+            plugin.registration,
+            (plugin.read)(bytes, cx).map_err(|_| Failed)?,
+        )
     } else {
         return Ok(None);
     };
@@ -877,6 +892,8 @@ impl Session {
         let mut bytes = Vec::new();
         let mut ids_shifted = false;
         let (applied, hash) = match doc {
+            // プラグインの文書は書き戻せない（決定 0243）
+            Doc::Plugin(..) => return Err(fail(cx, unsupported(&request.doc, self.op))),
             Doc::Dxf(file) => {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
@@ -1560,6 +1577,11 @@ fn capabilities() -> CapabilitiesResult {
         formats: formats::DRAWING
             .iter()
             .chain(formats::READ_ONLY)
+            .chain(
+                plugin::installed()
+                    .iter()
+                    .map(|plugin| &plugin.registration),
+            )
             .filter(|_| cfg!(feature = "drawing"))
             .map(|registration| Format {
                 id: registration.format.to_string(),
