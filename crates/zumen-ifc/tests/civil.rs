@@ -371,3 +371,104 @@ fn unknown_segments_and_other_versions_are_reported() {
             .any(|d| d.code() == codes::IFC_VERSION_UNSUPPORTED)
     );
 }
+
+/// 4 つの点と 2 つの三角形の現況の地表面
+const LANDXML_TIN: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <CoordinateSystem horizontalDatum="JGD2011" verticalDatum="T.P" horizontalCoordinateSystemName="9(X,Y)"/>
+  <Surfaces>
+    <Surface name="現況" desc="ExistingGround">
+      <Definition surfType="TIN">
+        <Pnts><P id="1">100 200 10</P><P id="2">100 220 11</P><P id="3">120 200 12</P><P id="4">120 220 13</P></Pnts>
+        <Faces><F>1 2 3</F><F>2 4 3</F></Faces>
+      </Definition>
+    </Surface>
+  </Surfaces>
+</LandXML>
+"#;
+
+/// 同じ地表面の IFC4.3。地図の原点を東 150 m・北 50 m にずらし、要素を (40, 30, 2) に 90° 回して置く。
+/// 点は逆の順に書き、PnIndex で並べ直す
+#[cfg(test)]
+fn ifc_tin() -> String {
+    let world = [
+        (100.0, 200.0, 10.0),
+        (100.0, 220.0, 11.0),
+        (120.0, 200.0, 12.0),
+        (120.0, 220.0, 13.0),
+    ];
+    let local: Vec<String> = world
+        .iter()
+        .rev()
+        .map(|(n, e, z)| {
+            let (x, y) = (e - 150.0 - 40.0, n - 50.0 - 30.0);
+            // 90° 回した軸の上の値に戻す
+            format!("({:?},{:?},{:?})", y, -x, z - 2.0)
+        })
+        .collect();
+    format!(
+        "ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [Alignment-basedView]'),'2;1');
+FILE_NAME('t.ifc','2026-11-01T00:00:00',(''),(''),'','','');
+FILE_SCHEMA(('IFC4X3_ADD2'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('0000000000000000000001',$,'試験',$,$,$,$,(#20),#10);
+{METRE}
+#20=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#21,$);
+#21=IFCAXIS2PLACEMENT3D(#22,$,$);
+#22=IFCCARTESIANPOINT((0.,0.,0.));
+#30=IFCMAPCONVERSION(#20,#31,150.,50.,0.,1.,0.,1.,$,$);
+#31=IFCPROJECTEDCRS('EPSG:6677',$,'JGD2011','T.P.',$,$,$);
+#40=IFCGEOGRAPHICELEMENT('0000000000000000000040',$,'\\X2\\73FE6CC1\\X0\\',$,$,#41,#45,$,.TERRAIN.);
+#41=IFCLOCALPLACEMENT($,#42);
+#42=IFCAXIS2PLACEMENT3D(#43,$,#44);
+#43=IFCCARTESIANPOINT((40.,30.,2.));
+#44=IFCDIRECTION((0.,1.,0.));
+#45=IFCPRODUCTDEFINITIONSHAPE($,$,(#46));
+#46=IFCSHAPEREPRESENTATION(#20,'Body','Tessellation',(#47));
+#47=IFCTRIANGULATEDIRREGULARNETWORK(#48,$,.F.,((1,2,3),(2,4,3)),(4,3,2,1),(0,0));
+#48=IFCCARTESIANPOINTLIST3D(({}),$);
+ENDSEC;
+END-ISO-10303-21;
+",
+        local.join(",")
+    )
+}
+
+#[test]
+fn a_tin_moves_like_the_same_landxml() {
+    let (model, diag) = from_ifc(&ifc_tin());
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    let landxml = with_cx(|cx| {
+        let file = LandXml::read(LANDXML_TIN.as_bytes(), cx).unwrap();
+        Lift::<CivilModel>::lift(&file, cx).unwrap()
+    })
+    .0;
+    let (Some(a), Some(b)) = (model.surfaces.first(), landxml.surfaces.first()) else {
+        panic!("{:?} {:?}", model.surfaces, landxml.surfaces);
+    };
+    assert_eq!(a.id, "0000000000000000000040");
+    assert_eq!(a.name, b.name);
+    assert_eq!(a.role, b.role);
+    assert_eq!(a.triangles, b.triangles);
+    assert_eq!(a.points.len(), b.points.len());
+    for ((p, h), (q, k)) in a.points.iter().zip(&b.points) {
+        assert!(
+            near(p.northing, q.northing) && near(p.easting, q.easting),
+            "{p:?} {q:?}"
+        );
+        assert!(near(*h, *k), "{h} {k}");
+    }
+    assert_eq!(model.crs, landxml.crs);
+}
+
+#[test]
+fn triangle_flags_are_reported() {
+    let text = ifc_tin().replace("(4,3,2,1),(0,0)", "(4,3,2,1),(0,-1)");
+    let (model, diag) = from_ifc(&text);
+    assert_eq!(model.surfaces[0].triangles.len(), 2);
+    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+    assert_eq!(codes, [codes::IFC_CIVIL_GEOMETRY_DROPPED]);
+}

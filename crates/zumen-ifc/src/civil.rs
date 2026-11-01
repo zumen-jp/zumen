@@ -2,13 +2,13 @@
 //!
 //! `IfcAlignment` の入れ子（`IfcRelNests`）の平面・縦断・カントの区間を、書いた順に読む。属性の位置は、
 //! IFC 4.3 ADD2 の実体の定義（「属性」の節）による。点は、線形の配置（`IfcLocalPlacement`）と
-//! `IfcMapConversion` で地図の空間に直す。地表面（`IfcTriangulatedIrregularNetwork`）と横断（断面の形）は、
-//! まだ移さず、種類ごとに診断する。
+//! `IfcMapConversion` で地図の空間に直す。地表面（`IfcTriangulatedIrregularNetwork`）は、形を持つ要素の配置で
+//! 直して TIN にする。横断（断面の形）は、まだ移さず、種類ごとに診断する。
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_civil::{
     Alignment, Cant, CantKind, CivilModel, Horizontal, HorizontalKind, StationBreak, Stationing,
-    TransitionCurve, Vertical, VerticalKind,
+    SurfaceRole, Tin, TransitionCurve, Vertical, VerticalKind,
 };
 use zumen_crs::{Crs, HeightDatum, MapPoint, Realization, VerticalCrs};
 use zumen_sdk::{Cx, Error, Lift};
@@ -21,7 +21,6 @@ const DEPTH: usize = 64;
 
 /// 移さない形の種類
 const DROPPED: &[&[u8]] = &[
-    b"IFCTRIANGULATEDIRREGULARNETWORK",
     b"IFCSECTIONEDSOLIDHORIZONTAL",
     b"IFCSECTIONEDSURFACE",
     b"IFCOPENCROSSPROFILEDEF",
@@ -165,6 +164,13 @@ impl<'f> Lifter<'f> {
                     .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
                 let alignment = self.alignment(id, record, cx)?;
                 model.alignments.push(alignment);
+            } else if kind == b"IFCTRIANGULATEDIRREGULARNETWORK" {
+                if let Some(mut tin) = self.tin(id, record, cx)? {
+                    if model.surfaces.iter().any(|other| other.id == tin.id) {
+                        tin.id = format!("{}-i{id}", tin.id);
+                    }
+                    model.surfaces.push(tin);
+                }
             } else if DROPPED.contains(&kind.as_slice()) {
                 cx.report(
                     Diagnostic::new(codes::IFC_CIVIL_GEOMETRY_DROPPED)
@@ -575,6 +581,158 @@ impl<'f> Lifter<'f> {
         }
         alignment.stations = self.stations(&referents, cx);
         Ok(alignment)
+    }
+
+    // 地表面
+
+    /// 形の表現の項目を持つ要素。`IfcShapeRepresentation`（4 Items）→ `IfcProductDefinitionShape`
+    /// （3 Representations）→ 要素（7 Representation）とたどる
+    fn owner(&self, item: u64) -> Option<&'f Record> {
+        for &representation in self.inverse.referrers(item) {
+            if !self.is(representation, b"IFCSHAPEREPRESENTATION") {
+                continue;
+            }
+            for &shape in self.inverse.referrers(representation) {
+                if !self.is(shape, b"IFCPRODUCTDEFINITIONSHAPE") {
+                    continue;
+                }
+                for &product in self.inverse.referrers(shape) {
+                    let Some(record) = self.file.instance(product) else {
+                        continue;
+                    };
+                    if reference(arg(record, 7)) == Some(shape) {
+                        return Some(record);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// `IfcTriangulatedIrregularNetwork`。1 Coordinates（`IfcCartesianPointList3D` の 1 CoordList）・
+    /// 4 CoordIndex・5 PnIndex・6 Flags を読む。点は、形を持つ要素の 6 ObjectPlacement で直す。ID・名前・役割は、
+    /// その要素の 1 GlobalId・3 Name と、`IfcGeographicElement` の 9 PredefinedType から取る
+    fn tin(&self, id: u64, record: &'f Record, cx: &mut Cx) -> Result<Option<Tin>, Error> {
+        let owner = self.owner(id);
+        let place = match owner {
+            Some(owner) => self.placement(reference(arg(owner, 6)), cx),
+            None => {
+                cx.report(
+                    Diagnostic::new(codes::IFC_PLACEMENT_UNSUPPORTED)
+                        .with("kind", "IfcTriangulatedIrregularNetwork")
+                        .at(at_bytes(record.span())),
+                );
+                Place::IDENTITY
+            }
+        };
+        let Some(list) = self.instance_of(arg(record, 1), b"IFCCARTESIANPOINTLIST3D") else {
+            self.invalid(record, 1, cx);
+            return Ok(None);
+        };
+        let Some(Value::List(rows)) = arg(list, 1) else {
+            self.invalid(list, 1, cx);
+            return Ok(None);
+        };
+        let mut coordinates = Vec::with_capacity(rows.len());
+        for row in rows {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, Some(list.span())))?;
+            match self.reals(Some(row)).as_deref() {
+                Some([x, y, z]) => {
+                    let [px, py] = place.apply([x * self.length, y * self.length]);
+                    let height = self.map.height(place.origin[2] + z * self.length);
+                    coordinates.push((self.map.point([px, py]), height));
+                }
+                _ => {
+                    self.invalid(list, 1, cx);
+                    return Ok(None);
+                }
+            }
+        }
+        // 番号は 1 から数える。PnIndex があれば、CoordIndex は PnIndex の番号で、PnIndex が点の番号を持つ
+        let number = |value: f64, len: usize| {
+            let index = value as usize;
+            (value.fract() == 0.0 && value >= 1.0 && index <= len)
+                .then(|| u32::try_from(index - 1).ok())
+                .flatten()
+        };
+        let points = match arg(record, 5) {
+            Some(Value::List(_)) => {
+                let Some(order) = self.reals(arg(record, 5)).and_then(|values| {
+                    values
+                        .iter()
+                        .map(|v| number(*v, coordinates.len()))
+                        .collect::<Option<Vec<u32>>>()
+                }) else {
+                    self.invalid(record, 5, cx);
+                    return Ok(None);
+                };
+                order
+                    .iter()
+                    .filter_map(|&i| coordinates.get(i as usize).copied())
+                    .collect()
+            }
+            _ => coordinates,
+        };
+        let Some(Value::List(faces)) = arg(record, 4) else {
+            self.invalid(record, 4, cx);
+            return Ok(None);
+        };
+        let mut triangles = Vec::with_capacity(faces.len());
+        for face in faces {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+            let corners = self.reals(Some(face)).and_then(|values| {
+                values
+                    .iter()
+                    .map(|v| number(*v, points.len()))
+                    .collect::<Option<Vec<u32>>>()
+            });
+            match corners.as_deref() {
+                Some([a, b, c]) => triangles.push([*a, *b, *c]),
+                _ => {
+                    self.invalid(record, 4, cx);
+                    return Ok(None);
+                }
+            }
+        }
+        // 三角形ごとの印は、意味を確かめるまで読まない。0 でない印があれば知らせる
+        if self
+            .reals(arg(record, 6))
+            .is_some_and(|flags| flags.iter().any(|flag| *flag != 0.0))
+        {
+            cx.report(
+                Diagnostic::new(codes::IFC_CIVIL_GEOMETRY_DROPPED)
+                    .with("kind", "IfcTriangulatedIrregularNetwork.Flags")
+                    .at(at_bytes(record.span())),
+            );
+        }
+        let global = owner.and_then(|owner| self.text(arg(owner, 1), owner, cx));
+        let role = match owner {
+            Some(owner)
+                if self
+                    .file
+                    .kind(owner)
+                    .eq_ignore_ascii_case(b"IFCGEOGRAPHICELEMENT") =>
+            {
+                match self.enumeration(arg(owner, 9)).as_deref() {
+                    Some("TERRAIN") => SurfaceRole::Existing,
+                    Some(other) => SurfaceRole::Other(other.to_string()),
+                    None => SurfaceRole::Other(String::new()),
+                }
+            }
+            _ => SurfaceRole::Other(String::new()),
+        };
+        Ok(Some(Tin {
+            id: global.unwrap_or_else(|| format!("i{id}")),
+            name: owner.and_then(|owner| self.text(arg(owner, 3), owner, cx)),
+            role,
+            points,
+            triangles,
+            boundaries: Vec::new(),
+            breaklines: Vec::new(),
+            source: at_bytes(record.span()),
+        }))
     }
 
     /// 配置の区間（`IfcAlignmentSegment` の 8 DesignParameters）を、書いた順に

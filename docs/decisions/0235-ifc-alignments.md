@@ -40,14 +40,21 @@
   - 座標系は `IfcProjectedCRS` の 1 Name、高さの基準は 4 VerticalDatum から読む。
   - `IfcMapConversion` がなければ、座標系を不明にして `ifc.map-crs.missing` を返す（決定 0230）。
 - **ID。** 線形の ID は `GlobalId` にする。ないときは、インスタンスの番号から作り、`ifc.global-id.missing` を返す。
-- **まだ移さない形。** 地表面（`IfcTriangulatedIrregularNetwork`）と横断の形（`IfcOpenCrossProfileDef`・`IfcSectionedSolidHorizontal`・`IfcSectionedSurface`）は、`ifc.civil-geometry.dropped` を返して移さない。断面の形で書いた横断の扱いは、地表面と一緒に [#477](https://github.com/zumen-jp/zumen/issues/477) で決める。
+- **地表面。** `IfcTriangulatedIrregularNetwork` を TIN にする（[#477](https://github.com/zumen-jp/zumen/issues/477)）。
+  - 点は 1 Coordinates の `IfcCartesianPointList3D`、三角形は 4 CoordIndex から読む。5 PnIndex があれば、その番号で点を並べ直す。
+  - 形を持つ要素（`IfcShapeRepresentation` → `IfcProductDefinitionShape` → 要素）の配置で直し、`IfcMapConversion` で地図の空間に置く。要素が見つからなければ、`ifc.placement.unsupported` を返して、プロジェクトの空間の点のまま置く。
+  - ID と名前は、その要素の `GlobalId` と名前にする。役割は、`IfcGeographicElement` の `TERRAIN` を現況にし、ほかは種類の名前のまま持つ。
+  - 三角形ごとの印（6 Flags）は、意味を試料で確かめるまで読まない。0 でない印があれば `ifc.civil-geometry.dropped` を返し、三角形はすべて移す。
+- **横断。** 横断の形（`IfcOpenCrossProfileDef`・`IfcSectionedSolidHorizontal`・`IfcSectionedSurface`）は、まだ移さず、`ifc.civil-geometry.dropped` を返す。
+  - 開いた断面（`IfcOpenCrossProfileDef`）は、幅と勾配の列から横断の線（中心からの離れと高さ）を作れる。ただし、勾配の符号と、断面の位置（`IfcAxis2PlacementLinear`）を線形の追加距離に結ぶ書き方を、試料で確かめてから移す。
+  - 閉じた断面（舗装の層などの立体）は、モデルの横断の線が開いた線なので移さない。形が要るときは、3D のシーンの側で扱う。
 - **境界。** `open` は、IFC-SPF を建物モデルとして開き、`IfcAlignment` があれば土木の領域モデルにもする。`civil`・`deviation` の op は、その土木の領域モデルを使う。土木の op は描画のモジュールにあるので、BIM と描画の両方を持つビルドだけで使える。モジュールの分け方は #380 で決める。
 
 ## 影響
 
 - 同じ線形の J-LandXML と IFC4.3 が、同じ区間・測点・座標系になることを、`zumen-ifc` の試験で確かめる。
 - `zumen-ifc` に、土木の領域モデルへ移す機能（`civil`）を足す。`IfcFile` が建物モデルと土木の領域モデルの 2 つに移せるので、呼ぶ側は型を名指す。
-- 試料の IFC4.3 の線形は、まだない。試料を得たら、半径の符号・縦断のクロソイド・測点の書き方を確かめる。
+- 試料の IFC4.3 の線形は、まだない。試料を得たら、半径の符号・縦断のクロソイド・測点の書き方・三角形の印・開いた断面の勾配の符号を確かめる。
 
 ## 参照
 
