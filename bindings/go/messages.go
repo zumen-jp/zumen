@@ -165,6 +165,11 @@ func (u Request) AsPhotoRequest() *PhotoRequest {
 	return asTagged[PhotoRequest](u, "op", "photo")
 }
 
+// AsSheetRequest は、op が sheet の形なら、その型で読む。違えば nil。
+func (u Request) AsSheetRequest() *SheetRequest {
+	return asTagged[SheetRequest](u, "op", "sheet")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4629,6 +4634,162 @@ type PhotoProperty struct {
 	Value *string `json:"value,omitempty"`
 }
 
+// SheetRequest: 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+type SheetRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 表の入力の名前
+	Input *string `json:"input,omitempty"`
+
+	// 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする
+	Format *SheetFormat `json:"format,omitempty"`
+
+	// CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする
+	Encoding *SheetEncoding `json:"encoding,omitempty"`
+
+	// CSV の区切りの字。書かなければ comma
+	Delimiter *SheetDelimiter `json:"delimiter,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m SheetRequest) MarshalJSON() ([]byte, error) {
+	type plain SheetRequest
+	m.Op = "sheet"
+	return json.Marshal(plain(m))
+}
+
+// SheetFormat: 表の形式
+//
+// 列挙の値。知らない値も受け取る。
+type SheetFormat string
+
+// SheetFormatXlsx は xlsx。
+const SheetFormatXlsx SheetFormat = "xlsx"
+
+// SheetFormatCsv は csv。
+const SheetFormatCsv SheetFormat = "csv"
+
+// SheetEncoding: CSV の文字コード。shift_jis は Windows の拡張を含む
+//
+// 列挙の値。知らない値も受け取る。
+type SheetEncoding string
+
+// SheetEncodingUtf8 は utf_8。
+const SheetEncodingUtf8 SheetEncoding = "utf_8"
+
+// SheetEncodingShiftJis は shift_jis。
+const SheetEncodingShiftJis SheetEncoding = "shift_jis"
+
+// SheetDelimiter: CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
+//
+// 列挙の値。知らない値も受け取る。
+type SheetDelimiter string
+
+// SheetDelimiterComma は comma。
+const SheetDelimiterComma SheetDelimiter = "comma"
+
+// SheetDelimiterTab は tab。
+const SheetDelimiterTab SheetDelimiter = "tab"
+
+// SheetDelimiterSemicolon は semicolon。
+const SheetDelimiterSemicolon SheetDelimiter = "semicolon"
+
+// SheetResult: 読んだ表
+type SheetResult struct {
+	// 読んだ形式
+	Format *SheetFormat `json:"format,omitempty"`
+
+	// CSV を読んだ文字コード。xlsx では書かない
+	Encoding *SheetEncoding `json:"encoding,omitempty"`
+
+	// シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない
+	Sheets []Sheet `json:"sheets,omitempty"`
+}
+
+// Sheet: シート
+type Sheet struct {
+	// 名前。CSV は空
+	Name *string `json:"name,omitempty"`
+
+	// 行の数（値のある最後の行と、結合セルの最後の行まで）
+	Rows *int64 `json:"rows,omitempty"`
+
+	// 列の数（値のある最後の列と、結合セルの最後の列まで）
+	Columns *int64 `json:"columns,omitempty"`
+
+	// 値か数式のあるセル。行の順、行の中は列の順
+	Cells []SheetCell `json:"cells,omitempty"`
+
+	// 結合セル。ファイルの順
+	Merged []SheetArea `json:"merged,omitempty"`
+}
+
+// SheetCell: セル。行と列は 0 から数える
+type SheetCell struct {
+	// 行
+	Row *int64 `json:"row,omitempty"`
+
+	// 列
+	Column *int64 `json:"column,omitempty"`
+
+	// 値の種類
+	Kind *SheetCellKind `json:"kind,omitempty"`
+
+	// 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま
+	Value *string `json:"value,omitempty"`
+
+	// 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ
+	Formula *string `json:"formula,omitempty"`
+}
+
+// SheetCellKind: セルの値の種類。CSV の値はすべて text
+//
+// 列挙の値。知らない値も受け取る。
+type SheetCellKind string
+
+// SheetCellKindText は text。
+const SheetCellKindText SheetCellKind = "text"
+
+// SheetCellKindNumber は number。
+const SheetCellKindNumber SheetCellKind = "number"
+
+// SheetCellKindBoolean は boolean。
+const SheetCellKindBoolean SheetCellKind = "boolean"
+
+// SheetCellKindError は error。
+const SheetCellKindError SheetCellKind = "error"
+
+// SheetArea: 結合セルの範囲。両端を含む
+type SheetArea struct {
+	// 最初の行
+	FirstRow *int64 `json:"first_row,omitempty"`
+
+	// 最初の列
+	FirstColumn *int64 `json:"first_column,omitempty"`
+
+	// 最後の行
+	LastRow *int64 `json:"last_row,omitempty"`
+
+	// 最後の列
+	LastColumn *int64 `json:"last_column,omitempty"`
+}
+
 // DeliveryManaged: 管理ファイルの要約
 type DeliveryManaged struct {
 	// 成果品の中の名前
@@ -5157,3 +5318,6 @@ const OpDeliveryCheck = "delivery_check"
 
 // OpPhoto は、op の名前 photo。
 const OpPhoto = "photo"
+
+// OpSheet は、op の名前 sheet。
+const OpSheet = "sheet"

@@ -855,6 +855,28 @@ pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
     &["first", "second"],
 );
 
+/// CSV に、その文字コードで直せないバイトがあるので、置き換えの字にした（#391）
+///
+/// `csv.encoding.invalid`（0.2.0 から）
+pub const CSV_ENCODING_INVALID: Code = Code::new(
+    "csv.encoding.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("encoding", ParamType::Text)],
+    &[],
+);
+
+/// CSV の引用符が閉じていないので、終わりまでを 1 つの値にした（#391）。line は引用符の始まりの行
+///
+/// `csv.quote.invalid`（0.2.0 から）
+pub const CSV_QUOTE_INVALID: Code = Code::new(
+    "csv.quote.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("line", ParamType::UInt)],
+    &[],
+);
+
 /// 管理ファイルを XML として読めないので、管理ファイルの記録に移さなかった
 ///
 /// `delivery.file.invalid`（0.2.0 から）
@@ -3330,6 +3352,47 @@ pub const SXF_SFIG_MISSING: Code = Code::new(
     &["name"],
 );
 
+/// セルの参照か共有文字列の番号が読めないので、そのセルか結合セルを飛ばした（#391）
+///
+/// `xlsx.cell.invalid`（0.2.0 から）
+pub const XLSX_CELL_INVALID: Code = Code::new(
+    "xlsx.cell.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("reference", ParamType::Text),
+        Param::new("sheet", ParamType::Text),
+    ],
+    &[],
+);
+
+/// xlsx のブックの部品（workbook.xml）がないか読めないので、表として読まなかった（#391）
+///
+/// `xlsx.file.invalid`（0.2.0 から）
+pub const XLSX_FILE_INVALID: Code = Code::new("xlsx.file.invalid", Severity::Error, None, &[], &[]);
+
+/// xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name は書庫の中の名前かシートの名前
+///
+/// `xlsx.part.invalid`（0.2.0 から）
+pub const XLSX_PART_INVALID: Code = Code::new(
+    "xlsx.part.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// ワークシートでないシート（グラフのシートなど）なので、読まなかった（#391）
+///
+/// `xlsx.sheet.unsupported`（0.2.0 から）
+pub const XLSX_SHEET_UNSUPPORTED: Code = Code::new(
+    "xlsx.sheet.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
 /// XML の形になっていないので読めない
 ///
 /// `xml.document.invalid`（0.2.0 から）
@@ -3586,6 +3649,8 @@ pub const ALL: &[Code] = &[
     CRS_HEIGHT_DATUM_UNSUPPORTED,
     CRS_HEIGHT_REALIZATION_ASSUMED,
     CRS_HEIGHT_REALIZATION_MIXED,
+    CSV_ENCODING_INVALID,
+    CSV_QUOTE_INVALID,
     DELIVERY_FILE_INVALID,
     DELIVERY_NAME_UNSAFE,
     DEVIATION_CRS_MIXED,
@@ -3806,6 +3871,10 @@ pub const ALL: &[Code] = &[
     SXF_SCHEMA_UNSUPPORTED,
     SXF_SFIG_CYCLE_INVALID,
     SXF_SFIG_MISSING,
+    XLSX_CELL_INVALID,
+    XLSX_FILE_INVALID,
+    XLSX_PART_INVALID,
+    XLSX_SHEET_UNSUPPORTED,
     XML_DOCUMENT_INVALID,
     XML_DTD_DROPPED,
     XML_ENCODING_UNSUPPORTED,

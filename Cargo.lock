@@ -369,6 +369,7 @@ dependencies = [
  "zumen-review",
  "zumen-scene",
  "zumen-sdk",
+ "zumen-sheet",
  "zumen-sxf",
  "zumen-xyz",
  "zumen-zip",
@@ -693,6 +694,17 @@ name = "zumen-sdk"
 version = "0.2.0"
 dependencies = [
  "zumen-base",
+]
+
+[[package]]
+name = "zumen-sheet"
+version = "0.2.0"
+dependencies = [
+ "encoding_rs",
+ "zumen-base",
+ "zumen-sdk",
+ "zumen-xml",
+ "zumen-zip",
 ]
 
 [[package]]

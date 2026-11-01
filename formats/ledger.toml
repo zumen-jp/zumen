@@ -858,6 +858,7 @@ rights-note = "Ecma International が ECMA-376 を無償で公開している。
 place = "core"
 basis = ["spec"]
 samples = ["試験の中で作る"]
+docs = ["docs/formats/sheet.md"]
 issues = ["zumen-jp/zumen#391"]
 
 [formats.csv]
@@ -870,4 +871,5 @@ rights-note = "IETF の RFC で、誰でも読める。実装を制限する記�
 place = "core"
 basis = ["spec"]
 samples = ["試験の中で作る"]
+docs = ["docs/formats/sheet.md"]
 issues = ["zumen-jp/zumen#391"]

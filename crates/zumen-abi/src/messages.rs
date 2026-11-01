@@ -65,6 +65,8 @@ pub enum Request {
     DeliveryCheck(DeliveryCheckRequest),
     /// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
     Photo(PhotoRequest),
+    /// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+    Sheet(SheetRequest),
 }
 
 impl Request {
@@ -97,6 +99,7 @@ impl Request {
         "geo",
         "delivery_check",
         "photo",
+        "sheet",
     ];
 
     /// 目印の欄（`op`）の値
@@ -129,6 +132,7 @@ impl Request {
             Self::Geo(_) => "geo",
             Self::DeliveryCheck(_) => "delivery_check",
             Self::Photo(_) => "photo",
+            Self::Sheet(_) => "sheet",
         }
     }
 }
@@ -170,6 +174,7 @@ impl FromJson for Request {
                 Self::DeliveryCheck(DeliveryCheckRequest::read_fields(&mut object)?)
             }
             "photo" => Self::Photo(PhotoRequest::read_fields(&mut object)?),
+            "sheet" => Self::Sheet(SheetRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -207,6 +212,7 @@ impl ToJson for Request {
             Self::Geo(value) => value.to_json(out),
             Self::DeliveryCheck(value) => value.to_json(out),
             Self::Photo(value) => value.to_json(out),
+            Self::Sheet(value) => value.to_json(out),
         }
     }
 }
@@ -12948,6 +12954,500 @@ impl FromJson for PhotoProperty {
 }
 
 impl ToJson for PhotoProperty {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct SheetRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 表の入力の名前
+    pub input: String,
+    /// 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする
+    pub format: Option<SheetFormat>,
+    /// CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする
+    pub encoding: Option<SheetEncoding>,
+    /// CSV の区切りの字。書かなければ comma
+    pub delimiter: Option<SheetDelimiter>,
+}
+
+impl SheetRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "sheet")?;
+        let input = object.required("input", json::string)?;
+        let format = object.optional("format", SheetFormat::from_json)?;
+        let encoding = object.optional("encoding", SheetEncoding::from_json)?;
+        let delimiter = object.optional("delimiter", SheetDelimiter::from_json)?;
+        Ok(Self {
+            request_common,
+            input,
+            format,
+            encoding,
+            delimiter,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("sheet");
+        out.key("input");
+        out.string(&self.input);
+        if let Some(value) = &self.format {
+            out.key("format");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.encoding {
+            out.key("encoding");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.delimiter {
+            out.key("delimiter");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for SheetRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SheetRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 表の形式
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SheetFormat {
+    /// `xlsx`
+    Xlsx,
+    /// `csv`
+    Csv,
+}
+
+impl SheetFormat {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Xlsx, Self::Csv];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Xlsx => "xlsx",
+            Self::Csv => "csv",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "xlsx" => Some(Self::Xlsx),
+            "csv" => Some(Self::Csv),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for SheetFormat {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for SheetFormat {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// CSV の文字コード。shift_jis は Windows の拡張を含む
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SheetEncoding {
+    /// `utf_8`
+    Utf8,
+    /// `shift_jis`
+    ShiftJis,
+}
+
+impl SheetEncoding {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Utf8, Self::ShiftJis];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Utf8 => "utf_8",
+            Self::ShiftJis => "shift_jis",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "utf_8" => Some(Self::Utf8),
+            "shift_jis" => Some(Self::ShiftJis),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for SheetEncoding {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for SheetEncoding {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SheetDelimiter {
+    /// `comma`
+    Comma,
+    /// `tab`
+    Tab,
+    /// `semicolon`
+    Semicolon,
+}
+
+impl SheetDelimiter {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Comma, Self::Tab, Self::Semicolon];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Comma => "comma",
+            Self::Tab => "tab",
+            Self::Semicolon => "semicolon",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "comma" => Some(Self::Comma),
+            "tab" => Some(Self::Tab),
+            "semicolon" => Some(Self::Semicolon),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for SheetDelimiter {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for SheetDelimiter {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 読んだ表
+#[derive(Clone, Debug, PartialEq)]
+pub struct SheetResult {
+    /// 読んだ形式
+    pub format: SheetFormat,
+    /// CSV を読んだ文字コード。xlsx では書かない
+    pub encoding: Option<SheetEncoding>,
+    /// シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない
+    pub sheets: Vec<Sheet>,
+}
+
+impl SheetResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let format = object.required("format", SheetFormat::from_json)?;
+        let encoding = object.optional("encoding", SheetEncoding::from_json)?;
+        let sheets = object.required("sheets", |value| json::array(value, Sheet::from_json))?;
+        Ok(Self {
+            format,
+            encoding,
+            sheets,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("format");
+        self.format.to_json(out);
+        if let Some(value) = &self.encoding {
+            out.key("encoding");
+            value.to_json(out);
+        }
+        out.key("sheets");
+        out.array(&self.sheets, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for SheetResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SheetResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// シート
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sheet {
+    /// 名前。CSV は空
+    pub name: String,
+    /// 行の数（値のある最後の行と、結合セルの最後の行まで）
+    pub rows: u64,
+    /// 列の数（値のある最後の列と、結合セルの最後の列まで）
+    pub columns: u64,
+    /// 値か数式のあるセル。行の順、行の中は列の順
+    pub cells: Vec<SheetCell>,
+    /// 結合セル。ファイルの順
+    pub merged: Vec<SheetArea>,
+}
+
+impl Sheet {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let rows = object.required("rows", |value| json::uint(value, 0, 9007199254740991))?;
+        let columns = object.required("columns", |value| json::uint(value, 0, 9007199254740991))?;
+        let cells = object.required("cells", |value| json::array(value, SheetCell::from_json))?;
+        let merged = object.required("merged", |value| json::array(value, SheetArea::from_json))?;
+        Ok(Self {
+            name,
+            rows,
+            columns,
+            cells,
+            merged,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        out.key("rows");
+        out.uint(self.rows);
+        out.key("columns");
+        out.uint(self.columns);
+        out.key("cells");
+        out.array(&self.cells, |out, item| item.to_json(out));
+        out.key("merged");
+        out.array(&self.merged, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for Sheet {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Sheet {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// セル。行と列は 0 から数える
+#[derive(Clone, Debug, PartialEq)]
+pub struct SheetCell {
+    /// 行
+    pub row: u64,
+    /// 列
+    pub column: u64,
+    /// 値の種類
+    pub kind: SheetCellKind,
+    /// 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま
+    pub value: String,
+    /// 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ
+    pub formula: Option<String>,
+}
+
+impl SheetCell {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let row = object.required("row", |value| json::uint(value, 0, 9007199254740991))?;
+        let column = object.required("column", |value| json::uint(value, 0, 9007199254740991))?;
+        let kind = object.required("kind", SheetCellKind::from_json)?;
+        let value = object.required("value", json::string)?;
+        let formula = object.optional("formula", json::string)?;
+        Ok(Self {
+            row,
+            column,
+            kind,
+            value,
+            formula,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("row");
+        out.uint(self.row);
+        out.key("column");
+        out.uint(self.column);
+        out.key("kind");
+        self.kind.to_json(out);
+        out.key("value");
+        out.string(&self.value);
+        if let Some(value) = &self.formula {
+            out.key("formula");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for SheetCell {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SheetCell {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// セルの値の種類。CSV の値はすべて text
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SheetCellKind {
+    /// `text`
+    Text,
+    /// `number`
+    Number,
+    /// `boolean`
+    Boolean,
+    /// `error`
+    Error,
+}
+
+impl SheetCellKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Text, Self::Number, Self::Boolean, Self::Error];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+            Self::Error => "error",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "text" => Some(Self::Text),
+            "number" => Some(Self::Number),
+            "boolean" => Some(Self::Boolean),
+            "error" => Some(Self::Error),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for SheetCellKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for SheetCellKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 結合セルの範囲。両端を含む
+#[derive(Clone, Debug, PartialEq)]
+pub struct SheetArea {
+    /// 最初の行
+    pub first_row: u64,
+    /// 最初の列
+    pub first_column: u64,
+    /// 最後の行
+    pub last_row: u64,
+    /// 最後の列
+    pub last_column: u64,
+}
+
+impl SheetArea {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let first_row =
+            object.required("first_row", |value| json::uint(value, 0, 9007199254740991))?;
+        let first_column = object.required("first_column", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        let last_row =
+            object.required("last_row", |value| json::uint(value, 0, 9007199254740991))?;
+        let last_column = object.required("last_column", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            first_row,
+            first_column,
+            last_row,
+            last_column,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("first_row");
+        out.uint(self.first_row);
+        out.key("first_column");
+        out.uint(self.first_column);
+        out.key("last_row");
+        out.uint(self.last_row);
+        out.key("last_column");
+        out.uint(self.last_column);
+    }
+}
+
+impl FromJson for SheetArea {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SheetArea {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

@@ -148,6 +148,11 @@ public struct Request: Message {
     public var asPhotoRequest: PhotoRequest? {
         taggedView("op", "photo")
     }
+
+    /// op が sheet の形なら、その見方。違えば nil
+    public var asSheetRequest: SheetRequest? {
+        taggedView("op", "sheet")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -8778,6 +8783,283 @@ public struct PhotoProperty: Message {
     }
 }
 
+/// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+public struct SheetRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("sheet")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 表の入力の名前
+    public var input: String? {
+        get { readField("input") }
+        set { writeField("input", newValue) }
+    }
+
+    /// 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする
+    public var encoding: String? {
+        get { readField("encoding") }
+        set { writeField("encoding", newValue) }
+    }
+
+    /// CSV の区切りの字。書かなければ comma
+    public var delimiter: String? {
+        get { readField("delimiter") }
+        set { writeField("delimiter", newValue) }
+    }
+}
+
+/// 表の形式
+///
+/// 列挙の値。知らない値も受け取る
+public enum SheetFormat {
+    public static let xlsx = "xlsx"
+    public static let csv = "csv"
+}
+
+/// CSV の文字コード。shift_jis は Windows の拡張を含む
+///
+/// 列挙の値。知らない値も受け取る
+public enum SheetEncoding {
+    public static let utf8 = "utf_8"
+    public static let shiftJis = "shift_jis"
+}
+
+/// CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
+///
+/// 列挙の値。知らない値も受け取る
+public enum SheetDelimiter {
+    public static let comma = "comma"
+    public static let tab = "tab"
+    public static let semicolon = "semicolon"
+}
+
+/// 読んだ表
+public struct SheetResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 読んだ形式
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// CSV を読んだ文字コード。xlsx では書かない
+    public var encoding: String? {
+        get { readField("encoding") }
+        set { writeField("encoding", newValue) }
+    }
+
+    /// シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない
+    public var sheets: [Sheet]? {
+        get { readField("sheets") }
+        set { writeField("sheets", newValue) }
+    }
+}
+
+/// シート
+public struct Sheet: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 名前。CSV は空
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 行の数（値のある最後の行と、結合セルの最後の行まで）
+    public var rows: Int64? {
+        get { readField("rows") }
+        set { writeField("rows", newValue) }
+    }
+
+    /// 列の数（値のある最後の列と、結合セルの最後の列まで）
+    public var columns: Int64? {
+        get { readField("columns") }
+        set { writeField("columns", newValue) }
+    }
+
+    /// 値か数式のあるセル。行の順、行の中は列の順
+    public var cells: [SheetCell]? {
+        get { readField("cells") }
+        set { writeField("cells", newValue) }
+    }
+
+    /// 結合セル。ファイルの順
+    public var merged: [SheetArea]? {
+        get { readField("merged") }
+        set { writeField("merged", newValue) }
+    }
+}
+
+/// セル。行と列は 0 から数える
+public struct SheetCell: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 行
+    public var row: Int64? {
+        get { readField("row") }
+        set { writeField("row", newValue) }
+    }
+
+    /// 列
+    public var column: Int64? {
+        get { readField("column") }
+        set { writeField("column", newValue) }
+    }
+
+    /// 値の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+
+    /// 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ
+    public var formula: String? {
+        get { readField("formula") }
+        set { writeField("formula", newValue) }
+    }
+}
+
+/// セルの値の種類。CSV の値はすべて text
+///
+/// 列挙の値。知らない値も受け取る
+public enum SheetCellKind {
+    public static let text = "text"
+    public static let number = "number"
+    public static let boolean = "boolean"
+    public static let error = "error"
+}
+
+/// 結合セルの範囲。両端を含む
+public struct SheetArea: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 最初の行
+    public var firstRow: Int64? {
+        get { readField("first_row") }
+        set { writeField("first_row", newValue) }
+    }
+
+    /// 最初の列
+    public var firstColumn: Int64? {
+        get { readField("first_column") }
+        set { writeField("first_column", newValue) }
+    }
+
+    /// 最後の行
+    public var lastRow: Int64? {
+        get { readField("last_row") }
+        set { writeField("last_row", newValue) }
+    }
+
+    /// 最後の列
+    public var lastColumn: Int64? {
+        get { readField("last_column") }
+        set { writeField("last_column", newValue) }
+    }
+}
+
 /// 管理ファイルの要約
 public struct DeliveryManaged: Message {
     /// 包んでいる JSON のオブジェクト
@@ -9768,4 +10050,5 @@ public enum Operations {
     public static let geo = "geo"
     public static let deliveryCheck = "delivery_check"
     public static let photo = "photo"
+    public static let sheet = "sheet"
 }

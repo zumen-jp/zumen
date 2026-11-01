@@ -1,0 +1,123 @@
+{
+  "description": "sheet は、表（xlsx と CSV）を様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。CSV の文字コードは、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする。閉じない引用符は csv.quote.invalid を足して終わりまでを値にする。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "a.xlsx",
+        "hex": "504b030414000000080000002100c71c173c0a00000008000000130000005b436f6e74656e745f54797065735d2e786d6cb309a92c482dd6b70300504b030414000000080000002100fe5b86728a000000f00000000b0000005f72656c732f2e72656c738dcf310ec2300c05d0ab543e405d181850da89a52be2022675daaa4d1c394194db93b1200646eb7fbd2f9b2baf946709699a63aa36bf86d4c294733c23263bb1a7544be4501227ea299753478c64171a198f4d7342dd1bd099bd59f5430bda0f07a86eafc8ffd8e2dc6cf922f6e139e41f135f8d22938e9c5bd8567c8a2e7791a52e286067f0e3c1ee0d504b0304140000000800000021005dbeaf8f9c000000e40000000f000000786c2f776f726b626f6f6b2e786d6c8d8f410e82400c45af427a000b2e5c1060e586638c509c09cc74d28ed11bb874e53d3c9589b79080ec5db5fffff4fdb4bab28c27e631bbf929680d36a558226a67c91bdd71a43027038b37699672468d42a6574b94fc84fb3c3fa0372ec04a28e51f060f83ebe8c8ddc553482b446832c97150eba242532d0dfa9b59309e6a783f5f9ffb03b2c56bfb1a0ac8a474f3226d5f0036156e67b87dd67c01504b03041400000008000000210028f3f1dba20000007e0100001a000000786c2f5f72656c732f776f726b626f6f6b2e786d6c2e72656c73ad903d0ec2300c46af52e500b8edc080da4e2c5d810b44a99b446d7e640701b72742025aa9030393e5ef939e9fdc9c7096c906cfc6462eee6ef6dc0a93523c00b032e824ef42449f9b31909329afa4214a35498d5097e51e68c9105db36416fdd00aea874a149747c45fd8611cadc2635057873e6d9c805ba0890d62ca50491a532b3e11c36b54bb4c15b02d53ff53868d241cce89acd7fc155ac56f1958bdbb7b02504b030414000000080000002100ca1a5f7388000000c700000014000000786c2f736861726564537472696e67732e786d6c8d8f310a02311045af223980b358582c3195170971b20964929019c1c3085b0956b69e68f11a4656b0b5fcefc183af996573a194f9a082481d01d80524cbdb523177e34b232b7db609b836b4270e88420976c3b007b231abb530b67f1ac5fbe8f058dc9930cb1a6998acc49239c4caca688e468b599eb7d7fda1418c860ff9d2ebdcc58f427f60de504b030414000000080000002100e3e8e10cd20000008e01000018000000786c2f776f726b7368656574732f7368656574312e786d6c8d91cb8ec3200c457f05b1eca24e903a8b8822b5e98f206a9a687844e03e3ebf90484c6756b340c2f71e5f5bb27cc6f49d2744622fef423ef289681900b299d0ebbc8f0b86e2d898bca652a61be425a1beae4dde81e8ba2ff07a0e7c4b18d27f32a2b5b3c14b34778f81b690844ed31c439ee6257325d709174d5ac9149face4f64535f573ea39a323afd44375121e4a8229af700d160d161f70dfe0d53b8b4d15fbc36f63ac865567b113126c65c4e1cf1cf858d063bae188ce6566e23dd0b66b5359425bb71ec69e43e9fcc14bd14ea0de504b0102140314000000080000002100c71c173c0a000000080000001300000000000000000000008001000000005b436f6e74656e745f54797065735d2e786d6c504b0102140314000000080000002100fe5b86728a000000f00000000b000000000000000000000080013b0000005f72656c732f2e72656c73504b01021403140000000800000021005dbeaf8f9c000000e40000000f00000000000000000000008001ee000000786c2f776f726b626f6f6b2e786d6c504b010214031400000008000000210028f3f1dba20000007e0100001a00000000000000000000008001b7010000786c2f5f72656c732f776f726b626f6f6b2e786d6c2e72656c73504b0102140314000000080000002100ca1a5f7388000000c7000000140000000000000000000000800191020000786c2f736861726564537472696e67732e786d6c504b0102140314000000080000002100e3e8e10cd20000008e01000018000000000000000000000080014b030000786c2f776f726b7368656574732f7368656574312e786d6c504b0506000000000600060087010000530400000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "sheet",
+        "input": "a.xlsx"
+      },
+      "expect": {
+        "/result/format": "xlsx",
+        "/result/sheets/0/name": "数量",
+        "/result/sheets/0/rows": 2,
+        "/result/sheets/0/columns": 3,
+        "/result/sheets/0/cells": [
+          {
+            "row": 0,
+            "column": 0,
+            "kind": "text",
+            "value": "工種"
+          },
+          {
+            "row": 1,
+            "column": 0,
+            "kind": "text",
+            "value": "土工"
+          },
+          {
+            "row": 1,
+            "column": 1,
+            "kind": "number",
+            "value": "12.5"
+          },
+          {
+            "row": 1,
+            "column": 2,
+            "kind": "number",
+            "value": "25",
+            "formula": "B2*2"
+          }
+        ],
+        "/result/sheets/0/merged": [
+          {
+            "first_row": 0,
+            "first_column": 0,
+            "last_row": 0,
+            "last_column": 2
+          }
+        ],
+        "/diagnostics": []
+      }
+    },
+    {
+      "push": {
+        "name": "b.csv",
+        "text": "工種,備考\r\n\"土工, 掘削\",\"「\"\"注\"\"」\"\r\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "sheet",
+        "input": "b.csv"
+      },
+      "expect": {
+        "/result/format": "csv",
+        "/result/encoding": "utf_8",
+        "/result/sheets/0/cells/2": {
+          "row": 1,
+          "column": 0,
+          "kind": "text",
+          "value": "土工, 掘削"
+        },
+        "/result/sheets/0/cells/3/value": "「\"注\"」",
+        "/diagnostics": []
+      }
+    },
+    {
+      "push": {
+        "name": "c.tsv",
+        "hex": "8d488eed09909497ca0a8c408ded09330a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "sheet",
+        "input": "c.tsv",
+        "delimiter": "tab"
+      },
+      "expect": {
+        "/result/encoding": "shift_jis",
+        "/result/sheets/0/cells/1/value": "数量",
+        "/result/sheets/0/rows": 2,
+        "/diagnostics": []
+      }
+    },
+    {
+      "push": {
+        "name": "d.csv",
+        "text": "a,\"b\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "sheet",
+        "input": "d.csv"
+      },
+      "expect": {
+        "/result/sheets/0/cells/1/value": "b\n",
+        "/diagnostics/0/code": "csv.quote.invalid"
+      }
+    }
+  ]
+}

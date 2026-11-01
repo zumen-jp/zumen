@@ -36,6 +36,7 @@ Request = Union[
     "GeoRequest",
     "DeliveryCheckRequest",
     "PhotoRequest",
+    "SheetRequest",
 ]
 
 
@@ -4581,6 +4582,169 @@ PhotoProperty = TypedDict(
 )
 
 
+# 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+_SheetRequestRequired = TypedDict(
+    "_SheetRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["sheet"],
+        # 表の入力の名前
+        "input": str,
+    },
+)
+_SheetRequestOptional = TypedDict(
+    "_SheetRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする
+        "format": "SheetFormat",
+        # CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする
+        "encoding": "SheetEncoding",
+        # CSV の区切りの字。書かなければ comma
+        "delimiter": "SheetDelimiter",
+    },
+    total=False,
+)
+
+
+class SheetRequest(_SheetRequestRequired, _SheetRequestOptional):
+    "表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から"
+
+# 表の形式
+SheetFormat = Union[
+    Literal[
+        "xlsx",
+        "csv",
+    ],
+    str,
+]
+
+# CSV の文字コード。shift_jis は Windows の拡張を含む
+SheetEncoding = Union[
+    Literal[
+        "utf_8",
+        "shift_jis",
+    ],
+    str,
+]
+
+# CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
+SheetDelimiter = Union[
+    Literal[
+        "comma",
+        "tab",
+        "semicolon",
+    ],
+    str,
+]
+
+
+# 読んだ表
+_SheetResultRequired = TypedDict(
+    "_SheetResultRequired",
+    {
+        # 読んだ形式
+        "format": "SheetFormat",
+        # シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない
+        "sheets": List["Sheet"],
+    },
+)
+_SheetResultOptional = TypedDict(
+    "_SheetResultOptional",
+    {
+        # CSV を読んだ文字コード。xlsx では書かない
+        "encoding": "SheetEncoding",
+    },
+    total=False,
+)
+
+
+class SheetResult(_SheetResultRequired, _SheetResultOptional):
+    "読んだ表"
+
+
+# シート
+Sheet = TypedDict(
+    "Sheet",
+    {
+        # 名前。CSV は空
+        "name": str,
+        # 行の数（値のある最後の行と、結合セルの最後の行まで）
+        "rows": int,
+        # 列の数（値のある最後の列と、結合セルの最後の列まで）
+        "columns": int,
+        # 値か数式のあるセル。行の順、行の中は列の順
+        "cells": List["SheetCell"],
+        # 結合セル。ファイルの順
+        "merged": List["SheetArea"],
+    },
+)
+
+
+# セル。行と列は 0 から数える
+_SheetCellRequired = TypedDict(
+    "_SheetCellRequired",
+    {
+        # 行
+        "row": int,
+        # 列
+        "column": int,
+        # 値の種類
+        "kind": "SheetCellKind",
+        # 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま
+        "value": str,
+    },
+)
+_SheetCellOptional = TypedDict(
+    "_SheetCellOptional",
+    {
+        # 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ
+        "formula": str,
+    },
+    total=False,
+)
+
+
+class SheetCell(_SheetCellRequired, _SheetCellOptional):
+    "セル。行と列は 0 から数える"
+
+# セルの値の種類。CSV の値はすべて text
+SheetCellKind = Union[
+    Literal[
+        "text",
+        "number",
+        "boolean",
+        "error",
+    ],
+    str,
+]
+
+
+# 結合セルの範囲。両端を含む
+SheetArea = TypedDict(
+    "SheetArea",
+    {
+        # 最初の行
+        "first_row": int,
+        # 最初の列
+        "first_column": int,
+        # 最後の行
+        "last_row": int,
+        # 最後の列
+        "last_column": int,
+    },
+)
+
+
 # 管理ファイルの要約
 _DeliveryManagedRequired = TypedDict(
     "_DeliveryManagedRequired",
@@ -5102,6 +5266,7 @@ Operation = Literal[
     "geo",
     "delivery_check",
     "photo",
+    "sheet",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -5133,4 +5298,5 @@ OPERATIONS: Dict[str, Any] = {
     "geo": ("GeoRequest", "GeoResult"),
     "delivery_check": ("DeliveryCheckRequest", "DeliveryCheckResult"),
     "photo": ("PhotoRequest", "PhotoResult"),
+    "sheet": ("SheetRequest", "SheetResult"),
 }

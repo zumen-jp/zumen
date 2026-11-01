@@ -462,6 +462,7 @@
 - 実装の根拠: spec
 - サンプルの出どころ（Git に入れない）: 試験の中で作る
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
+- 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
 
 ### format-delivery
 
@@ -767,6 +768,7 @@
 - 実装の根拠: spec
 - サンプルの出どころ（Git に入れない）: 試験の中で作る
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
+- 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
 
 ### format-xyz
 

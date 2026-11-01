@@ -33,7 +33,8 @@
         { "$ref": "#/$defs/civil_drawing_request" },
         { "$ref": "#/$defs/geo_request" },
         { "$ref": "#/$defs/delivery_check_request" },
-        { "$ref": "#/$defs/photo_request" }
+        { "$ref": "#/$defs/photo_request" },
+        { "$ref": "#/$defs/sheet_request" }
       ]
     },
     "request_common": {
@@ -3675,6 +3676,141 @@
         }
       },
       "required": ["namespace", "name", "value"],
+      "additionalProperties": false
+    },
+    "sheet_request": {
+      "description": "表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "sheet"
+        },
+        "input": {
+          "description": "表の入力の名前",
+          "type": "string"
+        },
+        "format": {
+          "description": "形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする",
+          "$ref": "#/$defs/sheet_format"
+        },
+        "encoding": {
+          "description": "CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする",
+          "$ref": "#/$defs/sheet_encoding"
+        },
+        "delimiter": {
+          "description": "CSV の区切りの字。書かなければ comma",
+          "$ref": "#/$defs/sheet_delimiter"
+        }
+      },
+      "required": ["op", "input"],
+      "unevaluatedProperties": false
+    },
+    "sheet_format": {
+      "description": "表の形式",
+      "type": "string",
+      "enum": ["xlsx", "csv"]
+    },
+    "sheet_encoding": {
+      "description": "CSV の文字コード。shift_jis は Windows の拡張を含む",
+      "type": "string",
+      "enum": ["utf_8", "shift_jis"]
+    },
+    "sheet_delimiter": {
+      "description": "CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」",
+      "type": "string",
+      "enum": ["comma", "tab", "semicolon"]
+    },
+    "sheet_result": {
+      "description": "読んだ表",
+      "type": "object",
+      "properties": {
+        "format": {
+          "description": "読んだ形式",
+          "$ref": "#/$defs/sheet_format"
+        },
+        "encoding": {
+          "description": "CSV を読んだ文字コード。xlsx では書かない",
+          "$ref": "#/$defs/sheet_encoding"
+        },
+        "sheets": {
+          "description": "シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない",
+          "type": "array",
+          "items": { "$ref": "#/$defs/sheet" }
+        }
+      },
+      "required": ["format", "sheets"],
+      "additionalProperties": false
+    },
+    "sheet": {
+      "description": "シート",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前。CSV は空",
+          "type": "string"
+        },
+        "rows": {
+          "description": "行の数（値のある最後の行と、結合セルの最後の行まで）",
+          "type": "integer",
+          "minimum": 0
+        },
+        "columns": {
+          "description": "列の数（値のある最後の列と、結合セルの最後の列まで）",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cells": {
+          "description": "値か数式のあるセル。行の順、行の中は列の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/sheet_cell" }
+        },
+        "merged": {
+          "description": "結合セル。ファイルの順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/sheet_area" }
+        }
+      },
+      "required": ["name", "rows", "columns", "cells", "merged"],
+      "additionalProperties": false
+    },
+    "sheet_cell": {
+      "description": "セル。行と列は 0 から数える",
+      "type": "object",
+      "properties": {
+        "row": { "description": "行", "type": "integer", "minimum": 0 },
+        "column": { "description": "列", "type": "integer", "minimum": 0 },
+        "kind": { "description": "値の種類", "$ref": "#/$defs/sheet_cell_kind" },
+        "value": {
+          "description": "値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま",
+          "type": "string"
+        },
+        "formula": {
+          "description": "数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ",
+          "type": "string"
+        }
+      },
+      "required": ["row", "column", "kind", "value"],
+      "additionalProperties": false
+    },
+    "sheet_cell_kind": {
+      "description": "セルの値の種類。CSV の値はすべて text",
+      "type": "string",
+      "enum": ["text", "number", "boolean", "error"]
+    },
+    "sheet_area": {
+      "description": "結合セルの範囲。両端を含む",
+      "type": "object",
+      "properties": {
+        "first_row": { "description": "最初の行", "type": "integer", "minimum": 0 },
+        "first_column": { "description": "最初の列", "type": "integer", "minimum": 0 },
+        "last_row": { "description": "最後の行", "type": "integer", "minimum": 0 },
+        "last_column": { "description": "最後の列", "type": "integer", "minimum": 0 }
+      },
+      "required": ["first_row", "first_column", "last_row", "last_column"],
       "additionalProperties": false
     },
     "delivery_managed": {

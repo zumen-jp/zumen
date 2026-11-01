@@ -196,6 +196,11 @@ public final class Messages {
         public PhotoRequest asPhotoRequest() {
             return "photo".equals(json.get("op")) ? new PhotoRequest(json) : null;
         }
+
+        /** op が sheet の形なら、その見方。違えば null */
+        public SheetRequest asSheetRequest() {
+            return "sheet".equals(json.get("op")) ? new SheetRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -14256,6 +14261,457 @@ public final class Messages {
         }
     }
 
+    /** 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から */
+    public static final class SheetRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SheetRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SheetRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SheetRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public SheetRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "sheet");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public SheetRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public SheetRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public SheetRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public SheetRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public SheetRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public SheetRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 表の入力の名前 */
+        public String getInput() {
+            return Json.read(json.get("input"), Json::string);
+        }
+
+        /** {@link #getInput()} を書く。null なら欄を除く */
+        public SheetRequest withInput(String value) {
+            put("input", value);
+            return this;
+        }
+
+        /** 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null なら欄を除く */
+        public SheetRequest withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする */
+        public String getEncoding() {
+            return Json.read(json.get("encoding"), Json::string);
+        }
+
+        /** {@link #getEncoding()} を書く。null なら欄を除く */
+        public SheetRequest withEncoding(String value) {
+            put("encoding", value);
+            return this;
+        }
+
+        /** CSV の区切りの字。書かなければ comma */
+        public String getDelimiter() {
+            return Json.read(json.get("delimiter"), Json::string);
+        }
+
+        /** {@link #getDelimiter()} を書く。null なら欄を除く */
+        public SheetRequest withDelimiter(String value) {
+            put("delimiter", value);
+            return this;
+        }
+    }
+
+    /**
+     * 表の形式
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class SheetFormat {
+        private SheetFormat() {}
+
+        public static final String XLSX = "xlsx";
+
+        public static final String CSV = "csv";
+    }
+
+    /**
+     * CSV の文字コード。shift_jis は Windows の拡張を含む
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class SheetEncoding {
+        private SheetEncoding() {}
+
+        public static final String UTF_8 = "utf_8";
+
+        public static final String SHIFT_JIS = "shift_jis";
+    }
+
+    /**
+     * CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class SheetDelimiter {
+        private SheetDelimiter() {}
+
+        public static final String COMMA = "comma";
+
+        public static final String TAB = "tab";
+
+        public static final String SEMICOLON = "semicolon";
+    }
+
+    /** 読んだ表 */
+    public static final class SheetResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SheetResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SheetResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SheetResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SheetResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 読んだ形式 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null なら欄を除く */
+        public SheetResult withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** CSV を読んだ文字コード。xlsx では書かない */
+        public String getEncoding() {
+            return Json.read(json.get("encoding"), Json::string);
+        }
+
+        /** {@link #getEncoding()} を書く。null なら欄を除く */
+        public SheetResult withEncoding(String value) {
+            put("encoding", value);
+            return this;
+        }
+
+        /** シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない */
+        public List<Sheet> getSheets() {
+            return Json.read(json.get("sheets"), v0 -> Json.list(v0, Sheet::of));
+        }
+
+        /** {@link #getSheets()} を書く。null なら欄を除く */
+        public SheetResult withSheets(List<Sheet> value) {
+            put("sheets", value);
+            return this;
+        }
+    }
+
+    /** シート */
+    public static final class Sheet extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Sheet(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Sheet of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Sheet(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Sheet() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 名前。CSV は空 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public Sheet withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 行の数（値のある最後の行と、結合セルの最後の行まで） */
+        public Long getRows() {
+            return Json.read(json.get("rows"), Json::integer);
+        }
+
+        /** {@link #getRows()} を書く。null なら欄を除く */
+        public Sheet withRows(Long value) {
+            put("rows", value);
+            return this;
+        }
+
+        /** 列の数（値のある最後の列と、結合セルの最後の列まで） */
+        public Long getColumns() {
+            return Json.read(json.get("columns"), Json::integer);
+        }
+
+        /** {@link #getColumns()} を書く。null なら欄を除く */
+        public Sheet withColumns(Long value) {
+            put("columns", value);
+            return this;
+        }
+
+        /** 値か数式のあるセル。行の順、行の中は列の順 */
+        public List<SheetCell> getCells() {
+            return Json.read(json.get("cells"), v0 -> Json.list(v0, SheetCell::of));
+        }
+
+        /** {@link #getCells()} を書く。null なら欄を除く */
+        public Sheet withCells(List<SheetCell> value) {
+            put("cells", value);
+            return this;
+        }
+
+        /** 結合セル。ファイルの順 */
+        public List<SheetArea> getMerged() {
+            return Json.read(json.get("merged"), v0 -> Json.list(v0, SheetArea::of));
+        }
+
+        /** {@link #getMerged()} を書く。null なら欄を除く */
+        public Sheet withMerged(List<SheetArea> value) {
+            put("merged", value);
+            return this;
+        }
+    }
+
+    /** セル。行と列は 0 から数える */
+    public static final class SheetCell extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SheetCell(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SheetCell of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SheetCell(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SheetCell() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 行 */
+        public Long getRow() {
+            return Json.read(json.get("row"), Json::integer);
+        }
+
+        /** {@link #getRow()} を書く。null なら欄を除く */
+        public SheetCell withRow(Long value) {
+            put("row", value);
+            return this;
+        }
+
+        /** 列 */
+        public Long getColumn() {
+            return Json.read(json.get("column"), Json::integer);
+        }
+
+        /** {@link #getColumn()} を書く。null なら欄を除く */
+        public SheetCell withColumn(Long value) {
+            put("column", value);
+            return this;
+        }
+
+        /** 値の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public SheetCell withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null なら欄を除く */
+        public SheetCell withValue(String value) {
+            put("value", value);
+            return this;
+        }
+
+        /** 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ */
+        public String getFormula() {
+            return Json.read(json.get("formula"), Json::string);
+        }
+
+        /** {@link #getFormula()} を書く。null なら欄を除く */
+        public SheetCell withFormula(String value) {
+            put("formula", value);
+            return this;
+        }
+    }
+
+    /**
+     * セルの値の種類。CSV の値はすべて text
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class SheetCellKind {
+        private SheetCellKind() {}
+
+        public static final String TEXT = "text";
+
+        public static final String NUMBER = "number";
+
+        public static final String BOOLEAN = "boolean";
+
+        public static final String ERROR = "error";
+    }
+
+    /** 結合セルの範囲。両端を含む */
+    public static final class SheetArea extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SheetArea(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SheetArea of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SheetArea(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SheetArea() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 最初の行 */
+        public Long getFirstRow() {
+            return Json.read(json.get("first_row"), Json::integer);
+        }
+
+        /** {@link #getFirstRow()} を書く。null なら欄を除く */
+        public SheetArea withFirstRow(Long value) {
+            put("first_row", value);
+            return this;
+        }
+
+        /** 最初の列 */
+        public Long getFirstColumn() {
+            return Json.read(json.get("first_column"), Json::integer);
+        }
+
+        /** {@link #getFirstColumn()} を書く。null なら欄を除く */
+        public SheetArea withFirstColumn(Long value) {
+            put("first_column", value);
+            return this;
+        }
+
+        /** 最後の行 */
+        public Long getLastRow() {
+            return Json.read(json.get("last_row"), Json::integer);
+        }
+
+        /** {@link #getLastRow()} を書く。null なら欄を除く */
+        public SheetArea withLastRow(Long value) {
+            put("last_row", value);
+            return this;
+        }
+
+        /** 最後の列 */
+        public Long getLastColumn() {
+            return Json.read(json.get("last_column"), Json::integer);
+        }
+
+        /** {@link #getLastColumn()} を書く。null なら欄を除く */
+        public SheetArea withLastColumn(Long value) {
+            put("last_column", value);
+            return this;
+        }
+    }
+
     /** 管理ファイルの要約 */
     public static final class DeliveryManaged extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -15900,5 +16356,7 @@ public final class Messages {
         public static final String DELIVERY_CHECK = "delivery_check";
 
         public static final String PHOTO = "photo";
+
+        public static final String SHEET = "sheet";
     }
 }

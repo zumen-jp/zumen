@@ -17,7 +17,7 @@ const ABIVersion uint32 = 1
 const SchemaMajor int64 = 1
 
 // SchemaMinor は、メッセージのスキーマの小版。
-const SchemaMinor int64 = 55
+const SchemaMinor int64 = 56
 
 // StatusOk: 成功した
 const StatusOk int32 = 0

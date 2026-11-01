@@ -32,7 +32,8 @@ export type Request =
   | CivilDrawingRequest
   | GeoRequest
   | DeliveryCheckRequest
-  | PhotoRequest;
+  | PhotoRequest
+  | SheetRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2616,6 +2617,97 @@ export interface PhotoProperty {
   value: string;
 }
 
+/** 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から */
+export interface SheetRequest extends RequestCommon {
+  /** op の名前 */
+  op: "sheet";
+  /** 表の入力の名前 */
+  input: string;
+  /** 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする */
+  format?: SheetFormat;
+  /** CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする */
+  encoding?: SheetEncoding;
+  /** CSV の区切りの字。書かなければ comma */
+  delimiter?: SheetDelimiter;
+}
+
+/** 表の形式 */
+export type SheetFormat =
+  | "xlsx"
+  | "csv"
+  | (string & {});
+
+/** CSV の文字コード。shift_jis は Windows の拡張を含む */
+export type SheetEncoding =
+  | "utf_8"
+  | "shift_jis"
+  | (string & {});
+
+/** CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」 */
+export type SheetDelimiter =
+  | "comma"
+  | "tab"
+  | "semicolon"
+  | (string & {});
+
+/** 読んだ表 */
+export interface SheetResult {
+  /** 読んだ形式 */
+  format: SheetFormat;
+  /** CSV を読んだ文字コード。xlsx では書かない */
+  encoding?: SheetEncoding;
+  /** シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない */
+  sheets: Sheet[];
+}
+
+/** シート */
+export interface Sheet {
+  /** 名前。CSV は空 */
+  name: string;
+  /** 行の数（値のある最後の行と、結合セルの最後の行まで） */
+  rows: number;
+  /** 列の数（値のある最後の列と、結合セルの最後の列まで） */
+  columns: number;
+  /** 値か数式のあるセル。行の順、行の中は列の順 */
+  cells: SheetCell[];
+  /** 結合セル。ファイルの順 */
+  merged: SheetArea[];
+}
+
+/** セル。行と列は 0 から数える */
+export interface SheetCell {
+  /** 行 */
+  row: number;
+  /** 列 */
+  column: number;
+  /** 値の種類 */
+  kind: SheetCellKind;
+  /** 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま */
+  value: string;
+  /** 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ */
+  formula?: string;
+}
+
+/** セルの値の種類。CSV の値はすべて text */
+export type SheetCellKind =
+  | "text"
+  | "number"
+  | "boolean"
+  | "error"
+  | (string & {});
+
+/** 結合セルの範囲。両端を含む */
+export interface SheetArea {
+  /** 最初の行 */
+  first_row: number;
+  /** 最初の列 */
+  first_column: number;
+  /** 最後の行 */
+  last_row: number;
+  /** 最後の列 */
+  last_column: number;
+}
+
 /** 管理ファイルの要約 */
 export interface DeliveryManaged {
   /** 成果品の中の名前 */
@@ -2924,4 +3016,5 @@ export interface Operations {
   geo: { request: GeoRequest; result: GeoResult };
   delivery_check: { request: DeliveryCheckRequest; result: DeliveryCheckResult };
   photo: { request: PhotoRequest; result: PhotoResult };
+  sheet: { request: SheetRequest; result: SheetResult };
 }

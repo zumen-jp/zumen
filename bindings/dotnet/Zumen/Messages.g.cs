@@ -67,6 +67,7 @@ namespace Zumen.Messages
             ["geo"] = typeof(GeoRequest),
             ["delivery_check"] = typeof(DeliveryCheckRequest),
             ["photo"] = typeof(PhotoRequest),
+            ["sheet"] = typeof(SheetRequest),
         };
     }
 
@@ -7207,6 +7208,248 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+    /// </summary>
+    public sealed record SheetRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "sheet";
+
+        /// <summary>
+        /// 表の入力の名前
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+
+        /// <summary>
+        /// 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string? Format { get; init; }
+
+        /// <summary>
+        /// CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする
+        /// </summary>
+        [JsonPropertyName("encoding")]
+        public string? Encoding { get; init; }
+
+        /// <summary>
+        /// CSV の区切りの字。書かなければ comma
+        /// </summary>
+        [JsonPropertyName("delimiter")]
+        public string? Delimiter { get; init; }
+    }
+
+    /// <summary>
+    /// 表の形式
+    /// </summary>
+    public static class SheetFormat
+    {
+        /// <summary>xlsx</summary>
+        public const string Xlsx = "xlsx";
+        /// <summary>csv</summary>
+        public const string Csv = "csv";
+    }
+
+    /// <summary>
+    /// CSV の文字コード。shift_jis は Windows の拡張を含む
+    /// </summary>
+    public static class SheetEncoding
+    {
+        /// <summary>utf_8</summary>
+        public const string Utf8 = "utf_8";
+        /// <summary>shift_jis</summary>
+        public const string ShiftJis = "shift_jis";
+    }
+
+    /// <summary>
+    /// CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
+    /// </summary>
+    public static class SheetDelimiter
+    {
+        /// <summary>comma</summary>
+        public const string Comma = "comma";
+        /// <summary>tab</summary>
+        public const string Tab = "tab";
+        /// <summary>semicolon</summary>
+        public const string Semicolon = "semicolon";
+    }
+
+    /// <summary>
+    /// 読んだ表
+    /// </summary>
+    public sealed record SheetResult
+    {
+        /// <summary>
+        /// 読んだ形式
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// CSV を読んだ文字コード。xlsx では書かない
+        /// </summary>
+        [JsonPropertyName("encoding")]
+        public string? Encoding { get; init; }
+
+        /// <summary>
+        /// シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない
+        /// </summary>
+        [JsonPropertyName("sheets")]
+        public IReadOnlyList<Sheet> Sheets { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// シート
+    /// </summary>
+    public sealed record Sheet
+    {
+        /// <summary>
+        /// 名前。CSV は空
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 行の数（値のある最後の行と、結合セルの最後の行まで）
+        /// </summary>
+        [JsonPropertyName("rows")]
+        public ulong Rows { get; init; }
+
+        /// <summary>
+        /// 列の数（値のある最後の列と、結合セルの最後の列まで）
+        /// </summary>
+        [JsonPropertyName("columns")]
+        public ulong Columns { get; init; }
+
+        /// <summary>
+        /// 値か数式のあるセル。行の順、行の中は列の順
+        /// </summary>
+        [JsonPropertyName("cells")]
+        public IReadOnlyList<SheetCell> Cells { get; init; } = default!;
+
+        /// <summary>
+        /// 結合セル。ファイルの順
+        /// </summary>
+        [JsonPropertyName("merged")]
+        public IReadOnlyList<SheetArea> Merged { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// セル。行と列は 0 から数える
+    /// </summary>
+    public sealed record SheetCell
+    {
+        /// <summary>
+        /// 行
+        /// </summary>
+        [JsonPropertyName("row")]
+        public ulong Row { get; init; }
+
+        /// <summary>
+        /// 列
+        /// </summary>
+        [JsonPropertyName("column")]
+        public ulong Column { get; init; }
+
+        /// <summary>
+        /// 値の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+
+        /// <summary>
+        /// 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ
+        /// </summary>
+        [JsonPropertyName("formula")]
+        public string? Formula { get; init; }
+    }
+
+    /// <summary>
+    /// セルの値の種類。CSV の値はすべて text
+    /// </summary>
+    public static class SheetCellKind
+    {
+        /// <summary>text</summary>
+        public const string Text = "text";
+        /// <summary>number</summary>
+        public const string Number = "number";
+        /// <summary>boolean</summary>
+        public const string Boolean = "boolean";
+        /// <summary>error</summary>
+        public const string Error = "error";
+    }
+
+    /// <summary>
+    /// 結合セルの範囲。両端を含む
+    /// </summary>
+    public sealed record SheetArea
+    {
+        /// <summary>
+        /// 最初の行
+        /// </summary>
+        [JsonPropertyName("first_row")]
+        public ulong FirstRow { get; init; }
+
+        /// <summary>
+        /// 最初の列
+        /// </summary>
+        [JsonPropertyName("first_column")]
+        public ulong FirstColumn { get; init; }
+
+        /// <summary>
+        /// 最後の行
+        /// </summary>
+        [JsonPropertyName("last_row")]
+        public ulong LastRow { get; init; }
+
+        /// <summary>
+        /// 最後の列
+        /// </summary>
+        [JsonPropertyName("last_column")]
+        public ulong LastColumn { get; init; }
+    }
+
+    /// <summary>
     /// 管理ファイルの要約
     /// </summary>
     public sealed record DeliveryManaged
@@ -8044,6 +8287,7 @@ namespace Zumen.Messages
                 ["geo"] = (typeof(GeoRequest), typeof(GeoResult)),
                 ["delivery_check"] = (typeof(DeliveryCheckRequest), typeof(DeliveryCheckResult)),
                 ["photo"] = (typeof(PhotoRequest), typeof(PhotoResult)),
+                ["sheet"] = (typeof(SheetRequest), typeof(SheetResult)),
             };
     }
 }

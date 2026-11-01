@@ -96,6 +96,9 @@ class Request extends Message {
 
   /// op が photo の形なら、その見方。違えば null
   PhotoRequest? get asPhotoRequest => taggedView('op', 'photo', PhotoRequest.fromJson);
+
+  /// op が sheet の形なら、その見方。違えば null
+  SheetRequest? get asSheetRequest => taggedView('op', 'sheet', SheetRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -5697,6 +5700,194 @@ class PhotoProperty extends Message {
   set value(String? value) => writeField('value', value);
 }
 
+/// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+class SheetRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SheetRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  SheetRequest() : super({'op': 'sheet'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 表の入力の名前
+  String? get input => readField('input', asString);
+  set input(String? value) => writeField('input', value);
+
+  /// 形式。書かなければ、ZIP の署名で始まれば xlsx、そうでなければ csv とする
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// CSV の文字コード。書かなければ、BOM か UTF-8 として正しければ utf_8、そうでなければ shift_jis とする
+  String? get encoding => readField('encoding', asString);
+  set encoding(String? value) => writeField('encoding', value);
+
+  /// CSV の区切りの字。書かなければ comma
+  String? get delimiter => readField('delimiter', asString);
+  set delimiter(String? value) => writeField('delimiter', value);
+}
+
+/// 表の形式
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class SheetFormat {
+  static const xlsx = 'xlsx';
+  static const csv = 'csv';
+}
+
+/// CSV の文字コード。shift_jis は Windows の拡張を含む
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class SheetEncoding {
+  static const utf8 = 'utf_8';
+  static const shiftJis = 'shift_jis';
+}
+
+/// CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class SheetDelimiter {
+  static const comma = 'comma';
+  static const tab = 'tab';
+  static const semicolon = 'semicolon';
+}
+
+/// 読んだ表
+class SheetResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SheetResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SheetResult() : super({});
+
+  /// 読んだ形式
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// CSV を読んだ文字コード。xlsx では書かない
+  String? get encoding => readField('encoding', asString);
+  set encoding(String? value) => writeField('encoding', value);
+
+  /// シート。ブックの順。CSV は 1 つ。ワークシートでないシートは含めない
+  List<Sheet>? get sheets => readField('sheets', listOf(objectOf(Sheet.fromJson)));
+  set sheets(List<Sheet>? value) => writeField('sheets', value);
+}
+
+/// シート
+class Sheet extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Sheet.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Sheet() : super({});
+
+  /// 名前。CSV は空
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 行の数（値のある最後の行と、結合セルの最後の行まで）
+  int? get rows => readField('rows', asInt);
+  set rows(int? value) => writeField('rows', value);
+
+  /// 列の数（値のある最後の列と、結合セルの最後の列まで）
+  int? get columns => readField('columns', asInt);
+  set columns(int? value) => writeField('columns', value);
+
+  /// 値か数式のあるセル。行の順、行の中は列の順
+  List<SheetCell>? get cells => readField('cells', listOf(objectOf(SheetCell.fromJson)));
+  set cells(List<SheetCell>? value) => writeField('cells', value);
+
+  /// 結合セル。ファイルの順
+  List<SheetArea>? get merged => readField('merged', listOf(objectOf(SheetArea.fromJson)));
+  set merged(List<SheetArea>? value) => writeField('merged', value);
+}
+
+/// セル。行と列は 0 から数える
+class SheetCell extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SheetCell.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SheetCell() : super({});
+
+  /// 行
+  int? get row => readField('row', asInt);
+  set row(int? value) => writeField('row', value);
+
+  /// 列
+  int? get column => readField('column', asInt);
+  set column(int? value) => writeField('column', value);
+
+  /// 値の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 値。数は保存された字のまま、真偽は TRUE か FALSE。日付の書式は解釈しないので、日付は数のまま
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+
+  /// 数式（先頭の = を除く）。共有の数式は、元のセルだけが持つ
+  String? get formula => readField('formula', asString);
+  set formula(String? value) => writeField('formula', value);
+}
+
+/// セルの値の種類。CSV の値はすべて text
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class SheetCellKind {
+  static const text = 'text';
+  static const number = 'number';
+  static const boolean = 'boolean';
+  static const error = 'error';
+}
+
+/// 結合セルの範囲。両端を含む
+class SheetArea extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SheetArea.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SheetArea() : super({});
+
+  /// 最初の行
+  int? get firstRow => readField('first_row', asInt);
+  set firstRow(int? value) => writeField('first_row', value);
+
+  /// 最初の列
+  int? get firstColumn => readField('first_column', asInt);
+  set firstColumn(int? value) => writeField('first_column', value);
+
+  /// 最後の行
+  int? get lastRow => readField('last_row', asInt);
+  set lastRow(int? value) => writeField('last_row', value);
+
+  /// 最後の列
+  int? get lastColumn => readField('last_column', asInt);
+  set lastColumn(int? value) => writeField('last_column', value);
+}
+
 /// 管理ファイルの要約
 class DeliveryManaged extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -6346,4 +6537,5 @@ abstract final class Operations {
   static const geo = 'geo';
   static const deliveryCheck = 'delivery_check';
   static const photo = 'photo';
+  static const sheet = 'sheet';
 }

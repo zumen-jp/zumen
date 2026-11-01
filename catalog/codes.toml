@@ -2036,6 +2036,47 @@ severity = "warning"
 since = "0.2.0"
 status = "active"
 
+[codes."xlsx.file.invalid"]
+description = "xlsx のブックの部品（workbook.xml）がないか読めないので、表として読まなかった（#391）"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."xlsx.part.invalid"]
+description = "xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name は書庫の中の名前かシートの名前"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."xlsx.sheet.unsupported"]
+description = "ワークシートでないシート（グラフのシートなど）なので、読まなかった（#391）"
+severity = "info"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."xlsx.cell.invalid"]
+description = "セルの参照か共有文字列の番号が読めないので、そのセルか結合セルを飛ばした（#391）"
+severity = "warning"
+params = { sheet = "text", reference = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."csv.encoding.invalid"]
+description = "CSV に、その文字コードで直せないバイトがあるので、置き換えの字にした（#391）"
+severity = "warning"
+params = { encoding = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."csv.quote.invalid"]
+description = "CSV の引用符が閉じていないので、終わりまでを 1 つの値にした（#391）。line は引用符の始まりの行"
+severity = "warning"
+params = { line = "uint" }
+since = "0.2.0"
+status = "active"
+
 [codes."delivery.name.unsafe"]
 description = "成果品の中の名前に、空の部分・.・..・\\ を含むか、/ で始まるので、そのファイルを読まなかった"
 severity = "warning"
