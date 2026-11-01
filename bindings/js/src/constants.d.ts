@@ -31,7 +31,7 @@ export declare const WASM_EXPORTS: readonly string[];
 
 /** wasm のモジュールの名前（決定 0013・0221） */
 export type ModuleName =
-  /** 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品 */
+  /** 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品と工事写真 */
   | "drawing"
   /** IFC と建物モデル、EXPRESS・IDS の照合と BCF */
   | "bim";
@@ -51,7 +51,8 @@ export type DetectionRule =
   | { readonly kind: "bytes"; readonly offset: number; readonly bytes: readonly number[] }
   | { readonly kind: "lines"; readonly lines: readonly string[] }
   | { readonly kind: "step_schema"; readonly prefix: string }
-  | { readonly kind: "xml_root"; readonly name: string; readonly namespace: string | null };
+  | { readonly kind: "xml_root"; readonly name: string; readonly namespace: string | null }
+  | { readonly kind: "zip_entry"; readonly suffixes: readonly string[] };
 
 /** 形式の判定。rules のどれかに合えば format とする */
 export interface Detection {

@@ -63,6 +63,8 @@ pub enum Request {
     Geo(GeoRequest),
     /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から
     DeliveryCheck(DeliveryCheckRequest),
+    /// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+    Photo(PhotoRequest),
 }
 
 impl Request {
@@ -94,6 +96,7 @@ impl Request {
         "civil_drawing",
         "geo",
         "delivery_check",
+        "photo",
     ];
 
     /// 目印の欄（`op`）の値
@@ -125,6 +128,7 @@ impl Request {
             Self::CivilDrawing(_) => "civil_drawing",
             Self::Geo(_) => "geo",
             Self::DeliveryCheck(_) => "delivery_check",
+            Self::Photo(_) => "photo",
         }
     }
 }
@@ -165,6 +169,7 @@ impl FromJson for Request {
             "delivery_check" => {
                 Self::DeliveryCheck(DeliveryCheckRequest::read_fields(&mut object)?)
             }
+            "photo" => Self::Photo(PhotoRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -201,6 +206,7 @@ impl ToJson for Request {
             Self::CivilDrawing(value) => value.to_json(out),
             Self::Geo(value) => value.to_json(out),
             Self::DeliveryCheck(value) => value.to_json(out),
+            Self::Photo(value) => value.to_json(out),
         }
     }
 }
@@ -12676,6 +12682,272 @@ impl FromJson for DeliveryCheckResult {
 }
 
 impl ToJson for DeliveryCheckResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhotoRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// JPEG の入力の名前
+    pub input: String,
+}
+
+impl PhotoRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "photo")?;
+        let input = object.required("input", json::string)?;
+        Ok(Self {
+            request_common,
+            input,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("photo");
+        out.key("input");
+        out.string(&self.input);
+    }
+}
+
+impl FromJson for PhotoRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PhotoRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 写真の情報。ファイルが持たない値は書かない
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhotoResult {
+    /// 画素の幅（フレームの見出し）
+    pub width: Option<u64>,
+    /// 画素の高さ（フレームの見出し）
+    pub height: Option<u64>,
+    /// 向き（Exif の Orientation、1〜8）
+    pub orientation: Option<u64>,
+    /// 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す）
+    pub taken: Option<String>,
+    /// 機器の作り手
+    pub make: Option<String>,
+    /// 機器の型
+    pub model: Option<String>,
+    /// 撮った位置（GPS の緯度・経度、度）。測地系は換算しない
+    pub position: Option<PhotoPosition>,
+    /// 撮った向き（度）
+    pub direction: Option<f64>,
+    /// 向きの基準（T は真北、M は磁北）
+    pub direction_reference: Option<String>,
+    /// GPS の測地系の名前（GPSMapDatum）
+    pub datum: Option<String>,
+    /// XMP の性質。文書の順
+    pub xmp: Vec<PhotoProperty>,
+}
+
+impl PhotoResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let width = object.optional("width", |value| json::uint(value, 0, 9007199254740991))?;
+        let height = object.optional("height", |value| json::uint(value, 0, 9007199254740991))?;
+        let orientation = object.optional("orientation", |value| json::uint(value, 1, 8))?;
+        let taken = object.optional("taken", json::string)?;
+        let make = object.optional("make", json::string)?;
+        let model = object.optional("model", json::string)?;
+        let position = object.optional("position", PhotoPosition::from_json)?;
+        let direction = object.optional("direction", json::number)?;
+        let direction_reference = object.optional("direction_reference", json::string)?;
+        let datum = object.optional("datum", json::string)?;
+        let xmp = object.required("xmp", |value| json::array(value, PhotoProperty::from_json))?;
+        Ok(Self {
+            width,
+            height,
+            orientation,
+            taken,
+            make,
+            model,
+            position,
+            direction,
+            direction_reference,
+            datum,
+            xmp,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.width {
+            out.key("width");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.orientation {
+            out.key("orientation");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.taken {
+            out.key("taken");
+            out.string(value);
+        }
+        if let Some(value) = &self.make {
+            out.key("make");
+            out.string(value);
+        }
+        if let Some(value) = &self.model {
+            out.key("model");
+            out.string(value);
+        }
+        if let Some(value) = &self.position {
+            out.key("position");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.direction {
+            out.key("direction");
+            out.float(*value);
+        }
+        if let Some(value) = &self.direction_reference {
+            out.key("direction_reference");
+            out.string(value);
+        }
+        if let Some(value) = &self.datum {
+            out.key("datum");
+            out.string(value);
+        }
+        out.key("xmp");
+        out.array(&self.xmp, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for PhotoResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PhotoResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 撮った位置
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhotoPosition {
+    /// 緯度（度、北が正）
+    pub latitude: f64,
+    /// 経度（度、東が正）
+    pub longitude: f64,
+    /// 高さ（m、海面より下は負）
+    pub altitude: Option<f64>,
+}
+
+impl PhotoPosition {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let latitude = object.required("latitude", json::number)?;
+        let longitude = object.required("longitude", json::number)?;
+        let altitude = object.optional("altitude", json::number)?;
+        Ok(Self {
+            latitude,
+            longitude,
+            altitude,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("latitude");
+        out.float(self.latitude);
+        out.key("longitude");
+        out.float(self.longitude);
+        if let Some(value) = &self.altitude {
+            out.key("altitude");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for PhotoPosition {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PhotoPosition {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// XMP の性質
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhotoProperty {
+    /// 名前空間の URI
+    pub namespace: String,
+    /// 接頭辞を除いた名前
+    pub name: String,
+    /// 値。配列は最初の項目の値
+    pub value: String,
+}
+
+impl PhotoProperty {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let namespace = object.required("namespace", json::string)?;
+        let name = object.required("name", json::string)?;
+        let value = object.required("value", json::string)?;
+        Ok(Self {
+            namespace,
+            name,
+            value,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("namespace");
+        out.string(&self.namespace);
+        out.key("name");
+        out.string(&self.name);
+        out.key("value");
+        out.string(&self.value);
+    }
+}
+
+impl FromJson for PhotoProperty {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for PhotoProperty {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

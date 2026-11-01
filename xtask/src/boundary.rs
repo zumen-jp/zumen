@@ -55,6 +55,8 @@ pub struct Rule {
     pub xml_root: Option<String>,
     /// `xml-root` の要素の名前空間の名前（URI）。書かなければ問わない
     pub namespace: Option<String>,
+    /// ZIP の書庫の項目の名前の終わり
+    pub zip_entry: Option<Vec<String>>,
 }
 
 /// 判定の規則の形
@@ -69,11 +71,22 @@ pub enum RuleKind<'a> {
         name: &'a str,
         namespace: Option<&'a str>,
     },
+    ZipEntry(&'a [String]),
 }
 
 impl Rule {
     /// 規則の形。欄の組み合わせが合わなければ `None`
     pub fn kind(&self) -> Option<RuleKind<'_>> {
+        if let Some(suffixes) = &self.zip_entry {
+            let others = self.offset.is_some()
+                || self.bytes.is_some()
+                || self.lines.is_some()
+                || self.step_schema.is_some()
+                || self.xml_root.is_some()
+                || self.namespace.is_some();
+            return (!others && !suffixes.is_empty() && suffixes.iter().all(|s| !s.is_empty()))
+                .then_some(RuleKind::ZipEntry(suffixes));
+        }
         if let Some(name) = &self.xml_root {
             let others = self.offset.is_some()
                 || self.bytes.is_some()
@@ -300,7 +313,7 @@ pub fn check(boundary: &Boundary) -> Vec<String> {
         }
         if detection.rules.is_empty() || detection.rules.iter().any(|rule| rule.kind().is_none()) {
             errors.push(format!(
-                "形式の判定 `{format}`: 規則は offset と bytes・lines・step-schema・xml-root（と namespace）のどれか 1 つにする"
+                "形式の判定 `{format}`: 規則は offset と bytes・lines・step-schema・xml-root（と namespace）・zip-entry のどれか 1 つにする"
             ));
         }
     }
@@ -697,6 +710,17 @@ pub fn render_rust(boundary: &Boundary) -> String {
                             out,
                             "        zumen_sdk::Signature::XmlRoot {{ name: {}, namespace: {namespace} }},",
                             byte_literal(name.as_bytes())
+                        );
+                    }
+                    Some(RuleKind::ZipEntry(suffixes)) => {
+                        let suffixes: Vec<String> = suffixes
+                            .iter()
+                            .map(|suffix| byte_literal(suffix.as_bytes()))
+                            .collect();
+                        let _ = writeln!(
+                            out,
+                            "        zumen_sdk::Signature::ZipEntry {{ suffixes: &[{}] }},",
+                            suffixes.join(", ")
                         );
                     }
                     None => {}

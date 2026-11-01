@@ -2077,6 +2077,38 @@ pub const IFC_VERSION_UNSUPPORTED: Code = Code::new(
 pub const INTERNAL_PANIC_CAUGHT: Code =
     Code::new("internal.panic.caught", Severity::Error, None, &[], &[]);
 
+/// Exif の項目の値か構造が読めないので、その値を返さなかった（#387）。tag は項目の番号で、0 は構造
+///
+/// `jpeg.exif.invalid`（0.2.0 から）
+pub const JPEG_EXIF_INVALID: Code = Code::new(
+    "jpeg.exif.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("tag", ParamType::UInt)],
+    &[],
+);
+
+/// JPEG の始まりの印（SOI）がないので、写真として読まなかった（#387）
+///
+/// `jpeg.file.invalid`（0.2.0 から）
+pub const JPEG_FILE_INVALID: Code = Code::new("jpeg.file.invalid", Severity::Error, None, &[], &[]);
+
+/// JPEG のセグメントの長さか印が壊れているので、その先を読まなかった（#387）
+///
+/// `jpeg.segment.invalid`（0.2.0 から）
+pub const JPEG_SEGMENT_INVALID: Code = Code::new(
+    "jpeg.segment.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("offset", ParamType::UInt)],
+    &[],
+);
+
+/// XMP の区画を XML として読めないので、XMP の性質を返さなかった（#387）
+///
+/// `jpeg.xmp.invalid`（0.2.0 から）
+pub const JPEG_XMP_INVALID: Code = Code::new("jpeg.xmp.invalid", Severity::Warning, None, &[], &[]);
+
 /// 図形の一覧とブロックの定義の一覧を、終わりまで読めない
 ///
 /// `jww.body.invalid`（0.0.0 から）
@@ -3665,6 +3697,10 @@ pub const ALL: &[Code] = &[
     IFC_UNIT_MISSING,
     IFC_VERSION_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
+    JPEG_EXIF_INVALID,
+    JPEG_FILE_INVALID,
+    JPEG_SEGMENT_INVALID,
+    JPEG_XMP_INVALID,
     JWW_BODY_INVALID,
     JWW_FILE_INVALID,
     JWW_HEADER_INVALID,

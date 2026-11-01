@@ -362,6 +362,7 @@ dependencies = [
  "zumen-jww",
  "zumen-landxml",
  "zumen-las",
+ "zumen-photo",
  "zumen-ply",
  "zumen-pointcloud",
  "zumen-profile",
@@ -621,6 +622,16 @@ dependencies = [
  "zumen-crs",
  "zumen-pointcloud",
  "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-photo"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-crs",
+ "zumen-sdk",
+ "zumen-xml",
 ]
 
 [[package]]

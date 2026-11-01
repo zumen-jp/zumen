@@ -297,6 +297,50 @@ function startTag(head, at) {
   }
 }
 
+/** ZIP の書庫の中央ディレクトリの、項目の名前のどれかが pred に合うか。zumen-sdk の zip と同じ読み方 */
+function anyZipName(bytes, pred) {
+  const u16 = (at) => (at + 2 <= bytes.length ? bytes[at] | (bytes[at + 1] << 8) : undefined);
+  const u32 = (at) => (at + 4 <= bytes.length ? u16(at) + u16(at + 2) * 0x10000 : undefined);
+  const last = bytes.length - 22;
+  if (last < 0) {
+    return false;
+  }
+  let end = -1;
+  for (let at = last; at >= Math.max(0, last - 0xffff); at--) {
+    if (bytes[at] === 0x50 && bytes[at + 1] === 0x4b && bytes[at + 2] === 0x05 && bytes[at + 3] === 0x06) {
+      end = at;
+      break;
+    }
+  }
+  if (end < 0) {
+    return false;
+  }
+  const count = u16(end + 10);
+  let at = u32(end + 16);
+  for (let i = 0; i < count; i++) {
+    if (!(at + 4 <= bytes.length && bytes[at] === 0x50 && bytes[at + 1] === 0x4b && bytes[at + 2] === 0x01 && bytes[at + 3] === 0x02)) {
+      return false;
+    }
+    const name = u16(at + 28);
+    const extra = u16(at + 30);
+    const comment = u16(at + 32);
+    const start = at + 46;
+    if (comment === undefined || start + name > bytes.length) {
+      return false;
+    }
+    if (pred(bytes.subarray(start, start + name))) {
+      return true;
+    }
+    at = start + name + extra + comment;
+  }
+  return false;
+}
+
+/** name が、ASCII の大文字と小文字を区別せずに suffix で終わるか */
+function endsWithIgnoreCase(name, suffix) {
+  return name.length >= suffix.length && equalsIgnoreCase(name, name.length - suffix.length, name.length, suffix);
+}
+
 function sameBytes(a, b) {
   return a.length === b.length && a.every((byte, i) => byte === b[i]);
 }
@@ -320,6 +364,8 @@ function matches(head, rule) {
         (rule.namespace === null || (root.namespace !== undefined && sameBytes(root.namespace, encoder.encode(rule.namespace))))
       );
     }
+    case "zip_entry":
+      return anyZipName(head, (name) => name[name.length - 1] !== 0x2f && rule.suffixes.some((suffix) => endsWithIgnoreCase(name, suffix)));
     default:
       return false;
   }

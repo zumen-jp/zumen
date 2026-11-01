@@ -43,6 +43,13 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("jww", Jww::SIGNATURES),
         ("landxml", LandXml::SIGNATURES),
         ("citygml", CityGml::SIGNATURES),
+        // ZIP に入れた SXF（src/packed.rs の読み取りと同じ名前の終わり）
+        (
+            "sxf",
+            &[zumen_sdk::Signature::ZipEntry {
+                suffixes: &[b".p21", b".sfc"],
+            }],
+        ),
         ("ifc", IfcZip::SIGNATURES),
     ];
     assert_eq!(DETECTION.len(), expected.len());

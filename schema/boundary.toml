@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 54
+schema-minor = 55
 
 # 状態コード。理由は応答の診断で返す
 
@@ -149,12 +149,12 @@ params = [
 
 [[modules]]
 name = "drawing"
-description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品"
+description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品と工事写真"
 formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "las", "ply", "xyz", "e57"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation",
-    "civil_drawing", "geo", "delivery_check",
+    "civil_drawing", "geo", "delivery_check", "photo",
 ]
 
 [[modules]]
@@ -232,6 +232,12 @@ rules = [{ xml-root = "LandXML", namespace = "http://www.landxml.org/schema/Land
 format = "citygml"
 module = "drawing"
 rules = [{ xml-root = "CityModel", namespace = "http://www.opengis.net/citygml/2.0" }]
+
+# ZIP に入れた SXF（SFZ・P2Z）。ifcZIP より前に、書庫の項目の名前で分ける
+[[detection]]
+format = "sxf"
+module = "drawing"
+rules = [{ zip-entry = [".p21", ".sfc"] }]
 
 # ifcZIP。ZIP の署名はほかの形式とも重なるので、最後に試す
 [[detection]]

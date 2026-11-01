@@ -2010,6 +2010,32 @@ status = "active"
 
 # 電子納品の成果品（決定 0241、#383）
 
+[codes."jpeg.file.invalid"]
+description = "JPEG の始まりの印（SOI）がないので、写真として読まなかった（#387）"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."jpeg.segment.invalid"]
+description = "JPEG のセグメントの長さか印が壊れているので、その先を読まなかった（#387）"
+severity = "warning"
+params = { offset = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."jpeg.exif.invalid"]
+description = "Exif の項目の値か構造が読めないので、その値を返さなかった（#387）。tag は項目の番号で、0 は構造"
+severity = "warning"
+params = { tag = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."jpeg.xmp.invalid"]
+description = "XMP の区画を XML として読めないので、XMP の性質を返さなかった（#387）"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
 [codes."delivery.name.unsafe"]
 description = "成果品の中の名前に、空の部分・.・..・\\ を含むか、/ で始まるので、そのファイルを読まなかった"
 severity = "warning"

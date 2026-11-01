@@ -191,6 +191,11 @@ public final class Messages {
         public DeliveryCheckRequest asDeliveryCheckRequest() {
             return "delivery_check".equals(json.get("op")) ? new DeliveryCheckRequest(json) : null;
         }
+
+        /** op が photo の形なら、その見方。違えば null */
+        public PhotoRequest asPhotoRequest() {
+            return "photo".equals(json.get("op")) ? new PhotoRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -13910,6 +13915,347 @@ public final class Messages {
         }
     }
 
+    /** 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から */
+    public static final class PhotoRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PhotoRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PhotoRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PhotoRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public PhotoRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "photo");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public PhotoRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public PhotoRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public PhotoRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public PhotoRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public PhotoRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public PhotoRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** JPEG の入力の名前 */
+        public String getInput() {
+            return Json.read(json.get("input"), Json::string);
+        }
+
+        /** {@link #getInput()} を書く。null なら欄を除く */
+        public PhotoRequest withInput(String value) {
+            put("input", value);
+            return this;
+        }
+    }
+
+    /** 写真の情報。ファイルが持たない値は書かない */
+    public static final class PhotoResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PhotoResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PhotoResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PhotoResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public PhotoResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 画素の幅（フレームの見出し） */
+        public Long getWidth() {
+            return Json.read(json.get("width"), Json::integer);
+        }
+
+        /** {@link #getWidth()} を書く。null なら欄を除く */
+        public PhotoResult withWidth(Long value) {
+            put("width", value);
+            return this;
+        }
+
+        /** 画素の高さ（フレームの見出し） */
+        public Long getHeight() {
+            return Json.read(json.get("height"), Json::integer);
+        }
+
+        /** {@link #getHeight()} を書く。null なら欄を除く */
+        public PhotoResult withHeight(Long value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 向き（Exif の Orientation、1〜8） */
+        public Long getOrientation() {
+            return Json.read(json.get("orientation"), Json::integer);
+        }
+
+        /** {@link #getOrientation()} を書く。null なら欄を除く */
+        public PhotoResult withOrientation(Long value) {
+            put("orientation", value);
+            return this;
+        }
+
+        /** 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す） */
+        public String getTaken() {
+            return Json.read(json.get("taken"), Json::string);
+        }
+
+        /** {@link #getTaken()} を書く。null なら欄を除く */
+        public PhotoResult withTaken(String value) {
+            put("taken", value);
+            return this;
+        }
+
+        /** 機器の作り手 */
+        public String getMake() {
+            return Json.read(json.get("make"), Json::string);
+        }
+
+        /** {@link #getMake()} を書く。null なら欄を除く */
+        public PhotoResult withMake(String value) {
+            put("make", value);
+            return this;
+        }
+
+        /** 機器の型 */
+        public String getModel() {
+            return Json.read(json.get("model"), Json::string);
+        }
+
+        /** {@link #getModel()} を書く。null なら欄を除く */
+        public PhotoResult withModel(String value) {
+            put("model", value);
+            return this;
+        }
+
+        /** 撮った位置（GPS の緯度・経度、度）。測地系は換算しない */
+        public PhotoPosition getPosition() {
+            return Json.read(json.get("position"), PhotoPosition::of);
+        }
+
+        /** {@link #getPosition()} を書く。null なら欄を除く */
+        public PhotoResult withPosition(PhotoPosition value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 撮った向き（度） */
+        public Double getDirection() {
+            return Json.read(json.get("direction"), Json::number);
+        }
+
+        /** {@link #getDirection()} を書く。null なら欄を除く */
+        public PhotoResult withDirection(Double value) {
+            put("direction", value);
+            return this;
+        }
+
+        /** 向きの基準（T は真北、M は磁北） */
+        public String getDirectionReference() {
+            return Json.read(json.get("direction_reference"), Json::string);
+        }
+
+        /** {@link #getDirectionReference()} を書く。null なら欄を除く */
+        public PhotoResult withDirectionReference(String value) {
+            put("direction_reference", value);
+            return this;
+        }
+
+        /** GPS の測地系の名前（GPSMapDatum） */
+        public String getDatum() {
+            return Json.read(json.get("datum"), Json::string);
+        }
+
+        /** {@link #getDatum()} を書く。null なら欄を除く */
+        public PhotoResult withDatum(String value) {
+            put("datum", value);
+            return this;
+        }
+
+        /** XMP の性質。文書の順 */
+        public List<PhotoProperty> getXmp() {
+            return Json.read(json.get("xmp"), v0 -> Json.list(v0, PhotoProperty::of));
+        }
+
+        /** {@link #getXmp()} を書く。null なら欄を除く */
+        public PhotoResult withXmp(List<PhotoProperty> value) {
+            put("xmp", value);
+            return this;
+        }
+    }
+
+    /** 撮った位置 */
+    public static final class PhotoPosition extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PhotoPosition(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PhotoPosition of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PhotoPosition(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public PhotoPosition() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 緯度（度、北が正） */
+        public Double getLatitude() {
+            return Json.read(json.get("latitude"), Json::number);
+        }
+
+        /** {@link #getLatitude()} を書く。null なら欄を除く */
+        public PhotoPosition withLatitude(Double value) {
+            put("latitude", value);
+            return this;
+        }
+
+        /** 経度（度、東が正） */
+        public Double getLongitude() {
+            return Json.read(json.get("longitude"), Json::number);
+        }
+
+        /** {@link #getLongitude()} を書く。null なら欄を除く */
+        public PhotoPosition withLongitude(Double value) {
+            put("longitude", value);
+            return this;
+        }
+
+        /** 高さ（m、海面より下は負） */
+        public Double getAltitude() {
+            return Json.read(json.get("altitude"), Json::number);
+        }
+
+        /** {@link #getAltitude()} を書く。null なら欄を除く */
+        public PhotoPosition withAltitude(Double value) {
+            put("altitude", value);
+            return this;
+        }
+    }
+
+    /** XMP の性質 */
+    public static final class PhotoProperty extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public PhotoProperty(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static PhotoProperty of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new PhotoProperty(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public PhotoProperty() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 名前空間の URI */
+        public String getNamespace() {
+            return Json.read(json.get("namespace"), Json::string);
+        }
+
+        /** {@link #getNamespace()} を書く。null なら欄を除く */
+        public PhotoProperty withNamespace(String value) {
+            put("namespace", value);
+            return this;
+        }
+
+        /** 接頭辞を除いた名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public PhotoProperty withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 値。配列は最初の項目の値 */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null なら欄を除く */
+        public PhotoProperty withValue(String value) {
+            put("value", value);
+            return this;
+        }
+    }
+
     /** 管理ファイルの要約 */
     public static final class DeliveryManaged extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -15552,5 +15898,7 @@ public final class Messages {
         public static final String GEO = "geo";
 
         public static final String DELIVERY_CHECK = "delivery_check";
+
+        public static final String PHOTO = "photo";
     }
 }

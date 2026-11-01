@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマの大版。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマの小版。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 54;
+pub const SCHEMA_MINOR: u64 = 55;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +97,7 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品
+    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品と工事写真
     Module {
         name: "drawing",
         formats: &[
@@ -123,6 +123,7 @@ pub const MODULES: &[Module] = &[
             "civil_drawing",
             "geo",
             "delivery_check",
+            "photo",
         ],
     },
     // IFC と建物モデル、EXPRESS・IDS の照合と BCF
@@ -170,6 +171,7 @@ pub fn has_op(op: &str) -> bool {
                 | "civil_drawing"
                 | "geo"
                 | "delivery_check"
+                | "photo"
         ))
         || (cfg!(feature = "bim")
             && matches!(
@@ -307,6 +309,13 @@ pub const DETECTION: &[Detection] = &[
         rules: &[zumen_sdk::Signature::XmlRoot {
             name: b"CityModel",
             namespace: Some(b"http://www.opengis.net/citygml/2.0"),
+        }],
+    },
+    Detection {
+        format: "sxf",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::ZipEntry {
+            suffixes: &[b".p21", b".sfc"],
         }],
     },
     Detection {

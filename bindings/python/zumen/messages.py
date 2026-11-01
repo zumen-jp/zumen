@@ -35,6 +35,7 @@ Request = Union[
     "CivilDrawingRequest",
     "GeoRequest",
     "DeliveryCheckRequest",
+    "PhotoRequest",
 ]
 
 
@@ -4470,6 +4471,116 @@ class DeliveryCheckResult(_DeliveryCheckResultRequired, _DeliveryCheckResultOpti
     "成果品の要約と、照合の結果。照合の結果は check と同じ形"
 
 
+# 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+_PhotoRequestRequired = TypedDict(
+    "_PhotoRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["photo"],
+        # JPEG の入力の名前
+        "input": str,
+    },
+)
+_PhotoRequestOptional = TypedDict(
+    "_PhotoRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+    },
+    total=False,
+)
+
+
+class PhotoRequest(_PhotoRequestRequired, _PhotoRequestOptional):
+    "工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から"
+
+
+# 写真の情報。ファイルが持たない値は書かない
+_PhotoResultRequired = TypedDict(
+    "_PhotoResultRequired",
+    {
+        # XMP の性質。文書の順
+        "xmp": List["PhotoProperty"],
+    },
+)
+_PhotoResultOptional = TypedDict(
+    "_PhotoResultOptional",
+    {
+        # 画素の幅（フレームの見出し）
+        "width": int,
+        # 画素の高さ（フレームの見出し）
+        "height": int,
+        # 向き（Exif の Orientation、1〜8）
+        "orientation": int,
+        # 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す）
+        "taken": str,
+        # 機器の作り手
+        "make": str,
+        # 機器の型
+        "model": str,
+        # 撮った位置（GPS の緯度・経度、度）。測地系は換算しない
+        "position": "PhotoPosition",
+        # 撮った向き（度）
+        "direction": float,
+        # 向きの基準（T は真北、M は磁北）
+        "direction_reference": str,
+        # GPS の測地系の名前（GPSMapDatum）
+        "datum": str,
+    },
+    total=False,
+)
+
+
+class PhotoResult(_PhotoResultRequired, _PhotoResultOptional):
+    "写真の情報。ファイルが持たない値は書かない"
+
+
+# 撮った位置
+_PhotoPositionRequired = TypedDict(
+    "_PhotoPositionRequired",
+    {
+        # 緯度（度、北が正）
+        "latitude": float,
+        # 経度（度、東が正）
+        "longitude": float,
+    },
+)
+_PhotoPositionOptional = TypedDict(
+    "_PhotoPositionOptional",
+    {
+        # 高さ（m、海面より下は負）
+        "altitude": float,
+    },
+    total=False,
+)
+
+
+class PhotoPosition(_PhotoPositionRequired, _PhotoPositionOptional):
+    "撮った位置"
+
+
+# XMP の性質
+PhotoProperty = TypedDict(
+    "PhotoProperty",
+    {
+        # 名前空間の URI
+        "namespace": str,
+        # 接頭辞を除いた名前
+        "name": str,
+        # 値。配列は最初の項目の値
+        "value": str,
+    },
+)
+
+
 # 管理ファイルの要約
 _DeliveryManagedRequired = TypedDict(
     "_DeliveryManagedRequired",
@@ -4990,6 +5101,7 @@ Operation = Literal[
     "civil_drawing",
     "geo",
     "delivery_check",
+    "photo",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -5020,4 +5132,5 @@ OPERATIONS: Dict[str, Any] = {
     "civil_drawing": ("CivilDrawingRequest", "CivilDrawingResult"),
     "geo": ("GeoRequest", "GeoResult"),
     "delivery_check": ("DeliveryCheckRequest", "DeliveryCheckResult"),
+    "photo": ("PhotoRequest", "PhotoResult"),
 }

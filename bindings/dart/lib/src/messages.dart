@@ -93,6 +93,9 @@ class Request extends Message {
 
   /// op が delivery_check の形なら、その見方。違えば null
   DeliveryCheckRequest? get asDeliveryCheckRequest => taggedView('op', 'delivery_check', DeliveryCheckRequest.fromJson);
+
+  /// op が photo の形なら、その見方。違えば null
+  PhotoRequest? get asPhotoRequest => taggedView('op', 'photo', PhotoRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -5562,6 +5565,138 @@ class DeliveryCheckResult extends Message {
   set nextOffset(int? value) => writeField('next_offset', value);
 }
 
+/// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+class PhotoRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PhotoRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  PhotoRequest() : super({'op': 'photo'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// JPEG の入力の名前
+  String? get input => readField('input', asString);
+  set input(String? value) => writeField('input', value);
+}
+
+/// 写真の情報。ファイルが持たない値は書かない
+class PhotoResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PhotoResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  PhotoResult() : super({});
+
+  /// 画素の幅（フレームの見出し）
+  int? get width => readField('width', asInt);
+  set width(int? value) => writeField('width', value);
+
+  /// 画素の高さ（フレームの見出し）
+  int? get height => readField('height', asInt);
+  set height(int? value) => writeField('height', value);
+
+  /// 向き（Exif の Orientation、1〜8）
+  int? get orientation => readField('orientation', asInt);
+  set orientation(int? value) => writeField('orientation', value);
+
+  /// 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す）
+  String? get taken => readField('taken', asString);
+  set taken(String? value) => writeField('taken', value);
+
+  /// 機器の作り手
+  String? get make => readField('make', asString);
+  set make(String? value) => writeField('make', value);
+
+  /// 機器の型
+  String? get model => readField('model', asString);
+  set model(String? value) => writeField('model', value);
+
+  /// 撮った位置（GPS の緯度・経度、度）。測地系は換算しない
+  PhotoPosition? get position => readField('position', objectOf(PhotoPosition.fromJson));
+  set position(PhotoPosition? value) => writeField('position', value);
+
+  /// 撮った向き（度）
+  double? get direction => readField('direction', asDouble);
+  set direction(double? value) => writeField('direction', value);
+
+  /// 向きの基準（T は真北、M は磁北）
+  String? get directionReference => readField('direction_reference', asString);
+  set directionReference(String? value) => writeField('direction_reference', value);
+
+  /// GPS の測地系の名前（GPSMapDatum）
+  String? get datum => readField('datum', asString);
+  set datum(String? value) => writeField('datum', value);
+
+  /// XMP の性質。文書の順
+  List<PhotoProperty>? get xmp => readField('xmp', listOf(objectOf(PhotoProperty.fromJson)));
+  set xmp(List<PhotoProperty>? value) => writeField('xmp', value);
+}
+
+/// 撮った位置
+class PhotoPosition extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PhotoPosition.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  PhotoPosition() : super({});
+
+  /// 緯度（度、北が正）
+  double? get latitude => readField('latitude', asDouble);
+  set latitude(double? value) => writeField('latitude', value);
+
+  /// 経度（度、東が正）
+  double? get longitude => readField('longitude', asDouble);
+  set longitude(double? value) => writeField('longitude', value);
+
+  /// 高さ（m、海面より下は負）
+  double? get altitude => readField('altitude', asDouble);
+  set altitude(double? value) => writeField('altitude', value);
+}
+
+/// XMP の性質
+class PhotoProperty extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  PhotoProperty.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  PhotoProperty() : super({});
+
+  /// 名前空間の URI
+  String? get namespace => readField('namespace', asString);
+  set namespace(String? value) => writeField('namespace', value);
+
+  /// 接頭辞を除いた名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 値。配列は最初の項目の値
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+}
+
 /// 管理ファイルの要約
 class DeliveryManaged extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -6210,4 +6345,5 @@ abstract final class Operations {
   static const civilDrawing = 'civil_drawing';
   static const geo = 'geo';
   static const deliveryCheck = 'delivery_check';
+  static const photo = 'photo';
 }

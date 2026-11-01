@@ -807,6 +807,7 @@ rights-note = "Exif は CIPA が、XMP は Adobe が無償で公開している�
 place = "core"
 basis = ["spec"]
 samples = ["個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる"]
+docs = ["docs/formats/jpeg.md"]
 issues = ["zumen-jp/zumen#387"]
 
 [formats.kokuban]

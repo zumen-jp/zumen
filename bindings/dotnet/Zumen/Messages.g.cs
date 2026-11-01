@@ -66,6 +66,7 @@ namespace Zumen.Messages
             ["civil_drawing"] = typeof(CivilDrawingRequest),
             ["geo"] = typeof(GeoRequest),
             ["delivery_check"] = typeof(DeliveryCheckRequest),
+            ["photo"] = typeof(PhotoRequest),
         };
     }
 
@@ -7038,6 +7039,174 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+    /// </summary>
+    public sealed record PhotoRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "photo";
+
+        /// <summary>
+        /// JPEG の入力の名前
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 写真の情報。ファイルが持たない値は書かない
+    /// </summary>
+    public sealed record PhotoResult
+    {
+        /// <summary>
+        /// 画素の幅（フレームの見出し）
+        /// </summary>
+        [JsonPropertyName("width")]
+        public ulong? Width { get; init; }
+
+        /// <summary>
+        /// 画素の高さ（フレームの見出し）
+        /// </summary>
+        [JsonPropertyName("height")]
+        public ulong? Height { get; init; }
+
+        /// <summary>
+        /// 向き（Exif の Orientation、1〜8）
+        /// </summary>
+        [JsonPropertyName("orientation")]
+        public uint? Orientation { get; init; }
+
+        /// <summary>
+        /// 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す）
+        /// </summary>
+        [JsonPropertyName("taken")]
+        public string? Taken { get; init; }
+
+        /// <summary>
+        /// 機器の作り手
+        /// </summary>
+        [JsonPropertyName("make")]
+        public string? Make { get; init; }
+
+        /// <summary>
+        /// 機器の型
+        /// </summary>
+        [JsonPropertyName("model")]
+        public string? Model { get; init; }
+
+        /// <summary>
+        /// 撮った位置（GPS の緯度・経度、度）。測地系は換算しない
+        /// </summary>
+        [JsonPropertyName("position")]
+        public PhotoPosition? Position { get; init; }
+
+        /// <summary>
+        /// 撮った向き（度）
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public double? Direction { get; init; }
+
+        /// <summary>
+        /// 向きの基準（T は真北、M は磁北）
+        /// </summary>
+        [JsonPropertyName("direction_reference")]
+        public string? DirectionReference { get; init; }
+
+        /// <summary>
+        /// GPS の測地系の名前（GPSMapDatum）
+        /// </summary>
+        [JsonPropertyName("datum")]
+        public string? Datum { get; init; }
+
+        /// <summary>
+        /// XMP の性質。文書の順
+        /// </summary>
+        [JsonPropertyName("xmp")]
+        public IReadOnlyList<PhotoProperty> Xmp { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 撮った位置
+    /// </summary>
+    public sealed record PhotoPosition
+    {
+        /// <summary>
+        /// 緯度（度、北が正）
+        /// </summary>
+        [JsonPropertyName("latitude")]
+        public double Latitude { get; init; }
+
+        /// <summary>
+        /// 経度（度、東が正）
+        /// </summary>
+        [JsonPropertyName("longitude")]
+        public double Longitude { get; init; }
+
+        /// <summary>
+        /// 高さ（m、海面より下は負）
+        /// </summary>
+        [JsonPropertyName("altitude")]
+        public double? Altitude { get; init; }
+    }
+
+    /// <summary>
+    /// XMP の性質
+    /// </summary>
+    public sealed record PhotoProperty
+    {
+        /// <summary>
+        /// 名前空間の URI
+        /// </summary>
+        [JsonPropertyName("namespace")]
+        public string Namespace { get; init; } = default!;
+
+        /// <summary>
+        /// 接頭辞を除いた名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 値。配列は最初の項目の値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+    }
+
+    /// <summary>
     /// 管理ファイルの要約
     /// </summary>
     public sealed record DeliveryManaged
@@ -7874,6 +8043,7 @@ namespace Zumen.Messages
                 ["civil_drawing"] = (typeof(CivilDrawingRequest), typeof(CivilDrawingResult)),
                 ["geo"] = (typeof(GeoRequest), typeof(GeoResult)),
                 ["delivery_check"] = (typeof(DeliveryCheckRequest), typeof(DeliveryCheckResult)),
+                ["photo"] = (typeof(PhotoRequest), typeof(PhotoResult)),
             };
     }
 }

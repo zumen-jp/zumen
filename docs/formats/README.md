@@ -592,6 +592,7 @@
 - 実装の根拠: spec
 - サンプルの出どころ（Git に入れない）: 個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる
 - issue: [zumen-jp/zumen#387](https://github.com/zumen-jp/zumen/issues/387)
+- 形式の文書: [docs/formats/jpeg.md](../../docs/formats/jpeg.md)
 
 ### format-jwc
 

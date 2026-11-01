@@ -14,6 +14,7 @@ pub mod ranged;
 mod root;
 mod schema;
 pub mod testkit;
+mod zip;
 
 pub use zumen_base::{ByteRange, Cx, Stop};
 
@@ -150,6 +151,12 @@ pub enum Signature {
         /// スキーマの名前の始まり
         prefix: &'static [u8],
     },
+    /// ZIP の書庫で、ディレクトリでない項目の名前のどれかが、ASCII の大文字と小文字を区別せずに `suffixes` の
+    /// どれかで終わる。中央ディレクトリを読むので、入力の全体を渡す。ZIP の署名が重なる ifcZIP と SFZ を分ける
+    ZipEntry {
+        /// 名前の終わり
+        suffixes: &'static [&'static [u8]],
+    },
 }
 
 impl Signature {
@@ -177,6 +184,15 @@ impl Signature {
                 name.get(..prefix.len())
                     .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
             }),
+            Signature::ZipEntry { suffixes } => zip::any_name(head, |name| {
+                !name.ends_with(b"/")
+                    && suffixes.iter().any(|suffix| {
+                        name.len() >= suffix.len()
+                            && name
+                                .get(name.len() - suffix.len()..)
+                                .is_some_and(|end| end.eq_ignore_ascii_case(suffix))
+                    })
+            }),
         }
     }
 }
@@ -184,6 +200,43 @@ impl Signature {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zip_entry_signature_reads_the_central_directory() {
+        let mut zip = Vec::new();
+        let mut central = Vec::new();
+        for name in [&b"B.SAF"[..], b"DIR/", b"d0pl001z.Sfc"] {
+            let local = zip.len() as u32;
+            zip.extend(b"PK\x03\x04");
+            zip.extend([0; 22]);
+            zip.extend((name.len() as u16).to_le_bytes());
+            zip.extend([0, 0]);
+            zip.extend(name);
+            central.extend(b"PK\x01\x02");
+            central.extend([0; 24]);
+            central.extend((name.len() as u16).to_le_bytes());
+            central.extend([0; 12]);
+            central.extend(local.to_le_bytes());
+            central.extend(name);
+        }
+        let offset = zip.len() as u32;
+        zip.extend(&central);
+        zip.extend(b"PK\x05\x06");
+        zip.extend([0; 6]);
+        zip.extend(3u16.to_le_bytes());
+        zip.extend((central.len() as u32).to_le_bytes());
+        zip.extend(offset.to_le_bytes());
+        zip.extend([0, 0]);
+        let sxf = Signature::ZipEntry {
+            suffixes: &[b".p21", b".sfc"],
+        };
+        assert!(sxf.matches(&zip));
+        let dir = Signature::ZipEntry {
+            suffixes: &[b"dir/"],
+        };
+        assert!(!dir.matches(&zip));
+        assert!(!sxf.matches(&zip[..zip.len() - 1]));
+    }
 
     #[test]
     fn bytes_signature_needs_the_whole_pattern() {

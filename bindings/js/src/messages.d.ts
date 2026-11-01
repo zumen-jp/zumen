@@ -31,7 +31,8 @@ export type Request =
   | DeviationRequest
   | CivilDrawingRequest
   | GeoRequest
-  | DeliveryCheckRequest;
+  | DeliveryCheckRequest
+  | PhotoRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2561,6 +2562,60 @@ export interface DeliveryCheckResult {
   next_offset?: number;
 }
 
+/** 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から */
+export interface PhotoRequest extends RequestCommon {
+  /** op の名前 */
+  op: "photo";
+  /** JPEG の入力の名前 */
+  input: string;
+}
+
+/** 写真の情報。ファイルが持たない値は書かない */
+export interface PhotoResult {
+  /** 画素の幅（フレームの見出し） */
+  width?: number;
+  /** 画素の高さ（フレームの見出し） */
+  height?: number;
+  /** 向き（Exif の Orientation、1〜8） */
+  orientation?: number;
+  /** 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す） */
+  taken?: string;
+  /** 機器の作り手 */
+  make?: string;
+  /** 機器の型 */
+  model?: string;
+  /** 撮った位置（GPS の緯度・経度、度）。測地系は換算しない */
+  position?: PhotoPosition;
+  /** 撮った向き（度） */
+  direction?: number;
+  /** 向きの基準（T は真北、M は磁北） */
+  direction_reference?: string;
+  /** GPS の測地系の名前（GPSMapDatum） */
+  datum?: string;
+  /** XMP の性質。文書の順 */
+  xmp: PhotoProperty[];
+}
+
+/** 撮った位置 */
+export interface PhotoPosition {
+  /** 緯度（度、北が正） */
+  latitude: number;
+  /** 経度（度、東が正） */
+  longitude: number;
+  /** 高さ（m、海面より下は負） */
+  altitude?: number;
+}
+
+/** XMP の性質 */
+export interface PhotoProperty {
+  /** 名前空間の URI */
+  namespace: string;
+  /** 接頭辞を除いた名前 */
+  name: string;
+  /** 値。配列は最初の項目の値 */
+  value: string;
+}
+
 /** 管理ファイルの要約 */
 export interface DeliveryManaged {
   /** 成果品の中の名前 */
@@ -2868,4 +2923,5 @@ export interface Operations {
   civil_drawing: { request: CivilDrawingRequest; result: CivilDrawingResult };
   geo: { request: GeoRequest; result: GeoResult };
   delivery_check: { request: DeliveryCheckRequest; result: DeliveryCheckResult };
+  photo: { request: PhotoRequest; result: PhotoResult };
 }

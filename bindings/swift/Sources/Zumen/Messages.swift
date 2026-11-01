@@ -143,6 +143,11 @@ public struct Request: Message {
     public var asDeliveryCheckRequest: DeliveryCheckRequest? {
         taggedView("op", "delivery_check")
     }
+
+    /// op が photo の形なら、その見方。違えば nil
+    public var asPhotoRequest: PhotoRequest? {
+        taggedView("op", "photo")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -8565,6 +8570,214 @@ public struct DeliveryCheckResult: Message {
     }
 }
 
+/// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+public struct PhotoRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("photo")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// JPEG の入力の名前
+    public var input: String? {
+        get { readField("input") }
+        set { writeField("input", newValue) }
+    }
+}
+
+/// 写真の情報。ファイルが持たない値は書かない
+public struct PhotoResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 画素の幅（フレームの見出し）
+    public var width: Int64? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// 画素の高さ（フレームの見出し）
+    public var height: Int64? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 向き（Exif の Orientation、1〜8）
+    public var orientation: Int64? {
+        get { readField("orientation") }
+        set { writeField("orientation", newValue) }
+    }
+
+    /// 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す）
+    public var taken: String? {
+        get { readField("taken") }
+        set { writeField("taken", newValue) }
+    }
+
+    /// 機器の作り手
+    public var make: String? {
+        get { readField("make") }
+        set { writeField("make", newValue) }
+    }
+
+    /// 機器の型
+    public var model: String? {
+        get { readField("model") }
+        set { writeField("model", newValue) }
+    }
+
+    /// 撮った位置（GPS の緯度・経度、度）。測地系は換算しない
+    public var position: PhotoPosition? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 撮った向き（度）
+    public var direction: Double? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 向きの基準（T は真北、M は磁北）
+    public var directionReference: String? {
+        get { readField("direction_reference") }
+        set { writeField("direction_reference", newValue) }
+    }
+
+    /// GPS の測地系の名前（GPSMapDatum）
+    public var datum: String? {
+        get { readField("datum") }
+        set { writeField("datum", newValue) }
+    }
+
+    /// XMP の性質。文書の順
+    public var xmp: [PhotoProperty]? {
+        get { readField("xmp") }
+        set { writeField("xmp", newValue) }
+    }
+}
+
+/// 撮った位置
+public struct PhotoPosition: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 緯度（度、北が正）
+    public var latitude: Double? {
+        get { readField("latitude") }
+        set { writeField("latitude", newValue) }
+    }
+
+    /// 経度（度、東が正）
+    public var longitude: Double? {
+        get { readField("longitude") }
+        set { writeField("longitude", newValue) }
+    }
+
+    /// 高さ（m、海面より下は負）
+    public var altitude: Double? {
+        get { readField("altitude") }
+        set { writeField("altitude", newValue) }
+    }
+}
+
+/// XMP の性質
+public struct PhotoProperty: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 名前空間の URI
+    public var namespace: String? {
+        get { readField("namespace") }
+        set { writeField("namespace", newValue) }
+    }
+
+    /// 接頭辞を除いた名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 値。配列は最初の項目の値
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
 /// 管理ファイルの要約
 public struct DeliveryManaged: Message {
     /// 包んでいる JSON のオブジェクト
@@ -9554,4 +9767,5 @@ public enum Operations {
     public static let civilDrawing = "civil_drawing"
     public static let geo = "geo"
     public static let deliveryCheck = "delivery_check"
+    public static let photo = "photo"
 }

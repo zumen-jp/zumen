@@ -1,0 +1,23 @@
+[package]
+name = "zumen-photo"
+description = "zumen の工事写真（JPEG の Exif・XMP）の読み取り（#387）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["jpeg"]
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-base = { path = "../zumen-base" }
