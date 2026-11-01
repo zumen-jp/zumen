@@ -152,6 +152,86 @@ url = "https://www.kensetsu-kikin.or.jp/assets/img/database/database27.pdf"
 checked = "2026-10-24"
 note = "最新の版ではない。2015-04 に建築保全センターが承継したあとの版の入手先は見つからなかった"
 
+[specs.jlandxml_1_8]
+title = "LandXML 1.2 に準じた 3 次元設計データ交換標準（案）（J-LandXML）"
+publisher = "一般社団法人 OCF（監修: 国土技術政策総合研究所）"
+version = "Ver.1.8（令和 8 年 7 月）"
+access = "public"
+url = "https://ocf.or.jp/j-landxml/standard/"
+checked = "2026-11-01"
+note = "PDF に XSD の本文を載せる。著作権と複製の記述は見当たらない。国土交通省も同じ PDF を載せる"
+
+[specs.extdm_a1_291]
+title = "拡張ディジタルマッピング実装規約（案）改訂版（技術資料 A1-No.291）"
+publisher = "国土地理院"
+version = "平成 17 年 3 月"
+access = "public"
+url = "https://www.gsi.go.jp/common/000258819.pdf"
+checked = "2026-11-01"
+note = "平成 20 年の作業規程の準則の改正で「公共測量標準図式数値地形図データファイル仕様」に改めた。国土地理院の技術資料は、特段の記載がなければ PDL 1.0 を準用する"
+
+[specs.fgd_dl_4_1]
+title = "基盤地図情報ダウンロードデータファイル仕様書"
+publisher = "国土地理院"
+version = "Ver4.1（2023-03-31）"
+access = "public"
+url = "https://fgd.gsi.go.jp/otherdata/spec/FGD_DLFileSpecV4.1.pdf"
+checked = "2026-11-01"
+note = "GML のスキーマ（JPGIS2014）も同じ所に置く。データの入手には利用者の登録が要る"
+
+[specs.citygml_2_0]
+title = "OGC City Geography Markup Language (CityGML) Encoding Standard（OGC 12-019）"
+publisher = "Open Geospatial Consortium"
+version = "2.0（2012-04-04）"
+access = "public"
+url = "https://docs.ogc.org/is/12-019/12-019.pdf"
+checked = "2026-11-01"
+
+[specs.citygml_3_0_gml]
+title = "OGC City Geography Markup Language (CityGML) 3.0 Part 2: GML Encoding Standard（OGC 21-006r2）"
+publisher = "Open Geospatial Consortium"
+version = "3.0（2023-06-20）"
+access = "public"
+url = "https://docs.ogc.org/is/21-006r2/21-006r2.html"
+checked = "2026-11-01"
+note = "概念モデルは Part 1（OGC 20-010）"
+
+[specs.plateau_5_1]
+title = "3D 都市モデル標準製品仕様書（i-UR の拡張を含む）"
+publisher = "国土交通省都市局"
+version = "第 5.1 版（2026-03-31）"
+access = "public"
+url = "https://www.mlit.go.jp/plateau/libraries/handbooks/"
+checked = "2026-11-01"
+note = "サイトの内容は PDL 1.0。CityGML 3.0 に合わせた応用スキーマの案も公開している"
+
+[specs.las_1_4_r15]
+title = "LAS Specification"
+publisher = "ASPRS（American Society for Photogrammetry and Remote Sensing）"
+version = "1.4 R15（2019-07-09）"
+access = "public"
+url = "https://github.com/ASPRSorg/LAS"
+checked = "2026-11-01"
+note = "OGC のコミュニティ標準でもある。リポジトリにライセンスの記述はない"
+
+[specs.laz_1_4]
+title = "LAZ Specification 1.4（OGC 24-070r1）"
+publisher = "Open Geospatial Consortium"
+version = "1.4（2026-09-03 公表）"
+access = "public"
+url = "https://docs.ogc.org/cs/24-070r1/24-070r1.pdf"
+checked = "2026-11-01"
+note = "OGC の公表は、誰でも入手して実装できるとする"
+
+[specs.e57_astm_e2807]
+title = "ASTM E2807 Standard Specification for 3D Imaging Data Exchange, Version 1.0"
+publisher = "ASTM International"
+version = "E2807-11(2026)（2026-06-05）"
+access = "paid"
+url = "https://store.astm.org/e2807-11r26.html"
+checked = "2026-11-01"
+note = "買う。販売のページは、規格を AI で扱うことを禁じる。本文は読まない"
+
 # 形式。キーは英小文字と数字だけにする。
 
 [formats.sxf]
@@ -420,3 +500,166 @@ issues = ["zumen-jp/zumen-legacy#141"]
 title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
 url = "https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf"
 checked = "2026-10-24"
+
+[formats.landxml]
+name = "J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準）"
+family = "landxml"
+domains = ["civil"]
+specs = ["jlandxml_1_8"]
+rights = "public"
+rights-note = "OCF と国土交通省が仕様の PDF を誰でも無償で入手できる形で公開している。実装を制限する記述はない。元の LandXML 1.2 のスキーマは同梱しない"
+place = "core"
+basis = ["spec"]
+verify = ["国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）"]
+samples = ["再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る"]
+issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
+
+[formats.sima]
+name = "SIMA 共通フォーマット"
+family = "sima"
+domains = ["civil"]
+specs = []
+rights = "unknown"
+rights-note = "日本測量機器工業会（JSIMA）の公式のページの中身を確かめられなかった。形式の定義書を冊子で頒布したとする二次の資料と、国立国会図書館の JSIMA 203:2000（Ver.02）の記録がある。最新の版・入手の条件・実装の条件は確かめられない"
+place = "none"
+issues = ["zumen-jp/zumen#374"]
+
+[[formats.sima.evidence]]
+title = "国立国会図書館サーチの「SIMA 共通フォーマット」JSIMA 203:2000（Ver.02）"
+url = "https://iss.ndl.go.jp/books/R100000002-I000009976754-00"
+checked = "2026-11-01"
+
+[formats.extdm]
+name = "拡張 DM（公共測量標準図式数値地形図データファイル）"
+family = "extdm"
+domains = ["geo"]
+specs = ["extdm_a1_291"]
+rights = "public"
+rights-note = "国土地理院が実装規約を技術資料として無償で公開している。技術資料は、特段の記載がなければ公共データ利用規約（PDL 1.0）を準用する。実装を制限する記述はない"
+place = "core"
+basis = ["spec"]
+verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
+samples = ["再配布を認める公開の試料は見つかっていない。試験の中で作る"]
+issues = ["zumen-jp/zumen#378"]
+
+[[formats.extdm.evidence]]
+title = "国土地理院の技術資料の利用規約"
+url = "https://www.gsi.go.jp/REPORT/TECHNICAL/riyoukiyaku_gijutsushiryou.html"
+checked = "2026-11-01"
+
+[formats.fgd]
+name = "基盤地図情報（GML）"
+family = "fgd"
+domains = ["geo"]
+specs = ["fgd_dl_4_1"]
+rights = "public"
+rights-note = "国土地理院がファイル仕様書と GML のスキーマを無償で公開している。実装を制限する記述はない。基盤地図情報は測量成果で、データの複製と使用には測量法の承認（基盤地図情報は無償で承認する）が要る場合があるので、データは同梱せず利用者が渡す（決定 0019 のジオイド・モデルと同じ扱い）"
+place = "core"
+basis = ["spec"]
+verify = ["基盤地図情報ビューアー", "QGIS"]
+samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る"]
+decisions = ["0019"]
+issues = ["zumen-jp/zumen#378"]
+
+[[formats.fgd.evidence]]
+title = "国土地理院「測量成果の複製・使用承認の Q&A」"
+url = "https://www.gsi.go.jp/LAW/2930-qa.html"
+checked = "2026-11-01"
+
+[formats.citygml]
+name = "CityGML（PLATEAU の 3D 都市モデルと i-UR を含む）"
+family = "citygml"
+domains = ["geo"]
+specs = ["citygml_2_0", "citygml_3_0_gml", "plateau_5_1"]
+rights = "public"
+rights-note = "OGC が CityGML を、国土交通省が PLATEAU の製品仕様書（サイトの内容は PDL 1.0）を無償で公開している。実装を制限する記述はない。3D 都市モデルのデータの権利は各自治体にあり、測量法に注意するよう書かれているので、データは同梱しない"
+place = "core"
+basis = ["spec"]
+known-crates = ["nusamai-citygml", "ecitygml-io"]
+verify = ["PLATEAU VIEW", "QGIS"]
+samples = ["PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない"]
+issues = ["zumen-jp/zumen#379"]
+
+[[formats.citygml.evidence]]
+title = "PLATEAU のサイトポリシー"
+url = "https://www.mlit.go.jp/plateau/site-policy/"
+checked = "2026-11-01"
+
+[formats.las]
+name = "LAS・LAZ"
+family = "las"
+domains = ["pointcloud"]
+specs = ["las_1_4_r15", "laz_1_4"]
+rights = "public"
+rights-note = "ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0"
+place = "core"
+basis = ["spec"]
+known-crates = ["las", "laz"]
+verify = ["CloudCompare", "PDAL", "LAStools の lasinfo"]
+samples = ["laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）"]
+issues = ["zumen-jp/zumen#371"]
+
+[[formats.las.evidence]]
+title = "OGC の LAZ 1.4 コミュニティ標準の公表"
+url = "https://www.ogc.org/announcement/ogc-announces-publication-of-the-laz-1-4-community-standard/"
+checked = "2026-11-01"
+
+[[formats.las.evidence]]
+title = "LASzip のリポジトリ（ライセンス）"
+url = "https://github.com/LASzip/LASzip"
+checked = "2026-11-01"
+note = "GitHub のライセンスの判定は Apache-2.0"
+
+[formats.e57]
+name = "E57（ASTM E2807）"
+family = "e57"
+domains = ["pointcloud"]
+specs = ["e57_astm_e2807"]
+rights = "public"
+rights-note = "仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装と試料から読む"
+place = "core"
+basis = ["reference"]
+references = [
+  { name = "libE57Format", license = "BSL-1.0", url = "https://github.com/asmaloney/libE57Format" },
+  { name = "e57（Rust）", license = "MIT", url = "https://github.com/cry-inc/e57" },
+]
+known-crates = ["e57"]
+verify = ["CloudCompare"]
+samples = ["libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）"]
+issues = ["zumen-jp/zumen#373"]
+
+[[formats.e57.evidence]]
+title = "libE57Format-test-data の README（ライセンス）"
+url = "https://github.com/asmaloney/libE57Format-test-data"
+checked = "2026-11-01"
+
+[formats.ply]
+name = "PLY（点群）"
+family = "ply"
+domains = ["pointcloud"]
+specs = []
+rights = "public"
+rights-note = "持ち主の公式の仕様はない。Greg Turk の説明と、それを写した公開の解説で読む。利用の制限の記述はない"
+place = "core"
+basis = ["inferred"]
+verify = ["CloudCompare", "MeshLab"]
+samples = ["試験の中で作る"]
+issues = ["zumen-jp/zumen#373"]
+
+[[formats.ply.evidence]]
+title = "Paul Bourke「PLY - Polygon File Format」"
+url = "https://paulbourke.net/dataformats/ply/"
+checked = "2026-11-01"
+
+[formats.xyz]
+name = "XYZ（座標を並べた点群のテキスト）"
+family = "xyz"
+domains = ["pointcloud"]
+specs = []
+rights = "public"
+rights-note = "決まった仕様も持ち主もない。座標と属性を区切って並べたテキストを、推定で読む"
+place = "core"
+basis = ["inferred"]
+verify = ["CloudCompare"]
+samples = ["試験の中で作る"]
+issues = ["zumen-jp/zumen#373"]

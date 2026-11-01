@@ -15,18 +15,27 @@
 | [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` |
 | [bebridge](#format-bebridge) | BE-Bridge | bebridge | building | `unknown` | `none` |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |
+| [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` |
+| [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` |
+| [extdm](#format-extdm) | 拡張 DM（公共測量標準図式数値地形図データファイル） | extdm | geo | `public` | `core` |
+| [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` |
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` |
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` |
 | [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `core` |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `core` |
 | [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` |
+| [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` |
+| [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` |
+| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` |
+| [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |
 | [sxf](#format-sxf) | SXF | sxf | drawing | `public` | `core` |
+| [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` |
 
 ## 仕様の入手先
 
@@ -79,6 +88,25 @@
 - 確認日: 2026-10-24
 - 補足: 会員にだけ配る。版は確かめられない
 
+### spec-citygml_2_0
+
+- 名前: OGC City Geography Markup Language (CityGML) Encoding Standard（OGC 12-019）
+- 公開元: Open Geospatial Consortium
+- 版: 2.0（2012-04-04）
+- 入手の条件: 無償公開
+- 入手先: [OGC City Geography Markup Language (CityGML) Encoding Standard（OGC 12-019）](https://docs.ogc.org/is/12-019/12-019.pdf)
+- 確認日: 2026-11-01
+
+### spec-citygml_3_0_gml
+
+- 名前: OGC City Geography Markup Language (CityGML) 3.0 Part 2: GML Encoding Standard（OGC 21-006r2）
+- 公開元: Open Geospatial Consortium
+- 版: 3.0（2023-06-20）
+- 入手の条件: 無償公開
+- 入手先: [OGC City Geography Markup Language (CityGML) 3.0 Part 2: GML Encoding Standard（OGC 21-006r2）](https://docs.ogc.org/is/21-006r2/21-006r2.html)
+- 確認日: 2026-11-01
+- 補足: 概念モデルは Part 1（OGC 20-010）
+
 ### spec-dxf_2026
 
 - 名前: DXF Reference
@@ -87,6 +115,36 @@
 - 入手の条件: 無償公開
 - 入手先: [DXF Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm)
 - 確認日: 2026-10-24
+
+### spec-e57_astm_e2807
+
+- 名前: ASTM E2807 Standard Specification for 3D Imaging Data Exchange, Version 1.0
+- 公開元: ASTM International
+- 版: E2807-11(2026)（2026-06-05）
+- 入手の条件: 有償
+- 入手先: [ASTM E2807 Standard Specification for 3D Imaging Data Exchange, Version 1.0](https://store.astm.org/e2807-11r26.html)
+- 確認日: 2026-11-01
+- 補足: 買う。販売のページは、規格を AI で扱うことを禁じる。本文は読まない
+
+### spec-extdm_a1_291
+
+- 名前: 拡張ディジタルマッピング実装規約（案）改訂版（技術資料 A1-No.291）
+- 公開元: 国土地理院
+- 版: 平成 17 年 3 月
+- 入手の条件: 無償公開
+- 入手先: [拡張ディジタルマッピング実装規約（案）改訂版（技術資料 A1-No.291）](https://www.gsi.go.jp/common/000258819.pdf)
+- 確認日: 2026-11-01
+- 補足: 平成 20 年の作業規程の準則の改正で「公共測量標準図式数値地形図データファイル仕様」に改めた。国土地理院の技術資料は、特段の記載がなければ PDL 1.0 を準用する
+
+### spec-fgd_dl_4_1
+
+- 名前: 基盤地図情報ダウンロードデータファイル仕様書
+- 公開元: 国土地理院
+- 版: Ver4.1（2023-03-31）
+- 入手の条件: 無償公開
+- 入手先: [基盤地図情報ダウンロードデータファイル仕様書](https://fgd.gsi.go.jp/otherdata/spec/FGD_DLFileSpecV4.1.pdf)
+- 確認日: 2026-11-01
+- 補足: GML のスキーマ（JPGIS2014）も同じ所に置く。データの入手には利用者の登録が要る
 
 ### spec-ids_1_0
 
@@ -146,6 +204,16 @@
 - 確認日: 2026-10-24
 - 補足: PDF Association が、後援の企業の費用で無償で配っている。ISO からは買う
 
+### spec-jlandxml_1_8
+
+- 名前: LandXML 1.2 に準じた 3 次元設計データ交換標準（案）（J-LandXML）
+- 公開元: 一般社団法人 OCF（監修: 国土技術政策総合研究所）
+- 版: Ver.1.8（令和 8 年 7 月）
+- 入手の条件: 無償公開
+- 入手先: [LandXML 1.2 に準じた 3 次元設計データ交換標準（案）（J-LandXML）](https://ocf.or.jp/j-landxml/standard/)
+- 確認日: 2026-11-01
+- 補足: PDF に XSD の本文を載せる。著作権と複製の記述は見当たらない。国土交通省も同じ PDF を載せる
+
 ### spec-jww_7_02
 
 - 名前: Jw\_cad のデータ形式（jwdatafmt.txt）
@@ -155,6 +223,26 @@
 - 入手先: [Jw\_cad のデータ形式（jwdatafmt.txt）](https://www.jwcad.net/jwdatafmt.txt)
 - 確認日: 2026-10-24
 
+### spec-las_1_4_r15
+
+- 名前: LAS Specification
+- 公開元: ASPRS（American Society for Photogrammetry and Remote Sensing）
+- 版: 1.4 R15（2019-07-09）
+- 入手の条件: 無償公開
+- 入手先: [LAS Specification](https://github.com/ASPRSorg/LAS)
+- 確認日: 2026-11-01
+- 補足: OGC のコミュニティ標準でもある。リポジトリにライセンスの記述はない
+
+### spec-laz_1_4
+
+- 名前: LAZ Specification 1.4（OGC 24-070r1）
+- 公開元: Open Geospatial Consortium
+- 版: 1.4（2026-09-03 公表）
+- 入手の条件: 無償公開
+- 入手先: [LAZ Specification 1.4（OGC 24-070r1）](https://docs.ogc.org/cs/24-070r1/24-070r1.pdf)
+- 確認日: 2026-11-01
+- 補足: OGC の公表は、誰でも入手して実装できるとする
+
 ### spec-ods_dwg_5_4_1
 
 - 名前: Open Design Specification for .dwg files
@@ -163,6 +251,16 @@
 - 入手の条件: 無償公開
 - 入手先: [Open Design Specification for .dwg files](https://opendesign.com/files/guestdownloads/OpenDesign_Specification_for_.dwg_files.pdf)
 - 確認日: 2026-10-24
+
+### spec-plateau_5_1
+
+- 名前: 3D 都市モデル標準製品仕様書（i-UR の拡張を含む）
+- 公開元: 国土交通省都市局
+- 版: 第 5.1 版（2026-03-31）
+- 入手の条件: 無償公開
+- 入手先: [3D 都市モデル標準製品仕様書（i-UR の拡張を含む）](https://www.mlit.go.jp/plateau/libraries/handbooks/)
+- 確認日: 2026-11-01
+- 補足: サイトの内容は PDL 1.0。CityGML 3.0 に合わせた応用スキーマの案も公開している
 
 ### spec-stbridge_2_1_1
 
@@ -220,6 +318,18 @@
 - 権利の根拠にした文書: [シーデクセマ評議会の Q&amp;A](https://www.cedxm.com/about/faq/)（確認日: 2026-10-24）
 - issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
 
+### format-citygml
+
+- 名前: CityGML（PLATEAU の 3D 都市モデルと i-UR を含む）
+- 権利の根拠: OGC が CityGML を、国土交通省が PLATEAU の製品仕様書（サイトの内容は PDL 1.0）を無償で公開している。実装を制限する記述はない。3D 都市モデルのデータの権利は各自治体にあり、測量法に注意するよう書かれているので、データは同梱しない
+- 仕様: [citygml\_2\_0](#spec-citygml_2_0)、[citygml\_3\_0\_gml](#spec-citygml_3_0_gml)、[plateau\_5\_1](#spec-plateau_5_1)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [PLATEAU のサイトポリシー](https://www.mlit.go.jp/plateau/site-policy/)（確認日: 2026-11-01）
+- 照合するソフト: PLATEAU VIEW・QGIS
+- サンプルの出どころ（Git に入れない）: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない
+- 既知の crate: nusamai-citygml・ecitygml-io
+- issue: [zumen-jp/zumen#379](https://github.com/zumen-jp/zumen/issues/379)
+
 ### format-dwg
 
 - 名前: DWG
@@ -245,6 +355,43 @@
 - サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）・ezdwg の試験の図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 形式の文書: [docs/formats/dxf.md](../../docs/formats/dxf.md)
+
+### format-e57
+
+- 名前: E57（ASTM E2807）
+- 権利の根拠: 仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装と試料から読む
+- 仕様: [e57\_astm\_e2807](#spec-e57_astm_e2807)
+- 実装の根拠: reference
+- 権利の根拠にした文書: [libE57Format-test-data の README（ライセンス）](https://github.com/asmaloney/libE57Format-test-data)（確認日: 2026-11-01）
+- 参照した実装: [libE57Format](https://github.com/asmaloney/libE57Format)（BSL-1.0）
+- 参照した実装: [e57（Rust）](https://github.com/cry-inc/e57)（MIT）
+- 照合するソフト: CloudCompare
+- サンプルの出どころ（Git に入れない）: libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）
+- 既知の crate: e57
+- issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+
+### format-extdm
+
+- 名前: 拡張 DM（公共測量標準図式数値地形図データファイル）
+- 権利の根拠: 国土地理院が実装規約を技術資料として無償で公開している。技術資料は、特段の記載がなければ公共データ利用規約（PDL 1.0）を準用する。実装を制限する記述はない
+- 仕様: [extdm\_a1\_291](#spec-extdm_a1_291)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [国土地理院の技術資料の利用規約](https://www.gsi.go.jp/REPORT/TECHNICAL/riyoukiyaku_gijutsushiryou.html)（確認日: 2026-11-01）
+- 照合するソフト: 基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）
+- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で作る
+- issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
+
+### format-fgd
+
+- 名前: 基盤地図情報（GML）
+- 権利の根拠: 国土地理院がファイル仕様書と GML のスキーマを無償で公開している。実装を制限する記述はない。基盤地図情報は測量成果で、データの複製と使用には測量法の承認（基盤地図情報は無償で承認する）が要る場合があるので、データは同梱せず利用者が渡す（決定 0019 のジオイド・モデルと同じ扱い）
+- 仕様: [fgd\_dl\_4\_1](#spec-fgd_dl_4_1)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [国土地理院「測量成果の複製・使用承認の Q&amp;A」](https://www.gsi.go.jp/LAW/2930-qa.html)（確認日: 2026-11-01）
+- 照合するソフト: 基盤地図情報ビューアー・QGIS
+- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る
+- 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
+- issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
 
 ### format-ids
 
@@ -328,6 +475,31 @@
 - 記録: [決定 0136](../decisions/0136-jww-images-and-edit-state.md)
 - 形式の文書: [docs/formats/jww.md](../../docs/formats/jww.md)
 
+### format-landxml
+
+- 名前: J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準）
+- 権利の根拠: OCF と国土交通省が仕様の PDF を誰でも無償で入手できる形で公開している。実装を制限する記述はない。元の LandXML 1.2 のスキーマは同梱しない
+- 仕様: [jlandxml\_1\_8](#spec-jlandxml_1_8)
+- 実装の根拠: spec
+- 照合するソフト: 国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）
+- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る
+- issue: [zumen-jp/zumen#366](https://github.com/zumen-jp/zumen/issues/366)
+- issue: [zumen-jp/zumen#368](https://github.com/zumen-jp/zumen/issues/368)
+
+### format-las
+
+- 名前: LAS・LAZ
+- 権利の根拠: ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0
+- 仕様: [las\_1\_4\_r15](#spec-las_1_4_r15)、[laz\_1\_4](#spec-laz_1_4)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [OGC の LAZ 1.4 コミュニティ標準の公表](https://www.ogc.org/announcement/ogc-announces-publication-of-the-laz-1-4-community-standard/)（確認日: 2026-11-01）
+- 権利の根拠にした文書: [LASzip のリポジトリ（ライセンス）](https://github.com/LASzip/LASzip)（確認日: 2026-11-01）
+- 文書の補足: GitHub のライセンスの判定は Apache-2.0
+- 照合するソフト: CloudCompare・PDAL・LAStools の lasinfo
+- サンプルの出どころ（Git に入れない）: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
+- 既知の crate: las・laz
+- issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
+
 ### format-pdf
 
 - 名前: PDF
@@ -339,6 +511,25 @@
 - 記録: [決定 0013](../decisions/0013-boundary-in-four-forms.md)
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 補足: ページの解釈は hayro-interpret（Apache-2.0 OR MIT）を使う予定（旧版の決定 0020）
+
+### format-ply
+
+- 名前: PLY（点群）
+- 権利の根拠: 持ち主の公式の仕様はない。Greg Turk の説明と、それを写した公開の解説で読む。利用の制限の記述はない
+- 仕様: 登録なし
+- 実装の根拠: inferred
+- 権利の根拠にした文書: [Paul Bourke「PLY - Polygon File Format」](https://paulbourke.net/dataformats/ply/)（確認日: 2026-11-01）
+- 照合するソフト: CloudCompare・MeshLab
+- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+
+### format-sima
+
+- 名前: SIMA 共通フォーマット
+- 権利の根拠: 日本測量機器工業会（JSIMA）の公式のページの中身を確かめられなかった。形式の定義書を冊子で頒布したとする二次の資料と、国立国会図書館の JSIMA 203:2000（Ver.02）の記録がある。最新の版・入手の条件・実装の条件は確かめられない
+- 仕様: 登録なし
+- 権利の根拠にした文書: [国立国会図書館サーチの「SIMA 共通フォーマット」JSIMA 203:2000（Ver.02）](https://iss.ndl.go.jp/books/R100000002-I000009976754-00)（確認日: 2026-11-01）
+- issue: [zumen-jp/zumen#374](https://github.com/zumen-jp/zumen/issues/374)
 
 ### format-stbridge
 
@@ -386,3 +577,13 @@
 - 記録: [決定 0131](../decisions/0131-sxf-attribute-mechanism.md)
 - 記録: [決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
+
+### format-xyz
+
+- 名前: XYZ（座標を並べた点群のテキスト）
+- 権利の根拠: 決まった仕様も持ち主もない。座標と属性を区切って並べたテキストを、推定で読む
+- 仕様: 登録なし
+- 実装の根拠: inferred
+- 照合するソフト: CloudCompare
+- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
