@@ -275,3 +275,4 @@
 - [0239: 土木の図の作図の値はプロファイルの語彙から読み、civil_drawing の op で DXF の文書にする](0239-civil-drawing-op.md)（2026-11-02、採用）
 - [0240: 相似のビューは DXF のビューポートで書き、モデル空間には書く用紙が焼き込まずに見せる空間だけを書く](0240-write-similar-views-as-viewports.md)（2026-11-02、採用）
 - [0241: 電子納品の成果品は、名前の集まりか ZIP で受け、delivery_check の op でプロファイルと照らす](0241-delivery-package-check.md)（2026-11-02、採用）
+- [0242: 地質・土質調査の成果は crate `zumen-geology` に置き、ボーリング交換用データを boring の op で読む](0242-geology-boring-data.md)（2026-11-02、採用）

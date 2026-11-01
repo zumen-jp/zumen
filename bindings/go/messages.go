@@ -170,6 +170,11 @@ func (u Request) AsSheetRequest() *SheetRequest {
 	return asTagged[SheetRequest](u, "op", "sheet")
 }
 
+// AsBoringRequest は、op が boring の形なら、その型で読む。違えば nil。
+func (u Request) AsBoringRequest() *BoringRequest {
+	return asTagged[BoringRequest](u, "op", "boring")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4790,6 +4795,226 @@ type SheetArea struct {
 	LastColumn *int64 `json:"last_column,omitempty"`
 }
 
+// BoringRequest: 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+type BoringRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// ボーリング交換用データの入力の名前
+	Input *string `json:"input,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m BoringRequest) MarshalJSON() ([]byte, error) {
+	type plain BoringRequest
+	m.Op = "boring"
+	return json.Marshal(plain(m))
+}
+
+// BoringResult: 読んだボーリング。深さは地表からの m（GL.-m）
+type BoringResult struct {
+	// 適用規格。文書の順
+	Standards []string `json:"standards,omitempty"`
+
+	// 公開フラグのコード
+	Publication *string `json:"publication,omitempty"`
+
+	// 事業工事名
+	Project *string `json:"project,omitempty"`
+
+	// 調査名
+	Survey *string `json:"survey,omitempty"`
+
+	// ボーリング名
+	Name *string `json:"name,omitempty"`
+
+	// ボーリング総数
+	Count *int64 `json:"count,omitempty"`
+
+	// ボーリング連番
+	Serial *int64 `json:"serial,omitempty"`
+
+	// 孔口の位置。測地系は換算しない
+	Position *BoringPosition `json:"position,omitempty"`
+
+	// 位置の測地系
+	Datum *BoringDatum `json:"datum,omitempty"`
+
+	// 調査位置の住所
+	Address *string `json:"address,omitempty"`
+
+	// 調査期間の始まりの日（YYYY-MM-DD）
+	Start *string `json:"start,omitempty"`
+
+	// 調査期間の終わりの日（YYYY-MM-DD）
+	End *string `json:"end,omitempty"`
+
+	// 孔口標高
+	Elevation *BoringHeight `json:"elevation,omitempty"`
+
+	// 総削孔長（m）
+	Length *float64 `json:"length,omitempty"`
+
+	// 削孔の角度（度）
+	Angle *float64 `json:"angle,omitempty"`
+
+	// 削孔の方位（度）
+	Direction *float64 `json:"direction,omitempty"`
+
+	// 工学的地質区分名・現場土質名。文書の順
+	Layers []BoringLayer `json:"layers,omitempty"`
+
+	// 色調。文書の順
+	Colors []BoringColor `json:"colors,omitempty"`
+
+	// 観察記事。文書の順
+	Observations []BoringObservation `json:"observations,omitempty"`
+
+	// 標準貫入試験。文書の順
+	Penetrations []BoringPenetration `json:"penetrations,omitempty"`
+
+	// 孔内水位。文書の順
+	WaterLevels []BoringWaterLevel `json:"water_levels,omitempty"`
+}
+
+// BoringPosition: 経度・緯度（度）。度・分・秒から求める
+type BoringPosition struct {
+	// 緯度（度、北が正）
+	Latitude *float64 `json:"latitude,omitempty"`
+
+	// 経度（度、東が正）
+	Longitude *float64 `json:"longitude,omitempty"`
+}
+
+// BoringDatum: 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
+//
+// 列挙の値。知らない値も受け取る。
+type BoringDatum string
+
+// BoringDatumTokyo は tokyo。
+const BoringDatumTokyo BoringDatum = "tokyo"
+
+// BoringDatumJgd2000 は jgd2000。
+const BoringDatumJgd2000 BoringDatum = "jgd2000"
+
+// BoringDatumJgd2011 は jgd2011。
+const BoringDatumJgd2011 BoringDatum = "jgd2011"
+
+// BoringDatumJgd2024 は jgd2024。
+const BoringDatumJgd2024 BoringDatum = "jgd2024"
+
+// BoringHeight: 標高と、その基準と成果（決定 0019）
+type BoringHeight struct {
+	// 標高（m）
+	Value *float64 `json:"value,omitempty"`
+
+	// 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする
+	Datum *HeightDatum `json:"datum,omitempty"`
+
+	// 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する
+	Realization *HeightRealization `json:"realization,omitempty"`
+}
+
+// HeightDatum: 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
+//
+// 列挙の値。知らない値も受け取る。
+type HeightDatum string
+
+// HeightDatumTokyoBay は tokyo_bay。
+const HeightDatumTokyoBay HeightDatum = "tokyo_bay"
+
+// HeightDatumIsland は island。
+const HeightDatumIsland HeightDatum = "island"
+
+// HeightDatumEllipsoid は ellipsoid。
+const HeightDatumEllipsoid HeightDatum = "ellipsoid"
+
+// HeightRealization: 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
+//
+// 列挙の値。知らない値も受け取る。
+type HeightRealization string
+
+// HeightRealizationSurvey2011 は survey_2011。
+const HeightRealizationSurvey2011 HeightRealization = "survey_2011"
+
+// HeightRealizationSurvey2024 は survey_2024。
+const HeightRealizationSurvey2024 HeightRealization = "survey_2024"
+
+// BoringLayer: 地層の区間。上端は 1 つ前の区間の下端（最初は 0）
+type BoringLayer struct {
+	// 下端の深さ（m）
+	Bottom *float64 `json:"bottom,omitempty"`
+
+	// 工学的地質区分名・現場土質名
+	Name *string `json:"name,omitempty"`
+
+	// 記号
+	Symbol *string `json:"symbol,omitempty"`
+}
+
+// BoringColor: 色調の区間
+type BoringColor struct {
+	// 下端の深さ（m）
+	Bottom *float64 `json:"bottom,omitempty"`
+
+	// 色調の名前
+	Name *string `json:"name,omitempty"`
+}
+
+// BoringObservation: 観察記事
+type BoringObservation struct {
+	// 上端の深さ（m）
+	Top *float64 `json:"top,omitempty"`
+
+	// 下端の深さ（m）
+	Bottom *float64 `json:"bottom,omitempty"`
+
+	// 記事
+	Text *string `json:"text,omitempty"`
+}
+
+// BoringPenetration: 標準貫入試験
+type BoringPenetration struct {
+	// 開始の深さ（m）
+	Depth *float64 `json:"depth,omitempty"`
+
+	// 合計の打撃回数
+	Blows *int64 `json:"blows,omitempty"`
+
+	// 合計の貫入量（mm）
+	Penetration *float64 `json:"penetration,omitempty"`
+}
+
+// BoringWaterLevel: 孔内水位
+type BoringWaterLevel struct {
+	// 測定の日（YYYY-MM-DD）
+	Date *string `json:"date,omitempty"`
+
+	// 削孔状況のコード
+	State *string `json:"state,omitempty"`
+
+	// 水位の深さ（m）。地表より高ければ負。水位がなければ書かない
+	Depth *float64 `json:"depth,omitempty"`
+
+	// 水位種別・備考
+	Note *string `json:"note,omitempty"`
+}
+
 // DeliveryManaged: 管理ファイルの要約
 type DeliveryManaged struct {
 	// 成果品の中の名前
@@ -5321,3 +5546,6 @@ const OpPhoto = "photo"
 
 // OpSheet は、op の名前 sheet。
 const OpSheet = "sheet"
+
+// OpBoring は、op の名前 boring。
+const OpBoring = "boring"

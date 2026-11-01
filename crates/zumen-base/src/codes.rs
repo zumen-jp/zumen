@@ -115,6 +115,37 @@ pub const BCF_VERSION_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// ボーリング交換用データの要素を読まなかった（#390）。読むのは位置・標高・地層・色調・観察記事・標準貫入試験・孔内水位で、ほかの試験・判定表・削孔の記録・調査会社などは読まない。要素の名前ごとに 1 つ
+///
+/// `boring.element.unsupported`（0.2.0 から）
+pub const BORING_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "boring.element.unsupported",
+    Severity::Info,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// XML として読めないか、根の要素がボーリング情報でないので、ボーリング交換用データとして読まなかった（#390）
+///
+/// `boring.file.invalid`（0.2.0 から）
+pub const BORING_FILE_INVALID: Code =
+    Code::new("boring.file.invalid", Severity::Error, None, &[], &[]);
+
+/// ボーリング交換用データの値が数かコードとして読めないので、その値を飛ばした（#390）。name は要素の名前
+///
+/// `boring.value.invalid`（0.2.0 から）
+pub const BORING_VALUE_INVALID: Code = Code::new(
+    "boring.value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("name", ParamType::Text),
+        Param::new("value", ParamType::Text),
+    ],
+    &["name"],
+);
+
 /// 展開・復号で作ったバイト数が上限を超えた
 ///
 /// `budget.decoded-bytes.exceeded`（0.0.0 から）
@@ -3648,6 +3679,9 @@ pub const ALL: &[Code] = &[
     BCF_VALUE_ASSUMED,
     BCF_VALUE_MISSING,
     BCF_VERSION_UNSUPPORTED,
+    BORING_ELEMENT_UNSUPPORTED,
+    BORING_FILE_INVALID,
+    BORING_VALUE_INVALID,
     BUDGET_DECODED_BYTES_EXCEEDED,
     BUDGET_DEPTH_EXCEEDED,
     BUDGET_ELEMENTS_EXCEEDED,

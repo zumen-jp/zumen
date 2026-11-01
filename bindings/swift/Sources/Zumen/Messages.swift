@@ -153,6 +153,11 @@ public struct Request: Message {
     public var asSheetRequest: SheetRequest? {
         taggedView("op", "sheet")
     }
+
+    /// op が boring の形なら、その見方。違えば nil
+    public var asBoringRequest: BoringRequest? {
+        taggedView("op", "boring")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -9060,6 +9065,465 @@ public struct SheetArea: Message {
     }
 }
 
+/// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+public struct BoringRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("boring")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// ボーリング交換用データの入力の名前
+    public var input: String? {
+        get { readField("input") }
+        set { writeField("input", newValue) }
+    }
+}
+
+/// 読んだボーリング。深さは地表からの m（GL.-m）
+public struct BoringResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 適用規格。文書の順
+    public var standards: [String]? {
+        get { readField("standards") }
+        set { writeField("standards", newValue) }
+    }
+
+    /// 公開フラグのコード
+    public var publication: String? {
+        get { readField("publication") }
+        set { writeField("publication", newValue) }
+    }
+
+    /// 事業工事名
+    public var project: String? {
+        get { readField("project") }
+        set { writeField("project", newValue) }
+    }
+
+    /// 調査名
+    public var survey: String? {
+        get { readField("survey") }
+        set { writeField("survey", newValue) }
+    }
+
+    /// ボーリング名
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// ボーリング総数
+    public var count: Int64? {
+        get { readField("count") }
+        set { writeField("count", newValue) }
+    }
+
+    /// ボーリング連番
+    public var serial: Int64? {
+        get { readField("serial") }
+        set { writeField("serial", newValue) }
+    }
+
+    /// 孔口の位置。測地系は換算しない
+    public var position: BoringPosition? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 位置の測地系
+    public var datum: String? {
+        get { readField("datum") }
+        set { writeField("datum", newValue) }
+    }
+
+    /// 調査位置の住所
+    public var address: String? {
+        get { readField("address") }
+        set { writeField("address", newValue) }
+    }
+
+    /// 調査期間の始まりの日（YYYY-MM-DD）
+    public var start: String? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 調査期間の終わりの日（YYYY-MM-DD）
+    public var end: String? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 孔口標高
+    public var elevation: BoringHeight? {
+        get { readField("elevation") }
+        set { writeField("elevation", newValue) }
+    }
+
+    /// 総削孔長（m）
+    public var length: Double? {
+        get { readField("length") }
+        set { writeField("length", newValue) }
+    }
+
+    /// 削孔の角度（度）
+    public var angle: Double? {
+        get { readField("angle") }
+        set { writeField("angle", newValue) }
+    }
+
+    /// 削孔の方位（度）
+    public var direction: Double? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 工学的地質区分名・現場土質名。文書の順
+    public var layers: [BoringLayer]? {
+        get { readField("layers") }
+        set { writeField("layers", newValue) }
+    }
+
+    /// 色調。文書の順
+    public var colors: [BoringColor]? {
+        get { readField("colors") }
+        set { writeField("colors", newValue) }
+    }
+
+    /// 観察記事。文書の順
+    public var observations: [BoringObservation]? {
+        get { readField("observations") }
+        set { writeField("observations", newValue) }
+    }
+
+    /// 標準貫入試験。文書の順
+    public var penetrations: [BoringPenetration]? {
+        get { readField("penetrations") }
+        set { writeField("penetrations", newValue) }
+    }
+
+    /// 孔内水位。文書の順
+    public var waterLevels: [BoringWaterLevel]? {
+        get { readField("water_levels") }
+        set { writeField("water_levels", newValue) }
+    }
+}
+
+/// 経度・緯度（度）。度・分・秒から求める
+public struct BoringPosition: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 緯度（度、北が正）
+    public var latitude: Double? {
+        get { readField("latitude") }
+        set { writeField("latitude", newValue) }
+    }
+
+    /// 経度（度、東が正）
+    public var longitude: Double? {
+        get { readField("longitude") }
+        set { writeField("longitude", newValue) }
+    }
+}
+
+/// 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
+///
+/// 列挙の値。知らない値も受け取る
+public enum BoringDatum {
+    public static let tokyo = "tokyo"
+    public static let jgd2000 = "jgd2000"
+    public static let jgd2011 = "jgd2011"
+    public static let jgd2024 = "jgd2024"
+}
+
+/// 標高と、その基準と成果（決定 0019）
+public struct BoringHeight: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 標高（m）
+    public var value: Double? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+
+    /// 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする
+    public var datum: String? {
+        get { readField("datum") }
+        set { writeField("datum", newValue) }
+    }
+
+    /// 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する
+    public var realization: String? {
+        get { readField("realization") }
+        set { writeField("realization", newValue) }
+    }
+}
+
+/// 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
+///
+/// 列挙の値。知らない値も受け取る
+public enum HeightDatum {
+    public static let tokyoBay = "tokyo_bay"
+    public static let island = "island"
+    public static let ellipsoid = "ellipsoid"
+}
+
+/// 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
+///
+/// 列挙の値。知らない値も受け取る
+public enum HeightRealization {
+    public static let survey2011 = "survey_2011"
+    public static let survey2024 = "survey_2024"
+}
+
+/// 地層の区間。上端は 1 つ前の区間の下端（最初は 0）
+public struct BoringLayer: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 下端の深さ（m）
+    public var bottom: Double? {
+        get { readField("bottom") }
+        set { writeField("bottom", newValue) }
+    }
+
+    /// 工学的地質区分名・現場土質名
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 記号
+    public var symbol: String? {
+        get { readField("symbol") }
+        set { writeField("symbol", newValue) }
+    }
+}
+
+/// 色調の区間
+public struct BoringColor: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 下端の深さ（m）
+    public var bottom: Double? {
+        get { readField("bottom") }
+        set { writeField("bottom", newValue) }
+    }
+
+    /// 色調の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+}
+
+/// 観察記事
+public struct BoringObservation: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 上端の深さ（m）
+    public var top: Double? {
+        get { readField("top") }
+        set { writeField("top", newValue) }
+    }
+
+    /// 下端の深さ（m）
+    public var bottom: Double? {
+        get { readField("bottom") }
+        set { writeField("bottom", newValue) }
+    }
+
+    /// 記事
+    public var text: String? {
+        get { readField("text") }
+        set { writeField("text", newValue) }
+    }
+}
+
+/// 標準貫入試験
+public struct BoringPenetration: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 開始の深さ（m）
+    public var depth: Double? {
+        get { readField("depth") }
+        set { writeField("depth", newValue) }
+    }
+
+    /// 合計の打撃回数
+    public var blows: Int64? {
+        get { readField("blows") }
+        set { writeField("blows", newValue) }
+    }
+
+    /// 合計の貫入量（mm）
+    public var penetration: Double? {
+        get { readField("penetration") }
+        set { writeField("penetration", newValue) }
+    }
+}
+
+/// 孔内水位
+public struct BoringWaterLevel: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 測定の日（YYYY-MM-DD）
+    public var date: String? {
+        get { readField("date") }
+        set { writeField("date", newValue) }
+    }
+
+    /// 削孔状況のコード
+    public var state: String? {
+        get { readField("state") }
+        set { writeField("state", newValue) }
+    }
+
+    /// 水位の深さ（m）。地表より高ければ負。水位がなければ書かない
+    public var depth: Double? {
+        get { readField("depth") }
+        set { writeField("depth", newValue) }
+    }
+
+    /// 水位種別・備考
+    public var note: String? {
+        get { readField("note") }
+        set { writeField("note", newValue) }
+    }
+}
+
 /// 管理ファイルの要約
 public struct DeliveryManaged: Message {
     /// 包んでいる JSON のオブジェクト
@@ -10051,4 +10515,5 @@ public enum Operations {
     public static let deliveryCheck = "delivery_check"
     public static let photo = "photo"
     public static let sheet = "sheet"
+    public static let boring = "boring"
 }

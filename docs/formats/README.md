@@ -432,6 +432,7 @@
 - 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-01）
 - サンプルの出どころ（Git に入れない）: 国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる
 - issue: [zumen-jp/zumen#390](https://github.com/zumen-jp/zumen/issues/390)
+- 形式の文書: [docs/formats/boring.md](../../docs/formats/boring.md)
 
 ### format-cedxm
 

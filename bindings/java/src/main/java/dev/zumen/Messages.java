@@ -201,6 +201,11 @@ public final class Messages {
         public SheetRequest asSheetRequest() {
             return "sheet".equals(json.get("op")) ? new SheetRequest(json) : null;
         }
+
+        /** op が boring の形なら、その見方。違えば null */
+        public BoringRequest asBoringRequest() {
+            return "boring".equals(json.get("op")) ? new BoringRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -14712,6 +14717,751 @@ public final class Messages {
         }
     }
 
+    /** 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から */
+    public static final class BoringRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public BoringRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "boring");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public BoringRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public BoringRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public BoringRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public BoringRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public BoringRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public BoringRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** ボーリング交換用データの入力の名前 */
+        public String getInput() {
+            return Json.read(json.get("input"), Json::string);
+        }
+
+        /** {@link #getInput()} を書く。null なら欄を除く */
+        public BoringRequest withInput(String value) {
+            put("input", value);
+            return this;
+        }
+    }
+
+    /** 読んだボーリング。深さは地表からの m（GL.-m） */
+    public static final class BoringResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 適用規格。文書の順 */
+        public List<String> getStandards() {
+            return Json.read(json.get("standards"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getStandards()} を書く。null なら欄を除く */
+        public BoringResult withStandards(List<String> value) {
+            put("standards", value);
+            return this;
+        }
+
+        /** 公開フラグのコード */
+        public String getPublication() {
+            return Json.read(json.get("publication"), Json::string);
+        }
+
+        /** {@link #getPublication()} を書く。null なら欄を除く */
+        public BoringResult withPublication(String value) {
+            put("publication", value);
+            return this;
+        }
+
+        /** 事業工事名 */
+        public String getProject() {
+            return Json.read(json.get("project"), Json::string);
+        }
+
+        /** {@link #getProject()} を書く。null なら欄を除く */
+        public BoringResult withProject(String value) {
+            put("project", value);
+            return this;
+        }
+
+        /** 調査名 */
+        public String getSurvey() {
+            return Json.read(json.get("survey"), Json::string);
+        }
+
+        /** {@link #getSurvey()} を書く。null なら欄を除く */
+        public BoringResult withSurvey(String value) {
+            put("survey", value);
+            return this;
+        }
+
+        /** ボーリング名 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public BoringResult withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** ボーリング総数 */
+        public Long getCount() {
+            return Json.read(json.get("count"), Json::integer);
+        }
+
+        /** {@link #getCount()} を書く。null なら欄を除く */
+        public BoringResult withCount(Long value) {
+            put("count", value);
+            return this;
+        }
+
+        /** ボーリング連番 */
+        public Long getSerial() {
+            return Json.read(json.get("serial"), Json::integer);
+        }
+
+        /** {@link #getSerial()} を書く。null なら欄を除く */
+        public BoringResult withSerial(Long value) {
+            put("serial", value);
+            return this;
+        }
+
+        /** 孔口の位置。測地系は換算しない */
+        public BoringPosition getPosition() {
+            return Json.read(json.get("position"), BoringPosition::of);
+        }
+
+        /** {@link #getPosition()} を書く。null なら欄を除く */
+        public BoringResult withPosition(BoringPosition value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 位置の測地系 */
+        public String getDatum() {
+            return Json.read(json.get("datum"), Json::string);
+        }
+
+        /** {@link #getDatum()} を書く。null なら欄を除く */
+        public BoringResult withDatum(String value) {
+            put("datum", value);
+            return this;
+        }
+
+        /** 調査位置の住所 */
+        public String getAddress() {
+            return Json.read(json.get("address"), Json::string);
+        }
+
+        /** {@link #getAddress()} を書く。null なら欄を除く */
+        public BoringResult withAddress(String value) {
+            put("address", value);
+            return this;
+        }
+
+        /** 調査期間の始まりの日（YYYY-MM-DD） */
+        public String getStart() {
+            return Json.read(json.get("start"), Json::string);
+        }
+
+        /** {@link #getStart()} を書く。null なら欄を除く */
+        public BoringResult withStart(String value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 調査期間の終わりの日（YYYY-MM-DD） */
+        public String getEnd() {
+            return Json.read(json.get("end"), Json::string);
+        }
+
+        /** {@link #getEnd()} を書く。null なら欄を除く */
+        public BoringResult withEnd(String value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 孔口標高 */
+        public BoringHeight getElevation() {
+            return Json.read(json.get("elevation"), BoringHeight::of);
+        }
+
+        /** {@link #getElevation()} を書く。null なら欄を除く */
+        public BoringResult withElevation(BoringHeight value) {
+            put("elevation", value);
+            return this;
+        }
+
+        /** 総削孔長（m） */
+        public Double getLength() {
+            return Json.read(json.get("length"), Json::number);
+        }
+
+        /** {@link #getLength()} を書く。null なら欄を除く */
+        public BoringResult withLength(Double value) {
+            put("length", value);
+            return this;
+        }
+
+        /** 削孔の角度（度） */
+        public Double getAngle() {
+            return Json.read(json.get("angle"), Json::number);
+        }
+
+        /** {@link #getAngle()} を書く。null なら欄を除く */
+        public BoringResult withAngle(Double value) {
+            put("angle", value);
+            return this;
+        }
+
+        /** 削孔の方位（度） */
+        public Double getDirection() {
+            return Json.read(json.get("direction"), Json::number);
+        }
+
+        /** {@link #getDirection()} を書く。null なら欄を除く */
+        public BoringResult withDirection(Double value) {
+            put("direction", value);
+            return this;
+        }
+
+        /** 工学的地質区分名・現場土質名。文書の順 */
+        public List<BoringLayer> getLayers() {
+            return Json.read(json.get("layers"), v0 -> Json.list(v0, BoringLayer::of));
+        }
+
+        /** {@link #getLayers()} を書く。null なら欄を除く */
+        public BoringResult withLayers(List<BoringLayer> value) {
+            put("layers", value);
+            return this;
+        }
+
+        /** 色調。文書の順 */
+        public List<BoringColor> getColors() {
+            return Json.read(json.get("colors"), v0 -> Json.list(v0, BoringColor::of));
+        }
+
+        /** {@link #getColors()} を書く。null なら欄を除く */
+        public BoringResult withColors(List<BoringColor> value) {
+            put("colors", value);
+            return this;
+        }
+
+        /** 観察記事。文書の順 */
+        public List<BoringObservation> getObservations() {
+            return Json.read(json.get("observations"), v0 -> Json.list(v0, BoringObservation::of));
+        }
+
+        /** {@link #getObservations()} を書く。null なら欄を除く */
+        public BoringResult withObservations(List<BoringObservation> value) {
+            put("observations", value);
+            return this;
+        }
+
+        /** 標準貫入試験。文書の順 */
+        public List<BoringPenetration> getPenetrations() {
+            return Json.read(json.get("penetrations"), v0 -> Json.list(v0, BoringPenetration::of));
+        }
+
+        /** {@link #getPenetrations()} を書く。null なら欄を除く */
+        public BoringResult withPenetrations(List<BoringPenetration> value) {
+            put("penetrations", value);
+            return this;
+        }
+
+        /** 孔内水位。文書の順 */
+        public List<BoringWaterLevel> getWaterLevels() {
+            return Json.read(json.get("water_levels"), v0 -> Json.list(v0, BoringWaterLevel::of));
+        }
+
+        /** {@link #getWaterLevels()} を書く。null なら欄を除く */
+        public BoringResult withWaterLevels(List<BoringWaterLevel> value) {
+            put("water_levels", value);
+            return this;
+        }
+    }
+
+    /** 経度・緯度（度）。度・分・秒から求める */
+    public static final class BoringPosition extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringPosition(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringPosition of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringPosition(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringPosition() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 緯度（度、北が正） */
+        public Double getLatitude() {
+            return Json.read(json.get("latitude"), Json::number);
+        }
+
+        /** {@link #getLatitude()} を書く。null なら欄を除く */
+        public BoringPosition withLatitude(Double value) {
+            put("latitude", value);
+            return this;
+        }
+
+        /** 経度（度、東が正） */
+        public Double getLongitude() {
+            return Json.read(json.get("longitude"), Json::number);
+        }
+
+        /** {@link #getLongitude()} を書く。null なら欄を除く */
+        public BoringPosition withLongitude(Double value) {
+            put("longitude", value);
+            return this;
+        }
+    }
+
+    /**
+     * 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BoringDatum {
+        private BoringDatum() {}
+
+        public static final String TOKYO = "tokyo";
+
+        public static final String JGD2000 = "jgd2000";
+
+        public static final String JGD2011 = "jgd2011";
+
+        public static final String JGD2024 = "jgd2024";
+    }
+
+    /** 標高と、その基準と成果（決定 0019） */
+    public static final class BoringHeight extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringHeight(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringHeight of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringHeight(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringHeight() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 標高（m） */
+        public Double getValue() {
+            return Json.read(json.get("value"), Json::number);
+        }
+
+        /** {@link #getValue()} を書く。null なら欄を除く */
+        public BoringHeight withValue(Double value) {
+            put("value", value);
+            return this;
+        }
+
+        /** 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする */
+        public String getDatum() {
+            return Json.read(json.get("datum"), Json::string);
+        }
+
+        /** {@link #getDatum()} を書く。null なら欄を除く */
+        public BoringHeight withDatum(String value) {
+            put("datum", value);
+            return this;
+        }
+
+        /** 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する */
+        public String getRealization() {
+            return Json.read(json.get("realization"), Json::string);
+        }
+
+        /** {@link #getRealization()} を書く。null なら欄を除く */
+        public BoringHeight withRealization(String value) {
+            put("realization", value);
+            return this;
+        }
+    }
+
+    /**
+     * 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class HeightDatum {
+        private HeightDatum() {}
+
+        public static final String TOKYO_BAY = "tokyo_bay";
+
+        public static final String ISLAND = "island";
+
+        public static final String ELLIPSOID = "ellipsoid";
+    }
+
+    /**
+     * 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class HeightRealization {
+        private HeightRealization() {}
+
+        public static final String SURVEY_2011 = "survey_2011";
+
+        public static final String SURVEY_2024 = "survey_2024";
+    }
+
+    /** 地層の区間。上端は 1 つ前の区間の下端（最初は 0） */
+    public static final class BoringLayer extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringLayer(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringLayer of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringLayer(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringLayer() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 下端の深さ（m） */
+        public Double getBottom() {
+            return Json.read(json.get("bottom"), Json::number);
+        }
+
+        /** {@link #getBottom()} を書く。null なら欄を除く */
+        public BoringLayer withBottom(Double value) {
+            put("bottom", value);
+            return this;
+        }
+
+        /** 工学的地質区分名・現場土質名 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public BoringLayer withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 記号 */
+        public String getSymbol() {
+            return Json.read(json.get("symbol"), Json::string);
+        }
+
+        /** {@link #getSymbol()} を書く。null なら欄を除く */
+        public BoringLayer withSymbol(String value) {
+            put("symbol", value);
+            return this;
+        }
+    }
+
+    /** 色調の区間 */
+    public static final class BoringColor extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringColor(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringColor of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringColor(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringColor() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 下端の深さ（m） */
+        public Double getBottom() {
+            return Json.read(json.get("bottom"), Json::number);
+        }
+
+        /** {@link #getBottom()} を書く。null なら欄を除く */
+        public BoringColor withBottom(Double value) {
+            put("bottom", value);
+            return this;
+        }
+
+        /** 色調の名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public BoringColor withName(String value) {
+            put("name", value);
+            return this;
+        }
+    }
+
+    /** 観察記事 */
+    public static final class BoringObservation extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringObservation(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringObservation of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringObservation(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringObservation() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 上端の深さ（m） */
+        public Double getTop() {
+            return Json.read(json.get("top"), Json::number);
+        }
+
+        /** {@link #getTop()} を書く。null なら欄を除く */
+        public BoringObservation withTop(Double value) {
+            put("top", value);
+            return this;
+        }
+
+        /** 下端の深さ（m） */
+        public Double getBottom() {
+            return Json.read(json.get("bottom"), Json::number);
+        }
+
+        /** {@link #getBottom()} を書く。null なら欄を除く */
+        public BoringObservation withBottom(Double value) {
+            put("bottom", value);
+            return this;
+        }
+
+        /** 記事 */
+        public String getText() {
+            return Json.read(json.get("text"), Json::string);
+        }
+
+        /** {@link #getText()} を書く。null なら欄を除く */
+        public BoringObservation withText(String value) {
+            put("text", value);
+            return this;
+        }
+    }
+
+    /** 標準貫入試験 */
+    public static final class BoringPenetration extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringPenetration(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringPenetration of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringPenetration(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringPenetration() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 開始の深さ（m） */
+        public Double getDepth() {
+            return Json.read(json.get("depth"), Json::number);
+        }
+
+        /** {@link #getDepth()} を書く。null なら欄を除く */
+        public BoringPenetration withDepth(Double value) {
+            put("depth", value);
+            return this;
+        }
+
+        /** 合計の打撃回数 */
+        public Long getBlows() {
+            return Json.read(json.get("blows"), Json::integer);
+        }
+
+        /** {@link #getBlows()} を書く。null なら欄を除く */
+        public BoringPenetration withBlows(Long value) {
+            put("blows", value);
+            return this;
+        }
+
+        /** 合計の貫入量（mm） */
+        public Double getPenetration() {
+            return Json.read(json.get("penetration"), Json::number);
+        }
+
+        /** {@link #getPenetration()} を書く。null なら欄を除く */
+        public BoringPenetration withPenetration(Double value) {
+            put("penetration", value);
+            return this;
+        }
+    }
+
+    /** 孔内水位 */
+    public static final class BoringWaterLevel extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BoringWaterLevel(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BoringWaterLevel of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BoringWaterLevel(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BoringWaterLevel() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 測定の日（YYYY-MM-DD） */
+        public String getDate() {
+            return Json.read(json.get("date"), Json::string);
+        }
+
+        /** {@link #getDate()} を書く。null なら欄を除く */
+        public BoringWaterLevel withDate(String value) {
+            put("date", value);
+            return this;
+        }
+
+        /** 削孔状況のコード */
+        public String getState() {
+            return Json.read(json.get("state"), Json::string);
+        }
+
+        /** {@link #getState()} を書く。null なら欄を除く */
+        public BoringWaterLevel withState(String value) {
+            put("state", value);
+            return this;
+        }
+
+        /** 水位の深さ（m）。地表より高ければ負。水位がなければ書かない */
+        public Double getDepth() {
+            return Json.read(json.get("depth"), Json::number);
+        }
+
+        /** {@link #getDepth()} を書く。null なら欄を除く */
+        public BoringWaterLevel withDepth(Double value) {
+            put("depth", value);
+            return this;
+        }
+
+        /** 水位種別・備考 */
+        public String getNote() {
+            return Json.read(json.get("note"), Json::string);
+        }
+
+        /** {@link #getNote()} を書く。null なら欄を除く */
+        public BoringWaterLevel withNote(String value) {
+            put("note", value);
+            return this;
+        }
+    }
+
     /** 管理ファイルの要約 */
     public static final class DeliveryManaged extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -16358,5 +17108,7 @@ public final class Messages {
         public static final String PHOTO = "photo";
 
         public static final String SHEET = "sheet";
+
+        public static final String BORING = "boring";
     }
 }

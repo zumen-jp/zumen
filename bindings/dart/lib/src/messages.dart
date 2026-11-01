@@ -99,6 +99,9 @@ class Request extends Message {
 
   /// op が sheet の形なら、その見方。違えば null
   SheetRequest? get asSheetRequest => taggedView('op', 'sheet', SheetRequest.fromJson);
+
+  /// op が boring の形なら、その見方。違えば null
+  BoringRequest? get asBoringRequest => taggedView('op', 'boring', BoringRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -5888,6 +5891,306 @@ class SheetArea extends Message {
   set lastColumn(int? value) => writeField('last_column', value);
 }
 
+/// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+class BoringRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  BoringRequest() : super({'op': 'boring'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// ボーリング交換用データの入力の名前
+  String? get input => readField('input', asString);
+  set input(String? value) => writeField('input', value);
+}
+
+/// 読んだボーリング。深さは地表からの m（GL.-m）
+class BoringResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringResult() : super({});
+
+  /// 適用規格。文書の順
+  List<String>? get standards => readField('standards', listOf(asString));
+  set standards(List<String>? value) => writeField('standards', value);
+
+  /// 公開フラグのコード
+  String? get publication => readField('publication', asString);
+  set publication(String? value) => writeField('publication', value);
+
+  /// 事業工事名
+  String? get project => readField('project', asString);
+  set project(String? value) => writeField('project', value);
+
+  /// 調査名
+  String? get survey => readField('survey', asString);
+  set survey(String? value) => writeField('survey', value);
+
+  /// ボーリング名
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// ボーリング総数
+  int? get count => readField('count', asInt);
+  set count(int? value) => writeField('count', value);
+
+  /// ボーリング連番
+  int? get serial => readField('serial', asInt);
+  set serial(int? value) => writeField('serial', value);
+
+  /// 孔口の位置。測地系は換算しない
+  BoringPosition? get position => readField('position', objectOf(BoringPosition.fromJson));
+  set position(BoringPosition? value) => writeField('position', value);
+
+  /// 位置の測地系
+  String? get datum => readField('datum', asString);
+  set datum(String? value) => writeField('datum', value);
+
+  /// 調査位置の住所
+  String? get address => readField('address', asString);
+  set address(String? value) => writeField('address', value);
+
+  /// 調査期間の始まりの日（YYYY-MM-DD）
+  String? get start => readField('start', asString);
+  set start(String? value) => writeField('start', value);
+
+  /// 調査期間の終わりの日（YYYY-MM-DD）
+  String? get end => readField('end', asString);
+  set end(String? value) => writeField('end', value);
+
+  /// 孔口標高
+  BoringHeight? get elevation => readField('elevation', objectOf(BoringHeight.fromJson));
+  set elevation(BoringHeight? value) => writeField('elevation', value);
+
+  /// 総削孔長（m）
+  double? get length => readField('length', asDouble);
+  set length(double? value) => writeField('length', value);
+
+  /// 削孔の角度（度）
+  double? get angle => readField('angle', asDouble);
+  set angle(double? value) => writeField('angle', value);
+
+  /// 削孔の方位（度）
+  double? get direction => readField('direction', asDouble);
+  set direction(double? value) => writeField('direction', value);
+
+  /// 工学的地質区分名・現場土質名。文書の順
+  List<BoringLayer>? get layers => readField('layers', listOf(objectOf(BoringLayer.fromJson)));
+  set layers(List<BoringLayer>? value) => writeField('layers', value);
+
+  /// 色調。文書の順
+  List<BoringColor>? get colors => readField('colors', listOf(objectOf(BoringColor.fromJson)));
+  set colors(List<BoringColor>? value) => writeField('colors', value);
+
+  /// 観察記事。文書の順
+  List<BoringObservation>? get observations => readField('observations', listOf(objectOf(BoringObservation.fromJson)));
+  set observations(List<BoringObservation>? value) => writeField('observations', value);
+
+  /// 標準貫入試験。文書の順
+  List<BoringPenetration>? get penetrations => readField('penetrations', listOf(objectOf(BoringPenetration.fromJson)));
+  set penetrations(List<BoringPenetration>? value) => writeField('penetrations', value);
+
+  /// 孔内水位。文書の順
+  List<BoringWaterLevel>? get waterLevels => readField('water_levels', listOf(objectOf(BoringWaterLevel.fromJson)));
+  set waterLevels(List<BoringWaterLevel>? value) => writeField('water_levels', value);
+}
+
+/// 経度・緯度（度）。度・分・秒から求める
+class BoringPosition extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringPosition.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringPosition() : super({});
+
+  /// 緯度（度、北が正）
+  double? get latitude => readField('latitude', asDouble);
+  set latitude(double? value) => writeField('latitude', value);
+
+  /// 経度（度、東が正）
+  double? get longitude => readField('longitude', asDouble);
+  set longitude(double? value) => writeField('longitude', value);
+}
+
+/// 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BoringDatum {
+  static const tokyo = 'tokyo';
+  static const jgd2000 = 'jgd2000';
+  static const jgd2011 = 'jgd2011';
+  static const jgd2024 = 'jgd2024';
+}
+
+/// 標高と、その基準と成果（決定 0019）
+class BoringHeight extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringHeight.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringHeight() : super({});
+
+  /// 標高（m）
+  double? get value => readField('value', asDouble);
+  set value(double? value) => writeField('value', value);
+
+  /// 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする
+  String? get datum => readField('datum', asString);
+  set datum(String? value) => writeField('datum', value);
+
+  /// 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する
+  String? get realization => readField('realization', asString);
+  set realization(String? value) => writeField('realization', value);
+}
+
+/// 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class HeightDatum {
+  static const tokyoBay = 'tokyo_bay';
+  static const island = 'island';
+  static const ellipsoid = 'ellipsoid';
+}
+
+/// 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class HeightRealization {
+  static const survey2011 = 'survey_2011';
+  static const survey2024 = 'survey_2024';
+}
+
+/// 地層の区間。上端は 1 つ前の区間の下端（最初は 0）
+class BoringLayer extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringLayer.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringLayer() : super({});
+
+  /// 下端の深さ（m）
+  double? get bottom => readField('bottom', asDouble);
+  set bottom(double? value) => writeField('bottom', value);
+
+  /// 工学的地質区分名・現場土質名
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 記号
+  String? get symbol => readField('symbol', asString);
+  set symbol(String? value) => writeField('symbol', value);
+}
+
+/// 色調の区間
+class BoringColor extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringColor.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringColor() : super({});
+
+  /// 下端の深さ（m）
+  double? get bottom => readField('bottom', asDouble);
+  set bottom(double? value) => writeField('bottom', value);
+
+  /// 色調の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+}
+
+/// 観察記事
+class BoringObservation extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringObservation.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringObservation() : super({});
+
+  /// 上端の深さ（m）
+  double? get top => readField('top', asDouble);
+  set top(double? value) => writeField('top', value);
+
+  /// 下端の深さ（m）
+  double? get bottom => readField('bottom', asDouble);
+  set bottom(double? value) => writeField('bottom', value);
+
+  /// 記事
+  String? get text => readField('text', asString);
+  set text(String? value) => writeField('text', value);
+}
+
+/// 標準貫入試験
+class BoringPenetration extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringPenetration.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringPenetration() : super({});
+
+  /// 開始の深さ（m）
+  double? get depth => readField('depth', asDouble);
+  set depth(double? value) => writeField('depth', value);
+
+  /// 合計の打撃回数
+  int? get blows => readField('blows', asInt);
+  set blows(int? value) => writeField('blows', value);
+
+  /// 合計の貫入量（mm）
+  double? get penetration => readField('penetration', asDouble);
+  set penetration(double? value) => writeField('penetration', value);
+}
+
+/// 孔内水位
+class BoringWaterLevel extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BoringWaterLevel.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BoringWaterLevel() : super({});
+
+  /// 測定の日（YYYY-MM-DD）
+  String? get date => readField('date', asString);
+  set date(String? value) => writeField('date', value);
+
+  /// 削孔状況のコード
+  String? get state => readField('state', asString);
+  set state(String? value) => writeField('state', value);
+
+  /// 水位の深さ（m）。地表より高ければ負。水位がなければ書かない
+  double? get depth => readField('depth', asDouble);
+  set depth(double? value) => writeField('depth', value);
+
+  /// 水位種別・備考
+  String? get note => readField('note', asString);
+  set note(String? value) => writeField('note', value);
+}
+
 /// 管理ファイルの要約
 class DeliveryManaged extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -6538,4 +6841,5 @@ abstract final class Operations {
   static const deliveryCheck = 'delivery_check';
   static const photo = 'photo';
   static const sheet = 'sheet';
+  static const boring = 'boring';
 }

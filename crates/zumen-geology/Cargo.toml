@@ -1,0 +1,23 @@
+[package]
+name = "zumen-geology"
+description = "zumen の地質・土質調査の成果（ボーリング交換用データ）の読み取り（#390）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["boring"]
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-base = { path = "../zumen-base" }

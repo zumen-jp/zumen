@@ -68,6 +68,7 @@ namespace Zumen.Messages
             ["delivery_check"] = typeof(DeliveryCheckRequest),
             ["photo"] = typeof(PhotoRequest),
             ["sheet"] = typeof(SheetRequest),
+            ["boring"] = typeof(BoringRequest),
         };
     }
 
@@ -7450,6 +7451,387 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+    /// </summary>
+    public sealed record BoringRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "boring";
+
+        /// <summary>
+        /// ボーリング交換用データの入力の名前
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 読んだボーリング。深さは地表からの m（GL.-m）
+    /// </summary>
+    public sealed record BoringResult
+    {
+        /// <summary>
+        /// 適用規格。文書の順
+        /// </summary>
+        [JsonPropertyName("standards")]
+        public IReadOnlyList<string> Standards { get; init; } = default!;
+
+        /// <summary>
+        /// 公開フラグのコード
+        /// </summary>
+        [JsonPropertyName("publication")]
+        public string? Publication { get; init; }
+
+        /// <summary>
+        /// 事業工事名
+        /// </summary>
+        [JsonPropertyName("project")]
+        public string? Project { get; init; }
+
+        /// <summary>
+        /// 調査名
+        /// </summary>
+        [JsonPropertyName("survey")]
+        public string? Survey { get; init; }
+
+        /// <summary>
+        /// ボーリング名
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// ボーリング総数
+        /// </summary>
+        [JsonPropertyName("count")]
+        public ulong? Count { get; init; }
+
+        /// <summary>
+        /// ボーリング連番
+        /// </summary>
+        [JsonPropertyName("serial")]
+        public ulong? Serial { get; init; }
+
+        /// <summary>
+        /// 孔口の位置。測地系は換算しない
+        /// </summary>
+        [JsonPropertyName("position")]
+        public BoringPosition? Position { get; init; }
+
+        /// <summary>
+        /// 位置の測地系
+        /// </summary>
+        [JsonPropertyName("datum")]
+        public string? Datum { get; init; }
+
+        /// <summary>
+        /// 調査位置の住所
+        /// </summary>
+        [JsonPropertyName("address")]
+        public string? Address { get; init; }
+
+        /// <summary>
+        /// 調査期間の始まりの日（YYYY-MM-DD）
+        /// </summary>
+        [JsonPropertyName("start")]
+        public string? Start { get; init; }
+
+        /// <summary>
+        /// 調査期間の終わりの日（YYYY-MM-DD）
+        /// </summary>
+        [JsonPropertyName("end")]
+        public string? End { get; init; }
+
+        /// <summary>
+        /// 孔口標高
+        /// </summary>
+        [JsonPropertyName("elevation")]
+        public BoringHeight? Elevation { get; init; }
+
+        /// <summary>
+        /// 総削孔長（m）
+        /// </summary>
+        [JsonPropertyName("length")]
+        public double? Length { get; init; }
+
+        /// <summary>
+        /// 削孔の角度（度）
+        /// </summary>
+        [JsonPropertyName("angle")]
+        public double? Angle { get; init; }
+
+        /// <summary>
+        /// 削孔の方位（度）
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public double? Direction { get; init; }
+
+        /// <summary>
+        /// 工学的地質区分名・現場土質名。文書の順
+        /// </summary>
+        [JsonPropertyName("layers")]
+        public IReadOnlyList<BoringLayer> Layers { get; init; } = default!;
+
+        /// <summary>
+        /// 色調。文書の順
+        /// </summary>
+        [JsonPropertyName("colors")]
+        public IReadOnlyList<BoringColor> Colors { get; init; } = default!;
+
+        /// <summary>
+        /// 観察記事。文書の順
+        /// </summary>
+        [JsonPropertyName("observations")]
+        public IReadOnlyList<BoringObservation> Observations { get; init; } = default!;
+
+        /// <summary>
+        /// 標準貫入試験。文書の順
+        /// </summary>
+        [JsonPropertyName("penetrations")]
+        public IReadOnlyList<BoringPenetration> Penetrations { get; init; } = default!;
+
+        /// <summary>
+        /// 孔内水位。文書の順
+        /// </summary>
+        [JsonPropertyName("water_levels")]
+        public IReadOnlyList<BoringWaterLevel> WaterLevels { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 経度・緯度（度）。度・分・秒から求める
+    /// </summary>
+    public sealed record BoringPosition
+    {
+        /// <summary>
+        /// 緯度（度、北が正）
+        /// </summary>
+        [JsonPropertyName("latitude")]
+        public double Latitude { get; init; }
+
+        /// <summary>
+        /// 経度（度、東が正）
+        /// </summary>
+        [JsonPropertyName("longitude")]
+        public double Longitude { get; init; }
+    }
+
+    /// <summary>
+    /// 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
+    /// </summary>
+    public static class BoringDatum
+    {
+        /// <summary>tokyo</summary>
+        public const string Tokyo = "tokyo";
+        /// <summary>jgd2000</summary>
+        public const string Jgd2000 = "jgd2000";
+        /// <summary>jgd2011</summary>
+        public const string Jgd2011 = "jgd2011";
+        /// <summary>jgd2024</summary>
+        public const string Jgd2024 = "jgd2024";
+    }
+
+    /// <summary>
+    /// 標高と、その基準と成果（決定 0019）
+    /// </summary>
+    public sealed record BoringHeight
+    {
+        /// <summary>
+        /// 標高（m）
+        /// </summary>
+        [JsonPropertyName("value")]
+        public double Value { get; init; }
+
+        /// <summary>
+        /// 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする
+        /// </summary>
+        [JsonPropertyName("datum")]
+        public string Datum { get; init; } = default!;
+
+        /// <summary>
+        /// 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する
+        /// </summary>
+        [JsonPropertyName("realization")]
+        public string Realization { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
+    /// </summary>
+    public static class HeightDatum
+    {
+        /// <summary>tokyo_bay</summary>
+        public const string TokyoBay = "tokyo_bay";
+        /// <summary>island</summary>
+        public const string Island = "island";
+        /// <summary>ellipsoid</summary>
+        public const string Ellipsoid = "ellipsoid";
+    }
+
+    /// <summary>
+    /// 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
+    /// </summary>
+    public static class HeightRealization
+    {
+        /// <summary>survey_2011</summary>
+        public const string Survey2011 = "survey_2011";
+        /// <summary>survey_2024</summary>
+        public const string Survey2024 = "survey_2024";
+    }
+
+    /// <summary>
+    /// 地層の区間。上端は 1 つ前の区間の下端（最初は 0）
+    /// </summary>
+    public sealed record BoringLayer
+    {
+        /// <summary>
+        /// 下端の深さ（m）
+        /// </summary>
+        [JsonPropertyName("bottom")]
+        public double Bottom { get; init; }
+
+        /// <summary>
+        /// 工学的地質区分名・現場土質名
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 記号
+        /// </summary>
+        [JsonPropertyName("symbol")]
+        public string? Symbol { get; init; }
+    }
+
+    /// <summary>
+    /// 色調の区間
+    /// </summary>
+    public sealed record BoringColor
+    {
+        /// <summary>
+        /// 下端の深さ（m）
+        /// </summary>
+        [JsonPropertyName("bottom")]
+        public double Bottom { get; init; }
+
+        /// <summary>
+        /// 色調の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+    }
+
+    /// <summary>
+    /// 観察記事
+    /// </summary>
+    public sealed record BoringObservation
+    {
+        /// <summary>
+        /// 上端の深さ（m）
+        /// </summary>
+        [JsonPropertyName("top")]
+        public double Top { get; init; }
+
+        /// <summary>
+        /// 下端の深さ（m）
+        /// </summary>
+        [JsonPropertyName("bottom")]
+        public double Bottom { get; init; }
+
+        /// <summary>
+        /// 記事
+        /// </summary>
+        [JsonPropertyName("text")]
+        public string? Text { get; init; }
+    }
+
+    /// <summary>
+    /// 標準貫入試験
+    /// </summary>
+    public sealed record BoringPenetration
+    {
+        /// <summary>
+        /// 開始の深さ（m）
+        /// </summary>
+        [JsonPropertyName("depth")]
+        public double Depth { get; init; }
+
+        /// <summary>
+        /// 合計の打撃回数
+        /// </summary>
+        [JsonPropertyName("blows")]
+        public ulong Blows { get; init; }
+
+        /// <summary>
+        /// 合計の貫入量（mm）
+        /// </summary>
+        [JsonPropertyName("penetration")]
+        public double Penetration { get; init; }
+    }
+
+    /// <summary>
+    /// 孔内水位
+    /// </summary>
+    public sealed record BoringWaterLevel
+    {
+        /// <summary>
+        /// 測定の日（YYYY-MM-DD）
+        /// </summary>
+        [JsonPropertyName("date")]
+        public string? Date { get; init; }
+
+        /// <summary>
+        /// 削孔状況のコード
+        /// </summary>
+        [JsonPropertyName("state")]
+        public string? State { get; init; }
+
+        /// <summary>
+        /// 水位の深さ（m）。地表より高ければ負。水位がなければ書かない
+        /// </summary>
+        [JsonPropertyName("depth")]
+        public double? Depth { get; init; }
+
+        /// <summary>
+        /// 水位種別・備考
+        /// </summary>
+        [JsonPropertyName("note")]
+        public string? Note { get; init; }
+    }
+
+    /// <summary>
     /// 管理ファイルの要約
     /// </summary>
     public sealed record DeliveryManaged
@@ -8288,6 +8670,7 @@ namespace Zumen.Messages
                 ["delivery_check"] = (typeof(DeliveryCheckRequest), typeof(DeliveryCheckResult)),
                 ["photo"] = (typeof(PhotoRequest), typeof(PhotoResult)),
                 ["sheet"] = (typeof(SheetRequest), typeof(SheetResult)),
+                ["boring"] = (typeof(BoringRequest), typeof(BoringResult)),
             };
     }
 }

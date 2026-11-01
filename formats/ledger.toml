@@ -841,6 +841,7 @@ rights-note = "国土交通省が要領と DTD を無償で公開している。
 place = "core"
 basis = ["spec"]
 samples = ["国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる"]
+docs = ["docs/formats/boring.md"]
 issues = ["zumen-jp/zumen#390"]
 
 [[formats.boring.evidence]]

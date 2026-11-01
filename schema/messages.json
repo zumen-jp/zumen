@@ -34,7 +34,8 @@
         { "$ref": "#/$defs/geo_request" },
         { "$ref": "#/$defs/delivery_check_request" },
         { "$ref": "#/$defs/photo_request" },
-        { "$ref": "#/$defs/sheet_request" }
+        { "$ref": "#/$defs/sheet_request" },
+        { "$ref": "#/$defs/boring_request" }
       ]
     },
     "request_common": {
@@ -3811,6 +3812,183 @@
         "last_column": { "description": "最後の列", "type": "integer", "minimum": 0 }
       },
       "required": ["first_row", "first_column", "last_row", "last_column"],
+      "additionalProperties": false
+    },
+    "boring_request": {
+      "description": "地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "boring"
+        },
+        "input": {
+          "description": "ボーリング交換用データの入力の名前",
+          "type": "string"
+        }
+      },
+      "required": ["op", "input"],
+      "unevaluatedProperties": false
+    },
+    "boring_result": {
+      "description": "読んだボーリング。深さは地表からの m（GL.-m）",
+      "type": "object",
+      "properties": {
+        "standards": {
+          "description": "適用規格。文書の順",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "publication": { "description": "公開フラグのコード", "type": "string" },
+        "project": { "description": "事業工事名", "type": "string" },
+        "survey": { "description": "調査名", "type": "string" },
+        "name": { "description": "ボーリング名", "type": "string" },
+        "count": { "description": "ボーリング総数", "type": "integer", "minimum": 0 },
+        "serial": { "description": "ボーリング連番", "type": "integer", "minimum": 0 },
+        "position": {
+          "description": "孔口の位置。測地系は換算しない",
+          "$ref": "#/$defs/boring_position"
+        },
+        "datum": {
+          "description": "位置の測地系",
+          "$ref": "#/$defs/boring_datum"
+        },
+        "address": { "description": "調査位置の住所", "type": "string" },
+        "start": { "description": "調査期間の始まりの日（YYYY-MM-DD）", "type": "string" },
+        "end": { "description": "調査期間の終わりの日（YYYY-MM-DD）", "type": "string" },
+        "elevation": {
+          "description": "孔口標高",
+          "$ref": "#/$defs/boring_height"
+        },
+        "length": { "description": "総削孔長（m）", "type": "number" },
+        "angle": { "description": "削孔の角度（度）", "type": "number" },
+        "direction": { "description": "削孔の方位（度）", "type": "number" },
+        "layers": {
+          "description": "工学的地質区分名・現場土質名。文書の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boring_layer" }
+        },
+        "colors": {
+          "description": "色調。文書の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boring_color" }
+        },
+        "observations": {
+          "description": "観察記事。文書の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boring_observation" }
+        },
+        "penetrations": {
+          "description": "標準貫入試験。文書の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boring_penetration" }
+        },
+        "water_levels": {
+          "description": "孔内水位。文書の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/boring_water_level" }
+        }
+      },
+      "required": ["standards", "layers", "colors", "observations", "penetrations", "water_levels"],
+      "additionalProperties": false
+    },
+    "boring_position": {
+      "description": "経度・緯度（度）。度・分・秒から求める",
+      "type": "object",
+      "properties": {
+        "latitude": { "description": "緯度（度、北が正）", "type": "number" },
+        "longitude": { "description": "経度（度、東が正）", "type": "number" }
+      },
+      "required": ["latitude", "longitude"],
+      "additionalProperties": false
+    },
+    "boring_datum": {
+      "description": "測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）",
+      "type": "string",
+      "enum": ["tokyo", "jgd2000", "jgd2011", "jgd2024"]
+    },
+    "boring_height": {
+      "description": "標高と、その基準と成果（決定 0019）",
+      "type": "object",
+      "properties": {
+        "value": { "description": "標高（m）", "type": "number" },
+        "datum": {
+          "description": "高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする",
+          "$ref": "#/$defs/height_datum"
+        },
+        "realization": {
+          "description": "成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する",
+          "$ref": "#/$defs/height_realization"
+        }
+      },
+      "required": ["value", "datum", "realization"],
+      "additionalProperties": false
+    },
+    "height_datum": {
+      "description": "高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）",
+      "type": "string",
+      "enum": ["tokyo_bay", "island", "ellipsoid"]
+    },
+    "height_realization": {
+      "description": "標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）",
+      "type": "string",
+      "enum": ["survey_2011", "survey_2024"]
+    },
+    "boring_layer": {
+      "description": "地層の区間。上端は 1 つ前の区間の下端（最初は 0）",
+      "type": "object",
+      "properties": {
+        "bottom": { "description": "下端の深さ（m）", "type": "number" },
+        "name": { "description": "工学的地質区分名・現場土質名", "type": "string" },
+        "symbol": { "description": "記号", "type": "string" }
+      },
+      "required": ["bottom", "name"],
+      "additionalProperties": false
+    },
+    "boring_color": {
+      "description": "色調の区間",
+      "type": "object",
+      "properties": {
+        "bottom": { "description": "下端の深さ（m）", "type": "number" },
+        "name": { "description": "色調の名前", "type": "string" }
+      },
+      "required": ["bottom"],
+      "additionalProperties": false
+    },
+    "boring_observation": {
+      "description": "観察記事",
+      "type": "object",
+      "properties": {
+        "top": { "description": "上端の深さ（m）", "type": "number" },
+        "bottom": { "description": "下端の深さ（m）", "type": "number" },
+        "text": { "description": "記事", "type": "string" }
+      },
+      "required": ["top", "bottom"],
+      "additionalProperties": false
+    },
+    "boring_penetration": {
+      "description": "標準貫入試験",
+      "type": "object",
+      "properties": {
+        "depth": { "description": "開始の深さ（m）", "type": "number" },
+        "blows": { "description": "合計の打撃回数", "type": "integer", "minimum": 0 },
+        "penetration": { "description": "合計の貫入量（mm）", "type": "number" }
+      },
+      "required": ["depth", "blows", "penetration"],
+      "additionalProperties": false
+    },
+    "boring_water_level": {
+      "description": "孔内水位",
+      "type": "object",
+      "properties": {
+        "date": { "description": "測定の日（YYYY-MM-DD）", "type": "string" },
+        "state": { "description": "削孔状況のコード", "type": "string" },
+        "depth": { "description": "水位の深さ（m）。地表より高ければ負。水位がなければ書かない", "type": "number" },
+        "note": { "description": "水位種別・備考", "type": "string" }
+      },
       "additionalProperties": false
     },
     "delivery_managed": {

@@ -37,6 +37,7 @@ Request = Union[
     "DeliveryCheckRequest",
     "PhotoRequest",
     "SheetRequest",
+    "BoringRequest",
 ]
 
 
@@ -4745,6 +4746,255 @@ SheetArea = TypedDict(
 )
 
 
+# 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+_BoringRequestRequired = TypedDict(
+    "_BoringRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["boring"],
+        # ボーリング交換用データの入力の名前
+        "input": str,
+    },
+)
+_BoringRequestOptional = TypedDict(
+    "_BoringRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+    },
+    total=False,
+)
+
+
+class BoringRequest(_BoringRequestRequired, _BoringRequestOptional):
+    "地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から"
+
+
+# 読んだボーリング。深さは地表からの m（GL.-m）
+_BoringResultRequired = TypedDict(
+    "_BoringResultRequired",
+    {
+        # 適用規格。文書の順
+        "standards": List[str],
+        # 工学的地質区分名・現場土質名。文書の順
+        "layers": List["BoringLayer"],
+        # 色調。文書の順
+        "colors": List["BoringColor"],
+        # 観察記事。文書の順
+        "observations": List["BoringObservation"],
+        # 標準貫入試験。文書の順
+        "penetrations": List["BoringPenetration"],
+        # 孔内水位。文書の順
+        "water_levels": List["BoringWaterLevel"],
+    },
+)
+_BoringResultOptional = TypedDict(
+    "_BoringResultOptional",
+    {
+        # 公開フラグのコード
+        "publication": str,
+        # 事業工事名
+        "project": str,
+        # 調査名
+        "survey": str,
+        # ボーリング名
+        "name": str,
+        # ボーリング総数
+        "count": int,
+        # ボーリング連番
+        "serial": int,
+        # 孔口の位置。測地系は換算しない
+        "position": "BoringPosition",
+        # 位置の測地系
+        "datum": "BoringDatum",
+        # 調査位置の住所
+        "address": str,
+        # 調査期間の始まりの日（YYYY-MM-DD）
+        "start": str,
+        # 調査期間の終わりの日（YYYY-MM-DD）
+        "end": str,
+        # 孔口標高
+        "elevation": "BoringHeight",
+        # 総削孔長（m）
+        "length": float,
+        # 削孔の角度（度）
+        "angle": float,
+        # 削孔の方位（度）
+        "direction": float,
+    },
+    total=False,
+)
+
+
+class BoringResult(_BoringResultRequired, _BoringResultOptional):
+    "読んだボーリング。深さは地表からの m（GL.-m）"
+
+
+# 経度・緯度（度）。度・分・秒から求める
+BoringPosition = TypedDict(
+    "BoringPosition",
+    {
+        # 緯度（度、北が正）
+        "latitude": float,
+        # 経度（度、東が正）
+        "longitude": float,
+    },
+)
+
+# 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
+BoringDatum = Union[
+    Literal[
+        "tokyo",
+        "jgd2000",
+        "jgd2011",
+        "jgd2024",
+    ],
+    str,
+]
+
+
+# 標高と、その基準と成果（決定 0019）
+BoringHeight = TypedDict(
+    "BoringHeight",
+    {
+        # 標高（m）
+        "value": float,
+        # 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする
+        "datum": "HeightDatum",
+        # 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する
+        "realization": "HeightRealization",
+    },
+)
+
+# 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
+HeightDatum = Union[
+    Literal[
+        "tokyo_bay",
+        "island",
+        "ellipsoid",
+    ],
+    str,
+]
+
+# 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
+HeightRealization = Union[
+    Literal[
+        "survey_2011",
+        "survey_2024",
+    ],
+    str,
+]
+
+
+# 地層の区間。上端は 1 つ前の区間の下端（最初は 0）
+_BoringLayerRequired = TypedDict(
+    "_BoringLayerRequired",
+    {
+        # 下端の深さ（m）
+        "bottom": float,
+        # 工学的地質区分名・現場土質名
+        "name": str,
+    },
+)
+_BoringLayerOptional = TypedDict(
+    "_BoringLayerOptional",
+    {
+        # 記号
+        "symbol": str,
+    },
+    total=False,
+)
+
+
+class BoringLayer(_BoringLayerRequired, _BoringLayerOptional):
+    "地層の区間。上端は 1 つ前の区間の下端（最初は 0）"
+
+
+# 色調の区間
+_BoringColorRequired = TypedDict(
+    "_BoringColorRequired",
+    {
+        # 下端の深さ（m）
+        "bottom": float,
+    },
+)
+_BoringColorOptional = TypedDict(
+    "_BoringColorOptional",
+    {
+        # 色調の名前
+        "name": str,
+    },
+    total=False,
+)
+
+
+class BoringColor(_BoringColorRequired, _BoringColorOptional):
+    "色調の区間"
+
+
+# 観察記事
+_BoringObservationRequired = TypedDict(
+    "_BoringObservationRequired",
+    {
+        # 上端の深さ（m）
+        "top": float,
+        # 下端の深さ（m）
+        "bottom": float,
+    },
+)
+_BoringObservationOptional = TypedDict(
+    "_BoringObservationOptional",
+    {
+        # 記事
+        "text": str,
+    },
+    total=False,
+)
+
+
+class BoringObservation(_BoringObservationRequired, _BoringObservationOptional):
+    "観察記事"
+
+
+# 標準貫入試験
+BoringPenetration = TypedDict(
+    "BoringPenetration",
+    {
+        # 開始の深さ（m）
+        "depth": float,
+        # 合計の打撃回数
+        "blows": int,
+        # 合計の貫入量（mm）
+        "penetration": float,
+    },
+)
+
+
+# 孔内水位
+BoringWaterLevel = TypedDict(
+    "BoringWaterLevel",
+    {
+        # 測定の日（YYYY-MM-DD）
+        "date": str,
+        # 削孔状況のコード
+        "state": str,
+        # 水位の深さ（m）。地表より高ければ負。水位がなければ書かない
+        "depth": float,
+        # 水位種別・備考
+        "note": str,
+    },
+    total=False,
+)
+
+
 # 管理ファイルの要約
 _DeliveryManagedRequired = TypedDict(
     "_DeliveryManagedRequired",
@@ -5267,6 +5517,7 @@ Operation = Literal[
     "delivery_check",
     "photo",
     "sheet",
+    "boring",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -5299,4 +5550,5 @@ OPERATIONS: Dict[str, Any] = {
     "delivery_check": ("DeliveryCheckRequest", "DeliveryCheckResult"),
     "photo": ("PhotoRequest", "PhotoResult"),
     "sheet": ("SheetRequest", "SheetResult"),
+    "boring": ("BoringRequest", "BoringResult"),
 }

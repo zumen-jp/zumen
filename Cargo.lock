@@ -354,6 +354,7 @@ dependencies = [
  "zumen-drawing",
  "zumen-e57",
  "zumen-geo",
+ "zumen-geology",
  "zumen-geom2d",
  "zumen-geom3d",
  "zumen-ids",
@@ -543,6 +544,16 @@ dependencies = [
  "zumen-base",
  "zumen-crs",
  "zumen-geom3d",
+]
+
+[[package]]
+name = "zumen-geology"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-crs",
+ "zumen-sdk",
+ "zumen-xml",
 ]
 
 [[package]]

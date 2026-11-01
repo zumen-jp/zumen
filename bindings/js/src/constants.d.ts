@@ -31,7 +31,7 @@ export declare const WASM_EXPORTS: readonly string[];
 
 /** wasm のモジュールの名前（決定 0013・0221） */
 export type ModuleName =
-  /** 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品・工事写真・表 */
+  /** 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品・工事写真・表・ボーリング交換用データ */
   | "drawing"
   /** IFC と建物モデル、EXPRESS・IDS の照合と BCF */
   | "bim";

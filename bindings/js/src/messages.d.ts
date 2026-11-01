@@ -33,7 +33,8 @@ export type Request =
   | GeoRequest
   | DeliveryCheckRequest
   | PhotoRequest
-  | SheetRequest;
+  | SheetRequest
+  | BoringRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2708,6 +2709,149 @@ export interface SheetArea {
   last_column: number;
 }
 
+/** 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から */
+export interface BoringRequest extends RequestCommon {
+  /** op の名前 */
+  op: "boring";
+  /** ボーリング交換用データの入力の名前 */
+  input: string;
+}
+
+/** 読んだボーリング。深さは地表からの m（GL.-m） */
+export interface BoringResult {
+  /** 適用規格。文書の順 */
+  standards: string[];
+  /** 公開フラグのコード */
+  publication?: string;
+  /** 事業工事名 */
+  project?: string;
+  /** 調査名 */
+  survey?: string;
+  /** ボーリング名 */
+  name?: string;
+  /** ボーリング総数 */
+  count?: number;
+  /** ボーリング連番 */
+  serial?: number;
+  /** 孔口の位置。測地系は換算しない */
+  position?: BoringPosition;
+  /** 位置の測地系 */
+  datum?: BoringDatum;
+  /** 調査位置の住所 */
+  address?: string;
+  /** 調査期間の始まりの日（YYYY-MM-DD） */
+  start?: string;
+  /** 調査期間の終わりの日（YYYY-MM-DD） */
+  end?: string;
+  /** 孔口標高 */
+  elevation?: BoringHeight;
+  /** 総削孔長（m） */
+  length?: number;
+  /** 削孔の角度（度） */
+  angle?: number;
+  /** 削孔の方位（度） */
+  direction?: number;
+  /** 工学的地質区分名・現場土質名。文書の順 */
+  layers: BoringLayer[];
+  /** 色調。文書の順 */
+  colors: BoringColor[];
+  /** 観察記事。文書の順 */
+  observations: BoringObservation[];
+  /** 標準貫入試験。文書の順 */
+  penetrations: BoringPenetration[];
+  /** 孔内水位。文書の順 */
+  water_levels: BoringWaterLevel[];
+}
+
+/** 経度・緯度（度）。度・分・秒から求める */
+export interface BoringPosition {
+  /** 緯度（度、北が正） */
+  latitude: number;
+  /** 経度（度、東が正） */
+  longitude: number;
+}
+
+/** 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03） */
+export type BoringDatum =
+  | "tokyo"
+  | "jgd2000"
+  | "jgd2011"
+  | "jgd2024"
+  | (string & {});
+
+/** 標高と、その基準と成果（決定 0019） */
+export interface BoringHeight {
+  /** 標高（m） */
+  value: number;
+  /** 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする */
+  datum: HeightDatum;
+  /** 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する */
+  realization: HeightRealization;
+}
+
+/** 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80） */
+export type HeightDatum =
+  | "tokyo_bay"
+  | "island"
+  | "ellipsoid"
+  | (string & {});
+
+/** 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から） */
+export type HeightRealization =
+  | "survey_2011"
+  | "survey_2024"
+  | (string & {});
+
+/** 地層の区間。上端は 1 つ前の区間の下端（最初は 0） */
+export interface BoringLayer {
+  /** 下端の深さ（m） */
+  bottom: number;
+  /** 工学的地質区分名・現場土質名 */
+  name: string;
+  /** 記号 */
+  symbol?: string;
+}
+
+/** 色調の区間 */
+export interface BoringColor {
+  /** 下端の深さ（m） */
+  bottom: number;
+  /** 色調の名前 */
+  name?: string;
+}
+
+/** 観察記事 */
+export interface BoringObservation {
+  /** 上端の深さ（m） */
+  top: number;
+  /** 下端の深さ（m） */
+  bottom: number;
+  /** 記事 */
+  text?: string;
+}
+
+/** 標準貫入試験 */
+export interface BoringPenetration {
+  /** 開始の深さ（m） */
+  depth: number;
+  /** 合計の打撃回数 */
+  blows: number;
+  /** 合計の貫入量（mm） */
+  penetration: number;
+}
+
+/** 孔内水位 */
+export interface BoringWaterLevel {
+  /** 測定の日（YYYY-MM-DD） */
+  date?: string;
+  /** 削孔状況のコード */
+  state?: string;
+  /** 水位の深さ（m）。地表より高ければ負。水位がなければ書かない */
+  depth?: number;
+  /** 水位種別・備考 */
+  note?: string;
+}
+
 /** 管理ファイルの要約 */
 export interface DeliveryManaged {
   /** 成果品の中の名前 */
@@ -3017,4 +3161,5 @@ export interface Operations {
   delivery_check: { request: DeliveryCheckRequest; result: DeliveryCheckResult };
   photo: { request: PhotoRequest; result: PhotoResult };
   sheet: { request: SheetRequest; result: SheetResult };
+  boring: { request: BoringRequest; result: BoringResult };
 }

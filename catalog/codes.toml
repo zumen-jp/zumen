@@ -2105,6 +2105,28 @@ params = { line = "uint" }
 since = "0.2.0"
 status = "active"
 
+[codes."boring.file.invalid"]
+description = "XML として読めないか、根の要素がボーリング情報でないので、ボーリング交換用データとして読まなかった（#390）"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."boring.value.invalid"]
+description = "ボーリング交換用データの値が数かコードとして読めないので、その値を飛ばした（#390）。name は要素の名前"
+severity = "warning"
+params = { name = "text", value = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."boring.element.unsupported"]
+description = "ボーリング交換用データの要素を読まなかった（#390）。読むのは位置・標高・地層・色調・観察記事・標準貫入試験・孔内水位で、ほかの試験・判定表・削孔の記録・調査会社などは読まない。要素の名前ごとに 1 つ"
+severity = "info"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
 [codes."delivery.name.unsafe"]
 description = "成果品の中の名前に、空の部分・.・..・\\ を含むか、/ で始まるので、そのファイルを読まなかった"
 severity = "warning"

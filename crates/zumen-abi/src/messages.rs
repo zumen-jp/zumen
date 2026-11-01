@@ -67,6 +67,8 @@ pub enum Request {
     Photo(PhotoRequest),
     /// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
     Sheet(SheetRequest),
+    /// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+    Boring(BoringRequest),
 }
 
 impl Request {
@@ -100,6 +102,7 @@ impl Request {
         "delivery_check",
         "photo",
         "sheet",
+        "boring",
     ];
 
     /// 目印の欄（`op`）の値
@@ -133,6 +136,7 @@ impl Request {
             Self::DeliveryCheck(_) => "delivery_check",
             Self::Photo(_) => "photo",
             Self::Sheet(_) => "sheet",
+            Self::Boring(_) => "boring",
         }
     }
 }
@@ -175,6 +179,7 @@ impl FromJson for Request {
             }
             "photo" => Self::Photo(PhotoRequest::read_fields(&mut object)?),
             "sheet" => Self::Sheet(SheetRequest::read_fields(&mut object)?),
+            "boring" => Self::Boring(BoringRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -213,6 +218,7 @@ impl ToJson for Request {
             Self::DeliveryCheck(value) => value.to_json(out),
             Self::Photo(value) => value.to_json(out),
             Self::Sheet(value) => value.to_json(out),
+            Self::Boring(value) => value.to_json(out),
         }
     }
 }
@@ -13448,6 +13454,740 @@ impl FromJson for SheetArea {
 }
 
 impl ToJson for SheetArea {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// ボーリング交換用データの入力の名前
+    pub input: String,
+}
+
+impl BoringRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "boring")?;
+        let input = object.required("input", json::string)?;
+        Ok(Self {
+            request_common,
+            input,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("boring");
+        out.key("input");
+        out.string(&self.input);
+    }
+}
+
+impl FromJson for BoringRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 読んだボーリング。深さは地表からの m（GL.-m）
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringResult {
+    /// 適用規格。文書の順
+    pub standards: Vec<String>,
+    /// 公開フラグのコード
+    pub publication: Option<String>,
+    /// 事業工事名
+    pub project: Option<String>,
+    /// 調査名
+    pub survey: Option<String>,
+    /// ボーリング名
+    pub name: Option<String>,
+    /// ボーリング総数
+    pub count: Option<u64>,
+    /// ボーリング連番
+    pub serial: Option<u64>,
+    /// 孔口の位置。測地系は換算しない
+    pub position: Option<BoringPosition>,
+    /// 位置の測地系
+    pub datum: Option<BoringDatum>,
+    /// 調査位置の住所
+    pub address: Option<String>,
+    /// 調査期間の始まりの日（YYYY-MM-DD）
+    pub start: Option<String>,
+    /// 調査期間の終わりの日（YYYY-MM-DD）
+    pub end: Option<String>,
+    /// 孔口標高
+    pub elevation: Option<BoringHeight>,
+    /// 総削孔長（m）
+    pub length: Option<f64>,
+    /// 削孔の角度（度）
+    pub angle: Option<f64>,
+    /// 削孔の方位（度）
+    pub direction: Option<f64>,
+    /// 工学的地質区分名・現場土質名。文書の順
+    pub layers: Vec<BoringLayer>,
+    /// 色調。文書の順
+    pub colors: Vec<BoringColor>,
+    /// 観察記事。文書の順
+    pub observations: Vec<BoringObservation>,
+    /// 標準貫入試験。文書の順
+    pub penetrations: Vec<BoringPenetration>,
+    /// 孔内水位。文書の順
+    pub water_levels: Vec<BoringWaterLevel>,
+}
+
+impl BoringResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let standards = object.required("standards", |value| json::array(value, json::string))?;
+        let publication = object.optional("publication", json::string)?;
+        let project = object.optional("project", json::string)?;
+        let survey = object.optional("survey", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let count = object.optional("count", |value| json::uint(value, 0, 9007199254740991))?;
+        let serial = object.optional("serial", |value| json::uint(value, 0, 9007199254740991))?;
+        let position = object.optional("position", BoringPosition::from_json)?;
+        let datum = object.optional("datum", BoringDatum::from_json)?;
+        let address = object.optional("address", json::string)?;
+        let start = object.optional("start", json::string)?;
+        let end = object.optional("end", json::string)?;
+        let elevation = object.optional("elevation", BoringHeight::from_json)?;
+        let length = object.optional("length", json::number)?;
+        let angle = object.optional("angle", json::number)?;
+        let direction = object.optional("direction", json::number)?;
+        let layers =
+            object.required("layers", |value| json::array(value, BoringLayer::from_json))?;
+        let colors =
+            object.required("colors", |value| json::array(value, BoringColor::from_json))?;
+        let observations = object.required("observations", |value| {
+            json::array(value, BoringObservation::from_json)
+        })?;
+        let penetrations = object.required("penetrations", |value| {
+            json::array(value, BoringPenetration::from_json)
+        })?;
+        let water_levels = object.required("water_levels", |value| {
+            json::array(value, BoringWaterLevel::from_json)
+        })?;
+        Ok(Self {
+            standards,
+            publication,
+            project,
+            survey,
+            name,
+            count,
+            serial,
+            position,
+            datum,
+            address,
+            start,
+            end,
+            elevation,
+            length,
+            angle,
+            direction,
+            layers,
+            colors,
+            observations,
+            penetrations,
+            water_levels,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("standards");
+        out.array(&self.standards, |out, item| out.string(item));
+        if let Some(value) = &self.publication {
+            out.key("publication");
+            out.string(value);
+        }
+        if let Some(value) = &self.project {
+            out.key("project");
+            out.string(value);
+        }
+        if let Some(value) = &self.survey {
+            out.key("survey");
+            out.string(value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.count {
+            out.key("count");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.serial {
+            out.key("serial");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.position {
+            out.key("position");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.datum {
+            out.key("datum");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.address {
+            out.key("address");
+            out.string(value);
+        }
+        if let Some(value) = &self.start {
+            out.key("start");
+            out.string(value);
+        }
+        if let Some(value) = &self.end {
+            out.key("end");
+            out.string(value);
+        }
+        if let Some(value) = &self.elevation {
+            out.key("elevation");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.length {
+            out.key("length");
+            out.float(*value);
+        }
+        if let Some(value) = &self.angle {
+            out.key("angle");
+            out.float(*value);
+        }
+        if let Some(value) = &self.direction {
+            out.key("direction");
+            out.float(*value);
+        }
+        out.key("layers");
+        out.array(&self.layers, |out, item| item.to_json(out));
+        out.key("colors");
+        out.array(&self.colors, |out, item| item.to_json(out));
+        out.key("observations");
+        out.array(&self.observations, |out, item| item.to_json(out));
+        out.key("penetrations");
+        out.array(&self.penetrations, |out, item| item.to_json(out));
+        out.key("water_levels");
+        out.array(&self.water_levels, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for BoringResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 経度・緯度（度）。度・分・秒から求める
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringPosition {
+    /// 緯度（度、北が正）
+    pub latitude: f64,
+    /// 経度（度、東が正）
+    pub longitude: f64,
+}
+
+impl BoringPosition {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let latitude = object.required("latitude", json::number)?;
+        let longitude = object.required("longitude", json::number)?;
+        Ok(Self {
+            latitude,
+            longitude,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("latitude");
+        out.float(self.latitude);
+        out.key("longitude");
+        out.float(self.longitude);
+    }
+}
+
+impl FromJson for BoringPosition {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringPosition {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BoringDatum {
+    /// `tokyo`
+    Tokyo,
+    /// `jgd2000`
+    Jgd2000,
+    /// `jgd2011`
+    Jgd2011,
+    /// `jgd2024`
+    Jgd2024,
+}
+
+impl BoringDatum {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Tokyo, Self::Jgd2000, Self::Jgd2011, Self::Jgd2024];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Tokyo => "tokyo",
+            Self::Jgd2000 => "jgd2000",
+            Self::Jgd2011 => "jgd2011",
+            Self::Jgd2024 => "jgd2024",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "tokyo" => Some(Self::Tokyo),
+            "jgd2000" => Some(Self::Jgd2000),
+            "jgd2011" => Some(Self::Jgd2011),
+            "jgd2024" => Some(Self::Jgd2024),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BoringDatum {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BoringDatum {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 標高と、その基準と成果（決定 0019）
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringHeight {
+    /// 標高（m）
+    pub value: f64,
+    /// 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする
+    pub datum: HeightDatum,
+    /// 成果。測地系が jgd2024 なら survey_2024、そうでなければ調査の日から仮定する
+    pub realization: HeightRealization,
+}
+
+impl BoringHeight {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let value = object.required("value", json::number)?;
+        let datum = object.required("datum", HeightDatum::from_json)?;
+        let realization = object.required("realization", HeightRealization::from_json)?;
+        Ok(Self {
+            value,
+            datum,
+            realization,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("value");
+        out.float(self.value);
+        out.key("datum");
+        self.datum.to_json(out);
+        out.key("realization");
+        self.realization.to_json(out);
+    }
+}
+
+impl FromJson for BoringHeight {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringHeight {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HeightDatum {
+    /// `tokyo_bay`
+    TokyoBay,
+    /// `island`
+    Island,
+    /// `ellipsoid`
+    Ellipsoid,
+}
+
+impl HeightDatum {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::TokyoBay, Self::Island, Self::Ellipsoid];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::TokyoBay => "tokyo_bay",
+            Self::Island => "island",
+            Self::Ellipsoid => "ellipsoid",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "tokyo_bay" => Some(Self::TokyoBay),
+            "island" => Some(Self::Island),
+            "ellipsoid" => Some(Self::Ellipsoid),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for HeightDatum {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for HeightDatum {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HeightRealization {
+    /// `survey_2011`
+    Survey2011,
+    /// `survey_2024`
+    Survey2024,
+}
+
+impl HeightRealization {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Survey2011, Self::Survey2024];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Survey2011 => "survey_2011",
+            Self::Survey2024 => "survey_2024",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "survey_2011" => Some(Self::Survey2011),
+            "survey_2024" => Some(Self::Survey2024),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for HeightRealization {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for HeightRealization {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 地層の区間。上端は 1 つ前の区間の下端（最初は 0）
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringLayer {
+    /// 下端の深さ（m）
+    pub bottom: f64,
+    /// 工学的地質区分名・現場土質名
+    pub name: String,
+    /// 記号
+    pub symbol: Option<String>,
+}
+
+impl BoringLayer {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let bottom = object.required("bottom", json::number)?;
+        let name = object.required("name", json::string)?;
+        let symbol = object.optional("symbol", json::string)?;
+        Ok(Self {
+            bottom,
+            name,
+            symbol,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("bottom");
+        out.float(self.bottom);
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.symbol {
+            out.key("symbol");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BoringLayer {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringLayer {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 色調の区間
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringColor {
+    /// 下端の深さ（m）
+    pub bottom: f64,
+    /// 色調の名前
+    pub name: Option<String>,
+}
+
+impl BoringColor {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let bottom = object.required("bottom", json::number)?;
+        let name = object.optional("name", json::string)?;
+        Ok(Self { bottom, name })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("bottom");
+        out.float(self.bottom);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BoringColor {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringColor {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 観察記事
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringObservation {
+    /// 上端の深さ（m）
+    pub top: f64,
+    /// 下端の深さ（m）
+    pub bottom: f64,
+    /// 記事
+    pub text: Option<String>,
+}
+
+impl BoringObservation {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let top = object.required("top", json::number)?;
+        let bottom = object.required("bottom", json::number)?;
+        let text = object.optional("text", json::string)?;
+        Ok(Self { top, bottom, text })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("top");
+        out.float(self.top);
+        out.key("bottom");
+        out.float(self.bottom);
+        if let Some(value) = &self.text {
+            out.key("text");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BoringObservation {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringObservation {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 標準貫入試験
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoringPenetration {
+    /// 開始の深さ（m）
+    pub depth: f64,
+    /// 合計の打撃回数
+    pub blows: u64,
+    /// 合計の貫入量（mm）
+    pub penetration: f64,
+}
+
+impl BoringPenetration {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let depth = object.required("depth", json::number)?;
+        let blows = object.required("blows", |value| json::uint(value, 0, 9007199254740991))?;
+        let penetration = object.required("penetration", json::number)?;
+        Ok(Self {
+            depth,
+            blows,
+            penetration,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("depth");
+        out.float(self.depth);
+        out.key("blows");
+        out.uint(self.blows);
+        out.key("penetration");
+        out.float(self.penetration);
+    }
+}
+
+impl FromJson for BoringPenetration {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringPenetration {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 孔内水位
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BoringWaterLevel {
+    /// 測定の日（YYYY-MM-DD）
+    pub date: Option<String>,
+    /// 削孔状況のコード
+    pub state: Option<String>,
+    /// 水位の深さ（m）。地表より高ければ負。水位がなければ書かない
+    pub depth: Option<f64>,
+    /// 水位種別・備考
+    pub note: Option<String>,
+}
+
+impl BoringWaterLevel {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let date = object.optional("date", json::string)?;
+        let state = object.optional("state", json::string)?;
+        let depth = object.optional("depth", json::number)?;
+        let note = object.optional("note", json::string)?;
+        Ok(Self {
+            date,
+            state,
+            depth,
+            note,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.date {
+            out.key("date");
+            out.string(value);
+        }
+        if let Some(value) = &self.state {
+            out.key("state");
+            out.string(value);
+        }
+        if let Some(value) = &self.depth {
+            out.key("depth");
+            out.float(*value);
+        }
+        if let Some(value) = &self.note {
+            out.key("note");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BoringWaterLevel {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BoringWaterLevel {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

@@ -20,6 +20,8 @@ pub mod abi;
 mod asbuilt;
 mod bake;
 mod bcf;
+#[cfg(feature = "drawing")]
+mod boring;
 mod bounds;
 mod building;
 mod changes;
