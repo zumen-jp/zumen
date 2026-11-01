@@ -40,7 +40,7 @@
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |
-| [sxf](#format-sxf) | SXF | sxf | drawing | `public` | `core` |
+| [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` |
 | [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `core` |
 | [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` |
 
@@ -732,7 +732,7 @@
 
 ### format-sxf
 
-- 名前: SXF
+- 名前: SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z）
 - 権利の根拠: 国土交通省が、開発者向けに仕様書を公開している。実装を制限する記述はない。頁の転載と改変は禁じているので、仕様の本文は写さない
 - 仕様: [sxf\_3\_1](#spec-sxf_3_1)、[sxf\_display\_r7\_12](#spec-sxf_display_r7_12)
 - 実装の根拠: spec・inferred・reference
@@ -755,6 +755,7 @@
 - 記録: [決定 0130](../decisions/0130-sxf-parts-symbols-and-nested-views.md)
 - 記録: [決定 0131](../decisions/0131-sxf-attribute-mechanism.md)
 - 記録: [決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)
+- issue: [zumen-jp/zumen#385](https://github.com/zumen-jp/zumen/issues/385)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
 
 ### format-xlsx

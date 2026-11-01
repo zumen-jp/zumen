@@ -277,6 +277,7 @@
     "scene.text-layout.unsupported": "字形で置けない文字を、文字列だけで返しました（{count} 件）。",
     "scene.underlay-clip.dropped": "下敷きの切り抜きを当てずに、全体を描きました（{count} 件）。",
     "scene.underlay.dropped": "画像と PDF でない下敷きを、シーンに描きませんでした（{count} 件）。",
+    "sxf.archive.unsupported": "書き戻す書庫が ZIP64 を要する大きさになるので、書きませんでした。",
     "sxf.code.missing": "要素が指す{kind}のコード {code} に定義がありません（{count} 件）。",
     "sxf.file.invalid": "ISO 10303-21 の始まり・DATA の節・終わりのどれかがないので、SXF として読めません。",
     "sxf.lift.dropped": "図面モデルにまだ移せない種類のフィーチャ「{kind}」を、移しませんでした（{count} 件）。",

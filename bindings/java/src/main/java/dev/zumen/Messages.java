@@ -829,6 +829,17 @@ public final class Messages {
             put("done", value);
             return this;
         }
+
+        /** SXF を ZIP に入れた書庫（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）の書庫の中の名前。書庫の順。apply は、SXF の項目だけを置き換え、ほかの項目を写した書庫を書く（#385）。小版 54 から */
+        public List<String> getEntries() {
+            return Json.read(json.get("entries"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getEntries()} を書く。null なら欄を除く */
+        public OpenResult withEntries(List<String> value) {
+            put("entries", value);
+            return this;
+        }
     }
 
     /** 入力の範囲と、その範囲を渡す入力の名前 */

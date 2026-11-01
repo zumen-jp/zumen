@@ -1928,6 +1928,12 @@ group-by = ["field"]
 since = "0.2.0"
 status = "active"
 
+[codes."sxf.archive.unsupported"]
+description = "書き戻す P2Z・SFZ の書庫が ZIP64 を要する大きさになる。ZIP64 は書かない（#385）"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
 [codes."bcf.size.unsupported"]
 description = "書く bcfzip が ZIP64 を要する大きさになる。ZIP64 は書かない（決定 0220）"
 severity = "error"

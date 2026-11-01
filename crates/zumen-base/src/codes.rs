@@ -3161,6 +3161,12 @@ pub const SCENE_UNDERLAY_DROPPED: Code = Code::new(
     &[],
 );
 
+/// 書き戻す P2Z・SFZ の書庫が ZIP64 を要する大きさになる。ZIP64 は書かない（#385）
+///
+/// `sxf.archive.unsupported`（0.2.0 から）
+pub const SXF_ARCHIVE_UNSUPPORTED: Code =
+    Code::new("sxf.archive.unsupported", Severity::Error, None, &[], &[]);
+
 /// 要素が指すレイヤ・色・線種・線幅のコードに定義がない
 ///
 /// `sxf.code.missing`（0.0.0 から）
@@ -3750,6 +3756,7 @@ pub const ALL: &[Code] = &[
     SCENE_TEXT_LAYOUT_UNSUPPORTED,
     SCENE_UNDERLAY_CLIP_DROPPED,
     SCENE_UNDERLAY_DROPPED,
+    SXF_ARCHIVE_UNSUPPORTED,
     SXF_CODE_MISSING,
     SXF_FILE_INVALID,
     SXF_LIFT_DROPPED,

@@ -35,6 +35,7 @@ pub mod ffi;
 mod geo;
 mod geometry;
 pub mod messages;
+mod packed;
 #[cfg(feature = "drawing")]
 mod pointcloud;
 #[cfg(not(target_family = "wasm"))]

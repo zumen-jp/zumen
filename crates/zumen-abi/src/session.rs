@@ -42,6 +42,9 @@ use crate::messages::{
     SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
 };
 #[cfg(feature = "drawing")]
+use crate::packed;
+use crate::packed::Packed;
+#[cfg(feature = "drawing")]
 use crate::pointcloud;
 use crate::review;
 use crate::scene;
@@ -94,7 +97,8 @@ pub struct Session {
 enum Doc {
     Dxf(DxfFile),
     Dwg(DwgFile),
-    Sxf(SxfFile),
+    /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）
+    Sxf(SxfFile, Option<Box<Packed>>),
     Jww(JwwFile),
 }
 
@@ -104,7 +108,7 @@ impl Doc {
         match self {
             Doc::Dxf(_) => Dxf::FORMAT,
             Doc::Dwg(_) => Dwg::FORMAT,
-            Doc::Sxf(_) => Sxf::FORMAT,
+            Doc::Sxf(..) => Sxf::FORMAT,
             Doc::Jww(_) => Jww::FORMAT,
         }
     }
@@ -113,7 +117,7 @@ impl Doc {
     fn family(&self) -> &'static str {
         match self {
             Doc::Dxf(_) | Doc::Dwg(_) => "acad",
-            Doc::Sxf(_) => "sxf",
+            Doc::Sxf(..) => "sxf",
             Doc::Jww(_) => "jww",
         }
     }
@@ -123,7 +127,7 @@ impl Doc {
         match self {
             Doc::Dxf(file) => file.lift(cx),
             Doc::Dwg(file) => file.lift(cx),
-            Doc::Sxf(file) => file.lift(cx),
+            Doc::Sxf(file, _) => file.lift(cx),
             Doc::Jww(file) => file.lift(cx),
         }
     }
@@ -172,7 +176,11 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
         Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
     } else if Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
         // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
-        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?)
+        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None)
+    } else if let Some((sxf, archive)) = packed::read(bytes, cx)? {
+        // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
+        let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
+        Doc::Sxf(file, Some(Box::new(archive)))
     } else if Jww::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
         Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
     } else {
@@ -498,6 +506,8 @@ impl Session {
                         format,
                         needs: None,
                         done: Some(done).filter(|done| !done.is_empty()),
+
+                        entries: None,
                     }
                 }
                 pointcloud::Opened::Need(needs) => OpenResult {
@@ -505,6 +515,8 @@ impl Session {
                     format,
                     needs: Some(needs),
                     done: None,
+
+                    entries: None,
                 },
             });
         }
@@ -518,6 +530,8 @@ impl Session {
                 format: format.to_string(),
                 needs: None,
                 done: None,
+
+                entries: None,
             });
         }
         #[cfg(feature = "drawing")]
@@ -527,6 +541,11 @@ impl Session {
                 format: doc.format().to_string(),
                 needs: None,
                 done: None,
+
+                entries: match &doc {
+                    Doc::Sxf(_, Some(archive)) => Some(archive.names()),
+                    _ => None,
+                },
             };
             let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
             self.hashes.insert(name.clone(), hash);
@@ -542,6 +561,8 @@ impl Session {
                 format: zumen_landxml::LandXml::FORMAT.to_string(),
                 needs: None,
                 done: None,
+
+                entries: None,
             });
         }
         // CityGML も XML の根で見分ける（決定 0233）
@@ -553,6 +574,8 @@ impl Session {
                 format: zumen_citygml::CityGml::FORMAT.to_string(),
                 needs: None,
                 done: None,
+
+                entries: None,
             });
         }
         #[cfg(feature = "bim")]
@@ -586,6 +609,8 @@ impl Session {
             format: "ifc".to_string(),
             needs: None,
             done: None,
+
+            entries: None,
         })
     }
 
@@ -845,10 +870,15 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Sxf(file) => {
+            Doc::Sxf(file, archive) => {
                 let mut updated = file.clone();
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                if let Some(archive) = archive {
+                    bytes = archive
+                        .write(&bytes)
+                        .ok_or_else(|| fail(cx, Diagnostic::new(codes::SXF_ARCHIVE_UNSUPPORTED)))?;
+                }
                 let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 *file = updated;
                 (applied, hash)
@@ -2404,7 +2434,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":53}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":54}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -3570,6 +3600,53 @@ END_SCHEMA;
         let after = seen(&mut session, "a.sfc");
         assert_eq!(after[0].1, text(&response, "/result/applied/0/hash"));
         assert_eq!(after[1].1, text(&response, "/result/applied/1/hash"));
+    }
+
+    #[test]
+    fn reads_and_writes_back_sxf_in_a_zip() {
+        // P2Z・SFZ（#385）。SXF の項目のほかの項目は、名前で返し、書き戻す書庫にそのまま写す
+        let packed = zumen_zip::write(&[
+            ("ATTR/", b"".as_slice()),
+            ("ATTR/A.SAF", b"saf".as_slice()),
+            ("D0PL001Z.SFC", SFC.as_bytes()),
+        ])
+        .unwrap();
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.sfz", &packed).unwrap();
+        let (status, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.sfz"}"#);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(text(&response, "/result/format"), "sxf");
+        assert_eq!(text(&response, "/result/entries/0"), "ATTR/");
+        assert_eq!(text(&response, "/result/entries/1"), "ATTR/A.SAF");
+        let before = seen(&mut session, "a.sfz");
+        let (id, hash) = &before[0];
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a.sfz","edits":[{{"kind":"restyle","id":"{id}","hash":"{hash}","layer":"B"}}]}}"#
+        );
+        let (status, response) = call(&mut session, &request);
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let written = session.take(0).unwrap();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let archive = zumen_zip::read(&written, &mut cx).unwrap();
+        let names: Vec<&str> = archive.entries().iter().map(|entry| entry.name()).collect();
+        assert_eq!(names, ["ATTR/", "ATTR/A.SAF", "D0PL001Z.SFC"]);
+        let saf = archive.find("ATTR/A.SAF").unwrap();
+        assert_eq!(archive.extract(saf, &mut cx).unwrap(), b"saf");
+        let sfc = archive.find("D0PL001Z.SFC").unwrap();
+        let sfc = String::from_utf8(archive.extract(sfc, &mut cx).unwrap()).unwrap();
+        assert!(sfc.contains("#50 = line_feature('2',"), "{sfc}");
+        let mut again = Session::new(b"").unwrap();
+        again.push(b"b.sfz", &written).unwrap();
+        let (status, _) = call(&mut again, r#"{"v":1,"op":"open","input":"b.sfz"}"#);
+        assert_eq!(status, Status::Ok);
+        // SXF の項目のない ZIP は、SXF として読まない
+        let other = zumen_zip::write(&[("A.TXT", b"text".as_slice())]).unwrap();
+        again.push(b"c.zip", &other).unwrap();
+        let (status, _) = call(&mut again, r#"{"v":1,"op":"open","input":"c.zip"}"#);
+        assert_eq!(status, Status::Failed);
     }
 
     #[test]

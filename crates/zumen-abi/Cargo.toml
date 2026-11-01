@@ -53,9 +53,10 @@ zumen-ifc = { version = "0.2.0", path = "../zumen-ifc" }
 zumen-ids = { version = "0.2.0", path = "../zumen-ids" }
 zumen-sxf = { version = "0.2.0", path = "../zumen-sxf" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+# P2Z・SFZ の書庫を読み書きする（#385）
+zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [dev-dependencies]
-zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [lints]
 workspace = true

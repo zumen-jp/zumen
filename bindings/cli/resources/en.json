@@ -277,6 +277,7 @@
     "scene.text-layout.unsupported": "Returned text that could not be placed as glyphs as strings only ({count}).",
     "scene.underlay-clip.dropped": "Drew whole underlays without applying their clipping boundaries ({count}).",
     "scene.underlay.dropped": "Did not draw underlays that are neither images nor PDFs in the scene ({count}).",
+    "sxf.archive.unsupported": "The archive to write back would need ZIP64, so it was not written.",
     "sxf.code.missing": "The {kind} code {code} that elements refer to is not defined ({count}).",
     "sxf.file.invalid": "Cannot read the file as SXF: the ISO 10303-21 start, the DATA section, or the end is missing.",
     "sxf.lift.dropped": "Did not move features of the kind \"{kind}\", which the drawing model cannot take yet ({count}).",

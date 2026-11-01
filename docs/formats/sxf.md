@@ -5,7 +5,8 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 ## 対象
 
 - SFC と P21。どちらも ISO 10303-21 の交換構造に入る（[決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)）交換構造の読み取りと文字列のエスケープの戻し方は、IFC と共有する crate `zumen-step` が行う。SFC のフィーチャのコメントの印（`/*SXF`・`/*SXF3`・`/*SXF3.1`）と、AP202 と書いた P21 でそれを読まないことは、`zumen-sxf` が読み方として渡す（[決定 0207](../decisions/0207-building-model-components.md)）。
-- 圧縮した SFZ・P2Z は、まだ読まない。
+- SFZ・P2Z（SFC・P21 を ZIP に入れた書庫）は、書庫の最初の `.sfc`・`.p21` の項目（大文字と小文字を問わない）を SXF として読む（#385）。ほかの項目（属性ファイル・画像など）は読まず、`open` の結果の `entries` に書庫の中の名前を書庫の順で返す。`.sfc`・`.p21` の項目のない ZIP は SXF にせず、ifcZIP などとして試す。
+- SFZ・P2Z への `apply` は、SXF の項目だけを書き直したバイト列に置き換え、ほかの項目は展開したバイト列のまま写した書庫を書く。書庫は `zumen-zip` で、項目を stored で、日時を 1980-01-01 に固定して書く（決定性、[決定 0220](../decisions/0220-bcf-3-0.md)）。元の書庫の圧縮と日時は保たない。ZIP64 が要る大きさなら `sxf.archive.unsupported` を返して書かない（適合試験の `cases/open_sxf_zip.json`）。
 - SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC と P21 を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 の組み直しは、下の「P21 の組み直し」に記録する。
 
 ## 判定

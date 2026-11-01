@@ -341,6 +341,10 @@ class OpenResult extends Message {
   /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
   List<InputRange>? get done => readField('done', listOf(objectOf(InputRange.fromJson)));
   set done(List<InputRange>? value) => writeField('done', value);
+
+  /// SXF を ZIP に入れた書庫（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）の書庫の中の名前。書庫の順。apply は、SXF の項目だけを置き換え、ほかの項目を写した書庫を書く（#385）。小版 54 から
+  List<String>? get entries => readField('entries', listOf(asString));
+  set entries(List<String>? value) => writeField('entries', value);
 }
 
 /// 入力の範囲と、その範囲を渡す入力の名前

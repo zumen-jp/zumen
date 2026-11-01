@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマの大版（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマの小版 */
-export const SCHEMA_MINOR = 53;
+export const SCHEMA_MINOR = 54;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({

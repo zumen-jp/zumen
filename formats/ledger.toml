@@ -330,7 +330,7 @@ note = "公開の文書は見つからない。協会が検定を受けるソフ
 # 形式。キーは英小文字と数字だけにする。
 
 [formats.sxf]
-name = "SXF"
+name = "SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z）"
 family = "sxf"
 domains = ["drawing"]
 specs = ["sxf_3_1", "sxf_display_r7_12"]
@@ -343,6 +343,7 @@ verify = ["Jw_cad", "SXF ブラウザ"]
 samples = ["ezsxf のリポジトリにある公開の図面"]
 decisions = ["0008", "0120", "0121", "0122", "0123", "0124", "0125", "0126", "0127", "0128", "0129", "0130", "0131", "0132"]
 docs = ["docs/formats/sxf.md"]
+issues = ["zumen-jp/zumen#385"]
 
 [[formats.sxf.evidence]]
 title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"
