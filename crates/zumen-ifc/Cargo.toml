@@ -14,15 +14,19 @@ zumen-step = { version = "0.2.0", path = "../zumen-step" }
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 zumen-building = { version = "0.2.0", path = "../zumen-building", optional = true }
 zumen-ids = { version = "0.2.0", path = "../zumen-ids", optional = true }
+zumen-civil = { version = "0.2.0", path = "../zumen-civil", optional = true }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs", optional = true }
 # 配置の軸の長さ。std の数学の関数は環境で値が違いうる（決定 0007）
 libm = { version = "0.2.16", default-features = false, optional = true }
 
 [features]
-default = ["building", "ids"]
+default = ["building", "ids", "civil"]
 # 建物モデル（L2）への変換。L1 だけを使うなら外せる
 building = ["dep:zumen-building", "dep:libm"]
 # IDS の照合に、L1 の属性を EXPRESS の名前で渡す（決定 0217）
 ids = ["building", "dep:zumen-ids"]
+# IFC4.3 の線形を、土木の領域モデル（L2、決定 0230）に移す
+civil = ["building", "dep:zumen-civil", "dep:zumen-crs"]
 
 [lints]
 workspace = true
@@ -30,3 +34,7 @@ workspace = true
 [dev-dependencies]
 # SXF のコーデックが IFC を読まないことを確かめる
 zumen-sxf = { path = "../zumen-sxf" }
+# IFC4.3 の線形が、同じ線形の J-LandXML と同じ土木の領域モデルになることを確かめる
+zumen-landxml = { path = "../zumen-landxml" }
+zumen-civil = { path = "../zumen-civil" }
+zumen-crs = { path = "../zumen-crs" }

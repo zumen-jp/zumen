@@ -1729,6 +1729,20 @@ pub const IDS_VERSION_MIXED: Code = Code::new(
     &[],
 );
 
+/// 線形の区間の種類が土木の領域モデルにないので、その区間を写さなかった
+///
+/// `ifc.alignment-segment.unsupported`（0.2.0 から）
+pub const IFC_ALIGNMENT_SEGMENT_UNSUPPORTED: Code = Code::new(
+    "ifc.alignment-segment.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Key),
+        Param::new("type", ParamType::Key),
+    ],
+    &["kind", "type"],
+);
+
 /// 意味を持つ位置の値が、期待した型でないので読まなかった
 ///
 /// `ifc.attribute.invalid`（0.2.0 から）
@@ -1741,6 +1755,28 @@ pub const IFC_ATTRIBUTE_INVALID: Code = Code::new(
         Param::new("position", ParamType::UInt),
     ],
     &["kind", "position"],
+);
+
+/// 地表面と横断の形は、まだ土木の領域モデルに写さない
+///
+/// `ifc.civil-geometry.dropped`（0.2.0 から）
+pub const IFC_CIVIL_GEOMETRY_DROPPED: Code = Code::new(
+    "ifc.civil-geometry.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
+/// プロジェクトの長さか平面角の単位が解けないので、メートルかラジアンとした
+///
+/// `ifc.civil-unit.assumed`（0.2.0 から）
+pub const IFC_CIVIL_UNIT_ASSUMED: Code = Code::new(
+    "ifc.civil-unit.assumed",
+    Severity::Warning,
+    None,
+    &[Param::new("type", ParamType::Key)],
+    &["type"],
 );
 
 /// 同じ番号のインスタンスが複数あるので、番号で引くときは初めのものを使う
@@ -1786,6 +1822,34 @@ pub const IFC_FILE_INVALID: Code = Code::new("ifc.file.invalid", Severity::Error
 /// `ifc.global-id.missing`（0.2.0 から）
 pub const IFC_GLOBAL_ID_MISSING: Code =
     Code::new("ifc.global-id.missing", Severity::Warning, None, &[], &[]);
+
+/// IfcProjectedCRS の VerticalDatum が扱える高さの基準でないので、高さの基準を不明にした
+///
+/// `ifc.height-datum.unsupported`（0.2.0 から）
+pub const IFC_HEIGHT_DATUM_UNSUPPORTED: Code = Code::new(
+    "ifc.height-datum.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("datum", ParamType::Text)],
+    &[],
+);
+
+/// IfcMapConversion か IfcProjectedCRS がないので、座標系を不明にし、プロジェクトの空間の点を地図の点として読んだ
+///
+/// `ifc.map-crs.missing`（0.2.0 から）
+pub const IFC_MAP_CRS_MISSING: Code =
+    Code::new("ifc.map-crs.missing", Severity::Warning, None, &[], &[]);
+
+/// IfcProjectedCRS の名前が扱える座標系でないので、座標系を不明にした
+///
+/// `ifc.map-crs.unsupported`（0.2.0 から）
+pub const IFC_MAP_CRS_UNSUPPORTED: Code = Code::new(
+    "ifc.map-crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
 
 /// 要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった
 ///
@@ -1847,6 +1911,12 @@ pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
     &[Param::new("schema", ParamType::Text)],
     &[],
 );
+
+/// 線形に測点の IfcReferent がないので、初めの測点を 0 にした
+///
+/// `ifc.station.missing`（0.2.0 から）
+pub const IFC_STATION_MISSING: Code =
+    Code::new("ifc.station.missing", Severity::Info, None, &[], &[]);
 
 /// 文字列のエスケープか UTF-8 が読めない所を、置き換えの文字にした
 ///
@@ -3301,19 +3371,26 @@ pub const ALL: &[Code] = &[
     IDS_REQUIREMENT_UNSUPPORTED,
     IDS_RESTRICTION_UNSUPPORTED,
     IDS_VERSION_MIXED,
+    IFC_ALIGNMENT_SEGMENT_UNSUPPORTED,
     IFC_ATTRIBUTE_INVALID,
+    IFC_CIVIL_GEOMETRY_DROPPED,
+    IFC_CIVIL_UNIT_ASSUMED,
     IFC_DUPLICATE_DROPPED,
     IFC_ENTITY_DROPPED,
     IFC_ENTRY_MISSING,
     IFC_ENTRY_UNSUPPORTED,
     IFC_FILE_INVALID,
     IFC_GLOBAL_ID_MISSING,
+    IFC_HEIGHT_DATUM_UNSUPPORTED,
+    IFC_MAP_CRS_MISSING,
+    IFC_MAP_CRS_UNSUPPORTED,
     IFC_PARENT_EXISTS,
     IFC_PLACEMENT_INVALID,
     IFC_PLACEMENT_UNSUPPORTED,
     IFC_RECORD_INVALID,
     IFC_REFERENCE_MISSING,
     IFC_SCHEMA_UNSUPPORTED,
+    IFC_STATION_MISSING,
     IFC_TEXT_INVALID,
     IFC_UNIT_MISSING,
     IFC_VERSION_UNSUPPORTED,

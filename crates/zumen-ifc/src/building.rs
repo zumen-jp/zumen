@@ -1793,7 +1793,7 @@ enum Fold {
 }
 
 /// 位置 `at`（1 から）の引数。複合のインスタンスは最初の部分
-fn arg(record: &Record, at: usize) -> Option<&Value> {
+pub(crate) fn arg(record: &Record, at: usize) -> Option<&Value> {
     record.parts().first()?.args().get(at.checked_sub(1)?)
 }
 
@@ -1801,7 +1801,7 @@ fn record_id(record: &Record) -> u64 {
     record.id().unwrap_or_default()
 }
 
-fn reference(value: Option<&Value>) -> Option<u64> {
+pub(crate) fn reference(value: Option<&Value>) -> Option<u64> {
     match value? {
         Value::Ref(id) => Some(*id),
         _ => None,
@@ -1809,7 +1809,7 @@ fn reference(value: Option<&Value>) -> Option<u64> {
 }
 
 /// 参照の列か、1 つの参照
-fn refs(value: Option<&Value>) -> Vec<u64> {
+pub(crate) fn refs(value: Option<&Value>) -> Vec<u64> {
     match value {
         Some(Value::Ref(id)) => vec![*id],
         Some(Value::List(values)) => values.iter().filter_map(|v| reference(Some(v))).collect(),

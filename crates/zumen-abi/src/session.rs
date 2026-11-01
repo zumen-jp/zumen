@@ -460,7 +460,7 @@ impl Session {
         // 持つ形式の判定だけを入れる（決定 0221）
         #[cfg(feature = "bim")]
         if let Some(model) = building::read_spf(bytes, cx) {
-            return self.open_model(name.clone(), model?);
+            return self.open_model(name.clone(), model?, cx);
         }
         // 名指せる形式は xyz だけ。ほかの形式は入力から判定する
         if request.format.as_deref().is_some_and(|format| {
@@ -528,7 +528,7 @@ impl Session {
         }
         #[cfg(feature = "bim")]
         if let Some(model) = building::read_zip(bytes, cx) {
-            return self.open_model(name.clone(), model?);
+            return self.open_model(name.clone(), model?, cx);
         }
         cx.check(Kind::InputBytes, bytes.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
@@ -538,7 +538,19 @@ impl Session {
         ))
     }
 
-    fn open_model(&mut self, name: String, model: building::Model) -> Result<OpenResult, Failed> {
+    fn open_model(
+        &mut self,
+        name: String,
+        model: building::Model,
+        cx: &mut Cx<'_>,
+    ) -> Result<OpenResult, Failed> {
+        // IFC4.3 の線形は、土木の領域モデルにもする（決定 0235）
+        #[cfg(all(feature = "drawing", feature = "bim"))]
+        if let Some(civil) = civil::from_ifc(&model.file, cx)? {
+            self.civils.insert(name.clone(), civil);
+        }
+        #[cfg(not(all(feature = "drawing", feature = "bim")))]
+        let _ = cx;
         self.models.insert(name.clone(), model);
         Ok(OpenResult {
             doc: name,

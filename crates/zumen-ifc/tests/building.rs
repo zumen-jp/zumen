@@ -687,7 +687,7 @@ fn budgets_stop_lifting() {
         (Kind::Work, codes::BUDGET_WORK_EXCEEDED),
     ] {
         let (result, diag) = with(Limits::default().with(kind, Limit::Finite(3)), |cx| {
-            file.lift(cx)
+            Lift::<Building>::lift(&file, cx)
         });
         assert!(matches!(result, Err(Error::Stopped(_))), "{kind:?}");
         assert!(found(&diag).contains(&code), "{kind:?}");
@@ -701,7 +701,7 @@ fn truncated_and_mutated_files_do_not_panic() {
     let try_all = |src: &[u8]| {
         let (file, _) = with(Limits::default(), |cx| Ifc::read(src, cx));
         if let Ok(file) = file {
-            let _ = with(Limits::default(), |cx| file.lift(cx));
+            let _ = with(Limits::default(), |cx| Lift::<Building>::lift(&file, cx));
         }
     };
     for end in (0..src.len()).step_by(7) {

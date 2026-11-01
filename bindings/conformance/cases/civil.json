@@ -1,5 +1,5 @@
 {
-  "description": "civil は、要求に書いた線形の上の所を、追加距離・測点の表記・間隔から求め、点・方向角・高さ・勾配と測点の表記を返す。測点の不連続の先は数え直し、同じ値が 2 か所にあれば最初の所にして診断する。範囲の外の所と計算できない曲線は、診断して除く。区間に要る欄がなければ失敗する。open で開いた J-LandXML は、doc と id で線形を選び、線形と地表面の要約と座標系を返す（決定 0230）。線形は、北へ 50 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100）、半径 200 m の円弧 40 m",
+  "description": "civil は、要求に書いた線形の上の所を、追加距離・測点の表記・間隔から求め、点・方向角・高さ・勾配と測点の表記を返す。測点の不連続の先は数え直し、同じ値が 2 か所にあれば最初の所にして診断する。範囲の外の所と計算できない曲線は、診断して除く。区間に要る欄がなければ失敗する。open で開いた J-LandXML は、doc と id で線形を選び、線形と地表面の要約と座標系を返す（決定 0230）。線形は、北へ 50 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100）、半径 200 m の円弧 40 m。IFC4.3 の IfcAlignment は、IfcMapConversion で地図の空間に直して、同じ土木の領域モデルに移す（決定 0235、#375）",
   "steps": [
     {
       "call": {
@@ -7,18 +7,64 @@
         "op": "civil",
         "alignment": {
           "horizontal": [
-            { "kind": "line", "northing": 0, "easting": 0, "direction": 0, "length": 50 },
-            { "kind": "transition", "northing": 50, "easting": 0, "direction": 0, "length": 50, "end_radius": 200 },
-            { "kind": "arc", "northing": 99.92193149366025, "easting": 2.0810093401773635, "direction": 0.125, "length": 40, "radius": 200 }
+            {
+              "kind": "line",
+              "northing": 0,
+              "easting": 0,
+              "direction": 0,
+              "length": 50
+            },
+            {
+              "kind": "transition",
+              "northing": 50,
+              "easting": 0,
+              "direction": 0,
+              "length": 50,
+              "end_radius": 200
+            },
+            {
+              "kind": "arc",
+              "northing": 99.92193149366025,
+              "easting": 2.0810093401773635,
+              "direction": 0.125,
+              "length": 40,
+              "radius": 200
+            }
           ],
           "vertical": [
-            { "kind": "constant_gradient", "start_distance": 0, "start_height": 10, "start_gradient": 0.02, "length": 60 },
-            { "kind": "parabola", "start_distance": 60, "start_height": 11.2, "start_gradient": 0.02, "length": 40, "end_gradient": -0.01 }
+            {
+              "kind": "constant_gradient",
+              "start_distance": 0,
+              "start_height": 10,
+              "start_gradient": 0.02,
+              "length": 60
+            },
+            {
+              "kind": "parabola",
+              "start_distance": 60,
+              "start_height": 11.2,
+              "start_gradient": 0.02,
+              "length": 40,
+              "end_gradient": -0.01
+            }
           ],
-          "breaks": [{ "distance": 70, "back": 70, "ahead": 60 }]
+          "breaks": [
+            {
+              "distance": 70,
+              "back": 70,
+              "ahead": 60
+            }
+          ]
         },
-        "distances": [25, 75, 200],
-        "stations": ["No.3+5", "No.1+x"]
+        "distances": [
+          25,
+          75,
+          200
+        ],
+        "stations": [
+          "No.3+5",
+          "No.1+x"
+        ]
       },
       "expect": {
         "/result/length": 140,
@@ -48,8 +94,22 @@
         "op": "civil",
         "alignment": {
           "horizontal": [
-            { "kind": "line", "northing": 0, "easting": 0, "direction": 0, "length": 20 },
-            { "kind": "transition", "northing": 20, "easting": 0, "direction": 0, "length": 20, "end_radius": -100, "curve": "cubic_parabola" }
+            {
+              "kind": "line",
+              "northing": 0,
+              "easting": 0,
+              "direction": 0,
+              "length": 20
+            },
+            {
+              "kind": "transition",
+              "northing": 20,
+              "easting": 0,
+              "direction": 0,
+              "length": 20,
+              "end_radius": -100,
+              "curve": "cubic_parabola"
+            }
           ],
           "start_station": 100
         },
@@ -71,9 +131,19 @@
         "v": 1,
         "op": "civil",
         "alignment": {
-          "horizontal": [{ "kind": "arc", "northing": 0, "easting": 0, "direction": 0, "length": 10 }]
+          "horizontal": [
+            {
+              "kind": "arc",
+              "northing": 0,
+              "easting": 0,
+              "direction": 0,
+              "length": 10
+            }
+          ]
         },
-        "distances": [5]
+        "distances": [
+          5
+        ]
       },
       "status": "failed",
       "expect": {
@@ -135,6 +205,42 @@
       "expect": {
         "/diagnostics/0/code": "call.value.invalid",
         "/diagnostics/0/params/pointer": "/id"
+      }
+    },
+    {
+      "push": {
+        "name": "road.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('ViewDefinition [Alignment-basedView]'),'2;1');\nFILE_NAME('road.ifc','2026-11-01T00:00:00',(''),(''),'','','');\nFILE_SCHEMA(('IFC4X3_ADD2'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'road',$,$,$,$,(#20),#10);\n#10=IFCUNITASSIGNMENT((#11,#12));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#12=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);\n#20=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#21,$);\n#21=IFCAXIS2PLACEMENT3D(#22,$,$);\n#22=IFCCARTESIANPOINT((0.,0.,0.));\n#30=IFCMAPCONVERSION(#20,#31,1000.,2000.,0.,1.,0.,1.,$,$);\n#31=IFCPROJECTEDCRS('EPSG:6677',$,'JGD2011','T.P.',$,$,$);\n#40=IFCALIGNMENT('0000000000000000000040',$,'Main',$,$,#41,$,$);\n#41=IFCLOCALPLACEMENT($,#21);\n#50=IFCRELNESTS('0000000000000000000050',$,$,$,#40,(#60,#70,#80));\n#60=IFCALIGNMENTHORIZONTAL('0000000000000000000060',$,$,$,$,$,$);\n#61=IFCRELNESTS('0000000000000000000061',$,$,$,#60,(#62,#64));\n#62=IFCALIGNMENTSEGMENT('0000000000000000000062',$,$,$,$,$,$,#63);\n#63=IFCALIGNMENTHORIZONTALSEGMENT($,$,#66,1.5707963267948966,0.,0.,100.,$,.LINE.);\n#64=IFCALIGNMENTSEGMENT('0000000000000000000064',$,$,$,$,$,$,#65);\n#65=IFCALIGNMENTHORIZONTALSEGMENT($,$,#67,1.5707963267948966,0.,0.,0.,$,.LINE.);\n#66=IFCCARTESIANPOINT((0.,0.));\n#67=IFCCARTESIANPOINT((0.,100.));\n#70=IFCALIGNMENTVERTICAL('0000000000000000000070',$,$,$,$,$,$);\n#71=IFCRELNESTS('0000000000000000000071',$,$,$,#70,(#72));\n#72=IFCALIGNMENTSEGMENT('0000000000000000000072',$,$,$,$,$,$,#73);\n#73=IFCALIGNMENTVERTICALSEGMENT($,$,0.,100.,10.,0.02,0.02,$,.CONSTANTGRADIENT.);\n#80=IFCREFERENT('0000000000000000000080',$,'No.0',$,$,#81,$,.STATION.);\n#81=IFCLINEARPLACEMENT(#41,#82,$);\n#82=IFCAXIS2PLACEMENTLINEAR(#83,$,$);\n#83=IFCPOINTBYDISTANCEEXPRESSION(IFCNONNEGATIVELENGTHMEASURE(0.),$,$,$,$);\n#84=IFCRELDEFINESBYPROPERTIES('0000000000000000000084',$,$,$,(#80),#85);\n#85=IFCPROPERTYSET('0000000000000000000085',$,'Pset_Stationing',$,(#86));\n#86=IFCPROPERTYSINGLEVALUE('Station',$,IFCLENGTHMEASURE(500.),$);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "road.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "doc": "road.ifc",
+        "distances": [
+          25
+        ]
+      },
+      "expect": {
+        "/result/alignment": "0000000000000000000040",
+        "/result/length": 100,
+        "/result/crs": 6677,
+        "/result/alignments/0/horizontal": 1,
+        "/result/alignments/0/vertical": 1,
+        "/result/positions/0/northing": 2025,
+        "/result/positions/0/easting": 1000,
+        "/result/positions/0/height": 10.5
       }
     }
   ]

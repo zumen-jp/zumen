@@ -1041,6 +1041,58 @@ group-by = ["kind"]
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.alignment-segment.unsupported"]
+description = "線形の区間の種類が土木の領域モデルにないので、その区間を写さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key", type = "key" }
+group-by = ["kind", "type"]
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.map-crs.missing"]
+description = "IfcMapConversion か IfcProjectedCRS がないので、座標系を不明にし、プロジェクトの空間の点を地図の点として読んだ"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.map-crs.unsupported"]
+description = "IfcProjectedCRS の名前が扱える座標系でないので、座標系を不明にした"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.height-datum.unsupported"]
+description = "IfcProjectedCRS の VerticalDatum が扱える高さの基準でないので、高さの基準を不明にした"
+severity = "warning"
+params = { datum = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.civil-unit.assumed"]
+description = "プロジェクトの長さか平面角の単位が解けないので、メートルかラジアンとした"
+severity = "warning"
+params = { type = "key" }
+group-by = ["type"]
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.station.missing"]
+description = "線形に測点の IfcReferent がないので、初めの測点を 0 にした"
+severity = "info"
+since = "0.2.0"
+status = "active"
+
+[codes."ifc.civil-geometry.dropped"]
+description = "地表面と横断の形は、まだ土木の領域モデルに写さない"
+severity = "info"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
 [codes."ifc.entity.dropped"]
 description = "建物モデルに写さない実体を、L1 に残した。件数は種類ごとに数える"
 severity = "info"

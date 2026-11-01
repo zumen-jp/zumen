@@ -1,4 +1,4 @@
-//! `civil` の op（決定 0230）。要求に書くか J-LandXML から開いた線形の上の所を、追加距離か測点の表記から求める。
+//! `civil` の op（決定 0230）。要求に書くか、J-LandXML・IFC4.3 から開いた線形の上の所を、追加距離か測点の表記から求める。
 
 use zumen_base::{Cx, Kind};
 use zumen_civil::station::{self, Notation};
@@ -7,7 +7,11 @@ use zumen_civil::{
     TransitionCurve, Vertical, VerticalKind,
 };
 use zumen_crs::MapPoint;
+#[cfg(feature = "bim")]
+use zumen_ifc::IfcFile;
 use zumen_landxml::LandXml;
+#[cfg(feature = "bim")]
+use zumen_sdk::Error;
 use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
@@ -27,6 +31,24 @@ pub(crate) fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<CivilModel, F
             .and_then(|file| file.lift(cx))
             .map_err(|_| Failed),
     )
+}
+
+/// IFC4.3 の線形があれば、土木の領域モデルに移す（決定 0235）。線形がなければ `None`。移せないときは、
+/// 理由を診断に足して `None` にし、建物モデルとしては開く
+#[cfg(feature = "bim")]
+pub(crate) fn from_ifc(file: &IfcFile, cx: &mut Cx<'_>) -> Result<Option<CivilModel>, Failed> {
+    let has_alignment = file.ids().any(|id| {
+        file.instance(id)
+            .is_some_and(|record| file.kind(record).eq_ignore_ascii_case(b"IFCALIGNMENT"))
+    });
+    if !has_alignment {
+        return Ok(None);
+    }
+    match Lift::<CivilModel>::lift(file, cx) {
+        Ok(model) => Ok(Some(model)),
+        Err(Error::Stopped(_)) => Err(Failed),
+        Err(_) => Ok(None),
+    }
 }
 
 /// 線形の上の所を、distances・stations・interval の順に求める。線形は、要求に書くか、開いた土木の領域モデル
