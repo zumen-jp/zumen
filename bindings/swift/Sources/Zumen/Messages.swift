@@ -7551,7 +7551,7 @@ public enum Engine {
     public static let wasm = "wasm"
 }
 
-/// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
 public struct CivilRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7602,10 +7602,22 @@ public struct CivilRequest: Message {
         set { writeField("op", newValue) }
     }
 
-    /// 線形
+    /// 線形。doc と一緒には書かない
     public var alignment: CivilAlignment? {
         get { readField("alignment") }
         set { writeField("alignment", newValue) }
+    }
+
+    /// open で開いた J-LandXML の文書の名前。小版 47 から
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
     }
 
     /// 追加距離（メートル）の列
@@ -7897,6 +7909,140 @@ public struct CivilResult: Message {
     public var positions: [CivilPosition]? {
         get { readField("positions") }
         set { writeField("positions", newValue) }
+    }
+
+    /// 所を求めた doc の線形の ID。小版 47 から
+    public var alignment: String? {
+        get { readField("alignment") }
+        set { writeField("alignment", newValue) }
+    }
+
+    /// doc の線形の要約。doc を渡したときに返す。小版 47 から
+    public var alignments: [CivilAlignmentSummary]? {
+        get { readField("alignments") }
+        set { writeField("alignments", newValue) }
+    }
+
+    /// doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+    public var surfaces: [CivilSurfaceSummary]? {
+        get { readField("surfaces") }
+        set { writeField("surfaces", newValue) }
+    }
+
+    /// doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+    public var crs: Int64? {
+        get { readField("crs") }
+        set { writeField("crs", newValue) }
+    }
+}
+
+/// 線形の要約
+public struct CivilAlignmentSummary: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 線形の ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 平面線形の長さ（メートル）
+    public var length: Double? {
+        get { readField("length") }
+        set { writeField("length", newValue) }
+    }
+
+    /// 線形の初めの測点の値（メートル）
+    public var startStation: Double? {
+        get { readField("start_station") }
+        set { writeField("start_station", newValue) }
+    }
+
+    /// 平面線形の区間の数
+    public var horizontal: Int64? {
+        get { readField("horizontal") }
+        set { writeField("horizontal", newValue) }
+    }
+
+    /// 縦断線形の区間の数
+    public var vertical: Int64? {
+        get { readField("vertical") }
+        set { writeField("vertical", newValue) }
+    }
+
+    /// 測点の不連続の数
+    public var breaks: Int64? {
+        get { readField("breaks") }
+        set { writeField("breaks", newValue) }
+    }
+
+    /// 横断の数
+    public var crossSections: Int64? {
+        get { readField("cross_sections") }
+        set { writeField("cross_sections", newValue) }
+    }
+}
+
+/// 地表面（TIN）の要約
+public struct CivilSurfaceSummary: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 地表面の ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 役割。existing（現況）・design（計画）か、元の形式の値
+    public var role: String? {
+        get { readField("role") }
+        set { writeField("role", newValue) }
+    }
+
+    /// 点の数
+    public var points: Int64? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 三角形の数
+    public var triangles: Int64? {
+        get { readField("triangles") }
+        set { writeField("triangles", newValue) }
     }
 }
 

@@ -1788,6 +1788,84 @@ pub const JWW_LIFT_INVALID: Code = Code::new(
 pub const JWW_TRAILER_INVALID: Code =
     Code::new("jww.trailer.invalid", Severity::Warning, None, &[], &[]);
 
+/// 横断の線の点が、計画高からの高さか、勾配と距離で書いてあるので、横断の線を移さなかった
+///
+/// `landxml.cross-section-line.unsupported`（0.2.0 から）
+pub const LANDXML_CROSS_SECTION_LINE_UNSUPPORTED: Code = Code::new(
+    "landxml.cross-section-line.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("form", ParamType::Text),
+        Param::new("name", ParamType::Text),
+    ],
+    &["name", "form"],
+);
+
+/// 座標系を書いていないか、扱わない測地系・座標系なので、CRS を不明にした
+///
+/// `landxml.crs.unsupported`（0.2.0 から）
+pub const LANDXML_CRS_UNSUPPORTED: Code = Code::new(
+    "landxml.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("datum", ParamType::Text),
+        Param::new("system", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 土木の領域モデルに移さない要素なので、読まなかった
+///
+/// `landxml.element.unsupported`（0.2.0 から）
+pub const LANDXML_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "landxml.element.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// TIN の、見えない面（F の i が 1）を移さなかった
+///
+/// `landxml.face.dropped`（0.2.0 から）
+pub const LANDXML_FACE_DROPPED: Code = Code::new(
+    "landxml.face.dropped",
+    Severity::Info,
+    None,
+    &[
+        Param::new("faces", ParamType::UInt),
+        Param::new("surface", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 高さの基準を書いていないか、東京湾平均海面（T.P.）でないので、高さの基準を不明にした
+///
+/// `landxml.height-datum.unsupported`（0.2.0 から）
+pub const LANDXML_HEIGHT_DATUM_UNSUPPORTED: Code = Code::new(
+    "landxml.height-datum.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("datum", ParamType::Text)],
+    &[],
+);
+
+/// 要素の値が読めないので、その要素を土木の領域モデルに移さなかった
+///
+/// `landxml.value.invalid`（0.2.0 から）
+pub const LANDXML_VALUE_INVALID: Code = Code::new(
+    "landxml.value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("field", ParamType::Text),
+    ],
+    &["element", "field"],
+);
+
 /// 文字の内容が、語彙の範囲の文字を含む（指摘）。character は U+XXXX の形
 ///
 /// `profile.characters.invalid`（0.0.0 から）
@@ -2896,6 +2974,12 @@ pub const ALL: &[Code] = &[
     JWW_LIFT_DROPPED,
     JWW_LIFT_INVALID,
     JWW_TRAILER_INVALID,
+    LANDXML_CROSS_SECTION_LINE_UNSUPPORTED,
+    LANDXML_CRS_UNSUPPORTED,
+    LANDXML_ELEMENT_UNSUPPORTED,
+    LANDXML_FACE_DROPPED,
+    LANDXML_HEIGHT_DATUM_UNSUPPORTED,
+    LANDXML_VALUE_INVALID,
     PROFILE_CHARACTERS_INVALID,
     PROFILE_COLOR_INVALID,
     PROFILE_COLOR_UNSUPPORTED,

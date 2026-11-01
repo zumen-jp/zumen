@@ -13,7 +13,8 @@
           { "id": "dxf", "family": "acad", "read": true, "write": true, "id_rules": 2 },
           { "id": "dwg", "family": "acad", "read": true, "write": true, "id_rules": 2 },
           { "id": "sxf", "family": "sxf", "read": true, "write": true, "id_rules": 2 },
-          { "id": "jww", "family": "jww", "read": true, "write": true, "id_rules": 1 }
+          { "id": "jww", "family": "jww", "read": true, "write": true, "id_rules": 1 },
+          { "id": "landxml", "family": "landxml", "read": true, "write": false, "id_rules": 1 }
         ],
         "/diagnostics": [],
         "/blobs": []

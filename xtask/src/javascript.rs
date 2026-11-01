@@ -235,6 +235,14 @@ fn render_modules(out: &mut String, boundary: &Boundary) {
                         quote(prefix)
                     );
                 }
+                Some(RuleKind::XmlRoot { name, namespace }) => {
+                    let namespace = namespace.map_or("null".to_string(), quote);
+                    let _ = writeln!(
+                        out,
+                        "      Object.freeze({{ kind: \"xml_root\", name: {}, namespace: {namespace} }}),",
+                        quote(name)
+                    );
+                }
                 None => {}
             }
         }
@@ -360,7 +368,7 @@ pub fn render_constants_types(boundary: &Boundary, scene: &Scene) -> String {
     }
     out.push_str(";\n\n/** wasm のモジュールが持つ形式と op */\nexport interface ModuleInfo {\n  readonly description: string;\n  readonly formats: readonly string[];\n  readonly ops: readonly string[];\n}\n");
     out.push_str("\n/** wasm のモジュール。名前から引く */\nexport declare const MODULES: Readonly<Record<ModuleName, ModuleInfo>>;\n");
-    out.push_str("\n/** 形式の判定の規則（zumen-sdk の Signature） */\nexport type DetectionRule =\n  | { readonly kind: \"bytes\"; readonly offset: number; readonly bytes: readonly number[] }\n  | { readonly kind: \"lines\"; readonly lines: readonly string[] }\n  | { readonly kind: \"step_schema\"; readonly prefix: string };\n");
+    out.push_str("\n/** 形式の判定の規則（zumen-sdk の Signature） */\nexport type DetectionRule =\n  | { readonly kind: \"bytes\"; readonly offset: number; readonly bytes: readonly number[] }\n  | { readonly kind: \"lines\"; readonly lines: readonly string[] }\n  | { readonly kind: \"step_schema\"; readonly prefix: string }\n  | { readonly kind: \"xml_root\"; readonly name: string; readonly namespace: string | null };\n");
     out.push_str("\n/** 形式の判定。rules のどれかに合えば format とする */\nexport interface Detection {\n  readonly format: string;\n  readonly module: ModuleName;\n  readonly rules: readonly DetectionRule[];\n}\n");
     out.push_str("\n/** open が形式を判定する順と規則 */\nexport declare const DETECTION: readonly Detection[];\n");
 

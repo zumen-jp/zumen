@@ -13,10 +13,12 @@ pub struct Stationing {
     pub start: f64,
     /// 測点の不連続。追加距離の順に並べる
     pub breaks: Vec<StationBreak>,
+    /// 形式が書いた測点の間隔（メートル）。書いていなければ `None`
+    pub pitch: Option<f64>,
 }
 
 /// 測点の不連続
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StationBreak {
     /// 追加距離（メートル）
     pub distance: f64,
@@ -24,6 +26,8 @@ pub struct StationBreak {
     pub back: f64,
     /// 進みの測点の値（不連続の先で数え直す値）
     pub ahead: f64,
+    /// 出所
+    pub source: zumen_base::Ref,
 }
 
 impl Stationing {

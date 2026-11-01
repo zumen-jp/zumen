@@ -1,24 +1,122 @@
-//! `civil` の op（決定 0230）。要求に書いた線形の上の所を、追加距離か測点の表記から求める。
+//! `civil` の op（決定 0230）。要求に書くか J-LandXML から開いた線形の上の所を、追加距離か測点の表記から求める。
 
 use zumen_base::{Cx, Kind};
 use zumen_civil::station::{self, Notation};
 use zumen_civil::{
-    Alignment, Horizontal, HorizontalKind, StationBreak, Stationing, TransitionCurve, Vertical,
-    VerticalKind,
+    Alignment, CivilModel, Horizontal, HorizontalKind, StationBreak, Stationing, SurfaceRole, Tin,
+    TransitionCurve, Vertical, VerticalKind,
 };
 use zumen_crs::MapPoint;
+use zumen_landxml::LandXml;
+use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
-    CivilAlignment, CivilHorizontalKind, CivilPosition, CivilRequest, CivilResult,
-    CivilTransitionCurve, CivilVerticalKind,
+    CivilAlignment, CivilAlignmentSummary, CivilHorizontalKind, CivilPosition, CivilRequest,
+    CivilResult, CivilSurfaceSummary, CivilTransitionCurve, CivilVerticalKind,
 };
 use crate::session::{Failed, fail, invalid_value, stopped};
 
-/// 線形の上の所を、distances・stations・interval の順に求める
-pub(crate) fn civil(request: &CivilRequest, cx: &mut Cx<'_>) -> Result<CivilResult, Failed> {
-    let alignment = alignment(&request.alignment, cx)?;
+/// J-LandXML なら読み、土木の領域モデルに移す。ほかの形式なら `None`
+pub(crate) fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<CivilModel, Failed>> {
+    if !LandXml::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        return None;
+    }
+    // 失敗の理由は、コーデックと移す処理が診断として足してある
+    Some(
+        LandXml::read(bytes, cx)
+            .and_then(|file| file.lift(cx))
+            .map_err(|_| Failed),
+    )
+}
+
+/// 線形の上の所を、distances・stations・interval の順に求める。線形は、要求に書くか、開いた土木の領域モデル
+/// `model` から ID で選ぶ
+pub(crate) fn civil(
+    request: &CivilRequest,
+    model: Option<&CivilModel>,
+    cx: &mut Cx<'_>,
+) -> Result<CivilResult, Failed> {
+    let asks =
+        request.distances.is_some() || request.stations.is_some() || request.interval.is_some();
+    let (alignment, summary) = match (&request.alignment, model) {
+        (Some(written), None) => (Some(alignment(written, cx)?), None),
+        (None, Some(model)) => {
+            let chosen = match &request.id {
+                Some(id) => Some(
+                    model
+                        .alignments
+                        .iter()
+                        .find(|alignment| &alignment.id == id)
+                        .ok_or_else(|| fail(cx, invalid_value("/id")))?,
+                ),
+                None => match model.alignments.as_slice() {
+                    [only] => Some(only),
+                    [] => None,
+                    _ if asks => return Err(fail(cx, invalid_value("/id"))),
+                    _ => None,
+                },
+            };
+            (chosen.cloned(), Some(model))
+        }
+        // 線形の書き方は、要求に書くか doc で選ぶかのどちらか 1 つ
+        _ => return Err(fail(cx, invalid_value("/alignment"))),
+    };
+    let (length, positions) = match &alignment {
+        Some(alignment) => positions(request, alignment, cx)?,
+        None => (0.0, Vec::new()),
+    };
+    Ok(CivilResult {
+        length,
+        positions,
+        alignment: summary
+            .and(alignment.as_ref())
+            .map(|alignment| alignment.id.clone()),
+        alignments: summary.map(|model| model.alignments.iter().map(describe).collect()),
+        surfaces: summary.map(|model| model.surfaces.iter().map(surface).collect()),
+        crs: summary
+            .and_then(|model| model.crs)
+            .map(|crs| u64::from(crs.epsg())),
+    })
+}
+
+fn describe(alignment: &Alignment) -> CivilAlignmentSummary {
+    CivilAlignmentSummary {
+        id: alignment.id.clone(),
+        name: alignment.name.clone(),
+        length: zumen_civil::length(alignment),
+        start_station: alignment.stations.start,
+        horizontal: alignment.horizontal.len() as u64,
+        vertical: alignment.vertical.len() as u64,
+        breaks: alignment.stations.breaks.len() as u64,
+        cross_sections: alignment.cross_sections.len() as u64,
+    }
+}
+
+fn surface(tin: &Tin) -> CivilSurfaceSummary {
+    CivilSurfaceSummary {
+        id: tin.id.clone(),
+        name: tin.name.clone(),
+        role: match &tin.role {
+            SurfaceRole::Existing => "existing".to_string(),
+            SurfaceRole::Design => "design".to_string(),
+            SurfaceRole::Other(role) => role.clone(),
+        },
+        points: tin.points.len() as u64,
+        triangles: tin.triangles.len() as u64,
+    }
+}
+
+/// 線形の長さと、求めた所
+fn positions(
+    request: &CivilRequest,
+    alignment: &Alignment,
+    cx: &mut Cx<'_>,
+) -> Result<(f64, Vec<CivilPosition>), Failed> {
     let notation = Notation {
-        pitch: request.pitch.unwrap_or(20.0),
+        pitch: request
+            .pitch
+            .or(alignment.stations.pitch)
+            .unwrap_or(Notation::default().pitch),
         digits: request
             .digits
             .map_or(3, |digits| u8::try_from(digits.min(9)).unwrap_or(9)),
@@ -26,10 +124,10 @@ pub(crate) fn civil(request: &CivilRequest, cx: &mut Cx<'_>) -> Result<CivilResu
     if !(notation.pitch.is_finite() && notation.pitch > 0.0) {
         return Err(fail(cx, invalid_value("/pitch")));
     }
-    let length = zumen_civil::length(&alignment);
+    let length = zumen_civil::length(alignment);
     let mut distances: Vec<f64> = request.distances.clone().unwrap_or_default();
     for text in request.stations.iter().flatten() {
-        match station::distance(&alignment, text, &notation, None, cx) {
+        match station::distance(alignment, text, &notation, None, cx) {
             Ok(distance) => distances.push(distance),
             Err(diagnostic) => cx.report(*diagnostic),
         }
@@ -51,7 +149,7 @@ pub(crate) fn civil(request: &CivilRequest, cx: &mut Cx<'_>) -> Result<CivilResu
         .map_err(|stop| stopped(cx, stop))?;
     let mut positions = Vec::with_capacity(distances.len());
     for distance in distances {
-        match zumen_civil::place(&alignment, distance, cx) {
+        match zumen_civil::place(alignment, distance, cx) {
             Ok(placed) => {
                 let value = alignment.stations.value(distance);
                 positions.push(CivilPosition {
@@ -68,7 +166,7 @@ pub(crate) fn civil(request: &CivilRequest, cx: &mut Cx<'_>) -> Result<CivilResu
             Err(diagnostic) => cx.report(*diagnostic),
         }
     }
-    Ok(CivilResult { length, positions })
+    Ok((length, positions))
 }
 
 /// 要求の線形をモデルの線形にする。区間の種類に要る欄がなければ、失敗にする
@@ -106,6 +204,7 @@ fn alignment(request: &CivilAlignment, cx: &mut Cx<'_>) -> Result<Alignment, Fai
             },
             direction: segment.direction,
             length: segment.length,
+            source: Default::default(),
             kind,
         });
     }
@@ -128,6 +227,7 @@ fn alignment(request: &CivilAlignment, cx: &mut Cx<'_>) -> Result<Alignment, Fai
             start_height: segment.start_height,
             start_gradient: segment.start_gradient,
             length: segment.length,
+            source: Default::default(),
             kind,
         });
     }
@@ -144,8 +244,10 @@ fn alignment(request: &CivilAlignment, cx: &mut Cx<'_>) -> Result<Alignment, Fai
                     distance: at.distance,
                     back: at.back,
                     ahead: at.ahead,
+                    source: Default::default(),
                 })
                 .collect(),
+            pitch: None,
         },
         ..Alignment::default()
     };

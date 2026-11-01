@@ -1,5 +1,5 @@
 {
-  "description": "civil は、要求に書いた線形の上の所を、追加距離・測点の表記・間隔から求め、点・方向角・高さ・勾配と測点の表記を返す。測点の不連続の先は数え直し、同じ値が 2 か所にあれば最初の所にして診断する。範囲の外の所と計算できない曲線は、診断して除く。区間に要る欄がなければ失敗する（決定 0230）。線形は、北へ 50 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100）、半径 200 m の円弧 40 m",
+  "description": "civil は、要求に書いた線形の上の所を、追加距離・測点の表記・間隔から求め、点・方向角・高さ・勾配と測点の表記を返す。測点の不連続の先は数え直し、同じ値が 2 か所にあれば最初の所にして診断する。範囲の外の所と計算できない曲線は、診断して除く。区間に要る欄がなければ失敗する。open で開いた J-LandXML は、doc と id で線形を選び、線形と地表面の要約と座標系を返す（決定 0230）。線形は、北へ 50 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100）、半径 200 m の円弧 40 m",
   "steps": [
     {
       "call": {
@@ -79,6 +79,62 @@
       "expect": {
         "/diagnostics/0/code": "call.value.invalid",
         "/diagnostics/0/params/pointer": "/alignment/horizontal/0/radius"
+      }
+    },
+    {
+      "push": {
+        "name": "road.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"T.P\" horizontalCoordinateSystemName=\"9(X,Y)\"/>\n<Alignments><Alignment name=\"本線\" length=\"100\" staStart=\"0\"><CoordGeom><Line><Start>0 0</Start><End>100 0</End></Line></CoordGeom><Profile><ProfAlign><PVI>0 10</PVI><PVI>100 12</PVI></ProfAlign></Profile></Alignment></Alignments>\n<Surfaces><Surface name=\"地盤\" desc=\"ExistingGround\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">0 0 10</P><P id=\"2\">0 10 11</P><P id=\"3\">10 10 12</P></Pnts><Faces><F>1 2 3</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "road.xml"
+      },
+      "expect": {
+        "/result/doc": "road.xml",
+        "/result/format": "landxml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "doc": "road.xml",
+        "distances": [
+          25
+        ]
+      },
+      "expect": {
+        "/result/alignment": "本線",
+        "/result/length": 100,
+        "/result/crs": 6677,
+        "/result/alignments/0/id": "本線",
+        "/result/alignments/0/horizontal": 1,
+        "/result/alignments/0/vertical": 1,
+        "/result/surfaces/0/role": "existing",
+        "/result/surfaces/0/triangles": 1,
+        "/result/positions/0/northing": 25,
+        "/result/positions/0/easting": 0,
+        "/result/positions/0/height": 10.5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "doc": "road.xml",
+        "id": "支線",
+        "distances": [
+          25
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/id"
       }
     }
   ]

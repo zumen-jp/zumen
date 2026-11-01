@@ -12238,7 +12238,7 @@ public final class Messages {
         public static final String WASM = "wasm";
     }
 
-    /** 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から */
+    /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から） */
     public static final class CivilRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CivilRequest(Map<String, Object> json) {
@@ -12323,7 +12323,7 @@ public final class Messages {
             return this;
         }
 
-        /** 線形 */
+        /** 線形。doc と一緒には書かない */
         public CivilAlignment getAlignment() {
             return Json.read(json.get("alignment"), CivilAlignment::of);
         }
@@ -12331,6 +12331,28 @@ public final class Messages {
         /** {@link #getAlignment()} を書く。null なら欄を除く */
         public CivilRequest withAlignment(CivilAlignment value) {
             put("alignment", value);
+            return this;
+        }
+
+        /** open で開いた J-LandXML の文書の名前。小版 47 から */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public CivilRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public CivilRequest withId(String value) {
+            put("id", value);
             return this;
         }
 
@@ -12809,6 +12831,231 @@ public final class Messages {
         /** {@link #getPositions()} を書く。null なら欄を除く */
         public CivilResult withPositions(List<CivilPosition> value) {
             put("positions", value);
+            return this;
+        }
+
+        /** 所を求めた doc の線形の ID。小版 47 から */
+        public String getAlignment() {
+            return Json.read(json.get("alignment"), Json::string);
+        }
+
+        /** {@link #getAlignment()} を書く。null なら欄を除く */
+        public CivilResult withAlignment(String value) {
+            put("alignment", value);
+            return this;
+        }
+
+        /** doc の線形の要約。doc を渡したときに返す。小版 47 から */
+        public List<CivilAlignmentSummary> getAlignments() {
+            return Json.read(json.get("alignments"), v0 -> Json.list(v0, CivilAlignmentSummary::of));
+        }
+
+        /** {@link #getAlignments()} を書く。null なら欄を除く */
+        public CivilResult withAlignments(List<CivilAlignmentSummary> value) {
+            put("alignments", value);
+            return this;
+        }
+
+        /** doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から */
+        public List<CivilSurfaceSummary> getSurfaces() {
+            return Json.read(json.get("surfaces"), v0 -> Json.list(v0, CivilSurfaceSummary::of));
+        }
+
+        /** {@link #getSurfaces()} を書く。null なら欄を除く */
+        public CivilResult withSurfaces(List<CivilSurfaceSummary> value) {
+            put("surfaces", value);
+            return this;
+        }
+
+        /** doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から */
+        public Long getCrs() {
+            return Json.read(json.get("crs"), Json::integer);
+        }
+
+        /** {@link #getCrs()} を書く。null なら欄を除く */
+        public CivilResult withCrs(Long value) {
+            put("crs", value);
+            return this;
+        }
+    }
+
+    /** 線形の要約 */
+    public static final class CivilAlignmentSummary extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilAlignmentSummary(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilAlignmentSummary of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilAlignmentSummary(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilAlignmentSummary() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 線形の ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 平面線形の長さ（メートル） */
+        public Double getLength() {
+            return Json.read(json.get("length"), Json::number);
+        }
+
+        /** {@link #getLength()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withLength(Double value) {
+            put("length", value);
+            return this;
+        }
+
+        /** 線形の初めの測点の値（メートル） */
+        public Double getStartStation() {
+            return Json.read(json.get("start_station"), Json::number);
+        }
+
+        /** {@link #getStartStation()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withStartStation(Double value) {
+            put("start_station", value);
+            return this;
+        }
+
+        /** 平面線形の区間の数 */
+        public Long getHorizontal() {
+            return Json.read(json.get("horizontal"), Json::integer);
+        }
+
+        /** {@link #getHorizontal()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withHorizontal(Long value) {
+            put("horizontal", value);
+            return this;
+        }
+
+        /** 縦断線形の区間の数 */
+        public Long getVertical() {
+            return Json.read(json.get("vertical"), Json::integer);
+        }
+
+        /** {@link #getVertical()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withVertical(Long value) {
+            put("vertical", value);
+            return this;
+        }
+
+        /** 測点の不連続の数 */
+        public Long getBreaks() {
+            return Json.read(json.get("breaks"), Json::integer);
+        }
+
+        /** {@link #getBreaks()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withBreaks(Long value) {
+            put("breaks", value);
+            return this;
+        }
+
+        /** 横断の数 */
+        public Long getCrossSections() {
+            return Json.read(json.get("cross_sections"), Json::integer);
+        }
+
+        /** {@link #getCrossSections()} を書く。null なら欄を除く */
+        public CivilAlignmentSummary withCrossSections(Long value) {
+            put("cross_sections", value);
+            return this;
+        }
+    }
+
+    /** 地表面（TIN）の要約 */
+    public static final class CivilSurfaceSummary extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilSurfaceSummary(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilSurfaceSummary of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilSurfaceSummary(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilSurfaceSummary() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 地表面の ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public CivilSurfaceSummary withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public CivilSurfaceSummary withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 役割。existing（現況）・design（計画）か、元の形式の値 */
+        public String getRole() {
+            return Json.read(json.get("role"), Json::string);
+        }
+
+        /** {@link #getRole()} を書く。null なら欄を除く */
+        public CivilSurfaceSummary withRole(String value) {
+            put("role", value);
+            return this;
+        }
+
+        /** 点の数 */
+        public Long getPoints() {
+            return Json.read(json.get("points"), Json::integer);
+        }
+
+        /** {@link #getPoints()} を書く。null なら欄を除く */
+        public CivilSurfaceSummary withPoints(Long value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 三角形の数 */
+        public Long getTriangles() {
+            return Json.read(json.get("triangles"), Json::integer);
+        }
+
+        /** {@link #getTriangles()} を書く。null なら欄を除く */
+        public CivilSurfaceSummary withTriangles(Long value) {
+            put("triangles", value);
             return this;
         }
     }

@@ -51,7 +51,7 @@ pub enum Request {
     BcfRead(BcfReadRequest),
     /// zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
     BcfWrite(BcfWriteRequest),
-    /// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+    /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
     Civil(CivilRequest),
 }
 
@@ -11224,13 +11224,17 @@ impl ToJson for Engine {
     }
 }
 
-/// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct CivilRequest {
     /// `request_common` の欄
     pub request_common: RequestCommon,
-    /// 線形
-    pub alignment: CivilAlignment,
+    /// 線形。doc と一緒には書かない
+    pub alignment: Option<CivilAlignment>,
+    /// open で開いた J-LandXML の文書の名前。小版 47 から
+    pub doc: Option<String>,
+    /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+    pub id: Option<String>,
     /// 追加距離（メートル）の列
     pub distances: Option<Vec<f64>>,
     /// 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
@@ -11247,7 +11251,9 @@ impl CivilRequest {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let request_common = RequestCommon::read_fields(object)?;
         object.constant("op", "civil")?;
-        let alignment = object.required("alignment", CivilAlignment::from_json)?;
+        let alignment = object.optional("alignment", CivilAlignment::from_json)?;
+        let doc = object.optional("doc", json::string)?;
+        let id = object.optional("id", json::string)?;
         let distances = object.optional("distances", |value| json::array(value, json::number))?;
         let stations = object.optional("stations", |value| json::array(value, json::string))?;
         let interval = object.optional("interval", json::number)?;
@@ -11256,6 +11262,8 @@ impl CivilRequest {
         Ok(Self {
             request_common,
             alignment,
+            doc,
+            id,
             distances,
             stations,
             interval,
@@ -11268,8 +11276,18 @@ impl CivilRequest {
         self.request_common.write_fields(out);
         out.key("op");
         out.string("civil");
-        out.key("alignment");
-        self.alignment.to_json(out);
+        if let Some(value) = &self.alignment {
+            out.key("alignment");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.doc {
+            out.key("doc");
+            out.string(value);
+        }
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
         if let Some(value) = &self.distances {
             out.key("distances");
             out.array(value, |out, item| out.float(*item));
@@ -11772,6 +11790,14 @@ pub struct CivilResult {
     pub length: f64,
     /// 求めた所
     pub positions: Vec<CivilPosition>,
+    /// 所を求めた doc の線形の ID。小版 47 から
+    pub alignment: Option<String>,
+    /// doc の線形の要約。doc を渡したときに返す。小版 47 から
+    pub alignments: Option<Vec<CivilAlignmentSummary>>,
+    /// doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+    pub surfaces: Option<Vec<CivilSurfaceSummary>>,
+    /// doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+    pub crs: Option<u64>,
 }
 
 impl CivilResult {
@@ -11780,7 +11806,22 @@ impl CivilResult {
         let positions = object.required("positions", |value| {
             json::array(value, CivilPosition::from_json)
         })?;
-        Ok(Self { length, positions })
+        let alignment = object.optional("alignment", json::string)?;
+        let alignments = object.optional("alignments", |value| {
+            json::array(value, CivilAlignmentSummary::from_json)
+        })?;
+        let surfaces = object.optional("surfaces", |value| {
+            json::array(value, CivilSurfaceSummary::from_json)
+        })?;
+        let crs = object.optional("crs", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            length,
+            positions,
+            alignment,
+            alignments,
+            surfaces,
+            crs,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -11788,6 +11829,22 @@ impl CivilResult {
         out.float(self.length);
         out.key("positions");
         out.array(&self.positions, |out, item| item.to_json(out));
+        if let Some(value) = &self.alignment {
+            out.key("alignment");
+            out.string(value);
+        }
+        if let Some(value) = &self.alignments {
+            out.key("alignments");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.surfaces {
+            out.key("surfaces");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.crs {
+            out.key("crs");
+            out.uint(*value);
+        }
     }
 }
 
@@ -11801,6 +11858,157 @@ impl FromJson for CivilResult {
 }
 
 impl ToJson for CivilResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線形の要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilAlignmentSummary {
+    /// 線形の ID
+    pub id: String,
+    /// 名前
+    pub name: Option<String>,
+    /// 平面線形の長さ（メートル）
+    pub length: f64,
+    /// 線形の初めの測点の値（メートル）
+    pub start_station: f64,
+    /// 平面線形の区間の数
+    pub horizontal: u64,
+    /// 縦断線形の区間の数
+    pub vertical: u64,
+    /// 測点の不連続の数
+    pub breaks: u64,
+    /// 横断の数
+    pub cross_sections: u64,
+}
+
+impl CivilAlignmentSummary {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let length = object.required("length", json::number)?;
+        let start_station = object.required("start_station", json::number)?;
+        let horizontal =
+            object.required("horizontal", |value| json::uint(value, 0, 9007199254740991))?;
+        let vertical =
+            object.required("vertical", |value| json::uint(value, 0, 9007199254740991))?;
+        let breaks = object.required("breaks", |value| json::uint(value, 0, 9007199254740991))?;
+        let cross_sections = object.required("cross_sections", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            id,
+            name,
+            length,
+            start_station,
+            horizontal,
+            vertical,
+            breaks,
+            cross_sections,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        out.key("length");
+        out.float(self.length);
+        out.key("start_station");
+        out.float(self.start_station);
+        out.key("horizontal");
+        out.uint(self.horizontal);
+        out.key("vertical");
+        out.uint(self.vertical);
+        out.key("breaks");
+        out.uint(self.breaks);
+        out.key("cross_sections");
+        out.uint(self.cross_sections);
+    }
+}
+
+impl FromJson for CivilAlignmentSummary {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilAlignmentSummary {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地表面（TIN）の要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilSurfaceSummary {
+    /// 地表面の ID
+    pub id: String,
+    /// 名前
+    pub name: Option<String>,
+    /// 役割。existing（現況）・design（計画）か、元の形式の値
+    pub role: String,
+    /// 点の数
+    pub points: u64,
+    /// 三角形の数
+    pub triangles: u64,
+}
+
+impl CivilSurfaceSummary {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let role = object.required("role", json::string)?;
+        let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
+        let triangles =
+            object.required("triangles", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            id,
+            name,
+            role,
+            points,
+            triangles,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        out.key("role");
+        out.string(&self.role);
+        out.key("points");
+        out.uint(self.points);
+        out.key("triangles");
+        out.uint(self.triangles);
+    }
+}
+
+impl FromJson for CivilSurfaceSummary {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilSurfaceSummary {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

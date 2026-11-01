@@ -173,6 +173,134 @@ function firstName(head, at) {
   return end === -1 ? undefined : head.subarray(at, end);
 }
 
+/** `pattern` の後の位置。なければ -1 */
+function afterPattern(head, at, pattern) {
+  for (let i = at; i + pattern.length <= head.length; i++) {
+    if (matchBytes(head, i, pattern)) {
+      return i + pattern.length;
+    }
+  }
+  return -1;
+}
+
+/** 文書型宣言の後の位置。なければ -1 */
+function afterDoctype(head, at) {
+  let depth = 0;
+  while (at < head.length) {
+    const byte = head[at];
+    if (byte === 0x22 || byte === 0x27) {
+      const end = head.indexOf(byte, at + 1);
+      if (end === -1) {
+        return -1;
+      }
+      at = end + 1;
+      continue;
+    }
+    if (byte === 0x5b) {
+      depth++;
+    } else if (byte === 0x5d) {
+      if (depth === 0) {
+        return -1;
+      }
+      depth--;
+    } else if (byte === 0x3e && depth === 0) {
+      return at + 1;
+    }
+    at++;
+  }
+  return -1;
+}
+
+function isName(byte) {
+  return !isSpace(byte) && ![0x3c, 0x3e, 0x2f, 0x3d, 0x21, 0x3f, 0x22, 0x27, 0x26, 0x3b, 0x5b, 0x5d].includes(byte);
+}
+
+function skipSpace(head, at) {
+  while (at < head.length && isSpace(head[at])) {
+    at++;
+  }
+  return at;
+}
+
+function nameEnd(head, at) {
+  while (at < head.length && isName(head[at])) {
+    at++;
+  }
+  return at < head.length ? at : -1;
+}
+
+/** XML の最初の要素の、接頭辞を除いた名前と名前空間の名前（バイト列）。読めなければ undefined */
+function xmlRoot(head) {
+  let at = matchBytes(head, 0, [0xef, 0xbb, 0xbf]) ? 3 : 0;
+  for (;;) {
+    at = skipSpace(head, at);
+    if (matchBytes(head, at, encoder.encode("<?"))) {
+      at = afterPattern(head, at + 2, encoder.encode("?>"));
+    } else if (matchBytes(head, at, encoder.encode("<!--"))) {
+      at = afterPattern(head, at + 4, encoder.encode("-->"));
+    } else if (matchBytes(head, at, encoder.encode("<!DOCTYPE"))) {
+      at = afterDoctype(head, at + 9);
+    } else if (head[at] === 0x3c) {
+      return startTag(head, at + 1);
+    } else {
+      return undefined;
+    }
+    if (at === -1) {
+      return undefined;
+    }
+  }
+}
+
+function startTag(head, at) {
+  const end = nameEnd(head, at);
+  if (end === -1 || end === at) {
+    return undefined;
+  }
+  const name = head.subarray(at, end);
+  const colon = name.indexOf(0x3a);
+  const prefix = colon === -1 ? undefined : name.subarray(0, colon);
+  const local = colon === -1 ? name : name.subarray(colon + 1);
+  if (local.length === 0) {
+    return undefined;
+  }
+  let namespace;
+  at = end;
+  for (;;) {
+    at = skipSpace(head, at);
+    if (head[at] === 0x3e || (head[at] === 0x2f && head[at + 1] === 0x3e)) {
+      return { local, namespace };
+    }
+    const attributeEnd = nameEnd(head, at);
+    if (attributeEnd === -1 || attributeEnd === at) {
+      return undefined;
+    }
+    const attribute = head.subarray(at, attributeEnd);
+    at = skipSpace(head, attributeEnd);
+    if (head[at] !== 0x3d) {
+      return undefined;
+    }
+    at = skipSpace(head, at + 1);
+    const quote = head[at];
+    if (quote !== 0x22 && quote !== 0x27) {
+      return undefined;
+    }
+    const valueEnd = head.indexOf(quote, at + 1);
+    if (valueEnd === -1) {
+      return undefined;
+    }
+    const value = head.subarray(at + 1, valueEnd);
+    const expected = prefix === undefined ? encoder.encode("xmlns") : new Uint8Array([...encoder.encode("xmlns:"), ...prefix]);
+    if (sameBytes(attribute, expected) && value.length > 0) {
+      namespace = value;
+    }
+    at = valueEnd + 1;
+  }
+}
+
+function sameBytes(a, b) {
+  return a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
 /** 規則に合うか */
 function matches(head, rule) {
   switch (rule.kind) {
@@ -183,6 +311,14 @@ function matches(head, rule) {
     case "step_schema": {
       const name = stepSchema(head);
       return name !== undefined && name.length >= rule.prefix.length && equalsIgnoreCase(name, 0, rule.prefix.length, rule.prefix);
+    }
+    case "xml_root": {
+      const root = xmlRoot(head);
+      return (
+        root !== undefined &&
+        sameBytes(root.local, encoder.encode(rule.name)) &&
+        (rule.namespace === null || (root.namespace !== undefined && sameBytes(root.namespace, encoder.encode(rule.namespace))))
+      );
     }
     default:
       return false;

@@ -37,6 +37,7 @@ fn alignment() -> Alignment {
                 },
                 direction: 0.0,
                 length: 50.0,
+                source: Default::default(),
                 kind: HorizontalKind::Line,
             },
             Horizontal {
@@ -46,6 +47,7 @@ fn alignment() -> Alignment {
                 },
                 direction: 0.0,
                 length,
+                source: Default::default(),
                 kind: HorizontalKind::Transition {
                     start_radius: None,
                     end_radius: Some(R),
@@ -59,6 +61,7 @@ fn alignment() -> Alignment {
                 },
                 direction: length * length / (2.0 * A * A),
                 length: 40.0,
+                source: Default::default(),
                 kind: HorizontalKind::Arc { radius: R },
             },
         ],
@@ -68,6 +71,7 @@ fn alignment() -> Alignment {
                 start_height: 10.0,
                 start_gradient: 0.02,
                 length: 60.0,
+                source: Default::default(),
                 kind: VerticalKind::ConstantGradient,
             },
             Vertical {
@@ -75,6 +79,7 @@ fn alignment() -> Alignment {
                 start_height: 11.2,
                 start_gradient: 0.02,
                 length: 40.0,
+                source: Default::default(),
                 kind: VerticalKind::Parabola {
                     end_gradient: -0.01,
                 },
@@ -86,7 +91,9 @@ fn alignment() -> Alignment {
                 distance: 70.0,
                 back: 70.0,
                 ahead: 60.0,
+                source: Default::default(),
             }],
+            pitch: None,
         },
         ..Alignment::default()
     }

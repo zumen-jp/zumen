@@ -1,0 +1,26 @@
+[package]
+name = "zumen-landxml"
+description = "zumen の J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準）の読み取りと、土木の領域モデルへの移し（#368）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["landxml"]
+
+[dependencies]
+# 方向角と距離（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-civil = { version = "0.2.0", path = "../zumen-civil" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-base = { path = "../zumen-base" }

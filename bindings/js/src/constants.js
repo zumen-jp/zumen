@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマの大版（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマの小版 */
-export const SCHEMA_MINOR = 46;
+export const SCHEMA_MINOR = 47;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -36,8 +36,8 @@ export const WASM_EXPORTS = Object.freeze([
 /** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
-    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww"]),
+    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）",
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil"]),
   }),
   bim: Object.freeze({
@@ -90,6 +90,13 @@ export const DETECTION = Object.freeze([
     module: "drawing",
     rules: Object.freeze([
       Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x4a, 0x77, 0x77, 0x44, 0x61, 0x74, 0x61, 0x2e]) }),
+    ]),
+  }),
+  Object.freeze({
+    format: "landxml",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "xml_root", name: "LandXML", namespace: "http://www.landxml.org/schema/LandXML-1.2" }),
     ]),
   }),
   Object.freeze({

@@ -297,6 +297,7 @@ dependencies = [
  "zumen-ifc",
  "zumen-json",
  "zumen-jww",
+ "zumen-landxml",
  "zumen-profile",
  "zumen-review",
  "zumen-scene",
@@ -455,6 +456,18 @@ dependencies = [
  "zumen-base",
  "zumen-drawing",
  "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-landxml"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-civil",
+ "zumen-crs",
+ "zumen-sdk",
+ "zumen-xml",
 ]
 
 [[package]]

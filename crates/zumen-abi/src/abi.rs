@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマの大版。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマの小版。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 46;
+pub const SCHEMA_MINOR: u64 = 47;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,10 +97,10 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー
+    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）
     Module {
         name: "drawing",
-        formats: &["dxf", "dwg", "sxf", "jww"],
+        formats: &["dxf", "dwg", "sxf", "jww", "landxml"],
         ops: &[
             "capabilities",
             "open",
@@ -258,6 +258,14 @@ pub const DETECTION: &[Detection] = &[
         rules: &[zumen_sdk::Signature::Bytes {
             offset: 0,
             bytes: b"JwwData.",
+        }],
+    },
+    Detection {
+        format: "landxml",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::XmlRoot {
+            name: b"LandXML",
+            namespace: Some(b"http://www.landxml.org/schema/LandXML-1.2"),
         }],
     },
     Detection {

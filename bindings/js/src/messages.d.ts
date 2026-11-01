@@ -2263,12 +2263,16 @@ export type Engine =
   | "wasm"
   | (string & {});
 
-/** 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から */
+/** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から） */
 export interface CivilRequest extends RequestCommon {
   /** op の名前 */
   op: "civil";
-  /** 線形 */
-  alignment: CivilAlignment;
+  /** 線形。doc と一緒には書かない */
+  alignment?: CivilAlignment;
+  /** open で開いた J-LandXML の文書の名前。小版 47 から */
+  doc?: string;
+  /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から */
+  id?: string;
   /** 追加距離（メートル）の列 */
   distances?: number[];
   /** 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する */
@@ -2374,6 +2378,48 @@ export interface CivilResult {
   length: number;
   /** 求めた所 */
   positions: CivilPosition[];
+  /** 所を求めた doc の線形の ID。小版 47 から */
+  alignment?: string;
+  /** doc の線形の要約。doc を渡したときに返す。小版 47 から */
+  alignments?: CivilAlignmentSummary[];
+  /** doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から */
+  surfaces?: CivilSurfaceSummary[];
+  /** doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から */
+  crs?: number;
+}
+
+/** 線形の要約 */
+export interface CivilAlignmentSummary {
+  /** 線形の ID */
+  id: string;
+  /** 名前 */
+  name?: string;
+  /** 平面線形の長さ（メートル） */
+  length: number;
+  /** 線形の初めの測点の値（メートル） */
+  start_station: number;
+  /** 平面線形の区間の数 */
+  horizontal: number;
+  /** 縦断線形の区間の数 */
+  vertical: number;
+  /** 測点の不連続の数 */
+  breaks: number;
+  /** 横断の数 */
+  cross_sections: number;
+}
+
+/** 地表面（TIN）の要約 */
+export interface CivilSurfaceSummary {
+  /** 地表面の ID */
+  id: string;
+  /** 名前 */
+  name?: string;
+  /** 役割。existing（現況）・design（計画）か、元の形式の値 */
+  role: string;
+  /** 点の数 */
+  points: number;
+  /** 三角形の数 */
+  triangles: number;
 }
 
 /** 線形の上の 1 つの所 */

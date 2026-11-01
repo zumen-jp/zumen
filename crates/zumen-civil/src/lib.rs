@@ -4,7 +4,8 @@
 //! （`northing`・`easting`、メートル。決定 0019）に置く。方向角は、北から時計回りのラジアンにする。
 //! 線形の上の位置は、線形の初めからの平面の距離（追加距離）で表し、測点の値と表記は [`station`] で換算する。
 
-use zumen_crs::MapPoint;
+use zumen_base::Ref;
+use zumen_crs::{Crs, HeightDatum, MapPoint, Realization};
 
 mod position;
 pub mod station;
@@ -19,6 +20,12 @@ pub struct CivilModel {
     pub alignments: Vec<Alignment>,
     /// 地表面
     pub surfaces: Vec<Tin>,
+    /// 水平の座標系。分からなければ `None`
+    pub crs: Option<Crs>,
+    /// 高さの基準。分からなければ `None`
+    pub height_datum: Option<HeightDatum>,
+    /// 標高の成果。分からなければ `None`
+    pub realization: Option<Realization>,
 }
 
 /// 道路・鉄道の中心の線
@@ -40,6 +47,8 @@ pub struct Alignment {
     pub stations: Stationing,
     /// 横断
     pub cross_sections: Vec<CrossSection>,
+    /// 出所
+    pub source: Ref,
 }
 
 /// 平面線形の区間。初めの点と向きは、元の形式の値をそのまま持つ
@@ -53,6 +62,8 @@ pub struct Horizontal {
     pub length: f64,
     /// 種類
     pub kind: HorizontalKind,
+    /// 出所
+    pub source: Ref,
 }
 
 /// 平面線形の区間の種類
@@ -110,6 +121,8 @@ pub struct Vertical {
     pub length: f64,
     /// 種類
     pub kind: VerticalKind,
+    /// 出所。J-LandXML では、区間の初めの縦断の変化点
+    pub source: Ref,
 }
 
 /// 縦断線形の区間の種類
@@ -147,6 +160,8 @@ pub struct Cant {
     pub kind: CantKind,
     /// 変わり方。元の形式の値を文字のまま持つ（直線・3 次など）
     pub transition: Option<String>,
+    /// 出所
+    pub source: Ref,
 }
 
 /// 片勾配かカントか
@@ -179,6 +194,8 @@ pub struct CrossSection {
     pub name: Option<String>,
     /// 横断の線
     pub lines: Vec<CrossSectionLine>,
+    /// 出所
+    pub source: Ref,
 }
 
 /// 横断の線。点は、線形の中心からの離れ（右を正、メートル）と高さ（メートル）
@@ -220,4 +237,6 @@ pub struct Tin {
     pub boundaries: Vec<Vec<u32>>,
     /// ブレーク線（点の番号の列）
     pub breaklines: Vec<Vec<u32>>,
+    /// 出所
+    pub source: Ref,
 }

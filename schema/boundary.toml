@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 46
+schema-minor = 47
 
 # 状態コード。理由は応答の診断で返す
 
@@ -149,8 +149,8 @@ params = [
 
 [[modules]]
 name = "drawing"
-description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー"
-formats = ["dxf", "dwg", "sxf", "jww"]
+description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）"
+formats = ["dxf", "dwg", "sxf", "jww", "landxml"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil",
@@ -167,7 +167,8 @@ ops = [
 
 # open が入力の形式を判定する順と規則（決定 0007・0219）。規則は、形式のコーデックの SIGNATURES と同じにする
 # （zumen-abi の試験が確かめる）。JavaScript の包みは、この順で判定し、形式を持つモジュールを読み込む。
-# 規則の形: bytes（offset の位置から続くバイト列）・lines（先頭の行）・step-schema（ISO 10303-21 の FILE_SCHEMA の始まり）
+# 規則の形: bytes（offset の位置から続くバイト列）・lines（先頭の行）・step-schema（ISO 10303-21 の FILE_SCHEMA の始まり）・
+# xml-root（XML の最初の要素の名前。namespace で名前空間を添える）
 
 [[detection]]
 format = "ifc"
@@ -202,6 +203,11 @@ rules = [{ lines = ["ISO-10303-21;"] }]
 format = "jww"
 module = "drawing"
 rules = [{ offset = 0, bytes = "JwwData." }]
+
+[[detection]]
+format = "landxml"
+module = "drawing"
+rules = [{ xml-root = "LandXML", namespace = "http://www.landxml.org/schema/LandXML-1.2" }]
 
 # ifcZIP。ZIP の署名はほかの形式とも重なるので、最後に試す
 [[detection]]

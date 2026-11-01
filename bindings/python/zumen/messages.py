@@ -3929,7 +3929,7 @@ Engine = Union[
 ]
 
 
-# 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+# 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
 _CivilRequestRequired = TypedDict(
     "_CivilRequestRequired",
     {
@@ -3937,8 +3937,6 @@ _CivilRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["civil"],
-        # 線形
-        "alignment": "CivilAlignment",
     },
 )
 _CivilRequestOptional = TypedDict(
@@ -3952,6 +3950,12 @@ _CivilRequestOptional = TypedDict(
         "max_places": int,
         # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         "time_limit_ms": int,
+        # 線形。doc と一緒には書かない
+        "alignment": "CivilAlignment",
+        # open で開いた J-LandXML の文書の名前。小版 47 から
+        "doc": str,
+        # doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+        "id": str,
         # 追加距離（メートル）の列
         "distances": List[float],
         # 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
@@ -3968,7 +3972,7 @@ _CivilRequestOptional = TypedDict(
 
 
 class CivilRequest(_CivilRequestRequired, _CivilRequestOptional):
-    "要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から"
+    "線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）"
 
 
 # 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
@@ -4114,8 +4118,8 @@ CivilStationBreak = TypedDict(
 
 
 # 線形の上の所
-CivilResult = TypedDict(
-    "CivilResult",
+_CivilResultRequired = TypedDict(
+    "_CivilResultRequired",
     {
         # 平面線形の長さ（メートル）
         "length": float,
@@ -4123,6 +4127,86 @@ CivilResult = TypedDict(
         "positions": List["CivilPosition"],
     },
 )
+_CivilResultOptional = TypedDict(
+    "_CivilResultOptional",
+    {
+        # 所を求めた doc の線形の ID。小版 47 から
+        "alignment": str,
+        # doc の線形の要約。doc を渡したときに返す。小版 47 から
+        "alignments": List["CivilAlignmentSummary"],
+        # doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+        "surfaces": List["CivilSurfaceSummary"],
+        # doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+        "crs": int,
+    },
+    total=False,
+)
+
+
+class CivilResult(_CivilResultRequired, _CivilResultOptional):
+    "線形の上の所"
+
+
+# 線形の要約
+_CivilAlignmentSummaryRequired = TypedDict(
+    "_CivilAlignmentSummaryRequired",
+    {
+        # 線形の ID
+        "id": str,
+        # 平面線形の長さ（メートル）
+        "length": float,
+        # 線形の初めの測点の値（メートル）
+        "start_station": float,
+        # 平面線形の区間の数
+        "horizontal": int,
+        # 縦断線形の区間の数
+        "vertical": int,
+        # 測点の不連続の数
+        "breaks": int,
+        # 横断の数
+        "cross_sections": int,
+    },
+)
+_CivilAlignmentSummaryOptional = TypedDict(
+    "_CivilAlignmentSummaryOptional",
+    {
+        # 名前
+        "name": str,
+    },
+    total=False,
+)
+
+
+class CivilAlignmentSummary(_CivilAlignmentSummaryRequired, _CivilAlignmentSummaryOptional):
+    "線形の要約"
+
+
+# 地表面（TIN）の要約
+_CivilSurfaceSummaryRequired = TypedDict(
+    "_CivilSurfaceSummaryRequired",
+    {
+        # 地表面の ID
+        "id": str,
+        # 役割。existing（現況）・design（計画）か、元の形式の値
+        "role": str,
+        # 点の数
+        "points": int,
+        # 三角形の数
+        "triangles": int,
+    },
+)
+_CivilSurfaceSummaryOptional = TypedDict(
+    "_CivilSurfaceSummaryOptional",
+    {
+        # 名前
+        "name": str,
+    },
+    total=False,
+)
+
+
+class CivilSurfaceSummary(_CivilSurfaceSummaryRequired, _CivilSurfaceSummaryOptional):
+    "地表面（TIN）の要約"
 
 
 # 線形の上の 1 つの所

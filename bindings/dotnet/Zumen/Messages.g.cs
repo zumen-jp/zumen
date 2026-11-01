@@ -6188,7 +6188,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+    /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
     /// </summary>
     public sealed record CivilRequest
     {
@@ -6229,10 +6229,22 @@ namespace Zumen.Messages
         public string Op { get; init; } = "civil";
 
         /// <summary>
-        /// 線形
+        /// 線形。doc と一緒には書かない
         /// </summary>
         [JsonPropertyName("alignment")]
-        public CivilAlignment Alignment { get; init; } = default!;
+        public CivilAlignment? Alignment { get; init; }
+
+        /// <summary>
+        /// open で開いた J-LandXML の文書の名前。小版 47 から
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string? Doc { get; init; }
+
+        /// <summary>
+        /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
 
         /// <summary>
         /// 追加距離（メートル）の列
@@ -6490,6 +6502,120 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("positions")]
         public IReadOnlyList<CivilPosition> Positions { get; init; } = default!;
+
+        /// <summary>
+        /// 所を求めた doc の線形の ID。小版 47 から
+        /// </summary>
+        [JsonPropertyName("alignment")]
+        public string? Alignment { get; init; }
+
+        /// <summary>
+        /// doc の線形の要約。doc を渡したときに返す。小版 47 から
+        /// </summary>
+        [JsonPropertyName("alignments")]
+        public IReadOnlyList<CivilAlignmentSummary>? Alignments { get; init; }
+
+        /// <summary>
+        /// doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+        /// </summary>
+        [JsonPropertyName("surfaces")]
+        public IReadOnlyList<CivilSurfaceSummary>? Surfaces { get; init; }
+
+        /// <summary>
+        /// doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+        /// </summary>
+        [JsonPropertyName("crs")]
+        public ulong? Crs { get; init; }
+    }
+
+    /// <summary>
+    /// 線形の要約
+    /// </summary>
+    public sealed record CivilAlignmentSummary
+    {
+        /// <summary>
+        /// 線形の ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 平面線形の長さ（メートル）
+        /// </summary>
+        [JsonPropertyName("length")]
+        public double Length { get; init; }
+
+        /// <summary>
+        /// 線形の初めの測点の値（メートル）
+        /// </summary>
+        [JsonPropertyName("start_station")]
+        public double StartStation { get; init; }
+
+        /// <summary>
+        /// 平面線形の区間の数
+        /// </summary>
+        [JsonPropertyName("horizontal")]
+        public ulong Horizontal { get; init; }
+
+        /// <summary>
+        /// 縦断線形の区間の数
+        /// </summary>
+        [JsonPropertyName("vertical")]
+        public ulong Vertical { get; init; }
+
+        /// <summary>
+        /// 測点の不連続の数
+        /// </summary>
+        [JsonPropertyName("breaks")]
+        public ulong Breaks { get; init; }
+
+        /// <summary>
+        /// 横断の数
+        /// </summary>
+        [JsonPropertyName("cross_sections")]
+        public ulong CrossSections { get; init; }
+    }
+
+    /// <summary>
+    /// 地表面（TIN）の要約
+    /// </summary>
+    public sealed record CivilSurfaceSummary
+    {
+        /// <summary>
+        /// 地表面の ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 役割。existing（現況）・design（計画）か、元の形式の値
+        /// </summary>
+        [JsonPropertyName("role")]
+        public string Role { get; init; } = default!;
+
+        /// <summary>
+        /// 点の数
+        /// </summary>
+        [JsonPropertyName("points")]
+        public ulong Points { get; init; }
+
+        /// <summary>
+        /// 三角形の数
+        /// </summary>
+        [JsonPropertyName("triangles")]
+        public ulong Triangles { get; init; }
     }
 
     /// <summary>

@@ -51,18 +51,42 @@ pub struct Rule {
     pub lines: Option<Vec<String>>,
     /// ISO 10303-21 の `FILE_SCHEMA` の最初の名前の始まり
     pub step_schema: Option<String>,
+    /// XML の最初の要素の、接頭辞を除いた名前
+    pub xml_root: Option<String>,
+    /// `xml-root` の要素の名前空間の名前（URI）。書かなければ問わない
+    pub namespace: Option<String>,
 }
 
 /// 判定の規則の形
 pub enum RuleKind<'a> {
-    Bytes { offset: usize, bytes: &'a [u8] },
+    Bytes {
+        offset: usize,
+        bytes: &'a [u8],
+    },
     Lines(&'a [String]),
     StepSchema(&'a str),
+    XmlRoot {
+        name: &'a str,
+        namespace: Option<&'a str>,
+    },
 }
 
 impl Rule {
     /// 規則の形。欄の組み合わせが合わなければ `None`
     pub fn kind(&self) -> Option<RuleKind<'_>> {
+        if let Some(name) = &self.xml_root {
+            let others = self.offset.is_some()
+                || self.bytes.is_some()
+                || self.lines.is_some()
+                || self.step_schema.is_some();
+            return (!others && !name.is_empty()).then(|| RuleKind::XmlRoot {
+                name,
+                namespace: self.namespace.as_deref(),
+            });
+        }
+        if self.namespace.is_some() {
+            return None;
+        }
         match (&self.offset, &self.bytes, &self.lines, &self.step_schema) {
             (Some(offset), Some(bytes), None, None) => Some(RuleKind::Bytes {
                 offset: *offset,
@@ -276,7 +300,7 @@ pub fn check(boundary: &Boundary) -> Vec<String> {
         }
         if detection.rules.is_empty() || detection.rules.iter().any(|rule| rule.kind().is_none()) {
             errors.push(format!(
-                "形式の判定 `{format}`: 規則は offset と bytes・lines・step-schema のどれか 1 つにする"
+                "形式の判定 `{format}`: 規則は offset と bytes・lines・step-schema・xml-root（と namespace）のどれか 1 つにする"
             ));
         }
     }
@@ -660,6 +684,19 @@ pub fn render_rust(boundary: &Boundary) -> String {
                             out,
                             "        zumen_sdk::Signature::StepSchema {{ prefix: {} }},",
                             byte_literal(prefix.as_bytes())
+                        );
+                    }
+                    Some(RuleKind::XmlRoot { name, namespace }) => {
+                        let namespace = match namespace {
+                            Some(namespace) => {
+                                format!("Some({})", byte_literal(namespace.as_bytes()))
+                            }
+                            None => "None".to_string(),
+                        };
+                        let _ = writeln!(
+                            out,
+                            "        zumen_sdk::Signature::XmlRoot {{ name: {}, namespace: {namespace} }},",
+                            byte_literal(name.as_bytes())
                         );
                     }
                     None => {}

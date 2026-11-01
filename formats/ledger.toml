@@ -607,6 +607,7 @@ place = "core"
 basis = ["spec"]
 verify = ["国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）"]
 samples = ["再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る"]
+docs = ["docs/formats/landxml.md"]
 issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
 
 [formats.sima]

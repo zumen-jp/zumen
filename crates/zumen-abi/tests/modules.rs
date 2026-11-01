@@ -9,6 +9,7 @@ use zumen_acad::{Dwg, Dxf};
 use zumen_base::CancelToken;
 use zumen_ifc::{Ifc, IfcZip};
 use zumen_jww::Jww;
+use zumen_landxml::LandXml;
 use zumen_sdk::Codec;
 use zumen_sxf::Sxf;
 
@@ -33,6 +34,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("dwg", Dwg::SIGNATURES),
         ("sxf", Sxf::SIGNATURES),
         ("jww", Jww::SIGNATURES),
+        ("landxml", LandXml::SIGNATURES),
         ("ifc", IfcZip::SIGNATURES),
     ];
     assert_eq!(DETECTION.len(), expected.len());

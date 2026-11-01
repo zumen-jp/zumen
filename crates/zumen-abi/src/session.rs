@@ -66,6 +66,8 @@ pub struct Session {
     hashes: BTreeMap<String, Hash>,
     /// `open` で作った建物モデルの文書（決定 0219）。名前は `docs` と分け合う
     models: BTreeMap<String, building::Model>,
+    /// `open` で作った土木の領域モデルの文書（J-LandXML、決定 0230）。名前は `docs` と分け合う
+    civils: BTreeMap<String, zumen_civil::CivilModel>,
     /// 実行中の op の名前。使えない文書の診断に書く
     op: &'static str,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
@@ -224,6 +226,7 @@ impl Session {
             docs: BTreeMap::new(),
             hashes: BTreeMap::new(),
             models: BTreeMap::new(),
+            civils: BTreeMap::new(),
             op: "",
             blobs: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
@@ -405,7 +408,7 @@ impl Session {
                 self.bcf_write(request, &mut cx).map(|r| Box::new(r) as _)
             }
             #[cfg(feature = "drawing")]
-            Request::Civil(request) => civil::civil(request, &mut cx).map(|r| Box::new(r) as _),
+            Request::Civil(request) => self.civil(request, &mut cx).map(|r| Box::new(r) as _),
             // 入れなかったモジュールの op は、上で断った
             #[allow(unreachable_patterns)]
             _ => Err(Failed),
@@ -428,7 +431,10 @@ impl Session {
             return Err(fail(cx, input_missing(&request.input)));
         };
         let name = request.doc.as_ref().unwrap_or(&request.input);
-        if self.docs.contains_key(name) || self.models.contains_key(name) {
+        if self.docs.contains_key(name)
+            || self.models.contains_key(name)
+            || self.civils.contains_key(name)
+        {
             return Err(fail(
                 cx,
                 Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", name.as_str()),
@@ -450,6 +456,15 @@ impl Session {
             self.hashes.insert(name.clone(), hash);
             self.docs.insert(name.clone(), doc);
             return Ok(result);
+        }
+        // J-LandXML は XML の根で見分ける（決定 0230）
+        #[cfg(feature = "drawing")]
+        if let Some(model) = civil::read(bytes, cx) {
+            self.civils.insert(name.clone(), model?);
+            return Ok(OpenResult {
+                doc: name.clone(),
+                format: zumen_landxml::LandXml::FORMAT.to_string(),
+            });
         }
         #[cfg(feature = "bim")]
         if let Some(model) = building::read_zip(bytes, cx) {
@@ -485,7 +500,10 @@ impl Session {
         }
         let mut missing = false;
         for doc in docs {
-            if !self.docs.contains_key(doc) && !self.models.contains_key(doc) {
+            if !self.docs.contains_key(doc)
+                && !self.models.contains_key(doc)
+                && !self.civils.contains_key(doc)
+            {
                 cx.report(Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.as_str()));
                 missing = true;
             }
@@ -504,6 +522,7 @@ impl Session {
             self.docs.remove(doc);
             self.hashes.remove(doc);
             self.models.remove(doc);
+            self.civils.remove(doc);
         }
         for input in inputs {
             self.inputs.remove(input);
@@ -938,7 +957,9 @@ impl Session {
         }
         match self.models.get(doc) {
             Some(model) => Ok(model),
-            None if self.docs.contains_key(doc) => Err(fail(cx, unsupported(doc, op))),
+            None if self.docs.contains_key(doc) || self.civils.contains_key(doc) => {
+                Err(fail(cx, unsupported(doc, op)))
+            }
             None => Err(fail(
                 cx,
                 Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc),
@@ -1007,6 +1028,36 @@ impl Session {
             bytes,
         }));
         Ok(result)
+    }
+
+    /// 線形の上の所を求める。doc を渡せば、開いた土木の領域モデルの線形を使う（決定 0230）
+    #[cfg(feature = "drawing")]
+    fn civil(
+        &self,
+        request: &messages::CivilRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::CivilResult, Failed> {
+        let model = match &request.doc {
+            None => None,
+            Some(doc) => {
+                if !name::is_safe(doc) {
+                    return Err(fail(cx, invalid_value("/doc")));
+                }
+                match self.civils.get(doc) {
+                    Some(model) => Some(model),
+                    None if self.docs.contains_key(doc) || self.models.contains_key(doc) => {
+                        return Err(fail(cx, unsupported(doc, "civil")));
+                    }
+                    None => {
+                        return Err(fail(
+                            cx,
+                            Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
+                        ));
+                    }
+                }
+            }
+        };
+        civil::civil(request, model, cx)
     }
 
     /// bcfzip を読み、開いた建物モデルを対象にしたレビューの文書を blob で返す（決定 0220）
@@ -1097,7 +1148,7 @@ impl Session {
             return Err(fail(cx, invalid_value("/doc")));
         }
         let Some(found) = self.docs.get(doc) else {
-            if self.models.contains_key(doc) {
+            if self.models.contains_key(doc) || self.civils.contains_key(doc) {
                 return Err(fail(cx, unsupported(doc, self.op)));
             }
             return Err(fail(
@@ -1136,6 +1187,7 @@ fn capabilities() -> CapabilitiesResult {
             (Dwg::FORMAT, "acad", true, 2),
             (Sxf::FORMAT, "sxf", true, 2),
             (Jww::FORMAT, "jww", true, 1),
+            (zumen_landxml::LandXml::FORMAT, "landxml", false, 1),
         ]
         .into_iter()
         .filter(|_| cfg!(feature = "drawing"))
@@ -2019,7 +2071,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":46}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":47}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

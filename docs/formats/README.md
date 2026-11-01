@@ -649,6 +649,7 @@
 - サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る
 - issue: [zumen-jp/zumen#366](https://github.com/zumen-jp/zumen/issues/366)
 - issue: [zumen-jp/zumen#368](https://github.com/zumen-jp/zumen/issues/368)
+- 形式の文書: [docs/formats/landxml.md](../../docs/formats/landxml.md)
 
 ### format-las
 

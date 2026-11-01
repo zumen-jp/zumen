@@ -3136,7 +3136,7 @@
       "enum": ["native", "process", "wasm"]
     },
     "civil_request": {
-      "description": "要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から",
+      "description": "線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）",
       "type": "object",
       "allOf": [
         { "$ref": "#/$defs/request_common" }
@@ -3147,8 +3147,16 @@
           "const": "civil"
         },
         "alignment": {
-          "description": "線形",
+          "description": "線形。doc と一緒には書かない",
           "$ref": "#/$defs/civil_alignment"
+        },
+        "doc": {
+          "description": "open で開いた J-LandXML の文書の名前。小版 47 から",
+          "type": "string"
+        },
+        "id": {
+          "description": "doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から",
+          "type": "string"
         },
         "distances": {
           "description": "追加距離（メートル）の列",
@@ -3175,7 +3183,7 @@
           "maximum": 9
         }
       },
-      "required": ["op", "alignment"],
+      "required": ["op"],
       "unevaluatedProperties": false
     },
     "civil_alignment": {
@@ -3284,9 +3292,57 @@
           "description": "求めた所",
           "type": "array",
           "items": { "$ref": "#/$defs/civil_position" }
+        },
+        "alignment": {
+          "description": "所を求めた doc の線形の ID。小版 47 から",
+          "type": "string"
+        },
+        "alignments": {
+          "description": "doc の線形の要約。doc を渡したときに返す。小版 47 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/civil_alignment_summary" }
+        },
+        "surfaces": {
+          "description": "doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/civil_surface_summary" }
+        },
+        "crs": {
+          "description": "doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から",
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": ["length", "positions"],
+      "additionalProperties": false
+    },
+    "civil_alignment_summary": {
+      "description": "線形の要約",
+      "type": "object",
+      "properties": {
+        "id": { "description": "線形の ID", "type": "string" },
+        "name": { "description": "名前", "type": "string" },
+        "length": { "description": "平面線形の長さ（メートル）", "type": "number" },
+        "start_station": { "description": "線形の初めの測点の値（メートル）", "type": "number" },
+        "horizontal": { "description": "平面線形の区間の数", "type": "integer", "minimum": 0 },
+        "vertical": { "description": "縦断線形の区間の数", "type": "integer", "minimum": 0 },
+        "breaks": { "description": "測点の不連続の数", "type": "integer", "minimum": 0 },
+        "cross_sections": { "description": "横断の数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "length", "start_station", "horizontal", "vertical", "breaks", "cross_sections"],
+      "additionalProperties": false
+    },
+    "civil_surface_summary": {
+      "description": "地表面（TIN）の要約",
+      "type": "object",
+      "properties": {
+        "id": { "description": "地表面の ID", "type": "string" },
+        "name": { "description": "名前", "type": "string" },
+        "role": { "description": "役割。existing（現況）・design（計画）か、元の形式の値", "type": "string" },
+        "points": { "description": "点の数", "type": "integer", "minimum": 0 },
+        "triangles": { "description": "三角形の数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "role", "points", "triangles"],
       "additionalProperties": false
     },
     "civil_position": {

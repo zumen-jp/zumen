@@ -4904,7 +4904,7 @@ abstract final class Engine {
   static const wasm = 'wasm';
 }
 
-/// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
 class CivilRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CivilRequest.fromJson(super.json);
@@ -4936,9 +4936,17 @@ class CivilRequest extends Message {
   String? get op => readField('op', asString);
   set op(String? value) => writeField('op', value);
 
-  /// 線形
+  /// 線形。doc と一緒には書かない
   CivilAlignment? get alignment => readField('alignment', objectOf(CivilAlignment.fromJson));
   set alignment(CivilAlignment? value) => writeField('alignment', value);
+
+  /// open で開いた J-LandXML の文書の名前。小版 47 から
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
 
   /// 追加距離（メートル）の列
   List<double>? get distances => readField('distances', listOf(asDouble));
@@ -5135,6 +5143,92 @@ class CivilResult extends Message {
   /// 求めた所
   List<CivilPosition>? get positions => readField('positions', listOf(objectOf(CivilPosition.fromJson)));
   set positions(List<CivilPosition>? value) => writeField('positions', value);
+
+  /// 所を求めた doc の線形の ID。小版 47 から
+  String? get alignment => readField('alignment', asString);
+  set alignment(String? value) => writeField('alignment', value);
+
+  /// doc の線形の要約。doc を渡したときに返す。小版 47 から
+  List<CivilAlignmentSummary>? get alignments => readField('alignments', listOf(objectOf(CivilAlignmentSummary.fromJson)));
+  set alignments(List<CivilAlignmentSummary>? value) => writeField('alignments', value);
+
+  /// doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+  List<CivilSurfaceSummary>? get surfaces => readField('surfaces', listOf(objectOf(CivilSurfaceSummary.fromJson)));
+  set surfaces(List<CivilSurfaceSummary>? value) => writeField('surfaces', value);
+
+  /// doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+  int? get crs => readField('crs', asInt);
+  set crs(int? value) => writeField('crs', value);
+}
+
+/// 線形の要約
+class CivilAlignmentSummary extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilAlignmentSummary.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilAlignmentSummary() : super({});
+
+  /// 線形の ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 平面線形の長さ（メートル）
+  double? get length => readField('length', asDouble);
+  set length(double? value) => writeField('length', value);
+
+  /// 線形の初めの測点の値（メートル）
+  double? get startStation => readField('start_station', asDouble);
+  set startStation(double? value) => writeField('start_station', value);
+
+  /// 平面線形の区間の数
+  int? get horizontal => readField('horizontal', asInt);
+  set horizontal(int? value) => writeField('horizontal', value);
+
+  /// 縦断線形の区間の数
+  int? get vertical => readField('vertical', asInt);
+  set vertical(int? value) => writeField('vertical', value);
+
+  /// 測点の不連続の数
+  int? get breaks => readField('breaks', asInt);
+  set breaks(int? value) => writeField('breaks', value);
+
+  /// 横断の数
+  int? get crossSections => readField('cross_sections', asInt);
+  set crossSections(int? value) => writeField('cross_sections', value);
+}
+
+/// 地表面（TIN）の要約
+class CivilSurfaceSummary extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilSurfaceSummary.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilSurfaceSummary() : super({});
+
+  /// 地表面の ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 役割。existing（現況）・design（計画）か、元の形式の値
+  String? get role => readField('role', asString);
+  set role(String? value) => writeField('role', value);
+
+  /// 点の数
+  int? get points => readField('points', asInt);
+  set points(int? value) => writeField('points', value);
+
+  /// 三角形の数
+  int? get triangles => readField('triangles', asInt);
+  set triangles(int? value) => writeField('triangles', value);
 }
 
 /// 線形の上の 1 つの所
