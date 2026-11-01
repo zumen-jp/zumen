@@ -7,9 +7,11 @@ use std::collections::BTreeMap;
 
 use zumen_base::{ByteRange, Cx};
 use zumen_las::Las;
+use zumen_ply::Ply;
 use zumen_pointcloud::{PointCloud, Query, select};
-use zumen_sdk::Lift;
 use zumen_sdk::ranged::{Missing, Ranged, Source};
+use zumen_sdk::{Codec, Lift};
+use zumen_xyz::Xyz;
 
 use crate::messages::{
     InputRange, PointcloudBox, PointcloudPoints, PointcloudRequest, PointcloudResult,
@@ -86,6 +88,31 @@ pub(crate) fn read(
         )),
         Err(Missing::Failed(_)) => Err(Failed),
     })
+}
+
+/// 全体を渡す点群の形式（PLY と、名指した XYZ）なら読み、点群の領域モデルに移す。ほかの形式なら `None`
+pub(crate) fn read_whole(
+    bytes: &[u8],
+    format: Option<&str>,
+    cx: &mut Cx<'_>,
+) -> Option<Result<(&'static str, PointCloud), Failed>> {
+    fn open<C: Codec>(bytes: &[u8], cx: &mut Cx<'_>) -> Result<(&'static str, PointCloud), Failed>
+    where
+        C::File: Lift<PointCloud>,
+    {
+        // 失敗の理由は、コーデックと移す処理が診断として足してある
+        C::read(bytes, cx)
+            .and_then(|file| file.lift(cx))
+            .map(|cloud| (C::FORMAT, cloud))
+            .map_err(|_| Failed)
+    }
+    if format == Some(Xyz::FORMAT) {
+        return Some(open::<Xyz>(bytes, cx));
+    }
+    if Ply::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        return Some(open::<Ply>(bytes, cx));
+    }
+    None
 }
 
 /// 箱の欄を、北・東・標高の最小と最大にする

@@ -688,6 +688,7 @@
 - 照合するソフト: CloudCompare・MeshLab
 - サンプルの出どころ（Git に入れない）: 試験の中で作る
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+- 形式の文書: [docs/formats/ply.md](../../docs/formats/ply.md)
 
 ### format-saf
 
@@ -771,3 +772,4 @@
 - 照合するソフト: CloudCompare
 - サンプルの出どころ（Git に入れない）: 試験の中で作る
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+- 形式の文書: [docs/formats/xyz.md](../../docs/formats/xyz.md)

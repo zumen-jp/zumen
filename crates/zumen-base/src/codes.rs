@@ -1987,6 +1987,41 @@ pub const LAS_VLR_INVALID: Code = Code::new(
     &[],
 );
 
+/// PLY は座標系を書かないので、座標系を不明にした
+///
+/// `ply.crs.missing`（0.2.0 から）
+pub const PLY_CRS_MISSING: Code = Code::new("ply.crs.missing", Severity::Warning, None, &[], &[]);
+
+/// 点群の領域モデルに持たない要素（vertex でないもの）を、移さなかった
+///
+/// `ply.element.dropped`（0.2.0 から）
+pub const PLY_ELEMENT_DROPPED: Code = Code::new(
+    "ply.element.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("found", ParamType::UInt),
+    ],
+    &["element"],
+);
+
+/// ply の始まりか見出しがないか、本体が見出しの要素と合わない
+///
+/// `ply.file.invalid`（0.2.0 から）
+pub const PLY_FILE_INVALID: Code = Code::new("ply.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 点群の領域モデルに持たない点の性質を、移さなかった
+///
+/// `ply.property.dropped`（0.2.0 から）
+pub const PLY_PROPERTY_DROPPED: Code = Code::new(
+    "ply.property.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("property", ParamType::Text)],
+    &["property"],
+);
+
 /// 文字の内容が、語彙の範囲の文字を含む（指摘）。character は U+XXXX の形
 ///
 /// `profile.characters.invalid`（0.0.0 から）
@@ -2831,6 +2866,41 @@ pub const XML_NAMESPACE_MISSING: Code = Code::new(
     &["prefix"],
 );
 
+/// 列の数から属性を推定できないので、4 列目からを移さなかった
+///
+/// `xyz.column.dropped`（0.2.0 から）
+pub const XYZ_COLUMN_DROPPED: Code = Code::new(
+    "xyz.column.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("columns", ParamType::UInt)],
+    &[],
+);
+
+/// XYZ は座標系を書かないので、座標系を不明にした
+///
+/// `xyz.crs.missing`（0.2.0 から）
+pub const XYZ_CRS_MISSING: Code = Code::new("xyz.crs.missing", Severity::Warning, None, &[], &[]);
+
+/// 3 つ以上の数を並べた行がない
+///
+/// `xyz.file.invalid`（0.2.0 から）
+pub const XYZ_FILE_INVALID: Code = Code::new("xyz.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 数を読めない行か、列の数が最初の行と違う行を、読まなかった
+///
+/// `xyz.line.invalid`（0.2.0 から）
+pub const XYZ_LINE_INVALID: Code = Code::new(
+    "xyz.line.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("line", ParamType::UInt),
+        Param::new("lines", ParamType::UInt),
+    ],
+    &[],
+);
+
 /// 中央ディレクトリの終わりの記録がないか、中央ディレクトリが壊れていて、ZIP の書庫として読めない
 ///
 /// `zip.archive.invalid`（0.2.0 から）
@@ -3112,6 +3182,10 @@ pub const ALL: &[Code] = &[
     LAS_POINTS_INVALID,
     LAS_VERTICAL_CRS_UNSUPPORTED,
     LAS_VLR_INVALID,
+    PLY_CRS_MISSING,
+    PLY_ELEMENT_DROPPED,
+    PLY_FILE_INVALID,
+    PLY_PROPERTY_DROPPED,
     PROFILE_CHARACTERS_INVALID,
     PROFILE_COLOR_INVALID,
     PROFILE_COLOR_UNSUPPORTED,
@@ -3185,6 +3259,10 @@ pub const ALL: &[Code] = &[
     XML_ENCODING_UNSUPPORTED,
     XML_ENTITY_UNSUPPORTED,
     XML_NAMESPACE_MISSING,
+    XYZ_COLUMN_DROPPED,
+    XYZ_CRS_MISSING,
+    XYZ_FILE_INVALID,
+    XYZ_LINE_INVALID,
     ZIP_ARCHIVE_INVALID,
     ZIP_CRC_INVALID,
     ZIP_DATA_INVALID,

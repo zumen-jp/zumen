@@ -469,6 +469,12 @@ public struct OpenRequest: Message {
         get { readField("size") }
         set { writeField("size", newValue) }
     }
+
+    /// 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
 }
 
 /// 作った文書

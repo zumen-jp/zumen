@@ -13,7 +13,7 @@ abstract final class Constants {
   static const schemaMajor = 1;
 
   /// メッセージのスキーマの小版
-  static const schemaMinor = 48;
+  static const schemaMinor = 49;
 
   /// シーンの大版。区画の意味を変えるときに上げる
   static const sceneMajor = 1;

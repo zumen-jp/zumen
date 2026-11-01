@@ -1,0 +1,21 @@
+[package]
+name = "zumen-xyz"
+description = "zumen の XYZ（座標を並べた点群のテキスト）の読み取りと、点群の領域モデルへの移し（#373）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["xyz"]
+
+[dependencies]
+# 強度と色の丸め（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-pointcloud = { version = "0.2.0", path = "../zumen-pointcloud" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true

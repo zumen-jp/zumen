@@ -741,6 +741,7 @@ place = "core"
 basis = ["inferred"]
 verify = ["CloudCompare", "MeshLab"]
 samples = ["試験の中で作る"]
+docs = ["docs/formats/ply.md"]
 issues = ["zumen-jp/zumen#373"]
 
 [[formats.ply.evidence]]
@@ -759,6 +760,7 @@ place = "core"
 basis = ["inferred"]
 verify = ["CloudCompare"]
 samples = ["試験の中で作る"]
+docs = ["docs/formats/xyz.md"]
 issues = ["zumen-jp/zumen#373"]
 
 [formats.delivery]

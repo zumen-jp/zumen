@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 48
+schema-minor = 49
 
 # 状態コード。理由は応答の診断で返す
 
@@ -150,7 +150,7 @@ params = [
 [[modules]]
 name = "drawing"
 description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）"
-formats = ["dxf", "dwg", "sxf", "jww", "landxml", "las"]
+formats = ["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud",
@@ -180,6 +180,12 @@ rules = [{ step-schema = "IFC" }]
 format = "las"
 module = "drawing"
 rules = [{ offset = 0, bytes = "LASF" }]
+
+# PLY。XYZ は見分ける印がないので、判定に入れない（決定 0232）
+[[detection]]
+format = "ply"
+module = "drawing"
+rules = [{ lines = ["ply"] }]
 
 [[detection]]
 format = "dxf"

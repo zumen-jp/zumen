@@ -11,6 +11,7 @@ use zumen_ifc::{Ifc, IfcZip};
 use zumen_jww::Jww;
 use zumen_landxml::LandXml;
 use zumen_las::Las;
+use zumen_ply::Ply;
 use zumen_sdk::Codec;
 use zumen_sxf::Sxf;
 
@@ -32,6 +33,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
     let expected = [
         ("ifc", Ifc::SIGNATURES),
         ("las", <Las as Codec>::SIGNATURES),
+        ("ply", Ply::SIGNATURES),
         ("dxf", Dxf::SIGNATURES),
         ("dwg", Dwg::SIGNATURES),
         ("sxf", Sxf::SIGNATURES),

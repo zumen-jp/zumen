@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマの大版。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマの小版。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 48;
+pub const SCHEMA_MINOR: u64 = 49;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +100,7 @@ pub const MODULES: &[Module] = &[
     // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）
     Module {
         name: "drawing",
-        formats: &["dxf", "dwg", "sxf", "jww", "landxml", "las"],
+        formats: &["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz"],
         ops: &[
             "capabilities",
             "open",
@@ -203,6 +203,11 @@ pub const DETECTION: &[Detection] = &[
             offset: 0,
             bytes: b"LASF",
         }],
+    },
+    Detection {
+        format: "ply",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::Lines { lines: &[b"ply"] }],
     },
     Detection {
         format: "dxf",

@@ -569,6 +569,8 @@ pub struct OpenRequest {
     pub doc: Option<String>,
     /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
     pub size: Option<u64>,
+    /// 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+    pub format: Option<String>,
 }
 
 impl OpenRequest {
@@ -578,11 +580,13 @@ impl OpenRequest {
         let input = object.required("input", json::string)?;
         let doc = object.optional("doc", json::string)?;
         let size = object.optional("size", |value| json::uint(value, 0, 9007199254740991))?;
+        let format = object.optional("format", json::string)?;
         Ok(Self {
             request_common,
             input,
             doc,
             size,
+            format,
         })
     }
 
@@ -599,6 +603,10 @@ impl OpenRequest {
         if let Some(value) = &self.size {
             out.key("size");
             out.uint(*value);
+        }
+        if let Some(value) = &self.format {
+            out.key("format");
+            out.string(value);
         }
     }
 }

@@ -330,12 +330,14 @@ dependencies = [
  "zumen-jww",
  "zumen-landxml",
  "zumen-las",
+ "zumen-ply",
  "zumen-pointcloud",
  "zumen-profile",
  "zumen-review",
  "zumen-scene",
  "zumen-sdk",
  "zumen-sxf",
+ "zumen-xyz",
  "zumen-zip",
 ]
 
@@ -528,6 +530,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-ply"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-pointcloud",
+ "zumen-sdk",
+]
+
+[[package]]
 name = "zumen-pointcloud"
 version = "0.2.0"
 dependencies = [
@@ -604,6 +616,16 @@ version = "0.2.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
+ "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-xyz"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-pointcloud",
  "zumen-sdk",
 ]
 

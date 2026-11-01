@@ -300,6 +300,10 @@ class OpenRequest extends Message {
   /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
   int? get size => readField('size', asInt);
   set size(int? value) => writeField('size', value);
+
+  /// 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
 }
 
 /// 作った文書

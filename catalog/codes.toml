@@ -1964,3 +1964,63 @@ severity = "warning"
 params = { epsg = "uint" }
 since = "0.2.0"
 status = "active"
+
+# PLY・XYZ の読み取りと、点群の領域モデルへの移し（#373）
+
+[codes."ply.file.invalid"]
+description = "ply の始まりか見出しがないか、本体が見出しの要素と合わない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."ply.element.dropped"]
+description = "点群の領域モデルに持たない要素（vertex でないもの）を、移さなかった"
+severity = "info"
+fidelity = "dropped"
+params = { element = "text", found = "uint" }
+group-by = ["element"]
+since = "0.2.0"
+status = "active"
+
+[codes."ply.property.dropped"]
+description = "点群の領域モデルに持たない点の性質を、移さなかった"
+severity = "info"
+fidelity = "dropped"
+params = { property = "text" }
+group-by = ["property"]
+since = "0.2.0"
+status = "active"
+
+[codes."ply.crs.missing"]
+description = "PLY は座標系を書かないので、座標系を不明にした"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."xyz.file.invalid"]
+description = "3 つ以上の数を並べた行がない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."xyz.line.invalid"]
+description = "数を読めない行か、列の数が最初の行と違う行を、読まなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { line = "uint", lines = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."xyz.column.dropped"]
+description = "列の数から属性を推定できないので、4 列目からを移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { columns = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."xyz.crs.missing"]
+description = "XYZ は座標系を書かないので、座標系を不明にした"
+severity = "warning"
+since = "0.2.0"
+status = "active"

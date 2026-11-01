@@ -735,6 +735,17 @@ public final class Messages {
             put("size", value);
             return this;
         }
+
+        /** 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null なら欄を除く */
+        public OpenRequest withFormat(String value) {
+            put("format", value);
+            return this;
+        }
     }
 
     /** 作った文書 */

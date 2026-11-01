@@ -352,6 +352,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("size")]
         public ulong? Size { get; init; }
+
+        /// <summary>
+        /// 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string? Format { get; init; }
     }
 
     /// <summary>
