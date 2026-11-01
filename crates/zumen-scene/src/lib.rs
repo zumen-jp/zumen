@@ -755,7 +755,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 let (marker, scale) = match &point.look {
                     PointLook::Document => ([0; 4], 1.0),
                     PointLook::Marker { key, scale } => {
-                        let [a, b] = self.strings.add(key.namespace);
+                        let [a, b] = self.strings.add(&key.namespace);
                         let [c, d] = self.strings.add(&key.code);
                         ([a, b, c, d], *scale)
                     }

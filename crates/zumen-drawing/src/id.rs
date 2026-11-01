@@ -304,7 +304,7 @@ mod tests {
         use crate::{LayerId, LineTypeId, ModelSpace, SymbolKey, Unit};
         let mut symbol = SymbolDefinition {
             key: SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: "B".to_owned(),
             },
             space: ModelSpace {

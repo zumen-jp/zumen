@@ -161,7 +161,7 @@ fn seen(drawing: &Drawing2D, name: &str) -> Seen {
 #[cfg(test)]
 fn block(name: &str) -> Arrowhead {
     Arrowhead::Symbol(SymbolKey {
-        namespace: "dxf.block",
+        namespace: "dxf.block".into(),
         name: name.to_owned(),
     })
 }
@@ -316,7 +316,7 @@ fn dimension_style_changes_that_cannot_be_written_are_refused() {
         vec![replace("Unused", &|style| style.leader = block("_MISSING"))],
         vec![replace("Unused", &|style| {
             style.leader = Arrowhead::Symbol(SymbolKey {
-                namespace: "other",
+                namespace: "other".into(),
                 name: "_DOT".to_owned(),
             });
         })],

@@ -645,7 +645,7 @@ impl<'f> Lifter<'f> {
                     String::new()
                 };
                 Some(TitleItem {
-                    key: Some(key),
+                    key: Some((*key).into()),
                     name: (*name).to_owned(),
                     value,
                     display: Vec::new(),
@@ -672,12 +672,12 @@ impl<'f> Lifter<'f> {
         let size = size?;
         let mut fields = vec![
             Field {
-                key: "size",
+                key: "size".into(),
                 code: None,
                 value: FieldValue::Integer(kind),
             },
             Field {
-                key: "orientation",
+                key: "orientation".into(),
                 code: None,
                 value: FieldValue::Integer(orientation),
             },
@@ -685,12 +685,12 @@ impl<'f> Lifter<'f> {
         if kind == FREE_SIZE {
             fields.extend([
                 Field {
-                    key: "width",
+                    key: "width".into(),
                     code: None,
                     value: FieldValue::Real(size[0]),
                 },
                 Field {
-                    key: "height",
+                    key: "height".into(),
                     code: None,
                     value: FieldValue::Real(size[1]),
                 },
@@ -699,7 +699,7 @@ impl<'f> Lifter<'f> {
         Some((
             Some(size.map(PaperLength)),
             Draft {
-                namespace: "sxf.sheet",
+                namespace: "sxf.sheet".into(),
                 name: args.text(0).unwrap_or_default(),
                 version: None,
                 schema: SCHEMA,
@@ -1204,7 +1204,7 @@ impl<'f> Lifter<'f> {
             rotation: args.num(5)?,
             look: PointLook::Marker {
                 key: MarkerKey {
-                    namespace: "sxf.marker",
+                    namespace: "sxf.marker".into(),
                     code: code.to_string(),
                 },
                 scale,
@@ -1247,7 +1247,7 @@ impl<'f> Lifter<'f> {
         let scale = args.num(7)?;
         let shape = Shape::Symbol(Symbol {
             key: SymbolKey {
-                namespace: "sxf.symbol",
+                namespace: "sxf.symbol".into(),
                 name: args.text(3)?,
             },
             position: at.point(args.num(4)?, args.num(5)?),
@@ -1300,19 +1300,19 @@ impl<'f> Lifter<'f> {
         };
         let target = at.target(out);
         out.extensions.push(Draft {
-            namespace: "sxf.text",
+            namespace: "sxf.text".into(),
             name: String::new(),
             version: None,
             schema: SCHEMA,
             at: target,
             fields: vec![
                 Field {
-                    key: "width",
+                    key: "width".into(),
                     code: None,
                     value: FieldValue::Real(width),
                 },
                 Field {
-                    key: "spacing",
+                    key: "spacing".into(),
                     code: None,
                     value: FieldValue::Real(spacing),
                 },
@@ -1353,7 +1353,7 @@ impl<'f> Lifter<'f> {
         let mut fields = Vec::new();
         let mut field = |key: &'static str, value: FieldValue| {
             fields.push(Field {
-                key,
+                key: key.into(),
                 code: None,
                 value,
             })
@@ -1548,7 +1548,7 @@ impl<'f> Lifter<'f> {
         let element = self.element(feature, shape, cx);
         let target = at.target(out);
         out.extensions.push(Draft {
-            namespace: "sxf.dimension",
+            namespace: "sxf.dimension".into(),
             name: String::new(),
             version: None,
             schema: SCHEMA,
@@ -1649,17 +1649,17 @@ impl<'f> Lifter<'f> {
                 let code = |value: f64| (value.fract() == 0.0).then_some(value as i64);
                 first = first.or(Some(code(color)?));
                 fields.push(Field {
-                    key: "color",
+                    key: "color".into(),
                     code: None,
                     value: FieldValue::Integer(code(color)?),
                 });
                 fields.push(Field {
-                    key: "line_type",
+                    key: "line_type".into(),
                     code: None,
                     value: FieldValue::Integer(code(line_type)?),
                 });
                 fields.push(Field {
-                    key: "line_width",
+                    key: "line_width".into(),
                     code: None,
                     value: FieldValue::Integer(code(width)?),
                 });
@@ -1693,7 +1693,7 @@ impl<'f> Lifter<'f> {
             ];
             for (key, at) in keys.into_iter().zip(3..) {
                 fields.push(Field {
-                    key,
+                    key: key.into(),
                     code: None,
                     value: FieldValue::Real(args.num(at)?),
                 });
@@ -1795,7 +1795,7 @@ impl<'f> Lifter<'f> {
         if !fields.is_empty() {
             let target = at.target(out);
             out.extensions.push(Draft {
-                namespace: "sxf.hatch",
+                namespace: "sxf.hatch".into(),
                 name: String::new(),
                 version: None,
                 schema: SCHEMA,
@@ -1828,12 +1828,12 @@ impl<'f> Lifter<'f> {
         if balloon {
             let radius = args.num(9).filter(|r| *r > 0.0)?;
             fields.push(Field {
-                key: "center",
+                key: "center".into(),
                 code: None,
                 value: FieldValue::Point([args.num(7)?, args.num(8)?, 0.0]),
             });
             fields.push(Field {
-                key: "radius",
+                key: "radius".into(),
                 code: None,
                 value: FieldValue::Real(radius),
             });
@@ -1848,12 +1848,12 @@ impl<'f> Lifter<'f> {
                 let (text, width, spacing) =
                     self.annotation(feature, arrow + 2, at, &source, cx)?;
                 fields.push(Field {
-                    key: "text_width",
+                    key: "text_width".into(),
                     code: None,
                     value: FieldValue::Real(width),
                 });
                 fields.push(Field {
-                    key: "text_spacing",
+                    key: "text_spacing".into(),
                     code: None,
                     value: FieldValue::Real(spacing),
                 });
@@ -1870,7 +1870,7 @@ impl<'f> Lifter<'f> {
             content,
             path: PathKind::Straight,
             arrowhead: Arrowhead::Symbol(SymbolKey {
-                namespace: "sxf.arrow",
+                namespace: "sxf.arrow".into(),
                 name: code.to_string(),
             }),
             // 矢印の形と大きさは、コードの表で決まる（推定。docs/formats/sxf.md）
@@ -1885,7 +1885,7 @@ impl<'f> Lifter<'f> {
         if !fields.is_empty() {
             let target = at.target(out);
             out.extensions.push(Draft {
-                namespace: "sxf.callout",
+                namespace: "sxf.callout".into(),
                 name: String::new(),
                 version: None,
                 schema: SCHEMA,
@@ -2163,12 +2163,12 @@ fn attributes<C: Place>(name: &str, from: usize, at: &C, out: &mut Out, source: 
         return;
     }
     let mut fields = vec![Field {
-        key: "name",
+        key: "name".into(),
         code: None,
         value: FieldValue::Text(name.to_owned()),
     }];
     fields.extend(name.split("$$").skip(1).map(|part| Field {
-        key: "part",
+        key: "part".into(),
         code: None,
         value: FieldValue::Text(part.to_owned()),
     }));
@@ -2177,7 +2177,7 @@ fn attributes<C: Place>(name: &str, from: usize, at: &C, out: &mut Out, source: 
             continue;
         };
         out.extensions.push(Draft {
-            namespace: "sxf.attribute",
+            namespace: "sxf.attribute".into(),
             name: String::new(),
             version: None,
             schema: SCHEMA,
@@ -2207,7 +2207,7 @@ fn compose(outer: Affine, inner: Affine) -> Affine {
 /// 作図部品の記号のキー
 fn part(name: &str) -> SymbolKey {
     SymbolKey {
-        namespace: "sxf.sfig",
+        namespace: "sxf.sfig".into(),
         name: name.to_owned(),
     }
 }

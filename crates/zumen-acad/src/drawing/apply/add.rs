@@ -571,7 +571,7 @@ impl Born {
         lettering: &Text<P>,
         meaning: &'static str,
     ) -> Option<i64> {
-        if lettering.height.meaning != HeightMeaning::Declared(meaning) {
+        if lettering.height.meaning != HeightMeaning::Declared(meaning.into()) {
             return None;
         }
         let style = self.named(7, b"STYLE", &lettering.style)?;
@@ -651,7 +651,7 @@ impl Born {
         if !self.version.is_empty() && !self.since(b"AC1012") {
             return None;
         }
-        if lettering.height.meaning != HeightMeaning::Declared("dxf.MTEXT.40")
+        if lettering.height.meaning != HeightMeaning::Declared("dxf.MTEXT.40".into())
             || lettering.background.is_some()
             || lettering.spans != mtext::spans(&lettering.content, &|value| frame.lifted(value))
         {

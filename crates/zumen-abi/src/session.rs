@@ -2343,7 +2343,7 @@ mod tests {
             Shape::Formatted(formatted),
             Shape::Symbol(Symbol {
                 key: SymbolKey {
-                    namespace: "dxf.block",
+                    namespace: "dxf.block".into(),
                     name: "x".repeat(100),
                 },
                 position: point,
@@ -2358,7 +2358,7 @@ mod tests {
             }),
             Shape::Symbol(Symbol {
                 key: SymbolKey {
-                    namespace: "dxf.block",
+                    namespace: "dxf.block".into(),
                     name: "x".repeat(100),
                 },
                 position: point,

@@ -1,5 +1,7 @@
 //! 寸法と引出線。
 
+use std::borrow::Cow;
+
 use zumen_base::Ref;
 
 use crate::{Horizontal, Length, Span, Vertical};
@@ -121,12 +123,12 @@ pub enum Axis {
 }
 
 /// 元の形式が保存した値。単位と、倍率を掛けたかは形式ごとに違うので、形式と欄を指すキーと組にする
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Measured {
     /// 値
     pub value: f64,
     /// 形式と欄を指すキー
-    pub key: &'static str,
+    pub key: Cow<'static, str>,
 }
 
 /// 寸法値の文字

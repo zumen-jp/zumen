@@ -767,7 +767,7 @@ mod tests {
             style,
             shape: Shape::Symbol(Symbol {
                 key: SymbolKey {
-                    namespace: "dxf.block",
+                    namespace: "dxf.block".into(),
                     name: name.to_owned(),
                 },
                 position: at(space, x, 0.0),
@@ -793,7 +793,7 @@ mod tests {
     fn definition(name: &str, space: ModelSpace) -> SymbolDefinition {
         SymbolDefinition {
             key: SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: name.to_owned(),
             },
             base: Some(at(space.id, 0.0, 0.0)),

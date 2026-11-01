@@ -406,7 +406,7 @@ fn moves_the_title_block_items() {
     assert_eq!(drawing.title_blocks.len(), 1);
     let items = &drawing.title_blocks[0].items;
     assert_eq!(items.len(), 12);
-    assert_eq!(items[1].key, Some("construction_name"));
+    assert_eq!(items[1].key, Some("construction_name".into()));
     assert_eq!(items[1].name, "工事名");
     assert_eq!(items[1].value, "橋");
     assert_eq!(items[4].value, "1");
@@ -507,7 +507,7 @@ fn moves_point_markers_as_points_with_predefined_markers() {
             rotation: 45.0,
             look: PointLook::Marker {
                 key: MarkerKey {
-                    namespace: "sxf.marker",
+                    namespace: "sxf.marker".into(),
                     code: "2".into(),
                 },
                 scale: 1.5,
@@ -658,7 +658,7 @@ fn moves_labels_and_balloons_as_callouts() {
     assert_eq!(
         label.arrowhead,
         Arrowhead::Symbol(SymbolKey {
-            namespace: "sxf.arrow",
+            namespace: "sxf.arrow".into(),
             name: "1".into(),
         })
     );
@@ -810,7 +810,7 @@ fn moves_parts_predefined_symbols_and_nested_views() {
     assert!(diag.is_empty(), "{diag:?}");
     // 作図部品は、原点を基点にした記号の定義
     let key = SymbolKey {
-        namespace: "sxf.sfig",
+        namespace: "sxf.sfig".into(),
         name: "P".into(),
     };
     let part = drawing.symbol(&key).unwrap();
@@ -844,7 +844,7 @@ fn moves_parts_predefined_symbols_and_nested_views() {
         panic!("{:?}", element.shape);
     };
     assert_eq!(
-        (symbol.key.namespace, symbol.key.name.as_str()),
+        (symbol.key.namespace.as_ref(), symbol.key.name.as_str()),
         ("sxf.symbol", "arrow")
     );
     assert_eq!(symbol.scale, [1.5, 1.5]);

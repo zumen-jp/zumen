@@ -51,7 +51,7 @@ impl Lifter<'_> {
     ) {
         match entity_fields(object) {
             Ok(fields) if !fields.is_empty() => out.extensions.push(Draft {
-                namespace: ENTITY,
+                namespace: ENTITY.into(),
                 name: String::new(),
                 version: self.version.clone(),
                 schema: ENTITY_SCHEMA,
@@ -77,7 +77,7 @@ impl Lifter<'_> {
             };
             match self.xdata(&object.kind, name, values) {
                 Ok((name, fields)) => out.extensions.push(Draft {
-                    namespace: XDATA,
+                    namespace: XDATA.into(),
                     name,
                     version: self.version.clone(),
                     schema: XDATA_SCHEMA,
@@ -158,7 +158,7 @@ impl Lifter<'_> {
                     });
             match named {
                 Ok((name, fields)) => out.extensions.push(Draft {
-                    namespace: XRECORD,
+                    namespace: XRECORD.into(),
                     name,
                     version: self.version.clone(),
                     schema: XRECORD_SCHEMA,
@@ -213,7 +213,7 @@ impl Lifter<'_> {
             {
                 values.nth(1);
                 fields.push(Field {
-                    key: "point",
+                    key: "point".into(),
                     code: Some(*code),
                     value: FieldValue::Point([*x, *y, *z]),
                 });
@@ -235,7 +235,7 @@ impl Lifter<'_> {
                 _ => "binary",
             };
             fields.push(Field {
-                key,
+                key: key.into(),
                 code: Some(*code),
                 value,
             });
@@ -290,7 +290,7 @@ impl Lifter<'_> {
                 _ => return Err(invalid(kind, code)),
             };
             fields.push(Field {
-                key,
+                key: key.into(),
                 code: Some(code),
                 value,
             });
@@ -382,7 +382,7 @@ fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
         && thickness != 0.0
     {
         fields.push(Field {
-            key: "thickness",
+            key: "thickness".into(),
             code: Some(39),
             value: FieldValue::Real(thickness),
         });
@@ -392,7 +392,7 @@ fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
         for (code, key) in tolerances {
             if let Some(tolerance) = real(code)? {
                 fields.push(Field {
-                    key,
+                    key: key.into(),
                     code: Some(code),
                     value: FieldValue::Real(tolerance),
                 });

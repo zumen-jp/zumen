@@ -660,7 +660,7 @@ fn point_markers_are_replaced_transformed_and_added() {
         position: paper(50.0, 60.0),
         rotation: 30.0,
         look: PointLook::Marker {
-            key: key("sxf.marker", "4"),
+            key: key("sxf.marker".into(), "4"),
             scale: 2.5,
         },
         construction: false,
@@ -726,7 +726,7 @@ fn point_markers_are_replaced_transformed_and_added() {
     };
     let foreign = Point {
         look: PointLook::Marker {
-            key: key("jww.point", "4"),
+            key: key("jww.point".into(), "4"),
             scale: 1.0,
         },
         ..changed.clone()

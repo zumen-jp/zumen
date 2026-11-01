@@ -70,7 +70,7 @@ impl Lifter<'_> {
             content: self.string(object, 1)?.ok_or_else(|| invalid(kind, 1))?,
             height: Height {
                 value: length(self.real(object, 40, None)?),
-                meaning: HeightMeaning::Declared(key),
+                meaning: HeightMeaning::Declared(key.into()),
             },
             placement,
             rotation: self.real(object, 50, Some(0.0))?,
@@ -147,7 +147,7 @@ impl Lifter<'_> {
             content,
             height: Height {
                 value: length(self.real(object, 40, None)?),
-                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40".into()),
             },
             point: self.planar_point(object, 10, point)?,
             horizontal,

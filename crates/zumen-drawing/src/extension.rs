@@ -1,5 +1,7 @@
 //! 形式固有の情報と、その付く先・値。
 
+use std::borrow::Cow;
+
 use zumen_base::Ref;
 
 use crate::{Drawing2D, Hash, LayerId, LineTypeId, SheetId, SpaceId};
@@ -10,7 +12,7 @@ use crate::{Drawing2D, Hash, LayerId, LineTypeId, SheetId, SpaceId};
 #[derive(Clone, Debug, PartialEq)]
 pub struct Extension {
     /// 名前空間（`dxf.xdata` など）。値の型の契約を決める
-    pub namespace: &'static str,
+    pub namespace: Cow<'static, str>,
     /// 名前空間の中の元の名前（XDATA の登録アプリケーション名など）。翻訳しない
     pub name: String,
     /// 元の形式の版（DXF の `$ACADVER` など）。分からなければ `None`
@@ -87,7 +89,7 @@ pub enum Position {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Draft {
     /// 名前空間
-    pub namespace: &'static str,
+    pub namespace: Cow<'static, str>,
     /// 名前空間の中の元の名前
     pub name: String,
     /// 元の形式の版
@@ -106,7 +108,7 @@ pub struct Draft {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
     /// 名前空間の中の値の名前
-    pub key: &'static str,
+    pub key: Cow<'static, str>,
     /// 元の形式の値の番号（DXF のグループ・コード。点は X のコード）。元の形式が値に番号を付けなければ `None`
     /// （決定 0157）
     pub code: Option<i16>,
