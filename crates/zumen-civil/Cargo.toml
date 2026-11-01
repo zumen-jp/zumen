@@ -1,0 +1,22 @@
+[package]
+name = "zumen-civil"
+description = "zumen の土木の領域モデル（L2、決定 0230）。線形・縦断・片勾配・測点・横断・TIN と、線形の上の位置の計算"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 測点の丸めと点の距離（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+libm = { version = "0.2.16", default-features = false }
+zumen-geom2d = { path = "../zumen-geom2d" }

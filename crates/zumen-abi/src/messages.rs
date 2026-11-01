@@ -51,6 +51,8 @@ pub enum Request {
     BcfRead(BcfReadRequest),
     /// zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
     BcfWrite(BcfWriteRequest),
+    /// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+    Civil(CivilRequest),
 }
 
 impl Request {
@@ -76,6 +78,7 @@ impl Request {
         "review_adopt_ids",
         "bcf_read",
         "bcf_write",
+        "civil",
     ];
 
     /// 目印の欄（`op`）の値
@@ -101,6 +104,7 @@ impl Request {
             Self::ReviewAdoptIds(_) => "review_adopt_ids",
             Self::BcfRead(_) => "bcf_read",
             Self::BcfWrite(_) => "bcf_write",
+            Self::Civil(_) => "civil",
         }
     }
 }
@@ -133,6 +137,7 @@ impl FromJson for Request {
             }
             "bcf_read" => Self::BcfRead(BcfReadRequest::read_fields(&mut object)?),
             "bcf_write" => Self::BcfWrite(BcfWriteRequest::read_fields(&mut object)?),
+            "civil" => Self::Civil(CivilRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -163,6 +168,7 @@ impl ToJson for Request {
             Self::ReviewAdoptIds(value) => value.to_json(out),
             Self::BcfRead(value) => value.to_json(out),
             Self::BcfWrite(value) => value.to_json(out),
+            Self::Civil(value) => value.to_json(out),
         }
     }
 }
@@ -11215,6 +11221,676 @@ impl FromJson for Engine {
 impl ToJson for Engine {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
+    }
+}
+
+/// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 線形
+    pub alignment: CivilAlignment,
+    /// 追加距離（メートル）の列
+    pub distances: Option<Vec<f64>>,
+    /// 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
+    pub stations: Option<Vec<String>>,
+    /// 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す
+    pub interval: Option<f64>,
+    /// 測点の間隔（メートル）。書かなければ 20
+    pub pitch: Option<f64>,
+    /// 測点の表記の端数の小数の桁数。書かなければ 3
+    pub digits: Option<u64>,
+}
+
+impl CivilRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "civil")?;
+        let alignment = object.required("alignment", CivilAlignment::from_json)?;
+        let distances = object.optional("distances", |value| json::array(value, json::number))?;
+        let stations = object.optional("stations", |value| json::array(value, json::string))?;
+        let interval = object.optional("interval", json::number)?;
+        let pitch = object.optional("pitch", json::number)?;
+        let digits = object.optional("digits", |value| json::uint(value, 0, 9))?;
+        Ok(Self {
+            request_common,
+            alignment,
+            distances,
+            stations,
+            interval,
+            pitch,
+            digits,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("civil");
+        out.key("alignment");
+        self.alignment.to_json(out);
+        if let Some(value) = &self.distances {
+            out.key("distances");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.stations {
+            out.key("stations");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.interval {
+            out.key("interval");
+            out.float(*value);
+        }
+        if let Some(value) = &self.pitch {
+            out.key("pitch");
+            out.float(*value);
+        }
+        if let Some(value) = &self.digits {
+            out.key("digits");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for CivilRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilAlignment {
+    /// 平面線形の区間。線形の初めから順に並べる
+    pub horizontal: Vec<CivilHorizontal>,
+    /// 縦断線形の区間。書かなければ高さを返さない
+    pub vertical: Option<Vec<CivilVertical>>,
+    /// 線形の初めの測点の値（メートル）。書かなければ 0
+    pub start_station: Option<f64>,
+    /// 測点の不連続。追加距離の順に並べる
+    pub breaks: Option<Vec<CivilStationBreak>>,
+}
+
+impl CivilAlignment {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let horizontal = object.required("horizontal", |value| {
+            json::array(value, CivilHorizontal::from_json)
+        })?;
+        let vertical = object.optional("vertical", |value| {
+            json::array(value, CivilVertical::from_json)
+        })?;
+        let start_station = object.optional("start_station", json::number)?;
+        let breaks = object.optional("breaks", |value| {
+            json::array(value, CivilStationBreak::from_json)
+        })?;
+        Ok(Self {
+            horizontal,
+            vertical,
+            start_station,
+            breaks,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("horizontal");
+        out.array(&self.horizontal, |out, item| item.to_json(out));
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.start_station {
+            out.key("start_station");
+            out.float(*value);
+        }
+        if let Some(value) = &self.breaks {
+            out.key("breaks");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for CivilAlignment {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilAlignment {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 平面線形の区間
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilHorizontal {
+    /// 区間の種類
+    pub kind: CivilHorizontalKind,
+    /// 初めの点の北（メートル）
+    pub northing: f64,
+    /// 初めの点の東（メートル）
+    pub easting: f64,
+    /// 初めの方向角（北から時計回りのラジアン）
+    pub direction: f64,
+    /// 長さ（メートル）
+    pub length: f64,
+    /// 円弧の半径（メートル）。arc に書く
+    pub radius: Option<f64>,
+    /// 緩和曲線の初めの半径（メートル）。直線の側は書かない
+    pub start_radius: Option<f64>,
+    /// 緩和曲線の終わりの半径（メートル）。直線の側は書かない
+    pub end_radius: Option<f64>,
+    /// 緩和曲線の種類。transition に書き、書かなければ clothoid
+    pub curve: Option<CivilTransitionCurve>,
+}
+
+impl CivilHorizontal {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", CivilHorizontalKind::from_json)?;
+        let northing = object.required("northing", json::number)?;
+        let easting = object.required("easting", json::number)?;
+        let direction = object.required("direction", json::number)?;
+        let length = object.required("length", json::number)?;
+        let radius = object.optional("radius", json::number)?;
+        let start_radius = object.optional("start_radius", json::number)?;
+        let end_radius = object.optional("end_radius", json::number)?;
+        let curve = object.optional("curve", CivilTransitionCurve::from_json)?;
+        Ok(Self {
+            kind,
+            northing,
+            easting,
+            direction,
+            length,
+            radius,
+            start_radius,
+            end_radius,
+            curve,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        self.kind.to_json(out);
+        out.key("northing");
+        out.float(self.northing);
+        out.key("easting");
+        out.float(self.easting);
+        out.key("direction");
+        out.float(self.direction);
+        out.key("length");
+        out.float(self.length);
+        if let Some(value) = &self.radius {
+            out.key("radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.start_radius {
+            out.key("start_radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.end_radius {
+            out.key("end_radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.curve {
+            out.key("curve");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for CivilHorizontal {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilHorizontal {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 縦断線形の区間
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilVertical {
+    /// 区間の種類
+    pub kind: CivilVerticalKind,
+    /// 初めの追加距離（メートル）
+    pub start_distance: f64,
+    /// 初めの高さ（メートル）
+    pub start_height: f64,
+    /// 初めの勾配（高さ ÷ 平面の距離）
+    pub start_gradient: f64,
+    /// 平面の距離での長さ（メートル）
+    pub length: f64,
+    /// 放物線の終わりの勾配。parabola に書く
+    pub end_gradient: Option<f64>,
+    /// 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く
+    pub radius: Option<f64>,
+}
+
+impl CivilVertical {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", CivilVerticalKind::from_json)?;
+        let start_distance = object.required("start_distance", json::number)?;
+        let start_height = object.required("start_height", json::number)?;
+        let start_gradient = object.required("start_gradient", json::number)?;
+        let length = object.required("length", json::number)?;
+        let end_gradient = object.optional("end_gradient", json::number)?;
+        let radius = object.optional("radius", json::number)?;
+        Ok(Self {
+            kind,
+            start_distance,
+            start_height,
+            start_gradient,
+            length,
+            end_gradient,
+            radius,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        self.kind.to_json(out);
+        out.key("start_distance");
+        out.float(self.start_distance);
+        out.key("start_height");
+        out.float(self.start_height);
+        out.key("start_gradient");
+        out.float(self.start_gradient);
+        out.key("length");
+        out.float(self.length);
+        if let Some(value) = &self.end_gradient {
+            out.key("end_gradient");
+            out.float(*value);
+        }
+        if let Some(value) = &self.radius {
+            out.key("radius");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for CivilVertical {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilVertical {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 平面線形の区間の種類。直線・円弧・緩和曲線
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CivilHorizontalKind {
+    /// `line`
+    Line,
+    /// `arc`
+    Arc,
+    /// `transition`
+    Transition,
+}
+
+impl CivilHorizontalKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Line, Self::Arc, Self::Transition];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Line => "line",
+            Self::Arc => "arc",
+            Self::Transition => "transition",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "line" => Some(Self::Line),
+            "arc" => Some(Self::Arc),
+            "transition" => Some(Self::Transition),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for CivilHorizontalKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for CivilHorizontalKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CivilTransitionCurve {
+    /// `clothoid`
+    Clothoid,
+    /// `cubic_parabola`
+    CubicParabola,
+    /// `sine_half_wave`
+    SineHalfWave,
+    /// `cosine`
+    Cosine,
+    /// `bloss`
+    Bloss,
+    /// `helmert`
+    Helmert,
+    /// `viennese`
+    Viennese,
+}
+
+impl CivilTransitionCurve {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Clothoid,
+        Self::CubicParabola,
+        Self::SineHalfWave,
+        Self::Cosine,
+        Self::Bloss,
+        Self::Helmert,
+        Self::Viennese,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Clothoid => "clothoid",
+            Self::CubicParabola => "cubic_parabola",
+            Self::SineHalfWave => "sine_half_wave",
+            Self::Cosine => "cosine",
+            Self::Bloss => "bloss",
+            Self::Helmert => "helmert",
+            Self::Viennese => "viennese",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "clothoid" => Some(Self::Clothoid),
+            "cubic_parabola" => Some(Self::CubicParabola),
+            "sine_half_wave" => Some(Self::SineHalfWave),
+            "cosine" => Some(Self::Cosine),
+            "bloss" => Some(Self::Bloss),
+            "helmert" => Some(Self::Helmert),
+            "viennese" => Some(Self::Viennese),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for CivilTransitionCurve {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for CivilTransitionCurve {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CivilVerticalKind {
+    /// `constant_gradient`
+    ConstantGradient,
+    /// `parabola`
+    Parabola,
+    /// `circular_arc`
+    CircularArc,
+}
+
+impl CivilVerticalKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::ConstantGradient, Self::Parabola, Self::CircularArc];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::ConstantGradient => "constant_gradient",
+            Self::Parabola => "parabola",
+            Self::CircularArc => "circular_arc",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "constant_gradient" => Some(Self::ConstantGradient),
+            "parabola" => Some(Self::Parabola),
+            "circular_arc" => Some(Self::CircularArc),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for CivilVerticalKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for CivilVerticalKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 測点の不連続
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilStationBreak {
+    /// 追加距離（メートル）
+    pub distance: f64,
+    /// 戻りの測点の値（不連続の手前から数えた値）
+    pub back: f64,
+    /// 進みの測点の値（不連続の先で数え直す値）
+    pub ahead: f64,
+}
+
+impl CivilStationBreak {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let distance = object.required("distance", json::number)?;
+        let back = object.required("back", json::number)?;
+        let ahead = object.required("ahead", json::number)?;
+        Ok(Self {
+            distance,
+            back,
+            ahead,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("distance");
+        out.float(self.distance);
+        out.key("back");
+        out.float(self.back);
+        out.key("ahead");
+        out.float(self.ahead);
+    }
+}
+
+impl FromJson for CivilStationBreak {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilStationBreak {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線形の上の所
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilResult {
+    /// 平面線形の長さ（メートル）
+    pub length: f64,
+    /// 求めた所
+    pub positions: Vec<CivilPosition>,
+}
+
+impl CivilResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let length = object.required("length", json::number)?;
+        let positions = object.required("positions", |value| {
+            json::array(value, CivilPosition::from_json)
+        })?;
+        Ok(Self { length, positions })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("length");
+        out.float(self.length);
+        out.key("positions");
+        out.array(&self.positions, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for CivilResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線形の上の 1 つの所
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilPosition {
+    /// 追加距離（メートル）
+    pub distance: f64,
+    /// 測点の値（メートル）
+    pub station: f64,
+    /// 測点の表記。表記にできなければ書かない
+    pub label: Option<String>,
+    /// 点の北（メートル）
+    pub northing: f64,
+    /// 点の東（メートル）
+    pub easting: f64,
+    /// 接線の方向角（北から時計回りのラジアン）
+    pub direction: f64,
+    /// 縦断線形の高さ（メートル）。求められなければ書かない
+    pub height: Option<f64>,
+    /// 縦断線形の勾配。高さと同じく、求められなければ書かない
+    pub gradient: Option<f64>,
+}
+
+impl CivilPosition {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let distance = object.required("distance", json::number)?;
+        let station = object.required("station", json::number)?;
+        let label = object.optional("label", json::string)?;
+        let northing = object.required("northing", json::number)?;
+        let easting = object.required("easting", json::number)?;
+        let direction = object.required("direction", json::number)?;
+        let height = object.optional("height", json::number)?;
+        let gradient = object.optional("gradient", json::number)?;
+        Ok(Self {
+            distance,
+            station,
+            label,
+            northing,
+            easting,
+            direction,
+            height,
+            gradient,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("distance");
+        out.float(self.distance);
+        out.key("station");
+        out.float(self.station);
+        if let Some(value) = &self.label {
+            out.key("label");
+            out.string(value);
+        }
+        out.key("northing");
+        out.float(self.northing);
+        out.key("easting");
+        out.float(self.easting);
+        out.key("direction");
+        out.float(self.direction);
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.float(*value);
+        }
+        if let Some(value) = &self.gradient {
+            out.key("gradient");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for CivilPosition {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilPosition {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 

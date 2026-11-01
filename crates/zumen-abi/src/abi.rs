@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマの大版。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマの小版。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 45;
+pub const SCHEMA_MINOR: u64 = 46;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +115,7 @@ pub const MODULES: &[Module] = &[
             "check",
             "review_carry",
             "review_adopt",
+            "civil",
         ],
     },
     // IFC と建物モデル、EXPRESS・IDS の照合と BCF
@@ -156,6 +157,7 @@ pub fn has_op(op: &str) -> bool {
                 | "check"
                 | "review_carry"
                 | "review_adopt"
+                | "civil"
         ))
         || (cfg!(feature = "bim")
             && matches!(

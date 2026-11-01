@@ -290,6 +290,8 @@ dependencies = [
  "zumen-base",
  "zumen-bcf",
  "zumen-building",
+ "zumen-civil",
+ "zumen-crs",
  "zumen-drawing",
  "zumen-ids",
  "zumen-ifc",
@@ -348,6 +350,16 @@ dependencies = [
  "zumen-conformance",
  "zumen-json",
  "zumen-scene",
+]
+
+[[package]]
+name = "zumen-civil"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-crs",
+ "zumen-geom2d",
 ]
 
 [[package]]

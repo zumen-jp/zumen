@@ -60,6 +60,7 @@ namespace Zumen.Messages
             ["review_adopt_ids"] = typeof(ReviewAdoptIdsRequest),
             ["bcf_read"] = typeof(BcfReadRequest),
             ["bcf_write"] = typeof(BcfWriteRequest),
+            ["civil"] = typeof(CivilRequest),
         };
     }
 
@@ -6187,6 +6188,365 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+    /// </summary>
+    public sealed record CivilRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "civil";
+
+        /// <summary>
+        /// 線形
+        /// </summary>
+        [JsonPropertyName("alignment")]
+        public CivilAlignment Alignment { get; init; } = default!;
+
+        /// <summary>
+        /// 追加距離（メートル）の列
+        /// </summary>
+        [JsonPropertyName("distances")]
+        public IReadOnlyList<double>? Distances { get; init; }
+
+        /// <summary>
+        /// 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
+        /// </summary>
+        [JsonPropertyName("stations")]
+        public IReadOnlyList<string>? Stations { get; init; }
+
+        /// <summary>
+        /// 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す
+        /// </summary>
+        [JsonPropertyName("interval")]
+        public double? Interval { get; init; }
+
+        /// <summary>
+        /// 測点の間隔（メートル）。書かなければ 20
+        /// </summary>
+        [JsonPropertyName("pitch")]
+        public double? Pitch { get; init; }
+
+        /// <summary>
+        /// 測点の表記の端数の小数の桁数。書かなければ 3
+        /// </summary>
+        [JsonPropertyName("digits")]
+        public uint? Digits { get; init; }
+    }
+
+    /// <summary>
+    /// 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
+    /// </summary>
+    public sealed record CivilAlignment
+    {
+        /// <summary>
+        /// 平面線形の区間。線形の初めから順に並べる
+        /// </summary>
+        [JsonPropertyName("horizontal")]
+        public IReadOnlyList<CivilHorizontal> Horizontal { get; init; } = default!;
+
+        /// <summary>
+        /// 縦断線形の区間。書かなければ高さを返さない
+        /// </summary>
+        [JsonPropertyName("vertical")]
+        public IReadOnlyList<CivilVertical>? Vertical { get; init; }
+
+        /// <summary>
+        /// 線形の初めの測点の値（メートル）。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("start_station")]
+        public double? StartStation { get; init; }
+
+        /// <summary>
+        /// 測点の不連続。追加距離の順に並べる
+        /// </summary>
+        [JsonPropertyName("breaks")]
+        public IReadOnlyList<CivilStationBreak>? Breaks { get; init; }
+    }
+
+    /// <summary>
+    /// 平面線形の区間
+    /// </summary>
+    public sealed record CivilHorizontal
+    {
+        /// <summary>
+        /// 区間の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 初めの点の北（メートル）
+        /// </summary>
+        [JsonPropertyName("northing")]
+        public double Northing { get; init; }
+
+        /// <summary>
+        /// 初めの点の東（メートル）
+        /// </summary>
+        [JsonPropertyName("easting")]
+        public double Easting { get; init; }
+
+        /// <summary>
+        /// 初めの方向角（北から時計回りのラジアン）
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public double Direction { get; init; }
+
+        /// <summary>
+        /// 長さ（メートル）
+        /// </summary>
+        [JsonPropertyName("length")]
+        public double Length { get; init; }
+
+        /// <summary>
+        /// 円弧の半径（メートル）。arc に書く
+        /// </summary>
+        [JsonPropertyName("radius")]
+        public double? Radius { get; init; }
+
+        /// <summary>
+        /// 緩和曲線の初めの半径（メートル）。直線の側は書かない
+        /// </summary>
+        [JsonPropertyName("start_radius")]
+        public double? StartRadius { get; init; }
+
+        /// <summary>
+        /// 緩和曲線の終わりの半径（メートル）。直線の側は書かない
+        /// </summary>
+        [JsonPropertyName("end_radius")]
+        public double? EndRadius { get; init; }
+
+        /// <summary>
+        /// 緩和曲線の種類。transition に書き、書かなければ clothoid
+        /// </summary>
+        [JsonPropertyName("curve")]
+        public string? Curve { get; init; }
+    }
+
+    /// <summary>
+    /// 縦断線形の区間
+    /// </summary>
+    public sealed record CivilVertical
+    {
+        /// <summary>
+        /// 区間の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 初めの追加距離（メートル）
+        /// </summary>
+        [JsonPropertyName("start_distance")]
+        public double StartDistance { get; init; }
+
+        /// <summary>
+        /// 初めの高さ（メートル）
+        /// </summary>
+        [JsonPropertyName("start_height")]
+        public double StartHeight { get; init; }
+
+        /// <summary>
+        /// 初めの勾配（高さ ÷ 平面の距離）
+        /// </summary>
+        [JsonPropertyName("start_gradient")]
+        public double StartGradient { get; init; }
+
+        /// <summary>
+        /// 平面の距離での長さ（メートル）
+        /// </summary>
+        [JsonPropertyName("length")]
+        public double Length { get; init; }
+
+        /// <summary>
+        /// 放物線の終わりの勾配。parabola に書く
+        /// </summary>
+        [JsonPropertyName("end_gradient")]
+        public double? EndGradient { get; init; }
+
+        /// <summary>
+        /// 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く
+        /// </summary>
+        [JsonPropertyName("radius")]
+        public double? Radius { get; init; }
+    }
+
+    /// <summary>
+    /// 平面線形の区間の種類。直線・円弧・緩和曲線
+    /// </summary>
+    public static class CivilHorizontalKind
+    {
+        /// <summary>line</summary>
+        public const string Line = "line";
+        /// <summary>arc</summary>
+        public const string Arc = "arc";
+        /// <summary>transition</summary>
+        public const string Transition = "transition";
+    }
+
+    /// <summary>
+    /// 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
+    /// </summary>
+    public static class CivilTransitionCurve
+    {
+        /// <summary>clothoid</summary>
+        public const string Clothoid = "clothoid";
+        /// <summary>cubic_parabola</summary>
+        public const string CubicParabola = "cubic_parabola";
+        /// <summary>sine_half_wave</summary>
+        public const string SineHalfWave = "sine_half_wave";
+        /// <summary>cosine</summary>
+        public const string Cosine = "cosine";
+        /// <summary>bloss</summary>
+        public const string Bloss = "bloss";
+        /// <summary>helmert</summary>
+        public const string Helmert = "helmert";
+        /// <summary>viennese</summary>
+        public const string Viennese = "viennese";
+    }
+
+    /// <summary>
+    /// 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
+    /// </summary>
+    public static class CivilVerticalKind
+    {
+        /// <summary>constant_gradient</summary>
+        public const string ConstantGradient = "constant_gradient";
+        /// <summary>parabola</summary>
+        public const string Parabola = "parabola";
+        /// <summary>circular_arc</summary>
+        public const string CircularArc = "circular_arc";
+    }
+
+    /// <summary>
+    /// 測点の不連続
+    /// </summary>
+    public sealed record CivilStationBreak
+    {
+        /// <summary>
+        /// 追加距離（メートル）
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 戻りの測点の値（不連続の手前から数えた値）
+        /// </summary>
+        [JsonPropertyName("back")]
+        public double Back { get; init; }
+
+        /// <summary>
+        /// 進みの測点の値（不連続の先で数え直す値）
+        /// </summary>
+        [JsonPropertyName("ahead")]
+        public double Ahead { get; init; }
+    }
+
+    /// <summary>
+    /// 線形の上の所
+    /// </summary>
+    public sealed record CivilResult
+    {
+        /// <summary>
+        /// 平面線形の長さ（メートル）
+        /// </summary>
+        [JsonPropertyName("length")]
+        public double Length { get; init; }
+
+        /// <summary>
+        /// 求めた所
+        /// </summary>
+        [JsonPropertyName("positions")]
+        public IReadOnlyList<CivilPosition> Positions { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 線形の上の 1 つの所
+    /// </summary>
+    public sealed record CivilPosition
+    {
+        /// <summary>
+        /// 追加距離（メートル）
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 測点の値（メートル）
+        /// </summary>
+        [JsonPropertyName("station")]
+        public double Station { get; init; }
+
+        /// <summary>
+        /// 測点の表記。表記にできなければ書かない
+        /// </summary>
+        [JsonPropertyName("label")]
+        public string? Label { get; init; }
+
+        /// <summary>
+        /// 点の北（メートル）
+        /// </summary>
+        [JsonPropertyName("northing")]
+        public double Northing { get; init; }
+
+        /// <summary>
+        /// 点の東（メートル）
+        /// </summary>
+        [JsonPropertyName("easting")]
+        public double Easting { get; init; }
+
+        /// <summary>
+        /// 接線の方向角（北から時計回りのラジアン）
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public double Direction { get; init; }
+
+        /// <summary>
+        /// 縦断線形の高さ（メートル）。求められなければ書かない
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double? Height { get; init; }
+
+        /// <summary>
+        /// 縦断線形の勾配。高さと同じく、求められなければ書かない
+        /// </summary>
+        [JsonPropertyName("gradient")]
+        public double? Gradient { get; init; }
+    }
+
+    /// <summary>
     /// describe に使うカタログのファイル。catalog/&lt;言語&gt;.toml から生成し、zm_push で渡す（決定 0009）
     /// </summary>
     public sealed record Catalog
@@ -6267,6 +6627,7 @@ namespace Zumen.Messages
                 ["review_adopt_ids"] = (typeof(ReviewAdoptIdsRequest), typeof(JsonAny)),
                 ["bcf_read"] = (typeof(BcfReadRequest), typeof(BcfReadResult)),
                 ["bcf_write"] = (typeof(BcfWriteRequest), typeof(BcfWriteResult)),
+                ["civil"] = (typeof(CivilRequest), typeof(CivilResult)),
             };
     }
 }

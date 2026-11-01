@@ -31,6 +31,8 @@ zumen-review = { version = "0.2.0", path = "../zumen-review" }
 zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
 zumen-jww = { version = "0.2.0", path = "../zumen-jww" }
 zumen-bcf = { version = "0.2.0", path = "../zumen-bcf" }
+zumen-civil = { version = "0.2.0", path = "../zumen-civil" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
 zumen-building = { version = "0.2.0", path = "../zumen-building" }
 zumen-ifc = { version = "0.2.0", path = "../zumen-ifc" }
 zumen-ids = { version = "0.2.0", path = "../zumen-ids" }

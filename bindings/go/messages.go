@@ -130,6 +130,11 @@ func (u Request) AsBcfWriteRequest() *BcfWriteRequest {
 	return asTagged[BcfWriteRequest](u, "op", "bcf_write")
 }
 
+// AsCivilRequest は、op が civil の形なら、その型で読む。違えば nil。
+func (u Request) AsCivilRequest() *CivilRequest {
+	return asTagged[CivilRequest](u, "op", "civil")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4029,6 +4034,223 @@ const EngineProcess Engine = "process"
 // EngineWasm は wasm。
 const EngineWasm Engine = "wasm"
 
+// CivilRequest: 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+type CivilRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 線形
+	Alignment *CivilAlignment `json:"alignment,omitempty"`
+
+	// 追加距離（メートル）の列
+	Distances []float64 `json:"distances,omitempty"`
+
+	// 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
+	Stations []string `json:"stations,omitempty"`
+
+	// 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す
+	Interval *float64 `json:"interval,omitempty"`
+
+	// 測点の間隔（メートル）。書かなければ 20
+	Pitch *float64 `json:"pitch,omitempty"`
+
+	// 測点の表記の端数の小数の桁数。書かなければ 3
+	Digits *int64 `json:"digits,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m CivilRequest) MarshalJSON() ([]byte, error) {
+	type plain CivilRequest
+	m.Op = "civil"
+	return json.Marshal(plain(m))
+}
+
+// CivilAlignment: 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
+type CivilAlignment struct {
+	// 平面線形の区間。線形の初めから順に並べる
+	Horizontal []CivilHorizontal `json:"horizontal,omitempty"`
+
+	// 縦断線形の区間。書かなければ高さを返さない
+	Vertical []CivilVertical `json:"vertical,omitempty"`
+
+	// 線形の初めの測点の値（メートル）。書かなければ 0
+	StartStation *float64 `json:"start_station,omitempty"`
+
+	// 測点の不連続。追加距離の順に並べる
+	Breaks []CivilStationBreak `json:"breaks,omitempty"`
+}
+
+// CivilHorizontal: 平面線形の区間
+type CivilHorizontal struct {
+	// 区間の種類
+	Kind *CivilHorizontalKind `json:"kind,omitempty"`
+
+	// 初めの点の北（メートル）
+	Northing *float64 `json:"northing,omitempty"`
+
+	// 初めの点の東（メートル）
+	Easting *float64 `json:"easting,omitempty"`
+
+	// 初めの方向角（北から時計回りのラジアン）
+	Direction *float64 `json:"direction,omitempty"`
+
+	// 長さ（メートル）
+	Length *float64 `json:"length,omitempty"`
+
+	// 円弧の半径（メートル）。arc に書く
+	Radius *float64 `json:"radius,omitempty"`
+
+	// 緩和曲線の初めの半径（メートル）。直線の側は書かない
+	StartRadius *float64 `json:"start_radius,omitempty"`
+
+	// 緩和曲線の終わりの半径（メートル）。直線の側は書かない
+	EndRadius *float64 `json:"end_radius,omitempty"`
+
+	// 緩和曲線の種類。transition に書き、書かなければ clothoid
+	Curve *CivilTransitionCurve `json:"curve,omitempty"`
+}
+
+// CivilVertical: 縦断線形の区間
+type CivilVertical struct {
+	// 区間の種類
+	Kind *CivilVerticalKind `json:"kind,omitempty"`
+
+	// 初めの追加距離（メートル）
+	StartDistance *float64 `json:"start_distance,omitempty"`
+
+	// 初めの高さ（メートル）
+	StartHeight *float64 `json:"start_height,omitempty"`
+
+	// 初めの勾配（高さ ÷ 平面の距離）
+	StartGradient *float64 `json:"start_gradient,omitempty"`
+
+	// 平面の距離での長さ（メートル）
+	Length *float64 `json:"length,omitempty"`
+
+	// 放物線の終わりの勾配。parabola に書く
+	EndGradient *float64 `json:"end_gradient,omitempty"`
+
+	// 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く
+	Radius *float64 `json:"radius,omitempty"`
+}
+
+// CivilHorizontalKind: 平面線形の区間の種類。直線・円弧・緩和曲線
+//
+// 列挙の値。知らない値も受け取る。
+type CivilHorizontalKind string
+
+// CivilHorizontalKindLine は line。
+const CivilHorizontalKindLine CivilHorizontalKind = "line"
+
+// CivilHorizontalKindArc は arc。
+const CivilHorizontalKindArc CivilHorizontalKind = "arc"
+
+// CivilHorizontalKindTransition は transition。
+const CivilHorizontalKindTransition CivilHorizontalKind = "transition"
+
+// CivilTransitionCurve: 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
+//
+// 列挙の値。知らない値も受け取る。
+type CivilTransitionCurve string
+
+// CivilTransitionCurveClothoid は clothoid。
+const CivilTransitionCurveClothoid CivilTransitionCurve = "clothoid"
+
+// CivilTransitionCurveCubicParabola は cubic_parabola。
+const CivilTransitionCurveCubicParabola CivilTransitionCurve = "cubic_parabola"
+
+// CivilTransitionCurveSineHalfWave は sine_half_wave。
+const CivilTransitionCurveSineHalfWave CivilTransitionCurve = "sine_half_wave"
+
+// CivilTransitionCurveCosine は cosine。
+const CivilTransitionCurveCosine CivilTransitionCurve = "cosine"
+
+// CivilTransitionCurveBloss は bloss。
+const CivilTransitionCurveBloss CivilTransitionCurve = "bloss"
+
+// CivilTransitionCurveHelmert は helmert。
+const CivilTransitionCurveHelmert CivilTransitionCurve = "helmert"
+
+// CivilTransitionCurveViennese は viennese。
+const CivilTransitionCurveViennese CivilTransitionCurve = "viennese"
+
+// CivilVerticalKind: 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
+//
+// 列挙の値。知らない値も受け取る。
+type CivilVerticalKind string
+
+// CivilVerticalKindConstantGradient は constant_gradient。
+const CivilVerticalKindConstantGradient CivilVerticalKind = "constant_gradient"
+
+// CivilVerticalKindParabola は parabola。
+const CivilVerticalKindParabola CivilVerticalKind = "parabola"
+
+// CivilVerticalKindCircularArc は circular_arc。
+const CivilVerticalKindCircularArc CivilVerticalKind = "circular_arc"
+
+// CivilStationBreak: 測点の不連続
+type CivilStationBreak struct {
+	// 追加距離（メートル）
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 戻りの測点の値（不連続の手前から数えた値）
+	Back *float64 `json:"back,omitempty"`
+
+	// 進みの測点の値（不連続の先で数え直す値）
+	Ahead *float64 `json:"ahead,omitempty"`
+}
+
+// CivilResult: 線形の上の所
+type CivilResult struct {
+	// 平面線形の長さ（メートル）
+	Length *float64 `json:"length,omitempty"`
+
+	// 求めた所
+	Positions []CivilPosition `json:"positions,omitempty"`
+}
+
+// CivilPosition: 線形の上の 1 つの所
+type CivilPosition struct {
+	// 追加距離（メートル）
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 測点の値（メートル）
+	Station *float64 `json:"station,omitempty"`
+
+	// 測点の表記。表記にできなければ書かない
+	Label *string `json:"label,omitempty"`
+
+	// 点の北（メートル）
+	Northing *float64 `json:"northing,omitempty"`
+
+	// 点の東（メートル）
+	Easting *float64 `json:"easting,omitempty"`
+
+	// 接線の方向角（北から時計回りのラジアン）
+	Direction *float64 `json:"direction,omitempty"`
+
+	// 縦断線形の高さ（メートル）。求められなければ書かない
+	Height *float64 `json:"height,omitempty"`
+
+	// 縦断線形の勾配。高さと同じく、求められなければ書かない
+	Gradient *float64 `json:"gradient,omitempty"`
+}
+
 // Catalog: describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 type Catalog struct {
 	// カタログの形の大版。今は 1
@@ -4115,3 +4337,6 @@ const OpBcfRead = "bcf_read"
 
 // OpBcfWrite は、op の名前 bcf_write。
 const OpBcfWrite = "bcf_write"
+
+// OpCivil は、op の名前 civil。
+const OpCivil = "civil"

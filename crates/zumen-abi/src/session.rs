@@ -20,6 +20,8 @@ use crate::bounds;
 use crate::building;
 use crate::changes::changes;
 use crate::check;
+#[cfg(feature = "drawing")]
+use crate::civil;
 use crate::convert;
 use crate::describe;
 use crate::geometry;
@@ -402,6 +404,8 @@ impl Session {
             Request::BcfWrite(request) => {
                 self.bcf_write(request, &mut cx).map(|r| Box::new(r) as _)
             }
+            #[cfg(feature = "drawing")]
+            Request::Civil(request) => civil::civil(request, &mut cx).map(|r| Box::new(r) as _),
             // 入れなかったモジュールの op は、上で断った
             #[allow(unreachable_patterns)]
             _ => Err(Failed),
@@ -1472,6 +1476,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::ReviewAdoptIds(request) => &request.request_common,
         Request::BcfRead(request) => &request.request_common,
         Request::BcfWrite(request) => &request.request_common,
+        Request::Civil(request) => &request.request_common,
     }
 }
 
@@ -2014,7 +2019,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":45}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":46}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

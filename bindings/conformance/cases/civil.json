@@ -1,0 +1,85 @@
+{
+  "description": "civil は、要求に書いた線形の上の所を、追加距離・測点の表記・間隔から求め、点・方向角・高さ・勾配と測点の表記を返す。測点の不連続の先は数え直し、同じ値が 2 か所にあれば最初の所にして診断する。範囲の外の所と計算できない曲線は、診断して除く。区間に要る欄がなければ失敗する（決定 0230）。線形は、北へ 50 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100）、半径 200 m の円弧 40 m",
+  "steps": [
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "alignment": {
+          "horizontal": [
+            { "kind": "line", "northing": 0, "easting": 0, "direction": 0, "length": 50 },
+            { "kind": "transition", "northing": 50, "easting": 0, "direction": 0, "length": 50, "end_radius": 200 },
+            { "kind": "arc", "northing": 99.92193149366025, "easting": 2.0810093401773635, "direction": 0.125, "length": 40, "radius": 200 }
+          ],
+          "vertical": [
+            { "kind": "constant_gradient", "start_distance": 0, "start_height": 10, "start_gradient": 0.02, "length": 60 },
+            { "kind": "parabola", "start_distance": 60, "start_height": 11.2, "start_gradient": 0.02, "length": 40, "end_gradient": -0.01 }
+          ],
+          "breaks": [{ "distance": 70, "back": 70, "ahead": 60 }]
+        },
+        "distances": [25, 75, 200],
+        "stations": ["No.3+5", "No.1+x"]
+      },
+      "expect": {
+        "/result/length": 140,
+        "/result/positions/0/distance": 25,
+        "/result/positions/0/station": 25,
+        "/result/positions/0/label": "No.1+5.000",
+        "/result/positions/0/northing": 25,
+        "/result/positions/0/easting": 0,
+        "/result/positions/0/direction": 0,
+        "/result/positions/0/height": 10.5,
+        "/result/positions/0/gradient": 0.02,
+        "/result/positions/1/distance": 75,
+        "/result/positions/1/station": 65,
+        "/result/positions/1/label": "No.3+5.000",
+        "/result/positions/2/distance": 65,
+        "/result/positions/2/label": "No.3+5.000",
+        "/diagnostics/0/code": "civil.station.assumed",
+        "/diagnostics/0/params/places": 2,
+        "/diagnostics/1/code": "civil.station.invalid",
+        "/diagnostics/1/params/station": "No.1+x",
+        "/diagnostics/2/code": "civil.distance.missing"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "alignment": {
+          "horizontal": [
+            { "kind": "line", "northing": 0, "easting": 0, "direction": 0, "length": 20 },
+            { "kind": "transition", "northing": 20, "easting": 0, "direction": 0, "length": 20, "end_radius": -100, "curve": "cubic_parabola" }
+          ],
+          "start_station": 100
+        },
+        "interval": 15,
+        "pitch": 100,
+        "digits": 1
+      },
+      "expect": {
+        "/result/length": 40,
+        "/result/positions/0/label": "No.1+0.0",
+        "/result/positions/1/label": "No.1+15.0",
+        "/result/positions/1/northing": 15,
+        "/diagnostics/0/code": "civil.curve.unsupported",
+        "/diagnostics/0/params/curve": "cubic_parabola"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "alignment": {
+          "horizontal": [{ "kind": "arc", "northing": 0, "easting": 0, "direction": 0, "length": 10 }]
+        },
+        "distances": [5]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/alignment/horizontal/0/radius"
+      }
+    }
+  ]
+}

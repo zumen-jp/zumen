@@ -1,6 +1,6 @@
 //! 2D の幾何（L3、決定 0018）。曲線を弦の誤差で折れ線にし、線種の列を線と間に展開する（決定 0172）。
 //!
-//! 点は `[x, y]`、角度は度で反時計回り。三角関数は、どの環境でも同じ値になる `libm` で求める（決定 0007）。
+//! 点は `[x, y]`、角度は度で反時計回り（線形の区間の [`along`] はラジアン）。三角関数は、どの環境でも同じ値になる `libm` で求める（決定 0007）。
 //! 1 つの曲線で作る点の数は [`MAX_STEPS`] で抑える。使う側は、作った点を予算の `segments` で数える。
 
 use std::f64::consts::PI;
@@ -342,6 +342,91 @@ pub fn clothoid(
         out.push(point);
     }
     out
+}
+
+/// 緩和曲線の曲率の変わり方（決定 0230）。区間の初めからの長さの割合 t（0〜1）で、初めの曲率から終わりの
+/// 曲率へ、`t` の関数の割合だけ移る
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ramp {
+    /// クロソイド。割合は t
+    Clothoid,
+    /// ブロス曲線。割合は 3t² − 2t³
+    Bloss,
+    /// コサイン曲線（コサイン逓減曲線）。割合は (1 − cos πt) / 2
+    Cosine,
+    /// サイン半波長逓減曲線。割合は t − sin 2πt / 2π
+    SineHalfWave,
+    /// ヘルマート曲線。割合は、t が 1/2 までは 2t²、その後は 1 − 2(1 − t)²
+    Helmert,
+}
+
+impl Ramp {
+    /// 割合を 0 から t まで積んだ値。t = 1 で、どれも 1/2 になる
+    fn integral(self, t: f64) -> f64 {
+        match self {
+            Ramp::Clothoid => t * t / 2.0,
+            Ramp::Bloss => t * t * t - t * t * t * t / 2.0,
+            Ramp::Cosine => (t - libm::sin(PI * t) / PI) / 2.0,
+            Ramp::SineHalfWave => t * t / 2.0 + (libm::cos(2.0 * PI * t) - 1.0) / (4.0 * PI * PI),
+            Ramp::Helmert if t <= 0.5 => 2.0 * t * t * t / 3.0,
+            Ramp::Helmert => t - 0.5 + 2.0 * (1.0 - t) * (1.0 - t) * (1.0 - t) / 3.0,
+        }
+    }
+}
+
+/// 線形の区間（決定 0230）の、初めから長さ `s` の点と接線の向き。区間は、初めの点・初めの向き・長さ
+/// `length`・初めと終わりの曲率で決める。`ramp` がなければ曲率は一定（直線と円弧）で、あれば緩和曲線とする。
+///
+/// 向きはラジアンで、点の 1 つ目の成分の軸から 2 つ目の成分の軸へ回る向きを正とする。曲率も、その向きへ
+/// 曲がるものを正とする。地図の点（northing・easting）を渡せば、向きは北から時計回りの方向角になる。
+/// 緩和曲線の点は、向きの式をシンプソンの公式で積んで求める
+pub fn along(
+    start: Xy,
+    direction: f64,
+    curvatures: [f64; 2],
+    length: f64,
+    ramp: Option<Ramp>,
+    s: f64,
+) -> (Xy, f64) {
+    let [k1, k2] = curvatures;
+    let Some(ramp) = ramp.filter(|_| length > 0.0 && k1 != k2) else {
+        let angle = direction + k1 * s;
+        let point = if k1 == 0.0 {
+            [
+                start[0] + s * libm::cos(direction),
+                start[1] + s * libm::sin(direction),
+            ]
+        } else {
+            [
+                start[0] + (libm::sin(angle) - libm::sin(direction)) / k1,
+                start[1] - (libm::cos(angle) - libm::cos(direction)) / k1,
+            ]
+        };
+        return (point, angle);
+    };
+    let angle = |u: f64| direction + k1 * u + (k2 - k1) * length * ramp.integral(u / length);
+    // 1 つの刻みで向きが変わる量を 0.01 ラジアンより小さくする。刻みの数は偶数にする
+    let turn = s.abs() * k1.abs().max(k2.abs());
+    let steps = libm::ceil(turn / 0.01).max(32.0);
+    let steps = if steps.is_finite() {
+        (steps as usize).min(MAX_STEPS) & !1
+    } else {
+        MAX_STEPS
+    };
+    let h = s / steps as f64;
+    let (mut x, mut y) = (0.0, 0.0);
+    for i in 0..=steps {
+        let w = match i {
+            0 => 1.0,
+            i if i == steps => 1.0,
+            i if i % 2 == 1 => 4.0,
+            _ => 2.0,
+        };
+        let phi = angle(h * i as f64);
+        x += w * libm::cos(phi);
+        y += w * libm::sin(phi);
+    }
+    ([start[0] + x * h / 3.0, start[1] + y * h / 3.0], angle(s))
 }
 
 /// 折れ線の長さ

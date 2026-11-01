@@ -75,6 +75,9 @@ class Request extends Message {
 
   /// op が bcf_write の形なら、その見方。違えば null
   BcfWriteRequest? get asBcfWriteRequest => taggedView('op', 'bcf_write', BcfWriteRequest.fromJson);
+
+  /// op が civil の形なら、その見方。違えば null
+  CivilRequest? get asCivilRequest => taggedView('op', 'civil', CivilRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -4901,6 +4904,280 @@ abstract final class Engine {
   static const wasm = 'wasm';
 }
 
+/// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+class CivilRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  CivilRequest() : super({'op': 'civil'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 線形
+  CivilAlignment? get alignment => readField('alignment', objectOf(CivilAlignment.fromJson));
+  set alignment(CivilAlignment? value) => writeField('alignment', value);
+
+  /// 追加距離（メートル）の列
+  List<double>? get distances => readField('distances', listOf(asDouble));
+  set distances(List<double>? value) => writeField('distances', value);
+
+  /// 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
+  List<String>? get stations => readField('stations', listOf(asString));
+  set stations(List<String>? value) => writeField('stations', value);
+
+  /// 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す
+  double? get interval => readField('interval', asDouble);
+  set interval(double? value) => writeField('interval', value);
+
+  /// 測点の間隔（メートル）。書かなければ 20
+  double? get pitch => readField('pitch', asDouble);
+  set pitch(double? value) => writeField('pitch', value);
+
+  /// 測点の表記の端数の小数の桁数。書かなければ 3
+  int? get digits => readField('digits', asInt);
+  set digits(int? value) => writeField('digits', value);
+}
+
+/// 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
+class CivilAlignment extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilAlignment.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilAlignment() : super({});
+
+  /// 平面線形の区間。線形の初めから順に並べる
+  List<CivilHorizontal>? get horizontal => readField('horizontal', listOf(objectOf(CivilHorizontal.fromJson)));
+  set horizontal(List<CivilHorizontal>? value) => writeField('horizontal', value);
+
+  /// 縦断線形の区間。書かなければ高さを返さない
+  List<CivilVertical>? get vertical => readField('vertical', listOf(objectOf(CivilVertical.fromJson)));
+  set vertical(List<CivilVertical>? value) => writeField('vertical', value);
+
+  /// 線形の初めの測点の値（メートル）。書かなければ 0
+  double? get startStation => readField('start_station', asDouble);
+  set startStation(double? value) => writeField('start_station', value);
+
+  /// 測点の不連続。追加距離の順に並べる
+  List<CivilStationBreak>? get breaks => readField('breaks', listOf(objectOf(CivilStationBreak.fromJson)));
+  set breaks(List<CivilStationBreak>? value) => writeField('breaks', value);
+}
+
+/// 平面線形の区間
+class CivilHorizontal extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilHorizontal.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilHorizontal() : super({});
+
+  /// 区間の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 初めの点の北（メートル）
+  double? get northing => readField('northing', asDouble);
+  set northing(double? value) => writeField('northing', value);
+
+  /// 初めの点の東（メートル）
+  double? get easting => readField('easting', asDouble);
+  set easting(double? value) => writeField('easting', value);
+
+  /// 初めの方向角（北から時計回りのラジアン）
+  double? get direction => readField('direction', asDouble);
+  set direction(double? value) => writeField('direction', value);
+
+  /// 長さ（メートル）
+  double? get length => readField('length', asDouble);
+  set length(double? value) => writeField('length', value);
+
+  /// 円弧の半径（メートル）。arc に書く
+  double? get radius => readField('radius', asDouble);
+  set radius(double? value) => writeField('radius', value);
+
+  /// 緩和曲線の初めの半径（メートル）。直線の側は書かない
+  double? get startRadius => readField('start_radius', asDouble);
+  set startRadius(double? value) => writeField('start_radius', value);
+
+  /// 緩和曲線の終わりの半径（メートル）。直線の側は書かない
+  double? get endRadius => readField('end_radius', asDouble);
+  set endRadius(double? value) => writeField('end_radius', value);
+
+  /// 緩和曲線の種類。transition に書き、書かなければ clothoid
+  String? get curve => readField('curve', asString);
+  set curve(String? value) => writeField('curve', value);
+}
+
+/// 縦断線形の区間
+class CivilVertical extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilVertical.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilVertical() : super({});
+
+  /// 区間の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 初めの追加距離（メートル）
+  double? get startDistance => readField('start_distance', asDouble);
+  set startDistance(double? value) => writeField('start_distance', value);
+
+  /// 初めの高さ（メートル）
+  double? get startHeight => readField('start_height', asDouble);
+  set startHeight(double? value) => writeField('start_height', value);
+
+  /// 初めの勾配（高さ ÷ 平面の距離）
+  double? get startGradient => readField('start_gradient', asDouble);
+  set startGradient(double? value) => writeField('start_gradient', value);
+
+  /// 平面の距離での長さ（メートル）
+  double? get length => readField('length', asDouble);
+  set length(double? value) => writeField('length', value);
+
+  /// 放物線の終わりの勾配。parabola に書く
+  double? get endGradient => readField('end_gradient', asDouble);
+  set endGradient(double? value) => writeField('end_gradient', value);
+
+  /// 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く
+  double? get radius => readField('radius', asDouble);
+  set radius(double? value) => writeField('radius', value);
+}
+
+/// 平面線形の区間の種類。直線・円弧・緩和曲線
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class CivilHorizontalKind {
+  static const line = 'line';
+  static const arc = 'arc';
+  static const transition = 'transition';
+}
+
+/// 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class CivilTransitionCurve {
+  static const clothoid = 'clothoid';
+  static const cubicParabola = 'cubic_parabola';
+  static const sineHalfWave = 'sine_half_wave';
+  static const cosine = 'cosine';
+  static const bloss = 'bloss';
+  static const helmert = 'helmert';
+  static const viennese = 'viennese';
+}
+
+/// 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class CivilVerticalKind {
+  static const constantGradient = 'constant_gradient';
+  static const parabola = 'parabola';
+  static const circularArc = 'circular_arc';
+}
+
+/// 測点の不連続
+class CivilStationBreak extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilStationBreak.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilStationBreak() : super({});
+
+  /// 追加距離（メートル）
+  double? get distance => readField('distance', asDouble);
+  set distance(double? value) => writeField('distance', value);
+
+  /// 戻りの測点の値（不連続の手前から数えた値）
+  double? get back => readField('back', asDouble);
+  set back(double? value) => writeField('back', value);
+
+  /// 進みの測点の値（不連続の先で数え直す値）
+  double? get ahead => readField('ahead', asDouble);
+  set ahead(double? value) => writeField('ahead', value);
+}
+
+/// 線形の上の所
+class CivilResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilResult() : super({});
+
+  /// 平面線形の長さ（メートル）
+  double? get length => readField('length', asDouble);
+  set length(double? value) => writeField('length', value);
+
+  /// 求めた所
+  List<CivilPosition>? get positions => readField('positions', listOf(objectOf(CivilPosition.fromJson)));
+  set positions(List<CivilPosition>? value) => writeField('positions', value);
+}
+
+/// 線形の上の 1 つの所
+class CivilPosition extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilPosition.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilPosition() : super({});
+
+  /// 追加距離（メートル）
+  double? get distance => readField('distance', asDouble);
+  set distance(double? value) => writeField('distance', value);
+
+  /// 測点の値（メートル）
+  double? get station => readField('station', asDouble);
+  set station(double? value) => writeField('station', value);
+
+  /// 測点の表記。表記にできなければ書かない
+  String? get label => readField('label', asString);
+  set label(String? value) => writeField('label', value);
+
+  /// 点の北（メートル）
+  double? get northing => readField('northing', asDouble);
+  set northing(double? value) => writeField('northing', value);
+
+  /// 点の東（メートル）
+  double? get easting => readField('easting', asDouble);
+  set easting(double? value) => writeField('easting', value);
+
+  /// 接線の方向角（北から時計回りのラジアン）
+  double? get direction => readField('direction', asDouble);
+  set direction(double? value) => writeField('direction', value);
+
+  /// 縦断線形の高さ（メートル）。求められなければ書かない
+  double? get height => readField('height', asDouble);
+  set height(double? value) => writeField('height', value);
+
+  /// 縦断線形の勾配。高さと同じく、求められなければ書かない
+  double? get gradient => readField('gradient', asDouble);
+  set gradient(double? value) => writeField('gradient', value);
+}
+
 /// describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 class Catalog extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -4969,4 +5246,5 @@ abstract final class Operations {
   static const reviewAdoptIds = 'review_adopt_ids';
   static const bcfRead = 'bcf_read';
   static const bcfWrite = 'bcf_write';
+  static const civil = 'civil';
 }

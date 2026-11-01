@@ -113,6 +113,11 @@ public struct Request: Message {
     public var asBcfWriteRequest: BcfWriteRequest? {
         taggedView("op", "bcf_write")
     }
+
+    /// op が civil の形なら、その見方。違えば nil
+    public var asCivilRequest: CivilRequest? {
+        taggedView("op", "civil")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -7546,6 +7551,419 @@ public enum Engine {
     public static let wasm = "wasm"
 }
 
+/// 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から
+public struct CivilRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("civil")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 線形
+    public var alignment: CivilAlignment? {
+        get { readField("alignment") }
+        set { writeField("alignment", newValue) }
+    }
+
+    /// 追加距離（メートル）の列
+    public var distances: [Double]? {
+        get { readField("distances") }
+        set { writeField("distances", newValue) }
+    }
+
+    /// 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
+    public var stations: [String]? {
+        get { readField("stations") }
+        set { writeField("stations", newValue) }
+    }
+
+    /// 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す
+    public var interval: Double? {
+        get { readField("interval") }
+        set { writeField("interval", newValue) }
+    }
+
+    /// 測点の間隔（メートル）。書かなければ 20
+    public var pitch: Double? {
+        get { readField("pitch") }
+        set { writeField("pitch", newValue) }
+    }
+
+    /// 測点の表記の端数の小数の桁数。書かなければ 3
+    public var digits: Int64? {
+        get { readField("digits") }
+        set { writeField("digits", newValue) }
+    }
+}
+
+/// 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
+public struct CivilAlignment: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 平面線形の区間。線形の初めから順に並べる
+    public var horizontal: [CivilHorizontal]? {
+        get { readField("horizontal") }
+        set { writeField("horizontal", newValue) }
+    }
+
+    /// 縦断線形の区間。書かなければ高さを返さない
+    public var vertical: [CivilVertical]? {
+        get { readField("vertical") }
+        set { writeField("vertical", newValue) }
+    }
+
+    /// 線形の初めの測点の値（メートル）。書かなければ 0
+    public var startStation: Double? {
+        get { readField("start_station") }
+        set { writeField("start_station", newValue) }
+    }
+
+    /// 測点の不連続。追加距離の順に並べる
+    public var breaks: [CivilStationBreak]? {
+        get { readField("breaks") }
+        set { writeField("breaks", newValue) }
+    }
+}
+
+/// 平面線形の区間
+public struct CivilHorizontal: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 区間の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 初めの点の北（メートル）
+    public var northing: Double? {
+        get { readField("northing") }
+        set { writeField("northing", newValue) }
+    }
+
+    /// 初めの点の東（メートル）
+    public var easting: Double? {
+        get { readField("easting") }
+        set { writeField("easting", newValue) }
+    }
+
+    /// 初めの方向角（北から時計回りのラジアン）
+    public var direction: Double? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 長さ（メートル）
+    public var length: Double? {
+        get { readField("length") }
+        set { writeField("length", newValue) }
+    }
+
+    /// 円弧の半径（メートル）。arc に書く
+    public var radius: Double? {
+        get { readField("radius") }
+        set { writeField("radius", newValue) }
+    }
+
+    /// 緩和曲線の初めの半径（メートル）。直線の側は書かない
+    public var startRadius: Double? {
+        get { readField("start_radius") }
+        set { writeField("start_radius", newValue) }
+    }
+
+    /// 緩和曲線の終わりの半径（メートル）。直線の側は書かない
+    public var endRadius: Double? {
+        get { readField("end_radius") }
+        set { writeField("end_radius", newValue) }
+    }
+
+    /// 緩和曲線の種類。transition に書き、書かなければ clothoid
+    public var curve: String? {
+        get { readField("curve") }
+        set { writeField("curve", newValue) }
+    }
+}
+
+/// 縦断線形の区間
+public struct CivilVertical: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 区間の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 初めの追加距離（メートル）
+    public var startDistance: Double? {
+        get { readField("start_distance") }
+        set { writeField("start_distance", newValue) }
+    }
+
+    /// 初めの高さ（メートル）
+    public var startHeight: Double? {
+        get { readField("start_height") }
+        set { writeField("start_height", newValue) }
+    }
+
+    /// 初めの勾配（高さ ÷ 平面の距離）
+    public var startGradient: Double? {
+        get { readField("start_gradient") }
+        set { writeField("start_gradient", newValue) }
+    }
+
+    /// 平面の距離での長さ（メートル）
+    public var length: Double? {
+        get { readField("length") }
+        set { writeField("length", newValue) }
+    }
+
+    /// 放物線の終わりの勾配。parabola に書く
+    public var endGradient: Double? {
+        get { readField("end_gradient") }
+        set { writeField("end_gradient", newValue) }
+    }
+
+    /// 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く
+    public var radius: Double? {
+        get { readField("radius") }
+        set { writeField("radius", newValue) }
+    }
+}
+
+/// 平面線形の区間の種類。直線・円弧・緩和曲線
+///
+/// 列挙の値。知らない値も受け取る
+public enum CivilHorizontalKind {
+    public static let line = "line"
+    public static let arc = "arc"
+    public static let transition = "transition"
+}
+
+/// 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
+///
+/// 列挙の値。知らない値も受け取る
+public enum CivilTransitionCurve {
+    public static let clothoid = "clothoid"
+    public static let cubicParabola = "cubic_parabola"
+    public static let sineHalfWave = "sine_half_wave"
+    public static let cosine = "cosine"
+    public static let bloss = "bloss"
+    public static let helmert = "helmert"
+    public static let viennese = "viennese"
+}
+
+/// 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
+///
+/// 列挙の値。知らない値も受け取る
+public enum CivilVerticalKind {
+    public static let constantGradient = "constant_gradient"
+    public static let parabola = "parabola"
+    public static let circularArc = "circular_arc"
+}
+
+/// 測点の不連続
+public struct CivilStationBreak: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 追加距離（メートル）
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 戻りの測点の値（不連続の手前から数えた値）
+    public var back: Double? {
+        get { readField("back") }
+        set { writeField("back", newValue) }
+    }
+
+    /// 進みの測点の値（不連続の先で数え直す値）
+    public var ahead: Double? {
+        get { readField("ahead") }
+        set { writeField("ahead", newValue) }
+    }
+}
+
+/// 線形の上の所
+public struct CivilResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 平面線形の長さ（メートル）
+    public var length: Double? {
+        get { readField("length") }
+        set { writeField("length", newValue) }
+    }
+
+    /// 求めた所
+    public var positions: [CivilPosition]? {
+        get { readField("positions") }
+        set { writeField("positions", newValue) }
+    }
+}
+
+/// 線形の上の 1 つの所
+public struct CivilPosition: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 追加距離（メートル）
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 測点の値（メートル）
+    public var station: Double? {
+        get { readField("station") }
+        set { writeField("station", newValue) }
+    }
+
+    /// 測点の表記。表記にできなければ書かない
+    public var label: String? {
+        get { readField("label") }
+        set { writeField("label", newValue) }
+    }
+
+    /// 点の北（メートル）
+    public var northing: Double? {
+        get { readField("northing") }
+        set { writeField("northing", newValue) }
+    }
+
+    /// 点の東（メートル）
+    public var easting: Double? {
+        get { readField("easting") }
+        set { writeField("easting", newValue) }
+    }
+
+    /// 接線の方向角（北から時計回りのラジアン）
+    public var direction: Double? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 縦断線形の高さ（メートル）。求められなければ書かない
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 縦断線形の勾配。高さと同じく、求められなければ書かない
+    public var gradient: Double? {
+        get { readField("gradient") }
+        set { writeField("gradient", newValue) }
+    }
+}
+
 /// describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 public struct Catalog: Message {
     /// 包んでいる JSON のオブジェクト
@@ -7642,4 +8060,5 @@ public enum Operations {
     public static let reviewAdoptIds = "review_adopt_ids"
     public static let bcfRead = "bcf_read"
     public static let bcfWrite = "bcf_write"
+    public static let civil = "civil"
 }

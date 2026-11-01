@@ -161,6 +161,11 @@ public final class Messages {
         public BcfWriteRequest asBcfWriteRequest() {
             return "bcf_write".equals(json.get("op")) ? new BcfWriteRequest(json) : null;
         }
+
+        /** op が civil の形なら、その見方。違えば null */
+        public CivilRequest asCivilRequest() {
+            return "civil".equals(json.get("op")) ? new CivilRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -12233,6 +12238,688 @@ public final class Messages {
         public static final String WASM = "wasm";
     }
 
+    /** 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から */
+    public static final class CivilRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public CivilRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "civil");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public CivilRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public CivilRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public CivilRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public CivilRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public CivilRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public CivilRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 線形 */
+        public CivilAlignment getAlignment() {
+            return Json.read(json.get("alignment"), CivilAlignment::of);
+        }
+
+        /** {@link #getAlignment()} を書く。null なら欄を除く */
+        public CivilRequest withAlignment(CivilAlignment value) {
+            put("alignment", value);
+            return this;
+        }
+
+        /** 追加距離（メートル）の列 */
+        public List<Double> getDistances() {
+            return Json.read(json.get("distances"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getDistances()} を書く。null なら欄を除く */
+        public CivilRequest withDistances(List<Double> value) {
+            put("distances", value);
+            return this;
+        }
+
+        /** 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する */
+        public List<String> getStations() {
+            return Json.read(json.get("stations"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getStations()} を書く。null なら欄を除く */
+        public CivilRequest withStations(List<String> value) {
+            put("stations", value);
+            return this;
+        }
+
+        /** 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す */
+        public Double getInterval() {
+            return Json.read(json.get("interval"), Json::number);
+        }
+
+        /** {@link #getInterval()} を書く。null なら欄を除く */
+        public CivilRequest withInterval(Double value) {
+            put("interval", value);
+            return this;
+        }
+
+        /** 測点の間隔（メートル）。書かなければ 20 */
+        public Double getPitch() {
+            return Json.read(json.get("pitch"), Json::number);
+        }
+
+        /** {@link #getPitch()} を書く。null なら欄を除く */
+        public CivilRequest withPitch(Double value) {
+            put("pitch", value);
+            return this;
+        }
+
+        /** 測点の表記の端数の小数の桁数。書かなければ 3 */
+        public Long getDigits() {
+            return Json.read(json.get("digits"), Json::integer);
+        }
+
+        /** {@link #getDigits()} を書く。null なら欄を除く */
+        public CivilRequest withDigits(Long value) {
+            put("digits", value);
+            return this;
+        }
+    }
+
+    /** 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230） */
+    public static final class CivilAlignment extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilAlignment(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilAlignment of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilAlignment(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilAlignment() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 平面線形の区間。線形の初めから順に並べる */
+        public List<CivilHorizontal> getHorizontal() {
+            return Json.read(json.get("horizontal"), v0 -> Json.list(v0, CivilHorizontal::of));
+        }
+
+        /** {@link #getHorizontal()} を書く。null なら欄を除く */
+        public CivilAlignment withHorizontal(List<CivilHorizontal> value) {
+            put("horizontal", value);
+            return this;
+        }
+
+        /** 縦断線形の区間。書かなければ高さを返さない */
+        public List<CivilVertical> getVertical() {
+            return Json.read(json.get("vertical"), v0 -> Json.list(v0, CivilVertical::of));
+        }
+
+        /** {@link #getVertical()} を書く。null なら欄を除く */
+        public CivilAlignment withVertical(List<CivilVertical> value) {
+            put("vertical", value);
+            return this;
+        }
+
+        /** 線形の初めの測点の値（メートル）。書かなければ 0 */
+        public Double getStartStation() {
+            return Json.read(json.get("start_station"), Json::number);
+        }
+
+        /** {@link #getStartStation()} を書く。null なら欄を除く */
+        public CivilAlignment withStartStation(Double value) {
+            put("start_station", value);
+            return this;
+        }
+
+        /** 測点の不連続。追加距離の順に並べる */
+        public List<CivilStationBreak> getBreaks() {
+            return Json.read(json.get("breaks"), v0 -> Json.list(v0, CivilStationBreak::of));
+        }
+
+        /** {@link #getBreaks()} を書く。null なら欄を除く */
+        public CivilAlignment withBreaks(List<CivilStationBreak> value) {
+            put("breaks", value);
+            return this;
+        }
+    }
+
+    /** 平面線形の区間 */
+    public static final class CivilHorizontal extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilHorizontal(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilHorizontal of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilHorizontal(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilHorizontal() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 区間の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public CivilHorizontal withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 初めの点の北（メートル） */
+        public Double getNorthing() {
+            return Json.read(json.get("northing"), Json::number);
+        }
+
+        /** {@link #getNorthing()} を書く。null なら欄を除く */
+        public CivilHorizontal withNorthing(Double value) {
+            put("northing", value);
+            return this;
+        }
+
+        /** 初めの点の東（メートル） */
+        public Double getEasting() {
+            return Json.read(json.get("easting"), Json::number);
+        }
+
+        /** {@link #getEasting()} を書く。null なら欄を除く */
+        public CivilHorizontal withEasting(Double value) {
+            put("easting", value);
+            return this;
+        }
+
+        /** 初めの方向角（北から時計回りのラジアン） */
+        public Double getDirection() {
+            return Json.read(json.get("direction"), Json::number);
+        }
+
+        /** {@link #getDirection()} を書く。null なら欄を除く */
+        public CivilHorizontal withDirection(Double value) {
+            put("direction", value);
+            return this;
+        }
+
+        /** 長さ（メートル） */
+        public Double getLength() {
+            return Json.read(json.get("length"), Json::number);
+        }
+
+        /** {@link #getLength()} を書く。null なら欄を除く */
+        public CivilHorizontal withLength(Double value) {
+            put("length", value);
+            return this;
+        }
+
+        /** 円弧の半径（メートル）。arc に書く */
+        public Double getRadius() {
+            return Json.read(json.get("radius"), Json::number);
+        }
+
+        /** {@link #getRadius()} を書く。null なら欄を除く */
+        public CivilHorizontal withRadius(Double value) {
+            put("radius", value);
+            return this;
+        }
+
+        /** 緩和曲線の初めの半径（メートル）。直線の側は書かない */
+        public Double getStartRadius() {
+            return Json.read(json.get("start_radius"), Json::number);
+        }
+
+        /** {@link #getStartRadius()} を書く。null なら欄を除く */
+        public CivilHorizontal withStartRadius(Double value) {
+            put("start_radius", value);
+            return this;
+        }
+
+        /** 緩和曲線の終わりの半径（メートル）。直線の側は書かない */
+        public Double getEndRadius() {
+            return Json.read(json.get("end_radius"), Json::number);
+        }
+
+        /** {@link #getEndRadius()} を書く。null なら欄を除く */
+        public CivilHorizontal withEndRadius(Double value) {
+            put("end_radius", value);
+            return this;
+        }
+
+        /** 緩和曲線の種類。transition に書き、書かなければ clothoid */
+        public String getCurve() {
+            return Json.read(json.get("curve"), Json::string);
+        }
+
+        /** {@link #getCurve()} を書く。null なら欄を除く */
+        public CivilHorizontal withCurve(String value) {
+            put("curve", value);
+            return this;
+        }
+    }
+
+    /** 縦断線形の区間 */
+    public static final class CivilVertical extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilVertical(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilVertical of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilVertical(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilVertical() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 区間の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null なら欄を除く */
+        public CivilVertical withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 初めの追加距離（メートル） */
+        public Double getStartDistance() {
+            return Json.read(json.get("start_distance"), Json::number);
+        }
+
+        /** {@link #getStartDistance()} を書く。null なら欄を除く */
+        public CivilVertical withStartDistance(Double value) {
+            put("start_distance", value);
+            return this;
+        }
+
+        /** 初めの高さ（メートル） */
+        public Double getStartHeight() {
+            return Json.read(json.get("start_height"), Json::number);
+        }
+
+        /** {@link #getStartHeight()} を書く。null なら欄を除く */
+        public CivilVertical withStartHeight(Double value) {
+            put("start_height", value);
+            return this;
+        }
+
+        /** 初めの勾配（高さ ÷ 平面の距離） */
+        public Double getStartGradient() {
+            return Json.read(json.get("start_gradient"), Json::number);
+        }
+
+        /** {@link #getStartGradient()} を書く。null なら欄を除く */
+        public CivilVertical withStartGradient(Double value) {
+            put("start_gradient", value);
+            return this;
+        }
+
+        /** 平面の距離での長さ（メートル） */
+        public Double getLength() {
+            return Json.read(json.get("length"), Json::number);
+        }
+
+        /** {@link #getLength()} を書く。null なら欄を除く */
+        public CivilVertical withLength(Double value) {
+            put("length", value);
+            return this;
+        }
+
+        /** 放物線の終わりの勾配。parabola に書く */
+        public Double getEndGradient() {
+            return Json.read(json.get("end_gradient"), Json::number);
+        }
+
+        /** {@link #getEndGradient()} を書く。null なら欄を除く */
+        public CivilVertical withEndGradient(Double value) {
+            put("end_gradient", value);
+            return this;
+        }
+
+        /** 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く */
+        public Double getRadius() {
+            return Json.read(json.get("radius"), Json::number);
+        }
+
+        /** {@link #getRadius()} を書く。null なら欄を除く */
+        public CivilVertical withRadius(Double value) {
+            put("radius", value);
+            return this;
+        }
+    }
+
+    /**
+     * 平面線形の区間の種類。直線・円弧・緩和曲線
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class CivilHorizontalKind {
+        private CivilHorizontalKind() {}
+
+        public static final String LINE = "line";
+
+        public static final String ARC = "arc";
+
+        public static final String TRANSITION = "transition";
+    }
+
+    /**
+     * 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class CivilTransitionCurve {
+        private CivilTransitionCurve() {}
+
+        public static final String CLOTHOID = "clothoid";
+
+        public static final String CUBIC_PARABOLA = "cubic_parabola";
+
+        public static final String SINE_HALF_WAVE = "sine_half_wave";
+
+        public static final String COSINE = "cosine";
+
+        public static final String BLOSS = "bloss";
+
+        public static final String HELMERT = "helmert";
+
+        public static final String VIENNESE = "viennese";
+    }
+
+    /**
+     * 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class CivilVerticalKind {
+        private CivilVerticalKind() {}
+
+        public static final String CONSTANT_GRADIENT = "constant_gradient";
+
+        public static final String PARABOLA = "parabola";
+
+        public static final String CIRCULAR_ARC = "circular_arc";
+    }
+
+    /** 測点の不連続 */
+    public static final class CivilStationBreak extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilStationBreak(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilStationBreak of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilStationBreak(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilStationBreak() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 追加距離（メートル） */
+        public Double getDistance() {
+            return Json.read(json.get("distance"), Json::number);
+        }
+
+        /** {@link #getDistance()} を書く。null なら欄を除く */
+        public CivilStationBreak withDistance(Double value) {
+            put("distance", value);
+            return this;
+        }
+
+        /** 戻りの測点の値（不連続の手前から数えた値） */
+        public Double getBack() {
+            return Json.read(json.get("back"), Json::number);
+        }
+
+        /** {@link #getBack()} を書く。null なら欄を除く */
+        public CivilStationBreak withBack(Double value) {
+            put("back", value);
+            return this;
+        }
+
+        /** 進みの測点の値（不連続の先で数え直す値） */
+        public Double getAhead() {
+            return Json.read(json.get("ahead"), Json::number);
+        }
+
+        /** {@link #getAhead()} を書く。null なら欄を除く */
+        public CivilStationBreak withAhead(Double value) {
+            put("ahead", value);
+            return this;
+        }
+    }
+
+    /** 線形の上の所 */
+    public static final class CivilResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 平面線形の長さ（メートル） */
+        public Double getLength() {
+            return Json.read(json.get("length"), Json::number);
+        }
+
+        /** {@link #getLength()} を書く。null なら欄を除く */
+        public CivilResult withLength(Double value) {
+            put("length", value);
+            return this;
+        }
+
+        /** 求めた所 */
+        public List<CivilPosition> getPositions() {
+            return Json.read(json.get("positions"), v0 -> Json.list(v0, CivilPosition::of));
+        }
+
+        /** {@link #getPositions()} を書く。null なら欄を除く */
+        public CivilResult withPositions(List<CivilPosition> value) {
+            put("positions", value);
+            return this;
+        }
+    }
+
+    /** 線形の上の 1 つの所 */
+    public static final class CivilPosition extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilPosition(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilPosition of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilPosition(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilPosition() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 追加距離（メートル） */
+        public Double getDistance() {
+            return Json.read(json.get("distance"), Json::number);
+        }
+
+        /** {@link #getDistance()} を書く。null なら欄を除く */
+        public CivilPosition withDistance(Double value) {
+            put("distance", value);
+            return this;
+        }
+
+        /** 測点の値（メートル） */
+        public Double getStation() {
+            return Json.read(json.get("station"), Json::number);
+        }
+
+        /** {@link #getStation()} を書く。null なら欄を除く */
+        public CivilPosition withStation(Double value) {
+            put("station", value);
+            return this;
+        }
+
+        /** 測点の表記。表記にできなければ書かない */
+        public String getLabel() {
+            return Json.read(json.get("label"), Json::string);
+        }
+
+        /** {@link #getLabel()} を書く。null なら欄を除く */
+        public CivilPosition withLabel(String value) {
+            put("label", value);
+            return this;
+        }
+
+        /** 点の北（メートル） */
+        public Double getNorthing() {
+            return Json.read(json.get("northing"), Json::number);
+        }
+
+        /** {@link #getNorthing()} を書く。null なら欄を除く */
+        public CivilPosition withNorthing(Double value) {
+            put("northing", value);
+            return this;
+        }
+
+        /** 点の東（メートル） */
+        public Double getEasting() {
+            return Json.read(json.get("easting"), Json::number);
+        }
+
+        /** {@link #getEasting()} を書く。null なら欄を除く */
+        public CivilPosition withEasting(Double value) {
+            put("easting", value);
+            return this;
+        }
+
+        /** 接線の方向角（北から時計回りのラジアン） */
+        public Double getDirection() {
+            return Json.read(json.get("direction"), Json::number);
+        }
+
+        /** {@link #getDirection()} を書く。null なら欄を除く */
+        public CivilPosition withDirection(Double value) {
+            put("direction", value);
+            return this;
+        }
+
+        /** 縦断線形の高さ（メートル）。求められなければ書かない */
+        public Double getHeight() {
+            return Json.read(json.get("height"), Json::number);
+        }
+
+        /** {@link #getHeight()} を書く。null なら欄を除く */
+        public CivilPosition withHeight(Double value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 縦断線形の勾配。高さと同じく、求められなければ書かない */
+        public Double getGradient() {
+            return Json.read(json.get("gradient"), Json::number);
+        }
+
+        /** {@link #getGradient()} を書く。null なら欄を除く */
+        public CivilPosition withGradient(Double value) {
+            put("gradient", value);
+            return this;
+        }
+    }
+
     /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
     public static final class Catalog extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -12391,5 +13078,7 @@ public final class Messages {
         public static final String BCF_READ = "bcf_read";
 
         public static final String BCF_WRITE = "bcf_write";
+
+        public static final String CIVIL = "civil";
     }
 }

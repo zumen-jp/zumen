@@ -25,7 +25,8 @@ export type Request =
   | IdsCheckRequest
   | ReviewAdoptIdsRequest
   | BcfReadRequest
-  | BcfWriteRequest;
+  | BcfWriteRequest
+  | CivilRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2262,6 +2263,139 @@ export type Engine =
   | "wasm"
   | (string & {});
 
+/** 要求に書いた線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。図面のモジュールに置く。小版 46 から */
+export interface CivilRequest extends RequestCommon {
+  /** op の名前 */
+  op: "civil";
+  /** 線形 */
+  alignment: CivilAlignment;
+  /** 追加距離（メートル）の列 */
+  distances?: number[];
+  /** 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する */
+  stations?: string[];
+  /** 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す */
+  interval?: number;
+  /** 測点の間隔（メートル）。書かなければ 20 */
+  pitch?: number;
+  /** 測点の表記の端数の小数の桁数。書かなければ 3 */
+  digits?: number;
+}
+
+/** 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230） */
+export interface CivilAlignment {
+  /** 平面線形の区間。線形の初めから順に並べる */
+  horizontal: CivilHorizontal[];
+  /** 縦断線形の区間。書かなければ高さを返さない */
+  vertical?: CivilVertical[];
+  /** 線形の初めの測点の値（メートル）。書かなければ 0 */
+  start_station?: number;
+  /** 測点の不連続。追加距離の順に並べる */
+  breaks?: CivilStationBreak[];
+}
+
+/** 平面線形の区間 */
+export interface CivilHorizontal {
+  /** 区間の種類 */
+  kind: CivilHorizontalKind;
+  /** 初めの点の北（メートル） */
+  northing: number;
+  /** 初めの点の東（メートル） */
+  easting: number;
+  /** 初めの方向角（北から時計回りのラジアン） */
+  direction: number;
+  /** 長さ（メートル） */
+  length: number;
+  /** 円弧の半径（メートル）。arc に書く */
+  radius?: number;
+  /** 緩和曲線の初めの半径（メートル）。直線の側は書かない */
+  start_radius?: number;
+  /** 緩和曲線の終わりの半径（メートル）。直線の側は書かない */
+  end_radius?: number;
+  /** 緩和曲線の種類。transition に書き、書かなければ clothoid */
+  curve?: CivilTransitionCurve;
+}
+
+/** 縦断線形の区間 */
+export interface CivilVertical {
+  /** 区間の種類 */
+  kind: CivilVerticalKind;
+  /** 初めの追加距離（メートル） */
+  start_distance: number;
+  /** 初めの高さ（メートル） */
+  start_height: number;
+  /** 初めの勾配（高さ ÷ 平面の距離） */
+  start_gradient: number;
+  /** 平面の距離での長さ（メートル） */
+  length: number;
+  /** 放物線の終わりの勾配。parabola に書く */
+  end_gradient?: number;
+  /** 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く */
+  radius?: number;
+}
+
+/** 平面線形の区間の種類。直線・円弧・緩和曲線 */
+export type CivilHorizontalKind =
+  | "line"
+  | "arc"
+  | "transition"
+  | (string & {});
+
+/** 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線 */
+export type CivilTransitionCurve =
+  | "clothoid"
+  | "cubic_parabola"
+  | "sine_half_wave"
+  | "cosine"
+  | "bloss"
+  | "helmert"
+  | "viennese"
+  | (string & {});
+
+/** 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧 */
+export type CivilVerticalKind =
+  | "constant_gradient"
+  | "parabola"
+  | "circular_arc"
+  | (string & {});
+
+/** 測点の不連続 */
+export interface CivilStationBreak {
+  /** 追加距離（メートル） */
+  distance: number;
+  /** 戻りの測点の値（不連続の手前から数えた値） */
+  back: number;
+  /** 進みの測点の値（不連続の先で数え直す値） */
+  ahead: number;
+}
+
+/** 線形の上の所 */
+export interface CivilResult {
+  /** 平面線形の長さ（メートル） */
+  length: number;
+  /** 求めた所 */
+  positions: CivilPosition[];
+}
+
+/** 線形の上の 1 つの所 */
+export interface CivilPosition {
+  /** 追加距離（メートル） */
+  distance: number;
+  /** 測点の値（メートル） */
+  station: number;
+  /** 測点の表記。表記にできなければ書かない */
+  label?: string;
+  /** 点の北（メートル） */
+  northing: number;
+  /** 点の東（メートル） */
+  easting: number;
+  /** 接線の方向角（北から時計回りのラジアン） */
+  direction: number;
+  /** 縦断線形の高さ（メートル）。求められなければ書かない */
+  height?: number;
+  /** 縦断線形の勾配。高さと同じく、求められなければ書かない */
+  gradient?: number;
+}
+
 /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
 export interface Catalog {
   /** カタログの形の大版。今は 1 */
@@ -2306,4 +2440,5 @@ export interface Operations {
   review_adopt_ids: { request: ReviewAdoptIdsRequest; result: unknown };
   bcf_read: { request: BcfReadRequest; result: BcfReadResult };
   bcf_write: { request: BcfWriteRequest; result: BcfWriteResult };
+  civil: { request: CivilRequest; result: CivilResult };
 }

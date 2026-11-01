@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマの大版（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマの小版 */
-export const SCHEMA_MINOR = 45;
+export const SCHEMA_MINOR = 46;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -38,7 +38,7 @@ export const MODULES = Object.freeze({
   drawing: Object.freeze({
     description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー",
     formats: Object.freeze(["dxf", "dwg", "sxf", "jww"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil"]),
   }),
   bim: Object.freeze({
     description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF",

@@ -21,6 +21,8 @@ mod bounds;
 mod building;
 mod changes;
 mod check;
+#[cfg(feature = "drawing")]
+mod civil;
 mod convert;
 mod describe;
 pub mod ffi;

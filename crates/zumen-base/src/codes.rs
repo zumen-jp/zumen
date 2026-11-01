@@ -525,6 +525,110 @@ pub const CHANGE_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 線形の区間の曲線の種類から、位置を計算できない。区間の値は保った。curve は種類の名前
+///
+/// `civil.curve.unsupported`（0.2.0 から）
+pub const CIVIL_CURVE_UNSUPPORTED: Code = Code::new(
+    "civil.curve.unsupported",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("curve", ParamType::Text),
+        Param::new("index", ParamType::UInt),
+    ],
+    &["curve"],
+);
+
+/// 追加距離が、平面線形の範囲の外にある
+///
+/// `civil.distance.missing`（0.2.0 から）
+pub const CIVIL_DISTANCE_MISSING: Code = Code::new(
+    "civil.distance.missing",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("distance", ParamType::Float),
+        Param::new("length", ParamType::Float),
+    ],
+    &[],
+);
+
+/// 追加距離が縦断線形の範囲の外にあるので、高さを返さなかった
+///
+/// `civil.profile.missing`（0.2.0 から）
+pub const CIVIL_PROFILE_MISSING: Code = Code::new(
+    "civil.profile.missing",
+    Severity::Info,
+    None,
+    &[Param::new("distance", ParamType::Float)],
+    &[],
+);
+
+/// 線形の区間の初めの点が、前の区間の終わりから計算した点と、許容差より離れている。区間の初めの点をそのまま使った。gap はメートル
+///
+/// `civil.segment-start.invalid`（0.2.0 から）
+pub const CIVIL_SEGMENT_START_INVALID: Code = Code::new(
+    "civil.segment-start.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("gap", ParamType::Float),
+        Param::new("index", ParamType::UInt),
+        Param::new("tolerance", ParamType::Float),
+    ],
+    &[],
+);
+
+/// 線形の区間の値が使えない（長さが正でない、半径が 0 か有限でないなど）。index は区間の番号、field は欄の名前
+///
+/// `civil.segment.invalid`（0.2.0 から）
+pub const CIVIL_SEGMENT_INVALID: Code = Code::new(
+    "civil.segment.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("index", ParamType::UInt),
+    ],
+    &["field"],
+);
+
+/// 測点の値が、測点の不連続のために線形の places 個の所にあり、どれかを指定していないので、最初の所にした
+///
+/// `civil.station.assumed`（0.2.0 から）
+pub const CIVIL_STATION_ASSUMED: Code = Code::new(
+    "civil.station.assumed",
+    Severity::Info,
+    None,
+    &[
+        Param::new("places", ParamType::UInt),
+        Param::new("station", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 測点の表記を読めない
+///
+/// `civil.station.invalid`（0.2.0 から）
+pub const CIVIL_STATION_INVALID: Code = Code::new(
+    "civil.station.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("station", ParamType::Text)],
+    &[],
+);
+
+/// 測点の値が、線形のどの所にもない
+///
+/// `civil.station.missing`（0.2.0 から）
+pub const CIVIL_STATION_MISSING: Code = Code::new(
+    "civil.station.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("station", ParamType::Text)],
+    &[],
+);
+
 /// 別の形式に書くとき、記号の属性を、記号から離した文字として書いた（決定 0206）
 ///
 /// `convert.attribute.drawn`（0.0.0 から）
@@ -2679,6 +2783,14 @@ pub const ALL: &[Code] = &[
     CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,
+    CIVIL_CURVE_UNSUPPORTED,
+    CIVIL_DISTANCE_MISSING,
+    CIVIL_PROFILE_MISSING,
+    CIVIL_SEGMENT_START_INVALID,
+    CIVIL_SEGMENT_INVALID,
+    CIVIL_STATION_ASSUMED,
+    CIVIL_STATION_INVALID,
+    CIVIL_STATION_MISSING,
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,

@@ -1774,3 +1774,63 @@ description = "書く bcfzip が ZIP64 を要する大きさになる。ZIP64 �
 severity = "error"
 since = "0.2.0"
 status = "active"
+
+# 土木の領域モデル（決定 0230）
+
+[codes."civil.segment.invalid"]
+description = "線形の区間の値が使えない（長さが正でない、半径が 0 か有限でないなど）。index は区間の番号、field は欄の名前"
+severity = "error"
+params = { index = "uint", field = "text" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
+[codes."civil.segment-start.invalid"]
+description = "線形の区間の初めの点が、前の区間の終わりから計算した点と、許容差より離れている。区間の初めの点をそのまま使った。gap はメートル"
+severity = "warning"
+params = { index = "uint", gap = "float", tolerance = "float" }
+since = "0.2.0"
+status = "active"
+
+[codes."civil.curve.unsupported"]
+description = "線形の区間の曲線の種類から、位置を計算できない。区間の値は保った。curve は種類の名前"
+severity = "warning"
+params = { index = "uint", curve = "text" }
+group-by = ["curve"]
+since = "0.2.0"
+status = "active"
+
+[codes."civil.distance.missing"]
+description = "追加距離が、平面線形の範囲の外にある"
+severity = "warning"
+params = { distance = "float", length = "float" }
+since = "0.2.0"
+status = "active"
+
+[codes."civil.profile.missing"]
+description = "追加距離が縦断線形の範囲の外にあるので、高さを返さなかった"
+severity = "info"
+params = { distance = "float" }
+since = "0.2.0"
+status = "active"
+
+[codes."civil.station.invalid"]
+description = "測点の表記を読めない"
+severity = "warning"
+params = { station = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."civil.station.missing"]
+description = "測点の値が、線形のどの所にもない"
+severity = "warning"
+params = { station = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."civil.station.assumed"]
+description = "測点の値が、測点の不連続のために線形の places 個の所にあり、どれかを指定していないので、最初の所にした"
+severity = "info"
+params = { station = "text", places = "uint" }
+since = "0.2.0"
+status = "active"
