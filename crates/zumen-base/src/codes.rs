@@ -693,6 +693,46 @@ pub const CONVERT_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 渡された測地系の変換のパラメーター（TKY2JGD・PatchJGD の形）の行が壊れていて読めない
+///
+/// `crs.datum-grid.invalid`（0.2.0 から）
+pub const CRS_DATUM_GRID_INVALID: Code = Code::new(
+    "crs.datum-grid.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("line", ParamType::UInt)],
+    &[],
+);
+
+/// 座標系を JGD2011 に直すのに要る変換のパラメーター（TKY2JGD・PatchJGD）が渡されていないので、直さなかった
+///
+/// `crs.datum-grid.missing`（0.2.0 から）
+pub const CRS_DATUM_GRID_MISSING: Code = Code::new(
+    "crs.datum-grid.missing",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("crs", ParamType::UInt),
+        Param::new("grid", ParamType::Text),
+    ],
+    &["crs", "grid"],
+);
+
+/// 点が変換のパラメーターの格子の範囲の外にあるか、囲む格子点が欠けているので、JGD2011 に直さなかった
+///
+/// `crs.datum-shift.missing`（0.2.0 から）
+pub const CRS_DATUM_SHIFT_MISSING: Code = Code::new(
+    "crs.datum-shift.missing",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("grid", ParamType::Text),
+        Param::new("latitude", ParamType::Float),
+        Param::new("longitude", ParamType::Float),
+    ],
+    &["grid"],
+);
+
 /// 渡されたジオイドの格子（ISG format 2.0）が壊れていて読めない
 ///
 /// `crs.geoid.invalid`（0.2.0 から）
@@ -3281,6 +3321,9 @@ pub const ALL: &[Code] = &[
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,
+    CRS_DATUM_GRID_INVALID,
+    CRS_DATUM_GRID_MISSING,
+    CRS_DATUM_SHIFT_MISSING,
     CRS_GEOID_INVALID,
     CRS_GEOID_UNSUPPORTED,
     CRS_HEIGHT_DATUM_UNSUPPORTED,

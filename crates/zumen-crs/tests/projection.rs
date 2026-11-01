@@ -217,9 +217,16 @@ fn coordinate_systems_are_named_by_epsg_codes() {
     assert_eq!(Crs::from_epsg(6668), Some(Crs::Geographic));
     assert_eq!(Crs::from_epsg(6669).map(Crs::epsg), Some(6669));
     assert_eq!(Crs::from_epsg(6687).map(Crs::epsg), Some(6687));
-    // JGD2000 と日本測地系は別の測地系
-    assert_eq!(Crs::from_epsg(2451), None);
-    assert_eq!(Crs::from_epsg(30169), None);
+    // JGD2000 と日本測地系は別の測地系として名指す
+    assert_eq!(
+        Crs::from_epsg(2451),
+        Some(Crs::Jgd2000(Zone::new(9).unwrap()))
+    );
+    assert_eq!(
+        Crs::from_epsg(30169),
+        Some(Crs::Tokyo(Zone::new(9).unwrap()))
+    );
+    assert_ne!(Crs::from_epsg(30169), Some(ix));
     for name in [
         "EPSG:6677",
         "urn:ogc:def:crs:EPSG::6677",

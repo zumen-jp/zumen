@@ -2,7 +2,8 @@
 //!
 //! 国土地理院の測量計算サイトの計算式（「平面直角座標への換算 計算式」「緯度、経度への換算 計算式」）を、
 //! そのまま書く。順の換算は河瀬（2011）、逆の換算は地心緯度を介する河瀬（2021）の式による。楕円体は GRS80
-//! （測量法施行令第 3 条）、X 軸上の縮尺係数は 0.9999（平成 14 年国土交通省告示第 9 号）。
+//! （測量法施行令第 3 条）、X 軸上の縮尺係数は 0.9999（平成 14 年国土交通省告示第 9 号）。日本測地系の座標は、
+//! 同じ式をベッセル楕円体で解く（[`Ellipsoid`]）。
 //!
 //! - 河瀬和重（2011）「Gauss-Krüger 投影における経緯度座標及び平面直角座標相互間の座標換算についてのより簡明な
 //!   計算方法」、国土地理院時報 121、109–124
@@ -18,6 +19,25 @@ pub const SEMI_MAJOR_AXIS: f64 = 6_378_137.0;
 pub const INVERSE_FLATTENING: f64 = 298.257_222_101;
 /// X 軸上の縮尺係数。平成 14 年国土交通省告示第 9 号
 pub const SCALE_ON_X_AXIS: f64 = 0.9999;
+
+/// 経緯度と平面直角座標の換算に使う楕円体
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Ellipsoid {
+    /// GRS80。JGD2000・JGD2011・JGD2024
+    Grs80,
+    /// ベッセル楕円体。日本測地系（Tokyo）。長半径 6 377 397.155 m、逆扁平率 299.152 813
+    Bessel,
+}
+
+impl Ellipsoid {
+    /// 長半径（m）と逆扁平率
+    fn axes(self) -> (f64, f64) {
+        match self {
+            Ellipsoid::Grs80 => (SEMI_MAJOR_AXIS, INVERSE_FLATTENING),
+            Ellipsoid::Bessel => (6_377_397.155, 299.152_813),
+        }
+    }
+}
 
 /// 平面直角座標に換算した点
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -53,11 +73,14 @@ struct Series {
     s_phi0: f64,
     /// λ0（ラジアン）
     lambda0: f64,
+    /// 長半径（m）
+    semi_major: f64,
 }
 
 impl Series {
-    fn new(zone: Zone) -> Series {
-        let n = 1.0 / (2.0 * INVERSE_FLATTENING - 1.0);
+    fn new(zone: Zone, ellipsoid: Ellipsoid) -> Series {
+        let (semi_major, inverse_flattening) = ellipsoid.axes();
+        let n = 1.0 / (2.0 * inverse_flattening - 1.0);
         let [n2, n3, n4, n5] = [n * n, n * n * n, n * n * n * n, n * n * n * n * n];
         let a = [
             1.0 + n2 / 4.0 + n4 / 64.0,
@@ -93,7 +116,7 @@ impl Series {
         ];
         let (lat0, lon0) = zone.origin_minutes();
         let phi0 = minutes_to_radians(lat0);
-        let factor = SCALE_ON_X_AXIS * SEMI_MAJOR_AXIS / (1.0 + n);
+        let factor = SCALE_ON_X_AXIS * semi_major / (1.0 + n);
         let a_bar = factor * a[0];
         let mut sum = 0.0;
         for (j, aj) in (1..=5).zip(&a[1..]) {
@@ -107,6 +130,7 @@ impl Series {
             a_bar,
             s_phi0: a_bar * phi0 + factor * sum,
             lambda0: minutes_to_radians(lon0),
+            semi_major,
         }
     }
 }
@@ -126,7 +150,12 @@ fn radians(degrees: f64) -> f64 {
 /// 経緯度を、系 `zone` の平面直角座標に換算する。値が有限でないか、緯度が ±90 度の外か、経度の差が
 /// ±90 度に届くなら `None`
 pub fn to_plane(zone: Zone, point: GeoPoint) -> Option<Projected> {
-    let s = Series::new(zone);
+    to_plane_on(Ellipsoid::Grs80, zone, point)
+}
+
+/// [`to_plane`] を、楕円体 `ellipsoid` で解く
+pub fn to_plane_on(ellipsoid: Ellipsoid, zone: Zone, point: GeoPoint) -> Option<Projected> {
+    let s = Series::new(zone, ellipsoid);
     let phi = radians(point.latitude);
     let dlambda = radians(point.longitude) - s.lambda0;
     if !phi.is_finite() || phi.abs() >= PI / 2.0 || !dlambda.is_finite() {
@@ -157,7 +186,7 @@ pub fn to_plane(zone: Zone, point: GeoPoint) -> Option<Projected> {
             / (sigma * t_bar * lambda_c - tau * t * lambda_s),
     );
     let parametric = (1.0 - s.n) / (1.0 + s.n) * libm::tan(phi);
-    let scale = s.a_bar / SEMI_MAJOR_AXIS
+    let scale = s.a_bar / s.semi_major
         * ((sigma * sigma + tau * tau) / (t * t + lambda_c * lambda_c)
             * (1.0 + parametric * parametric))
             .sqrt();
@@ -182,7 +211,12 @@ pub fn to_plane(zone: Zone, point: GeoPoint) -> Option<Projected> {
 
 /// 系 `zone` の平面直角座標を、経緯度に換算する。値が有限でなければ `None`
 pub fn to_geographic(zone: Zone, point: MapPoint) -> Option<Unprojected> {
-    let s = Series::new(zone);
+    to_geographic_on(Ellipsoid::Grs80, zone, point)
+}
+
+/// [`to_geographic`] を、楕円体 `ellipsoid` で解く
+pub fn to_geographic_on(ellipsoid: Ellipsoid, zone: Zone, point: MapPoint) -> Option<Unprojected> {
+    let s = Series::new(zone, ellipsoid);
     let xi = (point.northing + s.s_phi0) / s.a_bar;
     let eta = point.easting / s.a_bar;
     if !xi.is_finite() || !eta.is_finite() {
@@ -211,7 +245,7 @@ pub fn to_geographic(zone: Zone, point: MapPoint) -> Option<Unprojected> {
     let convergence =
         libm::atan((tau + sigma * tan_xi * tanh_eta) / (sigma - tau * tan_xi * tanh_eta));
     let (cos_xi, sinh_eta) = (libm::cos(xi1), libm::sinh(eta1));
-    let scale = s.a_bar / SEMI_MAJOR_AXIS
+    let scale = s.a_bar / s.semi_major
         * ((cos_xi * cos_xi + sinh_eta * sinh_eta) / (sigma * sigma + tau * tau)
             * (1.0 + t_psi * t_psi))
             .sqrt();

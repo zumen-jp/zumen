@@ -1,7 +1,8 @@
 //! 座標系の名指し（決定 0019 の「座標系の名前」）。
 //!
 //! EPSG のコードは識別子として使い、原点と縮尺係数は告示から書く。JGD2011 と JGD2024 は同じ定義の名前として、
-//! 読むときはどちらも受け付ける。
+//! 読むときはどちらも受け付ける。JGD2000 と日本測地系の平面直角座標系は、名前として受け、JGD2011 への変換は
+//! [`crate::datum`] で求める（決定 0233）。
 
 use crate::GeoPoint;
 use crate::height::Realization;
@@ -86,17 +87,21 @@ pub enum Crs {
     Geographic,
     /// JGD2024（JGD2011）の平面直角座標系（EPSG:6669〜6687）
     Plane(Zone),
+    /// JGD2000 の平面直角座標系（EPSG:2443〜2461）
+    Jgd2000(Zone),
+    /// 日本測地系（Tokyo）の平面直角座標系（EPSG:30161〜30179）
+    Tokyo(Zone),
 }
 
 impl Crs {
-    /// EPSG のコードの座標系。ほかの測地系（JGD2000・日本測地系）と、扱わないコードは `None`
+    /// EPSG のコードの座標系。扱わないコード（JGD2000 と日本測地系の経緯度など）は `None`
     pub fn from_epsg(code: u32) -> Option<Crs> {
+        let zone = |first: u32| u8::try_from(code - first + 1).ok().and_then(Zone::new);
         match code {
             6668 => Some(Crs::Geographic),
-            6669..=6687 => u8::try_from(code - 6668)
-                .ok()
-                .and_then(Zone::new)
-                .map(Crs::Plane),
+            6669..=6687 => zone(6669).map(Crs::Plane),
+            2443..=2461 => zone(2443).map(Crs::Jgd2000),
+            30161..=30179 => zone(30161).map(Crs::Tokyo),
             _ => None,
         }
     }
@@ -106,23 +111,41 @@ impl Crs {
         match self {
             Crs::Geographic => 6668,
             Crs::Plane(zone) => zone.epsg(),
+            Crs::Jgd2000(zone) => 2442 + u32::from(zone.number()),
+            Crs::Tokyo(zone) => 30160 + u32::from(zone.number()),
+        }
+    }
+
+    /// 平面直角座標系の系。経緯度なら `None`
+    pub fn zone(self) -> Option<Zone> {
+        match self {
+            Crs::Geographic => None,
+            Crs::Plane(zone) | Crs::Jgd2000(zone) | Crs::Tokyo(zone) => Some(zone),
         }
     }
 
     /// 名前の座標系。EPSG のコードの書き方（`EPSG:6677`・`urn:ogc:def:crs:EPSG::6677`・
     /// `http://www.opengis.net/def/crs/EPSG/0/6677`）と、EPSG の名前（`JGD2024 / Japan Plane Rectangular CS IX`・
-    /// `JGD2024`）を受け付ける。名前の `JGD2011` は `JGD2024` と同じに読む
+    /// `JGD2024`・`JGD2000 / Japan Plane Rectangular CS IX`・`Tokyo / Japan Plane Rectangular CS IX`）を受け付ける。
+    /// 名前の `JGD2011` は `JGD2024` と同じに読む
     pub fn from_name(name: &str) -> Option<Crs> {
         if let Some(code) = epsg_code(name) {
             return Crs::from_epsg(code);
         }
         let name = name.trim();
-        let rest = name
+        let (rest, plane): (&str, fn(Zone) -> Crs) = if let Some(rest) = name
             .strip_prefix("JGD2024")
-            .or_else(|| name.strip_prefix("JGD2011"))?;
-        if rest.is_empty() {
-            return Some(Crs::Geographic);
-        }
+            .or_else(|| name.strip_prefix("JGD2011"))
+        {
+            if rest.is_empty() {
+                return Some(Crs::Geographic);
+            }
+            (rest, Crs::Plane)
+        } else if let Some(rest) = name.strip_prefix("JGD2000") {
+            (rest, Crs::Jgd2000)
+        } else {
+            (name.strip_prefix("Tokyo")?, Crs::Tokyo)
+        };
         let numeral = rest
             .trim_start()
             .strip_prefix('/')?
@@ -130,10 +153,7 @@ impl Crs {
             .strip_prefix("Japan Plane Rectangular CS")?
             .trim();
         let index = NUMERALS.iter().position(|n| *n == numeral)?;
-        u8::try_from(index + 1)
-            .ok()
-            .and_then(Zone::new)
-            .map(Crs::Plane)
+        u8::try_from(index + 1).ok().and_then(Zone::new).map(plane)
     }
 }
 

@@ -894,6 +894,29 @@ group-by = ["key", "value"]
 since = "0.2.0"
 status = "active"
 
+[codes."crs.datum-grid.invalid"]
+description = "渡された測地系の変換のパラメーター（TKY2JGD・PatchJGD の形）の行が壊れていて読めない"
+severity = "error"
+params = { line = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."crs.datum-grid.missing"]
+description = "座標系を JGD2011 に直すのに要る変換のパラメーター（TKY2JGD・PatchJGD）が渡されていないので、直さなかった"
+severity = "warning"
+params = { crs = "uint", grid = "text" }
+group-by = ["crs", "grid"]
+since = "0.2.0"
+status = "active"
+
+[codes."crs.datum-shift.missing"]
+description = "点が変換のパラメーターの格子の範囲の外にあるか、囲む格子点が欠けているので、JGD2011 に直さなかった"
+severity = "warning"
+params = { grid = "text", latitude = "float", longitude = "float" }
+group-by = ["grid"]
+since = "0.2.0"
+status = "active"
+
 # XML の L0（決定 0209）
 
 [codes."xml.document.invalid"]
