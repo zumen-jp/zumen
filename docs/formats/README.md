@@ -723,8 +723,12 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [STB-KIT の README「ST-Bridge および IFC との関係」](https://github.com/taisei-oss/stb-kit)（確認日: 2026-10-24）
 - 既知の crate: stb-parser
+- 記録: [決定 0017](../decisions/0017-format-rights-ledger-and-plugin-sdk.md)
+- 記録: [決定 0243](../decisions/0243-plugin-bundling.md)
+- 記録: [決定 0245](../decisions/0245-building-format-plugins.md)
 - 旧版の記録: 旧版の決定 0001、旧版の決定 0013、旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)
+- issue: [zumen-jp/zumen#402](https://github.com/zumen-jp/zumen/issues/402)
 
 ### format-stem
 

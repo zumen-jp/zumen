@@ -544,8 +544,9 @@ place = "plugin"
 repository = "zumen-jp/stbridge（非公開）"
 basis = ["spec"]
 known-crates = ["stb-parser"]
+decisions = ["0017", "0243", "0245"]
 legacy-decisions = ["0001", "0013", "0028"]
-issues = ["zumen-jp/zumen-legacy#140"]
+issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#402"]
 
 [[formats.stbridge.evidence]]
 title = "STB-KIT の README「ST-Bridge および IFC との関係」"

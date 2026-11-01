@@ -26,6 +26,6 @@ zumen の外部のリポジトリに置く形式（プラグイン）のひな�
 
 ## 今の制約
 
-- プラグインの形式は図面の形式（`Lift<Drawing2D>`）だけで、読むだけ。apply では書き戻せない。
+- プラグインの形式は、図面の形式（`Lift<Drawing2D>`、`Plugin::of`）か建物の形式（`Lift<Building>`、`Plugin::building`、決定 0245）で、読むだけ。apply・building_apply では書き戻せない。建物の形式の wasm のモジュールは、`zumen-abi` の `bim` の feature と一緒に作る。
 - wasm のモジュールは、コアの図面のモジュールを中に持つ。公式のモジュールと L2 のバイナリでやり取りする形は、まだない。
 - コアのワークスペースで試すため、このフォルダーの crate はワークスペースの一員で、zumen の crate を `path` で指す。

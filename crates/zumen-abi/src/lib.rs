@@ -55,5 +55,5 @@ mod tables;
 mod validate;
 
 pub use abi::Status;
-pub use plugin::{Plugin, install};
+pub use plugin::{Plugin, Reader, install};
 pub use session::{Reply, Session};

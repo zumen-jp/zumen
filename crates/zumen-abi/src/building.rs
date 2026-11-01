@@ -21,6 +21,8 @@ use crate::messages::{
     Membership, OpeningComponent, ParentComponent, PlacementComponent, Property, PropertySet,
     Quantity, QuantitySet, RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
 };
+#[cfg(feature = "bim")]
+use crate::plugin;
 use crate::session::{Failed, fail, invalid_value, message_of, stopped};
 
 /// limit を書かなかったときに返す数
@@ -30,10 +32,13 @@ const LIMIT: u64 = 1000;
 const DEFAULT_COMPONENTS: [BuildingComponent; 2] =
     [BuildingComponent::Class, BuildingComponent::Identity];
 
-/// 開いた IFC。L1 と建物モデルと、入力のバイト列のハッシュ
+/// 開いた建物の文書。IFC の L1 と建物モデルと、入力のバイト列のハッシュ
 #[derive(Debug)]
 pub(crate) struct Model {
-    pub(crate) file: IfcFile,
+    /// 形式の台帳のキー
+    pub(crate) format: &'static str,
+    /// IFC の L1。建物の形式のプラグインで開いたなら `None`
+    pub(crate) file: Option<IfcFile>,
     pub(crate) building: Building,
     pub(crate) hash: Hash,
     /// ifcZIP で開いたなら、中の IFC-SPF の項目の名前
@@ -76,11 +81,35 @@ fn model(
     let building = file.lift(cx).map_err(|_| Failed)?;
     let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
     Ok(Model {
-        file,
+        format: Ifc::FORMAT,
+        file: Some(file),
         building,
         hash,
         entry,
     })
+}
+
+/// 登録した建物の形式のプラグインのどれかに合えば読む。どれにも合わなければ `None`
+#[cfg(feature = "bim")]
+pub(crate) fn read_plugin(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Failed>> {
+    let (format, read) = plugin::installed()
+        .iter()
+        .find_map(|plugin| match plugin.read {
+            plugin::Reader::Building(read) if plugin.registration.matches(bytes) => {
+                Some((plugin.registration.format, read))
+            }
+            _ => None,
+        })?;
+    Some(read(bytes, cx).map_err(|_| Failed).and_then(|building| {
+        let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        Ok(Model {
+            format,
+            file: None,
+            building,
+            hash,
+            entry: None,
+        })
+    }))
 }
 
 /// 変更の一覧を IFC に当て、書き戻した文書と結果と、書き戻したファイルを返す（決定 0244）。元の文書は変えない
@@ -89,6 +118,15 @@ pub(crate) fn apply(
     request: &BuildingApplyRequest,
     cx: &mut Cx<'_>,
 ) -> Result<(Model, BuildingApplyResult, Vec<u8>), Failed> {
+    let Some(source) = &model.file else {
+        // プラグインの文書は書き戻せない（決定 0243）
+        return Err(fail(
+            cx,
+            Diagnostic::new(codes::CALL_DOCUMENT_UNSUPPORTED)
+                .with("name", request.doc.as_str())
+                .with("op", "building_apply"),
+        ));
+    };
     if let Some(text) = &request.hash {
         let hash = text
             .parse::<Hash>()
@@ -156,7 +194,7 @@ pub(crate) fn apply(
     if rejected {
         return Err(Failed);
     }
-    let applied = zumen_ifc::apply(&model.file, &edits, &model.hash.0, cx).map_err(|_| Failed)?;
+    let applied = zumen_ifc::apply(source, &edits, &model.hash.0, cx).map_err(|_| Failed)?;
     // 書き戻したものを読み直す。読んだときの診断は、開いたときに返したので捨てる
     let mut scratch = Diagnostics::new();
     let reread = {
@@ -181,7 +219,8 @@ pub(crate) fn apply(
     };
     let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
     let updated = Model {
-        file,
+        format: model.format,
+        file: Some(file),
         building,
         hash,
         entry: model.entry.clone(),
@@ -267,7 +306,18 @@ pub(crate) fn summary(model: &Model) -> BuildingResult {
         *classes.entry(class.name.as_str()).or_default() += 1;
     }
     BuildingResult {
-        schema: String::from_utf8_lossy(model.file.schema()).into_owned(),
+        // プラグインの文書は、建物モデルの見出しのスキーマの名前
+        schema: match &model.file {
+            Some(file) => String::from_utf8_lossy(file.schema()).into_owned(),
+            None => model
+                .building
+                .document
+                .header
+                .schemas
+                .first()
+                .cloned()
+                .unwrap_or_default(),
+        },
         hash: model.hash.to_string(),
         project: document.project.map(|p| model.id(p)),
         project_name: document.project_name.clone(),
@@ -676,8 +726,15 @@ pub(crate) fn check(
         Some(bytes) => Some(zumen_ifc::Express::read(bytes, cx).map_err(|_| Failed)?),
         None => None,
     };
-    let lookup = zumen_ifc::IdsLookup::new(&model.file, schema.as_ref());
-    let report = zumen_ids::check(&model.building, &ids, &lookup, cx).map_err(|_| Failed)?;
+    // プラグインの文書は、建物モデルだけで照合する
+    let report = match &model.file {
+        Some(file) => {
+            let lookup = zumen_ifc::IdsLookup::new(file, schema.as_ref());
+            zumen_ids::check(&model.building, &ids, &lookup, cx)
+        }
+        None => zumen_ids::check(&model.building, &ids, &model.building, cx),
+    }
+    .map_err(|_| Failed)?;
     Ok((ids, report))
 }
 

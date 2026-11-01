@@ -197,15 +197,18 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
         Doc::Sxf(file, Some(Box::new(archive)))
-    } else if let Some(plugin) = plugin::installed()
-        .iter()
-        .find(|plugin| plugin.registration.matches(bytes))
+    } else if let Some((registration, read)) =
+        plugin::installed()
+            .iter()
+            .find_map(|plugin| match plugin.read {
+                plugin::Reader::Drawing(read) if plugin.registration.matches(bytes) => {
+                    Some((plugin.registration, read))
+                }
+                _ => None,
+            })
     {
-        // コアのどの形式でもなければ、登録したプラグインを順に試す（決定 0243）
-        Doc::Plugin(
-            plugin.registration,
-            (plugin.read)(bytes, cx).map_err(|_| Failed)?,
-        )
+        // コアのどの形式でもなければ、登録した図面の形式のプラグインを順に試す（決定 0243）
+        Doc::Plugin(registration, read(bytes, cx).map_err(|_| Failed)?)
     } else {
         return Ok(None);
     };
@@ -624,6 +627,11 @@ impl Session {
         if let Some(model) = building::read_zip(bytes, cx) {
             return self.open_model(name.clone(), model?, cx);
         }
+        // コアのどの形式でもなければ、登録した建物の形式のプラグインを順に試す
+        #[cfg(feature = "bim")]
+        if let Some(model) = building::read_plugin(bytes, cx) {
+            return self.open_model(name.clone(), model?, cx);
+        }
         cx.check(Kind::InputBytes, bytes.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
         Err(fail(
@@ -640,15 +648,18 @@ impl Session {
     ) -> Result<OpenResult, Failed> {
         // IFC4.3 の線形は、土木の領域モデルにもする（決定 0235）
         #[cfg(all(feature = "drawing", feature = "bim"))]
-        if let Some(civil) = civil::from_ifc(&model.file, cx)? {
+        if let Some(file) = &model.file
+            && let Some(civil) = civil::from_ifc(file, cx)?
+        {
             self.civils.insert(name.clone(), civil);
         }
         #[cfg(not(all(feature = "drawing", feature = "bim")))]
         let _ = cx;
+        let format = model.format.to_string();
         self.models.insert(name.clone(), model);
         Ok(OpenResult {
             doc: name,
-            format: "ifc".to_string(),
+            format,
             needs: None,
             done: None,
 
@@ -1145,7 +1156,9 @@ impl Session {
         #[cfg(feature = "drawing")]
         {
             self.civils.remove(&request.doc);
-            if let Some(civil) = civil::from_ifc(&updated.file, cx)? {
+            if let Some(file) = &updated.file
+                && let Some(civil) = civil::from_ifc(file, cx)?
+            {
                 self.civils.insert(request.doc.clone(), civil);
             }
         }
@@ -1607,12 +1620,17 @@ fn capabilities() -> CapabilitiesResult {
         formats: formats::DRAWING
             .iter()
             .chain(formats::READ_ONLY)
+            .filter(|_| cfg!(feature = "drawing"))
             .chain(
                 plugin::installed()
                     .iter()
+                    .filter(|plugin| match plugin.read {
+                        plugin::Reader::Drawing(_) => cfg!(feature = "drawing"),
+                        #[cfg(feature = "bim")]
+                        plugin::Reader::Building(_) => true,
+                    })
                     .map(|plugin| &plugin.registration),
             )
-            .filter(|_| cfg!(feature = "drawing"))
             .map(|registration| Format {
                 id: registration.format.to_string(),
                 family: registration.family.to_string(),
