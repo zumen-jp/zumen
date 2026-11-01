@@ -72,6 +72,7 @@
     "dwg.type.unsupported": "Kept {count} DWG objects of type {type}, which is not supported yet, with an empty kind.",
     "dwg.version.unsupported": "DWG version {version} cannot be read yet.",
     "dwg.xdata.invalid": "Left out the extended data of one registered application on {count} DWG objects of type {type}, because it cannot be read.",
+    "dxf.arc-dimension-leader.dropped": "Did not lift the leaders of {count} arc length dimensions into the drawing model; the dimensions were lifted.",
     "dxf.binary-value.unsupported": "Did not change group code {code} of record {record} in the binary DXF, because the value cannot be written as that code's type.",
     "dxf.binary.invalid": "Cannot read the binary DXF, because the tag at byte {offset} is cut short or has a real value that is not finite.",
     "dxf.binary.unsupported": "Binary DXF cannot be read yet.",

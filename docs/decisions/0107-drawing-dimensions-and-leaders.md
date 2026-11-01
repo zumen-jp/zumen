@@ -31,7 +31,7 @@
 ## 影響
 
 - DWG の読み手は LEADER の頂点を表に置かないので、DWG の引出線は `dxf.lift.invalid`（76）を返して移さない。頂点を表に置くと、書き戻しが扱う欄も広げる必要がある。
-- MULTILEADER・ARC_DIMENSION・バルーンは、まだ移さない（`dxf.lift.dropped`）。ARC_DIMENSION は、対応表のとおり対象版の最小のファイルで確かめてから加える。
+- MULTILEADER・ARC_DIMENSION・バルーンは、まだ移さない（`dxf.lift.dropped`）。ARC_DIMENSION は、対応表のとおり対象版の最小のファイルで確かめてから加える（AutoCAD で作った試料で確かめ、[決定 0228](0228-arc-length-dimensions.md) で加えた）。
 - 寸法の測定値の単位（角度のラジアンなど）を決めるには、試料の図面で確かめる。
 
 ## 参照

@@ -1171,6 +1171,14 @@ params = {}
 since = "0.0.0"
 status = "active"
 
+[codes."dxf.arc-dimension-leader.dropped"]
+description = "弧長寸法（ARC_DIMENSION）の引出線を、図面モデルに移さなかった。寸法は移した"
+severity = "warning"
+fidelity = "dropped"
+params = {}
+since = "0.0.0"
+status = "active"
+
 [codes."dxf.cell-value.dropped"]
 description = "表のセルの値のうち、図面モデルが持たない型（オブジェクトの参照・バイト列・結果の並び・一般の値）の値を移さなかった。表示する文字は移した"
 severity = "info"

@@ -617,6 +617,8 @@ fn read(
                 POLYLINE_PFACE => polyface(&mut bits)?,
                 POLYLINE_MESH => mesh(&mut bits)?,
                 DIMENSION_ORDINATE..=DIMENSION_DIAMETER => dimension(&mut bits, entry.type_code)?,
+                // ARC_DIMENSION は型が固定でなく、クラスで決まる
+                _ if kind == b"ARC_DIMENSION" => dimension(&mut bits, ARC_DIMENSION)?,
                 // HATCH は型が固定でなく、クラスで決まる
                 _ if kind == b"HATCH" => hatch(&mut bits)?,
                 _ if kind == b"IMAGE" => image(&mut bits, release)?,
@@ -769,6 +771,7 @@ fn read(
             TEXT | MTEXT | ATTRIB | ATTDEF => &[(7, STYLE)],
             INSERT | MINSERT => &[(2, BLOCK_RECORD)],
             DIMENSION_ORDINATE..=DIMENSION_DIAMETER => &[(3, DIMSTYLE), (2, BLOCK_RECORD)],
+            _ if kind == b"ARC_DIMENSION" => &[(3, DIMSTYLE), (2, BLOCK_RECORD)],
             TOLERANCE => &[(3, DIMSTYLE)],
             LEADER => &[(3, DIMSTYLE)],
             _ => &[],
@@ -4034,7 +4037,10 @@ fn mesh(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// DIMENSION の欄（ODS 5.4.1 の 20.4.22〜20.4.29、R2000）。DXF の 70 は、型で決まる寸法の種類に、
+/// ARC_DIMENSION を、DIMENSION の型の番号と重ならない仮の番号で分ける
+const ARC_DIMENSION: u16 = u16::MAX;
+
+/// DIMENSION の欄（ODS 5.4.1 の 20.4.22〜20.4.29、R2000）と、それに続く ARC_DIMENSION の欄。DXF の 70 は、型で決まる寸法の種類に、
 /// 共通の印の 1 が 0 なら 128、2 なら 32、座標寸法の印の 1 なら 64 を足す。文字の中点（11）と
 /// 12 の点の Z は標高とし、12 の点は 0 でなければ置く。ブロックの挿入の尺度と回転は、DXF の 41・42 が
 /// 別の欄に使われるので置かない
@@ -4064,6 +4070,7 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
         None
     };
     let point12 = (bits.rd()?, bits.rd()?);
+    let mut arc = Vec::new();
     let (kind, mut values) = match type_code {
         DIMENSION_ORDINATE => {
             let mut values = point3(bits, 10)?;
@@ -4110,6 +4117,22 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
             values.extend(point3(bits, 15)?);
             values.push(real(40, bits.bd()?));
             (4, values)
+        }
+        // 弧長寸法の欄は、DXF の AcDbArcDimension と同じ順に並ぶ（推定。AutoCAD で作った試料の DWG と DXF の
+        // 組で確かめた）。70・71 が共通の欄と重なるので、共通の欄より後に、13 から置く。種類は DXF と同じく
+        // 3 点の角度の 5 とする
+        ARC_DIMENSION => {
+            let values = point3(bits, 10)?;
+            for code in [13, 14, 15] {
+                arc.extend(point3(bits, code)?);
+            }
+            arc.push(int(70, i64::from(bits.bit()?)));
+            arc.push(real(40, bits.bd()?));
+            arc.push(real(41, bits.bd()?));
+            arc.push(int(71, i64::from(bits.bit()?)));
+            arc.extend(point3(bits, 16)?);
+            arc.extend(point3(bits, 17)?);
+            (5, values)
         }
         _ => {
             let mut values = point3(bits, 15)?;
@@ -4160,6 +4183,7 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
     if !is_up(&extrusion) {
         values.extend(extrusion);
     }
+    values.extend(arc);
     Some(values)
 }
 

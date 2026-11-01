@@ -793,6 +793,17 @@ pub const DWG_XDATA_INVALID: Code = Code::new(
     &["type"],
 );
 
+/// 弧長寸法（ARC_DIMENSION）の引出線を、図面モデルに移さなかった。寸法は移した
+///
+/// `dxf.arc-dimension-leader.dropped`（0.0.0 から）
+pub const DXF_ARC_DIMENSION_LEADER_DROPPED: Code = Code::new(
+    "dxf.arc-dimension-leader.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// バイナリの DXF の変更で、値をグループ・コードの型のバイト列にできない
 ///
 /// `dxf.binary-value.unsupported`（0.0.0 から）
@@ -2691,6 +2702,7 @@ pub const ALL: &[Code] = &[
     DWG_TYPE_UNSUPPORTED,
     DWG_VERSION_UNSUPPORTED,
     DWG_XDATA_INVALID,
+    DXF_ARC_DIMENSION_LEADER_DROPPED,
     DXF_BINARY_VALUE_UNSUPPORTED,
     DXF_BINARY_INVALID,
     DXF_BINARY_UNSUPPORTED,

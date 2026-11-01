@@ -1535,6 +1535,17 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
                 );
             }
         }
+        // 拡張が控える要素のハッシュは、実数の丸めの差でも変わる。要素そのものは同じ文字列の中で
+        // 丸めの差を許して比べるので、ハッシュの値は比べない
+        let hidden = |text: &str| {
+            rewrite(text, "basis: Hash(Hash([", |rest| {
+                (
+                    "basis: Hash(_".into(),
+                    rest.split_once("])").map_or(rest, |(_, after)| after),
+                )
+            })
+        };
+        let (ours, theirs) = (hidden(&ours), hidden(&theirs));
         assert!(
             nearly(&ours, &theirs),
             "{}\n{ours}\n{theirs}",

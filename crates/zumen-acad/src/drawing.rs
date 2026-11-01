@@ -822,9 +822,9 @@ impl Lifter<'_> {
                 paper_mm = Some(mm);
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
-            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
-            | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
-            | b"POLYLINE" | b"SOLID" | b"TRACE" | b"POINT"
+            | b"MTEXT" | b"DIMENSION" | b"ARC_DIMENSION" | b"LEADER" | b"MULTILEADER"
+            | b"INSERT" | b"HATCH" | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY"
+            | b"DGNUNDERLAY" | b"POLYLINE" | b"SOLID" | b"TRACE" | b"POINT"
                 if paper =>
             {
                 let mm = self.paper_mm(kind)?;
@@ -848,9 +848,9 @@ impl Lifter<'_> {
                 out.paper.push(element);
             }
             b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
-            | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
-            | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
-            | b"POLYLINE" | b"SOLID" | b"TRACE" | b"POINT" => {
+            | b"MTEXT" | b"DIMENSION" | b"ARC_DIMENSION" | b"LEADER" | b"MULTILEADER"
+            | b"INSERT" | b"HATCH" | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY"
+            | b"DGNUNDERLAY" | b"POLYLINE" | b"SOLID" | b"TRACE" | b"POINT" => {
                 let point = |x: f64, y: f64| ModelPoint { space: MODEL, x, y };
                 let length = |value: f64| {
                     Length::Model(ModelLength {
@@ -919,6 +919,10 @@ impl Lifter<'_> {
             (callout.line_style, callout.content_color) =
                 self.callout_style(db, object, symbol, out, cx)?;
         }
+        // 弧長寸法の引出線（71）は、図面モデルに欄がないので移さない（決定 0157）
+        if object.kind == b"ARC_DIMENSION" && self.arc_leader(object)? {
+            cx.report(Diagnostic::new(codes::DXF_ARC_DIMENSION_LEADER_DROPPED).at(source.clone()));
+        }
         if let Shape::Table(_) = &shape {
             report_cell_values(object, cx);
             // R2010 からの DWG の読み手は、表のスタイル・セルのスタイル・内容の書式を読まない（docs/formats/dwg.md）
@@ -959,7 +963,9 @@ impl Lifter<'_> {
         let kind = object.kind.as_slice();
         self.planar(object)?;
         match kind {
-            b"DIMENSION" => Ok(Shape::Dimension(self.dimension(object, point, length)?)),
+            b"DIMENSION" | b"ARC_DIMENSION" => {
+                Ok(Shape::Dimension(self.dimension(object, point, length)?))
+            }
             b"LEADER" => Ok(Shape::Leader(self.leader(db, object, point)?)),
             b"MULTILEADER" => Ok(Shape::Callout(self.callout(db, object, point, length)?)),
             b"ACAD_TABLE" => Ok(Shape::Table(self.table(db, object, point, length)?)),

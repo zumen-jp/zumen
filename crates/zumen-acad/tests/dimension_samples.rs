@@ -69,7 +69,7 @@ fn toward(from: &ModelPoint, to: &ModelPoint) -> (f64, f64) {
 }
 
 /// 定義点から測った値。2 本の線の角度は、寸法の弧の点で、なす角度とその補角のどちらかが決まるので、
-/// どちらも返す。円弧の長さは確かめない
+/// どちらも返す。円弧の長さは、両端の間で寸法の弧の点の側の弧の長さとする
 #[cfg(test)]
 fn measured(kind: &DimensionKind<ModelPoint>) -> Vec<f64> {
     match kind {
@@ -109,7 +109,30 @@ fn measured(kind: &DimensionKind<ModelPoint>) -> Vec<f64> {
             Axis::X => (feature.x - origin.x).abs(),
             Axis::Y => (feature.y - origin.y).abs(),
         }],
-        DimensionKind::ArcLength { .. } => Vec::new(),
+        DimensionKind::ArcLength {
+            center,
+            first,
+            second,
+            arc,
+        } => {
+            // 反時計回りの角度（0 から 2π）
+            let sweep = |a: (f64, f64), b: (f64, f64)| {
+                let angle = libm::atan2(a.0 * b.1 - a.1 * b.0, a.0 * b.0 + a.1 * b.1);
+                if angle < 0.0 { angle + 2.0 * PI } else { angle }
+            };
+            let (a, b, c) = (
+                toward(center, first),
+                toward(center, second),
+                toward(center, arc),
+            );
+            let angle = sweep(a, b);
+            let angle = if sweep(a, c) <= angle {
+                angle
+            } else {
+                2.0 * PI - angle
+            };
+            vec![distance(center, first) * angle]
+        }
     }
 }
 

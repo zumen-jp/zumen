@@ -72,6 +72,7 @@
     "dwg.type.unsupported": "まだ扱えない型 {type} の DWG のオブジェクトを、種類を空にして置きました（{count} 件）。",
     "dwg.version.unsupported": "版が {version} の DWG は、まだ読めません。",
     "dwg.xdata.invalid": "型 {type} の DWG のオブジェクトの拡張データを読めないので、その登録アプリケーションの拡張データを置きませんでした（{count} 件）。",
+    "dxf.arc-dimension-leader.dropped": "弧長寸法の引出線を、図面モデルに移しませんでした。寸法は移しました（{count} 件）。",
     "dxf.binary-value.unsupported": "バイナリの DXF の {record} 番目のレコードのグループ・コード {code} の値を、その型のバイト列にできないので、変更しませんでした。",
     "dxf.binary.invalid": "バイナリの DXF の {offset} バイト目から始まるタグが、途中で切れているか、有限でない実数の値を持つので、読めません。",
     "dxf.binary.unsupported": "バイナリの DXF は、まだ読めません。",

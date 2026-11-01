@@ -325,9 +325,10 @@ impl Lifter<'_> {
                     .attribute_definition(object, &point, &length, out)
                     .map(|definition| attributes.push(definition)),
                 b"LINE" | b"CIRCLE" | b"ARC" | b"ELLIPSE" | b"LWPOLYLINE" | b"SPLINE" | b"TEXT"
-                | b"MTEXT" | b"DIMENSION" | b"LEADER" | b"MULTILEADER" | b"INSERT" | b"HATCH"
-                | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY" | b"DWFUNDERLAY" | b"DGNUNDERLAY"
-                | b"POLYLINE" | b"SOLID" | b"TRACE" | b"POINT" => {
+                | b"MTEXT" | b"DIMENSION" | b"ARC_DIMENSION" | b"LEADER" | b"MULTILEADER"
+                | b"INSERT" | b"HATCH" | b"ACAD_TABLE" | b"IMAGE" | b"PDFUNDERLAY"
+                | b"DWFUNDERLAY" | b"DGNUNDERLAY" | b"POLYLINE" | b"SOLID" | b"TRACE"
+                | b"POINT" => {
                     let inserted: Vec<&Object> = attached
                         .get(&index)
                         .map_or(&[][..], Vec::as_slice)

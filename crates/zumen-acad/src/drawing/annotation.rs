@@ -1,8 +1,8 @@
-//! DIMENSION を寸法に、LEADER を引出線に、MULTILEADER を注記にする。MULTILEADER の線と注記の色・線種・線幅も読む。
+//! DIMENSION と ARC_DIMENSION を寸法に、LEADER を引出線に、MULTILEADER を注記にする。MULTILEADER の線と注記の色・線種・線幅も読む。
 
 use super::lettering::{attachment, flow};
 use super::{Lifted, Lifter, Out, aci, columns, invalid, mtext, non_planar, source};
-use crate::db::{AcadDb, Data, Object, Value};
+use crate::db::{AcadDb, Data, Object, Origin, Value};
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_drawing::{
     Arrowhead, Axis, Background, BackgroundFill, Branch, Callout, CalloutContent, Color, Dimension,
@@ -15,7 +15,10 @@ impl Lifter<'_> {
     /// DIMENSION（DXF Reference「DIMENSION」「Common Dimension Group Codes」）。70 の下の 5 ビットが種類で、
     /// 64 は座標寸法の X、128 は利用者が動かした文字。利用者の文字（1）は、ないか空か `<>` なら測定値を、
     /// 空白 1 つなら書かないことを表す。複製の挿入点（12）・行間（41・72）・水平の向き（51）は移さない
-    /// （推定。docs/formats/dxf.md）
+    /// （推定。docs/formats/dxf.md）。ARC_DIMENSION（DXF Reference に節がない）は、70 の種類によらず弧長の寸法にし、
+    /// 円弧の中心（15）・始めと終わりの点（13・14）を、弧長寸法の欄（`arc_part`）から読む。部分の印（70）と
+    /// 角度（40・41）は、始めと終わりの点が部分の両端になるので移さない。16・17 は試料ではいつも 13・14 と同じで、
+    /// 意味が分からないので移さない（推定。AutoCAD で作った試料で確かめた。docs/formats/dxf.md）
     pub(super) fn dimension<P: Copy>(
         &self,
         object: &Object,
@@ -26,48 +29,58 @@ impl Lifter<'_> {
         let at = |x: i16| self.planar_point(object, x, point);
         let real = |code: i16, default: Option<f64>| self.real(object, code, default);
         let flags = self.int(object, 70, 0)?;
-        let dimension = match flags & 0b1_1111 {
-            0 => DimensionKind::Linear {
-                first: at(13)?,
-                second: at(14)?,
-                line: at(10)?,
-                rotation: real(50, Some(0.0))?,
-                oblique: real(52, Some(0.0))?,
-            },
-            1 => DimensionKind::Aligned {
-                first: at(13)?,
-                second: at(14)?,
-                line: at(10)?,
-                oblique: real(52, Some(0.0))?,
-            },
-            2 => DimensionKind::AngularLines {
-                first: [at(13)?, at(14)?],
-                second: [at(15)?, at(10)?],
-                arc: at(16)?,
-            },
-            3 => DimensionKind::Diameter {
-                chord: at(15)?,
-                opposite: at(10)?,
-                leader: length(real(40, None)?),
-            },
-            4 => DimensionKind::Radius {
-                center: at(10)?,
-                chord: at(15)?,
-                leader: length(real(40, None)?),
-            },
-            5 => DimensionKind::Angular {
-                vertex: at(15)?,
-                first: at(13)?,
-                second: at(14)?,
+        let dimension = if kind == b"ARC_DIMENSION" {
+            let arc = arc_part(object)?;
+            DimensionKind::ArcLength {
+                center: self.planar_point(&arc, 15, point)?,
+                first: self.planar_point(&arc, 13, point)?,
+                second: self.planar_point(&arc, 14, point)?,
                 arc: at(10)?,
-            },
-            6 => DimensionKind::Ordinate {
-                origin: at(10)?,
-                feature: at(13)?,
-                leader_end: at(14)?,
-                axis: if flags & 64 != 0 { Axis::X } else { Axis::Y },
-            },
-            _ => return Err(invalid(kind, 70)),
+            }
+        } else {
+            match flags & 0b1_1111 {
+                0 => DimensionKind::Linear {
+                    first: at(13)?,
+                    second: at(14)?,
+                    line: at(10)?,
+                    rotation: real(50, Some(0.0))?,
+                    oblique: real(52, Some(0.0))?,
+                },
+                1 => DimensionKind::Aligned {
+                    first: at(13)?,
+                    second: at(14)?,
+                    line: at(10)?,
+                    oblique: real(52, Some(0.0))?,
+                },
+                2 => DimensionKind::AngularLines {
+                    first: [at(13)?, at(14)?],
+                    second: [at(15)?, at(10)?],
+                    arc: at(16)?,
+                },
+                3 => DimensionKind::Diameter {
+                    chord: at(15)?,
+                    opposite: at(10)?,
+                    leader: length(real(40, None)?),
+                },
+                4 => DimensionKind::Radius {
+                    center: at(10)?,
+                    chord: at(15)?,
+                    leader: length(real(40, None)?),
+                },
+                5 => DimensionKind::Angular {
+                    vertex: at(15)?,
+                    first: at(13)?,
+                    second: at(14)?,
+                    arc: at(10)?,
+                },
+                6 => DimensionKind::Ordinate {
+                    origin: at(10)?,
+                    feature: at(13)?,
+                    leader_end: at(14)?,
+                    axis: if flags & 64 != 0 { Axis::X } else { Axis::Y },
+                },
+                _ => return Err(invalid(kind, 70)),
+            }
         };
         let label = match self.string(object, 1)?.as_deref() {
             None | Some("") | Some("<>") => Label::Measurement,
@@ -125,6 +138,11 @@ impl Lifter<'_> {
                 .unwrap_or_else(|| "STANDARD".to_owned()),
             block: self.string(object, 2)?,
         })
+    }
+
+    /// 弧長寸法の引出線を持つか（ARC_DIMENSION の 100 の AcDbArcDimension の後の 71）
+    pub(super) fn arc_leader(&self, object: &Object) -> Lifted<bool> {
+        Ok(self.int(&arc_part(object)?, 71, 0)? != 0)
     }
 
     /// LEADER（DXF Reference「LEADER」）。頂点（10）は数（76）と合わなければ読めないとする。矢印（71）がなければ
@@ -575,6 +593,30 @@ struct CalloutParts {
     context: Vec<Value>,
     /// 枝ごとの、枝の値と線ごとの値
     leaders: Vec<(Vec<Value>, Vec<Vec<Value>>)>,
+}
+
+/// ARC_DIMENSION の弧長寸法の欄。70・71 が共通の欄と重なるので分けて読む。DXF では 100 の AcDbArcDimension より
+/// 後、DWG では共通の欄の後の最初の 13 から後とする（docs/formats/dwg.md）
+fn arc_part(object: &Object) -> Lifted<Object> {
+    let dwg = matches!(object.origin, Origin::Dwg { .. });
+    let start = object
+        .values
+        .iter()
+        .position(|value| match (value.code, &value.data) {
+            (13, _) => dwg,
+            (100, Data::Text(text)) => !dwg && text == b"AcDbArcDimension",
+            _ => false,
+        })
+        .map(|at| if dwg { at } else { at + 1 })
+        .ok_or_else(|| invalid(&object.kind, 100))?;
+    let values = object
+        .values
+        .get(start..)
+        .ok_or_else(|| invalid(&object.kind, 100))?;
+    Ok(Object {
+        values: values.to_vec(),
+        ..object.clone()
+    })
 }
 
 /// MULTILEADER の値を、区切り（300 `CONTEXT_DATA{`・301・302 `LEADER{`・303・304 `LEADER_LINE{`・305）で

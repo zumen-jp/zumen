@@ -261,3 +261,4 @@
 - [0225: Swift の包みは静的ライブラリの XCFramework を module map で呼び、型は JSON の表を包む構造体として生成し、毎晩 macOS と iOS のシミュレーターで流す](0225-swift-wrapper.md)（2026-10-31、採用）
 - [0226: Go の包みは wasm のモジュールを wazero で動かし、セッションごとにインスタンスを作り、取り消しはコンテキストで止め、process はまだ作らない](0226-go-wrapper.md)（2026-10-31、採用）
 - [0227: Dart の包みは dart:ffi で C ABI を呼び、型は JSON の表を包む見方として生成し、取り消しは別の isolate の呼び出しで行い、毎晩 Dart 3.0 と安定版で流す](0227-dart-wrapper.md)（2026-10-31、採用）
+- [0228: 弧長寸法（ARC_DIMENSION）を、円弧の中心と両端と寸法の弧の点で弧長の寸法に移し、引出線は診断する](0228-arc-length-dimensions.md)（2026-11-01、採用）
