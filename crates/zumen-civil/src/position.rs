@@ -125,8 +125,9 @@ fn segment_at(
     Err(outside())
 }
 
-/// 区間の初めと終わりの曲率と、緩和曲線の曲率の変わり方
-fn curvature(
+/// 区間（`index` は診断に書く番号）の初めと終わりの曲率と、緩和曲線の曲率の変わり方。曲率は、右へ曲がる
+/// ものを正にする。値が使えないか、曲線の種類から計算できなければ、理由の診断を返す
+pub fn curvature(
     index: usize,
     segment: &Horizontal,
 ) -> Result<([f64; 2], Option<Ramp>), Box<Diagnostic>> {

@@ -364,6 +364,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-civil-drawing"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-civil",
+ "zumen-crs",
+ "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-scene",
+]
+
+[[package]]
 name = "zumen-cli"
 version = "0.2.0"
 dependencies = [

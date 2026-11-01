@@ -344,6 +344,65 @@ pub fn clothoid(
     out
 }
 
+/// 原点の形のクロソイド（決定 0123）。向きと曲率の正の向きは [`along`] と同じ
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClothoidOrigin {
+    /// 原点（曲率が 0 の所）
+    pub origin: Xy,
+    /// パラメータ A
+    pub parameter: f64,
+    /// 原点での接線の向き（ラジアン）
+    pub angle: f64,
+    /// 原点から進むにつれ、正の向きへ曲がる
+    pub positive: bool,
+    /// 区間の初めの、原点からの長さ（符号つき）
+    pub start: f64,
+    /// 区間の終わりの、原点からの長さ（符号つき）
+    pub end: f64,
+}
+
+/// 線形のクロソイドの区間（決定 0230）を、原点の形（決定 0123）に直す。区間は [`along`] と同じく、初めの点・
+/// 初めの向き・初めと終わりの曲率・長さで決める。曲率が変わらないか、値が使えなければ `None`
+pub fn clothoid_origin(
+    start: Xy,
+    direction: f64,
+    curvatures: [f64; 2],
+    length: f64,
+) -> Option<ClothoidOrigin> {
+    let [k1, k2] = curvatures;
+    let change = k2 - k1;
+    if !(change.is_finite() && change != 0.0 && length.is_finite() && length > 0.0) {
+        return None;
+    }
+    // 曲率は、原点からの長さ t で turn·t/A²
+    let turn = change.signum();
+    let a2 = length / change.abs();
+    let t1 = turn * k1 * a2;
+    let angle = direction - turn * t1 * t1 / (2.0 * a2);
+    // 原点から区間の初めまでの変位を、刻んで積む
+    let parts = libm::ceil(t1.abs() / (libm::sqrt(a2) / 4.0)).clamp(1.0, MAX_STEPS as f64);
+    let parts = if parts.is_finite() { parts as usize } else { 1 };
+    let (mut x, mut y) = (0.0, 0.0);
+    for i in 0..parts {
+        let s0 = t1 * i as f64 / parts as f64;
+        let s1 = t1 * (i + 1) as f64 / parts as f64;
+        let [dx, dy] = clothoid_step(angle, a2, turn, s0, s1);
+        x += dx;
+        y += dy;
+    }
+    let origin = [start[0] - x, start[1] - y];
+    (origin[0].is_finite() && origin[1].is_finite() && angle.is_finite()).then_some(
+        ClothoidOrigin {
+            origin,
+            parameter: libm::sqrt(a2),
+            angle,
+            positive: turn > 0.0,
+            start: t1,
+            end: t1 + length,
+        },
+    )
+}
+
 /// 緩和曲線の曲率の変わり方（決定 0230）。区間の初めからの長さの割合 t（0〜1）で、初めの曲率から終わりの
 /// 曲率へ、`t` の関数の割合だけ移る
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -995,5 +1054,45 @@ mod tests {
         let places: Vec<Xy> = found.iter().map(|(p, _)| *p).collect();
         assert_eq!(places, vec![[2.0, 0.0], [5.0, 1.0], [5.0, 5.0]]);
         assert_eq!(found[1].1, 90.0);
+    }
+    #[test]
+    fn clothoid_segments_become_the_origin_form() {
+        let near = |a: Xy, b: Xy| (a[0] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() < 1e-6;
+        for curvatures in [
+            [1.0 / 400.0, 1.0 / 200.0],
+            [1.0 / 200.0, 0.0],
+            [-0.01, 0.002],
+        ] {
+            let (start, direction, length) = ([10.0, -5.0], 0.3, 50.0);
+            let Some(form) = clothoid_origin(start, direction, curvatures, length) else {
+                panic!("{curvatures:?}");
+            };
+            let points = clothoid(
+                form.origin,
+                form.parameter,
+                form.angle.to_degrees(),
+                form.positive,
+                form.start,
+                form.end,
+                1e-4,
+            );
+            let (end, _) = along(
+                start,
+                direction,
+                curvatures,
+                length,
+                Some(Ramp::Clothoid),
+                length,
+            );
+            assert!(
+                near(points.first().copied().unwrap_or_default(), start),
+                "{curvatures:?}"
+            );
+            assert!(
+                near(points.last().copied().unwrap_or_default(), end),
+                "{curvatures:?}"
+            );
+        }
+        assert_eq!(clothoid_origin([0.0, 0.0], 0.0, [0.01, 0.01], 10.0), None);
     }
 }

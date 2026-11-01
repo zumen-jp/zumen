@@ -1,0 +1,23 @@
+[package]
+name = "zumen-civil-drawing"
+description = "zumen の土木の領域モデルから、線形の平面図・縦断図・横断図を図面モデルに出す（決定 0231）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 方向角と刻み（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-civil = { version = "0.2.0", path = "../zumen-civil" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-scene = { path = "../zumen-scene" }

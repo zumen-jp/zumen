@@ -1792,6 +1792,14 @@ params = { index = "uint", gap = "float", tolerance = "float" }
 since = "0.2.0"
 status = "active"
 
+[codes."civil.curve.approximated"]
+description = "図面モデルの形のない緩和曲線を、許容差の内の折れ線にして図に出した（決定 0231）。curve は種類の名前"
+severity = "info"
+params = { index = "uint", curve = "text" }
+group-by = ["curve"]
+since = "0.2.0"
+status = "active"
+
 [codes."civil.curve.unsupported"]
 description = "線形の区間の曲線の種類から、位置を計算できない。区間の値は保った。curve は種類の名前"
 severity = "warning"
@@ -1879,5 +1887,13 @@ description = "横断の線の点が、計画高からの高さか、勾配と�
 severity = "warning"
 params = { name = "text", form = "text" }
 group-by = ["name", "form"]
+since = "0.2.0"
+status = "active"
+
+[codes."civil.triangle.invalid"]
+description = "地表面の三角形が、範囲の外の点の番号を指すので、図に出さなかった（決定 0231）"
+severity = "warning"
+params = { surface = "text", triangle = "uint" }
+group-by = ["surface"]
 since = "0.2.0"
 status = "active"

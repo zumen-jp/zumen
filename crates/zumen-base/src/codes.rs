@@ -525,6 +525,20 @@ pub const CHANGE_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 図面モデルの形のない緩和曲線を、許容差の内の折れ線にして図に出した（決定 0231）。curve は種類の名前
+///
+/// `civil.curve.approximated`（0.2.0 から）
+pub const CIVIL_CURVE_APPROXIMATED: Code = Code::new(
+    "civil.curve.approximated",
+    Severity::Info,
+    None,
+    &[
+        Param::new("curve", ParamType::Text),
+        Param::new("index", ParamType::UInt),
+    ],
+    &["curve"],
+);
+
 /// 線形の区間の曲線の種類から、位置を計算できない。区間の値は保った。curve は種類の名前
 ///
 /// `civil.curve.unsupported`（0.2.0 から）
@@ -627,6 +641,20 @@ pub const CIVIL_STATION_MISSING: Code = Code::new(
     None,
     &[Param::new("station", ParamType::Text)],
     &[],
+);
+
+/// 地表面の三角形が、範囲の外の点の番号を指すので、図に出さなかった（決定 0231）
+///
+/// `civil.triangle.invalid`（0.2.0 から）
+pub const CIVIL_TRIANGLE_INVALID: Code = Code::new(
+    "civil.triangle.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("surface", ParamType::Text),
+        Param::new("triangle", ParamType::UInt),
+    ],
+    &["surface"],
 );
 
 /// 別の形式に書くとき、記号の属性を、記号から離した文字として書いた（決定 0206）
@@ -2861,6 +2889,7 @@ pub const ALL: &[Code] = &[
     CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,
+    CIVIL_CURVE_APPROXIMATED,
     CIVIL_CURVE_UNSUPPORTED,
     CIVIL_DISTANCE_MISSING,
     CIVIL_PROFILE_MISSING,
@@ -2869,6 +2898,7 @@ pub const ALL: &[Code] = &[
     CIVIL_STATION_ASSUMED,
     CIVIL_STATION_INVALID,
     CIVIL_STATION_MISSING,
+    CIVIL_TRIANGLE_INVALID,
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,
