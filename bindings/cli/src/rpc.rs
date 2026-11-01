@@ -4,8 +4,10 @@
 //! ほかのメッセージは、主のスレッドが届いた順に 1 つずつ処理する。
 
 use std::io::{self, BufRead, Read, Write};
+#[cfg(not(target_family = "wasm"))]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
+#[cfg(not(target_family = "wasm"))]
 use std::thread;
 
 use zumen_base::CancelToken;
@@ -161,8 +163,80 @@ pub fn parse_message(line: &[u8]) -> Result<Message, (Value, i64, &'static str)>
     Ok(Message { id, method, params })
 }
 
-/// 標準入出力で、入力が終わるまで処理する
-pub fn serve<T: Handler>(mut handler: T) {
+/// 標準入出力で、入力が終わるまで処理する。WASI など、スレッドのない環境では、1 行ずつ順に処理する
+pub fn serve<T: Handler>(handler: T) {
+    #[cfg(target_family = "wasm")]
+    serve_in_turn(handler);
+    #[cfg(not(target_family = "wasm"))]
+    serve_with_reader(handler);
+}
+
+/// 標準入力の行を、入力が終わるまで読む。中断の合図は `cancel` に、ほかの要求は `deliver` に渡す。`deliver` が偽を
+/// 返したらやめる
+fn read_messages(
+    output: &Output,
+    cancel_method: &str,
+    mut cancel: impl FnMut(),
+    mut deliver: impl FnMut(Message) -> bool,
+) {
+    let stdin = io::stdin();
+    let mut input = stdin.lock();
+    loop {
+        let line = match read_line(&mut input) {
+            Ok(Some(Line::Text(line))) => line,
+            Ok(Some(Line::TooLong)) => {
+                write_line(
+                    output,
+                    &error_line(&Value::Null, INVALID_REQUEST, "Line too long", None),
+                );
+                continue;
+            }
+            Ok(None) | Err(_) => break,
+        };
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        match parse_message(&line) {
+            Ok(message) if message.method == cancel_method => {
+                cancel();
+                if let Some(id) = &message.id {
+                    write_line(output, &result_line(id, b"{}"));
+                }
+            }
+            Ok(message) => {
+                if !deliver(message) {
+                    break;
+                }
+            }
+            Err((id, code, text)) => {
+                write_line(output, &error_line(&id, code, text, None));
+            }
+        }
+    }
+}
+
+/// 要求を処理し、id があれば答えを書く
+fn answer<T: Handler>(
+    handler: &mut T,
+    message: &Message,
+    token: &CancelToken,
+    notify: &Notify,
+    output: &Output,
+) {
+    let outcome = handler.handle(&message.method, &message.params, token, notify);
+    let Some(id) = &message.id else {
+        return;
+    };
+    let line = match outcome {
+        Outcome::Result(result) => result_line(id, &result),
+        Outcome::Error(code, text, data) => error_line(id, code, &text, data.as_deref()),
+    };
+    write_line(output, &line);
+}
+
+/// 読む側のスレッドが、処理の途中に届いた中断の合図を受ける
+#[cfg(not(target_family = "wasm"))]
+fn serve_with_reader<T: Handler>(mut handler: T) {
     let output: Output = Arc::new(Mutex::new(io::stdout()));
     let current = Arc::new(Mutex::new(CancelToken::new()));
     let (sender, receiver) = mpsc::channel::<Message>();
@@ -170,59 +244,48 @@ pub fn serve<T: Handler>(mut handler: T) {
     let reader_current = Arc::clone(&current);
     let cancel_method = T::CANCEL;
     thread::spawn(move || {
-        let stdin = io::stdin();
-        let mut input = stdin.lock();
-        loop {
-            let line = match read_line(&mut input) {
-                Ok(Some(Line::Text(line))) => line,
-                Ok(Some(Line::TooLong)) => {
-                    write_line(
-                        &reader_output,
-                        &error_line(&Value::Null, INVALID_REQUEST, "Line too long", None),
-                    );
-                    continue;
-                }
-                Ok(None) | Err(_) => break,
-            };
-            if line.iter().all(u8::is_ascii_whitespace) {
-                continue;
-            }
-            match parse_message(&line) {
-                Ok(message) if message.method == cancel_method => {
-                    reader_current
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .cancel();
-                    if let Some(id) = &message.id {
-                        write_line(&reader_output, &result_line(id, b"{}"));
-                    }
-                }
-                Ok(message) => {
-                    if sender.send(message).is_err() {
-                        break;
-                    }
-                }
-                Err((id, code, text)) => {
-                    write_line(&reader_output, &error_line(&id, code, text, None));
-                }
-            }
-        }
+        read_messages(
+            &reader_output,
+            cancel_method,
+            || {
+                reader_current
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .cancel();
+            },
+            |message| sender.send(message).is_ok(),
+        );
     });
     let notify_output = Arc::clone(&output);
     let notify: Notify = Arc::new(move |line: &[u8]| write_line(&notify_output, line));
     for message in receiver {
         let token = CancelToken::new();
         *current.lock().unwrap_or_else(PoisonError::into_inner) = token.clone();
-        let outcome = handler.handle(&message.method, &message.params, &token, &notify);
-        let Some(id) = &message.id else {
-            continue;
-        };
-        let line = match outcome {
-            Outcome::Result(result) => result_line(id, &result),
-            Outcome::Error(code, text, data) => error_line(id, code, &text, data.as_deref()),
-        };
-        write_line(&output, &line);
+        answer(&mut handler, &message, &token, &notify, &output);
     }
+}
+
+/// 1 行ずつ順に処理する。処理の途中には読まないので、中断の合図は、処理していないときに届いて何もしない
+#[cfg(target_family = "wasm")]
+fn serve_in_turn<T: Handler>(mut handler: T) {
+    let output: Output = Arc::new(Mutex::new(io::stdout()));
+    let notify_output = Arc::clone(&output);
+    let notify: Notify = Arc::new(move |line: &[u8]| write_line(&notify_output, line));
+    read_messages(
+        &output,
+        T::CANCEL,
+        || {},
+        |message| {
+            answer(
+                &mut handler,
+                &message,
+                &CancelToken::new(),
+                &notify,
+                &output,
+            );
+            true
+        },
+    );
 }
 
 #[cfg(test)]

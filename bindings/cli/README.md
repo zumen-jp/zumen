@@ -79,3 +79,5 @@ cargo test -p zumen-cli
 ```
 
 `tests/conformance.rs` は、[適合試験](../conformance/README.md)の組を `zumen serve --stdio`・`zumen serve --http`・`zumen mcp`・子プロセスの形を通して流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。MCP は、道具で表せる組だけを流します。
+
+`wasm32-wasip1` に向けても作れます（`cargo build -p zumen-cli --release --target wasm32-wasip1`）。WASI にはスレッドがないので、`serve --stdio` は要求を 1 行ずつ順に処理し、処理の途中の `cancel` は受けません。毎晩の CI は、WASI の上の `serve --stdio` と、ネイティブの `zumen call`・`serve --stdio`・`serve --http` で適合試験を流します（`../conformance/cli.mjs`）。

@@ -23,6 +23,7 @@
 | Dart の包み（C ABI、dart:ffi） | `../dart/tool/conformance.dart`（Dart 3.0 以降） | `cargo build -p zumen-abi` のあと、`bindings/dart` で `dart pub get` と `dart run tool/conformance.dart ../../target/debug/libzumen_abi1.so`（[決定 0227](../../docs/decisions/0227-dart-wrapper.md)）。毎晩 |
 | C のヘッダーと C++ の包み（C ABI） | `../c/tests/conformance.rs` | `cargo test -p zumen-c`。組の手順は Rust の試験の道具が読み、境界の関数は C と C++ の側から呼ぶ（[決定 0198](../../docs/decisions/0198-c-and-cpp-wrapper.md)） |
 | CLI（`zumen serve --stdio` と `zumen mcp`） | `../cli/tests/conformance.rs` | `cargo test -p zumen-cli`。MCP は道具で表せる組だけを流す（[決定 0197](../../docs/decisions/0197-cli-and-mcp-server.md)） |
+| 言語に依らない形（`zumen call`・`serve --stdio`・`serve --http`・WASI） | `cli.mjs`（Node.js 22 以降） | `cargo build -p zumen-cli --release` のあと、`node bindings/conformance/cli.mjs <call・stdio・http> target/release/zumen`。WASI は `cargo build -p zumen-cli --release --target wasm32-wasip1` のあと、`node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm`（ランタイムは `wasi.mjs` の node:wasi）。`call` は 1 回が 1 つのセッションなので、セッションの最初の call と直後の take だけを流す。階層 3 の言語の代わり（[決定 0006](../../docs/decisions/0006-language-tiers.md)）。毎晩 |
 
 JavaScript で流すものは、手順の読み方と応答の確かめ方を `cases.mjs` で共有します。ブラウザーでも読み込むため、ファイルを読まない部分は `steps.mjs` に置き、`cases.mjs` から出し直します。各言語の結合を足すときは、その言語で同じ組を流すものを足し、CI に入れます（[決定 0006](../../docs/decisions/0006-language-tiers.md) の「適合試験に通る」）。
 
