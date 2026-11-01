@@ -108,6 +108,7 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 | wasm | `WASM`・`Wasm` | WebAssembly の略。正式な名前は WebAssembly |
 | レイヤ | `レイヤー` | CAD製図基準の用語に合わせる |
 | ブラウザー | `ブラウザ` | 製品名に含まれるものは原典どおり |
+| 線形 | | 道路・鉄道の中心の線（alignment）を指す。図面の寸法とスプラインの linear は「線形の寸法」「線形のスプライン」と名詞を付けて書く（[決定 0230](decisions/0230-civil-model-alignments.md)） |
 
 ## 辞書と規則を直す
 
