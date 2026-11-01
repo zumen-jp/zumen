@@ -57,6 +57,8 @@ pub enum Request {
     Pointcloud(PointcloudRequest),
     /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
     Deviation(DeviationRequest),
+    /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+    CivilDrawing(CivilDrawingRequest),
 }
 
 impl Request {
@@ -85,6 +87,7 @@ impl Request {
         "civil",
         "pointcloud",
         "deviation",
+        "civil_drawing",
     ];
 
     /// 目印の欄（`op`）の値
@@ -113,6 +116,7 @@ impl Request {
             Self::Civil(_) => "civil",
             Self::Pointcloud(_) => "pointcloud",
             Self::Deviation(_) => "deviation",
+            Self::CivilDrawing(_) => "civil_drawing",
         }
     }
 }
@@ -148,6 +152,7 @@ impl FromJson for Request {
             "civil" => Self::Civil(CivilRequest::read_fields(&mut object)?),
             "pointcloud" => Self::Pointcloud(PointcloudRequest::read_fields(&mut object)?),
             "deviation" => Self::Deviation(DeviationRequest::read_fields(&mut object)?),
+            "civil_drawing" => Self::CivilDrawing(CivilDrawingRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -181,6 +186,7 @@ impl ToJson for Request {
             Self::Civil(value) => value.to_json(out),
             Self::Pointcloud(value) => value.to_json(out),
             Self::Deviation(value) => value.to_json(out),
+            Self::CivilDrawing(value) => value.to_json(out),
         }
     }
 }
@@ -12476,6 +12482,249 @@ impl FromJson for PointcloudPoints {
 }
 
 impl ToJson for PointcloudPoints {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilDrawingRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// open で開いた J-LandXML の文書の名前
+    pub doc: String,
+    /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい
+    pub id: Option<String>,
+    /// 書く用紙の名前（結果の sheets の 1 つ）。書かなければ平面図
+    pub sheet: Option<String>,
+    /// 作る文書の名前
+    pub to: String,
+    /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+    pub profiles: Option<Vec<String>>,
+    /// 作図の値に使うプロファイル。profiles の中から選ぶ。profiles と一緒に書く
+    pub profile: Option<ProfileRef>,
+}
+
+impl CivilDrawingRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "civil_drawing")?;
+        let doc = object.required("doc", json::string)?;
+        let id = object.optional("id", json::string)?;
+        let sheet = object.optional("sheet", json::string)?;
+        let to = object.required("to", json::string)?;
+        let profiles = object.optional("profiles", |value| json::array(value, json::string))?;
+        let profile = object.optional("profile", ProfileRef::from_json)?;
+        Ok(Self {
+            request_common,
+            doc,
+            id,
+            sheet,
+            to,
+            profiles,
+            profile,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("civil_drawing");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
+        if let Some(value) = &self.sheet {
+            out.key("sheet");
+            out.string(value);
+        }
+        out.key("to");
+        out.string(&self.to);
+        if let Some(value) = &self.profiles {
+            out.key("profiles");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.profile {
+            out.key("profile");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for CivilDrawingRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilDrawingRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 作った文書。書いたファイルは blobs の file で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilDrawingResult {
+    /// 作った文書の名前
+    pub doc: String,
+    /// 書いた形式の名前。今は dxf
+    pub format: String,
+    /// 書いたファイルのハッシュ。apply の前提条件に使う
+    pub hash: String,
+    /// 書いた要素の数
+    pub elements: u64,
+    /// 図を作った線形の ID
+    pub alignment: String,
+    /// 作った用紙の名前。図を描ける順（平面図・縦断図・横断図）
+    pub sheets: Vec<String>,
+    /// 書いた用紙の名前
+    pub sheet: String,
+    /// 使った作図の値
+    pub options: CivilDrawingOptions,
+    /// 作図の値を読んだプロファイルの、extends を解いた鎖。基から順。プロファイルを渡さなければ書かない
+    pub profile: Option<Vec<ProfileIdentity>>,
+}
+
+impl CivilDrawingResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let elements =
+            object.required("elements", |value| json::uint(value, 0, 9007199254740991))?;
+        let alignment = object.required("alignment", json::string)?;
+        let sheets = object.required("sheets", |value| json::array(value, json::string))?;
+        let sheet = object.required("sheet", json::string)?;
+        let options = object.required("options", CivilDrawingOptions::from_json)?;
+        let profile = object.optional("profile", |value| {
+            json::array(value, ProfileIdentity::from_json)
+        })?;
+        Ok(Self {
+            doc,
+            format,
+            hash,
+            elements,
+            alignment,
+            sheets,
+            sheet,
+            options,
+            profile,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("elements");
+        out.uint(self.elements);
+        out.key("alignment");
+        out.string(&self.alignment);
+        out.key("sheets");
+        out.array(&self.sheets, |out, item| out.string(item));
+        out.key("sheet");
+        out.string(&self.sheet);
+        out.key("options");
+        self.options.to_json(out);
+        if let Some(value) = &self.profile {
+            out.key("profile");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for CivilDrawingResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilDrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 土木の図の作図の値
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilDrawingOptions {
+    /// 平面図の尺度の分母
+    pub plan: f64,
+    /// 縦断図の横の尺度の分母
+    pub horizontal: f64,
+    /// 縦断図の縦の尺度の分母
+    pub vertical: f64,
+    /// 横断図の尺度の分母
+    pub cross_section: f64,
+    /// 文字の高さ（mm）
+    pub text_height: f64,
+    /// 測点の間隔（メートル）
+    pub station_pitch: f64,
+}
+
+impl CivilDrawingOptions {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let plan = object.required("plan", json::number)?;
+        let horizontal = object.required("horizontal", json::number)?;
+        let vertical = object.required("vertical", json::number)?;
+        let cross_section = object.required("cross_section", json::number)?;
+        let text_height = object.required("text_height", json::number)?;
+        let station_pitch = object.required("station_pitch", json::number)?;
+        Ok(Self {
+            plan,
+            horizontal,
+            vertical,
+            cross_section,
+            text_height,
+            station_pitch,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("plan");
+        out.float(self.plan);
+        out.key("horizontal");
+        out.float(self.horizontal);
+        out.key("vertical");
+        out.float(self.vertical);
+        out.key("cross_section");
+        out.float(self.cross_section);
+        out.key("text_height");
+        out.float(self.text_height);
+        out.key("station_pitch");
+        out.float(self.station_pitch);
+    }
+}
+
+impl FromJson for CivilDrawingOptions {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilDrawingOptions {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

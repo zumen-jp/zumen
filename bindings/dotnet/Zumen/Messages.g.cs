@@ -63,6 +63,7 @@ namespace Zumen.Messages
             ["civil"] = typeof(CivilRequest),
             ["pointcloud"] = typeof(PointcloudRequest),
             ["deviation"] = typeof(DeviationRequest),
+            ["civil_drawing"] = typeof(CivilDrawingRequest),
         };
     }
 
@@ -6903,6 +6904,186 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+    /// </summary>
+    public sealed record CivilDrawingRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "civil_drawing";
+
+        /// <summary>
+        /// open で開いた J-LandXML の文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        /// <summary>
+        /// 書く用紙の名前（結果の sheets の 1 つ）。書かなければ平面図
+        /// </summary>
+        [JsonPropertyName("sheet")]
+        public string? Sheet { get; init; }
+
+        /// <summary>
+        /// 作る文書の名前
+        /// </summary>
+        [JsonPropertyName("to")]
+        public string To { get; init; } = default!;
+
+        /// <summary>
+        /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+        /// </summary>
+        [JsonPropertyName("profiles")]
+        public IReadOnlyList<string>? Profiles { get; init; }
+
+        /// <summary>
+        /// 作図の値に使うプロファイル。profiles の中から選ぶ。profiles と一緒に書く
+        /// </summary>
+        [JsonPropertyName("profile")]
+        public ProfileRef? Profile { get; init; }
+    }
+
+    /// <summary>
+    /// 作った文書。書いたファイルは blobs の file で返す
+    /// </summary>
+    public sealed record CivilDrawingResult
+    {
+        /// <summary>
+        /// 作った文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 書いた形式の名前。今は dxf
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 書いたファイルのハッシュ。apply の前提条件に使う
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 書いた要素の数
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public ulong Elements { get; init; }
+
+        /// <summary>
+        /// 図を作った線形の ID
+        /// </summary>
+        [JsonPropertyName("alignment")]
+        public string Alignment { get; init; } = default!;
+
+        /// <summary>
+        /// 作った用紙の名前。図を描ける順（平面図・縦断図・横断図）
+        /// </summary>
+        [JsonPropertyName("sheets")]
+        public IReadOnlyList<string> Sheets { get; init; } = default!;
+
+        /// <summary>
+        /// 書いた用紙の名前
+        /// </summary>
+        [JsonPropertyName("sheet")]
+        public string Sheet { get; init; } = default!;
+
+        /// <summary>
+        /// 使った作図の値
+        /// </summary>
+        [JsonPropertyName("options")]
+        public CivilDrawingOptions Options { get; init; } = default!;
+
+        /// <summary>
+        /// 作図の値を読んだプロファイルの、extends を解いた鎖。基から順。プロファイルを渡さなければ書かない
+        /// </summary>
+        [JsonPropertyName("profile")]
+        public IReadOnlyList<ProfileIdentity>? Profile { get; init; }
+    }
+
+    /// <summary>
+    /// 土木の図の作図の値
+    /// </summary>
+    public sealed record CivilDrawingOptions
+    {
+        /// <summary>
+        /// 平面図の尺度の分母
+        /// </summary>
+        [JsonPropertyName("plan")]
+        public double Plan { get; init; }
+
+        /// <summary>
+        /// 縦断図の横の尺度の分母
+        /// </summary>
+        [JsonPropertyName("horizontal")]
+        public double Horizontal { get; init; }
+
+        /// <summary>
+        /// 縦断図の縦の尺度の分母
+        /// </summary>
+        [JsonPropertyName("vertical")]
+        public double Vertical { get; init; }
+
+        /// <summary>
+        /// 横断図の尺度の分母
+        /// </summary>
+        [JsonPropertyName("cross_section")]
+        public double CrossSection { get; init; }
+
+        /// <summary>
+        /// 文字の高さ（mm）
+        /// </summary>
+        [JsonPropertyName("text_height")]
+        public double TextHeight { get; init; }
+
+        /// <summary>
+        /// 測点の間隔（メートル）
+        /// </summary>
+        [JsonPropertyName("station_pitch")]
+        public double StationPitch { get; init; }
+    }
+
+    /// <summary>
     /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
     /// </summary>
     public sealed record DeviationRequest
@@ -7250,6 +7431,7 @@ namespace Zumen.Messages
                 ["civil"] = (typeof(CivilRequest), typeof(CivilResult)),
                 ["pointcloud"] = (typeof(PointcloudRequest), typeof(PointcloudResult)),
                 ["deviation"] = (typeof(DeviationRequest), typeof(DeviationResult)),
+                ["civil_drawing"] = (typeof(CivilDrawingRequest), typeof(CivilDrawingResult)),
             };
     }
 }

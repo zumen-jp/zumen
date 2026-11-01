@@ -1531,6 +1531,13 @@ group-by = ["id", "edition"]
 since = "0.0.0"
 status = "active"
 
+[codes."profile.vocabulary.invalid"]
+description = "プロファイルの語彙の値が、使える形でない（決定 0239）"
+severity = "error"
+params = { vocabulary = "text", field = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."profile.rule.unsupported"]
 description = "照合の種類を知らないか、欄か語彙を使えない規則を、照合しなかった"
 severity = "warning"

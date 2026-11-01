@@ -32,6 +32,7 @@ Request = Union[
     "CivilRequest",
     "PointcloudRequest",
     "DeviationRequest",
+    "CivilDrawingRequest",
 ]
 
 
@@ -4391,6 +4392,104 @@ class PointcloudPoints(_PointcloudPointsRequired, _PointcloudPointsOptional):
     "選んだ点。どの列も、選んだ点の順で同じ長さにする"
 
 
+# open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+_CivilDrawingRequestRequired = TypedDict(
+    "_CivilDrawingRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["civil_drawing"],
+        # open で開いた J-LandXML の文書の名前
+        "doc": str,
+        # 作る文書の名前
+        "to": str,
+    },
+)
+_CivilDrawingRequestOptional = TypedDict(
+    "_CivilDrawingRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # doc の線形の ID。文書に線形が 1 つなら書かなくてよい
+        "id": str,
+        # 書く用紙の名前（結果の sheets の 1 つ）。書かなければ平面図
+        "sheet": str,
+        # プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+        "profiles": List[str],
+        # 作図の値に使うプロファイル。profiles の中から選ぶ。profiles と一緒に書く
+        "profile": "ProfileRef",
+    },
+    total=False,
+)
+
+
+class CivilDrawingRequest(_CivilDrawingRequestRequired, _CivilDrawingRequestOptional):
+    "open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から"
+
+
+# 作った文書。書いたファイルは blobs の file で返す
+_CivilDrawingResultRequired = TypedDict(
+    "_CivilDrawingResultRequired",
+    {
+        # 作った文書の名前
+        "doc": str,
+        # 書いた形式の名前。今は dxf
+        "format": str,
+        # 書いたファイルのハッシュ。apply の前提条件に使う
+        "hash": str,
+        # 書いた要素の数
+        "elements": int,
+        # 図を作った線形の ID
+        "alignment": str,
+        # 作った用紙の名前。図を描ける順（平面図・縦断図・横断図）
+        "sheets": List[str],
+        # 書いた用紙の名前
+        "sheet": str,
+        # 使った作図の値
+        "options": "CivilDrawingOptions",
+    },
+)
+_CivilDrawingResultOptional = TypedDict(
+    "_CivilDrawingResultOptional",
+    {
+        # 作図の値を読んだプロファイルの、extends を解いた鎖。基から順。プロファイルを渡さなければ書かない
+        "profile": List["ProfileIdentity"],
+    },
+    total=False,
+)
+
+
+class CivilDrawingResult(_CivilDrawingResultRequired, _CivilDrawingResultOptional):
+    "作った文書。書いたファイルは blobs の file で返す"
+
+
+# 土木の図の作図の値
+CivilDrawingOptions = TypedDict(
+    "CivilDrawingOptions",
+    {
+        # 平面図の尺度の分母
+        "plan": float,
+        # 縦断図の横の尺度の分母
+        "horizontal": float,
+        # 縦断図の縦の尺度の分母
+        "vertical": float,
+        # 横断図の尺度の分母
+        "cross_section": float,
+        # 文字の高さ（mm）
+        "text_height": float,
+        # 測点の間隔（メートル）
+        "station_pitch": float,
+    },
+)
+
+
 # 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
 _DeviationRequestRequired = TypedDict(
     "_DeviationRequestRequired",
@@ -4593,6 +4692,7 @@ Operation = Literal[
     "civil",
     "pointcloud",
     "deviation",
+    "civil_drawing",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -4620,4 +4720,5 @@ OPERATIONS: Dict[str, Any] = {
     "civil": ("CivilRequest", "CivilResult"),
     "pointcloud": ("PointcloudRequest", "PointcloudResult"),
     "deviation": ("DeviationRequest", "DeviationResult"),
+    "civil_drawing": ("CivilDrawingRequest", "CivilDrawingResult"),
 }

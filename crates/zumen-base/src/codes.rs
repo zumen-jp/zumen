@@ -2612,6 +2612,20 @@ pub const PROFILE_TEXT_HEIGHT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// プロファイルの語彙の値が、使える形でない（決定 0239）
+///
+/// `profile.vocabulary.invalid`（0.2.0 から）
+pub const PROFILE_VOCABULARY_INVALID: Code = Code::new(
+    "profile.vocabulary.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("vocabulary", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 指摘の文書の JSON の形が合わない。pointer は合わなかった欄の JSON Pointer か、構文の誤りのバイト位置
 ///
 /// `review.file.invalid`（0.2.0 から）
@@ -3501,6 +3515,7 @@ pub const ALL: &[Code] = &[
     PROFILE_SURFACE_ELEVATION_UNSUPPORTED,
     PROFILE_TEXT_HEIGHT_INVALID,
     PROFILE_TEXT_HEIGHT_UNSUPPORTED,
+    PROFILE_VOCABULARY_INVALID,
     REVIEW_FILE_INVALID,
     REVIEW_FORMAT_UNSUPPORTED,
     REVIEW_ID_EXISTS,

@@ -1,0 +1,116 @@
+{
+  "description": "civil_drawing は、J-LandXML の線形から平面図・縦断図・横断図を作り、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239、#470）。プロファイルを渡さなければ作図の慣習の値を使う。プロファイルの civil-drawing の語彙で縦断図の尺度と測点の間隔を、text-height の語彙で文字の高さを決める（2.5 mm が語彙にないので、次に大きい 3.5 mm）。作った文書は scene に渡せる。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "road.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"T.P\" horizontalCoordinateSystemName=\"9(X,Y)\"/>\n<Alignments><Alignment name=\"本線\" length=\"100\" staStart=\"0\"><CoordGeom><Line><Start>0 0</Start><End>100 0</End></Line></CoordGeom><Profile><ProfAlign><PVI>0 10</PVI><PVI>100 12</PVI></ProfAlign></Profile></Alignment></Alignments>\n<Surfaces><Surface name=\"地盤\" desc=\"ExistingGround\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">0 0 10</P><P id=\"2\">0 10 11</P><P id=\"3\">10 10 12</P></Pnts><Faces><F>1 2 3</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "road.xml"
+      },
+      "expect": {
+        "/result/format": "landxml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil_drawing",
+        "doc": "road.xml",
+        "to": "plan.dxf"
+      },
+      "expect": {
+        "/result/doc": "plan.dxf",
+        "/result/format": "dxf",
+        "/result/alignment": "本線",
+        "/result/sheet": "平面図",
+        "/result/sheets/1": "縦断図",
+        "/result/options/plan": 1000,
+        "/result/options/text_height": 2.5,
+        "/result/options/station_pitch": 20
+      }
+    },
+    {
+      "push": {
+        "name": "profile.json",
+        "text": "{\n  \"format\": \"0.1\",\n  \"id\": \"civil-test\",\n  \"edition\": \"2026-11\",\n  \"revision\": 1,\n  \"title\": \"土木の図の試験\",\n  \"license\": \"CC-BY-4.0\",\n  \"sources\": {\n    \"main\": {\n      \"title\": \"試験\",\n      \"publisher\": \"zumen\",\n      \"version\": \"1\",\n      \"url\": \"https://example.invalid/\",\n      \"checked\": \"2026-11-02\"\n    }\n  },\n  \"vocabularies\": {\n    \"text-height\": {\n      \"source\": {\n        \"document\": \"main\"\n      },\n      \"unit\": \"mm\",\n      \"values\": [\n        1.8,\n        3.5,\n        5\n      ]\n    },\n    \"civil-drawing\": {\n      \"source\": {\n        \"document\": \"main\",\n        \"basis\": \"chosen\"\n      },\n      \"values\": [\n        {\n          \"horizontal\": 500,\n          \"vertical\": 50,\n          \"station-pitch\": 100\n        }\n      ]\n    }\n  },\n  \"rules\": []\n}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil_drawing",
+        "doc": "road.xml",
+        "sheet": "縦断図",
+        "to": "profile.dxf",
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "civil-test",
+          "edition": "2026-11"
+        }
+      },
+      "expect": {
+        "/result/sheet": "縦断図",
+        "/result/options/horizontal": 500,
+        "/result/options/vertical": 50,
+        "/result/options/text_height": 3.5,
+        "/result/options/station_pitch": 100,
+        "/result/profile/0/id": "civil-test",
+        "/diagnostics/0/code": "convert.view.approximated"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "profile.dxf"
+      },
+      "expect": {
+        "/result/sheets/0/id": "sheet/0",
+        "/result/sheets/0/size": [
+          240,
+          94
+        ],
+        "/result/sheets/0/views": 0,
+        "/result/sheets/0/elements/lines": 7,
+        "/result/sheets/0/elements/texts": 5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "profile.dxf",
+        "from": "sheet/0"
+      },
+      "expect": {
+        "/result/from": "sheet/0",
+        "/result/counts/lines": 7,
+        "/result/counts/texts": 5,
+        "/blobs/0/kind": "scene"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil_drawing",
+        "doc": "road.xml",
+        "sheet": "なし",
+        "to": "none.dxf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/sheet"
+      }
+    }
+  ]
+}

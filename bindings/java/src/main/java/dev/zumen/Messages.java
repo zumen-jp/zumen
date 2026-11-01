@@ -176,6 +176,11 @@ public final class Messages {
         public DeviationRequest asDeviationRequest() {
             return "deviation".equals(json.get("op")) ? new DeviationRequest(json) : null;
         }
+
+        /** op が civil_drawing の形なら、その見方。違えば null */
+        public CivilDrawingRequest asCivilDrawingRequest() {
+            return "civil_drawing".equals(json.get("op")) ? new CivilDrawingRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -13636,6 +13641,361 @@ public final class Messages {
         }
     }
 
+    /** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から */
+    public static final class CivilDrawingRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilDrawingRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilDrawingRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilDrawingRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public CivilDrawingRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "civil_drawing");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** open で開いた J-LandXML の文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 書く用紙の名前（結果の sheets の 1 つ）。書かなければ平面図 */
+        public String getSheet() {
+            return Json.read(json.get("sheet"), Json::string);
+        }
+
+        /** {@link #getSheet()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withSheet(String value) {
+            put("sheet", value);
+            return this;
+        }
+
+        /** 作る文書の名前 */
+        public String getTo() {
+            return Json.read(json.get("to"), Json::string);
+        }
+
+        /** {@link #getTo()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withTo(String value) {
+            put("to", value);
+            return this;
+        }
+
+        /** プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す */
+        public List<String> getProfiles() {
+            return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withProfiles(List<String> value) {
+            put("profiles", value);
+            return this;
+        }
+
+        /** 作図の値に使うプロファイル。profiles の中から選ぶ。profiles と一緒に書く */
+        public ProfileRef getProfile() {
+            return Json.read(json.get("profile"), ProfileRef::of);
+        }
+
+        /** {@link #getProfile()} を書く。null なら欄を除く */
+        public CivilDrawingRequest withProfile(ProfileRef value) {
+            put("profile", value);
+            return this;
+        }
+    }
+
+    /** 作った文書。書いたファイルは blobs の file で返す */
+    public static final class CivilDrawingResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilDrawingResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilDrawingResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilDrawingResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilDrawingResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 作った文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public CivilDrawingResult withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 書いた形式の名前。今は dxf */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null なら欄を除く */
+        public CivilDrawingResult withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 書いたファイルのハッシュ。apply の前提条件に使う */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null なら欄を除く */
+        public CivilDrawingResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 書いた要素の数 */
+        public Long getElements() {
+            return Json.read(json.get("elements"), Json::integer);
+        }
+
+        /** {@link #getElements()} を書く。null なら欄を除く */
+        public CivilDrawingResult withElements(Long value) {
+            put("elements", value);
+            return this;
+        }
+
+        /** 図を作った線形の ID */
+        public String getAlignment() {
+            return Json.read(json.get("alignment"), Json::string);
+        }
+
+        /** {@link #getAlignment()} を書く。null なら欄を除く */
+        public CivilDrawingResult withAlignment(String value) {
+            put("alignment", value);
+            return this;
+        }
+
+        /** 作った用紙の名前。図を描ける順（平面図・縦断図・横断図） */
+        public List<String> getSheets() {
+            return Json.read(json.get("sheets"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getSheets()} を書く。null なら欄を除く */
+        public CivilDrawingResult withSheets(List<String> value) {
+            put("sheets", value);
+            return this;
+        }
+
+        /** 書いた用紙の名前 */
+        public String getSheet() {
+            return Json.read(json.get("sheet"), Json::string);
+        }
+
+        /** {@link #getSheet()} を書く。null なら欄を除く */
+        public CivilDrawingResult withSheet(String value) {
+            put("sheet", value);
+            return this;
+        }
+
+        /** 使った作図の値 */
+        public CivilDrawingOptions getOptions() {
+            return Json.read(json.get("options"), CivilDrawingOptions::of);
+        }
+
+        /** {@link #getOptions()} を書く。null なら欄を除く */
+        public CivilDrawingResult withOptions(CivilDrawingOptions value) {
+            put("options", value);
+            return this;
+        }
+
+        /** 作図の値を読んだプロファイルの、extends を解いた鎖。基から順。プロファイルを渡さなければ書かない */
+        public List<ProfileIdentity> getProfile() {
+            return Json.read(json.get("profile"), v0 -> Json.list(v0, ProfileIdentity::of));
+        }
+
+        /** {@link #getProfile()} を書く。null なら欄を除く */
+        public CivilDrawingResult withProfile(List<ProfileIdentity> value) {
+            put("profile", value);
+            return this;
+        }
+    }
+
+    /** 土木の図の作図の値 */
+    public static final class CivilDrawingOptions extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilDrawingOptions(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilDrawingOptions of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilDrawingOptions(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilDrawingOptions() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 平面図の尺度の分母 */
+        public Double getPlan() {
+            return Json.read(json.get("plan"), Json::number);
+        }
+
+        /** {@link #getPlan()} を書く。null なら欄を除く */
+        public CivilDrawingOptions withPlan(Double value) {
+            put("plan", value);
+            return this;
+        }
+
+        /** 縦断図の横の尺度の分母 */
+        public Double getHorizontal() {
+            return Json.read(json.get("horizontal"), Json::number);
+        }
+
+        /** {@link #getHorizontal()} を書く。null なら欄を除く */
+        public CivilDrawingOptions withHorizontal(Double value) {
+            put("horizontal", value);
+            return this;
+        }
+
+        /** 縦断図の縦の尺度の分母 */
+        public Double getVertical() {
+            return Json.read(json.get("vertical"), Json::number);
+        }
+
+        /** {@link #getVertical()} を書く。null なら欄を除く */
+        public CivilDrawingOptions withVertical(Double value) {
+            put("vertical", value);
+            return this;
+        }
+
+        /** 横断図の尺度の分母 */
+        public Double getCrossSection() {
+            return Json.read(json.get("cross_section"), Json::number);
+        }
+
+        /** {@link #getCrossSection()} を書く。null なら欄を除く */
+        public CivilDrawingOptions withCrossSection(Double value) {
+            put("cross_section", value);
+            return this;
+        }
+
+        /** 文字の高さ（mm） */
+        public Double getTextHeight() {
+            return Json.read(json.get("text_height"), Json::number);
+        }
+
+        /** {@link #getTextHeight()} を書く。null なら欄を除く */
+        public CivilDrawingOptions withTextHeight(Double value) {
+            put("text_height", value);
+            return this;
+        }
+
+        /** 測点の間隔（メートル） */
+        public Double getStationPitch() {
+            return Json.read(json.get("station_pitch"), Json::number);
+        }
+
+        /** {@link #getStationPitch()} を書く。null なら欄を除く */
+        public CivilDrawingOptions withStationPitch(Double value) {
+            put("station_pitch", value);
+            return this;
+        }
+    }
+
     /** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から */
     public static final class DeviationRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -14325,5 +14685,7 @@ public final class Messages {
         public static final String POINTCLOUD = "pointcloud";
 
         public static final String DEVIATION = "deviation";
+
+        public static final String CIVIL_DRAWING = "civil_drawing";
     }
 }

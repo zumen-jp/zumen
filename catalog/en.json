@@ -231,6 +231,7 @@
     "profile.surface-elevation.unsupported": "Rule \"{rule}\": could not check, because the point density {density} per m² is below {required} per m².",
     "profile.text-height.invalid": "Rule \"{rule}\": the text height {height} mm ({meaning}) is not in the vocabulary \"{vocabulary}\".",
     "profile.text-height.unsupported": "Rule \"{rule}\": could not check the text height, because its height on the sheet cannot be determined.",
+    "profile.vocabulary.invalid": "The {field} of the profile vocabulary \"{vocabulary}\" is not a usable value.",
     "review.file.invalid": "Could not read the review document ({pointer}).",
     "review.format.unsupported": "Format \"{format}\" is not a review document.",
     "review.id.exists": "ID \"{id}\" appears more than once.",

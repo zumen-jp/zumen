@@ -128,6 +128,11 @@ public struct Request: Message {
     public var asDeviationRequest: DeviationRequest? {
         taggedView("op", "deviation")
     }
+
+    /// op が civil_drawing の形なら、その見方。違えば nil
+    public var asCivilDrawingRequest: CivilDrawingRequest? {
+        taggedView("op", "civil_drawing")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -8398,6 +8403,216 @@ public struct PointcloudPoints: Message {
     }
 }
 
+/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+public struct CivilDrawingRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("civil_drawing")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// open で開いた J-LandXML の文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 書く用紙の名前（結果の sheets の 1 つ）。書かなければ平面図
+    public var sheet: String? {
+        get { readField("sheet") }
+        set { writeField("sheet", newValue) }
+    }
+
+    /// 作る文書の名前
+    public var to: String? {
+        get { readField("to") }
+        set { writeField("to", newValue) }
+    }
+
+    /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+    public var profiles: [String]? {
+        get { readField("profiles") }
+        set { writeField("profiles", newValue) }
+    }
+
+    /// 作図の値に使うプロファイル。profiles の中から選ぶ。profiles と一緒に書く
+    public var profile: ProfileRef? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
+}
+
+/// 作った文書。書いたファイルは blobs の file で返す
+public struct CivilDrawingResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 作った文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 書いた形式の名前。今は dxf
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 書いたファイルのハッシュ。apply の前提条件に使う
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 書いた要素の数
+    public var elements: Int64? {
+        get { readField("elements") }
+        set { writeField("elements", newValue) }
+    }
+
+    /// 図を作った線形の ID
+    public var alignment: String? {
+        get { readField("alignment") }
+        set { writeField("alignment", newValue) }
+    }
+
+    /// 作った用紙の名前。図を描ける順（平面図・縦断図・横断図）
+    public var sheets: [String]? {
+        get { readField("sheets") }
+        set { writeField("sheets", newValue) }
+    }
+
+    /// 書いた用紙の名前
+    public var sheet: String? {
+        get { readField("sheet") }
+        set { writeField("sheet", newValue) }
+    }
+
+    /// 使った作図の値
+    public var options: CivilDrawingOptions? {
+        get { readField("options") }
+        set { writeField("options", newValue) }
+    }
+
+    /// 作図の値を読んだプロファイルの、extends を解いた鎖。基から順。プロファイルを渡さなければ書かない
+    public var profile: [ProfileIdentity]? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
+}
+
+/// 土木の図の作図の値
+public struct CivilDrawingOptions: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 平面図の尺度の分母
+    public var plan: Double? {
+        get { readField("plan") }
+        set { writeField("plan", newValue) }
+    }
+
+    /// 縦断図の横の尺度の分母
+    public var horizontal: Double? {
+        get { readField("horizontal") }
+        set { writeField("horizontal", newValue) }
+    }
+
+    /// 縦断図の縦の尺度の分母
+    public var vertical: Double? {
+        get { readField("vertical") }
+        set { writeField("vertical", newValue) }
+    }
+
+    /// 横断図の尺度の分母
+    public var crossSection: Double? {
+        get { readField("cross_section") }
+        set { writeField("cross_section", newValue) }
+    }
+
+    /// 文字の高さ（mm）
+    public var textHeight: Double? {
+        get { readField("text_height") }
+        set { writeField("text_height", newValue) }
+    }
+
+    /// 測点の間隔（メートル）
+    public var stationPitch: Double? {
+        get { readField("station_pitch") }
+        set { writeField("station_pitch", newValue) }
+    }
+}
+
 /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
 public struct DeviationRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -8811,4 +9026,5 @@ public enum Operations {
     public static let civil = "civil"
     public static let pointcloud = "pointcloud"
     public static let deviation = "deviation"
+    public static let civilDrawing = "civil_drawing"
 }

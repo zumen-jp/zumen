@@ -84,6 +84,9 @@ class Request extends Message {
 
   /// op が deviation の形なら、その見方。違えば null
   DeviationRequest? get asDeviationRequest => taggedView('op', 'deviation', DeviationRequest.fromJson);
+
+  /// op が civil_drawing の形なら、その見方。違えば null
+  CivilDrawingRequest? get asCivilDrawingRequest => taggedView('op', 'civil_drawing', CivilDrawingRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -5455,6 +5458,141 @@ class PointcloudPoints extends Message {
   set level(int? value) => writeField('level', value);
 }
 
+/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+class CivilDrawingRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilDrawingRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  CivilDrawingRequest() : super({'op': 'civil_drawing'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// open で開いた J-LandXML の文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 書く用紙の名前（結果の sheets の 1 つ）。書かなければ平面図
+  String? get sheet => readField('sheet', asString);
+  set sheet(String? value) => writeField('sheet', value);
+
+  /// 作る文書の名前
+  String? get to => readField('to', asString);
+  set to(String? value) => writeField('to', value);
+
+  /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+  List<String>? get profiles => readField('profiles', listOf(asString));
+  set profiles(List<String>? value) => writeField('profiles', value);
+
+  /// 作図の値に使うプロファイル。profiles の中から選ぶ。profiles と一緒に書く
+  ProfileRef? get profile => readField('profile', objectOf(ProfileRef.fromJson));
+  set profile(ProfileRef? value) => writeField('profile', value);
+}
+
+/// 作った文書。書いたファイルは blobs の file で返す
+class CivilDrawingResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilDrawingResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilDrawingResult() : super({});
+
+  /// 作った文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 書いた形式の名前。今は dxf
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 書いたファイルのハッシュ。apply の前提条件に使う
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 書いた要素の数
+  int? get elements => readField('elements', asInt);
+  set elements(int? value) => writeField('elements', value);
+
+  /// 図を作った線形の ID
+  String? get alignment => readField('alignment', asString);
+  set alignment(String? value) => writeField('alignment', value);
+
+  /// 作った用紙の名前。図を描ける順（平面図・縦断図・横断図）
+  List<String>? get sheets => readField('sheets', listOf(asString));
+  set sheets(List<String>? value) => writeField('sheets', value);
+
+  /// 書いた用紙の名前
+  String? get sheet => readField('sheet', asString);
+  set sheet(String? value) => writeField('sheet', value);
+
+  /// 使った作図の値
+  CivilDrawingOptions? get options => readField('options', objectOf(CivilDrawingOptions.fromJson));
+  set options(CivilDrawingOptions? value) => writeField('options', value);
+
+  /// 作図の値を読んだプロファイルの、extends を解いた鎖。基から順。プロファイルを渡さなければ書かない
+  List<ProfileIdentity>? get profile => readField('profile', listOf(objectOf(ProfileIdentity.fromJson)));
+  set profile(List<ProfileIdentity>? value) => writeField('profile', value);
+}
+
+/// 土木の図の作図の値
+class CivilDrawingOptions extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilDrawingOptions.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilDrawingOptions() : super({});
+
+  /// 平面図の尺度の分母
+  double? get plan => readField('plan', asDouble);
+  set plan(double? value) => writeField('plan', value);
+
+  /// 縦断図の横の尺度の分母
+  double? get horizontal => readField('horizontal', asDouble);
+  set horizontal(double? value) => writeField('horizontal', value);
+
+  /// 縦断図の縦の尺度の分母
+  double? get vertical => readField('vertical', asDouble);
+  set vertical(double? value) => writeField('vertical', value);
+
+  /// 横断図の尺度の分母
+  double? get crossSection => readField('cross_section', asDouble);
+  set crossSection(double? value) => writeField('cross_section', value);
+
+  /// 文字の高さ（mm）
+  double? get textHeight => readField('text_height', asDouble);
+  set textHeight(double? value) => writeField('text_height', value);
+
+  /// 測点の間隔（メートル）
+  double? get stationPitch => readField('station_pitch', asDouble);
+  set stationPitch(double? value) => writeField('station_pitch', value);
+}
+
 /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
 class DeviationRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -5727,4 +5865,5 @@ abstract final class Operations {
   static const civil = 'civil';
   static const pointcloud = 'pointcloud';
   static const deviation = 'deviation';
+  static const civilDrawing = 'civil_drawing';
 }

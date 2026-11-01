@@ -231,6 +231,7 @@
     "profile.surface-elevation.unsupported": "規則「{rule}」: 計測の密度 {density} 点／m² が {required} 点／m² に足りないので、確認できませんでした。",
     "profile.text-height.invalid": "規則「{rule}」: 文字の高さ {height} mm（{meaning}）は、語彙「{vocabulary}」にありません。",
     "profile.text-height.unsupported": "規則「{rule}」: 用紙の上の文字の高さが決まらないので、照合できませんでした。",
+    "profile.vocabulary.invalid": "プロファイルの語彙「{vocabulary}」の {field} が、使える値ではありません。",
     "review.file.invalid": "指摘の文書として読めません（{pointer}）。",
     "review.format.unsupported": "形式「{format}」は指摘の文書ではありません。",
     "review.id.exists": "ID「{id}」が重なっています。",

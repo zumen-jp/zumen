@@ -14,9 +14,11 @@ use zumen_landxml::LandXml;
 use zumen_sdk::Error;
 use zumen_sdk::{Codec, Lift};
 
+use crate::check::{identity_of, profile_failed};
 use crate::messages::{
-    CivilAlignment, CivilAlignmentSummary, CivilHorizontalKind, CivilPosition, CivilRequest,
-    CivilResult, CivilSurfaceSummary, CivilTransitionCurve, CivilVerticalKind,
+    CivilAlignment, CivilAlignmentSummary, CivilDrawingOptions, CivilDrawingRequest,
+    CivilDrawingResult, CivilHorizontalKind, CivilPosition, CivilRequest, CivilResult,
+    CivilSurfaceSummary, CivilTransitionCurve, CivilVerticalKind,
 };
 use crate::session::{Failed, fail, invalid_value, stopped};
 
@@ -276,4 +278,86 @@ fn alignment(request: &CivilAlignment, cx: &mut Cx<'_>) -> Result<Alignment, Fai
     // 区間の初めの点の食い違いは、計算をそのまま続けて知らせる
     zumen_civil::check(&alignment, 1e-3, cx);
     Ok(alignment)
+}
+
+/// プロファイルを渡さないときの文字の高さ（mm）
+const TEXT_HEIGHT: f64 = 2.5;
+
+/// `civil_drawing` の op（決定 0239）。文書の線形から図面モデルを作り、書く用紙だけを残す。作図の値は、
+/// プロファイルを渡せば語彙から読む。文字の高さは、既定の値が語彙にあればそれを、なければ既定より大きい
+/// いちばん小さい値を、それもなければいちばん大きい値を使う
+pub(crate) fn civil_drawing(
+    request: &CivilDrawingRequest,
+    model: &CivilModel,
+    profiles: &[(&str, &[u8])],
+    cx: &mut Cx<'_>,
+) -> Result<(zumen_drawing::Drawing2D, CivilDrawingResult), Failed> {
+    let alignment = match (&request.id, model.alignments.as_slice()) {
+        (Some(id), all) => all.iter().find(|alignment| &alignment.id == id),
+        (None, [only]) => Some(only),
+        (None, _) => None,
+    }
+    .ok_or_else(|| fail(cx, invalid_value("/id")))?;
+    let mut options = zumen_civil_drawing::Options::default();
+    let chain = match (&request.profiles, &request.profile) {
+        (None, None) => None,
+        (Some(_), Some(chosen)) => {
+            let (chain, found) =
+                zumen_profile::civil_drawing(profiles, &chosen.id, &chosen.edition, cx)
+                    .map_err(|error| profile_failed(cx, error))?;
+            options.plan = found.plan.unwrap_or(options.plan);
+            options.horizontal = found.horizontal.unwrap_or(options.horizontal);
+            options.vertical = found.vertical.unwrap_or(options.vertical);
+            options.cross_section = found.cross_section.unwrap_or(options.cross_section);
+            options.notation.pitch = found.station_pitch.unwrap_or(options.notation.pitch);
+            let heights = &found.text_heights;
+            options.text_height = if heights.is_empty() || heights.contains(&TEXT_HEIGHT) {
+                TEXT_HEIGHT
+            } else {
+                heights
+                    .iter()
+                    .copied()
+                    .find(|height| *height > TEXT_HEIGHT)
+                    .or_else(|| heights.last().copied())
+                    .unwrap_or(TEXT_HEIGHT)
+            };
+            Some(chain.into_iter().map(identity_of).collect())
+        }
+        (Some(_), None) => return Err(fail(cx, invalid_value("/profile"))),
+        (None, Some(_)) => return Err(fail(cx, invalid_value("/profiles"))),
+    };
+    let mut drawing = zumen_civil_drawing::drawing(model, alignment, &options, cx)
+        .map_err(|stop| stopped(cx, stop))?;
+    let sheets: Vec<String> = drawing
+        .sheets
+        .iter()
+        .map(|sheet| sheet.name.clone().unwrap_or_default())
+        .collect();
+    let index = match &request.sheet {
+        None => (!sheets.is_empty()).then_some(0),
+        Some(name) => sheets.iter().position(|sheet| sheet == name),
+    }
+    .ok_or_else(|| fail(cx, invalid_value("/sheet")))?;
+    // DXF には用紙を 1 枚だけ書けるので、選んだ用紙を先頭に置き、ほかは除く
+    let sheet = drawing.sheets.swap_remove(index);
+    drawing.sheets = vec![sheet];
+    let result = CivilDrawingResult {
+        doc: request.to.clone(),
+        format: String::new(),
+        hash: String::new(),
+        elements: 0,
+        alignment: alignment.id.clone(),
+        sheet: sheets.get(index).cloned().unwrap_or_default(),
+        sheets,
+        options: CivilDrawingOptions {
+            plan: options.plan,
+            horizontal: options.horizontal,
+            vertical: options.vertical,
+            cross_section: options.cross_section,
+            text_height: options.text_height,
+            station_pitch: options.notation.pitch,
+        },
+        profile: chain,
+    };
+    Ok((drawing, result))
 }

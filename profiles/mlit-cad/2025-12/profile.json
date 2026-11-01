@@ -3,7 +3,7 @@
   "format": "0.1",
   "id": "mlit-cad",
   "license": "CC-BY-4.0",
-  "revision": 2,
+  "revision": 3,
   "rules": [
     {
       "check": "layer-name",
@@ -210,6 +210,22 @@
           "b": 10,
           "sheet": "A3",
           "width": 0.7
+        }
+      ]
+    },
+    "civil-drawing": {
+      "source": {
+        "basis": "chosen",
+        "document": "manual",
+        "section": "1-4-5"
+      },
+      "values": [
+        {
+          "cross-section": 100,
+          "horizontal": 1000,
+          "plan": 1000,
+          "station-pitch": 20,
+          "vertical": 100
         }
       ]
     },

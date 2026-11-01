@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 50
+schema-minor = 51
 
 # 状態コード。理由は応答の診断で返す
 
@@ -154,6 +154,7 @@ formats = ["dxf", "dwg", "sxf", "jww", "landxml", "las", "ply", "xyz", "e57"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation",
+    "civil_drawing",
 ]
 
 [[modules]]

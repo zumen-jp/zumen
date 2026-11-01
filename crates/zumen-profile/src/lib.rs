@@ -4,6 +4,7 @@
 //! 語彙と比べる。指摘は診断と同じ形の値で返し、重要度は規則の `level` にする。照合できない値は、重要度
 //! `info` の `profile.<種類>.unsupported` の指摘にし、黙って通さない。
 
+mod civil;
 mod profile;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,6 +18,7 @@ use zumen_drawing::{
 use zumen_json::Value;
 use zumen_scene::Palette;
 
+pub use crate::civil::{CIVIL_DRAWING, CivilDrawing, civil_drawing};
 pub use crate::profile::{FORMAT_MAJOR, Identity};
 use crate::profile::{GetKey, text};
 

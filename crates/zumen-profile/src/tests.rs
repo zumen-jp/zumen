@@ -222,7 +222,7 @@ fn checks_a_drawing_against_mlit_cad() {
         vec![Identity {
             id: "mlit-cad".to_string(),
             edition: "2025-12".to_string(),
-            revision: 2,
+            revision: 3,
         }]
     );
     assert_eq!(
@@ -399,7 +399,7 @@ fn resolves_extends_by_replacing_rules_and_vocabularies() {
         .iter()
         .map(|p| (p.id.as_str(), p.revision))
         .collect();
-    assert_eq!(chain, vec![("mlit-cad", 2), ("office", 3)]);
+    assert_eq!(chain, vec![("mlit-cad", 3), ("office", 3)]);
     // 知らない種類の規則と、用紙の名前を引けなくなった規則は照合せず、診断で返す
     let codes: Vec<&str> = diagnostics.iter().map(|d| d.code().name()).collect();
     assert_eq!(
@@ -592,4 +592,28 @@ fn checks_file_names_by_parts() {
     assert_eq!(problem(&longer), Some("length"));
     assert_eq!(char_ranges("9-0"), None);
     assert_eq!(char_ranges(""), None);
+}
+
+#[test]
+fn civil_drawing_values_are_read_from_the_vocabularies() {
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let (chain, found) =
+        civil_drawing(&[("mlit.json", MLIT)], "mlit-cad", "2025-12", &mut cx).unwrap();
+    assert_eq!(chain.len(), 1);
+    assert_eq!(found.horizontal, Some(1000.0));
+    assert_eq!(found.vertical, Some(100.0));
+    assert_eq!(found.cross_section, Some(100.0));
+    assert_eq!(found.station_pitch, Some(20.0));
+    assert_eq!(found.text_heights.first(), Some(&1.8));
+    // 正の数でない値は、語彙と欄を診断にして失敗にする
+    let broken = r#"{"format":"0.1","id":"broken","edition":"1","revision":1,
+        "vocabularies":{"civil-drawing":{"values":[{"vertical":0}]}},"rules":[]}"#;
+    let error = civil_drawing(&[("b.json", broken.as_bytes())], "broken", "1", &mut cx);
+    let Err(Error::Profile(diagnostic)) = error else {
+        panic!("失敗にならない");
+    };
+    assert_eq!(diagnostic.code(), codes::PROFILE_VOCABULARY_INVALID);
 }

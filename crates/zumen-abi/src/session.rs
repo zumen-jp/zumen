@@ -424,6 +424,10 @@ impl Session {
             Request::Deviation(request) => {
                 self.deviation(request, &mut cx).map(|r| Box::new(r) as _)
             }
+            #[cfg(feature = "drawing")]
+            Request::CivilDrawing(request) => self
+                .civil_drawing(request, &mut cx)
+                .map(|r| Box::new(r) as _),
             // 入れなかったモジュールの op は、上で断った
             #[allow(unreachable_patterns)]
             _ => Err(Failed),
@@ -1259,6 +1263,68 @@ impl Session {
         asbuilt::deviation(request, cloud, model, &profiles, cx)
     }
 
+    /// 土木の文書の線形から図を作り、新しい DXF の文書として開く（決定 0239）
+    #[cfg(feature = "drawing")]
+    fn civil_drawing(
+        &mut self,
+        request: &messages::CivilDrawingRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::CivilDrawingResult, Failed> {
+        let doc = &request.doc;
+        if !name::is_safe(doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        if !name::is_safe(&request.to) {
+            return Err(fail(cx, invalid_value("/to")));
+        }
+        let to = &request.to;
+        if self.docs.contains_key(to)
+            || self.models.contains_key(to)
+            || self.civils.contains_key(to)
+            || self.clouds.contains_key(to)
+        {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", to.as_str()),
+            ));
+        }
+        let model = match self.civils.get(doc) {
+            Some(model) => model,
+            None if self.docs.contains_key(doc)
+                || self.models.contains_key(doc)
+                || self.clouds.contains_key(doc) =>
+            {
+                return Err(fail(cx, unsupported(doc, "civil_drawing")));
+            }
+            None => {
+                return Err(fail(
+                    cx,
+                    Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
+                ));
+            }
+        };
+        let names = request.profiles.as_deref().unwrap_or_default();
+        let mut profiles = Vec::with_capacity(names.len());
+        for (index, name) in names.iter().enumerate() {
+            let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
+            profiles.push((name.as_str(), bytes));
+        }
+        let (drawing, mut result) = civil::civil_drawing(request, model, &profiles, cx)?;
+        let converted = convert::to_dxf(&drawing, cx)?;
+        let hash =
+            Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        self.hashes.insert(to.clone(), hash);
+        self.docs.insert(to.clone(), Doc::Dxf(converted.file));
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes: converted.bytes,
+        }));
+        result.format = Dxf::FORMAT.to_string();
+        result.hash = hash.to_string();
+        result.elements = converted.elements;
+        Ok(result)
+    }
+
     /// 開いた点群の文書。`pointer` は名前を書いた欄
     #[cfg(feature = "drawing")]
     fn cloud(
@@ -1692,6 +1758,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Civil(request) => &request.request_common,
         Request::Pointcloud(request) => &request.request_common,
         Request::Deviation(request) => &request.request_common,
+        Request::CivilDrawing(request) => &request.request_common,
     }
 }
 
@@ -2234,7 +2301,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":50}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":51}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

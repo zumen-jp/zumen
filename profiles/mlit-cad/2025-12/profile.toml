@@ -5,7 +5,7 @@
 format = "0.1"
 id = "mlit-cad"
 edition = "2025-12"
-revision = 2
+revision = 3
 title = "CAD製図基準（土木）"
 # 図面管理項目の「適用要領基準」に書く値（本編の改定履歴）。
 standard-code = "土木 202512-01"
@@ -184,6 +184,14 @@ values = [
   { mantissa = 3, rank = "secondary" },
   { mantissa = 4, rank = "secondary" },
   { mantissa = 6, rank = "secondary" },
+]
+
+# 土木の図（決定 0231・0239）を作るときの尺度の分母と、測点の間隔（メートル）。基準は図ごとの尺度を決めないので、
+# 尺度の語彙の優先する仮数から、作図の慣習の値を選んだ。
+[vocabularies.civil-drawing]
+source = { document = "manual", section = "1-4-5", basis = "chosen" }
+values = [
+  { plan = 1000, horizontal = 1000, vertical = 100, cross-section = 100, station-pitch = 20 },
 ]
 
 # 解説は機種依存文字を使わないとだけ書き、文字を列挙しない。範囲は旧版で選んだもの。

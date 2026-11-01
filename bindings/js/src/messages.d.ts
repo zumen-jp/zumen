@@ -28,7 +28,8 @@ export type Request =
   | BcfWriteRequest
   | CivilRequest
   | PointcloudRequest
-  | DeviationRequest;
+  | DeviationRequest
+  | CivilDrawingRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2520,6 +2521,62 @@ export interface PointcloudPoints {
   level: number;
 }
 
+/** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から */
+export interface CivilDrawingRequest extends RequestCommon {
+  /** op の名前 */
+  op: "civil_drawing";
+  /** open で開いた J-LandXML の文書の名前 */
+  doc: string;
+  /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい */
+  id?: string;
+  /** 書く用紙の名前（結果の sheets の 1 つ）。書かなければ平面図 */
+  sheet?: string;
+  /** 作る文書の名前 */
+  to: string;
+  /** プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す */
+  profiles?: string[];
+  /** 作図の値に使うプロファイル。profiles の中から選ぶ。profiles と一緒に書く */
+  profile?: ProfileRef;
+}
+
+/** 作った文書。書いたファイルは blobs の file で返す */
+export interface CivilDrawingResult {
+  /** 作った文書の名前 */
+  doc: string;
+  /** 書いた形式の名前。今は dxf */
+  format: string;
+  /** 書いたファイルのハッシュ。apply の前提条件に使う */
+  hash: string;
+  /** 書いた要素の数 */
+  elements: number;
+  /** 図を作った線形の ID */
+  alignment: string;
+  /** 作った用紙の名前。図を描ける順（平面図・縦断図・横断図） */
+  sheets: string[];
+  /** 書いた用紙の名前 */
+  sheet: string;
+  /** 使った作図の値 */
+  options: CivilDrawingOptions;
+  /** 作図の値を読んだプロファイルの、extends を解いた鎖。基から順。プロファイルを渡さなければ書かない */
+  profile?: ProfileIdentity[];
+}
+
+/** 土木の図の作図の値 */
+export interface CivilDrawingOptions {
+  /** 平面図の尺度の分母 */
+  plan: number;
+  /** 縦断図の横の尺度の分母 */
+  horizontal: number;
+  /** 縦断図の縦の尺度の分母 */
+  vertical: number;
+  /** 横断図の尺度の分母 */
+  cross_section: number;
+  /** 文字の高さ（mm） */
+  text_height: number;
+  /** 測点の間隔（メートル） */
+  station_pitch: number;
+}
+
 /** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から */
 export interface DeviationRequest extends RequestCommon {
   /** op の名前 */
@@ -2655,4 +2712,5 @@ export interface Operations {
   civil: { request: CivilRequest; result: CivilResult };
   pointcloud: { request: PointcloudRequest; result: PointcloudResult };
   deviation: { request: DeviationRequest; result: DeviationResult };
+  civil_drawing: { request: CivilDrawingRequest; result: CivilDrawingResult };
 }

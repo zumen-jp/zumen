@@ -737,13 +737,19 @@ fn template(
         .is_some_and(|sheet| !sheet.elements.is_empty() || sheet.views.iter().any(bake::bakes))
         .then(&mut next);
     let seed = next();
-    // 用紙の大きさ（mm）。DXF の用紙の単位を mm とする
+    // 用紙の大きさ。DXF の用紙の限界は図面の単位（INSUNITS）で書くので、mm から直す
+    let mm = drawing
+        .spaces
+        .first()
+        .and_then(|space| space.unit.millimeters())
+        .unwrap_or(1.0);
     let limits = drawing.sheets.first().and_then(|sheet| sheet.size).map_or(
         String::new(),
         |[width, height]| {
             format!(
                 "9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n{:?}\n20\n{:?}\n",
-                width.0, height.0
+                width.0 / mm,
+                height.0 / mm
             )
         },
     );
