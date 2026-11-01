@@ -785,7 +785,7 @@ fn pairs(values: &[f64]) -> Option<Vec<[f64; 2]>> {
     (!pairs.is_empty() && rest.is_empty()).then(|| pairs.to_vec())
 }
 
-/// 縦断の変化点（追加距離・標高・縦断曲線の長さ・出所）の並びを、区間の並びにする。追加距離が増えないか、
+/// 縦断の変化点（追加距離・標高・縦断曲線の長さ・出所）の並びを、区間のならびにする。追加距離が増えないか、
 /// 縦断曲線が重なれば `None`
 fn vertical(points: &[(f64, f64, f64, Ref)]) -> Option<Vec<Vertical>> {
     let grades: Vec<f64> = points

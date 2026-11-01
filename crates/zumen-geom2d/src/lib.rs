@@ -349,7 +349,7 @@ pub fn clothoid(
 pub struct ClothoidOrigin {
     /// 原点（曲率が 0 の所）
     pub origin: Xy,
-    /// パラメータ A
+    /// パラメーター A
     pub parameter: f64,
     /// 原点での接線の向き（ラジアン）
     pub angle: f64,
