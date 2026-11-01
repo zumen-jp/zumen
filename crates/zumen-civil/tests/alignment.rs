@@ -219,6 +219,7 @@ fn every_ramp_turns_by_the_mean_curvature() {
         Ramp::Cosine,
         Ramp::SineHalfWave,
         Ramp::Helmert,
+        Ramp::Viennese,
     ] {
         let (_, direction) = along([0.0, 0.0], 0.3, [0.0, 1.0 / R], 60.0, Some(ramp), 60.0);
         assert!(
@@ -233,8 +234,9 @@ fn outside_distances_and_uncomputable_curves_are_reported() {
     let mut alignment = alignment();
     let (outside, _) = with_cx(|cx| zumen_civil::place(&alignment, 200.0, cx));
     assert_eq!(outside.unwrap_err().code(), codes::CIVIL_DISTANCE_MISSING);
+    // 3 次放物線は、円弧と円弧の間を計算しない
     alignment.horizontal[1].kind = HorizontalKind::Transition {
-        start_radius: None,
+        start_radius: Some(2.0 * R),
         end_radius: Some(R),
         curve: TransitionCurve::CubicParabola,
     };

@@ -153,8 +153,14 @@ pub fn curvature(
                 TransitionCurve::Cosine => Ramp::Cosine,
                 TransitionCurve::SineHalfWave => Ramp::SineHalfWave,
                 TransitionCurve::Helmert => Ramp::Helmert,
-                TransitionCurve::CubicParabola => return Err(unsupported(index, "cubic_parabola")),
-                TransitionCurve::Viennese => return Err(unsupported(index, "viennese")),
+                // 3 次放物線は、直線と円弧の間だけを計算する
+                TransitionCurve::CubicParabola
+                    if start_radius.is_some() == end_radius.is_some() =>
+                {
+                    return Err(unsupported(index, "cubic_parabola"));
+                }
+                TransitionCurve::CubicParabola => Ramp::CubicParabola,
+                TransitionCurve::Viennese => Ramp::Viennese,
                 TransitionCurve::Other(name) => return Err(unsupported(index, name)),
             };
             let k1 = inverse(*start_radius, "start_radius")?;
@@ -181,11 +187,85 @@ fn height(segments: &[Vertical], distance: f64) -> Result<Option<(f64, f64)>, Bo
                 let change = (end_gradient - g0) / segment.length;
                 Ok(Some((h0 + g0 * u + change * u * u / 2.0, g0 + change * u)))
             }
-            VerticalKind::CircularArc { .. } => Err(unsupported(index, "circular_arc")),
-            VerticalKind::Clothoid { .. } => Err(unsupported(index, "clothoid")),
+            VerticalKind::CircularArc { radius } => arc(h0, g0, radius, u)
+                .map(Some)
+                .ok_or_else(|| invalid(index, "radius")),
+            VerticalKind::Clothoid {
+                start_radius,
+                end_radius,
+            } => {
+                // 縦断の面（追加距離と高さ）で、上に凸に曲がるものは時計回りなので、曲率を負にする
+                let inverse = |radius: Option<f64>, field| match radius {
+                    None => Ok(0.0),
+                    Some(radius) if radius.is_finite() && radius != 0.0 => Ok(-1.0 / radius),
+                    Some(_) => Err(invalid(index, field)),
+                };
+                let curvatures = [
+                    inverse(start_radius, "start_radius")?,
+                    inverse(end_radius, "end_radius")?,
+                ];
+                clothoid(h0, g0, curvatures, segment.length, u)
+                    .map(Some)
+                    .ok_or_else(|| invalid(index, "length"))
+            }
         };
     }
     Ok(None)
+}
+
+/// 縦断の円弧の、初めから水平に `u` の所の高さと勾配。半径は上に凸のものを正にする。勾配の角を θ とすると、
+/// sin θ = sin θ₀ − u / R、高さは h₀ + R (cos θ − cos θ₀)。円の上にない所なら `None`
+fn arc(h0: f64, g0: f64, radius: f64, u: f64) -> Option<(f64, f64)> {
+    if !(radius.is_finite() && radius != 0.0) {
+        return None;
+    }
+    let cos0 = 1.0 / libm::hypot(1.0, g0);
+    let sin = g0 * cos0 - u / radius;
+    if sin.is_nan() || sin.abs() >= 1.0 {
+        return None;
+    }
+    let cos = libm::sqrt(1.0 - sin * sin);
+    Some((h0 + radius * (cos - cos0), sin / cos))
+}
+
+/// 縦断のクロソイドの、初めから水平に `u` の所の高さと勾配。曲率は、曲線の長さに沿って `curvatures` の初めから
+/// 終わりへ変わり、水平の長さが `length` になるように曲線の長さを決める。解けなければ `None`
+fn clothoid(h0: f64, g0: f64, curvatures: [f64; 2], length: f64, u: f64) -> Option<(f64, f64)> {
+    let start = libm::atan(g0);
+    let ramp = Some(Ramp::Clothoid);
+    let at =
+        |total: f64, s: f64| zumen_geom2d::along([0.0, 0.0], start, curvatures, total, ramp, s);
+    // 曲線の長さを、水平の長さとの比で直していく
+    let mut total = length * libm::hypot(1.0, g0);
+    for _ in 0..64 {
+        let ([x, _], _) = at(total, total);
+        if !(x.is_finite() && x > 0.0) {
+            return None;
+        }
+        let next = total * length / x;
+        let done = (next - total).abs() <= 1e-12 * length;
+        total = next;
+        if done {
+            break;
+        }
+    }
+    // 水平に u の所の曲線の長さを、ニュートン法で解く。長さに対する水平の変わり方は cos θ
+    let mut s = u * total / length;
+    for _ in 0..64 {
+        let ([x, _], angle) = at(total, s);
+        let cos = libm::cos(angle);
+        if cos.is_nan() || cos <= 0.0 {
+            return None;
+        }
+        let step = (x - u) / cos;
+        s -= step;
+        if step.is_nan() || step.abs() <= 1e-12 * length {
+            break;
+        }
+    }
+    let ([_, y], angle) = at(total, s);
+    let cos = libm::cos(angle);
+    (cos > 0.0 && y.is_finite()).then(|| (h0 + y, libm::sin(angle) / cos))
 }
 
 fn invalid(index: usize, field: &'static str) -> Box<Diagnostic> {

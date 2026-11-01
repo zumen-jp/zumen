@@ -417,6 +417,12 @@ pub enum Ramp {
     SineHalfWave,
     /// ヘルマート曲線。割合は、t が 1/2 までは 2t²、その後は 1 − 2(1 − t)²
     Helmert,
+    /// ウィーン曲線（Wiener Bogen）の 7 次の式。割合は 35t⁴ − 84t⁵ + 70t⁶ − 20t⁷。重心の高さとカントによる項は
+    /// 持たない
+    Viennese,
+    /// 3 次放物線。初めの接線を x 軸として y = x³ / 6RX（X は終わりの点の x）と書く曲線で、曲率は t の式で
+    /// 書けないので、[`along`] が別に解く。直線の側の端の曲率は 0 にする
+    CubicParabola,
 }
 
 impl Ramp {
@@ -429,6 +435,12 @@ impl Ramp {
             Ramp::SineHalfWave => t * t / 2.0 + (libm::cos(2.0 * PI * t) - 1.0) / (4.0 * PI * PI),
             Ramp::Helmert if t <= 0.5 => 2.0 * t * t * t / 3.0,
             Ramp::Helmert => t - 0.5 + 2.0 * (1.0 - t) * (1.0 - t) * (1.0 - t) / 3.0,
+            Ramp::Viennese => {
+                let t4 = t * t * t * t;
+                t4 * t * (7.0 - 14.0 * t + 10.0 * t * t - 2.5 * t * t * t)
+            }
+            // along が別に解くので使わない。近い値として、クロソイドと同じにする
+            Ramp::CubicParabola => t * t / 2.0,
         }
     }
 }
@@ -438,7 +450,8 @@ impl Ramp {
 ///
 /// 向きはラジアンで、点の 1 つ目の成分の軸から 2 つ目の成分の軸へ回る向きを正とする。曲率も、その向きへ
 /// 曲がるものを正とする。地図の点（northing・easting）を渡せば、向きは北から時計回りの方向角になる。
-/// 緩和曲線の点は、向きの式をシンプソンの公式で積んで求める
+/// 緩和曲線の点は、向きの式をシンプソンの公式で積んで求める。3 次放物線は、曲線の長さが `length` になる X を
+/// 求めてから、長さ `s` の所の x を求める
 pub fn along(
     start: Xy,
     direction: f64,
@@ -463,6 +476,9 @@ pub fn along(
         };
         return (point, angle);
     };
+    if ramp == Ramp::CubicParabola {
+        return cubic_parabola(start, direction, curvatures, length, s);
+    }
     let angle = |u: f64| direction + k1 * u + (k2 - k1) * length * ramp.integral(u / length);
     // 1 つの刻みで向きが変わる量を 0.01 ラジアンより小さくする。刻みの数は偶数にする
     let turn = s.abs() * k1.abs().max(k2.abs());
@@ -486,6 +502,76 @@ pub fn along(
         y += w * libm::sin(phi);
     }
     ([start[0] + x * h / 3.0, start[1] + y * h / 3.0], angle(s))
+}
+
+/// シンプソンの公式で、`f` を 0 から `end` まで積む。刻みの数は 64
+fn simpson(end: f64, f: impl Fn(f64) -> f64) -> f64 {
+    const STEPS: usize = 64;
+    let h = end / STEPS as f64;
+    let mut sum = 0.0;
+    for i in 0..=STEPS {
+        let w = match i {
+            0 | STEPS => 1.0,
+            i if i % 2 == 1 => 4.0,
+            _ => 2.0,
+        };
+        sum += w * f(h * i as f64);
+    }
+    sum * h / 3.0
+}
+
+/// 3 次放物線の点と向き。直線の側から曲がる向き（初めの曲率が 0）を基本の形とし、逆の向きは、基本の形を
+/// 終わりからたどる。両端の曲率が 0 でなければ、曲率を一定とする
+fn cubic_parabola(start: Xy, direction: f64, [k1, k2]: [f64; 2], length: f64, s: f64) -> (Xy, f64) {
+    let (k, reverse) = match (k1 == 0.0, k2 == 0.0) {
+        (true, false) => (k2, false),
+        // 逆にたどると、曲がる向きの符号も変わる
+        (false, true) => (-k1, true),
+        _ => return along(start, direction, [k1, k1], length, None, s),
+    };
+    // 基本の形の x を、曲線の長さ length の終わりの X と、長さ σ の所の x に解く。傾きは x² k / 2X
+    let slope = |x: f64, end: f64| x * x * k / (2.0 * end);
+    let arc = |x: f64, end: f64| simpson(x, |u| libm::hypot(1.0, slope(u, end)));
+    let mut end = length;
+    for _ in 0..64 {
+        let next = end * length / arc(end, end);
+        if !next.is_finite() || next <= 0.0 {
+            break;
+        }
+        let done = (next - end).abs() <= 1e-13 * length;
+        end = next;
+        if done {
+            break;
+        }
+    }
+    let at = |sigma: f64| {
+        let mut x = sigma.clamp(0.0, length).min(end);
+        for _ in 0..64 {
+            let step = (arc(x, end) - sigma) / libm::hypot(1.0, slope(x, end));
+            x -= step;
+            if step.is_nan() || step.abs() <= 1e-13 * length {
+                break;
+            }
+        }
+        let point = [x, x * x * x * k / (6.0 * end)];
+        (point, libm::atan(slope(x, end)))
+    };
+    let rotate = |[x, y]: Xy, angle: f64| {
+        let (sin, cos) = (libm::sin(angle), libm::cos(angle));
+        [x * cos - y * sin, x * sin + y * cos]
+    };
+    let (point, angle) = if reverse {
+        // 基本の形の終わりを初めの点に重ね、向きを逆にする
+        let (last, last_angle) = at(length);
+        let (here, here_angle) = at(length - s);
+        let turn = direction - last_angle - PI;
+        let offset = rotate([here[0] - last[0], here[1] - last[1]], turn);
+        (offset, turn + here_angle + PI)
+    } else {
+        let (here, here_angle) = at(s);
+        (rotate(here, direction), direction + here_angle)
+    };
+    ([start[0] + point[0], start[1] + point[1]], angle)
 }
 
 /// 折れ線の長さ
