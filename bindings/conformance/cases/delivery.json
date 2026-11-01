@@ -1,0 +1,80 @@
+{
+  "description": "delivery_check は、電子納品の成果品（決定 0241、#383）を、root の下の入力の名前の集まりか、ZIP の入力で受けて読み、管理ファイル（起点と直下のフォルダーの .XML）の DTD の名前・記録の数と、管理ファイルが指すが成果品にないファイルの名前を返す。管理ファイルは Shift_JIS でも読み、DTD は処理しない。照合の種類はまだない（#384）。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "納品/INDEX_C.XML",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE constdata SYSTEM \"INDE_C05.DTD\">\n<constdata DTD_version=\"05\"><基礎情報><図面フォルダ名>DRAWING</図面フォルダ名></基礎情報></constdata>\n"
+      }
+    },
+    {
+      "push": {
+        "name": "納品/DRAWING/DRAWING.XML",
+        "hex": "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d2253686966745f4a4953223f3e0a3c21444f43545950452064726177696e67646174612053595354454d20224452415730352e445444223e0a3c64726177696e67646174613e3c907d96ca8fee95f13e3c907d96ca837483408343838b96bc3e4430504c3030315a2e5032313c2f907d96ca837483408343838b96bc3e3c2f907d96ca8fee95f13e3c907d96ca8fee95f13e3c907d96ca837483408343838b96bc3e4430504c3030325a2e5032313c2f907d96ca837483408343838b96bc3e3c2f907d96ca8fee95f13e3c2f64726177696e67646174613e0a"
+      }
+    },
+    {
+      "push": {
+        "name": "納品/DRAWING/D0PL001Z.P21",
+        "text": "ISO-10303-21;"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_check",
+        "root": "納品/"
+      },
+      "expect": {
+        "/result/files": 3,
+        "/result/managed/0": {
+          "name": "DRAWING/DRAWING.XML",
+          "doctype": "DRAW05.DTD",
+          "root": "drawingdata",
+          "records": 5,
+          "links": 2,
+          "missing": [
+            "DRAWING/D0PL002Z.P21"
+          ]
+        },
+        "/result/managed/1/name": "INDEX_C.XML",
+        "/result/managed/1/doctype": "INDE_C05.DTD",
+        "/result/chain": [],
+        "/result/total": 0,
+        "/diagnostics": []
+      }
+    },
+    {
+      "push": {
+        "name": "納品.zip",
+        "hex": "504b0304140000000000070f625dd9a26ab2ce000000ce0000000b000000494e4445585f432e584d4c3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520636f6e7374646174612053595354454d2022494e44455f4330352e445444223e0a3c636f6e737464617461204454445f76657273696f6e3d223035223e3ce59fbae7a48ee68385e5a0b13e3ce59bb3e99da2e38395e382a9e383abe38380e5908d3e44524157494e473c2fe59bb3e99da2e38395e382a9e383abe38380e5908d3e3c2fe59fbae7a48ee68385e5a0b13e3c2f636f6e7374646174613e0a504b0304140000000000070f625dcba975e1f6000000f60000001300000044524157494e472f44524157494e472e584d4c3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d2253686966745f4a4953223f3e0a3c21444f43545950452064726177696e67646174612053595354454d20224452415730352e445444223e0a3c64726177696e67646174613e3c907d96ca8fee95f13e3c907d96ca837483408343838b96bc3e4430504c3030315a2e5032313c2f907d96ca837483408343838b96bc3e3c2f907d96ca8fee95f13e3c907d96ca8fee95f13e3c907d96ca837483408343838b96bc3e4430504c3030325a2e5032313c2f907d96ca837483408343838b96bc3e3c2f907d96ca8fee95f13e3c2f64726177696e67646174613e0a504b0304140000000000070f625d27658c440d0000000d0000001400000044524157494e472f4430504c3030315a2e50323149534f2d31303330332d32313b504b01021403140000000000070f625dd9a26ab2ce000000ce0000000b0000000000000000000000800100000000494e4445585f432e584d4c504b01021403140000000000070f625dcba975e1f6000000f60000001300000000000000000000008001f700000044524157494e472f44524157494e472e584d4c504b01021403140000000000070f625d27658c440d0000000d00000014000000000000000000000080011e02000044524157494e472f4430504c3030315a2e503231504b05060000000003000300bc0000005d0200000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_check",
+        "archive": "納品.zip"
+      },
+      "expect": {
+        "/result/files": 3,
+        "/result/managed/0/missing": [
+          "DRAWING/D0PL002Z.P21"
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_check",
+        "root": "なし/"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/root"
+      }
+    }
+  ]
+}

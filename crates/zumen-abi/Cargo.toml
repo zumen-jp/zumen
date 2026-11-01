@@ -40,6 +40,7 @@ zumen-civil-drawing = { version = "0.2.0", path = "../zumen-civil-drawing" }
 zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
 zumen-landxml = { version = "0.2.0", path = "../zumen-landxml" }
 zumen-citygml = { version = "0.2.0", path = "../zumen-citygml" }
+zumen-delivery = { version = "0.2.0", path = "../zumen-delivery" }
 zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
 zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
 zumen-las = { version = "0.2.0", path = "../zumen-las" }

@@ -75,6 +75,8 @@
     "crs.height-datum.unsupported": "基準の違う高さ（{first}と{second}）の差は求めませんでした（{count} 件）。",
     "crs.height-realization.assumed": "標高の成果が書かれていないので、測地成果{realization}とみなしました（{count} 件）。",
     "crs.height-realization.mixed": "測地成果{first}と測地成果{second}の標高を一緒に使いました（{count} 件）。",
+    "delivery.file.invalid": "管理ファイル「{name}」を XML として読めないので、記録に移しませんでした。",
+    "delivery.name.unsafe": "名前「{name}」は成果品の中の名前に使えないので、読みませんでした。",
     "deviation.crs.mixed": "点群の座標系 EPSG:{points} と TIN の座標系 EPSG:{surface} が違うので、差を求めませんでした。",
     "drawing.mark-height.dropped": "線種「{name}」に添える文字の高さを有限の実数で表せないので、結果に含めませんでした（{count} 件）。",
     "drawing.placement.invalid": "記号の配置「{id}」は、外側の配置と同じ定義を置いて循環するので、中をたどりませんでした（{count} 件）。",

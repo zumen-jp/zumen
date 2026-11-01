@@ -776,6 +776,7 @@ place = "core"
 basis = ["spec"]
 verify = ["国土交通省の電子納品チェックシステム（手元でだけ使う）"]
 samples = ["再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る"]
+docs = ["docs/formats/delivery.md"]
 issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
 
 [[formats.delivery.evidence]]

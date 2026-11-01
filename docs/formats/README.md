@@ -475,6 +475,7 @@
 - issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
 - issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
 - issue: [zumen-jp/zumen#388](https://github.com/zumen-jp/zumen/issues/388)
+- 形式の文書: [docs/formats/delivery.md](../../docs/formats/delivery.md)
 
 ### format-dwg
 

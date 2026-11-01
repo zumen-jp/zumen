@@ -27,6 +27,8 @@ mod check;
 #[cfg(feature = "drawing")]
 mod civil;
 mod convert;
+#[cfg(feature = "drawing")]
+mod delivery;
 mod describe;
 pub mod ffi;
 #[cfg(feature = "drawing")]

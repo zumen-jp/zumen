@@ -65,6 +65,7 @@ namespace Zumen.Messages
             ["deviation"] = typeof(DeviationRequest),
             ["civil_drawing"] = typeof(CivilDrawingRequest),
             ["geo"] = typeof(GeoRequest),
+            ["delivery_check"] = typeof(DeliveryCheckRequest),
         };
     }
 
@@ -6905,6 +6906,174 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+    /// </summary>
+    public sealed record DeliveryCheckRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "delivery_check";
+
+        /// <summary>
+        /// 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない
+        /// </summary>
+        [JsonPropertyName("root")]
+        public string? Root { get; init; }
+
+        /// <summary>
+        /// 成果品の ZIP の入力の名前。root と一緒には書かない
+        /// </summary>
+        [JsonPropertyName("archive")]
+        public string? Archive { get; init; }
+
+        /// <summary>
+        /// プロファイルの入力の名前の列。extends で指す先も、すべて渡す
+        /// </summary>
+        [JsonPropertyName("profiles")]
+        public IReadOnlyList<string>? Profiles { get; init; }
+
+        /// <summary>
+        /// 照合に使うプロファイル。profiles の中から選ぶ
+        /// </summary>
+        [JsonPropertyName("profile")]
+        public ProfileRef? Profile { get; init; }
+
+        /// <summary>
+        /// 返す指摘の初めの位置
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す指摘の数の上限。書かなければ 10000
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 成果品の要約と、照合の結果。照合の結果は check と同じ形
+    /// </summary>
+    public sealed record DeliveryCheckResult
+    {
+        /// <summary>
+        /// 成果品のファイルの数
+        /// </summary>
+        [JsonPropertyName("files")]
+        public ulong Files { get; init; }
+
+        /// <summary>
+        /// 管理ファイルの要約。名前の順
+        /// </summary>
+        [JsonPropertyName("managed")]
+        public IReadOnlyList<DeliveryManaged> Managed { get; init; } = default!;
+
+        /// <summary>
+        /// 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空
+        /// </summary>
+        [JsonPropertyName("chain")]
+        public IReadOnlyList<ProfileIdentity> Chain { get; init; } = default!;
+
+        /// <summary>
+        /// 規則ごとの指摘の数
+        /// </summary>
+        [JsonPropertyName("rules")]
+        public IReadOnlyList<CheckRule> Rules { get; init; } = default!;
+
+        /// <summary>
+        /// 指摘
+        /// </summary>
+        [JsonPropertyName("findings")]
+        public IReadOnlyList<CheckFinding> Findings { get; init; } = default!;
+
+        /// <summary>
+        /// 指摘の数の全体
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 続きの指摘の位置。続きがなければ書かない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
+    /// 管理ファイルの要約
+    /// </summary>
+    public sealed record DeliveryManaged
+    {
+        /// <summary>
+        /// 成果品の中の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 文書型宣言の DTD の名前
+        /// </summary>
+        [JsonPropertyName("doctype")]
+        public string? Doctype { get; init; }
+
+        /// <summary>
+        /// 根の要素の名前
+        /// </summary>
+        [JsonPropertyName("root")]
+        public string Root { get; init; } = default!;
+
+        /// <summary>
+        /// 要素の記録の数
+        /// </summary>
+        [JsonPropertyName("records")]
+        public ulong Records { get; init; }
+
+        /// <summary>
+        /// ファイルの名前の形の値の数
+        /// </summary>
+        [JsonPropertyName("links")]
+        public ulong Links { get; init; }
+
+        /// <summary>
+        /// 成果品の中に見つからないファイルの名前。書いた順
+        /// </summary>
+        [JsonPropertyName("missing")]
+        public IReadOnlyList<string> Missing { get; init; } = default!;
+    }
+
+    /// <summary>
     /// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
     /// </summary>
     public sealed record GeoRequest
@@ -7698,6 +7867,7 @@ namespace Zumen.Messages
                 ["deviation"] = (typeof(DeviationRequest), typeof(DeviationResult)),
                 ["civil_drawing"] = (typeof(CivilDrawingRequest), typeof(CivilDrawingResult)),
                 ["geo"] = (typeof(GeoRequest), typeof(GeoResult)),
+                ["delivery_check"] = (typeof(DeliveryCheckRequest), typeof(DeliveryCheckResult)),
             };
     }
 }

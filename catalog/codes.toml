@@ -1946,6 +1946,22 @@ params = { station = "text", places = "uint" }
 since = "0.2.0"
 status = "active"
 
+# 電子納品の成果品（決定 0241、#383）
+
+[codes."delivery.name.unsafe"]
+description = "成果品の中の名前に、空の部分・.・..・\\ を含むか、/ で始まるので、そのファイルを読まなかった"
+severity = "warning"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."delivery.file.invalid"]
+description = "管理ファイルを XML として読めないので、管理ファイルの記録に移さなかった"
+severity = "error"
+params = { name = "text" }
+since = "0.2.0"
+status = "active"
+
 # CityGML（決定 0233、#379）
 
 [codes."citygml.element.unsupported"]

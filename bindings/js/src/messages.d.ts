@@ -30,7 +30,8 @@ export type Request =
   | PointcloudRequest
   | DeviationRequest
   | CivilDrawingRequest
-  | GeoRequest;
+  | GeoRequest
+  | DeliveryCheckRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2522,6 +2523,58 @@ export interface PointcloudPoints {
   level: number;
 }
 
+/** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から */
+export interface DeliveryCheckRequest extends RequestCommon {
+  /** op の名前 */
+  op: "delivery_check";
+  /** 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない */
+  root?: string;
+  /** 成果品の ZIP の入力の名前。root と一緒には書かない */
+  archive?: string;
+  /** プロファイルの入力の名前の列。extends で指す先も、すべて渡す */
+  profiles?: string[];
+  /** 照合に使うプロファイル。profiles の中から選ぶ */
+  profile?: ProfileRef;
+  /** 返す指摘の初めの位置 */
+  offset?: number;
+  /** 返す指摘の数の上限。書かなければ 10000 */
+  limit?: number;
+}
+
+/** 成果品の要約と、照合の結果。照合の結果は check と同じ形 */
+export interface DeliveryCheckResult {
+  /** 成果品のファイルの数 */
+  files: number;
+  /** 管理ファイルの要約。名前の順 */
+  managed: DeliveryManaged[];
+  /** 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空 */
+  chain: ProfileIdentity[];
+  /** 規則ごとの指摘の数 */
+  rules: CheckRule[];
+  /** 指摘 */
+  findings: CheckFinding[];
+  /** 指摘の数の全体 */
+  total: number;
+  /** 続きの指摘の位置。続きがなければ書かない */
+  next_offset?: number;
+}
+
+/** 管理ファイルの要約 */
+export interface DeliveryManaged {
+  /** 成果品の中の名前 */
+  name: string;
+  /** 文書型宣言の DTD の名前 */
+  doctype?: string;
+  /** 根の要素の名前 */
+  root: string;
+  /** 要素の記録の数 */
+  records: number;
+  /** ファイルの名前の形の値の数 */
+  links: number;
+  /** 成果品の中に見つからないファイルの名前。書いた順 */
+  missing: string[];
+}
+
 /** open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
 export interface GeoRequest extends RequestCommon {
   /** op の名前 */
@@ -2812,4 +2865,5 @@ export interface Operations {
   deviation: { request: DeviationRequest; result: DeviationResult };
   civil_drawing: { request: CivilDrawingRequest; result: CivilDrawingResult };
   geo: { request: GeoRequest; result: GeoResult };
+  delivery_check: { request: DeliveryCheckRequest; result: DeliveryCheckResult };
 }

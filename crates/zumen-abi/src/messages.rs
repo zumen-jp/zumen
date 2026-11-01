@@ -61,6 +61,8 @@ pub enum Request {
     CivilDrawing(CivilDrawingRequest),
     /// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
     Geo(GeoRequest),
+    /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+    DeliveryCheck(DeliveryCheckRequest),
 }
 
 impl Request {
@@ -91,6 +93,7 @@ impl Request {
         "deviation",
         "civil_drawing",
         "geo",
+        "delivery_check",
     ];
 
     /// 目印の欄（`op`）の値
@@ -121,6 +124,7 @@ impl Request {
             Self::Deviation(_) => "deviation",
             Self::CivilDrawing(_) => "civil_drawing",
             Self::Geo(_) => "geo",
+            Self::DeliveryCheck(_) => "delivery_check",
         }
     }
 }
@@ -158,6 +162,9 @@ impl FromJson for Request {
             "deviation" => Self::Deviation(DeviationRequest::read_fields(&mut object)?),
             "civil_drawing" => Self::CivilDrawing(CivilDrawingRequest::read_fields(&mut object)?),
             "geo" => Self::Geo(GeoRequest::read_fields(&mut object)?),
+            "delivery_check" => {
+                Self::DeliveryCheck(DeliveryCheckRequest::read_fields(&mut object)?)
+            }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -193,6 +200,7 @@ impl ToJson for Request {
             Self::Deviation(value) => value.to_json(out),
             Self::CivilDrawing(value) => value.to_json(out),
             Self::Geo(value) => value.to_json(out),
+            Self::DeliveryCheck(value) => value.to_json(out),
         }
     }
 }
@@ -12488,6 +12496,248 @@ impl FromJson for PointcloudPoints {
 }
 
 impl ToJson for PointcloudPoints {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryCheckRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない
+    pub root: Option<String>,
+    /// 成果品の ZIP の入力の名前。root と一緒には書かない
+    pub archive: Option<String>,
+    /// プロファイルの入力の名前の列。extends で指す先も、すべて渡す
+    pub profiles: Option<Vec<String>>,
+    /// 照合に使うプロファイル。profiles の中から選ぶ
+    pub profile: Option<ProfileRef>,
+    /// 返す指摘の初めの位置
+    pub offset: Option<u64>,
+    /// 返す指摘の数の上限。書かなければ 10000
+    pub limit: Option<u64>,
+}
+
+impl DeliveryCheckRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "delivery_check")?;
+        let root = object.optional("root", json::string)?;
+        let archive = object.optional("archive", json::string)?;
+        let profiles = object.optional("profiles", |value| json::array(value, json::string))?;
+        let profile = object.optional("profile", ProfileRef::from_json)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 10000))?;
+        Ok(Self {
+            request_common,
+            root,
+            archive,
+            profiles,
+            profile,
+            offset,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("delivery_check");
+        if let Some(value) = &self.root {
+            out.key("root");
+            out.string(value);
+        }
+        if let Some(value) = &self.archive {
+            out.key("archive");
+            out.string(value);
+        }
+        if let Some(value) = &self.profiles {
+            out.key("profiles");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.profile {
+            out.key("profile");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for DeliveryCheckRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryCheckRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 成果品の要約と、照合の結果。照合の結果は check と同じ形
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryCheckResult {
+    /// 成果品のファイルの数
+    pub files: u64,
+    /// 管理ファイルの要約。名前の順
+    pub managed: Vec<DeliveryManaged>,
+    /// 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空
+    pub chain: Vec<ProfileIdentity>,
+    /// 規則ごとの指摘の数
+    pub rules: Vec<CheckRule>,
+    /// 指摘
+    pub findings: Vec<CheckFinding>,
+    /// 指摘の数の全体
+    pub total: u64,
+    /// 続きの指摘の位置。続きがなければ書かない
+    pub next_offset: Option<u64>,
+}
+
+impl DeliveryCheckResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let files = object.required("files", |value| json::uint(value, 0, 9007199254740991))?;
+        let managed = object.required("managed", |value| {
+            json::array(value, DeliveryManaged::from_json)
+        })?;
+        let chain = object.required("chain", |value| {
+            json::array(value, ProfileIdentity::from_json)
+        })?;
+        let rules = object.required("rules", |value| json::array(value, CheckRule::from_json))?;
+        let findings = object.required("findings", |value| {
+            json::array(value, CheckFinding::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            files,
+            managed,
+            chain,
+            rules,
+            findings,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("files");
+        out.uint(self.files);
+        out.key("managed");
+        out.array(&self.managed, |out, item| item.to_json(out));
+        out.key("chain");
+        out.array(&self.chain, |out, item| item.to_json(out));
+        out.key("rules");
+        out.array(&self.rules, |out, item| item.to_json(out));
+        out.key("findings");
+        out.array(&self.findings, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for DeliveryCheckResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryCheckResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 管理ファイルの要約
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryManaged {
+    /// 成果品の中の名前
+    pub name: String,
+    /// 文書型宣言の DTD の名前
+    pub doctype: Option<String>,
+    /// 根の要素の名前
+    pub root: String,
+    /// 要素の記録の数
+    pub records: u64,
+    /// ファイルの名前の形の値の数
+    pub links: u64,
+    /// 成果品の中に見つからないファイルの名前。書いた順
+    pub missing: Vec<String>,
+}
+
+impl DeliveryManaged {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let doctype = object.optional("doctype", json::string)?;
+        let root = object.required("root", json::string)?;
+        let records = object.required("records", |value| json::uint(value, 0, 9007199254740991))?;
+        let links = object.required("links", |value| json::uint(value, 0, 9007199254740991))?;
+        let missing = object.required("missing", |value| json::array(value, json::string))?;
+        Ok(Self {
+            name,
+            doctype,
+            root,
+            records,
+            links,
+            missing,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.doctype {
+            out.key("doctype");
+            out.string(value);
+        }
+        out.key("root");
+        out.string(&self.root);
+        out.key("records");
+        out.uint(self.records);
+        out.key("links");
+        out.uint(self.links);
+        out.key("missing");
+        out.array(&self.missing, |out, item| out.string(item));
+    }
+}
+
+impl FromJson for DeliveryManaged {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryManaged {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

@@ -75,6 +75,8 @@
     "crs.height-datum.unsupported": "The difference between heights on different datums ({first} and {second}) was not computed ({count}).",
     "crs.height-realization.assumed": "The survey realization of the heights was not written, so {realization} was assumed ({count}).",
     "crs.height-realization.mixed": "Heights of the {first} and {second} survey realizations were used together ({count}).",
+    "delivery.file.invalid": "The management file \"{name}\" cannot be read as XML, so it was not moved to the records.",
+    "delivery.name.unsafe": "The name \"{name}\" cannot be used inside a delivery package, so the file was not read.",
     "deviation.crs.mixed": "The point cloud CRS EPSG:{points} differs from the TIN CRS EPSG:{surface}, so no difference was computed.",
     "drawing.mark-height.dropped": "Omitted the height of text in line type \"{name}\" because it cannot be represented as a finite number ({count}).",
     "drawing.placement.invalid": "Did not walk into the symbol placement \"{id}\", because it places the same definition as an outer placement and forms a cycle ({count}).",

@@ -350,6 +350,7 @@ dependencies = [
  "zumen-civil",
  "zumen-civil-drawing",
  "zumen-crs",
+ "zumen-delivery",
  "zumen-drawing",
  "zumen-e57",
  "zumen-geo",
@@ -495,6 +496,16 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-delivery"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-sdk",
+ "zumen-xml",
+ "zumen-zip",
 ]
 
 [[package]]

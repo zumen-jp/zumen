@@ -90,6 +90,9 @@ class Request extends Message {
 
   /// op が geo の形なら、その見方。違えば null
   GeoRequest? get asGeoRequest => taggedView('op', 'geo', GeoRequest.fromJson);
+
+  /// op が delivery_check の形なら、その見方。違えば null
+  DeliveryCheckRequest? get asDeliveryCheckRequest => taggedView('op', 'delivery_check', DeliveryCheckRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -5461,6 +5464,133 @@ class PointcloudPoints extends Message {
   set level(int? value) => writeField('level', value);
 }
 
+/// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+class DeliveryCheckRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryCheckRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  DeliveryCheckRequest() : super({'op': 'delivery_check'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない
+  String? get root => readField('root', asString);
+  set root(String? value) => writeField('root', value);
+
+  /// 成果品の ZIP の入力の名前。root と一緒には書かない
+  String? get archive => readField('archive', asString);
+  set archive(String? value) => writeField('archive', value);
+
+  /// プロファイルの入力の名前の列。extends で指す先も、すべて渡す
+  List<String>? get profiles => readField('profiles', listOf(asString));
+  set profiles(List<String>? value) => writeField('profiles', value);
+
+  /// 照合に使うプロファイル。profiles の中から選ぶ
+  ProfileRef? get profile => readField('profile', objectOf(ProfileRef.fromJson));
+  set profile(ProfileRef? value) => writeField('profile', value);
+
+  /// 返す指摘の初めの位置
+  int? get offset => readField('offset', asInt);
+  set offset(int? value) => writeField('offset', value);
+
+  /// 返す指摘の数の上限。書かなければ 10000
+  int? get limit => readField('limit', asInt);
+  set limit(int? value) => writeField('limit', value);
+}
+
+/// 成果品の要約と、照合の結果。照合の結果は check と同じ形
+class DeliveryCheckResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryCheckResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryCheckResult() : super({});
+
+  /// 成果品のファイルの数
+  int? get files => readField('files', asInt);
+  set files(int? value) => writeField('files', value);
+
+  /// 管理ファイルの要約。名前の順
+  List<DeliveryManaged>? get managed => readField('managed', listOf(objectOf(DeliveryManaged.fromJson)));
+  set managed(List<DeliveryManaged>? value) => writeField('managed', value);
+
+  /// 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空
+  List<ProfileIdentity>? get chain => readField('chain', listOf(objectOf(ProfileIdentity.fromJson)));
+  set chain(List<ProfileIdentity>? value) => writeField('chain', value);
+
+  /// 規則ごとの指摘の数
+  List<CheckRule>? get rules => readField('rules', listOf(objectOf(CheckRule.fromJson)));
+  set rules(List<CheckRule>? value) => writeField('rules', value);
+
+  /// 指摘
+  List<CheckFinding>? get findings => readField('findings', listOf(objectOf(CheckFinding.fromJson)));
+  set findings(List<CheckFinding>? value) => writeField('findings', value);
+
+  /// 指摘の数の全体
+  int? get total => readField('total', asInt);
+  set total(int? value) => writeField('total', value);
+
+  /// 続きの指摘の位置。続きがなければ書かない
+  int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(int? value) => writeField('next_offset', value);
+}
+
+/// 管理ファイルの要約
+class DeliveryManaged extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryManaged.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryManaged() : super({});
+
+  /// 成果品の中の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 文書型宣言の DTD の名前
+  String? get doctype => readField('doctype', asString);
+  set doctype(String? value) => writeField('doctype', value);
+
+  /// 根の要素の名前
+  String? get root => readField('root', asString);
+  set root(String? value) => writeField('root', value);
+
+  /// 要素の記録の数
+  int? get records => readField('records', asInt);
+  set records(int? value) => writeField('records', value);
+
+  /// ファイルの名前の形の値の数
+  int? get links => readField('links', asInt);
+  set links(int? value) => writeField('links', value);
+
+  /// 成果品の中に見つからないファイルの名前。書いた順
+  List<String>? get missing => readField('missing', listOf(asString));
+  set missing(List<String>? value) => writeField('missing', value);
+}
+
 /// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 class GeoRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -6075,4 +6205,5 @@ abstract final class Operations {
   static const deviation = 'deviation';
   static const civilDrawing = 'civil_drawing';
   static const geo = 'geo';
+  static const deliveryCheck = 'delivery_check';
 }

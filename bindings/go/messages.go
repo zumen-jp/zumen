@@ -155,6 +155,11 @@ func (u Request) AsGeoRequest() *GeoRequest {
 	return asTagged[GeoRequest](u, "op", "geo")
 }
 
+// AsDeliveryCheckRequest は、op が delivery_check の形なら、その型で読む。違えば nil。
+func (u Request) AsDeliveryCheckRequest() *DeliveryCheckRequest {
+	return asTagged[DeliveryCheckRequest](u, "op", "delivery_check")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4455,6 +4460,97 @@ type PointcloudPoints struct {
 	Level *int64 `json:"level,omitempty"`
 }
 
+// DeliveryCheckRequest: 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+type DeliveryCheckRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない
+	Root *string `json:"root,omitempty"`
+
+	// 成果品の ZIP の入力の名前。root と一緒には書かない
+	Archive *string `json:"archive,omitempty"`
+
+	// プロファイルの入力の名前の列。extends で指す先も、すべて渡す
+	Profiles []string `json:"profiles,omitempty"`
+
+	// 照合に使うプロファイル。profiles の中から選ぶ
+	Profile *ProfileRef `json:"profile,omitempty"`
+
+	// 返す指摘の初めの位置
+	Offset *int64 `json:"offset,omitempty"`
+
+	// 返す指摘の数の上限。書かなければ 10000
+	Limit *int64 `json:"limit,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m DeliveryCheckRequest) MarshalJSON() ([]byte, error) {
+	type plain DeliveryCheckRequest
+	m.Op = "delivery_check"
+	return json.Marshal(plain(m))
+}
+
+// DeliveryCheckResult: 成果品の要約と、照合の結果。照合の結果は check と同じ形
+type DeliveryCheckResult struct {
+	// 成果品のファイルの数
+	Files *int64 `json:"files,omitempty"`
+
+	// 管理ファイルの要約。名前の順
+	Managed []DeliveryManaged `json:"managed,omitempty"`
+
+	// 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空
+	Chain []ProfileIdentity `json:"chain,omitempty"`
+
+	// 規則ごとの指摘の数
+	Rules []CheckRule `json:"rules,omitempty"`
+
+	// 指摘
+	Findings []CheckFinding `json:"findings,omitempty"`
+
+	// 指摘の数の全体
+	Total *int64 `json:"total,omitempty"`
+
+	// 続きの指摘の位置。続きがなければ書かない
+	NextOffset *int64 `json:"next_offset,omitempty"`
+}
+
+// DeliveryManaged: 管理ファイルの要約
+type DeliveryManaged struct {
+	// 成果品の中の名前
+	Name *string `json:"name,omitempty"`
+
+	// 文書型宣言の DTD の名前
+	Doctype *string `json:"doctype,omitempty"`
+
+	// 根の要素の名前
+	Root *string `json:"root,omitempty"`
+
+	// 要素の記録の数
+	Records *int64 `json:"records,omitempty"`
+
+	// ファイルの名前の形の値の数
+	Links *int64 `json:"links,omitempty"`
+
+	// 成果品の中に見つからないファイルの名前。書いた順
+	Missing []string `json:"missing,omitempty"`
+}
+
 // GeoRequest: open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 type GeoRequest struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4956,3 +5052,6 @@ const OpCivilDrawing = "civil_drawing"
 
 // OpGeo は、op の名前 geo。
 const OpGeo = "geo"
+
+// OpDeliveryCheck は、op の名前 delivery_check。
+const OpDeliveryCheck = "delivery_check"

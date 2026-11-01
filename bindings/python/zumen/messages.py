@@ -34,6 +34,7 @@ Request = Union[
     "DeviationRequest",
     "CivilDrawingRequest",
     "GeoRequest",
+    "DeliveryCheckRequest",
 ]
 
 
@@ -4393,6 +4394,110 @@ class PointcloudPoints(_PointcloudPointsRequired, _PointcloudPointsOptional):
     "選んだ点。どの列も、選んだ点の順で同じ長さにする"
 
 
+# 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+_DeliveryCheckRequestRequired = TypedDict(
+    "_DeliveryCheckRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["delivery_check"],
+    },
+)
+_DeliveryCheckRequestOptional = TypedDict(
+    "_DeliveryCheckRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない
+        "root": str,
+        # 成果品の ZIP の入力の名前。root と一緒には書かない
+        "archive": str,
+        # プロファイルの入力の名前の列。extends で指す先も、すべて渡す
+        "profiles": List[str],
+        # 照合に使うプロファイル。profiles の中から選ぶ
+        "profile": "ProfileRef",
+        # 返す指摘の初めの位置
+        "offset": int,
+        # 返す指摘の数の上限。書かなければ 10000
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class DeliveryCheckRequest(_DeliveryCheckRequestRequired, _DeliveryCheckRequestOptional):
+    "電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から"
+
+
+# 成果品の要約と、照合の結果。照合の結果は check と同じ形
+_DeliveryCheckResultRequired = TypedDict(
+    "_DeliveryCheckResultRequired",
+    {
+        # 成果品のファイルの数
+        "files": int,
+        # 管理ファイルの要約。名前の順
+        "managed": List["DeliveryManaged"],
+        # 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空
+        "chain": List["ProfileIdentity"],
+        # 規則ごとの指摘の数
+        "rules": List["CheckRule"],
+        # 指摘
+        "findings": List["CheckFinding"],
+        # 指摘の数の全体
+        "total": int,
+    },
+)
+_DeliveryCheckResultOptional = TypedDict(
+    "_DeliveryCheckResultOptional",
+    {
+        # 続きの指摘の位置。続きがなければ書かない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class DeliveryCheckResult(_DeliveryCheckResultRequired, _DeliveryCheckResultOptional):
+    "成果品の要約と、照合の結果。照合の結果は check と同じ形"
+
+
+# 管理ファイルの要約
+_DeliveryManagedRequired = TypedDict(
+    "_DeliveryManagedRequired",
+    {
+        # 成果品の中の名前
+        "name": str,
+        # 根の要素の名前
+        "root": str,
+        # 要素の記録の数
+        "records": int,
+        # ファイルの名前の形の値の数
+        "links": int,
+        # 成果品の中に見つからないファイルの名前。書いた順
+        "missing": List[str],
+    },
+)
+_DeliveryManagedOptional = TypedDict(
+    "_DeliveryManagedOptional",
+    {
+        # 文書型宣言の DTD の名前
+        "doctype": str,
+    },
+    total=False,
+)
+
+
+class DeliveryManaged(_DeliveryManagedRequired, _DeliveryManagedOptional):
+    "管理ファイルの要約"
+
+
 # open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 _GeoRequestRequired = TypedDict(
     "_GeoRequestRequired",
@@ -4882,6 +4987,7 @@ Operation = Literal[
     "deviation",
     "civil_drawing",
     "geo",
+    "delivery_check",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -4911,4 +5017,5 @@ OPERATIONS: Dict[str, Any] = {
     "deviation": ("DeviationRequest", "DeviationResult"),
     "civil_drawing": ("CivilDrawingRequest", "CivilDrawingResult"),
     "geo": ("GeoRequest", "GeoResult"),
+    "delivery_check": ("DeliveryCheckRequest", "DeliveryCheckResult"),
 }

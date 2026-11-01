@@ -186,6 +186,11 @@ public final class Messages {
         public GeoRequest asGeoRequest() {
             return "geo".equals(json.get("op")) ? new GeoRequest(json) : null;
         }
+
+        /** op が delivery_check の形なら、その見方。違えば null */
+        public DeliveryCheckRequest asDeliveryCheckRequest() {
+            return "delivery_check".equals(json.get("op")) ? new DeliveryCheckRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -13646,6 +13651,339 @@ public final class Messages {
         }
     }
 
+    /** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から */
+    public static final class DeliveryCheckRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryCheckRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryCheckRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryCheckRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public DeliveryCheckRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "delivery_check");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない */
+        public String getRoot() {
+            return Json.read(json.get("root"), Json::string);
+        }
+
+        /** {@link #getRoot()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withRoot(String value) {
+            put("root", value);
+            return this;
+        }
+
+        /** 成果品の ZIP の入力の名前。root と一緒には書かない */
+        public String getArchive() {
+            return Json.read(json.get("archive"), Json::string);
+        }
+
+        /** {@link #getArchive()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withArchive(String value) {
+            put("archive", value);
+            return this;
+        }
+
+        /** プロファイルの入力の名前の列。extends で指す先も、すべて渡す */
+        public List<String> getProfiles() {
+            return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withProfiles(List<String> value) {
+            put("profiles", value);
+            return this;
+        }
+
+        /** 照合に使うプロファイル。profiles の中から選ぶ */
+        public ProfileRef getProfile() {
+            return Json.read(json.get("profile"), ProfileRef::of);
+        }
+
+        /** {@link #getProfile()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withProfile(ProfileRef value) {
+            put("profile", value);
+            return this;
+        }
+
+        /** 返す指摘の初めの位置 */
+        public Long getOffset() {
+            return Json.read(json.get("offset"), Json::integer);
+        }
+
+        /** {@link #getOffset()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withOffset(Long value) {
+            put("offset", value);
+            return this;
+        }
+
+        /** 返す指摘の数の上限。書かなければ 10000 */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null なら欄を除く */
+        public DeliveryCheckRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+    }
+
+    /** 成果品の要約と、照合の結果。照合の結果は check と同じ形 */
+    public static final class DeliveryCheckResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryCheckResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryCheckResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryCheckResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeliveryCheckResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 成果品のファイルの数 */
+        public Long getFiles() {
+            return Json.read(json.get("files"), Json::integer);
+        }
+
+        /** {@link #getFiles()} を書く。null なら欄を除く */
+        public DeliveryCheckResult withFiles(Long value) {
+            put("files", value);
+            return this;
+        }
+
+        /** 管理ファイルの要約。名前の順 */
+        public List<DeliveryManaged> getManaged() {
+            return Json.read(json.get("managed"), v0 -> Json.list(v0, DeliveryManaged::of));
+        }
+
+        /** {@link #getManaged()} を書く。null なら欄を除く */
+        public DeliveryCheckResult withManaged(List<DeliveryManaged> value) {
+            put("managed", value);
+            return this;
+        }
+
+        /** 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空 */
+        public List<ProfileIdentity> getChain() {
+            return Json.read(json.get("chain"), v0 -> Json.list(v0, ProfileIdentity::of));
+        }
+
+        /** {@link #getChain()} を書く。null なら欄を除く */
+        public DeliveryCheckResult withChain(List<ProfileIdentity> value) {
+            put("chain", value);
+            return this;
+        }
+
+        /** 規則ごとの指摘の数 */
+        public List<CheckRule> getRules() {
+            return Json.read(json.get("rules"), v0 -> Json.list(v0, CheckRule::of));
+        }
+
+        /** {@link #getRules()} を書く。null なら欄を除く */
+        public DeliveryCheckResult withRules(List<CheckRule> value) {
+            put("rules", value);
+            return this;
+        }
+
+        /** 指摘 */
+        public List<CheckFinding> getFindings() {
+            return Json.read(json.get("findings"), v0 -> Json.list(v0, CheckFinding::of));
+        }
+
+        /** {@link #getFindings()} を書く。null なら欄を除く */
+        public DeliveryCheckResult withFindings(List<CheckFinding> value) {
+            put("findings", value);
+            return this;
+        }
+
+        /** 指摘の数の全体 */
+        public Long getTotal() {
+            return Json.read(json.get("total"), Json::integer);
+        }
+
+        /** {@link #getTotal()} を書く。null なら欄を除く */
+        public DeliveryCheckResult withTotal(Long value) {
+            put("total", value);
+            return this;
+        }
+
+        /** 続きの指摘の位置。続きがなければ書かない */
+        public Long getNextOffset() {
+            return Json.read(json.get("next_offset"), Json::integer);
+        }
+
+        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        public DeliveryCheckResult withNextOffset(Long value) {
+            put("next_offset", value);
+            return this;
+        }
+    }
+
+    /** 管理ファイルの要約 */
+    public static final class DeliveryManaged extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryManaged(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryManaged of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryManaged(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeliveryManaged() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 成果品の中の名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null なら欄を除く */
+        public DeliveryManaged withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 文書型宣言の DTD の名前 */
+        public String getDoctype() {
+            return Json.read(json.get("doctype"), Json::string);
+        }
+
+        /** {@link #getDoctype()} を書く。null なら欄を除く */
+        public DeliveryManaged withDoctype(String value) {
+            put("doctype", value);
+            return this;
+        }
+
+        /** 根の要素の名前 */
+        public String getRoot() {
+            return Json.read(json.get("root"), Json::string);
+        }
+
+        /** {@link #getRoot()} を書く。null なら欄を除く */
+        public DeliveryManaged withRoot(String value) {
+            put("root", value);
+            return this;
+        }
+
+        /** 要素の記録の数 */
+        public Long getRecords() {
+            return Json.read(json.get("records"), Json::integer);
+        }
+
+        /** {@link #getRecords()} を書く。null なら欄を除く */
+        public DeliveryManaged withRecords(Long value) {
+            put("records", value);
+            return this;
+        }
+
+        /** ファイルの名前の形の値の数 */
+        public Long getLinks() {
+            return Json.read(json.get("links"), Json::integer);
+        }
+
+        /** {@link #getLinks()} を書く。null なら欄を除く */
+        public DeliveryManaged withLinks(Long value) {
+            put("links", value);
+            return this;
+        }
+
+        /** 成果品の中に見つからないファイルの名前。書いた順 */
+        public List<String> getMissing() {
+            return Json.read(json.get("missing"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getMissing()} を書く。null なら欄を除く */
+        public DeliveryManaged withMissing(List<String> value) {
+            put("missing", value);
+            return this;
+        }
+    }
+
     /** open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
     public static final class GeoRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -15201,5 +15539,7 @@ public final class Messages {
         public static final String CIVIL_DRAWING = "civil_drawing";
 
         public static final String GEO = "geo";
+
+        public static final String DELIVERY_CHECK = "delivery_check";
     }
 }

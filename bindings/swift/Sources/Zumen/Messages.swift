@@ -138,6 +138,11 @@ public struct Request: Message {
     public var asGeoRequest: GeoRequest? {
         taggedView("op", "geo")
     }
+
+    /// op が delivery_check の形なら、その見方。違えば nil
+    public var asDeliveryCheckRequest: DeliveryCheckRequest? {
+        taggedView("op", "delivery_check")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -8408,6 +8413,204 @@ public struct PointcloudPoints: Message {
     }
 }
 
+/// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から
+public struct DeliveryCheckRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("delivery_check")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない
+    public var root: String? {
+        get { readField("root") }
+        set { writeField("root", newValue) }
+    }
+
+    /// 成果品の ZIP の入力の名前。root と一緒には書かない
+    public var archive: String? {
+        get { readField("archive") }
+        set { writeField("archive", newValue) }
+    }
+
+    /// プロファイルの入力の名前の列。extends で指す先も、すべて渡す
+    public var profiles: [String]? {
+        get { readField("profiles") }
+        set { writeField("profiles", newValue) }
+    }
+
+    /// 照合に使うプロファイル。profiles の中から選ぶ
+    public var profile: ProfileRef? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
+
+    /// 返す指摘の初めの位置
+    public var offset: Int64? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+
+    /// 返す指摘の数の上限。書かなければ 10000
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+}
+
+/// 成果品の要約と、照合の結果。照合の結果は check と同じ形
+public struct DeliveryCheckResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 成果品のファイルの数
+    public var files: Int64? {
+        get { readField("files") }
+        set { writeField("files", newValue) }
+    }
+
+    /// 管理ファイルの要約。名前の順
+    public var managed: [DeliveryManaged]? {
+        get { readField("managed") }
+        set { writeField("managed", newValue) }
+    }
+
+    /// 照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空
+    public var chain: [ProfileIdentity]? {
+        get { readField("chain") }
+        set { writeField("chain", newValue) }
+    }
+
+    /// 規則ごとの指摘の数
+    public var rules: [CheckRule]? {
+        get { readField("rules") }
+        set { writeField("rules", newValue) }
+    }
+
+    /// 指摘
+    public var findings: [CheckFinding]? {
+        get { readField("findings") }
+        set { writeField("findings", newValue) }
+    }
+
+    /// 指摘の数の全体
+    public var total: Int64? {
+        get { readField("total") }
+        set { writeField("total", newValue) }
+    }
+
+    /// 続きの指摘の位置。続きがなければ書かない
+    public var nextOffset: Int64? {
+        get { readField("next_offset") }
+        set { writeField("next_offset", newValue) }
+    }
+}
+
+/// 管理ファイルの要約
+public struct DeliveryManaged: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 成果品の中の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 文書型宣言の DTD の名前
+    public var doctype: String? {
+        get { readField("doctype") }
+        set { writeField("doctype", newValue) }
+    }
+
+    /// 根の要素の名前
+    public var root: String? {
+        get { readField("root") }
+        set { writeField("root", newValue) }
+    }
+
+    /// 要素の記録の数
+    public var records: Int64? {
+        get { readField("records") }
+        set { writeField("records", newValue) }
+    }
+
+    /// ファイルの名前の形の値の数
+    public var links: Int64? {
+        get { readField("links") }
+        set { writeField("links", newValue) }
+    }
+
+    /// 成果品の中に見つからないファイルの名前。書いた順
+    public var missing: [String]? {
+        get { readField("missing") }
+        set { writeField("missing", newValue) }
+    }
+}
+
 /// open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 public struct GeoRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -9344,4 +9547,5 @@ public enum Operations {
     public static let deviation = "deviation"
     public static let civilDrawing = "civil_drawing"
     public static let geo = "geo"
+    public static let deliveryCheck = "delivery_check"
 }

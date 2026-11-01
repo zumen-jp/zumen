@@ -855,6 +855,28 @@ pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
     &["first", "second"],
 );
 
+/// 管理ファイルを XML として読めないので、管理ファイルの記録に移さなかった
+///
+/// `delivery.file.invalid`（0.2.0 から）
+pub const DELIVERY_FILE_INVALID: Code = Code::new(
+    "delivery.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
+/// 成果品の中の名前に、空の部分・.・..・\ を含むか、/ で始まるので、そのファイルを読まなかった
+///
+/// `delivery.name.unsafe`（0.2.0 から）
+pub const DELIVERY_NAME_UNSAFE: Code = Code::new(
+    "delivery.name.unsafe",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &[],
+);
+
 /// 点群と TIN の水平の座標系が違うので、標高の差を求めなかった
 ///
 /// `deviation.crs.mixed`（0.2.0 から）
@@ -3406,6 +3428,8 @@ pub const ALL: &[Code] = &[
     CRS_HEIGHT_DATUM_UNSUPPORTED,
     CRS_HEIGHT_REALIZATION_ASSUMED,
     CRS_HEIGHT_REALIZATION_MIXED,
+    DELIVERY_FILE_INVALID,
+    DELIVERY_NAME_UNSAFE,
     DEVIATION_CRS_MIXED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_PLACEMENT_INVALID,

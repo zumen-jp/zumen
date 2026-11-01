@@ -1,0 +1,24 @@
+[package]
+name = "zumen-delivery"
+description = "zumen の電子納品の成果品（フォルダー・管理ファイル）の読み取り（決定 0241、#383）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["delivery"]
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-base = { path = "../zumen-base" }
+zumen-zip = { path = "../zumen-zip" }

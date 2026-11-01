@@ -31,7 +31,8 @@
         { "$ref": "#/$defs/pointcloud_request" },
         { "$ref": "#/$defs/deviation_request" },
         { "$ref": "#/$defs/civil_drawing_request" },
-        { "$ref": "#/$defs/geo_request" }
+        { "$ref": "#/$defs/geo_request" },
+        { "$ref": "#/$defs/delivery_check_request" }
       ]
     },
     "request_common": {
@@ -3466,6 +3467,110 @@
         "level": { "description": "選んだいちばん深い段", "type": "integer", "minimum": 0 }
       },
       "required": ["positions", "truncated", "level"],
+      "additionalProperties": false
+    },
+    "delivery_check_request": {
+      "description": "電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの鎖を解いて返す。成果品の照合の種類は、まだない（#384）。図面のモジュールに置く。小版 53 から",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/request_common" }
+      ],
+      "properties": {
+        "op": {
+          "description": "op の名前",
+          "const": "delivery_check"
+        },
+        "root": {
+          "description": "成果品の起点。/ で終わる入力の名前の前の部分（納品/ など）。archive と一緒には書かない",
+          "type": "string"
+        },
+        "archive": {
+          "description": "成果品の ZIP の入力の名前。root と一緒には書かない",
+          "type": "string"
+        },
+        "profiles": {
+          "description": "プロファイルの入力の名前の列。extends で指す先も、すべて渡す",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "profile": {
+          "description": "照合に使うプロファイル。profiles の中から選ぶ",
+          "$ref": "#/$defs/profile_ref"
+        },
+        "offset": {
+          "description": "返す指摘の初めの位置",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す指摘の数の上限。書かなければ 10000",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      },
+      "required": ["op"],
+      "unevaluatedProperties": false
+    },
+    "delivery_check_result": {
+      "description": "成果品の要約と、照合の結果。照合の結果は check と同じ形",
+      "type": "object",
+      "properties": {
+        "files": {
+          "description": "成果品のファイルの数",
+          "type": "integer",
+          "minimum": 0
+        },
+        "managed": {
+          "description": "管理ファイルの要約。名前の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/delivery_managed" }
+        },
+        "chain": {
+          "description": "照合に使ったプロファイルの鎖。基から順に。プロファイルを渡さなければ空",
+          "type": "array",
+          "items": { "$ref": "#/$defs/profile_identity" }
+        },
+        "rules": {
+          "description": "規則ごとの指摘の数",
+          "type": "array",
+          "items": { "$ref": "#/$defs/check_rule" }
+        },
+        "findings": {
+          "description": "指摘",
+          "type": "array",
+          "items": { "$ref": "#/$defs/check_finding" }
+        },
+        "total": {
+          "description": "指摘の数の全体",
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_offset": {
+          "description": "続きの指摘の位置。続きがなければ書かない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["files", "managed", "chain", "rules", "findings", "total"],
+      "additionalProperties": false
+    },
+    "delivery_managed": {
+      "description": "管理ファイルの要約",
+      "type": "object",
+      "properties": {
+        "name": { "description": "成果品の中の名前", "type": "string" },
+        "doctype": { "description": "文書型宣言の DTD の名前", "type": "string" },
+        "root": { "description": "根の要素の名前", "type": "string" },
+        "records": { "description": "要素の記録の数", "type": "integer", "minimum": 0 },
+        "links": { "description": "ファイルの名前の形の値の数", "type": "integer", "minimum": 0 },
+        "missing": {
+          "description": "成果品の中に見つからないファイルの名前。書いた順",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["name", "root", "records", "links", "missing"],
       "additionalProperties": false
     },
     "geo_request": {

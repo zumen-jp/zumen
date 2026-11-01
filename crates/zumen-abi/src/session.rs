@@ -25,6 +25,8 @@ use crate::check;
 #[cfg(feature = "drawing")]
 use crate::civil;
 use crate::convert;
+#[cfg(feature = "drawing")]
+use crate::delivery;
 use crate::describe;
 #[cfg(feature = "drawing")]
 use crate::geo;
@@ -435,6 +437,10 @@ impl Session {
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Geo(request) => self.geo(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
+            Request::DeliveryCheck(request) => self
+                .delivery_check(request, &mut cx)
+                .map(|r| Box::new(r) as _),
             // 入れなかったモジュールの op は、上で断った
             #[allow(unreachable_patterns)]
             _ => Err(Failed),
@@ -1196,6 +1202,45 @@ impl Session {
         }
     }
 
+    /// 電子納品の成果品を読み、管理ファイルの要約を返す（決定 0241）
+    #[cfg(feature = "drawing")]
+    fn delivery_check(
+        &self,
+        request: &messages::DeliveryCheckRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::DeliveryCheckResult, Failed> {
+        let source = match (&request.root, &request.archive) {
+            (Some(root), None) => {
+                let root = match root.strip_suffix('/') {
+                    Some(stem) if !stem.is_empty() && name::is_safe(stem) => root.as_str(),
+                    _ => return Err(fail(cx, invalid_value("/root"))),
+                };
+                let files: Vec<(&str, &[u8])> = self
+                    .inputs
+                    .iter()
+                    .filter_map(|(name, bytes)| {
+                        name.strip_prefix(root).map(|rest| (rest, bytes.as_slice()))
+                    })
+                    .collect();
+                if files.is_empty() {
+                    return Err(fail(cx, invalid_value("/root")));
+                }
+                delivery::Source::Files(files)
+            }
+            (None, Some(archive)) => {
+                delivery::Source::Archive(self.input(archive, "/archive", cx)?)
+            }
+            _ => return Err(fail(cx, invalid_value("/root"))),
+        };
+        let names = request.profiles.as_deref().unwrap_or_default();
+        let mut profiles = Vec::with_capacity(names.len());
+        for (index, name) in names.iter().enumerate() {
+            let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
+            profiles.push((name.as_str(), bytes));
+        }
+        delivery::delivery_check(request, source, &profiles, cx)
+    }
+
     /// bcfzip を読み、開いた建物モデルを対象にしたレビューの文書を blob で返す（決定 0220）
     fn bcf_read(
         &mut self,
@@ -1816,6 +1861,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Deviation(request) => &request.request_common,
         Request::CivilDrawing(request) => &request.request_common,
         Request::Geo(request) => &request.request_common,
+        Request::DeliveryCheck(request) => &request.request_common,
     }
 }
 
@@ -2358,7 +2404,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":52}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":53}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
