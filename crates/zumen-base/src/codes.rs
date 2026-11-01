@@ -693,6 +693,17 @@ pub const CONVERT_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 別の形式に書くとき、横と縦の尺度の違うビューを、ビューの要素を用紙に写した要素にして書いた。曲線は用紙で 0.02 mm に収まる折れ線にした（決定 0238）
+///
+/// `convert.view.approximated`（0.2.0 から）
+pub const CONVERT_VIEW_APPROXIMATED: Code = Code::new(
+    "convert.view.approximated",
+    Severity::Info,
+    None,
+    &[Param::new("format", ParamType::Text)],
+    &[],
+);
+
 /// 渡された測地系の変換のパラメーター（TKY2JGD・PatchJGD の形）の行が壊れていて読めない
 ///
 /// `crs.datum-grid.invalid`（0.2.0 から）
@@ -3321,6 +3332,7 @@ pub const ALL: &[Code] = &[
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,
+    CONVERT_VIEW_APPROXIMATED,
     CRS_DATUM_GRID_INVALID,
     CRS_DATUM_GRID_MISSING,
     CRS_DATUM_SHIFT_MISSING,

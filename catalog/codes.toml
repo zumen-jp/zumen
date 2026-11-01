@@ -247,6 +247,13 @@ params = { format = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."convert.view.approximated"]
+description = "別の形式に書くとき、横と縦の尺度の違うビューを、ビューの要素を用紙に写した要素にして書いた。曲線は用紙で 0.02 mm に収まる折れ線にした（決定 0238）"
+severity = "info"
+params = { format = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."convert.element.unsupported"]
 description = "別の形式に書くとき、この種類の要素か定義を書けないので落とした（決定 0206）。件数は種類ごとに数える"
 severity = "warning"

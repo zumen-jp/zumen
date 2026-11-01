@@ -18,6 +18,7 @@
 pub mod abi;
 #[cfg(feature = "drawing")]
 mod asbuilt;
+mod bake;
 mod bcf;
 mod bounds;
 mod building;

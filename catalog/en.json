@@ -62,6 +62,7 @@
     "convert.attribute.drawn": "Wrote {count} symbol attributes to {format} as text detached from their symbols.",
     "convert.element.unsupported": "Dropped {count} \"{kind}\" items that cannot be written to {format}.",
     "convert.format.unsupported": "Cannot write {format} from another format yet.",
+    "convert.view.approximated": "Wrote {count} views with different horizontal and vertical scales to {format} as paper elements.",
     "crs.datum-grid.invalid": "Line {line} of the datum transformation parameters is broken and could not be read ({count}).",
     "crs.datum-grid.missing": "Coordinates in EPSG:{crs} were not converted to JGD2011 because the {grid} parameters were not given ({count}).",
     "crs.datum-shift.missing": "The point at latitude {latitude}, longitude {longitude} is outside the {grid} parameters and was not converted to JGD2011 ({count}).",

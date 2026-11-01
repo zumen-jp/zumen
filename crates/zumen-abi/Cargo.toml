@@ -26,6 +26,8 @@ zumen-acad = { version = "0.2.0", path = "../zumen-acad" }
 zumen-asbuilt = { version = "0.2.0", path = "../zumen-asbuilt" }
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
+# 横と縦の尺度の違うビューの曲線を、用紙の折れ線にする（決定 0238）
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }
 zumen-profile = { version = "0.2.0", path = "../zumen-profile" }
 zumen-review = { version = "0.2.0", path = "../zumen-review" }
@@ -47,6 +49,8 @@ zumen-sxf = { version = "0.2.0", path = "../zumen-sxf" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 
 [dev-dependencies]
+# 縦断図を焼き込んで書く試験（決定 0238）
+zumen-civil-drawing = { path = "../zumen-civil-drawing" }
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [lints]

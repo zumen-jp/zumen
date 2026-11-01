@@ -11,10 +11,11 @@ use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Value, codes};
 use zumen_drawing::{
     Changes, Color, ColorCode, ColorSystem, DimensionStyle, Drawing2D, Edit, Element, Hash,
     Inherit, Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeId, ModelPoint, PaperPoint,
-    Placed, Seen, Shape, SpaceId, SymbolKey, TextStyle, Unit, id,
+    Placed, Seen, Shape, SheetItem, SpaceId, SymbolKey, TextStyle, Unit, id,
 };
 use zumen_sdk::{Apply, Codec, Error, Lift};
 
+use crate::bake;
 use crate::geometry;
 use crate::messages::Geometry;
 use crate::session::{Failed, fail, stopped};
@@ -203,20 +204,58 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
         },
         wrap: Placed::Paper,
     });
+    let mut baked = 0_u64;
     for (index, sheet) in drawing.sheets.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        match &paper {
-            Some(paper) if index == 0 => {
-                for element in &sheet.elements {
-                    cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-                    maps.element(element, paper, &mut edits, &mut lost);
+        let Some(paper) = paper.as_ref().filter(|_| index == 0) else {
+            lost.add("sheet");
+            if !sheet.views.is_empty() {
+                lost.add_many("view", sheet.views.len() as u64);
+            }
+            continue;
+        };
+        // 要素とビューを描く順に書く。横と縦の尺度の違うビューは、用紙の要素に焼き込む（決定 0238）。
+        // ほかのビューは書けない
+        let items: Vec<SheetItem> = if sheet.order.len() == sheet.elements.len() + sheet.views.len()
+        {
+            sheet.order.clone()
+        } else {
+            (0..sheet.elements.len())
+                .map(SheetItem::Element)
+                .chain((0..sheet.views.len()).map(SheetItem::View))
+                .collect()
+        };
+        for item in items {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            match item {
+                SheetItem::Element(index) => {
+                    if let Some(element) = sheet.elements.get(index) {
+                        maps.element(element, paper, &mut edits, &mut lost);
+                    }
+                }
+                SheetItem::View(index) => {
+                    let Some(view) = sheet.views.get(index) else {
+                        continue;
+                    };
+                    let space = drawing.spaces.iter().find(|space| space.id == view.space);
+                    let Some(space) = space.filter(|_| bake::bakes(view)) else {
+                        lost.add("view");
+                        continue;
+                    };
+                    baked += 1;
+                    for element in bake::bake(space, view) {
+                        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+                        match element {
+                            Ok(element) => maps.element(&element, paper, &mut edits, &mut lost),
+                            Err(element) => lost.add(kind_of(&element.shape)),
+                        }
+                    }
                 }
             }
-            _ => lost.add("sheet"),
         }
-        if !sheet.views.is_empty() {
-            lost.add_many("view", sheet.views.len() as u64);
-        }
+    }
+    for _ in 0..baked {
+        cx.report(Diagnostic::new(codes::CONVERT_VIEW_APPROXIMATED).with("format", "DXF"));
     }
     lost.added = 0;
     add_all(&mut file, edits, &mut lost, cx)?;
@@ -695,7 +734,7 @@ fn template(
     let placeholder = drawing
         .sheets
         .first()
-        .is_some_and(|sheet| !sheet.elements.is_empty())
+        .is_some_and(|sheet| !sheet.elements.is_empty() || sheet.views.iter().any(bake::bakes))
         .then(&mut next);
     let seed = next();
     // 用紙の大きさ（mm）。DXF の用紙の単位を mm とする
@@ -722,4 +761,134 @@ fn template(
     out.push_str("0\nENDSEC\n0\nEOF\n");
     let placeholder = placeholder.and_then(|handle| u64::from_str_radix(&handle, 16).ok());
     (out.into_bytes(), placeholder)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Limits, Ref};
+    use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
+    use zumen_crs::MapPoint;
+
+    /// 北へ 220 m の直線と、勾配・放物線・勾配の縦断
+    fn model() -> CivilModel {
+        let segment = |start_distance, start_height, start_gradient, length, kind| Vertical {
+            start_distance,
+            start_height,
+            start_gradient,
+            length,
+            kind,
+            source: Ref::default(),
+        };
+        CivilModel {
+            alignments: vec![Alignment {
+                id: "本線".to_string(),
+                horizontal: vec![Horizontal {
+                    start: MapPoint {
+                        northing: 0.0,
+                        easting: 0.0,
+                    },
+                    direction: 0.0,
+                    length: 220.0,
+                    kind: HorizontalKind::Line,
+                    source: Ref::default(),
+                }],
+                vertical: vec![
+                    segment(0.0, 50.0, 0.02, 100.0, VerticalKind::ConstantGradient),
+                    segment(
+                        100.0,
+                        52.0,
+                        0.02,
+                        40.0,
+                        VerticalKind::Parabola {
+                            end_gradient: -0.01,
+                        },
+                    ),
+                    segment(140.0, 52.4, -0.01, 80.0, VerticalKind::ConstantGradient),
+                ],
+                ..Alignment::default()
+            }],
+            ..CivilModel::default()
+        }
+    }
+
+    fn points(shape: &Shape<PaperPoint>) -> Option<Vec<[f64; 2]>> {
+        match shape {
+            Shape::Line { start, end } => Some(vec![[start.x, start.y], [end.x, end.y]]),
+            Shape::Polyline(polyline) => Some(
+                polyline
+                    .vertices
+                    .iter()
+                    .map(|v| [v.point.x, v.point.y])
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_profile_is_baked_into_the_paper_and_reads_back_the_same() {
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let (read, expected) = {
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let model = model();
+            let mut drawing = zumen_civil_drawing::drawing(
+                &model,
+                &model.alignments[0],
+                &zumen_civil_drawing::Options::default(),
+                &mut cx,
+            )
+            .unwrap();
+            // 縦断図の用紙だけを書く
+            let profile = drawing.sheets.remove(1);
+            let view = profile.views[0].clone();
+            assert!(bake::bakes(&view));
+            let space = drawing
+                .spaces
+                .iter()
+                .find(|space| space.id == view.space)
+                .unwrap();
+            let expected: Vec<Vec<[f64; 2]>> = bake::bake(space, &view)
+                .map(|element| points(&element.unwrap().shape).unwrap())
+                .chain(
+                    profile
+                        .elements
+                        .iter()
+                        .filter_map(|element| points(&element.shape)),
+                )
+                .collect();
+            assert!(expected.len() >= 4);
+            drawing.sheets = vec![profile];
+            let Ok(converted) = to_dxf(&drawing, &mut cx) else {
+                panic!("書けない");
+            };
+            let Ok(read) = lift(&converted.file, &mut cx) else {
+                panic!("読めない");
+            };
+            (read, expected)
+        };
+        let codes: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert!(
+            codes.contains(&codes::CONVERT_VIEW_APPROXIMATED),
+            "{codes:?}"
+        );
+        let written: Vec<Vec<[f64; 2]>> = read.sheets[0]
+            .elements
+            .iter()
+            .filter_map(|element| points(&element.shape))
+            .collect();
+        assert_eq!(written.len(), expected.len());
+        for shape in &expected {
+            let same = |found: &Vec<[f64; 2]>| {
+                found.len() == shape.len()
+                    && found
+                        .iter()
+                        .zip(shape)
+                        .all(|(a, b)| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9)
+            };
+            assert!(written.iter().any(same), "{shape:?}");
+        }
+    }
 }
