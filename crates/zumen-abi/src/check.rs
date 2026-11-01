@@ -2,7 +2,7 @@
 
 use zumen_base::{Cx, Ref};
 use zumen_drawing::Drawing2D;
-use zumen_profile::{Error, Options};
+use zumen_profile::{Error, Finding, Identity, Options};
 use zumen_scene::Palette;
 
 use crate::messages::{self, CheckFinding, CheckRequest, CheckResult, CheckRule, ProfileIdentity};
@@ -36,12 +36,7 @@ pub(crate) fn check(
         &options,
         cx,
     )
-    .map_err(|error| match error {
-        Error::NotFound => fail(cx, invalid_value("/profile")),
-        Error::Profile(diagnostic) => fail(cx, *diagnostic),
-        Error::Stop(stop, at) if *at == Ref::default() => fail(cx, stop.to_diagnostic()),
-        Error::Stop(stop, at) => fail(cx, stop.to_diagnostic().at(*at)),
-    })?;
+    .map_err(|error| profile_failed(cx, error))?;
     let total = report.findings.len() as u64;
     let start = request.offset.unwrap_or(0);
     let end = start.saturating_add(request.limit.unwrap_or(LIMIT));
@@ -50,29 +45,10 @@ pub(crate) fn check(
         .iter()
         .skip(usize::try_from(start).unwrap_or(usize::MAX))
         .take(usize::try_from(end - start).unwrap_or(usize::MAX))
-        .map(|finding| {
-            let mut diagnostic = message_of(&finding.diagnostic);
-            diagnostic.severity = match finding.level {
-                zumen_base::Severity::Info => messages::Severity::Info,
-                zumen_base::Severity::Warning => messages::Severity::Warning,
-                zumen_base::Severity::Error => messages::Severity::Error,
-            };
-            CheckFinding {
-                rule: finding.rule.clone(),
-                diagnostic,
-            }
-        })
+        .map(finding_of)
         .collect();
     Ok(CheckResult {
-        chain: report
-            .chain
-            .into_iter()
-            .map(|identity| ProfileIdentity {
-                id: identity.id,
-                edition: identity.edition,
-                revision: identity.revision,
-            })
-            .collect(),
+        chain: report.chain.into_iter().map(identity_of).collect(),
         rules: report
             .rules
             .into_iter()
@@ -87,4 +63,37 @@ pub(crate) fn check(
         total,
         next_offset: (end < total).then_some(end),
     })
+}
+
+/// 指摘を、境界の形にする。重要度は規則の `level`
+pub(crate) fn finding_of(finding: &Finding) -> CheckFinding {
+    let mut diagnostic = message_of(&finding.diagnostic);
+    diagnostic.severity = match finding.level {
+        zumen_base::Severity::Info => messages::Severity::Info,
+        zumen_base::Severity::Warning => messages::Severity::Warning,
+        zumen_base::Severity::Error => messages::Severity::Error,
+    };
+    CheckFinding {
+        rule: finding.rule.clone(),
+        diagnostic,
+    }
+}
+
+/// プロファイルの識別を、境界の形にする
+pub(crate) fn identity_of(identity: Identity) -> ProfileIdentity {
+    ProfileIdentity {
+        id: identity.id,
+        edition: identity.edition,
+        revision: identity.revision,
+    }
+}
+
+/// プロファイルを解けない理由を、失敗にする
+pub(crate) fn profile_failed(cx: &mut Cx<'_>, error: Error) -> Failed {
+    match error {
+        Error::NotFound => fail(cx, invalid_value("/profile")),
+        Error::Profile(diagnostic) => fail(cx, *diagnostic),
+        Error::Stop(stop, at) if *at == Ref::default() => fail(cx, stop.to_diagnostic()),
+        Error::Stop(stop, at) => fail(cx, stop.to_diagnostic().at(*at)),
+    }
 }

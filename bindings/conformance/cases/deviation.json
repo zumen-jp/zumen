@@ -1,0 +1,107 @@
+{
+  "description": "deviation は、点群の点の真下の TIN の標高との差を、プロファイルの surface-elevation の規則の区分ごとに集計して規格値と比べる（決定 0234、#372）。平らな 20 m 四方の計画面に 4 点を置き、1 点は TIN の外。道路掘削の平場の個々の計測値の上限 150 mm を、200 mm の点が超え、差の平均も平場の上限 50 mm を超える。点の密度は 1 点／m² に届かないので確認できない",
+  "steps": [
+    {
+      "push": {
+        "name": "plan.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"T.P\" horizontalCoordinateSystemName=\"9(X,Y)\"/>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">0 0 10</P><P id=\"2\">0 20 10</P><P id=\"3\">20 20 10</P><P id=\"4\">20 0 10</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "plan.xml"
+      },
+      "expect": {
+        "/result/format": "landxml"
+      }
+    },
+    {
+      "push": {
+        "name": "a.xyz",
+        "text": "5 5 10.02\n15 15 9.98\n5 15 10.2\n30 30 10\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.xyz",
+        "format": "xyz"
+      },
+      "expect": {
+        "/result/format": "xyz"
+      }
+    },
+    {
+      "push": {
+        "name": "profile.json",
+        "text": "{\n  \"edition\": \"2026-03\",\n  \"format\": \"0.1\",\n  \"id\": \"mlit-earthwork\",\n  \"license\": \"CC-BY-4.0\",\n  \"revision\": 1,\n  \"rules\": [\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 150,\n        \"min\": -150\n      },\n      \"exclude\": 0.05,\n      \"id\": \"river-excavation-flat\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 50,\n        \"min\": -50\n      },\n      \"part\": \"flat\",\n      \"slope\": {\n        \"min\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-1\",\n        \"section\": \"1-2-3-2\"\n      },\n      \"work\": \"river-excavation\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 160,\n        \"min\": -160\n      },\n      \"exclude\": 0.05,\n      \"id\": \"river-excavation-slope\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 70,\n        \"min\": -70\n      },\n      \"part\": \"slope\",\n      \"slope\": {\n        \"max\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-1\",\n        \"section\": \"1-2-3-2\"\n      },\n      \"work\": \"river-excavation\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 150,\n        \"min\": -150\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-excavation-flat\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 50,\n        \"min\": -50\n      },\n      \"part\": \"flat\",\n      \"slope\": {\n        \"min\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-6\",\n        \"section\": \"1-2-4-2\"\n      },\n      \"work\": \"road-excavation\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 160,\n        \"min\": -160\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-excavation-slope\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 70,\n        \"min\": -70\n      },\n      \"part\": \"slope\",\n      \"slope\": {\n        \"max\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-6\",\n        \"section\": \"1-2-4-2\"\n      },\n      \"work\": \"road-excavation\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"min\": -150\n      },\n      \"exclude\": 0.05,\n      \"id\": \"river-embankment-crest\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"min\": -50\n      },\n      \"part\": \"crest\",\n      \"slope\": {\n        \"min\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-3\",\n        \"section\": \"1-2-3-3\"\n      },\n      \"work\": \"river-embankment\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"min\": -170\n      },\n      \"exclude\": 0.05,\n      \"id\": \"river-embankment-slope-gentle\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"min\": -50\n      },\n      \"part\": \"slope\",\n      \"slope\": {\n        \"max\": 20,\n        \"min\": 4\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-3\",\n        \"section\": \"1-2-3-3\"\n      },\n      \"work\": \"river-embankment\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"min\": -170\n      },\n      \"exclude\": 0.05,\n      \"id\": \"river-embankment-slope-steep\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"min\": -60\n      },\n      \"part\": \"slope\",\n      \"slope\": {\n        \"max\": 4\n      },\n      \"source\": {\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-3\",\n        \"section\": \"1-2-3-3\"\n      },\n      \"work\": \"river-embankment\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 150,\n        \"min\": -150\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-embankment-crest\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 50,\n        \"min\": -50\n      },\n      \"part\": \"crest\",\n      \"slope\": {\n        \"min\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-8\",\n        \"section\": \"1-2-4-3\"\n      },\n      \"work\": \"road-embankment\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 190,\n        \"min\": -190\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-embankment-slope\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 80,\n        \"min\": -80\n      },\n      \"part\": \"slope\",\n      \"slope\": {\n        \"max\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-8\",\n        \"section\": \"1-2-4-3\"\n      },\n      \"work\": \"road-embankment\"\n    }\n  ],\n  \"sources\": {\n    \"main\": {\n      \"checked\": \"2026-11-01\",\n      \"publisher\": \"国土交通省\",\n      \"title\": \"土木工事施工管理基準及び規格値（案）\",\n      \"url\": \"https://www.mlit.go.jp/tec/content/001990185.pdf\",\n      \"version\": \"令和 8 年 3 月\"\n    }\n  },\n  \"title\": \"土木工事施工管理基準及び規格値（案）土工の面管理\"\n}\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "a.xyz",
+        "surface": {
+          "doc": "plan.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "limit": 1
+      },
+      "expect": {
+        "/result/points": 4,
+        "/result/outside": 1,
+        "/result/unmatched": 0,
+        "/result/excluded": 0,
+        "/result/chain/0/id": "mlit-earthwork",
+        "/result/rules/0/rule": "road-excavation-flat",
+        "/result/rules/0/points": 3,
+        "/result/rules/0/area": 400,
+        "/result/rules/0/findings": 2,
+        "/result/rules/0/unsupported": 1,
+        "/result/rules/1/points": 0,
+        "/result/differences/0/index": 0,
+        "/result/differences/0/rule": "road-excavation-flat",
+        "/result/next_offset": 1,
+        "/result/findings/0/diagnostic/code": "profile.surface-elevation.unsupported",
+        "/result/findings/1/diagnostic/params/statistic": "mean",
+        "/result/findings/2/diagnostic/params/statistic": "maximum",
+        "/result/findings/2/diagnostic/params/limit": 150
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "a.xyz",
+        "surface": {
+          "doc": "plan.xml",
+          "id": "無い面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/surface/id"
+      }
+    }
+  ]
+}

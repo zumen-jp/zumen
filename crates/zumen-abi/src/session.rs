@@ -15,6 +15,8 @@ use zumen_sdk::{Apply, Codec, Lift};
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
+#[cfg(feature = "drawing")]
+use crate::asbuilt;
 use crate::bcf;
 use crate::bounds;
 use crate::building;
@@ -417,6 +419,10 @@ impl Session {
             #[cfg(feature = "drawing")]
             Request::Pointcloud(request) => {
                 self.pointcloud(request, &mut cx).map(|r| Box::new(r) as _)
+            }
+            #[cfg(feature = "drawing")]
+            Request::Deviation(request) => {
+                self.deviation(request, &mut cx).map(|r| Box::new(r) as _)
             }
             // 入れなかったモジュールの op は、上で断った
             #[allow(unreachable_patterns)]
@@ -1206,19 +1212,54 @@ impl Session {
         scene::palette(bytes).ok_or_else(|| fail(cx, invalid_value("/palette")))
     }
 
-    /// 開いた点群の要約と、条件に合う点（決定 0232）
+    /// 点群と TIN の標高の差の、規則の区分ごとの集計（決定 0234）
     #[cfg(feature = "drawing")]
-    fn pointcloud(
+    fn deviation(
         &self,
-        request: &messages::PointcloudRequest,
+        request: &messages::DeviationRequest,
         cx: &mut Cx<'_>,
-    ) -> Result<messages::PointcloudResult, Failed> {
-        let doc = &request.doc;
+    ) -> Result<messages::DeviationResult, Failed> {
+        let cloud = self.cloud(&request.doc, "/doc", cx)?;
+        let doc = &request.surface.doc;
         if !name::is_safe(doc) {
-            return Err(fail(cx, invalid_value("/doc")));
+            return Err(fail(cx, invalid_value("/surface/doc")));
+        }
+        let model = match self.civils.get(doc) {
+            Some(model) => model,
+            None if self.docs.contains_key(doc)
+                || self.models.contains_key(doc)
+                || self.clouds.contains_key(doc) =>
+            {
+                return Err(fail(cx, unsupported(doc, "deviation")));
+            }
+            None => {
+                return Err(fail(
+                    cx,
+                    Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
+                ));
+            }
+        };
+        let mut profiles = Vec::with_capacity(request.profiles.len());
+        for (index, name) in request.profiles.iter().enumerate() {
+            let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
+            profiles.push((name.as_str(), bytes));
+        }
+        asbuilt::deviation(request, cloud, model, &profiles, cx)
+    }
+
+    /// 開いた点群の文書。`pointer` は名前を書いた欄
+    #[cfg(feature = "drawing")]
+    fn cloud(
+        &self,
+        doc: &str,
+        pointer: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<&zumen_pointcloud::PointCloud, Failed> {
+        if !name::is_safe(doc) {
+            return Err(fail(cx, invalid_value(pointer)));
         }
         match self.clouds.get(doc) {
-            Some(cloud) => pointcloud::pointcloud(request, cloud, cx),
+            Some(cloud) => Ok(cloud),
             None if self.docs.contains_key(doc)
                 || self.models.contains_key(doc)
                 || self.civils.contains_key(doc) =>
@@ -1227,9 +1268,20 @@ impl Session {
             }
             None => Err(fail(
                 cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.to_string()),
             )),
         }
+    }
+
+    /// 開いた点群の要約と、条件に合う点（決定 0232）
+    #[cfg(feature = "drawing")]
+    fn pointcloud(
+        &self,
+        request: &messages::PointcloudRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::PointcloudResult, Failed> {
+        let cloud = self.cloud(&request.doc, "/doc", cx)?;
+        pointcloud::pointcloud(request, cloud, cx)
     }
 
     /// 名前の文書を、図面モデルに変換する
@@ -1627,6 +1679,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::BcfWrite(request) => &request.request_common,
         Request::Civil(request) => &request.request_common,
         Request::Pointcloud(request) => &request.request_common,
+        Request::Deviation(request) => &request.request_common,
     }
 }
 
@@ -2169,7 +2222,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":49}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":50}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

@@ -1,0 +1,139 @@
+# 土木工事施工管理基準及び規格値（案）（令和 8 年 3 月）の、土工の面管理の出来形の規格値のプロファイル（決定 0138・0234）。
+# 標高較差の平均値と個々の計測値の幅は、土木工事施工管理基準及び規格値（案）の表（単位 mm）による。平場・天端と法面の境の
+# 勾配は、表が数で決めないので選んだ値（20 割）にする。軟岩の法面の規格値は、地質を点群が持たないので、まだ持たない。
+# この元から、`cargo xtask codegen` が profile.json を作る。
+
+format = "0.1"
+id = "mlit-earthwork"
+edition = "2026-03"
+revision = 1
+title = "土木工事施工管理基準及び規格値（案）土工の面管理"
+license = "CC-BY-4.0"
+
+[sources.main]
+title = "土木工事施工管理基準及び規格値（案）"
+publisher = "国土交通省"
+version = "令和 8 年 3 月"
+url = "https://www.mlit.go.jp/tec/content/001990185.pdf"
+checked = "2026-11-01"
+
+# 規則の勾配の幅（slope）は、鉛直 1 に対する水平の長さ（割）で、min より大きく max 以下。平場・天端は 20 割より緩い
+# 三角形とする（選んだ値）。河川の盛土の法面は、表のとおり 4 割で分ける。路体盛土工と路床盛土工は同じ表（1-2-4-3・
+# 1-2-4-4）で、road-embankment にまとめる。
+
+[[rules]]
+id = "river-excavation-flat"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-3-2", item = "Ⅰ-1", basis = "chosen" }
+work = "river-excavation"
+part = "flat"
+slope = { min = 20 }
+mean = { min = -50, max = 50 }
+each = { min = -150, max = 150 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "river-excavation-slope"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-3-2", item = "Ⅰ-1", basis = "chosen" }
+work = "river-excavation"
+part = "slope"
+slope = { max = 20 }
+mean = { min = -70, max = 70 }
+each = { min = -160, max = 160 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "road-excavation-flat"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-4-2", item = "Ⅰ-6", basis = "chosen" }
+work = "road-excavation"
+part = "flat"
+slope = { min = 20 }
+mean = { min = -50, max = 50 }
+each = { min = -150, max = 150 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "road-excavation-slope"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-4-2", item = "Ⅰ-6", basis = "chosen" }
+work = "road-excavation"
+part = "slope"
+slope = { max = 20 }
+mean = { min = -70, max = 70 }
+each = { min = -160, max = 160 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "river-embankment-crest"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-3-3", item = "Ⅰ-3", basis = "chosen" }
+work = "river-embankment"
+part = "crest"
+slope = { min = 20 }
+mean = { min = -50 }
+each = { min = -150 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "river-embankment-slope-gentle"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-3-3", item = "Ⅰ-3", basis = "chosen" }
+work = "river-embankment"
+part = "slope"
+slope = { min = 4, max = 20 }
+mean = { min = -50 }
+each = { min = -170 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "river-embankment-slope-steep"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-3-3", item = "Ⅰ-3" }
+work = "river-embankment"
+part = "slope"
+slope = { max = 4 }
+mean = { min = -60 }
+each = { min = -170 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "road-embankment-crest"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-4-3", item = "Ⅰ-8", basis = "chosen" }
+work = "road-embankment"
+part = "crest"
+slope = { min = 20 }
+mean = { min = -50, max = 50 }
+each = { min = -150, max = 150 }
+density = 1
+exclude = 0.05
+
+[[rules]]
+id = "road-embankment-slope"
+check = "surface-elevation"
+level = "error"
+source = { document = "main", section = "1-2-4-3", item = "Ⅰ-8", basis = "chosen" }
+work = "road-embankment"
+part = "slope"
+slope = { max = 20 }
+mean = { min = -80, max = 80 }
+each = { min = -190, max = 190 }
+density = 1
+exclude = 0.05

@@ -5,6 +5,7 @@
 | id | 版 | 対象 |
 | --- | --- | --- |
 | `mlit-cad` | [2025-12](mlit-cad/2025-12/profile.toml) | CAD製図基準（土木、令和 7 年 12 月） |
+| `mlit-earthwork` | [2026-03](mlit-earthwork/2026-03/profile.toml) | 土木工事施工管理基準及び規格値（案）の土工の面管理（令和 8 年 3 月） |
 
 ## 直し方
 

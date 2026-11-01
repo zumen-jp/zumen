@@ -8,7 +8,7 @@
         "/v": 1,
         "/result/abi": 1,
         "/result/schema/major": 1,
-        "/result/ops": ["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "validate", "review_carry", "review_adopt", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "civil", "pointcloud"],
+        "/result/ops": ["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "validate", "review_carry", "review_adopt", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "civil", "pointcloud", "deviation"],
         "/result/formats": [
           { "id": "dxf", "family": "acad", "read": true, "write": true, "id_rules": 2 },
           { "id": "dwg", "family": "acad", "read": true, "write": true, "id_rules": 2 },

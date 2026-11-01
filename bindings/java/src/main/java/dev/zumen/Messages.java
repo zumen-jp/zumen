@@ -171,6 +171,11 @@ public final class Messages {
         public PointcloudRequest asPointcloudRequest() {
             return "pointcloud".equals(json.get("op")) ? new PointcloudRequest(json) : null;
         }
+
+        /** op が deviation の形なら、その見方。違えば null */
+        public DeviationRequest asDeviationRequest() {
+            return "deviation".equals(json.get("op")) ? new DeviationRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -13631,6 +13636,531 @@ public final class Messages {
         }
     }
 
+    /** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から */
+    public static final class DeviationRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeviationRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeviationRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeviationRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public DeviationRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "deviation");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public DeviationRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public DeviationRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public DeviationRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public DeviationRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public DeviationRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public DeviationRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** open で開いた点群の文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public DeviationRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 設計面の TIN */
+        public DeviationSurface getSurface() {
+            return Json.read(json.get("surface"), DeviationSurface::of);
+        }
+
+        /** {@link #getSurface()} を書く。null なら欄を除く */
+        public DeviationRequest withSurface(DeviationSurface value) {
+            put("surface", value);
+            return this;
+        }
+
+        /** プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す */
+        public List<String> getProfiles() {
+            return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        public DeviationRequest withProfiles(List<String> value) {
+            put("profiles", value);
+            return this;
+        }
+
+        /** 規格値に使うプロファイル。profiles の中から選ぶ */
+        public ProfileRef getProfile() {
+            return Json.read(json.get("profile"), ProfileRef::of);
+        }
+
+        /** {@link #getProfile()} を書く。null なら欄を除く */
+        public DeviationRequest withProfile(ProfileRef value) {
+            put("profile", value);
+            return this;
+        }
+
+        /** 工種の名前。規則の work と比べ、同じものだけを使う */
+        public String getWork() {
+            return Json.read(json.get("work"), Json::string);
+        }
+
+        /** {@link #getWork()} を書く。null なら欄を除く */
+        public DeviationRequest withWork(String value) {
+            put("work", value);
+            return this;
+        }
+
+        /** 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0 */
+        public Long getOffset() {
+            return Json.read(json.get("offset"), Json::integer);
+        }
+
+        /** {@link #getOffset()} を書く。null なら欄を除く */
+        public DeviationRequest withOffset(Long value) {
+            put("offset", value);
+            return this;
+        }
+
+        /** 返す評価した点の数の上限。書かなければ点を返さない */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null なら欄を除く */
+        public DeviationRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+    }
+
+    /** 設計面の TIN を持つ文書と、TIN の ID */
+    public static final class DeviationSurface extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeviationSurface(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeviationSurface of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeviationSurface(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeviationSurface() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** open で開いた土木の文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public DeviationSurface withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** TIN の ID。civil の surfaces の id */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null なら欄を除く */
+        public DeviationSurface withId(String value) {
+            put("id", value);
+            return this;
+        }
+    }
+
+    /** 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない */
+    public static final class DeviationResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeviationResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeviationResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeviationResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeviationResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 使ったプロファイルの鎖。extends の基から順 */
+        public List<ProfileIdentity> getChain() {
+            return Json.read(json.get("chain"), v0 -> Json.list(v0, ProfileIdentity::of));
+        }
+
+        /** {@link #getChain()} を書く。null なら欄を除く */
+        public DeviationResult withChain(List<ProfileIdentity> value) {
+            put("chain", value);
+            return this;
+        }
+
+        /** 点群の点の数 */
+        public Long getPoints() {
+            return Json.read(json.get("points"), Json::integer);
+        }
+
+        /** {@link #getPoints()} を書く。null なら欄を除く */
+        public DeviationResult withPoints(Long value) {
+            put("points", value);
+            return this;
+        }
+
+        /** TIN の外なので評価しなかった点の数 */
+        public Long getOutside() {
+            return Json.read(json.get("outside"), Json::integer);
+        }
+
+        /** {@link #getOutside()} を書く。null なら欄を除く */
+        public DeviationResult withOutside(Long value) {
+            put("outside", value);
+            return this;
+        }
+
+        /** どの規則の勾配にも入らない三角形の上なので評価しなかった点の数 */
+        public Long getUnmatched() {
+            return Json.read(json.get("unmatched"), Json::integer);
+        }
+
+        /** {@link #getUnmatched()} を書く。null なら欄を除く */
+        public DeviationResult withUnmatched(Long value) {
+            put("unmatched", value);
+            return this;
+        }
+
+        /** 区分の境の近く（規則の exclude の内）なので除いた点の数 */
+        public Long getExcluded() {
+            return Json.read(json.get("excluded"), Json::integer);
+        }
+
+        /** {@link #getExcluded()} を書く。null なら欄を除く */
+        public DeviationResult withExcluded(Long value) {
+            put("excluded", value);
+            return this;
+        }
+
+        /** 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す */
+        public List<DeviationRule> getRules() {
+            return Json.read(json.get("rules"), v0 -> Json.list(v0, DeviationRule::of));
+        }
+
+        /** {@link #getRules()} を書く。null なら欄を除く */
+        public DeviationResult withRules(List<DeviationRule> value) {
+            put("rules", value);
+            return this;
+        }
+
+        /** 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported */
+        public List<CheckFinding> getFindings() {
+            return Json.read(json.get("findings"), v0 -> Json.list(v0, CheckFinding::of));
+        }
+
+        /** {@link #getFindings()} を書く。null なら欄を除く */
+        public DeviationResult withFindings(List<CheckFinding> value) {
+            put("findings", value);
+            return this;
+        }
+
+        /** 評価した点の数 */
+        public Long getEvaluated() {
+            return Json.read(json.get("evaluated"), Json::integer);
+        }
+
+        /** {@link #getEvaluated()} を書く。null なら欄を除く */
+        public DeviationResult withEvaluated(Long value) {
+            put("evaluated", value);
+            return this;
+        }
+
+        /** 評価した点。点群の順に、offset から limit 個まで */
+        public List<DeviationPoint> getDifferences() {
+            return Json.read(json.get("differences"), v0 -> Json.list(v0, DeviationPoint::of));
+        }
+
+        /** {@link #getDifferences()} を書く。null なら欄を除く */
+        public DeviationResult withDifferences(List<DeviationPoint> value) {
+            put("differences", value);
+            return this;
+        }
+
+        /** 続きの最初の評価した点の位置。続きがなければ持たない */
+        public Long getNextOffset() {
+            return Json.read(json.get("next_offset"), Json::integer);
+        }
+
+        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        public DeviationResult withNextOffset(Long value) {
+            put("next_offset", value);
+            return this;
+        }
+    }
+
+    /** 規則の区分ごとの集計。差はメートル */
+    public static final class DeviationRule extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeviationRule(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeviationRule of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeviationRule(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeviationRule() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 規則の id */
+        public String getRule() {
+            return Json.read(json.get("rule"), Json::string);
+        }
+
+        /** {@link #getRule()} を書く。null なら欄を除く */
+        public DeviationRule withRule(String value) {
+            put("rule", value);
+            return this;
+        }
+
+        /** 区分の名前 */
+        public String getPart() {
+            return Json.read(json.get("part"), Json::string);
+        }
+
+        /** {@link #getPart()} を書く。null なら欄を除く */
+        public DeviationRule withPart(String value) {
+            put("part", value);
+            return this;
+        }
+
+        /** 評価した点の数 */
+        public Long getPoints() {
+            return Json.read(json.get("points"), Json::integer);
+        }
+
+        /** {@link #getPoints()} を書く。null なら欄を除く */
+        public DeviationRule withPoints(Long value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 区分の三角形の、平面に投影した面積（m²） */
+        public Double getArea() {
+            return Json.read(json.get("area"), Json::number);
+        }
+
+        /** {@link #getArea()} を書く。null なら欄を除く */
+        public DeviationRule withArea(Double value) {
+            put("area", value);
+            return this;
+        }
+
+        /** 計測の密度（点／m²）。面積がなければ書かない */
+        public Double getDensity() {
+            return Json.read(json.get("density"), Json::number);
+        }
+
+        /** {@link #getDensity()} を書く。null なら欄を除く */
+        public DeviationRule withDensity(Double value) {
+            put("density", value);
+            return this;
+        }
+
+        /** 差の平均。点がなければ書かない */
+        public Double getMean() {
+            return Json.read(json.get("mean"), Json::number);
+        }
+
+        /** {@link #getMean()} を書く。null なら欄を除く */
+        public DeviationRule withMean(Double value) {
+            put("mean", value);
+            return this;
+        }
+
+        /** 差の最小。点がなければ書かない */
+        public Double getMin() {
+            return Json.read(json.get("min"), Json::number);
+        }
+
+        /** {@link #getMin()} を書く。null なら欄を除く */
+        public DeviationRule withMin(Double value) {
+            put("min", value);
+            return this;
+        }
+
+        /** 差の最大。点がなければ書かない */
+        public Double getMax() {
+            return Json.read(json.get("max"), Json::number);
+        }
+
+        /** {@link #getMax()} を書く。null なら欄を除く */
+        public DeviationRule withMax(Double value) {
+            put("max", value);
+            return this;
+        }
+
+        /** 指摘の数（確認できなかったものを除く） */
+        public Long getFindings() {
+            return Json.read(json.get("findings"), Json::integer);
+        }
+
+        /** {@link #getFindings()} を書く。null なら欄を除く */
+        public DeviationRule withFindings(Long value) {
+            put("findings", value);
+            return this;
+        }
+
+        /** 確認できなかった数 */
+        public Long getUnsupported() {
+            return Json.read(json.get("unsupported"), Json::integer);
+        }
+
+        /** {@link #getUnsupported()} を書く。null なら欄を除く */
+        public DeviationRule withUnsupported(Long value) {
+            put("unsupported", value);
+            return this;
+        }
+    }
+
+    /** 評価した点 */
+    public static final class DeviationPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeviationPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeviationPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeviationPoint(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeviationPoint() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 点群の中の番号 */
+        public Long getIndex() {
+            return Json.read(json.get("index"), Json::integer);
+        }
+
+        /** {@link #getIndex()} を書く。null なら欄を除く */
+        public DeviationPoint withIndex(Long value) {
+            put("index", value);
+            return this;
+        }
+
+        /** 北・東・標高（メートル） */
+        public List<Double> getPosition() {
+            return Json.read(json.get("position"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getPosition()} を書く。null なら欄を除く */
+        public DeviationPoint withPosition(List<Double> value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 点の標高から設計面の標高を引いた差（メートル） */
+        public Double getDifference() {
+            return Json.read(json.get("difference"), Json::number);
+        }
+
+        /** {@link #getDifference()} を書く。null なら欄を除く */
+        public DeviationPoint withDifference(Double value) {
+            put("difference", value);
+            return this;
+        }
+
+        /** 評価した規則の id */
+        public String getRule() {
+            return Json.read(json.get("rule"), Json::string);
+        }
+
+        /** {@link #getRule()} を書く。null なら欄を除く */
+        public DeviationPoint withRule(String value) {
+            put("rule", value);
+            return this;
+        }
+    }
+
     /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
     public static final class Catalog extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -13793,5 +14323,7 @@ public final class Messages {
         public static final String CIVIL = "civil";
 
         public static final String POINTCLOUD = "pointcloud";
+
+        public static final String DEVIATION = "deviation";
     }
 }

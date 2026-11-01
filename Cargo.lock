@@ -342,6 +342,7 @@ version = "0.2.0"
 dependencies = [
  "libm",
  "zumen-acad",
+ "zumen-asbuilt",
  "zumen-base",
  "zumen-bcf",
  "zumen-building",
@@ -375,6 +376,19 @@ dependencies = [
  "zumen-base",
  "zumen-drawing",
  "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-asbuilt"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-civil",
+ "zumen-crs",
+ "zumen-json",
+ "zumen-pointcloud",
+ "zumen-profile",
 ]
 
 [[package]]

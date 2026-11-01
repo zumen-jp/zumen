@@ -23,6 +23,7 @@ bim = []
 # 三角関数を、どの環境でも同じ値で求める（決定 0007・0118）。環境ごとの命令を使わない
 libm = { version = "0.2.16", default-features = false }
 zumen-acad = { version = "0.2.0", path = "../zumen-acad" }
+zumen-asbuilt = { version = "0.2.0", path = "../zumen-asbuilt" }
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }

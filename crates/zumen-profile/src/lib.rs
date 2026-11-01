@@ -39,10 +39,22 @@ pub const CHECKS: &[(&str, &[&str])] = &[
         "file-name",
         &["parts", "user-part", "extensions", "max-length"],
     ),
+    // 点群と設計面の標高の差（決定 0234）。図面の照合では使わない
+    (
+        "surface-elevation",
+        &[
+            "work", "part", "slope", "mean", "each", "density", "exclude",
+        ],
+    ),
 ];
 
 /// 語彙を使わない照合
-pub const WITHOUT_VOCABULARY: &[&str] = &["layer-name", "orientation", "file-name"];
+pub const WITHOUT_VOCABULARY: &[&str] = &[
+    "layer-name",
+    "orientation",
+    "file-name",
+    "surface-elevation",
+];
 
 /// `tolerance` を書かないときに、同じとみなす差（mm、決定 0173）
 pub const DEFAULT_TOLERANCE: f64 = 1e-6;
@@ -172,6 +184,21 @@ pub fn origins(
             _ => Err("/view"),
         },
     }
+}
+
+/// `extends` を解いた鎖と、規則の id と値
+pub type ResolvedRules = (Vec<Identity>, Vec<(String, Value)>);
+
+/// `profiles`（入力の名前とバイト列）から `id` と `edition` のプロファイルを選び、`extends` を解いた鎖と、規則の
+/// id と値を返す。図面でない照合（決定 0234）が、規則を自分で読むのに使う
+pub fn rules(
+    profiles: &[(&str, &[u8])],
+    id: &str,
+    edition: &str,
+    cx: &mut Cx<'_>,
+) -> Result<ResolvedRules, Error> {
+    let resolved = profile::resolve(profiles, id, edition, cx)?;
+    Ok((resolved.chain, resolved.rules))
 }
 
 /// `profiles`（入力の名前とバイト列）から `id` と `edition` のプロファイルを選び、`extends` を解いて、図面を

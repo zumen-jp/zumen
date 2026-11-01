@@ -62,6 +62,7 @@ namespace Zumen.Messages
             ["bcf_write"] = typeof(BcfWriteRequest),
             ["civil"] = typeof(CivilRequest),
             ["pointcloud"] = typeof(PointcloudRequest),
+            ["deviation"] = typeof(DeviationRequest),
         };
     }
 
@@ -6902,6 +6903,270 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+    /// </summary>
+    public sealed record DeviationRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "deviation";
+
+        /// <summary>
+        /// open で開いた点群の文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 設計面の TIN
+        /// </summary>
+        [JsonPropertyName("surface")]
+        public DeviationSurface Surface { get; init; } = default!;
+
+        /// <summary>
+        /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+        /// </summary>
+        [JsonPropertyName("profiles")]
+        public IReadOnlyList<string> Profiles { get; init; } = default!;
+
+        /// <summary>
+        /// 規格値に使うプロファイル。profiles の中から選ぶ
+        /// </summary>
+        [JsonPropertyName("profile")]
+        public ProfileRef Profile { get; init; } = default!;
+
+        /// <summary>
+        /// 工種の名前。規則の work と比べ、同じものだけを使う
+        /// </summary>
+        [JsonPropertyName("work")]
+        public string Work { get; init; } = default!;
+
+        /// <summary>
+        /// 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す評価した点の数の上限。書かなければ点を返さない
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 設計面の TIN を持つ文書と、TIN の ID
+    /// </summary>
+    public sealed record DeviationSurface
+    {
+        /// <summary>
+        /// open で開いた土木の文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// TIN の ID。civil の surfaces の id
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない
+    /// </summary>
+    public sealed record DeviationResult
+    {
+        /// <summary>
+        /// 使ったプロファイルの鎖。extends の基から順
+        /// </summary>
+        [JsonPropertyName("chain")]
+        public IReadOnlyList<ProfileIdentity> Chain { get; init; } = default!;
+
+        /// <summary>
+        /// 点群の点の数
+        /// </summary>
+        [JsonPropertyName("points")]
+        public ulong Points { get; init; }
+
+        /// <summary>
+        /// TIN の外なので評価しなかった点の数
+        /// </summary>
+        [JsonPropertyName("outside")]
+        public ulong Outside { get; init; }
+
+        /// <summary>
+        /// どの規則の勾配にも入らない三角形の上なので評価しなかった点の数
+        /// </summary>
+        [JsonPropertyName("unmatched")]
+        public ulong Unmatched { get; init; }
+
+        /// <summary>
+        /// 区分の境の近く（規則の exclude の内）なので除いた点の数
+        /// </summary>
+        [JsonPropertyName("excluded")]
+        public ulong Excluded { get; init; }
+
+        /// <summary>
+        /// 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
+        /// </summary>
+        [JsonPropertyName("rules")]
+        public IReadOnlyList<DeviationRule> Rules { get; init; } = default!;
+
+        /// <summary>
+        /// 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported
+        /// </summary>
+        [JsonPropertyName("findings")]
+        public IReadOnlyList<CheckFinding> Findings { get; init; } = default!;
+
+        /// <summary>
+        /// 評価した点の数
+        /// </summary>
+        [JsonPropertyName("evaluated")]
+        public ulong Evaluated { get; init; }
+
+        /// <summary>
+        /// 評価した点。点群の順に、offset から limit 個まで
+        /// </summary>
+        [JsonPropertyName("differences")]
+        public IReadOnlyList<DeviationPoint> Differences { get; init; } = default!;
+
+        /// <summary>
+        /// 続きの最初の評価した点の位置。続きがなければ持たない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
+    /// 規則の区分ごとの集計。差はメートル
+    /// </summary>
+    public sealed record DeviationRule
+    {
+        /// <summary>
+        /// 規則の id
+        /// </summary>
+        [JsonPropertyName("rule")]
+        public string Rule { get; init; } = default!;
+
+        /// <summary>
+        /// 区分の名前
+        /// </summary>
+        [JsonPropertyName("part")]
+        public string Part { get; init; } = default!;
+
+        /// <summary>
+        /// 評価した点の数
+        /// </summary>
+        [JsonPropertyName("points")]
+        public ulong Points { get; init; }
+
+        /// <summary>
+        /// 区分の三角形の、平面に投影した面積（m²）
+        /// </summary>
+        [JsonPropertyName("area")]
+        public double Area { get; init; }
+
+        /// <summary>
+        /// 計測の密度（点／m²）。面積がなければ書かない
+        /// </summary>
+        [JsonPropertyName("density")]
+        public double? Density { get; init; }
+
+        /// <summary>
+        /// 差の平均。点がなければ書かない
+        /// </summary>
+        [JsonPropertyName("mean")]
+        public double? Mean { get; init; }
+
+        /// <summary>
+        /// 差の最小。点がなければ書かない
+        /// </summary>
+        [JsonPropertyName("min")]
+        public double? Min { get; init; }
+
+        /// <summary>
+        /// 差の最大。点がなければ書かない
+        /// </summary>
+        [JsonPropertyName("max")]
+        public double? Max { get; init; }
+
+        /// <summary>
+        /// 指摘の数（確認できなかったものを除く）
+        /// </summary>
+        [JsonPropertyName("findings")]
+        public ulong Findings { get; init; }
+
+        /// <summary>
+        /// 確認できなかった数
+        /// </summary>
+        [JsonPropertyName("unsupported")]
+        public ulong Unsupported { get; init; }
+    }
+
+    /// <summary>
+    /// 評価した点
+    /// </summary>
+    public sealed record DeviationPoint
+    {
+        /// <summary>
+        /// 点群の中の番号
+        /// </summary>
+        [JsonPropertyName("index")]
+        public ulong Index { get; init; }
+
+        /// <summary>
+        /// 北・東・標高（メートル）
+        /// </summary>
+        [JsonPropertyName("position")]
+        public IReadOnlyList<double> Position { get; init; } = default!;
+
+        /// <summary>
+        /// 点の標高から設計面の標高を引いた差（メートル）
+        /// </summary>
+        [JsonPropertyName("difference")]
+        public double Difference { get; init; }
+
+        /// <summary>
+        /// 評価した規則の id
+        /// </summary>
+        [JsonPropertyName("rule")]
+        public string Rule { get; init; } = default!;
+    }
+
+    /// <summary>
     /// describe に使うカタログのファイル。catalog/&lt;言語&gt;.toml から生成し、zm_push で渡す（決定 0009）
     /// </summary>
     public sealed record Catalog
@@ -6984,6 +7249,7 @@ namespace Zumen.Messages
                 ["bcf_write"] = (typeof(BcfWriteRequest), typeof(BcfWriteResult)),
                 ["civil"] = (typeof(CivilRequest), typeof(CivilResult)),
                 ["pointcloud"] = (typeof(PointcloudRequest), typeof(PointcloudResult)),
+                ["deviation"] = (typeof(DeviationRequest), typeof(DeviationResult)),
             };
     }
 }

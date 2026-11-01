@@ -140,6 +140,11 @@ func (u Request) AsPointcloudRequest() *PointcloudRequest {
 	return asTagged[PointcloudRequest](u, "op", "pointcloud")
 }
 
+// AsDeviationRequest は、op が deviation の形なら、その型で読む。違えば nil。
+func (u Request) AsDeviationRequest() *DeviationRequest {
+	return asTagged[DeviationRequest](u, "op", "deviation")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4440,6 +4445,145 @@ type PointcloudPoints struct {
 	Level *int64 `json:"level,omitempty"`
 }
 
+// DeviationRequest: 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+type DeviationRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// open で開いた点群の文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 設計面の TIN
+	Surface *DeviationSurface `json:"surface,omitempty"`
+
+	// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+	Profiles []string `json:"profiles,omitempty"`
+
+	// 規格値に使うプロファイル。profiles の中から選ぶ
+	Profile *ProfileRef `json:"profile,omitempty"`
+
+	// 工種の名前。規則の work と比べ、同じものだけを使う
+	Work *string `json:"work,omitempty"`
+
+	// 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0
+	Offset *int64 `json:"offset,omitempty"`
+
+	// 返す評価した点の数の上限。書かなければ点を返さない
+	Limit *int64 `json:"limit,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m DeviationRequest) MarshalJSON() ([]byte, error) {
+	type plain DeviationRequest
+	m.Op = "deviation"
+	return json.Marshal(plain(m))
+}
+
+// DeviationSurface: 設計面の TIN を持つ文書と、TIN の ID
+type DeviationSurface struct {
+	// open で開いた土木の文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// TIN の ID。civil の surfaces の id
+	Id *string `json:"id,omitempty"`
+}
+
+// DeviationResult: 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない
+type DeviationResult struct {
+	// 使ったプロファイルの鎖。extends の基から順
+	Chain []ProfileIdentity `json:"chain,omitempty"`
+
+	// 点群の点の数
+	Points *int64 `json:"points,omitempty"`
+
+	// TIN の外なので評価しなかった点の数
+	Outside *int64 `json:"outside,omitempty"`
+
+	// どの規則の勾配にも入らない三角形の上なので評価しなかった点の数
+	Unmatched *int64 `json:"unmatched,omitempty"`
+
+	// 区分の境の近く（規則の exclude の内）なので除いた点の数
+	Excluded *int64 `json:"excluded,omitempty"`
+
+	// 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
+	Rules []DeviationRule `json:"rules,omitempty"`
+
+	// 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported
+	Findings []CheckFinding `json:"findings,omitempty"`
+
+	// 評価した点の数
+	Evaluated *int64 `json:"evaluated,omitempty"`
+
+	// 評価した点。点群の順に、offset から limit 個まで
+	Differences []DeviationPoint `json:"differences,omitempty"`
+
+	// 続きの最初の評価した点の位置。続きがなければ持たない
+	NextOffset *int64 `json:"next_offset,omitempty"`
+}
+
+// DeviationRule: 規則の区分ごとの集計。差はメートル
+type DeviationRule struct {
+	// 規則の id
+	Rule *string `json:"rule,omitempty"`
+
+	// 区分の名前
+	Part *string `json:"part,omitempty"`
+
+	// 評価した点の数
+	Points *int64 `json:"points,omitempty"`
+
+	// 区分の三角形の、平面に投影した面積（m²）
+	Area *float64 `json:"area,omitempty"`
+
+	// 計測の密度（点／m²）。面積がなければ書かない
+	Density *float64 `json:"density,omitempty"`
+
+	// 差の平均。点がなければ書かない
+	Mean *float64 `json:"mean,omitempty"`
+
+	// 差の最小。点がなければ書かない
+	Min *float64 `json:"min,omitempty"`
+
+	// 差の最大。点がなければ書かない
+	Max *float64 `json:"max,omitempty"`
+
+	// 指摘の数（確認できなかったものを除く）
+	Findings *int64 `json:"findings,omitempty"`
+
+	// 確認できなかった数
+	Unsupported *int64 `json:"unsupported,omitempty"`
+}
+
+// DeviationPoint: 評価した点
+type DeviationPoint struct {
+	// 点群の中の番号
+	Index *int64 `json:"index,omitempty"`
+
+	// 北・東・標高（メートル）
+	Position []float64 `json:"position,omitempty"`
+
+	// 点の標高から設計面の標高を引いた差（メートル）
+	Difference *float64 `json:"difference,omitempty"`
+
+	// 評価した規則の id
+	Rule *string `json:"rule,omitempty"`
+}
+
 // Catalog: describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 type Catalog struct {
 	// カタログの形の大版。今は 1
@@ -4532,3 +4676,6 @@ const OpCivil = "civil"
 
 // OpPointcloud は、op の名前 pointcloud。
 const OpPointcloud = "pointcloud"
+
+// OpDeviation は、op の名前 deviation。
+const OpDeviation = "deviation"

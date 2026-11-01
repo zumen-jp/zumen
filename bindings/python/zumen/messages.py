@@ -31,6 +31,7 @@ Request = Union[
     "BcfWriteRequest",
     "CivilRequest",
     "PointcloudRequest",
+    "DeviationRequest",
 ]
 
 
@@ -4390,6 +4391,154 @@ class PointcloudPoints(_PointcloudPointsRequired, _PointcloudPointsOptional):
     "選んだ点。どの列も、選んだ点の順で同じ長さにする"
 
 
+# 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+_DeviationRequestRequired = TypedDict(
+    "_DeviationRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["deviation"],
+        # open で開いた点群の文書の名前
+        "doc": str,
+        # 設計面の TIN
+        "surface": "DeviationSurface",
+        # プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+        "profiles": List[str],
+        # 規格値に使うプロファイル。profiles の中から選ぶ
+        "profile": "ProfileRef",
+        # 工種の名前。規則の work と比べ、同じものだけを使う
+        "work": str,
+    },
+)
+_DeviationRequestOptional = TypedDict(
+    "_DeviationRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0
+        "offset": int,
+        # 返す評価した点の数の上限。書かなければ点を返さない
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class DeviationRequest(_DeviationRequestRequired, _DeviationRequestOptional):
+    "開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から"
+
+
+# 設計面の TIN を持つ文書と、TIN の ID
+DeviationSurface = TypedDict(
+    "DeviationSurface",
+    {
+        # open で開いた土木の文書の名前
+        "doc": str,
+        # TIN の ID。civil の surfaces の id
+        "id": str,
+    },
+)
+
+
+# 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない
+_DeviationResultRequired = TypedDict(
+    "_DeviationResultRequired",
+    {
+        # 使ったプロファイルの鎖。extends の基から順
+        "chain": List["ProfileIdentity"],
+        # 点群の点の数
+        "points": int,
+        # TIN の外なので評価しなかった点の数
+        "outside": int,
+        # どの規則の勾配にも入らない三角形の上なので評価しなかった点の数
+        "unmatched": int,
+        # 区分の境の近く（規則の exclude の内）なので除いた点の数
+        "excluded": int,
+        # 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
+        "rules": List["DeviationRule"],
+        # 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported
+        "findings": List["CheckFinding"],
+        # 評価した点の数
+        "evaluated": int,
+        # 評価した点。点群の順に、offset から limit 個まで
+        "differences": List["DeviationPoint"],
+    },
+)
+_DeviationResultOptional = TypedDict(
+    "_DeviationResultOptional",
+    {
+        # 続きの最初の評価した点の位置。続きがなければ持たない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class DeviationResult(_DeviationResultRequired, _DeviationResultOptional):
+    "標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない"
+
+
+# 規則の区分ごとの集計。差はメートル
+_DeviationRuleRequired = TypedDict(
+    "_DeviationRuleRequired",
+    {
+        # 規則の id
+        "rule": str,
+        # 区分の名前
+        "part": str,
+        # 評価した点の数
+        "points": int,
+        # 区分の三角形の、平面に投影した面積（m²）
+        "area": float,
+        # 指摘の数（確認できなかったものを除く）
+        "findings": int,
+        # 確認できなかった数
+        "unsupported": int,
+    },
+)
+_DeviationRuleOptional = TypedDict(
+    "_DeviationRuleOptional",
+    {
+        # 計測の密度（点／m²）。面積がなければ書かない
+        "density": float,
+        # 差の平均。点がなければ書かない
+        "mean": float,
+        # 差の最小。点がなければ書かない
+        "min": float,
+        # 差の最大。点がなければ書かない
+        "max": float,
+    },
+    total=False,
+)
+
+
+class DeviationRule(_DeviationRuleRequired, _DeviationRuleOptional):
+    "規則の区分ごとの集計。差はメートル"
+
+
+# 評価した点
+DeviationPoint = TypedDict(
+    "DeviationPoint",
+    {
+        # 点群の中の番号
+        "index": int,
+        # 北・東・標高（メートル）
+        "position": List[float],
+        # 点の標高から設計面の標高を引いた差（メートル）
+        "difference": float,
+        # 評価した規則の id
+        "rule": str,
+    },
+)
+
+
 # describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 Catalog = TypedDict(
     "Catalog",
@@ -4443,6 +4592,7 @@ Operation = Literal[
     "bcf_write",
     "civil",
     "pointcloud",
+    "deviation",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -4469,4 +4619,5 @@ OPERATIONS: Dict[str, Any] = {
     "bcf_write": ("BcfWriteRequest", "BcfWriteResult"),
     "civil": ("CivilRequest", "CivilResult"),
     "pointcloud": ("PointcloudRequest", "PointcloudResult"),
+    "deviation": ("DeviationRequest", "DeviationResult"),
 }

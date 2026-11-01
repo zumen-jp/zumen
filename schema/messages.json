@@ -28,7 +28,8 @@
         { "$ref": "#/$defs/bcf_read_request" },
         { "$ref": "#/$defs/bcf_write_request" },
         { "$ref": "#/$defs/civil_request" },
-        { "$ref": "#/$defs/pointcloud_request" }
+        { "$ref": "#/$defs/pointcloud_request" },
+        { "$ref": "#/$defs/deviation_request" }
       ]
     },
     "request_common": {
@@ -3463,6 +3464,106 @@
         "level": { "description": "選んだいちばん深い段", "type": "integer", "minimum": 0 }
       },
       "required": ["positions", "truncated", "level"],
+      "additionalProperties": false
+    },
+    "deviation_request": {
+      "description": "開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "deviation" },
+        "doc": { "description": "open で開いた点群の文書の名前", "type": "string" },
+        "surface": { "description": "設計面の TIN", "$ref": "#/$defs/deviation_surface" },
+        "profiles": {
+          "description": "プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "profile": { "description": "規格値に使うプロファイル。profiles の中から選ぶ", "$ref": "#/$defs/profile_ref" },
+        "work": { "description": "工種の名前。規則の work と比べ、同じものだけを使う", "type": "string" },
+        "offset": { "description": "返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0", "type": "integer", "minimum": 0 },
+        "limit": {
+          "description": "返す評価した点の数の上限。書かなければ点を返さない",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      },
+      "required": ["op", "doc", "surface", "profiles", "profile", "work"],
+      "unevaluatedProperties": false
+    },
+    "deviation_surface": {
+      "description": "設計面の TIN を持つ文書と、TIN の ID",
+      "type": "object",
+      "properties": {
+        "doc": { "description": "open で開いた土木の文書の名前", "type": "string" },
+        "id": { "description": "TIN の ID。civil の surfaces の id", "type": "string" }
+      },
+      "required": ["doc", "id"],
+      "additionalProperties": false
+    },
+    "deviation_result": {
+      "description": "標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない",
+      "type": "object",
+      "properties": {
+        "chain": {
+          "description": "使ったプロファイルの鎖。extends の基から順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/profile_identity" }
+        },
+        "points": { "description": "点群の点の数", "type": "integer", "minimum": 0 },
+        "outside": { "description": "TIN の外なので評価しなかった点の数", "type": "integer", "minimum": 0 },
+        "unmatched": { "description": "どの規則の勾配にも入らない三角形の上なので評価しなかった点の数", "type": "integer", "minimum": 0 },
+        "excluded": { "description": "区分の境の近く（規則の exclude の内）なので除いた点の数", "type": "integer", "minimum": 0 },
+        "rules": {
+          "description": "規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す",
+          "type": "array",
+          "items": { "$ref": "#/$defs/deviation_rule" }
+        },
+        "findings": {
+          "description": "指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported",
+          "type": "array",
+          "items": { "$ref": "#/$defs/check_finding" }
+        },
+        "evaluated": { "description": "評価した点の数", "type": "integer", "minimum": 0 },
+        "differences": {
+          "description": "評価した点。点群の順に、offset から limit 個まで",
+          "type": "array",
+          "items": { "$ref": "#/$defs/deviation_point" }
+        },
+        "next_offset": { "description": "続きの最初の評価した点の位置。続きがなければ持たない", "type": "integer", "minimum": 0 }
+      },
+      "required": ["chain", "points", "outside", "unmatched", "excluded", "rules", "findings", "evaluated", "differences"],
+      "additionalProperties": false
+    },
+    "deviation_rule": {
+      "description": "規則の区分ごとの集計。差はメートル",
+      "type": "object",
+      "properties": {
+        "rule": { "description": "規則の id", "type": "string" },
+        "part": { "description": "区分の名前", "type": "string" },
+        "points": { "description": "評価した点の数", "type": "integer", "minimum": 0 },
+        "area": { "description": "区分の三角形の、平面に投影した面積（m²）", "type": "number" },
+        "density": { "description": "計測の密度（点／m²）。面積がなければ書かない", "type": "number" },
+        "mean": { "description": "差の平均。点がなければ書かない", "type": "number" },
+        "min": { "description": "差の最小。点がなければ書かない", "type": "number" },
+        "max": { "description": "差の最大。点がなければ書かない", "type": "number" },
+        "findings": { "description": "指摘の数（確認できなかったものを除く）", "type": "integer", "minimum": 0 },
+        "unsupported": { "description": "確認できなかった数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["rule", "part", "points", "area", "findings", "unsupported"],
+      "additionalProperties": false
+    },
+    "deviation_point": {
+      "description": "評価した点",
+      "type": "object",
+      "properties": {
+        "index": { "description": "点群の中の番号", "type": "integer", "minimum": 0 },
+        "position": { "description": "北・東・標高（メートル）", "type": "array", "items": { "type": "number" } },
+        "difference": { "description": "点の標高から設計面の標高を引いた差（メートル）", "type": "number" },
+        "rule": { "description": "評価した規則の id", "type": "string" }
+      },
+      "required": ["index", "position", "difference", "rule"],
       "additionalProperties": false
     },
     "catalog": {

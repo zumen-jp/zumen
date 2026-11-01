@@ -1597,6 +1597,20 @@ params = { rule = "text", view = "uint" }
 since = "0.0.0"
 status = "active"
 
+[codes."profile.surface-elevation.invalid"]
+description = "区分の標高較差の平均値か、個々の計測値の最小・最大が、規則の幅（mm）を外れる（指摘、決定 0234）"
+severity = "warning"
+params = { rule = "text", statistic = "text", found = "float", limit = "float" }
+since = "0.2.0"
+status = "active"
+
+[codes."profile.surface-elevation.unsupported"]
+description = "区分に評価した点がないか、計測の密度（点／m²）が規則の下限に足りず、確認できない（指摘、決定 0234）"
+severity = "info"
+params = { rule = "text", density = "float", required = "float" }
+since = "0.2.0"
+status = "active"
+
 [codes."ids.file.invalid"]
 description = "IDS の XML の構造が、IDS 1.0 に合わない。near は合わなかった要素か属性"
 severity = "error"
@@ -2098,5 +2112,14 @@ status = "active"
 description = "扱わない高さの座標系なので、高さの座標系を不明にした"
 severity = "warning"
 params = { epsg = "uint" }
+since = "0.2.0"
+status = "active"
+
+# 出来形（決定 0234）
+
+[codes."deviation.crs.mixed"]
+description = "点群と TIN の水平の座標系が違うので、標高の差を求めなかった"
+severity = "error"
+params = { points = "uint", surface = "uint" }
 since = "0.2.0"
 status = "active"

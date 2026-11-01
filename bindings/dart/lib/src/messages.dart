@@ -81,6 +81,9 @@ class Request extends Message {
 
   /// op が pointcloud の形なら、その見方。違えば null
   PointcloudRequest? get asPointcloudRequest => taggedView('op', 'pointcloud', PointcloudRequest.fromJson);
+
+  /// op が deviation の形なら、その見方。違えば null
+  DeviationRequest? get asDeviationRequest => taggedView('op', 'deviation', DeviationRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -5452,6 +5455,207 @@ class PointcloudPoints extends Message {
   set level(int? value) => writeField('level', value);
 }
 
+/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+class DeviationRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeviationRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  DeviationRequest() : super({'op': 'deviation'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// open で開いた点群の文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 設計面の TIN
+  DeviationSurface? get surface => readField('surface', objectOf(DeviationSurface.fromJson));
+  set surface(DeviationSurface? value) => writeField('surface', value);
+
+  /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+  List<String>? get profiles => readField('profiles', listOf(asString));
+  set profiles(List<String>? value) => writeField('profiles', value);
+
+  /// 規格値に使うプロファイル。profiles の中から選ぶ
+  ProfileRef? get profile => readField('profile', objectOf(ProfileRef.fromJson));
+  set profile(ProfileRef? value) => writeField('profile', value);
+
+  /// 工種の名前。規則の work と比べ、同じものだけを使う
+  String? get work => readField('work', asString);
+  set work(String? value) => writeField('work', value);
+
+  /// 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0
+  int? get offset => readField('offset', asInt);
+  set offset(int? value) => writeField('offset', value);
+
+  /// 返す評価した点の数の上限。書かなければ点を返さない
+  int? get limit => readField('limit', asInt);
+  set limit(int? value) => writeField('limit', value);
+}
+
+/// 設計面の TIN を持つ文書と、TIN の ID
+class DeviationSurface extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeviationSurface.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeviationSurface() : super({});
+
+  /// open で開いた土木の文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// TIN の ID。civil の surfaces の id
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+}
+
+/// 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない
+class DeviationResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeviationResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeviationResult() : super({});
+
+  /// 使ったプロファイルの鎖。extends の基から順
+  List<ProfileIdentity>? get chain => readField('chain', listOf(objectOf(ProfileIdentity.fromJson)));
+  set chain(List<ProfileIdentity>? value) => writeField('chain', value);
+
+  /// 点群の点の数
+  int? get points => readField('points', asInt);
+  set points(int? value) => writeField('points', value);
+
+  /// TIN の外なので評価しなかった点の数
+  int? get outside => readField('outside', asInt);
+  set outside(int? value) => writeField('outside', value);
+
+  /// どの規則の勾配にも入らない三角形の上なので評価しなかった点の数
+  int? get unmatched => readField('unmatched', asInt);
+  set unmatched(int? value) => writeField('unmatched', value);
+
+  /// 区分の境の近く（規則の exclude の内）なので除いた点の数
+  int? get excluded => readField('excluded', asInt);
+  set excluded(int? value) => writeField('excluded', value);
+
+  /// 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
+  List<DeviationRule>? get rules => readField('rules', listOf(objectOf(DeviationRule.fromJson)));
+  set rules(List<DeviationRule>? value) => writeField('rules', value);
+
+  /// 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported
+  List<CheckFinding>? get findings => readField('findings', listOf(objectOf(CheckFinding.fromJson)));
+  set findings(List<CheckFinding>? value) => writeField('findings', value);
+
+  /// 評価した点の数
+  int? get evaluated => readField('evaluated', asInt);
+  set evaluated(int? value) => writeField('evaluated', value);
+
+  /// 評価した点。点群の順に、offset から limit 個まで
+  List<DeviationPoint>? get differences => readField('differences', listOf(objectOf(DeviationPoint.fromJson)));
+  set differences(List<DeviationPoint>? value) => writeField('differences', value);
+
+  /// 続きの最初の評価した点の位置。続きがなければ持たない
+  int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(int? value) => writeField('next_offset', value);
+}
+
+/// 規則の区分ごとの集計。差はメートル
+class DeviationRule extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeviationRule.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeviationRule() : super({});
+
+  /// 規則の id
+  String? get rule => readField('rule', asString);
+  set rule(String? value) => writeField('rule', value);
+
+  /// 区分の名前
+  String? get partField => readField('part', asString);
+  set partField(String? value) => writeField('part', value);
+
+  /// 評価した点の数
+  int? get points => readField('points', asInt);
+  set points(int? value) => writeField('points', value);
+
+  /// 区分の三角形の、平面に投影した面積（m²）
+  double? get area => readField('area', asDouble);
+  set area(double? value) => writeField('area', value);
+
+  /// 計測の密度（点／m²）。面積がなければ書かない
+  double? get density => readField('density', asDouble);
+  set density(double? value) => writeField('density', value);
+
+  /// 差の平均。点がなければ書かない
+  double? get mean => readField('mean', asDouble);
+  set mean(double? value) => writeField('mean', value);
+
+  /// 差の最小。点がなければ書かない
+  double? get min => readField('min', asDouble);
+  set min(double? value) => writeField('min', value);
+
+  /// 差の最大。点がなければ書かない
+  double? get max => readField('max', asDouble);
+  set max(double? value) => writeField('max', value);
+
+  /// 指摘の数（確認できなかったものを除く）
+  int? get findings => readField('findings', asInt);
+  set findings(int? value) => writeField('findings', value);
+
+  /// 確認できなかった数
+  int? get unsupported => readField('unsupported', asInt);
+  set unsupported(int? value) => writeField('unsupported', value);
+}
+
+/// 評価した点
+class DeviationPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeviationPoint.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeviationPoint() : super({});
+
+  /// 点群の中の番号
+  int? get index => readField('index', asInt);
+  set index(int? value) => writeField('index', value);
+
+  /// 北・東・標高（メートル）
+  List<double>? get position => readField('position', listOf(asDouble));
+  set position(List<double>? value) => writeField('position', value);
+
+  /// 点の標高から設計面の標高を引いた差（メートル）
+  double? get difference => readField('difference', asDouble);
+  set difference(double? value) => writeField('difference', value);
+
+  /// 評価した規則の id
+  String? get rule => readField('rule', asString);
+  set rule(String? value) => writeField('rule', value);
+}
+
 /// describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 class Catalog extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -5522,4 +5726,5 @@ abstract final class Operations {
   static const bcfWrite = 'bcf_write';
   static const civil = 'civil';
   static const pointcloud = 'pointcloud';
+  static const deviation = 'deviation';
 }

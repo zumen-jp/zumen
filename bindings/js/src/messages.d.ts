@@ -27,7 +27,8 @@ export type Request =
   | BcfReadRequest
   | BcfWriteRequest
   | CivilRequest
-  | PointcloudRequest;
+  | PointcloudRequest
+  | DeviationRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -2519,6 +2520,94 @@ export interface PointcloudPoints {
   level: number;
 }
 
+/** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から */
+export interface DeviationRequest extends RequestCommon {
+  /** op の名前 */
+  op: "deviation";
+  /** open で開いた点群の文書の名前 */
+  doc: string;
+  /** 設計面の TIN */
+  surface: DeviationSurface;
+  /** プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す */
+  profiles: string[];
+  /** 規格値に使うプロファイル。profiles の中から選ぶ */
+  profile: ProfileRef;
+  /** 工種の名前。規則の work と比べ、同じものだけを使う */
+  work: string;
+  /** 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0 */
+  offset?: number;
+  /** 返す評価した点の数の上限。書かなければ点を返さない */
+  limit?: number;
+}
+
+/** 設計面の TIN を持つ文書と、TIN の ID */
+export interface DeviationSurface {
+  /** open で開いた土木の文書の名前 */
+  doc: string;
+  /** TIN の ID。civil の surfaces の id */
+  id: string;
+}
+
+/** 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない */
+export interface DeviationResult {
+  /** 使ったプロファイルの鎖。extends の基から順 */
+  chain: ProfileIdentity[];
+  /** 点群の点の数 */
+  points: number;
+  /** TIN の外なので評価しなかった点の数 */
+  outside: number;
+  /** どの規則の勾配にも入らない三角形の上なので評価しなかった点の数 */
+  unmatched: number;
+  /** 区分の境の近く（規則の exclude の内）なので除いた点の数 */
+  excluded: number;
+  /** 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す */
+  rules: DeviationRule[];
+  /** 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported */
+  findings: CheckFinding[];
+  /** 評価した点の数 */
+  evaluated: number;
+  /** 評価した点。点群の順に、offset から limit 個まで */
+  differences: DeviationPoint[];
+  /** 続きの最初の評価した点の位置。続きがなければ持たない */
+  next_offset?: number;
+}
+
+/** 規則の区分ごとの集計。差はメートル */
+export interface DeviationRule {
+  /** 規則の id */
+  rule: string;
+  /** 区分の名前 */
+  part: string;
+  /** 評価した点の数 */
+  points: number;
+  /** 区分の三角形の、平面に投影した面積（m²） */
+  area: number;
+  /** 計測の密度（点／m²）。面積がなければ書かない */
+  density?: number;
+  /** 差の平均。点がなければ書かない */
+  mean?: number;
+  /** 差の最小。点がなければ書かない */
+  min?: number;
+  /** 差の最大。点がなければ書かない */
+  max?: number;
+  /** 指摘の数（確認できなかったものを除く） */
+  findings: number;
+  /** 確認できなかった数 */
+  unsupported: number;
+}
+
+/** 評価した点 */
+export interface DeviationPoint {
+  /** 点群の中の番号 */
+  index: number;
+  /** 北・東・標高（メートル） */
+  position: number[];
+  /** 点の標高から設計面の標高を引いた差（メートル） */
+  difference: number;
+  /** 評価した規則の id */
+  rule: string;
+}
+
 /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
 export interface Catalog {
   /** カタログの形の大版。今は 1 */
@@ -2565,4 +2654,5 @@ export interface Operations {
   bcf_write: { request: BcfWriteRequest; result: BcfWriteResult };
   civil: { request: CivilRequest; result: CivilResult };
   pointcloud: { request: PointcloudRequest; result: PointcloudResult };
+  deviation: { request: DeviationRequest; result: DeviationResult };
 }

@@ -12,7 +12,7 @@ ABI_VERSION = 1
 # メッセージのスキーマの大版（要求と応答の v）
 SCHEMA_MAJOR = 1
 # メッセージのスキーマの小版
-SCHEMA_MINOR = 49
+SCHEMA_MINOR = 50
 
 # 状態コードの名前
 StatusName = Literal[

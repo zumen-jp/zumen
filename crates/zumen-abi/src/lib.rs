@@ -16,6 +16,8 @@
 )]
 
 pub mod abi;
+#[cfg(feature = "drawing")]
+mod asbuilt;
 mod bcf;
 mod bounds;
 mod building;

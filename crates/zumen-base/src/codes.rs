@@ -757,6 +757,20 @@ pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
     &["first", "second"],
 );
 
+/// 点群と TIN の水平の座標系が違うので、標高の差を求めなかった
+///
+/// `deviation.crs.mixed`（0.2.0 から）
+pub const DEVIATION_CRS_MIXED: Code = Code::new(
+    "deviation.crs.mixed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("points", ParamType::UInt),
+        Param::new("surface", ParamType::UInt),
+    ],
+    &[],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -2419,6 +2433,37 @@ pub const PROFILE_SHEET_SIZE_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 区分の標高較差の平均値か、個々の計測値の最小・最大が、規則の幅（mm）を外れる（指摘、決定 0234）
+///
+/// `profile.surface-elevation.invalid`（0.2.0 から）
+pub const PROFILE_SURFACE_ELEVATION_INVALID: Code = Code::new(
+    "profile.surface-elevation.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("found", ParamType::Float),
+        Param::new("limit", ParamType::Float),
+        Param::new("rule", ParamType::Text),
+        Param::new("statistic", ParamType::Text),
+    ],
+    &[],
+);
+
+/// 区分に評価した点がないか、計測の密度（点／m²）が規則の下限に足りず、確認できない（指摘、決定 0234）
+///
+/// `profile.surface-elevation.unsupported`（0.2.0 から）
+pub const PROFILE_SURFACE_ELEVATION_UNSUPPORTED: Code = Code::new(
+    "profile.surface-elevation.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("density", ParamType::Float),
+        Param::new("required", ParamType::Float),
+        Param::new("rule", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 文字の高さ（用紙の mm）が、語彙のどの値とも許容差の内で一致しない（指摘）。meaning は高さの意味（決定 0022）
 ///
 /// `profile.text-height.invalid`（0.0.0 から）
@@ -3171,6 +3216,7 @@ pub const ALL: &[Code] = &[
     CRS_HEIGHT_DATUM_UNSUPPORTED,
     CRS_HEIGHT_REALIZATION_ASSUMED,
     CRS_HEIGHT_REALIZATION_MIXED,
+    DEVIATION_CRS_MIXED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,
@@ -3319,6 +3365,8 @@ pub const ALL: &[Code] = &[
     PROFILE_SCALE_UNSUPPORTED,
     PROFILE_SHEET_SIZE_INVALID,
     PROFILE_SHEET_SIZE_UNSUPPORTED,
+    PROFILE_SURFACE_ELEVATION_INVALID,
+    PROFILE_SURFACE_ELEVATION_UNSUPPORTED,
     PROFILE_TEXT_HEIGHT_INVALID,
     PROFILE_TEXT_HEIGHT_UNSUPPORTED,
     REVIEW_FILE_INVALID,

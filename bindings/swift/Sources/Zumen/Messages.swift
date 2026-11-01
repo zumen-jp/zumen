@@ -123,6 +123,11 @@ public struct Request: Message {
     public var asPointcloudRequest: PointcloudRequest? {
         taggedView("op", "pointcloud")
     }
+
+    /// op が deviation の形なら、その見方。違えば nil
+    public var asDeviationRequest: DeviationRequest? {
+        taggedView("op", "deviation")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -8393,6 +8398,320 @@ public struct PointcloudPoints: Message {
     }
 }
 
+/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+public struct DeviationRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("deviation")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// open で開いた点群の文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 設計面の TIN
+    public var surface: DeviationSurface? {
+        get { readField("surface") }
+        set { writeField("surface", newValue) }
+    }
+
+    /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+    public var profiles: [String]? {
+        get { readField("profiles") }
+        set { writeField("profiles", newValue) }
+    }
+
+    /// 規格値に使うプロファイル。profiles の中から選ぶ
+    public var profile: ProfileRef? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
+
+    /// 工種の名前。規則の work と比べ、同じものだけを使う
+    public var work: String? {
+        get { readField("work") }
+        set { writeField("work", newValue) }
+    }
+
+    /// 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0
+    public var offset: Int64? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+
+    /// 返す評価した点の数の上限。書かなければ点を返さない
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+}
+
+/// 設計面の TIN を持つ文書と、TIN の ID
+public struct DeviationSurface: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// open で開いた土木の文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// TIN の ID。civil の surfaces の id
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+}
+
+/// 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない
+public struct DeviationResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 使ったプロファイルの鎖。extends の基から順
+    public var chain: [ProfileIdentity]? {
+        get { readField("chain") }
+        set { writeField("chain", newValue) }
+    }
+
+    /// 点群の点の数
+    public var points: Int64? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// TIN の外なので評価しなかった点の数
+    public var outside: Int64? {
+        get { readField("outside") }
+        set { writeField("outside", newValue) }
+    }
+
+    /// どの規則の勾配にも入らない三角形の上なので評価しなかった点の数
+    public var unmatched: Int64? {
+        get { readField("unmatched") }
+        set { writeField("unmatched", newValue) }
+    }
+
+    /// 区分の境の近く（規則の exclude の内）なので除いた点の数
+    public var excluded: Int64? {
+        get { readField("excluded") }
+        set { writeField("excluded", newValue) }
+    }
+
+    /// 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
+    public var rules: [DeviationRule]? {
+        get { readField("rules") }
+        set { writeField("rules", newValue) }
+    }
+
+    /// 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported
+    public var findings: [CheckFinding]? {
+        get { readField("findings") }
+        set { writeField("findings", newValue) }
+    }
+
+    /// 評価した点の数
+    public var evaluated: Int64? {
+        get { readField("evaluated") }
+        set { writeField("evaluated", newValue) }
+    }
+
+    /// 評価した点。点群の順に、offset から limit 個まで
+    public var differences: [DeviationPoint]? {
+        get { readField("differences") }
+        set { writeField("differences", newValue) }
+    }
+
+    /// 続きの最初の評価した点の位置。続きがなければ持たない
+    public var nextOffset: Int64? {
+        get { readField("next_offset") }
+        set { writeField("next_offset", newValue) }
+    }
+}
+
+/// 規則の区分ごとの集計。差はメートル
+public struct DeviationRule: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 規則の id
+    public var rule: String? {
+        get { readField("rule") }
+        set { writeField("rule", newValue) }
+    }
+
+    /// 区分の名前
+    public var part: String? {
+        get { readField("part") }
+        set { writeField("part", newValue) }
+    }
+
+    /// 評価した点の数
+    public var points: Int64? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 区分の三角形の、平面に投影した面積（m²）
+    public var area: Double? {
+        get { readField("area") }
+        set { writeField("area", newValue) }
+    }
+
+    /// 計測の密度（点／m²）。面積がなければ書かない
+    public var density: Double? {
+        get { readField("density") }
+        set { writeField("density", newValue) }
+    }
+
+    /// 差の平均。点がなければ書かない
+    public var mean: Double? {
+        get { readField("mean") }
+        set { writeField("mean", newValue) }
+    }
+
+    /// 差の最小。点がなければ書かない
+    public var min: Double? {
+        get { readField("min") }
+        set { writeField("min", newValue) }
+    }
+
+    /// 差の最大。点がなければ書かない
+    public var max: Double? {
+        get { readField("max") }
+        set { writeField("max", newValue) }
+    }
+
+    /// 指摘の数（確認できなかったものを除く）
+    public var findings: Int64? {
+        get { readField("findings") }
+        set { writeField("findings", newValue) }
+    }
+
+    /// 確認できなかった数
+    public var unsupported: Int64? {
+        get { readField("unsupported") }
+        set { writeField("unsupported", newValue) }
+    }
+}
+
+/// 評価した点
+public struct DeviationPoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 点群の中の番号
+    public var index: Int64? {
+        get { readField("index") }
+        set { writeField("index", newValue) }
+    }
+
+    /// 北・東・標高（メートル）
+    public var position: [Double]? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 点の標高から設計面の標高を引いた差（メートル）
+    public var difference: Double? {
+        get { readField("difference") }
+        set { writeField("difference", newValue) }
+    }
+
+    /// 評価した規則の id
+    public var rule: String? {
+        get { readField("rule") }
+        set { writeField("rule", newValue) }
+    }
+}
+
 /// describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009）
 public struct Catalog: Message {
     /// 包んでいる JSON のオブジェクト
@@ -8491,4 +8810,5 @@ public enum Operations {
     public static let bcfWrite = "bcf_write"
     public static let civil = "civil"
     public static let pointcloud = "pointcloud"
+    public static let deviation = "deviation"
 }

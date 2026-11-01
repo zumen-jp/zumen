@@ -55,6 +55,8 @@ pub enum Request {
     Civil(CivilRequest),
     /// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
     Pointcloud(PointcloudRequest),
+    /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+    Deviation(DeviationRequest),
 }
 
 impl Request {
@@ -82,6 +84,7 @@ impl Request {
         "bcf_write",
         "civil",
         "pointcloud",
+        "deviation",
     ];
 
     /// 目印の欄（`op`）の値
@@ -109,6 +112,7 @@ impl Request {
             Self::BcfWrite(_) => "bcf_write",
             Self::Civil(_) => "civil",
             Self::Pointcloud(_) => "pointcloud",
+            Self::Deviation(_) => "deviation",
         }
     }
 }
@@ -143,6 +147,7 @@ impl FromJson for Request {
             "bcf_write" => Self::BcfWrite(BcfWriteRequest::read_fields(&mut object)?),
             "civil" => Self::Civil(CivilRequest::read_fields(&mut object)?),
             "pointcloud" => Self::Pointcloud(PointcloudRequest::read_fields(&mut object)?),
+            "deviation" => Self::Deviation(DeviationRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -175,6 +180,7 @@ impl ToJson for Request {
             Self::BcfWrite(value) => value.to_json(out),
             Self::Civil(value) => value.to_json(out),
             Self::Pointcloud(value) => value.to_json(out),
+            Self::Deviation(value) => value.to_json(out),
         }
     }
 }
@@ -12470,6 +12476,399 @@ impl FromJson for PointcloudPoints {
 }
 
 impl ToJson for PointcloudPoints {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviationRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// open で開いた点群の文書の名前
+    pub doc: String,
+    /// 設計面の TIN
+    pub surface: DeviationSurface,
+    /// プロファイルの入力の名前の列（zm_push で渡した profile.json）。extends で指す先も、すべて渡す
+    pub profiles: Vec<String>,
+    /// 規格値に使うプロファイル。profiles の中から選ぶ
+    pub profile: ProfileRef,
+    /// 工種の名前。規則の work と比べ、同じものだけを使う
+    pub work: String,
+    /// 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す評価した点の数の上限。書かなければ点を返さない
+    pub limit: Option<u64>,
+}
+
+impl DeviationRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "deviation")?;
+        let doc = object.required("doc", json::string)?;
+        let surface = object.required("surface", DeviationSurface::from_json)?;
+        let profiles = object.required("profiles", |value| json::array(value, json::string))?;
+        let profile = object.required("profile", ProfileRef::from_json)?;
+        let work = object.required("work", json::string)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 10000))?;
+        Ok(Self {
+            request_common,
+            doc,
+            surface,
+            profiles,
+            profile,
+            work,
+            offset,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("deviation");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("surface");
+        self.surface.to_json(out);
+        out.key("profiles");
+        out.array(&self.profiles, |out, item| out.string(item));
+        out.key("profile");
+        self.profile.to_json(out);
+        out.key("work");
+        out.string(&self.work);
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for DeviationRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeviationRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 設計面の TIN を持つ文書と、TIN の ID
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviationSurface {
+    /// open で開いた土木の文書の名前
+    pub doc: String,
+    /// TIN の ID。civil の surfaces の id
+    pub id: String,
+}
+
+impl DeviationSurface {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let id = object.required("id", json::string)?;
+        Ok(Self { doc, id })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("id");
+        out.string(&self.id);
+    }
+}
+
+impl FromJson for DeviationSurface {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeviationSurface {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviationResult {
+    /// 使ったプロファイルの鎖。extends の基から順
+    pub chain: Vec<ProfileIdentity>,
+    /// 点群の点の数
+    pub points: u64,
+    /// TIN の外なので評価しなかった点の数
+    pub outside: u64,
+    /// どの規則の勾配にも入らない三角形の上なので評価しなかった点の数
+    pub unmatched: u64,
+    /// 区分の境の近く（規則の exclude の内）なので除いた点の数
+    pub excluded: u64,
+    /// 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
+    pub rules: Vec<DeviationRule>,
+    /// 指摘。規則の順。規格値を外れれば profile.surface-elevation.invalid、確認できなければ profile.surface-elevation.unsupported
+    pub findings: Vec<CheckFinding>,
+    /// 評価した点の数
+    pub evaluated: u64,
+    /// 評価した点。点群の順に、offset から limit 個まで
+    pub differences: Vec<DeviationPoint>,
+    /// 続きの最初の評価した点の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl DeviationResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let chain = object.required("chain", |value| {
+            json::array(value, ProfileIdentity::from_json)
+        })?;
+        let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
+        let outside = object.required("outside", |value| json::uint(value, 0, 9007199254740991))?;
+        let unmatched =
+            object.required("unmatched", |value| json::uint(value, 0, 9007199254740991))?;
+        let excluded =
+            object.required("excluded", |value| json::uint(value, 0, 9007199254740991))?;
+        let rules = object.required("rules", |value| {
+            json::array(value, DeviationRule::from_json)
+        })?;
+        let findings = object.required("findings", |value| {
+            json::array(value, CheckFinding::from_json)
+        })?;
+        let evaluated =
+            object.required("evaluated", |value| json::uint(value, 0, 9007199254740991))?;
+        let differences = object.required("differences", |value| {
+            json::array(value, DeviationPoint::from_json)
+        })?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            chain,
+            points,
+            outside,
+            unmatched,
+            excluded,
+            rules,
+            findings,
+            evaluated,
+            differences,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("chain");
+        out.array(&self.chain, |out, item| item.to_json(out));
+        out.key("points");
+        out.uint(self.points);
+        out.key("outside");
+        out.uint(self.outside);
+        out.key("unmatched");
+        out.uint(self.unmatched);
+        out.key("excluded");
+        out.uint(self.excluded);
+        out.key("rules");
+        out.array(&self.rules, |out, item| item.to_json(out));
+        out.key("findings");
+        out.array(&self.findings, |out, item| item.to_json(out));
+        out.key("evaluated");
+        out.uint(self.evaluated);
+        out.key("differences");
+        out.array(&self.differences, |out, item| item.to_json(out));
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for DeviationResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeviationResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 規則の区分ごとの集計。差はメートル
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviationRule {
+    /// 規則の id
+    pub rule: String,
+    /// 区分の名前
+    pub part: String,
+    /// 評価した点の数
+    pub points: u64,
+    /// 区分の三角形の、平面に投影した面積（m²）
+    pub area: f64,
+    /// 計測の密度（点／m²）。面積がなければ書かない
+    pub density: Option<f64>,
+    /// 差の平均。点がなければ書かない
+    pub mean: Option<f64>,
+    /// 差の最小。点がなければ書かない
+    pub min: Option<f64>,
+    /// 差の最大。点がなければ書かない
+    pub max: Option<f64>,
+    /// 指摘の数（確認できなかったものを除く）
+    pub findings: u64,
+    /// 確認できなかった数
+    pub unsupported: u64,
+}
+
+impl DeviationRule {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let rule = object.required("rule", json::string)?;
+        let part = object.required("part", json::string)?;
+        let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
+        let area = object.required("area", json::number)?;
+        let density = object.optional("density", json::number)?;
+        let mean = object.optional("mean", json::number)?;
+        let min = object.optional("min", json::number)?;
+        let max = object.optional("max", json::number)?;
+        let findings =
+            object.required("findings", |value| json::uint(value, 0, 9007199254740991))?;
+        let unsupported = object.required("unsupported", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            rule,
+            part,
+            points,
+            area,
+            density,
+            mean,
+            min,
+            max,
+            findings,
+            unsupported,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("rule");
+        out.string(&self.rule);
+        out.key("part");
+        out.string(&self.part);
+        out.key("points");
+        out.uint(self.points);
+        out.key("area");
+        out.float(self.area);
+        if let Some(value) = &self.density {
+            out.key("density");
+            out.float(*value);
+        }
+        if let Some(value) = &self.mean {
+            out.key("mean");
+            out.float(*value);
+        }
+        if let Some(value) = &self.min {
+            out.key("min");
+            out.float(*value);
+        }
+        if let Some(value) = &self.max {
+            out.key("max");
+            out.float(*value);
+        }
+        out.key("findings");
+        out.uint(self.findings);
+        out.key("unsupported");
+        out.uint(self.unsupported);
+    }
+}
+
+impl FromJson for DeviationRule {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeviationRule {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 評価した点
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviationPoint {
+    /// 点群の中の番号
+    pub index: u64,
+    /// 北・東・標高（メートル）
+    pub position: Vec<f64>,
+    /// 点の標高から設計面の標高を引いた差（メートル）
+    pub difference: f64,
+    /// 評価した規則の id
+    pub rule: String,
+}
+
+impl DeviationPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let index = object.required("index", |value| json::uint(value, 0, 9007199254740991))?;
+        let position = object.required("position", |value| json::array(value, json::number))?;
+        let difference = object.required("difference", json::number)?;
+        let rule = object.required("rule", json::string)?;
+        Ok(Self {
+            index,
+            position,
+            difference,
+            rule,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("index");
+        out.uint(self.index);
+        out.key("position");
+        out.array(&self.position, |out, item| out.float(*item));
+        out.key("difference");
+        out.float(self.difference);
+        out.key("rule");
+        out.string(&self.rule);
+    }
+}
+
+impl FromJson for DeviationPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeviationPoint {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

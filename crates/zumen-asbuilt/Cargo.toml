@@ -1,0 +1,24 @@
+[package]
+name = "zumen-asbuilt"
+description = "zumen の出来形。設計の TIN と点群の標高の差を、プロファイルの規格値の区分ごとに集計する（決定 0234）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 勾配と距離の平方根（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-civil = { version = "0.2.0", path = "../zumen-civil" }
+zumen-json = { version = "0.2.0", path = "../zumen-json" }
+zumen-pointcloud = { version = "0.2.0", path = "../zumen-pointcloud" }
+zumen-profile = { version = "0.2.0", path = "../zumen-profile" }
+
+
+[dev-dependencies]
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+
+[lints]
+workspace = true

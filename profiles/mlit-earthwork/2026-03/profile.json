@@ -1,0 +1,247 @@
+{
+  "edition": "2026-03",
+  "format": "0.1",
+  "id": "mlit-earthwork",
+  "license": "CC-BY-4.0",
+  "revision": 1,
+  "rules": [
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "max": 150,
+        "min": -150
+      },
+      "exclude": 0.05,
+      "id": "river-excavation-flat",
+      "level": "error",
+      "mean": {
+        "max": 50,
+        "min": -50
+      },
+      "part": "flat",
+      "slope": {
+        "min": 20
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-1",
+        "section": "1-2-3-2"
+      },
+      "work": "river-excavation"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "max": 160,
+        "min": -160
+      },
+      "exclude": 0.05,
+      "id": "river-excavation-slope",
+      "level": "error",
+      "mean": {
+        "max": 70,
+        "min": -70
+      },
+      "part": "slope",
+      "slope": {
+        "max": 20
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-1",
+        "section": "1-2-3-2"
+      },
+      "work": "river-excavation"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "max": 150,
+        "min": -150
+      },
+      "exclude": 0.05,
+      "id": "road-excavation-flat",
+      "level": "error",
+      "mean": {
+        "max": 50,
+        "min": -50
+      },
+      "part": "flat",
+      "slope": {
+        "min": 20
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-6",
+        "section": "1-2-4-2"
+      },
+      "work": "road-excavation"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "max": 160,
+        "min": -160
+      },
+      "exclude": 0.05,
+      "id": "road-excavation-slope",
+      "level": "error",
+      "mean": {
+        "max": 70,
+        "min": -70
+      },
+      "part": "slope",
+      "slope": {
+        "max": 20
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-6",
+        "section": "1-2-4-2"
+      },
+      "work": "road-excavation"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "min": -150
+      },
+      "exclude": 0.05,
+      "id": "river-embankment-crest",
+      "level": "error",
+      "mean": {
+        "min": -50
+      },
+      "part": "crest",
+      "slope": {
+        "min": 20
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-3",
+        "section": "1-2-3-3"
+      },
+      "work": "river-embankment"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "min": -170
+      },
+      "exclude": 0.05,
+      "id": "river-embankment-slope-gentle",
+      "level": "error",
+      "mean": {
+        "min": -50
+      },
+      "part": "slope",
+      "slope": {
+        "max": 20,
+        "min": 4
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-3",
+        "section": "1-2-3-3"
+      },
+      "work": "river-embankment"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "min": -170
+      },
+      "exclude": 0.05,
+      "id": "river-embankment-slope-steep",
+      "level": "error",
+      "mean": {
+        "min": -60
+      },
+      "part": "slope",
+      "slope": {
+        "max": 4
+      },
+      "source": {
+        "document": "main",
+        "item": "Ⅰ-3",
+        "section": "1-2-3-3"
+      },
+      "work": "river-embankment"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "max": 150,
+        "min": -150
+      },
+      "exclude": 0.05,
+      "id": "road-embankment-crest",
+      "level": "error",
+      "mean": {
+        "max": 50,
+        "min": -50
+      },
+      "part": "crest",
+      "slope": {
+        "min": 20
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-8",
+        "section": "1-2-4-3"
+      },
+      "work": "road-embankment"
+    },
+    {
+      "check": "surface-elevation",
+      "density": 1,
+      "each": {
+        "max": 190,
+        "min": -190
+      },
+      "exclude": 0.05,
+      "id": "road-embankment-slope",
+      "level": "error",
+      "mean": {
+        "max": 80,
+        "min": -80
+      },
+      "part": "slope",
+      "slope": {
+        "max": 20
+      },
+      "source": {
+        "basis": "chosen",
+        "document": "main",
+        "item": "Ⅰ-8",
+        "section": "1-2-4-3"
+      },
+      "work": "road-embankment"
+    }
+  ],
+  "sources": {
+    "main": {
+      "checked": "2026-11-01",
+      "publisher": "国土交通省",
+      "title": "土木工事施工管理基準及び規格値（案）",
+      "url": "https://www.mlit.go.jp/tec/content/001990185.pdf",
+      "version": "令和 8 年 3 月"
+    }
+  },
+  "title": "土木工事施工管理基準及び規格値（案）土工の面管理"
+}
