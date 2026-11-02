@@ -319,11 +319,14 @@ impl Bounds {
                 self.add(ox + r, oy + r);
                 return;
             }
+            // 大きな値には 1 を足しても変わらないので、回数で数える
             let mut k = first;
-            while k <= last {
+            let mut left = last - first;
+            while left >= 0.0 {
                 let phi = side * (90.0 * k - angle);
                 extremes.push(sign * (2.0 * a * a * phi.to_radians()).sqrt());
                 k += 1.0;
+                left -= 1.0;
             }
         }
         extremes.into_iter().for_each(at);
@@ -564,6 +567,10 @@ mod tests {
             rounded(bbox(&clothoid(0.0, true, 0.0, 1000.0))),
             [-999.0, -998.0, 1001.0, 1002.0],
         );
+        // 向きが大きく、1 を足しても角度の数が変わらないものも、数え終える
+        for angle in [-4.2e173, 1e20, f64::MAX] {
+            assert!(bbox(&clothoid(angle, true, 0.0, 3.0)).is_some(), "{angle}");
+        }
     }
 
     #[test]

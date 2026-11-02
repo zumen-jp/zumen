@@ -166,7 +166,7 @@ impl<P: Point> Symbol<P> {
 
 impl Drawing2D {
     /// 起点から配置をたどって、要素ごとに解いた値を返す（決定 0159）。起点がなければ空。
-    /// 返す要素ごとに `work` を 1 と数え、配置の深さを `depth` で数える。道筋に同じ定義がもう一度現れる配置は
+    /// 返す要素と配置の升ごとに `work` を 1 と数え、配置の深さを `depth` で数える。道筋に同じ定義がもう一度現れる配置は
     /// たどらずに `drawing.placement.invalid` を返し、定義のない配置はたどらない
     pub fn walk(&self, origin: Origin, cx: &mut Cx<'_>) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
         self.walk_with(origin, false, cx)
@@ -490,8 +490,7 @@ impl<'a> Walker<'a> {
         let base = self.drawing.symbols.get(definition).and_then(|d| d.base);
         let cells = symbol
             .cells()
-            .map(|cell| (cell, frame.transform.after(&symbol.placement(base, cell))))
-            .collect();
+            .map(|cell| (cell, frame.transform.after(&symbol.placement(base, cell))));
         self.inside(
             element,
             id,
@@ -527,7 +526,8 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// 記号の定義の中へ、配置ごとに進む。`cells` は格子の列と行と、定義の空間から起点への変換
+    /// 記号の定義の中へ、配置ごとに進む。`cells` は格子の列と行と、定義の空間から起点への変換。格子の升は
+    /// 多くなりうるので、集めずに順に進み、升ごとに `work` を 1 と数える
     #[allow(clippy::too_many_arguments)]
     fn inside<P: Point>(
         &mut self,
@@ -535,7 +535,7 @@ impl<'a> Walker<'a> {
         id: &str,
         frame: &Frame<'a>,
         definition: usize,
-        cells: Vec<([u32; 2], Affine)>,
+        cells: impl IntoIterator<Item = ([u32; 2], Affine)>,
         clip: Option<&'a Clip>,
         cx: &mut Cx<'_>,
     ) -> Result<(), (Stop, Ref)> {
@@ -557,6 +557,10 @@ impl<'a> Walker<'a> {
         };
         cx.enter().map_err(|stop| (stop, at()))?;
         for (cell, placement) in cells {
+            if let Err(stop) = cx.check(Kind::Work, 1) {
+                cx.leave();
+                return Err((stop, at()));
+            }
             let mut clips = frame.clips.clone();
             if let Some(clip) = clip {
                 let corners = match clip.vertices.as_slice() {
@@ -1169,5 +1173,32 @@ mod tests {
             assert!(matches!(stop, Stop::Exceeded(_)), "{kind:?}");
             assert_eq!(budget.used(Kind::Depth), 0, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn huge_grids_stop_at_the_work_budget_without_collecting_the_cells() {
+        let mut drawing = nested();
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        // 升を集めてから歩くと、約 1.8e19 の升で記憶を食い尽くす
+        symbol.grid = Some(Grid {
+            columns: u32::MAX,
+            rows: u32::MAX,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1000)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
+        assert!(matches!(stop, Stop::Exceeded(_)));
     }
 }

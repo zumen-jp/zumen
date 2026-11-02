@@ -1538,14 +1538,17 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 usize::MAX
             };
             self.segments(estimate, source)?;
+            // 大きな番号には 1 を足しても変わらないので、回数で数える
             let mut k = first;
-            while k <= last {
+            let mut left = last - first;
+            while left >= 0.0 {
                 for piece in
                     geom::hatch_row(&rings, family.angle, family.base, family.offset, k, dashes)
                 {
                     self.line(piece.into_iter().map(|p| map(&t, p)).collect(), unit);
                 }
                 k += 1.0;
+                left -= 1.0;
             }
         }
         Ok(())
