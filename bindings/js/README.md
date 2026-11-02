@@ -59,7 +59,7 @@ const viewer = await modules.forOp("scene"); // op を持つモジュール
 | `modulesWith` | op を持つモジュールの名前 |
 | `loadModules` | `Modules.get`・`forInput`・`forOp` で、モジュールを読み込んで覚えておく |
 
-外部のプラグインを束ねたモジュール（[決定 0243](../../docs/decisions/0243-plugin-bundling.md)）は、`loadModules` の 2 つ目の引数に、名前・形式ごとの判定の規則（`formats`）・持つ op（`ops`）・読み込む関数（`load`）を渡します。コアのどの形式でもない入力を、その規則で試します。作り方は [templates/plugin](../../templates/plugin/README.md) にあります。
+外部のプラグインを束ねたモジュール（[決定 0243](../../docs/decisions/0243-plugin-bundling.md)）は、`loadModules` の 2 つ目の引数に、名前・形式ごとの判定の規則（`formats`）・持つ op（`ops`）・読み込む関数（`load`）を渡します。コアのどの形式でもない入力を、その規則で試します。図面の形式のプラグインのモジュールは、プラグインの形式だけを持ちます（[決定 0246](../../docs/decisions/0246-drawing-model-binary.md)）。開いた文書を `lift` の op で図面モデルのバイナリ（blob の種類は `drawing`）にし、図面のモジュールのセッションに `push` して `open` すると、図面を読む op を使えます。作り方は [templates/plugin](../../templates/plugin/README.md) にあります。
 
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`call` の型は要求の `op` から結果の型を引きます。
 
@@ -83,5 +83,5 @@ node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/rel
 分けたモジュールでは、`test/modules.mjs` が、モジュールごとの op と、`detect` が `open` と同じ形式を選ぶことを確かめ、組ごとに合うモジュールで適合試験を流します。`test/browser/run.mjs` に分けたモジュールを渡すと、ブラウザーの中でも同じことをします。
 
 ```bash
-node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_abi1_bim.wasm
+node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_abi1_bim.wasm zumen_abi1_plugin.wasm
 ```

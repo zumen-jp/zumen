@@ -36,7 +36,8 @@
         { "$ref": "#/$defs/photo_request" },
         { "$ref": "#/$defs/sheet_request" },
         { "$ref": "#/$defs/boring_request" },
-        { "$ref": "#/$defs/building_apply_request" }
+        { "$ref": "#/$defs/building_apply_request" },
+        { "$ref": "#/$defs/lift_request" }
       ]
     },
     "request_common": {
@@ -2632,6 +2633,26 @@
       "required": ["applied", "hash"],
       "additionalProperties": false
     },
+    "lift_request": {
+      "description": "開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0246）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 59 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "lift" },
+        "doc": { "description": "文書の名前。open で図面を開いたもの", "type": "string" }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "lift_result": {
+      "description": "図面モデルのバイナリの blob の番号",
+      "type": "object",
+      "properties": {
+        "blob": { "description": "図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す", "type": "integer", "minimum": 0 }
+      },
+      "required": ["blob"],
+      "additionalProperties": false
+    },
     "ids_check_request": {
       "description": "開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から",
       "type": "object",
@@ -3229,9 +3250,9 @@
       "additionalProperties": false
     },
     "blob_kind": {
-      "description": "バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）",
+      "description": "バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0246。小版 59 から）",
       "type": "string",
-      "enum": ["file", "image", "scene", "arrow"]
+      "enum": ["file", "image", "scene", "arrow", "drawing"]
     },
     "session_options": {
       "description": "zm_session_new に渡す設定。渡さなければ既定の設定",

@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 58
+schema-minor = 59
 
 # 状態コード。理由は応答の診断で返す
 
@@ -154,7 +154,7 @@ formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "las", "ply", "xyz"
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation",
-    "civil_drawing", "geo", "delivery_check", "photo", "sheet", "boring",
+    "civil_drawing", "geo", "delivery_check", "photo", "sheet", "boring", "lift",
 ]
 
 [[modules]]
@@ -165,6 +165,14 @@ ops = [
     "capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements",
     "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply",
 ]
+
+# プラグインのモジュールの土台（決定 0246）。プラグインの crate と一緒に作り、コアの形式は持たない。読んだ図面は、
+# lift で図面モデルのバイナリにして、図面のモジュールの open に渡す
+[[modules]]
+name = "plugin"
+description = "プラグインの図面の形式を読み、図面モデルのバイナリにする"
+formats = []
+ops = ["capabilities", "open", "close", "describe", "lift"]
 
 # open が入力の形式を判定する順と規則（決定 0007・0219）。規則は、形式のコーデックの SIGNATURES と同じにする
 # （zumen-abi の試験が確かめる）。JavaScript の包みは、この順で判定し、形式を持つモジュールを読み込む。

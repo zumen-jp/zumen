@@ -180,6 +180,11 @@ func (u Request) AsBuildingApplyRequest() *BuildingApplyRequest {
 	return asTagged[BuildingApplyRequest](u, "op", "building_apply")
 }
 
+// AsLiftRequest は、op が lift の形なら、その型で読む。違えば nil。
+func (u Request) AsLiftRequest() *LiftRequest {
+	return asTagged[LiftRequest](u, "op", "lift")
+}
+
 // RequestCommon: どの op の要求にも置ける欄
 type RequestCommon struct {
 	// メッセージのスキーマの大版。今は 1
@@ -3572,6 +3577,43 @@ type BuildingApplyResult struct {
 	Hash *string `json:"hash,omitempty"`
 }
 
+// LiftRequest: 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0246）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 59 から
+type LiftRequest struct {
+	// メッセージのスキーマの大版。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で図面を開いたもの
+	Doc *string `json:"doc,omitempty"`
+}
+
+// MarshalJSON は、目印の欄を入れて書く。
+func (m LiftRequest) MarshalJSON() ([]byte, error) {
+	type plain LiftRequest
+	m.Op = "lift"
+	return json.Marshal(plain(m))
+}
+
+// LiftResult: 図面モデルのバイナリの blob の番号
+type LiftResult struct {
+	// 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す
+	Blob *int64 `json:"blob,omitempty"`
+}
+
 // IdsCheckRequest: 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 type IdsCheckRequest struct {
 	// メッセージのスキーマの大版。今は 1
@@ -4205,7 +4247,7 @@ type Blob struct {
 	Size *int64 `json:"size,omitempty"`
 }
 
-// BlobKind: バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+// BlobKind: バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0246。小版 59 から）
 //
 // 列挙の値。知らない値も受け取る。
 type BlobKind string
@@ -4221,6 +4263,9 @@ const BlobKindScene BlobKind = "scene"
 
 // BlobKindArrow は arrow。
 const BlobKindArrow BlobKind = "arrow"
+
+// BlobKindDrawing は drawing。
+const BlobKindDrawing BlobKind = "drawing"
 
 // SessionOptions: zm_session_new に渡す設定。渡さなければ既定の設定
 type SessionOptions struct {
@@ -5699,3 +5744,6 @@ const OpBoring = "boring"
 
 // OpBuildingApply は、op の名前 building_apply。
 const OpBuildingApply = "building_apply"
+
+// OpLift は、op の名前 lift。
+const OpLift = "lift"

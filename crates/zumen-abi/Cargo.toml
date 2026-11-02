@@ -18,6 +18,8 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 default = ["drawing", "bim"]
 drawing = []
 bim = []
+# プラグインのモジュールの土台（決定 0246）。プラグインの形式だけを読み、lift で図面モデルのバイナリにする
+plugin = []
 
 [dependencies]
 # 三角関数を、どの環境でも同じ値で求める（決定 0007・0118）。環境ごとの命令を使わない
@@ -61,6 +63,8 @@ zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [dev-dependencies]
+# 試験で、乱数の図面モデルをバイナリにして渡す（決定 0246）
+zumen-drawing = { path = "../zumen-drawing", features = ["random"] }
 
 [lints]
 workspace = true

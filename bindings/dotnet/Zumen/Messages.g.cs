@@ -70,6 +70,7 @@ namespace Zumen.Messages
             ["sheet"] = typeof(SheetRequest),
             ["boring"] = typeof(BoringRequest),
             ["building_apply"] = typeof(BuildingApplyRequest),
+            ["lift"] = typeof(LiftRequest),
         };
     }
 
@@ -5253,6 +5254,66 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0246）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 59 から
+    /// </summary>
+    public sealed record LiftRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマの大版。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "lift";
+
+        /// <summary>
+        /// 文書の名前。open で図面を開いたもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 図面モデルのバイナリの blob の番号
+    /// </summary>
+    public sealed record LiftResult
+    {
+        /// <summary>
+        /// 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す
+        /// </summary>
+        [JsonPropertyName("blob")]
+        public ulong Blob { get; init; }
+    }
+
+    /// <summary>
     /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
     /// </summary>
     public sealed record IdsCheckRequest
@@ -6382,7 +6443,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+    /// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0246。小版 59 から）
     /// </summary>
     public static class BlobKind
     {
@@ -6394,6 +6455,8 @@ namespace Zumen.Messages
         public const string Scene = "scene";
         /// <summary>arrow</summary>
         public const string Arrow = "arrow";
+        /// <summary>drawing</summary>
+        public const string Drawing = "drawing";
     }
 
     /// <summary>
@@ -8856,6 +8919,7 @@ namespace Zumen.Messages
                 ["sheet"] = (typeof(SheetRequest), typeof(SheetResult)),
                 ["boring"] = (typeof(BoringRequest), typeof(BoringResult)),
                 ["building_apply"] = (typeof(BuildingApplyRequest), typeof(BuildingApplyResult)),
+                ["lift"] = (typeof(LiftRequest), typeof(LiftResult)),
             };
     }
 }

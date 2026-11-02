@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマの大版。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマの小版。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 58;
+pub const SCHEMA_MINOR: u64 = 59;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,6 +126,7 @@ pub const MODULES: &[Module] = &[
             "photo",
             "sheet",
             "boring",
+            "lift",
         ],
     },
     // IFC と建物モデル、EXPRESS・IDS の照合と BCF
@@ -147,6 +148,12 @@ pub const MODULES: &[Module] = &[
             "bcf_write",
             "building_apply",
         ],
+    },
+    // プラグインの図面の形式を読み、図面モデルのバイナリにする
+    Module {
+        name: "plugin",
+        formats: &[],
+        ops: &["capabilities", "open", "close", "describe", "lift"],
     },
 ];
 
@@ -177,6 +184,7 @@ pub fn has_op(op: &str) -> bool {
                 | "photo"
                 | "sheet"
                 | "boring"
+                | "lift"
         ))
         || (cfg!(feature = "bim")
             && matches!(
@@ -195,6 +203,8 @@ pub fn has_op(op: &str) -> bool {
                     | "bcf_write"
                     | "building_apply"
             ))
+        || (cfg!(feature = "plugin")
+            && matches!(op, "capabilities" | "open" | "close" | "describe" | "lift"))
 }
 
 /// 形式の判定。`rules` のどれかに合えば、`format` とする
