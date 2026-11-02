@@ -95,7 +95,7 @@ pub fn generate(root: &Path) -> Result<Generated, String> {
         .map_err(|errors| format!("{CONTRACT} に合わない:\n- {}", errors.join("\n- ")))?;
     Ok(Generated {
         contract: render_contract(major, minor, &types),
-        rust: render_rust(major, minor, &types),
+        rust: render_rust(major, minor, &types, &defs),
     })
 }
 
@@ -1209,7 +1209,64 @@ fn read_field(late: bool) -> &'static str {
     }
 }
 
-fn render_type(out: &mut String, ty: &Type) {
+/// Rust の型の書き方。図面モデルの型は、定義した所からの道にする
+fn rust_type(ty: &Ty, defs: &BTreeMap<String, Def>) -> String {
+    let list = |items: &[Ty]| {
+        let items: Vec<String> = items.iter().map(|ty| rust_type(ty, defs)).collect();
+        items.join(", ")
+    };
+    match ty {
+        Ty::Prim(name) => (*name).to_owned(),
+        Ty::Text => "std::borrow::Cow<'static, str>".to_owned(),
+        Ty::Option(ty) => format!("Option<{}>", rust_type(ty, defs)),
+        Ty::Vec(ty) => format!("Vec<{}>", rust_type(ty, defs)),
+        Ty::Box(ty) => format!("Box<{}>", rust_type(ty, defs)),
+        Ty::Array(ty, len) => format!("[{}; {len}]", rust_type(ty, defs)),
+        Ty::Tuple(items) => format!("({})", list(items)),
+        Ty::Param(name) => name.clone(),
+        Ty::Named { name, args, .. } => {
+            let path = defs
+                .get(name)
+                .map_or(name.as_str(), |def| def.path.as_str());
+            if args.is_empty() {
+                path.to_owned()
+            } else {
+                format!("{path}<{}>", list(args))
+            }
+        }
+    }
+}
+
+/// 値 1 つの大きさ（`Unpack::SIZE`）の式。構造体は欄の和、列挙はいちばん大きい値に、値の番号の 8 を足す
+fn size(def: &Def, defs: &BTreeMap<String, Def>) -> String {
+    let sum = |types: Vec<&Ty>| {
+        if types.is_empty() {
+            return "0".to_owned();
+        }
+        let sizes: Vec<String> = types
+            .iter()
+            .map(|ty| format!("<{} as Unpack>::SIZE", rust_type(ty, defs)))
+            .collect();
+        sizes.join(" + ")
+    };
+    match &def.body {
+        Body::Fields(fields) => sum(fields.iter().map(|(_, ty)| ty).collect()),
+        Body::Tuple(items) => sum(items.iter().collect()),
+        Body::Variants(variants) => {
+            let sizes: Vec<String> = variants
+                .iter()
+                .map(|(_, payload)| match payload {
+                    Payload::Unit => "0".to_owned(),
+                    Payload::Tuple(items) => sum(items.iter().collect()),
+                    Payload::Fields(fields) => sum(fields.iter().map(|(_, ty)| ty).collect()),
+                })
+                .collect();
+            format!("8 + largest(&[{}])", sizes.join(", "))
+        }
+    }
+}
+
+fn render_type(out: &mut String, ty: &Type, size: &str) {
     let bounds = |name: &str| {
         if ty.params.is_empty() {
             String::new()
@@ -1334,15 +1391,15 @@ fn render_type(out: &mut String, ty: &Type) {
     );
     let _ = write!(
         out,
-        "\nimpl{} Unpack for {target} {{\nfn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {{\n{unpack}}}\n}}\n",
+        "\nimpl{} Unpack for {target} {{\nconst SIZE: u64 = {size};\n\nfn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {{\n{unpack}}}\n}}\n",
         bounds("Unpack")
     );
 }
 
-fn render_rust(major: u16, minor: u16, types: &[Type]) -> String {
+fn render_rust(major: u16, minor: u16, types: &[Type], defs: &BTreeMap<String, Def>) -> String {
     let mut out = String::from(
         "// 生成したファイル。手で直さない。`cargo xtask codegen` が、図面モデルの型と schema/drawing.toml から作る（決定 0247）。\n\n\
-         use super::{Input, Pack, Unpack, Writer};\n\n",
+         use super::{Input, Pack, Unpack, Writer, largest};\n\n",
     );
     let _ = writeln!(
         out,
@@ -1353,7 +1410,10 @@ fn render_rust(major: u16, minor: u16, types: &[Type]) -> String {
         if HANDWRITTEN.iter().any(|(name, _)| *name == ty.name) {
             continue;
         }
-        render_type(&mut out, ty);
+        let size = defs
+            .get(&ty.name)
+            .map_or_else(|| "0".to_owned(), |def| size(def, defs));
+        render_type(&mut out, ty, &size);
     }
     out
 }
@@ -1412,7 +1472,8 @@ mod tests {
             text.contains("{ name = \"Circle\", tuple = [\"P\", \"f64\"], since = 1 },"),
             "{text}"
         );
-        let rust = render_rust(1, minor, &types);
+        let rust = render_rust(1, minor, &types, &defs);
+
         assert!(rust.contains("name: if input.more()"), "{rust}");
         assert!(rust.contains("_ => Self::Circle("), "{rust}");
     }

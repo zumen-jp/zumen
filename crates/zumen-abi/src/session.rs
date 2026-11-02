@@ -1,5 +1,6 @@
 //! セッション: 名前のついた入力を持ち、要求を受けて応答を返す（決定 0012）。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
@@ -151,18 +152,18 @@ impl Doc {
         }
     }
 
-    /// 図面モデル（L2）に変換する
-    fn lift(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, zumen_sdk::Error> {
+    /// 図面モデル（L2）に変換する。図面モデルを持つ文書は、複製せずに貸す
+    fn lift(&self, cx: &mut Cx<'_>) -> Result<Cow<'_, Drawing2D>, zumen_sdk::Error> {
         match self {
             #[cfg(feature = "drawing")]
-            Doc::Dxf(file) => file.lift(cx),
+            Doc::Dxf(file) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
-            Doc::Dwg(file) => file.lift(cx),
+            Doc::Dwg(file) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
-            Doc::Sxf(file, _) => file.lift(cx),
+            Doc::Sxf(file, _) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
-            Doc::Jww(file) => file.lift(cx),
-            Doc::Plugin(_, drawing) | Doc::Lifted(_, drawing) => Ok(drawing.clone()),
+            Doc::Jww(file) => file.lift(cx).map(Cow::Owned),
+            Doc::Plugin(_, drawing) | Doc::Lifted(_, drawing) => Ok(Cow::Borrowed(drawing)),
         }
     }
 }
@@ -1063,26 +1064,31 @@ impl Session {
         })
     }
 
-    /// 文書を図面モデルに変換し、図面モデルのバイナリ（決定 0247）を blob で返す。元の文書の形式・系統・ハッシュも書く
+    /// 文書を図面モデルに変換し、図面モデルのバイナリ（決定 0247）を blob で返す。元の文書の形式・系統・ハッシュも書く。
+    /// 図面モデルを持つ文書は、複製せずに書く。書くときは、要素ごとに作業量を使い、中断の合図を確かめる
     fn lift_binary(
         &mut self,
         request: &LiftRequest,
         cx: &mut Cx<'_>,
     ) -> Result<LiftResult, Failed> {
-        let drawing = self.lift(&request.doc, cx)?;
-        let (Some(doc), Some(hash)) = (self.docs.get(&request.doc), self.hashes.get(&request.doc))
-        else {
-            return Err(fail(cx, invalid_value("/doc")));
-        };
-        let source = binary::Source {
-            format: doc.format().to_string(),
-            family: doc.family().to_string(),
-            hash: *hash,
+        let bytes = {
+            let drawing = self.lifted(&request.doc, cx)?;
+            let (Some(doc), Some(hash)) =
+                (self.docs.get(&request.doc), self.hashes.get(&request.doc))
+            else {
+                return Err(fail(cx, invalid_value("/doc")));
+            };
+            let source = binary::Source {
+                format: doc.format().to_string(),
+                family: doc.family().to_string(),
+                hash: *hash,
+            };
+            binary::write(&source, &drawing, cx).map_err(|stop| stopped(cx, stop))?
         };
         let blob = self.blobs.len() as u64;
         self.blobs.push(Some(Blob {
             kind: BlobKind::Drawing,
-            bytes: binary::write(&source, &drawing),
+            bytes,
         }));
         Ok(LiftResult { blob })
     }
@@ -1656,6 +1662,11 @@ impl Session {
 
     /// 名前の文書を、図面モデルに変換する
     fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
+        self.lifted(doc, cx).map(Cow::into_owned)
+    }
+
+    /// 名前の文書の図面モデル。図面モデルを持つ文書は、複製せずに貸す
+    fn lifted(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Cow<'_, Drawing2D>, Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }

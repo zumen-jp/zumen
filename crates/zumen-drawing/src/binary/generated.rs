@@ -1,6 +1,6 @@
 // 生成したファイル。手で直さない。`cargo xtask codegen` が、図面モデルの型と schema/drawing.toml から作る（決定 0247）。
 
-use super::{Input, Pack, Unpack, Writer};
+use super::{Input, Pack, Unpack, Writer, largest};
 
 /// 大版。読み手は、同じ大版のバイナリだけを読む
 pub const MAJOR: u16 = 1;
@@ -18,6 +18,8 @@ impl Pack for crate::space::Affine {
 }
 
 impl Unpack for crate::space::Affine {
+    const SIZE: u64 = <[f64; 6] as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Affine", |input| {
             Ok(Self {
@@ -40,6 +42,8 @@ impl Pack for crate::style::Arrowhead {
 }
 
 impl Unpack for crate::style::Arrowhead {
+    const SIZE: u64 = 8 + largest(&[0, <crate::symbol::SymbolKey as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Arrowhead", 2)? {
             0 => Self::Default,
@@ -72,6 +76,14 @@ impl<P: Pack> Pack for crate::symbol::Attribute<P> {
 }
 
 impl<P: Unpack> Unpack for crate::symbol::Attribute<P> {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <crate::text::Text<P> as Unpack>::SIZE
+        + <Option<crate::text::FormattedText<P>> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <crate::style::LayerId as Unpack>::SIZE
+        + <crate::style::Style as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Attribute", |input| {
             Ok(Self {
@@ -107,6 +119,12 @@ impl Pack for crate::symbol::AttributeDefinition {
 }
 
 impl Unpack for crate::symbol::AttributeDefinition {
+    const SIZE: u64 = <crate::symbol::Attribute<crate::space::ModelPoint> as Unpack>::SIZE
+        + <String as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("AttributeDefinition", |input| {
             Ok(Self {
@@ -131,6 +149,8 @@ impl Pack for crate::callout::AttributeValue {
 }
 
 impl Unpack for crate::callout::AttributeValue {
+    const SIZE: u64 = <zumen_base::Ref as Unpack>::SIZE + <String as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("AttributeValue", |input| {
             Ok(Self {
@@ -151,6 +171,8 @@ impl Pack for zumen_crs::Axes {
 }
 
 impl Unpack for zumen_crs::Axes {
+    const SIZE: u64 = 8 + largest(&[0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Axes", 2)? {
             0 => Self::EastNorth,
@@ -169,6 +191,8 @@ impl Pack for crate::dimension::Axis {
 }
 
 impl Unpack for crate::dimension::Axis {
+    const SIZE: u64 = 8 + largest(&[0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Axis", 2)? {
             0 => Self::X,
@@ -195,6 +219,11 @@ impl Pack for crate::text::Background {
 }
 
 impl Unpack for crate::text::Background {
+    const SIZE: u64 = <Option<crate::text::BackgroundFill> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <Option<u32> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Background", |input| {
             Ok(Self {
@@ -220,6 +249,8 @@ impl Pack for crate::text::BackgroundFill {
 }
 
 impl Unpack for crate::text::BackgroundFill {
+    const SIZE: u64 = 8 + largest(&[<crate::style::Color as Unpack>::SIZE, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("BackgroundFill", 2)? {
             0 => Self::Color(Unpack::unpack(input)?),
@@ -241,6 +272,8 @@ impl Pack for crate::extension::Basis {
 }
 
 impl Unpack for crate::extension::Basis {
+    const SIZE: u64 = 8 + largest(&[0, <crate::hash::Hash as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Basis", 2)? {
             0 => Self::Document,
@@ -265,6 +298,10 @@ impl Pack for crate::table::Border {
 }
 
 impl Unpack for crate::table::Border {
+    const SIZE: u64 = <Option<crate::style::Inherit<crate::style::Color>> as Unpack>::SIZE
+        + <Option<crate::style::Inherit<crate::style::LineWeight>> as Unpack>::SIZE
+        + <Option<bool> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Border", |input| {
             Ok(Self {
@@ -298,6 +335,13 @@ impl Pack for crate::table::Borders {
 }
 
 impl Unpack for crate::table::Borders {
+    const SIZE: u64 = <crate::table::Border as Unpack>::SIZE
+        + <crate::table::Border as Unpack>::SIZE
+        + <crate::table::Border as Unpack>::SIZE
+        + <crate::table::Border as Unpack>::SIZE
+        + <crate::table::Border as Unpack>::SIZE
+        + <crate::table::Border as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Borders", |input| {
             Ok(Self {
@@ -331,6 +375,11 @@ impl<P: Pack> Pack for crate::hatch::Boundary<P> {
 }
 
 impl<P: Unpack> Unpack for crate::hatch::Boundary<P> {
+    const SIZE: u64 = 8 + largest(&[
+        <Vec<crate::shape::Vertex<P>> as Unpack>::SIZE + <bool as Unpack>::SIZE,
+        <Vec<crate::shape::Edge<P>> as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Boundary", 2)? {
             0 => input.record("Boundary", |input| {
@@ -356,6 +405,10 @@ impl<P: Pack> Pack for crate::callout::Branch<P> {
 }
 
 impl<P: Unpack> Unpack for crate::callout::Branch<P> {
+    const SIZE: u64 = <Vec<Vec<P>> as Unpack>::SIZE
+        + <Option<P> as Unpack>::SIZE
+        + <Option<crate::callout::Dogleg> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Branch", |input| {
             Ok(Self {
@@ -378,6 +431,8 @@ impl Pack for zumen_base::ByteRange {
 }
 
 impl Unpack for zumen_base::ByteRange {
+    const SIZE: u64 = <u64 as Unpack>::SIZE + <u64 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("ByteRange", |input| {
             Ok(Self {
@@ -418,6 +473,17 @@ impl<P: Pack> Pack for crate::callout::Callout<P> {
 }
 
 impl<P: Unpack> Unpack for crate::callout::Callout<P> {
+    const SIZE: u64 = <Vec<crate::callout::Branch<P>> as Unpack>::SIZE
+        + <crate::callout::CalloutContent<P> as Unpack>::SIZE
+        + <crate::callout::PathKind as Unpack>::SIZE
+        + <crate::style::Arrowhead as Unpack>::SIZE
+        + <crate::space::Length as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <crate::style::Style as Unpack>::SIZE
+        + <crate::style::Inherit<crate::style::Color> as Unpack>::SIZE
+        + <Option<zumen_base::Ref> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Callout", |input| {
             Ok(Self {
@@ -456,6 +522,13 @@ impl<P: Pack> Pack for crate::callout::CalloutContent<P> {
 }
 
 impl<P: Unpack> Unpack for crate::callout::CalloutContent<P> {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        <Box<crate::text::FormattedText<P>> as Unpack>::SIZE,
+        <Box<crate::symbol::Symbol<P>> as Unpack>::SIZE
+            + <Vec<crate::callout::AttributeValue> as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("CalloutContent", 3)? {
             0 => Self::None,
@@ -492,6 +565,13 @@ impl Pack for crate::table::Cell {
 }
 
 impl Unpack for crate::table::Cell {
+    const SIZE: u64 = <crate::table::CellContent as Unpack>::SIZE
+        + <[u32; 2] as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Option<crate::table::CellValue> as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <crate::table::CellFormat as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Cell", |input| {
             Ok(Self {
@@ -526,6 +606,12 @@ impl Pack for crate::table::CellContent {
 }
 
 impl Unpack for crate::table::CellContent {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        <String as Unpack>::SIZE + <Vec<crate::text::Span> as Unpack>::SIZE,
+        <crate::symbol::SymbolKey as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("CellContent", 3)? {
             0 => Self::Empty,
@@ -568,6 +654,14 @@ impl Pack for crate::table::CellData {
 }
 
 impl Unpack for crate::table::CellData {
+    const SIZE: u64 = 8 + largest(&[
+        <String as Unpack>::SIZE,
+        <i64 as Unpack>::SIZE,
+        <f64 as Unpack>::SIZE,
+        <crate::table::DateTime as Unpack>::SIZE,
+        <[f64; 3] as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("CellData", 5)? {
             0 => Self::Text(Unpack::unpack(input)?),
@@ -603,6 +697,14 @@ impl Pack for crate::table::CellFormat {
 }
 
 impl Unpack for crate::table::CellFormat {
+    const SIZE: u64 = <Option<String> as Unpack>::SIZE
+        + <Option<crate::space::Length> as Unpack>::SIZE
+        + <Option<(crate::text::Horizontal, crate::text::Vertical)> as Unpack>::SIZE
+        + <Option<crate::style::Inherit<crate::style::Color>> as Unpack>::SIZE
+        + <Option<bool> as Unpack>::SIZE
+        + <Option<crate::style::Inherit<crate::style::Color>> as Unpack>::SIZE
+        + <crate::table::Borders as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("CellFormat", |input| {
             Ok(Self {
@@ -630,6 +732,10 @@ impl Pack for crate::table::CellValue {
 }
 
 impl Unpack for crate::table::CellValue {
+    const SIZE: u64 = <crate::table::CellData as Unpack>::SIZE
+        + <crate::table::ValueUnit as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("CellValue", |input| {
             Ok(Self {
@@ -652,6 +758,8 @@ impl Pack for crate::underlay::Clip {
 }
 
 impl Unpack for crate::underlay::Clip {
+    const SIZE: u64 = <Vec<[f64; 2]> as Unpack>::SIZE + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Clip", |input| {
             Ok(Self {
@@ -673,6 +781,9 @@ impl Pack for crate::style::Color {
 }
 
 impl Unpack for crate::style::Color {
+    const SIZE: u64 =
+        <Option<crate::style::ColorCode> as Unpack>::SIZE + <Option<[u8; 3]> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Color", |input| {
             Ok(Self {
@@ -694,6 +805,8 @@ impl Pack for crate::style::ColorCode {
 }
 
 impl Unpack for crate::style::ColorCode {
+    const SIZE: u64 = <crate::style::ColorSystem as Unpack>::SIZE + <u32 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("ColorCode", |input| {
             Ok(Self {
@@ -715,6 +828,8 @@ impl Pack for crate::style::ColorSystem {
 }
 
 impl Unpack for crate::style::ColorSystem {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("ColorSystem", 3)? {
             0 => Self::Aci,
@@ -748,6 +863,14 @@ impl Pack for crate::table::DateTime {
 }
 
 impl Unpack for crate::table::DateTime {
+    const SIZE: u64 = <u16 as Unpack>::SIZE
+        + <u8 as Unpack>::SIZE
+        + <u8 as Unpack>::SIZE
+        + <u8 as Unpack>::SIZE
+        + <u8 as Unpack>::SIZE
+        + <u8 as Unpack>::SIZE
+        + <u16 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("DateTime", |input| {
             Ok(Self {
@@ -785,6 +908,13 @@ impl<P: Pack> Pack for crate::dimension::Dimension<P> {
 }
 
 impl<P: Unpack> Unpack for crate::dimension::Dimension<P> {
+    const SIZE: u64 = <crate::dimension::DimensionKind<P> as Unpack>::SIZE
+        + <Option<crate::dimension::Measured> as Unpack>::SIZE
+        + <crate::dimension::Label as Unpack>::SIZE
+        + <crate::dimension::DimensionText<P> as Unpack>::SIZE
+        + <String as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Dimension", |input| {
             Ok(Self {
@@ -911,6 +1041,24 @@ impl<P: Pack> Pack for crate::dimension::DimensionKind<P> {
 }
 
 impl<P: Unpack> Unpack for crate::dimension::DimensionKind<P> {
+    const SIZE: u64 = 8 + largest(&[
+        <P as Unpack>::SIZE
+            + <P as Unpack>::SIZE
+            + <P as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE + <P as Unpack>::SIZE + <f64 as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE + <P as Unpack>::SIZE + <P as Unpack>::SIZE,
+        <[P; 2] as Unpack>::SIZE + <[P; 2] as Unpack>::SIZE + <P as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE + <P as Unpack>::SIZE + <P as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE + <crate::space::Length as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE + <crate::space::Length as Unpack>::SIZE,
+        <P as Unpack>::SIZE
+            + <P as Unpack>::SIZE
+            + <P as Unpack>::SIZE
+            + <crate::dimension::Axis as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("DimensionKind", 8)? {
             0 => input.record("DimensionKind", |input| {
@@ -1003,6 +1151,14 @@ impl Pack for crate::style::DimensionStyle {
 }
 
 impl Unpack for crate::style::DimensionStyle {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <[crate::style::Arrowhead; 2] as Unpack>::SIZE
+        + <crate::style::Arrowhead as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("DimensionStyle", |input| {
             Ok(Self {
@@ -1036,6 +1192,11 @@ impl<P: Pack> Pack for crate::dimension::DimensionText<P> {
 }
 
 impl<P: Unpack> Unpack for crate::dimension::DimensionText<P> {
+    const SIZE: u64 = <Option<P> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<(crate::text::Horizontal, crate::text::Vertical)> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("DimensionText", |input| {
             Ok(Self {
@@ -1059,6 +1220,8 @@ impl Pack for crate::callout::Dogleg {
 }
 
 impl Unpack for crate::callout::Dogleg {
+    const SIZE: u64 = <[f64; 2] as Unpack>::SIZE + <crate::space::Length as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Dogleg", |input| {
             Ok(Self {
@@ -1107,6 +1270,21 @@ impl Pack for crate::Drawing2D {
 }
 
 impl Unpack for crate::Drawing2D {
+    const SIZE: u64 = <Vec<crate::space::ModelSpace> as Unpack>::SIZE
+        + <Vec<crate::space::Sheet> as Unpack>::SIZE
+        + <Vec<crate::style::Layer> as Unpack>::SIZE
+        + <Vec<crate::style::LineType> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<crate::space::PaperLength> as Unpack>::SIZE
+        + <Option<crate::style::Color> as Unpack>::SIZE
+        + <Option<crate::style::LineTypeId> as Unpack>::SIZE
+        + <Vec<crate::style::DimensionStyle> as Unpack>::SIZE
+        + <Vec<crate::style::TextStyle> as Unpack>::SIZE
+        + <Vec<crate::symbol::SymbolDefinition> as Unpack>::SIZE
+        + <Vec<crate::extension::Extension> as Unpack>::SIZE
+        + <Vec<crate::TitleBlock> as Unpack>::SIZE
+        + <Option<crate::point::PointStyle> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Drawing2D", |input| {
             Ok(Self {
@@ -1200,6 +1378,28 @@ impl<P: Pack> Pack for crate::shape::Edge<P> {
 }
 
 impl<P: Unpack> Unpack for crate::shape::Edge<P> {
+    const SIZE: u64 = 8 + largest(&[
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE,
+        <P as Unpack>::SIZE
+            + <crate::space::Length as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE
+            + <bool as Unpack>::SIZE,
+        <P as Unpack>::SIZE
+            + <P as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE
+            + <bool as Unpack>::SIZE,
+        <crate::shape::Spline<P> as Unpack>::SIZE,
+        <P as Unpack>::SIZE
+            + <crate::space::Length as Unpack>::SIZE
+            + <f64 as Unpack>::SIZE
+            + <bool as Unpack>::SIZE
+            + <crate::space::Length as Unpack>::SIZE
+            + <crate::space::Length as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Edge", 5)? {
             0 => input.record("Edge", |input| {
@@ -1261,6 +1461,11 @@ impl<P: Pack> Pack for crate::shape::Element<P> {
 }
 
 impl<P: Unpack> Unpack for crate::shape::Element<P> {
+    const SIZE: u64 = <zumen_base::Ref as Unpack>::SIZE
+        + <crate::style::LayerId as Unpack>::SIZE
+        + <crate::style::Style as Unpack>::SIZE
+        + <crate::shape::Shape<P> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.element()?;
         input.record("Element", |input| {
@@ -1300,6 +1505,15 @@ impl Pack for crate::extension::Extension {
 }
 
 impl Unpack for crate::extension::Extension {
+    const SIZE: u64 = <std::borrow::Cow<'static, str> as Unpack>::SIZE
+        + <String as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE
+        + <u32 as Unpack>::SIZE
+        + <crate::extension::Target as Unpack>::SIZE
+        + <crate::extension::Basis as Unpack>::SIZE
+        + <Vec<crate::extension::Field> as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Extension", |input| {
             Ok(Self {
@@ -1328,6 +1542,10 @@ impl Pack for crate::extension::Field {
 }
 
 impl Unpack for crate::extension::Field {
+    const SIZE: u64 = <std::borrow::Cow<'static, str> as Unpack>::SIZE
+        + <Option<i16> as Unpack>::SIZE
+        + <crate::extension::FieldValue as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Field", |input| {
             Ok(Self {
@@ -1371,6 +1589,15 @@ impl Pack for crate::extension::FieldValue {
 }
 
 impl Unpack for crate::extension::FieldValue {
+    const SIZE: u64 = 8 + largest(&[
+        <String as Unpack>::SIZE,
+        <i64 as Unpack>::SIZE,
+        <f64 as Unpack>::SIZE,
+        <[f64; 3] as Unpack>::SIZE,
+        <u64 as Unpack>::SIZE,
+        <Vec<u8> as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("FieldValue", 6)? {
             0 => Self::Text(Unpack::unpack(input)?),
@@ -1400,6 +1627,12 @@ impl Pack for crate::hatch::Fill {
 }
 
 impl Unpack for crate::hatch::Fill {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        <crate::hatch::Pattern as Unpack>::SIZE,
+        <crate::hatch::Gradient as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Fill", 3)? {
             0 => Self::Solid,
@@ -1419,6 +1652,8 @@ impl Pack for crate::text::Fit {
 }
 
 impl Unpack for crate::text::Fit {
+    const SIZE: u64 = 8 + largest(&[0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Fit", 2)? {
             0 => Self::Aligned,
@@ -1438,6 +1673,8 @@ impl Pack for crate::text::Flow {
 }
 
 impl Unpack for crate::text::Flow {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Flow", 3)? {
             0 => Self::LeftToRight,
@@ -1458,6 +1695,8 @@ impl Pack for crate::text::Font {
 }
 
 impl Unpack for crate::text::Font {
+    const SIZE: u64 = <String as Unpack>::SIZE + <crate::text::FontKind as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Font", |input| {
             Ok(Self {
@@ -1491,6 +1730,14 @@ impl Pack for crate::text::FontKind {
 }
 
 impl Unpack for crate::text::FontKind {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        <bool as Unpack>::SIZE
+            + <bool as Unpack>::SIZE
+            + <Option<u32> as Unpack>::SIZE
+            + <Option<u32> as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("FontKind", 2)? {
             0 => Self::Shape,
@@ -1536,6 +1783,17 @@ impl Pack for crate::text::Format {
 }
 
 impl Unpack for crate::text::Format {
+    const SIZE: u64 = <Option<crate::text::Scaled<crate::space::Length>> as Unpack>::SIZE
+        + <Option<crate::text::Scaled<f64>> as Unpack>::SIZE
+        + <Option<crate::text::Scaled<f64>> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<crate::text::Font> as Unpack>::SIZE
+        + <Option<crate::style::Inherit<crate::style::Color>> as Unpack>::SIZE
+        + <Option<crate::text::Vertical> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Format", |input| {
             Ok(Self {
@@ -1590,6 +1848,20 @@ impl<P: Pack> Pack for crate::text::FormattedText<P> {
 }
 
 impl<P: Unpack> Unpack for crate::text::FormattedText<P> {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <Vec<crate::text::Span> as Unpack>::SIZE
+        + <crate::text::Height as Unpack>::SIZE
+        + <P as Unpack>::SIZE
+        + <crate::text::Horizontal as Unpack>::SIZE
+        + <crate::text::Vertical as Unpack>::SIZE
+        + <crate::text::Rotation as Unpack>::SIZE
+        + <Option<crate::space::Length> as Unpack>::SIZE
+        + <Option<crate::space::Length> as Unpack>::SIZE
+        + <crate::text::Flow as Unpack>::SIZE
+        + <crate::text::LineSpacing as Unpack>::SIZE
+        + <Option<crate::text::Background> as Unpack>::SIZE
+        + <String as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("FormattedText", |input| {
             Ok(Self {
@@ -1631,6 +1903,12 @@ impl Pack for crate::hatch::Gradient {
 }
 
 impl Unpack for crate::hatch::Gradient {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <Vec<[u8; 3]> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Gradient", |input| {
             Ok(Self {
@@ -1662,6 +1940,11 @@ impl Pack for crate::symbol::Grid {
 }
 
 impl Unpack for crate::symbol::Grid {
+    const SIZE: u64 = <u32 as Unpack>::SIZE
+        + <u32 as Unpack>::SIZE
+        + <crate::space::Length as Unpack>::SIZE
+        + <crate::space::Length as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Grid", |input| {
             Ok(Self {
@@ -1682,6 +1965,8 @@ impl Pack for crate::hash::Hash {
 }
 
 impl Unpack for crate::hash::Hash {
+    const SIZE: u64 = <[u8; 16] as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(Self(Unpack::unpack(input)?))
     }
@@ -1707,6 +1992,12 @@ impl<P: Pack> Pack for crate::hatch::Hatch<P> {
 }
 
 impl<P: Unpack> Unpack for crate::hatch::Hatch<P> {
+    const SIZE: u64 = <Vec<crate::hatch::HatchLoop<P>> as Unpack>::SIZE
+        + <crate::hatch::Islands as Unpack>::SIZE
+        + <crate::hatch::Fill as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Vec<P> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Hatch", |input| {
             Ok(Self {
@@ -1742,6 +2033,13 @@ impl<P: Pack> Pack for crate::hatch::HatchLoop<P> {
 }
 
 impl<P: Unpack> Unpack for crate::hatch::HatchLoop<P> {
+    const SIZE: u64 = <crate::hatch::Boundary<P> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Vec<zumen_base::Ref> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("HatchLoop", |input| {
             Ok(Self {
@@ -1767,6 +2065,9 @@ impl Pack for crate::text::Height {
 }
 
 impl Unpack for crate::text::Height {
+    const SIZE: u64 =
+        <crate::space::Length as Unpack>::SIZE + <crate::text::HeightMeaning as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Height", |input| {
             Ok(Self {
@@ -1792,6 +2093,8 @@ impl Pack for crate::text::HeightMeaning {
 }
 
 impl Unpack for crate::text::HeightMeaning {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, <std::borrow::Cow<'static, str> as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("HeightMeaning", 4)? {
             0 => Self::Frame,
@@ -1814,6 +2117,8 @@ impl Pack for crate::text::Horizontal {
 }
 
 impl Unpack for crate::text::Horizontal {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Horizontal", 4)? {
             0 => Self::Left,
@@ -1838,6 +2143,8 @@ impl<T: Pack> Pack for crate::style::Inherit<T> {
 }
 
 impl<T: Unpack> Unpack for crate::style::Inherit<T> {
+    const SIZE: u64 = 8 + largest(&[0, 0, <T as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Inherit", 3)? {
             0 => Self::Layer,
@@ -1858,6 +2165,8 @@ impl Pack for crate::hatch::Islands {
 }
 
 impl Unpack for crate::hatch::Islands {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Islands", 3)? {
             0 => Self::Nested,
@@ -1883,6 +2192,8 @@ impl Pack for zumen_base::Key {
 }
 
 impl Unpack for zumen_base::Key {
+    const SIZE: u64 = 8 + largest(&[<u64 as Unpack>::SIZE, <u64 as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Key", 2)? {
             0 => Self::Handle(Unpack::unpack(input)?),
@@ -1903,6 +2214,8 @@ impl Pack for crate::shape::KnotParameterization {
 }
 
 impl Unpack for crate::shape::KnotParameterization {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("KnotParameterization", 4)? {
             0 => Self::Chord,
@@ -1930,6 +2243,12 @@ impl Pack for crate::dimension::Label {
 }
 
 impl Unpack for crate::dimension::Label {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        <String as Unpack>::SIZE + <Vec<crate::text::Span> as Unpack>::SIZE,
+        0,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Label", 3)? {
             0 => Self::Measurement,
@@ -1968,6 +2287,14 @@ impl Pack for crate::style::Layer {
 }
 
 impl Unpack for crate::style::Layer {
+    const SIZE: u64 = <crate::style::LayerId as Unpack>::SIZE
+        + <String as Unpack>::SIZE
+        + <Option<crate::style::LayerState> as Unpack>::SIZE
+        + <Option<crate::style::LayerStyle> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Layer", |input| {
             Ok(Self {
@@ -1991,6 +2318,8 @@ impl Pack for crate::style::LayerId {
 }
 
 impl Unpack for crate::style::LayerId {
+    const SIZE: u64 = <u32 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(Self(Unpack::unpack(input)?))
     }
@@ -2014,6 +2343,11 @@ impl Pack for crate::style::LayerState {
 }
 
 impl Unpack for crate::style::LayerState {
+    const SIZE: u64 = <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("LayerState", |input| {
             Ok(Self {
@@ -2044,6 +2378,11 @@ impl Pack for crate::style::LayerStyle {
 }
 
 impl Unpack for crate::style::LayerStyle {
+    const SIZE: u64 = <Option<crate::style::Color> as Unpack>::SIZE
+        + <Option<crate::style::LineTypeId> as Unpack>::SIZE
+        + <Option<crate::style::LineWeight> as Unpack>::SIZE
+        + <Option<crate::style::Transparency> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("LayerStyle", |input| {
             Ok(Self {
@@ -2076,6 +2415,12 @@ impl<P: Pack> Pack for crate::dimension::Leader<P> {
 }
 
 impl<P: Unpack> Unpack for crate::dimension::Leader<P> {
+    const SIZE: u64 = <Vec<P> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Option<bool> as Unpack>::SIZE
+        + <Option<zumen_base::Ref> as Unpack>::SIZE
+        + <String as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Leader", |input| {
             Ok(Self {
@@ -2105,6 +2450,11 @@ impl Pack for crate::space::Length {
 }
 
 impl Unpack for crate::space::Length {
+    const SIZE: u64 = 8 + largest(&[
+        <crate::space::PaperLength as Unpack>::SIZE,
+        <crate::space::ModelLength as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Length", 2)? {
             0 => Self::Paper(Unpack::unpack(input)?),
@@ -2124,6 +2474,8 @@ impl Pack for crate::text::LineSpacing {
 }
 
 impl Unpack for crate::text::LineSpacing {
+    const SIZE: u64 = <f64 as Unpack>::SIZE + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("LineSpacing", |input| {
             Ok(Self {
@@ -2152,6 +2504,11 @@ impl Pack for crate::style::LineType {
 }
 
 impl Unpack for crate::style::LineType {
+    const SIZE: u64 = <crate::style::LineTypeId as Unpack>::SIZE
+        + <String as Unpack>::SIZE
+        + <Option<crate::style::LineTypeDefinition> as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("LineType", |input| {
             Ok(Self {
@@ -2182,6 +2539,11 @@ impl Pack for crate::style::LineTypeDefinition {
 }
 
 impl Unpack for crate::style::LineTypeDefinition {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <Vec<f64> as Unpack>::SIZE
+        + <crate::style::PatternBasis as Unpack>::SIZE
+        + <Vec<crate::style::LineTypeMark> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("LineTypeDefinition", |input| {
             Ok(Self {
@@ -2202,6 +2564,8 @@ impl Pack for crate::style::LineTypeId {
 }
 
 impl Unpack for crate::style::LineTypeId {
+    const SIZE: u64 = <u32 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(Self(Unpack::unpack(input)?))
     }
@@ -2229,6 +2593,13 @@ impl Pack for crate::style::LineTypeMark {
 }
 
 impl Unpack for crate::style::LineTypeMark {
+    const SIZE: u64 = <usize as Unpack>::SIZE
+        + <crate::style::MarkContent as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <crate::style::MarkRotation as Unpack>::SIZE
+        + <[f64; 2] as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("LineTypeMark", |input| {
             Ok(Self {
@@ -2256,6 +2627,8 @@ impl Pack for crate::style::LineWeight {
 }
 
 impl Unpack for crate::style::LineWeight {
+    const SIZE: u64 = 8 + largest(&[<crate::space::PaperLength as Unpack>::SIZE, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("LineWeight", 2)? {
             0 => Self::Width(Unpack::unpack(input)?),
@@ -2286,6 +2659,11 @@ impl Pack for crate::style::MarkContent {
 }
 
 impl Unpack for crate::style::MarkContent {
+    const SIZE: u64 = 8 + largest(&[
+        <Option<crate::text::Font> as Unpack>::SIZE + <u16 as Unpack>::SIZE,
+        <String as Unpack>::SIZE + <Option<String> as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("MarkContent", 2)? {
             0 => input.record("MarkContent", |input| {
@@ -2315,6 +2693,8 @@ impl Pack for crate::style::MarkRotation {
 }
 
 impl Unpack for crate::style::MarkRotation {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("MarkRotation", 3)? {
             0 => Self::Relative,
@@ -2335,6 +2715,8 @@ impl Pack for crate::point::MarkerKey {
 }
 
 impl Unpack for crate::point::MarkerKey {
+    const SIZE: u64 = <std::borrow::Cow<'static, str> as Unpack>::SIZE + <String as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("MarkerKey", |input| {
             Ok(Self {
@@ -2356,6 +2738,8 @@ impl Pack for crate::dimension::Measured {
 }
 
 impl Unpack for crate::dimension::Measured {
+    const SIZE: u64 = <f64 as Unpack>::SIZE + <std::borrow::Cow<'static, str> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Measured", |input| {
             Ok(Self {
@@ -2377,6 +2761,8 @@ impl Pack for crate::space::ModelLength {
 }
 
 impl Unpack for crate::space::ModelLength {
+    const SIZE: u64 = <crate::SpaceId as Unpack>::SIZE + <f64 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("ModelLength", |input| {
             Ok(Self {
@@ -2399,6 +2785,9 @@ impl Pack for crate::space::ModelPoint {
 }
 
 impl Unpack for crate::space::ModelPoint {
+    const SIZE: u64 =
+        <crate::SpaceId as Unpack>::SIZE + <f64 as Unpack>::SIZE + <f64 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("ModelPoint", |input| {
             Ok(Self {
@@ -2430,6 +2819,12 @@ impl Pack for crate::space::ModelSpace {
 }
 
 impl Unpack for crate::space::ModelSpace {
+    const SIZE: u64 = <crate::SpaceId as Unpack>::SIZE
+        + <crate::space::Unit as Unpack>::SIZE
+        + <zumen_crs::Axes as Unpack>::SIZE
+        + <Vec<crate::shape::Element<crate::space::ModelPoint>> as Unpack>::SIZE
+        + <Vec<usize> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("ModelSpace", |input| {
             Ok(Self {
@@ -2451,6 +2846,8 @@ impl Pack for crate::space::PaperLength {
 }
 
 impl Unpack for crate::space::PaperLength {
+    const SIZE: u64 = <f64 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(Self(Unpack::unpack(input)?))
     }
@@ -2468,6 +2865,9 @@ impl Pack for crate::space::PaperPoint {
 }
 
 impl Unpack for crate::space::PaperPoint {
+    const SIZE: u64 =
+        <crate::SheetId as Unpack>::SIZE + <f64 as Unpack>::SIZE + <f64 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("PaperPoint", |input| {
             Ok(Self {
@@ -2490,6 +2890,8 @@ impl Pack for crate::callout::PathKind {
 }
 
 impl Unpack for crate::callout::PathKind {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("PathKind", 3)? {
             0 => Self::Straight,
@@ -2521,6 +2923,13 @@ impl Pack for crate::hatch::Pattern {
 }
 
 impl Unpack for crate::hatch::Pattern {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <crate::hatch::PatternOrigin as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Vec<crate::hatch::PatternLine> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Pattern", |input| {
             Ok(Self {
@@ -2545,6 +2954,8 @@ impl Pack for crate::style::PatternBasis {
 }
 
 impl Unpack for crate::style::PatternBasis {
+    const SIZE: u64 = 8 + largest(&[0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("PatternBasis", 2)? {
             0 => Self::Element,
@@ -2571,6 +2982,11 @@ impl Pack for crate::hatch::PatternLine {
 }
 
 impl Unpack for crate::hatch::PatternLine {
+    const SIZE: u64 = <f64 as Unpack>::SIZE
+        + <[f64; 2] as Unpack>::SIZE
+        + <[f64; 2] as Unpack>::SIZE
+        + <Vec<f64> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("PatternLine", |input| {
             Ok(Self {
@@ -2594,6 +3010,8 @@ impl Pack for crate::hatch::PatternOrigin {
 }
 
 impl Unpack for crate::hatch::PatternOrigin {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("PatternOrigin", 3)? {
             0 => Self::UserDefined,
@@ -2631,6 +3049,18 @@ impl Pack for crate::text::Piece {
 }
 
 impl Unpack for crate::text::Piece {
+    const SIZE: u64 = 8 + largest(&[
+        <String as Unpack>::SIZE,
+        0,
+        0,
+        0,
+        0,
+        <String as Unpack>::SIZE
+            + <String as Unpack>::SIZE
+            + <crate::text::StackKind as Unpack>::SIZE,
+        <String as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Piece", 7)? {
             0 => Self::Text(Unpack::unpack(input)?),
@@ -2678,6 +3108,13 @@ impl<P: Pack> Pack for crate::text::Placement<P> {
 }
 
 impl<P: Unpack> Unpack for crate::text::Placement<P> {
+    const SIZE: u64 = 8 + largest(&[
+        <P as Unpack>::SIZE
+            + <crate::text::Horizontal as Unpack>::SIZE
+            + <crate::text::Vertical as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE + <crate::text::Fit as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Placement", 2)? {
             0 => input.record("Placement", |input| {
@@ -2716,6 +3153,11 @@ impl<P: Pack> Pack for crate::point::Point<P> {
 }
 
 impl<P: Unpack> Unpack for crate::point::Point<P> {
+    const SIZE: u64 = <P as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <crate::point::PointLook as Unpack>::SIZE
+        + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Point", |input| {
             Ok(Self {
@@ -2744,6 +3186,11 @@ impl Pack for crate::point::PointLook {
 }
 
 impl Unpack for crate::point::PointLook {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        <crate::point::MarkerKey as Unpack>::SIZE + <f64 as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("PointLook", 2)? {
             0 => Self::Document,
@@ -2770,6 +3217,8 @@ impl Pack for crate::point::PointMark {
 }
 
 impl Unpack for crate::point::PointMark {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("PointMark", 5)? {
             0 => Self::Dot,
@@ -2797,6 +3246,8 @@ impl Pack for crate::point::PointSize {
 }
 
 impl Unpack for crate::point::PointSize {
+    const SIZE: u64 = 8 + largest(&[<f64 as Unpack>::SIZE, <f64 as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("PointSize", 2)? {
             0 => Self::Length(Unpack::unpack(input)?),
@@ -2823,6 +3274,11 @@ impl Pack for crate::point::PointStyle {
 }
 
 impl Unpack for crate::point::PointStyle {
+    const SIZE: u64 = <crate::point::PointMark as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <crate::point::PointSize as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("PointStyle", |input| {
             Ok(Self {
@@ -2855,6 +3311,12 @@ impl<P: Pack> Pack for crate::shape::Polyline<P> {
 }
 
 impl<P: Unpack> Unpack for crate::shape::Polyline<P> {
+    const SIZE: u64 = <Vec<crate::shape::Vertex<P>> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Option<crate::space::Length> as Unpack>::SIZE
+        + <Vec<[crate::space::Length; 2]> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Polyline", |input| {
             Ok(Self {
@@ -2879,6 +3341,8 @@ impl Pack for crate::underlay::Resource {
 }
 
 impl Unpack for crate::underlay::Resource {
+    const SIZE: u64 = <String as Unpack>::SIZE + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Resource", |input| {
             Ok(Self {
@@ -2905,6 +3369,8 @@ impl Pack for crate::text::Rotation {
 }
 
 impl Unpack for crate::text::Rotation {
+    const SIZE: u64 = 8 + largest(&[<f64 as Unpack>::SIZE, <[f64; 2] as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Rotation", 2)? {
             0 => Self::Angle(Unpack::unpack(input)?),
@@ -2929,6 +3395,8 @@ impl<T: Pack> Pack for crate::text::Scaled<T> {
 }
 
 impl<T: Unpack> Unpack for crate::text::Scaled<T> {
+    const SIZE: u64 = 8 + largest(&[<T as Unpack>::SIZE, <f64 as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Scaled", 2)? {
             0 => Self::Value(Unpack::unpack(input)?),
@@ -3007,6 +3475,23 @@ impl<P: Pack> Pack for crate::shape::Shape<P> {
 }
 
 impl<P: Unpack> Unpack for crate::shape::Shape<P> {
+    const SIZE: u64 = 8 + largest(&[
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <crate::space::Length as Unpack>::SIZE,
+        <crate::shape::Edge<P> as Unpack>::SIZE,
+        <crate::shape::Polyline<P> as Unpack>::SIZE,
+        <crate::text::Text<P> as Unpack>::SIZE,
+        <crate::text::FormattedText<P> as Unpack>::SIZE,
+        <crate::dimension::Dimension<P> as Unpack>::SIZE,
+        <crate::dimension::Leader<P> as Unpack>::SIZE,
+        <crate::callout::Callout<P> as Unpack>::SIZE,
+        <crate::table::Table<P> as Unpack>::SIZE,
+        <crate::underlay::Underlay<P> as Unpack>::SIZE,
+        <crate::symbol::Symbol<P> as Unpack>::SIZE,
+        <crate::hatch::Hatch<P> as Unpack>::SIZE,
+        <crate::point::Point<P> as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Shape", 14)? {
             0 => input.record("Shape", |input| {
@@ -3061,6 +3546,14 @@ impl Pack for crate::space::Sheet {
 }
 
 impl Unpack for crate::space::Sheet {
+    const SIZE: u64 = <crate::SheetId as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE
+        + <Option<[crate::space::PaperLength; 2]> as Unpack>::SIZE
+        + <Vec<crate::shape::Element<crate::space::PaperPoint>> as Unpack>::SIZE
+        + <Vec<crate::space::View> as Unpack>::SIZE
+        + <Vec<crate::space::SheetItem> as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Sheet", |input| {
             Ok(Self {
@@ -3084,6 +3577,8 @@ impl Pack for crate::SheetId {
 }
 
 impl Unpack for crate::SheetId {
+    const SIZE: u64 = <u32 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(Self(Unpack::unpack(input)?))
     }
@@ -3105,6 +3600,8 @@ impl Pack for crate::space::SheetItem {
 }
 
 impl Unpack for crate::space::SheetItem {
+    const SIZE: u64 = 8 + largest(&[<usize as Unpack>::SIZE, <usize as Unpack>::SIZE]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("SheetItem", 2)? {
             0 => Self::Element(Unpack::unpack(input)?),
@@ -3129,6 +3626,9 @@ impl Pack for crate::binary::Source {
 }
 
 impl Unpack for crate::binary::Source {
+    const SIZE: u64 =
+        <String as Unpack>::SIZE + <String as Unpack>::SIZE + <crate::hash::Hash as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Source", |input| {
             Ok(Self {
@@ -3148,6 +3648,8 @@ impl Pack for crate::SpaceId {
 }
 
 impl Unpack for crate::SpaceId {
+    const SIZE: u64 = <u32 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(Self(Unpack::unpack(input)?))
     }
@@ -3164,6 +3666,8 @@ impl Pack for crate::text::Span {
 }
 
 impl Unpack for crate::text::Span {
+    const SIZE: u64 = <crate::text::Piece as Unpack>::SIZE + <crate::text::Format as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Span", |input| {
             Ok(Self {
@@ -3206,6 +3710,18 @@ impl<P: Pack> Pack for crate::shape::Spline<P> {
 }
 
 impl<P: Unpack> Unpack for crate::shape::Spline<P> {
+    const SIZE: u64 = <u32 as Unpack>::SIZE
+        + <Vec<f64> as Unpack>::SIZE
+        + <Vec<P> as Unpack>::SIZE
+        + <Vec<f64> as Unpack>::SIZE
+        + <Vec<P> as Unpack>::SIZE
+        + <Option<[f64; 2]> as Unpack>::SIZE
+        + <Option<[f64; 2]> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<crate::shape::KnotParameterization> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Spline", |input| {
             Ok(Self {
@@ -3236,6 +3752,8 @@ impl Pack for crate::text::StackKind {
 }
 
 impl Unpack for crate::text::StackKind {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("StackKind", 3)? {
             0 => Self::Horizontal,
@@ -3265,6 +3783,12 @@ impl Pack for crate::style::Style {
 }
 
 impl Unpack for crate::style::Style {
+    const SIZE: u64 = <crate::style::Inherit<crate::style::Color> as Unpack>::SIZE
+        + <crate::style::Inherit<crate::style::LineTypeId> as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <Option<crate::style::Inherit<crate::style::LineWeight>> as Unpack>::SIZE
+        + <crate::style::Inherit<crate::style::Transparency> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Style", |input| {
             Ok(Self {
@@ -3302,6 +3826,14 @@ impl<P: Pack> Pack for crate::symbol::Symbol<P> {
 }
 
 impl<P: Unpack> Unpack for crate::symbol::Symbol<P> {
+    const SIZE: u64 = <crate::symbol::SymbolKey as Unpack>::SIZE
+        + <P as Unpack>::SIZE
+        + <[f64; 2] as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <Option<crate::symbol::Grid> as Unpack>::SIZE
+        + <Vec<crate::symbol::Attribute<P>> as Unpack>::SIZE
+        + <Option<crate::underlay::Clip> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Symbol", |input| {
             Ok(Self {
@@ -3341,6 +3873,14 @@ impl Pack for crate::symbol::SymbolDefinition {
 }
 
 impl Unpack for crate::symbol::SymbolDefinition {
+    const SIZE: u64 = <crate::symbol::SymbolKey as Unpack>::SIZE
+        + <crate::space::ModelSpace as Unpack>::SIZE
+        + <Option<crate::space::ModelPoint> as Unpack>::SIZE
+        + <Vec<crate::symbol::AttributeDefinition> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("SymbolDefinition", |input| {
             Ok(Self {
@@ -3367,6 +3907,8 @@ impl Pack for crate::symbol::SymbolKey {
 }
 
 impl Unpack for crate::symbol::SymbolKey {
+    const SIZE: u64 = <std::borrow::Cow<'static, str> as Unpack>::SIZE + <String as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("SymbolKey", |input| {
             Ok(Self {
@@ -3403,6 +3945,15 @@ impl<P: Pack> Pack for crate::table::Table<P> {
 }
 
 impl<P: Unpack> Unpack for crate::table::Table<P> {
+    const SIZE: u64 = <P as Unpack>::SIZE
+        + <[f64; 2] as Unpack>::SIZE
+        + <Vec<crate::space::Length> as Unpack>::SIZE
+        + <Vec<crate::space::Length> as Unpack>::SIZE
+        + <Vec<crate::table::Cell> as Unpack>::SIZE
+        + <Option<zumen_base::Ref> as Unpack>::SIZE
+        + <Option<Box<crate::table::TableFormats>> as Unpack>::SIZE
+        + <Option<crate::symbol::SymbolKey> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Table", |input| {
             Ok(Self {
@@ -3439,6 +3990,12 @@ impl Pack for crate::table::TableFormats {
 }
 
 impl Unpack for crate::table::TableFormats {
+    const SIZE: u64 = <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <crate::table::CellFormat as Unpack>::SIZE
+        + <crate::table::CellFormat as Unpack>::SIZE
+        + <crate::table::CellFormat as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("TableFormats", |input| {
             Ok(Self {
@@ -3473,6 +4030,13 @@ impl Pack for crate::extension::Target {
 }
 
 impl Unpack for crate::extension::Target {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        <String as Unpack>::SIZE,
+        <crate::style::LayerId as Unpack>::SIZE,
+        <crate::style::LineTypeId as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Target", 4)? {
             0 => Self::Document,
@@ -3511,6 +4075,16 @@ impl<P: Pack> Pack for crate::text::Text<P> {
 }
 
 impl<P: Unpack> Unpack for crate::text::Text<P> {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <crate::text::Height as Unpack>::SIZE
+        + <crate::text::Placement<P> as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <String as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Text", |input| {
             Ok(Self {
@@ -3544,6 +4118,10 @@ impl Pack for crate::style::TextStyle {
 }
 
 impl Unpack for crate::style::TextStyle {
+    const SIZE: u64 = <String as Unpack>::SIZE
+        + <Option<crate::style::TextStyleDefinition> as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("TextStyle", |input| {
             Ok(Self {
@@ -3581,6 +4159,15 @@ impl Pack for crate::style::TextStyleDefinition {
 }
 
 impl Unpack for crate::style::TextStyleDefinition {
+    const SIZE: u64 = <Option<crate::text::Font> as Unpack>::SIZE
+        + <Option<crate::text::Font> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE
+        + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("TextStyleDefinition", |input| {
             Ok(Self {
@@ -3608,6 +4195,8 @@ impl Pack for crate::TitleBlock {
 }
 
 impl Unpack for crate::TitleBlock {
+    const SIZE: u64 = <Vec<crate::TitleItem> as Unpack>::SIZE + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("TitleBlock", |input| {
             Ok(Self {
@@ -3636,6 +4225,11 @@ impl Pack for crate::TitleItem {
 }
 
 impl Unpack for crate::TitleItem {
+    const SIZE: u64 = <Option<std::borrow::Cow<'static, str>> as Unpack>::SIZE
+        + <String as Unpack>::SIZE
+        + <String as Unpack>::SIZE
+        + <Vec<crate::extension::Target> as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("TitleItem", |input| {
             Ok(Self {
@@ -3658,6 +4252,8 @@ impl Pack for crate::style::Transparency {
 }
 
 impl Unpack for crate::style::Transparency {
+    const SIZE: u64 = <u8 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Transparency", |input| {
             Ok(Self {
@@ -3689,6 +4285,13 @@ impl<P: Pack> Pack for crate::underlay::Underlay<P> {
 }
 
 impl<P: Unpack> Unpack for crate::underlay::Underlay<P> {
+    const SIZE: u64 = <crate::underlay::UnderlayKind as Unpack>::SIZE
+        + <crate::underlay::Resource as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE
+        + <crate::underlay::UnderlayFrame<P> as Unpack>::SIZE
+        + <Option<crate::underlay::Clip> as Unpack>::SIZE
+        + <bool as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Underlay", |input| {
             Ok(Self {
@@ -3745,6 +4348,15 @@ impl<P: Pack> Pack for crate::underlay::UnderlayFrame<P> {
 }
 
 impl<P: Unpack> Unpack for crate::underlay::UnderlayFrame<P> {
+    const SIZE: u64 = 8 + largest(&[
+        <[f64; 2] as Unpack>::SIZE
+            + <P as Unpack>::SIZE
+            + <P as Unpack>::SIZE
+            + <P as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <P as Unpack>::SIZE + <P as Unpack>::SIZE,
+        <P as Unpack>::SIZE + <[crate::space::Length; 2] as Unpack>::SIZE + <f64 as Unpack>::SIZE,
+    ]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("UnderlayFrame", 3)? {
             0 => input.record("UnderlayFrame", |input| {
@@ -3785,6 +4397,8 @@ impl Pack for crate::underlay::UnderlayKind {
 }
 
 impl Unpack for crate::underlay::UnderlayKind {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("UnderlayKind", 4)? {
             0 => Self::Image,
@@ -3809,6 +4423,8 @@ impl Pack for crate::space::Unit {
 }
 
 impl Unpack for crate::space::Unit {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, 0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Unit", 6)? {
             0 => Self::Millimeter,
@@ -3836,6 +4452,8 @@ impl Pack for crate::table::ValueUnit {
 }
 
 impl Unpack for crate::table::ValueUnit {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, 0, 0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("ValueUnit", 7)? {
             0 => Self::None,
@@ -3860,6 +4478,8 @@ impl<P: Pack> Pack for crate::shape::Vertex<P> {
 }
 
 impl<P: Unpack> Unpack for crate::shape::Vertex<P> {
+    const SIZE: u64 = <P as Unpack>::SIZE + <f64 as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Vertex", |input| {
             Ok(Self {
@@ -3882,6 +4502,8 @@ impl Pack for crate::text::Vertical {
 }
 
 impl Unpack for crate::text::Vertical {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0, 0]);
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok(match input.variant("Vertical", 4)? {
             0 => Self::Baseline,
@@ -3914,6 +4536,13 @@ impl Pack for crate::space::View {
 }
 
 impl Unpack for crate::space::View {
+    const SIZE: u64 = <crate::SpaceId as Unpack>::SIZE
+        + <crate::SheetId as Unpack>::SIZE
+        + <crate::space::Affine as Unpack>::SIZE
+        + <Vec<crate::space::PaperPoint> as Unpack>::SIZE
+        + <Vec<crate::style::LayerId> as Unpack>::SIZE
+        + <zumen_base::Ref as Unpack>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("View", |input| {
             Ok(Self {

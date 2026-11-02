@@ -67,13 +67,24 @@ pub fn matches(bytes: &[u8]) -> bool {
     bytes.starts_with(&MAGIC)
 }
 
-/// 図面を、元の文書の情報と一緒にバイナリにする。同じ図面からは、どの環境でも同じバイト列になる
-pub fn write(source: &Source, drawing: &Drawing2D) -> Vec<u8> {
-    let mut first = Writer::default();
-    source.pack(&mut first);
-    let mut second = Writer::default();
-    drawing.pack(&mut second);
-    assemble(MINOR, second.elements, &[first.bytes, second.bytes])
+/// 図面を、元の文書の情報と一緒にバイナリにする。同じ図面からは、どの環境でも同じバイト列になる。要素を 1 つ
+/// 書くごとに作業量（`work`）を 1 使い、中断の合図を確かめる。止めたときは、書きかけのものを捨てる
+pub fn write(source: &Source, drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Vec<u8>, Stop> {
+    // 要素のない図面でも、中断の合図は確かめる
+    cx.check(Kind::Work, 0)?;
+    let mut out = Writer {
+        bytes: Vec::new(),
+        elements: 0,
+        cx,
+        stop: None,
+    };
+    source.pack(&mut out);
+    let first = std::mem::take(&mut out.bytes);
+    drawing.pack(&mut out);
+    match out.stop {
+        Some(stop) => Err(stop),
+        None => Ok(assemble(MINOR, out.elements, &[first, out.bytes])),
+    }
 }
 
 /// バイナリを読む。壊れているか、この版で読めないものを使っていれば、診断を足して失敗する。後の小版で足した欄と
@@ -240,18 +251,22 @@ fn parse(bytes: &[u8], minor: &mut u16, cx: &mut Cx<'_>) -> Result<(Source, Draw
     reader.end = second.end;
     let drawing = Drawing2D::unpack(&mut reader)?;
     reader.finish()?;
-    if reader.elements != reader.limit {
-        return Err(invalid(8, "elements"));
+    // 後の小版の書き手は、この版が読み飛ばす欄の要素も数える。そのときの見出しの数は、上限として確かめる
+    if reader.elements == reader.limit || written > MINOR {
+        Ok((source, drawing))
+    } else {
+        Err(invalid(8, "elements"))
     }
-    Ok((source, drawing))
 }
 
 /// 書く所
-#[derive(Default)]
-pub(crate) struct Writer {
+pub(crate) struct Writer<'a, 'b> {
     bytes: Vec<u8>,
     /// 書いた要素（[`crate::Element`]）の数
     elements: u64,
+    cx: &'a mut Cx<'b>,
+    /// 止めた理由。止めたあとは、中身を書かない
+    stop: Option<Stop>,
 }
 
 /// 最短の LEB128 にする。返すのは、バイト列と使った長さ
@@ -271,7 +286,7 @@ fn leb128(mut value: u64) -> ([u8; 10], usize) {
     (out, len)
 }
 
-impl Writer {
+impl Writer<'_, '_> {
     pub(crate) fn byte(&mut self, value: u8) {
         self.bytes.push(value);
     }
@@ -294,8 +309,11 @@ impl Writer {
         self.bytes.extend_from_slice(value.as_bytes());
     }
 
-    /// 中身のバイト数を前に置いて書く
+    /// 中身のバイト数を前に置いて書く。止めたあとは書かない
     pub(crate) fn record(&mut self, write: impl FnOnce(&mut Self)) {
+        if self.stop.is_some() {
+            return;
+        }
         // たいていの中身は 128 バイトより短いので、1 バイトを空けておき、長ければ後ろをずらす
         let start = self.bytes.len();
         self.bytes.push(0);
@@ -305,9 +323,12 @@ impl Writer {
             .splice(start..=start, prefix.iter().take(len).copied());
     }
 
-    /// 要素を 1 つ書く
+    /// 要素を 1 つ書く。作業量を 1 使い、中断の合図を確かめる
     pub(crate) fn element(&mut self) {
         self.elements += 1;
+        if self.stop.is_none() {
+            self.stop = self.cx.check(Kind::Work, 1).err();
+        }
     }
 }
 
@@ -332,8 +353,10 @@ pub(crate) trait Input {
     fn flag(&mut self) -> Result<bool, Self::Error>;
     /// 文字
     fn char(&mut self) -> Result<char, Self::Error>;
-    /// 一覧の項目の数。項目ごとに `size` バイトのメモリを使う
-    fn count(&mut self, size: usize) -> Result<usize, Self::Error>;
+    /// 一覧の項目の数。項目ごとに `size` バイト（[`Unpack::SIZE`]）のメモリを使う
+    fn count(&mut self, size: u64) -> Result<usize, Self::Error>;
+    /// 作る値の大きさを、復号で作ったバイト数として数える
+    fn decoded(&mut self, bytes: u64) -> Result<(), Self::Error>;
     /// 文字列
     fn text(&mut self) -> Result<String, Self::Error>;
     /// 列挙 `ty` の値の番号。`count` 以上は、この版の知らない値
@@ -354,7 +377,23 @@ pub(crate) trait Input {
 
 /// バイナリから読める型
 pub(crate) trait Unpack: Sized {
+    /// 値 1 つの大きさ。復号で作ったバイト数（`decoded-bytes`）に数える。64 ビットのメモリでの大きさに近い値を
+    /// 型から決めるので、どの環境でも同じ所で止まる。文字列と一覧は 24、`Box` は 8、`Option` は中身に 8 を足し、
+    /// 構造体は欄の和、列挙はいちばん大きい値に 8 を足す。文字列の中身と、一覧の項目と、`Box` の中身は、作るときに
+    /// 数える
+    const SIZE: u64;
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error>;
+}
+
+/// いちばん大きい値。列挙の大きさ（[`Unpack::SIZE`]）に使う
+pub(crate) const fn largest(sizes: &[u64]) -> u64 {
+    match sizes {
+        [] => 0,
+        [first, rest @ ..] => {
+            let rest = largest(rest);
+            if *first > rest { *first } else { rest }
+        }
+    }
 }
 
 /// バイナリを読む所
@@ -487,18 +526,23 @@ impl Input for Reader<'_, '_, '_> {
         })
     }
 
-    fn count(&mut self, size: usize) -> Result<usize, Bad> {
+    fn count(&mut self, size: u64) -> Result<usize, Bad> {
         let count = self.items()?;
         // 1 バイトで書ける項目が、メモリでは大きいことがある。作る前に、復号で作ったバイト数として数える
-        let bytes = (count as u64).saturating_mul(size as u64);
+        self.decoded((count as u64).saturating_mul(size))?;
+        Ok(count)
+    }
+
+    fn decoded(&mut self, bytes: u64) -> Result<(), Bad> {
         self.cx
             .check(Kind::DecodedBytes, bytes)
-            .map_err(Bad::Stopped)?;
-        Ok(count)
+            .map_err(Bad::Stopped)
     }
 
     fn text(&mut self) -> Result<String, Bad> {
         let len = self.items()?;
+        // 複製する前に数える
+        self.decoded(len as u64)?;
         let start = self.at;
         let bytes = self.take(len)?;
         match std::str::from_utf8(bytes) {
@@ -568,6 +612,8 @@ impl Pack for bool {
 }
 
 impl Unpack for bool {
+    const SIZE: u64 = 1;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.flag()
     }
@@ -580,13 +626,15 @@ impl Pack for u8 {
 }
 
 impl Unpack for u8 {
+    const SIZE: u64 = 1;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.byte()
     }
 }
 
 macro_rules! unsigned {
-    ($($ty:ty),*) => {$(
+    ($($ty:ty = $size:literal),*) => {$(
         impl Pack for $ty {
             fn pack(&self, out: &mut Writer) {
                 out.uint(*self as u64);
@@ -594,6 +642,8 @@ macro_rules! unsigned {
         }
 
         impl Unpack for $ty {
+            const SIZE: u64 = $size;
+
             fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
                 Ok(input.uint(<$ty>::MAX as u64)? as $ty)
             }
@@ -602,7 +652,7 @@ macro_rules! unsigned {
 }
 
 macro_rules! signed {
-    ($($ty:ty),*) => {$(
+    ($($ty:ty = $size:literal),*) => {$(
         impl Pack for $ty {
             fn pack(&self, out: &mut Writer) {
                 out.int(i64::from(*self));
@@ -610,6 +660,8 @@ macro_rules! signed {
         }
 
         impl Unpack for $ty {
+            const SIZE: u64 = $size;
+
             fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
                 Ok(input.int(i64::from(<$ty>::MIN), i64::from(<$ty>::MAX))? as $ty)
             }
@@ -617,8 +669,9 @@ macro_rules! signed {
     )*};
 }
 
-unsigned!(u16, u32, u64, usize);
-signed!(i16, i32, i64);
+// `usize` も、64 ビットの大きさで数える
+unsigned!(u16 = 2, u32 = 4, u64 = 8, usize = 8);
+signed!(i16 = 2, i32 = 4, i64 = 8);
 
 impl Pack for f64 {
     fn pack(&self, out: &mut Writer) {
@@ -627,6 +680,8 @@ impl Pack for f64 {
 }
 
 impl Unpack for f64 {
+    const SIZE: u64 = 8;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.float()
     }
@@ -639,6 +694,8 @@ impl Pack for char {
 }
 
 impl Unpack for char {
+    const SIZE: u64 = 4;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.char()
     }
@@ -651,6 +708,8 @@ impl Pack for String {
 }
 
 impl Unpack for String {
+    const SIZE: u64 = 24;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.text()
     }
@@ -663,6 +722,8 @@ impl Pack for Cow<'static, str> {
 }
 
 impl Unpack for Cow<'static, str> {
+    const SIZE: u64 = 24;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.text().map(Cow::Owned)
     }
@@ -681,6 +742,8 @@ impl<T: Pack> Pack for Option<T> {
 }
 
 impl<T: Unpack> Unpack for Option<T> {
+    const SIZE: u64 = 8 + T::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         if input.flag()? {
             T::unpack(input).map(Some)
@@ -694,14 +757,20 @@ impl<T: Pack> Pack for Vec<T> {
     fn pack(&self, out: &mut Writer) {
         out.uint(self.len() as u64);
         for item in self {
+            // 止めたあとは、残りの項目をたどらない
+            if out.stop.is_some() {
+                break;
+            }
             item.pack(out);
         }
     }
 }
 
 impl<T: Unpack> Unpack for Vec<T> {
+    const SIZE: u64 = 24;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
-        let count = input.count(size_of::<T>())?;
+        let count = input.count(T::SIZE)?;
         let mut items = Vec::with_capacity(count);
         for _ in 0..count {
             items.push(T::unpack(input)?);
@@ -717,7 +786,10 @@ impl<T: Pack> Pack for Box<T> {
 }
 
 impl<T: Unpack> Unpack for Box<T> {
+    const SIZE: u64 = 8;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        input.decoded(T::SIZE)?;
         T::unpack(input).map(Box::new)
     }
 }
@@ -731,6 +803,8 @@ impl<T: Pack, const N: usize> Pack for [T; N] {
 }
 
 impl<T: Unpack, const N: usize> Unpack for [T; N] {
+    const SIZE: u64 = N as u64 * T::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         let mut items = Vec::with_capacity(N);
         for _ in 0..N {
@@ -748,6 +822,8 @@ impl<A: Pack, B: Pack> Pack for (A, B) {
 }
 
 impl<A: Unpack, B: Unpack> Unpack for (A, B) {
+    const SIZE: u64 = A::SIZE + B::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         Ok((A::unpack(input)?, B::unpack(input)?))
     }
@@ -766,6 +842,11 @@ impl Pack for Ref {
 }
 
 impl Unpack for Ref {
+    const SIZE: u64 = Option::<String>::SIZE
+        + Option::<u64>::SIZE
+        + Option::<ByteRange>::SIZE
+        + Option::<Key>::SIZE;
+
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Ref", |input| {
             let id = Option::<String>::unpack(input)?;

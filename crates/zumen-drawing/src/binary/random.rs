@@ -99,10 +99,14 @@ impl Input for Random {
         })
     }
 
-    fn count(&mut self, _size: usize) -> Result<usize, Self::Error> {
+    fn count(&mut self, _size: u64) -> Result<usize, Self::Error> {
         let count = self.below(4).min(self.left);
         self.left -= count;
         Ok(count as usize)
+    }
+
+    fn decoded(&mut self, _bytes: u64) -> Result<(), Self::Error> {
+        Ok(())
     }
 
     fn text(&mut self) -> Result<String, Self::Error> {

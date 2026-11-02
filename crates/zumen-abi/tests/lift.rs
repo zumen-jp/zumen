@@ -4,8 +4,8 @@
 #![cfg(feature = "drawing")]
 
 use zumen_abi1::{Session, Status};
-use zumen_base::CancelToken;
-use zumen_drawing::binary;
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+use zumen_drawing::{Drawing2D, binary};
 use zumen_json::Value;
 
 /// 線・円・円弧・文字・点と、用紙の線を持つ DXF（適合試験の scene.json と同じ）
@@ -49,6 +49,15 @@ fn lift(session: &mut Session) -> Option<Vec<u8>> {
     assert_eq!(status, Status::Ok, "{response}");
     assert!(response.contains(r#""kind":"drawing""#), "{response}");
     session.take(0)
+}
+
+/// 予算の既定の上限で書いたバイナリ
+fn written(source: &binary::Source, drawing: &Drawing2D) -> Option<Vec<u8>> {
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    binary::write(source, drawing, &mut cx).ok()
 }
 
 /// 図面を読む op の応答と、blob
@@ -126,6 +135,37 @@ fn broken_binaries_are_refused_with_the_reason() {
     );
 }
 
+/// lift は、要素を書くごとに作業量を使い、中断の合図を確かめる。バイナリから開いた文書は、図面モデルを複製せずに書く
+#[test]
+fn lift_stops_at_the_work_budget_and_the_cancel_signal() {
+    let (mut original, ..) = opened(DXF.as_bytes()).unwrap();
+    let bytes = lift(&mut original).unwrap();
+    let (mut lifted, ..) = opened(&bytes).unwrap();
+
+    let (status, response) = call(
+        &mut lifted,
+        r#"{"v":1,"op":"lift","doc":"a","budget":{"work":0}}"#,
+    );
+    assert_eq!(status, Status::Failed);
+    assert!(
+        response.contains(r#""code":"budget.work.exceeded""#),
+        "{response}"
+    );
+
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let reply = lifted.call(br#"{"v":1,"op":"lift","doc":"a"}"#, &cancel);
+    let response = String::from_utf8(reply.response).unwrap_or_default();
+    assert_eq!(reply.status, Status::Failed, "{response}");
+    assert!(
+        response.contains(r#""code":"call.request.cancelled""#),
+        "{response}"
+    );
+
+    // 止めた lift は blob を残さない。あとの lift は、同じバイト列を書く
+    assert_eq!(lift(&mut lifted), Some(bytes));
+}
+
 /// 応答の値の文字列
 fn text<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
     match value.pointer(pointer) {
@@ -140,7 +180,7 @@ fn any_drawing_model_in_a_binary_gets_an_answer() {
     const BUDGET: &str = r#""budget":{"elements":20000,"segments":20000,"work":20000}"#;
     for seed in 0..500 {
         let (source, drawing) = binary::random(seed, false);
-        let (mut session, status, response) = opened(&binary::write(&source, &drawing)).unwrap();
+        let (mut session, status, response) = opened(&written(&source, &drawing).unwrap()).unwrap();
         assert_eq!(status, Status::Ok, "seed {seed}: {response}");
         let (_, summary) = call(
             &mut session,
@@ -167,7 +207,7 @@ fn any_drawing_model_in_a_binary_gets_an_answer() {
         }
         assert_eq!(
             lift(&mut session),
-            Some(binary::write(&source, &drawing)),
+            written(&source, &drawing),
             "seed {seed}"
         );
     }

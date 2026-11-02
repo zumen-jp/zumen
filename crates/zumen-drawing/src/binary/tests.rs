@@ -21,7 +21,11 @@ fn load(bytes: &[u8]) -> (Loaded, Vec<&'static str>) {
 
 /// 1 つの値を読む
 fn decode<T: Unpack>(bytes: &[u8]) -> Result<T, Bad> {
-    let mut budget = Budget::default();
+    decode_with(bytes, Limits::default())
+}
+
+fn decode_with<T: Unpack>(bytes: &[u8], limits: Limits) -> Result<T, Bad> {
+    let mut budget = Budget::new(limits);
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
@@ -39,10 +43,33 @@ fn decode<T: Unpack>(bytes: &[u8]) -> Result<T, Bad> {
     Ok(value)
 }
 
+/// 予算の既定の上限で `pack` が書いたものと、書いた要素の数
+fn packed(pack: impl FnOnce(&mut Writer)) -> (Vec<u8>, u64) {
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let mut out = Writer {
+        bytes: Vec::new(),
+        elements: 0,
+        cx: &mut cx,
+        stop: None,
+    };
+    pack(&mut out);
+    (out.bytes, out.elements)
+}
+
 fn encode<T: Pack>(value: &T) -> Vec<u8> {
-    let mut out = Writer::default();
-    value.pack(&mut out);
-    out.bytes
+    packed(|out| value.pack(out)).0
+}
+
+/// 予算の既定の上限で書いたバイナリ
+fn written(source: &Source, drawing: &Drawing2D) -> Vec<u8> {
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    write(source, drawing, &mut cx).unwrap()
 }
 
 fn source() -> Source {
@@ -58,7 +85,7 @@ fn with_elements() -> (Source, Drawing2D, Vec<u8>) {
     (0..)
         .map(|seed| random(seed, true))
         .map(|(source, drawing)| {
-            let bytes = write(&source, &drawing);
+            let bytes = written(&source, &drawing);
             (source, drawing, bytes)
         })
         .find(|(_, _, bytes)| u32_at(bytes, 8).unwrap() > 0)
@@ -70,7 +97,7 @@ fn reads_back_what_it_wrote() {
     let mut elements = 0;
     for seed in 0..300 {
         let (source, drawing) = random(seed, true);
-        let bytes = write(&source, &drawing);
+        let bytes = written(&source, &drawing);
         elements += u32_at(&bytes, 8).unwrap();
         let (result, codes) = load(&bytes);
         assert_eq!(result, Ok((source, drawing)), "seed {seed}");
@@ -83,9 +110,9 @@ fn reads_back_what_it_wrote() {
 fn writes_the_same_bytes_again_even_with_nan_and_negative_zero() {
     for seed in 0..300 {
         let (source, drawing) = random(seed, false);
-        let bytes = write(&source, &drawing);
+        let bytes = written(&source, &drawing);
         let (source, drawing) = load(&bytes).0.unwrap();
-        assert_eq!(write(&source, &drawing), bytes, "seed {seed}");
+        assert_eq!(written(&source, &drawing), bytes, "seed {seed}");
     }
 }
 
@@ -97,9 +124,8 @@ fn lays_out_the_header_and_sections_like_the_scene() {
     assert_eq!(&bytes[..4], b"ZMDR");
     assert_eq!(u16_at(&bytes, 4), Some(MAJOR));
     assert_eq!(u16_at(&bytes, 6), Some(MINOR));
-    let mut out = Writer::default();
-    drawing.pack(&mut out);
-    assert_eq!(u32_at(&bytes, 8), Some(out.elements as usize));
+    let (section, elements) = packed(|out| drawing.pack(out));
+    assert_eq!(u32_at(&bytes, 8), Some(elements as usize));
     assert_eq!(u32_at(&bytes, 12), Some(SECTIONS));
     // 区画は表のすぐ後ろから、8 バイトの境界に並ぶ
     let (first, first_len) = (u32_at(&bytes, 16).unwrap(), u32_at(&bytes, 20).unwrap());
@@ -107,7 +133,7 @@ fn lays_out_the_header_and_sections_like_the_scene() {
     assert_eq!(first, 32);
     assert_eq!(&bytes[first..first + first_len], encode(&source));
     assert_eq!(second, aligned(first + first_len));
-    assert_eq!(&bytes[second..second + second_len], out.bytes);
+    assert_eq!(&bytes[second..second + second_len], section);
     assert_eq!(second + second_len, bytes.len());
 }
 
@@ -126,7 +152,7 @@ fn survives_broken_bytes() {
     let mut state = 0x1234_5678_u64;
     for seed in 0..40 {
         let (source, drawing) = random(seed, false);
-        let bytes = write(&source, &drawing);
+        let bytes = written(&source, &drawing);
         for _ in 0..200 {
             let mut broken = bytes.clone();
             for _ in 0..1 + state % 3 {
@@ -138,9 +164,9 @@ fn survives_broken_bytes() {
             }
             // 壊れたバイト列を読めたときは、書き直したものを、同じ値として読める
             if let (Ok((source, drawing)), _) = load(&broken) {
-                let again = write(&source, &drawing);
+                let again = written(&source, &drawing);
                 let (source, drawing) = load(&again).0.unwrap();
-                assert_eq!(write(&source, &drawing), again);
+                assert_eq!(written(&source, &drawing), again);
             }
         }
     }
@@ -148,14 +174,15 @@ fn survives_broken_bytes() {
 
 /// 元の文書の区画。`extra` は、後の小版で足した欄のつもり
 fn source_section(extra: &[u8]) -> Vec<u8> {
-    let mut out = Writer::default();
-    out.record(|out| {
-        out.text("dxf");
-        out.text("acad");
-        Hash([7; 16]).pack(out);
-        out.bytes.extend_from_slice(extra);
-    });
-    out.bytes
+    packed(|out| {
+        out.record(|out| {
+            out.text("dxf");
+            out.text("acad");
+            Hash([7; 16]).pack(out);
+            out.bytes.extend_from_slice(extra);
+        });
+    })
+    .0
 }
 
 #[test]
@@ -164,6 +191,11 @@ fn skips_fields_and_sections_of_later_minor_versions_only() {
     let later = MINOR + 1;
 
     let bytes = assemble(later, 0, &[source_section(&[1, 2]), empty.clone()]);
+    let (result, codes) = load(&bytes);
+    assert_eq!(result, Ok((source(), Drawing2D::default())));
+    assert_eq!(codes, ["drawing.binary-field.dropped"]);
+    // 後の小版の書き手は、読み飛ばす欄の要素も見出しに数える
+    let bytes = assemble(later, 3, &[source_section(&[1, 2]), empty.clone()]);
     let (result, codes) = load(&bytes);
     assert_eq!(result, Ok((source(), Drawing2D::default())));
     assert_eq!(codes, ["drawing.binary-field.dropped"]);
@@ -195,7 +227,7 @@ fn skips_fields_and_sections_of_later_minor_versions_only() {
 
 #[test]
 fn refuses_other_major_versions_and_unknown_values() {
-    let mut bytes = write(&source(), &Drawing2D::default());
+    let mut bytes = written(&source(), &Drawing2D::default());
     bytes[4..6].copy_from_slice(&(MAJOR + 1).to_le_bytes());
     let (result, codes) = load(&bytes);
     assert_eq!(result, Err(Error::Unsupported));
@@ -265,4 +297,98 @@ fn checks_the_element_count_and_the_budget() {
     let (result, codes) = load_with(&bytes, limits);
     assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
     assert_eq!(codes, ["budget.decoded-bytes.exceeded"]);
+}
+
+/// 復号で作ったバイト数は、型から決めた大きさで数えるので、ポインターの幅によらず同じ所で止まる
+#[test]
+fn counts_the_decoded_bytes_by_the_sizes_of_the_types() {
+    use crate::{Axes, ModelSpace, SpaceId, Unit};
+
+    assert_eq!(<String as Unpack>::SIZE, 24);
+    assert_eq!(<Vec<u8> as Unpack>::SIZE, 24);
+    assert_eq!(<Option<f64> as Unpack>::SIZE, 16);
+    assert_eq!(<[f64; 2] as Unpack>::SIZE, 16);
+    assert_eq!(<Box<[f64; 2]> as Unpack>::SIZE, 8);
+    assert_eq!(largest(&[3, 9, 4]), 9);
+
+    // 空の実寸空間を 1 つ持つ図面。使うのは、元の文書の 2 つの文字列の中身と、実寸空間の大きさ
+    let drawing = Drawing2D {
+        spaces: vec![ModelSpace {
+            id: SpaceId(0),
+            unit: Unit::Millimeter,
+            axes: Axes::EastNorth,
+            elements: Vec::new(),
+            order: Vec::new(),
+        }],
+        ..Drawing2D::default()
+    };
+    let bytes = written(&source(), &drawing);
+    let read_with = |limit| {
+        let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(limit));
+        load_with(&bytes, limits)
+    };
+    let used = ("dxf".len() + "acad".len()) as u64 + ModelSpace::SIZE;
+    assert_eq!(
+        read_with(used),
+        (Ok((source(), drawing.clone())), Vec::new())
+    );
+    let (result, codes) = read_with(used - 1);
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    assert_eq!(codes, ["budget.decoded-bytes.exceeded"]);
+
+    // Box の中身も、作る前に数える
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(15));
+    let value = encode(&Box::new([1.0, 2.0]));
+    assert!(matches!(
+        decode_with::<Box<[f64; 2]>>(&value, limits),
+        Err(Bad::Stopped(_))
+    ));
+}
+
+/// 文字列は、複製する前に数える
+#[test]
+fn counts_the_strings_before_copying_them() {
+    let long = Source {
+        format: "a".repeat(1000),
+        ..source()
+    };
+    let bytes = written(&long, &Drawing2D::default());
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(999));
+    let (result, codes) = load_with(&bytes, limits);
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    assert_eq!(codes, ["budget.decoded-bytes.exceeded"]);
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(1000 + 4));
+    assert_eq!(
+        load_with(&bytes, limits).0,
+        Ok((long, Drawing2D::default()))
+    );
+}
+
+/// 書くときは、要素ごとに作業量を 1 使う。上限か中断の合図で止め、書きかけのものを捨てる
+#[test]
+fn stops_writing_at_the_work_budget_and_the_cancel_signal() {
+    let (source, drawing, bytes) = with_elements();
+    let elements = u32_at(&bytes, 8).unwrap() as u64;
+    let write_with = |drawing: &Drawing2D, limit, cancel: &CancelToken| {
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+        let mut diagnostics = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, cancel);
+        let result = write(&source, drawing, &mut cx);
+        (result, budget.used(Kind::Work))
+    };
+    let cancel = CancelToken::new();
+    assert_eq!(
+        write_with(&drawing, elements, &cancel),
+        (Ok(bytes), elements)
+    );
+    let (result, used) = write_with(&drawing, elements - 1, &cancel);
+    assert!(matches!(result, Err(Stop::Exceeded(_))), "{result:?}");
+    assert_eq!(used, elements - 1);
+
+    // 要素のない図面でも、中断の合図を確かめる
+    cancel.cancel();
+    assert_eq!(
+        write_with(&Drawing2D::default(), 0, &cancel),
+        (Err(Stop::Cancelled), 0)
+    );
 }
