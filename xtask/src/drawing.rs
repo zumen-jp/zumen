@@ -18,7 +18,7 @@ pub const GENERATED: &str = "crates/zumen-drawing/src/binary/generated.rs";
 
 /// 図面モデルの型を読むディレクトリ。下のディレクトリ（`font/` など）は読まない
 const SOURCES: &str = "crates/zumen-drawing/src";
-/// 図面モデルが使う、外のクレートの型を読むファイル。型は、クレートの根から出している
+/// 図面モデルが使う、外の crate の型を読むファイル。型は、crate の根から出している
 const EXTERNAL: [(&str, &str); 2] = [
     ("zumen_base", "crates/zumen-base/src/diag.rs"),
     ("zumen_crs", "crates/zumen-crs/src/point.rs"),
@@ -282,13 +282,13 @@ fn configured(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| attr.path().is_ident("cfg"))
 }
 
-/// 図面モデルと、外のクレートの型
+/// 図面モデルと、外の crate の型
 struct Tree {
     modules: BTreeMap<String, Module>,
 }
 
 impl Tree {
-    /// モジュールの名前（`lib`・`shape`・外のクレートの名前）と、ファイルの中身から作る
+    /// モジュールの名前（`lib`・`shape`・外の crate の名前）と、ファイルの中身から作る
     fn parse(sources: &[(String, String)]) -> Result<Self, String> {
         let mut modules = BTreeMap::new();
         for (name, text) in sources {
@@ -541,7 +541,7 @@ impl Tree {
                 _ => return Err(format!("{home}: `{name}` の寿命・定数の引数を扱えない")),
             }
         }
-        // 図面モデルの根の型の欄は、どのモジュールからも見える。外のクレートの型と、ほかのモジュールの型の欄は、
+        // 図面モデルの根の型の欄は、どのモジュールからも見える。外の crate の型と、ほかのモジュールの型の欄は、
         // pub でないと読み書きを作れない（手で書く型を除く）
         let handwritten = HANDWRITTEN.iter().any(|(known, _)| *known == name);
         let visible = home != ROOT && !handwritten;
