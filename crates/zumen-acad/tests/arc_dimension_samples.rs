@@ -165,7 +165,7 @@ fn autocad_arc_dimensions_lift_to_arc_lengths() {
                     "{at}: {first:?} {second:?}"
                 );
                 let length = r * f64::to_radians(a2 - a1);
-                let stored = dimension.measurement.unwrap().value;
+                let stored = dimension.measurement.as_ref().unwrap().value;
                 assert!((stored - length).abs() < 1e-9, "{at}: {stored} {length}");
                 match label {
                     Some(text) => assert!(

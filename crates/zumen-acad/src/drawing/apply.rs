@@ -3296,7 +3296,7 @@ mod hash_budget_tests {
         };
         let definition = SymbolDefinition {
             key: SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: "B".to_owned(),
             },
             space: ModelSpace {
@@ -3448,7 +3448,7 @@ mod hash_budget_tests {
             style: Style::BLOCK,
             shape: Shape::Symbol(Symbol {
                 key: SymbolKey {
-                    namespace: "dxf.block",
+                    namespace: "dxf.block".into(),
                     name: "B".into(),
                 },
                 position: point,
@@ -3786,7 +3786,7 @@ mod definition_id_tests {
             };
             drawing.symbols.push(SymbolDefinition {
                 key: SymbolKey {
-                    namespace: "dxf.block",
+                    namespace: "dxf.block".into(),
                     name: format!("B{number}"),
                 },
                 space: ModelSpace {
@@ -3851,7 +3851,7 @@ mod index_tests {
         };
         let symbol = |name: &str, id, elements, source| SymbolDefinition {
             key: SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: name.to_owned(),
             },
             space: space(id, elements),

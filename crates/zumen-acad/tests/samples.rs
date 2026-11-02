@@ -3507,7 +3507,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             content: "zumen".to_owned(),
             height: Height {
                 value: length(2.5),
-                meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+                meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
             },
             placement: Placement::Anchor {
                 point: at(3.0, 3.0),
@@ -3542,7 +3542,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             ],
             height: Height {
                 value: length(2.5),
-                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40".into()),
             },
             point: at(6.0, 1.0),
             horizontal: Horizontal::Right,
@@ -3612,7 +3612,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
                 };
                 {
                     let mut text = text.clone();
-                    text.height.meaning = HeightMeaning::Declared("dxf.ATTRIB.40");
+                    text.height.meaning = HeightMeaning::Declared("dxf.ATTRIB.40".into());
                     text.content = "zumen-attribute".to_owned();
                     placed.attributes.push(Attribute {
                         tag: "ZUMEN".to_owned(),
@@ -3808,7 +3808,10 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
             };
             let element = *elements.get(id)?;
             (extension.namespace == "dxf.xdata"
-                && extension.fields.iter().any(|f| moving.contains(&f.key))
+                && extension
+                    .fields
+                    .iter()
+                    .any(|f| moving.contains(&f.key.as_ref()))
                 && matches!(element.shape, Shape::Text(_)))
             .then(|| element.clone())
         });
@@ -5440,7 +5443,7 @@ fn drawings_take_back_changed_dimension_styles() {
             .find(|key| key.namespace == "dxf.block" && key.name.starts_with('_'));
         if let (true, Some(arrow)) = (dxf, arrow) {
             let block = Arrowhead::Symbol(SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: arrow.name.clone(),
             });
             changed.ends = [block.clone(), Arrowhead::Default];

@@ -9116,7 +9116,7 @@ fn drawing_points_are_written_back_to_a_dwg() {
     let marker = Point {
         look: PointLook::Marker {
             key: MarkerKey {
-                namespace: "sxf.marker",
+                namespace: "sxf.marker".into(),
                 code: "2".to_owned(),
             },
             scale: 1.0,
@@ -9528,7 +9528,7 @@ fn drawing_symbols_go_into_symbol_definitions_without_cycles() {
         element.source = Ref::default();
         element.shape = Shape::Symbol(Symbol {
             key: SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: name.to_owned(),
             },
             position: ModelPoint {

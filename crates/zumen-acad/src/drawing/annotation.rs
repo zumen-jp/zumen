@@ -122,7 +122,7 @@ impl Lifter<'_> {
             measurement: match object.first(42) {
                 Some(_) => Some(Measured {
                     value: real(42, None)?,
-                    key: "dxf.DIMENSION.42",
+                    key: "dxf.DIMENSION.42".into(),
                 }),
                 None => None,
             },
@@ -497,7 +497,7 @@ impl Lifter<'_> {
             content,
             height: Height {
                 value: length(self.real(context, 41, None)?),
-                meaning: HeightMeaning::Declared("dxf.MULTILEADER.41"),
+                meaning: HeightMeaning::Declared("dxf.MULTILEADER.41".into()),
             },
             point: self.planar_point(context, 12, point)?,
             horizontal,

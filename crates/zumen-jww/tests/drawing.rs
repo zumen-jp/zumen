@@ -357,7 +357,7 @@ fn points_texts_and_solids() {
             rotation: 45.0,
             look: PointLook::Marker {
                 key: MarkerKey {
-                    namespace: "jww.point",
+                    namespace: "jww.point".into(),
                     code: "3".into(),
                 },
                 scale: 2.0,

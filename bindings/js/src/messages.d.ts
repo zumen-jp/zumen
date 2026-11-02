@@ -35,7 +35,8 @@ export type Request =
   | PhotoRequest
   | SheetRequest
   | BoringRequest
-  | BuildingApplyRequest;
+  | BuildingApplyRequest
+  | LiftRequest;
 
 /** どの op の要求にも置ける欄 */
 export interface RequestCommon {
@@ -1925,6 +1926,20 @@ export interface BuildingApplyResult {
   hash: string;
 }
 
+/** 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から */
+export interface LiftRequest extends RequestCommon {
+  /** op の名前 */
+  op: "lift";
+  /** 文書の名前。open で図面を開いたもの */
+  doc: string;
+}
+
+/** 図面モデルのバイナリの blob の番号 */
+export interface LiftResult {
+  /** 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す */
+  blob: number;
+}
+
 /** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から */
 export interface IdsCheckRequest extends RequestCommon {
   /** op の名前 */
@@ -2329,12 +2344,13 @@ export interface Blob {
   size: number;
 }
 
-/** バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる） */
+/** バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から） */
 export type BlobKind =
   | "file"
   | "image"
   | "scene"
   | "arrow"
+  | "drawing"
   | (string & {});
 
 /** zm_session_new に渡す設定。渡さなければ既定の設定 */
@@ -3226,4 +3242,5 @@ export interface Operations {
   sheet: { request: SheetRequest; result: SheetResult };
   boring: { request: BoringRequest; result: BoringResult };
   building_apply: { request: BuildingApplyRequest; result: BuildingApplyResult };
+  lift: { request: LiftRequest; result: LiftResult };
 }

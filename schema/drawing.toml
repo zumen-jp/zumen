@@ -1,0 +1,1175 @@
+# 図面モデル（L2）のバイナリの型の契約（決定 0247）。
+#
+# `cargo xtask codegen` が、図面モデル（crates/zumen-drawing）の型から書き、読み書き
+# （crates/zumen-drawing/src/binary/generated.rs）を作る。手で直すのは、大版を上げるときだけ。
+#
+# - 名前のある欄は、並べた順に書く。後の小版で足した欄は後ろに足し、`@` の後ろにその小版を書く
+# - 列挙の値の番号は、並べた順（0 から）。後の小版で足した値は後ろに足し、since にその小版を書く
+# - 型の書き方は Rust に合わせる。`Cow<str>` は文字列、`P` などは型の引数
+# - 欄・値を消すか、名前・型を変えるには、大版を上げる。major を上げ、types を消してから codegen を流す
+
+[versions]
+major = 1
+minor = 0
+
+[[types]]
+name = "Affine"
+fields = [
+  "m: [f64; 6]",
+]
+
+[[types]]
+name = "Arrowhead"
+variants = [
+  { name = "Default" },
+  { name = "Symbol", tuple = ["SymbolKey"] },
+]
+
+[[types]]
+name = "Attribute"
+params = ["P"]
+fields = [
+  "tag: String",
+  "text: Text<P>",
+  "formatted: Option<FormattedText<P>>",
+  "hidden: bool",
+  "layer: LayerId",
+  "style: Style",
+  "source: Ref",
+]
+
+[[types]]
+name = "AttributeDefinition"
+fields = [
+  "attribute: Attribute<ModelPoint>",
+  "prompt: String",
+  "constant: bool",
+  "verify: bool",
+  "preset: bool",
+]
+
+[[types]]
+name = "AttributeValue"
+fields = [
+  "definition: Ref",
+  "text: String",
+]
+
+[[types]]
+name = "Axes"
+variants = [
+  { name = "EastNorth" },
+  { name = "NorthEast" },
+]
+
+[[types]]
+name = "Axis"
+variants = [
+  { name = "X" },
+  { name = "Y" },
+]
+
+[[types]]
+name = "Background"
+fields = [
+  "fill: Option<BackgroundFill>",
+  "frame: bool",
+  "scale: f64",
+  "transparency: Option<u32>",
+]
+
+[[types]]
+name = "BackgroundFill"
+variants = [
+  { name = "Color", tuple = ["Color"] },
+  { name = "Screen" },
+]
+
+[[types]]
+name = "Basis"
+variants = [
+  { name = "Document" },
+  { name = "Hash", tuple = ["Hash"] },
+]
+
+[[types]]
+name = "Border"
+fields = [
+  "color: Option<Inherit<Color>>",
+  "weight: Option<Inherit<LineWeight>>",
+  "visible: Option<bool>",
+]
+
+[[types]]
+name = "Borders"
+fields = [
+  "top: Border",
+  "right: Border",
+  "bottom: Border",
+  "left: Border",
+  "horizontal: Border",
+  "vertical: Border",
+]
+
+[[types]]
+name = "Boundary"
+params = ["P"]
+variants = [
+  { name = "Polyline", fields = ["vertices: Vec<Vertex<P>>", "closed: bool"] },
+  { name = "Edges", tuple = ["Vec<Edge<P>>"] },
+]
+
+[[types]]
+name = "Branch"
+params = ["P"]
+fields = [
+  "lines: Vec<Vec<P>>",
+  "end: Option<P>",
+  "dogleg: Option<Dogleg>",
+]
+
+[[types]]
+name = "ByteRange"
+fields = [
+  "start: u64",
+  "end: u64",
+]
+
+[[types]]
+name = "Callout"
+params = ["P"]
+fields = [
+  "branches: Vec<Branch<P>>",
+  "content: CalloutContent<P>",
+  "path: PathKind",
+  "arrowhead: Arrowhead",
+  "arrow_size: Length",
+  "landing: bool",
+  "scale: f64",
+  "line_style: Style",
+  "content_color: Inherit<Color>",
+  "style: Option<Ref>",
+]
+
+[[types]]
+name = "CalloutContent"
+params = ["P"]
+variants = [
+  { name = "None" },
+  { name = "Text", tuple = ["Box<FormattedText<P>>"] },
+  { name = "Symbol", fields = ["symbol: Box<Symbol<P>>", "values: Vec<AttributeValue>"] },
+]
+
+[[types]]
+name = "Cell"
+fields = [
+  "content: CellContent",
+  "span: [u32; 2]",
+  "covered: bool",
+  "value: Option<CellValue>",
+  "rotation: f64",
+  "format: CellFormat",
+]
+
+[[types]]
+name = "CellContent"
+variants = [
+  { name = "Empty" },
+  { name = "Text", fields = ["content: String", "spans: Vec<Span>"] },
+  { name = "Symbol", tuple = ["SymbolKey"] },
+]
+
+[[types]]
+name = "CellData"
+variants = [
+  { name = "Text", tuple = ["String"] },
+  { name = "Integer", tuple = ["i64"] },
+  { name = "Real", tuple = ["f64"] },
+  { name = "Date", tuple = ["DateTime"] },
+  { name = "Point", tuple = ["[f64; 3]"] },
+]
+
+[[types]]
+name = "CellFormat"
+fields = [
+  "text_style: Option<String>",
+  "text_height: Option<Length>",
+  "alignment: Option<(Horizontal, Vertical)>",
+  "text_color: Option<Inherit<Color>>",
+  "fill: Option<bool>",
+  "fill_color: Option<Inherit<Color>>",
+  "borders: Borders",
+]
+
+[[types]]
+name = "CellValue"
+fields = [
+  "data: CellData",
+  "unit: ValueUnit",
+  "format: Option<String>",
+]
+
+[[types]]
+name = "Clip"
+fields = [
+  "vertices: Vec<[f64; 2]>",
+  "inverted: bool",
+]
+
+[[types]]
+name = "Color"
+fields = [
+  "code: Option<ColorCode>",
+  "rgb: Option<[u8; 3]>",
+]
+
+[[types]]
+name = "ColorCode"
+fields = [
+  "system: ColorSystem",
+  "value: u32",
+]
+
+[[types]]
+name = "ColorSystem"
+variants = [
+  { name = "Aci" },
+  { name = "Sxf" },
+  { name = "Jww" },
+]
+
+[[types]]
+name = "DateTime"
+fields = [
+  "year: u16",
+  "month: u8",
+  "day: u8",
+  "hour: u8",
+  "minute: u8",
+  "second: u8",
+  "millisecond: u16",
+]
+
+[[types]]
+name = "Dimension"
+params = ["P"]
+fields = [
+  "kind: DimensionKind<P>",
+  "measurement: Option<Measured>",
+  "label: Label",
+  "text: DimensionText<P>",
+  "style: String",
+  "block: Option<String>",
+]
+
+[[types]]
+name = "DimensionKind"
+params = ["P"]
+variants = [
+  { name = "Linear", fields = ["first: P", "second: P", "line: P", "rotation: f64", "oblique: f64"] },
+  { name = "Aligned", fields = ["first: P", "second: P", "line: P", "oblique: f64"] },
+  { name = "Angular", fields = ["vertex: P", "first: P", "second: P", "arc: P"] },
+  { name = "AngularLines", fields = ["first: [P; 2]", "second: [P; 2]", "arc: P"] },
+  { name = "ArcLength", fields = ["center: P", "first: P", "second: P", "arc: P"] },
+  { name = "Radius", fields = ["center: P", "chord: P", "leader: Length"] },
+  { name = "Diameter", fields = ["chord: P", "opposite: P", "leader: Length"] },
+  { name = "Ordinate", fields = ["origin: P", "feature: P", "leader_end: P", "axis: Axis"] },
+]
+
+[[types]]
+name = "DimensionStyle"
+fields = [
+  "name: String",
+  "ends: [Arrowhead; 2]",
+  "leader: Arrowhead",
+  "size: f64",
+  "tick: Option<f64>",
+  "scale: f64",
+  "source: Ref",
+]
+
+[[types]]
+name = "DimensionText"
+params = ["P"]
+fields = [
+  "position: Option<P>",
+  "moved: bool",
+  "rotation: Option<f64>",
+  "attachment: Option<(Horizontal, Vertical)>",
+]
+
+[[types]]
+name = "Dogleg"
+fields = [
+  "direction: [f64; 2]",
+  "length: Length",
+]
+
+[[types]]
+name = "Drawing2D"
+fields = [
+  "spaces: Vec<ModelSpace>",
+  "sheets: Vec<Sheet>",
+  "layers: Vec<Layer>",
+  "line_types: Vec<LineType>",
+  "line_type_scale: Option<f64>",
+  "default_line_weight: Option<PaperLength>",
+  "default_color: Option<Color>",
+  "default_line_type: Option<LineTypeId>",
+  "dimension_styles: Vec<DimensionStyle>",
+  "text_styles: Vec<TextStyle>",
+  "symbols: Vec<SymbolDefinition>",
+  "extensions: Vec<Extension>",
+  "title_blocks: Vec<TitleBlock>",
+  "point_style: Option<PointStyle>",
+]
+
+[[types]]
+name = "Edge"
+params = ["P"]
+variants = [
+  { name = "Line", fields = ["start: P", "end: P"] },
+  { name = "Arc", fields = ["center: P", "radius: Length", "start: f64", "end: f64", "counterclockwise: bool"] },
+  { name = "Elliptic", fields = ["center: P", "major: P", "ratio: f64", "start: f64", "end: f64", "counterclockwise: bool"] },
+  { name = "Spline", tuple = ["Spline<P>"] },
+  { name = "Clothoid", fields = ["origin: P", "parameter: Length", "angle: f64", "counterclockwise: bool", "start: Length", "end: Length"] },
+]
+
+[[types]]
+name = "Element"
+params = ["P"]
+fields = [
+  "source: Ref",
+  "layer: LayerId",
+  "style: Style",
+  "shape: Shape<P>",
+]
+
+[[types]]
+name = "Extension"
+fields = [
+  "namespace: Cow<str>",
+  "name: String",
+  "version: Option<String>",
+  "schema: u32",
+  "target: Target",
+  "basis: Basis",
+  "fields: Vec<Field>",
+  "source: Ref",
+]
+
+[[types]]
+name = "Field"
+fields = [
+  "key: Cow<str>",
+  "code: Option<i16>",
+  "value: FieldValue",
+]
+
+[[types]]
+name = "FieldValue"
+variants = [
+  { name = "Text", tuple = ["String"] },
+  { name = "Integer", tuple = ["i64"] },
+  { name = "Real", tuple = ["f64"] },
+  { name = "Point", tuple = ["[f64; 3]"] },
+  { name = "Handle", tuple = ["u64"] },
+  { name = "Bytes", tuple = ["Vec<u8>"] },
+]
+
+[[types]]
+name = "Fill"
+variants = [
+  { name = "Solid" },
+  { name = "Pattern", tuple = ["Pattern"] },
+  { name = "Gradient", tuple = ["Gradient"] },
+]
+
+[[types]]
+name = "Fit"
+variants = [
+  { name = "Aligned" },
+  { name = "Fit" },
+]
+
+[[types]]
+name = "Flow"
+variants = [
+  { name = "LeftToRight" },
+  { name = "TopToBottom" },
+  { name = "ByStyle" },
+]
+
+[[types]]
+name = "Font"
+fields = [
+  "name: String",
+  "kind: FontKind",
+]
+
+[[types]]
+name = "FontKind"
+variants = [
+  { name = "Shape" },
+  { name = "Named", fields = ["bold: bool", "italic: bool", "charset: Option<u32>", "pitch: Option<u32>"] },
+]
+
+[[types]]
+name = "Format"
+fields = [
+  "height: Option<Scaled<Length>>",
+  "width_factor: Option<Scaled<f64>>",
+  "tracking: Option<Scaled<f64>>",
+  "oblique: Option<f64>",
+  "font: Option<Font>",
+  "color: Option<Inherit<Color>>",
+  "align: Option<Vertical>",
+  "underline: bool",
+  "overline: bool",
+  "strike: bool",
+]
+
+[[types]]
+name = "FormattedText"
+params = ["P"]
+fields = [
+  "content: String",
+  "spans: Vec<Span>",
+  "height: Height",
+  "point: P",
+  "horizontal: Horizontal",
+  "vertical: Vertical",
+  "rotation: Rotation",
+  "width: Option<Length>",
+  "frame_height: Option<Length>",
+  "flow: Flow",
+  "line_spacing: LineSpacing",
+  "background: Option<Background>",
+  "style: String",
+]
+
+[[types]]
+name = "Gradient"
+fields = [
+  "name: String",
+  "angle: f64",
+  "shift: f64",
+  "colors: Vec<[u8; 3]>",
+  "tint: Option<f64>",
+]
+
+[[types]]
+name = "Grid"
+fields = [
+  "columns: u32",
+  "rows: u32",
+  "column_spacing: Length",
+  "row_spacing: Length",
+]
+
+[[types]]
+name = "Hash"
+tuple = ["[u8; 16]"]
+
+[[types]]
+name = "Hatch"
+params = ["P"]
+fields = [
+  "loops: Vec<HatchLoop<P>>",
+  "islands: Islands",
+  "fill: Fill",
+  "associative: bool",
+  "seeds: Vec<P>",
+]
+
+[[types]]
+name = "HatchLoop"
+params = ["P"]
+fields = [
+  "boundary: Boundary<P>",
+  "external: bool",
+  "outermost: bool",
+  "derived: bool",
+  "text_box: bool",
+  "sources: Vec<Ref>",
+]
+
+[[types]]
+name = "Height"
+fields = [
+  "value: Length",
+  "meaning: HeightMeaning",
+]
+
+[[types]]
+name = "HeightMeaning"
+variants = [
+  { name = "Frame" },
+  { name = "CapHeight" },
+  { name = "Em" },
+  { name = "Declared", tuple = ["Cow<str>"] },
+]
+
+[[types]]
+name = "Horizontal"
+variants = [
+  { name = "Left" },
+  { name = "Center" },
+  { name = "Right" },
+  { name = "Middle" },
+]
+
+[[types]]
+name = "Inherit"
+params = ["T"]
+variants = [
+  { name = "Layer" },
+  { name = "Block" },
+  { name = "Own", tuple = ["T"] },
+]
+
+[[types]]
+name = "Islands"
+variants = [
+  { name = "Nested" },
+  { name = "Outer" },
+  { name = "Ignore" },
+]
+
+[[types]]
+name = "Key"
+variants = [
+  { name = "Handle", tuple = ["u64"] },
+  { name = "Instance", tuple = ["u64"] },
+]
+
+[[types]]
+name = "KnotParameterization"
+variants = [
+  { name = "Chord" },
+  { name = "SquareRoot" },
+  { name = "Uniform" },
+  { name = "Custom" },
+]
+
+[[types]]
+name = "Label"
+variants = [
+  { name = "Measurement" },
+  { name = "Override", fields = ["content: String", "spans: Vec<Span>"] },
+  { name = "Hidden" },
+]
+
+[[types]]
+name = "Layer"
+fields = [
+  "id: LayerId",
+  "name: String",
+  "state: Option<LayerState>",
+  "style: Option<LayerStyle>",
+  "follows_placement: bool",
+  "description: Option<String>",
+  "source: Ref",
+]
+
+[[types]]
+name = "LayerId"
+tuple = ["u32"]
+
+[[types]]
+name = "LayerState"
+fields = [
+  "visible: bool",
+  "printable: bool",
+  "editable: bool",
+  "frozen: bool",
+]
+
+[[types]]
+name = "LayerStyle"
+fields = [
+  "color: Option<Color>",
+  "line_type: Option<LineTypeId>",
+  "line_weight: Option<LineWeight>",
+  "transparency: Option<Transparency>",
+]
+
+[[types]]
+name = "Leader"
+params = ["P"]
+fields = [
+  "path: Vec<P>",
+  "spline: bool",
+  "arrow: Option<bool>",
+  "annotation: Option<Ref>",
+  "style: String",
+]
+
+[[types]]
+name = "Length"
+variants = [
+  { name = "Paper", tuple = ["PaperLength"] },
+  { name = "Model", tuple = ["ModelLength"] },
+]
+
+[[types]]
+name = "LineSpacing"
+fields = [
+  "factor: f64",
+  "exact: bool",
+]
+
+[[types]]
+name = "LineType"
+fields = [
+  "id: LineTypeId",
+  "name: String",
+  "definition: Option<LineTypeDefinition>",
+  "source: Ref",
+]
+
+[[types]]
+name = "LineTypeDefinition"
+fields = [
+  "description: String",
+  "pattern: Vec<f64>",
+  "basis: PatternBasis",
+  "marks: Vec<LineTypeMark>",
+]
+
+[[types]]
+name = "LineTypeId"
+tuple = ["u32"]
+
+[[types]]
+name = "LineTypeMark"
+fields = [
+  "index: usize",
+  "content: MarkContent",
+  "scale: f64",
+  "rotation: f64",
+  "rotation_basis: MarkRotation",
+  "offset: [f64; 2]",
+]
+
+[[types]]
+name = "LineWeight"
+variants = [
+  { name = "Width", tuple = ["PaperLength"] },
+  { name = "Default" },
+]
+
+[[types]]
+name = "MarkContent"
+variants = [
+  { name = "Shape", fields = ["font: Option<Font>", "number: u16"] },
+  { name = "Text", fields = ["content: String", "style: Option<String>"] },
+]
+
+[[types]]
+name = "MarkRotation"
+variants = [
+  { name = "Relative" },
+  { name = "Absolute" },
+  { name = "Upright" },
+]
+
+[[types]]
+name = "MarkerKey"
+fields = [
+  "namespace: Cow<str>",
+  "code: String",
+]
+
+[[types]]
+name = "Measured"
+fields = [
+  "value: f64",
+  "key: Cow<str>",
+]
+
+[[types]]
+name = "ModelLength"
+fields = [
+  "space: SpaceId",
+  "value: f64",
+]
+
+[[types]]
+name = "ModelPoint"
+fields = [
+  "space: SpaceId",
+  "x: f64",
+  "y: f64",
+]
+
+[[types]]
+name = "ModelSpace"
+fields = [
+  "id: SpaceId",
+  "unit: Unit",
+  "axes: Axes",
+  "elements: Vec<Element<ModelPoint>>",
+  "order: Vec<usize>",
+]
+
+[[types]]
+name = "PaperLength"
+tuple = ["f64"]
+
+[[types]]
+name = "PaperPoint"
+fields = [
+  "sheet: SheetId",
+  "x: f64",
+  "y: f64",
+]
+
+[[types]]
+name = "PathKind"
+variants = [
+  { name = "Straight" },
+  { name = "Spline" },
+  { name = "Hidden" },
+]
+
+[[types]]
+name = "Pattern"
+fields = [
+  "name: String",
+  "origin: PatternOrigin",
+  "angle: f64",
+  "scale: f64",
+  "double: bool",
+  "lines: Vec<PatternLine>",
+]
+
+[[types]]
+name = "PatternBasis"
+variants = [
+  { name = "Element" },
+  { name = "Paper" },
+]
+
+[[types]]
+name = "PatternLine"
+fields = [
+  "angle: f64",
+  "base: [f64; 2]",
+  "offset: [f64; 2]",
+  "dashes: Vec<f64>",
+]
+
+[[types]]
+name = "PatternOrigin"
+variants = [
+  { name = "UserDefined" },
+  { name = "Predefined" },
+  { name = "Custom" },
+]
+
+[[types]]
+name = "Piece"
+variants = [
+  { name = "Text", tuple = ["String"] },
+  { name = "Paragraph" },
+  { name = "Column" },
+  { name = "Measurement" },
+  { name = "Below" },
+  { name = "Stack", fields = ["upper: String", "lower: String", "kind: StackKind"] },
+  { name = "Unparsed", tuple = ["String"] },
+]
+
+[[types]]
+name = "Placement"
+params = ["P"]
+variants = [
+  { name = "Anchor", fields = ["point: P", "horizontal: Horizontal", "vertical: Vertical"] },
+  { name = "Between", fields = ["first: P", "second: P", "fit: Fit"] },
+]
+
+[[types]]
+name = "Point"
+params = ["P"]
+fields = [
+  "position: P",
+  "rotation: f64",
+  "look: PointLook",
+  "construction: bool",
+]
+
+[[types]]
+name = "PointLook"
+variants = [
+  { name = "Document" },
+  { name = "Marker", fields = ["key: MarkerKey", "scale: f64"] },
+]
+
+[[types]]
+name = "PointMark"
+variants = [
+  { name = "Dot" },
+  { name = "None" },
+  { name = "Plus" },
+  { name = "Cross" },
+  { name = "Tick" },
+]
+
+[[types]]
+name = "PointSize"
+variants = [
+  { name = "Length", tuple = ["f64"] },
+  { name = "Screen", tuple = ["f64"] },
+]
+
+[[types]]
+name = "PointStyle"
+fields = [
+  "mark: PointMark",
+  "circle: bool",
+  "square: bool",
+  "size: PointSize",
+]
+
+[[types]]
+name = "Polyline"
+params = ["P"]
+fields = [
+  "vertices: Vec<Vertex<P>>",
+  "closed: bool",
+  "width: Option<Length>",
+  "vertex_widths: Vec<[Length; 2]>",
+  "line_type_generation: bool",
+]
+
+[[types]]
+name = "Ref"
+fields = [
+  "id: Option<String>",
+  "record: Option<u64>",
+  "bytes: Option<ByteRange>",
+  "key: Option<Key>",
+]
+
+[[types]]
+name = "Resource"
+fields = [
+  "path: String",
+  "definition: Ref",
+]
+
+[[types]]
+name = "Rotation"
+variants = [
+  { name = "Angle", tuple = ["f64"] },
+  { name = "Direction", tuple = ["[f64; 2]"] },
+]
+
+[[types]]
+name = "Scaled"
+params = ["T"]
+variants = [
+  { name = "Value", tuple = ["T"] },
+  { name = "Factor", tuple = ["f64"] },
+]
+
+[[types]]
+name = "Shape"
+params = ["P"]
+variants = [
+  { name = "Line", fields = ["start: P", "end: P"] },
+  { name = "Circle", fields = ["center: P", "radius: Length"] },
+  { name = "Curve", tuple = ["Edge<P>"] },
+  { name = "Polyline", tuple = ["Polyline<P>"] },
+  { name = "Text", tuple = ["Text<P>"] },
+  { name = "Formatted", tuple = ["FormattedText<P>"] },
+  { name = "Dimension", tuple = ["Dimension<P>"] },
+  { name = "Leader", tuple = ["Leader<P>"] },
+  { name = "Callout", tuple = ["Callout<P>"] },
+  { name = "Table", tuple = ["Table<P>"] },
+  { name = "Underlay", tuple = ["Underlay<P>"] },
+  { name = "Symbol", tuple = ["Symbol<P>"] },
+  { name = "Hatch", tuple = ["Hatch<P>"] },
+  { name = "Point", tuple = ["Point<P>"] },
+]
+
+[[types]]
+name = "Sheet"
+fields = [
+  "id: SheetId",
+  "name: Option<String>",
+  "size: Option<[PaperLength; 2]>",
+  "elements: Vec<Element<PaperPoint>>",
+  "views: Vec<View>",
+  "order: Vec<SheetItem>",
+  "source: Ref",
+]
+
+[[types]]
+name = "SheetId"
+tuple = ["u32"]
+
+[[types]]
+name = "SheetItem"
+variants = [
+  { name = "Element", tuple = ["usize"] },
+  { name = "View", tuple = ["usize"] },
+]
+
+[[types]]
+name = "Source"
+fields = [
+  "format: String",
+  "family: String",
+  "hash: Hash",
+]
+
+[[types]]
+name = "SpaceId"
+tuple = ["u32"]
+
+[[types]]
+name = "Span"
+fields = [
+  "piece: Piece",
+  "format: Format",
+]
+
+[[types]]
+name = "Spline"
+params = ["P"]
+fields = [
+  "degree: u32",
+  "knots: Vec<f64>",
+  "control: Vec<P>",
+  "weights: Vec<f64>",
+  "fit: Vec<P>",
+  "start_tangent: Option<[f64; 2]>",
+  "end_tangent: Option<[f64; 2]>",
+  "closed: bool",
+  "periodic: bool",
+  "fit_tolerance: Option<f64>",
+  "knot_parameterization: Option<KnotParameterization>",
+]
+
+[[types]]
+name = "StackKind"
+variants = [
+  { name = "Horizontal" },
+  { name = "Diagonal" },
+  { name = "Tolerance" },
+]
+
+[[types]]
+name = "Style"
+fields = [
+  "color: Inherit<Color>",
+  "line_type: Inherit<LineTypeId>",
+  "line_type_scale: f64",
+  "line_weight: Option<Inherit<LineWeight>>",
+  "transparency: Inherit<Transparency>",
+]
+
+[[types]]
+name = "Symbol"
+params = ["P"]
+fields = [
+  "key: SymbolKey",
+  "position: P",
+  "scale: [f64; 2]",
+  "rotation: f64",
+  "grid: Option<Grid>",
+  "attributes: Vec<Attribute<P>>",
+  "clip: Option<Clip>",
+]
+
+[[types]]
+name = "SymbolDefinition"
+fields = [
+  "key: SymbolKey",
+  "space: ModelSpace",
+  "base: Option<ModelPoint>",
+  "attributes: Vec<AttributeDefinition>",
+  "anonymous: bool",
+  "external: Option<String>",
+  "source: Ref",
+]
+
+[[types]]
+name = "SymbolKey"
+fields = [
+  "namespace: Cow<str>",
+  "name: String",
+]
+
+[[types]]
+name = "Table"
+params = ["P"]
+fields = [
+  "position: P",
+  "direction: [f64; 2]",
+  "row_heights: Vec<Length>",
+  "column_widths: Vec<Length>",
+  "cells: Vec<Cell>",
+  "style: Option<Ref>",
+  "formats: Option<Box<TableFormats>>",
+  "drawn: Option<SymbolKey>",
+]
+
+[[types]]
+name = "TableFormats"
+fields = [
+  "title: bool",
+  "header: bool",
+  "title_format: CellFormat",
+  "header_format: CellFormat",
+  "data_format: CellFormat",
+]
+
+[[types]]
+name = "Target"
+variants = [
+  { name = "Document" },
+  { name = "Element", tuple = ["String"] },
+  { name = "Layer", tuple = ["LayerId"] },
+  { name = "LineType", tuple = ["LineTypeId"] },
+]
+
+[[types]]
+name = "Text"
+params = ["P"]
+fields = [
+  "content: String",
+  "height: Height",
+  "placement: Placement<P>",
+  "rotation: f64",
+  "width_factor: f64",
+  "oblique: f64",
+  "backward: bool",
+  "upside_down: bool",
+  "style: String",
+]
+
+[[types]]
+name = "TextStyle"
+fields = [
+  "name: String",
+  "definition: Option<TextStyleDefinition>",
+  "source: Ref",
+]
+
+[[types]]
+name = "TextStyleDefinition"
+fields = [
+  "font: Option<Font>",
+  "big_font: Option<Font>",
+  "height: Option<f64>",
+  "width: f64",
+  "oblique: f64",
+  "backward: bool",
+  "upside_down: bool",
+  "vertical: bool",
+]
+
+[[types]]
+name = "TitleBlock"
+fields = [
+  "items: Vec<TitleItem>",
+  "source: Ref",
+]
+
+[[types]]
+name = "TitleItem"
+fields = [
+  "key: Option<Cow<str>>",
+  "name: String",
+  "value: String",
+  "display: Vec<Target>",
+]
+
+[[types]]
+name = "Transparency"
+fields = [
+  "alpha: u8",
+]
+
+[[types]]
+name = "Underlay"
+params = ["P"]
+fields = [
+  "kind: UnderlayKind",
+  "resource: Resource",
+  "page: Option<String>",
+  "frame: UnderlayFrame<P>",
+  "clip: Option<Clip>",
+  "visible: bool",
+]
+
+[[types]]
+name = "UnderlayFrame"
+params = ["P"]
+variants = [
+  { name = "Pixels", fields = ["size: [f64; 2]", "origin: P", "right: P", "top: P"] },
+  { name = "Corners", fields = ["origin: P", "right: P", "top: P"] },
+  { name = "Scaled", fields = ["origin: P", "scale: [Length; 2]", "rotation: f64"] },
+]
+
+[[types]]
+name = "UnderlayKind"
+variants = [
+  { name = "Image" },
+  { name = "Pdf" },
+  { name = "Dwf" },
+  { name = "Dgn" },
+]
+
+[[types]]
+name = "Unit"
+variants = [
+  { name = "Millimeter" },
+  { name = "Centimeter" },
+  { name = "Meter" },
+  { name = "Inch" },
+  { name = "Foot" },
+  { name = "Unknown" },
+]
+
+[[types]]
+name = "ValueUnit"
+variants = [
+  { name = "None" },
+  { name = "Distance" },
+  { name = "Angle" },
+  { name = "Area" },
+  { name = "Volume" },
+  { name = "Currency" },
+  { name = "Percentage" },
+]
+
+[[types]]
+name = "Vertex"
+params = ["P"]
+fields = [
+  "point: P",
+  "bulge: f64",
+]
+
+[[types]]
+name = "Vertical"
+variants = [
+  { name = "Baseline" },
+  { name = "Bottom" },
+  { name = "Middle" },
+  { name = "Top" },
+]
+
+[[types]]
+name = "View"
+fields = [
+  "space: SpaceId",
+  "sheet: SheetId",
+  "transform: Affine",
+  "clip: Vec<PaperPoint>",
+  "hidden_layers: Vec<LayerId>",
+  "source: Ref",
+]

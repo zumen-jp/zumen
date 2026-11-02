@@ -426,7 +426,7 @@ fn check_symbols(symbols: &[SymbolDefinition], out: &Out, cx: &mut Cx) -> Result
                     .block
                     .iter()
                     .map(|name| SymbolKey {
-                        namespace: BLOCK,
+                        namespace: BLOCK.into(),
                         name: name.clone(),
                     })
                     .collect(),

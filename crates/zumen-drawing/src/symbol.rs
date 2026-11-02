@@ -1,5 +1,7 @@
 //! 記号の定義と配置、属性。
 
+use std::borrow::Cow;
+
 use zumen_base::Ref;
 
 use crate::{Clip, FormattedText, LayerId, Length, ModelPoint, ModelSpace, Style, Text};
@@ -8,7 +10,7 @@ use crate::{Clip, FormattedText, LayerId, Length, ModelPoint, ModelSpace, Style,
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolKey {
     /// 名前空間（`dxf.block` など）
-    pub namespace: &'static str,
+    pub namespace: Cow<'static, str>,
     /// 名前空間の中の元の名前。翻訳しない
     pub name: String,
 }

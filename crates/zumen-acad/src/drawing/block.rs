@@ -375,7 +375,7 @@ impl Lifter<'_> {
         };
         Ok(Some(SymbolDefinition {
             key: SymbolKey {
-                namespace: BLOCK,
+                namespace: BLOCK.into(),
                 name,
             },
             space: ModelSpace {
@@ -449,7 +449,7 @@ impl Lifter<'_> {
         };
         Ok(Symbol {
             key: SymbolKey {
-                namespace: BLOCK,
+                namespace: BLOCK.into(),
                 name,
             },
             position: self.planar_point(object, 10, point)?,

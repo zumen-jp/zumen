@@ -1,9 +1,10 @@
-// プラグインを束ねた wasm のモジュールを、JavaScript の包みの loadModules で呼ぶ（#399、決定 0243）。
+// プラグインの形式だけを持つ wasm のモジュールを、JavaScript の包みの loadModules で呼ぶ（#399・#481、決定 0243・0247）。
 //
 // 使い方: node templates/plugin/tests/wasm.mjs <zumen_plugin_template.wasm> <drawing.wasm>
 //
-// 包みは、コアのどの形式でもない入力を、plugin.json の判定の規則で試し、プラグインのモジュールを読み込む。コアの
-// 形式の入力は、コアのモジュールで読む。
+// 包みは、コアのどの形式でもない入力を、plugin.json の判定の規則で試し、プラグインのモジュールを読み込む。プラグインの
+// モジュールは、読んだ図面を lift で図面モデルのバイナリにする。コアの図面のモジュールは、それを open で開き、図面を
+// 読む op に答える。
 
 import { readFileSync } from "node:fs";
 
@@ -37,15 +38,32 @@ const session = zumen.open();
 session.push("a.txt", sample);
 const open = session.call({ v: 1, op: "open", input: "a.txt" });
 check(open.result?.format === "zumen_lines", `open の結果が ${JSON.stringify(open)}`);
-const entities = session.call({ v: 1, op: "entities", doc: "a.txt" });
-const ids = entities.result?.items?.map((item) => item.id);
-check(JSON.stringify(ids) === JSON.stringify(["space/0/r0", "space/0/r1"]), `図形の ID が ${JSON.stringify(ids)}`);
 const capabilities = session.call({ v: 1, op: "capabilities" });
 check(
   capabilities.result?.formats?.some((format) => format.id === "zumen_lines" && format.read && !format.write),
   "capabilities にプラグインの形式がない",
 );
+check(
+  JSON.stringify(capabilities.result?.ops) === JSON.stringify(MODULES.plugin.ops),
+  `プラグインのモジュールの op が ${JSON.stringify(capabilities.result?.ops)}`,
+);
+const lift = session.call({ v: 1, op: "lift", doc: "a.txt" });
+check(lift.blobs?.[0]?.kind === "drawing", `lift の結果が ${JSON.stringify(lift)}`);
+const bytes = session.take(lift.result.blob);
 session.close();
+
+// コアの図面のモジュールで、元の形式の文書として開く
+const drawing = (await modules.get("drawing")).open();
+drawing.push("a.txt", bytes);
+const reopened = drawing.call({ v: 1, op: "open", input: "a.txt" });
+check(reopened.result?.format === "zumen_lines", `図面のモジュールの open の結果が ${JSON.stringify(reopened)}`);
+const entities = drawing.call({ v: 1, op: "entities", doc: "a.txt" });
+const ids = entities.result?.items?.map((item) => item.id);
+check(JSON.stringify(ids) === JSON.stringify(["space/0/r0", "space/0/r1"]), `図形の ID が ${JSON.stringify(ids)}`);
+const scene = drawing.call({ v: 1, op: "scene", doc: "a.txt", from: "space/0" });
+check(scene.result?.counts?.lines === 2, `シーンの結果が ${JSON.stringify(scene)}`);
+check(drawing.take(scene.result.blob).length > 0, "シーンの blob が空");
+drawing.close();
 
 // コアの図面のモジュールは、プラグインの形式を読まない
 const core = (await modules.get("drawing")).open();
@@ -62,4 +80,4 @@ if (failures.length > 0) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("プラグインのモジュールを、包みから呼べた");
+console.log("プラグインのモジュールで読んだ図面を、コアの図面のモジュールで使えた");

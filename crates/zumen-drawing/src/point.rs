@@ -1,5 +1,7 @@
 //! 点と、文書の点の表し方（決定 0160）。
 
+use std::borrow::Cow;
+
 /// 点。`P` は点の属する空間の点
 #[derive(Clone, Debug, PartialEq)]
 pub struct Point<P> {
@@ -31,7 +33,7 @@ pub enum PointLook {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MarkerKey {
     /// 名前空間（`sxf.marker`・`jww.point`）
-    pub namespace: &'static str,
+    pub namespace: Cow<'static, str>,
     /// 名前空間の中の元のコード
     pub code: String,
 }

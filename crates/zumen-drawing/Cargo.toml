@@ -16,5 +16,12 @@ zumen-base = { version = "0.2.0", path = "../zumen-base" }
 # 実寸の空間の軸の並び（決定 0019）
 zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
 
+[features]
+# 図面モデルのバイナリ（決定 0247）。使う側が入れる。xtask は入れないので、型を変えて生成した読み書きが古くなっても、
+# codegen を流せる
+binary = []
+# 試験のための乱数の図面（binary::random）
+random = ["binary"]
+
 [lints]
 workspace = true

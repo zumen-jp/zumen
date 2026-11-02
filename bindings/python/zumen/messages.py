@@ -39,6 +39,7 @@ Request = Union[
     "SheetRequest",
     "BoringRequest",
     "BuildingApplyRequest",
+    "LiftRequest",
 ]
 
 
@@ -3338,6 +3339,48 @@ BuildingApplyResult = TypedDict(
 )
 
 
+# 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+_LiftRequestRequired = TypedDict(
+    "_LiftRequestRequired",
+    {
+        # メッセージのスキーマの大版。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["lift"],
+        # 文書の名前。open で図面を開いたもの
+        "doc": str,
+    },
+)
+_LiftRequestOptional = TypedDict(
+    "_LiftRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+    },
+    total=False,
+)
+
+
+class LiftRequest(_LiftRequestRequired, _LiftRequestOptional):
+    "開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から"
+
+
+# 図面モデルのバイナリの blob の番号
+LiftResult = TypedDict(
+    "LiftResult",
+    {
+        # 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す
+        "blob": int,
+    },
+)
+
+
 # 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 _IdsCheckRequestRequired = TypedDict(
     "_IdsCheckRequestRequired",
@@ -4038,13 +4081,14 @@ Blob = TypedDict(
     },
 )
 
-# バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+# バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
 BlobKind = Union[
     Literal[
         "file",
         "image",
         "scene",
         "arrow",
+        "drawing",
     ],
     str,
 ]
@@ -5632,6 +5676,7 @@ Operation = Literal[
     "sheet",
     "boring",
     "building_apply",
+    "lift",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -5666,4 +5711,5 @@ OPERATIONS: Dict[str, Any] = {
     "sheet": ("SheetRequest", "SheetResult"),
     "boring": ("BoringRequest", "BoringResult"),
     "building_apply": ("BuildingApplyRequest", "BuildingApplyResult"),
+    "lift": ("LiftRequest", "LiftResult"),
 }

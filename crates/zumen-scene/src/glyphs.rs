@@ -165,7 +165,7 @@ fn known(key: &str) -> Option<Reference> {
 
 /// DXF・DWG の文字（高さの意味のキーが `dxf.` で始まる）なら、特殊な符号を解く（決定 0181）
 fn decoded(content: &str, height: &Height, toggles: bool) -> String {
-    match height.meaning {
+    match &height.meaning {
         HeightMeaning::Declared(key) if key.starts_with("dxf.") => {
             layout::decode(content, toggles).text
         }
@@ -268,17 +268,17 @@ pub(crate) fn flatten(contours: &[Contour], tolerance: f64) -> Vec<Vec<Xy>> {
 impl Builder<'_, '_, '_> {
     /// 高さの意味に当たる寸法。決めていない宣言値は、表示と比べて決めた意味か、大文字の高さとみなす
     fn reference(&mut self, height: &Height, source: &Ref) -> Reference {
-        match height.meaning {
+        match &height.meaning {
             HeightMeaning::CapHeight => Reference::CapHeight,
             HeightMeaning::Em => Reference::Em,
             HeightMeaning::Frame => Reference::Frame,
             HeightMeaning::Declared(key) => {
-                match self.fonts.heights.get(key).copied().or(known(key)) {
+                match self.fonts.heights.get(key.as_ref()).copied().or(known(key)) {
                     Some(reference) => reference,
                     None => {
                         self.cx.report(
                             Diagnostic::new(codes::SCENE_TEXT_HEIGHT_ASSUMED)
-                                .with("key", key)
+                                .with("key", key.as_ref())
                                 .at(source.clone()),
                         );
                         Reference::CapHeight
@@ -537,7 +537,7 @@ impl Builder<'_, '_, '_> {
         // 線種の文字の高さは、文字スタイルの高さに倍率を掛けた値で、TEXT の高さと同じ意味とみなす（推定）
         let declared = Height {
             value: Length::Paper(PaperLength(height)),
-            meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+            meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
         };
         let reference = self.reference(&declared, source);
         let text = Text {

@@ -345,7 +345,7 @@ impl Lost {
 struct Maps<'a> {
     source: &'a Drawing2D,
     target: &'a Drawing2D,
-    blocks: &'a BTreeMap<(&'static str, String), String>,
+    blocks: &'a BTreeMap<(String, String), String>,
 }
 
 impl Maps<'_> {
@@ -574,12 +574,12 @@ fn map_line_type(source: &Drawing2D, target: &Drawing2D, id: LineTypeId) -> Opti
     find_line_type(target, name).map(|line_type| line_type.id)
 }
 
-fn key_of(key: &SymbolKey) -> (&'static str, String) {
-    (key.namespace, key.name.clone())
+fn key_of(key: &SymbolKey) -> (String, String) {
+    (key.namespace.to_string(), key.name.clone())
 }
 
 /// 記号の定義ごとの、書いた先の部品の名前。外部参照の定義は書かない。無名の定義には名前を付ける
-fn block_names(drawing: &Drawing2D, lost: &mut Lost) -> BTreeMap<(&'static str, String), String> {
+fn block_names(drawing: &Drawing2D, lost: &mut Lost) -> BTreeMap<(String, String), String> {
     let mut names = BTreeMap::new();
     let mut used: BTreeMap<String, ()> = BTreeMap::new();
     for reserved in ["*model_space", "*paper_space"] {
@@ -669,7 +669,7 @@ fn is_aci(code: &ColorCode) -> bool {
 /// 用紙を作るための点をペーパー空間に置き、そのハンドルを返す
 fn template(
     drawing: &Drawing2D,
-    blocks: &BTreeMap<(&'static str, String), String>,
+    blocks: &BTreeMap<(String, String), String>,
 ) -> (Vec<u8>, Option<u64>) {
     let mut handle = 0x10_u64;
     let mut next = || {

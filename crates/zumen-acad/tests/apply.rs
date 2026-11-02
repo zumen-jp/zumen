@@ -1079,7 +1079,7 @@ fn newcomers() -> Vec<Shape<ModelPoint>> {
             content: "zumen".to_owned(),
             height: Height {
                 value: model(2.5),
-                meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+                meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
             },
             placement: Placement::Anchor {
                 point: at(3.0, 3.0),
@@ -1102,7 +1102,7 @@ fn newcomers() -> Vec<Shape<ModelPoint>> {
             ],
             height: Height {
                 value: model(2.5),
-                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40".into()),
             },
             point: at(6.0, 1.0),
             horizontal: Horizontal::Center,
@@ -1433,7 +1433,7 @@ fn additions_require_an_existing_block_even_without_block_records() {
         let mut file = testkit::read::<Dxf>(&src).0.unwrap();
         let element = addition_element(Shape::Symbol(Symbol {
             key: SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: name.to_owned(),
             },
             position: at(0.0, 0.0),
@@ -1821,10 +1821,10 @@ fn attributed_newcomer() -> Shape<ModelPoint> {
     let Shape::Text(mut text) = newcomers().remove(4) else {
         panic!();
     };
-    text.height.meaning = HeightMeaning::Declared("dxf.ATTRIB.40");
+    text.height.meaning = HeightMeaning::Declared("dxf.ATTRIB.40".into());
     Shape::Symbol(Symbol {
         key: SymbolKey {
-            namespace: "dxf.block",
+            namespace: "dxf.block".into(),
             name: "PART".to_owned(),
         },
         position: at(0.0, 0.0),
@@ -3877,7 +3877,7 @@ fn additions_reject_grid_counts_that_cannot_round_trip() {
         let mut file = testkit::read::<Dxf>(&src).0.unwrap();
         let element = addition_element(Shape::Symbol(Symbol {
             key: SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: "PART".into(),
             },
             position: at(0.0, 0.0),
@@ -4685,7 +4685,7 @@ fn points_are_replaced_transformed_and_added() {
     let marker = Point {
         look: PointLook::Marker {
             key: MarkerKey {
-                namespace: "sxf.marker",
+                namespace: "sxf.marker".into(),
                 code: "2".to_owned(),
             },
             scale: 1.0,

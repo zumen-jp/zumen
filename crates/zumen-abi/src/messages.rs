@@ -71,6 +71,8 @@ pub enum Request {
     Boring(BoringRequest),
     /// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
     BuildingApply(BuildingApplyRequest),
+    /// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+    Lift(LiftRequest),
 }
 
 impl Request {
@@ -106,6 +108,7 @@ impl Request {
         "sheet",
         "boring",
         "building_apply",
+        "lift",
     ];
 
     /// 目印の欄（`op`）の値
@@ -141,6 +144,7 @@ impl Request {
             Self::Sheet(_) => "sheet",
             Self::Boring(_) => "boring",
             Self::BuildingApply(_) => "building_apply",
+            Self::Lift(_) => "lift",
         }
     }
 }
@@ -187,6 +191,7 @@ impl FromJson for Request {
             "building_apply" => {
                 Self::BuildingApply(BuildingApplyRequest::read_fields(&mut object)?)
             }
+            "lift" => Self::Lift(LiftRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -227,6 +232,7 @@ impl ToJson for Request {
             Self::Sheet(value) => value.to_json(out),
             Self::Boring(value) => value.to_json(out),
             Self::BuildingApply(value) => value.to_json(out),
+            Self::Lift(value) => value.to_json(out),
         }
     }
 }
@@ -9624,6 +9630,88 @@ impl ToJson for BuildingApplyResult {
     }
 }
 
+/// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiftRequest {
+    /// `request_common` の欄
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で図面を開いたもの
+    pub doc: String,
+}
+
+impl LiftRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "lift")?;
+        let doc = object.required("doc", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("lift");
+        out.key("doc");
+        out.string(&self.doc);
+    }
+}
+
+impl FromJson for LiftRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LiftRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面モデルのバイナリの blob の番号
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiftResult {
+    /// 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す
+    pub blob: u64,
+}
+
+impl LiftResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let blob = object.required("blob", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { blob })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("blob");
+        out.uint(self.blob);
+    }
+}
+
+impl FromJson for LiftResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for LiftResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct IdsCheckRequest {
@@ -11539,7 +11627,7 @@ impl ToJson for Blob {
     }
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BlobKind {
     /// `file`
@@ -11550,11 +11638,19 @@ pub enum BlobKind {
     Scene,
     /// `arrow`
     Arrow,
+    /// `drawing`
+    Drawing,
 }
 
 impl BlobKind {
     /// すべての値（スキーマの順）
-    pub const ALL: &[Self] = &[Self::File, Self::Image, Self::Scene, Self::Arrow];
+    pub const ALL: &[Self] = &[
+        Self::File,
+        Self::Image,
+        Self::Scene,
+        Self::Arrow,
+        Self::Drawing,
+    ];
 
     /// JSON での名前
     pub const fn name(self) -> &'static str {
@@ -11563,6 +11659,7 @@ impl BlobKind {
             Self::Image => "image",
             Self::Scene => "scene",
             Self::Arrow => "arrow",
+            Self::Drawing => "drawing",
         }
     }
 
@@ -11573,6 +11670,7 @@ impl BlobKind {
             "image" => Some(Self::Image),
             "scene" => Some(Self::Scene),
             "arrow" => Some(Self::Arrow),
+            "drawing" => Some(Self::Drawing),
             _ => None,
         }
     }

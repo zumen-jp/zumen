@@ -515,7 +515,12 @@ impl Builder<'_, '_, '_> {
             xs.last().copied().unwrap_or(0.0),
             ys.last().copied().unwrap_or(0.0),
         );
-        self.segments(rows.saturating_mul(columns).saturating_mul(4) + 4, source)?;
+        self.segments(
+            rows.saturating_mul(columns)
+                .saturating_mul(4)
+                .saturating_add(4),
+            source,
+        )?;
         let mut edges = vec![
             [at(width, 0.0), at(width, height)],
             [at(0.0, height), at(width, height)],
@@ -539,9 +544,10 @@ impl Builder<'_, '_, '_> {
                 if cell.covered {
                     continue;
                 }
+                // 結合の数は u32 なので、32 ビットの usize では足すとあふれうる
                 let [across, down] = cell.span;
-                let end_column = (column + across.max(1) as usize).min(columns);
-                let end_row = (row + down.max(1) as usize).min(rows);
+                let end_column = column.saturating_add(across.max(1) as usize).min(columns);
+                let end_row = row.saturating_add(down.max(1) as usize).min(rows);
                 let (Some(&x0), Some(&x1), Some(&y0), Some(&y1)) = (
                     xs.get(column),
                     xs.get(end_column),

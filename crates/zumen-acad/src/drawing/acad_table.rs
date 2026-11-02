@@ -122,7 +122,7 @@ impl Lifter<'_> {
             style,
             formats,
             drawn: self.string(&reference, 2)?.map(|name| SymbolKey {
-                namespace: BLOCK,
+                namespace: BLOCK.into(),
                 name,
             }),
         })
@@ -422,7 +422,7 @@ impl Lifter<'_> {
                     .ok_or_else(|| invalid(kind, code))?;
                 let name = self.string(record, 2)?.ok_or_else(|| invalid(kind, code))?;
                 Ok(Some(SymbolKey {
-                    namespace: BLOCK,
+                    namespace: BLOCK.into(),
                     name,
                 }))
             }

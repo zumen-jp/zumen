@@ -21,10 +21,13 @@
 //! グラデーションの区別を持つ（[`Hatch`]）。表は、行と列の大きさとセルの結合・内容を持つ（[`Table`]）。下敷きは、資源を参照名で指し、置き方と切り抜きを持つ（[`Underlay`]）。
 //! どの要素も、元の形式のレコードを指す出所（[`Ref`]）を持つ。要素の ID とハッシュは [`id`] と [`Hash`] で作る（決定 0156）。
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Cx, Kind, Ref, Stop};
 
+#[cfg(feature = "binary")]
+pub mod binary;
 mod callout;
 mod change;
 mod dimension;
@@ -475,7 +478,7 @@ pub struct TitleBlock {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TitleItem {
     /// 形式によらない項目のキー。共通の項目に当たらなければ `None`
-    pub key: Option<&'static str>,
+    pub key: Option<Cow<'static, str>>,
     /// 元の項目名。翻訳しない
     pub name: String,
     /// 値
@@ -953,7 +956,7 @@ mod text_style_tests {
             ..Drawing2D::default()
         };
         let draft = |at| Draft {
-            namespace: "test",
+            namespace: "test".into(),
             name: String::new(),
             version: None,
             schema: 1,

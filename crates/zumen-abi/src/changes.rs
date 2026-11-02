@@ -1322,7 +1322,7 @@ fn dimension_style_edit(
             Arrowhead::Default
         } else {
             Arrowhead::Symbol(SymbolKey {
-                namespace: "dxf.block",
+                namespace: "dxf.block".into(),
                 name: name.to_owned(),
             })
         }

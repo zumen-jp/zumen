@@ -22,8 +22,9 @@ name = "zumen-lines"
 path = "src/main.rs"
 
 [dependencies]
-# wasm のモジュールは、コアの図面のモジュール（決定 0221）にプラグインを足したものにする
-zumen-abi = { version = "0.2.0", path = "../../crates/zumen-abi", default-features = false, features = ["drawing"] }
+# wasm のモジュールは、プラグインの形式だけを持つ（決定 0247）。読んだ図面は、lift で図面モデルのバイナリにして、
+# コアの図面のモジュールに渡す
+zumen-abi = { version = "0.2.0", path = "../../crates/zumen-abi", default-features = false, features = ["plugin"] }
 zumen-base = { version = "0.2.0", path = "../../crates/zumen-base" }
 zumen-drawing = { version = "0.2.0", path = "../../crates/zumen-drawing" }
 zumen-sdk = { version = "0.2.0", path = "../../crates/zumen-sdk" }

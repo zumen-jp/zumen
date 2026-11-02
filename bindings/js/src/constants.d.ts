@@ -34,7 +34,9 @@ export type ModuleName =
   /** 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品・工事写真・表・ボーリング交換用データ */
   | "drawing"
   /** IFC と建物モデル、EXPRESS・IDS の照合と BCF */
-  | "bim";
+  | "bim"
+  /** プラグインの図面の形式を読み、図面モデルのバイナリにする */
+  | "plugin";
 
 /** wasm のモジュールが持つ形式と op */
 export interface ModuleInfo {

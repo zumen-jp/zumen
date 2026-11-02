@@ -185,7 +185,7 @@ fn text<P>(height: Length, placement: Placement<P>) -> Text<P> {
         content: "A".to_owned(),
         height: Height {
             value: height,
-            meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+            meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
         },
         placement,
         rotation: 0.0,
@@ -1755,7 +1755,7 @@ fn e4_dimensions_keep_the_measurement_and_the_override_apart() {
             },
             measurement: Some(Measured {
                 value: 1000.0,
-                key: "dxf.DIMENSION.42",
+                key: "dxf.DIMENSION.42".into(),
             }),
             label: Label::Override {
                 content: "995".to_owned(),
@@ -1774,7 +1774,7 @@ fn e4_dimensions_keep_the_measurement_and_the_override_apart() {
     let labels: Vec<_> = shapes[1..]
         .iter()
         .map(|shape| match shape {
-            Shape::Dimension(dimension) => (dimension.label.clone(), dimension.measurement),
+            Shape::Dimension(dimension) => (dimension.label.clone(), dimension.measurement.clone()),
             other => panic!("{other:?}"),
         })
         .collect();
@@ -2096,7 +2096,7 @@ fn e9_dimensions_and_leaders_that_cannot_be_read_are_reported() {
 
 fn block(name: &str) -> SymbolKey {
     SymbolKey {
-        namespace: "dxf.block",
+        namespace: "dxf.block".into(),
         name: name.to_owned(),
     }
 }
@@ -2307,7 +2307,7 @@ fn symbols_keep_the_block_key_the_placement_and_the_attributes() {
     );
     assert_eq!(
         first.height.meaning,
-        HeightMeaning::Declared("dxf.ATTRIB.40")
+        HeightMeaning::Declared("dxf.ATTRIB.40".into())
     );
     assert_eq!(part.attributes[0].style, by_layer());
     let model = |value: f64| {
@@ -2756,7 +2756,7 @@ fn e3_formatted_text_keeps_the_content_the_spans_and_the_frame() {
             ],
             height: Height {
                 value: model(2.5),
-                meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+                meaning: HeightMeaning::Declared("dxf.MTEXT.40".into()),
             },
             point: at(5.0, 6.0),
             horizontal: Horizontal::Center,
@@ -3075,7 +3075,7 @@ fn e4_callouts_keep_their_branches_and_content() {
     );
     assert_eq!(
         note.height.meaning,
-        HeightMeaning::Declared("dxf.MULTILEADER.41")
+        HeightMeaning::Declared("dxf.MULTILEADER.41".into())
     );
     // 0xC3 は色の番号
     assert_eq!(
@@ -4811,7 +4811,7 @@ fn e9_underlays_that_cannot_be_read_are_reported() {
 /// XDATA の値
 fn field(key: &'static str, code: i16, value: FieldValue) -> Field {
     Field {
-        key,
+        key: key.into(),
         code: Some(code),
         value,
     }
@@ -4879,7 +4879,7 @@ fn e5_extensions_keep_their_namespace_version_and_values_and_expire_when_edited(
     let text = drawing.spaces[0].elements[0].clone();
     let door = drawing.symbols[0].space.clone();
     let extension = |name: &str, target, basis, fields, source| Extension {
-        namespace: "dxf.xdata",
+        namespace: "dxf.xdata".into(),
         name: name.to_owned(),
         version: Some("AC1027".to_owned()),
         schema: 3,
@@ -5370,7 +5370,7 @@ fn e5_xrecords_in_extension_dictionaries_become_extensions() {
     assert_eq!(
         drawing.unwrap().extensions,
         [Extension {
-            namespace: "dxf.xrecord",
+            namespace: "dxf.xrecord".into(),
             name: "ROOM".to_owned(),
             version: Some("AC1027".to_owned()),
             schema: 3,
@@ -5466,7 +5466,7 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
         drawing.extensions,
         [
             Extension {
-                namespace: "dxf.xrecord",
+                namespace: "dxf.xrecord".into(),
                 name: "NOTE".to_owned(),
                 version: Some("AC1018".to_owned()),
                 schema: 3,
@@ -5476,7 +5476,7 @@ fn e5_xrecords_of_layers_and_line_types_become_extensions() {
                 source: line_type.source.clone(),
             },
             Extension {
-                namespace: "dxf.xrecord",
+                namespace: "dxf.xrecord".into(),
                 name: "SCALE".to_owned(),
                 version: Some("AC1018".to_owned()),
                 schema: 3,

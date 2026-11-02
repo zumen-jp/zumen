@@ -251,7 +251,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             marker: match &dot.look {
                 PointLook::Document => None,
                 PointLook::Marker { key, scale } => Some(PointMarker {
-                    namespace: key.namespace.to_owned(),
+                    namespace: key.namespace.to_string(),
                     code: key.code.clone(),
                     scale: *scale,
                 }),
@@ -351,10 +351,14 @@ fn dimension_geometry<P: Spot>(dimension: &Dimension<P>) -> Option<DimensionGeom
         axis: None,
         label,
         content,
-        measurement: dimension.measurement.map(|measured| measured.value),
+        measurement: dimension
+            .measurement
+            .as_ref()
+            .map(|measured| measured.value),
         measurement_key: dimension
             .measurement
-            .map(|measured| measured.key.to_owned()),
+            .as_ref()
+            .map(|measured| measured.key.to_string()),
         text_position: dimension.text.position.map(xy),
         text_rotation: dimension.text.rotation,
         style: dimension.style.clone(),
@@ -596,7 +600,7 @@ fn dimension_of<P: Spot>(
         | (DimensionLabel::Override, None) => return Err(at("content")),
     };
     // 測定値は、置き換えでは元と同じ値と欄だけを受け、足すときは書かない
-    let measurement = was.and_then(|was| was.measurement);
+    let measurement = was.and_then(|was| was.measurement.clone());
     let given = geometry
         .measurement
         .zip(geometry.measurement_key.as_deref());
@@ -608,7 +612,12 @@ fn dimension_of<P: Spot>(
         };
         return Err(at(field));
     }
-    if given.is_some() && given != measurement.map(|measured| (measured.value, measured.key)) {
+    if given.is_some()
+        && given
+            != measurement
+                .as_ref()
+                .map(|measured| (measured.value, measured.key.as_ref()))
+    {
         return Err(at("measurement"));
     }
     let position = match &geometry.text_position {
@@ -901,7 +910,7 @@ pub(crate) fn shape_of<P: Spot>(
                 },
                 height: zumen_drawing::Height {
                     value: positive(text.height, "height")?,
-                    meaning: HeightMeaning::Declared("dxf.TEXT.40"),
+                    meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
                 },
                 rotation: finite(text.rotation, "rotation")?,
                 width_factor: 1.0,
@@ -1038,7 +1047,7 @@ pub(crate) fn shape_of<P: Spot>(
                     spans,
                     height: zumen_drawing::Height {
                         value: height,
-                        meaning: HeightMeaning::Declared("dxf.MTEXT.40"),
+                        meaning: HeightMeaning::Declared("dxf.MTEXT.40".into()),
                     },
                     point,
                     horizontal,
@@ -1139,7 +1148,7 @@ pub(crate) fn shape_of<P: Spot>(
                 }
                 None => Symbol {
                     key: SymbolKey {
-                        namespace: BLOCK,
+                        namespace: BLOCK.into(),
                         name: symbol.name.clone(),
                     },
                     position,
@@ -1250,7 +1259,7 @@ pub(crate) fn shape_of<P: Spot>(
                         .ok_or("geometry/marker/namespace")?;
                     PointLook::Marker {
                         key: MarkerKey {
-                            namespace,
+                            namespace: namespace.into(),
                             code: marker.code.clone(),
                         },
                         scale: finite(marker.scale, "marker/scale")?,

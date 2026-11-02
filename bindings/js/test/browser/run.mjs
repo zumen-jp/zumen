@@ -1,6 +1,6 @@
 // 適合試験を、TypeScript・JavaScript の包み（bindings/js）を通して、ブラウザーの中で流す（決定 0194・0199）。
 //
-// 使い方: node bindings/js/test/browser/run.mjs <chromium|firefox|webkit> <zumen_abi1.wasm> [<drawing.wasm> <bim.wasm>]
+// 使い方: node bindings/js/test/browser/run.mjs <chromium|firefox|webkit> <zumen_abi1.wasm> [<drawing.wasm> <bim.wasm> <plugin.wasm>]
 //
 // 分けた wasm のモジュール（決定 0221）を渡せば、包みの loadModules で読み込み、組ごとに組に合うモジュールでも流す
 // （すべてのモジュールを入れたコアでだけ流す組を除く）。
@@ -28,7 +28,7 @@ const TYPES = { ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "a
 const [name, wasmPath, ...modulePaths] = process.argv.slice(2);
 const moduleNames = Object.keys(MODULES);
 if (!Object.hasOwn(BROWSERS, name ?? "") || !wasmPath || (modulePaths.length !== 0 && modulePaths.length !== moduleNames.length)) {
-  console.error("使い方: node bindings/js/test/browser/run.mjs <chromium|firefox|webkit> <zumen_abi1.wasm> [<drawing.wasm> <bim.wasm>]");
+  console.error("使い方: node bindings/js/test/browser/run.mjs <chromium|firefox|webkit> <zumen_abi1.wasm> [<drawing.wasm> <bim.wasm> <plugin.wasm>]");
   process.exit(2);
 }
 

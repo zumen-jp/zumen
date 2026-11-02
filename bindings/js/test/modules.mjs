@@ -70,6 +70,10 @@ for (const { name, steps } of cases) {
         continue;
       }
     }
+    // 図面モデルのバイナリ（決定 0247）の open は、元の文書の形式を返す。包みの判定は、まだバイナリを読まない（#483）
+    if (String.fromCharCode(...data.subarray(0, 4)) === "ZMDR") {
+      continue;
+    }
     const found = detect(data);
     if (found?.format !== format) {
       failures.push(`${name} の入力 ${step.push.name ?? ""}: detect が ${found?.format}（open は ${format}）`);

@@ -1,5 +1,7 @@
 //! 文字と書式付きの文字、配置・書体。
 
+use std::borrow::Cow;
+
 use crate::{Color, Inherit, Length};
 
 /// 1 行の文字。書式の符号は解釈せず、内容のまま持つ
@@ -44,7 +46,7 @@ pub enum HeightMeaning {
     /// em
     Em,
     /// 形式の宣言値で、字形との関係が決まらないもの。形式と欄を指すキー
-    Declared(&'static str),
+    Declared(Cow<'static, str>),
 }
 
 /// 文字の配置
