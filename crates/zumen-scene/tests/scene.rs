@@ -450,6 +450,43 @@ fn draws_hatch_pattern_lines_inside_the_rings() {
 }
 
 #[test]
+fn hatch_row_budget_does_not_saturate_at_the_pointer_width() {
+    let mut drawing = lift(&SHAPES[..9]);
+    drawing.spaces[0].order.clear();
+    let hatch = |height| {
+        Shape::Hatch(Hatch {
+            loops: vec![square(0.0, 0.0, 10.0, height, true)],
+            islands: Islands::Nested,
+            fill: Fill::Pattern(zumen_drawing::Pattern {
+                name: "ANSI31".to_string(),
+                origin: zumen_drawing::PatternOrigin::Predefined,
+                angle: 0.0,
+                scale: 1.0,
+                double: false,
+                lines: vec![zumen_drawing::PatternLine {
+                    angle: 0.0,
+                    base: [0.0, 0.5],
+                    offset: [0.0, 1.0],
+                    dashes: Vec::new(),
+                }],
+            }),
+            associative: false,
+            seeds: Vec::new(),
+        })
+    };
+    push(&mut drawing, hatch(1e12));
+    let limits = Limits::default().with(Kind::Segments, Limit::Finite(5_000_000_000));
+    let (result, _) = scene_with(&drawing, &options(), limits);
+    assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == Kind::Segments));
+
+    drawing.spaces[0].order.clear();
+    push(&mut drawing, hatch(100.0));
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(10));
+    let (result, _) = scene_with(&drawing, &options(), limits);
+    assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == Kind::Work));
+}
+
+#[test]
 fn outer_islands_keep_only_the_first_ring_inside() {
     let mut drawing = lift(&SHAPES[..9]);
     drawing.spaces[0].order.clear();

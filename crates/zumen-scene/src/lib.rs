@@ -136,7 +136,7 @@ pub const PAPER_TOLERANCE: f64 = 0.02;
 /// 空間からの既定の許容差の、範囲の対角線に対する割合の逆数（決定 0172）
 pub const SPACE_TOLERANCE_DIVISOR: f64 = 50000.0;
 
-/// 起点から配置をたどり、シーンを作る。たどる要素は `work`、作った点は `segments` で数える
+/// 起点から配置をたどり、シーンを作る。たどる要素とハッチの行は `work`、作った点は `segments` で数える
 pub fn build(
     drawing: &Drawing2D,
     options: &Options,
@@ -1531,24 +1531,33 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             } else {
                 2.0 + span / period * dashes.len() as f64 * 2.0
             };
-            let estimate = (last - first + 1.0) * per_row;
+            let rows = last - first + 1.0;
+            let estimate = rows * per_row;
             let estimate = if estimate.is_finite() {
-                estimate.min(u64::MAX as f64) as usize
+                estimate as u64
             } else {
-                usize::MAX
+                u64::MAX
             };
-            self.segments(estimate, source)?;
-            // 大きな番号には 1 を足しても変わらないので、回数で数える
-            let mut k = first;
-            let mut left = last - first;
-            while left >= 0.0 {
+            // 見積もりを usize にすると、32 ビットでは飽和して予算を少なく数える。
+            self.cx
+                .check(Kind::Segments, estimate)
+                .map_err(|stop| (stop, source.clone()))?;
+            // 大きな数は浮動小数のまま 1 を引いても変わらない。整数の回数で数え、行ごとに中断と作業量を確かめる。
+            let rows = if rows.is_finite() {
+                rows as u64
+            } else {
+                u64::MAX
+            };
+            for row in 0..rows {
+                self.cx
+                    .check(Kind::Work, 1)
+                    .map_err(|stop| (stop, source.clone()))?;
+                let k = first + row as f64;
                 for piece in
                     geom::hatch_row(&rings, family.angle, family.base, family.offset, k, dashes)
                 {
                     self.line(piece.into_iter().map(|p| map(&t, p)).collect(), unit);
                 }
-                k += 1.0;
-                left -= 1.0;
             }
         }
         Ok(())

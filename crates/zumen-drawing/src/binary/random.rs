@@ -134,6 +134,10 @@ impl Input for Random {
         true
     }
 
+    fn has_field(&self, _since: u16) -> bool {
+        true
+    }
+
     fn element(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }

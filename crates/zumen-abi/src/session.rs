@@ -1083,7 +1083,12 @@ impl Session {
                 family: doc.family().to_string(),
                 hash: *hash,
             };
-            binary::write(&source, &drawing, cx).map_err(|stop| stopped(cx, stop))?
+            binary::write(&source, &drawing, cx).map_err(|error| match error {
+                binary::WriteError::Stopped(stop) => stopped(cx, stop),
+                binary::WriteError::TooLarge => {
+                    fail(cx, Diagnostic::new(codes::DRAWING_BINARY_SIZE_EXCEEDED))
+                }
+            })?
         };
         let blob = self.blobs.len() as u64;
         self.blobs.push(Some(Blob {

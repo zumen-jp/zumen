@@ -972,6 +972,17 @@ pub const DRAWING_BINARY_SECTION_DROPPED: Code = Code::new(
     &[],
 );
 
+/// 図面モデルのバイナリが形式の大きさか要素の数の上限を超える
+///
+/// `drawing.binary-size.exceeded`（0.2.0 から）
+pub const DRAWING_BINARY_SIZE_EXCEEDED: Code = Code::new(
+    "drawing.binary-size.exceeded",
+    Severity::Error,
+    None,
+    &[],
+    &[],
+);
+
 /// 図面モデルのバイナリが、この版の知らない列挙の値（後の小版で足した値）を使っているので読めない
 ///
 /// `drawing.binary-value.unsupported`（0.2.0 から）
@@ -3822,6 +3833,7 @@ pub const ALL: &[Code] = &[
     DEVIATION_CRS_MIXED,
     DRAWING_BINARY_FIELD_DROPPED,
     DRAWING_BINARY_SECTION_DROPPED,
+    DRAWING_BINARY_SIZE_EXCEEDED,
     DRAWING_BINARY_VALUE_UNSUPPORTED,
     DRAWING_BINARY_VERSION_UNSUPPORTED,
     DRAWING_BINARY_INVALID,

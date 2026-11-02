@@ -1201,11 +1201,12 @@ fn render_contract(major: u16, minor: u16, types: &[Type]) -> String {
 }
 
 /// 欄を読む式。後の小版で足した欄は、古いバイナリになければ既定の値にする
-fn read_field(late: bool) -> &'static str {
-    if late {
-        "if input.more() { Unpack::unpack(input)? } else { Default::default() }"
-    } else {
-        "Unpack::unpack(input)?"
+fn read_field(since: Option<u16>) -> String {
+    match since {
+        Some(since) => format!(
+            "if input.has_field({since}) {{ Unpack::unpack(input)? }} else {{ Default::default() }}"
+        ),
+        None => "Unpack::unpack(input)?".to_owned(),
     }
 }
 
@@ -1303,7 +1304,7 @@ fn render_type(out: &mut String, ty: &Type, size: &str) {
                     unpack,
                     "{}: {},",
                     field.ident,
-                    read_field(field.since > ty.since)
+                    read_field((field.since > ty.since).then_some(field.since))
                 );
             }
             unpack.push_str("}))\n");
@@ -1314,7 +1315,7 @@ fn render_type(out: &mut String, ty: &Type, size: &str) {
             for bind in &binds {
                 let _ = writeln!(pack, "{bind}.pack(out);");
             }
-            let reads: Vec<&str> = items.iter().map(|_| read_field(false)).collect();
+            let reads: Vec<String> = items.iter().map(|_| read_field(None)).collect();
             let _ = writeln!(unpack, "Ok(Self({}))", reads.join(", "));
         }
         Layout::Variants(variants) => {
@@ -1339,7 +1340,7 @@ fn render_type(out: &mut String, ty: &Type, size: &str) {
                             let _ = write!(pack, " {bind}.pack(out);");
                         }
                         pack.push_str(" }\n");
-                        let reads: Vec<&str> = items.iter().map(|_| read_field(false)).collect();
+                        let reads: Vec<String> = items.iter().map(|_| read_field(None)).collect();
                         arms.push(format!("Self::{v}({})", reads.join(", ")));
                     }
                     Shape::Fields(fields) => {
@@ -1356,7 +1357,11 @@ fn render_type(out: &mut String, ty: &Type, size: &str) {
                         let reads: Vec<String> = fields
                             .iter()
                             .map(|f| {
-                                format!("{}: {}", f.ident, read_field(f.since > variant.since))
+                                format!(
+                                    "{}: {}",
+                                    f.ident,
+                                    read_field((f.since > variant.since).then_some(f.since))
+                                )
                             })
                             .collect();
                         arms.push(format!(
@@ -1474,7 +1479,8 @@ mod tests {
         );
         let rust = render_rust(1, minor, &types, &defs);
 
-        assert!(rust.contains("name: if input.more()"), "{rust}");
+        assert!(rust.contains("name: if input.has_field(1)"), "{rust}");
+        assert!(rust.contains("width: if input.has_field(1)"), "{rust}");
         assert!(rust.contains("_ => Self::Circle("), "{rust}");
     }
 

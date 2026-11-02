@@ -62,6 +62,15 @@ pub enum Error {
     Unsupported,
 }
 
+/// バイナリを書けなかった理由
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteError {
+    /// 予算の上限か、中断の合図で止めた
+    Stopped(Stop),
+    /// 区画の位置・長さか要素の数が形式の上限を超えた
+    TooLarge,
+}
+
 /// 図面モデルのバイナリか。始まりの 4 バイトで見分ける
 pub fn matches(bytes: &[u8]) -> bool {
     bytes.starts_with(&MAGIC)
@@ -69,9 +78,9 @@ pub fn matches(bytes: &[u8]) -> bool {
 
 /// 図面を、元の文書の情報と一緒にバイナリにする。同じ図面からは、どの環境でも同じバイト列になる。要素を 1 つ
 /// 書くごとに作業量（`work`）を 1 使い、中断の合図を確かめる。止めたときは、書きかけのものを捨てる
-pub fn write(source: &Source, drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Vec<u8>, Stop> {
+pub fn write(source: &Source, drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Vec<u8>, WriteError> {
     // 要素のない図面でも、中断の合図は確かめる
-    cx.check(Kind::Work, 0)?;
+    cx.check(Kind::Work, 0).map_err(WriteError::Stopped)?;
     let mut out = Writer {
         bytes: Vec::new(),
         elements: 0,
@@ -82,9 +91,37 @@ pub fn write(source: &Source, drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Ve
     let first = std::mem::take(&mut out.bytes);
     drawing.pack(&mut out);
     match out.stop {
-        Some(stop) => Err(stop),
+        Some(stop) => Err(WriteError::Stopped(stop)),
+        None if !fits(out.elements, &[first.len() as u64, out.bytes.len() as u64]) => {
+            Err(WriteError::TooLarge)
+        }
         None => Ok(assemble(MINOR, out.elements, &[first, out.bytes])),
     }
+}
+
+/// 見出しと区画を含む全体の大きさと、要素の数が u32 に収まるか
+fn fits(elements: u64, sections: &[u64]) -> bool {
+    let max = u64::from(u32::MAX);
+    if elements > max || sections.len() as u64 > max {
+        return false;
+    }
+    let mut end = HEADER as u64 + sections.len() as u64 * 8;
+    for &len in sections {
+        let Some(start) = end
+            .checked_add(ALIGN as u64 - 1)
+            .map(|at| at & !(ALIGN as u64 - 1))
+        else {
+            return false;
+        };
+        let Some(next) = start.checked_add(len) else {
+            return false;
+        };
+        if start > max || len > max || next > max {
+            return false;
+        }
+        end = next;
+    }
+    true
 }
 
 /// バイナリを読む。壊れているか、この版で読めないものを使っていれば、診断を足して失敗する。後の小版で足した欄と
@@ -107,10 +144,12 @@ fn assemble(minor: u16, elements: u64, sections: &[Vec<u8>]) -> Vec<u8> {
     out.extend_from_slice(&word(elements).to_le_bytes());
     out.extend_from_slice(&word(sections.len() as u64).to_le_bytes());
     let mut start = aligned(HEADER + sections.len() * 8);
-    for section in sections {
+    for (index, section) in sections.iter().enumerate() {
         out.extend_from_slice(&word(start as u64).to_le_bytes());
         out.extend_from_slice(&word(section.len() as u64).to_le_bytes());
-        start = aligned(start + section.len());
+        if index + 1 < sections.len() {
+            start = aligned(start + section.len());
+        }
     }
     for section in sections {
         out.resize(aligned(out.len()), 0);
@@ -119,7 +158,7 @@ fn assemble(minor: u16, elements: u64, sections: &[Vec<u8>]) -> Vec<u8> {
     out
 }
 
-/// u32 に収める。収まらない数は u32::MAX にする。読み手は、区画が入力の外に出るので壊れているとみなす
+/// u32 に収める。書き手は `fits` で範囲を確かめる。試験で壊れた配置を組むときは u32::MAX にする
 fn word(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
@@ -210,15 +249,26 @@ fn parse(bytes: &[u8], minor: &mut u16, cx: &mut Cx<'_>) -> Result<(Source, Draw
         return Err(invalid(12, "sections"));
     }
     let mut ranges = Vec::with_capacity(SECTIONS);
+    let mut previous_end = table;
     for index in 0..sections {
         let at = HEADER + index * 8;
         let (Some(start), Some(len)) = (u32_at(bytes, at), u32_at(bytes, at + 4)) else {
             return Err(invalid(at, "section"));
         };
         let end = start.checked_add(len).ok_or(invalid(at, "section"))?;
-        if start < table || start % ALIGN != 0 || end > bytes.len() {
+        let expected = previous_end
+            .checked_add(ALIGN - 1)
+            .map(|at| at & !(ALIGN - 1))
+            .ok_or(invalid(at, "section"))?;
+        if start != expected
+            || end > bytes.len()
+            || bytes
+                .get(previous_end..start)
+                .is_none_or(|padding| padding.iter().any(|byte| *byte != 0))
+        {
             return Err(invalid(at, "section"));
         }
+        previous_end = end;
         if index < SECTIONS {
             ranges.push(start..end);
         } else if written > MINOR {
@@ -232,6 +282,9 @@ fn parse(bytes: &[u8], minor: &mut u16, cx: &mut Cx<'_>) -> Result<(Source, Draw
             // 知らない区画を持てるのは、この版より後の小版で書いたものだけ
             return Err(invalid(at, "section"));
         }
+    }
+    if previous_end != bytes.len() {
+        return Err(invalid(previous_end, "trailing"));
     }
     let (Some(first), Some(second)) = (ranges.get(SOURCE), ranges.get(DRAWING)) else {
         return Err(invalid(12, "sections"));
@@ -367,6 +420,9 @@ pub(crate) trait Input {
         ty: &'static str,
         read: impl FnOnce(&mut Self) -> Result<T, Self::Error>,
     ) -> Result<T, Self::Error>;
+    /// 書き手の小版が、欄を足した小版以上か
+    #[allow(dead_code)] // 小版 0 には、後から足した欄がまだない
+    fn has_field(&self, since: u16) -> bool;
     /// 中身に、まだ欄があるか。後の小版で足した欄を、古いバイナリが持たないときに既定の値にする
     fn more(&self) -> bool;
     /// 要素を 1 つ読む
@@ -592,6 +648,10 @@ impl Input for Reader<'_, '_, '_> {
         self.at < self.end
     }
 
+    fn has_field(&self, since: u16) -> bool {
+        self.minor >= since
+    }
+
     fn element(&mut self) -> Result<(), Bad> {
         self.elements += 1;
         if self.elements > self.limit {
@@ -766,12 +826,19 @@ impl<T: Pack> Pack for Vec<T> {
     }
 }
 
+/// 実際のメモリ配置が `isize::MAX` を超える場合も、パニックせずに失敗する
+fn vec_with_capacity<T>(count: usize) -> Result<Vec<T>, std::collections::TryReserveError> {
+    let mut items = Vec::new();
+    items.try_reserve_exact(count)?;
+    Ok(items)
+}
+
 impl<T: Unpack> Unpack for Vec<T> {
     const SIZE: u64 = 24;
 
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         let count = input.count(T::SIZE)?;
-        let mut items = Vec::with_capacity(count);
+        let mut items = vec_with_capacity(count).map_err(|_| input.invalid("count"))?;
         for _ in 0..count {
             items.push(T::unpack(input)?);
         }

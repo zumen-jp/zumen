@@ -138,6 +138,15 @@ fn lays_out_the_header_and_sections_like_the_scene() {
 }
 
 #[test]
+fn refuses_output_that_does_not_fit_the_u32_layout() {
+    let max = u64::from(u32::MAX);
+    assert!(fits(0, &[0, max - 32]));
+    assert!(!fits(0, &[0, max - 31]));
+    assert!(!fits(0, &[max, 0]));
+    assert!(!fits(max + 1, &[0, 0]));
+}
+
+#[test]
 fn refuses_every_cut() {
     let (_, _, bytes) = with_elements();
     for len in 0..bytes.len() {
@@ -223,6 +232,103 @@ fn skips_fields_and_sections_of_later_minor_versions_only() {
     assert_eq!(load(&bytes).0, Err(Error::Invalid));
     bytes[24..28].copy_from_slice(&33u32.to_le_bytes());
     assert_eq!(load(&bytes).0, Err(Error::Invalid));
+}
+
+#[test]
+fn refuses_overlapping_sections_and_noncanonical_padding() {
+    let mut bytes = written(&source(), &Drawing2D::default());
+    let first = u32_at(&bytes, 16).unwrap();
+    let first_end = first + u32_at(&bytes, 20).unwrap();
+    let second = u32_at(&bytes, 24).unwrap();
+    let second_len = u32_at(&bytes, 28).unwrap();
+    assert!(first_end < second);
+
+    // 2 つの区画がそれぞれ読めても、最後のハッシュのバイトと図面を重ねてはならない。
+    let overlap = first_end - first_end % ALIGN;
+    let drawing = bytes[second..second + second_len].to_vec();
+    bytes[overlap..overlap + second_len].copy_from_slice(&drawing);
+    bytes[24..28].copy_from_slice(&(overlap as u32).to_le_bytes());
+    assert_eq!(load(&bytes).0, Err(Error::Invalid));
+
+    let mut bytes = written(&source(), &Drawing2D::default());
+    bytes[first_end] = 1;
+    assert_eq!(load(&bytes).0, Err(Error::Invalid));
+    let mut bytes = written(&source(), &Drawing2D::default());
+    bytes.push(0);
+    assert_eq!(load(&bytes).0, Err(Error::Invalid));
+
+    // 読み飛ばす後の小版の区画も、既知の区画と重ねてはならない。
+    let mut bytes = assemble(
+        MINOR + 1,
+        0,
+        &[
+            source_section(&[]),
+            encode(&Drawing2D::default()),
+            vec![9; 5],
+        ],
+    );
+    let first = u32_at(&bytes, 16).unwrap() as u32;
+    bytes[32..36].copy_from_slice(&first.to_le_bytes());
+    assert_eq!(load(&bytes).0, Err(Error::Invalid));
+}
+
+#[test]
+fn added_fields_follow_the_writers_minor_version() {
+    #[derive(Debug, PartialEq)]
+    struct Example {
+        original: u8,
+        added: u8,
+    }
+    impl Unpack for Example {
+        const SIZE: u64 = 2;
+
+        fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+            input.record("Example", |input| {
+                Ok(Self {
+                    original: Unpack::unpack(input)?,
+                    added: if input.has_field(1) {
+                        Unpack::unpack(input)?
+                    } else {
+                        Default::default()
+                    },
+                })
+            })
+        }
+    }
+    let decode_at = |minor, bytes: &[u8]| {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let mut reader = Reader {
+            bytes,
+            at: 0,
+            end: bytes.len(),
+            minor,
+            elements: 0,
+            limit: 0,
+            cx: &mut cx,
+        };
+        let value = Example::unpack(&mut reader)?;
+        reader.finish()?;
+        Ok::<_, Bad>(value)
+    };
+    assert_eq!(
+        decode_at(0, &[1, 7]),
+        Ok(Example {
+            original: 7,
+            added: 0
+        })
+    );
+    assert!(matches!(decode_at(0, &[2, 7, 8]), Err(Bad::Invalid { .. })));
+    assert!(matches!(decode_at(1, &[1, 7]), Err(Bad::Invalid { .. })));
+    assert_eq!(
+        decode_at(1, &[2, 7, 8]),
+        Ok(Example {
+            original: 7,
+            added: 8
+        })
+    );
 }
 
 #[test]
@@ -345,6 +451,12 @@ fn counts_the_decoded_bytes_by_the_sizes_of_the_types() {
     ));
 }
 
+#[test]
+fn refuses_a_vector_capacity_larger_than_the_addressable_size() {
+    let count = isize::MAX as usize / std::mem::size_of::<u64>() + 1;
+    assert!(vec_with_capacity::<u64>(count).is_err());
+}
+
 /// 文字列は、複製する前に数える
 #[test]
 fn counts_the_strings_before_copying_them() {
@@ -382,13 +494,16 @@ fn stops_writing_at_the_work_budget_and_the_cancel_signal() {
         (Ok(bytes), elements)
     );
     let (result, used) = write_with(&drawing, elements - 1, &cancel);
-    assert!(matches!(result, Err(Stop::Exceeded(_))), "{result:?}");
+    assert!(
+        matches!(result, Err(WriteError::Stopped(Stop::Exceeded(_)))),
+        "{result:?}"
+    );
     assert_eq!(used, elements - 1);
 
     // 要素のない図面でも、中断の合図を確かめる
     cancel.cancel();
     assert_eq!(
         write_with(&Drawing2D::default(), 0, &cancel),
-        (Err(Stop::Cancelled), 0)
+        (Err(WriteError::Stopped(Stop::Cancelled)), 0)
     );
 }

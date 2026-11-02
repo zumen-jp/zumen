@@ -693,6 +693,12 @@ params = { position = "uint", reason = "key" }
 since = "0.2.0"
 status = "active"
 
+[codes."drawing.binary-size.exceeded"]
+description = "図面モデルのバイナリが形式の大きさか要素の数の上限を超える"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
 [codes."drawing.binary-version.unsupported"]
 description = "図面モデルのバイナリの大版を、このコアが読めない"
 severity = "error"
