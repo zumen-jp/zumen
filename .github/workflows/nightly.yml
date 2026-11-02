@@ -73,6 +73,24 @@ jobs:
       - name: WASI のランタイム（node:wasi）の上の serve --stdio で流し、hashes.txt と一致することを確かめる
         run: node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm
 
+  ifcopenshell:
+    name: building_apply で書いた IFC を IfcOpenShell で開く
+    # 書いたファイルを、zumen でない IFC を読むソフトで確かめる（決定 0244、#482）。IfcOpenShell は試験の道具で、依存にしない
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: IfcOpenShell と、EXPRESS の規則の検査が使う pytest を、版を決めて入れる
+        run: python -m pip install ifcopenshell==0.9.0.post1 pytest==9.2.0
+      - name: 変える前と後の IFC4・IFC2X3 を書く
+        run: ZUMEN_IFC_EDITED="$RUNNER_TEMP/edited" cargo test --locked -p zumen-ifc --all-features --test edit writes_the_edited_files_for_other_readers
+      - name: IfcOpenShell で開き、変更が見え、検査の誤りが増えないことを確かめる
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/check.py "$RUNNER_TEMP/edited"
+
   tier3:
     name: 階層 3 の言語のサンプル
     # docs/tier3.md の 4 つの形のサンプルを、ランナーに入っている Ruby・PHP・PowerShell で流す（決定 0006・0013、#404）

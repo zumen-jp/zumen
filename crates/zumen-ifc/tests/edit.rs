@@ -355,3 +355,94 @@ fn truncated_files_do_not_panic() {
         });
     }
 }
+
+/// `sample` と同じ要素を、IFC2X3 の属性の数で書いたもの。扉の型は `IfcDoorStyle`
+fn sample_2x3() -> String {
+    sample()
+        .replace("FILE_SCHEMA(('IFC4'))", "FILE_SCHEMA(('IFC2X3'))")
+        .replace("'Wall A',$,$,$,$,$,$);", "'Wall A',$,$,$,$,$);")
+        .replace("'Wall B',$,$,$,$,$,$);", "'Wall B',$,$,$,$,$);")
+        .replace("'Door',$,$,$,$,$,$,$,$,$,$);", "'Door',$,$,$,$,$,$,$);")
+        .replace("#34=IFCDOORTYPE(", "#34=IFCDOORSTYLE(")
+        .replace(
+            "'Door type',$,$,(#60),$,$,$,.DOOR.,$,$,$);",
+            "'Door type',$,$,(#60),$,$,.SINGLE_SWING_LEFT.,.NOTDEFINED.,.F.,.F.);",
+        )
+        .replace("IFCMATERIAL('Concrete',$,$)", "IFCMATERIAL('Concrete')")
+}
+
+/// 別のソフトで確かめるための変更。`tests/ifcopenshell/check.py` が、この結果を確かめる
+fn edits_for_other_readers() -> Vec<Edit> {
+    vec![
+        // その場で書き直すセット
+        property(32, "Pset_DoorCommon", "FireRating", label("EI90")),
+        // 共有するセットの写し
+        property(30, "Pset_WallCommon", "FireRating", label("EI120")),
+        // 足すセットとプロパティ
+        property(33, "Pset_SlabCommon", "Reference", label("S1")),
+        property(
+            33,
+            "Pset_SlabCommon",
+            "Thickness",
+            NewValue {
+                type_name: "IfcPositiveLengthMeasure".to_owned(),
+                literal: NewLiteral::Real(200.0),
+            },
+        ),
+        property(
+            32,
+            "Pset_DoorCommon",
+            "HandicapAccessible",
+            NewValue {
+                type_name: "IfcBoolean".to_owned(),
+                literal: NewLiteral::Boolean(true),
+            },
+        ),
+        // 型のセット
+        property(34, "Pset_DoorTypeCommon", "Reference", label("D2")),
+        property(34, "Pset_Extra", "Note", label("備考")),
+        // 名前と説明
+        Edit::Attribute {
+            element: 30,
+            attribute: RootAttribute::Name,
+            value: Some("壁 'A' \\ 🧱".to_owned()),
+        },
+        Edit::Attribute {
+            element: 30,
+            attribute: RootAttribute::Description,
+            value: Some("説明".to_owned()),
+        },
+        Edit::Attribute {
+            element: 31,
+            attribute: RootAttribute::Name,
+            value: None,
+        },
+    ]
+}
+
+/// 変更をまとめて当てられることを確かめ、`ZUMEN_IFC_EDITED` があれば、そのフォルダーに変える前と後の
+/// ファイルを書く（#482）。毎晩の組が、書いたファイルを IfcOpenShell で開く
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "環境変数を読むのは試験だけで、コアは読まない（決定 0007）"
+)]
+fn writes_the_edited_files_for_other_readers() {
+    let out = std::env::var_os("ZUMEN_IFC_EDITED").map(std::path::PathBuf::from);
+    for (schema, src) in [("ifc4", sample()), ("ifc2x3", sample_2x3())] {
+        let (bytes, codes) = run(src.as_bytes(), &edits_for_other_readers());
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = bytes.unwrap();
+        let building = lift(&bytes).unwrap();
+        assert_eq!(
+            value(&building, 31, "Pset_WallCommon", "FireRating"),
+            Some(Literal::Text("EI30".to_owned())),
+            "{schema}"
+        );
+        if let Some(dir) = &out {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join(format!("{schema}.ifc")), &src).unwrap();
+            std::fs::write(dir.join(format!("{schema}.edited.ifc")), &bytes).unwrap();
+        }
+    }
+}
