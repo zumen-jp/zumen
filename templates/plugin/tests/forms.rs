@@ -1,5 +1,6 @@
-//! プラグインを、Rust で束ねる形と、「コアとプラグイン」の CLI を `process` の形で使う形で呼ぶ（#399）。wasm の
-//! 別のモジュールの形は、`tests/wasm.mjs` で確かめる。
+//! プラグインを、Rust で束ねる形と、「コアとプラグイン」の CLI を `process` の形で使う形で呼ぶ（#399）。読んだ
+//! 図面を図面モデルのバイナリで別のセッションに渡す形も確かめる（決定 0246）。wasm の別のモジュールの形は、
+//! `tests/wasm.mjs` で確かめる。
 
 use zumen_abi1::{Session, Status};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
@@ -96,4 +97,36 @@ fn the_core_and_plugin_cli_serves_the_process_form() {
     let options = format!(r#"{{"v": 1, "engine": "process", "process_path": "{path}"}}"#);
     let mut session = Session::new(options.as_bytes()).unwrap();
     check(&mut session);
+}
+
+/// 読んだ図面を lift で図面モデルのバイナリにし、別のセッション（wasm では図面のモジュール）で開いても、同じ
+/// 答えになる（決定 0246）
+#[test]
+fn the_lifted_drawing_answers_alike_in_another_session() {
+    zumen_abi1::install(PLUGINS);
+    let mut plugin = Session::new(b"").unwrap();
+    plugin.push(b"a.txt", SAMPLE).unwrap();
+    let (status, open) = call(&mut plugin, r#"{"v": 1, "op": "open", "input": "a.txt"}"#);
+    assert_eq!(status, Status::Ok, "{open}");
+    let (status, lift) = call(&mut plugin, r#"{"v": 1, "op": "lift", "doc": "a.txt"}"#);
+    assert_eq!(status, Status::Ok, "{lift}");
+    let bytes = plugin.take(0).unwrap();
+
+    let mut drawing = Session::new(b"").unwrap();
+    drawing.push(b"a.txt", &bytes).unwrap();
+    let (status, reopened) = call(&mut drawing, r#"{"v": 1, "op": "open", "input": "a.txt"}"#);
+    assert_eq!(status, Status::Ok, "{reopened}");
+    assert!(reopened.contains(r#""format":"zumen_lines""#), "{reopened}");
+    for request in [
+        r#"{"v": 1, "op": "drawing", "doc": "a.txt"}"#,
+        r#"{"v": 1, "op": "entities", "doc": "a.txt", "fields": ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]}"#,
+        r#"{"v": 1, "op": "scene", "doc": "a.txt", "from": "space/0"}"#,
+    ] {
+        assert_eq!(
+            call(&mut drawing, request),
+            call(&mut plugin, request),
+            "{request}"
+        );
+        assert_eq!(drawing.take(0), plugin.take(0), "{request}");
+    }
 }

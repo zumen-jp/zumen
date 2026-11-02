@@ -193,7 +193,7 @@ jobs:
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: 分けたモジュールを包みで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
         run: node bindings/js/test/modules.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_plugin.wasm
-      - name: プラグインを束ねた wasm のモジュールを作り、包みから呼べることを確かめる（決定 0243）
+      - name: プラグインの形式だけを持つ wasm のモジュールを作り、読んだ図面を図面のモジュールで使えることを確かめる（決定 0243・0246）
         run: |
           cargo build --package zumen-plugin-template --lib --target wasm32-unknown-unknown --release --locked
           node templates/plugin/tests/wasm.mjs target/wasm32-unknown-unknown/release/zumen_plugin_template.wasm modules/zumen_abi1_drawing.wasm

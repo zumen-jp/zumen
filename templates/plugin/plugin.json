@@ -1,6 +1,6 @@
 {
   "name": "zumen_lines",
-  "module": "drawing",
+  "module": "plugin",
   "formats": [
     {
       "format": "zumen_lines",
