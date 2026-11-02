@@ -1033,6 +1033,13 @@ fn texts_are_placed_with_the_glyphs_of_the_fonts() {
     assert_eq!(read.f32s(layout::OUTLINE_XY)[..4], [0.0, 0.0, 100.0, 0.0]);
     // 高さは大文字の高さのまま
     assert_eq!(read.f32s(layout::TEXT_HEIGHTS), vec![7.0]);
+
+    // 決めなければ、TEXT の高さは A の字形の上に当たる（決定 0246）。A がないので大文字の高さで置く
+    let mut fonts = FontSet::default();
+    fonts.add(None, Face::parse(&data, 0).unwrap());
+    let (scene, found) = with_fonts(&drawing, &fonts);
+    assert!(!found.contains(&codes::SCENE_TEXT_HEIGHT_ASSUMED));
+    assert_eq!(Read(&scene.bytes).f32s(layout::GLYPH_AXES)[..4], axes[..4]);
 }
 
 #[test]
@@ -1142,7 +1149,8 @@ fn line_type_text_marks_use_the_glyphs() {
     let mut fonts = FontSet::default();
     fonts.add(None, Face::parse(&data, 0).unwrap());
     let (scene, found) = with_fonts(&drawing, &fonts);
-    assert!(found.contains(&codes::SCENE_TEXT_HEIGHT_ASSUMED));
+    // 線種の文字の高さは TEXT の高さと同じ意味とみなし、決めた意味を使う
+    assert!(!found.contains(&codes::SCENE_TEXT_HEIGHT_ASSUMED));
     assert_eq!(scene.counts.texts, 2);
     assert_eq!(scene.counts.glyphs, 2);
     let read = Read(&scene.bytes);

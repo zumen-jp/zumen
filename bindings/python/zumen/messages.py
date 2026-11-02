@@ -2017,7 +2017,7 @@ _SceneRequestOptional = TypedDict(
         "palette": str,
         # 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から
         "fonts": List["SceneFont"],
-        # 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+        # 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
         "heights": Dict[str, "HeightReference"],
     },
     total=False,
@@ -2051,12 +2051,13 @@ _SceneFontOptional = TypedDict(
 class SceneFont(_SceneFontRequired, _SceneFontOptional):
     "シーンの文字を置くフォント（決定 0188）"
 
-# 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ
+# 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
 HeightReference = Union[
     Literal[
         "cap_height",
         "em",
         "frame",
+        "capital_a",
     ],
     str,
 ]

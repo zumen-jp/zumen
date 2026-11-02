@@ -3274,7 +3274,7 @@ namespace Zumen.Messages
         public IReadOnlyList<SceneFont>? Fonts { get; init; }
 
         /// <summary>
-        /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+        /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
         /// </summary>
         [JsonPropertyName("heights")]
         public IReadOnlyDictionary<string, string>? Heights { get; init; }
@@ -3305,7 +3305,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ
+    /// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
     /// </summary>
     public static class HeightReference
     {
@@ -3315,6 +3315,8 @@ namespace Zumen.Messages
         public const string Em = "em";
         /// <summary>frame</summary>
         public const string Frame = "frame";
+        /// <summary>capital_a</summary>
+        public const string CapitalA = "capital_a";
     }
 
     /// <summary>
