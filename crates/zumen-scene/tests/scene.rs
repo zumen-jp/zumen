@@ -713,6 +713,18 @@ fn tables_without_parts_draw_cells() {
     assert_eq!(scene.counts.lines, 2 + 3 * 2);
     assert_eq!(scene.counts.texts, 3);
     assert_eq!(found, vec![codes::SCENE_TABLE_APPROXIMATED]);
+
+    // 結合の数がいちばん大きくても、表の端までにする。32 ビットの usize では、足すとあふれていた
+    let Some(Shape::Table(table)) = drawing.spaces[0]
+        .elements
+        .last_mut()
+        .map(|element| &mut element.shape)
+    else {
+        panic!("表の要素")
+    };
+    table.cells[3].span = [u32::MAX, u32::MAX];
+    let (scene, _) = made(&drawing, &options());
+    assert_eq!(scene.counts.lines, 2 + 3 * 2);
 }
 
 #[test]
