@@ -554,7 +554,9 @@ fn compress(src: &[u8]) -> Vec<u8> {
         out.extend_from_slice(bytes);
         rest = tail;
     }
-    out.push(0x11);
+    // 終わりの印の後ろに 0 を 2 バイト置く。AutoCAD の書く流れはどれもそうで、ないと AutoCAD 2027 は
+    // 図面を開かない（#345 で確かめた）
+    out.extend_from_slice(&[0x11, 0, 0]);
     out
 }
 
@@ -965,6 +967,7 @@ mod tests {
         }
         let zeros = compress(&[0; 0x7400]);
         assert!(zeros.len() < 0x100, "{}", zeros.len());
+        assert!(zeros.ends_with(&[0x11, 0, 0]));
     }
 
     #[test]

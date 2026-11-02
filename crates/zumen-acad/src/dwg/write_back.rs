@@ -1818,6 +1818,8 @@ impl NewEntity<'_> {
             b"ATTRIB" => r2010_attribute(&mut fields, object, &[], [0, 0], release)?,
             b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
+            // 注釈の枠の高さと幅を持たない版があるので、版を渡す（#345）
+            b"LEADER" => leader(&mut fields, object, &[], [0, 0], release)?,
             _ if self.type_code == kinds::MINSERT => {
                 let minsert = self.minsert()?;
                 let len = minsert.len();
@@ -5948,8 +5950,12 @@ fn leader(
         point3_or(fields, object, 211, [1.0, 0.0, 0.0])?;
         point3_or(fields, object, 212, [0.0; 3])?;
         point3_or(fields, object, 213, [0.0; 3])?;
-        fields.bd(real(object, 40)?.unwrap_or(1.0));
-        fields.bd(real(object, 41)?.unwrap_or(0.0));
+        // 注釈の枠の高さと幅は、R2007 までだけが持つ。注記がなければ、AutoCAD が書く値と同じく 0 と 0 にする
+        // （#345）
+        if release < Release::R2010 {
+            fields.bd(real(object, 40)?.unwrap_or(0.0));
+            fields.bd(real(object, 41)?.unwrap_or(0.0));
+        }
         fields.bit(hook);
         fields.bit(arrow);
         fields.bs(0);
@@ -5982,9 +5988,10 @@ fn leader(
         *slot = bits.bd()?;
     }
     let offsets_end = bits.pos();
-    bits.bd()?;
-    bits.bd()?;
-    let sizes_end = bits.pos();
+    if release < Release::R2010 {
+        bits.bd()?;
+        bits.bd()?;
+    }
     bits.bit()?;
     bits.bit()?;
     let rest_at = bits.pos();
@@ -6013,13 +6020,9 @@ fn leader(
         point3_or(fields, object, 212, [0.0; 3])?;
         point3_or(fields, object, 213, [0.0; 3])?;
     }
-    match (real(object, 40)?, real(object, 41)?) {
-        (Some(height), Some(width)) => {
-            fields.bd(height);
-            fields.bd(width);
-        }
-        (None, None) if release >= Release::R2010 => fields.copy(data, offsets_end..sizes_end)?,
-        _ => return None,
+    if release < Release::R2010 {
+        fields.bd(real(object, 40)??);
+        fields.bd(real(object, 41)??);
     }
     fields.bit(hook);
     fields.bit(arrow);
@@ -6457,6 +6460,46 @@ mod leader_tests {
         (data, data.len() * 8 - handle_bits)
     }
 
+    /// R2010 から後の LEADER は、注釈の枠の高さと幅を持たない。AutoCAD 2027 が書いた R2010・R2018 の DWG と
+    /// 同じ並びの欄を、矢印の印まで読む（#345）
+    #[test]
+    fn r2010_leaders_have_no_annotation_box() {
+        let mut w = BitWriter::default();
+        w.bit(false);
+        w.bs(3);
+        w.bs(0);
+        w.bl(2);
+        // 頂点 2 つ・終わりの点の射影・押し出しの向き・X 軸の向き・鉤の線の点の差・注釈への差
+        for v in [
+            60.0, 0.0, 0.0, 70.0, 10.0, 0.0, 70.0, 10.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0,
+        ] {
+            w.bd(v);
+        }
+        w.bit(false);
+        w.bit(true);
+        // 読む側は矢印の印までを読む
+        let end = w.len();
+        w.bs(0);
+        w.bit(false);
+        w.bit(false);
+        let data = w.into_bytes();
+        for release in [Release::R2010, Release::R2013, Release::R2018] {
+            let mut bits = Bits::with_release(&data, release);
+            let values = super::super::objects::leader(&mut bits).unwrap();
+            assert_eq!(bits.pos(), end, "{release:?}");
+            let first = |code| {
+                values
+                    .iter()
+                    .find(|value| value.code == code)
+                    .map(|value| value.data.clone())
+            };
+            assert_eq!(first(71), Some(Data::Int(1)), "{release:?}");
+            assert_eq!(first(74), Some(Data::Int(0)), "{release:?}");
+            assert_eq!(first(40), None, "{release:?}");
+        }
+    }
+
     /// R2010 から後の DWG に足した LEADER の欄と、経路と矢印の印（71）を置き換えた欄を、読み直す（決定 0185）。
     /// 寸法スタイルに従う矢印（71 がない）は書けない
     #[test]
@@ -6478,10 +6521,15 @@ mod leader_tests {
             let encoded = new.encode(0, 0, release).unwrap();
             let read = |encoded: &[u8]| {
                 let (data, handles_at) = split(encoded);
-                let [_, start, _] = r2010_entity_fields(data, handles_at, release).unwrap();
+                let [_, start, end] = r2010_entity_fields(data, handles_at, release).unwrap();
                 let mut bits = Bits::with_release(data, release);
                 bits.seek(start);
                 let values = super::super::objects::leader(&mut bits).unwrap();
+                // 後ろの欄（BS・B・B）を読むと、主のデータの終わりに着く。注釈の枠の欄を書くと合わない（#345）
+                bits.bs().unwrap();
+                bits.bit().unwrap();
+                bits.bit().unwrap();
+                assert_eq!(bits.pos(), end, "{release:?}");
                 bits.seek(handles_at);
                 let handles: Vec<u64> = (0..3).map(|_| bits.handle().unwrap().value).collect();
                 (values, handles)

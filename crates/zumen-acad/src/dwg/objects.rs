@@ -1520,10 +1520,10 @@ pub(super) fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     // 鉤の線の点の差と、注釈への差。どちらも DXF で確かめていない。0 でなければ、DXF と同じ 212・213 に置く
     // （決定 0191）
     let offsets = [point3(bits, 212)?, point3(bits, 213)?];
-    // 注釈の枠の高さと幅。R2010 からは、DXF は注釈から求めた値を書き、DWG の値（図面では 1 と 0）とは
-    // 違うので置かない
-    let (height, width) = (bits.bd()?, bits.bd()?);
+    // 注釈の枠の高さと幅。R2007 までだけが持つ（AutoCAD 2027 が書いた R2010・R2018 の
+    // DWG で、この欄がないことを確かめた、#345）
     if bits.release() < Release::R2010 {
+        let (height, width) = (bits.bd()?, bits.bd()?);
         values.push(real(40, height));
         values.push(real(41, width));
     }
