@@ -157,7 +157,7 @@ fn stored_dimension_measurements_are_lengths_in_drawing_units_and_angles_in_radi
             let Shape::Dimension(dimension) = &element.shape else {
                 continue;
             };
-            let Some(stored) = dimension.measurement else {
+            let Some(stored) = &dimension.measurement else {
                 continue;
             };
             let candidates = measured(&dimension.kind);

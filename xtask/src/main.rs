@@ -10,6 +10,7 @@ mod catalog;
 mod cli;
 mod dart;
 mod dotnet;
+mod drawing;
 mod formats;
 mod go;
 mod java;
@@ -158,6 +159,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     }
 
     let profiles = profiles::generate(&root)?;
+    let drawing = drawing::generate(&root)?;
     samples::check(&root)?;
     check_package_version(JS_PACKAGE, &read(JS_PACKAGE)?)?;
     check_pyproject_version(PY_PROJECT, &read(PY_PROJECT)?)?;
@@ -170,6 +172,8 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (ABI_RS, rustfmt(&root, &boundary::render_rust(&boundary))?),
         (MESSAGES_RS, rustfmt(&root, &schema::render(&schema))?),
         (SCENE_RS, rustfmt(&root, &scene::render_rust(&scene))?),
+        (drawing::CONTRACT, drawing.contract),
+        (drawing::GENERATED, rustfmt(&root, &drawing.rust)?),
         (HEADER, boundary::render_header(&boundary)),
         (SCENE_HEADER, scene::render_c_header(&scene)),
         (JS_MESSAGES, javascript::render_types(&schema)),

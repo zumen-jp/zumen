@@ -142,14 +142,14 @@ fn extension_normalization_keeps_types_values_and_counts() {
     use zumen_base::Ref;
     use zumen_drawing::{Basis, Drawing2D, Extension, Field, FieldValue, Target};
     let extension = |name: &str, value| Extension {
-        namespace: "dxf.xrecord",
+        namespace: "dxf.xrecord".into(),
         name: name.to_owned(),
         version: None,
         schema: 1,
         target: Target::Document,
         basis: Basis::Document,
         fields: vec![Field {
-            key: "value",
+            key: "value".into(),
             code: None,
             value,
         }],
@@ -174,7 +174,7 @@ fn extension_normalization_keeps_types_values_and_counts() {
     changed.extensions[1].fields[0].value = FieldValue::Integer(2);
     assert_ne!(first, changed);
     changed = second.clone();
-    changed.extensions[0].namespace = "other";
+    changed.extensions[0].namespace = "other".into();
     changed.extensions[0].fields[0].value = FieldValue::Handle(30);
     normalize_extensions(&mut changed);
     assert!(
@@ -188,10 +188,10 @@ fn extension_normalization_keeps_types_values_and_counts() {
 /// 拡張の付く先と、名前空間・名前・版・型の契約の版。
 fn extension_key(
     extension: &zumen_drawing::Extension,
-) -> (String, &'static str, String, Option<String>, u32) {
+) -> (String, String, String, Option<String>, u32) {
     (
         format!("{:?}", extension.target),
-        extension.namespace,
+        extension.namespace.to_string(),
         extension.name.clone(),
         extension.version.clone(),
         extension.schema,

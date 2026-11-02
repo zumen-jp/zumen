@@ -1042,7 +1042,7 @@ impl<'a> Context<'a> {
                         if !values.iter().any(|v| (v - h).abs() <= *tolerance) {
                             out.invalid(at(Diagnostic::new(codes::PROFILE_TEXT_HEIGHT_INVALID)
                                 .with("height", h)
-                                .with("meaning", Param::Key(meaning(&height.meaning)))
+                                .with("meaning", meaning(&height.meaning))
                                 .with("vocabulary", vocabulary.as_str())));
                         }
                     }
@@ -1283,13 +1283,13 @@ fn shape_summary<P>(shape: &Shape<P>) -> Summary<'_> {
     }
 }
 
-/// 高さの意味のキー
-fn meaning(meaning: &HeightMeaning) -> &'static str {
+/// 高さの意味のキー。形式が宣言したキーは静的な文字列とは限らないので、文字列の値で渡す（出す JSON は同じ）
+fn meaning(meaning: &HeightMeaning) -> Param {
     match meaning {
-        HeightMeaning::Frame => "frame",
-        HeightMeaning::CapHeight => "cap-height",
-        HeightMeaning::Em => "em",
-        HeightMeaning::Declared(key) => key,
+        HeightMeaning::Frame => Param::Key("frame"),
+        HeightMeaning::CapHeight => Param::Key("cap-height"),
+        HeightMeaning::Em => Param::Key("em"),
+        HeightMeaning::Declared(key) => Param::Text(key.to_string()),
     }
 }
 

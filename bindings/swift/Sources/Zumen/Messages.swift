@@ -163,6 +163,11 @@ public struct Request: Message {
     public var asBuildingApplyRequest: BuildingApplyRequest? {
         taggedView("op", "building_apply")
     }
+
+    /// op が lift の形なら、その見方。違えば nil
+    public var asLiftRequest: LiftRequest? {
+        taggedView("op", "lift")
+    }
 }
 
 /// どの op の要求にも置ける欄
@@ -6496,6 +6501,86 @@ public struct BuildingApplyResult: Message {
     }
 }
 
+/// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+public struct LiftRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 目印の欄だけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("lift")]
+    }
+
+    /// メッセージのスキーマの大版。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 文書の名前。open で図面を開いたもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+}
+
+/// 図面モデルのバイナリの blob の番号
+public struct LiftResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す
+    public var blob: Int64? {
+        get { readField("blob") }
+        set { writeField("blob", newValue) }
+    }
+}
+
 /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 public struct IdsCheckRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -7833,7 +7918,7 @@ public struct Blob: Message {
     }
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
 ///
 /// 列挙の値。知らない値も受け取る
 public enum BlobKind {
@@ -7841,6 +7926,7 @@ public enum BlobKind {
     public static let image = "image"
     public static let scene = "scene"
     public static let arrow = "arrow"
+    public static let drawing = "drawing"
 }
 
 /// zm_session_new に渡す設定。渡さなければ既定の設定
@@ -10748,4 +10834,5 @@ public enum Operations {
     public static let sheet = "sheet"
     public static let boring = "boring"
     public static let buildingApply = "building_apply"
+    public static let lift = "lift"
 }

@@ -17,6 +17,8 @@
 //! 書式つきの文字（[`FormattedText`]）の折り返し・行送り・区間ごとの書式、DXF の特殊な符号、カーニングの
 //! 扱いは決定 0181 にある。縦書き・上下に重ねた文字・禁則は決定 0187 にある。
 
+use std::borrow::Cow;
+
 use crate::{
     Fit, Flow, Font, Format, FormattedText, HeightMeaning, Horizontal, Length, Piece, Placement,
     Rotation, Scaled, StackKind, Text, Vertical,
@@ -133,10 +135,10 @@ pub struct Laid {
 }
 
 /// 置けない理由
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Unplaced {
     /// 宣言された高さが、フォントのどの寸法に当たるか決まらない。形式と欄を指すキー
-    Height(&'static str),
+    Height(Cow<'static, str>),
     /// 高さ・幅の倍率・字の間隔・行送り・枠の幅・向き・フォントの寸法・2 点の距離・送りの合計が 0 か
     /// 有限でないか、斜体の角度が 90 度以上
     Degenerate,
@@ -149,7 +151,7 @@ pub fn place<P>(
     text: &Text<P>,
     xy: impl Fn(&P) -> [f64; 2],
     font: &impl Glyphs,
-    declared: impl Fn(&'static str) -> Option<Reference>,
+    declared: impl Fn(&str) -> Option<Reference>,
 ) -> Result<Laid, Unplaced> {
     let metrics = font.metrics();
     let reference = reference(&text.height.meaning, declared)?;
@@ -345,7 +347,7 @@ pub fn place_formatted<P>(
     text: &FormattedText<P>,
     xy: impl Fn(&P) -> [f64; 2],
     fonts: &impl Fonts,
-    declared: impl Fn(&'static str) -> Option<Reference>,
+    declared: impl Fn(&str) -> Option<Reference>,
 ) -> Result<LaidFormatted, Unplaced> {
     let vertical = match text.flow {
         Flow::LeftToRight => false,
@@ -1290,13 +1292,15 @@ pub fn decode(content: &str, toggles: bool) -> Decoded {
 /// 宣言された高さの意味を、フォントの寸法に当てる
 fn reference(
     meaning: &HeightMeaning,
-    declared: impl Fn(&'static str) -> Option<Reference>,
+    declared: impl Fn(&str) -> Option<Reference>,
 ) -> Result<Reference, Unplaced> {
-    Ok(match *meaning {
+    Ok(match meaning {
         HeightMeaning::CapHeight => Reference::CapHeight,
         HeightMeaning::Em => Reference::Em,
         HeightMeaning::Frame => Reference::Frame,
-        HeightMeaning::Declared(key) => declared(key).ok_or(Unplaced::Height(key))?,
+        HeightMeaning::Declared(key) => {
+            declared(key).ok_or_else(|| Unplaced::Height(key.clone()))?
+        }
     })
 }
 
@@ -1532,10 +1536,10 @@ mod tests {
         text.height.meaning = HeightMeaning::Frame;
         assert_eq!(laid(&text).scale, [0.007, 0.007]);
 
-        text.height.meaning = HeightMeaning::Declared("dxf.TEXT.40");
+        text.height.meaning = HeightMeaning::Declared("dxf.TEXT.40".into());
         assert_eq!(
             place(&text, |p| *p, &Synthetic, |_| None),
-            Err(Unplaced::Height("dxf.TEXT.40"))
+            Err(Unplaced::Height("dxf.TEXT.40".into()))
         );
         let laid = place(
             &text,
@@ -1575,8 +1579,8 @@ mod tests {
         // AutoCAD 2027 の TrueType の TEXT は、高さを `A` の上に当て、上と中央もその高さで決める
         // （Times New Roman では大文字の高さ 1356 でなく `A` の 1387。決定 0246）
         let mut text = text("Ag", anchor([0.0, 0.0], Horizontal::Left, Vertical::Top));
-        text.height.meaning = HeightMeaning::Declared("dxf.TEXT.40");
-        let declared = |_| Some(Reference::CapitalA);
+        text.height.meaning = HeightMeaning::Declared("dxf.TEXT.40".into());
+        let declared = |_: &str| Some(Reference::CapitalA);
         let laid = place(&text, |p| *p, &TallA, declared).unwrap();
         assert_eq!(laid.scale, [0.008, 0.008]);
         assert_near(map(&laid, [0.0, 875.0]), [0.0, 0.0]);

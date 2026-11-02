@@ -85,7 +85,7 @@ const DEFINITION_SPACES: u32 = 16;
 /// ブロックの定義を指すキー。番号で指す
 fn block_key(number: u32) -> SymbolKey {
     SymbolKey {
-        namespace: "jww.block",
+        namespace: "jww.block".into(),
         name: number.to_string(),
     }
 }
@@ -544,31 +544,31 @@ impl Lifter<'_> {
             source: Ref::at_record(0),
         };
         let mut out = vec![extension(
-            "jww.edit",
+            "jww.edit".into(),
             String::new(),
-            vec![integer("write_group", header.write_group)],
+            vec![integer("write_group".into(), header.write_group)],
         )];
         for (at, group) in header.groups.iter().enumerate() {
             let name = header.group_names.get(at).cloned().unwrap_or_default();
             out.push(extension(
-                "jww.group",
+                "jww.group".into(),
                 format!("{at:X}"),
                 vec![
                     Field {
-                        key: "name",
+                        key: "name".into(),
                         code: None,
                         value: FieldValue::Text(name),
                     },
-                    integer("write_layer", group.write_layer),
-                    integer("protect", group.protect),
+                    integer("write_layer".into(), group.write_layer),
+                    integer("protect".into(), group.protect),
                 ],
             ));
             for (layer, &protect) in group.protects.iter().enumerate() {
                 if protect != 0 {
                     out.push(extension(
-                        "jww.layer",
+                        "jww.layer".into(),
                         format!("{at:X}-{layer:X}"),
-                        vec![integer("protect", protect)],
+                        vec![integer("protect".into(), protect)],
                     ));
                 }
             }
@@ -643,19 +643,19 @@ impl Lifter<'_> {
             source: source.clone(),
         });
         self.drafts.push(Draft {
-            namespace: "jww.block",
+            namespace: "jww.block".into(),
             name: number.to_string(),
             version: Some(self.header.version.to_string()),
             schema: SCHEMA,
             at: Position::Document,
             fields: vec![
                 Field {
-                    key: "name",
+                    key: "name".into(),
                     code: None,
                     value: FieldValue::Text(name),
                 },
                 Field {
-                    key: "referenced",
+                    key: "referenced".into(),
                     code: None,
                     value: FieldValue::Integer(i64::from(referenced)),
                 },
@@ -730,12 +730,12 @@ impl Lifter<'_> {
                 "jww.entity",
                 vec![
                     Field {
-                        key: "curve",
+                        key: "curve".into(),
                         code: None,
                         value: FieldValue::Integer(i64::from(base.curve)),
                     },
                     Field {
-                        key: "flag",
+                        key: "flag".into(),
                         code: None,
                         value: FieldValue::Integer(i64::from(base.flag)),
                     },
@@ -744,7 +744,7 @@ impl Lifter<'_> {
         }
         for (namespace, fields) in self.own.drain(..) {
             self.drafts.push(Draft {
-                namespace,
+                namespace: namespace.into(),
                 name: String::new(),
                 version: Some(version.to_string()),
                 schema: SCHEMA,
@@ -802,12 +802,12 @@ impl Lifter<'_> {
         let (start, end) = (point(at, x1, y1), point(at, x2, y2));
         let mut fields = vec![
             Field {
-                key: "line_start",
+                key: "line_start".into(),
                 code: None,
                 value: xy(start),
             },
             Field {
-                key: "line_end",
+                key: "line_end".into(),
                 code: None,
                 value: xy(end),
             },
@@ -821,12 +821,12 @@ impl Lifter<'_> {
         let (unicode, content) = r.string()?;
         let content = decode(unicode, content);
         fields.push(Field {
-            key: "text_end",
+            key: "text_end".into(),
             code: None,
             value: xy(point(at, tx2, ty2)),
         });
         fields.push(Field {
-            key: "text_spacing",
+            key: "text_spacing".into(),
             code: None,
             value: FieldValue::Real(spacing),
         });
@@ -834,7 +834,7 @@ impl Lifter<'_> {
         if version >= SXF_SINCE {
             let mode = r.u16()?;
             fields.push(Field {
-                key: "sxf_mode",
+                key: "sxf_mode".into(),
                 code: None,
                 value: FieldValue::Integer(i64::from(mode)),
             });
@@ -845,12 +845,12 @@ impl Lifter<'_> {
                 Base::read(r, version)?;
                 let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
                 fields.push(Field {
-                    key: start_key,
+                    key: start_key.into(),
                     code: None,
                     value: xy(point(at, x1, y1)),
                 });
                 fields.push(Field {
-                    key: end_key,
+                    key: end_key.into(),
                     code: None,
                     value: xy(point(at, x2, y2)),
                 });
@@ -864,7 +864,7 @@ impl Lifter<'_> {
                     r.skip(20)?;
                 }
                 fields.push(Field {
-                    key,
+                    key: key.into(),
                     code: None,
                     value: xy(p),
                 });
@@ -1117,7 +1117,7 @@ impl Lifter<'_> {
             // 記号の角度は度とする（推定）
             let (rotation, scale) = (r.f64()?, r.f64()?);
             let key = MarkerKey {
-                namespace: "jww.point",
+                namespace: "jww.point".into(),
                 code: code.to_string(),
             };
             (PointLook::Marker { key, scale }, rotation)
@@ -1157,13 +1157,13 @@ impl Lifter<'_> {
             && let Some((key, value)) = setting(&content)
         {
             self.drafts.push(Draft {
-                namespace: "jww.setting",
+                namespace: "jww.setting".into(),
                 name: key.to_owned(),
                 version: Some(self.header.version.to_string()),
                 schema: SCHEMA,
                 at: Position::Document,
                 fields: vec![Field {
-                    key: "value",
+                    key: "value".into(),
                     code: None,
                     value: FieldValue::Text(value.to_owned()),
                 }],
@@ -1177,13 +1177,13 @@ impl Lifter<'_> {
         if content.starts_with("^@") {
             // 画像のほかの制御文字は、描かずに元のまま持つ
             self.drafts.push(Draft {
-                namespace: "jww.control",
+                namespace: "jww.control".into(),
                 name: content,
                 version: Some(self.header.version.to_string()),
                 schema: SCHEMA,
                 at: Position::Document,
                 fields: vec![Field {
-                    key: "position",
+                    key: "position".into(),
                     code: None,
                     value: FieldValue::Point([x1, y1, 0.0]),
                 }],
@@ -1196,12 +1196,12 @@ impl Lifter<'_> {
                 "jww.moji",
                 vec![
                     Field {
-                        key: "kind",
+                        key: "kind".into(),
                         code: None,
                         value: FieldValue::Integer(i64::from(kind)),
                     },
                     Field {
-                        key: "spacing",
+                        key: "spacing".into(),
                         code: None,
                         value: FieldValue::Real(spacing),
                     },
@@ -1212,7 +1212,7 @@ impl Lifter<'_> {
             content,
             height: Height {
                 value: Length::Paper(PaperLength(size_y)),
-                meaning: HeightMeaning::Declared("jww.moji.size_y"),
+                meaning: HeightMeaning::Declared("jww.moji.size_y".into()),
             },
             placement: Placement::Anchor {
                 point: point(base.at, x1, y1),
@@ -1260,7 +1260,7 @@ impl Lifter<'_> {
             self.own.push((
                 "jww.image",
                 vec![Field {
-                    key: "extra",
+                    key: "extra".into(),
                     code: None,
                     value: FieldValue::Text(extra.to_owned()),
                 }],

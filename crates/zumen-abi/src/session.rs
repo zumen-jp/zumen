@@ -1,5 +1,6 @@
 //! セッション: 名前のついた入力を持ち、要求を受けて応答を返す（決定 0012）。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use zumen_acad::{Dwg, DwgFile, Dxf, DxfFile};
@@ -7,7 +8,7 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, 
 use zumen_base::{Key, Ref, codes, name};
 use zumen_drawing::{
     Applied, Drawing2D, Element, Encode, Hash, Leader, Placement, PointMark, PointSize, PointStyle,
-    Shape, Unit, id,
+    Shape, Unit, binary, id,
 };
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
@@ -39,10 +40,11 @@ use crate::messages::{
     BcfWriteResult, BlobKind, ByteRange, CapabilitiesResult, CheckRequest, CheckResult,
     CloseRequest, CloseResult, ConvertRequest, ConvertResult, DrawingRequest, DrawingResult,
     ElementCounts, Engine, EntitiesRequest, EntitiesResult, Entity, EntityField, EntityKind,
-    Extent, Format, IdsCheckRequest, IdsCheckResult, IdsFinding, OpenRequest, OpenResult,
-    PointStyleSummary, Request, RequestCommon, ReviewAdoptIdsRequest, ReviewAdoptRequest,
-    ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult, SceneRequest, SceneResult,
-    SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest, TablesResult,
+    Extent, Format, IdsCheckRequest, IdsCheckResult, IdsFinding, LiftRequest, LiftResult,
+    OpenRequest, OpenResult, PointStyleSummary, Request, RequestCommon, ReviewAdoptIdsRequest,
+    ReviewAdoptRequest, ReviewAdoptResult, ReviewCarryRequest, ReviewCarryResult, SceneRequest,
+    SceneResult, SchemaVersion, SessionOptions, SheetSummary, Source, SpaceSummary, TablesRequest,
+    TablesResult,
 };
 #[cfg(feature = "drawing")]
 use crate::packed;
@@ -100,48 +102,68 @@ pub struct Session {
     child: Option<crate::process::Child>,
 }
 
-/// 開いた文書。形式ごとのファイルモデル（L1）を持つ
+/// 開いた文書。形式ごとのファイルモデル（L1）を持つ。コアの形式は `drawing` の feature で持ち、プラグインのモジュール
+/// （決定 0247）には、コアのコーデックを入れない
 #[derive(Debug)]
 enum Doc {
+    #[cfg(feature = "drawing")]
     Dxf(DxfFile),
+    #[cfg(feature = "drawing")]
     Dwg(DwgFile),
     /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）
+    #[cfg(feature = "drawing")]
     Sxf(SxfFile, Option<Box<Packed>>),
+    #[cfg(feature = "drawing")]
     Jww(JwwFile),
     /// プラグインの形式（決定 0243）。読むだけで、図面モデルを持つ
     Plugin(Registration, Drawing2D),
+    /// 図面モデルのバイナリ（決定 0247）。lift が書いた図面を、元の文書の形式・系統のまま、読むだけの文書にする
+    Lifted(binary::Source, Drawing2D),
 }
 
 impl Doc {
     /// 形式の台帳のキー
-    fn format(&self) -> &'static str {
+    fn format(&self) -> &str {
         match self {
+            #[cfg(feature = "drawing")]
             Doc::Dxf(_) => Dxf::FORMAT,
+            #[cfg(feature = "drawing")]
             Doc::Dwg(_) => Dwg::FORMAT,
+            #[cfg(feature = "drawing")]
             Doc::Sxf(..) => Sxf::FORMAT,
+            #[cfg(feature = "drawing")]
             Doc::Jww(_) => Jww::FORMAT,
             Doc::Plugin(registration, _) => registration.format,
+            Doc::Lifted(source, _) => &source.format,
         }
     }
 
     /// 形式の系統（capabilities の family）
-    fn family(&self) -> &'static str {
+    fn family(&self) -> &str {
         match self {
+            #[cfg(feature = "drawing")]
             Doc::Dxf(_) | Doc::Dwg(_) => "acad",
+            #[cfg(feature = "drawing")]
             Doc::Sxf(..) => "sxf",
+            #[cfg(feature = "drawing")]
             Doc::Jww(_) => "jww",
             Doc::Plugin(registration, _) => registration.family,
+            Doc::Lifted(source, _) => &source.family,
         }
     }
 
-    /// 図面モデル（L2）に変換する
-    fn lift(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, zumen_sdk::Error> {
+    /// 図面モデル（L2）に変換する。図面モデルを持つ文書は、複製せずに貸す
+    fn lift(&self, cx: &mut Cx<'_>) -> Result<Cow<'_, Drawing2D>, zumen_sdk::Error> {
         match self {
-            Doc::Dxf(file) => file.lift(cx),
-            Doc::Dwg(file) => file.lift(cx),
-            Doc::Sxf(file, _) => file.lift(cx),
-            Doc::Jww(file) => file.lift(cx),
-            Doc::Plugin(_, drawing) => Ok(drawing.clone()),
+            #[cfg(feature = "drawing")]
+            Doc::Dxf(file) => file.lift(cx).map(Cow::Owned),
+            #[cfg(feature = "drawing")]
+            Doc::Dwg(file) => file.lift(cx).map(Cow::Owned),
+            #[cfg(feature = "drawing")]
+            Doc::Sxf(file, _) => file.lift(cx).map(Cow::Owned),
+            #[cfg(feature = "drawing")]
+            Doc::Jww(file) => file.lift(cx).map(Cow::Owned),
+            Doc::Plugin(_, drawing) | Doc::Lifted(_, drawing) => Ok(Cow::Borrowed(drawing)),
         }
     }
 }
@@ -181,6 +203,11 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 /// （決定 0007・0008）。入力の大きさは、コーデックが確かめる
 #[cfg(feature = "drawing")]
 fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
+    // 図面モデルのバイナリ（決定 0247）。始まりの 4 バイトは、コアのどの形式とも重ならない
+    if binary::matches(bytes) {
+        let (source, drawing) = binary::read(bytes, cx).map_err(|_| Failed)?;
+        return Ok(Some(Doc::Lifted(source, drawing)));
+    }
     // 失敗の理由は、コーデックが診断として足してある
     let format = zumen_sdk::detect(formats::DRAWING, bytes).map(|registration| registration.format);
     let doc = if format == Some(Dxf::FORMAT) {
@@ -197,22 +224,36 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
         Doc::Sxf(file, Some(Box::new(archive)))
-    } else if let Some((registration, read)) =
+    } else if let Some(doc) = read_plugin(bytes, cx)? {
+        // コアのどの形式でもなければ、登録した図面の形式のプラグインを順に試す（決定 0243）
+        doc
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(doc))
+}
+
+/// 登録した図面の形式のプラグインを、順に試す。どのプラグインの形式でもなければ `None`
+#[cfg(any(feature = "drawing", feature = "plugin"))]
+fn read_plugin(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
+    let Some((registration, read)) =
         plugin::installed()
             .iter()
             .find_map(|plugin| match plugin.read {
                 plugin::Reader::Drawing(read) if plugin.registration.matches(bytes) => {
                     Some((plugin.registration, read))
                 }
+                #[allow(unreachable_patterns)]
                 _ => None,
             })
-    {
-        // コアのどの形式でもなければ、登録した図面の形式のプラグインを順に試す（決定 0243）
-        Doc::Plugin(registration, read(bytes, cx).map_err(|_| Failed)?)
-    } else {
+    else {
         return Ok(None);
     };
-    Ok(Some(doc))
+    // 失敗の理由は、プラグインが診断として足してある
+    Ok(Some(Doc::Plugin(
+        registration,
+        read(bytes, cx).map_err(|_| Failed)?,
+    )))
 }
 
 fn unsupported(name: &str, op: &str) -> Diagnostic {
@@ -489,6 +530,8 @@ impl Session {
                 .input(&request.input, "/input", &mut cx)
                 .and_then(|bytes| sheet::sheet(request, bytes, &mut cx))
                 .map(|r| Box::new(r) as _),
+            #[cfg(any(feature = "drawing", feature = "plugin"))]
+            Request::Lift(request) => self.lift_binary(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Boring(request) => self
                 .input(&request.input, "/input", &mut cx)
@@ -580,7 +623,12 @@ impl Session {
             });
         }
         #[cfg(feature = "drawing")]
-        if let Some(doc) = read_drawing(bytes, cx)? {
+        let doc = read_drawing(bytes, cx)?;
+        // プラグインのモジュールは、プラグインの形式だけを読む（決定 0247）
+        #[cfg(all(feature = "plugin", not(feature = "drawing")))]
+        let doc = read_plugin(bytes, cx)?;
+        #[cfg(any(feature = "drawing", feature = "plugin"))]
+        if let Some(doc) = doc {
             let result = OpenResult {
                 doc: name.clone(),
                 format: doc.format().to_string(),
@@ -588,11 +636,16 @@ impl Session {
                 done: None,
 
                 entries: match &doc {
+                    #[cfg(feature = "drawing")]
                     Doc::Sxf(_, Some(archive)) => Some(archive.names()),
                     _ => None,
                 },
             };
-            let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
+            let hash = match &doc {
+                // 元の文書のハッシュ。書いた側が付けたもので、ここでは確かめられない
+                Doc::Lifted(source, _) => source.hash,
+                _ => Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?,
+            };
             self.hashes.insert(name.clone(), hash);
             self.docs.insert(name.clone(), doc);
             return Ok(result);
@@ -869,6 +922,7 @@ impl Session {
     }
 
     /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
+    #[cfg(feature = "drawing")]
     fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
         // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを境界で判定できないため、
@@ -907,8 +961,10 @@ impl Session {
         let mut bytes = Vec::new();
         let mut ids_shifted = false;
         let (applied, hash) = match doc {
-            // プラグインの文書は書き戻せない（決定 0243）
-            Doc::Plugin(..) => return Err(fail(cx, unsupported(&request.doc, self.op))),
+            // プラグインの文書と図面モデルのバイナリは、書き戻せない（決定 0243・0247）
+            Doc::Plugin(..) | Doc::Lifted(..) => {
+                return Err(fail(cx, unsupported(&request.doc, self.op)));
+            }
             Doc::Dxf(file) => {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
@@ -967,6 +1023,7 @@ impl Session {
     }
 
     /// 図面モデルを別の形式の新しいファイルに書き、新しい文書として開く（決定 0206）
+    #[cfg(feature = "drawing")]
     fn convert(
         &mut self,
         request: &ConvertRequest,
@@ -1005,6 +1062,35 @@ impl Session {
             hash: hash.to_string(),
             elements: converted.elements,
         })
+    }
+
+    /// 文書を図面モデルに変換し、図面モデルのバイナリ（決定 0247）を blob で返す。元の文書の形式・系統・ハッシュも書く。
+    /// 図面モデルを持つ文書は、複製せずに書く。書くときは、要素ごとに作業量を使い、中断の合図を確かめる
+    fn lift_binary(
+        &mut self,
+        request: &LiftRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<LiftResult, Failed> {
+        let bytes = {
+            let drawing = self.lifted(&request.doc, cx)?;
+            let (Some(doc), Some(hash)) =
+                (self.docs.get(&request.doc), self.hashes.get(&request.doc))
+            else {
+                return Err(fail(cx, invalid_value("/doc")));
+            };
+            let source = binary::Source {
+                format: doc.format().to_string(),
+                family: doc.family().to_string(),
+                hash: *hash,
+            };
+            binary::write(&source, &drawing, cx).map_err(|stop| stopped(cx, stop))?
+        };
+        let blob = self.blobs.len() as u64;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::Drawing,
+            bytes,
+        }));
+        Ok(LiftResult { blob })
     }
 
     /// 起点から配置をたどった 2D のシーンを、blob で返す（決定 0172）
@@ -1576,6 +1662,11 @@ impl Session {
 
     /// 名前の文書を、図面モデルに変換する
     fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
+        self.lifted(doc, cx).map(Cow::into_owned)
+    }
+
+    /// 名前の文書の図面モデル。図面モデルを持つ文書は、複製せずに貸す
+    fn lifted(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Cow<'_, Drawing2D>, Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
@@ -1625,7 +1716,9 @@ fn capabilities() -> CapabilitiesResult {
                 plugin::installed()
                     .iter()
                     .filter(|plugin| match plugin.read {
-                        plugin::Reader::Drawing(_) => cfg!(feature = "drawing"),
+                        plugin::Reader::Drawing(_) => {
+                            cfg!(any(feature = "drawing", feature = "plugin"))
+                        }
                         #[cfg(feature = "bim")]
                         plugin::Reader::Building(_) => true,
                     })
@@ -1978,6 +2071,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Photo(request) => &request.request_common,
         Request::Sheet(request) => &request.request_common,
         Request::Boring(request) => &request.request_common,
+        Request::Lift(request) => &request.request_common,
     }
 }
 
@@ -2343,7 +2437,7 @@ mod tests {
             Shape::Formatted(formatted),
             Shape::Symbol(Symbol {
                 key: SymbolKey {
-                    namespace: "dxf.block",
+                    namespace: "dxf.block".into(),
                     name: "x".repeat(100),
                 },
                 position: point,
@@ -2358,7 +2452,7 @@ mod tests {
             }),
             Shape::Symbol(Symbol {
                 key: SymbolKey {
-                    namespace: "dxf.block",
+                    namespace: "dxf.block".into(),
                     name: "x".repeat(100),
                 },
                 position: point,
@@ -2520,7 +2614,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":59}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":60}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

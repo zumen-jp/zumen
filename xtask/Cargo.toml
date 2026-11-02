@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
+# 図面モデルの型の定義を読み、バイナリの読み書きを作る（決定 0247）。MIT OR Apache-2.0。serde の derive がもう使っている
+syn = { version = "3.0.9", default-features = false, features = ["full", "parsing"] }
 toml = "1.1.8"
 zumen-json = { path = "../crates/zumen-json" }
 zumen-profile = { path = "../crates/zumen-profile" }

@@ -105,6 +105,9 @@ class Request extends Message {
 
   /// op が building_apply の形なら、その見方。違えば null
   BuildingApplyRequest? get asBuildingApplyRequest => taggedView('op', 'building_apply', BuildingApplyRequest.fromJson);
+
+  /// op が lift の形なら、その見方。違えば null
+  LiftRequest? get asLiftRequest => taggedView('op', 'lift', LiftRequest.fromJson);
 }
 
 /// どの op の要求にも置ける欄
@@ -4208,6 +4211,56 @@ class BuildingApplyResult extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
+/// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+class LiftRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  LiftRequest.fromJson(super.json);
+
+  /// 目印の欄だけを持つオブジェクトから作る
+  LiftRequest() : super({'op': 'lift'});
+
+  /// メッセージのスキーマの大版。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 文書の名前。open で図面を開いたもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+}
+
+/// 図面モデルのバイナリの blob の番号
+class LiftResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  LiftResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  LiftResult() : super({});
+
+  /// 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す
+  int? get blob => readField('blob', asInt);
+  set blob(int? value) => writeField('blob', value);
+}
+
 /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
 class IdsCheckRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -5080,7 +5133,7 @@ class Blob extends Message {
   set size(int? value) => writeField('size', value);
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class BlobKind {
@@ -5088,6 +5141,7 @@ abstract final class BlobKind {
   static const image = 'image';
   static const scene = 'scene';
   static const arrow = 'arrow';
+  static const drawing = 'drawing';
 }
 
 /// zm_session_new に渡す設定。渡さなければ既定の設定
@@ -6994,4 +7048,5 @@ abstract final class Operations {
   static const sheet = 'sheet';
   static const boring = 'boring';
   static const buildingApply = 'building_apply';
+  static const lift = 'lift';
 }

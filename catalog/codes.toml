@@ -684,6 +684,46 @@ group-by = ["id"]
 since = "0.0.0"
 status = "active"
 
+# 図面モデルのバイナリ（決定 0247）
+
+[codes."drawing.binary.invalid"]
+description = "図面モデルのバイナリが壊れていて読めない。position は壊れた所のバイト目、reason は壊れ方"
+severity = "error"
+params = { position = "uint", reason = "key" }
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.binary-version.unsupported"]
+description = "図面モデルのバイナリの大版を、このコアが読めない"
+severity = "error"
+params = { major = "uint", supported = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.binary-value.unsupported"]
+description = "図面モデルのバイナリが、この版の知らない列挙の値（後の小版で足した値）を使っているので読めない"
+severity = "error"
+params = { type = "key", value = "uint", minor = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.binary-field.dropped"]
+description = "図面モデルのバイナリの、後の小版で足した欄を読み飛ばした"
+severity = "warning"
+fidelity = "dropped"
+params = { type = "key", minor = "uint" }
+group-by = ["type"]
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.binary-section.dropped"]
+description = "図面モデルのバイナリの、後の小版で足した区画を読み飛ばした"
+severity = "warning"
+fidelity = "dropped"
+params = { section = "uint", minor = "uint" }
+since = "0.2.0"
+status = "active"
+
 # 2D のシーン（決定 0172）
 
 [codes."scene.curve.approximated"]

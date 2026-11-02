@@ -211,6 +211,11 @@ public final class Messages {
         public BuildingApplyRequest asBuildingApplyRequest() {
             return "building_apply".equals(json.get("op")) ? new BuildingApplyRequest(json) : null;
         }
+
+        /** op が lift の形なら、その見方。違えば null */
+        public LiftRequest asLiftRequest() {
+            return "lift".equals(json.get("op")) ? new LiftRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置ける欄 */
@@ -10470,6 +10475,133 @@ public final class Messages {
         }
     }
 
+    /** 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から */
+    public static final class LiftRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public LiftRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static LiftRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new LiftRequest(json);
+        }
+
+        /** 目印の欄だけを持つオブジェクトから作る */
+        public LiftRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "lift");
+        }
+
+        /** メッセージのスキーマの大版。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null なら欄を除く */
+        public LiftRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null なら欄を除く */
+        public LiftRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null なら欄を除く */
+        public LiftRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        public LiftRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        public LiftRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null なら欄を除く */
+        public LiftRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で図面を開いたもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null なら欄を除く */
+        public LiftRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+    }
+
+    /** 図面モデルのバイナリの blob の番号 */
+    public static final class LiftResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public LiftResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static LiftResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new LiftResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public LiftResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す */
+        public Long getBlob() {
+            return Json.read(json.get("blob"), Json::integer);
+        }
+
+        /** {@link #getBlob()} を書く。null なら欄を除く */
+        public LiftResult withBlob(Long value) {
+            put("blob", value);
+            return this;
+        }
+    }
+
     /** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から */
     public static final class IdsCheckRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -12667,7 +12799,7 @@ public final class Messages {
     }
 
     /**
-     * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）
+     * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -12681,6 +12813,8 @@ public final class Messages {
         public static final String SCENE = "scene";
 
         public static final String ARROW = "arrow";
+
+        public static final String DRAWING = "drawing";
     }
 
     /** zm_session_new に渡す設定。渡さなければ既定の設定 */
@@ -17477,5 +17611,7 @@ public final class Messages {
         public static final String BORING = "boring";
 
         public static final String BUILDING_APPLY = "building_apply";
+
+        public static final String LIFT = "lift";
     }
 }

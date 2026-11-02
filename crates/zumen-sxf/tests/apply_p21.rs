@@ -490,7 +490,7 @@ fn point_markers_are_written_into_p21() {
         point.look,
         PointLook::Marker {
             key: MarkerKey {
-                namespace: "sxf.marker",
+                namespace: "sxf.marker".into(),
                 code: "2".to_owned(),
             },
             scale: 1.5,
@@ -511,7 +511,7 @@ fn point_markers_are_written_into_p21() {
         rotation: 30.0,
         look: PointLook::Marker {
             key: MarkerKey {
-                namespace: "sxf.marker",
+                namespace: "sxf.marker".into(),
                 code: "7".to_owned(),
             },
             scale: 2.0,

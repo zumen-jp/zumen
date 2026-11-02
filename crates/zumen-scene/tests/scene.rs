@@ -438,6 +438,15 @@ fn draws_hatch_pattern_lines_inside_the_rings() {
     let (filled, found) = made(&drawing, &options());
     assert_eq!((filled.counts.faces, filled.counts.lines), (1, 0));
     assert_eq!(found, vec![codes::SCENE_HATCH_PATTERN_APPROXIMATED]);
+    // 線の番号が 1 を足しても変わらないほど大きくても、番号の範囲（1e17〜1e17 + 16）の数だけ引いて止まる
+    drawing.spaces[0].order.clear();
+    let mut far = pattern(1.0, Vec::new());
+    if let Fill::Pattern(pattern) = &mut far {
+        pattern.lines[0].base = [0.0, -1e17];
+    }
+    push(&mut drawing, hatch(far));
+    let (far, _) = made(&drawing, &options());
+    assert!(far.counts.lines <= 17 * 2, "{}", far.counts.lines);
 }
 
 #[test]
@@ -704,6 +713,18 @@ fn tables_without_parts_draw_cells() {
     assert_eq!(scene.counts.lines, 2 + 3 * 2);
     assert_eq!(scene.counts.texts, 3);
     assert_eq!(found, vec![codes::SCENE_TABLE_APPROXIMATED]);
+
+    // 結合の数がいちばん大きくても、表の端までにする。32 ビットの usize では、足すとあふれていた
+    let Some(Shape::Table(table)) = drawing.spaces[0]
+        .elements
+        .last_mut()
+        .map(|element| &mut element.shape)
+    else {
+        panic!("表の要素")
+    };
+    table.cells[3].span = [u32::MAX, u32::MAX];
+    let (scene, _) = made(&drawing, &options());
+    assert_eq!(scene.counts.lines, 2 + 3 * 2);
 }
 
 #[test]

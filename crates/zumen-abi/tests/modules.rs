@@ -66,6 +66,7 @@ fn answers_only_the_ops_of_the_modules_it_has() {
     let enabled = |name: &str| match name {
         "drawing" => cfg!(feature = "drawing"),
         "bim" => cfg!(feature = "bim"),
+        "plugin" => cfg!(feature = "plugin"),
         other => panic!("知らないモジュール {other}"),
     };
     let mut session = Session::new(b"").unwrap();

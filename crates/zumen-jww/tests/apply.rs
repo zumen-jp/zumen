@@ -651,7 +651,7 @@ fn points_are_replaced_transformed_and_added() {
         rotation: 30.0,
         look: PointLook::Marker {
             key: MarkerKey {
-                namespace: "jww.point",
+                namespace: "jww.point".into(),
                 code: "3".to_owned(),
             },
             scale: 2.0,
@@ -692,7 +692,7 @@ fn points_are_replaced_transformed_and_added() {
     let foreign = Point {
         look: PointLook::Marker {
             key: MarkerKey {
-                namespace: "sxf.marker",
+                namespace: "sxf.marker".into(),
                 code: "3".to_owned(),
             },
             scale: 1.0,

@@ -321,6 +321,7 @@ name = "xtask"
 version = "0.2.0"
 dependencies = [
  "serde",
+ "syn",
  "toml",
  "zumen-json",
  "zumen-profile",
