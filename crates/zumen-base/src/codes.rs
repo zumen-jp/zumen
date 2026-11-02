@@ -944,6 +944,77 @@ pub const DEVIATION_CRS_MIXED: Code = Code::new(
     &[],
 );
 
+/// 図面モデルのバイナリの、後の小版で足した欄を読み飛ばした
+///
+/// `drawing.binary-field.dropped`（0.2.0 から）
+pub const DRAWING_BINARY_FIELD_DROPPED: Code = Code::new(
+    "drawing.binary-field.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("minor", ParamType::UInt),
+        Param::new("type", ParamType::Key),
+    ],
+    &["type"],
+);
+
+/// 図面モデルのバイナリの、後の小版で足した区画を読み飛ばした
+///
+/// `drawing.binary-section.dropped`（0.2.0 から）
+pub const DRAWING_BINARY_SECTION_DROPPED: Code = Code::new(
+    "drawing.binary-section.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("minor", ParamType::UInt),
+        Param::new("section", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 図面モデルのバイナリが、この版の知らない列挙の値（後の小版で足した値）を使っているので読めない
+///
+/// `drawing.binary-value.unsupported`（0.2.0 から）
+pub const DRAWING_BINARY_VALUE_UNSUPPORTED: Code = Code::new(
+    "drawing.binary-value.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("minor", ParamType::UInt),
+        Param::new("type", ParamType::Key),
+        Param::new("value", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 図面モデルのバイナリの大版を、このコアが読めない
+///
+/// `drawing.binary-version.unsupported`（0.2.0 から）
+pub const DRAWING_BINARY_VERSION_UNSUPPORTED: Code = Code::new(
+    "drawing.binary-version.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("major", ParamType::UInt),
+        Param::new("supported", ParamType::UInt),
+    ],
+    &[],
+);
+
+/// 図面モデルのバイナリが壊れていて読めない。position は壊れた所のバイト目、reason は壊れ方
+///
+/// `drawing.binary.invalid`（0.2.0 から）
+pub const DRAWING_BINARY_INVALID: Code = Code::new(
+    "drawing.binary.invalid",
+    Severity::Error,
+    None,
+    &[
+        Param::new("position", ParamType::UInt),
+        Param::new("reason", ParamType::Key),
+    ],
+    &[],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -3749,6 +3820,11 @@ pub const ALL: &[Code] = &[
     DELIVERY_FILE_INVALID,
     DELIVERY_NAME_UNSAFE,
     DEVIATION_CRS_MIXED,
+    DRAWING_BINARY_FIELD_DROPPED,
+    DRAWING_BINARY_SECTION_DROPPED,
+    DRAWING_BINARY_VALUE_UNSUPPORTED,
+    DRAWING_BINARY_VERSION_UNSUPPORTED,
+    DRAWING_BINARY_INVALID,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,

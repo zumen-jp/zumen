@@ -25,7 +25,8 @@ libm = { version = "0.2.16", default-features = false }
 zumen-acad = { version = "0.2.0", path = "../zumen-acad" }
 zumen-asbuilt = { version = "0.2.0", path = "../zumen-asbuilt" }
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
+# 図面モデルのバイナリ（決定 0246）で、プラグインが読んだ図面を文書として受け渡す
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", features = ["binary"] }
 # 横と縦の尺度の違うビューの曲線を、用紙の折れ線にする（決定 0238）
 zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }

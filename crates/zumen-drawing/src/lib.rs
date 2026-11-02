@@ -26,6 +26,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Cx, Kind, Ref, Stop};
 
+#[cfg(feature = "binary")]
+pub mod binary;
 mod callout;
 mod change;
 mod dimension;
