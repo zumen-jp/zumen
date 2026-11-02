@@ -12,8 +12,8 @@ publisher = "国土交通省"
 version = "Ver.3.1 第 2 版（2009-06）"
 access = "public"
 url = "https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/"
-checked = "2026-10-24"
-note = "2026-10-24 はサイトにつながらず、Internet Archive の 2026-02-04 の写しで確かめた"
+checked = "2026-11-02"
+note = "本体は LZH の書庫（sxf_v31_r2.lzh）で、概要編・STEP AP202 サブセット編・フィーチャ仕様編・共通既定義要素編・附属書（SFC 編・共通属性セット編・属性付加機構編）・実装規約の PDF を収める。属性ファイル（SAF）は属性付加機構編が定める。サイトの規約は無断の転載と改変を禁じ、HTML 以外のファイルへの直接のリンクを控えるよう求めるが、実装を制限する記述はない"
 
 [specs.sxf_display_r7_12]
 title = "SXF 表示機能及び確認機能要件書（案）"
@@ -80,7 +80,7 @@ version = "IFC2x3 TC1（2007）"
 access = "public"
 url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/"
 checked = "2026-10-31"
-note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-03-27 の写しで確かめた"
+note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-03-27 の写しで確かめた。zumen-jp/zumen#440 で、文書もスキーマも同梱・改変せず、実体と属性の並びなどの事実だけを実装に使うので、この注記の条件に触れないと判断した"
 
 [specs.ifc_4_0_2_1]
 title = "Industry Foundation Classes Version 4.0 - Addendum 2 - Technical Corrigendum 1"
@@ -89,7 +89,7 @@ version = "IFC 4.0.2.1（IFC4 ADD2 TC1。ISO 16739-1:2018 と同じ内容）"
 access = "public"
 url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/"
 checked = "2026-10-31"
-note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた"
+note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた。zumen-jp/zumen#440 で、文書もスキーマも同梱・改変せず、実体と属性の並びなどの事実だけを実装に使うので、この注記の条件に触れないと判断した"
 
 [specs.ids_1_0]
 title = "Information Delivery Specification（IDS）"
@@ -107,7 +107,7 @@ version = "2.1（v2.1、2017-01-16）"
 access = "public"
 url = "https://github.com/buildingSMART/BCF-XML/tree/release_2_1"
 checked = "2026-10-31"
-note = "ブランチ release_2_1 には、ライセンスの記述がない"
+note = "ブランチ release_2_1 には、ライセンスの記述がない。buildingSMART の今の説明は BCF 全体を CC BY-ND 4.0 とし、BCF-XML の LICENSE は 2022-03 に CC BY-NC-ND 4.0 から CC BY-ND 4.0 へ直された。zumen-jp/zumen#440 で、3.0 と同じ扱いで実装してよいと判断した（2026-11-02）"
 
 [specs.bcf_xml_3_0]
 title = "BCF-XML"
@@ -150,7 +150,7 @@ version = "Ver.6.1（2014-04）"
 access = "public"
 url = "https://www.kensetsu-kikin.or.jp/assets/img/database/database27.pdf"
 checked = "2026-10-24"
-note = "最新の版ではない。2015-04 に建築保全センターが承継したあとの版の入手先は見つからなかった"
+note = "最新の版ではない。最終の版は BE-Bridge Ver.7・Stem Ver.10（どちらも 2015-04）。管理は C-CADEC から建築保全センター（2015-04）、BIM ライブラリーコンソーシアム（2015-10）、BIM ライブラリ技術研究組合（BLCJ、2019-08）へ移り、BLCJ は 2026-03-30 に解散を議決した。解散の後の権利の行き先と、Ver.7 の入手先は見つからなかった（2026-11-02）"
 
 [specs.jlandxml_1_8]
 title = "LandXML 1.2 に準じた 3 次元設計データ交換標準（案）（J-LandXML）"
@@ -178,6 +178,24 @@ access = "public"
 url = "https://fgd.gsi.go.jp/otherdata/spec/FGD_DLFileSpecV4.1.pdf"
 checked = "2026-11-01"
 note = "GML のスキーマ（JPGIS2014）も同じ所に置く。データの入手には利用者の登録が要る"
+
+[specs.fgd_dl_5_2]
+title = "基盤地図情報ダウンロードデータファイル仕様書"
+publisher = "国土地理院"
+version = "第 5.2 版（2025-07）"
+access = "public"
+url = "https://service.gsi.go.jp/kiban/app/help/"
+checked = "2026-11-02"
+note = "2025-04-01 に fgd.gsi.go.jp から service.gsi.go.jp/kiban へ移った。2025-07-31 からのデータが使う版で、座標参照系が JGD2011 から JGD2024 に変わる。GML のスキーマは Ver5.1（FGD_GMLSchemaV5.1.zip）に対応する。service.gsi.go.jp はこの作業の環境に 403 を返すので、Internet Archive の 2025-08-14 の写しで確かめた。第 5.3 版もある"
+
+[specs.extdm_furoku7]
+title = "作業規程の準則の付録 7「公共測量標準図式」（数値地形図データファイル仕様を含む）"
+publisher = "国土地理院"
+version = "2026-02 の更新"
+access = "public"
+url = "https://www.gsi.go.jp/gijyutukanri/gijyutukanri41018.html"
+checked = "2026-11-02"
+note = "拡張 DM の今の正本。A1-No.291 の実装規約を改めたもの。技術資料は、特段の記載がなければ PDL 1.0 を準用する"
 
 [specs.citygml_2_0]
 title = "OGC City Geography Markup Language (CityGML) Encoding Standard（OGC 12-019）"
@@ -450,7 +468,7 @@ family = "ifc"
 domains = ["building", "civil"]
 specs = ["ifc_4_3_2", "ifc_2x3_tc1", "ifc_4_0_2_1"]
 rights = "public"
-rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 で、営利の利用との関係を zumen-jp/zumen#440 で確かめる。IFC は buildingSMART International の商標"
+rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標"
 place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（手元でだけ使う）"]
@@ -523,7 +541,7 @@ family = "bcf"
 domains = ["review"]
 specs = ["bcf_xml_2_1", "bcf_xml_3_0", "bcf_api_3_0"]
 rights = "public"
-rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がなく、zumen-jp/zumen#440 で確かめる。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
+rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がないが、3.0 と同じ扱いにする（zumen-jp/zumen#440）。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
 place = "core"
 basis = ["spec"]
 issues = ["zumen-jp/zumen#429"]
@@ -559,9 +577,9 @@ family = "cedxm"
 domains = ["building"]
 specs = ["cedxm"]
 rights = "permission"
-rights-note = "評議会の Q&A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる"
+rights-note = "評議会の Q&A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる。入会は法人が主で、入会金と年会費がそれぞれ 8 万円。オープンソースの実装は見つからない。評議会が公開の実装を認めない限り作らない（zumen-jp/zumen#401、2026-11-02）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141"]
+issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
 
 [[formats.cedxm.evidence]]
 title = "シーデクセマ評議会の Q&A"
@@ -574,9 +592,9 @@ family = "bebridge"
 domains = ["building"]
 specs = ["bebridge_6_1"]
 rights = "unknown"
-rights-note = "Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった"
+rights-note = "Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決し、権利の行き先が分からない。清算人に問い合わせるまで作らない（zumen-jp/zumen#401）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141"]
+issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
 
 [[formats.bebridge.evidence]]
 title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
@@ -589,9 +607,9 @@ family = "stem"
 domains = ["building"]
 specs = []
 rights = "unknown"
-rights-note = "C-CADEC が作り、2015-04 に建築保全センターが承継した。仕様書の入手先と条件は見つからなかった"
+rights-note = "C-CADEC が作り、2015-04 に建築保全センターが承継した。最終の版は Ver.10（2015-04）。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決した。仕様書の入手先と条件は見つからなかった。清算人に問い合わせるまで作らない（zumen-jp/zumen#401）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141"]
+issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
 
 [[formats.stem.evidence]]
 title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
@@ -618,9 +636,14 @@ family = "sima"
 domains = ["civil"]
 specs = []
 rights = "unknown"
-rights-note = "日本測量機器工業会（JSIMA）の公式のページの中身を確かめられなかった。形式の定義書を冊子で頒布したとする二次の資料と、国立国会図書館の JSIMA 203:2000（Ver.02）の記録がある。最新の版・入手の条件・実装の条件は確かめられない"
+rights-note = "日本測量機器工業会（JSIMA）は、JSIMA201:2026「SIMA 測量データ共通フォーマット」（Ver.04.2）などの規格を、会員でない人にも書籍として頒布する（申込書を FAX で送り、先払い）。JPGIS 版の XML Schema（jsima102.xsd）は自由にダウンロードできる。実装を制限する記述は見つからず、オープンソースの小さな実装（MIT・Unlicense）もある。書籍を正規に入手し、利用の条項がないことを確かめてから public にする（zumen-jp/zumen#374、2026-11-02）"
 place = "none"
 issues = ["zumen-jp/zumen#374"]
+
+[[formats.sima.evidence]]
+title = "JSIMA「規格・書籍紹介」"
+url = "https://www.jsima.or.jp/jsima/index.html"
+checked = "2026-11-02"
 
 [[formats.sima.evidence]]
 title = "国立国会図書館サーチの「SIMA 共通フォーマット」JSIMA 203:2000（Ver.02）"
@@ -631,7 +654,7 @@ checked = "2026-11-01"
 name = "拡張 DM（公共測量標準図式数値地形図データファイル）"
 family = "extdm"
 domains = ["geo"]
-specs = ["extdm_a1_291"]
+specs = ["extdm_furoku7", "extdm_a1_291"]
 rights = "public"
 rights-note = "国土地理院が実装規約を技術資料として無償で公開している。技術資料は、特段の記載がなければ公共データ利用規約（PDL 1.0）を準用する。実装を制限する記述はない"
 place = "core"
@@ -649,7 +672,7 @@ checked = "2026-11-01"
 name = "基盤地図情報（GML）"
 family = "fgd"
 domains = ["geo"]
-specs = ["fgd_dl_4_1"]
+specs = ["fgd_dl_5_2", "fgd_dl_4_1"]
 rights = "public"
 rights-note = "国土地理院がファイル仕様書と GML のスキーマを無償で公開している。実装を制限する記述はない。基盤地図情報は測量成果で、データの複製と使用には測量法の承認（基盤地図情報は無償で承認する）が要る場合があるので、データは同梱せず利用者が渡す（決定 0019 のジオイド・モデルと同じ扱い）"
 place = "core"

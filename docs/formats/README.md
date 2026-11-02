@@ -64,7 +64,7 @@
 - 入手の条件: 無償公開
 - 入手先: [BCF-XML](https://github.com/buildingSMART/BCF-XML/tree/release_2_1)
 - 確認日: 2026-10-31
-- 補足: ブランチ release\_2\_1 には、ライセンスの記述がない
+- 補足: ブランチ release\_2\_1 には、ライセンスの記述がない。buildingSMART の今の説明は BCF 全体を CC BY-ND 4.0 とし、BCF-XML の LICENSE は 2022-03 に CC BY-NC-ND 4.0 から CC BY-ND 4.0 へ直された。zumen-jp/zumen#440 で、3.0 と同じ扱いで実装してよいと判断した（2026-11-02）
 
 ### spec-bcf_xml_3_0
 
@@ -84,7 +84,7 @@
 - 入手の条件: 無償公開
 - 入手先: [設備 CAD データ交換仕様 BE-Bridge](https://www.kensetsu-kikin.or.jp/assets/img/database/database27.pdf)
 - 確認日: 2026-10-24
-- 補足: 最新の版ではない。2015-04 に建築保全センターが承継したあとの版の入手先は見つからなかった
+- 補足: 最新の版ではない。最終の版は BE-Bridge Ver.7・Stem Ver.10（どちらも 2015-04）。管理は C-CADEC から建築保全センター（2015-04）、BIM ライブラリーコンソーシアム（2015-10）、BIM ライブラリ技術研究組合（BLCJ、2019-08）へ移り、BLCJ は 2026-03-30 に解散を議決した。解散の後の権利の行き先と、Ver.7 の入手先は見つからなかった（2026-11-02）
 
 ### spec-cedxm
 
@@ -210,6 +210,16 @@
 - 確認日: 2026-11-01
 - 補足: 平成 20 年の作業規程の準則の改正で「公共測量標準図式数値地形図データファイル仕様」に改めた。国土地理院の技術資料は、特段の記載がなければ PDL 1.0 を準用する
 
+### spec-extdm_furoku7
+
+- 名前: 作業規程の準則の付録 7「公共測量標準図式」（数値地形図データファイル仕様を含む）
+- 公開元: 国土地理院
+- 版: 2026-02 の更新
+- 入手の条件: 無償公開
+- 入手先: [作業規程の準則の付録 7「公共測量標準図式」（数値地形図データファイル仕様を含む）](https://www.gsi.go.jp/gijyutukanri/gijyutukanri41018.html)
+- 確認日: 2026-11-02
+- 補足: 拡張 DM の今の正本。A1-No.291 の実装規約を改めたもの。技術資料は、特段の記載がなければ PDL 1.0 を準用する
+
 ### spec-fgd_dl_4_1
 
 - 名前: 基盤地図情報ダウンロードデータファイル仕様書
@@ -219,6 +229,16 @@
 - 入手先: [基盤地図情報ダウンロードデータファイル仕様書](https://fgd.gsi.go.jp/otherdata/spec/FGD_DLFileSpecV4.1.pdf)
 - 確認日: 2026-11-01
 - 補足: GML のスキーマ（JPGIS2014）も同じ所に置く。データの入手には利用者の登録が要る
+
+### spec-fgd_dl_5_2
+
+- 名前: 基盤地図情報ダウンロードデータファイル仕様書
+- 公開元: 国土地理院
+- 版: 第 5.2 版（2025-07）
+- 入手の条件: 無償公開
+- 入手先: [基盤地図情報ダウンロードデータファイル仕様書](https://service.gsi.go.jp/kiban/app/help/)
+- 確認日: 2026-11-02
+- 補足: 2025-04-01 に fgd.gsi.go.jp から service.gsi.go.jp/kiban へ移った。2025-07-31 からのデータが使う版で、座標参照系が JGD2011 から JGD2024 に変わる。GML のスキーマは Ver5.1（FGD\_GMLSchemaV5.1.zip）に対応する。service.gsi.go.jp はこの作業の環境に 403 を返すので、Internet Archive の 2025-08-14 の写しで確かめた。第 5.3 版もある
 
 ### spec-ids_1_0
 
@@ -238,7 +258,7 @@
 - 入手の条件: 無償公開
 - 入手先: [IFC2x Edition 3 Technical Corrigendum 1](https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/)
 - 確認日: 2026-10-31
-- 補足: 文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-03-27 の写しで確かめた
+- 補足: 文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-03-27 の写しで確かめた。zumen-jp/zumen#440 で、文書もスキーマも同梱・改変せず、実体と属性の並びなどの事実だけを実装に使うので、この注記の条件に触れないと判断した
 
 ### spec-ifc_4_0_2_1
 
@@ -248,7 +268,7 @@
 - 入手の条件: 無償公開
 - 入手先: [Industry Foundation Classes Version 4.0 - Addendum 2 - Technical Corrigendum 1](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/)
 - 確認日: 2026-10-31
-- 補足: 文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた
+- 補足: 文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた。zumen-jp/zumen#440 で、文書もスキーマも同梱・改変せず、実体と属性の並びなどの事実だけを実装に使うので、この注記の条件に触れないと判断した
 
 ### spec-ifc_4_3_2
 
@@ -381,8 +401,8 @@
 - 版: Ver.3.1 第 2 版（2009-06）
 - 入手の条件: 無償公開
 - 入手先: [SXF Ver.3.1 仕様書](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)
-- 確認日: 2026-10-24
-- 補足: 2026-10-24 はサイトにつながらず、Internet Archive の 2026-02-04 の写しで確かめた
+- 確認日: 2026-11-02
+- 補足: 本体は LZH の書庫（sxf\_v31\_r2.lzh）で、概要編・STEP AP202 サブセット編・フィーチャ仕様編・共通既定義要素編・附属書（SFC 編・共通属性セット編・属性付加機構編）・実装規約の PDF を収める。属性ファイル（SAF）は属性付加機構編が定める。サイトの規約は無断の転載と改変を禁じ、HTML 以外のファイルへの直接のリンクを控えるよう求めるが、実装を制限する記述はない
 
 ### spec-sxf_display_r7_12
 
@@ -409,7 +429,7 @@
 ### format-bcf
 
 - 名前: BCF
-- 権利の根拠: 3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がなく、zumen-jp/zumen#440 で確かめる。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない
+- 権利の根拠: 3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がないが、3.0 と同じ扱いにする（zumen-jp/zumen#440）。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない
 - 仕様: [bcf\_xml\_2\_1](#spec-bcf_xml_2_1)、[bcf\_xml\_3\_0](#spec-bcf_xml_3_0)、[bcf\_api\_3\_0](#spec-bcf_api_3_0)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm)（確認日: 2026-10-31）
@@ -418,10 +438,11 @@
 ### format-bebridge
 
 - 名前: BE-Bridge
-- 権利の根拠: Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった
+- 権利の根拠: Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決し、権利の行き先が分からない。清算人に問い合わせるまで作らない（zumen-jp/zumen#401）
 - 仕様: [bebridge\_6\_1](#spec-bebridge_6_1)
 - 権利の根拠にした文書: [BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」](https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf)（確認日: 2026-10-24）
 - issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
+- issue: [zumen-jp/zumen#401](https://github.com/zumen-jp/zumen/issues/401)
 
 ### format-boring
 
@@ -437,10 +458,11 @@
 ### format-cedxm
 
 - 名前: CEDXM
-- 権利の根拠: 評議会の Q&amp;A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる
+- 権利の根拠: 評議会の Q&amp;A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる。入会は法人が主で、入会金と年会費がそれぞれ 8 万円。オープンソースの実装は見つからない。評議会が公開の実装を認めない限り作らない（zumen-jp/zumen#401、2026-11-02）
 - 仕様: [cedxm](#spec-cedxm)
 - 権利の根拠にした文書: [シーデクセマ評議会の Q&amp;A](https://www.cedxm.com/about/faq/)（確認日: 2026-10-24）
 - issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
+- issue: [zumen-jp/zumen#401](https://github.com/zumen-jp/zumen/issues/401)
 
 ### format-citygml
 
@@ -524,7 +546,7 @@
 
 - 名前: 拡張 DM（公共測量標準図式数値地形図データファイル）
 - 権利の根拠: 国土地理院が実装規約を技術資料として無償で公開している。技術資料は、特段の記載がなければ公共データ利用規約（PDL 1.0）を準用する。実装を制限する記述はない
-- 仕様: [extdm\_a1\_291](#spec-extdm_a1_291)
+- 仕様: [extdm\_furoku7](#spec-extdm_furoku7)、[extdm\_a1\_291](#spec-extdm_a1_291)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土地理院の技術資料の利用規約](https://www.gsi.go.jp/REPORT/TECHNICAL/riyoukiyaku_gijutsushiryou.html)（確認日: 2026-11-01）
 - 照合するソフト: 基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）
@@ -535,7 +557,7 @@
 
 - 名前: 基盤地図情報（GML）
 - 権利の根拠: 国土地理院がファイル仕様書と GML のスキーマを無償で公開している。実装を制限する記述はない。基盤地図情報は測量成果で、データの複製と使用には測量法の承認（基盤地図情報は無償で承認する）が要る場合があるので、データは同梱せず利用者が渡す（決定 0019 のジオイド・モデルと同じ扱い）
-- 仕様: [fgd\_dl\_4\_1](#spec-fgd_dl_4_1)
+- 仕様: [fgd\_dl\_5\_2](#spec-fgd_dl_5_2)、[fgd\_dl\_4\_1](#spec-fgd_dl_4_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土地理院「測量成果の複製・使用承認の Q&amp;A」](https://www.gsi.go.jp/LAW/2930-qa.html)（確認日: 2026-11-01）
 - 照合するソフト: 基盤地図情報ビューアー・QGIS
@@ -557,7 +579,7 @@
 ### format-ifc
 
 - 名前: IFC
-- 権利の根拠: 文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 で、営利の利用との関係を zumen-jp/zumen#440 で確かめる。IFC は buildingSMART International の商標
+- 権利の根拠: 文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標
 - 仕様: [ifc\_4\_3\_2](#spec-ifc_4_3_2)、[ifc\_2x3\_tc1](#spec-ifc_2x3_tc1)、[ifc\_4\_0\_2\_1](#spec-ifc_4_0_2_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）](https://github.com/buildingSMART/IFC4.x-development/blob/master/content/cover.md)（確認日: 2026-10-24）
@@ -709,8 +731,9 @@
 ### format-sima
 
 - 名前: SIMA 共通フォーマット
-- 権利の根拠: 日本測量機器工業会（JSIMA）の公式のページの中身を確かめられなかった。形式の定義書を冊子で頒布したとする二次の資料と、国立国会図書館の JSIMA 203:2000（Ver.02）の記録がある。最新の版・入手の条件・実装の条件は確かめられない
+- 権利の根拠: 日本測量機器工業会（JSIMA）は、JSIMA201:2026「SIMA 測量データ共通フォーマット」（Ver.04.2）などの規格を、会員でない人にも書籍として頒布する（申込書を FAX で送り、先払い）。JPGIS 版の XML Schema（jsima102.xsd）は自由にダウンロードできる。実装を制限する記述は見つからず、オープンソースの小さな実装（MIT・Unlicense）もある。書籍を正規に入手し、利用の条項がないことを確かめてから public にする（zumen-jp/zumen#374、2026-11-02）
 - 仕様: 登録なし
+- 権利の根拠にした文書: [JSIMA「規格・書籍紹介」](https://www.jsima.or.jp/jsima/index.html)（確認日: 2026-11-02）
 - 権利の根拠にした文書: [国立国会図書館サーチの「SIMA 共通フォーマット」JSIMA 203:2000（Ver.02）](https://iss.ndl.go.jp/books/R100000002-I000009976754-00)（確認日: 2026-11-01）
 - issue: [zumen-jp/zumen#374](https://github.com/zumen-jp/zumen/issues/374)
 
@@ -733,10 +756,11 @@
 ### format-stem
 
 - 名前: Stem（設備機器ライブラリデータ交換仕様）
-- 権利の根拠: C-CADEC が作り、2015-04 に建築保全センターが承継した。仕様書の入手先と条件は見つからなかった
+- 権利の根拠: C-CADEC が作り、2015-04 に建築保全センターが承継した。最終の版は Ver.10（2015-04）。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決した。仕様書の入手先と条件は見つからなかった。清算人に問い合わせるまで作らない（zumen-jp/zumen#401）
 - 仕様: 登録なし
 - 権利の根拠にした文書: [BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」](https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf)（確認日: 2026-10-24）
 - issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
+- issue: [zumen-jp/zumen#401](https://github.com/zumen-jp/zumen/issues/401)
 
 ### format-sxf
 
