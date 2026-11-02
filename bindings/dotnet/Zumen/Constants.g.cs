@@ -22,7 +22,7 @@ namespace Zumen
         public const uint SchemaMajor = 1;
 
         /// <summary>メッセージのスキーマの小版</summary>
-        public const uint SchemaMinor = 59;
+        public const uint SchemaMinor = 60;
     }
 
     /// <summary>状態コード。知らない値も、そのまま持てる</summary>

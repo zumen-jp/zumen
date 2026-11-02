@@ -1,6 +1,6 @@
 # プラグインのひな形
 
-zumen の外部のリポジトリに置く形式（プラグイン）のひな形（[決定 0017](../../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0243](../../docs/decisions/0243-plugin-bundling.md)・[決定 0246](../../docs/decisions/0246-drawing-model-binary.md)）。このリポジトリでは、試験のための形式「zumen の線分の一覧」（`zumen_lines`）で、3 つの束ね方を確かめる。
+zumen の外部のリポジトリに置く形式（プラグイン）のひな形（[決定 0017](../../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0243](../../docs/decisions/0243-plugin-bundling.md)・[決定 0247](../../docs/decisions/0247-drawing-model-binary.md)）。このリポジトリでは、試験のための形式「zumen の線分の一覧」（`zumen_lines`）で、3 つの束ね方を確かめる。
 
 | ファイル | 中身 |
 | --- | --- |

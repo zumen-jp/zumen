@@ -102,7 +102,7 @@ pub struct Session {
 }
 
 /// 開いた文書。形式ごとのファイルモデル（L1）を持つ。コアの形式は `drawing` の feature で持ち、プラグインのモジュール
-/// （決定 0246）には、コアのコーデックを入れない
+/// （決定 0247）には、コアのコーデックを入れない
 #[derive(Debug)]
 enum Doc {
     #[cfg(feature = "drawing")]
@@ -116,7 +116,7 @@ enum Doc {
     Jww(JwwFile),
     /// プラグインの形式（決定 0243）。読むだけで、図面モデルを持つ
     Plugin(Registration, Drawing2D),
-    /// 図面モデルのバイナリ（決定 0246）。lift が書いた図面を、元の文書の形式・系統のまま、読むだけの文書にする
+    /// 図面モデルのバイナリ（決定 0247）。lift が書いた図面を、元の文書の形式・系統のまま、読むだけの文書にする
     Lifted(binary::Source, Drawing2D),
 }
 
@@ -202,7 +202,7 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 /// （決定 0007・0008）。入力の大きさは、コーデックが確かめる
 #[cfg(feature = "drawing")]
 fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
-    // 図面モデルのバイナリ（決定 0246）。始まりの 4 バイトは、コアのどの形式とも重ならない
+    // 図面モデルのバイナリ（決定 0247）。始まりの 4 バイトは、コアのどの形式とも重ならない
     if binary::matches(bytes) {
         let (source, drawing) = binary::read(bytes, cx).map_err(|_| Failed)?;
         return Ok(Some(Doc::Lifted(source, drawing)));
@@ -623,7 +623,7 @@ impl Session {
         }
         #[cfg(feature = "drawing")]
         let doc = read_drawing(bytes, cx)?;
-        // プラグインのモジュールは、プラグインの形式だけを読む（決定 0246）
+        // プラグインのモジュールは、プラグインの形式だけを読む（決定 0247）
         #[cfg(all(feature = "plugin", not(feature = "drawing")))]
         let doc = read_plugin(bytes, cx)?;
         #[cfg(any(feature = "drawing", feature = "plugin"))]
@@ -960,7 +960,7 @@ impl Session {
         let mut bytes = Vec::new();
         let mut ids_shifted = false;
         let (applied, hash) = match doc {
-            // プラグインの文書と図面モデルのバイナリは、書き戻せない（決定 0243・0246）
+            // プラグインの文書と図面モデルのバイナリは、書き戻せない（決定 0243・0247）
             Doc::Plugin(..) | Doc::Lifted(..) => {
                 return Err(fail(cx, unsupported(&request.doc, self.op)));
             }
@@ -1063,7 +1063,7 @@ impl Session {
         })
     }
 
-    /// 文書を図面モデルに変換し、図面モデルのバイナリ（決定 0246）を blob で返す。元の文書の形式・系統・ハッシュも書く
+    /// 文書を図面モデルに変換し、図面モデルのバイナリ（決定 0247）を blob で返す。元の文書の形式・系統・ハッシュも書く
     fn lift_binary(
         &mut self,
         request: &LiftRequest,
@@ -2603,7 +2603,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":59}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":60}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

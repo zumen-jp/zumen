@@ -1,4 +1,4 @@
-# 図面モデル（L2）のバイナリの型の契約（決定 0246）。
+# 図面モデル（L2）のバイナリの型の契約（決定 0247）。
 #
 # `cargo xtask codegen` が、図面モデル（crates/zumen-drawing）の型から書き、読み書き
 # （crates/zumen-drawing/src/binary/generated.rs）を作る。手で直すのは、大版を上げるときだけ。

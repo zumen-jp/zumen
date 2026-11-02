@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
 schema-major = 1
 # メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
-schema-minor = 59
+schema-minor = 60
 
 # 状態コード。理由は応答の診断で返す
 
@@ -166,7 +166,7 @@ ops = [
     "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply",
 ]
 
-# プラグインのモジュールの土台（決定 0246）。プラグインの crate と一緒に作り、コアの形式は持たない。読んだ図面は、
+# プラグインのモジュールの土台（決定 0247）。プラグインの crate と一緒に作り、コアの形式は持たない。読んだ図面は、
 # lift で図面モデルのバイナリにして、図面のモジュールの open に渡す
 [[modules]]
 name = "plugin"

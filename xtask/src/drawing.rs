@@ -1,4 +1,4 @@
-//! 図面モデル（L2）のバイナリの読み書きを、図面モデルの型から作る（決定 0246）。
+//! 図面モデル（L2）のバイナリの読み書きを、図面モデルの型から作る（決定 0247）。
 //!
 //! `crates/zumen-drawing/src` の型の定義を読み、`Drawing2D` と `Source` からたどれる型を集める。型の契約
 //! （`schema/drawing.toml`）と突き合わせ、足した型・欄・値を後ろに足して小版を上げる。消した欄と値、型を変えた欄は、
@@ -1140,7 +1140,7 @@ fn field_line(field: &Field, owner: u16) -> String {
 
 fn render_contract(major: u16, minor: u16, types: &[Type]) -> String {
     let mut out = String::from(
-        "# 図面モデル（L2）のバイナリの型の契約（決定 0246）。\n\
+        "# 図面モデル（L2）のバイナリの型の契約（決定 0247）。\n\
          #\n\
          # `cargo xtask codegen` が、図面モデル（crates/zumen-drawing）の型から書き、読み書き\n\
          # （crates/zumen-drawing/src/binary/generated.rs）を作る。手で直すのは、大版を上げるときだけ。\n\
@@ -1341,7 +1341,7 @@ fn render_type(out: &mut String, ty: &Type) {
 
 fn render_rust(major: u16, minor: u16, types: &[Type]) -> String {
     let mut out = String::from(
-        "// 生成したファイル。手で直さない。`cargo xtask codegen` が、図面モデルの型と schema/drawing.toml から作る（決定 0246）。\n\n\
+        "// 生成したファイル。手で直さない。`cargo xtask codegen` が、図面モデルの型と schema/drawing.toml から作る（決定 0247）。\n\n\
          use super::{Input, Pack, Unpack, Writer};\n\n",
     );
     let _ = writeln!(

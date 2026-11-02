@@ -7,7 +7,7 @@
 | `boundary.toml` | 版（ABI・メッセージのスキーマ）、状態コード、関数とその引数 | `bindings/c/include/zumen.h`、`crates/zumen-abi/src/abi.rs`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen/constants.py`、`bindings/dotnet/Zumen/Constants.g.cs` |
 | `messages.json` | 要求・応答・op ごとの欄・診断・セッションの設定・カタログの形（JSON Schema 2020-12） | `crates/zumen-abi/src/messages.rs`、`bindings/js/src/messages.d.ts`、`bindings/python/zumen/messages.py`、`bindings/dotnet/Zumen/Messages.g.cs`、`bindings/cli/src/tools.json`（MCP の道具） |
 | `scene.toml` | シーンの blob の配置（区画と値の組） | `crates/zumen-scene/src/layout.rs`、`bindings/c/include/zumen_scene.h`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen/constants.py`、`bindings/dotnet/Zumen/Constants.g.cs` |
-| `drawing.toml` | 図面モデル（L2）のバイナリの型の契約（型ごとの欄と値の並びと、版。[決定 0246](../docs/decisions/0246-drawing-model-binary.md)）。生成器が図面モデルの型から書き足す | `crates/zumen-drawing/src/binary/generated.rs` |
+| `drawing.toml` | 図面モデル（L2）のバイナリの型の契約（型ごとの欄と値の並びと、版。[決定 0247](../docs/decisions/0247-drawing-model-binary.md)）。生成器が図面モデルの型から書き足す | `crates/zumen-drawing/src/binary/generated.rs` |
 
 生成したファイルもコミットします。CI の `cargo xtask codegen --check` が、元と合わないものを見つけます。
 

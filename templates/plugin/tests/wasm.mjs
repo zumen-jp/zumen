@@ -1,4 +1,4 @@
-// プラグインの形式だけを持つ wasm のモジュールを、JavaScript の包みの loadModules で呼ぶ（#399・#481、決定 0243・0246）。
+// プラグインの形式だけを持つ wasm のモジュールを、JavaScript の包みの loadModules で呼ぶ（#399・#481、決定 0243・0247）。
 //
 // 使い方: node templates/plugin/tests/wasm.mjs <zumen_plugin_template.wasm> <drawing.wasm>
 //

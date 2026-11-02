@@ -18,7 +18,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 default = ["drawing", "bim"]
 drawing = []
 bim = []
-# プラグインのモジュールの土台（決定 0246）。プラグインの形式だけを読み、lift で図面モデルのバイナリにする
+# プラグインのモジュールの土台（決定 0247）。プラグインの形式だけを読み、lift で図面モデルのバイナリにする
 plugin = []
 
 [dependencies]
@@ -27,7 +27,7 @@ libm = { version = "0.2.16", default-features = false }
 zumen-acad = { version = "0.2.0", path = "../zumen-acad" }
 zumen-asbuilt = { version = "0.2.0", path = "../zumen-asbuilt" }
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
-# 図面モデルのバイナリ（決定 0246）で、プラグインが読んだ図面を文書として受け渡す
+# 図面モデルのバイナリ（決定 0247）で、プラグインが読んだ図面を文書として受け渡す
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", features = ["binary"] }
 # 横と縦の尺度の違うビューの曲線を、用紙の折れ線にする（決定 0238）
 zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
@@ -63,7 +63,7 @@ zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [dev-dependencies]
-# 試験で、乱数の図面モデルをバイナリにして渡す（決定 0246）
+# 試験で、乱数の図面モデルをバイナリにして渡す（決定 0247）
 zumen-drawing = { path = "../zumen-drawing", features = ["random"] }
 
 [lints]

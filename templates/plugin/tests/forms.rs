@@ -1,5 +1,5 @@
 //! プラグインを、Rust で束ねる形と、「コアとプラグイン」の CLI を `process` の形で使う形で呼ぶ（#399）。読んだ
-//! 図面を図面モデルのバイナリで別のセッションに渡す形も確かめる（決定 0246）。wasm の別のモジュールの形は、
+//! 図面を図面モデルのバイナリで別のセッションに渡す形も確かめる（決定 0247）。wasm の別のモジュールの形は、
 //! `tests/wasm.mjs` で確かめる。
 
 use zumen_abi1::{Session, Status};
@@ -100,7 +100,7 @@ fn the_core_and_plugin_cli_serves_the_process_form() {
 }
 
 /// 読んだ図面を lift で図面モデルのバイナリにし、別のセッション（wasm では図面のモジュール）で開いても、同じ
-/// 答えになる（決定 0246）
+/// 答えになる（決定 0247）
 #[test]
 fn the_lifted_drawing_answers_alike_in_another_session() {
     zumen_abi1::install(PLUGINS);

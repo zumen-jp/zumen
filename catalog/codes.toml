@@ -684,7 +684,7 @@ group-by = ["id"]
 since = "0.0.0"
 status = "active"
 
-# 図面モデルのバイナリ（決定 0246）
+# 図面モデルのバイナリ（決定 0247）
 
 [codes."drawing.binary.invalid"]
 description = "図面モデルのバイナリが壊れていて読めない。position は壊れた所のバイト目、reason は壊れ方"

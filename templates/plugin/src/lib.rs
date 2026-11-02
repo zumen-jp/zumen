@@ -14,7 +14,7 @@
 //!
 //! - Rust: この crate を依存に足し、[`zumen_abi1::install`] に [`PLUGINS`] を渡してからセッションを作る。
 //! - wasm: この crate を `wasm32-unknown-unknown` に向けて作ると、プラグインの形式だけを持つモジュールになる
-//!   （決定 0246）。コアのモジュールと同じ境界の関数に `zm_plugin_init` を足して出し、op は capabilities・open・
+//!   （決定 0247）。コアのモジュールと同じ境界の関数に `zm_plugin_init` を足して出し、op は capabilities・open・
 //!   close・describe・lift だけを持つ。読んだ図面は、lift で図面モデルのバイナリにし、コアの図面のモジュールの
 //!   open に渡す。JavaScript の包みは、読み込んだときに `zm_plugin_init` を呼ぶ。
 //! - ネイティブで呼ぶ言語: この crate の実行ファイル（`src/main.rs`）が「コアとプラグイン」の CLI になる。各言語

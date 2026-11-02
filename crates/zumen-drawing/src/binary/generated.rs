@@ -1,4 +1,4 @@
-// 生成したファイル。手で直さない。`cargo xtask codegen` が、図面モデルの型と schema/drawing.toml から作る（決定 0246）。
+// 生成したファイル。手で直さない。`cargo xtask codegen` が、図面モデルの型と schema/drawing.toml から作る（決定 0247）。
 
 use super::{Input, Pack, Unpack, Writer};
 
