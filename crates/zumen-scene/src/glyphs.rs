@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Ref, Stop, codes};
 use zumen_drawing::font::{Contour, Font as Face, Segment};
-use zumen_drawing::layout::{self, FontMetrics, Glyphs, Reference};
+use zumen_drawing::layout::{self, Glyphs, Reference};
 use zumen_drawing::transform::Point as Spot;
 use zumen_drawing::{
     FormattedText, Height, HeightMeaning, Horizontal, Length, PaperLength, Piece, Placement, Text,
@@ -54,7 +54,8 @@ impl<'a> FontSet<'a> {
     }
 
     /// 形式の宣言値の高さ（`HeightMeaning::Declared` のキー）が、フォントのどの寸法に当たるかを決める。
-    /// 決めないキーは大文字の高さとみなし、`scene.text-height.assumed` を返す
+    /// 決めないキーは、表示と比べて決めた意味（`dxf.TEXT.40` は `A` の字形の上）にし、それもなければ
+    /// 大文字の高さとみなして `scene.text-height.assumed` を返す
     pub fn declare(&mut self, key: &str, reference: Reference) {
         self.heights.insert(key.to_owned(), reference);
     }
@@ -153,21 +154,12 @@ fn advanced([a, b, c, d, e, f]: [f64; 6], pen: f64) -> [f64; 6] {
     [a, b, c, d, a * pen + e, b * pen + f]
 }
 
-/// 高さの意味に当たるフォントの寸法
-fn unit(reference: Reference, metrics: &FontMetrics) -> f64 {
-    match reference {
-        Reference::CapHeight => metrics.cap_height,
-        Reference::Em => metrics.units_per_em,
-        Reference::Frame => metrics.ascent + metrics.descent,
-    }
-}
-
-/// 高さの意味。図面モデルの値を、置き方に渡す形にする
-fn meaning(reference: Reference) -> HeightMeaning {
-    match reference {
-        Reference::CapHeight => HeightMeaning::CapHeight,
-        Reference::Em => HeightMeaning::Em,
-        Reference::Frame => HeightMeaning::Frame,
+/// 表示と比べて決めた、形式の宣言値の高さの意味。呼び出し側が決めなければこれを使う
+fn known(key: &str) -> Option<Reference> {
+    match key {
+        // AutoCAD 2027 で、TrueType の TEXT の高さは `A` の字形の上に当たる（決定 0246）
+        "dxf.TEXT.40" => Some(Reference::CapitalA),
+        _ => None,
     }
 }
 
@@ -274,23 +266,25 @@ pub(crate) fn flatten(contours: &[Contour], tolerance: f64) -> Vec<Vec<Xy>> {
 }
 
 impl Builder<'_, '_, '_> {
-    /// 高さの意味に当たる寸法。決めていない宣言値は大文字の高さとみなす
+    /// 高さの意味に当たる寸法。決めていない宣言値は、表示と比べて決めた意味か、大文字の高さとみなす
     fn reference(&mut self, height: &Height, source: &Ref) -> Reference {
         match height.meaning {
             HeightMeaning::CapHeight => Reference::CapHeight,
             HeightMeaning::Em => Reference::Em,
             HeightMeaning::Frame => Reference::Frame,
-            HeightMeaning::Declared(key) => match self.fonts.heights.get(key) {
-                Some(reference) => *reference,
-                None => {
-                    self.cx.report(
-                        Diagnostic::new(codes::SCENE_TEXT_HEIGHT_ASSUMED)
-                            .with("key", key)
-                            .at(source.clone()),
-                    );
-                    Reference::CapHeight
+            HeightMeaning::Declared(key) => {
+                match self.fonts.heights.get(key).copied().or(known(key)) {
+                    Some(reference) => reference,
+                    None => {
+                        self.cx.report(
+                            Diagnostic::new(codes::SCENE_TEXT_HEIGHT_ASSUMED)
+                                .with("key", key)
+                                .at(source.clone()),
+                        );
+                        Reference::CapHeight
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -383,11 +377,10 @@ impl Builder<'_, '_, '_> {
         let reference = self.reference(&text.height, &source);
         let mut laid_text = text.clone();
         laid_text.content = decoded(&text.content, &text.height, true);
-        laid_text.height.meaning = meaning(reference);
         let fonts = self.fonts;
         let laid = match fonts.at(index) {
-            Some(face) => layout::place(&laid_text, |p| p.xy(), face, |_| None)
-                .map(|laid| (laid, unit(reference, &face.metrics()), face.metrics())),
+            Some(face) => layout::place(&laid_text, |p| p.xy(), face, |_| Some(reference))
+                .map(|laid| (laid, layout::unit(reference, face), face.metrics())),
             None => return Ok(()),
         };
         let Ok((laid, unit_value, metrics)) = laid else {
@@ -459,7 +452,6 @@ impl Builder<'_, '_, '_> {
                 _ => {}
             }
         }
-        laid_text.height.meaning = meaning(reference);
         let fonts = self.fonts;
         let Some(base_face) = fonts.at(base) else {
             return Ok(None);
@@ -470,7 +462,8 @@ impl Builder<'_, '_, '_> {
             base: base_face,
             vertical,
         };
-        let Ok(laid) = layout::place_formatted(&laid_text, |p| p.xy(), &span_fonts, |_| None)
+        let Ok(laid) =
+            layout::place_formatted(&laid_text, |p| p.xy(), &span_fonts, |_| Some(reference))
         else {
             self.unplaced(&source);
             return Ok(None);
@@ -495,7 +488,7 @@ impl Builder<'_, '_, '_> {
                     _ => None,
                 })
                 .collect(),
-            ratio: metrics.cap_height / unit(reference, &metrics),
+            ratio: metrics.cap_height / layout::unit(reference, base_face),
         };
         for glyph in &laid.glyphs {
             let index = faces.get(glyph.span).copied().unwrap_or(base);
@@ -549,10 +542,7 @@ impl Builder<'_, '_, '_> {
         let reference = self.reference(&declared, source);
         let text = Text {
             content: content.to_owned(),
-            height: Height {
-                value: declared.value,
-                meaning: meaning(reference),
-            },
+            height: declared,
             placement: Placement::Anchor {
                 point: at,
                 horizontal: Horizontal::Left,
@@ -567,8 +557,8 @@ impl Builder<'_, '_, '_> {
         };
         let fonts = self.fonts;
         let laid = match fonts.at(index) {
-            Some(face) => layout::place(&text, |p| *p, face, |_| None)
-                .map(|laid| (laid, unit(reference, &face.metrics()), face.metrics())),
+            Some(face) => layout::place(&text, |p| *p, face, |_| Some(reference))
+                .map(|laid| (laid, layout::unit(reference, face), face.metrics())),
             None => return Ok(()),
         };
         let Ok((laid, unit_value, metrics)) = laid else {

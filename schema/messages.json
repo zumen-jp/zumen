@@ -1371,7 +1371,7 @@
           "items": { "$ref": "#/$defs/scene_font" }
         },
         "heights": {
-          "description": "形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から",
+          "description": "形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/height_reference" }
         }
@@ -1399,9 +1399,9 @@
       "additionalProperties": false
     },
     "height_reference": {
-      "description": "宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ",
+      "description": "宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）",
       "type": "string",
-      "enum": ["cap_height", "em", "frame"]
+      "enum": ["cap_height", "em", "frame", "capital_a"]
     },
     "scene_result": {
       "description": "シーンの要約と、シーンの blob の番号",

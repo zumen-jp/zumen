@@ -4089,7 +4089,7 @@ public struct SceneRequest: Message {
         set { writeField("fonts", newValue) }
     }
 
-    /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+    /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
     public var heights: [String: String]? {
         get { readField("heights") }
         set { writeField("heights", newValue) }
@@ -4130,13 +4130,14 @@ public struct SceneFont: Message {
     }
 }
 
-/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ
+/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
 ///
 /// 列挙の値。知らない値も受け取る
 public enum HeightReference {
     public static let capHeight = "cap_height"
     public static let em = "em"
     public static let frame = "frame"
+    public static let capitalA = "capital_a"
 }
 
 /// シーンの要約と、シーンの blob の番号

@@ -120,6 +120,7 @@ pub(crate) fn reference(value: HeightReference) -> Reference {
         HeightReference::CapHeight => Reference::CapHeight,
         HeightReference::Em => Reference::Em,
         HeightReference::Frame => Reference::Frame,
+        HeightReference::CapitalA => Reference::CapitalA,
     }
 }
 

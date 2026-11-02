@@ -3,12 +3,13 @@
 //! フォントは同梱せず、[`Glyphs`] で寸法だけを受け取る（決定 0022）。結果は、字形の単位の座標を
 //! 図面の座標へ写すアフィン変換と、文字ごとの送りの位置で返す。字形の輪郭は扱わない。
 //!
-//! 位置合わせの規則は、DXF の TEXT（72・73）の説明と旧版の知見から推定したもので、AutoCAD・Jw_cad の
-//! 表示とはまだ比べていない。
+//! 位置合わせの規則は、DXF の TEXT（72・73）の説明から推定し、AutoCAD 2027 の表示と比べて確かめた
+//! （決定 0246）。Jw_cad の表示とはまだ比べていない。
 //!
 //! - 左・中央・右は、送りの合計の 0・半分・全部の位置。外形の中央（[`Horizontal::Middle`]）は、
-//!   字形の外形の中央で、縦も外形の中央にする。
-//! - 基準線・下・中央・上は、基準線・ディセンダーの線・大文字の高さの半分・大文字の高さの線。
+//!   横は送りの合計の半分、縦は字形の外形の中央にする。
+//! - 基準線・下・中央・上は、基準線・ディセンダーの線・大文字の高さの半分・大文字の高さの線。高さが
+//!   [`Reference::CapitalA`] に当たるなら、大文字の高さに `A` の字形の外形の上を使う。
 //! - 2 点の間は、送りの合計が 2 点の距離になるよう幅を変え、Aligned は高さも同じ比で変える。
 //! - 斜体は字形にだけ当て、位置合わせは斜体を当てる前の寸法で決める。左右・上下の反転は、
 //!   置く点（2 点の間では 2 点の中点）のまわりで当てる。
@@ -110,6 +111,9 @@ pub enum Reference {
     Em,
     /// アセンダーとディセンダーを合わせた高さ
     Frame,
+    /// `A` の字形の外形の上。`A` がないか外形を持たなければ、大文字の高さ。AutoCAD の TrueType の
+    /// TEXT の高さ（決定 0246）
+    CapitalA,
 }
 
 /// 置いた結果
@@ -149,7 +153,11 @@ pub fn place<P>(
 ) -> Result<Laid, Unplaced> {
     let metrics = font.metrics();
     let reference = reference(&text.height.meaning, declared)?;
-    let scale = length(&text.height.value) / unit(reference, &metrics);
+    let scale = length(&text.height.value) / unit(reference, font);
+    let cap = match reference {
+        Reference::CapitalA => unit(reference, font),
+        _ => metrics.cap_height,
+    };
     if !positive(scale) || !positive(text.width_factor) || !finite(&metrics) {
         return Err(Unplaced::Degenerate);
     }
@@ -165,21 +173,18 @@ pub fn place<P>(
             vertical,
         } => {
             let width = advance * sx;
-            let ink_center = ink.map(|[l, b, r, t]| [(l + r) / 2.0 * sx, (b + t) / 2.0 * sy]);
+            let ink_middle = ink.map(|[_, b, _, t]| (b + t) / 2.0 * sy);
             let x = match *horizontal {
                 Horizontal::Left => 0.0,
-                Horizontal::Center => width / 2.0,
+                Horizontal::Center | Horizontal::Middle => width / 2.0,
                 Horizontal::Right => width,
-                Horizontal::Middle => ink_center.map_or(width / 2.0, |[x, _]| x),
             };
             let y = match (*horizontal, *vertical) {
-                (Horizontal::Middle, _) => {
-                    ink_center.map_or(metrics.cap_height / 2.0 * sy, |[_, y]| y)
-                }
+                (Horizontal::Middle, _) => ink_middle.unwrap_or(cap / 2.0 * sy),
                 (_, Vertical::Baseline) => 0.0,
                 (_, Vertical::Bottom) => -metrics.descent * sy,
-                (_, Vertical::Middle) => metrics.cap_height / 2.0 * sy,
-                (_, Vertical::Top) => metrics.cap_height * sy,
+                (_, Vertical::Middle) => cap / 2.0 * sy,
+                (_, Vertical::Top) => cap * sy,
             };
             let radians = text.rotation.to_radians();
             (xy(point), [x, y], (libm::sin(radians), libm::cos(radians)))
@@ -350,7 +355,7 @@ pub fn place_formatted<P>(
     let reference = reference(&text.height.meaning, declared)?;
     let height = length(&text.height.value);
     let base = fonts.base().metrics();
-    let base_scale = height / unit(reference, &base);
+    let base_scale = height / unit(reference, fonts.base());
     let spacing = text.line_spacing.factor;
     if !positive(base_scale) || !finite(&base) || !positive(spacing) {
         return Err(Unplaced::Degenerate);
@@ -753,7 +758,7 @@ impl SpanRun {
         let width = scaled(format.width_factor);
         let tracking = scaled(format.tracking);
         let oblique = format.oblique.unwrap_or(0.0);
-        let sy = height / unit(reference, &metrics);
+        let sy = height / unit(reference, font);
         if !positive(sy)
             || !finite(&metrics)
             || !positive(width)
@@ -1296,11 +1301,16 @@ fn reference(
 }
 
 /// 宣言された高さに当たる、フォントの寸法（字形の単位）
-fn unit(reference: Reference, metrics: &FontMetrics) -> f64 {
+pub fn unit(reference: Reference, font: &(impl Glyphs + ?Sized)) -> f64 {
+    let metrics = font.metrics();
     match reference {
         Reference::CapHeight => metrics.cap_height,
         Reference::Em => metrics.units_per_em,
         Reference::Frame => metrics.ascent + metrics.descent,
+        Reference::CapitalA => font
+            .glyph('A')
+            .and_then(|glyph| glyph.bounds)
+            .map_or(metrics.cap_height, |[_, _, _, top]| top),
     }
 }
 
@@ -1424,8 +1434,8 @@ mod tests {
             (Horizontal::Left, Vertical::Bottom, [0.0, -2.0]),
             (Horizontal::Center, Vertical::Middle, [5.5, 3.5]),
             (Horizontal::Right, Vertical::Top, [11.0, 7.0]),
-            // 外形は 0〜1050 × -200〜700 なので、中央は 5.25・2.5
-            (Horizontal::Middle, Vertical::Baseline, [5.25, 2.5]),
+            // 横は送りの合計の半分、縦は外形（-200〜700）の中央（AutoCAD 2027 と同じ。決定 0246）
+            (Horizontal::Middle, Vertical::Baseline, [5.5, 2.5]),
         ];
         for (horizontal, vertical, offset) in cases {
             let laid = laid(&text("Ag", anchor([100.0, 50.0], horizontal, vertical)));
@@ -1535,6 +1545,68 @@ mod tests {
         )
         .unwrap();
         assert_eq!(laid.scale, [0.01, 0.01]);
+    }
+
+    /// `A` の上が大文字の高さより高いフォント。ほかは [`Synthetic`] と同じ
+    struct TallA;
+
+    impl Glyphs for TallA {
+        fn metrics(&self) -> FontMetrics {
+            Synthetic.metrics()
+        }
+
+        fn glyph(&self, ch: char) -> Option<Glyph> {
+            match ch {
+                'A' => Some(Glyph {
+                    advance: 600.0,
+                    bounds: Some([0.0, 0.0, 600.0, 875.0]),
+                }),
+                _ => Synthetic.glyph(ch),
+            }
+        }
+
+        fn fallback(&self) -> Glyph {
+            Synthetic.fallback()
+        }
+    }
+
+    #[test]
+    fn capital_a_maps_the_height_to_the_top_of_a() {
+        // AutoCAD 2027 の TrueType の TEXT は、高さを `A` の上に当て、上と中央もその高さで決める
+        // （Times New Roman では大文字の高さ 1356 でなく `A` の 1387。決定 0246）
+        let mut text = text("Ag", anchor([0.0, 0.0], Horizontal::Left, Vertical::Top));
+        text.height.meaning = HeightMeaning::Declared("dxf.TEXT.40");
+        let declared = |_| Some(Reference::CapitalA);
+        let laid = place(&text, |p| *p, &TallA, declared).unwrap();
+        assert_eq!(laid.scale, [0.008, 0.008]);
+        assert_near(map(&laid, [0.0, 875.0]), [0.0, 0.0]);
+        text.placement = anchor([0.0, 0.0], Horizontal::Right, Vertical::Middle);
+        let laid = place(&text, |p| *p, &TallA, declared).unwrap();
+        assert_near(map(&laid, [1100.0, 437.5]), [0.0, 0.0]);
+        // 下はディセンダーの線のまま
+        text.placement = anchor([0.0, 0.0], Horizontal::Left, Vertical::Bottom);
+        let laid = place(&text, |p| *p, &TallA, declared).unwrap();
+        assert_near(map(&laid, [0.0, -200.0]), [0.0, 0.0]);
+        // `A` がないフォントでは大文字の高さ
+        assert_eq!(unit(Reference::CapitalA, &Empty), 700.0);
+        assert_eq!(unit(Reference::CapitalA, &TallA), 875.0);
+    }
+
+    /// `A` を持たないフォント
+    struct Empty;
+
+    impl Glyphs for Empty {
+        fn metrics(&self) -> FontMetrics {
+            Synthetic.metrics()
+        }
+
+        fn glyph(&self, _: char) -> Option<Glyph> {
+            None
+        }
+
+        fn fallback(&self) -> Glyph {
+            Synthetic.fallback()
+        }
     }
 
     #[test]

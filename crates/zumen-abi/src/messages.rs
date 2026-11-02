@@ -5891,7 +5891,7 @@ pub struct SceneRequest {
     pub palette: Option<String>,
     /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から
     pub fonts: Option<Vec<SceneFont>>,
-    /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+    /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
     pub heights: Option<BTreeMap<String, HeightReference>>,
 }
 
@@ -6030,7 +6030,7 @@ impl ToJson for SceneFont {
     }
 }
 
-/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ
+/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HeightReference {
     /// `cap_height`
@@ -6039,11 +6039,13 @@ pub enum HeightReference {
     Em,
     /// `frame`
     Frame,
+    /// `capital_a`
+    CapitalA,
 }
 
 impl HeightReference {
     /// すべての値（スキーマの順）
-    pub const ALL: &[Self] = &[Self::CapHeight, Self::Em, Self::Frame];
+    pub const ALL: &[Self] = &[Self::CapHeight, Self::Em, Self::Frame, Self::CapitalA];
 
     /// JSON での名前
     pub const fn name(self) -> &'static str {
@@ -6051,6 +6053,7 @@ impl HeightReference {
             Self::CapHeight => "cap_height",
             Self::Em => "em",
             Self::Frame => "frame",
+            Self::CapitalA => "capital_a",
         }
     }
 
@@ -6060,6 +6063,7 @@ impl HeightReference {
             "cap_height" => Some(Self::CapHeight),
             "em" => Some(Self::Em),
             "frame" => Some(Self::Frame),
+            "capital_a" => Some(Self::CapitalA),
             _ => None,
         }
     }
