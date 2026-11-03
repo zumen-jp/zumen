@@ -1,8 +1,8 @@
-//! `bcf_read`・`bcf_write` の op（決定 0220）。BCF 3.0 の bcfzip とレビューの文書（決定 0214）を互いに写し、
+//! `bcf_read`・`bcf_write` の op（決定 0220）。BCF 2.1・3.0 の bcfzip とレビューの文書（決定 0214）を互いに写し、
 //! 写したものを blob で返す。
 
 use zumen_base::Cx;
-use zumen_bcf::{Bcf, Options, Statuses};
+use zumen_bcf::{Bcf, Edition, Options, Statuses};
 use zumen_review::{Review, Status, Target};
 
 use crate::building::Model;
@@ -10,7 +10,7 @@ use crate::messages::{
     BcfReadRequest, BcfReadResult, BcfStatus, BcfWriteRequest, BcfWriteResult, ReviewStatus,
 };
 use crate::review::Plan;
-use crate::session::Failed;
+use crate::session::{Failed, fail, invalid_value};
 
 /// 状態の対応の表。書かなければ既定の表
 fn statuses(table: Option<&[BcfStatus]>) -> Statuses {
@@ -55,7 +55,7 @@ pub(crate) fn read(
     let review = zumen_bcf::review(&bcf, &target, &table, Some(&plan), cx).map_err(|_| Failed)?;
     Ok((
         BcfReadResult {
-            version: "3.0".to_string(),
+            version: bcf.version.id().to_string(),
             topics: review.topics.len() as u64,
         },
         review.to_bytes(),
@@ -69,6 +69,13 @@ pub(crate) fn write(
     request: &BcfWriteRequest,
     cx: &mut Cx<'_>,
 ) -> Result<(BcfWriteResult, Vec<u8>), Failed> {
+    let version = match request.version.as_deref() {
+        Some(text) => match Edition::from_id(text) {
+            Some(edition) => Some(edition),
+            None => return Err(fail(cx, invalid_value("/version"))),
+        },
+        None => None,
+    };
     let review = Review::read(review, cx).map_err(|_| Failed)?;
     let original = match original {
         Some(bytes) => Some(Bcf::read(bytes, cx).map_err(|_| Failed)?),
@@ -80,6 +87,7 @@ pub(crate) fn write(
         kind: request.kind.clone(),
         author: request.author.clone(),
         date: request.date.clone(),
+        version,
     };
     let bytes = zumen_bcf::write(&review, original.as_ref(), &options, cx).map_err(|_| Failed)?;
     Ok((

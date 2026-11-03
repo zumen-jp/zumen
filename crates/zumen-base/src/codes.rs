@@ -5,6 +5,20 @@
 
 use crate::code::{Code, Fidelity, Param, ParamType, Severity};
 
+/// 元の bcfzip と違う版では書き戻さない。版の間で、写さない要素の形が違うため（#454）。original は元の版、version は書く版
+///
+/// `bcf.conversion.unsupported`（0.2.0 から）
+pub const BCF_CONVERSION_UNSUPPORTED: Code = Code::new(
+    "bcf.conversion.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("original", ParamType::Text),
+        Param::new("version", ParamType::Text),
+    ],
+    &[],
+);
+
 /// IFC の GlobalId でない要素の ID（`i` と番号）は BCF で指せないので、参照から除いた
 ///
 /// `bcf.element.unsupported`（0.2.0 から）
@@ -19,7 +33,7 @@ pub const BCF_ELEMENT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// bcfzip の中の項目が、BCF 3.0 の形に合わない。name は項目の名前、near は合わなかった要素か属性
+/// bcfzip の中の項目が、その版の BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性
 ///
 /// `bcf.file.invalid`（0.2.0 から）
 pub const BCF_FILE_INVALID: Code = Code::new(
@@ -104,7 +118,7 @@ pub const BCF_VALUE_MISSING: Code = Code::new(
     &["field"],
 );
 
-/// 読まない BCF の版。読むのは 3.0（決定 0220）
+/// 読まない BCF の版。読むのは 2.1 と 3.0（決定 0214・0220）
 ///
 /// `bcf.version.unsupported`（0.2.0 から）
 pub const BCF_VERSION_UNSUPPORTED: Code = Code::new(
@@ -3752,6 +3766,7 @@ pub const ZIP_SPLIT_UNSUPPORTED: Code =
 /// 台帳のすべての code（名前の順）
 #[allow(deprecated)]
 pub const ALL: &[Code] = &[
+    BCF_CONVERSION_UNSUPPORTED,
     BCF_ELEMENT_UNSUPPORTED,
     BCF_FILE_INVALID,
     BCF_LOCATION_UNSUPPORTED,

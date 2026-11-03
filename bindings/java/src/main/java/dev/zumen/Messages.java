@@ -11095,7 +11095,7 @@ public final class Messages {
         }
     }
 
-    /** zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から */
+    /** zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から */
     public static final class BcfReadRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BcfReadRequest(Map<String, Object> json) {
@@ -11322,7 +11322,7 @@ public final class Messages {
         }
     }
 
-    /** zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から */
+    /** zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から */
     public static final class BcfWriteRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BcfWriteRequest(Map<String, Object> json) {
@@ -11481,6 +11481,17 @@ public final class Messages {
         /** {@link #getDate()} を書く。null なら欄を除く */
         public BcfWriteRequest withDate(String value) {
             put("date", value);
+            return this;
+        }
+
+        /** 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から */
+        public String getVersion() {
+            return Json.read(json.get("version"), Json::string);
+        }
+
+        /** {@link #getVersion()} を書く。null なら欄を除く */
+        public BcfWriteRequest withVersion(String value) {
+            put("version", value);
             return this;
         }
     }

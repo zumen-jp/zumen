@@ -1,13 +1,13 @@
 //! レビューの文書を bcfzip に書く
 
 use zumen_base::{Diagnostic, Kind, codes};
-use zumen_review::{Camera, Location, Place, Projection, Reference, Review, Topic};
+use zumen_review::{Camera, Comment, Location, Place, Projection, Reference, Review, Topic};
 use zumen_sdk::{Cx, Error};
 use zumen_xml::Element;
 
 use crate::read::{self, guid};
 use crate::xml::{Writer, Xml};
-use crate::{Bcf, Folder, Options};
+use crate::{Bcf, Edition, Folder, Options};
 
 /// 書いた viewpoint のアスペクト比。レビューの文書はカメラの縦横の比を持たないので、BCF 2.1 の読み手の
 /// 既定と同じ 1 にする
@@ -20,8 +20,9 @@ fn work(cx: &mut Cx) -> Result<(), Error> {
     })
 }
 
-/// レビューの文書を、BCF 3.0 の bcfzip に書く。
+/// レビューの文書を bcfzip に書く。版は `options.version` で、なければ `original` の版か 3.0。
 ///
+/// - `original` の版と違う版では書かず、`bcf.conversion.unsupported` で失敗する。版の間で、写さない要素の形が違うため。
 /// - `options.target` を対象にした 3D の場所を viewpoint にする。2D の場所・ほかの対象の場所・カメラのない場所と
 ///   図形は書かずに診断する。
 /// - 要素の参照は、IFC の GlobalId（22 字）の ID だけを書く。ほかの ID（`i` と番号）は除いて診断する。
@@ -34,16 +35,41 @@ pub fn write(
     options: &Options,
     cx: &mut Cx,
 ) -> Result<Vec<u8>, Error> {
+    let edition = options
+        .version
+        .or(original.map(|bcf| bcf.version))
+        .unwrap_or_default();
+    if let Some(bcf) = original
+        && bcf.version != edition
+    {
+        cx.report(
+            Diagnostic::new(codes::BCF_CONVERSION_UNSUPPORTED)
+                .with("original", bcf.version.id())
+                .with("version", edition.id()),
+        );
+        return Err(Error::Invalid);
+    }
     for markup in &review.markups {
         cx.report(Diagnostic::new(codes::BCF_MARKUP_UNSUPPORTED).with("id", markup.id.as_str()));
     }
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     let mut version = Writer::new();
-    version.empty("Version", &[("VersionId", "3.0")]);
+    match edition {
+        Edition::V2_1 => {
+            version.open("Version", &[("VersionId", "2.1")], &[]);
+            version.text("DetailedVersion", "2.1");
+            version.close("Version");
+        }
+        Edition::V3_0 => version.empty("Version", &[("VersionId", "3.0")]),
+    }
     entries.push(("bcf.version".to_string(), version.out));
-    match original {
-        Some(bcf) => entries.extend(bcf.files.iter().cloned()),
-        None => entries.push(("extensions.xml".to_string(), extensions(review, options))),
+    match (original, edition) {
+        (Some(bcf), _) => entries.extend(bcf.files.iter().cloned()),
+        (None, Edition::V3_0) => {
+            entries.push(("extensions.xml".to_string(), extensions(review, options)));
+        }
+        // 2.1 の拡張は project.bcfp が指す XSD で、任意なので書かない
+        (None, Edition::V2_1) => {}
     }
     for topic in &review.topics {
         work(cx)?;
@@ -57,6 +83,7 @@ pub fn write(
         let before = match folder {
             Some(folder) => Some(read::topic(
                 folder,
+                edition,
                 &options.target,
                 &options.statuses,
                 None,
@@ -74,7 +101,7 @@ pub fn write(
             }
             continue;
         }
-        let files = markup(&written, folder, options, cx)?;
+        let files = markup(&written, folder, edition, options, cx)?;
         for (name, data) in files {
             entries.push((format!("{id}/{name}"), data));
         }
@@ -209,7 +236,7 @@ fn writable(topic: &Topic, id: &str, options: &Options, cx: &mut Cx) -> Topic {
     let comments = topic
         .comments
         .iter()
-        .map(|c| zumen_review::Comment {
+        .map(|c| Comment {
             id: bcf_guid(&c.id),
             author: c.author.clone(),
             date: c.date.clone(),
@@ -278,12 +305,13 @@ fn required(
 
 /// 元の markup の、写さない要素と知らない要素
 struct Kept<'d> {
+    edition: Edition,
     xml: Option<Xml<'d>>,
     markup: Option<&'d Element>,
     topic: Option<&'d Element>,
 }
 
-/// Topic の子のうち、レビューの文書に写すもの
+/// Topic の子のうち、レビューの文書に写すもの（3.0）
 const MAPPED: &[&[u8]] = &[
     b"Title",
     b"Priority",
@@ -300,7 +328,7 @@ const MAPPED: &[&[u8]] = &[
     b"Viewpoints",
 ];
 
-/// Topic の子のうち、写さずに元のまま保つもの
+/// Topic の子のうち、写さずに元のまま保つもの（3.0）
 const KEPT: &[&[u8]] = &[
     b"ReferenceLinks",
     b"Index",
@@ -309,14 +337,65 @@ const KEPT: &[&[u8]] = &[
     b"DocumentReferences",
 ];
 
+/// Topic の子のうち、レビューの文書に写すもの（2.1）。コメントと viewpoint は Markup の直下にある
+const MAPPED_2_1: &[&[u8]] = &[
+    b"Title",
+    b"Priority",
+    b"Labels",
+    b"CreationDate",
+    b"CreationAuthor",
+    b"ModifiedDate",
+    b"ModifiedAuthor",
+    b"DueDate",
+    b"AssignedTo",
+    b"Description",
+    b"RelatedTopic",
+];
+
+/// Topic の子のうち、写さずに元のまま保つもの（2.1）
+const KEPT_2_1: &[&[u8]] = &[
+    b"ReferenceLink",
+    b"Index",
+    b"Stage",
+    b"BimSnippet",
+    b"DocumentReference",
+];
+
 impl<'d> Kept<'d> {
+    /// 名前の合う Topic の子のすべて
     fn raw(&self, local: &[u8], out: &mut Writer) {
-        if let (Some(xml), Some(topic)) = (&self.xml, self.topic)
-            && let Some(element) = xml.child(topic, local)
-            && let Some(raw) = xml.raw(element)
-        {
-            out.raw(raw);
+        if let (Some(xml), Some(topic)) = (&self.xml, self.topic) {
+            for element in xml.all(topic, local) {
+                if let Some(raw) = xml.raw(element) {
+                    out.raw(raw);
+                }
+            }
         }
+    }
+
+    /// 元のコメントの要素
+    fn comments(&self) -> Vec<&'d Element> {
+        match (&self.xml, self.markup, self.topic) {
+            (Some(xml), Some(markup), Some(topic)) => self.edition.comments(xml, markup, topic),
+            _ => Vec::new(),
+        }
+    }
+
+    /// 元の viewpoint の参照の要素
+    fn viewpoints(&self) -> Vec<&'d Element> {
+        match (&self.xml, self.markup, self.topic) {
+            (Some(xml), Some(markup), Some(topic)) => self.edition.viewpoints(xml, markup, topic),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Guid の合う viewpoint の参照の、元のバイト列
+    fn viewpoint(&self, id: &str) -> Option<&'d [u8]> {
+        let xml = self.xml.as_ref()?;
+        self.viewpoints()
+            .into_iter()
+            .find(|p| xml.attribute(p, b"Guid").map(|g| guid(&g)).as_deref() == Some(id))
+            .and_then(|p| xml.raw(p))
     }
 
     /// 知らない子（写すものと保つもののほか）
@@ -338,6 +417,7 @@ impl<'d> Kept<'d> {
 fn markup(
     topic: &Topic,
     folder: Option<&Folder>,
+    edition: Edition,
     options: &Options,
     cx: &mut Cx,
 ) -> Result<Vec<(String, Vec<u8>)>, Error> {
@@ -399,6 +479,7 @@ fn markup(
         _ => None,
     };
     let kept = Kept {
+        edition,
         xml,
         markup: markup_element,
         topic: topic_element,
@@ -416,7 +497,21 @@ fn markup(
         &[("Guid", id), ("TopicType", &kind), ("TopicStatus", &status)],
         &raw_attributes,
     );
-    kept.raw(b"ReferenceLinks", &mut out);
+    let (links, documents, mapped, kept_children) = match edition {
+        Edition::V2_1 => (
+            b"ReferenceLink".as_slice(),
+            b"DocumentReference".as_slice(),
+            MAPPED_2_1,
+            KEPT_2_1,
+        ),
+        Edition::V3_0 => (
+            b"ReferenceLinks".as_slice(),
+            b"DocumentReferences".as_slice(),
+            MAPPED,
+            KEPT,
+        ),
+    };
+    kept.raw(links, &mut out);
     out.text("Title", &topic.title);
     out.optional("Priority", topic.priority.as_deref());
     kept.raw(b"Index", &mut out);
@@ -425,12 +520,20 @@ fn markup(
         .iter()
         .filter(|l| !l.trim().is_empty())
         .collect();
-    if !labels.is_empty() {
-        out.open("Labels", &[], &[]);
-        for label in labels {
-            out.text("Label", label);
+    match edition {
+        Edition::V2_1 => {
+            for label in labels {
+                out.text("Labels", label);
+            }
         }
-        out.close("Labels");
+        Edition::V3_0 if !labels.is_empty() => {
+            out.open("Labels", &[], &[]);
+            for label in labels {
+                out.text("Label", label);
+            }
+            out.close("Labels");
+        }
+        Edition::V3_0 => {}
     }
     out.text("CreationDate", &created);
     out.text("CreationAuthor", &author);
@@ -441,61 +544,40 @@ fn markup(
     kept.raw(b"Stage", &mut out);
     out.optional("Description", topic.description.as_deref());
     kept.raw(b"BimSnippet", &mut out);
-    kept.raw(b"DocumentReferences", &mut out);
-    if !topic.related.is_empty() {
-        out.open("RelatedTopics", &[], &[]);
-        for related in &topic.related {
-            out.empty("RelatedTopic", &[("Guid", related)]);
+    kept.raw(documents, &mut out);
+    match edition {
+        Edition::V2_1 => {
+            for related in &topic.related {
+                out.empty("RelatedTopic", &[("Guid", related)]);
+            }
         }
-        out.close("RelatedTopics");
+        Edition::V3_0 if !topic.related.is_empty() => {
+            out.open("RelatedTopics", &[], &[]);
+            for related in &topic.related {
+                out.empty("RelatedTopic", &[("Guid", related)]);
+            }
+            out.close("RelatedTopics");
+        }
+        Edition::V3_0 => {}
     }
     let (before, before_comments) = match folder {
         Some(folder) => {
-            let read = read::topic(folder, &options.target, &options.statuses, None, cx)?;
+            let read = read::topic(
+                folder,
+                edition,
+                &options.target,
+                &options.statuses,
+                None,
+                cx,
+            )?;
             (read.locations, read.comments)
         }
         None => (Vec::new(), Vec::new()),
     };
-    if !topic.comments.is_empty() {
-        out.open("Comments", &[], &[]);
-        for comment in &topic.comments {
-            work(cx)?;
-            // 変えていないコメントは、元の要素のまま書く
-            if let Some(raw) = unchanged_comment(&kept, &before_comments, comment) {
-                out.raw(raw);
-                continue;
-            }
-            let date = required(
-                comment.date.as_deref(),
-                options.date.as_deref(),
-                id,
-                "Comment/Date",
-                cx,
-            )?;
-            let author = required(
-                comment.author.as_deref(),
-                options.author.as_deref(),
-                id,
-                "Comment/Author",
-                cx,
-            )?;
-            out.open("Comment", &[("Guid", &comment.id)], &[]);
-            out.text("Date", &date);
-            out.text("Author", &author);
-            out.optional("Comment", Some(comment.text.as_str()));
-            if let Some(location) = &comment.location {
-                out.empty("Viewpoint", &[("Guid", location)]);
-            }
-            out.close("Comment");
-        }
-        out.close("Comments");
-    }
     // 元の viewpoint のうち、変えていないものはファイルごと保つ
     let mut dropped = Vec::new();
-    if let (Some(x), Some(t)) = (&kept.xml, kept.topic)
-        && let Some(list) = x.child(t, b"Viewpoints")
-    {
-        for point in x.all(list, b"ViewPoint") {
+    if let Some(x) = &kept.xml {
+        for point in kept.viewpoints() {
             let guid = x.attribute(point, b"Guid").map(|g| read::guid(&g));
             let unchanged = guid.as_ref().is_some_and(|g| {
                 let old = before.iter().find(|l| l.id == *g);
@@ -508,39 +590,41 @@ fn markup(
             }
         }
     }
-    if !topic.locations.is_empty() {
-        out.open("Viewpoints", &[], &[]);
-        for location in &topic.locations {
-            work(cx)?;
-            let old = before.iter().find(|l| l.id == location.id);
-            let raw = match (&kept.xml, kept.topic, old) {
-                (Some(x), Some(t), Some(o)) if o.place == location.place => x
-                    .child(t, b"Viewpoints")
-                    .and_then(|list| {
-                        x.all(list, b"ViewPoint").into_iter().find(|p| {
-                            x.attribute(p, b"Guid").map(|g| read::guid(&g)).as_deref()
-                                == Some(location.id.as_str())
-                        })
-                    })
-                    .and_then(|p| x.raw(p)),
-                _ => None,
-            };
-            match raw {
-                Some(raw) => out.raw(raw),
-                None => {
-                    let name = format!("{}.bcfv", location.id);
-                    out.open("ViewPoint", &[("Guid", &location.id)], &[]);
-                    out.text("Viewpoint", &name);
-                    out.close("ViewPoint");
-                    files.push((name, visinfo(location)));
-                }
-            }
+    let written = Written {
+        topic,
+        kept: &kept,
+        before: &before,
+        before_comments: &before_comments,
+        options,
+    };
+    match edition {
+        Edition::V2_1 => {
+            kept.unknown(kept.topic, &[mapped, kept_children].concat(), &mut out);
+            out.close("Topic");
+            written.comments(&mut out, cx)?;
+            written.viewpoints(&mut out, "Viewpoints", &mut files, cx)?;
+            kept.unknown(
+                kept.markup,
+                &[b"Header".as_slice(), b"Topic", b"Comment", b"Viewpoints"],
+                &mut out,
+            );
         }
-        out.close("Viewpoints");
+        Edition::V3_0 => {
+            if !topic.comments.is_empty() {
+                out.open("Comments", &[], &[]);
+                written.comments(&mut out, cx)?;
+                out.close("Comments");
+            }
+            if !topic.locations.is_empty() {
+                out.open("Viewpoints", &[], &[]);
+                written.viewpoints(&mut out, "ViewPoint", &mut files, cx)?;
+                out.close("Viewpoints");
+            }
+            kept.unknown(kept.topic, &[mapped, kept_children].concat(), &mut out);
+            out.close("Topic");
+            kept.unknown(kept.markup, &[b"Header".as_slice(), b"Topic"], &mut out);
+        }
     }
-    kept.unknown(kept.topic, &[MAPPED, KEPT].concat(), &mut out);
-    out.close("Topic");
-    kept.unknown(kept.markup, &[b"Header".as_slice(), b"Topic"], &mut out);
     out.close("Markup");
     let mut all = vec![("markup.bcf".to_string(), out.out)];
     if let Some(folder) = folder {
@@ -552,6 +636,87 @@ fn markup(
     }
     all.extend(files);
     Ok(all)
+}
+
+/// 指摘のコメントと viewpoint を書く道具
+struct Written<'a, 'd> {
+    topic: &'a Topic,
+    kept: &'a Kept<'d>,
+    /// 元の topic を写したときの場所とコメント
+    before: &'a [Location],
+    before_comments: &'a [Comment],
+    options: &'a Options,
+}
+
+impl Written<'_, '_> {
+    /// コメントの要素。変えていないコメントは、元の要素のまま書く
+    fn comments(&self, out: &mut Writer, cx: &mut Cx) -> Result<(), Error> {
+        let id = self.topic.id.as_str();
+        for comment in &self.topic.comments {
+            work(cx)?;
+            if let Some(raw) = unchanged_comment(self.kept, self.before_comments, comment) {
+                out.raw(raw);
+                continue;
+            }
+            let date = required(
+                comment.date.as_deref(),
+                self.options.date.as_deref(),
+                id,
+                "Comment/Date",
+                cx,
+            )?;
+            let author = required(
+                comment.author.as_deref(),
+                self.options.author.as_deref(),
+                id,
+                "Comment/Author",
+                cx,
+            )?;
+            out.open("Comment", &[("Guid", &comment.id)], &[]);
+            out.text("Date", &date);
+            out.text("Author", &author);
+            match self.kept.edition {
+                // 2.1 では本文が必須
+                Edition::V2_1 => out.text("Comment", &comment.text),
+                Edition::V3_0 => out.optional("Comment", Some(comment.text.as_str())),
+            }
+            if let Some(location) = &comment.location {
+                out.empty("Viewpoint", &[("Guid", location)]);
+            }
+            out.close("Comment");
+        }
+        Ok(())
+    }
+
+    /// viewpoint の参照の要素（`name`）。変えていない viewpoint は元の要素のまま書き、ほかは新しいファイルを
+    /// `files` に足す
+    fn viewpoints(
+        &self,
+        out: &mut Writer,
+        name: &str,
+        files: &mut Vec<(String, Vec<u8>)>,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        for location in &self.topic.locations {
+            work(cx)?;
+            let old = self.before.iter().find(|l| l.id == location.id);
+            let raw = match old {
+                Some(o) if o.place == location.place => self.kept.viewpoint(&location.id),
+                _ => None,
+            };
+            match raw {
+                Some(raw) => out.raw(raw),
+                None => {
+                    let file = format!("{}.bcfv", location.id);
+                    out.open(name, &[("Guid", &location.id)], &[]);
+                    out.text("Viewpoint", &file);
+                    out.close(name);
+                    files.push((file, visinfo(location, self.kept.edition)));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<'d> Kept<'d> {
@@ -581,8 +746,8 @@ fn components(out: &mut Writer, name: &str, list: &[Reference]) {
     out.close(name);
 }
 
-/// 3D の場所の viewpoint
-fn visinfo(location: &Location) -> Vec<u8> {
+/// 3D の場所の viewpoint。2.1 は色の部品を包まず、カメラに縦横比を書かない
+fn visinfo(location: &Location, edition: Edition) -> Vec<u8> {
     let mut out = Writer::new();
     out.open("VisualizationInfo", &[("Guid", &location.id)], &[]);
     if let Place::Space {
@@ -620,7 +785,14 @@ fn visinfo(location: &Location) -> Vec<u8> {
                 for color in colored {
                     let value = color.color.trim_start_matches('#');
                     out.open("Color", &[("Color", value)], &[]);
-                    components(&mut out, "Components", &color.elements);
+                    match edition {
+                        Edition::V2_1 => {
+                            for reference in &color.elements {
+                                out.empty("Component", &[("IfcGuid", &reference.id)]);
+                            }
+                        }
+                        Edition::V3_0 => components(&mut out, "Components", &color.elements),
+                    }
                     out.close("Color");
                 }
                 out.close("Coloring");
@@ -646,7 +818,9 @@ fn visinfo(location: &Location) -> Vec<u8> {
                 Projection::Perspective(angle) => out.number("FieldOfView", *angle),
                 Projection::Orthographic(scale) => out.number("ViewToWorldScale", *scale),
             }
-            out.number("AspectRatio", ASPECT_RATIO);
+            if edition == Edition::V3_0 {
+                out.number("AspectRatio", ASPECT_RATIO);
+            }
             out.close(name);
         }
         if !clips.is_empty() {
@@ -719,15 +893,14 @@ fn extensions(review: &Review, options: &Options) -> Vec<u8> {
 /// 元の markup に、同じ Guid で写すと同じになるコメントがあれば、その元のバイト列
 fn unchanged_comment<'d>(
     kept: &Kept<'d>,
-    before: &[zumen_review::Comment],
-    comment: &zumen_review::Comment,
+    before: &[Comment],
+    comment: &Comment,
 ) -> Option<&'d [u8]> {
     if !before.iter().any(|c| c == comment) {
         return None;
     }
     let xml = kept.xml.as_ref()?;
-    let list = xml.child(kept.topic?, b"Comments")?;
-    let element = xml.all(list, b"Comment").into_iter().find(|c| {
+    let element = kept.comments().into_iter().find(|c| {
         xml.attribute(c, b"Guid").map(|g| guid(&g)).as_deref() == Some(comment.id.as_str())
     })?;
     xml.raw(element)
