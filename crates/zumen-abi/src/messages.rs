@@ -629,6 +629,8 @@ pub struct OpenRequest {
     pub size: Option<u64>,
     /// 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
     pub format: Option<String>,
+    /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から
+    pub saf: Option<String>,
 }
 
 impl OpenRequest {
@@ -639,12 +641,14 @@ impl OpenRequest {
         let doc = object.optional("doc", json::string)?;
         let size = object.optional("size", |value| json::uint(value, 0, 9007199254740991))?;
         let format = object.optional("format", json::string)?;
+        let saf = object.optional("saf", json::string)?;
         Ok(Self {
             request_common,
             input,
             doc,
             size,
             format,
+            saf,
         })
     }
 
@@ -664,6 +668,10 @@ impl OpenRequest {
         }
         if let Some(value) = &self.format {
             out.key("format");
+            out.string(value);
+        }
+        if let Some(value) = &self.saf {
+            out.key("saf");
             out.string(value);
         }
     }

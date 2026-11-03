@@ -3,7 +3,7 @@
   "format": "0.1",
   "id": "mlit-cad",
   "license": "CC-BY-4.0",
-  "revision": 3,
+  "revision": 4,
   "rules": [
     {
       "check": "layer-name",
@@ -117,7 +117,7 @@
     },
     {
       "check": "file-name",
-      "extensions": ["P21", "P2Z"],
+      "extensions": ["P21", "P2Z", "SAF"],
       "id": "file-name",
       "level": "warning",
       "max-length": 64,

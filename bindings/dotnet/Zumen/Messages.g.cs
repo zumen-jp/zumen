@@ -367,6 +367,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("format")]
         public string? Format { get; init; }
+
+        /// <summary>
+        /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から
+        /// </summary>
+        [JsonPropertyName("saf")]
+        public string? Saf { get; init; }
     }
 
     /// <summary>

@@ -5,7 +5,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 ## 対象
 
 - SFC と P21。どちらも ISO 10303-21 の交換構造に入る（[決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)）交換構造の読み取りと文字列のエスケープの戻し方は、IFC と共有する crate `zumen-step` が行う。SFC のフィーチャのコメントの印（`/*SXF`・`/*SXF3`・`/*SXF3.1`）と、AP202 と書いた P21 でそれを読まないことは、`zumen-sxf` が読み方として渡す（[決定 0207](../decisions/0207-building-model-components.md)）。
-- SFZ・P2Z（SFC・P21 を ZIP に入れた書庫）は、書庫の最初の `.sfc`・`.p21` の項目（大文字と小文字を問わない）を SXF として読む（#385）。ほかの項目（属性ファイル・画像など）は読まず、`open` の結果の `entries` に書庫の中の名前を書庫の順で返す。`.sfc`・`.p21` の項目のない ZIP は SXF にせず、ifcZIP などとして試す。
+- SFZ・P2Z（SFC・P21 を ZIP に入れた書庫）は、書庫の最初の `.sfc`・`.p21` の項目（大文字と小文字を問わない）を SXF として読む（#385）。図面と同じ名前の属性ファイル（下の「属性ファイル」）のほかの項目（画像など）は読まず、`open` の結果の `entries` に、属性ファイルを含む書庫の中の名前を書庫の順で返す。`.sfc`・`.p21` の項目のない ZIP は SXF にせず、ifcZIP などとして試す。
 - SFZ・P2Z への `apply` は、SXF の項目だけを書き直したバイト列に置き換え、ほかの項目は展開したバイト列のまま写した書庫を書く。書庫は `zumen-zip` で、項目を stored で、日時を 1980-01-01 に固定して書く（決定性、[決定 0220](../decisions/0220-bcf-3-0.md)）。元の書庫の圧縮と日時は保たない。ZIP64 が要る大きさなら `sxf.archive.unsupported` を返して書かない（適合試験の `cases/open_sxf_zip.json`）。
 - SFC は図面モデルへ移す（[決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)）。境界の `open` は SXF の判定の規則で SFC と P21 を読み、`drawing` は SFC と P21 を図面モデルへ移す（適合試験の `cases/open_sxf.json`）。P21 は、実体を SFC と同じ形のフィーチャに組み直して、同じ変換に通す（[決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)）。P21 の組み直しは、下の「P21 の組み直し」に記録する。
 
@@ -58,6 +58,17 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 - 名前が `$$ATR` で始まる複合図形の要素に、名前と `$$` で区切った値を `sxf.attribute` の拡張で付ける。背景色などの値は解かない（[決定 0131](../decisions/0131-sxf-attribute-mechanism.md)）。
 - 測地座標系の部分図は、実寸の空間の `axes` を `Axes::NorthEast`（X が北、Y が東）にし、点はファイルの X・Y のまま持つ。ビューの変換が、東・北の順に直してから用紙へ置く（[決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)、[crs.md](crs.md)）。
 - まだ移さない種類と、読めない値は、`sxf.lift.dropped`・`sxf.lift.invalid` で報告する。
+
+## 属性ファイル
+
+属性ファイル（SAF、附属書の属性付加機構編の 3 章）を読み、属性ファイル用の属性付加機構の要素に結ぶ（[決定 0249](../decisions/0249-sxf-attribute-files.md)、`crates/zumen-sxf/src/saf.rs`）。
+
+- `open` の `saf` に名指した入力か、なければ P2Z・SFZ の中の、図面と同じ名前の SAF（拡張子を `.SAF` にしたものか、図面の項目の名前に `.SAF` を足したもの。大文字と小文字を問わない）を読む。ほかの名前の SAF は結ばない。
+- 根の `SxfAttributeXML` の `version`・`date`・`sxfFile`・`application`、`AttributeSet`（内容が属性セット識別番号）、`Figure` の `AttrSetRef` の `Attr` と `AttrGroup` を読む。文書型宣言（`SXFV31.DTD`）は解決せず、診断もしない。
+- 省略できないタグ属性がないものと、重なる図形識別番号は `sxf.saf-value.invalid` を、知らない要素は `sxf.saf-element.unsupported` を返す。根が `SxfAttributeXML` でなければ、属性ファイルなしで図面を開く。
+- 名前が `$$ATRF$$図形識別番号$$属性ファイル名` の作図グループを置いた要素（`sxf.attribute` の拡張の値が `ATRF` で始まるもの）に、同じ図形識別番号の図形の属性を、属性ごとに `sxf.saf` の拡張で付ける。拡張の名前は属性名で、欄は `figure`・`figure_name`・`set`・（属性セットがあれば）`set_name`・`set_version`・`designed_by`・（グループの中なら）`group`・（書いてあれば）`type`・`unit`・`value` の順。値は文字のまま持ち、`$$$`（文字列の内容を属性値にする）も解かない。
+- 図面の図形識別番号の図形が属性ファイルになければ `sxf.saf-figure.missing` を、属性ファイルの図形の要素が図面になければ `sxf.saf-figure.dropped` を返す。
+- 属性ファイルは書き直さない。P2Z・SFZ への `apply` は、SAF の項目をそのまま写す。
 
 ## P21 の組み直し
 
