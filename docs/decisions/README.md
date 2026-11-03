@@ -290,3 +290,4 @@
 - [0253: 地理の地物と点群を wasm の civil・pointcloud のモジュールに分け、J-LandXML と civil の op は要るモジュールのそれぞれに置く](0253-wasm-civil-and-pointcloud-modules.md)（2026-11-03、採用）
 - [0254: 複数のエージェントが並行して進め、互いに確かめ、人を待つのは人にしかできないことに限る](0254-parallel-agents-and-cross-review.md)（2026-11-03、採用）
 - [0258: fuzz の種に公開サンプルと合成の入力を使い、crate を変えた PR で短く、毎晩長く流す](0258-fuzz-seeds-and-runs.md)（2026-11-03、採用）
+- [0259: npm の包みに Node.js の入口を足し、trap のあとのインスタンスを使えなくし、ライセンスの文を入れる](0259-javascript-on-node-servers.md)（2026-11-03、採用）

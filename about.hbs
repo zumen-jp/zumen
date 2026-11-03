@@ -1,0 +1,19 @@
+zumen_abi1.wasm に入れた、第三者のライブラリのライセンス
+（npm の @zumen-jp/zumen には、同じ wasm が入る。CLI・ネイティブのライブラリ・wheel・NuGet の包みの分は含まない。
+about.toml と about.hbs から cargo-about で作る。決定 0014）
+{{#each licenses}}
+{{#unless (eq used_by.[0].crate.repository "https://github.com/zumen-jp/zumen")}}
+
+================================================================================
+{{{name}}}（{{{id}}}）
+
+使う crate:
+{{#each used_by}}
+{{#unless (eq crate.repository "https://github.com/zumen-jp/zumen")}}
+- {{{crate.name}}} {{{crate.version}}}
+{{/unless}}
+{{/each}}
+
+{{{text}}}
+{{/unless}}
+{{/each}}
