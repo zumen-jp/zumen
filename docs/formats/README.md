@@ -719,9 +719,12 @@
 - 実装の根拠: spec
 - 照合するソフト: pdf.js
 - サンプルの出どころ（Git に入れない）: CAD が出力した図面の PDF（手元で作る）
+- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0013](../decisions/0013-boundary-in-four-forms.md)
+- 記録: [決定 0255](../decisions/0255-pdf-with-hayro.md)
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
-- 補足: ページの解釈は hayro-interpret（Apache-2.0 OR MIT）を使う予定（旧版の決定 0020）
+- 形式の文書: [docs/formats/pdf.md](../../docs/formats/pdf.md)
+- 補足: ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、版を固定する（決定 0255）
 
 ### format-ply
 

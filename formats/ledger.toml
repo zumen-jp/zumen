@@ -467,9 +467,10 @@ place = "core"
 basis = ["spec"]
 verify = ["pdf.js"]
 samples = ["CAD が出力した図面の PDF（手元で作る）"]
-decisions = ["0013"]
+decisions = ["0008", "0013", "0255"]
 legacy-decisions = ["0020", "0030"]
-notes = "ページの解釈は hayro-interpret（Apache-2.0 OR MIT）を使う予定（旧版の決定 0020）"
+docs = ["docs/formats/pdf.md"]
+notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、版を固定する（決定 0255）"
 
 [formats.ifc]
 name = "IFC"

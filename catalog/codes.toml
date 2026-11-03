@@ -1550,6 +1550,173 @@ group-by = ["kind"]
 since = "0.0.0"
 status = "active"
 
+# PDF のファイルモデルと、図面の領域モデルへの変換（決定 0255）
+
+[codes."pdf.file.invalid"]
+description = "先頭の 1,024 バイトに、ファイルの見出し %PDF- がない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.document.invalid"]
+description = "相互参照とページの木を、オブジェクトを探し直しても読めない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.encryption.unsupported"]
+description = "空のパスワードで開けないか、扱えない方式の暗号なので、読まなかった"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.object.repaired"]
+description = "間接オブジェクトの終わり（endobj）がないので、次のオブジェクトの前か入力の終わりまでを、そのオブジェクトにした"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.content.invalid"]
+description = "ページの内容のストリームを展開できないので、ページの内容を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.optional-content.dropped"]
+description = "既定の設定で隠れる表示グループの内容は、hayro-interpret が塗らないので、移さなかった。name は表示グループの名前"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.optional-content.approximated"]
+description = "表示の規則の辞書（OCMD）の内容を最初の表示グループのレイヤに置いたか、表示グループを持つ XObject の内容をレイヤに分けなかった"
+severity = "info"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.annotation.unsupported"]
+description = "注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）"
+severity = "info"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure.unsupported"]
+description = "縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった"
+severity = "info"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.shading.dropped"]
+description = "シェーディング（濃淡）で塗った形を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.pattern.dropped"]
+description = "タイルのパターンで塗った形を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.clip.dropped"]
+description = "切り抜きかページの外にあって見えない要素を、移さなかった"
+severity = "info"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.clip.approximated"]
+description = "切り抜きにかかる要素を、切らずに移した"
+severity = "info"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.glyph.dropped"]
+description = "Unicode に戻せない字形を、U+FFFD にした"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.font.unsupported"]
+description = "hayro-interpret が読めないフォントの文字を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.font-name.dropped"]
+description = "UTF-8 でないフォントの名前を移さず、文字スタイルを空にした"
+severity = "info"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.color.approximated"]
+description = "装置の CMYK か、装置によらない色空間の色を、四則演算で RGB にした。space は色空間の系統"
+severity = "info"
+fidelity = "approximated"
+params = { space = "text" }
+group-by = ["space"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.color.dropped"]
+description = "RGB にしない色空間の色を移さず、レイヤの色にした。space は色空間の系統"
+severity = "warning"
+fidelity = "dropped"
+params = { space = "text" }
+group-by = ["space"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.fill-rule.approximated"]
+description = "非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした"
+severity = "info"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.dash.approximated"]
+description = "破線の位相を移さなかった"
+severity = "info"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.transparency.approximated"]
+description = "柔らかいマスクと、通常でない合成の方法を移さなかった"
+severity = "info"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.image-mask.approximated"]
+description = "色を塗る画像（ImageMask）の色を移さず、レイヤの色にした"
+severity = "info"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.type3.approximated"]
+description = "Type 3 のフォントの字形（内容のストリームで描く形）を、書体のない文字にした"
+severity = "info"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
 # プロファイルの照合（決定 0173・0179）。照合を始められないときの診断と、check の結果の指摘。
 # 指摘の重要度は規則の level を使い、ここの severity は使わない（決定 0173）
 

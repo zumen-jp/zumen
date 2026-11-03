@@ -14,7 +14,10 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 zumen-acad = { path = "../crates/zumen-acad" }
+zumen-base = { path = "../crates/zumen-base" }
+zumen-drawing = { path = "../crates/zumen-drawing" }
 zumen-jww = { path = "../crates/zumen-jww" }
+zumen-pdf = { path = "../crates/zumen-pdf" }
 zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
 
@@ -45,6 +48,13 @@ bench = false
 [[bin]]
 name = "jww"
 path = "fuzz_targets/jww.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pdf"
+path = "fuzz_targets/pdf.rs"
 test = false
 doc = false
 bench = false

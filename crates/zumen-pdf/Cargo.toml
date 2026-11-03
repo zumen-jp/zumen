@@ -1,0 +1,33 @@
+[package]
+name = "zumen-pdf"
+description = "zumen の PDF のファイルモデル（L1）と、そのコーデック"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["pdf"]
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
+# ページの内容の解釈（決定 0255）。塗った順に要素の ID を振り、色空間の Debug の表記で系統を見分けるので、版を固定する。
+# 上げるのは読み取りの変更として扱う。埋め込みのないフォントと CMap は、同梱のもの（既定の機能）で読む
+hayro-interpret = { version = "=0.9.0", optional = true }
+# 文字の向きと斜体の角度。std の三角関数は環境で値が違いうる（決定 0007）
+libm = { version = "0.2.16", default-features = false, optional = true }
+
+[features]
+default = ["drawing"]
+# 図面モデル（L2）への変換。L1 だけを使うなら外せる
+drawing = ["dep:zumen-drawing", "dep:hayro-interpret", "dep:libm"]
+
+[dev-dependencies]
+zumen-drawing = { path = "../zumen-drawing" }
+zumen-scene = { path = "../zumen-scene" }
+
+[lints]
+workspace = true

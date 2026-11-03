@@ -2614,6 +2614,243 @@ pub const LAS_VLR_INVALID: Code = Code::new(
     &[],
 );
 
+/// 注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）
+///
+/// `pdf.annotation.unsupported`（0.2.0 から）
+pub const PDF_ANNOTATION_UNSUPPORTED: Code = Code::new(
+    "pdf.annotation.unsupported",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 切り抜きにかかる要素を、切らずに移した
+///
+/// `pdf.clip.approximated`（0.2.0 から）
+pub const PDF_CLIP_APPROXIMATED: Code = Code::new(
+    "pdf.clip.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 切り抜きかページの外にあって見えない要素を、移さなかった
+///
+/// `pdf.clip.dropped`（0.2.0 から）
+pub const PDF_CLIP_DROPPED: Code = Code::new(
+    "pdf.clip.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 装置の CMYK か、装置によらない色空間の色を、四則演算で RGB にした。space は色空間の系統
+///
+/// `pdf.color.approximated`（0.2.0 から）
+pub const PDF_COLOR_APPROXIMATED: Code = Code::new(
+    "pdf.color.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("space", ParamType::Text)],
+    &["space"],
+);
+
+/// RGB にしない色空間の色を移さず、レイヤの色にした。space は色空間の系統
+///
+/// `pdf.color.dropped`（0.2.0 から）
+pub const PDF_COLOR_DROPPED: Code = Code::new(
+    "pdf.color.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("space", ParamType::Text)],
+    &["space"],
+);
+
+/// ページの内容のストリームを展開できないので、ページの内容を移さなかった
+///
+/// `pdf.content.invalid`（0.2.0 から）
+pub const PDF_CONTENT_INVALID: Code = Code::new(
+    "pdf.content.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 破線の位相を移さなかった
+///
+/// `pdf.dash.approximated`（0.2.0 から）
+pub const PDF_DASH_APPROXIMATED: Code = Code::new(
+    "pdf.dash.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 相互参照とページの木を、オブジェクトを探し直しても読めない
+///
+/// `pdf.document.invalid`（0.2.0 から）
+pub const PDF_DOCUMENT_INVALID: Code =
+    Code::new("pdf.document.invalid", Severity::Error, None, &[], &[]);
+
+/// 空のパスワードで開けないか、扱えない方式の暗号なので、読まなかった
+///
+/// `pdf.encryption.unsupported`（0.2.0 から）
+pub const PDF_ENCRYPTION_UNSUPPORTED: Code = Code::new(
+    "pdf.encryption.unsupported",
+    Severity::Error,
+    None,
+    &[],
+    &[],
+);
+
+/// 先頭の 1,024 バイトに、ファイルの見出し %PDF- がない
+///
+/// `pdf.file.invalid`（0.2.0 から）
+pub const PDF_FILE_INVALID: Code = Code::new("pdf.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした
+///
+/// `pdf.fill-rule.approximated`（0.2.0 から）
+pub const PDF_FILL_RULE_APPROXIMATED: Code = Code::new(
+    "pdf.fill-rule.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// UTF-8 でないフォントの名前を移さず、文字スタイルを空にした
+///
+/// `pdf.font-name.dropped`（0.2.0 から）
+pub const PDF_FONT_NAME_DROPPED: Code = Code::new(
+    "pdf.font-name.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// hayro-interpret が読めないフォントの文字を、移さなかった
+///
+/// `pdf.font.unsupported`（0.2.0 から）
+pub const PDF_FONT_UNSUPPORTED: Code = Code::new(
+    "pdf.font.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// Unicode に戻せない字形を、U+FFFD にした
+///
+/// `pdf.glyph.dropped`（0.2.0 から）
+pub const PDF_GLYPH_DROPPED: Code = Code::new(
+    "pdf.glyph.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 色を塗る画像（ImageMask）の色を移さず、レイヤの色にした
+///
+/// `pdf.image-mask.approximated`（0.2.0 から）
+pub const PDF_IMAGE_MASK_APPROXIMATED: Code = Code::new(
+    "pdf.image-mask.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった
+///
+/// `pdf.measure.unsupported`（0.2.0 から）
+pub const PDF_MEASURE_UNSUPPORTED: Code = Code::new(
+    "pdf.measure.unsupported",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 間接オブジェクトの終わり（endobj）がないので、次のオブジェクトの前か入力の終わりまでを、そのオブジェクトにした
+///
+/// `pdf.object.repaired`（0.2.0 から）
+pub const PDF_OBJECT_REPAIRED: Code =
+    Code::new("pdf.object.repaired", Severity::Warning, None, &[], &[]);
+
+/// 表示の規則の辞書（OCMD）の内容を最初の表示グループのレイヤに置いたか、表示グループを持つ XObject の内容をレイヤに分けなかった
+///
+/// `pdf.optional-content.approximated`（0.2.0 から）
+pub const PDF_OPTIONAL_CONTENT_APPROXIMATED: Code = Code::new(
+    "pdf.optional-content.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 既定の設定で隠れる表示グループの内容は、hayro-interpret が塗らないので、移さなかった。name は表示グループの名前
+///
+/// `pdf.optional-content.dropped`（0.2.0 から）
+pub const PDF_OPTIONAL_CONTENT_DROPPED: Code = Code::new(
+    "pdf.optional-content.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// タイルのパターンで塗った形を、移さなかった
+///
+/// `pdf.pattern.dropped`（0.2.0 から）
+pub const PDF_PATTERN_DROPPED: Code = Code::new(
+    "pdf.pattern.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// シェーディング（濃淡）で塗った形を、移さなかった
+///
+/// `pdf.shading.dropped`（0.2.0 から）
+pub const PDF_SHADING_DROPPED: Code = Code::new(
+    "pdf.shading.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 柔らかいマスクと、通常でない合成の方法を移さなかった
+///
+/// `pdf.transparency.approximated`（0.2.0 から）
+pub const PDF_TRANSPARENCY_APPROXIMATED: Code = Code::new(
+    "pdf.transparency.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// Type 3 のフォントの字形（内容のストリームで描く形）を、書体のない文字にした
+///
+/// `pdf.type3.approximated`（0.2.0 から）
+pub const PDF_TYPE3_APPROXIMATED: Code = Code::new(
+    "pdf.type3.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// PLY は座標系を書かないので、座標系を不明にした
 ///
 /// `ply.crs.missing`（0.2.0 から）
@@ -4185,6 +4422,29 @@ pub const ALL: &[Code] = &[
     LAS_POINTS_INVALID,
     LAS_VERTICAL_CRS_UNSUPPORTED,
     LAS_VLR_INVALID,
+    PDF_ANNOTATION_UNSUPPORTED,
+    PDF_CLIP_APPROXIMATED,
+    PDF_CLIP_DROPPED,
+    PDF_COLOR_APPROXIMATED,
+    PDF_COLOR_DROPPED,
+    PDF_CONTENT_INVALID,
+    PDF_DASH_APPROXIMATED,
+    PDF_DOCUMENT_INVALID,
+    PDF_ENCRYPTION_UNSUPPORTED,
+    PDF_FILE_INVALID,
+    PDF_FILL_RULE_APPROXIMATED,
+    PDF_FONT_NAME_DROPPED,
+    PDF_FONT_UNSUPPORTED,
+    PDF_GLYPH_DROPPED,
+    PDF_IMAGE_MASK_APPROXIMATED,
+    PDF_MEASURE_UNSUPPORTED,
+    PDF_OBJECT_REPAIRED,
+    PDF_OPTIONAL_CONTENT_APPROXIMATED,
+    PDF_OPTIONAL_CONTENT_DROPPED,
+    PDF_PATTERN_DROPPED,
+    PDF_SHADING_DROPPED,
+    PDF_TRANSPARENCY_APPROXIMATED,
+    PDF_TYPE3_APPROXIMATED,
     PLY_CRS_MISSING,
     PLY_ELEMENT_DROPPED,
     PLY_FILE_INVALID,
