@@ -131,7 +131,8 @@ fn parts(shape: &Shape) -> Option<Vec<Shape>> {
 }
 
 /// 評価の結果の名前。閉じたメッシュは `ok`。閉じていなくても、組の項目がどれも閉じていれば `parts`（扉の枠と戸の
-/// ように、閉じた部品を並べた形）。ほかは `open`
+/// ように、閉じた部品を並べた形）、閉じた部分どうしが辺で接する形（[`watertight`]）なら `touching`。閉じていても、
+/// 辺で接していても、体積がなければ `flat`（両面の面）。ほかは `open`
 fn status(
     result: &Result<Result<Mesh, Failure>, ()>,
     shape: &Shape,
