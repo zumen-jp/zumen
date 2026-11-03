@@ -419,7 +419,8 @@ export class Modules {
 
   /**
    * 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く。読み込んだインスタンスは使い回し、trap で
-   * 使えなくなったら（Zumen.broken）、捨てて読み込み直す（決定 0259）
+   * 使えなくなったら（Zumen.broken）、捨てて読み込み直す。読み込みに失敗したら覚えず、次に引いたときにやり直す
+   * （決定 0259）
    */
   get(name) {
     const cached = this.#loaded.get(name);
@@ -432,10 +433,18 @@ export class Modules {
       return Promise.reject(new Error(`wasm のモジュール ${name} を読み込めない`));
     }
     const entry = { loading: undefined, zumen: undefined };
-    entry.loading = this.#load(loader()).then((zumen) => {
-      entry.zumen = zumen;
-      return zumen;
-    });
+    entry.loading = this.#load(loader()).then(
+      (zumen) => {
+        entry.zumen = zumen;
+        return zumen;
+      },
+      (error) => {
+        if (this.#loaded.get(name) === entry) {
+          this.#loaded.delete(name);
+        }
+        throw error;
+      },
+    );
     this.#loaded.set(name, entry);
     return entry.loading;
   }

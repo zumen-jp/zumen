@@ -48,12 +48,12 @@
   - その呼び出しと、それからの呼び出しは、状態が `panicked` の `ZumenError` にし、元の例外を `cause` に入れる。
   - `Session.close` と `cancel` は、使えないインスタンスでは何もしない。`finally` の中で呼んでも、先に出た例外を隠さない。
   - 境界が `failed` などを返したときは、インスタンスは使えるまま。
-  - 分けたモジュールの `Modules`（`loadModules`）は、使えなくなったインスタンスを捨て、次に引いたときに読み込み直す。
+  - 分けたモジュールの `Modules`（`loadModules`）は、使えなくなったインスタンスを捨て、次に引いたときに読み込み直す。読み込みに失敗したときも覚えず、次に引いたときにやり直す（`loadBundled` と同じ）。
 - `load`・`loadSync` などは、型を `Object.prototype.toString` の名前で調べ、別の realm で作った `WebAssembly.Module`・`ArrayBuffer`・`Response` も受け取る。
 - サーバーでは、要求ごとに `loadBundled` で新しいインスタンスを使うよう README で勧める。trap が要求の外へ及ばず、wasm のメモリも要求が終われば回収される。
 - ライセンスの文:
   - リポジトリの直下の `about.toml` と `about.hbs` から、cargo-about 0.9.2 で `THIRD_PARTY_LICENSES` を作る。対象は `zumen-abi` の wasm32 の依存で、build と dev の依存と、このリポジトリの crate は載せない。許すライセンスは `deny.toml` と合わせる。
-  - cargo-about が本文を見分けられない crate は、`about.toml` の clarify で本文のファイルを指す。第三者の crate が SPDX の定型の文のままなら、リリースのワークフローを止める。
+  - cargo-about が本文を見分けられない crate は、`about.toml` の clarify で本文のファイルを指す。第三者の crate が SPDX の定型の文のままのときと、cargo-about が警告を出したとき（clarify で指したファイルが変わったときなど）は、リリースのワークフローを止める。
   - cargo-about は、配るものを作る job と分けた job で動かす。cargo-about とその依存の build script が、配るものに触れないようにする。
   - リリースのワークフローは、npm の包みに `zumen_abi1.wasm`・`THIRD_PARTY_LICENSES`・`LICENSE-MIT`・`LICENSE-APACHE` を入れ、GitHub の Release にも `THIRD_PARTY_LICENSES` を置く。
 
@@ -63,7 +63,7 @@
 - Edge のランタイム（Proxy など）でも、`load` に `?module` のモジュールを渡せるが、試験はしない。
 - 試験は、PR ごとの `bindings/js/test/server.mjs` と、毎晩の `bindings/js/test/nextjs`（Next.js・React の版は、その `package.json` で固定する）にある。
 - Next.js の任意の依存の sharp は、LGPL の libvips を試験の環境に入れる。試験の道具にだけ使い、配る成果物には入らない（Playwright の WebKit と同じ扱い）。
-- crate の版を上げて、clarify で指したファイルが変わると、cargo-about は警告を出して定型の文に戻り、リリースのワークフローが止まる。中身を見て、`about.toml` を直す。
+- crate の版を上げて、clarify で指したファイルが変わると、cargo-about は警告を出して元の扱い（定型の文や標準の本文）に戻り、リリースのワークフローは、この警告で止まる。中身を見て、`about.toml` を直す。
 - ほかの成果物（wheel・NuGet・CLI の圧縮・ネイティブのライブラリ）のライセンスの文は、#536 で入れる。cargo-about の版を上げるときは、`about.toml` の書き方の変化を確かめる（0.9 で ClearlyDefined の設定がなくなった）。
 - crates.io に出す一覧（`CRATES`）の足し忘れは、`cargo xtask codegen --check` が確かめる。並びは確かめない。Cargo 1.90 から、複数の crate を渡した `cargo publish` は、渡した順によらず依存される側から出す。
 - 同期の呼び出しはイベントループを止めるので、大きな図面を受けるサーバーには `worker_threads` で動かす手順が要る（#532）。入力を wasm のメモリに 2 回写すことは #533、サーバーで画像を描く op は #534、分けた wasm のモジュールの配布は #535 で扱う。

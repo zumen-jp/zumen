@@ -8,7 +8,7 @@
 //   load・loadSync・Zumen.open・Session.push・readScene に渡す
 // - wasm の中で trap が起きたら、その呼び出しと、それからの呼び出しが panicked の ZumenError になり、close は投げない。
 //   読み込むときの trap も panicked になる。failed の応答では、インスタンスは使えるまま。読み込み直したインスタンスで
-//   は続けられ、分けたモジュールの Modules は、使えなくなったインスタンスを読み込み直す
+//   は続けられ、分けたモジュールの Modules は、使えなくなったインスタンスと、読み込みに失敗したものを読み込み直す
 
 import assert from "node:assert/strict";
 import { copyFileSync, cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -170,6 +170,19 @@ function isPanicked(operation) {
   assert.notEqual(second, first);
   assert.equal(second.broken, false);
   assert.equal(loads, 2);
+
+  // 読み込みに失敗したら覚えず、次に引いたときにやり直す
+  let attempts = 0;
+  const retrying = new Modules({ drawing: () => module }, async (source) => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw new Error("一時的な失敗");
+    }
+    return load(source);
+  });
+  await assert.rejects(retrying.get("drawing"), { message: "一時的な失敗" });
+  assert.equal(openSample(await retrying.get("drawing")), "dxf");
+  assert.equal(attempts, 2);
 
   // 読み込み直せば続けられる
   assert.equal(openSample(await load(module)), "dxf");

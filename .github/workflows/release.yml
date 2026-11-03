@@ -136,12 +136,18 @@ jobs:
           cargo install --locked cargo-about@0.9.2 --features cli
           mkdir -p out
           args="--config about.toml --manifest-path crates/zumen-abi/Cargo.toml --target wasm32-unknown-unknown --locked --fail"
-          cargo about generate $args --output-file out/THIRD_PARTY_LICENSES about.hbs
+          cargo about generate $args --output-file out/THIRD_PARTY_LICENSES about.hbs 2> about.log || { cat about.log; exit 1; }
+          cat about.log
           cargo about generate $args --format json --output-file licenses.json
-      - name: 第三者の crate に、本文の代わりの SPDX の定型の文がないことを確かめる
-        # cargo-about は、crate の本文を見分けられないと、著作権の表示のない定型の文で代え、--fail でも止まらない。
-        # そのときは about.toml の clarify で本文のファイルを指す。このリポジトリの crate の節は about.hbs が載せない
+      - name: 第三者の crate の本文が、定型の文や標準の本文に代わっていないことを確かめる
+        # cargo-about は、crate の本文を見分けられないと、著作権の表示のない SPDX の定型の文で代える。clarify で指した
+        # ファイルが変わったときは、警告を出して元の扱いに戻る。どちらも --fail では止まらないので、ここで止める。直すとき
+        # は about.toml の clarify で本文のファイルを指す。このリポジトリの crate の節は about.hbs が載せない
         run: |
+          if grep -E 'WARN|ERROR' about.log; then
+            echo "::error::cargo-about が警告を出した（clarify で指したファイルが変わったなど）。about.toml の clarify を直す"
+            exit 1
+          fi
           fallback=$(jq -r '.licenses[] | select(.text | test("<year>|<copyright holders>|<owner>"; "i")) | .used_by[]
             | select(.crate.repository != "https://github.com/zumen-jp/zumen") | "\(.crate.name) \(.crate.version)"' licenses.json)
           if [ -n "$fallback" ]; then

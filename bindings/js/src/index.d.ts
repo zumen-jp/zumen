@@ -102,7 +102,7 @@ export declare class Modules {
   private constructor();
   /**
    * 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く。読み込んだインスタンスは使い回し、trap で
-   * 使えなくなったら（`Zumen.broken`）、捨てて読み込み直す
+   * 使えなくなったら（`Zumen.broken`）、捨てて読み込み直す。読み込みに失敗したら覚えず、次に引いたときにやり直す
    */
   get(name: ModuleName | string): Promise<Zumen>;
   /** 入力の形式を判定する。コアの形式でなければ、プラグインの規則で試す。どの形式でもなければ undefined */
