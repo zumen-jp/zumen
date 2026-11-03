@@ -1,6 +1,6 @@
 # 外部の実装との照合と確認の束
 
-zumen が書き戻した（apply）・変換した（convert）図面を、zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開いて確かめるファイルの束を作ります（決定 0254（PR #500）、#503）。自前の往復の試験は、書く側と同じ読みで確かめるので、仕様の読み違いを見つけません（#345）。
+zumen が書き戻した（apply）・変換した（convert）図面を、zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開いて確かめるファイルの束を作ります（[決定 0254](../../docs/decisions/0254-parallel-agents-and-cross-review.md)、#503）。外部の実装と照らした範囲は、形式の台帳（`formats/ledger.toml`）の確かめた度合いと、形式の文書の「確かめた度合い」の節に書きます（[決定 0255](../../docs/decisions/0255-verification-levels-in-the-ledger.md)）。自前の往復の試験は、書く側と同じ読みで確かめるので、仕様の読み違いを見つけません（#345）。
 
 | ファイル | 中身 |
 | --- | --- |

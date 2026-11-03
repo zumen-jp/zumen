@@ -31,7 +31,7 @@
 | [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `synthetic` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `core` |  |  |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `core` |  |  |
-| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `synthetic` | `synthetic` |
+| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `synthetic` | `external` |
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
@@ -41,7 +41,7 @@
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |  |  |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
-| [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `synthetic` | `synthetic` |
+| [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `synthetic` | `external` |
 | [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `core` | `synthetic` |  |
 | [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `synthetic` |  |
 
@@ -539,12 +539,14 @@
 - 参照した実装: [ezdwg](https://github.com/monozukuri-ai/ezdwg)（MIT）
 - 照合に使う候補: ODA File Converter・DWG TrueView
 - サンプルの出どころ: 公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml・ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる・ezdwg の試験の図面（MIT）
-- 読みの確かめた度合い: `application`（確認日: 2026-11-02）
-- 読みの確かめた範囲: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことを試験で確かめる。ほかの図面で確かめた所と、確かめていない所は docs/formats/dwg.md にある
+- 読みの確かめた度合い: `application`（確認日: 2026-11-03）
+- 読みの確かめた範囲: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことを試験で確かめる。ほかの図面で確かめた所と、確かめていない所は docs/formats/dwg.md にある。毎晩の CI で、公開サンプルの DWG（samples/dwg）を ACadSharp 3.8.0 でも読み、画層・図形の種類と画層・モデル空間の形の値と色が zumen の読みと同じことと、要素にならない図形の数が、移さなかったことを言う診断の件数を超えないことを確かめる（xtask/verify、#528）
 - 読みで使った公開サンプル: [samples/dwg/](../../samples/dwg/)
+- 読みで照らした外部の実装: ACadSharp 3.8.0
 - 読みで開いたソフト: AutoCAD 2027
-- 書きの確かめた度合い: `application`（確認日: 2026-11-02）
-- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）
+- 書きの確かめた度合い: `application`（確認日: 2026-11-03）
+- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）。書き戻した DWG は、毎晩の CI で ACadSharp 3.8.0 で読み、通知が入力より増えないことと、変更で決めた形・画層・色が ACadSharp の読んだ値と合うことを確かめる（xtask/verify、#528）
+- 書きで照らした外部の実装: ACadSharp 3.8.0
 - 書きで開いたソフト: AutoCAD 2027
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 旧版の記録: 旧版の決定 0003（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
@@ -720,11 +722,12 @@
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
 - 照合に使う候補: Jw\_cad
 - サンプルの出どころ: Jw\_cad に付くサンプル・ezjww のリポジトリにある図面
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-10-30）
-- 読みの確かめた範囲: 受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw\_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw\_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。公開サンプル・外部の実装・Jw\_cad での照合はまだ（#503）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: 受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw\_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw\_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。毎晩の CI で、試験の中で作った JWW を ezjww 0.7.6 でも読んで照らす（xtask/verify、#528）が、自前で作ったファイルなので読みの段に数えない。公開サンプルと受け取った図面を外部の実装と照らすことと、Jw\_cad での照合はまだ（#503）
 - 読みで使った受け取った図面: JWW 10 件
-- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 書きの確かめた範囲: 試験の中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
+- 書きの確かめた度合い: `external`（確認日: 2026-11-03）
+- 書きの確かめた範囲: 試験の中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、試験の中で作った JWW に点を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528）。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
+- 書きで照らした外部の実装: ezjww 0.7.6
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0133](../decisions/0133-jww-l1-records.md)
 - 記録: [決定 0134](../decisions/0134-jww-lift-to-drawing.md)
@@ -857,11 +860,12 @@
 - 参照した実装: [ezsxf](https://github.com/monozukuri-ai/ezsxf)（MIT）
 - 照合に使う候補: Jw\_cad・SXF ブラウザ
 - サンプルの出どころ: ezsxf のリポジトリにある公開の図面
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-10-30）
-- 読みの確かめた範囲: 受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を外部の実装や SXF ブラウザの表示と照らしていないので、段は synthetic。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。公開サンプル・外部の実装・SXF ブラウザでの照合はまだ（#503）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: 受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を外部の実装や SXF ブラウザの表示と照らしていないので、段は synthetic。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。毎晩の CI で、試験の中で作った SFC・P21 を ezsxf 0.3.7 でも読んで照らす（xtask/verify、#528）が、自前で作ったファイルなので読みの段に数えない。公開サンプルと受け取った図面を外部の実装と照らすことと、SXF ブラウザでの照合はまだ（#503）
 - 読みで使った受け取った図面: SFC 1 件・P21 1 件
-- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 書きの確かめた範囲: 試験の中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）
+- 書きの確かめた度合い: `external`（確認日: 2026-11-03）
+- 書きの確かめた範囲: 試験の中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、試験の中で作った SFC・P21 に点を足して書き戻したファイルを ezsxf 0.3.7 で読み、変更で決めた形・レイヤと、SFC の色（既定義色の番号）が、ezsxf の読んだ値と合うことを確かめる（xtask/verify、#528）。ezsxf は P21 の文字列のエスケープを戻さないので、P21 のレイヤの名前は、照合がファイルのバイトから戻す。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）。P21 の書き戻しは、書き直すインスタンスの 8 ビットの文字列を壊す（#552）
+- 書きで照らした外部の実装: ezsxf 0.3.7
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)
 - 記録: [決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)
