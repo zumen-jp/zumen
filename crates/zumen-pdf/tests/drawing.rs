@@ -1,4 +1,4 @@
-//! PDF から図面モデル（L2）とシーンへの移し（決定 0255）。入力は、どれも試験の中で作る。
+//! PDF から図面モデル（L2）とシーンへの移し（決定 0256）。入力は、どれも試験の中で作る。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
 use zumen_drawing::{
@@ -16,6 +16,7 @@ use common::{Document, Page, codes as codes_of, lift, mm, near, one_page};
 
 const HELVETICA: &str = "/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>";
 
+#[cfg(test)]
 fn elements(drawing: &Drawing2D) -> &[Element<PaperPoint>] {
     &drawing.sheets[0].elements
 }
@@ -33,6 +34,7 @@ fn assert_point(found: &PaperPoint, x: f64, y: f64) {
 }
 
 /// 用紙の大きさ（mm）が、pt の幅と高さと等しい
+#[cfg(test)]
 fn assert_size(size: Option<(f64, f64)>, width: f64, height: f64) {
     let (w, h) = size.unwrap();
     assert!(near(w, mm(width)) && near(h, mm(height)), "{size:?}");
@@ -45,6 +47,7 @@ fn rgb(element: &Element<PaperPoint>) -> Option<[u8; 3]> {
     }
 }
 
+#[cfg(test)]
 fn width(element: &Element<PaperPoint>) -> f64 {
     match element.style.line_weight {
         Some(Inherit::Own(LineWeight::Width(PaperLength(width)))) => width,

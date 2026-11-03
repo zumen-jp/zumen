@@ -165,6 +165,7 @@ pub fn one_page(page: Page<'_>) -> Vec<u8> {
 }
 
 /// 読んで図面モデルにする。読み取りと移しの診断を返す
+#[cfg(test)]
 pub fn lift(src: &[u8]) -> (Drawing2D, Vec<Diagnostic>) {
     let (file, mut diag) = testkit::read::<Pdf>(src);
     let file = file.unwrap();

@@ -1,4 +1,4 @@
-//! PDF のファイルモデル（L1）の読み書きと、テストキットの契約（決定 0010・0156・0255）。入力は、どれも試験の中で
+//! PDF のファイルモデル（L1）の読み書きと、テストキットの契約（決定 0010・0156・0256）。入力は、どれも試験の中で
 //! 作る。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
@@ -10,6 +10,7 @@ mod common;
 
 use common::{Document, Page};
 
+#[cfg(test)]
 fn read(src: &[u8]) -> (PdfFile, Vec<zumen_base::Diagnostic>) {
     let (file, diag) = testkit::read::<Pdf>(src);
     (file.unwrap(), diag)

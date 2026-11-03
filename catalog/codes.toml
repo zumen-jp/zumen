@@ -1550,7 +1550,7 @@ group-by = ["kind"]
 since = "0.0.0"
 status = "active"
 
-# PDF のファイルモデルと、図面の領域モデルへの変換（決定 0255）
+# PDF のファイルモデルと、図面の領域モデルへの変換（決定 0256）
 
 [codes."pdf.file.invalid"]
 description = "先頭の 1,024 バイトに、ファイルの見出し %PDF- がない"
