@@ -5,13 +5,13 @@ import ctypes
 from types import MappingProxyType
 from typing import Literal, Mapping, NamedTuple, Tuple
 
-# パッケージの版（決定 0015）
+# パッケージのバージョン（決定 0015）
 VERSION = "0.2.0"
-# ABI の大版
+# ABI のメジャーバージョン
 ABI_VERSION = 1
-# メッセージのスキーマの大版（要求と応答の v）
+# メッセージのスキーマのメジャーバージョン（要求と応答の v）
 SCHEMA_MAJOR = 1
-# メッセージのスキーマの小版
+# メッセージのスキーマのマイナーバージョン
 SCHEMA_MINOR = 63
 
 # 状態コードの名前
@@ -61,16 +61,16 @@ FUNCTIONS: Mapping[str, Tuple[object, Tuple[object, ...]]] = MappingProxyType(
     }
 )
 
-# シーンの見出しの始まりの 4 バイト
+# シーンのヘッダーの始まりの 4 バイト
 SCENE_MAGIC = b"ZMSC"
-# シーンの大版。区画の意味を変えるときに上げる
+# シーンのメジャーバージョン。セクションの意味を変えるときに上げる
 SCENE_MAJOR = 1
-# シーンの小版。区画か値を足すたびに上げる
+# シーンのマイナーバージョン。セクションか値を足すたびに上げる
 SCENE_MINOR = 2
 # 番号の「なし」
 SCENE_NONE = 4294967295
 
-# シーンの区画の名前
+# シーンのセクションの名前
 SceneSectionName = Literal[
     "chunk_origins",
     "chunk_bounds",
@@ -145,7 +145,7 @@ SceneSectionName = Literal[
 
 
 class SceneSection(NamedTuple):
-    """シーンの区画の定義"""
+    """シーンのセクションの定義"""
 
     # 名前
     name: str
@@ -157,7 +157,7 @@ class SceneSection(NamedTuple):
     width: int
 
 
-# シーンの区画の定義。番号の順
+# シーンのセクションの定義。番号の順
 SCENE_SECTIONS: Tuple[SceneSection, ...] = (
     # 塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値（f64 × 2）
     SceneSection("chunk_origins", "f64", "d", 2),
@@ -205,7 +205,7 @@ SCENE_SECTIONS: Tuple[SceneSection, ...] = (
     SceneSection("text_boxes", "f32", "f", 1),
     # 位置合わせ。水平（horizontal の値）と垂直（vertical の値）（u8 × 2）
     SceneSection("text_aligns", "u8", "B", 2),
-    # 印（text_flag の値の和）（u8 × 1）
+    # フラグ（text_flag の値の和）（u8 × 1）
     SceneSection("text_flags", "u8", "B", 1),
     # 書式つきの文字の行の番号。0 から数える。1 行の文字は 0（u32 × 1）
     SceneSection("text_lines", "u32", "I", 1),
@@ -217,15 +217,15 @@ SCENE_SECTIONS: Tuple[SceneSection, ...] = (
     SceneSection("point_xy", "f32", "f", 2),
     # 点の回転（度、反時計回り）（f32 × 1）
     SceneSection("point_rotations", "f32", "f", 1),
-    # 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
+    # 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
     SceneSection("point_markers", "u32", "I", 4),
-    # 既定義の印の尺度。文書の点の表し方に従う点は 1（f32 × 1）
+    # 既定義のマーカーの尺度。文書の点の表し方に従う点は 1（f32 × 1）
     SceneSection("point_scales", "f32", "f", 1),
     # 点の描く単位（unit_entities の行）（u32 × 1）
     SceneSection("point_units", "u32", "I", 1),
     # 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない（f32 × 4）
     SceneSection("point_style", "f32", "f", 4),
-    # 下敷きの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
+    # アンダーレイの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
     SceneSection("image_names", "u32", "I", 2),
     # 資源の中のページ（strings の始まりと長さ）。なければ長さが 0（u32 × 2）
     SceneSection("image_pages", "u32", "I", 2),
@@ -267,13 +267,13 @@ SCENE_SECTIONS: Tuple[SceneSection, ...] = (
     SceneSection("color_files", "u8", "B", 4),
     # 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0（u8 × 4）
     SceneSection("color_rgba", "u8", "B", 4),
-    # 印（color_flag の値の和）（u8 × 1）
+    # フラグ（color_flag の値の和）（u8 × 1）
     SceneSection("color_flags", "u8", "B", 1),
     # 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く（u32 × 1）
     SceneSection("clip_polygons", "u32", "I", 1),
     # 多角形の頂点の始まり（clip_xy の行）（u32 × 1）
     SceneSection("polygon_vertices", "u32", "I", 1),
-    # 多角形の印。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
+    # 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
     SceneSection("polygon_flags", "u8", "B", 1),
     # 切り抜きの多角形の頂点。起点の座標の X・Y（f64 × 2）
     SceneSection("clip_xy", "f64", "d", 2),
@@ -332,7 +332,7 @@ SCENE_VALUES: Mapping[str, Mapping[str, int]] = MappingProxyType(
                 "top": 3,
             }
         ),
-        # 文字の印。和で持つ
+        # 文字のフラグ。和で持つ
         "text_flag": MappingProxyType(
             {
                 # 左右に反転する
@@ -386,7 +386,7 @@ SCENE_VALUES: Mapping[str, Mapping[str, int]] = MappingProxyType(
                 "screen": 1,
             }
         ),
-        # 下敷きの資源の種類
+        # アンダーレイの資源の種類
         "image_kind": MappingProxyType(
             {
                 # 画素の画像
@@ -431,7 +431,7 @@ SCENE_VALUES: Mapping[str, Mapping[str, int]] = MappingProxyType(
                 "callout": 8,
                 # 表
                 "table": 9,
-                # 下敷き
+                # アンダーレイ
                 "underlay": 10,
                 # 記号
                 "symbol": 11,
@@ -456,7 +456,7 @@ SCENE_VALUES: Mapping[str, Mapping[str, int]] = MappingProxyType(
                 "jww": 3,
             }
         ),
-        # 色の印。和で持つ
+        # 色のフラグ。和で持つ
         "color_flag": MappingProxyType(
             {
                 # 表示する RGBA が決まらない。表示する側が決める

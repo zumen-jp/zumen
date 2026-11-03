@@ -53,7 +53,7 @@ ATTACHMENTS = [
     "bottom_center",
     "bottom_right",
 ]
-# zumen の中の ID で、ezdxf と比べない欄
+# zumen の中の ID で、ezdxf と比べないフィールド
 SKIP = {"style_id"}
 # ezdxf で形を比べる種類。モデル空間のこの種類の図形には、zumen の要素の形がある
 COMPARABLE = {"LINE", "CIRCLE", "ARC", "ELLIPSE", "LWPOLYLINE", "POINT", "TEXT", "MTEXT", "INSERT"}
@@ -160,7 +160,7 @@ def geometry(e):
 
 
 def differences(want, got, path=""):
-    """want の欄が got と同じでない所。want にない欄は比べない"""
+    """want のフィールドが got と同じでない所。want にないフィールドは比べない"""
     out = []
     if isinstance(want, dict):
         if not isinstance(got, dict):

@@ -156,7 +156,7 @@ impl<L: Fn(f64) -> Length> Parser<'_, L> {
             'O' | 'o' => self.state.overline = code == 'O',
             'K' | 'k' => self.state.strike = code == 'K',
             'U' => return self.unicode(after),
-            // 2007 より前の版の、コード・ページの文字（\M+ と 5 文字）
+            // 2007 より前のバージョンの、コード・ページの文字（\M+ と 5 文字）
             'M' => {
                 let (taken, tail) = match after.split_at_checked(6) {
                     Some((taken, tail)) if taken.starts_with('+') => (taken, tail),
@@ -330,7 +330,7 @@ fn font(value: &str) -> Option<Font> {
     })
 }
 
-/// `\S上^下;`。最初の `^`・`/`・`#` で分ける。`\` の後の文字は区切りとしない
+/// `\S上^下;`。最初の `^`・`/`・`#` で分ける。`\` の後の文字はセクションとしない
 fn stack(value: &str) -> Option<Piece> {
     let mut escaped = false;
     for (at, c) in value.char_indices() {

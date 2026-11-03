@@ -156,7 +156,7 @@ pub enum Edit {
     },
 }
 
-/// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` の欄は変えない
+/// 要素のスタイルの変更（[`Edit::Restyle`]）。`None` のフィールドは変えない
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Restyle {
     /// レイヤ

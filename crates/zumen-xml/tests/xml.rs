@@ -1,4 +1,4 @@
-//! XML の L0 の読み取り（決定 0209）。入力は、どれも試験の中で作る。
+//! XML の L0 の読み取り（決定 0209）。入力は、どれもテストの中で作る。
 
 use zumen_base::{
     Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes,
@@ -179,7 +179,7 @@ fn other_encodings_are_not_read() {
             Some(&zumen_base::Value::Text(encoding.to_owned()))
         );
     }
-    // 宣言のない文書と UTF-8 の印は UTF-8
+    // 宣言のない文書と UTF-8 のフラグは UTF-8
     let (doc, _) = read(b"\xef\xbb\xbf<a/>");
     assert_eq!(doc.unwrap().encoding(), Encoding::Utf8);
 }

@@ -1,7 +1,7 @@
 {
   "name": "@zumen-jp/zumen",
   "version": "0.2.0",
-  "description": "日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、wasm と TypeScript・JavaScript の包み",
+  "description": "日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、wasm と TypeScript・JavaScript のラッパー",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zumen-jp/zumen.git",

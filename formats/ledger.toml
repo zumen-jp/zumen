@@ -13,7 +13,7 @@ version = "Ver.3.1 第 2 版（2009-06）"
 access = "public"
 url = "https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/"
 checked = "2026-11-02"
-note = "本体は LZH の書庫（sxf_v31_r2.lzh）で、概要編・STEP AP202 サブセット編・フィーチャ仕様編・共通既定義要素編・附属書（SFC 編・共通属性セット編・属性付加機構編）・実装規約の PDF を収める。属性ファイル（SAF）は属性付加機構編が定める。サイトの規約は無断の転載と改変を禁じ、HTML 以外のファイルへの直接のリンクを控えるよう求めるが、実装を制限する記述はない"
+note = "本体は LZH のアーカイブ（sxf_v31_r2.lzh）で、概要編・STEP AP202 サブセット編・フィーチャ仕様編・共通既定義要素編・附属書（SFC 編・共通属性セット編・属性付加機構編）・実装規約の PDF を収める。属性ファイル（SAF）は属性付加機構編が定める。サイトの規約は無断の転載と改変を禁じ、HTML 以外のファイルへの直接のリンクを控えるよう求めるが、実装を制限する記述はない"
 
 [specs.sxf_display_r7_12]
 title = "SXF 表示機能及び確認機能要件書（案）"
@@ -433,7 +433,7 @@ place = "core"
 basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezdxf", license = "MIT", url = "https://ezdxf.mozman.at/" }]
 verify = ["ezdxf", "ODA File Converter", "DWG TrueView"]
-samples = ["ACadSharp の試験の図面（MIT）", "ezdwg の試験の図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
+samples = ["ACadSharp のテストの図面（MIT）", "ezdwg のテストの図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
 decisions = ["0008"]
 docs = ["docs/formats/dxf.md"]
 
@@ -451,7 +451,7 @@ references = [
   { name = "ezdwg", license = "MIT", url = "https://github.com/monozukuri-ai/ezdwg" },
 ]
 verify = ["ODA File Converter", "DWG TrueView"]
-samples = ["ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg の試験の図面（MIT）"]
+samples = ["ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg のテストの図面（MIT）"]
 decisions = ["0008"]
 legacy-decisions = ["0003"]
 docs = ["docs/formats/dwg.md"]
@@ -477,7 +477,7 @@ family = "ifc"
 domains = ["building", "civil"]
 specs = ["ifc_4_3_2", "ifc_2x3_tc1", "ifc_4_0_2_1"]
 rights = "public"
-rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標"
+rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証のツールを MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標"
 place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（手元でだけ使う）"]
@@ -504,7 +504,7 @@ checked = "2026-10-31"
 note = "実装の許諾の記述はない。Internet Archive の 2022-03-02 の写しで確かめた"
 
 [[formats.ifc.evidence]]
-title = "buildingSMART International の検証の道具（validate）"
+title = "buildingSMART International の検証のツール（validate）"
 url = "https://github.com/buildingSMART/validate"
 checked = "2026-10-24"
 
@@ -518,7 +518,7 @@ rights-note = "ISG が書式の文書を公開している。実装を制限す�
 place = "core"
 basis = ["spec"]
 verify = ["国土地理院の内挿計算プログラム（geoidcalc）"]
-samples = ["利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・試験に入れない"]
+samples = ["利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない"]
 decisions = ["0019"]
 docs = ["docs/formats/crs.md"]
 
@@ -635,7 +635,7 @@ rights-note = "OCF と国土交通省が仕様の PDF を誰でも無償で入�
 place = "core"
 basis = ["spec"]
 verify = ["国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る"]
+samples = ["再配布を認める公開のサンプルは見つかっていない。テストの中で小さな J-LandXML を作る"]
 docs = ["docs/formats/landxml.md"]
 issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
 
@@ -669,7 +669,7 @@ rights-note = "国土地理院が実装規約を技術資料として無償で�
 place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。試験の中で作る"]
+samples = ["再配布を認める公開のサンプルは見つかっていない。テストの中で作る"]
 decisions = ["0233"]
 docs = ["docs/formats/extdm.md"]
 issues = ["zumen-jp/zumen#378"]
@@ -689,7 +689,7 @@ rights-note = "国土地理院がファイル仕様書と GML のスキーマを
 place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー", "QGIS"]
-samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る"]
+samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・テストに入れない。テストの中で小さな GML を作る"]
 decisions = ["0019", "0233", "0251"]
 docs = ["docs/formats/fgd.md"]
 issues = ["zumen-jp/zumen#378"]
@@ -710,7 +710,7 @@ place = "core"
 basis = ["spec"]
 known-crates = ["nusamai-citygml", "ecitygml-io"]
 verify = ["PLATEAU VIEW", "QGIS"]
-samples = ["PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない"]
+samples = ["PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN_SAMPLES に置く。再配布できる 5 MB 未満の公式のサンプルは見つかっていない"]
 docs = ["docs/formats/citygml.md"]
 issues = ["zumen-jp/zumen#379"]
 
@@ -751,7 +751,7 @@ family = "e57"
 domains = ["pointcloud"]
 specs = ["e57_astm_e2807"]
 rights = "public"
-rights-note = "仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装と試料から読む"
+rights-note = "仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装とサンプルから読む"
 place = "core"
 basis = ["reference"]
 references = [
@@ -779,7 +779,7 @@ rights-note = "持ち主の公式の仕様はない。Greg Turk の説明と、�
 place = "core"
 basis = ["inferred"]
 verify = ["CloudCompare", "MeshLab"]
-samples = ["試験の中で作る"]
+samples = ["テストの中で作る"]
 docs = ["docs/formats/ply.md"]
 issues = ["zumen-jp/zumen#373"]
 
@@ -798,7 +798,7 @@ rights-note = "決まった仕様も持ち主もない。座標と属性を区�
 place = "core"
 basis = ["inferred"]
 verify = ["CloudCompare"]
-samples = ["試験の中で作る"]
+samples = ["テストの中で作る"]
 docs = ["docs/formats/xyz.md"]
 issues = ["zumen-jp/zumen#373"]
 
@@ -812,7 +812,7 @@ rights-note = "国土交通省が要領・基準と DTD を誰でも無償で入
 place = "core"
 basis = ["spec"]
 verify = ["国土交通省の電子納品チェックシステム（手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る"]
+samples = ["再配布を認める公開のサンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、テストの中で作る"]
 docs = ["docs/formats/delivery.md"]
 issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
 
@@ -839,10 +839,10 @@ family = "jpeg"
 domains = ["delivery"]
 specs = ["jpeg_t81", "exif_3_1", "xmp_2012"]
 rights = "public"
-rights-note = "Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP の区画だけを読む"
+rights-note = "Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読む"
 place = "core"
 basis = ["spec"]
-samples = ["個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる"]
+samples = ["個人情報（位置・機種の番号など）を含まないよう、テストの中で作るか、zumen-jp が作った写真を CC0 で入れる"]
 docs = ["docs/formats/jpeg.md"]
 issues = ["zumen-jp/zumen#387"]
 
@@ -894,7 +894,7 @@ rights = "public"
 rights-note = "Ecma International が ECMA-376 を無償で公開している。実装を制限する記述はない"
 place = "core"
 basis = ["spec"]
-samples = ["試験の中で作る"]
+samples = ["テストの中で作る"]
 docs = ["docs/formats/sheet.md"]
 issues = ["zumen-jp/zumen#391"]
 
@@ -907,6 +907,6 @@ rights = "public"
 rights-note = "IETF の RFC で、誰でも読める。実装を制限する記述はない"
 place = "core"
 basis = ["spec"]
-samples = ["試験の中で作る"]
+samples = ["テストの中で作る"]
 docs = ["docs/formats/sheet.md"]
 issues = ["zumen-jp/zumen#391"]

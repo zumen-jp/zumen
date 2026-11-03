@@ -1,4 +1,4 @@
-//! 図面モデルの変更を、P21 の実体に書き戻す（決定 0169）。入力は、どれも試験の中で作る。
+//! 図面モデルの変更を、P21 の実体に書き戻す（決定 0169）。入力は、どれもテストの中で作る。
 #![cfg(feature = "drawing")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Key, codes};
@@ -505,7 +505,7 @@ fn point_markers_are_written_into_p21() {
             .collect()
     };
     let near = |a: f64, b: f64| (a - b).abs() <= 1e-9;
-    // 置き換え: 位置・印（x）・回転・尺度
+    // 置き換え: 位置・フラグ（x）・回転・尺度
     let moved = Point {
         position: paper(50.0, 40.0),
         rotation: 30.0,

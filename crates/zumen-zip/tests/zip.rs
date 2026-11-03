@@ -1,4 +1,4 @@
-//! ZIP の L0 の読み取り（決定 0210）。書庫は、どれも試験の中で作る。
+//! ZIP の L0 の読み取り（決定 0210）。アーカイブは、どれもテストの中で作る。
 //!
 //! deflate のデータは、zlib（`compressobj(9, DEFLATED, -15)`）で `TEXT` を圧縮したもの。
 
@@ -26,7 +26,7 @@ fn hex(src: &str) -> Vec<u8> {
         .collect()
 }
 
-/// 書庫の項目。`offset` を与えると、局所の見出しを書かず、その位置を指す
+/// アーカイブの項目。`offset` を与えると、ローカルヘッダーを書かず、その位置を指す
 #[derive(Clone)]
 struct Item {
     name: Vec<u8>,
@@ -73,7 +73,7 @@ fn push64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
-/// 書庫を組み立てる。`zip64` なら、中央ディレクトリの値を ZIP64 の欄と記録に書く
+/// アーカイブを組み立てる。`zip64` なら、中央ディレクトリの値を ZIP64 のフィールドと記録に書く
 fn archive(items: &[Item], zip64: bool) -> Vec<u8> {
     let mut out = b"prefix".to_vec();
     let mut offsets = Vec::new();
@@ -214,7 +214,7 @@ fn reads_and_extracts_stored_and_deflated_entries() {
 
 #[test]
 fn reads_stored_deflate_blocks() {
-    // 圧縮しないブロック（種類 0）を 2 つ。初めのブロックは終わりの印を持たない
+    // 圧縮しないブロック（種類 0）を 2 つ。初めのブロックは終わりのマーカーを持たない
     let mut data = vec![0b000, 3, 0, !3, 0xff];
     data.extend_from_slice(b"abc");
     data.extend_from_slice(&[0b001, 2, 0, !2, 0xff]);
@@ -237,7 +237,7 @@ fn reads_stored_deflate_blocks() {
 #[test]
 fn reads_names_as_utf8_or_shift_jis() {
     let mut sjis = stored("", b"x");
-    // 「図面」は Shift_JIS で 0x90 0x7D 0x96 0xCA。UTF-8 の印はない
+    // 「図面」は Shift_JIS で 0x90 0x7D 0x96 0xCA。UTF-8 のフラグはない
     sjis.name = vec![0x90, 0x7d, 0x96, 0xca, b'.', b'p', b'2', b'z'];
     sjis.flags = 0;
     let src = archive(&[sjis, stored("図面.sfz", b"y")], false);
@@ -301,7 +301,7 @@ fn skips_entries_that_are_unsafe_or_not_read() {
 
 #[test]
 fn entries_sharing_data_are_not_read() {
-    // 2 つ目と 3 つ目は、1 つ目の局所の見出しを指す（重なる範囲の書庫の爆弾の形）
+    // 2 つ目と 3 つ目は、1 つ目のローカルヘッダーを指す（重なる範囲のアーカイブの爆弾の形）
     let first = deflated("a.txt", DYNAMIC);
     let mut second = deflated("b.txt", DYNAMIC);
     second.offset = Some(6);
@@ -344,7 +344,7 @@ fn broken_data_is_not_extracted() {
     stored_size.size = 3;
     let src = archive(&[crc, longer, shorter, cut, reserved, stored_size], false);
     let (archive, diag) = with(Limits::default(), |cx| zumen_zip::read(&src, cx).unwrap());
-    // 圧縮しない項目で、大きさが合わないものは見出しが壊れている
+    // 圧縮しない項目で、大きさが合わないものはヘッダーが壊れている
     assert_eq!(found(&diag), [codes::ZIP_ENTRY_INVALID]);
     for (name, code) in [
         ("crc", codes::ZIP_CRC_INVALID),
@@ -411,7 +411,7 @@ fn budgets_stop_at_entries_bytes_and_nesting() {
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(found(&diag), [codes::BUDGET_DECODED_BYTES_EXCEEDED]);
 
-    // 書庫の中の書庫の中の書庫
+    // アーカイブの中のアーカイブの中のアーカイブ
     let inner = archive(&[stored("leaf", b"leaf")], false);
     let middle = archive(&[stored("inner.zip", &inner)], false);
     let outer = archive(&[stored("middle.zip", &middle)], false);
@@ -504,7 +504,7 @@ fn writes_stored_entries_that_read_back_the_same() {
         let (extracted, _) = with(Limits::default(), |cx| archive.extract(entry, cx));
         assert_eq!(extracted.unwrap(), *data);
     }
-    // 空の書庫も読める
+    // 空のアーカイブも読める
     let empty = zumen_zip::write(&[]).unwrap();
     let (archive, _) = with(Limits::default(), |cx| zumen_zip::read(&empty, cx));
     assert!(archive.unwrap().entries().is_empty());

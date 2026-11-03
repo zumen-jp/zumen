@@ -3,8 +3,8 @@
 //! 置き換えは、元のレコードの値のうち、名前（2）・説明（3）・要素の数（73）・全体の長さ（40）・要素の長さ
 //! （49）だけを書き直す。形か文字を持つレコードと、DWG の今あるレコードは、要素の数を変えず、要素の長さだけを
 //! 順に書き直す。それ以外は、要素の値（49 と 74 から 9 まで）を除いてから、形も文字もない要素として書き直す。
-//! 追加は、Continuous のレコードを写し、ハンドル・拡張辞書・拡張データと要素を除いてから同じ欄を書く。名前を
-//! 変えたら、DXF では、図形と画層のレコードの線種の名前（6）と、見出しの変数の線種の名前（6。`$CELTYPE`）も
+//! 追加は、Continuous のレコードを写し、ハンドル・拡張辞書・拡張データと要素を除いてから同じフィールドを書く。名前を
+//! 変えたら、DXF では、図形と画層のレコードの線種の名前（6）と、ヘッダーの変数の線種の名前（6。`$CELTYPE`）も
 //! 書き直す。DWG の図形と画層は線種をハンドルで指すので、足した図形と画層のほかは書き直さない
 
 use std::collections::BTreeSet;
@@ -21,13 +21,13 @@ use zumen_base::{Cx, Key, Ref};
 use zumen_drawing::{Drawing2D, Edit, Inherit, LineType, PatternBasis, Placed, Seen};
 use zumen_sdk::Error;
 
-/// 欄を書く順。ない欄は、この順で前にある欄の後に足す
+/// フィールドを書く順。ないフィールドは、この順で前にあるフィールドの後に足す
 const ORDER: [i16; 6] = [2, 70, 3, 72, 73, 40];
 
 /// 要素ごとの値のグループ・コード
 const DASH_CODES: [i16; 9] = [49, 74, 75, 340, 46, 50, 44, 45, 9];
 
-/// DWG に足すレコードが持てる欄（決定 0094）
+/// DWG に足すレコードが持てるフィールド（決定 0094）
 const DWG_CODES: [i16; 7] = [330, 2, 70, 3, 72, 73, 40];
 
 /// 線種の表のレコードか
@@ -42,8 +42,8 @@ pub(super) fn fixed_name(name: &[u8]) -> bool {
         .any(|fixed| name.eq_ignore_ascii_case(fixed))
 }
 
-/// 足すレコードの元にする値。Continuous のレコードを写し、ハンドル（5）・拡張辞書と反応子の組（102）・
-/// 拡張データ（1000 から）・要素の値を除く。DWG は、足せる欄だけを残す
+/// 足すレコードの元にする値。Continuous のレコードを写し、ハンドル（5）・拡張辞書とリアクターの組（102）・
+/// 拡張データ（1000 から）・要素の値を除く。DWG は、足せるフィールドだけを残す
 pub(super) fn template(object: &Object, target: Target) -> Vec<Value> {
     let mut values = Vec::new();
     let mut depth = 0usize;
@@ -96,7 +96,7 @@ pub(super) fn write(
     let count = i64::try_from(definition.pattern.len()).ok()?;
     set(values, 73, Some(int(73, count)));
     set(values, 40, Some(real(40, total)?));
-    // モデルに現れない値も捨てない。要素の付加値か 0 でない印があれば、長さだけを書き直す。
+    // モデルに現れない値も捨てない。要素の付加値か 0 でないフラグがあれば、長さだけを書き直す。
     let marked = values.iter().any(|value| {
         matches!(value.code, 75 | 340 | 46 | 50 | 44 | 45 | 9)
             || (value.code == 74 && !matches!(value.data, Data::Int(0)))
@@ -110,7 +110,7 @@ pub(super) fn write(
         }
         return Some(());
     }
-    // R13 からの DXF（区切りの 100 を持つ）と DWG は、要素ごとに形と文字の印（74）を書く
+    // R13 からの DXF（セクションの 100 を持つ）と DWG は、要素ごとに形と文字のフラグ（74）を書く
     let flagged = matches!(target, Target::Dwg(_))
         || values.iter().any(|value| matches!(value.code, 74 | 100));
     values.retain(|value| !DASH_CODES.contains(&value.code));
@@ -170,7 +170,7 @@ pub(super) fn named_elsewhere(
 }
 
 /// 名前を変えた線種 `old` を、名前 `new` で指すように書き直す。DXF は、図形と画層のレコードの線種（6）と、
-/// 見出しの変数の線種（6）を書き直す。DWG は、足した図形と画層の線種だけを書き直す。ほかのオブジェクトが
+/// ヘッダーの変数の線種（6）を書き直す。DWG は、足した図形と画層の線種だけを書き直す。ほかのオブジェクトが
 /// 名前で指せば、呼ぶ側が先に拒む（[`named_elsewhere`]）
 pub(super) fn rename(
     db: &mut AcadDb,
@@ -240,7 +240,7 @@ pub(super) fn rename(
 }
 
 /// 除く線種のレコード `record`（表の位置と、一緒に除く拡張辞書などの位置を `skip` に持つ）を、ほかが指しているか。図形と画層の線種の名前（6）、
-/// ほかのオブジェクトのハンドル（DWG の図形と画層・寸法スタイルの線種など）、見出しの変数を見る。DWG の
+/// ほかのオブジェクトのハンドル（DWG の図形と画層・寸法スタイルの線種など）、ヘッダーの変数を見る。DWG の
 /// 表のオブジェクト（TABLE）の項目の並びは、共有の表に置かれず、書き戻しが直す
 pub(super) fn referenced(
     db: &AcadDb,

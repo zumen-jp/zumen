@@ -26,7 +26,7 @@ ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など
 
 ## 形式（`[formats.<キー>]`）
 
-キーは英小文字と数字だけにします（`sxf`・`stbridge` など）。境界の列挙の値（[決定 0012](../docs/decisions/0012-boundary-functions-and-messages.md)）にも、診断の code の範囲にも、そのまま使えるようにするためです。
+キーは英小文字と数字だけにします（`sxf`・`stbridge` など）。API の列挙の値（[決定 0012](../docs/decisions/0012-boundary-functions-and-messages.md)）にも、診断の code の範囲にも、そのまま使えるようにするためです。
 
 | キー | 要るか | 中身 |
 | --- | --- | --- |

@@ -1,7 +1,7 @@
 //! 要素と表の項目のハッシュ（決定 0156）
 //!
 //! 値を決まった並びのバイト列にし、BLAKE3 の先頭の 128 ビットを取る。出所の位置（レコードの番号・
-//! バイト範囲）は入れず、指す先は形式が持つ鍵だけを入れる。実数はビットの並びで書き、-0 は 0 に、
+//! バイト範囲）は入れず、指す先は形式が持つキーだけを入れる。実数はビットの並びで書き、-0 は 0 に、
 //! NaN は 1 つの値にそろえる。並びを変えるときは、[`Hash::VERSION`] を上げる。
 
 use core::fmt;
@@ -28,7 +28,7 @@ use crate::{
 pub struct Hash(pub [u8; 16]);
 
 impl Hash {
-    /// 並びの版
+    /// 並びのバージョン
     pub const VERSION: u32 = 2;
 
     /// 要素のハッシュ。出所は入れない
@@ -119,22 +119,22 @@ impl Hash {
         Self(result)
     }
 
-    /// レイヤのハッシュ。出所は鍵だけを入れる
+    /// レイヤのハッシュ。出所はキーだけを入れる
     pub fn layer(layer: &Layer) -> Self {
         Self::of(b"layer", |out| layer.encode(out))
     }
 
-    /// 線種のハッシュ。出所は鍵だけを入れる
+    /// 線種のハッシュ。出所はキーだけを入れる
     pub fn line_type(line_type: &LineType) -> Self {
         Self::of(b"line-type", |out| line_type.encode(out))
     }
 
-    /// 寸法スタイルのハッシュ。出所は鍵だけを入れる
+    /// 寸法スタイルのハッシュ。出所はキーだけを入れる
     pub fn dimension_style(style: &DimensionStyle) -> Self {
         Self::of(b"dimension-style", |out| style.encode(out))
     }
 
-    /// 文字スタイルのハッシュ。出所は鍵だけを入れる
+    /// 文字スタイルのハッシュ。出所はキーだけを入れる
     pub fn text_style(style: &TextStyle) -> Self {
         Self::of(b"text-style", |out| style.encode(out))
     }
@@ -158,7 +158,7 @@ impl Hash {
 impl core::str::FromStr for Hash {
     type Err = ();
 
-    /// `v` と版（[`Hash::VERSION`]）と `:` に続く、32 桁の 16 進を読む。版が違うか、桁か文字が合わなければ `Err`
+    /// `v` とバージョン（[`Hash::VERSION`]）と `:` に続く、32 桁の 16 進を読む。バージョンが違うか、桁か文字が合わなければ `Err`
     fn from_str(text: &str) -> Result<Self, ()> {
         let digits = text
             .strip_prefix('v')
@@ -328,7 +328,7 @@ impl<A: Encode, B: Encode> Encode for (A, B) {
     }
 }
 
-/// 出所は、形式が持つ鍵だけを入れる。位置は、前のレコードが増えると変わる
+/// 出所は、形式が持つキーだけを入れる。位置は、前のレコードが増えると変わる
 impl Encode for Ref {
     fn encode(&self, out: &mut Canon<'_>) {
         match self.key() {
@@ -579,7 +579,7 @@ impl<P: Encode> Encode for Shape<P> {
                 out.tag(12);
                 hatch.encode(out);
             }
-            // 点は決定 0160 で足した。ほかの形の並びは変えないので、版は上げない
+            // 点は決定 0160 で足した。ほかの形の並びは変えないので、バージョンは上げない
             Shape::Point(point) => {
                 out.tag(13);
                 point.encode(out);

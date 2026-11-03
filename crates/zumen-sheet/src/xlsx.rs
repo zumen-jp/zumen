@@ -160,7 +160,7 @@ fn rels_name(name: &str) -> String {
     }
 }
 
-/// 関係の行き先を、部品 `from` からの相対として、書庫の中の名前にする
+/// 関係の行き先を、部品 `from` からの相対として、アーカイブの中の名前にする
 fn resolve(from: &str, target: &str) -> String {
     if let Some(absolute) = target.strip_prefix('/') {
         return absolute.to_string();

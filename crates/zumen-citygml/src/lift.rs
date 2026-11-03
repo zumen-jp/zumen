@@ -661,7 +661,7 @@ impl<'d> Reader<'d, '_, '_> {
         found
     }
 
-    // 要素をたどる道具
+    // 要素をたどるツール
 
     fn local(&self, element: &Element) -> &'d [u8] {
         self.doc.local_name(element.name())

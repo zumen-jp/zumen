@@ -1,4 +1,4 @@
-//! IDS の読み取りと照合（決定 0217）。IDS と建物モデルは、試験の中で書いた小さなものだけを使う。
+//! IDS の読み取りと照合（決定 0217）。IDS と建物モデルは、テストの中で書いた小さなものだけを使う。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, Severity, codes};
 use zumen_building::{
@@ -23,7 +23,7 @@ fn ids(specifications: &str) -> String {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <ids xmlns=\"http://standards.buildingsmart.org/IDS\" \
          xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\
-         <info><title>試験</title></info><specifications>{specifications}</specifications></ids>"
+         <info><title>テスト</title></info><specifications>{specifications}</specifications></ids>"
     )
 }
 
@@ -234,7 +234,7 @@ impl Lookup for Lifted {
 fn reads_specifications() {
     let (parsed, diag) = read(&ids(&spec("壁", &entity("IFCWALL"), "")));
     let parsed = parsed.unwrap();
-    assert_eq!(parsed.title(), Some("試験"));
+    assert_eq!(parsed.title(), Some("テスト"));
     assert_eq!(parsed.specifications().len(), 1);
     assert_eq!(parsed.specifications()[0].name(), "壁");
     assert_eq!(parsed.specifications()[0].versions(), ["IFC4"]);
@@ -308,7 +308,7 @@ fn attribute_facet() {
                 &attribute("Description", None, "optional"),
             ),
             spec("禁じた名前", &wall, &attribute("Name", None, "prohibited")),
-            // 成分にない属性は、EXPRESS がなければ確かめられない
+            // コンポーネントにない属性は、EXPRESS がなければ確かめられない
             spec("高さ", &wall, &attribute("OverallHeight", None, "required")),
         ]
         .concat(),

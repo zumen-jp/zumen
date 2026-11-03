@@ -1,5 +1,5 @@
 // swift-tools-version:5.9
-// Swift の包み（決定 0225）。CZumen は、`build-xcframework.sh` が作るネイティブのライブラリ（静的）とヘッダー。
+// Swift のラッパー（決定 0225）。CZumen は、`build-xcframework.sh` が作るネイティブのライブラリ（静的）とヘッダー。
 import PackageDescription
 
 let package = Package(

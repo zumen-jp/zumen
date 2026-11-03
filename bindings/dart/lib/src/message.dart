@@ -1,19 +1,19 @@
 import 'dart:collection';
 import 'dart:convert';
 
-/// 欄の値の形が、型と違う印
+/// フィールドの値の形が、型と違うフラグ
 final class _Mismatch implements Exception {
   const _Mismatch();
 }
 
-/// 境界のメッセージの型の土台。読んだ JSON のオブジェクトを包み、知らない欄もそのまま持つ（決定 0015）。
+/// API のメッセージの型の土台。読んだ JSON のオブジェクトをラッパー、知らないフィールドもそのまま持つ（決定 0015）。
 abstract class Message {
   Message(this.json);
 
   /// 包んでいる JSON のオブジェクト
   final Map<String, Object?> json;
 
-  /// 欄を読む。ない欄と、形の違う値は null
+  /// フィールドを読む。ないフィールドと、形の違う値は null
   T? readField<T>(String key, T? Function(Object?) decode) {
     final value = json[key];
     if (value == null) {
@@ -26,7 +26,7 @@ abstract class Message {
     }
   }
 
-  /// 欄を書く。null を書くと欄を除く
+  /// フィールドを書く。null を書くとフィールドを除く
   void writeField(String key, Object? value) {
     if (value == null) {
       json.remove(key);
@@ -35,7 +35,7 @@ abstract class Message {
     }
   }
 
-  /// 目印の欄が値と同じなら、その形の見方。違えば null
+  /// タグのフィールドが値と同じなら、その形のビュー。違えば null
   T? taggedView<T>(String key, String value, T Function(Map<String, Object?>) of) =>
       json[key] == value ? of(json) : null;
 

@@ -2,10 +2,10 @@
 
 use super::{Input, Pack, Unpack, Writer, largest};
 
-/// 大版。読み手は、同じ大版のバイナリだけを読む
+/// メジャーバージョン。リーダーは、同じメジャーバージョンのバイナリだけを読む
 pub const MAJOR: u16 = 1;
 
-/// 小版。型の契約に型・欄・値を足すたびに上げる
+/// マイナーバージョン。型の契約に型・フィールド・値を足すたびに上げる
 pub const MINOR: u16 = 0;
 
 impl Pack for crate::space::Affine {

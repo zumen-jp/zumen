@@ -2,12 +2,12 @@
  * 元は schema/scene.toml で、`cargo xtask codegen` で作り直す。 */
 
 /*
- * 2D のシーンの配置（決定 0137・0172・0178）。scene の op が返す blob の区画の番号・型・幅と、列に入れる値。
+ * 2D のシーンの配置（決定 0137・0172・0178）。scene の op が返す blob のセクションの番号・型・幅と、列に入れる値。
  *
- * - 見出しは ZMSC、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）。続けて区画ごとに、始まりと長さ
+ * - ヘッダーは ZMSC、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）。続けてセクションごとに、始まりと長さ
  *   （u32、バイト）を置く。数はリトルエンディアン
- * - 区画と値は足すだけにする。読み手は、知らない区画を読み飛ばし、大版が違えば読まない（決定 0015）
- * - C++ の読み手は zumen.hpp の zumen::Scene にある
+ * - セクションと値は足すだけにする。リーダーは、知らないセクションを読み飛ばし、メジャーバージョンが違えば読まない（決定 0015）
+ * - C++ のリーダーは zumen.hpp の zumen::Scene にある
  */
 
 #ifndef ZUMEN_SCENE_H
@@ -20,25 +20,25 @@
 extern "C" {
 #endif
 
-/* 見出しの始まりの 4 バイト */
+/* ヘッダーの始まりの 4 バイト */
 #define ZM_SCENE_MAGIC "ZMSC"
-/* 大版。区画の意味を変えるときに上げる */
+/* メジャーバージョン。セクションの意味を変えるときに上げる */
 #define ZM_SCENE_MAJOR 1
-/* 小版。区画か値を足すたびに上げる */
+/* マイナーバージョン。セクションか値を足すたびに上げる */
 #define ZM_SCENE_MINOR 2
 /* 番号の「なし」 */
 #define ZM_SCENE_NONE UINT32_C(4294967295)
 
-/* 区画の値の型 */
+/* セクションの値の型 */
 #define ZM_SCENE_TYPE_U8 0
 #define ZM_SCENE_TYPE_U32 1
 #define ZM_SCENE_TYPE_F32 2
 #define ZM_SCENE_TYPE_F64 3
 
-/* 区画の数 */
+/* セクションの数 */
 #define ZM_SCENE_SECTION_COUNT 69
 
-/* 区画の番号 */
+/* セクションの番号 */
 /* 塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値（f64 × 2） */
 #define ZM_SCENE_SECTION_CHUNK_ORIGINS 0
 /* 塊の描くものの相対座標の範囲（X の最小・Y の最小・X の最大・Y の最大）。文字は基点だけを含む（f32 × 4） */
@@ -85,7 +85,7 @@ extern "C" {
 #define ZM_SCENE_SECTION_TEXT_BOXES 21
 /* 位置合わせ。水平（horizontal の値）と垂直（vertical の値）（u8 × 2） */
 #define ZM_SCENE_SECTION_TEXT_ALIGNS 22
-/* 印（text_flag の値の和）（u8 × 1） */
+/* フラグ（text_flag の値の和）（u8 × 1） */
 #define ZM_SCENE_SECTION_TEXT_FLAGS 23
 /* 書式つきの文字の行の番号。0 から数える。1 行の文字は 0（u32 × 1） */
 #define ZM_SCENE_SECTION_TEXT_LINES 24
@@ -97,15 +97,15 @@ extern "C" {
 #define ZM_SCENE_SECTION_POINT_XY 27
 /* 点の回転（度、反時計回り）（f32 × 1） */
 #define ZM_SCENE_SECTION_POINT_ROTATIONS 28
-/* 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4） */
+/* 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4） */
 #define ZM_SCENE_SECTION_POINT_MARKERS 29
-/* 既定義の印の尺度。文書の点の表し方に従う点は 1（f32 × 1） */
+/* 既定義のマーカーの尺度。文書の点の表し方に従う点は 1（f32 × 1） */
 #define ZM_SCENE_SECTION_POINT_SCALES 30
 /* 点の描く単位（unit_entities の行）（u32 × 1） */
 #define ZM_SCENE_SECTION_POINT_UNITS 31
 /* 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない（f32 × 4） */
 #define ZM_SCENE_SECTION_POINT_STYLE 32
-/* 下敷きの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2） */
+/* アンダーレイの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2） */
 #define ZM_SCENE_SECTION_IMAGE_NAMES 33
 /* 資源の中のページ（strings の始まりと長さ）。なければ長さが 0（u32 × 2） */
 #define ZM_SCENE_SECTION_IMAGE_PAGES 34
@@ -147,13 +147,13 @@ extern "C" {
 #define ZM_SCENE_SECTION_COLOR_FILES 52
 /* 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0（u8 × 4） */
 #define ZM_SCENE_SECTION_COLOR_RGBA 53
-/* 印（color_flag の値の和）（u8 × 1） */
+/* フラグ（color_flag の値の和）（u8 × 1） */
 #define ZM_SCENE_SECTION_COLOR_FLAGS 54
 /* 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く（u32 × 1） */
 #define ZM_SCENE_SECTION_CLIP_POLYGONS 55
 /* 多角形の頂点の始まり（clip_xy の行）（u32 × 1） */
 #define ZM_SCENE_SECTION_POLYGON_VERTICES 56
-/* 多角形の印。1 なら、内側を隠す（外側だけを描く）（u8 × 1） */
+/* 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）（u8 × 1） */
 #define ZM_SCENE_SECTION_POLYGON_FLAGS 57
 /* 切り抜きの多角形の頂点。起点の座標の X・Y（f64 × 2） */
 #define ZM_SCENE_SECTION_CLIP_XY 58
@@ -202,7 +202,7 @@ extern "C" {
 /* 上 */
 #define ZM_SCENE_VALUE_VERTICAL_TOP 3
 
-/* 文字の印。和で持つ（u8） */
+/* 文字のフラグ。和で持つ（u8） */
 /* 左右に反転する */
 #define ZM_SCENE_VALUE_TEXT_FLAG_BACKWARD 1
 /* 上下に反転する */
@@ -244,7 +244,7 @@ extern "C" {
 /* 画面の高さに対する百分率 */
 #define ZM_SCENE_VALUE_POINT_SIZE_SCREEN 1
 
-/* 下敷きの資源の種類（u8） */
+/* アンダーレイの資源の種類（u8） */
 /* 画素の画像 */
 #define ZM_SCENE_VALUE_IMAGE_KIND_IMAGE 0
 /* PDF */
@@ -281,7 +281,7 @@ extern "C" {
 #define ZM_SCENE_VALUE_ENTITY_KIND_CALLOUT 8
 /* 表 */
 #define ZM_SCENE_VALUE_ENTITY_KIND_TABLE 9
-/* 下敷き */
+/* アンダーレイ */
 #define ZM_SCENE_VALUE_ENTITY_KIND_UNDERLAY 10
 /* 記号 */
 #define ZM_SCENE_VALUE_ENTITY_KIND_SYMBOL 11
@@ -302,13 +302,13 @@ extern "C" {
 /* Jw_cad のペンの番号 */
 #define ZM_SCENE_VALUE_COLOR_SYSTEM_JWW 3
 
-/* 色の印。和で持つ（u8） */
+/* 色のフラグ。和で持つ（u8） */
 /* 表示する RGBA が決まらない。表示する側が決める */
 #define ZM_SCENE_VALUE_COLOR_FLAG_UNRESOLVED 1
 /* 背景で変わる色（ACI の 7）。表示する側が、背景に対する前景の色にする */
 #define ZM_SCENE_VALUE_COLOR_FLAG_FOREGROUND 2
 
-/* 区画の定義 */
+/* セクションの定義 */
 typedef struct zm_scene_section {
     /* 名前（schema/scene.toml の name） */
     const char *name;
@@ -318,7 +318,7 @@ typedef struct zm_scene_section {
     uint32_t width;
 } zm_scene_section;
 
-/* 区画の定義を番号から引く。知らない番号なら NULL */
+/* セクションの定義を番号から引く。知らない番号なら NULL */
 static inline const zm_scene_section *zm_scene_section_at(uint32_t index) {
     static const zm_scene_section sections[69] = {
         {"chunk_origins", ZM_SCENE_TYPE_F64, 2},

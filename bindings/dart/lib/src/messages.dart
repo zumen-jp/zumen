@@ -1,8 +1,8 @@
 // 生成したファイル。手で直さない。
 // 元は schema/messages.json で、`cargo xtask codegen` で作り直す。
 //
-// 境界のメッセージの型（決定 0012・0227）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む
-// 見方で、知らない欄もそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。
+// API のメッセージの型（決定 0012・0227）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む
+// ビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。
 
 // ignore_for_file: lines_longer_than_80_chars
 
@@ -16,101 +16,101 @@ class Request extends Message {
   /// 空のオブジェクトから作る
   Request() : super({});
 
-  /// op が capabilities の形なら、その見方。違えば null
+  /// op が capabilities の形なら、そのビュー。違えば null
   CapabilitiesRequest? get asCapabilitiesRequest => taggedView('op', 'capabilities', CapabilitiesRequest.fromJson);
 
-  /// op が open の形なら、その見方。違えば null
+  /// op が open の形なら、そのビュー。違えば null
   OpenRequest? get asOpenRequest => taggedView('op', 'open', OpenRequest.fromJson);
 
-  /// op が close の形なら、その見方。違えば null
+  /// op が close の形なら、そのビュー。違えば null
   CloseRequest? get asCloseRequest => taggedView('op', 'close', CloseRequest.fromJson);
 
-  /// op が describe の形なら、その見方。違えば null
+  /// op が describe の形なら、そのビュー。違えば null
   DescribeRequest? get asDescribeRequest => taggedView('op', 'describe', DescribeRequest.fromJson);
 
-  /// op が drawing の形なら、その見方。違えば null
+  /// op が drawing の形なら、そのビュー。違えば null
   DrawingRequest? get asDrawingRequest => taggedView('op', 'drawing', DrawingRequest.fromJson);
 
-  /// op が entities の形なら、その見方。違えば null
+  /// op が entities の形なら、そのビュー。違えば null
   EntitiesRequest? get asEntitiesRequest => taggedView('op', 'entities', EntitiesRequest.fromJson);
 
-  /// op が apply の形なら、その見方。違えば null
+  /// op が apply の形なら、そのビュー。違えば null
   ApplyRequest? get asApplyRequest => taggedView('op', 'apply', ApplyRequest.fromJson);
 
-  /// op が convert の形なら、その見方。違えば null
+  /// op が convert の形なら、そのビュー。違えば null
   ConvertRequest? get asConvertRequest => taggedView('op', 'convert', ConvertRequest.fromJson);
 
-  /// op が tables の形なら、その見方。違えば null
+  /// op が tables の形なら、そのビュー。違えば null
   TablesRequest? get asTablesRequest => taggedView('op', 'tables', TablesRequest.fromJson);
 
-  /// op が scene の形なら、その見方。違えば null
+  /// op が scene の形なら、そのビュー。違えば null
   SceneRequest? get asSceneRequest => taggedView('op', 'scene', SceneRequest.fromJson);
 
-  /// op が check の形なら、その見方。違えば null
+  /// op が check の形なら、そのビュー。違えば null
   CheckRequest? get asCheckRequest => taggedView('op', 'check', CheckRequest.fromJson);
 
-  /// op が validate の形なら、その見方。違えば null
+  /// op が validate の形なら、そのビュー。違えば null
   ValidateRequest? get asValidateRequest => taggedView('op', 'validate', ValidateRequest.fromJson);
 
-  /// op が review_carry の形なら、その見方。違えば null
+  /// op が review_carry の形なら、そのビュー。違えば null
   ReviewCarryRequest? get asReviewCarryRequest => taggedView('op', 'review_carry', ReviewCarryRequest.fromJson);
 
-  /// op が review_adopt の形なら、その見方。違えば null
+  /// op が review_adopt の形なら、そのビュー。違えば null
   ReviewAdoptRequest? get asReviewAdoptRequest => taggedView('op', 'review_adopt', ReviewAdoptRequest.fromJson);
 
-  /// op が building の形なら、その見方。違えば null
+  /// op が building の形なら、そのビュー。違えば null
   BuildingRequest? get asBuildingRequest => taggedView('op', 'building', BuildingRequest.fromJson);
 
-  /// op が building_elements の形なら、その見方。違えば null
+  /// op が building_elements の形なら、そのビュー。違えば null
   BuildingElementsRequest? get asBuildingElementsRequest => taggedView('op', 'building_elements', BuildingElementsRequest.fromJson);
 
-  /// op が ids_check の形なら、その見方。違えば null
+  /// op が ids_check の形なら、そのビュー。違えば null
   IdsCheckRequest? get asIdsCheckRequest => taggedView('op', 'ids_check', IdsCheckRequest.fromJson);
 
-  /// op が review_adopt_ids の形なら、その見方。違えば null
+  /// op が review_adopt_ids の形なら、そのビュー。違えば null
   ReviewAdoptIdsRequest? get asReviewAdoptIdsRequest => taggedView('op', 'review_adopt_ids', ReviewAdoptIdsRequest.fromJson);
 
-  /// op が bcf_read の形なら、その見方。違えば null
+  /// op が bcf_read の形なら、そのビュー。違えば null
   BcfReadRequest? get asBcfReadRequest => taggedView('op', 'bcf_read', BcfReadRequest.fromJson);
 
-  /// op が bcf_write の形なら、その見方。違えば null
+  /// op が bcf_write の形なら、そのビュー。違えば null
   BcfWriteRequest? get asBcfWriteRequest => taggedView('op', 'bcf_write', BcfWriteRequest.fromJson);
 
-  /// op が civil の形なら、その見方。違えば null
+  /// op が civil の形なら、そのビュー。違えば null
   CivilRequest? get asCivilRequest => taggedView('op', 'civil', CivilRequest.fromJson);
 
-  /// op が pointcloud の形なら、その見方。違えば null
+  /// op が pointcloud の形なら、そのビュー。違えば null
   PointcloudRequest? get asPointcloudRequest => taggedView('op', 'pointcloud', PointcloudRequest.fromJson);
 
-  /// op が deviation の形なら、その見方。違えば null
+  /// op が deviation の形なら、そのビュー。違えば null
   DeviationRequest? get asDeviationRequest => taggedView('op', 'deviation', DeviationRequest.fromJson);
 
-  /// op が civil_drawing の形なら、その見方。違えば null
+  /// op が civil_drawing の形なら、そのビュー。違えば null
   CivilDrawingRequest? get asCivilDrawingRequest => taggedView('op', 'civil_drawing', CivilDrawingRequest.fromJson);
 
-  /// op が geo の形なら、その見方。違えば null
+  /// op が geo の形なら、そのビュー。違えば null
   GeoRequest? get asGeoRequest => taggedView('op', 'geo', GeoRequest.fromJson);
 
-  /// op が delivery_check の形なら、その見方。違えば null
+  /// op が delivery_check の形なら、そのビュー。違えば null
   DeliveryCheckRequest? get asDeliveryCheckRequest => taggedView('op', 'delivery_check', DeliveryCheckRequest.fromJson);
 
-  /// op が photo の形なら、その見方。違えば null
+  /// op が photo の形なら、そのビュー。違えば null
   PhotoRequest? get asPhotoRequest => taggedView('op', 'photo', PhotoRequest.fromJson);
 
-  /// op が sheet の形なら、その見方。違えば null
+  /// op が sheet の形なら、そのビュー。違えば null
   SheetRequest? get asSheetRequest => taggedView('op', 'sheet', SheetRequest.fromJson);
 
-  /// op が boring の形なら、その見方。違えば null
+  /// op が boring の形なら、そのビュー。違えば null
   BoringRequest? get asBoringRequest => taggedView('op', 'boring', BoringRequest.fromJson);
 
-  /// op が building_apply の形なら、その見方。違えば null
+  /// op が building_apply の形なら、そのビュー。違えば null
   BuildingApplyRequest? get asBuildingApplyRequest => taggedView('op', 'building_apply', BuildingApplyRequest.fromJson);
 
-  /// op が lift の形なら、その見方。違えば null
+  /// op が lift の形なら、そのビュー。違えば null
   LiftRequest? get asLiftRequest => taggedView('op', 'lift', LiftRequest.fromJson);
 }
 
-/// どの op の要求にも置ける欄
+/// どの op の要求にも置けるフィールド
 class RequestCommon extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RequestCommon.fromJson(super.json);
@@ -118,7 +118,7 @@ class RequestCommon extends Message {
   /// 空のオブジェクトから作る
   RequestCommon() : super({});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -134,7 +134,7 @@ class RequestCommon extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 }
@@ -176,15 +176,15 @@ class Budget extends Message {
   set work(Object? value) => writeField('work', value);
 }
 
-/// コアの版と、使える op・形式を尋ねる
+/// コアのバージョンと、使える op・形式を尋ねる
 class CapabilitiesRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CapabilitiesRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   CapabilitiesRequest() : super({'op': 'capabilities'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -200,7 +200,7 @@ class CapabilitiesRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -209,7 +209,7 @@ class CapabilitiesRequest extends Message {
   set op(String? value) => writeField('op', value);
 }
 
-/// コアの版と、使える op・形式（決定 0015）
+/// コアのバージョンと、使える op・形式（決定 0015）
 class CapabilitiesResult extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CapabilitiesResult.fromJson(super.json);
@@ -217,15 +217,15 @@ class CapabilitiesResult extends Message {
   /// 空のオブジェクトから作る
   CapabilitiesResult() : super({});
 
-  /// パッケージの版（semver）
+  /// パッケージのバージョン（semver）
   String? get package => readField('package', asString);
   set package(String? value) => writeField('package', value);
 
-  /// ABI の大版。zm_abi_version と同じ
+  /// ABI のメジャーバージョン。zm_abi_version と同じ
   int? get abi => readField('abi', asInt);
   set abi(int? value) => writeField('abi', value);
 
-  /// メッセージのスキーマの版
+  /// メッセージのスキーマのバージョン
   SchemaVersion? get schema => readField('schema', objectOf(SchemaVersion.fromJson));
   set schema(SchemaVersion? value) => writeField('schema', value);
 
@@ -238,7 +238,7 @@ class CapabilitiesResult extends Message {
   set formats(List<Format>? value) => writeField('formats', value);
 }
 
-/// メッセージのスキーマの版。大版は要求と応答の v、小版は op・欄・列挙の値を足すたびに上げる
+/// メッセージのスキーマのバージョン。メジャーバージョンは要求と応答の v、マイナーバージョンは op・フィールド・列挙の値を足すたびに上げる
 class SchemaVersion extends Message {
   /// 読んだ JSON のオブジェクトを包む
   SchemaVersion.fromJson(super.json);
@@ -246,11 +246,11 @@ class SchemaVersion extends Message {
   /// 空のオブジェクトから作る
   SchemaVersion() : super({});
 
-  /// 大版
+  /// メジャーバージョン
   int? get major => readField('major', asInt);
   set major(int? value) => writeField('major', value);
 
-  /// 小版
+  /// マイナーバージョン
   int? get minor => readField('minor', asInt);
   set minor(int? value) => writeField('minor', value);
 }
@@ -279,7 +279,7 @@ class Format extends Message {
   bool? get write => readField('write', asBool);
   set write(bool? value) => writeField('write', value);
 
-  /// この形式の ID の規則の版（決定 0015）
+  /// この形式の ID の規則のバージョン（決定 0015）
   int? get idRules => readField('id_rules', asInt);
   set idRules(int? value) => writeField('id_rules', value);
 }
@@ -289,10 +289,10 @@ class OpenRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   OpenRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   OpenRequest() : super({'op': 'open'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -308,7 +308,7 @@ class OpenRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -324,15 +324,15 @@ class OpenRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+  /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
   int? get size => readField('size', asInt);
   set size(int? value) => writeField('size', value);
 
-  /// 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
+  /// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
-  /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から
+  /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
   String? get saf => readField('saf', asString);
   set saf(String? value) => writeField('saf', value);
 }
@@ -353,15 +353,15 @@ class OpenResult extends Message {
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
-  /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+  /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。マイナーバージョン 48 から
   List<InputRange>? get needs => readField('needs', listOf(objectOf(InputRange.fromJson)));
   set needs(List<InputRange>? value) => writeField('needs', value);
 
-  /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+  /// 読み終えたので、close の inputs で捨ててよい範囲の入力。マイナーバージョン 48 から
   List<InputRange>? get done => readField('done', listOf(objectOf(InputRange.fromJson)));
   set done(List<InputRange>? value) => writeField('done', value);
 
-  /// SXF を ZIP に入れた書庫（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）の書庫の中の名前。書庫の順。apply は、SXF の項目だけを置き換え、ほかの項目を写した書庫を書く（#385）。小版 54 から
+  /// SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から
   List<String>? get entries => readField('entries', listOf(asString));
   set entries(List<String>? value) => writeField('entries', value);
 }
@@ -392,10 +392,10 @@ class CloseRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CloseRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   CloseRequest() : super({'op': 'close'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -411,7 +411,7 @@ class CloseRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -442,10 +442,10 @@ class DescribeRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DescribeRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   DescribeRequest() : super({'op': 'describe'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -461,7 +461,7 @@ class DescribeRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -491,15 +491,15 @@ class DescribeResult extends Message {
   set texts(List<String>? value) => writeField('texts', value);
 }
 
-/// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007）
+/// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合テストで比べるためにも使う（決定 0007）
 class DrawingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DrawingRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   DrawingRequest() : super({'op': 'drawing'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -515,7 +515,7 @@ class DrawingRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -548,12 +548,12 @@ class DrawingResult extends Message {
   List<SheetSummary>? get sheets => readField('sheets', listOf(objectOf(SheetSummary.fromJson)));
   set sheets(List<SheetSummary>? value) => writeField('sheets', value);
 
-  /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。小版 39 から
+  /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
   PointStyleSummary? get pointStyle => readField('point_style', objectOf(PointStyleSummary.fromJson));
   set pointStyle(PointStyleSummary? value) => writeField('point_style', value);
 }
 
-/// 文書の点の表し方。欄の意味は point_style_edit と同じ
+/// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
 class PointStyleSummary extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointStyleSummary.fromJson(super.json);
@@ -699,10 +699,10 @@ class EntitiesRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   EntitiesRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   EntitiesRequest() : super({'op': 'entities'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -718,7 +718,7 @@ class EntitiesRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -738,7 +738,7 @@ class EntitiesRequest extends Message {
   int? get limit => readField('limit', asInt);
   set limit(int? value) => writeField('limit', value);
 
-  /// 返す欄の名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
+  /// 返すフィールドの名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
   List<String>? get fields => readField('fields', listOf(asString));
   set fields(List<String>? value) => writeField('fields', value);
 
@@ -746,7 +746,7 @@ class EntitiesRequest extends Message {
   List<double>? get region => readField('region', listOf(asDouble));
   set region(List<double>? value) => writeField('region', value);
 
-  /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。小版 31 から（決定 0177）
+  /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
   String? get place => readField('place', asString);
   set place(String? value) => writeField('place', value);
 }
@@ -780,7 +780,7 @@ class Entity extends Message {
   /// 空のオブジェクトから作る
   Entity() : super({});
 
-  /// 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つ鍵（ハンドル）があれば鍵で作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どの版でも同じ ID を返す（決定 0117・0156）
+  /// 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つキー（ハンドル）があればキーで作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どのバージョンでも同じ ID を返す（決定 0117・0156）
   String? get id => readField('id', asString);
   set id(String? value) => writeField('id', value);
 
@@ -804,12 +804,12 @@ class Entity extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+  /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
   Geometry? get geometry => readField('geometry', objectOf(Geometry.fromJson));
   set geometry(Geometry? value) => writeField('geometry', value);
 }
 
-/// entities で返す要素の欄（決定 0118）
+/// entities で返す要素のフィールド（決定 0118）
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class EntityField {
@@ -830,43 +830,43 @@ class Geometry extends Message {
   /// 空のオブジェクトから作る
   Geometry() : super({});
 
-  /// shape が line の形なら、その見方。違えば null
+  /// shape が line の形なら、そのビュー。違えば null
   LineGeometry? get asLineGeometry => taggedView('shape', 'line', LineGeometry.fromJson);
 
-  /// shape が circle の形なら、その見方。違えば null
+  /// shape が circle の形なら、そのビュー。違えば null
   CircleGeometry? get asCircleGeometry => taggedView('shape', 'circle', CircleGeometry.fromJson);
 
-  /// shape が arc の形なら、その見方。違えば null
+  /// shape が arc の形なら、そのビュー。違えば null
   ArcGeometry? get asArcGeometry => taggedView('shape', 'arc', ArcGeometry.fromJson);
 
-  /// shape が ellipse の形なら、その見方。違えば null
+  /// shape が ellipse の形なら、そのビュー。違えば null
   EllipseGeometry? get asEllipseGeometry => taggedView('shape', 'ellipse', EllipseGeometry.fromJson);
 
-  /// shape が polyline の形なら、その見方。違えば null
+  /// shape が polyline の形なら、そのビュー。違えば null
   PolylineGeometry? get asPolylineGeometry => taggedView('shape', 'polyline', PolylineGeometry.fromJson);
 
-  /// shape が text の形なら、その見方。違えば null
+  /// shape が text の形なら、そのビュー。違えば null
   TextGeometry? get asTextGeometry => taggedView('shape', 'text', TextGeometry.fromJson);
 
-  /// shape が formatted_text の形なら、その見方。違えば null
+  /// shape が formatted_text の形なら、そのビュー。違えば null
   FormattedTextGeometry? get asFormattedTextGeometry => taggedView('shape', 'formatted_text', FormattedTextGeometry.fromJson);
 
-  /// shape が symbol の形なら、その見方。違えば null
+  /// shape が symbol の形なら、そのビュー。違えば null
   SymbolGeometry? get asSymbolGeometry => taggedView('shape', 'symbol', SymbolGeometry.fromJson);
 
-  /// shape が spline の形なら、その見方。違えば null
+  /// shape が spline の形なら、そのビュー。違えば null
   SplineGeometry? get asSplineGeometry => taggedView('shape', 'spline', SplineGeometry.fromJson);
 
-  /// shape が dimension の形なら、その見方。違えば null
+  /// shape が dimension の形なら、そのビュー。違えば null
   DimensionGeometry? get asDimensionGeometry => taggedView('shape', 'dimension', DimensionGeometry.fromJson);
 
-  /// shape が leader の形なら、その見方。違えば null
+  /// shape が leader の形なら、そのビュー。違えば null
   LeaderGeometry? get asLeaderGeometry => taggedView('shape', 'leader', LeaderGeometry.fromJson);
 
-  /// shape が point の形なら、その見方。違えば null
+  /// shape が point の形なら、そのビュー。違えば null
   PointGeometry? get asPointGeometry => taggedView('shape', 'point', PointGeometry.fromJson);
 
-  /// shape が callout の形なら、その見方。違えば null
+  /// shape が callout の形なら、そのビュー。違えば null
   CalloutGeometry? get asCalloutGeometry => taggedView('shape', 'callout', CalloutGeometry.fromJson);
 }
 
@@ -875,7 +875,7 @@ class LineGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LineGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   LineGeometry() : super({'shape': 'line'});
 
   /// 形の種類
@@ -896,7 +896,7 @@ class CircleGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CircleGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   CircleGeometry() : super({'shape': 'circle'});
 
   /// 形の種類
@@ -917,7 +917,7 @@ class ArcGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ArcGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ArcGeometry() : super({'shape': 'arc'});
 
   /// 形の種類
@@ -941,12 +941,12 @@ class ArcGeometry extends Message {
   set endAngle(double? value) => writeField('end_angle', value);
 }
 
-/// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から
+/// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。マイナーバージョン 11 から
 class EllipseGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   EllipseGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   EllipseGeometry() : super({'shape': 'ellipse'});
 
   /// 形の種類
@@ -979,7 +979,7 @@ class PolylineGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PolylineGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   PolylineGeometry() : super({'shape': 'polyline'});
 
   /// 形の種類
@@ -1004,7 +1004,7 @@ class TextGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TextGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   TextGeometry() : super({'shape': 'text'});
 
   /// 形の種類
@@ -1019,11 +1019,11 @@ class TextGeometry extends Message {
   List<double>? get position => readField('position', listOf(asDouble));
   set position(List<double>? value) => writeField('position', value);
 
-  /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。小版 17 から
+  /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。マイナーバージョン 17 から
   List<double>? get end => readField('end', listOf(asDouble));
   set end(List<double>? value) => writeField('end', value);
 
-  /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から
+  /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
   String? get fit => readField('fit', asString);
   set fit(String? value) => writeField('fit', value);
 
@@ -1035,11 +1035,11 @@ class TextGeometry extends Message {
   double? get rotation => readField('rotation', asDouble);
   set rotation(double? value) => writeField('rotation', value);
 
-  /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から
+  /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
 
-  /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+  /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
   String? get styleId => readField('style_id', asString);
   set styleId(String? value) => writeField('style_id', value);
 }
@@ -1052,12 +1052,12 @@ abstract final class TextFit {
   static const fit = 'fit';
 }
 
-/// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
+/// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
 class FormattedTextGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   FormattedTextGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   FormattedTextGeometry() : super({'shape': 'formatted_text'});
 
   /// 形の種類
@@ -1092,17 +1092,17 @@ class FormattedTextGeometry extends Message {
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
 
-  /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+  /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
   String? get styleId => readField('style_id', asString);
   set styleId(String? value) => writeField('style_id', value);
 }
 
-/// スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない
+/// スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない
 class SplineGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   SplineGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   SplineGeometry() : super({'shape': 'spline'});
 
   /// 形の種類
@@ -1113,11 +1113,11 @@ class SplineGeometry extends Message {
   int? get degree => readField('degree', asInt);
   set degree(int? value) => writeField('degree', value);
 
-  /// 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数。当てはめる点で決まるものは空
+  /// ノットの並び。周期的でなければ、制御点の数と次数と 1 の和の数。フィット点で決まるものは空
   List<double>? get knots => readField('knots', listOf(asDouble));
   set knots(List<double>? value) => writeField('knots', value);
 
-  /// 制御点の [X, Y] の並び。次数より多い。当てはめる点で決まるものは空
+  /// 制御点の [X, Y] の並び。次数より多い。フィット点で決まるものは空
   List<List<double>>? get control => readField('control', listOf(listOf(asDouble)));
   set control(List<List<double>>? value) => writeField('control', value);
 
@@ -1125,15 +1125,15 @@ class SplineGeometry extends Message {
   List<double>? get weights => readField('weights', listOf(asDouble));
   set weights(List<double>? value) => writeField('weights', value);
 
-  /// 当てはめる点の [X, Y] の並び。2 つ以上。書けば、節点と制御点は空で、重みは書かない。小版 18 から
+  /// フィット点の [X, Y] の並び。2 つ以上。書けば、ノットと制御点は空で、重みは書かない。マイナーバージョン 18 から
   List<List<double>>? get fit => readField('fit', listOf(listOf(asDouble)));
   set fit(List<List<double>>? value) => writeField('fit', value);
 
-  /// 当てはめる点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+  /// フィット点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
   List<double>? get startTangent => readField('start_tangent', listOf(asDouble));
   set startTangent(List<double>? value) => writeField('start_tangent', value);
 
-  /// 当てはめる点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+  /// フィット点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
   List<double>? get endTangent => readField('end_tangent', listOf(asDouble));
   set endTangent(List<double>? value) => writeField('end_tangent', value);
 
@@ -1146,12 +1146,12 @@ class SplineGeometry extends Message {
   set periodic(bool? value) => writeField('periodic', value);
 }
 
-/// 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から
+/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
 class DimensionGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DimensionGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   DimensionGeometry() : super({'shape': 'dimension'});
 
   /// 形の種類
@@ -1238,11 +1238,11 @@ class DimensionGeometry extends Message {
   String? get content => readField('content', asString);
   set content(String? value) => writeField('content', value);
 
-  /// 元の形式が保存した測定値。単位と倍率は measurement_key の欄に従う
+  /// 元の形式が保存した測定値。単位と倍率は measurement_key のフィールドに従う
   double? get measurement => readField('measurement', asDouble);
   set measurement(double? value) => writeField('measurement', value);
 
-  /// measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
+  /// measurement の形式とフィールドを指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
   String? get measurementKey => readField('measurement_key', asString);
   set measurementKey(String? value) => writeField('measurement_key', value);
 
@@ -1258,17 +1258,17 @@ class DimensionGeometry extends Message {
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
 
-  /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から
+  /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
   String? get styleId => readField('style_id', asString);
   set styleId(String? value) => writeField('style_id', value);
 }
 
-/// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（小版 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印の印を必ず持つので、arrow を書かない引出線は書けない（小版 36 から。それまでは R2004 までの置き換えだけ）。小版 31 から
+/// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（マイナーバージョン 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印のフラグを必ず持つので、arrow を書かない引出線は書けない（マイナーバージョン 36 から。それまでは R2004 までの置き換えだけ）。マイナーバージョン 31 から
 class LeaderGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LeaderGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   LeaderGeometry() : super({'shape': 'leader'});
 
   /// 形の種類
@@ -1300,12 +1300,12 @@ class LeaderGeometry extends Message {
   set styleId(String? value) => writeField('style_id', value);
 }
 
-/// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかの欄は元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。小版 36 から
+/// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかのフィールドは元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 36 から
 class CalloutGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CalloutGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   CalloutGeometry() : super({'shape': 'callout'});
 
   /// 形の種類
@@ -1401,12 +1401,12 @@ abstract final class CalloutContent {
   static const symbol = 'symbol';
 }
 
-/// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から
+/// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義のマーカーの点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。マイナーバージョン 35 から
 class PointGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   PointGeometry() : super({'shape': 'point'});
 
   /// 形の種類
@@ -1421,7 +1421,7 @@ class PointGeometry extends Message {
   double? get rotation => readField('rotation', asDouble);
   set rotation(double? value) => writeField('rotation', value);
 
-  /// 既定義の印。書かなければ文書の点の表し方に従う
+  /// 既定義のマーカー。書かなければ文書の点の表し方に従う
   PointMarker? get marker => readField('marker', objectOf(PointMarker.fromJson));
   set marker(PointMarker? value) => writeField('marker', value);
 
@@ -1430,7 +1430,7 @@ class PointGeometry extends Message {
   set construction(bool? value) => writeField('construction', value);
 }
 
-/// 既定義の印の表のキーと尺度。印の形は、表示する側がキーから引く
+/// 既定義のマーカーの表のキーと尺度。マーカーの形は、表示する側がキーから引く
 class PointMarker extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointMarker.fromJson(super.json);
@@ -1438,7 +1438,7 @@ class PointMarker extends Message {
   /// 空のオブジェクトから作る
   PointMarker() : super({});
 
-  /// 印の表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）
+  /// マーカーの表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）
   String? get namespace => readField('namespace', asString);
   set namespace(String? value) => writeField('namespace', value);
 
@@ -1482,12 +1482,12 @@ abstract final class DimensionLabel {
   static const hidden = 'hidden';
 }
 
-/// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から
+/// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。マイナーバージョン 14 から
 class SymbolGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   SymbolGeometry.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   SymbolGeometry() : super({'shape': 'symbol'});
 
   /// 形の種類
@@ -1514,7 +1514,7 @@ class SymbolGeometry extends Message {
   SymbolGrid? get grid => readField('grid', objectOf(SymbolGrid.fromJson));
   set grid(SymbolGrid? value) => writeField('grid', value);
 
-  /// 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。小版 16 から。置き換えで値を変えるのは小版 21 から
+  /// 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。マイナーバージョン 16 から。置き換えで値を変えるのはマイナーバージョン 21 から
   List<SymbolAttribute>? get attributes => readField('attributes', listOf(objectOf(SymbolAttribute.fromJson)));
   set attributes(List<SymbolAttribute>? value) => writeField('attributes', value);
 }
@@ -1576,7 +1576,7 @@ abstract final class Attachment {
   static const bottomRight = 'bottom_right';
 }
 
-/// 要素の形の種類（決定 0022）。point（点、決定 0160）は小版 32 から。それまで点は symbol だった
+/// 要素の形の種類（決定 0022）。point（点、決定 0160）はマイナーバージョン 32 から。それまで点は symbol だった
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class EntityKind {
@@ -1596,15 +1596,15 @@ abstract final class EntityKind {
   static const point = 'point';
 }
 
-/// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から
+/// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
 class ApplyRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ApplyRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ApplyRequest() : super({'op': 'apply'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -1620,7 +1620,7 @@ class ApplyRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -1657,20 +1657,20 @@ class ApplyResult extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から
+  /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
   bool? get idsShifted => readField('ids_shifted', asBool);
   set idsShifted(bool? value) => writeField('ids_shifted', value);
 }
 
-/// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から
+/// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
 class ConvertRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConvertRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ConvertRequest() : super({'op': 'convert'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -1686,7 +1686,7 @@ class ConvertRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -1757,58 +1757,58 @@ class Edit extends Message {
   /// 空のオブジェクトから作る
   Edit() : super({});
 
-  /// kind が restyle の形なら、その見方。違えば null
+  /// kind が restyle の形なら、そのビュー。違えば null
   RestyleEdit? get asRestyleEdit => taggedView('kind', 'restyle', RestyleEdit.fromJson);
 
-  /// kind が transform の形なら、その見方。違えば null
+  /// kind が transform の形なら、そのビュー。違えば null
   TransformEdit? get asTransformEdit => taggedView('kind', 'transform', TransformEdit.fromJson);
 
-  /// kind が remove の形なら、その見方。違えば null
+  /// kind が remove の形なら、そのビュー。違えば null
   RemoveEdit? get asRemoveEdit => taggedView('kind', 'remove', RemoveEdit.fromJson);
 
-  /// kind が replace の形なら、その見方。違えば null
+  /// kind が replace の形なら、そのビュー。違えば null
   ReplaceEdit? get asReplaceEdit => taggedView('kind', 'replace', ReplaceEdit.fromJson);
 
-  /// kind が add の形なら、その見方。違えば null
+  /// kind が add の形なら、そのビュー。違えば null
   AddEdit? get asAddEdit => taggedView('kind', 'add', AddEdit.fromJson);
 
-  /// kind が layer の形なら、その見方。違えば null
+  /// kind が layer の形なら、そのビュー。違えば null
   LayerEdit? get asLayerEdit => taggedView('kind', 'layer', LayerEdit.fromJson);
 
-  /// kind が add_layer の形なら、その見方。違えば null
+  /// kind が add_layer の形なら、そのビュー。違えば null
   AddLayerEdit? get asAddLayerEdit => taggedView('kind', 'add_layer', AddLayerEdit.fromJson);
 
-  /// kind が remove_layer の形なら、その見方。違えば null
+  /// kind が remove_layer の形なら、そのビュー。違えば null
   RemoveLayerEdit? get asRemoveLayerEdit => taggedView('kind', 'remove_layer', RemoveLayerEdit.fromJson);
 
-  /// kind が text_style の形なら、その見方。違えば null
+  /// kind が text_style の形なら、そのビュー。違えば null
   TextStyleEdit? get asTextStyleEdit => taggedView('kind', 'text_style', TextStyleEdit.fromJson);
 
-  /// kind が add_text_style の形なら、その見方。違えば null
+  /// kind が add_text_style の形なら、そのビュー。違えば null
   AddTextStyleEdit? get asAddTextStyleEdit => taggedView('kind', 'add_text_style', AddTextStyleEdit.fromJson);
 
-  /// kind が remove_text_style の形なら、その見方。違えば null
+  /// kind が remove_text_style の形なら、そのビュー。違えば null
   RemoveTextStyleEdit? get asRemoveTextStyleEdit => taggedView('kind', 'remove_text_style', RemoveTextStyleEdit.fromJson);
 
-  /// kind が line_type の形なら、その見方。違えば null
+  /// kind が line_type の形なら、そのビュー。違えば null
   LineTypeEdit? get asLineTypeEdit => taggedView('kind', 'line_type', LineTypeEdit.fromJson);
 
-  /// kind が add_line_type の形なら、その見方。違えば null
+  /// kind が add_line_type の形なら、そのビュー。違えば null
   AddLineTypeEdit? get asAddLineTypeEdit => taggedView('kind', 'add_line_type', AddLineTypeEdit.fromJson);
 
-  /// kind が remove_line_type の形なら、その見方。違えば null
+  /// kind が remove_line_type の形なら、そのビュー。違えば null
   RemoveLineTypeEdit? get asRemoveLineTypeEdit => taggedView('kind', 'remove_line_type', RemoveLineTypeEdit.fromJson);
 
-  /// kind が dimension_style の形なら、その見方。違えば null
+  /// kind が dimension_style の形なら、そのビュー。違えば null
   DimensionStyleEdit? get asDimensionStyleEdit => taggedView('kind', 'dimension_style', DimensionStyleEdit.fromJson);
 
-  /// kind が add_dimension_style の形なら、その見方。違えば null
+  /// kind が add_dimension_style の形なら、そのビュー。違えば null
   AddDimensionStyleEdit? get asAddDimensionStyleEdit => taggedView('kind', 'add_dimension_style', AddDimensionStyleEdit.fromJson);
 
-  /// kind が remove_dimension_style の形なら、その見方。違えば null
+  /// kind が remove_dimension_style の形なら、そのビュー。違えば null
   RemoveDimensionStyleEdit? get asRemoveDimensionStyleEdit => taggedView('kind', 'remove_dimension_style', RemoveDimensionStyleEdit.fromJson);
 
-  /// kind が point_style の形なら、その見方。違えば null
+  /// kind が point_style の形なら、そのビュー。違えば null
   PointStyleEdit? get asPointStyleEdit => taggedView('kind', 'point_style', PointStyleEdit.fromJson);
 }
 
@@ -1817,7 +1817,7 @@ class RestyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RestyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   RestyleEdit() : super({'kind': 'restyle'});
 
   /// 変更の種類
@@ -1836,7 +1836,7 @@ class RestyleEdit extends Message {
   String? get layer => readField('layer', asString);
   set layer(String? value) => writeField('layer', value);
 
-  /// レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
+  /// レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から
   String? get layerId => readField('layer_id', asString);
   set layerId(String? value) => writeField('layer_id', value);
 
@@ -1862,7 +1862,7 @@ class TransformEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TransformEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   TransformEdit() : super({'kind': 'transform'});
 
   /// 変更の種類
@@ -1887,7 +1887,7 @@ class RemoveEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RemoveEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   RemoveEdit() : super({'kind': 'remove'});
 
   /// 変更の種類
@@ -1903,12 +1903,12 @@ class RemoveEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から
+/// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。マイナーバージョン 10 から
 class ReplaceEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ReplaceEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ReplaceEdit() : super({'kind': 'replace'});
 
   /// 変更の種類
@@ -1928,19 +1928,19 @@ class ReplaceEdit extends Message {
   set geometry(Geometry? value) => writeField('geometry', value);
 }
 
-/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
+/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
 class AddEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   AddEdit() : super({'kind': 'add'});
 
   /// 変更の種類
   String? get kind => readField('kind', asString);
   set kind(String? value) => writeField('kind', value);
 
-  /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。小版 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）
+  /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。マイナーバージョン 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）
   String? get place => readField('place', asString);
   set place(String? value) => writeField('place', value);
 
@@ -1952,15 +1952,15 @@ class AddEdit extends Message {
   String? get layerId => readField('layer_id', asString);
   set layerId(String? value) => writeField('layer_id', value);
 
-  /// 色。SXF はレイヤに従う色を書けないので、書く。小版 29 から
+  /// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
   ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
   set color(ColorChange? value) => writeField('color', value);
 
-  /// 線種。小版 29 から
+  /// 線種。マイナーバージョン 29 から
   LineTypeChange? get lineType => readField('line_type', objectOf(LineTypeChange.fromJson));
   set lineType(LineTypeChange? value) => writeField('line_type', value);
 
-  /// 線幅。小版 29 から
+  /// 線幅。マイナーバージョン 29 から
   LineWeightChange? get lineWeight => readField('line_weight', objectOf(LineWeightChange.fromJson));
   set lineWeight(LineWeightChange? value) => writeField('line_weight', value);
 
@@ -1969,12 +1969,12 @@ class AddEdit extends Message {
   set geometry(Geometry? value) => writeField('geometry', value);
 }
 
-/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から
+/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から
 class LayerEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LayerEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   LayerEdit() : super({'kind': 'layer'});
 
   /// 変更の種類
@@ -2022,12 +2022,12 @@ class LayerEdit extends Message {
   set lineWeight(LineWeightChange? value) => writeField('line_weight', value);
 }
 
-/// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
+/// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。マイナーバージョン 24 から
 class RemoveLayerEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RemoveLayerEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   RemoveLayerEdit() : super({'kind': 'remove_layer'});
 
   /// 変更の種類
@@ -2043,12 +2043,12 @@ class RemoveLayerEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から
+/// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。マイナーバージョン 25 から
 class TextStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TextStyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   TextStyleEdit() : super({'kind': 'text_style'});
 
   /// 変更の種類
@@ -2100,12 +2100,12 @@ class TextStyleEdit extends Message {
   set vertical(bool? value) => writeField('vertical', value);
 }
 
-/// 文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から
+/// 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から
 class AddTextStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddTextStyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   AddTextStyleEdit() : super({'kind': 'add_text_style'});
 
   /// 変更の種類
@@ -2149,12 +2149,12 @@ class AddTextStyleEdit extends Message {
   set vertical(bool? value) => writeField('vertical', value);
 }
 
-/// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から
+/// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 25 から
 class RemoveTextStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RemoveTextStyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   RemoveTextStyleEdit() : super({'kind': 'remove_text_style'});
 
   /// 変更の種類
@@ -2170,12 +2170,12 @@ class RemoveTextStyleEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から
+/// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から
 class LineTypeEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LineTypeEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   LineTypeEdit() : super({'kind': 'line_type'});
 
   /// 変更の種類
@@ -2203,12 +2203,12 @@ class LineTypeEdit extends Message {
   set pattern(List<double>? value) => writeField('pattern', value);
 }
 
-/// 線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から
+/// 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から
 class AddLineTypeEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddLineTypeEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   AddLineTypeEdit() : super({'kind': 'add_line_type'});
 
   /// 変更の種類
@@ -2228,12 +2228,12 @@ class AddLineTypeEdit extends Message {
   set pattern(List<double>? value) => writeField('pattern', value);
 }
 
-/// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から
+/// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から
 class RemoveLineTypeEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RemoveLineTypeEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   RemoveLineTypeEdit() : super({'kind': 'remove_line_type'});
 
   /// 変更の種類
@@ -2249,12 +2249,12 @@ class RemoveLineTypeEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から
+/// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。マイナーバージョン 27 から
 class DimensionStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DimensionStyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   DimensionStyleEdit() : super({'kind': 'dimension_style'});
 
   /// 変更の種類
@@ -2294,12 +2294,12 @@ class DimensionStyleEdit extends Message {
   set scale(double? value) => writeField('scale', value);
 }
 
-/// 寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から
+/// 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から
 class AddDimensionStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddDimensionStyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   AddDimensionStyleEdit() : super({'kind': 'add_dimension_style'});
 
   /// 変更の種類
@@ -2331,12 +2331,12 @@ class AddDimensionStyleEdit extends Message {
   set scale(double? value) => writeField('scale', value);
 }
 
-/// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から
+/// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 27 から
 class RemoveDimensionStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RemoveDimensionStyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   RemoveDimensionStyleEdit() : super({'kind': 'remove_dimension_style'});
 
   /// 変更の種類
@@ -2352,12 +2352,12 @@ class RemoveDimensionStyleEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
+/// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG はヘッダーの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、マイナーバージョン 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。マイナーバージョン 38 から
 class PointStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointStyleEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   PointStyleEdit() : super({'kind': 'point_style'});
 
   /// 変更の種類
@@ -2404,12 +2404,12 @@ abstract final class PointSizeKind {
   static const screen = 'screen';
 }
 
-/// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
+/// レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から
 class AddLayerEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddLayerEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   AddLayerEdit() : super({'kind': 'add_layer'});
 
   /// 変更の種類
@@ -2473,11 +2473,11 @@ class ColorChange extends Message {
   int? get aci => readField('aci', asInt);
   set aci(int? value) => writeField('aci', value);
 
-  /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から
+  /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。マイナーバージョン 29 から
   int? get sxf => readField('sxf', asInt);
   set sxf(int? value) => writeField('sxf', value);
 
-  /// Jw_cad のペンの番号。0〜9 と、版 420 からの SXF の拡張色 100〜356。小版 30 から
+  /// Jw_cad のペンの番号。0〜9 と、バージョン 420 からの SXF の拡張色 100〜356。マイナーバージョン 30 から
   int? get jww => readField('jww', asInt);
   set jww(int? value) => writeField('jww', value);
 
@@ -2502,7 +2502,7 @@ class LineTypeChange extends Message {
   String? get name => readField('name', asString);
   set name(String? value) => writeField('name', value);
 
-  /// 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
+  /// 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から
   String? get id => readField('id', asString);
   set id(String? value) => writeField('id', value);
 }
@@ -2528,15 +2528,15 @@ class LineWeightChange extends Message {
   set defaultField(bool? value) => writeField('default', value);
 }
 
-/// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から
+/// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
 class TablesRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TablesRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   TablesRequest() : super({'op': 'tables'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -2552,7 +2552,7 @@ class TablesRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -2577,28 +2577,28 @@ class TablesResult extends Message {
   List<LayerItem>? get layers => readField('layers', listOf(objectOf(LayerItem.fromJson)));
   set layers(List<LayerItem>? value) => writeField('layers', value);
 
-  /// 線種。小版 26 から、定義を持つ
+  /// 線種。マイナーバージョン 26 から、定義を持つ
   List<LineTypeItem>? get lineTypes => readField('line_types', listOf(objectOf(LineTypeItem.fromJson)));
   set lineTypes(List<LineTypeItem>? value) => writeField('line_types', value);
 
-  /// 寸法スタイル。小版 27 から、端部記号と大きさを持つ
+  /// 寸法スタイル。マイナーバージョン 27 から、端部記号と大きさを持つ
   List<DimensionStyleItem>? get dimensionStyles => readField('dimension_styles', listOf(objectOf(DimensionStyleItem.fromJson)));
   set dimensionStyles(List<DimensionStyleItem>? value) => writeField('dimension_styles', value);
 
-  /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から
+  /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から
   List<TextStyleItem>? get textStyles => readField('text_styles', listOf(objectOf(TextStyleItem.fromJson)));
   set textStyles(List<TextStyleItem>? value) => writeField('text_styles', value);
 }
 
-/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から
+/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
 class SceneRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   SceneRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   SceneRequest() : super({'op': 'scene'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -2614,7 +2614,7 @@ class SceneRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -2646,15 +2646,15 @@ class SceneRequest extends Message {
   bool? get print => readField('print', asBool);
   set print(bool? value) => writeField('print', value);
 
-  /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる
+  /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
   String? get palette => readField('palette', asString);
   set palette(String? value) => writeField('palette', value);
 
-  /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から
+  /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形のセクションに形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。マイナーバージョン 37 から
   List<SceneFont>? get fonts => readField('fonts', listOf(objectOf(SceneFont.fromJson)));
   set fonts(List<SceneFont>? value) => writeField('fonts', value);
 
-  /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+  /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。マイナーバージョン 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。マイナーバージョン 37 から
   Map<String, String>? get heights => readField('heights', mapOf(asString));
   set heights(Map<String, String>? value) => writeField('heights', value);
 }
@@ -2680,7 +2680,7 @@ class SceneFont extends Message {
   set index(int? value) => writeField('index', value);
 }
 
-/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
+/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から）
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class HeightReference {
@@ -2763,20 +2763,20 @@ class SceneCounts extends Message {
   int? get images => readField('images', asInt);
   set images(int? value) => writeField('images', value);
 
-  /// 置いた字形。fonts を書かなければ 0。小版 37 から
+  /// 置いた字形。fonts を書かなければ 0。マイナーバージョン 37 から
   int? get glyphs => readField('glyphs', asInt);
   set glyphs(int? value) => writeField('glyphs', value);
 }
 
-/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から
+/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から
 class CheckRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CheckRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   CheckRequest() : super({'op': 'check'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -2792,7 +2792,7 @@ class CheckRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -2820,7 +2820,7 @@ class CheckRequest extends Message {
   int? get view => readField('view', asInt);
   set view(int? value) => writeField('view', value);
 
-  /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+  /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
   String? get fileName => readField('file_name', asString);
   set fileName(String? value) => writeField('file_name', value);
 
@@ -2946,15 +2946,15 @@ class CheckFinding extends Message {
   set diagnostic(Diagnostic? value) => writeField('diagnostic', value);
 }
 
-/// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
+/// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。マイナーバージョン 42 から
 class ValidateRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ValidateRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ValidateRequest() : super({'op': 'validate'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -2970,7 +2970,7 @@ class ValidateRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -3032,15 +3032,15 @@ class ValidateResult extends Message {
   set nextOffset(int? value) => writeField('next_offset', value);
 }
 
-/// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から
+/// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書のバージョンへ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元のバージョンのハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。マイナーバージョン 43 から
 class ReviewCarryRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ReviewCarryRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ReviewCarryRequest() : super({'op': 'review_carry'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -3056,7 +3056,7 @@ class ReviewCarryRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -3064,7 +3064,7 @@ class ReviewCarryRequest extends Message {
   String? get op => readField('op', asString);
   set op(String? value) => writeField('op', value);
 
-  /// 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
+  /// 新しいバージョンの文書の名前。open で作ったもの。マイナーバージョン 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
@@ -3139,7 +3139,7 @@ class CarriedReference extends Message {
   set state(String? value) => writeField('state', value);
 }
 
-/// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない
+/// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しいバージョンに要素がない
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class CarriedState {
@@ -3148,15 +3148,15 @@ abstract final class CarriedState {
   static const removed = 'removed';
 }
 
-/// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
+/// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。マイナーバージョン 43 から
 class ReviewAdoptRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ReviewAdoptRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ReviewAdoptRequest() : super({'op': 'review_adopt'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -3172,7 +3172,7 @@ class ReviewAdoptRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -3200,7 +3200,7 @@ class ReviewAdoptRequest extends Message {
   int? get view => readField('view', asInt);
   set view(int? value) => writeField('view', value);
 
-  /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+  /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
   String? get fileName => readField('file_name', asString);
   set fileName(String? value) => writeField('file_name', value);
 
@@ -3238,15 +3238,15 @@ class ReviewAdoptResult extends Message {
   set topics(int? value) => writeField('topics', value);
 }
 
-/// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から
+/// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 class BuildingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BuildingRequest() : super({'op': 'building'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -3262,7 +3262,7 @@ class BuildingRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -3287,7 +3287,7 @@ class BuildingResult extends Message {
   String? get schema => readField('schema', asString);
   set schema(String? value) => writeField('schema', value);
 
-  /// 入力のバイト列のハッシュ。review_carry の対象の版に使う
+  /// 入力のバイト列のハッシュ。review_carry の対象のバージョンに使う
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
@@ -3354,15 +3354,15 @@ class ClassCount extends Message {
   set count(int? value) => writeField('count', value);
 }
 
-/// 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から
+/// 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から
 class BuildingElementsRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingElementsRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BuildingElementsRequest() : super({'op': 'building_elements'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -3378,7 +3378,7 @@ class BuildingElementsRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -3398,7 +3398,7 @@ class BuildingElementsRequest extends Message {
   String? get classField => readField('class', asString);
   set classField(String? value) => writeField('class', value);
 
-  /// 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す
+  /// 返すコンポーネントの名前。1 つ以上で、重ねない。書かなければ class と identity を返す
   List<String>? get components => readField('components', listOf(asString));
   set components(List<String>? value) => writeField('components', value);
 
@@ -3411,7 +3411,7 @@ class BuildingElementsRequest extends Message {
   set limit(int? value) => writeField('limit', value);
 }
 
-/// building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
+/// building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class BuildingComponent {
@@ -3455,7 +3455,7 @@ class BuildingElementsResult extends Message {
   set nextOffset(int? value) => writeField('next_offset', value);
 }
 
-/// 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ
+/// 建物モデルの要素。コンポーネントは、選んだもののうち要素が持つものだけを持つ
 class BuildingElement extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingElement.fromJson(super.json);
@@ -3467,7 +3467,7 @@ class BuildingElement extends Message {
   String? get id => readField('id', asString);
   set id(String? value) => writeField('id', value);
 
-  /// 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207）
+  /// 要素のコンポーネントのハッシュ（v1: と 32 桁の 16 進、決定 0207）
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
@@ -3602,7 +3602,7 @@ class ClassificationReference extends Message {
   String? get system => readField('system', asString);
   set system(String? value) => writeField('system', value);
 
-  /// 体系の版
+  /// 体系のバージョン
   String? get edition => readField('edition', asString);
   set edition(String? value) => writeField('edition', value);
 
@@ -4068,15 +4068,15 @@ abstract final class IdsStatus {
   static const unknown = 'unknown';
 }
 
-/// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+/// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。マイナーバージョン 58 から
 class BuildingApplyRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingApplyRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BuildingApplyRequest() : super({'op': 'building_apply'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -4092,7 +4092,7 @@ class BuildingApplyRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -4121,10 +4121,10 @@ class BuildingEdit extends Message {
   /// 空のオブジェクトから作る
   BuildingEdit() : super({});
 
-  /// kind が property の形なら、その見方。違えば null
+  /// kind が property の形なら、そのビュー。違えば null
   BuildingPropertyEdit? get asBuildingPropertyEdit => taggedView('kind', 'property', BuildingPropertyEdit.fromJson);
 
-  /// kind が attribute の形なら、その見方。違えば null
+  /// kind が attribute の形なら、そのビュー。違えば null
   BuildingAttributeEdit? get asBuildingAttributeEdit => taggedView('kind', 'attribute', BuildingAttributeEdit.fromJson);
 }
 
@@ -4133,7 +4133,7 @@ class BuildingPropertyEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingPropertyEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BuildingPropertyEdit() : super({'kind': 'property'});
 
   /// 変更の種類
@@ -4166,7 +4166,7 @@ class BuildingAttributeEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingAttributeEdit.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BuildingAttributeEdit() : super({'kind': 'attribute'});
 
   /// 変更の種類
@@ -4215,15 +4215,15 @@ class BuildingApplyResult extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+/// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。マイナーバージョン 60 から
 class LiftRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LiftRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   LiftRequest() : super({'op': 'lift'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -4239,7 +4239,7 @@ class LiftRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -4265,15 +4265,15 @@ class LiftResult extends Message {
   set blob(int? value) => writeField('blob', value);
 }
 
-/// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
+/// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から
 class IdsCheckRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   IdsCheckRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   IdsCheckRequest() : super({'op': 'ids_check'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -4289,7 +4289,7 @@ class IdsCheckRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -4305,7 +4305,7 @@ class IdsCheckRequest extends Message {
   String? get ids => readField('ids', asString);
   set ids(String? value) => writeField('ids', value);
 
-  /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+  /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす
   String? get express => readField('express', asString);
   set express(String? value) => writeField('express', value);
 
@@ -4397,15 +4397,15 @@ class IdsFinding extends Message {
   set diagnostic(Diagnostic? value) => writeField('diagnostic', value);
 }
 
-/// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
+/// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。マイナーバージョン 44 から
 class ReviewAdoptIdsRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ReviewAdoptIdsRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   ReviewAdoptIdsRequest() : super({'op': 'review_adopt_ids'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -4421,7 +4421,7 @@ class ReviewAdoptIdsRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -4437,7 +4437,7 @@ class ReviewAdoptIdsRequest extends Message {
   String? get ids => readField('ids', asString);
   set ids(String? value) => writeField('ids', value);
 
-  /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+  /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす
   String? get express => readField('express', asString);
   set express(String? value) => writeField('express', value);
 
@@ -4454,15 +4454,15 @@ class ReviewAdoptIdsRequest extends Message {
   set findings(List<int>? value) => writeField('findings', value);
 }
 
-/// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+/// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。マイナーバージョン 45 から
 class BcfReadRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BcfReadRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BcfReadRequest() : super({'op': 'bcf_read'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -4478,7 +4478,7 @@ class BcfReadRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -4537,7 +4537,7 @@ class BcfReadResult extends Message {
   /// 空のオブジェクトから作る
   BcfReadResult() : super({});
 
-  /// BCF の版
+  /// BCF のバージョン
   String? get version => readField('version', asString);
   set version(String? value) => writeField('version', value);
 
@@ -4546,15 +4546,15 @@ class BcfReadResult extends Message {
   set topics(int? value) => writeField('topics', value);
 }
 
-/// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+/// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。バージョンは version で選ぶ（マイナーバージョン 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。マイナーバージョン 45 から
 class BcfWriteRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BcfWriteRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BcfWriteRequest() : super({'op': 'bcf_write'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -4570,7 +4570,7 @@ class BcfWriteRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -4606,7 +4606,7 @@ class BcfWriteRequest extends Message {
   String? get date => readField('date', asString);
   set date(String? value) => writeField('date', value);
 
-  /// 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から
+  /// 書く BCF のバージョン。2.1 か 3.0。書かなければ、original のバージョンか 3.0。original と違うバージョンでは書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。マイナーバージョン 61 から
   String? get version => readField('version', asString);
   set version(String? value) => writeField('version', value);
 }
@@ -4645,7 +4645,7 @@ class TableItem extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// レイヤの表の項目（決定 0162）。小版 22 から、状態とスタイルを持つ
+/// レイヤの表の項目（決定 0162）。マイナーバージョン 22 から、状態とスタイルを持つ
 class LayerItem extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LayerItem.fromJson(super.json);
@@ -4665,40 +4665,40 @@ class LayerItem extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から
+  /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかのフィールドを持たない。マイナーバージョン 22 から
   bool? get defined => readField('defined', asBool);
   set defined(bool? value) => writeField('defined', value);
 
-  /// 表示する。小版 22 から
+  /// 表示する。マイナーバージョン 22 から
   bool? get visible => readField('visible', asBool);
   set visible(bool? value) => writeField('visible', value);
 
-  /// 印刷する。小版 22 から
+  /// 印刷する。マイナーバージョン 22 から
   bool? get printable => readField('printable', asBool);
   set printable(bool? value) => writeField('printable', value);
 
-  /// 編集できる。小版 22 から
+  /// 編集できる。マイナーバージョン 22 から
   bool? get editable => readField('editable', asBool);
   set editable(bool? value) => writeField('editable', value);
 
-  /// 凍結する。小版 22 から
+  /// 凍結する。マイナーバージョン 22 から
   bool? get frozen => readField('frozen', asBool);
   set frozen(bool? value) => writeField('frozen', value);
 
-  /// 色。inherit を持たない。定義が色を持たなければ書かない。小版 22 から
+  /// 色。inherit を持たない。定義が色を持たなければ書かない。マイナーバージョン 22 から
   ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
   set color(ColorChange? value) => writeField('color', value);
 
-  /// 線種の ID。定義が線種を持たなければ書かない。小版 22 から
+  /// 線種の ID。定義が線種を持たなければ書かない。マイナーバージョン 22 から
   String? get lineTypeId => readField('line_type_id', asString);
   set lineTypeId(String? value) => writeField('line_type_id', value);
 
-  /// 線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から
+  /// 線幅。inherit を持たない。定義が線幅を持たなければ書かない。マイナーバージョン 22 から
   LineWeightChange? get lineWeight => readField('line_weight', objectOf(LineWeightChange.fromJson));
   set lineWeight(LineWeightChange? value) => writeField('line_weight', value);
 }
 
-/// 線種の表の項目（決定 0164）。小版 26 から、定義を持つ
+/// 線種の表の項目（決定 0164）。マイナーバージョン 26 から、定義を持つ
 class LineTypeItem extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LineTypeItem.fromJson(super.json);
@@ -4718,32 +4718,32 @@ class LineTypeItem extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から
+  /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかのフィールドを持たない。マイナーバージョン 26 から
   bool? get defined => readField('defined', asBool);
   set defined(bool? value) => writeField('defined', value);
 
-  /// 元の説明。小版 26 から
+  /// 元の説明。マイナーバージョン 26 から
   String? get description => readField('description', asString);
   set description(String? value) => writeField('description', value);
 
-  /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。小版 26 から
+  /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。マイナーバージョン 26 から
   List<double>? get pattern => readField('pattern', listOf(asDouble));
   set pattern(List<double>? value) => writeField('pattern', value);
 
-  /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。小版 26 から
+  /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。マイナーバージョン 26 から
   bool? get paper => readField('paper', asBool);
   set paper(bool? value) => writeField('paper', value);
 
-  /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から
+  /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。マイナーバージョン 26 から
   bool? get marked => readField('marked', asBool);
   set marked(bool? value) => writeField('marked', value);
 
-  /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。小版 28 から
+  /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。マイナーバージョン 28 から
   List<LineTypeMark>? get marks => readField('marks', listOf(objectOf(LineTypeMark.fromJson)));
   set marks(List<LineTypeMark>? value) => writeField('marks', value);
 }
 
-/// 寸法スタイルの表の項目（決定 0165）。小版 27 から、端部記号と大きさを持つ
+/// 寸法スタイルの表の項目（決定 0165）。マイナーバージョン 27 から、端部記号と大きさを持つ
 class DimensionStyleItem extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DimensionStyleItem.fromJson(super.json);
@@ -4763,28 +4763,28 @@ class DimensionStyleItem extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+  /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から
   List<String>? get ends => readField('ends', listOf(asString));
   set ends(List<String>? value) => writeField('ends', value);
 
-  /// 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+  /// 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から
   String? get leader => readField('leader', asString);
   set leader(String? value) => writeField('leader', value);
 
-  /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。小版 27 から
+  /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。マイナーバージョン 27 から
   double? get size => readField('size', asDouble);
   set size(double? value) => writeField('size', value);
 
-  /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。小版 27 から
+  /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。マイナーバージョン 27 から
   double? get tick => readField('tick', asDouble);
   set tick(double? value) => writeField('tick', value);
 
-  /// 大きさに掛ける倍率。0 はビューの縮尺から決める。小版 27 から
+  /// 大きさに掛ける倍率。0 はビューの縮尺から決める。マイナーバージョン 27 から
   double? get scale => readField('scale', asDouble);
   set scale(double? value) => writeField('scale', value);
 }
 
-/// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。小版 28 から
+/// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。マイナーバージョン 28 から
 class LineTypeMark extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LineTypeMark.fromJson(super.json);
@@ -4858,7 +4858,7 @@ abstract final class MarkRotation {
   static const upright = 'upright';
 }
 
-/// 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から
+/// 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。マイナーバージョン 20 から
 class TextStyleItem extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TextStyleItem.fromJson(super.json);
@@ -4878,7 +4878,7 @@ class TextStyleItem extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// ファイルに定義がある。偽なら、ほかの欄を持たない
+  /// ファイルに定義がある。偽なら、ほかのフィールドを持たない
   bool? get defined => readField('defined', asBool);
   set defined(bool? value) => writeField('defined', value);
 
@@ -4956,7 +4956,7 @@ abstract final class FontKind {
   static const named = 'named';
 }
 
-/// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない
+/// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つキー（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない
 class Source extends Message {
   /// 読んだ JSON のオブジェクトを包む
   Source.fromJson(super.json);
@@ -4976,7 +4976,7 @@ class Source extends Message {
   String? get handle => readField('handle', asString);
   set handle(String? value) => writeField('handle', value);
 
-  /// SXF のインスタンスの番号（#n の n）。10 進の文字列。小版 6 から
+  /// SXF のインスタンスの番号（#n の n）。10 進の文字列。マイナーバージョン 6 から
   String? get instance => readField('instance', asString);
   set instance(String? value) => writeField('instance', value);
 }
@@ -4989,7 +4989,7 @@ class Response extends Message {
   /// 空のオブジェクトから作る
   Response() : super({});
 
-  /// メッセージのスキーマの大版
+  /// メッセージのスキーマのメジャーバージョン
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -5141,7 +5141,7 @@ class Blob extends Message {
   set size(int? value) => writeField('size', value);
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class BlobKind {
@@ -5160,11 +5160,11 @@ class SessionOptions extends Message {
   /// 空のオブジェクトから作る
   SessionOptions() : super({});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
-  /// 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
+  /// 実行の形態。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
   String? get engine => readField('engine', asString);
   set engine(String? value) => writeField('engine', value);
 
@@ -5173,7 +5173,7 @@ class SessionOptions extends Message {
   set processPath(String? value) => writeField('process_path', value);
 }
 
-/// 実行の形（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
+/// 実行の形態（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class Engine {
@@ -5182,15 +5182,15 @@ abstract final class Engine {
   static const wasm = 'wasm';
 }
 
-/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から）
+/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
 class CivilRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CivilRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   CivilRequest() : super({'op': 'civil'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -5206,7 +5206,7 @@ class CivilRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -5218,11 +5218,11 @@ class CivilRequest extends Message {
   CivilAlignment? get alignment => readField('alignment', objectOf(CivilAlignment.fromJson));
   set alignment(CivilAlignment? value) => writeField('alignment', value);
 
-  /// open で開いた J-LandXML の文書の名前。小版 47 から
+  /// open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+  /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。マイナーバージョン 47 から
   String? get id => readField('id', asString);
   set id(String? value) => writeField('id', value);
 
@@ -5422,19 +5422,19 @@ class CivilResult extends Message {
   List<CivilPosition>? get positions => readField('positions', listOf(objectOf(CivilPosition.fromJson)));
   set positions(List<CivilPosition>? value) => writeField('positions', value);
 
-  /// 所を求めた doc の線形の ID。小版 47 から
+  /// 所を求めた doc の線形の ID。マイナーバージョン 47 から
   String? get alignment => readField('alignment', asString);
   set alignment(String? value) => writeField('alignment', value);
 
-  /// doc の線形の要約。doc を渡したときに返す。小版 47 から
+  /// doc の線形の要約。doc を渡したときに返す。マイナーバージョン 47 から
   List<CivilAlignmentSummary>? get alignments => readField('alignments', listOf(objectOf(CivilAlignmentSummary.fromJson)));
   set alignments(List<CivilAlignmentSummary>? value) => writeField('alignments', value);
 
-  /// doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+  /// doc の地表面（TIN）の要約。doc を渡したときに返す。マイナーバージョン 47 から
   List<CivilSurfaceSummary>? get surfaces => readField('surfaces', listOf(objectOf(CivilSurfaceSummary.fromJson)));
   set surfaces(List<CivilSurfaceSummary>? value) => writeField('surfaces', value);
 
-  /// doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+  /// doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から
   int? get crs => readField('crs', asInt);
   set crs(int? value) => writeField('crs', value);
 }
@@ -5550,15 +5550,15 @@ class CivilPosition extends Message {
   set gradient(double? value) => writeField('gradient', value);
 }
 
-/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から
+/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 class PointcloudRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointcloudRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   PointcloudRequest() : super({'op': 'pointcloud'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -5574,7 +5574,7 @@ class PointcloudRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -5648,7 +5648,7 @@ class PointcloudResult extends Message {
   int? get depth => readField('depth', asInt);
   set depth(int? value) => writeField('depth', value);
 
-  /// 八分木の節の数
+  /// 八分木のノードの数
   int? get nodes => readField('nodes', asInt);
   set nodes(int? value) => writeField('nodes', value);
 
@@ -5690,15 +5690,15 @@ class PointcloudPoints extends Message {
   set level(int? value) => writeField('level', value);
 }
 
-/// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から
+/// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
 class DeliveryCheckRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DeliveryCheckRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   DeliveryCheckRequest() : super({'op': 'delivery_check'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -5714,7 +5714,7 @@ class DeliveryCheckRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -5784,15 +5784,15 @@ class DeliveryCheckResult extends Message {
   set nextOffset(int? value) => writeField('next_offset', value);
 }
 
-/// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+/// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。マイナーバージョン 55 から
 class PhotoRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PhotoRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   PhotoRequest() : super({'op': 'photo'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -5808,7 +5808,7 @@ class PhotoRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -5829,11 +5829,11 @@ class PhotoResult extends Message {
   /// 空のオブジェクトから作る
   PhotoResult() : super({});
 
-  /// 画素の幅（フレームの見出し）
+  /// 画素の幅（フレームのヘッダー）
   int? get width => readField('width', asInt);
   set width(int? value) => writeField('width', value);
 
-  /// 画素の高さ（フレームの見出し）
+  /// 画素の高さ（フレームのヘッダー）
   int? get height => readField('height', asInt);
   set height(int? value) => writeField('height', value);
 
@@ -5916,15 +5916,15 @@ class PhotoProperty extends Message {
   set value(String? value) => writeField('value', value);
 }
 
-/// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+/// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。マイナーバージョン 56 から
 class SheetRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   SheetRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   SheetRequest() : super({'op': 'sheet'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -5940,7 +5940,7 @@ class SheetRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -6104,15 +6104,15 @@ class SheetArea extends Message {
   set lastColumn(int? value) => writeField('last_column', value);
 }
 
-/// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+/// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。マイナーバージョン 57 から
 class BoringRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BoringRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   BoringRequest() : super({'op': 'boring'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -6128,7 +6128,7 @@ class BoringRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -6437,15 +6437,15 @@ class DeliveryManaged extends Message {
   set missing(List<String>? value) => writeField('missing', value);
 }
 
-/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 class GeoRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   GeoRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   GeoRequest() : super({'op': 'geo'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -6461,7 +6461,7 @@ class GeoRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -6642,15 +6642,15 @@ class GeoGeometry extends Message {
   set faces(int? value) => writeField('faces', value);
 }
 
-/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
 class CivilDrawingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CivilDrawingRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   CivilDrawingRequest() : super({'op': 'civil_drawing'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -6666,7 +6666,7 @@ class CivilDrawingRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -6777,15 +6777,15 @@ class CivilDrawingOptions extends Message {
   set stationPitch(double? value) => writeField('station_pitch', value);
 }
 
-/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から
+/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から
 class DeviationRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DeviationRequest.fromJson(super.json);
 
-  /// 目印の欄だけを持つオブジェクトから作る
+  /// タグのフィールドだけを持つオブジェクトから作る
   DeviationRequest() : super({'op': 'deviation'});
 
-  /// メッセージのスキーマの大版。今は 1
+  /// メッセージのスキーマのメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -6801,7 +6801,7 @@ class DeviationRequest extends Message {
   int? get maxPlaces => readField('max_places', asInt);
   set maxPlaces(int? value) => writeField('max_places', value);
 
-  /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
   int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(int? value) => writeField('time_limit_ms', value);
 
@@ -6986,7 +6986,7 @@ class Catalog extends Message {
   /// 空のオブジェクトから作る
   Catalog() : super({});
 
-  /// カタログの形の大版。今は 1
+  /// カタログの形のメジャーバージョン。今は 1
   int? get v => readField('v', asInt);
   set v(int? value) => writeField('v', value);
 
@@ -6994,7 +6994,7 @@ class Catalog extends Message {
   String? get lang => readField('lang', asString);
   set lang(String? value) => writeField('lang', value);
 
-  /// パッケージの版。コアと同じ版で出す
+  /// パッケージのバージョン。コアと同じバージョンで出す
   String? get package => readField('package', asString);
   set package(String? value) => writeField('package', value);
 

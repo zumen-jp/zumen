@@ -1,4 +1,4 @@
-//! 試験の C と C++ を、生成したヘッダー（include/zumen.h・zumen_scene.h）と C++ の包み（include/zumen.hpp）で
+//! テストの C と C++ を、生成したヘッダー（include/zumen.h・zumen_scene.h）と C++ のラッパー（include/zumen.hpp）で
 //! 組み立てる（決定 0011・0198）。
 //!
 //! 警告を失敗にして、C99 と C++17（docs/support.md の下限）で通ることを確かめる。

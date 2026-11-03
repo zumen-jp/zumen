@@ -266,7 +266,7 @@ impl<'a> Cff<'a> {
     pub(super) fn parse(table: &'a [u8], version2: bool) -> Result<Self, Unread> {
         let broken = Unread::Table(if version2 { "CFF2" } else { "CFF " });
         let limit = if version2 { STACK2 } else { STACK };
-        // 見出し: major（0）・minor（1）・hdrSize（2）。CFF2 は topDictLength（3）が続く
+        // ヘッダー: major（0）・minor（1）・hdrSize（2）。CFF2 は topDictLength（3）が続く
         let major = table.first().copied();
         let header = u64::from(*table.get(2).ok_or(broken)?);
         let (top, globals) = if version2 {
@@ -500,7 +500,7 @@ impl<'a> Machine<'_, 'a> {
                     match op {
                         // hstem・vstem・hstemhm・vstemhm
                         1 | 3 | 18 | 23 => self.count_stems(),
-                        // hintmask・cntrmask: 前の引数は vstem で、ステム 8 つごとに 1 バイトの印が続く
+                        // hintmask・cntrmask: 前の引数は vstem で、ステム 8 つごとに 1 バイトのフラグが続く
                         19 | 20 => {
                             self.count_stems();
                             let bytes = usize::try_from(self.stems.div_ceil(8)).ok()?;

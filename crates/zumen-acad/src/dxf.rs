@@ -474,7 +474,7 @@ impl DxfTxn<'_> {
         Ok(())
     }
 
-    /// 見出しの `$HANDSEED` の値を新しいハンドルとして返し、`$HANDSEED` を 1 つ進める
+    /// ヘッダーの `$HANDSEED` の値を新しいハンドルとして返し、`$HANDSEED` を 1 つ進める
     /// （DXF Reference「HEADER Section Group Codes」の $HANDSEED）。値は 16 進の文字列で、大文字で書く
     pub fn new_handle(&mut self) -> Result<u64, Error> {
         self.check_open()?;
@@ -599,7 +599,7 @@ fn unsafe_record(record: usize) -> Diagnostic {
         .at(Ref::at_record(record as u64))
 }
 
-/// 足したり除いたりすると、セクションの区切りが変わるレコードの種類
+/// 足したり除いたりすると、セクションのセクションが変わるレコードの種類
 fn structural(kind: &[u8]) -> bool {
     matches!(kind, b"SECTION" | b"ENDSEC" | b"EOF")
 }

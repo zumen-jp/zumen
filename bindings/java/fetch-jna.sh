@@ -1,6 +1,6 @@
 #!/bin/sh
 # JNA の jar（JVM）と aar（Android）を Maven Central から取り、SHA-256 を確かめる（決定 0224）。
-# 版は pom.xml の依存と同じにする。使い方: sh bindings/java/fetch-jna.sh <置き場所>
+# バージョンは pom.xml の依存と同じにする。使い方: sh bindings/java/fetch-jna.sh <置き場所>
 set -eu
 version=5.19.1
 jar_sha256=4fb141dd8ef6b0585ffceea4bc49602fbc6312fa977e2c488794ea3e6aafecae

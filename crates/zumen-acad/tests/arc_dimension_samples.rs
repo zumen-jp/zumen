@@ -1,11 +1,11 @@
-//! AutoCAD で作った弧長寸法（ARC_DIMENSION）の公開試料を読む（#316）。
+//! AutoCAD で作った弧長寸法（ARC_DIMENSION）の公開サンプルを読む（#316）。
 
 use std::path::PathBuf;
 use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_sdk::Codec;
 
-/// 各版の DWG と DXF の組を固定の名前で開く。欠けていれば試験を失敗させる。
+/// 各バージョンの DWG と DXF の組を固定の名前で開く。欠けていればテストを失敗させる。
 #[cfg(test)]
 fn pairs() -> Vec<(PathBuf, PathBuf)> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
@@ -34,8 +34,8 @@ fn table(path: &PathBuf) -> AcadDb {
     }
 }
 
-/// 弧長寸法の欄を、符号と値の組で返す。DXF では 100 の区切りの後、DWG では最初の 13 から後とする。DWG では
-/// ハンドルの流れから読む名前（2・3）も後に置くので除く
+/// 弧長寸法のフィールドを、符号と値の組で返す。DXF では 100 のセクションの後、DWG では最初の 13 から後とする。DWG では
+/// ハンドルのストリームから読む名前（2・3）も後に置くので除く
 #[cfg(test)]
 fn arc_values(object: &Object, dwg: bool) -> Vec<(i16, Data)> {
     let start = object
@@ -72,8 +72,8 @@ fn same(a: &[(i16, Data)], b: &[(i16, Data)]) -> bool {
         })
 }
 
-/// 試料を作る台本（xtask/autocad/samples.lsp）の 6 つの弧長寸法を、DWG からも DXF と同じ値で読む。共通の欄の
-/// 70・71 は、弧長寸法の欄より先に読む。DWG の値は 100 の区切りを持たない
+/// サンプルを作る台本（xtask/autocad/samples.lsp）の 6 つの弧長寸法を、DWG からも DXF と同じ値で読む。共通のフィールドの
+/// 70・71 は、弧長寸法のフィールドより先に読む。DWG の値は 100 のセクションを持たない
 #[test]
 fn autocad_arc_dimension_values_match_between_dwg_and_dxf() {
     for (dwg, dxf) in pairs() {

@@ -15,7 +15,7 @@ pub struct Scene {
     pub values: Vec<Values>,
 }
 
-/// 版
+/// バージョン
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Versions {
@@ -23,7 +23,7 @@ pub struct Versions {
     pub minor: u16,
 }
 
-/// 区画（1 つの列）
+/// セクション（1 つの列）
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Section {
@@ -54,7 +54,7 @@ pub struct Item {
     pub description: String,
 }
 
-/// 区画の値の型と、Rust の型・バイト数
+/// セクションの値の型と、Rust の型・バイト数
 const TYPES: &[(&str, &str, &str, u32)] = &[
     ("u8", "u8", "U8", 1),
     ("u32", "u32", "U32", 4),
@@ -80,19 +80,24 @@ pub fn check(scene: &Scene) -> Vec<String> {
     for section in &scene.sections {
         let name = &section.name;
         if !is_snake(name) {
-            errors.push(format!("区画 `{name}`: 名前は英小文字・数字・_ にする"));
+            errors.push(format!(
+                "セクション `{name}`: 名前は英小文字・数字・_ にする"
+            ));
         }
         if !names.insert(name.as_str()) {
-            errors.push(format!("区画 `{name}` が重なる"));
+            errors.push(format!("セクション `{name}` が重なる"));
         }
         if !TYPES.iter().any(|(ty, ..)| *ty == section.ty) {
-            errors.push(format!("区画 `{name}`: 型 `{}` は使えない", section.ty));
+            errors.push(format!(
+                "セクション `{name}`: 型 `{}` は使えない",
+                section.ty
+            ));
         }
         if !(1..=4).contains(&section.width) {
-            errors.push(format!("区画 `{name}`: width は 1〜4"));
+            errors.push(format!("セクション `{name}`: width は 1〜4"));
         }
         if section.description.trim().is_empty() {
-            errors.push(format!("区画 `{name}`: 説明がない"));
+            errors.push(format!("セクション `{name}`: 説明がない"));
         }
     }
     let mut groups = BTreeSet::new();
@@ -142,20 +147,20 @@ pub fn render_rust(scene: &Scene) -> String {
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/scene.toml で、`cargo xtask codegen` で作り直す。\n\n");
     out.push_str("//! 2D のシーンの配置（決定 0137・0172・0178）。\n\n");
-    out.push_str("/// 見出しの始まりの 4 バイト\npub const MAGIC: [u8; 4] = *b\"ZMSC\";\n");
+    out.push_str("/// ヘッダーの始まりの 4 バイト\npub const MAGIC: [u8; 4] = *b\"ZMSC\";\n");
     let _ = writeln!(
         out,
-        "/// 大版。区画の意味を変えるときに上げる\npub const MAJOR: u16 = {};",
+        "/// メジャーバージョン。セクションの意味を変えるときに上げる\npub const MAJOR: u16 = {};",
         scene.versions.major
     );
     let _ = writeln!(
         out,
-        "/// 小版。区画か値を足すたびに上げる\npub const MINOR: u16 = {};",
+        "/// マイナーバージョン。セクションか値を足すたびに上げる\npub const MINOR: u16 = {};",
         scene.versions.minor
     );
     out.push_str("/// 番号の「なし」\npub const NONE: u32 = u32::MAX;\n\n");
     out.push_str(
-        "/// 区画の値の型\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum Type {\n",
+        "/// セクションの値の型\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum Type {\n",
     );
     for (_, rust, variant, _) in TYPES {
         let _ = writeln!(out, "    /// `{rust}`\n    {variant},");
@@ -166,7 +171,7 @@ pub fn render_rust(scene: &Scene) -> String {
     }
     out.push_str("        }\n    }\n}\n\n");
     out.push_str(
-        "/// 区画の定義\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub struct Section {\n    /// 名前\n    pub name: &'static str,\n    /// 値の型\n    pub ty: Type,\n    /// 行ごとの値の数\n    pub width: usize,\n}\n\n",
+        "/// セクションの定義\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub struct Section {\n    /// 名前\n    pub name: &'static str,\n    /// 値の型\n    pub ty: Type,\n    /// 行ごとの値の数\n    pub width: usize,\n}\n\n",
     );
     for (index, section) in scene.sections.iter().enumerate() {
         let _ = writeln!(
@@ -178,7 +183,7 @@ pub fn render_rust(scene: &Scene) -> String {
     }
     let _ = writeln!(
         out,
-        "\n/// 区画の定義。番号の順\npub const SECTIONS: [Section; {}] = [",
+        "\n/// セクションの定義。番号の順\npub const SECTIONS: [Section; {}] = [",
         scene.sections.len()
     );
     for section in &scene.sections {
@@ -224,12 +229,12 @@ pub fn render_c_header(scene: &Scene) -> String {
     );
     out.push_str(concat!(
         "/*\n",
-        " * 2D のシーンの配置（決定 0137・0172・0178）。scene の op が返す blob の区画の番号・型・幅と、列に入れる値。\n",
+        " * 2D のシーンの配置（決定 0137・0172・0178）。scene の op が返す blob のセクションの番号・型・幅と、列に入れる値。\n",
         " *\n",
-        " * - 見出しは ZMSC、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）。続けて区画ごとに、始まりと長さ\n",
+        " * - ヘッダーは ZMSC、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）。続けてセクションごとに、始まりと長さ\n",
         " *   （u32、バイト）を置く。数はリトルエンディアン\n",
-        " * - 区画と値は足すだけにする。読み手は、知らない区画を読み飛ばし、大版が違えば読まない（決定 0015）\n",
-        " * - C++ の読み手は zumen.hpp の zumen::Scene にある\n",
+        " * - セクションと値は足すだけにする。リーダーは、知らないセクションを読み飛ばし、メジャーバージョンが違えば読まない（決定 0015）\n",
+        " * - C++ のリーダーは zumen.hpp の zumen::Scene にある\n",
         " */\n\n",
         "#ifndef ZUMEN_SCENE_H\n",
         "#define ZUMEN_SCENE_H\n\n",
@@ -238,21 +243,21 @@ pub fn render_c_header(scene: &Scene) -> String {
         "#ifdef __cplusplus\n",
         "extern \"C\" {\n",
         "#endif\n\n",
-        "/* 見出しの始まりの 4 バイト */\n",
+        "/* ヘッダーの始まりの 4 バイト */\n",
         "#define ZM_SCENE_MAGIC \"ZMSC\"\n",
     ));
     let _ = writeln!(
         out,
-        "/* 大版。区画の意味を変えるときに上げる */\n#define ZM_SCENE_MAJOR {}",
+        "/* メジャーバージョン。セクションの意味を変えるときに上げる */\n#define ZM_SCENE_MAJOR {}",
         scene.versions.major
     );
     let _ = writeln!(
         out,
-        "/* 小版。区画か値を足すたびに上げる */\n#define ZM_SCENE_MINOR {}",
+        "/* マイナーバージョン。セクションか値を足すたびに上げる */\n#define ZM_SCENE_MINOR {}",
         scene.versions.minor
     );
     out.push_str("/* 番号の「なし」 */\n#define ZM_SCENE_NONE UINT32_C(4294967295)\n\n");
-    out.push_str("/* 区画の値の型 */\n");
+    out.push_str("/* セクションの値の型 */\n");
     for (index, (ty, ..)) in TYPES.iter().enumerate() {
         let _ = writeln!(
             out,
@@ -262,10 +267,10 @@ pub fn render_c_header(scene: &Scene) -> String {
     }
     let _ = writeln!(
         out,
-        "\n/* 区画の数 */\n#define ZM_SCENE_SECTION_COUNT {}\n",
+        "\n/* セクションの数 */\n#define ZM_SCENE_SECTION_COUNT {}\n",
         scene.sections.len()
     );
-    out.push_str("/* 区画の番号 */\n");
+    out.push_str("/* セクションの番号 */\n");
     for (index, section) in scene.sections.iter().enumerate() {
         let _ = writeln!(
             out,
@@ -290,7 +295,7 @@ pub fn render_c_header(scene: &Scene) -> String {
         }
     }
     out.push_str(concat!(
-        "\n/* 区画の定義 */\n",
+        "\n/* セクションの定義 */\n",
         "typedef struct zm_scene_section {\n",
         "    /* 名前（schema/scene.toml の name） */\n",
         "    const char *name;\n",
@@ -299,7 +304,7 @@ pub fn render_c_header(scene: &Scene) -> String {
         "    /* 行ごとの値の数 */\n",
         "    uint32_t width;\n",
         "} zm_scene_section;\n\n",
-        "/* 区画の定義を番号から引く。知らない番号なら NULL */\n",
+        "/* セクションの定義を番号から引く。知らない番号なら NULL */\n",
         "static inline const zm_scene_section *zm_scene_section_at(uint32_t index) {\n",
     ));
     let _ = writeln!(

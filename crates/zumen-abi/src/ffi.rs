@@ -28,7 +28,7 @@ pub struct Buf {
     pub len: usize,
 }
 
-/// Arrow の C Stream Interface の `struct ArrowArrayStream`。この版では、中身に触れない
+/// Arrow の C Stream Interface の `struct ArrowArrayStream`。このバージョンでは、中身に触れない
 #[repr(C)]
 #[derive(Debug)]
 pub struct ArrowArrayStream {
@@ -140,7 +140,7 @@ unsafe fn write_buf(out: *mut Buf, bytes: Vec<u8>) {
     unsafe { out.write_unaligned(buf) };
 }
 
-/// ABI の大版を返す
+/// ABI のメジャーバージョンを返す
 #[unsafe(no_mangle)]
 pub extern "system" fn zm_abi_version() -> u32 {
     ABI_VERSION
@@ -300,7 +300,7 @@ pub unsafe extern "system" fn zm_take_arrow(
         if out.is_null() {
             return Status::Invalid;
         }
-        // この版には、表（種類が arrow）の結果を作る op がないので、どの番号も使えない。
+        // このバージョンには、表（種類が arrow）の結果を作る op がないので、どの番号も使えない。
         // C Stream Interface で渡す形は、表を返す最初の op と一緒に作る
         let _ = blob;
         handle
@@ -583,7 +583,7 @@ mod tests {
     fn a_panicked_session_answers_panicked_with_the_diagnostic() {
         let session = open();
         let handle = unsafe { &*session };
-        let caught = handle.with(|_| -> () { panic!("試験のための panic") });
+        let caught = handle.with(|_| -> () { panic!("テストのための panic") });
         assert_eq!(caught, Err(Status::Panicked));
         let mut response = empty();
         assert_eq!(
@@ -604,7 +604,7 @@ mod tests {
         );
         unsafe { zm_session_close(session) };
         assert_eq!(
-            guard(|| panic!("試験のための panic")),
+            guard(|| panic!("テストのための panic")),
             Status::Panicked.code()
         );
     }

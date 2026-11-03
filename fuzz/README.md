@@ -15,13 +15,13 @@ cargo +nightly fuzz run dxf
 ```
 
 - target は `dxf`・`dwg`・`sxf`・`jww` です。`cargo +nightly fuzz list` で一覧を出せます。
-- 種にする入力は、公開サンプル（`samples/`）と、適合試験の組の合成のものから選び、`fuzz/corpus/<target>/` に置きます。受け取った図面は置きません（AGENTS.md）。
-- 見つけた入力は `fuzz/artifacts/` に出ます。直したら、その入力を合成の試験に移します。`corpus` と `artifacts` はリポジトリに入れません。
+- 種にする入力は、公開サンプル（`samples/`）と、適合テストの組の合成のものから選び、`fuzz/corpus/<target>/` に置きます。受け取った図面は置きません（AGENTS.md）。
+- 見つけた入力は `fuzz/artifacts/` に出ます。直したら、その入力を合成のテストに移します。`corpus` と `artifacts` はリポジトリに入れません。
 
 ## ライセンス
 
-libfuzzer-sys は LLVM の libFuzzer を同梱し、そのライセンスは NCSA です。fuzz の道具にだけ使い、配る成果物には入りません。`deny.toml` の許可リストに理由を書いてあります。
+libfuzzer-sys は LLVM の libFuzzer を同梱し、そのライセンスは NCSA です。fuzz のツールにだけ使い、配る成果物には入りません。`deny.toml` の許可リストに理由を書いてあります。
 
-## 普段の試験
+## 普段のテスト
 
-fuzz の道具なしでも、`crates/zumen-abi/tests/contracts.rs` が、試料と合成の入力を途中で切ったものに `survives` を流します。
+fuzz のツールなしでも、`crates/zumen-abi/tests/contracts.rs` が、サンプルと合成の入力を途中で切ったものに `survives` を流します。

@@ -1,4 +1,4 @@
-//! `photo` の op（#387）。工事写真の Exif と XMP を読み、境界の形にする。
+//! `photo` の op（#387）。工事写真の Exif と XMP を読み、API の形にする。
 
 use zumen_base::Cx;
 

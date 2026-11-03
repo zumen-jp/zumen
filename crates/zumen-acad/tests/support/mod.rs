@@ -1,15 +1,15 @@
-//! 図面の試料を比較するときの共通の処理。
+//! 図面のサンプルを比較するときの共通の処理。
 
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
 
-/// 試料のフォルダー。リポジトリの公開サンプル（`samples/dxf`・`samples/dwg` のうちあるもの）と、
+/// サンプルのフォルダー。リポジトリの公開サンプル（`samples/dxf`・`samples/dwg` のうちあるもの）と、
 /// `ZUMEN_SAMPLES` のフォルダー（指定したとき）。受け取った図面はリポジトリに入れず、`ZUMEN_SAMPLES` で渡す
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 pub fn sample_dirs() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
@@ -26,11 +26,11 @@ pub fn sample_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// `ZUMEN_SAMPLES` のフォルダーの試料か。試料が持つはずの要素の数は、受け取った図面があるときだけ確かめる
+/// `ZUMEN_SAMPLES` のフォルダーのサンプルか。サンプルが持つはずの要素の数は、受け取った図面があるときだけ確かめる
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 pub fn received(path: &Path) -> bool {
     std::env::var_os("ZUMEN_SAMPLES")
@@ -38,7 +38,7 @@ pub fn received(path: &Path) -> bool {
         .is_some_and(|dir| path.starts_with(dir))
 }
 
-/// 試料のフォルダーの中のファイル。パスの順に並べる
+/// サンプルのフォルダーの中のファイル。パスの順に並べる
 #[cfg(test)]
 pub fn sample_files() -> Vec<PathBuf> {
     let mut found: Vec<_> = sample_dirs()
@@ -185,7 +185,7 @@ fn extension_normalization_keeps_types_values_and_counts() {
     );
 }
 
-/// 拡張の付く先と、名前空間・名前・版・型の契約の版。
+/// 拡張の付く先と、名前空間・名前・バージョン・型の契約のバージョン。
 fn extension_key(
     extension: &zumen_drawing::Extension,
 ) -> (String, String, String, Option<String>, u32) {

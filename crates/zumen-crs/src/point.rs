@@ -88,9 +88,9 @@ pub struct MapConversion {
     pub northings: f64,
     /// プロジェクトの原点の高さ（`OrthogonalHeight`）
     pub orthogonal_height: f64,
-    /// X 軸の向きの東の成分（`XAxisAbscissa`）
+    /// X 軸の向きの東のコンポーネント（`XAxisAbscissa`）
     pub x_axis_abscissa: f64,
-    /// X 軸の向きの北の成分（`XAxisOrdinate`）
+    /// X 軸の向きの北のコンポーネント（`XAxisOrdinate`）
     pub x_axis_ordinate: f64,
     /// プロジェクトの単位から地図の単位への尺度（`Scale`。書かれていなければ 1）
     pub scale: f64,

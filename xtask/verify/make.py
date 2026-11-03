@@ -1,6 +1,6 @@
 """確認の束を作る（#503、決定 0254）。
 
-zumen の CLI（`zumen serve --stdio`）で、公開サンプル（samples/）と適合試験の中で作った図面を開き、書き戻し
+zumen の CLI（`zumen serve --stdio`）で、公開サンプル（samples/）と適合テストの中で作った図面を開き、書き戻し
 （apply）と変換（convert）を当てて、書いたファイルを束のフォルダーに置く。zumen が読んだ値（drawing・tables・
 entities の応答）を、入力と書いたファイルのそれぞれについて置き、ファイルごとの出所・ライセンス・変更・期待する
 値を manifest.json に書く。外部の実装（check_ezdxf.py など）と、AutoCAD・Jw_cad・SXF のビューアーで開く人が、
@@ -27,10 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 FIELDS = ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
 # 診断ごとに返す場所の数。既定の 16 では、黙って捨てない照合で、場所のない図形を誤って数える
 MAX_PLACES = 100000
-# 適合試験の図面と束の台本のライセンス（このリポジトリと同じ）
+# 適合テストの図面と束の台本のライセンス（このリポジトリと同じ）
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
-# 適合試験の中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
+# 適合テストの中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
 CASES = [("open_jww.json", "a.jww"), ("open_sxf.json", "a.sfc"), ("open_sxf.json", "c.p21")]
 
 
@@ -430,7 +430,7 @@ def describe(g):
         text = f"点 {pt(g['position'])}・角度 {num(g.get('rotation', 0))}°"
         if "marker" in g:
             m = g["marker"]
-            text += f"・印 {m['namespace']} の {m['code']}（倍率 {num(m['scale'])}）"
+            text += f"・マーカー {m['namespace']} の {m['code']}（倍率 {num(m['scale'])}）"
         return text
     if s == "line":
         return f"線分 {pt(g['start'])} から {pt(g['end'])}"
@@ -459,7 +459,7 @@ VIEWERS = {"dxf": "AutoCAD", "dwg": "AutoCAD", "jww": "Jw_cad", "sfc": "SXF ブ�
 
 INTRO = """# 確認の束
 
-zumen の CLI で、公開サンプル（`samples/`）と適合試験の中で作った図面に、書き戻し（apply）と変換（convert）を当てて書いたファイルです（#503、決定 0254）。`xtask/verify/make.py` が作りました。
+zumen の CLI で、公開サンプル（`samples/`）と適合テストの中で作った図面に、書き戻し（apply）と変換（convert）を当てて書いたファイルです（#503、決定 0254）。`xtask/verify/make.py` が作りました。
 
 - `manifest.json`: ファイルごとの出所・当てた変更・期待する形・診断
 - `zumen/`: zumen が読んだ値（`drawing`・`tables`・`entities` の応答）。入力と書いたファイルのそれぞれ
@@ -467,7 +467,7 @@ zumen の CLI で、公開サンプル（`samples/`）と適合試験の中で�
 - `input/`: 入力の図面。書いたファイルを開く前に、同じソフトで入力も開き、入力から変わった所だけを比べる
 - `licenses/`: 入力のライセンスの本文。入力ごとのライセンスと表示は、下の「出所とライセンス」と `manifest.json` にある
 
-結果は、対象の issue に、ソフトと版・開けたか・監査の誤りの数・期待と違った所を書きます。確かめたことと、確かめられなかったことを分けて書きます。
+結果は、対象の issue に、ソフトとバージョン・開けたか・監査の誤りの数・期待と違った所を書きます。確かめたことと、確かめられなかったことを分けて書きます。
 
 ## AutoCAD の共通の手順
 
@@ -484,7 +484,7 @@ SECTIONS = {
         "#342 書き戻した点",
         """点を置き換え・変換・追加して書き戻したファイルです（決定 0183・0190）。
 
-- **AutoCAD（DXF・DWG）。** 共通の手順のあと、点の形が $PDMODE 67（× に四角）・$PDSIZE 4 で描かれることを確かめる。角度のある点の印は、その角度だけ回って描かれる。
+- **AutoCAD（DXF・DWG）。** 共通の手順のあと、点の形が $PDMODE 67（× に四角）・$PDSIZE 4 で描かれることを確かめる。角度のある点のマーカーは、その角度だけ回って描かれる。
 - **Jw_cad（JWW）。** 開いて、下の 2 つの点が実寸の座標（mm、用紙の中心が原点）にあることを、「測定」か「属性取得」で確かめる。普通の点の線種が、Jw_cad で打った点と同じ（線種 1、決定 0183 の推定）かを確かめる。記号の点（線種 100）は、番号 3・角度 30°・倍率 2 で描かれる。
 - **SXF ブラウザ（SFC・P21）。** 開いて、用紙の座標（mm）の 2 つの点マーカーが、コードの形・回転・赤（既定義色 2）で描かれることを確かめる。SXF ブラウザがなければ、Jw_cad の SXF の読み込みで開いて、同じことを確かめる。
 """,
@@ -497,14 +497,14 @@ SECTIONS = {
 """,
     ),
     316: (
-        "#316 AutoCAD で作った試料が要る値",
-        """**格子の記号（MINSERT）。** AutoCAD で作った MINSERT の試料に、変換（30° 回し、2 倍にし、X に 50 動かす）・置き換え（Y に 100 動かし、間隔を 1.5 倍にする）・追加（3 列 2 行）を当てて書き戻しました（決定 0161）。
+        "#316 AutoCAD で作ったサンプルが要る値",
+        """**格子の記号（MINSERT）。** AutoCAD で作った MINSERT のサンプルに、変換（30° 回し、2 倍にし、X に 50 動かす）・置き換え（Y に 100 動かし、間隔を 1.5 倍にする）・追加（3 列 2 行）を当てて書き戻しました（決定 0161）。
 
 - **AutoCAD。** 共通の手順で、格子の列・行・間隔と、属性（TAGGED の NO・KIND）が記号とともに動いたことを確かめる。
 
 **点の印刷（決定 0159）。** `input/zumen-points-a-r2018.dwg` を、モデルのタブから PDF に印刷する。期待は、画層 0 の点（ハンドル 2DB）と記号 BYBLOCKPOINT（2E5）の中の点が印刷され、印刷しない画層（NOPLOT の 2DC、Defpoints の 2DD）の点が印刷されないこと。zumen は、表示し、実効の画層が印刷するものを印刷するとしている（推定）。
 
-**まだ試料のない値。** MTEXT の `\\c`・`\\p`、MULTILEADER の線ごとの上書き、文字スタイルの太字・斜体（1071 のビット 24・25）は、画面のある AutoCAD（COM か操作）で作る。作ったら、`samples/dwg` に足し（決定 0171）、zumen の読みと照らす。
+**まだサンプルのない値。** MTEXT の `\\c`・`\\p`、MULTILEADER の線ごとの上書き、文字スタイルの太字・斜体（1071 のビット 24・25）は、画面のある AutoCAD（COM か操作）で作る。作ったら、`samples/dwg` に足し（決定 0171）、zumen の読みと照らす。
 """,
     ),
     314: (
@@ -523,10 +523,10 @@ SECTIONS = {
     ),
     174: (
         "#174 DXF から図面モデルへ移す値",
-        """入力の DXF と DWG（AutoCAD で作った試料）を zumen が読んだ値は `zumen/input/` に、ezdxf と照らした結果は `ezdxf.json` にあります。
+        """入力の DXF と DWG（AutoCAD で作ったサンプル）を zumen が読んだ値は `zumen/input/` に、ezdxf と照らした結果は `ezdxf.json` にあります。
 
-- **AutoCAD。** 共通の手順の 3 で書き出した値を、`zumen/input/<ファイル>.json` の `entities` の `geometry` と比べる。違えば、ハンドル・欄・2 つの値を issue に書く。
-- **まだ試料のない推定。** MULTILEADER の色の値（AcCmColor）、HATCH の SPLINE の辺の当てはめる点（R2010 から）、表のセルの 2007 からの値、下敷きの切り抜きの頂点、R2018 の 101 を持つ MTEXT は、AutoCAD で作った試料が要る。作り方は `xtask/autocad/samples.lsp` に主題を足して、`make.sh` で作る。
+- **AutoCAD。** 共通の手順の 3 で書き出した値を、`zumen/input/<ファイル>.json` の `entities` の `geometry` と比べる。違えば、ハンドル・フィールド・2 つの値を issue に書く。
+- **まだサンプルのない推定。** MULTILEADER の色の値（AcCmColor）、HATCH の SPLINE の辺のフィット点（R2010 から）、表のセルの 2007 からの値、アンダーレイの切り抜きの頂点、R2018 の 101 を持つ MTEXT は、AutoCAD で作ったサンプルが要る。作り方は `xtask/autocad/samples.lsp` に主題を足して、`make.sh` で作る。
 """,
     ),
 }
@@ -599,7 +599,7 @@ def expectation(out, f):
 
 
 def inputs(extra):
-    """入力の図面: 公開サンプル、適合試験の中で作った図面、--inputs のフォルダー。(道筋, 中身, 出所, ライセンス, 表示)"""
+    """入力の図面: 公開サンプル、適合テストの中で作った図面、--inputs のフォルダー。(道筋, 中身, 出所, ライセンス, 表示)"""
     ledger = tomllib.loads((ROOT / "samples" / "ledger.toml").read_text(encoding="utf-8"))["samples"]
     ledger = {item["path"]: item for item in ledger}
     found = []
@@ -662,7 +662,7 @@ def main():
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     readme(out, manifest)
     shutil.copy(Path(__file__).with_name("dump.lsp"), out / "dump.lsp")
-    # 束は公開サンプルと適合試験の図面の写しと、それを変えたファイルを配るので、ライセンスの本文を写す
+    # 束は公開サンプルと適合テストの図面の写しと、それを変えたファイルを配るので、ライセンスの本文を写す
     (out / "licenses").mkdir()
     for path in [*sorted((ROOT / "licenses").iterdir()), ROOT / "LICENSE-MIT", ROOT / "LICENSE-APACHE"]:
         shutil.copy(path, out / "licenses" / path.name)

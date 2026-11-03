@@ -1,4 +1,4 @@
-//! 図面モデルの変更を、SFC のフィーチャのコメントに書き戻す（決定 0167）。入力は、どれも試験の中で作る。
+//! 図面モデルの変更を、SFC のフィーチャのコメントに書き戻す（決定 0167）。入力は、どれもテストの中で作る。
 #![cfg(feature = "drawing")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
@@ -716,7 +716,7 @@ fn point_markers_are_replaced_transformed_and_added() {
     assert_eq!(found[1].shape, Shape::Point(changed.clone()));
     assert_eq!(found[1].style, marker.style);
 
-    // X を反転する鏡映。既定義の印は鏡映を表せない
+    // X を反転する鏡映。既定義のマーカーは鏡映を表せない
     let mirror = Affine {
         m: [-1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
     };
@@ -768,7 +768,7 @@ fn point_markers_are_replaced_transformed_and_added() {
     }
 }
 
-/// SXF は文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に当たるものを持たない。点は既定義の印だけなので、その
+/// SXF は文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に当たるものを持たない。点は既定義のマーカーだけなので、その
 /// 変更を断り、ファイルを変えない（決定 0190）
 #[test]
 fn point_styles_are_refused() {

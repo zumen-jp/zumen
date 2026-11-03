@@ -161,7 +161,7 @@ pub fn polyline(vertices: &[(Xy, f64)], closed: bool, tolerance: f64) -> Vec<Xy>
 /// 有理か非有理の B スプラインの、パラメーター `t` の点。de Boor の方法で求める
 fn de_boor(degree: usize, knots: &[f64], control: &[[f64; 3]], t: f64) -> Option<Xy> {
     let n = control.len();
-    // t を含む節点の区間 [k_s, k_{s+1}) を、定義域の中で探す
+    // t を含むノットの区間 [k_s, k_{s+1}) を、定義域の中で探す
     let mut span = degree;
     while span + 1 < n && *knots.get(span + 1)? <= t {
         span += 1;
@@ -201,7 +201,7 @@ fn deviation(p: Xy, a: Xy, b: Xy) -> f64 {
     ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx).abs() / length
 }
 
-/// 制御点と節点で決まるスプラインを折れ線にする。定義が合わなければ `None`
+/// 制御点とノットで決まるスプラインを折れ線にする。定義が合わなければ `None`
 pub fn spline(
     degree: u32,
     knots: &[f64],
@@ -236,7 +236,7 @@ pub fn spline(
     }
     let eval = |t: f64| de_boor(degree, knots, &homogeneous, t.min(hi));
     let mut out = vec![eval(lo)?];
-    // 節点の区間ごとに、中点の弦からのずれが許容差に入るまで 2 つに分ける
+    // ノットの区間ごとに、中点の弦からのずれが許容差に入るまで 2 つに分ける
     let mut stack: Vec<(f64, f64, Xy, Xy, u32)> = Vec::new();
     for span in degree..n {
         let (a, b) = (*knots.get(span)?, *knots.get(span + 1)?);
@@ -653,7 +653,7 @@ pub fn dashes(points: &[Xy], pattern: &[f64]) -> Vec<Vec<Xy>> {
     out
 }
 
-/// 当てはめる点の間の媒介変数の取り方
+/// フィット点の間の媒介変数の取り方
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Spacing {
     /// 隣の点との距離に比例させる
@@ -689,8 +689,8 @@ fn basis(knots: &[f64], span: usize, t: f64) -> Option<[f64; 4]> {
     Some(n)
 }
 
-/// 当てはめる点を通る 3 次のスプラインの、節点と制御点。The NURBS Book の 9.2.4 の、両端の接線を与える
-/// 補間による。媒介変数は 0〜1 にそろえ、節点は内側の点の媒介変数にする。接線（向き）の長さは、点を結ぶ
+/// フィット点を通る 3 次のスプラインの、ノットと制御点。The NURBS Book の 9.2.4 の、両端の接線を与える
+/// 補間による。媒介変数は 0〜1 にそろえ、ノットは内側の点の媒介変数にする。接線（向き）の長さは、点を結ぶ
 /// 弦の長さの和にする。接線がなければ、端の 3 点を通る 2 次式の接線にする（2 点なら弦）。閉じるなら、
 /// 終わりに始めの点を足し、接線がなければ両端に、始めの点の前後の点を通る 2 次式の接線を使う。
 /// 点が 2 つ未満か、続く 2 点が重なるか、値が有限でなければ `None`

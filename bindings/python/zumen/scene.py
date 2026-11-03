@@ -1,8 +1,8 @@
-"""シーンの blob の読み手（決定 0137・0195）。配置は schema/scene.toml にあり、区画の定義は constants.py に生成する。
+"""シーンの blob のリーダー（決定 0137・0195）。配置は schema/scene.toml にあり、セクションの定義は constants.py に生成する。
 
-見出しは `ZMSC`、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）で、続けて区画ごとに始まりと長さ（u32、
-バイト）を置く。数はリトルエンディアン。知らない区画（新しい小版で足したもの）は読み飛ばし、ない区画（古い小版）は
-空の列にする。大版が違えば読まない。
+ヘッダーは `ZMSC`、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）で、続けてセクションごとに始まりと長さ（u32、
+バイト）を置く。数はリトルエンディアン。知らないセクション（新しいマイナーバージョンで足したもの）は読み飛ばし、ないセクション（古いマイナーバージョン）は
+空の列にする。メジャーバージョンが違えば読まない。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ _LITTLE_ENDIAN = sys.byteorder == "little"
 
 for _section in SCENE_SECTIONS:
     if array.array(_section.format).itemsize != struct.calcsize("<" + _section.format):
-        raise ImportError(f"区画 {_section.name} の値の大きさが、この環境の array と合わない")
+        raise ImportError(f"セクション {_section.name} の値の大きさが、この環境の array と合わない")
 
 
 class Scene:
@@ -29,28 +29,28 @@ class Scene:
 
     def __init__(self, major: int, minor: int, chunks: int, sections: int, columns: Mapping[str, memoryview]) -> None:
         self.major = major
-        """大版"""
+        """メジャーバージョン"""
         self.minor = minor
-        """小版"""
+        """マイナーバージョン"""
         self.chunks = chunks
         """塊の数"""
         self.sections = sections
-        """blob にある区画の数。この包みが知らない区画も数える"""
+        """blob にあるセクションの数。このラッパーが知らないセクションも数える"""
         self.columns = columns
-        """区画ごとの列（1 次元の memoryview）。行ごとに width 個の値を並べる"""
+        """セクションごとの列（1 次元の memoryview）。行ごとに width 個の値を並べる"""
 
     def rows(self, name: str) -> int:
-        """区画の行の数"""
+        """セクションの行の数"""
         for section in SCENE_SECTIONS:
             if section.name == name:
                 return len(self.columns[name]) // section.width
-        raise KeyError(f"知らない区画: {name}")
+        raise KeyError(f"知らないセクション: {name}")
 
     def text(self, start: int, length: int) -> str:
-        """strings の区画から、始まりと長さ（バイト）で文字列を引く"""
+        """strings のセクションから、始まりと長さ（バイト）で文字列を引く"""
         strings = self.columns["strings"]
         if start + length > len(strings):
-            raise IndexError("strings の区画の外を指す")
+            raise IndexError("strings のセクションの外を指す")
         return bytes(strings[start : start + length]).decode("utf-8")
 
 
@@ -73,9 +73,9 @@ def read_scene(blob: Union[bytes, bytearray, memoryview]) -> Scene:
     if magic != SCENE_MAGIC:
         raise ValueError("シーンの blob でない")
     if major != SCENE_MAJOR:
-        raise ValueError(f"シーンの大版が {major}（この包みは {SCENE_MAJOR}）")
+        raise ValueError(f"シーンのメジャーバージョンが {major}（このラッパーは {SCENE_MAJOR}）")
     if _HEADER.size + _ENTRY.size * sections > len(view):
-        raise ValueError("区画の表が blob に収まらない")
+        raise ValueError("セクションの表が blob に収まらない")
     columns = {}
     for index, section in enumerate(SCENE_SECTIONS):
         if index >= sections:
@@ -84,6 +84,6 @@ def read_scene(blob: Union[bytes, bytearray, memoryview]) -> Scene:
         start, length = _ENTRY.unpack_from(view, _HEADER.size + _ENTRY.size * index)
         row = struct.calcsize("<" + section.format) * section.width
         if start + length > len(view) or length % row != 0:
-            raise ValueError(f"区画 {section.name} の始まりか長さが合わない")
+            raise ValueError(f"セクション {section.name} の始まりか長さが合わない")
         columns[section.name] = _column(view, section.format, start, length)
     return Scene(major, minor, chunks, sections, MappingProxyType(columns))

@@ -4,14 +4,14 @@
 //! 依存を足さず、要る表だけを OpenType の仕様に従って読む。読む表と値は次のとおり。
 //!
 //! - em: `head` の unitsPerEm（16〜16384）
-//! - アセンダー・ディセンダー: `OS/2`（版 4 以降）の fsSelection の USE_TYPO_METRICS（ビット 7）が
+//! - アセンダー・ディセンダー: `OS/2`（バージョン 4 以降）の fsSelection の USE_TYPO_METRICS（ビット 7）が
 //!   立てば sTypoAscender・sTypoDescender、立たなければ `hhea` の ascender・descender
-//! - 大文字の高さ: `OS/2`（版 2 以降）の sCapHeight。0 以下かなければ `H` の字形の外形の上、それも
+//! - 大文字の高さ: `OS/2`（バージョン 2 以降）の sCapHeight。0 以下かなければ `H` の字形の外形の上、それも
 //!   なければアセンダー
 //! - 文字から字形: `cmap` の Unicode の副表（プラットフォーム 0、または 3 の符号化 1・10）の
 //!   形式 12（なければ形式 4）
 //! - 送り: `hmtx` の advanceWidth。numberOfHMetrics を超える字形は最後の送り
-//! - 外形: `loca` で引いた `glyf` の字形の見出しの xMin・yMin・xMax・yMax。輪郭はたどらない。
+//! - 外形: `loca` で引いた `glyf` の字形のヘッダーの xMin・yMin・xMax・yMax。輪郭はたどらない。
 //!   `glyf` がなければ、`CFF `・`CFF2` の字形の命令をたどった外形（[`cff`]、決定 0186）
 //! - カーニング: `GPOS` の pair adjustment か、なければ `kern` の形式 0（[`kern`]、決定 0186）
 //! - 縦書き: `vhea` の numOfLongVerMetrics と `vmtx` の advanceHeight・topSideBearing、`GSUB` の
@@ -24,7 +24,7 @@
 //!
 //! 受け取ったファイルは信用しない。位置と長さはすべて確かめ、足し算と掛け算は `u64` か
 //! 溢れを確かめて行い、`usize` の幅（32 ビットの wasm と 64 ビット）で結果が変わらないようにする。
-//! 文字ごとの作業は、副表の二分探索で抑える。外形を見出しから読むのは、複合の字形の入れ子を
+//! 文字ごとの作業は、副表の二分探索で抑える。外形をヘッダーから読むのは、複合の字形の入れ子を
 //! たどると、作業量が入れ子の深さの指数で増えうるためである。CFF・CFF2 の字形の命令は、
 //! 副ルーチンの入れ子と、字形ごとの作業量に上限を設けてたどる。
 
@@ -42,7 +42,7 @@ pub enum Unread {
     Magic,
     /// フォントのコレクション（TTC）に、指定した番号のフォントがない
     Index,
-    /// ファイルの見出しか表の並びが壊れている
+    /// ファイルのヘッダーか表の並びが壊れている
     Malformed,
     /// 要る表がないか、壊れている。表の名前（`head`・`hhea`・`maxp`・`hmtx`・`cmap`・`loca`・`glyf`・
     /// `CFF `・`CFF2`）
@@ -87,7 +87,7 @@ pub struct Font<'a> {
     vertical: gsub::Substitution<'a>,
     /// 縦書きのカーニング
     vertical_kerning: kern::Kerning<'a>,
-    /// CFF・CFF2 のフォントの `VORG`。版と長さを確かめた表
+    /// CFF・CFF2 のフォントの `VORG`。バージョンと長さを確かめた表
     vorg: Option<&'a [u8]>,
     metrics: FontMetrics,
     fallback: Glyph,
@@ -192,7 +192,7 @@ impl<'a> Font<'a> {
         if long_metrics == 0 {
             return Err(Unread::Table("hhea"));
         }
-        // maxp: 版（0）・numGlyphs（4）
+        // maxp: バージョン（0）・numGlyphs（4）
         let glyph_count = match (u32_at(maxp, 0), u16_at(maxp, 4)) {
             (Some(0x0000_5000 | 0x0001_0000), Some(count)) if count > 0 => count,
             _ => return Err(Unread::Table("maxp")),
@@ -255,7 +255,7 @@ impl<'a> Font<'a> {
         // 字形 0（.notdef）は、フォントにない文字に使う。読めなければ外形の表が壊れている
         font.fallback = font.by_id(0).ok_or(Unread::Table(outline_name))?;
 
-        // OS/2: 版（0）・fsSelection（62）・sTypoAscender（68）・sTypoDescender（70）・sCapHeight（88）
+        // OS/2: バージョン（0）・fsSelection（62）・sTypoAscender（68）・sTypoDescender（70）・sCapHeight（88）
         let os2 = tables.os2.unwrap_or(&[]);
         let version = u16_at(os2, 0).unwrap_or(0);
         let typographic = version >= 4 && u16_at(os2, 62).is_some_and(|flags| flags & 0x80 != 0);
@@ -318,7 +318,7 @@ fn vmtx<'a>(vhea: Option<&[u8]>, vmtx: Option<&'a [u8]>, glyph_count: u16) -> Op
     })
 }
 
-/// `VORG` の表（OpenType の仕様の VORG の節）。版 1 で、記録の並びが表に収まるものだけを使う
+/// `VORG` の表（OpenType の仕様の VORG の節）。バージョン 1 で、記録の並びが表に収まるものだけを使う
 fn vorg(table: Option<&[u8]>) -> Option<&[u8]> {
     // majorVersion（0）・minorVersion（2）・defaultVertOriginY（4）・numVertOriginYMetrics（6）、
     // 記録（glyphIndex・vertOriginY）は 8 から 4 バイトずつ
@@ -336,7 +336,7 @@ fn vertical_origin(table: &[u8], id: u16) -> Option<i16> {
     }
 }
 
-/// `glyf` の字形の見出しの外形
+/// `glyf` の字形のヘッダーの外形
 fn glyf_bounds(loca: &[u8], long_loca: bool, glyf: &[u8], id: u16) -> Option<Option<[f64; 4]>> {
     let (start, end) = if long_loca {
         let at = usize::from(id) * 4;
@@ -351,7 +351,7 @@ fn glyf_bounds(loca: &[u8], long_loca: bool, glyf: &[u8], id: u16) -> Option<Opt
         core::cmp::Ordering::Equal => Some(None),
         core::cmp::Ordering::Less => {
             let glyph = slice(glyf, u64::from(start), u64::from(end - start))?;
-            // 見出し: numberOfContours（0）・xMin（2）・yMin（4）・xMax（6）・yMax（8）
+            // ヘッダー: numberOfContours（0）・xMin（2）・yMin（4）・xMax（6）・yMax（8）
             let [l, b, r, t] = [2, 4, 6, 8].map(|at| i16_at(glyph, at).map(f64::from));
             Some(Some([l?, b?, r?, t?]))
         }
@@ -470,12 +470,12 @@ impl Glyphs for Font<'_> {
     }
 }
 
-/// ファイルの見出しと表の並びを読み、要る表を切り出す（OpenType の仕様の Font file の節）
+/// ファイルのヘッダーと表の並びを読み、要る表を切り出す（OpenType の仕様の Font file の節）
 fn directory(data: &[u8], index: u32) -> Result<Tables<'_>, Unread> {
     let magic = u32_at(data, 0).ok_or(Unread::Malformed)?;
     let start = match magic {
         COLLECTION => {
-            // TTC の見出し: ttcTag（0）・版（4）・numFonts（8）・tableDirectoryOffsets（12）
+            // TTC のヘッダー: ttcTag（0）・バージョン（4）・numFonts（8）・tableDirectoryOffsets（12）
             let count = u32_at(data, 8).ok_or(Unread::Malformed)?;
             if index >= count {
                 return Err(Unread::Index);
@@ -705,7 +705,7 @@ mod tests {
         put32(&mut maxp, 0x0000_5000);
         put16(&mut maxp, 4);
 
-        // OS/2 の版 4。USE_TYPO_METRICS は立てない
+        // OS/2 のバージョン 4。USE_TYPO_METRICS は立てない
         let mut os2 = vec![0; 96];
         os2[0..2].copy_from_slice(&4u16.to_be_bytes());
         os2[68..70].copy_from_slice(&800i16.to_be_bytes());
@@ -720,7 +720,7 @@ mod tests {
 
         let mut glyf = Vec::new();
         for [l, b, r, t] in [[50, 0, 450, 700], [0, 0, 700, 720], [30, -210, 520, 480]] {
-            // 字形の見出しだけを置く。外形は見出しから読み、輪郭は読まない
+            // 字形のヘッダーだけを置く。外形はヘッダーから読み、輪郭は読まない
             put16(&mut glyf, 1);
             for value in [l, b, r, t] {
                 put16(&mut glyf, value);
@@ -834,7 +834,7 @@ mod tests {
         // OS/2 がなければ、H の外形の上
         let data = assemble(without(b"OS/2"));
         assert_eq!(Font::parse(&data, 0).unwrap().metrics().cap_height, 720.0);
-        // OS/2 の版 1 は sCapHeight を持たない
+        // OS/2 のバージョン 1 は sCapHeight を持たない
         let data = assemble(edit(b"OS/2", |os2| {
             os2[0..2].copy_from_slice(&1u16.to_be_bytes());
             os2.truncate(86);
@@ -965,14 +965,14 @@ mod tests {
     #[test]
     fn reads_a_font_in_a_collection() {
         let single = assemble(tables());
-        // TTC の見出し（12 バイト）と、2 つの番号。番号 1 のフォントだけを置き、番号 0 は外を指す
+        // TTC のヘッダー（12 バイト）と、2 つの番号。番号 1 のフォントだけを置き、番号 0 は外を指す
         let mut data = Vec::new();
         data.extend_from_slice(b"ttcf");
         put32(&mut data, 0x0001_0000);
         put32(&mut data, 2);
         put32(&mut data, 0xFFFF_FFF0);
         put32(&mut data, 0);
-        // TTC の中の表の位置はファイルの頭から数えるので、フォントの表の位置を見出しの分ずらす
+        // TTC の中の表の位置はファイルの頭から数えるので、フォントの表の位置をヘッダーの分ずらす
         let shift = 20;
         let mut font = single.clone();
         let count = usize::from(u16::from_be_bytes([font[4], font[5]]));
@@ -1023,7 +1023,7 @@ mod tests {
         // hmtx が短い
         let data = assemble(edit(b"hmtx", |hmtx| hmtx.truncate(6)));
         assert_eq!(reason(&data), Unread::Table("hmtx"));
-        // 外形が CFF のフォントで、CFF の表が見出しだけ
+        // 外形が CFF のフォントで、CFF の表がヘッダーだけ
         let mut cff: Tables = tables()
             .into_iter()
             .filter(|(tag, _)| tag != b"glyf" && tag != b"loca")
@@ -1542,7 +1542,7 @@ mod tests {
             // 廃止された seac と算術の演算子
             "0 0 0 65 66 endchar",
             "1 2 add endchar",
-            // hintmask の印が字形の外に出る
+            // hintmask のフラグが字形の外に出る
             "0 10 hstem hintmask",
             // CFF2 の blend は vstore がなければ読めない
             "1 2 1 blend rmoveto endchar",
@@ -1604,14 +1604,14 @@ mod tests {
             }
             out
         };
-        // 形式 1: 見出し 12 バイト、coverage（12）、PairSet（18）。valueFormat1 は XPlacement と XAdvance
+        // 形式 1: ヘッダー 12 バイト、coverage（12）、PairSet（18）。valueFormat1 は XPlacement と XAdvance
         let mut format1 = words(&[1, 12, 5, 0, 1, 18]);
         format1.extend(words(&[1, 1, 1]));
         format1.extend(words(&[1, 2, 7, -40]));
         let mut extension = words(&[1, 2]);
         put32(&mut extension, 8);
         extension.extend(&format1);
-        // 形式 2: 見出し 16 バイト、組の値（16）、coverage（28）、ClassDef 1（38）、ClassDef 2（48）
+        // 形式 2: ヘッダー 16 バイト、組の値（16）、coverage（28）、ClassDef 1（38）、ClassDef 2（48）
         let mut format2 = words(&[2, 28, 4, 0, 38, 48, 3, 2]);
         format2.extend(words(&[0, 0, 0, 15, 0, -20]));
         format2.extend(words(&[2, 1, 1, 2, 0]));
@@ -2179,7 +2179,7 @@ mod tests {
         let font = Font::parse(&data, 0).unwrap();
         assert_eq!(font.vertical('g').unwrap().top, 700.0);
         assert_eq!(font.vertical('H').unwrap().top, 880.0);
-        // 版が違うか、記録が表に収まらなければ使わない（アセンダーの 900）
+        // バージョンが違うか、記録が表に収まらなければ使わない（アセンダーの 900）
         for broken in [
             halfwords(&[2, 0, 880, 0]),
             halfwords(&[1, 0, 880, 2, 2, 700]),

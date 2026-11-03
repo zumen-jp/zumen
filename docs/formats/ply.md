@@ -2,16 +2,16 @@
 
 PLY（台帳の `ply`）の点群を読み、点群の領域モデル（[決定 0232](../decisions/0232-point-clouds.md)）に移す規則を記録します。実装は `crates/zumen-ply` です。持ち主の決めた仕様はないので、広く使われる書き方（台帳の根拠）に従います。
 
-## 境界
+## API
 
 - `open` は、入力の最初の行が `ply` なら PLY として開く。`pointcloud` の op で、要約と点を返す（[LAS・LAZ](las.md) と同じ）。
 - 書き出しはしない。
 
-## 見出しと本体
+## ヘッダーと本体
 
-- 見出しは `format`（`ascii`・`binary_little_endian`・`binary_big_endian`）・`element`・`property`（`list` を含む）を `end_header` まで読む。`comment` と `obj_info` は飛ばす。
+- ヘッダーは `format`（`ascii`・`binary_little_endian`・`binary_big_endian`）・`element`・`property`（`list` を含む）を `end_header` まで読む。`comment` と `obj_info` は飛ばす。
 - 値の型は `char`・`uchar`・`short`・`ushort`・`int`・`uint`・`float`・`double` と、`int8`〜`float64` の別名を読む。
-- 本体は、見出しの要素の順に、要素の数だけ読む。列の性質（`list`）は、長さの分を飛ばす。本体が見出しの数より短いか、値を読めなければ、`ply.file.invalid` を返して開かない。
+- 本体は、ヘッダーの要素の順に、要素の数だけ読む。列の性質（`list`）は、長さの分を飛ばす。本体がヘッダーの数より短いか、値を読めなければ、`ply.file.invalid` を返して開かない。
 
 ## 点
 

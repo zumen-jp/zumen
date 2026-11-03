@@ -99,7 +99,7 @@ impl Reader<'_> {
         if contours == 0 {
             return Some(());
         }
-        // 見出し 10 バイトの後に endPtsOfContours・instructionLength・命令・旗・X・Y
+        // ヘッダー 10 バイトの後に endPtsOfContours・instructionLength・命令・旗・X・Y
         let mut ends = Vec::with_capacity(usize::from(contours));
         let mut previous: Option<u16> = None;
         for i in 0..usize::from(contours) {

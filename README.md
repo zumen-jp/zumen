@@ -8,7 +8,7 @@
 
 - **どこでも同じ結果。** ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。
 - **黙って捨てない。** 読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。
-- **ID は契約。** 同じバイト列からは、どの版でも同じ ID を返します。
+- **ID は契約。** 同じバイト列からは、どのバージョンでも同じ ID を返します。
 - **受け取ったファイルを信用しない。** 大きさ・数・作業量に上限を付けて読みます。
 - **日本の実務を優先する。** 電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。
 
@@ -18,9 +18,9 @@
 - 設計: [#1](https://github.com/zumen-jp/zumen/issues/1)
 - 決定の記録: [docs/decisions](docs/decisions/README.md)
 - 形式と権利の一覧: [docs/formats](docs/formats/README.md)（台帳から生成）
-- 各言語への境界のスキーマ: [schema](schema/README.md)（C のヘッダーと C++ の包みは [bindings/c](bindings/c/README.md)、TypeScript・JavaScript の包みは [bindings/js](bindings/js/README.md)、Python の包みは [bindings/python](bindings/python/README.md)、.NET の包みは [bindings/dotnet](bindings/dotnet/README.md)、Swift の包みは [bindings/swift](bindings/swift/README.md)、Dart の包みは [bindings/dart](bindings/dart/README.md)、Java・Kotlin の包みは [bindings/java](bindings/java/README.md)、Go の包みは [bindings/go](bindings/go/README.md)、CLI と MCP のサーバーは [bindings/cli](bindings/cli/README.md)、適合試験は [bindings/conformance](bindings/conformance/README.md)）
+- 各言語への API のスキーマ: [schema](schema/README.md)（C のヘッダーと C++ のラッパーは [bindings/c](bindings/c/README.md)、TypeScript・JavaScript のラッパーは [bindings/js](bindings/js/README.md)、Python のラッパーは [bindings/python](bindings/python/README.md)、.NET のラッパーは [bindings/dotnet](bindings/dotnet/README.md)、Swift のラッパーは [bindings/swift](bindings/swift/README.md)、Dart のラッパーは [bindings/dart](bindings/dart/README.md)、Java・Kotlin のラッパーは [bindings/java](bindings/java/README.md)、Go のラッパーは [bindings/go](bindings/go/README.md)、CLI と MCP のサーバーは [bindings/cli](bindings/cli/README.md)、適合テストは [bindings/conformance](bindings/conformance/README.md)）
 - 対応する環境と下限: [docs/support.md](docs/support.md)
-- 公式の包みのない言語から使う手順: [docs/tier3.md](docs/tier3.md)
+- 公式のラッパーのない言語から使う手順: [docs/tier3.md](docs/tier3.md)
 - 表記と用語の基準: [docs/style.md](docs/style.md)
 - 開発への参加: [CONTRIBUTING.md](CONTRIBUTING.md)（エージェント向けの規則は [AGENTS.md](AGENTS.md)）
 - 旧版: [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy)
@@ -33,4 +33,4 @@
 - MIT License（[LICENSE-MIT](LICENSE-MIT)）
 - Apache License 2.0（[LICENSE-APACHE](LICENSE-APACHE)）
 
-明示しない限り、このリポジトリへの寄稿は、Apache License 2.0 の定める「寄稿」として、追加の条件なしに上の 2 つのライセンスで提供されたものとします。
+明示しない限り、このリポジトリへの貢献は、Apache License 2.0 の定める「貢献」として、追加の条件なしに上の 2 つのライセンスで提供されたものとします。

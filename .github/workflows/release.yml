@@ -23,19 +23,19 @@ env:
 
 jobs:
   version:
-    name: タグと版を合わせる
+    name: タグとバージョンを合わせる
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: version
-        name: Cargo.toml の版を読み、タグで走ったときはタグと同じことを確かめる
+        name: Cargo.toml のバージョンを読み、タグで走ったときはタグと同じことを確かめる
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "タグ $GITHUB_REF_NAME と Cargo.toml の版 $version が違う"
+            echo "タグ $GITHUB_REF_NAME と Cargo.toml のバージョン $version が違う"
             exit 1
           fi
 
@@ -61,7 +61,7 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust と、作る target を入れる
+      - name: rust-toolchain.toml のバージョンの Rust と、作る target を入れる
         run: |
           rustup toolchain install
           rustup target add ${{ matrix.target }}
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust と、wasm32 の target を入れる
+      - name: rust-toolchain.toml のバージョンの Rust と、wasm32 の target を入れる
         run: |
           rustup toolchain install
           rustup target add wasm32-unknown-unknown
@@ -119,7 +119,7 @@ jobs:
           if-no-files-found: error
 
   packages:
-    name: npm と NuGet の包みを作る
+    name: npm と NuGet のラッパーを作る
     needs: [version, native, wasm]
     runs-on: ubuntu-latest
     steps:
@@ -134,7 +134,7 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - name: npm の包みに wasm を入れて包む
+      - name: npm のラッパーに wasm を入れて包む
         run: |
           cp artifacts/zumen_abi1.wasm bindings/js/
           mkdir -p out

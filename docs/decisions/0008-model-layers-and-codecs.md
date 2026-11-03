@@ -13,7 +13,7 @@
 - そのため、形式の間で意味が落ち、変換の側に無理が出た。
   - SXF・JWW に書くと、寸法と引出線が線と文字になる（[zumen-jp/zumen-legacy#112](https://github.com/zumen-jp/zumen-legacy/issues/112)）
   - SXF・JWW が持ち、AutoCAD のモデルが持たないものが落ちる（[zumen-jp/zumen-legacy#113](https://github.com/zumen-jp/zumen-legacy/issues/113)）
-  - DXF・DWG の版を変えるにもモデルを経るので、モデルが持たないものが落ちる（[zumen-jp/zumen-legacy#114](https://github.com/zumen-jp/zumen-legacy/issues/114)）
+  - DXF・DWG のバージョンを変えるにもモデルを経るので、モデルが持たないものが落ちる（[zumen-jp/zumen-legacy#114](https://github.com/zumen-jp/zumen-legacy/issues/114)）
   - 縦横で縮尺の違う部分図が、ビューポートにならない（[旧版の決定 0008](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)）
   - 形式による文字高の意味の違いを、変換の側で吸収している（[旧版の決定 0019](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0019-text-heights-between-formats.md)）
 - その場の編集は、形式ごとの編集器が、操作で名指ししないものをバイト単位で残して行った（[旧版の決定 0012](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0012-edit-in-place-and-write-every-format.md)）。操作で名指しできない値（拡張データ、寸法スタイルの変数、JWW のヘッダーの設定など）を読み書きする低水準の API はなかった（[zumen-jp/zumen-legacy#117](https://github.com/zumen-jp/zumen-legacy/issues/117)）。
@@ -30,7 +30,7 @@
 
 ### ファイルモデルの単位
 
-1. **符号化ごとに 1 つのモデル**（DXF と DWG を別のモデルにする）。同じデータベースの編集・版の変更・変換を、符号化の数だけ書くことになる。
+1. **符号化ごとに 1 つのモデル**（DXF と DWG を別のモデルにする）。同じデータベースの編集・バージョンの変更・変換を、符号化の数だけ書くことになる。
 2. **形式の系統ごとに 1 つのモデルと、複数のコーデック。** 同じ意味のデータを 1 つのモデルで扱い、符号化の違いをコーデックに閉じ込める。
 
 ## 決定
@@ -52,7 +52,7 @@
 
 - 下の層は上の層を知らない。
 - L2 は L1 を知らない。L1 と L2 をつなぐ lift・lower・apply は、系統と領域の組ごとに、両方に依存する所に置く。L1 は L2 なしでも使える。置き場所（領域ごとの feature か、組ごとの crate か）は試作で決める。
-- L3 は L2 から作り、形式ごとに書き分けない。下敷きの画像や PDF のページの扱いは [#4](https://github.com/zumen-jp/zumen/issues/4) で決める。
+- L3 は L2 から作り、形式ごとに書き分けない。アンダーレイの画像や PDF のページの扱いは [#4](https://github.com/zumen-jp/zumen/issues/4) で決める。
 - L1 の系統どうしは依存しない。旧版の `zumen-dwg` の例外は、AutoCAD の系統の中のことになる。
 - L0 の部品は、系統の間で共有する（ISO 10303-21 は SXF と IFC、ZIP は P2Z・SFZ・ifcZIP）。
 
@@ -67,12 +67,12 @@
 
 - 同じ意味のデータを別の方法で符号化した形式は、同じ系統のコーデックにする（LAS と LAZ など）。ほかの形式は、1 つの系統に 1 つのコーデックから始める。
 - 未知のものも含めて、全レコードを元のバイト範囲とともに辿れるようにする。巨大なデータ（点群など）では、すべてを読み込まず、索引と必要な範囲の読み出しにしてよい。
-- 型付きの見方と、生の値の読み書きの両方を公開する。
+- 型付きのビューと、生の値の読み書きの両方を公開する。
 - 変更はトランザクションで行い、触れたレコードだけを書き直す。
   - 変更に伴って直すレコード（図面の範囲、ハンドルの次の値など）も、触れたレコードに含める。
   - すべての変更を確かめてから書き、失敗したら何も書かない（[旧版の決定 0012](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0012-edit-in-place-and-write-every-format.md) を続ける）。
-- 同じ符号化・同じ版・同じ文字コードで書くときは、変えていないレコードを元のバイトのまま書く。
-- 版の変更（DXF 2018 → R12、SXF 3.1 → 2.0、JWW の版）と、同じ系統の別の符号化（DWG → DXF）は、L1 の中で書き分ける。出力先が持てないものは、忠実度として記録する。
+- 同じ符号化・同じバージョン・同じ文字コードで書くときは、変えていないレコードを元のバイトのまま書く。
+- バージョンの変更（DXF 2018 → R12、SXF 3.1 → 2.0、JWW のバージョン）と、同じ系統の別の符号化（DWG → DXF）は、L1 の中で書き分ける。出力先が持てないものは、忠実度として記録する。
 - 形式の判定の規則（シグネチャ）は、コーデックがデータとして持つ（[0007](0007-single-rust-implementation.md) の形式の判定）。
 
 ### L1 と L2 をつなぐ lift・lower・apply
@@ -91,7 +91,7 @@
 | --- | --- |
 | 低水準の編集 | L1 のトランザクションで、レコードと生の値を直接書き換える |
 | 同じ形式の編集 | L2 の変更セット → `apply` → L1 の触れたレコードだけを書き換える |
-| 版の変更、同じ系統の別の符号化 | L1 の系統の中で書き分ける |
+| バージョンの変更、同じ系統の別の符号化 | L1 の系統の中で書き分ける |
 | 別の形式への変換 | L1(A) → `lift` → L2 → `lower` → L1(B) → B のコーデック |
 | 新規作成・作図 | L2 → `lower` → L1(B) → B のコーデック |
 
@@ -113,7 +113,7 @@
 | 高水準 | AI エージェント向けの、スキーマのある JSON の操作 |
 
 - 高水準の操作は、生の値を出さない（[旧版の決定 0017](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0017-add-annotations-and-definitions.md) の判断を続ける）。操作は、中水準の変更セットに直してから適用する。
-- 3 つの水準とも、境界の `zm_call` のメッセージとして出す（[#13](https://github.com/zumen-jp/zumen/issues/13)）。どの言語からも、低水準まで使える。
+- 3 つの水準とも、API の `zm_call` のメッセージとして出す（[#13](https://github.com/zumen-jp/zumen/issues/13)）。どの言語からも、低水準まで使える。
 - これを [zumen-jp/zumen-legacy#117](https://github.com/zumen-jp/zumen-legacy/issues/117) への答えにする。そこでの案 1（全形式のファイルモデルを公開し、変えていないものを保って書く）を、全言語に広げたものにあたる。
 
 ### 素案
@@ -160,8 +160,8 @@ pub trait Lower<M>: FileModel + Sized {
   - L2 の中身: 図面は [#4](https://github.com/zumen-jp/zumen/issues/4)、建物は [#5](https://github.com/zumen-jp/zumen/issues/5)。形式に固有の情報を L2 にどう残すか（型付きの拡張など）も、そこで決める
   - L2・L3 を渡すバイナリの形式: [#6](https://github.com/zumen-jp/zumen/issues/6)
   - プロファイル: [#9](https://github.com/zumen-jp/zumen/issues/9)
-  - 境界のメッセージ: [#13](https://github.com/zumen-jp/zumen/issues/13)
-- [#3](https://github.com/zumen-jp/zumen/issues/3) の完了の条件のうち、AutoCAD の系統（DXF・DWG）の試作は、別の PR で行う。L1 での編集、版の変更、L2 への `lift` を試し、素案の形を決める。
+  - API のメッセージ: [#13](https://github.com/zumen-jp/zumen/issues/13)
+- [#3](https://github.com/zumen-jp/zumen/issues/3) の完了の条件のうち、AutoCAD の系統（DXF・DWG）の試作は、別の PR で行う。L1 での編集、バージョンの変更、L2 への `lift` を試し、素案の形を決める。
 - AGENTS.md の「新しい層の構成」から、この記録を参照する。
 
 ## 参照

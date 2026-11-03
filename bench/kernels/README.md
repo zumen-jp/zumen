@@ -1,6 +1,6 @@
 # 3D のカーネルの候補の比較
 
-[#414](https://github.com/zumen-jp/zumen/issues/414) の試作です。`zumen-geom3d` の合成の形の組（`zumen_geom3d::cases`）を、カーネルの候補ごとに評価し、体積・囲む箱・閉じているか・平面での切り口・出力の指紋（座標のビット）を比べます。試料での速さと失敗の割合は、[#5](https://github.com/zumen-jp/zumen/issues/5) で測ります。結果の判断は [決定 0222](../../docs/decisions/0222-geom3d-types-and-kernel-trait.md) にあります。
+[#414](https://github.com/zumen-jp/zumen/issues/414) の試作です。`zumen-geom3d` の合成の形の組（`zumen_geom3d::cases`）を、カーネルの候補ごとに評価し、体積・囲む箱・閉じているか・平面での切り口・出力の指紋（座標のビット）を比べます。サンプルでの速さと失敗の割合は、[#5](https://github.com/zumen-jp/zumen/issues/5) で測ります。結果の判断は [決定 0222](../../docs/decisions/0222-geom3d-types-and-kernel-trait.md) にあります。
 
 コアのワークスペースには入れていません。候補は、選ぶまで workspace の依存に入れません（決定 0018）。
 
@@ -13,8 +13,8 @@
 | `csgrs` | [csgrs](https://crates.io/crates/csgrs) 0.20.1（MIT）。BSP の木 | メッシュのブーリアン |
 
 - ブーリアンのない形（押し出し・回転・円の断面の掃引・面の集合・三角形の集合・写像・組）は、どの候補でも `src/primitives.rs` の同じコードで三角形にし、ブーリアンだけを候補に任せます。半空間は、manifold-rust は `trim_by_plane`、csgrs は大きな箱とのブーリアンにします。
-- csgrs が依存する `core2` は、crates.io のすべての版が取り下げられていて、新しく解決できません。`Cargo.toml` で上流のリポジトリの 0.4.0 を当てています。
-- C++ の Manifold を呼ぶ [manifold-csg](https://crates.io/crates/manifold-csg) は、作るときに C++ の Manifold を git で取得し、cmake と C++ のコンパイラーで作ります。wasm32-unknown-unknown では、libc++ の見出しを持つ LLVM の clang と wasm-cxx-shim の取得が要ります（`manifold-csg-sys` 3.5.105 の `build.rs`）。決定 0018 の「作るのに C・C++ の道具が要らない」に合わないので、比べていません。
+- csgrs が依存する `core2` は、crates.io のすべてのバージョンが取り下げられていて、新しく解決できません。`Cargo.toml` で上流のリポジトリの 0.4.0 を当てています。
+- C++ の Manifold を呼ぶ [manifold-csg](https://crates.io/crates/manifold-csg) は、作るときに C++ の Manifold を git で取得し、cmake と C++ のコンパイラーで作ります。wasm32-unknown-unknown では、libc++ のヘッダーを持つ LLVM の clang と wasm-cxx-shim の取得が要ります（`manifold-csg-sys` 3.5.105 の `build.rs`）。決定 0018 の「作るのに C・C++ のツールが要らない」に合わないので、比べていません。
 
 ## 流し方
 
@@ -54,4 +54,4 @@ cargo build -q --release --bin compare --target wasm32-wasip1
 - 自前は、扱える形（床の開口・円の穴）では manifold-rust と同じ体積と切り口になったが、壁の開口（押し出しの向きが違う）・和・積・半空間は扱えない。
 - 正しくない形（長さ 0・有限でない値・点の番号の範囲の外）は、どの候補でも、ブーリアンの前に自前のコードで断った。候補そのものに渡したときの振る舞いは、試していない。
 - 指紋は、macOS arm64 と x86_64（Rosetta 2）のネイティブと、wasm32-wasip1（Node.js の WASI）で、78 行すべてが一致した。Linux と Windows では、まだ流していない。
-- コードの中の数（試験を除く）: manifold-rust は約 4.6 万行で、パニックしうる所（`unwrap`・`expect`・`panic!`・`assert!` など）が 646、std の三角関数などが 42、std の `HashMap` を使うファイルが 6（反復の順が実行ごとに変わりうる。3 回流した指紋は同じだった）。csgrs は約 1.4 万行で、それぞれ 95・121。i_overlay は約 1.7 万行で、20・3、`unsafe` が 49。
+- コードの中の数（テストを除く）: manifold-rust は約 4.6 万行で、パニックしうる所（`unwrap`・`expect`・`panic!`・`assert!` など）が 646、std の三角関数などが 42、std の `HashMap` を使うファイルが 6（反復の順が実行ごとに変わりうる。3 回流した指紋は同じだった）。csgrs は約 1.4 万行で、それぞれ 95・121。i_overlay は約 1.7 万行で、20・3、`unsafe` が 49。

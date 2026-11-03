@@ -1,4 +1,4 @@
-//! DXF を、系統で共有するオブジェクトの表として見る試作（決定 0023）を、試験の中で作った DXF で確かめる。
+//! DXF を、系統で共有するオブジェクトの表として見る試作（決定 0023）を、テストの中で作った DXF で確かめる。
 
 use zumen_acad::{AcadDb, Data, Dxf, Origin, Section};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, codes};

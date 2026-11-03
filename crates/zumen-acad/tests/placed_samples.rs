@@ -1,5 +1,5 @@
-//! 試料の DXF で、モデル空間に置いたブロックの中の図形の継承を、配置で解く（決定 0143）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF で、モデル空間に置いたブロックの中の図形の継承を、配置で解く（決定 0143）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -69,6 +69,6 @@ fn byblock_in_placed_blocks_is_resolved_by_the_placement() {
             }
         }
     }
-    // 試料には、どちらも千件ほどある
+    // サンプルには、どちらも千件ほどある
     assert!(!paths.iter().any(|path| support::received(path)) || (byblock > 0 && on_zero > 0));
 }

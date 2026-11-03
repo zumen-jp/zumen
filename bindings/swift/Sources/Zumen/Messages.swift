@@ -1,8 +1,8 @@
 // 生成したファイル。手で直さない。
 // 元は schema/messages.json で、`cargo xtask codegen` で作り直す。
 //
-// 境界のメッセージの型（決定 0012・0225）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む
-// 見方で、知らない欄もそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。
+// API のメッセージの型（決定 0012・0225）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む
+// ビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。
 
 /// 要求。op の値で形が決まる
 public struct Request: Message {
@@ -14,163 +14,163 @@ public struct Request: Message {
         self.json = json
     }
 
-    /// op が capabilities の形なら、その見方。違えば nil
+    /// op が capabilities の形なら、そのビュー。違えば nil
     public var asCapabilitiesRequest: CapabilitiesRequest? {
         taggedView("op", "capabilities")
     }
 
-    /// op が open の形なら、その見方。違えば nil
+    /// op が open の形なら、そのビュー。違えば nil
     public var asOpenRequest: OpenRequest? {
         taggedView("op", "open")
     }
 
-    /// op が close の形なら、その見方。違えば nil
+    /// op が close の形なら、そのビュー。違えば nil
     public var asCloseRequest: CloseRequest? {
         taggedView("op", "close")
     }
 
-    /// op が describe の形なら、その見方。違えば nil
+    /// op が describe の形なら、そのビュー。違えば nil
     public var asDescribeRequest: DescribeRequest? {
         taggedView("op", "describe")
     }
 
-    /// op が drawing の形なら、その見方。違えば nil
+    /// op が drawing の形なら、そのビュー。違えば nil
     public var asDrawingRequest: DrawingRequest? {
         taggedView("op", "drawing")
     }
 
-    /// op が entities の形なら、その見方。違えば nil
+    /// op が entities の形なら、そのビュー。違えば nil
     public var asEntitiesRequest: EntitiesRequest? {
         taggedView("op", "entities")
     }
 
-    /// op が apply の形なら、その見方。違えば nil
+    /// op が apply の形なら、そのビュー。違えば nil
     public var asApplyRequest: ApplyRequest? {
         taggedView("op", "apply")
     }
 
-    /// op が convert の形なら、その見方。違えば nil
+    /// op が convert の形なら、そのビュー。違えば nil
     public var asConvertRequest: ConvertRequest? {
         taggedView("op", "convert")
     }
 
-    /// op が tables の形なら、その見方。違えば nil
+    /// op が tables の形なら、そのビュー。違えば nil
     public var asTablesRequest: TablesRequest? {
         taggedView("op", "tables")
     }
 
-    /// op が scene の形なら、その見方。違えば nil
+    /// op が scene の形なら、そのビュー。違えば nil
     public var asSceneRequest: SceneRequest? {
         taggedView("op", "scene")
     }
 
-    /// op が check の形なら、その見方。違えば nil
+    /// op が check の形なら、そのビュー。違えば nil
     public var asCheckRequest: CheckRequest? {
         taggedView("op", "check")
     }
 
-    /// op が validate の形なら、その見方。違えば nil
+    /// op が validate の形なら、そのビュー。違えば nil
     public var asValidateRequest: ValidateRequest? {
         taggedView("op", "validate")
     }
 
-    /// op が review_carry の形なら、その見方。違えば nil
+    /// op が review_carry の形なら、そのビュー。違えば nil
     public var asReviewCarryRequest: ReviewCarryRequest? {
         taggedView("op", "review_carry")
     }
 
-    /// op が review_adopt の形なら、その見方。違えば nil
+    /// op が review_adopt の形なら、そのビュー。違えば nil
     public var asReviewAdoptRequest: ReviewAdoptRequest? {
         taggedView("op", "review_adopt")
     }
 
-    /// op が building の形なら、その見方。違えば nil
+    /// op が building の形なら、そのビュー。違えば nil
     public var asBuildingRequest: BuildingRequest? {
         taggedView("op", "building")
     }
 
-    /// op が building_elements の形なら、その見方。違えば nil
+    /// op が building_elements の形なら、そのビュー。違えば nil
     public var asBuildingElementsRequest: BuildingElementsRequest? {
         taggedView("op", "building_elements")
     }
 
-    /// op が ids_check の形なら、その見方。違えば nil
+    /// op が ids_check の形なら、そのビュー。違えば nil
     public var asIdsCheckRequest: IdsCheckRequest? {
         taggedView("op", "ids_check")
     }
 
-    /// op が review_adopt_ids の形なら、その見方。違えば nil
+    /// op が review_adopt_ids の形なら、そのビュー。違えば nil
     public var asReviewAdoptIdsRequest: ReviewAdoptIdsRequest? {
         taggedView("op", "review_adopt_ids")
     }
 
-    /// op が bcf_read の形なら、その見方。違えば nil
+    /// op が bcf_read の形なら、そのビュー。違えば nil
     public var asBcfReadRequest: BcfReadRequest? {
         taggedView("op", "bcf_read")
     }
 
-    /// op が bcf_write の形なら、その見方。違えば nil
+    /// op が bcf_write の形なら、そのビュー。違えば nil
     public var asBcfWriteRequest: BcfWriteRequest? {
         taggedView("op", "bcf_write")
     }
 
-    /// op が civil の形なら、その見方。違えば nil
+    /// op が civil の形なら、そのビュー。違えば nil
     public var asCivilRequest: CivilRequest? {
         taggedView("op", "civil")
     }
 
-    /// op が pointcloud の形なら、その見方。違えば nil
+    /// op が pointcloud の形なら、そのビュー。違えば nil
     public var asPointcloudRequest: PointcloudRequest? {
         taggedView("op", "pointcloud")
     }
 
-    /// op が deviation の形なら、その見方。違えば nil
+    /// op が deviation の形なら、そのビュー。違えば nil
     public var asDeviationRequest: DeviationRequest? {
         taggedView("op", "deviation")
     }
 
-    /// op が civil_drawing の形なら、その見方。違えば nil
+    /// op が civil_drawing の形なら、そのビュー。違えば nil
     public var asCivilDrawingRequest: CivilDrawingRequest? {
         taggedView("op", "civil_drawing")
     }
 
-    /// op が geo の形なら、その見方。違えば nil
+    /// op が geo の形なら、そのビュー。違えば nil
     public var asGeoRequest: GeoRequest? {
         taggedView("op", "geo")
     }
 
-    /// op が delivery_check の形なら、その見方。違えば nil
+    /// op が delivery_check の形なら、そのビュー。違えば nil
     public var asDeliveryCheckRequest: DeliveryCheckRequest? {
         taggedView("op", "delivery_check")
     }
 
-    /// op が photo の形なら、その見方。違えば nil
+    /// op が photo の形なら、そのビュー。違えば nil
     public var asPhotoRequest: PhotoRequest? {
         taggedView("op", "photo")
     }
 
-    /// op が sheet の形なら、その見方。違えば nil
+    /// op が sheet の形なら、そのビュー。違えば nil
     public var asSheetRequest: SheetRequest? {
         taggedView("op", "sheet")
     }
 
-    /// op が boring の形なら、その見方。違えば nil
+    /// op が boring の形なら、そのビュー。違えば nil
     public var asBoringRequest: BoringRequest? {
         taggedView("op", "boring")
     }
 
-    /// op が building_apply の形なら、その見方。違えば nil
+    /// op が building_apply の形なら、そのビュー。違えば nil
     public var asBuildingApplyRequest: BuildingApplyRequest? {
         taggedView("op", "building_apply")
     }
 
-    /// op が lift の形なら、その見方。違えば nil
+    /// op が lift の形なら、そのビュー。違えば nil
     public var asLiftRequest: LiftRequest? {
         taggedView("op", "lift")
     }
 }
 
-/// どの op の要求にも置ける欄
+/// どの op の要求にも置けるフィールド
 public struct RequestCommon: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -185,7 +185,7 @@ public struct RequestCommon: Message {
         json = [:]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -209,7 +209,7 @@ public struct RequestCommon: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -274,7 +274,7 @@ public struct Budget: Message {
     }
 }
 
-/// コアの版と、使える op・形式を尋ねる
+/// コアのバージョンと、使える op・形式を尋ねる
 public struct CapabilitiesRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -284,12 +284,12 @@ public struct CapabilitiesRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("capabilities")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -313,7 +313,7 @@ public struct CapabilitiesRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -326,7 +326,7 @@ public struct CapabilitiesRequest: Message {
     }
 }
 
-/// コアの版と、使える op・形式（決定 0015）
+/// コアのバージョンと、使える op・形式（決定 0015）
 public struct CapabilitiesResult: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -341,19 +341,19 @@ public struct CapabilitiesResult: Message {
         json = [:]
     }
 
-    /// パッケージの版（semver）
+    /// パッケージのバージョン（semver）
     public var `package`: String? {
         get { readField("package") }
         set { writeField("package", newValue) }
     }
 
-    /// ABI の大版。zm_abi_version と同じ
+    /// ABI のメジャーバージョン。zm_abi_version と同じ
     public var abi: Int64? {
         get { readField("abi") }
         set { writeField("abi", newValue) }
     }
 
-    /// メッセージのスキーマの版
+    /// メッセージのスキーマのバージョン
     public var schema: SchemaVersion? {
         get { readField("schema") }
         set { writeField("schema", newValue) }
@@ -372,7 +372,7 @@ public struct CapabilitiesResult: Message {
     }
 }
 
-/// メッセージのスキーマの版。大版は要求と応答の v、小版は op・欄・列挙の値を足すたびに上げる
+/// メッセージのスキーマのバージョン。メジャーバージョンは要求と応答の v、マイナーバージョンは op・フィールド・列挙の値を足すたびに上げる
 public struct SchemaVersion: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -387,13 +387,13 @@ public struct SchemaVersion: Message {
         json = [:]
     }
 
-    /// 大版
+    /// メジャーバージョン
     public var major: Int64? {
         get { readField("major") }
         set { writeField("major", newValue) }
     }
 
-    /// 小版
+    /// マイナーバージョン
     public var minor: Int64? {
         get { readField("minor") }
         set { writeField("minor", newValue) }
@@ -439,7 +439,7 @@ public struct Format: Message {
         set { writeField("write", newValue) }
     }
 
-    /// この形式の ID の規則の版（決定 0015）
+    /// この形式の ID の規則のバージョン（決定 0015）
     public var idRules: Int64? {
         get { readField("id_rules") }
         set { writeField("id_rules", newValue) }
@@ -456,12 +456,12 @@ public struct OpenRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("open")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -485,7 +485,7 @@ public struct OpenRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -509,19 +509,19 @@ public struct OpenRequest: Message {
         set { writeField("doc", newValue) }
     }
 
-    /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+    /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
     public var size: Int64? {
         get { readField("size") }
         set { writeField("size", newValue) }
     }
 
-    /// 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
+    /// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }
     }
 
-    /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から
+    /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
     public var saf: String? {
         get { readField("saf") }
         set { writeField("saf", newValue) }
@@ -555,19 +555,19 @@ public struct OpenResult: Message {
         set { writeField("format", newValue) }
     }
 
-    /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+    /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。マイナーバージョン 48 から
     public var needs: [InputRange]? {
         get { readField("needs") }
         set { writeField("needs", newValue) }
     }
 
-    /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+    /// 読み終えたので、close の inputs で捨ててよい範囲の入力。マイナーバージョン 48 から
     public var done: [InputRange]? {
         get { readField("done") }
         set { writeField("done", newValue) }
     }
 
-    /// SXF を ZIP に入れた書庫（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）の書庫の中の名前。書庫の順。apply は、SXF の項目だけを置き換え、ほかの項目を写した書庫を書く（#385）。小版 54 から
+    /// SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から
     public var entries: [String]? {
         get { readField("entries") }
         set { writeField("entries", newValue) }
@@ -618,12 +618,12 @@ public struct CloseRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("close")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -647,7 +647,7 @@ public struct CloseRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -698,12 +698,12 @@ public struct DescribeRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("describe")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -727,7 +727,7 @@ public struct DescribeRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -774,7 +774,7 @@ public struct DescribeResult: Message {
     }
 }
 
-/// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007）
+/// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合テストで比べるためにも使う（決定 0007）
 public struct DrawingRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -784,12 +784,12 @@ public struct DrawingRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("drawing")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -813,7 +813,7 @@ public struct DrawingRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -865,14 +865,14 @@ public struct DrawingResult: Message {
         set { writeField("sheets", newValue) }
     }
 
-    /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。小版 39 から
+    /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
     public var pointStyle: PointStyleSummary? {
         get { readField("point_style") }
         set { writeField("point_style", newValue) }
     }
 }
 
-/// 文書の点の表し方。欄の意味は point_style_edit と同じ
+/// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
 public struct PointStyleSummary: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1100,12 +1100,12 @@ public struct EntitiesRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("entities")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -1129,7 +1129,7 @@ public struct EntitiesRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -1159,7 +1159,7 @@ public struct EntitiesRequest: Message {
         set { writeField("limit", newValue) }
     }
 
-    /// 返す欄の名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
+    /// 返すフィールドの名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
     public var fields: [String]? {
         get { readField("fields") }
         set { writeField("fields", newValue) }
@@ -1171,7 +1171,7 @@ public struct EntitiesRequest: Message {
         set { writeField("region", newValue) }
     }
 
-    /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。小版 31 から（決定 0177）
+    /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
     public var place: String? {
         get { readField("place") }
         set { writeField("place", newValue) }
@@ -1227,7 +1227,7 @@ public struct Entity: Message {
         json = [:]
     }
 
-    /// 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つ鍵（ハンドル）があれば鍵で作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どの版でも同じ ID を返す（決定 0117・0156）
+    /// 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つキー（ハンドル）があればキーで作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どのバージョンでも同じ ID を返す（決定 0117・0156）
     public var id: String? {
         get { readField("id") }
         set { writeField("id", newValue) }
@@ -1263,14 +1263,14 @@ public struct Entity: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
     public var geometry: Geometry? {
         get { readField("geometry") }
         set { writeField("geometry", newValue) }
     }
 }
 
-/// entities で返す要素の欄（決定 0118）
+/// entities で返す要素のフィールド（決定 0118）
 ///
 /// 列挙の値。知らない値も受け取る
 public enum EntityField {
@@ -1293,67 +1293,67 @@ public struct Geometry: Message {
         self.json = json
     }
 
-    /// shape が line の形なら、その見方。違えば nil
+    /// shape が line の形なら、そのビュー。違えば nil
     public var asLineGeometry: LineGeometry? {
         taggedView("shape", "line")
     }
 
-    /// shape が circle の形なら、その見方。違えば nil
+    /// shape が circle の形なら、そのビュー。違えば nil
     public var asCircleGeometry: CircleGeometry? {
         taggedView("shape", "circle")
     }
 
-    /// shape が arc の形なら、その見方。違えば nil
+    /// shape が arc の形なら、そのビュー。違えば nil
     public var asArcGeometry: ArcGeometry? {
         taggedView("shape", "arc")
     }
 
-    /// shape が ellipse の形なら、その見方。違えば nil
+    /// shape が ellipse の形なら、そのビュー。違えば nil
     public var asEllipseGeometry: EllipseGeometry? {
         taggedView("shape", "ellipse")
     }
 
-    /// shape が polyline の形なら、その見方。違えば nil
+    /// shape が polyline の形なら、そのビュー。違えば nil
     public var asPolylineGeometry: PolylineGeometry? {
         taggedView("shape", "polyline")
     }
 
-    /// shape が text の形なら、その見方。違えば nil
+    /// shape が text の形なら、そのビュー。違えば nil
     public var asTextGeometry: TextGeometry? {
         taggedView("shape", "text")
     }
 
-    /// shape が formatted_text の形なら、その見方。違えば nil
+    /// shape が formatted_text の形なら、そのビュー。違えば nil
     public var asFormattedTextGeometry: FormattedTextGeometry? {
         taggedView("shape", "formatted_text")
     }
 
-    /// shape が symbol の形なら、その見方。違えば nil
+    /// shape が symbol の形なら、そのビュー。違えば nil
     public var asSymbolGeometry: SymbolGeometry? {
         taggedView("shape", "symbol")
     }
 
-    /// shape が spline の形なら、その見方。違えば nil
+    /// shape が spline の形なら、そのビュー。違えば nil
     public var asSplineGeometry: SplineGeometry? {
         taggedView("shape", "spline")
     }
 
-    /// shape が dimension の形なら、その見方。違えば nil
+    /// shape が dimension の形なら、そのビュー。違えば nil
     public var asDimensionGeometry: DimensionGeometry? {
         taggedView("shape", "dimension")
     }
 
-    /// shape が leader の形なら、その見方。違えば nil
+    /// shape が leader の形なら、そのビュー。違えば nil
     public var asLeaderGeometry: LeaderGeometry? {
         taggedView("shape", "leader")
     }
 
-    /// shape が point の形なら、その見方。違えば nil
+    /// shape が point の形なら、そのビュー。違えば nil
     public var asPointGeometry: PointGeometry? {
         taggedView("shape", "point")
     }
 
-    /// shape が callout の形なら、その見方。違えば nil
+    /// shape が callout の形なら、そのビュー。違えば nil
     public var asCalloutGeometry: CalloutGeometry? {
         taggedView("shape", "callout")
     }
@@ -1369,7 +1369,7 @@ public struct LineGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("line")]
     }
@@ -1403,7 +1403,7 @@ public struct CircleGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("circle")]
     }
@@ -1437,7 +1437,7 @@ public struct ArcGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("arc")]
     }
@@ -1473,7 +1473,7 @@ public struct ArcGeometry: Message {
     }
 }
 
-/// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から
+/// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。マイナーバージョン 11 から
 public struct EllipseGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1483,7 +1483,7 @@ public struct EllipseGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("ellipse")]
     }
@@ -1535,7 +1535,7 @@ public struct PolylineGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("polyline")]
     }
@@ -1575,7 +1575,7 @@ public struct TextGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("text")]
     }
@@ -1598,13 +1598,13 @@ public struct TextGeometry: Message {
         set { writeField("position", newValue) }
     }
 
-    /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。小版 17 から
+    /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。マイナーバージョン 17 から
     public var end: [Double]? {
         get { readField("end") }
         set { writeField("end", newValue) }
     }
 
-    /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から
+    /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
     public var fit: String? {
         get { readField("fit") }
         set { writeField("fit", newValue) }
@@ -1622,13 +1622,13 @@ public struct TextGeometry: Message {
         set { writeField("rotation", newValue) }
     }
 
-    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から
+    /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
     public var style: String? {
         get { readField("style") }
         set { writeField("style", newValue) }
     }
 
-    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
     public var styleId: String? {
         get { readField("style_id") }
         set { writeField("style_id", newValue) }
@@ -1643,7 +1643,7 @@ public enum TextFit {
     public static let fit = "fit"
 }
 
-/// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
+/// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
 public struct FormattedTextGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1653,7 +1653,7 @@ public struct FormattedTextGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("formatted_text")]
     }
@@ -1706,14 +1706,14 @@ public struct FormattedTextGeometry: Message {
         set { writeField("style", newValue) }
     }
 
-    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+    /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
     public var styleId: String? {
         get { readField("style_id") }
         set { writeField("style_id", newValue) }
     }
 }
 
-/// スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない
+/// スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない
 public struct SplineGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1723,7 +1723,7 @@ public struct SplineGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("spline")]
     }
@@ -1740,13 +1740,13 @@ public struct SplineGeometry: Message {
         set { writeField("degree", newValue) }
     }
 
-    /// 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数。当てはめる点で決まるものは空
+    /// ノットの並び。周期的でなければ、制御点の数と次数と 1 の和の数。フィット点で決まるものは空
     public var knots: [Double]? {
         get { readField("knots") }
         set { writeField("knots", newValue) }
     }
 
-    /// 制御点の [X, Y] の並び。次数より多い。当てはめる点で決まるものは空
+    /// 制御点の [X, Y] の並び。次数より多い。フィット点で決まるものは空
     public var control: [[Double]]? {
         get { readField("control") }
         set { writeField("control", newValue) }
@@ -1758,19 +1758,19 @@ public struct SplineGeometry: Message {
         set { writeField("weights", newValue) }
     }
 
-    /// 当てはめる点の [X, Y] の並び。2 つ以上。書けば、節点と制御点は空で、重みは書かない。小版 18 から
+    /// フィット点の [X, Y] の並び。2 つ以上。書けば、ノットと制御点は空で、重みは書かない。マイナーバージョン 18 から
     public var fit: [[Double]]? {
         get { readField("fit") }
         set { writeField("fit", newValue) }
     }
 
-    /// 当てはめる点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+    /// フィット点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
     public var startTangent: [Double]? {
         get { readField("start_tangent") }
         set { writeField("start_tangent", newValue) }
     }
 
-    /// 当てはめる点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+    /// フィット点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
     public var endTangent: [Double]? {
         get { readField("end_tangent") }
         set { writeField("end_tangent", newValue) }
@@ -1789,7 +1789,7 @@ public struct SplineGeometry: Message {
     }
 }
 
-/// 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から
+/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
 public struct DimensionGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1799,7 +1799,7 @@ public struct DimensionGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("dimension")]
     }
@@ -1930,13 +1930,13 @@ public struct DimensionGeometry: Message {
         set { writeField("content", newValue) }
     }
 
-    /// 元の形式が保存した測定値。単位と倍率は measurement_key の欄に従う
+    /// 元の形式が保存した測定値。単位と倍率は measurement_key のフィールドに従う
     public var measurement: Double? {
         get { readField("measurement") }
         set { writeField("measurement", newValue) }
     }
 
-    /// measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
+    /// measurement の形式とフィールドを指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
     public var measurementKey: String? {
         get { readField("measurement_key") }
         set { writeField("measurement_key", newValue) }
@@ -1960,14 +1960,14 @@ public struct DimensionGeometry: Message {
         set { writeField("style", newValue) }
     }
 
-    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から
+    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
     public var styleId: String? {
         get { readField("style_id") }
         set { writeField("style_id", newValue) }
     }
 }
 
-/// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（小版 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印の印を必ず持つので、arrow を書かない引出線は書けない（小版 36 から。それまでは R2004 までの置き換えだけ）。小版 31 から
+/// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（マイナーバージョン 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印のフラグを必ず持つので、arrow を書かない引出線は書けない（マイナーバージョン 36 から。それまでは R2004 までの置き換えだけ）。マイナーバージョン 31 から
 public struct LeaderGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1977,7 +1977,7 @@ public struct LeaderGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("leader")]
     }
@@ -2025,7 +2025,7 @@ public struct LeaderGeometry: Message {
     }
 }
 
-/// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかの欄は元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。小版 36 から
+/// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかのフィールドは元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 36 から
 public struct CalloutGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2035,7 +2035,7 @@ public struct CalloutGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("callout")]
     }
@@ -2175,7 +2175,7 @@ public enum CalloutContent {
     public static let symbol = "symbol"
 }
 
-/// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から
+/// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義のマーカーの点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。マイナーバージョン 35 から
 public struct PointGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2185,7 +2185,7 @@ public struct PointGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("point")]
     }
@@ -2208,7 +2208,7 @@ public struct PointGeometry: Message {
         set { writeField("rotation", newValue) }
     }
 
-    /// 既定義の印。書かなければ文書の点の表し方に従う
+    /// 既定義のマーカー。書かなければ文書の点の表し方に従う
     public var marker: PointMarker? {
         get { readField("marker") }
         set { writeField("marker", newValue) }
@@ -2221,7 +2221,7 @@ public struct PointGeometry: Message {
     }
 }
 
-/// 既定義の印の表のキーと尺度。印の形は、表示する側がキーから引く
+/// 既定義のマーカーの表のキーと尺度。マーカーの形は、表示する側がキーから引く
 public struct PointMarker: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2236,7 +2236,7 @@ public struct PointMarker: Message {
         json = [:]
     }
 
-    /// 印の表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）
+    /// マーカーの表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）
     public var namespace: String? {
         get { readField("namespace") }
         set { writeField("namespace", newValue) }
@@ -2286,7 +2286,7 @@ public enum DimensionLabel {
     public static let hidden = "hidden"
 }
 
-/// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から
+/// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。マイナーバージョン 14 から
 public struct SymbolGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2296,7 +2296,7 @@ public struct SymbolGeometry: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["shape": .string("symbol")]
     }
@@ -2337,7 +2337,7 @@ public struct SymbolGeometry: Message {
         set { writeField("grid", newValue) }
     }
 
-    /// 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。小版 16 から。置き換えで値を変えるのは小版 21 から
+    /// 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。マイナーバージョン 16 から。置き換えで値を変えるのはマイナーバージョン 21 から
     public var attributes: [SymbolAttribute]? {
         get { readField("attributes") }
         set { writeField("attributes", newValue) }
@@ -2427,7 +2427,7 @@ public enum Attachment {
     public static let bottomRight = "bottom_right"
 }
 
-/// 要素の形の種類（決定 0022）。point（点、決定 0160）は小版 32 から。それまで点は symbol だった
+/// 要素の形の種類（決定 0022）。point（点、決定 0160）はマイナーバージョン 32 から。それまで点は symbol だった
 ///
 /// 列挙の値。知らない値も受け取る
 public enum EntityKind {
@@ -2447,7 +2447,7 @@ public enum EntityKind {
     public static let point = "point"
 }
 
-/// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から
+/// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
 public struct ApplyRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2457,12 +2457,12 @@ public struct ApplyRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("apply")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -2486,7 +2486,7 @@ public struct ApplyRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -2544,14 +2544,14 @@ public struct ApplyResult: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から
+    /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
     public var idsShifted: Bool? {
         get { readField("ids_shifted") }
         set { writeField("ids_shifted", newValue) }
     }
 }
 
-/// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から
+/// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
 public struct ConvertRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2561,12 +2561,12 @@ public struct ConvertRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("convert")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -2590,7 +2590,7 @@ public struct ConvertRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -2699,92 +2699,92 @@ public struct Edit: Message {
         self.json = json
     }
 
-    /// kind が restyle の形なら、その見方。違えば nil
+    /// kind が restyle の形なら、そのビュー。違えば nil
     public var asRestyleEdit: RestyleEdit? {
         taggedView("kind", "restyle")
     }
 
-    /// kind が transform の形なら、その見方。違えば nil
+    /// kind が transform の形なら、そのビュー。違えば nil
     public var asTransformEdit: TransformEdit? {
         taggedView("kind", "transform")
     }
 
-    /// kind が remove の形なら、その見方。違えば nil
+    /// kind が remove の形なら、そのビュー。違えば nil
     public var asRemoveEdit: RemoveEdit? {
         taggedView("kind", "remove")
     }
 
-    /// kind が replace の形なら、その見方。違えば nil
+    /// kind が replace の形なら、そのビュー。違えば nil
     public var asReplaceEdit: ReplaceEdit? {
         taggedView("kind", "replace")
     }
 
-    /// kind が add の形なら、その見方。違えば nil
+    /// kind が add の形なら、そのビュー。違えば nil
     public var asAddEdit: AddEdit? {
         taggedView("kind", "add")
     }
 
-    /// kind が layer の形なら、その見方。違えば nil
+    /// kind が layer の形なら、そのビュー。違えば nil
     public var asLayerEdit: LayerEdit? {
         taggedView("kind", "layer")
     }
 
-    /// kind が add_layer の形なら、その見方。違えば nil
+    /// kind が add_layer の形なら、そのビュー。違えば nil
     public var asAddLayerEdit: AddLayerEdit? {
         taggedView("kind", "add_layer")
     }
 
-    /// kind が remove_layer の形なら、その見方。違えば nil
+    /// kind が remove_layer の形なら、そのビュー。違えば nil
     public var asRemoveLayerEdit: RemoveLayerEdit? {
         taggedView("kind", "remove_layer")
     }
 
-    /// kind が text_style の形なら、その見方。違えば nil
+    /// kind が text_style の形なら、そのビュー。違えば nil
     public var asTextStyleEdit: TextStyleEdit? {
         taggedView("kind", "text_style")
     }
 
-    /// kind が add_text_style の形なら、その見方。違えば nil
+    /// kind が add_text_style の形なら、そのビュー。違えば nil
     public var asAddTextStyleEdit: AddTextStyleEdit? {
         taggedView("kind", "add_text_style")
     }
 
-    /// kind が remove_text_style の形なら、その見方。違えば nil
+    /// kind が remove_text_style の形なら、そのビュー。違えば nil
     public var asRemoveTextStyleEdit: RemoveTextStyleEdit? {
         taggedView("kind", "remove_text_style")
     }
 
-    /// kind が line_type の形なら、その見方。違えば nil
+    /// kind が line_type の形なら、そのビュー。違えば nil
     public var asLineTypeEdit: LineTypeEdit? {
         taggedView("kind", "line_type")
     }
 
-    /// kind が add_line_type の形なら、その見方。違えば nil
+    /// kind が add_line_type の形なら、そのビュー。違えば nil
     public var asAddLineTypeEdit: AddLineTypeEdit? {
         taggedView("kind", "add_line_type")
     }
 
-    /// kind が remove_line_type の形なら、その見方。違えば nil
+    /// kind が remove_line_type の形なら、そのビュー。違えば nil
     public var asRemoveLineTypeEdit: RemoveLineTypeEdit? {
         taggedView("kind", "remove_line_type")
     }
 
-    /// kind が dimension_style の形なら、その見方。違えば nil
+    /// kind が dimension_style の形なら、そのビュー。違えば nil
     public var asDimensionStyleEdit: DimensionStyleEdit? {
         taggedView("kind", "dimension_style")
     }
 
-    /// kind が add_dimension_style の形なら、その見方。違えば nil
+    /// kind が add_dimension_style の形なら、そのビュー。違えば nil
     public var asAddDimensionStyleEdit: AddDimensionStyleEdit? {
         taggedView("kind", "add_dimension_style")
     }
 
-    /// kind が remove_dimension_style の形なら、その見方。違えば nil
+    /// kind が remove_dimension_style の形なら、そのビュー。違えば nil
     public var asRemoveDimensionStyleEdit: RemoveDimensionStyleEdit? {
         taggedView("kind", "remove_dimension_style")
     }
 
-    /// kind が point_style の形なら、その見方。違えば nil
+    /// kind が point_style の形なら、そのビュー。違えば nil
     public var asPointStyleEdit: PointStyleEdit? {
         taggedView("kind", "point_style")
     }
@@ -2800,7 +2800,7 @@ public struct RestyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("restyle")]
     }
@@ -2829,7 +2829,7 @@ public struct RestyleEdit: Message {
         set { writeField("layer", newValue) }
     }
 
-    /// レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
+    /// レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から
     public var layerId: String? {
         get { readField("layer_id") }
         set { writeField("layer_id", newValue) }
@@ -2870,7 +2870,7 @@ public struct TransformEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("transform")]
     }
@@ -2910,7 +2910,7 @@ public struct RemoveEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("remove")]
     }
@@ -2934,7 +2934,7 @@ public struct RemoveEdit: Message {
     }
 }
 
-/// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から
+/// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。マイナーバージョン 10 から
 public struct ReplaceEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2944,7 +2944,7 @@ public struct ReplaceEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("replace")]
     }
@@ -2974,7 +2974,7 @@ public struct ReplaceEdit: Message {
     }
 }
 
-/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
+/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
 public struct AddEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2984,7 +2984,7 @@ public struct AddEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("add")]
     }
@@ -2995,7 +2995,7 @@ public struct AddEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。小版 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）
+    /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。マイナーバージョン 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）
     public var place: String? {
         get { readField("place") }
         set { writeField("place", newValue) }
@@ -3013,19 +3013,19 @@ public struct AddEdit: Message {
         set { writeField("layer_id", newValue) }
     }
 
-    /// 色。SXF はレイヤに従う色を書けないので、書く。小版 29 から
+    /// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
     public var color: ColorChange? {
         get { readField("color") }
         set { writeField("color", newValue) }
     }
 
-    /// 線種。小版 29 から
+    /// 線種。マイナーバージョン 29 から
     public var lineType: LineTypeChange? {
         get { readField("line_type") }
         set { writeField("line_type", newValue) }
     }
 
-    /// 線幅。小版 29 から
+    /// 線幅。マイナーバージョン 29 から
     public var lineWeight: LineWeightChange? {
         get { readField("line_weight") }
         set { writeField("line_weight", newValue) }
@@ -3038,7 +3038,7 @@ public struct AddEdit: Message {
     }
 }
 
-/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から
+/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から
 public struct LayerEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3048,7 +3048,7 @@ public struct LayerEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("layer")]
     }
@@ -3120,7 +3120,7 @@ public struct LayerEdit: Message {
     }
 }
 
-/// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
+/// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。マイナーバージョン 24 から
 public struct RemoveLayerEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3130,7 +3130,7 @@ public struct RemoveLayerEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("remove_layer")]
     }
@@ -3154,7 +3154,7 @@ public struct RemoveLayerEdit: Message {
     }
 }
 
-/// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から
+/// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。マイナーバージョン 25 から
 public struct TextStyleEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3164,7 +3164,7 @@ public struct TextStyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("text_style")]
     }
@@ -3242,7 +3242,7 @@ public struct TextStyleEdit: Message {
     }
 }
 
-/// 文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から
+/// 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から
 public struct AddTextStyleEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3252,7 +3252,7 @@ public struct AddTextStyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("add_text_style")]
     }
@@ -3318,7 +3318,7 @@ public struct AddTextStyleEdit: Message {
     }
 }
 
-/// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から
+/// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 25 から
 public struct RemoveTextStyleEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3328,7 +3328,7 @@ public struct RemoveTextStyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("remove_text_style")]
     }
@@ -3352,7 +3352,7 @@ public struct RemoveTextStyleEdit: Message {
     }
 }
 
-/// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から
+/// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から
 public struct LineTypeEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3362,7 +3362,7 @@ public struct LineTypeEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("line_type")]
     }
@@ -3404,7 +3404,7 @@ public struct LineTypeEdit: Message {
     }
 }
 
-/// 線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から
+/// 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から
 public struct AddLineTypeEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3414,7 +3414,7 @@ public struct AddLineTypeEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("add_line_type")]
     }
@@ -3444,7 +3444,7 @@ public struct AddLineTypeEdit: Message {
     }
 }
 
-/// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から
+/// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から
 public struct RemoveLineTypeEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3454,7 +3454,7 @@ public struct RemoveLineTypeEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("remove_line_type")]
     }
@@ -3478,7 +3478,7 @@ public struct RemoveLineTypeEdit: Message {
     }
 }
 
-/// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から
+/// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。マイナーバージョン 27 から
 public struct DimensionStyleEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3488,7 +3488,7 @@ public struct DimensionStyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("dimension_style")]
     }
@@ -3548,7 +3548,7 @@ public struct DimensionStyleEdit: Message {
     }
 }
 
-/// 寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から
+/// 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から
 public struct AddDimensionStyleEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3558,7 +3558,7 @@ public struct AddDimensionStyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("add_dimension_style")]
     }
@@ -3606,7 +3606,7 @@ public struct AddDimensionStyleEdit: Message {
     }
 }
 
-/// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から
+/// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 27 から
 public struct RemoveDimensionStyleEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3616,7 +3616,7 @@ public struct RemoveDimensionStyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("remove_dimension_style")]
     }
@@ -3640,7 +3640,7 @@ public struct RemoveDimensionStyleEdit: Message {
     }
 }
 
-/// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
+/// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG はヘッダーの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、マイナーバージョン 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。マイナーバージョン 38 から
 public struct PointStyleEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3650,7 +3650,7 @@ public struct PointStyleEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("point_style")]
     }
@@ -3711,7 +3711,7 @@ public enum PointSizeKind {
     public static let screen = "screen"
 }
 
-/// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
+/// レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から
 public struct AddLayerEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3721,7 +3721,7 @@ public struct AddLayerEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("add_layer")]
     }
@@ -3816,13 +3816,13 @@ public struct ColorChange: Message {
         set { writeField("aci", newValue) }
     }
 
-    /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から
+    /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。マイナーバージョン 29 から
     public var sxf: Int64? {
         get { readField("sxf") }
         set { writeField("sxf", newValue) }
     }
 
-    /// Jw_cad のペンの番号。0〜9 と、版 420 からの SXF の拡張色 100〜356。小版 30 から
+    /// Jw_cad のペンの番号。0〜9 と、バージョン 420 からの SXF の拡張色 100〜356。マイナーバージョン 30 から
     public var jww: Int64? {
         get { readField("jww") }
         set { writeField("jww", newValue) }
@@ -3862,7 +3862,7 @@ public struct LineTypeChange: Message {
         set { writeField("name", newValue) }
     }
 
-    /// 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
+    /// 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から
     public var id: String? {
         get { readField("id") }
         set { writeField("id", newValue) }
@@ -3903,7 +3903,7 @@ public struct LineWeightChange: Message {
     }
 }
 
-/// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から
+/// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
 public struct TablesRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -3913,12 +3913,12 @@ public struct TablesRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("tables")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -3942,7 +3942,7 @@ public struct TablesRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -3982,26 +3982,26 @@ public struct TablesResult: Message {
         set { writeField("layers", newValue) }
     }
 
-    /// 線種。小版 26 から、定義を持つ
+    /// 線種。マイナーバージョン 26 から、定義を持つ
     public var lineTypes: [LineTypeItem]? {
         get { readField("line_types") }
         set { writeField("line_types", newValue) }
     }
 
-    /// 寸法スタイル。小版 27 から、端部記号と大きさを持つ
+    /// 寸法スタイル。マイナーバージョン 27 から、端部記号と大きさを持つ
     public var dimensionStyles: [DimensionStyleItem]? {
         get { readField("dimension_styles") }
         set { writeField("dimension_styles", newValue) }
     }
 
-    /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から
+    /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から
     public var textStyles: [TextStyleItem]? {
         get { readField("text_styles") }
         set { writeField("text_styles", newValue) }
     }
 }
 
-/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から
+/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
 public struct SceneRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -4011,12 +4011,12 @@ public struct SceneRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("scene")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -4040,7 +4040,7 @@ public struct SceneRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -4088,19 +4088,19 @@ public struct SceneRequest: Message {
         set { writeField("print", newValue) }
     }
 
-    /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる
+    /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
     public var palette: String? {
         get { readField("palette") }
         set { writeField("palette", newValue) }
     }
 
-    /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から
+    /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形のセクションに形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。マイナーバージョン 37 から
     public var fonts: [SceneFont]? {
         get { readField("fonts") }
         set { writeField("fonts", newValue) }
     }
 
-    /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+    /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。マイナーバージョン 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。マイナーバージョン 37 から
     public var heights: [String: String]? {
         get { readField("heights") }
         set { writeField("heights", newValue) }
@@ -4141,7 +4141,7 @@ public struct SceneFont: Message {
     }
 }
 
-/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
+/// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から）
 ///
 /// 列挙の値。知らない値も受け取る
 public enum HeightReference {
@@ -4266,14 +4266,14 @@ public struct SceneCounts: Message {
         set { writeField("images", newValue) }
     }
 
-    /// 置いた字形。fonts を書かなければ 0。小版 37 から
+    /// 置いた字形。fonts を書かなければ 0。マイナーバージョン 37 から
     public var glyphs: Int64? {
         get { readField("glyphs") }
         set { writeField("glyphs", newValue) }
     }
 }
 
-/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から
+/// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から
 public struct CheckRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -4283,12 +4283,12 @@ public struct CheckRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("check")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -4312,7 +4312,7 @@ public struct CheckRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -4354,7 +4354,7 @@ public struct CheckRequest: Message {
         set { writeField("view", newValue) }
     }
 
-    /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+    /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
     public var fileName: String? {
         get { readField("file_name") }
         set { writeField("file_name", newValue) }
@@ -4555,7 +4555,7 @@ public struct CheckFinding: Message {
     }
 }
 
-/// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
+/// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。マイナーバージョン 42 から
 public struct ValidateRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -4565,12 +4565,12 @@ public struct ValidateRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("validate")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -4594,7 +4594,7 @@ public struct ValidateRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -4689,7 +4689,7 @@ public struct ValidateResult: Message {
     }
 }
 
-/// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から
+/// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書のバージョンへ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元のバージョンのハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。マイナーバージョン 43 から
 public struct ReviewCarryRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -4699,12 +4699,12 @@ public struct ReviewCarryRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("review_carry")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -4728,7 +4728,7 @@ public struct ReviewCarryRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -4740,7 +4740,7 @@ public struct ReviewCarryRequest: Message {
         set { writeField("op", newValue) }
     }
 
-    /// 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
+    /// 新しいバージョンの文書の名前。open で作ったもの。マイナーバージョン 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
     public var doc: String? {
         get { readField("doc") }
         set { writeField("doc", newValue) }
@@ -4857,7 +4857,7 @@ public struct CarriedReference: Message {
     }
 }
 
-/// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない
+/// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しいバージョンに要素がない
 ///
 /// 列挙の値。知らない値も受け取る
 public enum CarriedState {
@@ -4866,7 +4866,7 @@ public enum CarriedState {
     public static let removed = "removed"
 }
 
-/// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
+/// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。マイナーバージョン 43 から
 public struct ReviewAdoptRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -4876,12 +4876,12 @@ public struct ReviewAdoptRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("review_adopt")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -4905,7 +4905,7 @@ public struct ReviewAdoptRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -4947,7 +4947,7 @@ public struct ReviewAdoptRequest: Message {
         set { writeField("view", newValue) }
     }
 
-    /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+    /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
     public var fileName: String? {
         get { readField("file_name") }
         set { writeField("file_name", newValue) }
@@ -5006,7 +5006,7 @@ public struct ReviewAdoptResult: Message {
     }
 }
 
-/// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から
+/// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 public struct BuildingRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -5016,12 +5016,12 @@ public struct BuildingRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("building")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -5045,7 +5045,7 @@ public struct BuildingRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -5085,7 +5085,7 @@ public struct BuildingResult: Message {
         set { writeField("schema", newValue) }
     }
 
-    /// 入力のバイト列のハッシュ。review_carry の対象の版に使う
+    /// 入力のバイト列のハッシュ。review_carry の対象のバージョンに使う
     public var hash: String? {
         get { readField("hash") }
         set { writeField("hash", newValue) }
@@ -5190,7 +5190,7 @@ public struct ClassCount: Message {
     }
 }
 
-/// 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から
+/// 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から
 public struct BuildingElementsRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -5200,12 +5200,12 @@ public struct BuildingElementsRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("building_elements")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -5229,7 +5229,7 @@ public struct BuildingElementsRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -5259,7 +5259,7 @@ public struct BuildingElementsRequest: Message {
         set { writeField("class", newValue) }
     }
 
-    /// 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す
+    /// 返すコンポーネントの名前。1 つ以上で、重ねない。書かなければ class と identity を返す
     public var components: [String]? {
         get { readField("components") }
         set { writeField("components", newValue) }
@@ -5278,7 +5278,7 @@ public struct BuildingElementsRequest: Message {
     }
 }
 
-/// building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
+/// building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
 ///
 /// 列挙の値。知らない値も受け取る
 public enum BuildingComponent {
@@ -5335,7 +5335,7 @@ public struct BuildingElementsResult: Message {
     }
 }
 
-/// 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ
+/// 建物モデルの要素。コンポーネントは、選んだもののうち要素が持つものだけを持つ
 public struct BuildingElement: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -5356,7 +5356,7 @@ public struct BuildingElement: Message {
         set { writeField("id", newValue) }
     }
 
-    /// 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207）
+    /// 要素のコンポーネントのハッシュ（v1: と 32 桁の 16 進、決定 0207）
     public var hash: String? {
         get { readField("hash") }
         set { writeField("hash", newValue) }
@@ -5566,7 +5566,7 @@ public struct ClassificationReference: Message {
         set { writeField("system", newValue) }
     }
 
-    /// 体系の版
+    /// 体系のバージョン
     public var edition: String? {
         get { readField("edition") }
         set { writeField("edition", newValue) }
@@ -6282,7 +6282,7 @@ public enum IdsStatus {
     public static let unknown = "unknown"
 }
 
-/// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+/// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。マイナーバージョン 58 から
 public struct BuildingApplyRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6292,12 +6292,12 @@ public struct BuildingApplyRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("building_apply")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -6321,7 +6321,7 @@ public struct BuildingApplyRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -6362,12 +6362,12 @@ public struct BuildingEdit: Message {
         self.json = json
     }
 
-    /// kind が property の形なら、その見方。違えば nil
+    /// kind が property の形なら、そのビュー。違えば nil
     public var asBuildingPropertyEdit: BuildingPropertyEdit? {
         taggedView("kind", "property")
     }
 
-    /// kind が attribute の形なら、その見方。違えば nil
+    /// kind が attribute の形なら、そのビュー。違えば nil
     public var asBuildingAttributeEdit: BuildingAttributeEdit? {
         taggedView("kind", "attribute")
     }
@@ -6383,7 +6383,7 @@ public struct BuildingPropertyEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("property")]
     }
@@ -6435,7 +6435,7 @@ public struct BuildingAttributeEdit: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["kind": .string("attribute")]
     }
@@ -6507,7 +6507,7 @@ public struct BuildingApplyResult: Message {
     }
 }
 
-/// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+/// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。マイナーバージョン 60 から
 public struct LiftRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6517,12 +6517,12 @@ public struct LiftRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("lift")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -6546,7 +6546,7 @@ public struct LiftRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -6587,7 +6587,7 @@ public struct LiftResult: Message {
     }
 }
 
-/// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
+/// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から
 public struct IdsCheckRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6597,12 +6597,12 @@ public struct IdsCheckRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("ids_check")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -6626,7 +6626,7 @@ public struct IdsCheckRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -6650,7 +6650,7 @@ public struct IdsCheckRequest: Message {
         set { writeField("ids", newValue) }
     }
 
-    /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+    /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす
     public var express: String? {
         get { readField("express") }
         set { writeField("express", newValue) }
@@ -6795,7 +6795,7 @@ public struct IdsFinding: Message {
     }
 }
 
-/// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
+/// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。マイナーバージョン 44 から
 public struct ReviewAdoptIdsRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6805,12 +6805,12 @@ public struct ReviewAdoptIdsRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("review_adopt_ids")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -6834,7 +6834,7 @@ public struct ReviewAdoptIdsRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -6858,7 +6858,7 @@ public struct ReviewAdoptIdsRequest: Message {
         set { writeField("ids", newValue) }
     }
 
-    /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+    /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす
     public var express: String? {
         get { readField("express") }
         set { writeField("express", newValue) }
@@ -6883,7 +6883,7 @@ public struct ReviewAdoptIdsRequest: Message {
     }
 }
 
-/// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+/// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。マイナーバージョン 45 から
 public struct BcfReadRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6893,12 +6893,12 @@ public struct BcfReadRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("bcf_read")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -6922,7 +6922,7 @@ public struct BcfReadRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -7011,7 +7011,7 @@ public struct BcfReadResult: Message {
         json = [:]
     }
 
-    /// BCF の版
+    /// BCF のバージョン
     public var version: String? {
         get { readField("version") }
         set { writeField("version", newValue) }
@@ -7024,7 +7024,7 @@ public struct BcfReadResult: Message {
     }
 }
 
-/// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+/// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。バージョンは version で選ぶ（マイナーバージョン 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。マイナーバージョン 45 から
 public struct BcfWriteRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7034,12 +7034,12 @@ public struct BcfWriteRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("bcf_write")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -7063,7 +7063,7 @@ public struct BcfWriteRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -7117,7 +7117,7 @@ public struct BcfWriteRequest: Message {
         set { writeField("date", newValue) }
     }
 
-    /// 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から
+    /// 書く BCF のバージョン。2.1 か 3.0。書かなければ、original のバージョンか 3.0。original と違うバージョンでは書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。マイナーバージョン 61 から
     public var version: String? {
         get { readField("version") }
         set { writeField("version", newValue) }
@@ -7180,7 +7180,7 @@ public struct TableItem: Message {
     }
 }
 
-/// レイヤの表の項目（決定 0162）。小版 22 から、状態とスタイルを持つ
+/// レイヤの表の項目（決定 0162）。マイナーバージョン 22 から、状態とスタイルを持つ
 public struct LayerItem: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7213,56 +7213,56 @@ public struct LayerItem: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から
+    /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかのフィールドを持たない。マイナーバージョン 22 から
     public var defined: Bool? {
         get { readField("defined") }
         set { writeField("defined", newValue) }
     }
 
-    /// 表示する。小版 22 から
+    /// 表示する。マイナーバージョン 22 から
     public var visible: Bool? {
         get { readField("visible") }
         set { writeField("visible", newValue) }
     }
 
-    /// 印刷する。小版 22 から
+    /// 印刷する。マイナーバージョン 22 から
     public var printable: Bool? {
         get { readField("printable") }
         set { writeField("printable", newValue) }
     }
 
-    /// 編集できる。小版 22 から
+    /// 編集できる。マイナーバージョン 22 から
     public var editable: Bool? {
         get { readField("editable") }
         set { writeField("editable", newValue) }
     }
 
-    /// 凍結する。小版 22 から
+    /// 凍結する。マイナーバージョン 22 から
     public var frozen: Bool? {
         get { readField("frozen") }
         set { writeField("frozen", newValue) }
     }
 
-    /// 色。inherit を持たない。定義が色を持たなければ書かない。小版 22 から
+    /// 色。inherit を持たない。定義が色を持たなければ書かない。マイナーバージョン 22 から
     public var color: ColorChange? {
         get { readField("color") }
         set { writeField("color", newValue) }
     }
 
-    /// 線種の ID。定義が線種を持たなければ書かない。小版 22 から
+    /// 線種の ID。定義が線種を持たなければ書かない。マイナーバージョン 22 から
     public var lineTypeId: String? {
         get { readField("line_type_id") }
         set { writeField("line_type_id", newValue) }
     }
 
-    /// 線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から
+    /// 線幅。inherit を持たない。定義が線幅を持たなければ書かない。マイナーバージョン 22 から
     public var lineWeight: LineWeightChange? {
         get { readField("line_weight") }
         set { writeField("line_weight", newValue) }
     }
 }
 
-/// 線種の表の項目（決定 0164）。小版 26 から、定義を持つ
+/// 線種の表の項目（決定 0164）。マイナーバージョン 26 から、定義を持つ
 public struct LineTypeItem: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7295,44 +7295,44 @@ public struct LineTypeItem: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から
+    /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかのフィールドを持たない。マイナーバージョン 26 から
     public var defined: Bool? {
         get { readField("defined") }
         set { writeField("defined", newValue) }
     }
 
-    /// 元の説明。小版 26 から
+    /// 元の説明。マイナーバージョン 26 から
     public var description: String? {
         get { readField("description") }
         set { writeField("description", newValue) }
     }
 
-    /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。小版 26 から
+    /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。マイナーバージョン 26 から
     public var pattern: [Double]? {
         get { readField("pattern") }
         set { writeField("pattern", newValue) }
     }
 
-    /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。小版 26 から
+    /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。マイナーバージョン 26 から
     public var paper: Bool? {
         get { readField("paper") }
         set { writeField("paper", newValue) }
     }
 
-    /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から
+    /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。マイナーバージョン 26 から
     public var marked: Bool? {
         get { readField("marked") }
         set { writeField("marked", newValue) }
     }
 
-    /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。小版 28 から
+    /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。マイナーバージョン 28 から
     public var marks: [LineTypeMark]? {
         get { readField("marks") }
         set { writeField("marks", newValue) }
     }
 }
 
-/// 寸法スタイルの表の項目（決定 0165）。小版 27 から、端部記号と大きさを持つ
+/// 寸法スタイルの表の項目（決定 0165）。マイナーバージョン 27 から、端部記号と大きさを持つ
 public struct DimensionStyleItem: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7365,38 +7365,38 @@ public struct DimensionStyleItem: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+    /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から
     public var ends: [String]? {
         get { readField("ends") }
         set { writeField("ends", newValue) }
     }
 
-    /// 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+    /// 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から
     public var leader: String? {
         get { readField("leader") }
         set { writeField("leader", newValue) }
     }
 
-    /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。小版 27 から
+    /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。マイナーバージョン 27 から
     public var size: Double? {
         get { readField("size") }
         set { writeField("size", newValue) }
     }
 
-    /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。小版 27 から
+    /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。マイナーバージョン 27 から
     public var tick: Double? {
         get { readField("tick") }
         set { writeField("tick", newValue) }
     }
 
-    /// 大きさに掛ける倍率。0 はビューの縮尺から決める。小版 27 から
+    /// 大きさに掛ける倍率。0 はビューの縮尺から決める。マイナーバージョン 27 から
     public var scale: Double? {
         get { readField("scale") }
         set { writeField("scale", newValue) }
     }
 }
 
-/// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。小版 28 から
+/// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。マイナーバージョン 28 から
 public struct LineTypeMark: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7501,7 +7501,7 @@ public enum MarkRotation {
     public static let upright = "upright"
 }
 
-/// 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から
+/// 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。マイナーバージョン 20 から
 public struct TextStyleItem: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7534,7 +7534,7 @@ public struct TextStyleItem: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// ファイルに定義がある。偽なら、ほかの欄を持たない
+    /// ファイルに定義がある。偽なら、ほかのフィールドを持たない
     public var defined: Bool? {
         get { readField("defined") }
         set { writeField("defined", newValue) }
@@ -7649,7 +7649,7 @@ public enum FontKind {
     public static let named = "named"
 }
 
-/// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない
+/// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つキー（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない
 public struct Source: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7682,7 +7682,7 @@ public struct Source: Message {
         set { writeField("handle", newValue) }
     }
 
-    /// SXF のインスタンスの番号（#n の n）。10 進の文字列。小版 6 から
+    /// SXF のインスタンスの番号（#n の n）。10 進の文字列。マイナーバージョン 6 から
     public var instance: String? {
         get { readField("instance") }
         set { writeField("instance", newValue) }
@@ -7699,7 +7699,7 @@ public struct Response: Message {
         self.json = json
     }
 
-    /// メッセージのスキーマの大版
+    /// メッセージのスキーマのメジャーバージョン
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -7930,7 +7930,7 @@ public struct Blob: Message {
     }
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
 ///
 /// 列挙の値。知らない値も受け取る
 public enum BlobKind {
@@ -7956,13 +7956,13 @@ public struct SessionOptions: Message {
         json = [:]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
     }
 
-    /// 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
+    /// 実行の形態。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
     public var engine: String? {
         get { readField("engine") }
         set { writeField("engine", newValue) }
@@ -7975,7 +7975,7 @@ public struct SessionOptions: Message {
     }
 }
 
-/// 実行の形（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
+/// 実行の形態（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
 ///
 /// 列挙の値。知らない値も受け取る
 public enum Engine {
@@ -7984,7 +7984,7 @@ public enum Engine {
     public static let wasm = "wasm"
 }
 
-/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から）
+/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
 public struct CivilRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -7994,12 +7994,12 @@ public struct CivilRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("civil")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -8023,7 +8023,7 @@ public struct CivilRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -8041,13 +8041,13 @@ public struct CivilRequest: Message {
         set { writeField("alignment", newValue) }
     }
 
-    /// open で開いた J-LandXML の文書の名前。小版 47 から
+    /// open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から
     public var doc: String? {
         get { readField("doc") }
         set { writeField("doc", newValue) }
     }
 
-    /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+    /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。マイナーバージョン 47 から
     public var id: String? {
         get { readField("id") }
         set { writeField("id", newValue) }
@@ -8344,25 +8344,25 @@ public struct CivilResult: Message {
         set { writeField("positions", newValue) }
     }
 
-    /// 所を求めた doc の線形の ID。小版 47 から
+    /// 所を求めた doc の線形の ID。マイナーバージョン 47 から
     public var alignment: String? {
         get { readField("alignment") }
         set { writeField("alignment", newValue) }
     }
 
-    /// doc の線形の要約。doc を渡したときに返す。小版 47 から
+    /// doc の線形の要約。doc を渡したときに返す。マイナーバージョン 47 から
     public var alignments: [CivilAlignmentSummary]? {
         get { readField("alignments") }
         set { writeField("alignments", newValue) }
     }
 
-    /// doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+    /// doc の地表面（TIN）の要約。doc を渡したときに返す。マイナーバージョン 47 から
     public var surfaces: [CivilSurfaceSummary]? {
         get { readField("surfaces") }
         set { writeField("surfaces", newValue) }
     }
 
-    /// doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+    /// doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から
     public var crs: Int64? {
         get { readField("crs") }
         set { writeField("crs", newValue) }
@@ -8543,7 +8543,7 @@ public struct CivilPosition: Message {
     }
 }
 
-/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から
+/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 public struct PointcloudRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -8553,12 +8553,12 @@ public struct PointcloudRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("pointcloud")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -8582,7 +8582,7 @@ public struct PointcloudRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -8698,7 +8698,7 @@ public struct PointcloudResult: Message {
         set { writeField("depth", newValue) }
     }
 
-    /// 八分木の節の数
+    /// 八分木のノードの数
     public var nodes: Int64? {
         get { readField("nodes") }
         set { writeField("nodes", newValue) }
@@ -8763,7 +8763,7 @@ public struct PointcloudPoints: Message {
     }
 }
 
-/// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から
+/// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
 public struct DeliveryCheckRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -8773,12 +8773,12 @@ public struct DeliveryCheckRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("delivery_check")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -8802,7 +8802,7 @@ public struct DeliveryCheckRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -8909,7 +8909,7 @@ public struct DeliveryCheckResult: Message {
     }
 }
 
-/// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+/// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。マイナーバージョン 55 から
 public struct PhotoRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -8919,12 +8919,12 @@ public struct PhotoRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("photo")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -8948,7 +8948,7 @@ public struct PhotoRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -8982,13 +8982,13 @@ public struct PhotoResult: Message {
         json = [:]
     }
 
-    /// 画素の幅（フレームの見出し）
+    /// 画素の幅（フレームのヘッダー）
     public var width: Int64? {
         get { readField("width") }
         set { writeField("width", newValue) }
     }
 
-    /// 画素の高さ（フレームの見出し）
+    /// 画素の高さ（フレームのヘッダー）
     public var height: Int64? {
         get { readField("height") }
         set { writeField("height", newValue) }
@@ -9117,7 +9117,7 @@ public struct PhotoProperty: Message {
     }
 }
 
-/// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+/// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。マイナーバージョン 56 から
 public struct SheetRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -9127,12 +9127,12 @@ public struct SheetRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("sheet")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -9156,7 +9156,7 @@ public struct SheetRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -9394,7 +9394,7 @@ public struct SheetArea: Message {
     }
 }
 
-/// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+/// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。マイナーバージョン 57 から
 public struct BoringRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -9404,12 +9404,12 @@ public struct BoringRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("boring")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -9433,7 +9433,7 @@ public struct BoringRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -9905,7 +9905,7 @@ public struct DeliveryManaged: Message {
     }
 }
 
-/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 public struct GeoRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -9915,12 +9915,12 @@ public struct GeoRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("geo")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -9944,7 +9944,7 @@ public struct GeoRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -10216,7 +10216,7 @@ public struct GeoGeometry: Message {
     }
 }
 
-/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
 public struct CivilDrawingRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -10226,12 +10226,12 @@ public struct CivilDrawingRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("civil_drawing")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -10255,7 +10255,7 @@ public struct CivilDrawingRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -10426,7 +10426,7 @@ public struct CivilDrawingOptions: Message {
     }
 }
 
-/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から
+/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から
 public struct DeviationRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -10436,12 +10436,12 @@ public struct DeviationRequest: Message {
         self.json = json
     }
 
-    /// 目印の欄だけを持つオブジェクトから作る
+    /// タグのフィールドだけを持つオブジェクトから作る
     public init() {
         json = ["op": .string("deviation")]
     }
 
-    /// メッセージのスキーマの大版。今は 1
+    /// メッセージのスキーマのメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -10465,7 +10465,7 @@ public struct DeviationRequest: Message {
         set { writeField("max_places", newValue) }
     }
 
-    /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
     public var timeLimitMs: Int64? {
         get { readField("time_limit_ms") }
         set { writeField("time_limit_ms", newValue) }
@@ -10755,7 +10755,7 @@ public struct Catalog: Message {
         json = [:]
     }
 
-    /// カタログの形の大版。今は 1
+    /// カタログの形のメジャーバージョン。今は 1
     public var v: Int64? {
         get { readField("v") }
         set { writeField("v", newValue) }
@@ -10767,7 +10767,7 @@ public struct Catalog: Message {
         set { writeField("lang", newValue) }
     }
 
-    /// パッケージの版。コアと同じ版で出す
+    /// パッケージのバージョン。コアと同じバージョンで出す
     public var `package`: String? {
         get { readField("package") }
         set { writeField("package", newValue) }

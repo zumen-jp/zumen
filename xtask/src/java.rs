@@ -1,10 +1,10 @@
-//! Java の包み（`bindings/java`）の型と定数を作る（決定 0011・0224）。
+//! Java のラッパー（`bindings/java`）の型と定数を作る（決定 0011・0224）。
 //!
 //! - `Messages.java`: メッセージのスキーマ（`schema/messages.json`）の型
-//! - `Constants.java`: 境界の版・状態コード（`schema/boundary.toml`）と、シーンの配置（`schema/scene.toml`）
+//! - `Constants.java`: API のバージョン・状態コード（`schema/boundary.toml`）と、シーンの配置（`schema/scene.toml`）
 //!
 //! Java 8 と Android 7.0（docs/support.md の下限）で読めるように、標準の `java.util` だけを使う。型は、読んだ JSON
-//! （`Map`・`List`・`String`・`Long`・`Double`・`Boolean`）を包む見方で、知らない欄と値もそのまま持つ（決定 0015）。
+//! （`Map`・`List`・`String`・`Long`・`Double`・`Boolean`）を包むビューで、知らないフィールドと値もそのまま持つ（決定 0015）。
 
 use std::fmt::Write;
 
@@ -35,7 +35,7 @@ const RESERVED: &[&str] = &[
     "Constants",
 ];
 
-/// 区画の値の型と、`Scene` の列の型
+/// セクションの値の型と、`Scene` の列の型
 const COLUMNS: &[(&str, &str)] = &[("u8", "U8"), ("u32", "U32"), ("f32", "F32"), ("f64", "F64")];
 
 /// 説明を Javadoc にする
@@ -76,7 +76,7 @@ fn quote(text: &str) -> String {
     out
 }
 
-/// 欄の名前を、メソッドの名前の後ろの部分にする（`from_unit` → `FromUnit`）
+/// フィールドの名前を、メソッドの名前の後ろの部分にする（`from_unit` → `FromUnit`）
 fn member(name: &str) -> String {
     let name = pascal(name);
     if !name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
@@ -105,7 +105,7 @@ fn constant(name: &str) -> String {
     out
 }
 
-/// 欄の型の、Java の型と、JSON の値から読む関数の式
+/// フィールドの型の、Java の型と、JSON の値から読む関数の式
 fn java_type(schema: &Schema, ty: &Ty) -> (String, String) {
     java_type_at(schema, ty, 0)
 }
@@ -145,7 +145,7 @@ fn java_type_at(schema: &Schema, ty: &Ty, depth: usize) -> (String, String) {
     }
 }
 
-/// 取り込む定義（`allOf`）の欄を先に、自分の欄を後に並べる
+/// 取り込む定義（`allOf`）のフィールドを先に、自分のフィールドを後に並べる
 fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>, depth: usize) {
     let Shape::Object {
         fields, compose, ..
@@ -167,7 +167,7 @@ fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>
     }
 }
 
-/// 見方のクラスの始まり。`of` と、JSON の値を受ける作り方を置く
+/// ビューのクラスの始まり。`of` と、JSON の値を受ける作り方を置く
 fn class_head(out: &mut String, name: &str, description: &str) {
     out.push('\n');
     javadoc(out, "    ", description);
@@ -185,7 +185,7 @@ fn class_head(out: &mut String, name: &str, description: &str) {
     );
 }
 
-/// 欄ごとの読み書きのメソッド
+/// フィールドごとの読み書きのメソッド
 fn render_field(
     out: &mut String,
     class: &str,
@@ -204,7 +204,7 @@ fn render_field(
     );
     let _ = writeln!(
         out,
-        "\n        /** {{@link #get{method}()}} を書く。null なら欄を除く */\n        public {class} with{method}({ty} value) {{\n            put({key}, value);\n            return this;\n        }}"
+        "\n        /** {{@link #get{method}()}} を書く。null ならフィールドを除く */\n        public {class} with{method}({ty} value) {{\n            put({key}, value);\n            return this;\n        }}"
     );
 }
 
@@ -230,7 +230,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) {
     } else {
         let _ = writeln!(
             out,
-            "        /** 目印の欄だけを持つオブジェクトから作る */\n        public {name}() {{\n            super(new LinkedHashMap<String, Object>());"
+            "        /** タグのフィールドだけを持つオブジェクトから作る */\n        public {name}() {{\n            super(new LinkedHashMap<String, Object>());"
         );
         for (field, value) in &consts {
             let _ = writeln!(
@@ -249,7 +249,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) {
     out.push_str("    }\n");
 }
 
-/// タグつきの共用体のクラス。形ごとの見方に移すメソッドを持つ
+/// タグつきの共用体のクラス。形ごとのビューに移すメソッドを持つ
 fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String]) {
     let name = pascal(&def.name);
     class_head(out, &name, &def.description);
@@ -260,7 +260,7 @@ fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String
         };
         let _ = writeln!(
             out,
-            "\n        /** {} が {} の形なら、その見方。違えば null */\n        public {class} as{class}() {{\n            return {}.equals(json.get({})) ? new {class}(json) : null;\n        }}",
+            "\n        /** {} が {} の形なら、そのビュー。違えば null */\n        public {class} as{class}() {{\n            return {}.equals(json.get({})) ? new {class}(json) : null;\n        }}",
             field,
             value,
             quote(value),
@@ -277,7 +277,7 @@ fn render_response(out: &mut String, schema: &Schema, def: &Def) {
     let fields = [
         (
             "v",
-            "メッセージのスキーマの大版",
+            "メッセージのスキーマのメジャーバージョン",
             Ty::UInt { min: 1, max: 1 },
         ),
         (
@@ -308,7 +308,7 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
         .find(|def| RESERVED.contains(&pascal(&def.name).as_str()))
     {
         return Err(format!(
-            "schema/messages.json の {} が、Java の包みが使う型の名前と重なる",
+            "schema/messages.json の {} が、Java のラッパーが使う型の名前と重なる",
             def.name
         ));
     }
@@ -316,8 +316,8 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n");
     out.push_str("\npackage dev.zumen;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n");
-    out.push_str("/**\n * 境界のメッセージの型（決定 0012・0224）。スキーマの定義ごとに 1 つの型がある。\n *\n * <p>型は、JSON のオブジェクト（{@link Map}）を包む見方で、知らない欄もそのまま持つ。列挙は文字列で読み、\n * 知らない値も受け取る（決定 0015）。欄は {@code getXxx} で読み（ない欄と形の違う値は null）、{@code withXxx} で書く。\n */\npublic final class Messages {\n    private Messages() {}\n");
-    out.push_str("\n    /** メッセージの型が継ぐ、JSON のオブジェクトの見方 */\n    public abstract static class Message {\n        /** 包んでいる JSON のオブジェクト */\n        protected final Map<String, Object> json;\n\n        protected Message(Map<String, Object> json) {\n            if (json == null) {\n                throw new NullPointerException(\"json\");\n            }\n            this.json = json;\n        }\n\n        /** 包んでいる JSON のオブジェクト。書き換えると、この見方からも見える */\n        public Map<String, Object> json() {\n            return json;\n        }\n\n        /** 欄を書く。null なら欄を除く。メッセージの型と、その列・表は JSON の値に直して持つ */\n        protected void put(String key, Object value) {\n            if (value == null) {\n                json.remove(key);\n            } else {\n                json.put(key, Json.unwrap(value));\n            }\n        }\n\n        /** JSON の文字列にする */\n        @Override\n        public String toString() {\n            return Json.write(json);\n        }\n    }\n");
+    out.push_str("/**\n * API のメッセージの型（決定 0012・0224）。スキーマの定義ごとに 1 つの型がある。\n *\n * <p>型は、JSON のオブジェクト（{@link Map}）を包むビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、\n * 知らない値も受け取る（決定 0015）。フィールドは {@code getXxx} で読み（ないフィールドと形の違う値は null）、{@code withXxx} で書く。\n */\npublic final class Messages {\n    private Messages() {}\n");
+    out.push_str("\n    /** メッセージの型が継ぐ、JSON のオブジェクトのビュー */\n    public abstract static class Message {\n        /** 包んでいる JSON のオブジェクト */\n        protected final Map<String, Object> json;\n\n        protected Message(Map<String, Object> json) {\n            if (json == null) {\n                throw new NullPointerException(\"json\");\n            }\n            this.json = json;\n        }\n\n        /** 包んでいる JSON のオブジェクト。書き換えると、このビューからも見える */\n        public Map<String, Object> json() {\n            return json;\n        }\n\n        /** フィールドを書く。null ならフィールドを除く。メッセージの型と、その列・表は JSON の値に直して持つ */\n        protected void put(String key, Object value) {\n            if (value == null) {\n                json.remove(key);\n            } else {\n                json.put(key, Json.unwrap(value));\n            }\n        }\n\n        /** JSON の文字列にする */\n        @Override\n        public String toString() {\n            return Json.write(json);\n        }\n    }\n");
     for def in &schema.defs {
         match &def.shape {
             Shape::Object { .. } => render_object(&mut out, schema, def),
@@ -384,26 +384,26 @@ pub fn render_constants(
     out.push_str(
         "// 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。\n",
     );
-    out.push_str("\npackage dev.zumen;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/** 境界の版・状態コードと、シーンの配置（決定 0012・0137・0224） */\npublic final class Constants {\n    private Constants() {}\n");
+    out.push_str("\npackage dev.zumen;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/** API のバージョン・状態コードと、シーンの配置（決定 0012・0137・0224） */\npublic final class Constants {\n    private Constants() {}\n");
     let versions = &boundary.versions;
     let _ = writeln!(
         out,
-        "\n    /** パッケージの版（決定 0015） */\n    public static final String VERSION = {};",
+        "\n    /** パッケージのバージョン（決定 0015） */\n    public static final String VERSION = {};",
         quote(version)
     );
     let _ = writeln!(
         out,
-        "\n    /** ABI の大版 */\n    public static final int ABI_VERSION = {};",
+        "\n    /** ABI のメジャーバージョン */\n    public static final int ABI_VERSION = {};",
         versions.abi
     );
     let _ = writeln!(
         out,
-        "\n    /** メッセージのスキーマの大版（要求と応答の v） */\n    public static final int SCHEMA_MAJOR = {};",
+        "\n    /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */\n    public static final int SCHEMA_MAJOR = {};",
         versions.schema_major
     );
     let _ = writeln!(
         out,
-        "\n    /** メッセージのスキーマの小版 */\n    public static final int SCHEMA_MINOR = {};",
+        "\n    /** メッセージのスキーマのマイナーバージョン */\n    public static final int SCHEMA_MINOR = {};",
         versions.schema_minor
     );
 
@@ -431,25 +431,25 @@ pub fn render_constants(
 
     let _ = writeln!(
         out,
-        "\n    /** シーンの大版。区画の意味を変えるときに上げる */\n    public static final int SCENE_MAJOR = {};",
+        "\n    /** シーンのメジャーバージョン。セクションの意味を変えるときに上げる */\n    public static final int SCENE_MAJOR = {};",
         scene.versions.major
     );
     let _ = writeln!(
         out,
-        "\n    /** シーンの小版。区画か値を足すたびに上げる */\n    public static final int SCENE_MINOR = {};",
+        "\n    /** シーンのマイナーバージョン。セクションか値を足すたびに上げる */\n    public static final int SCENE_MINOR = {};",
         scene.versions.minor
     );
     out.push_str("\n    /** 番号の「なし」（u32 の最大）を int で読んだ値 */\n    public static final int SCENE_NONE = -1;\n");
 
-    out.push_str("\n    /** シーンの区画の値の型 */\n    public enum ColumnType {\n        /** u8 */\n        U8(1),\n        /** u32 */\n        U32(4),\n        /** f32 */\n        F32(4),\n        /** f64 */\n        F64(8);\n\n        /** 値のバイト数 */\n        public final int size;\n\n        ColumnType(int size) {\n            this.size = size;\n        }\n    }\n");
-    out.push_str("\n    /** シーンの区画の定義 */\n    public static final class SceneSection {\n        /** 名前 */\n        public final String name;\n        /** 値の型 */\n        public final ColumnType type;\n        /** 行ごとの値の数 */\n        public final int width;\n\n        SceneSection(String name, ColumnType type, int width) {\n            this.name = name;\n            this.type = type;\n            this.width = width;\n        }\n    }\n");
-    out.push_str("\n    /** シーンの区画の定義。番号の順。書き換えない */\n    public static final SceneSection[] SCENE_SECTIONS = {\n");
+    out.push_str("\n    /** シーンのセクションの値の型 */\n    public enum ColumnType {\n        /** u8 */\n        U8(1),\n        /** u32 */\n        U32(4),\n        /** f32 */\n        F32(4),\n        /** f64 */\n        F64(8);\n\n        /** 値のバイト数 */\n        public final int size;\n\n        ColumnType(int size) {\n            this.size = size;\n        }\n    }\n");
+    out.push_str("\n    /** シーンのセクションの定義 */\n    public static final class SceneSection {\n        /** 名前 */\n        public final String name;\n        /** 値の型 */\n        public final ColumnType type;\n        /** 行ごとの値の数 */\n        public final int width;\n\n        SceneSection(String name, ColumnType type, int width) {\n            this.name = name;\n            this.type = type;\n            this.width = width;\n        }\n    }\n");
+    out.push_str("\n    /** シーンのセクションの定義。番号の順。書き換えない */\n    public static final SceneSection[] SCENE_SECTIONS = {\n");
     for section in &scene.sections {
         let ty = COLUMNS
             .iter()
             .find(|(ty, _)| *ty == section.ty)
             .map(|(_, ty)| *ty)
-            .ok_or_else(|| format!("区画 {} の型 {} を読めない", section.name, section.ty))?;
+            .ok_or_else(|| format!("セクション {} の型 {} を読めない", section.name, section.ty))?;
         javadoc(
             &mut out,
             "        ",
@@ -506,7 +506,7 @@ mod tests {
                 "request_common": {
                   "description": "共通",
                   "type": "object",
-                  "properties": { "v": { "description": "版", "type": "integer", "minimum": 1 } },
+                  "properties": { "v": { "description": "バージョン", "type": "integer", "minimum": 1 } },
                   "required": ["v"]
                 },
                 "open_request": {

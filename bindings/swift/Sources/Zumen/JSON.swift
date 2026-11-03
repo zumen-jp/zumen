@@ -1,8 +1,8 @@
 import Foundation
 
-/// JSON の値（RFC 8259）。境界の要求と応答を、この値で読み書きする（決定 0225）。
+/// JSON の値（RFC 8259）。API の要求と応答を、この値で読み書きする（決定 0225）。
 ///
-/// 整数は `Int64` に収まれば `integer`、収まらないか小数点か指数があれば `number` で読む。オブジェクトの欄の順は持たない。
+/// 整数は `Int64` に収まれば `integer`、収まらないか小数点か指数があれば `number` で読む。オブジェクトのフィールドの順は持たない。
 public enum JSON: Sendable, Equatable {
     case null
     case bool(Bool)
@@ -54,13 +54,13 @@ public enum JSON: Sendable, Equatable {
         return nil
     }
 
-    /// オブジェクトなら、その欄
+    /// オブジェクトなら、そのフィールド
     public var objectValue: [String: JSON]? {
         if case .object(let value) = self { return value }
         return nil
     }
 
-    /// オブジェクトの欄。オブジェクトでないか、欄がなければ nil
+    /// オブジェクトのフィールド。オブジェクトでないか、フィールドがなければ nil
     public subscript(key: String) -> JSON? {
         objectValue?[key]
     }
@@ -121,7 +121,7 @@ public enum JSON: Sendable, Equatable {
             out += "]"
         case .object(let fields):
             out += "{"
-            // 欄の順は持たないので、名前の順に書いて、同じ値なら同じ文字列にする
+            // フィールドの順は持たないので、名前の順に書いて、同じ値なら同じ文字列にする
             for (index, key) in fields.keys.sorted().enumerated() {
                 if index > 0 { out += "," }
                 JSON.writeString(&out, key)
@@ -210,7 +210,7 @@ public enum JSON: Sendable, Equatable {
             while true {
                 space()
                 guard at < bytes.count, bytes[at] == UInt8(ascii: "\"") else {
-                    throw error("欄の名前がない")
+                    throw error("フィールドの名前がない")
                 }
                 let key = try string()
                 space()
@@ -384,7 +384,7 @@ public enum JSON: Sendable, Equatable {
     }
 }
 
-/// JSON の値と行き来できる型。メッセージの型の欄の型に使う
+/// JSON の値と行き来できる型。メッセージの型のフィールドの型に使う
 public protocol JSONRepresentable {
     /// JSON の値から読む。形が違えば nil
     init?(jsonValue: JSON)
@@ -458,7 +458,7 @@ extension Dictionary: JSONRepresentable where Key == String, Value: JSONRepresen
     public var jsonValue: JSON { .object(mapValues(\.jsonValue)) }
 }
 
-/// メッセージの型が従う、JSON のオブジェクトの見方。知らない欄も `json` にそのまま持つ
+/// メッセージの型が従う、JSON のオブジェクトのビュー。知らないフィールドも `json` にそのまま持つ
 public protocol Message: JSONRepresentable, Sendable {
     /// 包んでいる JSON のオブジェクト
     var json: [String: JSON] { get set }
@@ -485,17 +485,17 @@ extension Message {
         return copy
     }
 
-    /// 欄を読む。ない欄と形の違う値は nil
+    /// フィールドを読む。ないフィールドと形の違う値は nil
     public func readField<T: JSONRepresentable>(_ key: String) -> T? {
         json[key].flatMap(T.init(jsonValue:))
     }
 
-    /// 欄を書く。nil なら欄を除く
+    /// フィールドを書く。nil ならフィールドを除く
     public mutating func writeField<T: JSONRepresentable>(_ key: String, _ value: T?) {
         json[key] = value?.jsonValue
     }
 
-    /// 目印の欄が値と同じなら、その形の見方
+    /// タグのフィールドが値と同じなら、その形のビュー
     public func taggedView<T: Message>(_ key: String, _ value: String) -> T? {
         json[key] == .string(value) ? T(json: json) : nil
     }

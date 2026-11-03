@@ -7,7 +7,7 @@ import Base from '../layouts/Base.astro';
 const policies = [
   { title: 'どこでも同じ結果', body: 'ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。', link: decision('0007-single-rust-implementation.md') },
   { title: '黙って捨てない', body: '読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。', link: decision('0009-diagnostics-and-catalog.md') },
-  { title: 'ID は契約', body: '同じバイト列からは、どの版でも同じ ID を返します。' },
+  { title: 'ID は契約', body: '同じバイト列からは、どのバージョンでも同じ ID を返します。' },
   { title: 'ファイルを信用しない', body: '大きさ・数・作業量に上限を付けて読みます。壊れた図面でも止まりません。', link: decision('0010-budget-by-work.md') },
   { title: '日本の実務を優先', body: '電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。' },
 ];
@@ -24,7 +24,7 @@ const policies = [
           <tbody>
             <tr><th scope="row">名称</th><td>zumen（ずめん）</td></tr>
             <tr><th scope="row">内容</th><td>日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群</td></tr>
-            <tr><th scope="row">仕組み</th><td>読み書きと解析を Rust の 1 つの実装にし、ネイティブ・wasm・各言語の結合で、ビット単位で同じ出力を返します。</td></tr>
+            <tr><th scope="row">仕組み</th><td>読み書きと解析を Rust の 1 つの実装にし、ネイティブ・wasm・各言語のバインディングで、ビット単位で同じ出力を返します。</td></tr>
             <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
             <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
             <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
@@ -64,7 +64,7 @@ const policies = [
         </div>
         <div class="flow-arrow" aria-hidden="true">⇄</div>
         <div class="flow-box">
-          <h3>境界（API）</h3>
+          <h3>API（API）</h3>
           <ul><li>数個の関数</li><li>スキーマで定めたメッセージ</li><li>ネイティブ・wasm・プロセスの外・HTTP</li><li>足すだけで、消さない</li></ul>
         </div>
         <div class="flow-arrow" aria-hidden="true">⇄</div>
@@ -78,7 +78,7 @@ const policies = [
           <ul><li>SXF（SFC・P21）</li><li>JWW・JWC・JWS</li><li>DXF・DWG</li><li>IFC・PDF ほか</li></ul>
         </div>
       </div>
-      <p class="note">文言はコアに持たせず、日本語と英語のカタログから引きます。各言語への約束は、適合試験のハッシュで確かめます。</p>
+      <p class="note">文言はコアに持たせず、日本語と英語のカタログから引きます。各言語への約束は、適合テストのハッシュで確かめます。</p>
     </div>
   </section>
 </Base>

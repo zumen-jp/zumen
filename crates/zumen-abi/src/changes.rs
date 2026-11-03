@@ -193,7 +193,7 @@ pub(crate) fn changes(
                     text_style_work(Some(&edit.name), &edit.font, &edit.big_font),
                 )
                 .map_err(|stop| stopped(cx, stop))?;
-                // 書かない欄は、Standard と同じにする
+                // 書かないフィールドは、Standard と同じにする
                 let standard = drawing.text_styles.iter().find(|style| {
                     style.name.eq_ignore_ascii_case("Standard") && style.definition.is_some()
                 });
@@ -267,7 +267,7 @@ pub(crate) fn changes(
                 };
                 cx.check(Kind::Work, fields.work())
                     .map_err(|stop| stopped(cx, stop))?;
-                // 書かない欄は、Standard と同じにする。なければ初めの子でない寸法スタイル、それもなければ DXF の
+                // 書かないフィールドは、Standard と同じにする。なければ初めの子でない寸法スタイル、それもなければ DXF の
                 // 既定の値。apply が写すレコードと同じ
                 let styles = &drawing.dimension_styles;
                 let standard = styles
@@ -341,7 +341,7 @@ pub(crate) fn changes(
                     ),
                 )
                 .map_err(|stop| stopped(cx, stop))?;
-                // 書かない欄は、Continuous と同じにする
+                // 書かないフィールドは、Continuous と同じにする
                 let continuous = drawing.line_types.iter().find(|line_type| {
                     line_type.name.eq_ignore_ascii_case("Continuous")
                         && line_type.definition.is_some()
@@ -847,7 +847,7 @@ fn has_style_id(geometry: &messages::Geometry) -> bool {
     }
 }
 
-/// 文字スタイルを ID で指した形の値を、名前で指す形の値にする。合わなければ、その欄の名前を返す
+/// 文字スタイルを ID で指した形の値を、名前で指す形の値にする。合わなければ、そのフィールドの名前を返す
 fn named_style<'g>(
     geometry: &'g messages::Geometry,
     tables: Option<&TableLookup<'_>>,
@@ -905,7 +905,7 @@ fn named_style<'g>(
     Ok(Cow::Owned(geometry))
 }
 
-/// 名前か ID で指したレイヤ。どちらもなければ `None`。合わなければ、その欄の名前を返す
+/// 名前か ID で指したレイヤ。どちらもなければ `None`。合わなければ、そのフィールドの名前を返す
 fn layer_of(
     name: Option<&str>,
     wanted: Option<&str>,
@@ -931,7 +931,7 @@ fn layer_of(
     })
 }
 
-/// 形を形の値で置き換えた要素。合わない欄があれば、その欄の名前を返す
+/// 形を形の値で置き換えた要素。合わないフィールドがあれば、そのフィールドの名前を返す
 pub(crate) fn count_old_element<P>(element: &Element<P>, cx: &mut Cx<'_>) -> Result<(), Failed> {
     let source = element.source.id().map_or(0, str::len);
     let size = match &element.shape {
@@ -997,7 +997,7 @@ fn reshaped<P: geometry::Spot>(
     })
 }
 
-/// 足す要素。レイヤを指さなければ「0」に置き、色・線種・線幅はレイヤに従う。合わない欄があれば、その欄の名前を返す
+/// 足す要素。レイヤを指さなければ「0」に置き、色・線種・線幅はレイヤに従う。合わないフィールドがあれば、そのフィールドの名前を返す
 fn added(
     edit: &messages::AddEdit,
     geometry: &messages::Geometry,
@@ -1069,7 +1069,7 @@ fn attributed<P: geometry::Spot>(
     }
 }
 
-/// 要求のスタイルの変更を、図面モデルの変更にする。合わない欄があれば、その欄の名前を返す
+/// 要求のスタイルの変更を、図面モデルの変更にする。合わないフィールドがあれば、そのフィールドの名前を返す
 fn restyle(
     edit: &messages::RestyleEdit,
     tables: &TableLookup<'_>,
@@ -1181,8 +1181,8 @@ fn line_weight_change(change: &messages::LineWeightChange) -> Result<Inherit<Lin
     })
 }
 
-/// レイヤの変更と追加の、書いた欄（決定 0162）
-/// 文字スタイルの変更で書いた欄（決定 0163）
+/// レイヤの変更と追加の、書いたフィールド（決定 0162）
+/// 文字スタイルの変更で書いたフィールド（決定 0163）
 struct TextStyleFields<'e> {
     name: Option<&'e str>,
     font: Option<&'e messages::Font>,
@@ -1242,8 +1242,8 @@ fn font_change(font: &messages::Font) -> Result<Option<zumen_drawing::Font>, ()>
     }))
 }
 
-/// `base` に、書いた欄を重ねた文字スタイル。定義がなければ、Standard と同じ既定の値から始める。合わなければ、
-/// その欄の名前を返す。書けるかどうか（フォントの種類・傾きの範囲など）は、apply が形式ごとに確かめる
+/// `base` に、書いたフィールドを重ねた文字スタイル。定義がなければ、Standard と同じ既定の値から始める。合わなければ、
+/// そのフィールドの名前を返す。書けるかどうか（フォントの種類・傾きの範囲など）は、apply が形式ごとに確かめる
 fn text_style_change(
     base: &TextStyle,
     fields: &TextStyleFields<'_>,
@@ -1288,7 +1288,7 @@ fn text_style_change(
     })
 }
 
-/// 寸法スタイルの変更で書いた欄（決定 0165）
+/// 寸法スタイルの変更で書いたフィールド（決定 0165）
 struct DimensionStyleFields<'e> {
     name: Option<&'e str>,
     ends: Option<&'e [String]>,
@@ -1311,8 +1311,8 @@ impl DimensionStyleFields<'_> {
     }
 }
 
-/// `base` に、書いた欄を重ねた寸法スタイル（決定 0165）。端部記号は DXF のブロックの名前で、空の名前は既定の矢印。
-/// 合わなければ、その欄の名前を返す。書けるかどうか（ブロックがあるか・名前の決まり）は、apply が形式ごとに確かめる
+/// `base` に、書いたフィールドを重ねた寸法スタイル（決定 0165）。端部記号は DXF のブロックの名前で、空の名前は既定の矢印。
+/// 合わなければ、そのフィールドの名前を返す。書けるかどうか（ブロックがあるか・名前の決まり）は、apply が形式ごとに確かめる
 fn dimension_style_edit(
     base: &DimensionStyle,
     fields: &DimensionStyleFields<'_>,
@@ -1366,8 +1366,8 @@ fn line_type_work(name: Option<&str>, description: Option<&str>, pattern: Option
     text.saturating_add(pattern.map_or(0, |pattern| pattern.len() as u64))
 }
 
-/// `base` に、書いた欄を重ねた線種（決定 0164）。定義がなければ、説明も列もない実線から始める。列を書けば、
-/// 文書の単位の列にする。合わなければ、その欄の名前を返す。書けるかどうか（添える形と文字・要素の数）は、
+/// `base` に、書いたフィールドを重ねた線種（決定 0164）。定義がなければ、説明も列もない実線から始める。列を書けば、
+/// 文書の単位の列にする。合わなければ、そのフィールドの名前を返す。書けるかどうか（添える形と文字・要素の数）は、
 /// apply が形式ごとに確かめる
 fn line_type_edit(
     base: &LineType,
@@ -1412,8 +1412,8 @@ struct LayerFields<'e> {
     line_weight: Option<&'e messages::LineWeightChange>,
 }
 
-/// `base` に、書いた欄を重ねたレイヤ。凍結するだけなら表示もしない。表示するだけか、凍結を解くだけなら、
-/// 凍結を解いて表示する。継承は書けない。合わなければ、その欄の名前を返す
+/// `base` に、書いたフィールドを重ねたレイヤ。凍結するだけなら表示もしない。表示するだけか、凍結を解くだけなら、
+/// 凍結を解いて表示する。継承は書けない。合わなければ、そのフィールドの名前を返す
 fn layer_change(
     base: &Layer,
     fields: &LayerFields<'_>,

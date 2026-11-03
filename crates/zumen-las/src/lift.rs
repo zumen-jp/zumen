@@ -1,6 +1,6 @@
 //! 点のレコードを、点群の領域モデルの列にする（決定 0232）。
 //!
-//! X を東（`easting`）、Y を北（`northing`）、Z を標高にし、倍率とずれを当てる。座標系は、WKT の印があれば WKT の
+//! X を東（`easting`）、Y を北（`northing`）、Z を標高にし、倍率とずれを当てる。座標系は、WKT のフラグがあれば WKT の
 //! レコード（`LASF_Projection` の 2112）、なければ GeoTIFF のキーのレコード（同じく 34735）から EPSG のコードを読む。
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};

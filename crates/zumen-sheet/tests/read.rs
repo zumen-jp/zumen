@@ -1,4 +1,4 @@
-//! 試験の中で作った xlsx と CSV を読む（#391）。
+//! テストの中で作った xlsx と CSV を読む（#391）。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_sheet::{Area, Book, Encoding, Kind, read_csv, read_xlsx};

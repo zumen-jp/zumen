@@ -24,15 +24,15 @@
 
 1 にする。属性の位置は、IFC 4.3 ADD2 の実体の定義（「属性」の節）による。
 
-- **版。** `FILE_SCHEMA` が IFC4X3 のファイルだけを移す。ほかの版は `ifc.version.unsupported` を返す。IFC4X1 の `IfcAlignmentCurve` は扱わない。
-- **入れ子。** `IfcAlignment` の入れ子の子の `IfcAlignmentHorizontal`・`IfcAlignmentVertical`・`IfcAlignmentCant` の、入れ子の子の `IfcAlignmentSegment` の 8 DesignParameters を、書いた順に読む。長さ 0 の区間は、線形の終わりを示す印なので移さない。
+- **版。** `FILE_SCHEMA` が IFC4X3 のファイルだけを移す。ほかのバージョンは `ifc.version.unsupported` を返す。IFC4X1 の `IfcAlignmentCurve` は扱わない。
+- **入れ子。** `IfcAlignment` の入れ子の子の `IfcAlignmentHorizontal`・`IfcAlignmentVertical`・`IfcAlignmentCant` の、入れ子の子の `IfcAlignmentSegment` の 8 DesignParameters を、書いた順に読む。長さ 0 の区間は、線形の終わりを示すフラグなので移さない。
 - **平面。** `IfcAlignmentHorizontalSegment` の種類を、次のように対応させる。半径は、IFC では左へ曲がるものを正、0 を直線とするので、符号を反転し、0 を `None` にする。
   - `LINE` は直線、`CIRCULARARC` は円弧にする。
   - `CLOTHOID` はクロソイド、`CUBIC` は 3 次放物線にする。
   - `HELMERTCURVE` はヘルマート曲線、`BLOSSCURVE` はブロス曲線にする。
   - `COSINECURVE` はコサイン曲線、`SINECURVE` はサイン半波長逓減曲線、`VIENNESEBEND` はウィーン曲線にする。
   - ほかの種類は、`ifc.alignment-segment.unsupported` を返して移さない。
-- **縦断。** `IfcAlignmentVerticalSegment` の `CONSTANTGRADIENT`・`PARABOLICARC`・`CIRCULARARC` を移す。円弧の半径の符号は、IFC の符号に頼らず、勾配が減るもの（上に凸）を正にする。縦断のクロソイドは、モデルの半径の持ち方と合うかを試料で確かめるまで、`ifc.alignment-segment.unsupported` を返す。
+- **縦断。** `IfcAlignmentVerticalSegment` の `CONSTANTGRADIENT`・`PARABOLICARC`・`CIRCULARARC` を移す。円弧の半径の符号は、IFC の符号に頼らず、勾配が減るもの（上に凸）を正にする。縦断のクロソイドは、モデルの半径の持ち方と合うかをサンプルで確かめるまで、`ifc.alignment-segment.unsupported` を返す。
 - **カント。** `IfcAlignmentCantSegment` を、鉄道のカント（mm）にする。軌間は `IfcAlignmentCant` の 8 RailHeadDistance、変わり方は種類の名前のまま持つ。
 - **測点。** 線形の入れ子の子の `IfcReferent`（`STATION`）の `Pset_Stationing` を読む。`IncomingStation` のない初めのものが初めの測点を決め、`IncomingStation` のあるものを測点の不連続にする。距離は `IfcLinearPlacement` の `IfcPointByDistanceExpression` の 1 DistanceAlong から取る。測点がなければ、初めの測点を 0 にして `ifc.station.missing` を返す。
 - **単位。** `IfcProject` の単位の割り当ての長さと平面角を読む。SI の単位と接頭辞、`IfcConversionBasedUnit`（度など）を扱う。解けなければ、メートルかラジアンとして `ifc.civil-unit.assumed` を返す。
@@ -44,17 +44,17 @@
   - 点は 1 Coordinates の `IfcCartesianPointList3D`、三角形は 4 CoordIndex から読む。5 PnIndex があれば、その番号で点を並べ直す。
   - 形を持つ要素（`IfcShapeRepresentation` → `IfcProductDefinitionShape` → 要素）の配置で直し、`IfcMapConversion` で地図の空間に置く。要素が見つからなければ、`ifc.placement.unsupported` を返して、プロジェクトの空間の点のまま置く。
   - ID と名前は、その要素の `GlobalId` と名前にする。役割は、`IfcGeographicElement` の `TERRAIN` を現況にし、ほかは種類の名前のまま持つ。
-  - 三角形ごとの印（6 Flags）は、意味を試料で確かめるまで読まない。0 でない印があれば `ifc.civil-geometry.dropped` を返し、三角形はすべて移す。
+  - 三角形ごとのフラグ（6 Flags）は、意味をサンプルで確かめるまで読まない。0 でないフラグがあれば `ifc.civil-geometry.dropped` を返し、三角形はすべて移す。
 - **横断。** 横断の形（`IfcOpenCrossProfileDef`・`IfcSectionedSolidHorizontal`・`IfcSectionedSurface`）は、まだ移さず、`ifc.civil-geometry.dropped` を返す。
-  - 開いた断面（`IfcOpenCrossProfileDef`）は、幅と勾配の列から横断の線（中心からの離れと高さ）を作れる。ただし、勾配の符号と、断面の位置（`IfcAxis2PlacementLinear`）を線形の追加距離に結ぶ書き方を、試料で確かめてから移す。
+  - 開いた断面（`IfcOpenCrossProfileDef`）は、幅と勾配の列から横断の線（中心からの離れと高さ）を作れる。ただし、勾配の符号と、断面の位置（`IfcAxis2PlacementLinear`）を線形の追加距離に結ぶ書き方を、サンプルで確かめてから移す。
   - 閉じた断面（舗装の層などの立体）は、モデルの横断の線が開いた線なので移さない。形が要るときは、3D のシーンの側で扱う。
-- **境界。** `open` は、IFC-SPF を建物モデルとして開き、`IfcAlignment` があれば土木の領域モデルにもする。`civil`・`deviation` の op は、その土木の領域モデルを使う。土木の op は描画のモジュールにあるので、BIM と描画の両方を持つビルドだけで使える。モジュールの分け方は #380 で決める。
+- **API。** `open` は、IFC-SPF を建物モデルとして開き、`IfcAlignment` があれば土木の領域モデルにもする。`civil`・`deviation` の op は、その土木の領域モデルを使う。土木の op は描画のモジュールにあるので、BIM と描画の両方を持つビルドだけで使える。モジュールの分け方は #380 で決める。
 
 ## 影響
 
-- 同じ線形の J-LandXML と IFC4.3 が、同じ区間・測点・座標系になることを、`zumen-ifc` の試験で確かめる。
+- 同じ線形の J-LandXML と IFC4.3 が、同じ区間・測点・座標系になることを、`zumen-ifc` のテストで確かめる。
 - `zumen-ifc` に、土木の領域モデルへ移す機能（`civil`）を足す。`IfcFile` が建物モデルと土木の領域モデルの 2 つに移せるので、呼ぶ側は型を名指す。
-- 試料の IFC4.3 の線形は、まだない。試料を得たら、半径の符号・縦断のクロソイド・測点の書き方・三角形の印・開いた断面の勾配の符号を確かめる。
+- サンプルの IFC4.3 の線形は、まだない。サンプルを得たら、半径の符号・縦断のクロソイド・測点の書き方・三角形のフラグ・開いた断面の勾配の符号を確かめる。
 
 ## 参照
 

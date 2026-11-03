@@ -1,13 +1,13 @@
 // 生成したファイル。手で直さない。
 // 元は schema/boundary.toml で、`cargo xtask codegen` で作り直す。
 
-//! 境界の版・状態コード・関数の形（決定 0012・0015）。
+//! API のバージョン・状態コード・関数の形（決定 0012・0015）。
 
-/// ABI の大版。`zm_abi_version` が返す
+/// ABI のメジャーバージョン。`zm_abi_version` が返す
 pub const ABI_VERSION: u32 = 1;
-/// メッセージのスキーマの大版。要求と応答の `v`
+/// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
-/// メッセージのスキーマの小版。`capabilities` が返す
+/// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
 pub const SCHEMA_MINOR: u64 = 63;
 
 /// 状態コード。理由は応答の診断で返す

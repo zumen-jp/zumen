@@ -1,4 +1,4 @@
-//! 実行の形 `process`: 子プロセスの CLI に、同じメッセージを送る（決定 0013・0200・0201）。
+//! 実行の形態 `process`: 子プロセスの CLI に、同じメッセージを送る（決定 0013・0200・0201）。
 //!
 //! ライブラリが `zumen serve --stdio` を子プロセスとして起こし、標準入出力の JSON-RPC（1 行に 1 つ）で
 //! `push`・`call`・`take`・`cancel` を送る。応答の JSON は、子プロセスが返したものを書き換えずに返す。
@@ -11,7 +11,7 @@
 //! - 子プロセスが落ちたか、答えが読めなければ、その呼び出しは `call.process.caught` で失敗する。
 //!   セッションは作り直すしかない
 //!
-//! この形はコアではなくホストの仕事なので、時計（`Instant`）を読む。結果の中身には効かない。
+//! この形態はコアではなくホストの仕事なので、時計（`Instant`）を読む。結果の中身には効かない。
 #![allow(clippy::disallowed_methods)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -283,7 +283,7 @@ mod sigpipe {
         }
     }
 
-    /// 試験のために、プロセスの SIGPIPE の扱いを既定（止まる）か無視に変え、前の扱いを返す
+    /// テストのために、プロセスの SIGPIPE の扱いを既定（止まる）か無視に変え、前の扱いを返す
     #[cfg(test)]
     pub(super) fn set_default(default: bool) -> bool {
         unsafe extern "C" {
@@ -796,8 +796,8 @@ mod tests {
     fn survives_writing_to_a_child_that_has_ended() {
         let mut child = Child::spawn(Path::new("/usr/bin/true")).unwrap();
         child.process.wait().unwrap();
-        // Rust の試験は SIGPIPE を無視して始まる。C のホストと同じ既定の扱い（止まる）にして書く。
-        // ほかの試験の子プロセスが、exec までのあいだ読み口を持つことがあるので、失敗するまで書く
+        // Rust のテストは SIGPIPE を無視して始まる。C のホストと同じ既定の扱い（止まる）にして書く。
+        // ほかのテストの子プロセスが、exec までのあいだ読み口を持つことがあるので、失敗するまで書く
         let ignored = !sigpipe::set_default(true);
         let mut written = true;
         for _ in 0..100 {
@@ -839,7 +839,7 @@ mod tests {
         let path = dir.join("zumen");
         std::fs::write(&path, "#!/bin/sh\nexec sleep 60\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // Linux では、ほかの試験のスレッドが fork した子が書き込みの記述子を exec まで
+        // Linux では、ほかのテストのスレッドが fork した子が書き込みの記述子を exec まで
         // 持つので、書いたばかりのファイルの実行が ETXTBSY で一時的に失敗しうる
         for _ in 0..100 {
             if let Some(child) = Child::spawn(&path) {

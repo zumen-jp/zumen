@@ -1,11 +1,11 @@
 //! ZIP の L0（決定 0008・0210）。
 //!
 //! 中央ディレクトリを読み、項目の名前と範囲を返す。項目は、求められたときに stored か deflate で展開し、
-//! CRC-32 を確かめる。ZIP64 は読み、分けた書庫・暗号化した項目・ほかの圧縮の方式は読まない。
+//! CRC-32 を確かめる。ZIP64 は読み、分けたアーカイブ・暗号化した項目・ほかの圧縮の方式は読まない。
 //!
-//! 安全でない名前・範囲の重なる項目・壊れた見出しの項目は、読まずに診断を返し、残りの項目を読む。
+//! 安全でない名前・範囲の重なる項目・壊れたヘッダーの項目は、読まずに診断を返し、残りの項目を読む。
 //!
-//! [`write`] は、項目を stored で並べた書庫を書く（決定 0220）。
+//! [`write`] は、項目を stored で並べたアーカイブを書く（決定 0220）。
 
 mod inflate;
 mod read;
@@ -30,7 +30,7 @@ pub enum Method {
     Deflate,
 }
 
-/// 書庫の項目
+/// アーカイブの項目
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     name: String,
@@ -67,7 +67,7 @@ impl Entry {
         self.size
     }
 
-    /// 局所の見出しから、データの終わりまでの範囲
+    /// ローカルヘッダーから、データの終わりまでの範囲
     pub fn span(&self) -> Range<usize> {
         self.header.start..self.data.end
     }
@@ -78,7 +78,7 @@ impl Entry {
     }
 }
 
-/// 読んだ ZIP の書庫
+/// 読んだ ZIP のアーカイブ
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Archive<'a> {
     src: Cow<'a, [u8]>,
@@ -141,7 +141,7 @@ impl<'a> Archive<'a> {
         Ok(data)
     }
 
-    /// 書庫の中の書庫を展開して読む。入れ子の段の数を `depth` で数える
+    /// アーカイブの中のアーカイブを展開して読む。入れ子の段の数を `depth` で数える
     pub fn open(&self, entry: &Entry, cx: &mut Cx) -> Result<Archive<'static>, Error> {
         let depth = self.depth + 1;
         let mut entered = 0;

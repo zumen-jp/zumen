@@ -193,7 +193,7 @@ fn positions(
     Ok((length, positions))
 }
 
-/// 要求の線形をモデルの線形にする。区間の種類に要る欄がなければ、失敗にする
+/// 要求の線形をモデルの線形にする。区間の種類に要るフィールドがなければ、失敗にする
 fn alignment(request: &CivilAlignment, cx: &mut Cx<'_>) -> Result<Alignment, Failed> {
     let mut horizontal = Vec::with_capacity(request.horizontal.len());
     for (index, segment) in request.horizontal.iter().enumerate() {

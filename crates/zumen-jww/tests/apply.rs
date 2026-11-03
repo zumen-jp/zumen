@@ -1,4 +1,4 @@
-//! 図面モデルの変更を、JWW の図形の一覧に書き戻す（決定 0168）。入力は、どれも試験の中で作る。
+//! 図面モデルの変更を、JWW の図形の一覧に書き戻す（決定 0168）。入力は、どれもテストの中で作る。
 
 mod common;
 
@@ -14,7 +14,7 @@ use zumen_drawing::{
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Apply, Codec, Error, Lift, testkit};
 
-/// グループ 0 は縮尺 1/100。線・円・円弧・点・文字と、線を 1 本持つブロックの定義。レコードは、見出し・図形 5 つ・
+/// グループ 0 は縮尺 1/100。線・円・円弧・点・文字と、線を 1 本持つブロックの定義。レコードは、ヘッダー・図形 5 つ・
 /// 定義・定義の中の線・画像の件数
 #[cfg(test)]
 fn src() -> Vec<u8> {
@@ -281,10 +281,10 @@ fn rewriting_lists_without_definitions_writes_their_count_once() {
     image.extend(3u32.to_le_bytes());
     image.extend(b"abc");
     let tails: [(u32, Vec<u8>, &[&str]); 4] = [
-        // 版 700 からは、定義の一覧の後に画像の一覧が続く
+        // バージョン 700 からは、定義の一覧の後に画像の一覧が続く
         (700, 0u32.to_le_bytes().to_vec(), &["image-count"]),
         (700, image, &["image-count", "image"]),
-        // 版 700 より前は定義の件数で終わり、件数は残りのレコードに入る
+        // バージョン 700 より前は定義の件数で終わり、件数は残りのレコードに入る
         (600, Vec::new(), &["trailer"]),
         // 読めない残りは、定義の件数ごと残りのレコードになり、そのまま写す
         (700, vec![0, 0, 0, 0, 0xEE], &["trailer"]),
@@ -298,7 +298,7 @@ fn rewriting_lists_without_definitions_writes_their_count_once() {
         let drawing = lift(&input);
         let line = &input.records()[1];
         let (span, body) = (line.span().len(), line.body().len());
-        // 線を足すと、番号の印（2 バイト）と中身が増える。除くと、クラスの名前ごと線のレコードが減る
+        // 線を足すと、番号のタグ（2 バイト）と中身が増える。除くと、クラスの名前ごと線のレコードが減る
         let cases = [
             (
                 Edit::Add {
@@ -522,7 +522,7 @@ fn edits_are_written_into_the_entity_lists() {
             "image-count",
         ]
     );
-    // 見出しと画像の件数は、元のバイトのまま
+    // ヘッダーと画像の件数は、元のバイトのまま
     let header = reread.records()[0].span();
     assert_eq!(out[header.clone()], src[header]);
     assert!(out.ends_with(&0u32.to_le_bytes()));

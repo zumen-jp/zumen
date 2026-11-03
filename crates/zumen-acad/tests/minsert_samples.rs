@@ -1,11 +1,11 @@
-//! AutoCAD で作った MINSERT の公開試料を読む（#316、決定 0161）。
+//! AutoCAD で作った MINSERT の公開サンプルを読む（#316、決定 0161）。
 
 use std::path::PathBuf;
 use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_sdk::Codec;
 
-/// 各試料を固定の名前で開く。欠けていれば試験を失敗させる。
+/// 各サンプルを固定の名前で開く。欠けていればテストを失敗させる。
 #[cfg(test)]
 fn samples() -> Vec<PathBuf> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
@@ -43,7 +43,7 @@ fn value(object: &Object, code: i16) -> Option<&Data> {
         .map(|value| &value.data)
 }
 
-/// 試料を作る台本（xtask/autocad/samples.lsp）の数と間隔、属性を DWG・DXF から読む。
+/// サンプルを作る台本（xtask/autocad/samples.lsp）の数と間隔、属性を DWG・DXF から読む。
 #[test]
 fn autocad_minsert_values_and_owned_attributes_are_read() {
     for path in samples() {

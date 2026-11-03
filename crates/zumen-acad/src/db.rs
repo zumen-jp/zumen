@@ -2,11 +2,11 @@
 //!
 //! DXF と DWG は、同じデータベースを別の方法で符号化したもの。表は、オブジェクトごとに種類と、
 //! DXF のグループ・コードで名付けた値を持つ。値の型は、グループ・コードの範囲で決める
-//! （DXF Reference「Group Code Value Types」）。DWG のコーデックも、読んだ欄を同じ名前で表に置く。
+//! （DXF Reference「Group Code Value Types」）。DWG のコーデックも、読んだフィールドを同じ名前で表に置く。
 //!
-//! 見出しの変数も、変数の名前（`$INSUNITS` など）ごとに同じ形の値で持つ。DWG のコーデックは、読んだ変数だけを置く。
+//! ヘッダーの変数も、変数の名前（`$INSUNITS` など）ごとに同じ形の値で持つ。DWG のコーデックは、読んだ変数だけを置く。
 //!
-//! 型付きの見方（[`Object::line`] など）も表の上にあり、どちらの符号化にも同じように使える。
+//! 型付きのビュー（[`Object::line`] など）も表の上にあり、どちらの符号化にも同じように使える。
 //!
 //! 元のバイトは、符号化ごとのファイルモデル（[`crate::DxfFile`]・[`crate::DwgFile`]）が持つ。表のオブジェクトは、
 //! [`Origin`] で元のレコードを指す。
@@ -19,7 +19,7 @@ pub struct AcadDb {
     objects: Vec<Object>,
     /// ハンドルから、最初にそのハンドルを持つオブジェクトの番号
     handles: BTreeMap<u64, usize>,
-    /// 見出しの変数の名前から、その値
+    /// ヘッダーの変数の名前から、その値
     variables: BTreeMap<Vec<u8>, Vec<Value>>,
 }
 
@@ -107,17 +107,17 @@ impl AcadDb {
         self.handles.get(&handle).copied()
     }
 
-    /// 見出しの変数を置く。同じ名前がすでにあれば置き換える
+    /// ヘッダーの変数を置く。同じ名前がすでにあれば置き換える
     pub fn set_variable(&mut self, name: &[u8], values: Vec<Value>) {
         self.variables.insert(name.to_vec(), values);
     }
 
-    /// 見出しの変数の値。なければ `None`
+    /// ヘッダーの変数の値。なければ `None`
     pub fn variable(&self, name: &[u8]) -> Option<&[Value]> {
         self.variables.get(name).map(Vec::as_slice)
     }
 
-    /// 見出しの変数の名前と値。名前のバイト列の順に並ぶ
+    /// ヘッダーの変数の名前と値。名前のバイト列の順に並ぶ
     pub fn variables(&self) -> impl Iterator<Item = (&[u8], &[Value])> {
         self.variables
             .iter()
@@ -249,7 +249,7 @@ impl Object {
         })
     }
 
-    /// LINE の型付きの見方（DXF Reference「LINE」）。LINE でなければ `None`
+    /// LINE の型付きのビュー（DXF Reference「LINE」）。LINE でなければ `None`
     pub fn line(&self) -> Option<Result<Line<'_>, ViewError>> {
         (self.kind == b"LINE").then(|| {
             let Some(Data::Text(layer)) = self.first(8) else {
@@ -282,7 +282,7 @@ impl Object {
     }
 }
 
-/// LINE の型付きの見方
+/// LINE の型付きのビュー
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Line<'a> {
     /// 画層の名前（グループ・コード 8）。生のバイト列
@@ -293,7 +293,7 @@ pub struct Line<'a> {
     pub end: [f64; 3],
 }
 
-/// 型付きの見方で値を読めなかった理由
+/// 型付きのビューで値を読めなかった理由
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewError {
     /// このグループ・コードの値がない

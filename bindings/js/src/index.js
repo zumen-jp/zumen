@@ -1,7 +1,7 @@
-// zumen の wasm のモジュールを呼ぶ薄い包み（決定 0011・0194）。
+// zumen の wasm のモジュールを呼ぶ薄いラッパー（決定 0011・0194）。
 //
 // ブラウザーと Node.js の両方で、標準の WebAssembly の API だけを使う。wasm-bindgen は使わない。
-// 境界の関数（schema/boundary.toml）を、セッションのメソッドにして出す。要求と応答の型は messages.d.ts にある。
+// API の関数（schema/boundary.toml）を、セッションのメソッドにして出す。要求と応答の型は messages.d.ts にある。
 
 import { ABI_VERSION, STATUS, WASM_EXPORTS } from "./constants.js";
 
@@ -14,10 +14,10 @@ import { Modules } from "./modules.js";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** 境界の関数が ok でない状態を返した */
+/** API の関数が ok でない状態を返した */
 export class ZumenError extends Error {
   /**
-   * @param {string} operation 呼んだ境界の関数
+   * @param {string} operation 呼んだ API の関数
    * @param {number} code 状態コード
    * @param {Uint8Array | null} bytes 応答の JSON。書かれなかったときは null
    */
@@ -56,7 +56,7 @@ function toBytes(value) {
   throw new TypeError("バイト列か文字列を渡す");
 }
 
-/** 境界の関数と、モジュールのメモリの読み書き */
+/** API の関数と、モジュールのメモリの読み書き */
 class Core {
   constructor(instance) {
     const exports = instance.exports;
@@ -66,7 +66,7 @@ class Core {
     }
     const version = exports.zm_abi_version();
     if (version !== ABI_VERSION) {
-      throw new Error(`ABI の大版が ${version}（この包みは ${ABI_VERSION}）`);
+      throw new Error(`ABI のメジャーバージョンが ${version}（このラッパーは ${ABI_VERSION}）`);
     }
     this.e = exports;
     // プラグインを束ねたモジュール（決定 0243）は、使う前にプラグインを登録する
@@ -209,7 +209,7 @@ export class Zumen {
     this.#core = new Core(instance);
   }
 
-  /** ABI の大版 */
+  /** ABI のメジャーバージョン */
   abiVersion() {
     return this.#core.e.zm_abi_version();
   }

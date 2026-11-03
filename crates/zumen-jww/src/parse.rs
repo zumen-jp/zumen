@@ -1,6 +1,6 @@
-//! JWW のバイト列を、見出し・図形・ブロックの定義・画像のレコードに分ける（決定 0133）。
+//! JWW のバイト列を、ヘッダー・図形・ブロックの定義・画像のレコードに分ける（決定 0133）。
 //!
-//! 見出しの終わりは、知っている欄の大きさを足した位置と、図形の一覧の始まりの形（件数と、新しいクラスの印と
+//! ヘッダーの終わりは、知っているフィールドの大きさを足した位置と、図形の一覧の始まりの形（件数と、新しいクラスのタグと
 //! `CData` で始まるクラスの名前）を探した位置を候補にする。候補ごとに、図形とブロックの定義の一覧を終わりまで
 //! 読み、読めた最初の候補を使う。画像の一覧も終わりまで読めた候補を先に選ぶ。
 
@@ -11,13 +11,13 @@ use zumen_sdk::{Cx, Error, Stop};
 
 use crate::{Class, Record, RecordKind, Tag, stopped};
 
-/// 画像の一覧を持つ最初の版
+/// 画像の一覧を持つ最初のバージョン
 pub(crate) const IMAGES_SINCE: u32 = 700;
 
-/// 図形の共通の欄に線幅が入る最初の版
+/// 図形の共通のフィールドに線幅が入る最初のバージョン
 const PEN_WIDTH_SINCE: u32 = 351;
 
-/// 寸法に SXF の欄が入る最初の版
+/// 寸法に SXF のフィールドが入る最初のバージョン
 const SXF_SINCE: u32 = 420;
 
 /// 図形の一覧に入るクラス
@@ -100,7 +100,7 @@ impl<'s> Reader<'s> {
         self.string().map(|_| ())
     }
 
-    /// MFC の CString。長さは 1・2・4 バイトへ広げ、`FF FE FF` は UTF-16LE の印。UTF-16LE かと、中身を返す
+    /// MFC の CString。長さは 1・2・4 バイトへ広げ、`FF FE FF` は UTF-16LE のマーカー。UTF-16LE かと、中身を返す
     pub(crate) fn string(&mut self) -> Result<(bool, &'s [u8]), Fail> {
         let mut unicode = false;
         let mut n = u32::from(self.u8()?);
@@ -135,7 +135,7 @@ impl<'s> Reader<'s> {
     }
 }
 
-/// 版を読み、見出しの終わりの候補から図形の一覧を読む
+/// バージョンを読み、ヘッダーの終わりの候補から図形の一覧を読む
 pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
     let mut head = Reader::new(src, 0);
     let version = (|| {
@@ -148,7 +148,7 @@ pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
         cx.report(Diagnostic::new(codes::JWW_FILE_INVALID));
         return Err(Error::Invalid);
     };
-    // 知っている欄の終わりを先に、探した位置を前から試す。同じ位置は 1 度だけ読む
+    // 知っているフィールドの終わりを先に、探した位置を前から試す。同じ位置は 1 度だけ読む
     // 探した位置は、そこで見つけたクラスのオブジェクトを最初に読めた候補だけを使う
     let mut starts: Vec<(usize, Option<usize>)> = header_end(src, version)
         .into_iter()
@@ -196,11 +196,11 @@ pub(crate) fn read(src: &[u8], cx: &mut Cx) -> Result<Read, Error> {
 struct Body {
     classes: Vec<Class>,
     records: Vec<Record>,
-    /// 画像の一覧を終わりまで読めたか。版 700 より前は、後に何もないこと
+    /// 画像の一覧を終わりまで読めたか。バージョン 700 より前は、後に何もないこと
     trailer_read: bool,
 }
 
-/// 見出しのレコードを前に、残りのバイトがあれば後ろに足す
+/// ヘッダーのレコードを前に、残りのバイトがあれば後ろに足す
 fn finish(src: &[u8], version: u32, start: usize, body: Body) -> Read {
     let mut records = Vec::with_capacity(body.records.len() + 2);
     records.push(Record {
@@ -211,7 +211,7 @@ fn finish(src: &[u8], version: u32, start: usize, body: Body) -> Read {
         block: None,
     });
     let end = body.records.last().map_or(start, |record| record.span.end);
-    // 見出しを前に足すので、ブロックの定義の位置を 1 つ後ろにする
+    // ヘッダーを前に足すので、ブロックの定義の位置を 1 つ後ろにする
     records.extend(body.records.into_iter().map(|mut record| {
         record.block = record.block.map(|at| at + 1);
         record
@@ -232,7 +232,7 @@ fn finish(src: &[u8], version: u32, start: usize, body: Body) -> Read {
     }
 }
 
-/// 図形の一覧の始まりの形を探す。新しいクラスの印（`FF FF`）・スキーマ・名前の長さ（8〜32）・`CData` が続く所の、
+/// 図形の一覧の始まりの形を探す。新しいクラスのタグ（`FF FF`）・スキーマ・名前の長さ（8〜32）・`CData` が続く所の、
 /// 前の件数と、見つけた所。図形がなくブロックの定義だけがあるときのために、前の 2 つの件数の位置も候補にする
 fn scan(src: &[u8]) -> Vec<(usize, usize)> {
     let mut starts = Vec::new();
@@ -274,7 +274,7 @@ fn is_class_start(window: &[u8]) -> bool {
     *tag == [0xFF, 0xFF] && (8..=32).contains(&u16::from_le_bytes(*len)) && name == b"CData"
 }
 
-/// 知っている欄の大きさを足した、見出しの終わり
+/// 知っているフィールドの大きさを足した、ヘッダーの終わり
 fn header_end(src: &[u8], version: u32) -> Result<usize, Fail> {
     let mut r = Reader::new(src, 12);
     // メモ・用紙の大きさ・書き込むレイヤグループ・16 のレイヤグループ（148 バイトずつ）・全体の設定（156 バイト）
@@ -467,7 +467,7 @@ impl List<'_> {
         self.numbers.get(at).copied().flatten().ok_or(Fail::Invalid)
     }
 
-    /// 共通の欄。線種と色を返す（点とソリッドの大きさが値で変わる）
+    /// 共通のフィールド。線種と色を返す（点とソリッドの大きさが値で変わる）
     fn base(&mut self) -> Result<(u8, u16), Fail> {
         self.r.skip(4)?;
         let pen_style = self.r.u8()?;
@@ -508,7 +508,7 @@ impl List<'_> {
         self.r.cstring()
     }
 
-    /// 寸法。線と文字を印なしで持ち、版 420 からは SXF の形と、線 2 本と点 4 つが続く
+    /// 寸法。線と文字をタグなしで持ち、バージョン 420 からは SXF の形と、線 2 本と点 4 つが続く
     fn dimension(&mut self) -> Result<(), Fail> {
         self.base()?;
         self.r.skip(32)?;

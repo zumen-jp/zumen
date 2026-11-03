@@ -45,7 +45,7 @@ pub enum HeightMeaning {
     CapHeight,
     /// em
     Em,
-    /// 形式の宣言値で、字形との関係が決まらないもの。形式と欄を指すキー
+    /// 形式の宣言値で、字形との関係が決まらないもの。形式とフィールドを指すキー
     Declared(Cow<'static, str>),
 }
 

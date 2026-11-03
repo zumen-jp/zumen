@@ -1,4 +1,4 @@
-//! IFC の L1 の変更（決定 0207・0244、#393）。ファイルは、どれも試験の中で作る。
+//! IFC の L1 の変更（決定 0207・0244、#393）。ファイルは、どれもテストの中で作る。
 #![cfg(feature = "building")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
@@ -216,7 +216,7 @@ fn adds_a_set_and_a_property() {
     let bytes = bytes.unwrap();
     let after = String::from_utf8(bytes.clone()).unwrap();
     assert!(after.contains("IFCPOSITIVELENGTHMEASURE(200.)"));
-    // 足したものは、データの節の終わりの前
+    // 足したものは、データのセクションの終わりの前
     assert!(after.ends_with("\nENDSEC;\nEND-ISO-10303-21;\n"));
     let building = lift(&bytes).unwrap();
     assert_eq!(
@@ -425,7 +425,7 @@ fn edits_for_other_readers() -> Vec<Edit> {
 #[test]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（決定 0007）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（決定 0007）"
 )]
 fn writes_the_edited_files_for_other_readers() {
     let out = std::env::var_os("ZUMEN_IFC_EDITED").map(std::path::PathBuf::from);

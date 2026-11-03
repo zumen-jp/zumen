@@ -9,18 +9,18 @@
 
 - 旧版は、公開に第三者の許諾が要る形式と、寛容でないライセンスの依存を入れないと決め、ST-Bridge を非公開のリポジトリへ移した（[旧版の決定 0013](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0013-st-bridge-out-of-zumen.md)）。IFC は、文書のライセンスが実装に触れていないことなどから、許諾は要らないと扱った（[旧版の決定 0028](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0028-ifc-in-rust.md)）。
 - この規則を守る手段は、AGENTS.md・リリースのチェックリスト・レビューだけだった。形式ごとの仕様の入手先・権利・実装の根拠は、形式の文書と決定の記録に散っていた。
-- 依存のライセンスは、cargo-deny で検査している（[0011](0011-bindings-through-ffi.md)、`deny.toml`）。成果物に何も残さないビルド時の道具の扱いも、0011 で決めた（[#15](https://github.com/zumen-jp/zumen/issues/15)）。
+- 依存のライセンスは、cargo-deny で検査している（[0011](0011-bindings-through-ffi.md)、`deny.toml`）。成果物に何も残さないビルド時のツールの扱いも、0011 で決めた（[#15](https://github.com/zumen-jp/zumen/issues/15)）。
 - 形式を読み書きする部品は、ほかの記録で決めた。
   - `Codec`・`FileModel`・`Lift`・`Lower` と、文脈 `Cx`（[0008](0008-model-layers-and-codecs.md)）
   - 診断と code の台帳（[0009](0009-diagnostics-and-catalog.md)）、予算・パニックしない約束・fuzz（[0010](0010-budget-by-work.md)）
-  - どこでも同じ結果の規則（[0007](0007-single-rust-implementation.md)）、境界と適合試験（[0012](0012-boundary-functions-and-messages.md)）、4 つの形と wasm のモジュールの分け方（[0013](0013-boundary-in-four-forms.md)）、版（[0015](0015-add-only-boundary-and-version-floors.md)）
+  - どこでも同じ結果の規則（[0007](0007-single-rust-implementation.md)）、API と適合テスト（[0012](0012-boundary-functions-and-messages.md)）、4 つの形と wasm のモジュールの分け方（[0013](0013-boundary-in-four-forms.md)）、バージョン（[0015](0015-add-only-boundary-and-version-floors.md)）
 - 2026-10-24 に、権利を確かめていた形式（[zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)・[zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)）の公式の頁を確かめた。
 
 | 形式 | 持ち主 | 仕様の入手 | 実装の公開についての記述 |
 | --- | --- | --- | --- |
 | ST-Bridge（構造） | buildingSMART Japan | XML ファイル仕様書 ver.2.1.1 と XML Schema を公開している（2026-07-29） | 仕様書にはない。公開された実装の STB-KIT（MPL-2.0）は、ST-Bridge の権利は buildingSMART Japan にあり、同会との利用許諾契約に基づいて実装を公開している、と書く |
 | CEDXM（木造のプレカット） | 特定非営利活動法人シーデクセマ評議会 | 会員にだけ配る | 評議会の Q&A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる |
-| BE-Bridge（設備の部材） | C-CADEC が作り、2015 年 4 月に建築保全センターが承継した | Ver.6.1（2014 年 4 月）の仕様書が、建設業振興基金のサイトにある | 仕様書にはない。承継した側の条件と、最新の版の入手先は見つからなかった |
+| BE-Bridge（設備の部材） | C-CADEC が作り、2015 年 4 月に建築保全センターが承継した | Ver.6.1（2014 年 4 月）の仕様書が、建設業振興基金のサイトにある | 仕様書にはない。承継した側の条件と、最新のバージョンの入手先は見つからなかった |
 | Stem（設備の機器） | BE-Bridge と同じ | 見つからなかった | 見つからなかった |
 
 - crates.io には、ST-Bridge を読む crate（`stb-parser`、MIT）がある。ライセンスが寛容なので、cargo-deny のライセンスの検査では止まらない。
@@ -34,7 +34,7 @@
 
 ### 台帳の置き場所
 
-1. **`schema/`**（[#1](https://github.com/zumen-jp/zumen/issues/1) の素案）。今は、境界のスキーマの置き場所になっている（[0012](0012-boundary-functions-and-messages.md)）。
+1. **`schema/`**（[#1](https://github.com/zumen-jp/zumen/issues/1) の素案）。今は、API のスキーマの置き場所になっている（[0012](0012-boundary-functions-and-messages.md)）。
 2. **`catalog/`。** 診断の code の台帳と文言で、コアと一緒に配る（[0009](0009-diagnostics-and-catalog.md)）。配らない台帳が混ざる。
 3. **新しい `formats/`。** 形式の台帳だけを置く。
 
@@ -52,7 +52,7 @@
 
 - `formats/ledger.toml` に置き、書き方を `formats/README.md` に書く。
 - 仕様と形式を、それぞれ ID で持つ。
-  - **仕様**: 名前・出している者・版・入手の条件・入手先・確かめた日。診断の `cite`（[0009](0009-diagnostics-and-catalog.md)）は、この ID で仕様を指す。
+  - **仕様**: 名前・出している者・バージョン・入手の条件・入手先・確かめた日。診断の `cite`（[0009](0009-diagnostics-and-catalog.md)）は、この ID で仕様を指す。
   - **形式**: 次の項目を持つ。
 
   | 項目 | 中身 |
@@ -75,11 +75,11 @@
   - `core`: このリポジトリのコアのワークスペース。`public` の形式だけを置ける
   - `plugin`: 外部のリポジトリのプラグイン
   - `none`: 実装しない
-- 形式のキーは、英小文字と数字だけにする（`sxf`・`stbridge` など）。境界の列挙の値（[0012](0012-boundary-functions-and-messages.md)）にも、診断の code の範囲（[0009](0009-diagnostics-and-catalog.md)）にも、そのまま使える。仕様の ID は、英小文字・数字・`_` にする。
-- 事実（仕様の版・入手先・権利の根拠）は、公式の文書で確かめ、確かめた日を書く。仕様の本文は写さない。
+- 形式のキーは、英小文字と数字だけにする（`sxf`・`stbridge` など）。API の列挙の値（[0012](0012-boundary-functions-and-messages.md)）にも、診断の code の範囲（[0009](0009-diagnostics-and-catalog.md)）にも、そのまま使える。仕様の ID は、英小文字・数字・`_` にする。
+- 事実（仕様のバージョン・入手先・権利の根拠）は、公式の文書で確かめ、確かめた日を書く。仕様の本文は写さない。
 - 台帳から、形式の一覧と権利の表の文書（`docs/formats/README.md`）を生成する。
 
-最初の版は、今の形式と、権利を確かめていた形式を載せる。
+最初のバージョンは、今の形式と、権利を確かめていた形式を載せる。
 
 | 形式 | 権利 | 置き場所 |
 | --- | --- | --- |
@@ -108,30 +108,30 @@
   | 部品 | 中身 |
   | --- | --- |
   | trait | `Codec`・`FileModel`・`Lift`・`Lower`、文脈 `Cx`・予算・診断・中断の合図、形式の判定の規則（[0008](0008-model-layers-and-codecs.md)・[0009](0009-diagnostics-and-catalog.md)・[0010](0010-budget-by-work.md)） |
-  | 登録 | プラグインの形式・コーデック・lift・lower を、窓口に知らせる記述。台帳と同じキーと権利を持つ |
-  | テストキット | 合成のファイルを作る道具と、試験の枠組み。往復（L1 は読んで書くとバイト列が一致、L2 は lift → lower → lift で等価）、決定性（2 回読んで同じハッシュ、ネイティブと wasm32 で同じハッシュの一覧）、予算（同じ所で止まる） |
-  | ID の契約試験 | 同じバイト列から、記録した一覧と同じ ID が出ることを確かめる。ID を変えるには、先に決定の記録が要る（AGENTS.md） |
+  | 登録 | プラグインの形式・コーデック・lift・lower を、レジストリに知らせる記述。台帳と同じキーと権利を持つ |
+  | テストキット | 合成のファイルを作るツールと、テストの枠組み。往復（L1 は読んで書くとバイト列が一致、L2 は lift → lower → lift で等価）、決定性（2 回読んで同じハッシュ、ネイティブと wasm32 で同じハッシュの一覧）、予算（同じ所で止まる） |
+  | ID の契約テスト | 同じバイト列から、記録した一覧と同じ ID が出ることを確かめる。ID を変えるには、先に決定の記録が要る（AGENTS.md） |
   | fuzz | バイト列を受けて、パニックしない・予算の中で止まる・2 回読んで同じ結果になる、を確かめる関数。cargo-fuzz の target から呼ぶ（[0010](0010-budget-by-work.md)） |
 
-- **コアの形式も、同じ SDK で書く。** コアのコーデックと外部のプラグインで、書き方と試験を分けない。SDK は、コアの形式を書きながら育てる。
+- **コアの形式も、同じ SDK で書く。** コアのコーデックと外部のプラグインで、書き方とテストを分けない。SDK は、コアの形式を書きながら育てる。
 - プラグインも、どこでも同じ結果の規則（[0007](0007-single-rust-implementation.md)）と、予算とパニックしない約束（[0010](0010-budget-by-work.md)）に従う。
 - プラグインは、自分の診断の code の台帳と文言を持つ。code の範囲は形式のキーにし、コアの code とぶつからないようにする（[0009](0009-diagnostics-and-catalog.md)）。
-- SDK の版は、コアと同じにする（[0015](0015-add-only-boundary-and-version-floors.md) のパッケージの版）。trait を変えることは Rust の API を壊すことなので、1.0 からは大版を上げる。
+- SDK のバージョンは、コアと同じにする（[0015](0015-add-only-boundary-and-version-floors.md) のパッケージのバージョン）。trait を変えることは Rust の API を壊すことなので、1.0 からはメジャーバージョンを上げる。
 
 ### 束ね方
 
 | 使う所 | 束ね方 |
 | --- | --- |
-| Rust | プラグインの crate を依存に足し、窓口に登録する（ビルドの時に束ねる） |
-| wasm（ブラウザー・Node.js・Go） | プラグインの形式を持つ、別のモジュールにする。同じ境界の関数を出し（[0012](0012-boundary-functions-and-messages.md)）、公式のモジュールとは L2 のバイナリ（[#6](https://github.com/zumen-jp/zumen/issues/6)）でやり取りする |
+| Rust | プラグインの crate を依存に足し、レジストリに登録する（ビルドの時に束ねる） |
+| wasm（ブラウザー・Node.js・Go） | プラグインの形式を持つ、別のモジュールにする。同じ API の関数を出し（[0012](0012-boundary-functions-and-messages.md)）、公式のモジュールとは L2 のバイナリ（[#6](https://github.com/zumen-jp/zumen/issues/6)）でやり取りする |
 | ネイティブで呼ぶ言語 | プラグインのリポジトリが、コアとプラグインを束ねた CLI を作る。各言語からは、その CLI を `process` の形（[0013](0013-boundary-in-four-forms.md)）で使う |
 
 - 公式の成果物（crates.io の `zumen`、C ABI のライブラリ、npm の wasm のモジュール、CLI）は、コアのワークスペースの形式だけを持つ。プラグインを実行時に読み込む仕組みは持たない。
   - Rust には安定した ABI がない。
   - 実行時に読み込むと、どこでも同じ結果と、受け取ったファイルを信用しない約束を、読み込んだコードに預けることになる。
   - wasm のモジュールは import を持たない（[0011](0011-bindings-through-ffi.md)）ので、ほかのモジュールを読み込めない。
-- JavaScript の包みは、アプリが渡したプラグインのモジュールを、その判定の規則と op の表（データ）と一緒に受け付ける。形式を判定してから、要るモジュールだけを読み込む（[0013](0013-boundary-in-four-forms.md)）。
-- コアとプラグインを束ねたネイティブのライブラリを、ホストのプロセスに読み込む形は、当面は作らない。公式のライブラリとファイル名と版がぶつかる（[0015](0015-add-only-boundary-and-version-floors.md) の「同じプロセスに並べる」）。要るときは記録を書く。
+- JavaScript のラッパーは、アプリが渡したプラグインのモジュールを、その判定の規則と op の表（データ）と一緒に受け付ける。形式を判定してから、要るモジュールだけを読み込む（[0013](0013-boundary-in-four-forms.md)）。
+- コアとプラグインを束ねたネイティブのライブラリを、ホストのプロセスに読み込む形は、当面は作らない。公式のライブラリとファイル名とバージョンがぶつかる（[0015](0015-add-only-boundary-and-version-floors.md) の「同じプロセスに並べる」）。要るときは記録を書く。
 
 ### 外部のリポジトリに置くもの
 
@@ -145,13 +145,13 @@
 ## 影響
 
 - 新しい形式を足す PR は、台帳の項目と形式の文書を一緒に入れる。判断を伴うなら、決定の記録も書く。
-- 台帳の検査と文書の生成は、xtask に入れる。xtask は境界の crate の PR（[#23](https://github.com/zumen-jp/zumen/pull/23)）が変えているので、#23 のあとの PR で入れる。それまでは、レビューで台帳を確かめる。`deny.toml` の禁止は、この記録と同じ PR で入れる。
+- 台帳の検査と文書の生成は、xtask に入れる。xtask は API の crate の PR（[#23](https://github.com/zumen-jp/zumen/pull/23)）が変えているので、#23 のあとの PR で入れる。それまでは、レビューで台帳を確かめる。`deny.toml` の禁止は、この記録と同じ PR で入れる。
 - `zumen-sdk` は、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）で、コアのコーデックと一緒に作る。素案の trait の形（[0008](0008-model-layers-and-codecs.md)）も、そこで決まる。
 - 旧版の `docs/formats/` を移すときに、台帳の各形式に文書のパスを足す。
 - fuzz の crate が使う libfuzzer-sys のライセンスは `(MIT OR Apache-2.0) AND NCSA`。NCSA は寛容なライセンスだが、`deny.toml` の許可リストにない。fuzz を入れる PR で、理由を記録して許可リストに足す（[0011](0011-bindings-through-ffi.md)）。
 - ST-Bridge・CEDXM・BE-Bridge・Stem の権利は、持ち主に問い合わせて確かめる（[zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)・[zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141) を続ける）。答えが出たら台帳を直し、扱いを変えるなら記録を書く。
 - AGENTS.md の「範囲と権利」から、この記録と台帳を参照する。
-- [#10](https://github.com/zumen-jp/zumen/issues/10) は、この記録と台帳の最初の版で完了する。
+- [#10](https://github.com/zumen-jp/zumen/issues/10) は、この記録と台帳の最初のバージョンで完了する。
 
 ## 参照
 

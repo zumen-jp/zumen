@@ -1,16 +1,16 @@
 # J-LandXML
 
-J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台帳の `jlandxml_1_8`）を読み、土木の領域モデル（[決定 0230](../decisions/0230-civil-model-alignments.md)）に移す規則を記録します。実装は `crates/zumen-landxml` です。境界では、`open` が XML の根の `LandXML` と名前空間で見分けて開き、`civil` の op に `doc`（線形が 2 つ以上なら `id` も）を渡して線形の上の所を求めます。仕様の本文とスキーマは写しません（`formats/ledger.toml`）。
+J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台帳の `jlandxml_1_8`）を読み、土木の領域モデル（[決定 0230](../decisions/0230-civil-model-alignments.md)）に移す規則を記録します。実装は `crates/zumen-landxml` です。API では、`open` が XML の根の `LandXML` と名前空間で見分けて開き、`civil` の op に `doc`（線形が 2 つ以上なら `id` も）を渡して線形の上の所を求めます。仕様の本文とスキーマは写しません（`formats/ledger.toml`）。
 
 ## 対象
 
-- J-LandXML Ver.1.8（令和 8 年 7 月）。LandXML 1.2 の名前空間の文書で、交換標準の版は `Project` の `Feature` の `applicationCriterion`（`MlitLandXmlVer.1.8` など）に書く。版の違いでは読み方を変えない。
+- J-LandXML Ver.1.8（令和 8 年 7 月）。LandXML 1.2 の名前空間の文書で、交換標準のバージョンは `Project` の `Feature` の `applicationCriterion`（`MlitLandXmlVer.1.8` など）に書く。バージョンの違いでは読み方を変えない。
 - 文字コードは UTF-8 と Shift_JIS を読む（`zumen-xml`）。交換標準が認める UTF-16 は、まだ読まずに `xml.encoding.unsupported` を返す。
 - 書き戻しはしない。書き出すと、読んだバイト列をそのまま書く。
 
 ## 判定
 
-- 最初の要素が LandXML 1.2 の名前空間（`http://www.landxml.org/schema/LandXML-1.2`）の `LandXML` なら J-LandXML とする（`Signature::XmlRoot`）。交換標準の版の印がない LandXML 1.2 も、同じ規則で読む。
+- 最初の要素が LandXML 1.2 の名前空間（`http://www.landxml.org/schema/LandXML-1.2`）の `LandXML` なら J-LandXML とする（`Signature::XmlRoot`）。交換標準のバージョンのフラグがない LandXML 1.2 も、同じ規則で読む。
 
 ## 座標と高さ
 
@@ -22,7 +22,7 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 
 - `Alignment` を線形にする。ID は `name` で作り、名前のないものと重なるものは `alignment/<順の番号>` にする（決定 0230）。
 - 測点の値は、線形の初めからの連続した内部の値（メートル）なので、追加距離は測点の値から `staStart` を引いて求める。`StaEquation` は、`staInternal` の追加距離での不連続にし、`staBack` と `staAhead` を戻りと進みの測点の値にする。
-- 測点の間隔は、線形の `Feature`（`Interval`）の `main` を読む。表記（`No.12+5.000`）は境界で作る。
+- 測点の間隔は、線形の `Feature`（`Interval`）の `main` を読む。表記（`No.12+5.000`）は API で作る。
 - `CoordGeom` の `Line`・`Curve`・`Spiral` を、書いた順に平面線形の区間にする。区間の初めの点は `Start` の点にし、初めの向きは要素の点から求める。
   - `Line`: `Start` から `End` への向き。長さは `length`、なければ 2 点の距離。
   - `Curve`: `Start` から `Center` への向きを、`rot` の向きに 90° 回したもの。半径は `radius`、なければ `Start` と `Center` の距離。長さは `length`、なければ中心から見た角度から求める。`rot` が `ccw`（左へ曲がる）なら、半径を負にする。

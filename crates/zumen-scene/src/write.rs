@@ -18,7 +18,7 @@ pub(crate) struct Tables<'a> {
     pub point_style: Option<[f32; 4]>,
 }
 
-/// 区画ごとの列
+/// セクションごとの列
 struct Columns(Vec<Vec<u8>>);
 
 impl Columns {
@@ -232,7 +232,7 @@ pub(crate) fn write(
     (assemble(index(chunks.len()), &c.0), counts, extent.get())
 }
 
-/// 見出し・区画の表・区画を、8 バイトの境界に並べる（決定 0137）
+/// ヘッダー・セクションの表・セクションを、8 バイトの境界に並べる（決定 0137）
 fn assemble(count: u32, columns: &[Vec<u8>]) -> Vec<u8> {
     let align = |n: usize| n.div_ceil(8) * 8;
     let head = 16 + 8 * columns.len();

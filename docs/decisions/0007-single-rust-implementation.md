@@ -7,7 +7,7 @@
 
 ## 背景
 
-- 旧版は、JWW・SXF・DXF を TypeScript で書いてから Rust へ移した。TypeScript の読み取り器は、試験の正解を書く参照実装として残した（[旧版の構成](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/architecture.en.md#keeping-the-two-implementations-equal)）。2 つを値の単位で一致させるために、次のものが要った。
+- 旧版は、JWW・SXF・DXF を TypeScript で書いてから Rust へ移した。TypeScript の読み取り器は、テストの正解を書く参照実装として残した（[旧版の構成](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/architecture.en.md#keeping-the-two-implementations-equal)）。2 つを値の単位で一致させるために、次のものが要った。
   - `zumen_core::js`（601 行）: `toFixed`・`Number(string)`・`Intl.NumberFormat("ja-JP")` など、JavaScript の数値の扱いの再現
   - `zumen_core::sort`（594 行）: V8 の `Array.prototype.sort`（TimSort）の移植
   - JavaScript のオブジェクトのキーの順と、UTF-16 単位での文字の処理の再現
@@ -20,7 +20,7 @@
 
 1. **TypeScript の参照実装と Rust の移植を続ける。** 2 つの実装が互いを確かめられる。ただし再現の費用が形式ごとに増え、許容差なしには一致しない。DWG・PDF・IFC には、すでに参照実装がない。
 2. **ほかの言語（C++ など）の 1 つの実装にする。** C ABI で各言語に出せる。ただし、受け取ったファイルを読む部分のメモリ安全を、言語が保証しない。旧版の Rust の資産（DWG のデコーダー、PDF・IFC の読み取り）も書き直しになる。
-3. **Rust の 1 つの実装にし、同じコードを各環境に結合する。** メモリ安全で、WebAssembly と C ABI に出しやすく、旧版の資産を移せる。同じ結果は、決定性の規則と、環境の間での出力の比較で保つ。
+3. **Rust の 1 つの実装にし、同じコードを各環境に組み込む。** メモリ安全で、WebAssembly と C ABI に出しやすく、旧版の資産を移せる。同じ結果は、決定性の規則と、環境の間での出力の比較で保つ。
 
 ## 決定
 
@@ -28,16 +28,16 @@
 
 ### 範囲
 
-- 読み書き・変換・解析（L0〜L3、[0008](0008-model-layers-and-codecs.md)）と境界の実装は、Rust だけで書く。
-- 各言語の側（表示エンジンを含む）は、境界の包みと、表示・操作（描画、当たり判定、吸着など）だけを持つ。ファイルの解釈と、結果として返す値の計算を書き直さない。
+- 読み書き・変換・解析（L0〜L3、[0008](0008-model-layers-and-codecs.md)）と API の実装は、Rust だけで書く。
+- 各言語の側（表示エンジンを含む）は、API のラッパーと、表示・操作（描画、当たり判定、吸着など）だけを持つ。ファイルの解釈と、結果として返す値の計算を書き直さない。
 - 形式の判定も書き直さない。判定の規則を Rust の側にデータで持ち、TypeScript の判定はそこから生成する。
-- 外部の形式プラグイン（[#10](https://github.com/zumen-jp/zumen/issues/10)）も、同じ決定性の規則と適合試験に従う。
+- 外部の形式プラグイン（[#10](https://github.com/zumen-jp/zumen/issues/10)）も、同じ決定性の規則と適合テストに従う。
 
 ### 参照実装の代わり
 
 正しさは、次のもので確かめる。
 
-- **最小の合成ファイル。** 規則を 1 つずつ確かめるファイルを試験の中で作る。期待値は、実装の出力からではなく、仕様から書く。
+- **最小の合成ファイル。** 規則を 1 つずつ確かめるファイルをテストの中で作る。期待値は、実装の出力からではなく、仕様から書く。
 - **往復の性質。** L1 は、読んで書くとバイト列が一致する。L2 は、lift → lower → lift で等価になる。
 - **同じ図面の別の形式。** たとえば DWG と、同じ図面を保存した DXF。形式の違いで説明できない差を調べる。
 - **外部のソフトとの照合。** ezdxf、ODA File Converter・DWG TrueView・Jw_cad・SXF ブラウザ（Windows の実機、[旧版の決定 0014](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0014-verify-on-native-windows.md)）など。結果は検証の記録に残す。
@@ -47,22 +47,22 @@
 
 ### どこでも同じ結果
 
-- 同じ版のコアに、同じ入力と同じ設定（予算を含む）を渡すと、どの環境・どの言語の結合からも、ビット単位で同じ出力を返す。許容差は置かない。
+- 同じバージョンのコアに、同じ入力と同じ設定（予算を含む）を渡すと、どの環境・どの言語のバインディングからも、ビット単位で同じ出力を返す。許容差は置かない。
 - 出力は、書き出したバイト列、L2・L3 のデータ、診断（順を含む）、ID。予算で止まるときも、同じ所で止まる（[#8](https://github.com/zumen-jp/zumen/issues/8)）。
 - 次のものは約束に含めない。
   - 環境の資源（メモリなど）が先に尽きて止まった場合
   - 表示エンジンが画面に描いたピクセル。コアが描く PNG・SVG・PDF は含む
-  - 版をまたいだ一致。版をまたいで約束するのは ID だけで、ID は浮動小数の計算から作らない
+  - バージョンをまたいだ一致。バージョンをまたいで約束するのは ID だけで、ID は浮動小数の計算から作らない
 - **確かめ方**
   - CI で、ネイティブの各対象（[#16](https://github.com/zumen-jp/zumen/issues/16) で決める）と wasm32 が同じ入力の組を処理し、出力ごとのハッシュの一覧を作る。最後の job で、すべての一覧が一致することを確かめる。
   - wasm32 では、ブラウザーに配るのと同じモジュールを使う。
-  - 各言語の結合は、同じ入力の組を境界（[#13](https://github.com/zumen-jp/zumen/issues/13)）を通して処理し、同じ一覧になることを確かめる。階層 1 は PR ごと、階層 2 は毎晩（[0006](0006-language-tiers.md)）。
+  - 各言語のバインディングは、同じ入力の組を API（[#13](https://github.com/zumen-jp/zumen/issues/13)）を通して処理し、同じ一覧になることを確かめる。Tier 1 は PR ごと、Tier 2 は毎晩（[0006](0006-language-tiers.md)）。
 
 ### 決定性の規則
 
 - **浮動小数**
   - 四則演算・`sqrt`・`mul_add` など、結果が IEEE 754 で決まる演算は、どの環境でも同じ値になる。これらはそのまま使う。
-  - std の文書で精度が決まっていないとされる関数（`sin`・`cos`・`tan`・`atan2`・`exp`・`ln`・`powf`・`powi`・`hypot`・`cbrt` など）は使わず、`libm` crate を使う。std のこれらの関数は、環境や Rust の版によって結果が変わる。
+  - std の文書で精度が決まっていないとされる関数（`sin`・`cos`・`tan`・`atan2`・`exp`・`ln`・`powf`・`powi`・`hypot`・`cbrt` など）は使わず、`libm` crate を使う。std のこれらの関数は、環境や Rust のバージョンによって結果が変わる。
   - NaN の符号とペイロードは、環境によって変わる。出力に書くときは 1 つのビット列にそろえる。
   - 32 bit の x86 では SSE2 を前提にし、x87 の拡張精度を使わない。
   - SIMD などの速さのための経路は、ほかの経路とビット単位で同じ結果にする。wasm の relaxed SIMD は使わない。
@@ -85,14 +85,14 @@
 
 ## 影響
 
-- 旧版の TypeScript の読み取り器、`zumen_core::js`・`zumen_core::sort`、TypeScript で正解を書く仕組みは移さない。形式の知見と、合成の試験ファイルの作り方は移す（[0001](0001-rebuild-in-zumen-jp.md)）。
+- 旧版の TypeScript の読み取り器、`zumen_core::js`・`zumen_core::sort`、TypeScript で正解を書く仕組みは移さない。形式の知見と、合成のテストファイルの作り方は移す（[0001](0001-rebuild-in-zumen-jp.md)）。
 - ブラウザーでは、どの形式も WebAssembly で読む。モジュールの分け方と大きさは [#14](https://github.com/zumen-jp/zumen/issues/14) で決める。
 - 参照実装がない分、外部のソフトとの照合が、正しさの大きな根拠になる。Windows の実機での検証は、[0004](0004-repositories.md) の案の `verify` で行う。
 - 決定性の規則は、依存の選び方を狭める。
   - 幾何カーネル（[#11](https://github.com/zumen-jp/zumen/issues/11)、[zumen-jp/zumen-legacy#129](https://github.com/zumen-jp/zumen-legacy/issues/129)）は、wasm32 とネイティブで同じ結果になることを、選ぶ条件にする。
   - 旧版が PDF の読み取りに使った hayro の依存の kurbo は、std があると std の関数を使う。PDF を移すときに、結果に効くかを確かめる。
 - `libm` の関数は、プラットフォームのものより遅いことがある。速さより、同じ結果を優先する。
-- [#2](https://github.com/zumen-jp/zumen/issues/2) の完了の条件のうち、ネイティブと wasm32 の出力のハッシュの一致の検査は、最初のコーデックと一緒に入れる。ハッシュをかける符号化は [#6](https://github.com/zumen-jp/zumen/issues/6)・[#13](https://github.com/zumen-jp/zumen/issues/13) で決める。それまでは、書き出したバイト列と、試験用の決まった符号化にかける。
+- [#2](https://github.com/zumen-jp/zumen/issues/2) の完了の条件のうち、ネイティブと wasm32 の出力のハッシュの一致の検査は、最初のコーデックと一緒に入れる。ハッシュをかける符号化は [#6](https://github.com/zumen-jp/zumen/issues/6)・[#13](https://github.com/zumen-jp/zumen/issues/13) で決める。それまでは、書き出したバイト列と、テスト用の決まった符号化にかける。
 - AGENTS.md の「どこでも同じ結果」から、この記録を参照する。
 
 ## 参照

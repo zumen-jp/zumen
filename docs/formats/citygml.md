@@ -1,12 +1,12 @@
 # CityGML
 
-CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製品仕様書と i-UR の拡張を含む、台帳の `plateau_5_1`）を読み、地理の領域モデル（[決定 0233](../decisions/0233-geo-model-features.md)）に移す規則を記録します。実装は `crates/zumen-citygml`、モデルは `crates/zumen-geo` です。境界では、`open` が XML の根の `CityModel` と名前空間で見分けて開き、`geo` の op に `doc`（と、中身を見る地物の `id`）を渡して、地物の型ごとの数と地物の属性・形の要約を返します。仕様の本文とスキーマは写しません（`formats/ledger.toml`）。
+CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製品仕様書と i-UR の拡張を含む、台帳の `plateau_5_1`）を読み、地理の領域モデル（[決定 0233](../decisions/0233-geo-model-features.md)）に移す規則を記録します。実装は `crates/zumen-citygml`、モデルは `crates/zumen-geo` です。API では、`open` が XML の根の `CityModel` と名前空間で見分けて開き、`geo` の op に `doc`（と、中身を見る地物の `id`）を渡して、地物の型ごとの数と地物の属性・形の要約を返します。仕様の本文とスキーマは写しません（`formats/ledger.toml`）。
 
 ## 対象
 
-- CityGML 2.0 の名前空間（`http://www.opengis.net/citygml/2.0`）の文書。PLATEAU の 3D 都市モデルは、この版で書く。CityGML 3.0 は、まだ読まない。
+- CityGML 2.0 の名前空間（`http://www.opengis.net/citygml/2.0`）の文書。PLATEAU の 3D 都市モデルは、このバージョンで書く。CityGML 3.0 は、まだ読まない。
 - 文字コードは UTF-8 と Shift_JIS を読む（`zumen-xml`）。
-- 配布の書庫（ZIP）は、まだ開かない。中の `.gml` を 1 つずつ開く。
+- 配布のアーカイブ（ZIP）は、まだ開かない。中の `.gml` を 1 つずつ開く。
 - 書き戻しはしない。書き出すと、読んだバイト列をそのまま書く。
 
 ## 判定

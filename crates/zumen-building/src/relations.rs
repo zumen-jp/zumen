@@ -1,4 +1,4 @@
-//! 関係の索引（決定 0207）。成分が持つ向きと逆から引く表を、問い合わせるときに作る。
+//! 関係の索引（決定 0207）。コンポーネントが持つ向きと逆から引く表を、問い合わせるときに作る。
 
 use std::collections::BTreeMap;
 
@@ -54,7 +54,7 @@ impl Relations {
 }
 
 impl Building {
-    /// 関係の索引を作る。成分の 1 つと、そこから引く参照の 1 つごとに `work` を 1 つ数える
+    /// 関係の索引を作る。コンポーネントの 1 つと、そこから引く参照の 1 つごとに `work` を 1 つ数える
     pub fn relations(&self, cx: &mut Cx<'_>) -> Result<Relations, Stop> {
         let mut out = Relations::default();
         let add = |map: &mut BTreeMap<ElementRef, Vec<ElementRef>>, key, value| {

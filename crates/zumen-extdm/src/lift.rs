@@ -1,8 +1,8 @@
 //! 拡張 DM のレコードを、地理の領域モデル（決定 0233）に移す。
 //!
-//! - 見出しのレコードを地物にする。型は `extdm:` とレコードタイプ（`extdm:E2` など）、ID はレコードの順の番号。
+//! - ヘッダーのレコードを地物にする。型は `extdm:` とレコードタイプ（`extdm:E2` など）、ID はレコードの順の番号。
 //! - 図郭レコードを親にし、グループヘッダーレコードの階層レベル（第 42 条）で入れ子にする。
-//! - 分類コードを地物の分類コードにする。ほかの欄は、仕様の項目の名前の属性にする。
+//! - 分類コードを地物の分類コードにする。ほかのフィールドは、仕様の項目の名前の属性にする。
 //! - 座標は図郭の原点（左下隅）からの値（(8)）で、座標値の単位（図郭レコード (b)）で m に直し、インデックス
 //!   レコードの座標系の系の平面直角座標にする。
 
@@ -65,7 +65,7 @@ impl<'f> Reader<'f, '_, '_> {
         while let Some(line) = records.get(index) {
             let rest = all.get(index + 1..).unwrap_or_default();
             let Some(kind) = line.kind else {
-                // 見出しのない実データのレコード。前の見出しの数より多いか、知らないレコードタイプ。続く同じ
+                // ヘッダーのない実データのレコード。前のヘッダーの数より多いか、知らないレコードタイプ。続く同じ
                 // レコードをまとめて知らせる
                 let end = index
                     + 1
@@ -86,7 +86,7 @@ impl<'f> Reader<'f, '_, '_> {
                 index = end;
                 continue;
             };
-            // 実データのレコードは、見出しの数だけ続く（L1 の分け方と同じ）
+            // 実データのレコードは、ヘッダーの数だけ続く（L1 の分け方と同じ）
             let record = self.file.bytes(index);
             let follows = record::follows(kind, record, rest);
             let end = index + 1 + follows.min(rest.len());
@@ -112,7 +112,7 @@ impl<'f> Reader<'f, '_, '_> {
         Ok(())
     }
 
-    // 見出しのレコード
+    // ヘッダーのレコード
 
     /// インデックスレコード (a)〜(c)。座標系の系を覚え、計画機関名・作業規程・分類コードの対応を属性にする
     fn index(&mut self, index: usize, end: usize, record: &[u8], data: &[&[u8]]) {
@@ -881,9 +881,9 @@ impl<'f> Reader<'f, '_, '_> {
         values
     }
 
-    // 欄
+    // フィールド
 
-    /// グループヘッダー・要素・グリッドヘッダー・不整三角網ヘッダーのレコードに共通の欄（地域分類・情報分類・要素識別番号）。
+    /// グループヘッダー・要素・グリッドヘッダー・不整三角網ヘッダーのレコードに共通のフィールド（地域分類・情報分類・要素識別番号）。
     /// `repeat` は要素識別番号反復回数のカラム
     fn common(
         &mut self,
@@ -949,7 +949,7 @@ impl<'f> Reader<'f, '_, '_> {
         }
     }
 
-    /// 整数の欄を属性にする。0 か空白（入力値なし）なら足さない
+    /// 整数のフィールドを属性にする。0 か空白（入力値なし）なら足さない
     fn number(
         &mut self,
         attributes: &mut Vec<Attribute>,
@@ -974,7 +974,7 @@ impl<'f> Reader<'f, '_, '_> {
         }
     }
 
-    /// 文字型の欄を属性にする。空白なら足さない
+    /// 文字型のフィールドを属性にする。空白なら足さない
     fn push_text(&self, attributes: &mut Vec<Attribute>, name: &str, bytes: &[u8]) {
         let text = self.text(bytes);
         if !text.is_empty() {
@@ -982,7 +982,7 @@ impl<'f> Reader<'f, '_, '_> {
         }
     }
 
-    /// 文字型の欄の文字。前後の空白（全角の空白を含む）を除く
+    /// 文字型のフィールドの文字。前後の空白（全角の空白を含む）を除く
     fn text(&self, bytes: &[u8]) -> String {
         let text = if self.file.utf8() {
             String::from_utf8_lossy(bytes).into_owned()

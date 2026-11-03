@@ -1,7 +1,7 @@
 //! 工事写真（JPEG）の Exif と XMP を読む（#387）。画像は復号しない。
 //!
 //! - JPEG のセグメント（L0、決定 0008）を、先頭の SOI から、画素のデータの始まり（SOS）か EOI までたどる。
-//!   画素数は、フレームの見出し（SOF）から読む。
+//!   画素数は、フレームのヘッダー（SOF）から読む。
 //! - Exif は APP1 の `Exif\0\0` の後の TIFF の構造で、0 番目の IFD・Exif の IFD・GPS の IFD を読む。縮小画像の
 //!   IFD は読まない。
 //! - XMP は APP1 の `http://ns.adobe.com/xap/1.0/\0` の後の XML で、`rdf:Description` の属性と、文字だけを持つ
@@ -79,7 +79,7 @@ pub fn read(src: &[u8], cx: &mut Cx) -> Result<Photo, Error> {
     let mut at = 2;
     loop {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        // 印の前の埋めの 0xFF は飛ばす
+        // フラグの前の埋めの 0xFF は飛ばす
         let Some(start) = src
             .get(at..)
             .and_then(|rest| rest.iter().position(|b| *b != 0xFF))
@@ -112,7 +112,7 @@ pub fn read(src: &[u8], cx: &mut Cx) -> Result<Photo, Error> {
             break;
         };
         match marker {
-            // 画素のデータの始まり。情報の区画は、ふつうこれより前にある
+            // 画素のデータの始まり。情報のセグメントは、ふつうこれより前にある
             0xDA => break,
             0xE1 => {
                 if let Some(tiff) = body.strip_prefix(EXIF) {
@@ -134,7 +134,7 @@ pub fn read(src: &[u8], cx: &mut Cx) -> Result<Photo, Error> {
     Ok(photo)
 }
 
-/// TIFF の構造の読み手
+/// TIFF の構造のリーダー
 struct Tiff<'a> {
     src: &'a [u8],
     little: bool,

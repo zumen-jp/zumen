@@ -1,4 +1,4 @@
-// 適合試験の組を、言語に依らない形（CLI・HTTP・WASI）で流し、hashes.txt と照らす（#403、決定 0006・0013・0200）。
+// 適合テストの組を、言語に依らない形態（CLI・HTTP・WASI）で流し、hashes.txt と照らす（#403、決定 0006・0013・0200）。
 //
 // 使い方:
 //   node bindings/conformance/cli.mjs stdio <zumen の実行ファイル>
@@ -6,7 +6,7 @@
 //   node bindings/conformance/cli.mjs call <zumen の実行ファイル>
 //   node bindings/conformance/cli.mjs wasi <wasm32-wasip1 の zumen.wasm>
 //
-// 階層 3 の言語（Ruby・PHP・R・Julia など）は、自分の言語から子プロセスか HTTP で CLI を使う。ここでは、その言語の
+// Tier 3 の言語（Ruby・PHP・R・Julia など）は、自分の言語から子プロセスか HTTP で CLI を使う。ここでは、その言語の
 // 代わりに Node.js から同じやり取りをする。
 //
 // - stdio: `zumen serve --stdio` の JSON-RPC。すべての組を流す
@@ -350,4 +350,4 @@ if (failures.length > 0) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log(`${mode}: 試験の組 ${cases.length} 件、ハッシュ ${hashes.length} 件が hashes.txt と一致した`);
+console.log(`${mode}: テストの組 ${cases.length} 件、ハッシュ ${hashes.length} 件が hashes.txt と一致した`);

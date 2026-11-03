@@ -1,9 +1,9 @@
-"""適合試験を、Python の包み（bindings/python）を通して流す（決定 0006・0195）。
+"""適合テストを、Python のラッパー（bindings/python）を通して流す（決定 0006・0195）。
 
 使い方: python bindings/python/tests/conformance.py <ネイティブのライブラリ>
 
-bindings/conformance/cases/*.json を、包みのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
-一覧が hashes.txt と一致することを確かめる。シーンの blob は、包みの読み手で読み、応答の数と合うかを確かめる。
+bindings/conformance/cases/*.json を、ラッパーのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
+一覧が hashes.txt と一致することを確かめる。シーンの blob は、ラッパーのリーダーで読み、応答の数と合うかを確かめる。
 手順の読み方と応答の確かめ方は、Rust の側（bindings/conformance/src/lib.rs）と、JavaScript の側
 （bindings/conformance/cases.mjs）と同じ規則で書く。
 """
@@ -34,7 +34,7 @@ from zumen import (
 REPOSITORY = HERE.parent.parent.parent
 CONFORMANCE = REPOSITORY / "bindings" / "conformance"
 
-# 手順の種類。手順は、どれか 1 つの欄を持つ
+# 手順の種類。手順は、どれか 1 つのフィールドを持つ
 ACTIONS = ["session", "push", "call", "call_text", "call_hex", "take"]
 
 _MISSING = object()
@@ -123,7 +123,7 @@ def request_of(action: str, step_input: Any) -> bytes:
 
 
 def load_cases() -> List[Tuple[str, list]]:
-    """試験の組を、名前の順に返す"""
+    """テストの組を、名前の順に返す"""
     files = sorted(path for path in (CONFORMANCE / "cases").iterdir() if path.suffix == ".json")
     return [(path.stem, json.loads(path.read_text(encoding="utf-8"))["steps"]) for path in files]
 
@@ -152,7 +152,7 @@ def compare_hashes(hashes: List[str], failures: List[str]) -> None:
 
 
 def attempt(fn: Callable[[], Any]) -> Tuple[str, Any]:
-    """境界の関数を呼び、状態の名前と、書かれたバイト列（か戻り値）を返す"""
+    """API の関数を呼び、状態の名前と、書かれたバイト列（か戻り値）を返す"""
     try:
         return "ok", fn()
     except ZumenError as error:
@@ -160,7 +160,7 @@ def attempt(fn: Callable[[], Any]) -> Tuple[str, Any]:
 
 
 def check_scene(at: str, blob: bytes, result: dict, failures: List[str]) -> None:
-    """シーンの blob を読み手で読み、応答の数と合うかを確かめる"""
+    """シーンの blob をリーダーで読み、応答の数と合うかを確かめる"""
     try:
         scene = read_scene(blob)
     except ValueError as error:
@@ -168,8 +168,8 @@ def check_scene(at: str, blob: bytes, result: dict, failures: List[str]) -> None
         return
     counts = result["counts"]
     checks = [
-        ("大版", scene.major, SCENE_MAJOR),
-        ("区画の数", scene.sections, len(SCENE_SECTIONS)),
+        ("メジャーバージョン", scene.major, SCENE_MAJOR),
+        ("セクションの数", scene.sections, len(SCENE_SECTIONS)),
         ("塊の数", scene.chunks, counts["chunks"]),
         ("chunk_origins の行", scene.rows("chunk_origins"), counts["chunks"]),
         ("text_xy の行", scene.rows("text_xy"), counts["texts"]),
@@ -177,7 +177,7 @@ def check_scene(at: str, blob: bytes, result: dict, failures: List[str]) -> None
         ("glyph_xy の行", scene.rows("glyph_xy"), counts["glyphs"]),
         ("line_xy と face_xy の行", scene.rows("line_xy") + scene.rows("face_xy"), counts["vertices"]),
     ]
-    # 文字の文字列は、strings の区画から引ける
+    # 文字の文字列は、strings のセクションから引ける
     strings = scene.columns["text_strings"]
     for row in range(0, len(strings), 2):
         try:
@@ -215,7 +215,7 @@ def main() -> int:
                     session.close()
                 status, session = attempt(lambda: zumen.open(bytes_of(step_input, "options", "options_text")))
                 if status != "ok":
-                    # 作れなかったら、閉じたセッションで続ける。境界は、空のセッションへの呼び出しを invalid にする
+                    # 作れなかったら、閉じたセッションで続ける。API は、空のセッションへの呼び出しを invalid にする
                     session = zumen.open()
                     session.close()
             elif action == "push":
@@ -267,12 +267,12 @@ def main() -> int:
     if not session.closed or status != "invalid":
         failures.append(f"閉じたあとの call が {status}（期待は invalid）")
 
-    summary = f"包みを通した試験の組 {len(cases)} 件、ハッシュ {len(hashes)} 件、読んだシーン {scenes} 件"
+    summary = f"ラッパーを通したテストの組 {len(cases)} 件、ハッシュ {len(hashes)} 件、読んだシーン {scenes} 件"
     print(summary)
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as file:
-            file.write(f"### Python の包みの適合試験（Python {sys.version.split()[0]}）\n\n{summary}\n")
+            file.write(f"### Python のラッパーの適合テスト（Python {sys.version.split()[0]}）\n\n{summary}\n")
     if scenes == 0:
         failures.append("シーンの blob を 1 つも読んでいない")
     if failures:

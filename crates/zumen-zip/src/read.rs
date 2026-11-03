@@ -17,16 +17,16 @@ const END_SIZE: usize = 22;
 const END64: u32 = 0x0606_4b50;
 const LOCATOR: u32 = 0x0706_4b50;
 const LOCATOR_SIZE: usize = 20;
-/// 中央ディレクトリの見出し
+/// 中央ディレクトリのヘッダー
 const CENTRAL: u32 = 0x0201_4b50;
 const CENTRAL_SIZE: usize = 46;
-/// 局所の見出し
+/// ローカルヘッダー
 const LOCAL: u32 = 0x0403_4b50;
 const LOCAL_SIZE: usize = 30;
-/// ZIP64 の拡張の欄
+/// ZIP64 の拡張のフィールド
 const ZIP64_EXTRA: u16 = 0x0001;
 
-/// 書庫を読む。入力のバイト数を `input-bytes`、項目を `records` で数える
+/// アーカイブを読む。入力のバイト数を `input-bytes`、項目を `records` で数える
 pub fn read<'a>(src: &'a [u8], cx: &mut Cx) -> Result<Archive<'a>, Error> {
     if let Err(stop) = cx.check(Kind::InputBytes, src.len() as u64) {
         cx.report(stop.to_diagnostic());
@@ -69,7 +69,7 @@ pub(crate) fn directory<'a>(src: Cow<'a, [u8]>, cx: &mut Cx) -> Result<Archive<'
     let Some((start, stop)) = range else {
         return Err(invalid(cx, whole));
     };
-    // 見出しは 46 バイト以上なので、項目の数は中央ディレクトリの大きさで抑えられる
+    // ヘッダーは 46 バイト以上なので、項目の数は中央ディレクトリの大きさで抑えられる
     if end.entries > end.size / CENTRAL_SIZE as u64 {
         return Err(invalid(cx, whole));
     }
@@ -136,7 +136,7 @@ pub(crate) fn directory<'a>(src: Cow<'a, [u8]>, cx: &mut Cx) -> Result<Archive<'
         ));
     }
 
-    // 範囲の重なる項目は、どれも読まない。書庫の爆弾と、名前の違う同じデータを避ける
+    // 範囲の重なる項目は、どれも読まない。アーカイブの爆弾と、名前の違う同じデータを避ける
     let mut order: Vec<usize> = (0..found.len()).collect();
     order.sort_by_key(|&i| found.get(i).map(|(entry, _)| entry.header.start));
     let mut overlapping = BTreeSet::new();
@@ -261,7 +261,7 @@ fn end(src: &[u8]) -> Result<End, Error> {
     })
 }
 
-/// 中央ディレクトリの見出し
+/// 中央ディレクトリのヘッダー
 struct Central {
     name: String,
     /// 名前を、壊さずに文字にできたら真
@@ -274,7 +274,7 @@ struct Central {
     offset: u64,
 }
 
-/// `at` の見出しと、次の見出しの位置。見出しは中央ディレクトリの終わり（`stop`）より前で終わる
+/// `at` のヘッダーと、次のヘッダーの位置。ヘッダーは中央ディレクトリの終わり（`stop`）より前で終わる
 fn central(src: &[u8], at: usize, stop: usize) -> Option<(Central, usize)> {
     if le32(src, at)? != CENTRAL {
         return None;
@@ -297,7 +297,7 @@ fn central(src: &[u8], at: usize, stop: usize) -> Option<(Central, usize)> {
         return None;
     }
 
-    // ZIP64 の拡張の欄は、32 ビットで足りなかった値だけを、この順で持つ（4.5.3）
+    // ZIP64 の拡張のフィールドは、32 ビットで足りなかった値だけを、この順で持つ（4.5.3）
     if let Some(mut field) = fields(extra)
         .find(|(id, _)| *id == ZIP64_EXTRA)
         .map(|(_, f)| f)
@@ -309,7 +309,7 @@ fn central(src: &[u8], at: usize, stop: usize) -> Option<(Central, usize)> {
             }
         }
     }
-    // 名前は、UTF-8 の印（ビット 11）があれば UTF-8、なければ Shift_JIS として読む
+    // 名前は、UTF-8 のフラグ（ビット 11）があれば UTF-8、なければ Shift_JIS として読む
     let (name, name_ok) = if flags & (1 << 11) != 0 {
         match core::str::from_utf8(raw) {
             Ok(name) => (name.to_owned(), true),
@@ -334,7 +334,7 @@ fn central(src: &[u8], at: usize, stop: usize) -> Option<(Central, usize)> {
     ))
 }
 
-/// 拡張の欄の、識別子と中身の組
+/// 拡張のフィールドの、識別子と中身の組
 fn fields(mut extra: &[u8]) -> impl Iterator<Item = (u16, &[u8])> {
     core::iter::from_fn(move || {
         let id = le16(extra, 0)?;
@@ -345,7 +345,7 @@ fn fields(mut extra: &[u8]) -> impl Iterator<Item = (u16, &[u8])> {
     })
 }
 
-/// 局所の見出しの範囲とデータの範囲。データは中央ディレクトリ（`stop`）より前で終わる
+/// ローカルヘッダーの範囲とデータの範囲。データは中央ディレクトリ（`stop`）より前で終わる
 fn local(
     src: &[u8],
     offset: u64,

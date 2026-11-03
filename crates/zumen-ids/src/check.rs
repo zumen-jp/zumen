@@ -16,7 +16,7 @@ use crate::{Cardinality, Constraint, Facet, Ids, Relation, Restriction, Specific
 /// 建物モデルの作り手が持たない値
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Missing {
-    /// 分類（`classification` の成分を作っていない）
+    /// 分類（`classification` のコンポーネントを作っていない）
     Classification,
     /// 材料の分類（`Category`）と、層・断面・構成要素の組の名前
     MaterialNames,
@@ -24,7 +24,7 @@ pub enum Missing {
     PropertyKinds,
 }
 
-/// 成分にない属性の値
+/// コンポーネントにない属性の値
 #[derive(Clone, Debug, PartialEq)]
 pub enum AttributeValue {
     /// `$` か `*`
@@ -44,7 +44,7 @@ pub trait Lookup {
         false
     }
 
-    /// 要素のすべての明示の属性の名前と値。属性の並びを知らなければ `None`。そのときは、成分にある属性
+    /// 要素のすべての明示の属性の名前と値。属性の並びを知らなければ `None`。そのときは、コンポーネントにある属性
     /// （`GlobalId`・`Name`・`Description`・`Tag`・`LongName`・`PredefinedType`）だけを確かめる
     fn attributes(
         &self,
@@ -171,7 +171,7 @@ impl State {
     }
 }
 
-/// 建物モデルを IDS で照合する。`source` は、建物モデルが持たない値と、成分にない属性を引く
+/// 建物モデルを IDS で照合する。`source` は、建物モデルが持たない値と、コンポーネントにない属性を引く
 pub fn check(
     building: &Building,
     ids: &Ids,
@@ -517,7 +517,7 @@ impl Checker<'_> {
         }
     }
 
-    /// 成分にある属性。成分にない名前なら `None`
+    /// コンポーネントにある属性。コンポーネントにない名前なら `None`
     fn known_attribute(&self, name: &str, element: ElementRef) -> Option<AttributeValue> {
         let components = &self.building.components;
         let text = |value: Option<&String>| match value {

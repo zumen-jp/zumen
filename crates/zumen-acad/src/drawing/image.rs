@@ -1,11 +1,11 @@
-//! IMAGE と PDFUNDERLAY などの下敷きを、外部のファイルを指す資源とともに移す（決定 0114）。
+//! IMAGE と PDFUNDERLAY などのアンダーレイを、外部のファイルを指す資源とともに移す（決定 0114）。
 
 use super::{Lifted, Lifter, invalid, non_planar, source};
 use crate::db::{AcadDb, Data, Object};
 use zumen_drawing::{Clip, Length, Resource, Underlay, UnderlayFrame, UnderlayKind};
 
 impl Lifter<'_> {
-    /// 下敷きが指す定義（340）の、参照名（1）。定義が `definition` の種類でなければ読めないとする。
+    /// アンダーレイが指す定義（340）の、参照名（1）。定義が `definition` の種類でなければ読めないとする。
     /// 定義と出所を返す
     fn resource<'a>(
         &self,
@@ -33,7 +33,7 @@ impl Lifter<'_> {
     }
 
     /// IMAGE（DXF Reference「IMAGE」「IMAGEDEF」、決定 0114）。挿入点（10）は左下の角、1 画素の横と縦の向きと
-    /// 大きさ（11・21・31 と 12・22・32）、画素の数（13・23）から、右下と左上の角を求める。表示の印（70）の 1 は
+    /// 大きさ（11・21・31 と 12・22・32）、画素の数（13・23）から、右下と左上の角を求める。表示のフラグ（70）の 1 は
     /// 表示する。切り抜く（280 が 1）なら、境界（71 が 1 なら長方形、2 なら多角形）の頂点（14・24）を、数（91）と
     /// 合わせて読み、290 が 1 なら内側を隠す。明るさ・コントラスト・薄さ（281〜283）は、まだ移さない
     pub(super) fn image<P>(
@@ -93,7 +93,7 @@ impl Lifter<'_> {
     }
 
     /// PDFUNDERLAY・DWFUNDERLAY・DGNUNDERLAY（DXF Reference「UNDERLAY」「UNDERLAYDEFINITION」、決定 0114）。
-    /// 定義の 2 はページなどの名前。挿入点（10）・尺度（41・42）・回転（50）を持つ。印（280）の 2 は表示する、1 は
+    /// 定義の 2 はページなどの名前。挿入点（10）・尺度（41・42）・回転（50）を持つ。フラグ（280）の 2 は表示する、1 は
     /// 切り抜く、16 は内側を切り抜く（内側を隠す）。切り抜くなら、境界の頂点（11・21）を読む。コントラスト・薄さ・
     /// 単色（281・282 と 280 の 4・8）は、まだ移さない
     pub(super) fn underlay<P>(

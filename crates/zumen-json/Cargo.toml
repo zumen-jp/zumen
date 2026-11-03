@@ -1,6 +1,6 @@
 [package]
 name = "zumen-json"
-description = "zumen の境界のメッセージの JSON: 厳しく読み、どの環境でも同じバイト列に書く"
+description = "zumen の API のメッセージの JSON: 厳しく読み、どの環境でも同じバイト列に書く"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

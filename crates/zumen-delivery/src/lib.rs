@@ -35,7 +35,7 @@ pub struct File {
     pub picture: Option<Picture>,
 }
 
-/// 写真のファイルの情報。Exif とフレームの見出しから読む
+/// 写真のファイルの情報。Exif とフレームのヘッダーから読む
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Picture {
     /// 画素の幅

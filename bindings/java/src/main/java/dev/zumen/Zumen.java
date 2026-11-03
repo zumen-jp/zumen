@@ -17,10 +17,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * zumen の C ABI を JNA で呼ぶ薄い包み（決定 0011・0224）。
+ * zumen の C ABI を JNA で呼ぶ薄いラッパー（決定 0011・0224）。
  *
  * <p>ネイティブのライブラリ（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib）を {@link #load(String)} で読み込み、
- * 境界の関数（schema/boundary.toml）を、{@link Session} のメソッドにして出す。要求と応答の型は {@link Messages} にある。
+ * API の関数（schema/boundary.toml）を、{@link Session} のメソッドにして出す。要求と応答の型は {@link Messages} にある。
  * Kotlin からも、このクラスをそのまま使う。
  */
 public final class Zumen {
@@ -85,11 +85,11 @@ public final class Zumen {
     }
 
     /**
-     * ネイティブのライブラリを、ファイルの道筋から読み込み、関数がそろうことと ABI の大版を確かめる。
+     * ネイティブのライブラリを、ファイルの道筋から読み込み、関数がそろうことと ABI のメジャーバージョンを確かめる。
      *
      * <p>32 bit の Windows では、関数を stdcall で呼ぶ（決定 0011）。読み込んだライブラリは外さない。
      *
-     * @throws UnsatisfiedLinkError 読み込めないか、zumen のライブラリでないか、ABI の大版が違うとき
+     * @throws UnsatisfiedLinkError 読み込めないか、zumen のライブラリでないか、ABI のメジャーバージョンが違うとき
      */
     public static Zumen load(String path) {
         File file = new File(path).getAbsoluteFile();
@@ -121,12 +121,12 @@ public final class Zumen {
         int version = core.zm_abi_version();
         if (version != Constants.ABI_VERSION) {
             throw new UnsatisfiedLinkError(
-                    "ABI の大版が " + version + "（この包みは " + Constants.ABI_VERSION + "）");
+                    "ABI のメジャーバージョンが " + version + "（このラッパーは " + Constants.ABI_VERSION + "）");
         }
         return new Zumen(core);
     }
 
-    /** ABI の大版 */
+    /** ABI のメジャーバージョン */
     public int abiVersion() {
         return core.zm_abi_version();
     }

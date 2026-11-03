@@ -1,6 +1,6 @@
 //! PLY（台帳の `ply`）の点群を読み、点群の領域モデル（決定 0232）に移す。
 //!
-//! L1 は、見出しの要素と性質の表と、要素ごとの値の列で持つ。ASCII・リトルエンディアン・ビッグエンディアンの本体を
+//! L1 は、ヘッダーの要素と性質の表と、要素ごとの値の列で持つ。ASCII・リトルエンディアン・ビッグエンディアンの本体を
 //! 読む。点群の領域モデルには、`vertex` の要素だけを移す。持ち主の決めた仕様はないので、広く使われる書き方
 //! （`docs/formats/ply.md`）に従う。
 
@@ -104,7 +104,7 @@ pub struct Element {
 pub struct PlyFile {
     /// 本体の書き方
     pub encoding: Encoding,
-    /// 要素。見出しの順
+    /// 要素。ヘッダーの順
     pub elements: Vec<Element>,
 }
 
@@ -168,7 +168,7 @@ impl Codec for Ply {
     }
 }
 
-/// 見出しを読む。本体の書き方と要素と、本体の始まり
+/// ヘッダーを読む。本体の書き方と要素と、本体の始まり
 fn header(src: &[u8]) -> Option<(Encoding, Vec<Element>, usize)> {
     let mut at = 0;
     let mut encoding = None;

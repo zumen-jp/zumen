@@ -1,15 +1,15 @@
-//! 試験の中で JWW を組み立てる。
+//! テストの中で JWW を組み立てる。
 
 #![allow(dead_code)]
 
 use std::collections::BTreeMap;
 
-/// 知っている欄だけの見出し。メモと名前は空、値は 0
+/// 知っているフィールドだけのヘッダー。メモと名前は空、値は 0
 pub fn header(version: u32) -> Vec<u8> {
     Spec::new(version).build()
 }
 
-/// 見出しの値。指定しない欄は 0、名前は空
+/// ヘッダーの値。指定しないフィールドは 0、名前は空
 pub struct Spec {
     pub version: u32,
     pub paper: u32,
@@ -264,7 +264,7 @@ impl Archive {
         self.cstring(content);
     }
 
-    /// 図形を 1 つずつ。版 700 の寸法は SXF の欄を持つ
+    /// 図形を 1 つずつ。バージョン 700 の寸法は SXF のフィールドを持つ
     pub fn all_kinds(&mut self) {
         self.line();
         self.line();

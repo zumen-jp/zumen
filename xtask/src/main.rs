@@ -1,8 +1,8 @@
 //! リポジトリの作業。`cargo xtask <コマンド>` で使う（決定 0011）。
 //!
 //! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー（シーンの配置を含む）、TypeScript・JavaScript・Python・.NET
-//!   の型と定数、CLI の MCP の道具の一覧、カタログとプロファイルの JSON を生成する
-//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、包みの版を確かめ、
+//!   の型と定数、CLI の MCP のツールの一覧、カタログとプロファイルの JSON を生成する
+//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、ラッパーのバージョンを確かめ、
 //!   生成したファイルが最新かを確かめる
 
 mod boundary;
@@ -21,7 +21,7 @@ mod samples;
 mod scene;
 mod schema;
 mod swift;
-// 適合試験と同じ SHA-256 を使う
+// 適合テストと同じ SHA-256 を使う
 #[path = "../../bindings/conformance/src/sha256.rs"]
 mod sha256;
 
@@ -68,7 +68,7 @@ const CLI_CATALOG_EN: &str = "bindings/cli/resources/en.json";
 const CATALOG_EN: &str = "catalog/en.json";
 const FORMATS_MD: &str = "docs/formats/README.md";
 
-/// パッケージの版。カタログはコアと同じ版で出す（決定 0009）
+/// パッケージのバージョン。カタログはコアと同じバージョンで出す（決定 0009）
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -243,7 +243,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     update_outputs(&root, &outputs, mode)
 }
 
-/// 包みの package.json の版が、コアと同じかを確かめる（決定 0015）
+/// ラッパーの package.json のバージョンが、コアと同じかを確かめる（決定 0015）
 fn check_package_version(path: &str, source: &str) -> Result<(), String> {
     let value = zumen_json::parse(source.as_bytes()).map_err(|e| format!("{path}: {e:?}"))?;
     let version = match &value {
@@ -258,7 +258,7 @@ fn check_package_version(path: &str, source: &str) -> Result<(), String> {
     }
 }
 
-/// Python の包みの pyproject.toml の版が、コアと同じかを確かめる（決定 0015）
+/// Python のラッパーの pyproject.toml のバージョンが、コアと同じかを確かめる（決定 0015）
 fn check_pyproject_version(path: &str, source: &str) -> Result<(), String> {
     let value: toml::Table = toml::from_str(source).map_err(|e| format!("{path}: {e}"))?;
     let version = value
@@ -273,7 +273,7 @@ fn check_pyproject_version(path: &str, source: &str) -> Result<(), String> {
     }
 }
 
-/// Dart の包みの pubspec.yaml の、行の頭の version が、コアと同じかを確かめる（決定 0015・0227）
+/// Dart のラッパーの pubspec.yaml の、行の頭の version が、コアと同じかを確かめる（決定 0015・0227）
 fn check_pubspec_version(path: &str, source: &str) -> Result<(), String> {
     let versions: Vec<&str> = source
         .lines()
@@ -296,7 +296,7 @@ fn check_pubspec_version(path: &str, source: &str) -> Result<(), String> {
     }
 }
 
-/// Java の包みの pom.xml の、project の直下の version が、コアと同じかを確かめる（決定 0015・0224）
+/// Java のラッパーの pom.xml の、project の直下の version が、コアと同じかを確かめる（決定 0015・0224）
 fn check_pom_version(path: &str, source: &str) -> Result<(), String> {
     // project の直下の version は、parent と dependencies より前の、最初の version に書く
     let head = source
@@ -320,7 +320,7 @@ fn check_pom_version(path: &str, source: &str) -> Result<(), String> {
     }
 }
 
-/// .NET の包みの csproj の版が、コアと同じかを確かめる。AssemblyVersion は ABI の大版に固定する（決定 0015・0196）
+/// .NET のラッパーの csproj のバージョンが、コアと同じかを確かめる。AssemblyVersion は ABI のメジャーバージョンに固定する（決定 0015・0196）
 fn check_csproj_version(path: &str, source: &str, abi: u32) -> Result<(), String> {
     let values = |tag: &str| -> Vec<String> {
         let open = format!("<{tag}>");
@@ -342,7 +342,7 @@ fn check_csproj_version(path: &str, source: &str, abi: u32) -> Result<(), String
     let assembly = format!("{abi}.0.0.0");
     if values("AssemblyVersion") != [assembly.as_str()] {
         return Err(format!(
-            "{path} の AssemblyVersion を 1 つにし、ABI の大版の {assembly} にする（決定 0015）"
+            "{path} の AssemblyVersion を 1 つにし、ABI のメジャーバージョンの {assembly} にする（決定 0015）"
         ));
     }
     Ok(())

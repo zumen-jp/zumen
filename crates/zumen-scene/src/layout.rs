@@ -3,16 +3,16 @@
 
 //! 2D のシーンの配置（決定 0137・0172・0178）。
 
-/// 見出しの始まりの 4 バイト
+/// ヘッダーの始まりの 4 バイト
 pub const MAGIC: [u8; 4] = *b"ZMSC";
-/// 大版。区画の意味を変えるときに上げる
+/// メジャーバージョン。セクションの意味を変えるときに上げる
 pub const MAJOR: u16 = 1;
-/// 小版。区画か値を足すたびに上げる
+/// マイナーバージョン。セクションか値を足すたびに上げる
 pub const MINOR: u16 = 2;
 /// 番号の「なし」
 pub const NONE: u32 = u32::MAX;
 
-/// 区画の値の型
+/// セクションの値の型
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Type {
     /// `u8`
@@ -37,7 +37,7 @@ impl Type {
     }
 }
 
-/// 区画の定義
+/// セクションの定義
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Section {
     /// 名前
@@ -94,7 +94,7 @@ pub const TEXT_OBLIQUES: usize = 20;
 pub const TEXT_BOXES: usize = 21;
 /// 位置合わせ。水平（horizontal の値）と垂直（vertical の値）
 pub const TEXT_ALIGNS: usize = 22;
-/// 印（text_flag の値の和）
+/// フラグ（text_flag の値の和）
 pub const TEXT_FLAGS: usize = 23;
 /// 書式つきの文字の行の番号。0 から数える。1 行の文字は 0
 pub const TEXT_LINES: usize = 24;
@@ -106,15 +106,15 @@ pub const TEXT_UNITS: usize = 26;
 pub const POINT_XY: usize = 27;
 /// 点の回転（度、反時計回り）
 pub const POINT_ROTATIONS: usize = 28;
-/// 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0
+/// 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0
 pub const POINT_MARKERS: usize = 29;
-/// 既定義の印の尺度。文書の点の表し方に従う点は 1
+/// 既定義のマーカーの尺度。文書の点の表し方に従う点は 1
 pub const POINT_SCALES: usize = 30;
 /// 点の描く単位（unit_entities の行）
 pub const POINT_UNITS: usize = 31;
 /// 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない
 pub const POINT_STYLE: usize = 32;
-/// 下敷きの参照名（strings の始まりと長さ）。コアは開かない
+/// アンダーレイの参照名（strings の始まりと長さ）。コアは開かない
 pub const IMAGE_NAMES: usize = 33;
 /// 資源の中のページ（strings の始まりと長さ）。なければ長さが 0
 pub const IMAGE_PAGES: usize = 34;
@@ -156,13 +156,13 @@ pub const COLOR_CODES: usize = 51;
 pub const COLOR_FILES: usize = 52;
 /// 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0
 pub const COLOR_RGBA: usize = 53;
-/// 印（color_flag の値の和）
+/// フラグ（color_flag の値の和）
 pub const COLOR_FLAGS: usize = 54;
 /// 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く
 pub const CLIP_POLYGONS: usize = 55;
 /// 多角形の頂点の始まり（clip_xy の行）
 pub const POLYGON_VERTICES: usize = 56;
-/// 多角形の印。1 なら、内側を隠す（外側だけを描く）
+/// 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）
 pub const POLYGON_FLAGS: usize = 57;
 /// 切り抜きの多角形の頂点。起点の座標の X・Y
 pub const CLIP_XY: usize = 58;
@@ -187,7 +187,7 @@ pub const OUTLINE_VERTICES: usize = 67;
 /// 字形の輪の頂点（字形の単位）。曲線は、許容差を字形の単位に直して 2 の冪に切り下げた刻みで折れ線にする
 pub const OUTLINE_XY: usize = 68;
 
-/// 区画の定義。番号の順
+/// セクションの定義。番号の順
 pub const SECTIONS: [Section; 69] = [
     Section {
         name: "chunk_origins",
@@ -564,7 +564,7 @@ pub mod vertical {
     pub const TOP: u8 = 3;
 }
 
-/// 文字の印。和で持つ
+/// 文字のフラグ。和で持つ
 pub mod text_flag {
     /// 左右に反転する
     pub const BACKWARD: u8 = 1;
@@ -614,7 +614,7 @@ pub mod point_size {
     pub const SCREEN: u8 = 1;
 }
 
-/// 下敷きの資源の種類
+/// アンダーレイの資源の種類
 pub mod image_kind {
     /// 画素の画像
     pub const IMAGE: u8 = 0;
@@ -656,7 +656,7 @@ pub mod entity_kind {
     pub const CALLOUT: u8 = 8;
     /// 表
     pub const TABLE: u8 = 9;
-    /// 下敷き
+    /// アンダーレイ
     pub const UNDERLAY: u8 = 10;
     /// 記号
     pub const SYMBOL: u8 = 11;
@@ -680,7 +680,7 @@ pub mod color_system {
     pub const JWW: u8 = 3;
 }
 
-/// 色の印。和で持つ
+/// 色のフラグ。和で持つ
 pub mod color_flag {
     /// 表示する RGBA が決まらない。表示する側が決める
     pub const UNRESOLVED: u8 = 1;

@@ -1,17 +1,17 @@
-# 階層 3 の言語から使う
+# Tier 3 の言語から使う
 
-公式の包みのない言語（Ruby・PHP・R・Julia・PowerShell・MATLAB・Delphi など、[決定 0006](decisions/0006-language-tiers.md) の階層 3）から zumen を使う手順です。境界は 4 つの形（[決定 0013](decisions/0013-boundary-in-four-forms.md)）で、どれも同じ要求と応答（[schema/messages.json](../schema/messages.json) の JSON）を運びます。言語の FFI・子プロセス・HTTP のどれが使いやすいかで、形を選びます。
+公式のラッパーのない言語（Ruby・PHP・R・Julia・PowerShell・MATLAB・Delphi など、[決定 0006](decisions/0006-language-tiers.md) の Tier 3）から zumen を使う手順です。API は 4 つの形態（[決定 0013](decisions/0013-boundary-in-four-forms.md)）で、どれも同じ要求と応答（[schema/messages.json](../schema/messages.json) の JSON）を運びます。言語の FFI・子プロセス・HTTP のどれが使いやすいかで、形態を選びます。
 
-| 形 | 向く場面 | サンプル |
+| 形態 | 向く場面 | サンプル |
 | --- | --- | --- |
 | C ABI | 言語に FFI がある。同じプロセスで速く呼びたい | [Ruby（Fiddle）](../examples/tier3/ruby/c_abi.rb) |
 | CLI と `process` | 子プロセスを起こせる。ライブラリを読み込みたくない | [PHP（proc_open）](../examples/tier3/php/stdio.php) |
 | wasm（WASI） | ネイティブのライブラリを置けない。WASI のランタイムがある | PHP のサンプルを、WASI のランタイムの上の CLI で動かす |
 | HTTP | 言語から HTTP だけを使える。別のマシンやコンテナーに置きたい | [PowerShell（Invoke-RestMethod）](../examples/tier3/powershell/http.ps1) |
 
-サンプルは、同じ図面（[samples/dwg/zumen-layout-r2000_ascii.dxf](../samples/dwg/zumen-layout-r2000_ascii.dxf)）を開き、形式と図形の数（[examples/tier3/expected.txt](../examples/tier3/expected.txt)）を書きます。毎晩の CI（`nightly.yml` の `tier3`）が流し、書いたものが `expected.txt` と同じかを確かめます。言語に依らない適合試験は、[bindings/conformance/cli.mjs](../bindings/conformance/cli.mjs) が同じ形で流します。
+サンプルは、同じ図面（[samples/dwg/zumen-layout-r2000_ascii.dxf](../samples/dwg/zumen-layout-r2000_ascii.dxf)）を開き、形式と図形の数（[examples/tier3/expected.txt](../examples/tier3/expected.txt)）を書きます。毎晩の CI（`nightly.yml` の `tier3`）が流し、書いたものが `expected.txt` と同じかを確かめます。言語に依らない適合テストは、[bindings/conformance/cli.mjs](../bindings/conformance/cli.mjs) が同じ形で流します。
 
-成果物はまだ配っていないので、どの形も、このリポジトリで作ったものを使います（配ったあとの手順は、公開のときに直します）。
+成果物はまだ配っていないので、どの形態も、このリポジトリで作ったものを使います（配ったあとの手順は、公開のときに直します）。
 
 ## 共通の流れ
 
@@ -35,7 +35,7 @@
 | `zm_session_close(session)` | セッションを閉じる |
 
 - 状態コードは 0 が ok、1 が failed、2 が invalid、3 が busy、4 が panicked です。failed と panicked でも、`buf` に応答があります。
-- `zm_buf` は、ポインターと `size_t` の 2 つの欄の構造体です。FFI では、この大きさの領域を確保して渡し、読んだあとに `zm_free` に渡します。
+- `zm_buf` は、ポインターと `size_t` の 2 つのフィールドの構造体です。FFI では、この大きさの領域を確保して渡し、読んだあとに `zm_free` に渡します。
 - 32 bit の Windows（32 bit の Office の VBA など）では、関数は stdcall です。ほかの環境は、その環境の C の呼び出し規約です。
 - 1 つのセッションを、同時に 2 つのスレッドから呼ばないでください。呼ぶと busy を返します。
 
@@ -57,8 +57,8 @@ wasmtime run target/wasm32-wasip1/release/zumen.wasm serve --stdio
 
 - フォルダーを渡さなくても使えます。入力は push で、バイト列のまま送ります。
 - WASI にはスレッドがないので、要求は 1 行ずつ順に処理し、処理の途中の `cancel` は受けません。予算（`budget`）で止めてください。
-- Node.js では、[bindings/conformance/wasi.mjs](../bindings/conformance/wasi.mjs) が node:wasi で動かします。毎晩の CI は、これで適合試験とサンプルを流します。
-- ブラウザーや、wasm のモジュールを直接読み込める環境では、`wasm32-unknown-unknown` のモジュール（`zumen_abi1.wasm`）を使えます。境界の関数は C ABI と同じ名前で、メモリは `zm_alloc`・`zm_dealloc` で確保します（[決定 0013](decisions/0013-boundary-in-four-forms.md)）。
+- Node.js では、[bindings/conformance/wasi.mjs](../bindings/conformance/wasi.mjs) が node:wasi で動かします。毎晩の CI は、これで適合テストとサンプルを流します。
+- ブラウザーや、wasm のモジュールを直接読み込める環境では、`wasm32-unknown-unknown` のモジュール（`zumen_abi1.wasm`）を使えます。API の関数は C ABI と同じ名前で、メモリは `zm_alloc`・`zm_dealloc` で確保します（[決定 0013](decisions/0013-boundary-in-four-forms.md)）。
 
 ## HTTP
 

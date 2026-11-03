@@ -5,12 +5,12 @@
 //! DXF も DWG も、表を作ってから同じ変換を通す。
 //!
 //! モデル空間の図形は実寸の空間に、ペーパー空間（67 = 1）の図形とビューポートはレイアウトごとの用紙に置く。
-//! 実寸の単位は見出しの `$INSUNITS` で決め、分からなければ不明とする。用紙の点は `$PLIMMIN` を原点にした mm で、
+//! 実寸の単位はヘッダーの `$INSUNITS` で決め、分からなければ不明とする。用紙の点は `$PLIMMIN` を原点にした mm で、
 //! 単位が分からなければ mm に直せないので、ペーパー空間の図形を移さない。
 //! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間・
 //! ペーパー空間・記号の定義のブロックのレコードを指す SORTENTSTABLE で決め、なければ入力の順とする。
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
-//! DWG でも `dxf.` で始まるものを使う。DWG の読み手がまだ読まない値（R2010 からの表の書式）だけは、`dwg.` で
+//! DWG でも `dxf.` で始まるものを使う。DWG のリーダーがまだ読まない値（R2010 からの表の書式）だけは、`dwg.` で
 //! 始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
 mod acad_table;
@@ -42,13 +42,13 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Error, Lift};
 
-/// UTF-8 で書く最初の版（2007）
+/// UTF-8 で書く最初のバージョン（2007）
 const UTF8: &[u8] = b"AC1021";
 
-/// HATCH の SPLINE の辺が当てはめる点を持つ最初の版（2010）
+/// HATCH の SPLINE の辺がフィット点を持つ最初のバージョン（2010）
 const FIT_DATA: &[u8] = b"AC1024";
 
-/// DWG の ACAD_TABLE が内容を TABLECONTENT の形で持つ最初の版（2010。ODS 5.4.1 の 20.4.96.2）
+/// DWG の ACAD_TABLE が内容を TABLECONTENT の形で持つ最初のバージョン（2010。ODS 5.4.1 の 20.4.96.2）
 const TABLE_CONTENT: &[u8] = b"AC1024";
 
 /// 移さない理由。診断は大きいので箱に入れる
@@ -62,14 +62,14 @@ const EMPTY: SheetId = SheetId(u32::MAX);
 /// ブロックの定義を指す記号のキーの名前空間
 const BLOCK: &str = "dxf.block";
 
-/// XDATA の形式固有の情報の名前空間と、値の型の契約の版（決定 0115・0157）
+/// XDATA の形式固有の情報の名前空間と、値の型の契約のバージョン（決定 0115・0157）
 const XDATA: &str = "dxf.xdata";
 
 const XDATA_SCHEMA: u32 = 3;
-/// 図面モデルの値にない図形の欄の拡張の名前空間と、値の型の契約の版（決定 0142・0157）
+/// 図面モデルの値にない図形のフィールドの拡張の名前空間と、値の型の契約のバージョン（決定 0142・0157）
 const ENTITY: &str = "dxf.entity";
 const ENTITY_SCHEMA: u32 = 3;
-/// 図形の拡張辞書の XRECORD の形式固有の情報の名前空間と、値の型の契約の版（決定 0148・0157）
+/// 図形の拡張辞書の XRECORD の形式固有の情報の名前空間と、値の型の契約のバージョン（決定 0148・0157）
 const XRECORD: &str = "dxf.xrecord";
 const XRECORD_SCHEMA: u32 = 3;
 
@@ -92,13 +92,13 @@ fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
 }
 
 /// MTEXT の内容を、図面モデルの書式の区間に分ける。読むときと書き戻すときに区間を確かめるのと同じ解釈で、
-/// `length` は図面の単位の値を長さにする。境界から書式つきの文字を足し、置き換えるときに使う
+/// `length` は図面の単位の値を長さにする。API から書式つきの文字を足し、置き換えるときに使う
 pub fn mtext_spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<zumen_drawing::Span> {
     mtext::spans(content, length)
 }
 
 /// 寸法値の文字の内容を、図面モデルの書式の区間に分ける。測定値に置き換える符号（`<>`）は測定値の区間にする。
-/// 読むときと同じ解釈で、境界から寸法の形の値を受けるときに使う
+/// 読むときと同じ解釈で、API から寸法の形の値を受けるときに使う
 pub fn dimension_spans(content: &str, length: &impl Fn(f64) -> Length) -> Vec<zumen_drawing::Span> {
     mtext::dimension_spans(content, length)
 }
@@ -113,7 +113,7 @@ pub(crate) struct PaperFrame {
 }
 
 /// 図形の置き場所。所有者のブロックのレコードと、BLOCKS の所（ほかのレイアウトのペーパー空間のブロック）に
-/// あるかと、ペーパー空間の印（67 = 1）を持つか
+/// あるかと、ペーパー空間のフラグ（67 = 1）を持つか
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Home {
     pub(crate) owner: Option<u64>,
@@ -229,7 +229,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     let ([model_keys, paper_keys], block_keys) = lifter.sort_keys(db, cx)?;
     let symbols = lifter.definitions(db, &block_keys, &mut out, cx)?;
     check_symbols(&symbols, &out, cx)?;
-    // 見出しの $LTSCALE と、1/100 mm の $LWDEFAULT（DXF Reference「HEADER Section Group Codes」）
+    // ヘッダーの $LTSCALE と、1/100 mm の $LWDEFAULT（DXF Reference「HEADER Section Group Codes」）
     let line_type_scale = db
         .variable(b"$LTSCALE")
         .and_then(|values| header_real(values, 40))
@@ -346,7 +346,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
 }
 
 /// 図形 1 つの作業量。書式つきの文字は、内容の 250 バイトの区切り（3）ごとにも数える。曲線は、頂点・制御点・
-/// 当てはめる点・節点（10・11・40）ごとにも数える。線種は、列の要素（49）ごとにも数える
+/// フィット点・ノット（10・11・40）ごとにも数える。線種は、列の要素（49）ごとにも数える
 fn amount(object: &Object) -> u64 {
     let count = |codes: &[i16]| {
         object
@@ -369,7 +369,7 @@ fn amount(object: &Object) -> u64 {
 }
 
 /// 用紙空間のブロックのレコードから LAYOUT の位置を引く索引。レイアウトごとに表全体を探し直さない。
-/// LAYOUT の欄の 330 で指す。初めの 330 は所有者なので見ない（DXF Reference「LAYOUT」）
+/// LAYOUT のフィールドの 330 で指す。初めの 330 は所有者なので見ない（DXF Reference「LAYOUT」）
 fn layout_index(db: &AcadDb, cx: &mut Cx) -> Result<BTreeMap<u64, usize>, Error> {
     let mut layouts = BTreeMap::new();
     for (index, object) in db.objects().iter().enumerate() {
@@ -531,7 +531,7 @@ fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
     })
 }
 
-/// 出所。ハンドルがあれば、変わらない鍵として足す（決定 0156）
+/// 出所。ハンドルがあれば、変わらないキーとして足す（決定 0156）
 fn source(object: &Object) -> Ref {
     let at = match object.origin {
         Origin::Dxf { record } => Ref::at_record(record as u64),
@@ -572,8 +572,8 @@ fn arrange<T>(keys: Option<&SortKeys>, items: Vec<(T, Option<u64>)>, cx: &mut Cx
     keyed.into_iter().map(|(_, item)| item).collect()
 }
 
-/// INSERT の属性（ATTRIB）と POLYLINE の頂点（VERTEX）と、終わりの印（SEQEND）。所有者（330）が INSERT か
-/// POLYLINE を指すもの、所有者がないか図形でないものは、続く印（66 = 1）を持つ INSERT か POLYLINE の後に並ぶ
+/// INSERT の属性（ATTRIB）と POLYLINE の頂点（VERTEX）と、終わりのマーカー（SEQEND）。所有者（330）が INSERT か
+/// POLYLINE を指すもの、所有者がないか図形でないものは、続くフラグ（66 = 1）を持つ INSERT か POLYLINE の後に並ぶ
 /// ものを、そのもののとする（DXF Reference「INSERT」「POLYLINE」）。INSERT と POLYLINE の添字から ATTRIB と
 /// VERTEX の添字への対応と、どれかのものとした添字を返す
 fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
@@ -618,7 +618,7 @@ fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usiz
     (attributes, owned)
 }
 
-/// 見出しの `$INSUNITS`（DXF Reference「HEADER Section Group Codes」）。長さの単位でなければ不明
+/// ヘッダーの `$INSUNITS`（DXF Reference「HEADER Section Group Codes」）。長さの単位でなければ不明
 fn unit(db: &AcadDb, cx: &mut Cx) -> Unit {
     let code = db
         .variable(b"$INSUNITS")
@@ -634,8 +634,8 @@ fn unit(db: &AcadDb, cx: &mut Cx) -> Unit {
     unit
 }
 
-/// ブロックのレコードの挿す単位の番号。R2007 からは 70 に、R2004 までは拡張データの ACAD の
-/// `DesignCenter Data` の組（1002 の `{`、版の 1070、単位の 1070、1002 の `}`）にある（試料の図面で確かめた）
+/// ブロックのレコードの挿入単位の番号。R2007 からは 70 に、R2004 までは拡張データの ACAD の
+/// `DesignCenter Data` の組（1002 の `{`、バージョンの 1070、単位の 1070、1002 の `}`）にある（サンプルの図面で確かめた）
 fn insertion_units(record: &Object) -> Option<i64> {
     if let Some(Data::Int(code)) = record.first(70) {
         return Some(*code);
@@ -661,7 +661,7 @@ fn insertion_units(record: &Object) -> Option<i64> {
     }
 }
 
-/// 単位の番号（`$INSUNITS` と、ブロックのレコードの挿す単位で共通）。長さの単位でなければ不明
+/// 単位の番号（`$INSUNITS` と、ブロックのレコードの挿入単位で共通）。長さの単位でなければ不明
 fn unit_of(code: i64) -> Unit {
     match code {
         1 => Unit::Inch,
@@ -673,7 +673,7 @@ fn unit_of(code: i64) -> Unit {
     }
 }
 
-/// 文書の点の表し方（決定 0160）。見出しの `$PDMODE` が形、`$PDSIZE` が大きさ（DXF Reference「HEADER Section
+/// 文書の点の表し方（決定 0160）。ヘッダーの `$PDMODE` が形、`$PDSIZE` が大きさ（DXF Reference「HEADER Section
 /// Group Codes」）。どちらもなければ `None`。知らない番号か、有限でない大きさは `dxf.lift.invalid` を返し、小さな点と、
 /// 画面の高さの 5% にする
 fn point_style(db: &AcadDb, cx: &mut Cx) -> Option<PointStyle> {
@@ -769,12 +769,12 @@ struct Lifter<'a> {
     sheet: SheetId,
     /// 文字の値の符号化
     charset: Charset,
-    /// 2010 以降の版なら、DXF の HATCH の SPLINE の辺は当てはめる点（97）を持つ
+    /// 2010 以降のバージョンなら、DXF の HATCH の SPLINE の辺はフィット点（97）を持つ
     fit_data: bool,
-    /// 2010 以降の版なら、DWG の表は内容を TABLECONTENT の形で持つ。DWG の読み手は、その書式と TABLESTYLE を
+    /// 2010 以降のバージョンなら、DWG の表は内容を TABLECONTENT の形で持つ。DWG のリーダーは、その書式と TABLESTYLE を
     /// まだ読まない
     table_content: bool,
-    /// 見出しの `$ACADVER`。形式固有の情報の版にする
+    /// ヘッダーの `$ACADVER`。形式固有の情報のバージョンにする
     version: Option<String>,
     /// 文書の長さの単位。記号の定義の空間も、この単位とする
     unit: Unit,
@@ -932,13 +932,13 @@ impl Lifter<'_> {
             (callout.line_style, callout.content_color) =
                 self.callout_style(db, object, symbol, out, cx)?;
         }
-        // 弧長寸法の引出線（71）は、図面モデルに欄がないので移さない（決定 0157）
+        // 弧長寸法の引出線（71）は、図面モデルにフィールドがないので移さない（決定 0157）
         if object.kind == b"ARC_DIMENSION" && self.arc_leader(object)? {
             cx.report(Diagnostic::new(codes::DXF_ARC_DIMENSION_LEADER_DROPPED).at(source.clone()));
         }
         if let Shape::Table(_) = &shape {
             report_cell_values(object, cx);
-            // R2010 からの DWG の読み手は、表のスタイル・セルのスタイル・内容の書式を読まない（docs/formats/dwg.md）
+            // R2010 からの DWG のリーダーは、表のスタイル・セルのスタイル・内容の書式を読まない（docs/formats/dwg.md）
             if self.table_content && matches!(object.origin, Origin::Dwg { .. }) {
                 cx.report(Diagnostic::new(codes::DWG_TABLE_FORMAT_UNSUPPORTED).at(source.clone()));
             }
@@ -1006,7 +1006,7 @@ impl Lifter<'_> {
             b"ELLIPSE" => Ok(Shape::Curve(self.ellipse(object, point)?)),
             b"LWPOLYLINE" => Ok(Shape::Polyline(self.lwpolyline(object, point, length)?)),
             b"SPLINE" => Ok(Shape::Curve(Edge::Spline(self.spline(object, point)?))),
-            // 段組みの欄は、R2018 からは埋め込みのオブジェクト（101）に置く（推定。docs/formats/dxf.md）
+            // 段組みのフィールドは、R2018 からは埋め込みのオブジェクト（101）に置く（推定。docs/formats/dxf.md）
             b"MTEXT" if object.first(101).is_some() => Err(columns()),
             b"MTEXT" => Ok(Shape::Formatted(self.formatted(object, point, length)?)),
             // TEXT（DXF Reference「TEXT」）
@@ -1078,7 +1078,7 @@ impl Lifter<'_> {
         }
     }
 
-    /// 文字の値。2007 より前の版の ASCII でない文字は、対応表のあるコード・ページのものだけを受け付ける
+    /// 文字の値。2007 より前のバージョンの ASCII でない文字は、対応表のあるコード・ページのものだけを受け付ける
     fn string(&self, object: &Object, code: i16) -> Lifted<Option<String>> {
         match object.first(code) {
             Some(data) => self.decode(&object.kind, code, data).map(Some),
@@ -1149,7 +1149,7 @@ impl<'a> Values<'a> {
     }
 }
 
-/// 文字の値の符号化。2007 以降の版は UTF-8 で、それより前の版は `$DWGCODEPAGE` のコード・ページで決まる
+/// 文字の値の符号化。2007 以降のバージョンは UTF-8 で、それより前のバージョンは `$DWGCODEPAGE` のコード・ページで決まる
 /// （DXF Reference の HEADER Section Group Codes）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Charset {
@@ -1281,7 +1281,7 @@ fn invalid(kind: &[u8], code: i16) -> Box<Diagnostic> {
 }
 
 /// スプラインの定義の数が合うか。制御点があれば、次数より多く、重みは空か同じ数で正、周期的でなければ
-/// 節点は制御点の数と次数と 1 の和。制御点も当てはめる点もなければ読めないとする
+/// ノットは制御点の数と次数と 1 の和。制御点もフィット点もなければ読めないとする
 fn check_spline<P>(kind: &[u8], spline: &Spline<P>) -> Lifted<()> {
     let degree = spline.degree as usize;
     let controls = spline.control.len();
@@ -1313,7 +1313,7 @@ fn non_planar(kind: &[u8]) -> Box<Diagnostic> {
     Box::new(Diagnostic::new(codes::DXF_NON_PLANAR_DROPPED).with("kind", text(kind)))
 }
 
-/// 表のレコードの XDATA の ACAD の、TrueType の書体の名前（1000）と印（1071）。名前が空か、なければ `None`
+/// 表のレコードの XDATA の ACAD の、TrueType の書体の名前（1000）とフラグ（1071）。名前が空か、なければ `None`
 fn true_type_face(object: &Object) -> Option<(&Data, Option<i64>)> {
     let start = object.values.iter().position(|value| {
         value.code == 1001 && matches!(&value.data, Data::Text(name) if name.as_slice() == b"ACAD")
@@ -1414,8 +1414,8 @@ mod tests {
         }
     }
 
-    /// 版が `version` の DWG（`dwg` が偽なら DXF）の、1 行 1 列の表と、欄のない TABLESTYLE を持つ表。DWG の
-    /// 読み手は、R2010 からの TABLESTYLE の欄を読まず、ACAD_TABLE を AcDbTable（100）なしで置き、表を描いた
+    /// バージョンが `version` の DWG（`dwg` が偽なら DXF）の、1 行 1 列の表と、フィールドのない TABLESTYLE を持つ表。DWG の
+    /// リーダーは、R2010 からの TABLESTYLE のフィールドを読まず、ACAD_TABLE を AcDbTable（100）なしで置き、表を描いた
     /// ブロック（2）を値の終わりに置く
     fn table_db(version: &str, dwg: bool) -> AcadDb {
         let origin = |at: usize| {

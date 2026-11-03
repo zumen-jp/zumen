@@ -26,7 +26,7 @@ impl From<Stop> for Fail {
 enum Section {
     /// `ISO-10303-21;` の前
     Start,
-    /// 節の外か、`HEADER;` の中
+    /// セクションの外か、`HEADER;` の中
     Outside,
     /// `DATA;` の中
     Data,

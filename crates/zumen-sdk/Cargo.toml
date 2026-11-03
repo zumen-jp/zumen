@@ -1,6 +1,6 @@
 [package]
 name = "zumen-sdk"
-description = "zumen の形式を書くための部品: コーデックとファイルモデルの trait、形式の判定の規則、試験の道具"
+description = "zumen の形式を書くための部品: コーデックとファイルモデルの trait、形式の判定の規則、テストのツール"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

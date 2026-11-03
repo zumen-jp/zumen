@@ -1,6 +1,6 @@
-# Python の包み
+# Python のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、標準ライブラリの ctypes で呼ぶ薄い包みです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0195](../../docs/decisions/0195-python-wrapper.md)）。Python 3.9 以降で動きます。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、標準ライブラリの ctypes で呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0195](../../docs/decisions/0195-python-wrapper.md)）。Python 3.9 以降で動きます。
 
 - PyPI の `zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。wheel は、対象ごとにネイティブのライブラリを `zumen/_native` に入れ、`load()` が道筋なしでそれを読みます。wheel は `build_wheel.py`（標準ライブラリだけ）で作ります。
 - 依存はなく、ネイティブの拡張も作りません。手元で作ったライブラリを使うときは、`load` に道筋を渡します。
@@ -27,18 +27,18 @@ with zumen.open() as session:
 
 | 名前 | 中身 |
 | --- | --- |
-| `load` | ライブラリを読み込み、関数と ABI の大版を確かめる。道筋を渡さなければ wheel に入れたものを読む。32 bit の Windows では stdcall で呼ぶ |
+| `load` | ライブラリを読み込み、関数と ABI のメジャーバージョンを確かめる。道筋を渡さなければ wheel に入れたものを読む。32 bit の Windows では stdcall で呼ぶ |
 | `Zumen.open` | セッションを作る（`zm_session_new`）。`with` の文で閉じられる |
-| `Session.push`・`call`・`call_bytes`・`take`・`cancel`・`close` | 境界の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
-| `read_scene` | シーンの blob を、区画ごとの memoryview で読む（`schema/scene.toml`） |
+| `Session.push`・`call`・`call_bytes`・`take`・`cancel`・`close` | API の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
+| `read_scene` | シーンの blob を、セクションごとの memoryview で読む（`schema/scene.toml`） |
 
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`messages.py` に `TypedDict` の型があります。応答の `result` は、`OPERATIONS` が op から引く結果の型（`OpenResult` など）で `typing.cast` して読みます。ctypes はネイティブの関数を呼ぶ間 GIL を手放すので、長い `call` を、ほかのスレッドから `cancel` で止められます。
 
-## 試験
+## テスト
 
 ```bash
 cargo build -p zumen-abi
 python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so
 ```
 
-`tests/conformance.py` は、[適合試験](../conformance/README.md)の組をこの包みで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。CI は、試験の行列（Linux x64・macOS arm64・Windows x64・Windows x86）で、Python 3.9 と最新を分けて流します。
+`tests/conformance.py` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。CI は、テストの行列（Linux x64・macOS arm64・Windows x64・Windows x86）で、Python 3.9 と最新を分けて流します。

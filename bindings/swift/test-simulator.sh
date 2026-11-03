@@ -1,8 +1,8 @@
 #!/bin/sh
-# iOS のシミュレーターで、Swift の包みの適合試験を流す（決定 0225）。
+# iOS のシミュレーターで、Swift のラッパーの適合テストを流す（決定 0225）。
 # 使い方: sh bindings/swift/test-simulator.sh [シミュレーターの名前か UDID]
 # 先に build-xcframework.sh で、iOS のシミュレーターの対象を含む XCFramework を作っておく。
-# 包みと試験を swiftc でシミュレーターに向けて作り、`xcrun simctl spawn` で流す。シミュレーターの中からも、Mac のファイルを読める。
+# ラッパーとテストを swiftc でシミュレーターに向けて作り、`xcrun simctl spawn` で流す。シミュレーターの中からも、Mac のファイルを読める。
 set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 swift=$root/bindings/swift

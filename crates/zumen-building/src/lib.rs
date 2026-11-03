@@ -1,6 +1,6 @@
 //! zumen の建物モデル（L2、決定 0008・0207）。
 //!
-//! 要素は ID と出所だけを持ち、意味は成分で持つ。成分は種類ごとに、要素の番号の順の列で持つ。値は文書の単位のまま
+//! 要素は ID と出所だけを持ち、意味はコンポーネントで持つ。コンポーネントは種類ごとに、要素の番号の順の列で持つ。値は文書の単位のまま
 //! 単位とともに持ち、黙って換算しない。IFC を知らない（決定 0008）。IFC からの lift は `zumen-ifc` の側に置く。
 
 use std::collections::BTreeMap;
@@ -32,11 +32,11 @@ pub struct Source {
     pub global_id: Option<String>,
     /// 局所の変換に畳んだ、どの要素も持たない中間の配置のインスタンスの番号。内側から順
     pub folded_placements: Vec<u64>,
-    /// 成分を付けた関係
+    /// コンポーネントを付けた関係
     pub relations: Vec<RelationSource>,
 }
 
-/// 成分を付けた関係の出所（決定 0207）
+/// コンポーネントを付けた関係の出所（決定 0207）
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelationSource {
     /// 関係のインスタンスの番号
@@ -66,7 +66,7 @@ impl Element {
     }
 }
 
-/// 1 つの種類の成分の列。要素の番号の順に並べ、番号で引く
+/// 1 つの種類のコンポーネントの列。要素の番号の順に並べ、番号で引く
 #[derive(Clone, Debug, PartialEq)]
 pub struct Column<T> {
     entries: Vec<(ElementRef, T)>,
@@ -81,7 +81,7 @@ impl<T> Default for Column<T> {
 }
 
 impl<T> Column<T> {
-    /// 要素の成分
+    /// 要素のコンポーネント
     pub fn get(&self, element: ElementRef) -> Option<&T> {
         let at = self
             .entries
@@ -90,7 +90,7 @@ impl<T> Column<T> {
         self.entries.get(at).map(|(_, value)| value)
     }
 
-    /// 要素の成分を置く。前の値があれば返す
+    /// 要素のコンポーネントを置く。前の値があれば返す
     pub fn insert(&mut self, element: ElementRef, value: T) -> Option<T> {
         match self.entries.binary_search_by_key(&element, |(e, _)| *e) {
             Ok(at) => self
@@ -104,7 +104,7 @@ impl<T> Column<T> {
         }
     }
 
-    /// 要素の成分を除く
+    /// 要素のコンポーネントを除く
     pub fn remove(&mut self, element: ElementRef) -> Option<T> {
         let at = self
             .entries
@@ -113,25 +113,25 @@ impl<T> Column<T> {
         Some(self.entries.remove(at).1)
     }
 
-    /// 要素の番号の順の成分
+    /// 要素の番号の順のコンポーネント
     pub fn iter(&self) -> impl Iterator<Item = (ElementRef, &T)> {
         self.entries
             .iter()
             .map(|(element, value)| (*element, value))
     }
 
-    /// 成分を持つ要素の数
+    /// コンポーネントを持つ要素の数
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// 成分を持つ要素がないか
+    /// コンポーネントを持つ要素がないか
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
 
-/// 決定 0207 の成分の列。種類は足すだけにし、名前と意味を変えない
+/// 決定 0207 のコンポーネントの列。種類は足すだけにし、名前と意味を変えない
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Components {
     /// `identity`: 名前・説明・タグ・長い名前
@@ -174,12 +174,12 @@ pub struct Components {
     pub extension: Column<Extension>,
 }
 
-/// 建物モデル。文書と、要素の一覧と、成分の列
+/// 建物モデル。文書と、要素の一覧と、コンポーネントの列
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Building {
     /// 文書の値
     pub document: Document,
-    /// 成分の列
+    /// コンポーネントの列
     pub components: Components,
     elements: Vec<Element>,
     ids: BTreeMap<Id, ElementRef>,

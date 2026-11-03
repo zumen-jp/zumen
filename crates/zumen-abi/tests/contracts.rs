@@ -1,5 +1,5 @@
-//! 登録した図面の形式で、テストキットの予算と ID の契約試験を流す（#398、決定 0010・0156・0017）。
-//! 入力は、公開サンプルの `samples/dwg` と、適合試験の組（`bindings/conformance/cases`）の合成のもの。
+//! 登録した図面の形式で、テストキットの予算と ID の契約テストを流す（#398、決定 0010・0156・0017）。
+//! 入力は、公開サンプルの `samples/dwg` と、適合テストの組（`bindings/conformance/cases`）の合成のもの。
 //! ID の記録は `tests/ids/` に 1 行に 1 つ置く。ID を変えるには、先に決定の記録が要る。
 
 use zumen_acad::{Dwg, Dxf};
@@ -15,7 +15,7 @@ const DWG: &[u8] = include_bytes!("../../../samples/dwg/zumen-layout-r2000.dwg")
 const OPEN_SXF: &str = include_str!("../../../bindings/conformance/cases/open_sxf.json");
 const OPEN_JWW: &str = include_str!("../../../bindings/conformance/cases/open_jww.json");
 
-/// 適合試験の組の、`name` を入れる手順の中身
+/// 適合テストの組の、`name` を入れる手順の中身
 #[cfg(test)]
 fn pushed(case: &str, name: &str) -> Vec<u8> {
     let case = zumen_json::parse(case.as_bytes()).unwrap();
@@ -90,7 +90,7 @@ fn jww_keeps_its_budget_and_ids() {
     check::<Jww>(&pushed(OPEN_JWW, "a.jww"), include_str!("ids/jww.txt"));
 }
 
-/// 途中で切った入力も、fuzz の道具と同じく、小さい予算の中で止まり、2 回読んで同じになる
+/// 途中で切った入力も、fuzz のツールと同じく、小さい予算の中で止まり、2 回読んで同じになる
 #[cfg(test)]
 fn survives_cuts<C: Codec>(src: &[u8]) {
     let step = (src.len() / 64).max(1);

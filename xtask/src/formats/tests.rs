@@ -16,7 +16,7 @@ impl TempDir {
             match fs::create_dir(&path) {
                 Ok(()) => return Self(path),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => panic!("試験用のフォルダーを作れない: {e}"),
+                Err(e) => panic!("テスト用のフォルダーを作れない: {e}"),
             }
         }
     }
@@ -36,8 +36,8 @@ impl Drop for TempDir {
 
 const LEDGER: &str = r#"
 [specs.dxf_1]
-title = "試験用の仕様"
-publisher = "試験用の公開元"
+title = "テスト用の仕様"
+publisher = "テスト用の公開元"
 access = "public"
 url = "https://example.com/spec"
 checked = "2024-02-29"
@@ -48,7 +48,7 @@ family = "acad"
 domains = ["drawing"]
 specs = ["dxf_1"]
 rights = "public"
-rights-note = "試験用の根拠"
+rights-note = "テスト用の根拠"
 place = "core"
 basis = ["spec"]
 decisions = ["0008"]
@@ -62,15 +62,15 @@ family = "restricted"
 domains = ["building"]
 specs = []
 rights = "unknown"
-rights-note = "試験用の未確認の条件"
+rights-note = "テスト用の未確認の条件"
 place = "none"
 known-crates = ["restricted-reader"]
 "#;
 
 fn fixture() -> (TempDir, Ledger, Decisions) {
     let dir = TempDir::new();
-    dir.write("docs/decisions/0008-model.md", "# 試験用の決定\n");
-    dir.write("docs/formats/dxf.md", "# 試験用の文書\n");
+    dir.write("docs/decisions/0008-model.md", "# テスト用の決定\n");
+    dir.write("docs/formats/dxf.md", "# テスト用の文書\n");
     let decisions = decision_files(&dir.0).unwrap();
     (dir, toml::from_str(LEDGER).unwrap(), decisions)
 }
@@ -84,8 +84,8 @@ fn accepts_public_core_and_restricted_none() {
 #[test]
 fn rejects_missing_required_fields_unknown_fields_and_wrong_types() {
     for (from, to) in [
-        ("publisher = \"試験用の公開元\"", ""),
-        ("rights-note = \"試験用の根拠\"", ""),
+        ("publisher = \"テスト用の公開元\"", ""),
+        ("rights-note = \"テスト用の根拠\"", ""),
         ("domains = [\"drawing\"]", "domains = \"drawing\""),
         (
             "place = \"core\"",
@@ -315,7 +315,7 @@ fn building_model_does_not_reach_ifc() {
         ))
     };
     assert!(check_layers(&graph(r#"{"name":"zumen-base","kind":null}"#)).is_empty());
-    // 依存の依存の、試験だけの依存はたどらない
+    // 依存の依存の、テストだけの依存はたどらない
     assert!(check_layers(&graph(r#"{"name":"helper","kind":null}"#)).is_empty());
     let errors = check_layers(&graph(r#"{"name":"middle","kind":null}"#));
     assert_eq!(errors.len(), 1);
@@ -323,7 +323,7 @@ fn building_model_does_not_reach_ifc() {
         errors[0].ends_with("zumen-building → middle → zumen-step"),
         "{errors:?}"
     );
-    // 自分の試験だけの依存はたどる
+    // 自分のテストだけの依存はたどる
     let errors = check_layers(&graph(r#"{"name":"zumen-ifc","kind":"dev"}"#));
     assert!(errors[0].contains("`zumen-ifc`"), "{errors:?}");
     assert!(!check_layers(&packages(r#"{}"#)).is_empty());
@@ -339,7 +339,7 @@ fn renders_records_in_key_order_with_working_links() {
         "[決定 0008](../decisions/0008-model.md)",
         "https://github.com/zumen-jp/zumen-legacy/issues/140",
         "../../docs/formats/dxf.md",
-        "試験用の根拠",
+        "テスト用の根拠",
         "2024-02-29",
         "`unknown` | `none`",
         "読み書きできる形式の一覧ではありません",

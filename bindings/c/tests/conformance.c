@@ -1,4 +1,4 @@
-﻿/* 適合試験の C の側。生成したヘッダー（include/zumen.h）だけで境界の関数を呼ぶ。tests/conformance.rs が、
+﻿/* 適合テストの C の側。生成したヘッダー（include/zumen.h）だけで API の関数を呼ぶ。tests/conformance.rs が、
  * bindings/conformance の組の手順をここに渡し、応答のハッシュを hashes.txt と比べる（決定 0198） */
 
 #include <stdint.h>
@@ -6,7 +6,7 @@
 
 #include "zumen.h"
 
-/* 1 つの試験の組の、セッションと直前の結果 */
+/* 1 つのテストの組の、セッションと直前の結果 */
 typedef struct zumen_c_engine {
     zm_session *session;
     zm_buf output;

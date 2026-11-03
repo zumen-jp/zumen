@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -47,7 +47,7 @@ jobs:
         with:
           # docs/support.md の Node.js の下限
           node-version: 22
-      - name: 版を固定した道具を、インストールのスクリプトを走らせずに入れる
+      - name: バージョンを固定したツールを、インストールのスクリプトを走らせずに入れる
         run: npm ci --ignore-scripts
       - name: 文書・コメント・カタログが表記の基準（docs/style.md）に合うかを確かめる（決定 0021）
         run: npm run lint:text
@@ -62,13 +62,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # Astro 7.4 は Node.js 22.23.4 以降を求める。サイトだけの道具なので、ライブラリの下限には合わせない
+          # Astro 7.4 は Node.js 22.23.4 以降を求める。サイトだけのツールなので、ライブラリの下限には合わせない
           node-version: 24
-      - name: 版を固定した道具を、インストールのスクリプトを走らせずに入れる
+      - name: バージョンを固定したツールを、インストールのスクリプトを走らせずに入れる
         run: npm ci --ignore-scripts
       - name: 型を確かめる
         run: npm run check
-      - name: TypeScript・JavaScript の包みの型を、サイトと同じ版の TypeScript で確かめる（決定 0194）
+      - name: TypeScript・JavaScript のラッパーの型を、サイトと同じバージョンの TypeScript で確かめる（決定 0194）
         run: npx --no-install tsc -p ../bindings/js/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
@@ -79,8 +79,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # python は、Python の包みの適合試験に使う版。docs/support.md の下限（3.9）と最新を、行で分けて試す（決定 0195）
-          # dotnet は、.NET の包みの適合試験に使う TFM。.NET 10 と、32 bit の .NET Framework 4.8 を試す（決定 0196）
+          # python は、Python のラッパーの適合テストに使うバージョン。docs/support.md の下限（3.9）と最新を、行で分けて試す（決定 0195）
+          # dotnet は、.NET のラッパーの適合テストに使う TFM。.NET 10 と、32 bit の .NET Framework 4.8 を試す（決定 0196）
           # Python 3.9 は、Ubuntu 26.04 の setup-python にない。下限を試す行は 24.04 に留める
           - name: Linux x64
             os: ubuntu-24.04
@@ -109,27 +109,27 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
-      - name: 試験する target を入れる
+      - name: テストする target を入れる
         if: matrix.target
         run: rustup target add ${{ matrix.target }}
       - run: cargo test --workspace --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-      - name: Python の包みの適合試験に使う Python を入れる
+      - name: Python のラッパーの適合テストに使う Python を入れる
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
           architecture: ${{ matrix.python-architecture }}
-      - name: Python の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0195）
+      - name: Python のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0195）
         shell: bash
         run: |
           cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           python bindings/python/tests/conformance.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
-      - name: .NET の包みの適合試験に使う .NET の SDK を入れる
+      - name: .NET のラッパーの適合テストに使う .NET の SDK を入れる
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - name: .NET の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0196）
+      - name: .NET のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0196）
         shell: bash
         env:
           DOTNET_CLI_TELEMETRY_OPTOUT: '1'
@@ -138,7 +138,7 @@ jobs:
           dotnet run --project bindings/dotnet/tests/Conformance --framework ${{ matrix.dotnet }}
           ${{ matrix.dotnet-platform && format('-p:PlatformTarget={0}', matrix.dotnet-platform) || '' }}
           -- "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
-      - name: DLL が、飾りのない名前で境界の関数を出すことを確かめる（VBA の Declare のため）
+      - name: DLL が、飾りのない名前で API の関数を出すことを確かめる（VBA の Declare のため）
         if: matrix.target == 'i686-pc-windows-msvc'
         shell: pwsh
         run: |
@@ -173,7 +173,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -191,21 +191,21 @@ jobs:
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: 分けたモジュールを包みで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
+      - name: 分けたモジュールをラッパーで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
         run: node bindings/js/test/modules.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: プラグインの形式だけを持つ wasm のモジュールを作り、読んだ図面を図面のモジュールで使えることを確かめる（決定 0243・0247）
         run: |
           cargo build --package zumen-plugin-template --lib --target wasm32-unknown-unknown --release --locked
           node templates/plugin/tests/wasm.mjs target/wasm32-unknown-unknown/release/zumen_plugin_template.wasm modules/zumen_abi1_drawing.wasm
-      - name: TypeScript・JavaScript の包みを通しても、同じハッシュの一覧になることを確かめる（決定 0194）
+      - name: TypeScript・JavaScript のラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0194）
         run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: ブラウザーを動かす道具（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
+      - name: ブラウザーを動かすツール（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
         working-directory: bindings/js/test/browser
         run: npm ci --ignore-scripts
-      - name: Playwright の版に合う Chromium と、それが使う OS のライブラリを入れる
+      - name: Playwright のバージョンに合う Chromium と、それが使う OS のライブラリを入れる
         working-directory: bindings/js/test/browser
         run: npx --no-install playwright install --with-deps --only-shell chromium
-      - name: ブラウザー（Chromium）の中で包みを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
+      - name: ブラウザー（Chromium）の中でラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
 
   deny:
@@ -215,5 +215,5 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          # rust-toolchain.toml と同じ版にする
+          # rust-toolchain.toml と同じバージョンにする
           rust-version: "1.99.1"

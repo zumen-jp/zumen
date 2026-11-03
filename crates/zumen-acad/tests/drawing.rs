@@ -1,7 +1,7 @@
-//! 試験の中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
+//! テストの中で作った小さな DXF で、図面モデル（L2）への変換を確かめる。
 //! 対応表（docs/formats/drawing2d-mapping.md）の E1〜E3・E9 のうち、#3 の範囲と、#28 のレイヤと描く順・
 //! 色と線種・E5 の形式固有の情報・E6 の同じ見た目の定義と符号・E8 の穴のある塗り・E9 の循環と欠けた定義・E3 の書式つきの文字と複数行の属性・E4 の寸法と寸法値の文字と引出線と端部記号・引出線つきの注記・
-//! 記号と属性・ハッチング・E8 の曲線と記号の定義・E10 の表と表題欄・E7 の下敷きを試す。
+//! 記号と属性・ハッチング・E8 の曲線と記号の定義・E10 の表と表題欄・E7 のアンダーレイを試す。
 #![cfg(feature = "drawing")]
 
 use zumen_acad::Dxf;
@@ -27,12 +27,12 @@ use zumen_sdk::{Error, Lift, testkit};
 const MODEL: SpaceId = SpaceId(0);
 const SHEET: SheetId = SheetId(0);
 
-/// 見出しの変数と図形を、タグの組から作る。図形は `(0, 種類)` で区切る
+/// ヘッダーの変数と図形を、タグの組から作る。図形は `(0, 種類)` で区切る
 fn dxf(header: &[(i16, &str)], entities: &[(i16, &str)]) -> Vec<u8> {
     sections(&[("HEADER", header), ("ENTITIES", entities)])
 }
 
-/// 名前とタグの組から、区切りを並べた DXF を作る
+/// 名前とタグの組から、セクションを並べた DXF を作る
 fn sections(sections: &[(&str, &[(i16, &str)])]) -> Vec<u8> {
     let mut tags = Vec::new();
     for (name, body) in sections {
@@ -67,7 +67,7 @@ fn found(diag: &Diagnostics) -> Vec<(Code, String, u64, Vec<Ref>)> {
         .collect()
 }
 
-/// 定義のないブロックの診断を除いた診断。ブロックの定義を書かない試験で使う
+/// 定義のないブロックの診断を除いた診断。ブロックの定義を書かないテストで使う
 fn found_but_missing_blocks(diag: &Diagnostics) -> Vec<(Code, String, u64, Vec<Ref>)> {
     let mut found = found(diag);
     found.retain(|(code, ..)| *code != codes::DXF_BLOCK_MISSING);
@@ -452,7 +452,7 @@ fn e9_what_cannot_be_lifted_is_reported_per_record() {
         (40, "1.0"),
         (1, "A"),
         (72, "9"),
-        // 8: コード・ページのない 2007 より前の版の、ASCII でない文字
+        // 8: コード・ページのない 2007 より前のバージョンの、ASCII でない文字
         (0, "TEXT"),
         (8, "0"),
         (10, "0.0"),
@@ -550,7 +550,7 @@ fn text_after_2007_is_read_as_utf8() {
     assert_eq!(text.content, "\u{56f3}\u{9762}");
 }
 
-/// `from` の文字を、生のバイト列 `to` に置き換える。2007 より前の版の符号化した文字を試すのに使う
+/// `from` の文字を、生のバイト列 `to` に置き換える。2007 より前のバージョンの符号化した文字を試すのに使う
 fn encoded(src: Vec<u8>, from: &str, to: &[u8]) -> Vec<u8> {
     let from = from.as_bytes();
     let mut out = Vec::new();
@@ -2295,7 +2295,7 @@ fn symbols_keep_the_block_key_the_placement_and_the_attributes() {
         .map(|a| (a.tag.as_str(), a.text.content.as_str(), a.hidden))
         .collect();
     assert_eq!(attributes, [("NO", "A-1", false), ("MAKER", "社名", true)]);
-    // 属性の縦の位置合わせは 74 にあり、高さの欄は ATTRIB のもの
+    // 属性の縦の位置合わせは 74 にあり、高さのフィールドは ATTRIB のもの
     let first = &part.attributes[0].text;
     assert_eq!(
         first.placement,
@@ -2412,7 +2412,7 @@ fn hatches_keep_their_boundaries_and_patterns() {
                 (20, "5.0"),
             ],
         ),
-        // 塗り。外の輪だけを埋め、パターンの欄も書く形式
+        // 塗り。外の輪だけを埋め、パターンのフィールドも書く形式
         entity(
             "HATCH",
             &[
@@ -2592,7 +2592,7 @@ fn e9_hatches_and_symbols_that_cannot_be_read_are_reported() {
         entity("HATCH", &all)
     };
     let entities = [
-        // 制御点も当てはめる点もない SPLINE の辺
+        // 制御点もフィット点もない SPLINE の辺
         hatch(&[
             (92, "0"),
             (93, "1"),
@@ -2698,7 +2698,7 @@ fn e3_formatted_text_keeps_the_content_the_spans_and_the_frame() {
             "MTEXT",
             &[(67, "1"), (10, "10.0"), (20, "20.0"), (40, "3.5"), (1, "A")],
         ),
-        // 複数行の属性。埋め込みの印の前の 71 と 72 は、1 行の値の欄にしない
+        // 複数行の属性。埋め込みのフラグの前の 71 と 72 は、1 行の値のフィールドにしない
         entity("INSERT", &[(66, "1"), (2, "枠"), (10, "0.0"), (20, "0.0")]),
         entity(
             "ATTRIB",
@@ -2796,7 +2796,7 @@ fn e3_formatted_text_keeps_the_content_the_spans_and_the_frame() {
     let [note] = frame.attributes.as_slice() else {
         panic!("{:?}", frame.attributes);
     };
-    // 1 行の値は、属性の種類を TEXT の欄と取り違えない
+    // 1 行の値は、属性の種類を TEXT のフィールドと取り違えない
     assert_eq!(note.text.content, "一行目");
     assert!(!note.text.backward);
     assert_eq!(
@@ -3406,7 +3406,7 @@ fn e8_curves_keep_their_definition() {
                 (20, "1.0"),
             ],
         ),
-        // 有理の 2 次。節点・制御点・重み
+        // 有理の 2 次。ノット・制御点・重み
         entity(
             "SPLINE",
             &[
@@ -3435,7 +3435,7 @@ fn e8_curves_keep_their_definition() {
                 (41, "1.0"),
             ],
         ),
-        // 当てはめる点と接線だけを持つ、閉じた 3 次
+        // フィット点と接線だけを持つ、閉じた 3 次
         entity(
             "SPLINE",
             &[
@@ -3614,7 +3614,7 @@ fn e8_hatch_spline_edges_read_fit_data_from_2010() {
             knot_parameterization: None,
         })]
     };
-    // 2010 より前は、当てはめる点を持たない。続く 97 は、境界を作った図形の数
+    // 2010 より前は、フィット点を持たない。続く 97 は、境界を作った図形の数
     assert_eq!(edges(MM, &[]), spline(vec![], None));
     let header = [MM, &[(9, "$ACADVER"), (1, "AC1024")]].concat();
     assert_eq!(
@@ -3655,7 +3655,7 @@ fn e9_curves_that_cannot_be_read_are_reported() {
             "LWPOLYLINE",
             &[(90, "1"), (38, "1.0"), (10, "0.0"), (20, "0.0")],
         ),
-        // 節点の数が制御点の数と次数に合わない
+        // ノットの数が制御点の数と次数に合わない
         entity(
             "SPLINE",
             &[
@@ -3670,7 +3670,7 @@ fn e9_curves_that_cannot_be_read_are_reported() {
         ),
         // 制御点が次数より多くない
         entity("SPLINE", &[(71, "3"), (10, "0.0"), (20, "0.0")]),
-        // 数えた節点の数（72）が合わない
+        // 数えたノットの数（72）が合わない
         entity("SPLINE", &[(71, "1"), (72, "3"), (11, "0.0"), (21, "0.0")]),
     ]
     .concat();
@@ -4556,7 +4556,7 @@ fn e10_title_blocks_keep_the_item_and_the_shown_value_apart() {
 #[test]
 fn e9_tables_that_cannot_be_read_are_reported() {
     let entities = [
-        // AcDbTable の印がない
+        // AcDbTable のフラグがない
         entity("ACAD_TABLE", &[(10, "0.0"), (20, "0.0")]),
         // 行の高さの数が合わない
         table(
@@ -5992,7 +5992,7 @@ fn thickness_and_spline_tolerances_are_kept_as_extensions() {
             "CIRCLE",
             &[(39, "0.0"), (10, "0.0"), (20, "0.0"), (40, "1.0")],
         ),
-        // 許容差を持つ 1 次のスプライン。当てはめの許容差（44）は、図面モデルの値に移す
+        // 許容差を持つ 1 次のスプライン。フィット許容差（44）は、図面モデルの値に移す
         entity(
             "SPLINE",
             &[
@@ -6059,7 +6059,7 @@ fn thickness_and_spline_tolerances_are_kept_as_extensions() {
         ]
     );
     assert_eq!(elements.len(), 4);
-    // 線種の生成（70 の 128）と当てはめの許容差（44）は、図面モデルの値になる（決定 0157）
+    // 線種の生成（70 の 128）とフィット許容差（44）は、図面モデルの値になる（決定 0157）
     assert!(matches!(
         &elements[1].shape,
         Shape::Polyline(line) if line.line_type_generation

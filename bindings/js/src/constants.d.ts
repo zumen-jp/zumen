@@ -1,13 +1,13 @@
 // 生成したファイル。手で直さない。
 // 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。
 
-/** パッケージの版（決定 0015） */
+/** パッケージのバージョン（決定 0015） */
 export declare const VERSION: string;
-/** ABI の大版 */
+/** ABI のメジャーバージョン */
 export declare const ABI_VERSION: 1;
-/** メッセージのスキーマの大版（要求と応答の v） */
+/** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export declare const SCHEMA_MAJOR: 1;
-/** メッセージのスキーマの小版 */
+/** メッセージのスキーマのマイナーバージョン */
 export declare const SCHEMA_MINOR: number;
 
 /** 状態コードの名前 */
@@ -71,16 +71,16 @@ export interface Detection {
 /** open が形式を判定する順と規則 */
 export declare const DETECTION: readonly Detection[];
 
-/** シーンの見出しの始まりの 4 バイト */
+/** シーンのヘッダーの始まりの 4 バイト */
 export declare const SCENE_MAGIC: "ZMSC";
-/** シーンの大版。区画の意味を変えるときに上げる */
+/** シーンのメジャーバージョン。セクションの意味を変えるときに上げる */
 export declare const SCENE_MAJOR: 1;
-/** シーンの小版。区画か値を足すたびに上げる */
+/** シーンのマイナーバージョン。セクションか値を足すたびに上げる */
 export declare const SCENE_MINOR: number;
 /** 番号の「なし」 */
 export declare const SCENE_NONE: 4294967295;
 
-/** シーンの区画の名前 */
+/** シーンのセクションの名前 */
 export type SceneSectionName =
   | "chunk_origins"
   | "chunk_bounds"
@@ -152,10 +152,10 @@ export type SceneSectionName =
   | "outline_vertices"
   | "outline_xy";
 
-/** シーンの区画の値の型 */
+/** シーンのセクションの値の型 */
 export type SceneValueType = | "u8" | "u32" | "f32" | "f64";
 
-/** シーンの区画の定義 */
+/** シーンのセクションの定義 */
 export interface SceneSection {
   readonly name: SceneSectionName;
   readonly type: SceneValueType;
@@ -163,10 +163,10 @@ export interface SceneSection {
   readonly width: number;
 }
 
-/** シーンの区画の定義。番号の順 */
+/** シーンのセクションの定義。番号の順 */
 export declare const SCENE_SECTIONS: readonly SceneSection[];
 
-/** シーンの区画ごとの列。行ごとに width 個の値を並べる */
+/** シーンのセクションごとの列。行ごとに width 個の値を並べる */
 export interface SceneColumns {
   /** 塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値（f64 × 2） */
   readonly chunk_origins: Float64Array;
@@ -214,7 +214,7 @@ export interface SceneColumns {
   readonly text_boxes: Float32Array;
   /** 位置合わせ。水平（horizontal の値）と垂直（vertical の値）（u8 × 2） */
   readonly text_aligns: Uint8Array;
-  /** 印（text_flag の値の和）（u8 × 1） */
+  /** フラグ（text_flag の値の和）（u8 × 1） */
   readonly text_flags: Uint8Array;
   /** 書式つきの文字の行の番号。0 から数える。1 行の文字は 0（u32 × 1） */
   readonly text_lines: Uint32Array;
@@ -226,15 +226,15 @@ export interface SceneColumns {
   readonly point_xy: Float32Array;
   /** 点の回転（度、反時計回り）（f32 × 1） */
   readonly point_rotations: Float32Array;
-  /** 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4） */
+  /** 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4） */
   readonly point_markers: Uint32Array;
-  /** 既定義の印の尺度。文書の点の表し方に従う点は 1（f32 × 1） */
+  /** 既定義のマーカーの尺度。文書の点の表し方に従う点は 1（f32 × 1） */
   readonly point_scales: Float32Array;
   /** 点の描く単位（unit_entities の行）（u32 × 1） */
   readonly point_units: Uint32Array;
   /** 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない（f32 × 4） */
   readonly point_style: Float32Array;
-  /** 下敷きの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2） */
+  /** アンダーレイの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2） */
   readonly image_names: Uint32Array;
   /** 資源の中のページ（strings の始まりと長さ）。なければ長さが 0（u32 × 2） */
   readonly image_pages: Uint32Array;
@@ -276,13 +276,13 @@ export interface SceneColumns {
   readonly color_files: Uint8Array;
   /** 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0（u8 × 4） */
   readonly color_rgba: Uint8Array;
-  /** 印（color_flag の値の和）（u8 × 1） */
+  /** フラグ（color_flag の値の和）（u8 × 1） */
   readonly color_flags: Uint8Array;
   /** 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く（u32 × 1） */
   readonly clip_polygons: Uint32Array;
   /** 多角形の頂点の始まり（clip_xy の行）（u32 × 1） */
   readonly polygon_vertices: Uint32Array;
-  /** 多角形の印。1 なら、内側を隠す（外側だけを描く）（u8 × 1） */
+  /** 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）（u8 × 1） */
   readonly polygon_flags: Uint8Array;
   /** 切り抜きの多角形の頂点。起点の座標の X・Y（f64 × 2） */
   readonly clip_xy: Float64Array;
@@ -336,7 +336,7 @@ export declare const SCENE_VALUES: {
     /** 上 */
     readonly top: 3;
   };
-  /** 文字の印。和で持つ */
+  /** 文字のフラグ。和で持つ */
   readonly text_flag: {
     /** 左右に反転する */
     readonly backward: 1;
@@ -382,7 +382,7 @@ export declare const SCENE_VALUES: {
     /** 画面の高さに対する百分率 */
     readonly screen: 1;
   };
-  /** 下敷きの資源の種類 */
+  /** アンダーレイの資源の種類 */
   readonly image_kind: {
     /** 画素の画像 */
     readonly image: 0;
@@ -422,7 +422,7 @@ export declare const SCENE_VALUES: {
     readonly callout: 8;
     /** 表 */
     readonly table: 9;
-    /** 下敷き */
+    /** アンダーレイ */
     readonly underlay: 10;
     /** 記号 */
     readonly symbol: 11;
@@ -444,7 +444,7 @@ export declare const SCENE_VALUES: {
     /** Jw_cad のペンの番号 */
     readonly jww: 3;
   };
-  /** 色の印。和で持つ */
+  /** 色のフラグ。和で持つ */
   readonly color_flag: {
     /** 表示する RGBA が決まらない。表示する側が決める */
     readonly unresolved: 1;

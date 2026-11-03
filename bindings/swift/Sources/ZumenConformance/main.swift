@@ -1,9 +1,9 @@
-// 適合試験を、Swift の包み（bindings/swift）を通して流す（決定 0006・0225）。
+// 適合テストを、Swift のラッパー（bindings/swift）を通して流す（決定 0006・0225）。
 //
 // 使い方: ZumenConformance [リポジトリの根]
 //
-// bindings/conformance/cases/*.json を、包みのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの一覧が
-// hashes.txt と一致することを確かめる。シーンの blob は、包みの読み手で読み、応答の数と合うかを確かめる。手順の読み方と
+// bindings/conformance/cases/*.json を、ラッパーのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの一覧が
+// hashes.txt と一致することを確かめる。シーンの blob は、ラッパーのリーダーで読み、応答の数と合うかを確かめる。手順の読み方と
 // 応答の確かめ方は、Python の側（bindings/python/tests/conformance.py）と同じ規則で書く。iOS のシミュレーターでも、
 // 同じものを `xcrun simctl spawn` で流す。
 
@@ -11,7 +11,7 @@ import CryptoKit
 import Foundation
 import Zumen
 
-/// 手順の種類。手順は、どれか 1 つの欄を持つ
+/// 手順の種類。手順は、どれか 1 つのフィールドを持つ
 let actions = ["session", "push", "call", "call_text", "call_hex", "take"]
 
 /// 手順の形が違う
@@ -20,7 +20,7 @@ struct CaseError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
-/// 境界の関数を呼び、状態の名前と、書かれたバイト列を返す
+/// API の関数を呼び、状態の名前と、書かれたバイト列を返す
 func attempt(_ call: () throws -> Data?) throws -> (status: String, data: Data?) {
     do {
         return ("ok", try call())
@@ -141,15 +141,15 @@ final class Conformance {
         }
     }
 
-    /// シーンの blob を読み手で読み、応答の数と合うかを確かめる
+    /// シーンの blob をリーダーで読み、応答の数と合うかを確かめる
     func checkScene(_ at: String, _ blob: Data, _ result: JSON) {
         do {
             let scene = try Scene(blob)
             let counts = result["counts"]
             func count(_ name: String) -> Int64 { counts?[name]?.integerValue ?? -1 }
             let checks: [(String, Int64, Int64)] = [
-                ("大版", Int64(scene.major), Int64(Constants.sceneMajor)),
-                ("区画の数", Int64(scene.sections), Int64(Constants.sceneSections.count)),
+                ("メジャーバージョン", Int64(scene.major), Int64(Constants.sceneMajor)),
+                ("セクションの数", Int64(scene.sections), Int64(Constants.sceneSections.count)),
                 ("塊の数", Int64(scene.chunks), count("chunks")),
                 ("chunk_origins の行", Int64(try scene.rows("chunk_origins")), count("chunks")),
                 ("text_xy の行", Int64(try scene.rows("text_xy")), count("texts")),
@@ -157,7 +157,7 @@ final class Conformance {
                 ("glyph_xy の行", Int64(try scene.rows("glyph_xy")), count("glyphs")),
                 ("line_xy と face_xy の行", Int64(try scene.rows("line_xy") + scene.rows("face_xy")), count("vertices")),
             ]
-            // 文字の文字列は、strings の区画から引ける
+            // 文字の文字列は、strings のセクションから引ける
             let strings = try scene.u32("text_strings")
             for row in stride(from: 0, to: strings.count - 1, by: 2) {
                 do {
@@ -210,7 +210,7 @@ final class Conformance {
                     if let opened {
                         session = opened
                     } else {
-                        // 作れなかったら、閉じたセッションで続ける。境界は、空のセッションへの呼び出しを invalid にする
+                        // 作れなかったら、閉じたセッションで続ける。API は、空のセッションへの呼び出しを invalid にする
                         session = try Session()
                         session?.close()
                     }
@@ -264,7 +264,7 @@ final class Conformance {
         try compareHashes()
         try checkTypedCalls()
 
-        let summary = "包みを通した試験の組 \(files.count) 件、ハッシュ \(hashes.count) 件、読んだシーン \(scenes) 件"
+        let summary = "ラッパーを通したテストの組 \(files.count) 件、ハッシュ \(hashes.count) 件、読んだシーン \(scenes) 件"
         print(summary)
         if let path = ProcessInfo.processInfo.environment["GITHUB_STEP_SUMMARY"], !path.isEmpty,
            let handle = FileHandle(forWritingAtPath: path) {
@@ -274,7 +274,7 @@ final class Conformance {
             let platform = "macOS"
             #endif
             handle.seekToEndOfFile()
-            handle.write(Data("### Swift の包みの適合試験（\(platform)）\n\n\(summary)\n".utf8))
+            handle.write(Data("### Swift のラッパーの適合テスト（\(platform)）\n\n\(summary)\n".utf8))
             handle.closeFile()
         }
         if scenes == 0 {
@@ -360,6 +360,6 @@ guard arguments.count <= 2 else {
 do {
     exit(try Conformance(repository: try findRepository(arguments)).run())
 } catch {
-    FileHandle.standardError.write(Data("試験を流せない: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("テストを流せない: \(error)\n".utf8))
     exit(1)
 }

@@ -16,13 +16,13 @@ pub(super) struct Color {
     pub(super) rgb: Option<u32>,
     /// 図形の色を DBCOLOR のハンドルで指すか。そのときは RGB の値がデータの側にない
     pub(super) book: bool,
-    /// 透過性（R2004 から、印の 0x2000 が立つときの BL）。DXF の 440 と同じ値
+    /// 透過性（R2004 から、フラグの 0x2000 が立つときの BL）。DXF の 440 と同じ値
     pub(super) transparency: Option<u32>,
 }
 
 impl Color {
     /// R2004 の RGB の値を読む。最上位のバイトが色の種類で、0xC0 は ByLayer、0xC1 は ByBlock、
-    /// 0xC2 は真の色、0xC3 は下位のバイトが色の番号（試料の DWG と DXF の比較で確かめた）。
+    /// 0xC2 は真の色、0xC3 は下位のバイトが色の番号（サンプルの DWG と DXF の比較で確かめた）。
     /// それ以外は `index` のまま
     fn r2004(index: i16, value: u32) -> Self {
         let (index, rgb) = match value >> 24 {
@@ -46,11 +46,11 @@ pub(super) struct Bits<'a> {
     src: &'a [u8],
     /// 次に読むビットの位置
     pos: usize,
-    /// 色の欄の形を決める版
+    /// 色のフィールドの形を決めるバージョン
     release: Release,
-    /// R2007 からの、文字列の流れの次に読むビットの位置。`None` なら文字列の流れがない
+    /// R2007 からの、文字列のストリームの次に読むビットの位置。`None` なら文字列のストリームがない
     strings: Option<usize>,
-    /// 見出しの変数の、ハンドルの流れの次に読むビットの位置。`None` ならハンドルを `pos` から読む
+    /// ヘッダーの変数の、ハンドルのストリームの次に読むビットの位置。`None` ならハンドルを `pos` から読む
     handles: Option<usize>,
 }
 
@@ -65,7 +65,7 @@ impl<'a> Bits<'a> {
         }
     }
 
-    /// 版 `release` の欄の形で読む
+    /// バージョン `release` のフィールドの形で読む
     pub(super) fn with_release(src: &'a [u8], release: Release) -> Self {
         Bits {
             src,
@@ -76,13 +76,13 @@ impl<'a> Bits<'a> {
         }
     }
 
-    /// 読む版
+    /// 読むバージョン
     pub(super) fn release(&self) -> Release {
         self.release
     }
 
     /// CMC（2.11「CmColor value」）。色を返す。R2004 からは、番号（BS）の後に RGB の値（BL）と
-    /// 印（RC）が続き、印の 1 は色の名前（TV）、2 は色見本帳の名前（TV）が続くことを表す
+    /// フラグ（RC）が続き、フラグの 1 は色の名前（TV）、2 は色見本帳の名前（TV）が続くことを表す
     pub(super) fn cmc(&mut self) -> Option<Color> {
         let mut color = Color {
             index: self.bs()?,
@@ -96,8 +96,8 @@ impl<'a> Bits<'a> {
         Some(color)
     }
 
-    /// CMC を、版に依らず R2004 からの形（番号・RGB の値・印）で読む。R2000 の ACAD_TABLE も、この形で
-    /// 持つ（試料の DWG で確かめた）
+    /// CMC を、バージョンに依らず R2004 からの形（番号・RGB の値・フラグ）で読む。R2000 の ACAD_TABLE も、この形で
+    /// 持つ（サンプルの DWG で確かめた）
     pub(super) fn cmc_r2004(&mut self) -> Option<Color> {
         let index = self.bs()?;
         self.rgb_and_names(index)
@@ -123,7 +123,7 @@ impl<'a> Bits<'a> {
         self.rgb_names(index).map(|(color, _)| color)
     }
 
-    /// CMC の番号 `index` に続く、RGB の値と、印の 1 が立つときの色の名前と 2 が立つときの色見本帳の名前
+    /// CMC の番号 `index` に続く、RGB の値と、フラグの 1 が立つときの色の名前と 2 が立つときの色見本帳の名前
     /// （ODS 5.4.1 の 2.11）。名前は、DXF の 430 と同じく見本帳と色の名前を `$` でつなぐ
     fn rgb_names(&mut self, index: i16) -> Option<(Color, Option<Vec<u8>>)> {
         let color = Color::r2004(index, self.bl()? as u32);
@@ -172,7 +172,7 @@ impl<'a> Bits<'a> {
             transparency: None,
         };
         // 0x4000 が立つと、0x8000 が立っていても RGB の値はなく、拡張辞書と画層の間に DBCOLOR を指す
-        // ハンドルが来る（試料の DWG で確かめた）
+        // ハンドルが来る（サンプルの DWG で確かめた）
         if flags & 0xC000 == 0x8000 {
             color = Color::r2004(index, self.bl()? as u32);
         }
@@ -192,9 +192,9 @@ impl<'a> Bits<'a> {
         self.pos = pos;
     }
 
-    /// R2007 からの文字列の流れを、ビット `end` の前に置く。`end` の 1 つ前のビットが流れの有無を
-    /// 表し、その前の RS（0x8000 が立てば、さらに前の RS を上位とする）が流れのビットの数を表す。
-    /// 主のデータが終わるビット（流れがなければ印の位置）を返す。読む位置は変えない
+    /// R2007 からの文字列のストリームを、ビット `end` の前に置く。`end` の 1 つ前のビットがストリームの有無を
+    /// 表し、その前の RS（0x8000 が立てば、さらに前の RS を上位とする）がストリームのビットの数を表す。
+    /// 主のデータが終わるビット（ストリームがなければフラグの位置）を返す。読む位置は変えない
     pub(super) fn split_strings(&mut self, end: usize) -> Option<usize> {
         let pos = self.pos;
         let start = self.find_strings(end);
@@ -224,7 +224,7 @@ impl<'a> Bits<'a> {
         Some(start)
     }
 
-    /// ハンドルを、ビット `at` から始まるハンドルの流れから読む（見出しの変数、R2007 から）
+    /// ハンドルを、ビット `at` から始まるハンドルのストリームから読む（ヘッダーの変数、R2007 から）
     pub(super) fn split_handles(&mut self, at: usize) {
         self.handles = Some(at);
     }
@@ -347,7 +347,7 @@ impl<'a> Bits<'a> {
         Some(f64::from_le_bytes(bytes))
     }
 
-    /// H。ハンドルの流れが分かれていれば、そこから読む
+    /// H。ハンドルのストリームが分かれていれば、そこから読む
     pub(super) fn handle(&mut self) -> Option<HandleRef> {
         let Some(at) = self.handles else {
             return self.main_handle();
@@ -373,8 +373,8 @@ impl<'a> Bits<'a> {
         Some(HandleRef { code, value })
     }
 
-    /// T。R2007 からは、文字列の流れの TU（BS の文字の数と UTF-16LE）を UTF-8 に直して返す。
-    /// 流れがなければ空
+    /// T。R2007 からは、文字列のストリームの TU（BS の文字の数と UTF-16LE）を UTF-8 に直して返す。
+    /// ストリームがなければ空
     pub(super) fn text(&mut self) -> Option<Vec<u8>> {
         if self.release < Release::R2010 {
             return self.code_page_text();
@@ -442,7 +442,7 @@ impl HandleRef {
     }
 }
 
-/// 剰余の文字（MC）。`signed` なら、最後のバイトの 0x40 が負の印
+/// 剰余の文字（MC）。`signed` なら、最後のバイトの 0x40 が負のフラグ
 pub(super) fn modular_char(src: &[u8], pos: &mut usize, signed: bool) -> Option<i64> {
     let mut value: i64 = 0;
     let mut shift = 0u32;
@@ -512,12 +512,12 @@ pub(super) struct BitWriter {
     out: Vec<u8>,
     /// 書いたビットの数
     len: usize,
-    /// R2007 からの文字列の流れ。あれば、T をここに TU で書く
+    /// R2007 からの文字列のストリーム。あれば、T をここに TU で書く
     strings: Option<Box<BitWriter>>,
 }
 
 impl BitWriter {
-    /// T を文字列の流れに TU で書く（R2007 から）
+    /// T を文字列のストリームに TU で書く（R2007 から）
     pub(super) fn with_strings() -> Self {
         Self {
             strings: Some(Box::default()),
@@ -525,12 +525,12 @@ impl BitWriter {
         }
     }
 
-    /// `src` の `bits` のビットを、文字列の流れに写す。流れがないか、`src` の外を指せば `None`
+    /// `src` の `bits` のビットを、文字列のストリームに写す。ストリームがないか、`src` の外を指せば `None`
     pub(super) fn copy_strings(&mut self, src: &[u8], bits: Range<usize>) -> Option<()> {
         self.strings.as_mut()?.copy(src, bits)
     }
 
-    /// 文字列の流れを取り出す。なければ空
+    /// 文字列のストリームを取り出す。なければ空
     pub(super) fn take_strings(&mut self) -> BitWriter {
         self.strings
             .take()
@@ -676,11 +676,11 @@ impl BitWriter {
         }
     }
 
-    /// T。R2000 は BS のバイトの数とバイト列。文字列の流れがあれば、UTF-8 の `text` を、そこに TU（BS の
+    /// T。R2000 は BS のバイトの数とバイト列。文字列のストリームがあれば、UTF-8 の `text` を、そこに TU（BS の
     /// 文字の数と UTF-16LE）で書く。BS に収まらない長さなら `None`
     pub(super) fn text(&mut self, text: &[u8]) -> Option<()> {
         if let Some(strings) = &mut self.strings {
-            // 流れの TU は、終わりの NUL を持たない（図面で確かめた）
+            // ストリームの TU は、終わりの NUL を持たない（図面で確かめた）
             let text = text.strip_suffix(&[0]).unwrap_or(text);
             let units: Vec<u16> = core::str::from_utf8(text).ok()?.encode_utf16().collect();
             strings.bs(i16::try_from(units.len()).ok()?);

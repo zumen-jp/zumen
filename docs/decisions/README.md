@@ -38,18 +38,18 @@
 - [0002: ライセンスを MIT OR Apache-2.0 にする](0002-dual-license.md)（2026-10-24、採用）
 - [0003: パッケージの名前を org から切り離し、識別子にドメイン zumen.dev を使う](0003-names-and-domain.md)（2026-10-24、採用）
 - [0004: 中心のリポジトリを 1 つにし、配布・権利・非公開の都合があるものだけを分ける](0004-repositories.md)（2026-10-24、採用）
-- [0005: 日本語を正にする](0005-japanese-first.md)（2026-10-24、採用）
-- [0006: 各言語への対応を 3 つの階層に分ける](0006-language-tiers.md)（2026-10-24、採用）
+- [0005: 日本語を正とする](0005-japanese-first.md)（2026-10-24、採用）
+- [0006: 各言語への対応を 3 つの Tier に分ける](0006-language-tiers.md)（2026-10-24、採用）
 - [0007: 読み書きと解析を Rust の 1 つの実装にし、どの環境でも同じ出力を返す](0007-single-rust-implementation.md)（2026-10-24、採用）
 - [0008: モデルをファイル・領域・派生の 3 層に分け、ファイルモデルを形式の系統ごとに 1 つにする](0008-model-layers-and-codecs.md)（2026-10-24、採用）
 - [0009: 診断を code・場所・忠実度・型付きの値で返し、文言はカタログから引く](0009-diagnostics-and-catalog.md)（2026-10-24、採用）
 - [0010: 予算を決まった作業量で数え、どの環境でも同じ所で止める](0010-budget-by-work.md)（2026-10-24、採用）
 - [0011: 各言語からは C ABI と wasm を FFI で呼び、型は自前の生成器で作る](0011-bindings-through-ffi.md)（2026-10-24、採用）
-- [0012: 各言語への境界を、数個の関数と、スキーマで定めたメッセージにする](0012-boundary-functions-and-messages.md)（2026-10-24、採用）
-- [0013: 同じ境界を、ネイティブ・wasm・プロセスの外・HTTP の 4 つの形で出し、セッションごとに選ぶ](0013-boundary-in-four-forms.md)（2026-10-24、採用）
-- [0014: 対象のプラットフォームを決め、成果物に署名し、言語の階層に合わせて配る](0014-platforms-signing-and-distribution.md)（2026-10-24、採用）
-- [0015: 境界は足すだけにし、4 つの版を分け、古い環境への下限を表で約束する](0015-add-only-boundary-and-version-floors.md)（2026-10-24、採用）
-- [0016: 境界のメッセージの JSON を自前で読み書きし、スキーマの書き方と適合試験の比べ方を足す](0016-boundary-message-details.md)（2026-10-24、採用）
+- [0012: 各言語への API を、数個の関数と、スキーマで定めたメッセージにする](0012-boundary-functions-and-messages.md)（2026-10-24、採用）
+- [0013: 同じ API を、ネイティブ・wasm・プロセスの外・HTTP の 4 つの形態で出し、セッションごとに選ぶ](0013-boundary-in-four-forms.md)（2026-10-24、採用）
+- [0014: 対象のプラットフォームを決め、成果物に署名し、言語の Tier に合わせて配る](0014-platforms-signing-and-distribution.md)（2026-10-24、採用）
+- [0015: API は足すだけにし、4 つのバージョンを分け、古い環境への下限を表で約束する](0015-add-only-boundary-and-version-floors.md)（2026-10-24、採用）
+- [0016: API のメッセージの JSON を自前で読み書きし、スキーマの書き方と適合テストの比べ方を足す](0016-boundary-message-details.md)（2026-10-24、採用）
 - [0017: 形式の権利を台帳で管理し、許諾の要る形式は同じ SDK で外部のプラグインにする](0017-format-rights-ledger-and-plugin-sdk.md)（2026-10-24、採用）
 - [0018: 幾何は L2 で厳密な形を持ち、位相は許容差つきの折れ線で求め、許容差は用紙と実寸の型で持つ](0018-geometry-layers-and-tolerances.md)（2026-10-24、採用）
 - [0019: 座標を空間ごとの型に分け、平面直角座標の換算を自前で持ち、国土地理院のデータは同梱せずに利用者が渡す](0019-coordinate-systems-and-gsi-data.md)（2026-10-24、採用）
@@ -57,64 +57,64 @@
 - [0021: 表記と用語の基準を決め、textlint と prh で確かめる](0021-notation-and-terms.md)（2026-10-24、採用）
 - [0022: 図面を空間・配置・意味のある要素で持ち、形式ごとの違いを長さの型と拡張に残す](0022-drawing2d-semantics-and-format-mapping.md)（2026-10-25、採用）
 - [0023: AutoCAD の系統は、DXF と DWG が共有するオブジェクトの表を持ち、元のバイトは符号化ごとに持つ](0023-acad-shared-object-table.md)（2026-10-26、採用）
-- [0032: DWG（R2000）への書き戻しは、TEXT・INSERT・MINSERT の型ごとの欄を、印を値から選んで符号化する](0032-dwg-write-back-text-insert.md)（2026-10-26、採用）
-- [0033: DWG（R2000）への書き戻しは、ATTRIB・ATTDEF の型ごとの欄を、TEXT と同じ欄に続けて符号化する](0033-dwg-write-back-attributes.md)（2026-10-26、採用）
-- [0034: DWG（R2000）への書き戻しは、MTEXT の表にない欄を元のビットから写して符号化する](0034-dwg-write-back-mtext.md)（2026-10-26、採用）
-- [0035: DWG（R2000）への書き戻しは、LWPOLYLINE の続く欄の印を、値があるかから選んで符号化する](0035-dwg-write-back-lwpolyline.md)（2026-10-26、採用）
-- [0036: DWG（R2000）への書き戻しは、SPLINE の場合を元のまま保ち、それに合う欄を符号化する](0036-dwg-write-back-spline.md)（2026-10-26、採用）
-- [0037: DWG（R2000）への書き戻しは、HATCH の欄を表の順に読み直して符号化し、境界の図形の数の変更は受け付けない](0037-dwg-write-back-hatch.md)（2026-10-27、採用）
+- [0032: DWG（R2000）への書き戻しは、TEXT・INSERT・MINSERT の型ごとのフィールドを、フラグを値から選んで符号化する](0032-dwg-write-back-text-insert.md)（2026-10-26、採用）
+- [0033: DWG（R2000）への書き戻しは、ATTRIB・ATTDEF の型ごとのフィールドを、TEXT と同じフィールドに続けて符号化する](0033-dwg-write-back-attributes.md)（2026-10-26、採用）
+- [0034: DWG（R2000）への書き戻しは、MTEXT の表にないフィールドを元のビットから写して符号化する](0034-dwg-write-back-mtext.md)（2026-10-26、採用）
+- [0035: DWG（R2000）への書き戻しは、LWPOLYLINE の続くフィールドのフラグを、値があるかから選んで符号化する](0035-dwg-write-back-lwpolyline.md)（2026-10-26、採用）
+- [0036: DWG（R2000）への書き戻しは、SPLINE の場合を元のまま保ち、それに合うフィールドを符号化する](0036-dwg-write-back-spline.md)（2026-10-26、採用）
+- [0037: DWG（R2000）への書き戻しは、HATCH のフィールドを表の順に読み直して符号化し、境界の図形の数の変更は受け付けない](0037-dwg-write-back-hatch.md)（2026-10-27、採用）
 - [0052: DWG（R2000）への書き戻しは、表の終わりに足した単純な図形を一から符号化し、ブロックの並びの終わりに繋いで HANDSEED を進める](0052-dwg-write-back-entity-addition.md)（2026-10-27、採用）
-- [0053: DWG（R2000）への書き戻しで足す TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを名前で探してハンドルを書く](0053-dwg-write-back-pointing-entity-addition.md)（2026-10-27、採用）
+- [0053: DWG（R2000）への書き戻しで足す TEXT・ATTDEF・INSERT は、指す文字スタイルとブロックを名前で探してハンドルを書く](0053-dwg-write-back-pointing-entity-addition.md)（2026-10-27、採用）
 - [0054: DWG（R2000）への書き戻しで足す MTEXT は、表にない文字の範囲の大きさと行の間隔の後の B を 0 にする](0054-dwg-write-back-mtext-addition.md)（2026-10-27、採用）
 - [0055: DWG（R2000）への書き戻しで足す属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を INSERT に持たせる](0055-dwg-write-back-attributed-insert-addition.md)（2026-10-27、採用）
-- [0056: DWG（R2000）への書き戻しで足す LWPOLYLINE は、表にない印のビットと一定の幅を 0 にする](0056-dwg-write-back-lwpolyline-addition.md)（2026-10-27、採用）
-- [0057: DWG（R2000）への書き戻しで足す SPLINE は、節点と制御点を持ち重みを持たないものだけを、表にない印を 0 にして書く](0057-dwg-write-back-spline-addition.md)（2026-10-27、採用）
+- [0056: DWG（R2000）への書き戻しで足す LWPOLYLINE は、表にないフラグのビットと一定の幅を 0 にする](0056-dwg-write-back-lwpolyline-addition.md)（2026-10-27、採用）
+- [0057: DWG（R2000）への書き戻しで足す SPLINE は、ノットと制御点を持ち重みを持たないものだけを、表にないフラグを 0 にして書く](0057-dwg-write-back-spline-addition.md)（2026-10-27、採用）
 - [0058: DWG（R2000）への書き戻しでは、足した SHAPE を受け付けない](0058-dwg-write-back-shape-addition.md)（2026-10-27、採用）
-- [0059: DWG（R2000）への書き戻しで足す SPLINE は、重みを持てば有理の印を立て、当てはめる点を持てば場合を 2 にする](0059-dwg-write-back-weighted-and-fit-spline-addition.md)（2026-10-27、採用）
+- [0059: DWG（R2000）への書き戻しで足す SPLINE は、重みを持てば有理のフラグを立て、フィット点を持てば場合を 2 にする](0059-dwg-write-back-weighted-and-fit-spline-addition.md)（2026-10-27、採用）
 - [0060: DWG（R2000）への書き戻しで足す INSERT は、列と行の数か間隔を持てば MINSERT として書く](0060-dwg-write-back-minsert-addition.md)（2026-10-27、採用）
 - [0061: DWG（R2000）への書き戻しで足す画層は、一から符号化して画層の表のオブジェクトの項目の終わりに加える](0061-dwg-write-back-layer-addition.md)（2026-10-27、採用）
-- [0062: DWG（R2000）への書き戻しで足す文字の体裁は、画層と同じく文字の体裁の表のオブジェクトの項目の終わりに加える](0062-dwg-write-back-style-addition.md)（2026-10-27、採用）
+- [0062: DWG（R2000）への書き戻しで足す文字スタイルは、画層と同じく文字スタイルの表のオブジェクトの項目の終わりに加える](0062-dwg-write-back-style-addition.md)（2026-10-27、採用）
 - [0063: DWG（R2000）への書き戻しで足す線種は、形も文字もない要素だけのものを線種の表のオブジェクトの項目の終わりに加える](0063-dwg-write-back-ltype-addition.md)（2026-10-27、採用）
 - [0064: DWG（R2000）への書き戻しで足すアプリケーションの名前は、使い道の分からない RC を 0 として表のオブジェクトの項目の終わりに加える](0064-dwg-write-back-appid-addition.md)（2026-10-27、採用）
-- [0065: DWG（R2000）への書き戻しで足す寸法の体裁は、表にない欄を既定の値で書き、表のオブジェクトの項目の終わりに加える](0065-dwg-write-back-dimstyle-addition.md)（2026-10-27、採用）
-- [0066: DWG（R2000）への書き戻しで足すビューは、型ごとの欄をみな持ち、UCS を伴うなら UCS を指すものを表のオブジェクトの項目の終わりに加える](0066-dwg-write-back-view-addition.md)（2026-10-27、採用）
-- [0067: DWG（R2000）への書き戻しで足すビューポートの設定は、型ごとの欄をみな持ち、使い道の分からないビットを偽として表のオブジェクトの項目の終わりに加える](0067-dwg-write-back-vport-addition.md)（2026-10-27、採用）
+- [0065: DWG（R2000）への書き戻しで足す寸法スタイルは、表にないフィールドを既定の値で書き、表のオブジェクトの項目の終わりに加える](0065-dwg-write-back-dimstyle-addition.md)（2026-10-27、採用）
+- [0066: DWG（R2000）への書き戻しで足すビューは、型ごとのフィールドをみな持ち、UCS を伴うなら UCS を指すものを表のオブジェクトの項目の終わりに加える](0066-dwg-write-back-view-addition.md)（2026-10-27、採用）
+- [0067: DWG（R2000）への書き戻しで足すビューポートの設定は、型ごとのフィールドをみな持ち、使い道の分からないビットを偽として表のオブジェクトの項目の終わりに加える](0067-dwg-write-back-vport-addition.md)（2026-10-27、採用）
 - [0068: DWG（R2000）への書き戻しで足すブロックは、レコードと BLOCK・ENDBLK と図形を揃えて加え、レコードを表のオブジェクトの項目の終わりに足す](0068-dwg-write-back-block-record-addition.md)（2026-10-27、採用）
-- [0069: DWG（R2000）への書き戻しで変えた INSUNITS・PLIMMIN・PLIMMAX は、見出しの変数の区切りの長さを変えずにその場で書き直す](0069-dwg-write-back-header-variables.md)（2026-10-27、採用）
-- [0070: R2004 の入れ物は、置き換えた区切りだけを圧縮し直し、ページを並べ直して地図と見出しを作り直して書く](0070-dwg-r2004-container-write.md)（2026-10-27、採用）
-- [0071: R2004 の DWG の変更は、オブジェクトの区切りの後ろに足し、地図の区切りを作り直して、入れ物の区切りを置き換える](0071-dwg-r2004-object-edit.md)（2026-10-27、採用）
-- [0072: 共有の表の変更は、R2004 の DWG には図形の共通の欄と単純な種類の型ごとの欄から書き戻す](0072-dwg-r2004-write-back.md)（2026-10-27、採用）
-- [0073: R2004 の DWG への書き戻しは、R2000 と同じ形の種類を広げ、後ろに増えた欄は元のビットを写す](0073-dwg-r2004-write-back-kinds.md)（2026-10-27、採用）
-- [0074: R2004 の DWG への HATCH の書き戻しは、初めのグラデーションの欄を元のビットのまま写す](0074-dwg-r2004-write-back-hatch.md)（2026-10-27、採用）
+- [0069: DWG（R2000）への書き戻しで変えた INSUNITS・PLIMMIN・PLIMMAX は、ヘッダーの変数のセクションの長さを変えずにその場で書き直す](0069-dwg-write-back-header-variables.md)（2026-10-27、採用）
+- [0070: R2004 のコンテナーは、置き換えたセクションだけを圧縮し直し、ページを並べ直してマップとヘッダーを作り直して書く](0070-dwg-r2004-container-write.md)（2026-10-27、採用）
+- [0071: R2004 の DWG の変更は、オブジェクトのセクションの後ろに足し、マップのセクションを作り直して、コンテナーのセクションを置き換える](0071-dwg-r2004-object-edit.md)（2026-10-27、採用）
+- [0072: 共有の表の変更は、R2004 の DWG には図形の共通のフィールドと単純な種類の型ごとのフィールドから書き戻す](0072-dwg-r2004-write-back.md)（2026-10-27、採用）
+- [0073: R2004 の DWG への書き戻しは、R2000 と同じ形の種類を広げ、後ろに増えたフィールドは元のビットを写す](0073-dwg-r2004-write-back-kinds.md)（2026-10-27、採用）
+- [0074: R2004 の DWG への HATCH の書き戻しは、初めのグラデーションのフィールドを元のビットのまま写す](0074-dwg-r2004-write-back-hatch.md)（2026-10-27、採用）
 - [0075: R2004 の DWG への表のレコードの書き戻しは、色を CMC の形で書く](0075-dwg-r2004-write-back-records.md)（2026-10-27、採用）
 - [0076: R2004 の DWG への図形でないオブジェクトの書き戻しは、LAYOUT を除いて R2000 と同じに符号化する](0076-dwg-r2004-write-back-objects.md)（2026-10-27、採用）
-- [0077: R2004 の DWG への図形の除きは、ブロックのレコードの持つ図形の数とハンドルを直して書き戻す](0077-dwg-r2004-write-back-entity-removal.md)（2026-10-27、採用）
-- [0078: R2004 の DWG の見出しの変数は、展開した見出しの区切りの中で書き直し、区切りを置き換える](0078-dwg-r2004-header-variables.md)（2026-10-27、採用）
-- [0079: R2004 の DWG への図形の足しは、R2004 の共通の欄で符号化し、ブロックのレコードの持つ図形に加える](0079-dwg-r2004-write-back-entity-addition.md)（2026-10-27、採用）
+- [0077: R2004 の DWG への図形の削除は、ブロックのレコードの持つ図形の数とハンドルを直して書き戻す](0077-dwg-r2004-write-back-entity-removal.md)（2026-10-27、採用）
+- [0078: R2004 の DWG のヘッダーの変数は、展開したヘッダーのセクションの中で書き直し、セクションを置き換える](0078-dwg-r2004-header-variables.md)（2026-10-27、採用）
+- [0079: R2004 の DWG への図形の追加は、R2004 の共通のフィールドで符号化し、ブロックのレコードの持つ図形に加える](0079-dwg-r2004-write-back-entity-addition.md)（2026-10-27、採用）
 - [0080: R2004 の DWG に足す属性を持つ INSERT は、ATTRIB の数とすべての ATTRIB のハンドルを持つ](0080-dwg-r2004-write-back-attributed-insert-addition.md)（2026-10-27、採用）
-- [0081: R2004 の DWG に足す表のレコードは、R2004 の共通の欄と CMC の色で符号化し、ブロックのレコードは持つ図形をみな指す](0081-dwg-r2004-write-back-record-addition.md)（2026-10-27、採用）
-- [0082: R2004 の LAYOUT は、印刷するビューをハンドルで持ち、陰影の印刷の欄とビューポートの数を持つ形で読み書きする](0082-dwg-r2004-layout.md)（2026-10-27、採用）
-- [0083: R2010 から後の DWG のオブジェクトは、ハンドルの流れの大きさ（MC）から始まるデータで置き換え、除き、足す](0083-dwg-r2010-object-edit.md)（2026-10-27、採用）
-- [0084: R2010 から後の DWG の見出しの変数は、主のデータの中で、ビットの数を変えずに書き換える](0084-dwg-r2010-header-variables.md)（2026-10-27、採用）
-- [0085: R2010 から後の DWG への書き戻しは、文字列を持たない単純な図形の共通の欄と型ごとの欄から始める](0085-dwg-r2010-write-back.md)（2026-10-27、採用）
-- [0086: R2010 から後の DWG の文字列を持つ図形は、型ごとの欄と一緒に文字列の流れを書き直す](0086-dwg-r2010-write-back-strings.md)（2026-10-27、採用）
-- [0087: R2010 から後の DWG の MTEXT と VERTEX は、R2010 で増えた欄を表と元のビットから書く](0087-dwg-r2010-write-back-mtext-vertex.md)（2026-10-27、採用）
-- [0088: R2010 から後の DWG の DIMENSION・HATCH・TOLERANCE・VIEWPORT・SHAPE は、版ごとの欄を読み分けて書き戻す](0088-dwg-r2010-write-back-more-entities.md)（2026-10-27、採用）
-- [0089: R2010 から後の DWG の表のレコードは、名前の文字列を写し、版ごとの欄を読み分けて書き戻す](0089-dwg-r2010-write-back-records.md)（2026-10-27、採用）
-- [0090: R2010 から後の DWG の図形でないオブジェクトは、R2004 と同じ欄の符号化で、文字列を文字列の流れに書いて書き戻す](0090-dwg-r2010-write-back-objects.md)（2026-10-27、採用）
+- [0081: R2004 の DWG に足す表のレコードは、R2004 の共通のフィールドと CMC の色で符号化し、ブロックのレコードは持つ図形をみな指す](0081-dwg-r2004-write-back-record-addition.md)（2026-10-27、採用）
+- [0082: R2004 の LAYOUT は、印刷するビューをハンドルで持ち、陰影の印刷のフィールドとビューポートの数を持つ形で読み書きする](0082-dwg-r2004-layout.md)（2026-10-27、採用）
+- [0083: R2010 から後の DWG のオブジェクトは、ハンドルのストリームの大きさ（MC）から始まるデータで置き換え、除き、足す](0083-dwg-r2010-object-edit.md)（2026-10-27、採用）
+- [0084: R2010 から後の DWG のヘッダーの変数は、主のデータの中で、ビットの数を変えずに書き換える](0084-dwg-r2010-header-variables.md)（2026-10-27、採用）
+- [0085: R2010 から後の DWG への書き戻しは、文字列を持たない単純な図形の共通のフィールドと型ごとのフィールドから始める](0085-dwg-r2010-write-back.md)（2026-10-27、採用）
+- [0086: R2010 から後の DWG の文字列を持つ図形は、型ごとのフィールドと一緒に文字列のストリームを書き直す](0086-dwg-r2010-write-back-strings.md)（2026-10-27、採用）
+- [0087: R2010 から後の DWG の MTEXT と VERTEX は、R2010 で増えたフィールドを表と元のビットから書く](0087-dwg-r2010-write-back-mtext-vertex.md)（2026-10-27、採用）
+- [0088: R2010 から後の DWG の DIMENSION・HATCH・TOLERANCE・VIEWPORT・SHAPE は、バージョンごとのフィールドを読み分けて書き戻す](0088-dwg-r2010-write-back-more-entities.md)（2026-10-27、採用）
+- [0089: R2010 から後の DWG の表のレコードは、名前の文字列を写し、バージョンごとのフィールドを読み分けて書き戻す](0089-dwg-r2010-write-back-records.md)（2026-10-27、採用）
+- [0090: R2010 から後の DWG の図形でないオブジェクトは、R2004 と同じフィールドの符号化で、文字列を文字列のストリームに書いて書き戻す](0090-dwg-r2010-write-back-objects.md)（2026-10-27、採用）
 - [0091: R2010 から後の DWG から除いた図形は、R2004 と同じく、ブロックのレコードが持つ図形の並びから除いて書き戻す](0091-dwg-r2010-write-back-entity-removal.md)（2026-10-27、採用）
-- [0092: R2010 から後の DWG に足した図形は、文字列の流れの形が R2000 と同じ種類だけを、ブロックのレコードの持つ図形に加えて書き戻す](0092-dwg-r2010-write-back-entity-addition.md)（2026-10-27、採用）
-- [0093: R2010 から後の DWG に足した MTEXT・属性を持つ INSERT・SPLINE は、欄の形を確かめた版だけで書き戻す](0093-dwg-r2010-write-back-more-entity-addition.md)（2026-10-27、採用）
-- [0094: R2010 から後の DWG に足した表のレコードは、LAYER・STYLE・LTYPE・APPID だけを、名前を文字列の流れに書いて書き戻す](0094-dwg-r2010-write-back-table-record-addition.md)（2026-10-27、採用）
-- [0095: R2010 から後の DWG に足した寸法の体裁・ビュー・ブロックは、版で増えた欄を試料の図面と同じ値で書いて書き戻す](0095-dwg-r2010-write-back-more-record-addition.md)（2026-10-27、採用）
-- [0096: R2010 から後の DWG の VPORT は、照明と格子の欄を読み分け、変更と足しを書き戻す](0096-dwg-r2010-vport.md)（2026-10-27、採用）
-- [0097: R2013 から後の DWG の SPLINE は、増えた印と節点の取り方を写して書き戻し、足すのは制御点のものだけとする](0097-dwg-r2013-spline.md)（2026-10-27、採用）
-- [0098: R2018 から後の DWG に MTEXT を足し、1 行の属性の変更と足しを書き戻す](0098-dwg-r2018-mtext-attribute.md)（2026-10-27、採用）
+- [0092: R2010 から後の DWG に足した図形は、文字列のストリームの形が R2000 と同じ種類だけを、ブロックのレコードの持つ図形に加えて書き戻す](0092-dwg-r2010-write-back-entity-addition.md)（2026-10-27、採用）
+- [0093: R2010 から後の DWG に足した MTEXT・属性を持つ INSERT・SPLINE は、フィールドの形を確かめたバージョンだけで書き戻す](0093-dwg-r2010-write-back-more-entity-addition.md)（2026-10-27、採用）
+- [0094: R2010 から後の DWG に足した表のレコードは、LAYER・STYLE・LTYPE・APPID だけを、名前を文字列のストリームに書いて書き戻す](0094-dwg-r2010-write-back-table-record-addition.md)（2026-10-27、採用）
+- [0095: R2010 から後の DWG に足した寸法スタイル・ビュー・ブロックは、バージョンで増えたフィールドをサンプルの図面と同じ値で書いて書き戻す](0095-dwg-r2010-write-back-more-record-addition.md)（2026-10-27、採用）
+- [0096: R2010 から後の DWG の VPORT は、照明と格子のフィールドを読み分け、変更と追加を書き戻す](0096-dwg-r2010-vport.md)（2026-10-27、採用）
+- [0097: R2013 から後の DWG の SPLINE は、増えたフラグとノットの取り方を写して書き戻し、足すのは制御点のものだけとする](0097-dwg-r2013-spline.md)（2026-10-27、採用）
+- [0098: R2018 から後の DWG に MTEXT を足し、1 行の属性の変更と追加を書き戻す](0098-dwg-r2018-mtext-attribute.md)（2026-10-27、採用）
 - [0099: R2018 から後の DWG の MLINESTYLE は、線ごとの線種の番号を読まずに書き戻す](0099-dwg-r2018-mlinestyle.md)（2026-10-27、採用）
 - [0100: R2010 から後の DWG の LTYPE の文字の要素の文字列は、UTF-16LE で 512 バイトの領域に詰め直して書き戻す](0100-dwg-r2010-ltype-text.md)（2026-10-27、採用）
 - [0101: DWG の INSERT の回転は、変わらなければ元のラジアンを書き、R2010 から後も回した INSERT を足せるようにする](0101-dwg-rotated-insert.md)（2026-10-27、採用）
 - [0102: R2018 から後の DWG の複数行の属性は、埋め込みの MTEXT の値を DXF と同じく 101 の後に置き、書き戻す](0102-dwg-r2018-multiline-attribute.md)（2026-10-27、採用）
-- [0103: R2013 から後の DWG の当てはめる点だけを持つ SPLINE の変更は、Bézier の形の値だけを当てはめる点に戻して書き戻す](0103-dwg-r2013-fit-only-spline.md)（2026-10-27、採用）
+- [0103: R2013 から後の DWG のフィット点だけを持つ SPLINE の変更は、Bézier の形の値だけをフィット点に戻して書き戻す](0103-dwg-r2013-fit-only-spline.md)（2026-10-27、採用）
 - [0104: R2010 から後の DWG に足した VIEW は、表示スタイルの 2dWireframe を指す](0104-dwg-r2010-added-view-visual-style.md)（2026-10-27、採用）
 - [0105: 図面モデルのレイヤを ID で引く一覧にし、描く順を入力の順と分けて持つ](0105-drawing-layers-and-order.md)（2026-10-27、採用）
 - [0106: 図面モデルの色・線種・線幅を、指定値か継承元と元の符号で持つ](0106-drawing-color-line-type-weight.md)（2026-10-27、採用）
@@ -125,59 +125,59 @@
 - [0111: 図面モデルの曲線を元の定義のまま持ち、線分に近似しない](0111-drawing-curves.md)（2026-10-27、採用）
 - [0112: 図面モデルの記号の定義を、定義ごとの空間に持つ](0112-drawing-symbol-definitions.md)（2026-10-27、採用）
 - [0113: 図面モデルの表をセルの格子で持ち、表題欄を属性を持つ記号のまま持つ](0113-drawing-tables-and-title-blocks.md)（2026-10-27、採用）
-- [0114: 図面モデルの下敷きを、資源の参照名と置き方と切り抜きで持つ](0114-drawing-underlays.md)（2026-10-27、採用）
-- [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX の欄を型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
-- [0039: DWG（R2000）への書き戻しは、DIMENSION の表にない欄と印のビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
-- [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にない欄を元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
+- [0114: 図面モデルのアンダーレイを、資源の参照名と置き方と切り抜きで持つ](0114-drawing-underlays.md)（2026-10-27、採用）
+- [0038: DWG（R2000）への書き戻しは、POLYLINE と VERTEX のフィールドを型ごとに符号化し、DXF の決まった値は変更を受け付けない](0038-dwg-write-back-polyline.md)（2026-10-27、採用）
+- [0039: DWG（R2000）への書き戻しは、DIMENSION の表にないフィールドとフラグのビットを元のまま写す](0039-dwg-write-back-dimension.md)（2026-10-27、採用）
+- [0040: DWG（R2000）への書き戻しは、TOLERANCE・LEADER・MLINE の表にないフィールドを元のまま写し、MLINE の数は表の値に合わせる](0040-dwg-write-back-annotations.md)（2026-10-27、採用）
 - [0041: DWG（R2000）への書き戻しは、VIEWPORT の表の値を DWG の並びで書き、凍結した画層の数は元のまま写す](0041-dwg-write-back-viewport.md)（2026-10-27、採用）
-- [0042: DWG（R2000）への書き戻しは、SHAPE の既定の値の欄を表になければ既定の値で書き、形の番号は元のまま写す](0042-dwg-write-back-shape.md)（2026-10-27、採用）
-- [0043: DWG（R2000）への書き戻しは、LAYER と STYLE の表のレコードの欄を符号化し直し、名前とハンドルは変えない](0043-dwg-write-back-layer-style.md)（2026-10-27、採用）
-- [0044: DWG（R2000）への書き戻しは、LTYPE の要素の数と形と文字の印を変えず、変わった文字列は領域に詰め直す](0044-dwg-write-back-ltype.md)（2026-10-27、採用）
-- [0045: DWG（R2000）への書き戻しは、VIEW・UCS・VPORT の欄を DWG の並びで書き、UCS を伴う印は変えない](0045-dwg-write-back-view-ucs-vport.md)（2026-10-27、採用）
-- [0046: DWG（R2000）への書き戻しは、DIMSTYLE の欄を DWG の並びで書き、表にない欄は既定の値で書く](0046-dwg-write-back-dimstyle.md)（2026-10-27、採用）
-- [0047: DWG（R2000）への書き戻しは、OBJECTS のうち GROUP と DICTIONARYVAR の欄を書き直し、図形の数は変えない](0047-dwg-write-back-group-dictionaryvar.md)（2026-10-27、採用）
-- [0048: DWG（R2000）への書き戻しは、DICTIONARY と MLINESTYLE の欄を書き直し、項目と線の数と体裁の名前は変えない](0048-dwg-write-back-dictionary-mlinestyle.md)（2026-10-27、採用）
-- [0049: DWG（R2000）への書き戻しは、LAYOUT の欄を DWG の並びのまま書き直し、レイアウトの名前は変えない](0049-dwg-write-back-layout.md)（2026-10-27、採用）
+- [0042: DWG（R2000）への書き戻しは、SHAPE の既定の値のフィールドを表になければ既定の値で書き、形の番号は元のまま写す](0042-dwg-write-back-shape.md)（2026-10-27、採用）
+- [0043: DWG（R2000）への書き戻しは、LAYER と STYLE の表のレコードのフィールドを符号化し直し、名前とハンドルは変えない](0043-dwg-write-back-layer-style.md)（2026-10-27、採用）
+- [0044: DWG（R2000）への書き戻しは、LTYPE の要素の数と形と文字のフラグを変えず、変わった文字列は領域に詰め直す](0044-dwg-write-back-ltype.md)（2026-10-27、採用）
+- [0045: DWG（R2000）への書き戻しは、VIEW・UCS・VPORT のフィールドを DWG の並びで書き、UCS を伴うフラグは変えない](0045-dwg-write-back-view-ucs-vport.md)（2026-10-27、採用）
+- [0046: DWG（R2000）への書き戻しは、DIMSTYLE のフィールドを DWG の並びで書き、表にないフィールドは既定の値で書く](0046-dwg-write-back-dimstyle.md)（2026-10-27、採用）
+- [0047: DWG（R2000）への書き戻しは、OBJECTS のうち GROUP と DICTIONARYVAR のフィールドを書き直し、図形の数は変えない](0047-dwg-write-back-group-dictionaryvar.md)（2026-10-27、採用）
+- [0048: DWG（R2000）への書き戻しは、DICTIONARY と MLINESTYLE のフィールドを書き直し、項目と線の数とスタイルの名前は変えない](0048-dwg-write-back-dictionary-mlinestyle.md)（2026-10-27、採用）
+- [0049: DWG（R2000）への書き戻しは、LAYOUT のフィールドを DWG の並びのまま書き直し、レイアウトの名前は変えない](0049-dwg-write-back-layout.md)（2026-10-27、採用）
 - [0050: DWG（R2000）への書き戻しは、XRECORD のデータを元の並びのまま書き直し、文字列のコード・ページは元の値のものを使う](0050-dwg-write-back-xrecord.md)（2026-10-27、採用）
-- [0051: DWG（R2000）への書き戻しは、表から除いた図形を地図から除き、前後の図形とブロックのレコードの並びのハンドルを直す](0051-dwg-write-back-entity-removal.md)（2026-10-27、採用）
+- [0051: DWG（R2000）への書き戻しは、表から除いた図形をマップから除き、前後の図形とブロックのレコードの並びのハンドルを直す](0051-dwg-write-back-entity-removal.md)（2026-10-27、採用）
 - [0024: AutoCAD の系統の表の変更は、元の表と比べて違うレコードだけを符号化に書き戻す](0024-acad-table-write-back.md)（2026-10-26、採用）
 - [0025: AutoCAD の系統の表に足したオブジェクトは、同じ所の次の残したオブジェクトの前に書き戻す](0025-acad-object-add-remove-write-back.md)（2026-10-26、採用）
-- [0026: DWG の R2004 以降は、入れ物の区切りを展開したバイト列にしてから読む](0026-dwg-r2004-container.md)（2026-10-26、採用）
-- [0027: DWG の R2010 から後の版を、R2004 の入れ物の読み方で読む](0027-dwg-r2010-reading.md)（2026-10-26、採用）
-- [0028: DWG（R2000）の変更は、変えたオブジェクトと地図をファイルの後ろに足して書く](0028-dwg-object-data-edit.md)（2026-10-26、採用）
-- [0029: 共有の表の変更は、DWG（R2000）の型ごとの欄を符号化し直して書き戻す](0029-dwg-table-write-back.md)（2026-10-26、採用）
+- [0026: DWG の R2004 以降は、コンテナーのセクションを展開したバイト列にしてから読む](0026-dwg-r2004-container.md)（2026-10-26、採用）
+- [0027: DWG の R2010 から後のバージョンを、R2004 のコンテナーの読み方で読む](0027-dwg-r2010-reading.md)（2026-10-26、採用）
+- [0028: DWG（R2000）の変更は、変えたオブジェクトとマップをファイルの後ろに足して書く](0028-dwg-object-data-edit.md)（2026-10-26、採用）
+- [0029: 共有の表の変更は、DWG（R2000）の型ごとのフィールドを符号化し直して書き戻す](0029-dwg-table-write-back.md)（2026-10-26、採用）
 - [0030: DWG（R2000）への書き戻しは、表にない値を読む側の既定の値として符号化する](0030-dwg-write-back-more-entities.md)（2026-10-26、採用）
-- [0031: DWG（R2000）への書き戻しは、図形の共通の欄の色・線種の尺度・非表示を、どの種類の図形でも符号化する](0031-dwg-write-back-entity-common.md)（2026-10-26、採用）
-- [0115: 図面モデルの形式固有の情報を、系統と版と読んだときの付く先の値で持つ](0115-drawing-format-extensions.md)（2026-10-27、採用）
+- [0031: DWG（R2000）への書き戻しは、図形の共通のフィールドの色・線種の尺度・非表示を、どの種類の図形でも符号化する](0031-dwg-write-back-entity-common.md)（2026-10-26、採用）
+- [0115: 図面モデルの形式固有の情報を、系統とバージョンと読んだときの付く先の値で持つ](0115-drawing-format-extensions.md)（2026-10-27、採用）
 - [0116: 図面モデルの記号の配置は展開せず、定義のない配置と輪になる定義を診断する](0116-drawing-symbol-references.md)（2026-10-27、採用）
 - [0117: 要素の一覧を返す entities の op は、空間と出所で作る ID と、offset と limit で続きを読む](0117-entities-op.md)（2026-10-28、採用）
-- [0118: entities の範囲は形の定義から求め、欄は fields で選び、region で範囲の重なる要素に絞る](0118-entities-bbox-fields-region.md)（2026-10-28、採用）
+- [0118: entities の範囲は形の定義から求め、フィールドは fields で選び、region で範囲の重なる要素に絞る](0118-entities-bbox-fields-region.md)（2026-10-28、採用）
 - [0119: 予算で止めた診断は、止めたときに扱っていたレコードかバイト範囲を場所に持つ](0119-budget-stop-place.md)（2026-10-28、採用）
 - [0120: SXF の L1 は、ISO 10303-21 の文と SFC のフィーチャのコメントを、元のバイト範囲のままレコードにする](0120-sxf-l1-exchange-structure.md)（2026-10-28、採用）
 - [0121: SFC は、部分図をモデル空間とビューに、作図グループを展開して、図面モデルへ移す](0121-sxf-sfc-lift-to-drawing.md)（2026-10-28、採用）
 - [0122: SFC の文字は、枠の 9 点に置く書式つきの文字にし、文字範囲の幅と字の間隔を拡張に残す](0122-sxf-text-to-formatted-text.md)（2026-10-28、採用）
 - [0123: クロソイドは、原点・パラメーター・向き・長さの範囲で持つ辺にする](0123-drawing-clothoid-edge.md)（2026-10-28、採用）
 - [0124: 表題欄は、項目のキー・元の項目名・値・表示する要素を持つ、図面の一覧にする](0124-drawing-title-blocks.md)（2026-10-28、採用）
-- [0125: 画素の数を持たない画像は、角の平行四辺形に収める下敷きにする](0125-sxf-raster-underlays.md)（2026-10-28、採用）
-- [0126: SFC のスプラインは節点を 3 重にした B スプラインに、点マーカーは既定義の記号のキーにする](0126-sxf-splines-and-point-markers.md)（2026-10-28、採用）
+- [0125: 画素の数を持たない画像は、角の平行四辺形に収めるアンダーレイにする](0125-sxf-raster-underlays.md)（2026-10-28、採用）
+- [0126: SFC のスプラインはノットを 3 重にした B スプラインに、点マーカーは既定義の記号のキーにする](0126-sxf-splines-and-point-markers.md)（2026-10-28、採用）
 - [0127: SFC の寸法は定義点と文字を図面モデルの寸法に、描いた形を拡張に移し、弧長の寸法の種類を足す](0127-sxf-dimensions.md)（2026-10-28、採用）
 - [0128: SFC の引出線とバルーンは、引出線つきの注記にし、矢印をコードのキーで指す](0128-sxf-labels-and-balloons.md)（2026-10-28、採用）
 - [0129: SFC のハッチングは複合曲線を輪にして移し、表示する複合曲線は曲線を置く](0129-sxf-hatches-and-composite-curves.md)（2026-10-28、採用）
 - [0130: SFC の作図部品は記号の定義に、既定義シンボルは名前のキーに、部分図の中の部分図は重ねたビューにする](0130-sxf-parts-symbols-and-nested-views.md)（2026-10-28、採用）
 - [0131: SFC の属性付加機構の名前は、複合図形の要素ごとの拡張に残す](0131-sxf-attribute-mechanism.md)（2026-10-28、採用）
 - [0132: SXF の P21 は、実体を SFC と同じ形のフィーチャに組み直して、SFC と同じ変換に通す](0132-sxf-p21-through-sfc-features.md)（2026-10-28、採用）
-- [0133: JWW の L1 は、見出し・図形・ブロックの定義・画像を、元のバイト範囲のままレコードにする](0133-jww-l1-records.md)（2026-10-28、採用）
+- [0133: JWW の L1 は、ヘッダー・図形・ブロックの定義・画像を、元のバイト範囲のままレコードにする](0133-jww-l1-records.md)（2026-10-28、採用）
 - [0134: JWW のレイヤグループは実寸の空間にし、ペンの番号を色の符号に、線種の番号を線種の名前にして図面モデルへ移す](0134-jww-lift-to-drawing.md)（2026-10-28、採用）
 - [0135: JWW のブロックの定義は用紙の mm の空間を持つ記号の定義にし、寸法は線形の寸法にして図面モデルへ移す](0135-jww-blocks-and-dimensions.md)（2026-10-28、採用）
-- [0136: JWW の画像は角で置く下敷きにし、編集状態と未解釈の制御文字は拡張にする](0136-jww-images-and-edit-state.md)（2026-10-28、採用）
+- [0136: JWW の画像は角で置くアンダーレイにし、編集状態と未解釈の制御文字は拡張にする](0136-jww-images-and-edit-state.md)（2026-10-28、採用）
 - [0137: 2D のシーンは 1 つの ArrayBuffer に列を並べる独自の配置で渡す](0137-columnar-scene-transfer.md)（2026-10-28、採用）
-- [0138: 基準と社内標準を、出典つきの版のあるプロファイル（TOML）として持つ](0138-profiles-as-versioned-data.md)（2026-10-28、採用）
+- [0138: 基準と社内標準を、出典つきのバージョンのあるプロファイル（TOML）として持つ](0138-profiles-as-versioned-data.md)（2026-10-28、採用）
 - [0139: 図面モデルの変更は、ID と前提条件で要素を指す変更の一覧にし、共有の表を通して元の形式へ書き戻す](0139-drawing-apply.md)（2026-10-28、採用）
 - [0140: DXF の SOLID・TRACE は塗りのハッチングにし、POINT は点の記号にして図面モデルへ移す](0140-dxf-solids-and-points.md)（2026-10-28、採用）
 - [0141: 図面モデルのレイヤは、凍結を表示しないことと分けて持つ](0141-drawing-layer-frozen.md)（2026-10-28、採用）
 - [0142: DXF・DWG の厚さ・線種の生成・スプラインの許容差は、図面モデルの拡張 `dxf.entity` に控える](0142-dxf-entity-extension.md)（2026-10-28、採用）
 - [0143: 記号の定義の中の要素の継承は、配置の並びで解く](0143-drawing-inherit-through-placements.md)（2026-10-28、採用）
-- [0144: 記号の定義の単位は、ブロックのレコードの挿す単位にする](0144-drawing-block-insertion-units.md)（2026-10-28、採用）
+- [0144: 記号の定義の単位は、ブロックのレコードの挿入単位にする](0144-drawing-block-insertion-units.md)（2026-10-28、採用）
 - [0145: DXF・DWG のレイアウトごとに用紙を作り、用紙に元の名前を持たせる](0145-drawing-sheets-per-layout.md)（2026-10-28、採用）
 - [0146: 引出線つきの注記の線と注記の色・線種・線幅を、注記の要素に従う指定として持つ](0146-drawing-callout-line-style.md)（2026-10-29、採用）
 - [0147: 表のセルの型のある値を、単位と元の表示の書式とともに持つ](0147-drawing-table-cell-values.md)（2026-10-29、採用）
@@ -189,12 +189,12 @@
 - [0153: 図形のない DXF・DWG のレイアウトも、名前と大きさだけの用紙にする](0153-drawing-empty-layout-sheets.md)（2026-10-29、採用）
 - [0154: 図面モデルの置き換えは、元の図形の XDATA と拡張辞書を残し、図形とともに動く XDATA を持つ図形の形は変えない](0154-drawing-apply-keeps-format-data.md)（2026-10-29、採用）
 - [0155: 図面モデルで足した要素は、モデル空間か用紙の新しい図形として書き戻す](0155-drawing-apply-additions.md)（2026-10-29、採用）
-- [0156: 図面モデルの ID は形式が持つ変わらない鍵で作り、変更は読んだときの要素のハッシュを前提条件に持つ](0156-drawing-stable-ids-and-preconditions.md)（2026-10-29、採用）
-- [0157: 表示・印刷・寸法・意味を変える値は図面モデルの欄にし、アプリケーションの値だけを形式固有の情報にする](0157-drawing-model-fields-and-extensions.md)（2026-10-29、採用）
+- [0156: 図面モデルの ID は形式が持つ変わらないキーで作り、変更は読んだときの要素のハッシュを前提条件に持つ](0156-drawing-stable-ids-and-preconditions.md)（2026-10-29、採用）
+- [0157: 表示・印刷・寸法・意味を変える値は図面モデルのフィールドにし、アプリケーションの値だけを形式固有の情報にする](0157-drawing-model-fields-and-extensions.md)（2026-10-29、採用）
 - [0158: 図面モデルに文字スタイルの表を置き、文字のフォントと縦書きを文字スタイルから引く](0158-drawing-text-styles.md)（2026-10-29、採用）
 - [0159: 図面モデルに、配置をたどって要素ごとの変換・解いたスタイル・表示と印刷の可否・切り抜きを返す関数を置く](0159-drawing-walk-placements.md)（2026-10-29、採用）
-- [0160: 点は図面モデルの点の形にし、文書の点の表し方と、点ごとの既定義の印で描く](0160-drawing-points.md)（2026-10-29、採用）
-- [0161: R2004 から後の DWG の MINSERT は、持つオブジェクトの数を列と行の欄の前に読み書きし、変更と足しを書き戻す](0161-dwg-r2004-minsert.md)（2026-10-29、採用）
+- [0160: 点は図面モデルの点の形にし、文書の点の表し方と、点ごとの既定義のマーカーで描く](0160-drawing-points.md)（2026-10-29、採用）
+- [0161: R2004 から後の DWG の MINSERT は、持つオブジェクトの数を列と行のフィールドの前に読み書きし、変更と追加を書き戻す](0161-dwg-r2004-minsert.md)（2026-10-29、採用）
 - [0162: 図面モデルの変更でレイヤの名前・状態・スタイルを変え、レイヤを足し、除く](0162-drawing-layer-changes.md)（2026-10-29、採用）
 - [0163: 図面モデルの変更で文字スタイルの名前と定義を変え、文字スタイルを足し、除く](0163-drawing-text-style-changes.md)（2026-10-29、採用）
 - [0164: 図面モデルの変更で線種の名前と定義を変え、線種を足し、除く](0164-drawing-line-type-changes.md)（2026-10-29、採用）
@@ -205,13 +205,13 @@
 - [0169: 図面モデルの変更を SXF の P21 の実体に書き戻す](0169-sxf-p21-apply.md)（2026-10-29、採用）
 - [0170: 拡張辞書を持つ表のレコードを、拡張辞書ごと除く](0170-drawing-table-record-extension-dictionaries.md)（2026-10-29、採用）
 - [0171: 再配布を認めるライセンスの公開サンプルは、出所とライセンスを台帳に書いて Git に入れる](0171-public-samples-in-git.md)（2026-10-30、採用）
-- [0172: 2D のシーンは、配置をたどって解いた値を、線・面・文字・点・画像の区画に並べ、`scene` の op で返す](0172-scene-sections-and-op.md)（2026-10-30、採用）
+- [0172: 2D のシーンは、配置をたどって解いた値を、線・面・文字・点・画像のセクションに並べ、`scene` の op で返す](0172-scene-sections-and-op.md)（2026-10-30、採用）
 - [0173: プロファイルの照合は `zumen-profile` に置き、`check` の op で、配置をたどって解いた図面モデルの値と語彙を比べる](0173-profile-checks.md)（2026-10-30、採用）
 - [0174: 計画の優先順と状態を、全体計画 #1 の下の issue の並び・ラベル・依存で持つ](0174-plan-in-issues.md)（2026-10-30、採用）
-- [0175: 2007 より前の版の ANSI_932 の文字は、zumen-acad が encoding_rs で Shift_JIS として戻す](0175-acad-code-page-shift-jis.md)（2026-10-30、採用）
+- [0175: 2007 より前のバージョンの ANSI_932 の文字は、zumen-acad が encoding_rs で Shift_JIS として戻す](0175-acad-code-page-shift-jis.md)（2026-10-30、採用）
 - [0176: 1 行の文字は、呼び出し側が渡す字形の寸法で置き、字形の座標を図面へ写す変換で返す](0176-text-layout-with-glyph-metrics.md)（2026-10-30、採用）
 - [0177: 引出線を形で置き換えて足し、記号の定義の中にも要素を足す](0177-drawing-apply-leaders-and-definitions.md)（2026-10-30、採用）
-- [0178: シーンの区画を 1 つの列にし、配置を schema/scene.toml に置く](0178-scene-layout-columns.md)（2026-10-30、採用）
+- [0178: シーンのセクションを 1 つの列にし、配置を schema/scene.toml に置く](0178-scene-layout-columns.md)（2026-10-30、採用）
 - [0179: 照合する要素の種類、指摘の形、使えない規則の扱いを決める](0179-profile-check-details.md)（2026-10-30、採用）
 - [0180: TrueType のフォントの寸法は、依存を足さずに要る表だけを zumen-drawing で読む](0180-read-truetype-metrics-without-dependency.md)（2026-10-30、採用）
 - [0181: 書式つきの文字は枠の幅で折り返して置き、DXF の特殊な符号は呼び出し側が解き、縦書きは置かない](0181-formatted-text-layout.md)（2026-10-31、採用）
@@ -224,48 +224,48 @@
 - [0188: シーンの op でフォントを受け取り、文字を字形の形と変換で返す](0188-scene-fonts-and-glyph-outlines.md)（2026-10-31、採用）
 - [0189: 点の番号で合わせる部品と縦書きのカーニングを読み、欧文を倒し、小書きの仮名を禁則に足す](0189-composite-points-vertical-kerning-and-kana-kinsoku.md)（2026-10-31、採用）
 - [0190: P21 の点マーカーを記号の実体を足して書き戻し、文書の点の表し方を変える変更を足す](0190-drawing-apply-p21-markers-and-point-styles.md)（2026-10-31、採用）
-- [0191: MULTILEADER の変換・文字の書き直し・DWG の値の書き戻しと、注記の反応子を足す](0191-drawing-apply-multileaders-and-reactors.md)（2026-10-31、採用）
-- [0192: 2007 より前の版に書き戻す文字は、読むときの表を逆に引いて符号化し、表せない文字は断る](0192-acad-code-page-write-back.md)（2026-10-31、採用）
-- [0193: DWG の見出しの区切りの大きさを変えて点の表し方を書き、境界で点の表し方を読み、P21 の見え方の割り当てを写す](0193-dwg-header-resize-and-point-style-read.md)（2026-10-31、採用）
-- [0194: TypeScript・JavaScript の包みは素の ESM と生成した .d.ts で書き、名前を仮にして公開しない](0194-typescript-javascript-wrapper.md)（2026-10-31、採用）
-- [0195: Python の包みは標準の ctypes と生成した TypedDict で書き、名前を仮にして公開しない](0195-python-wrapper.md)（2026-10-31、採用）
-- [0196: .NET の包みは関数ポインターの委譲で C ABI を呼び、生成した record と netstandard2.0・net8.0 の 2 つのアセンブリで書き、名前を仮にして公開しない](0196-dotnet-wrapper.md)（2026-10-31、採用）
-- [0197: CLI と MCP のサーバーは依存を足さずに書き、MCP は 2026-07-28 と前の版の両方に応える](0197-cli-and-mcp-server.md)（2026-10-31、採用）
-- [0198: C・C++ はヘッダーだけの RAII の包みとシーンの読み手を足し、メッセージは JSON の文字列のまま渡す](0198-c-and-cpp-wrapper.md)（2026-10-31、採用）
-- [0199: TypeScript・JavaScript の包みの適合試験を、版を固定した Playwright でブラウザーの中で流す](0199-browser-conformance-with-playwright.md)（2026-10-31、採用）
+- [0191: MULTILEADER の変換・文字の書き直し・DWG の値の書き戻しと、注記のリアクターを足す](0191-drawing-apply-multileaders-and-reactors.md)（2026-10-31、採用）
+- [0192: 2007 より前のバージョンに書き戻す文字は、読むときの表を逆に引いて符号化し、表せない文字は断る](0192-acad-code-page-write-back.md)（2026-10-31、採用）
+- [0193: DWG のヘッダーのセクションの大きさを変えて点の表し方を書き、API で点の表し方を読み、P21 の見え方の割り当てを写す](0193-dwg-header-resize-and-point-style-read.md)（2026-10-31、採用）
+- [0194: TypeScript・JavaScript のラッパーは素の ESM と生成した .d.ts で書き、名前を仮にして公開しない](0194-typescript-javascript-wrapper.md)（2026-10-31、採用）
+- [0195: Python のラッパーは標準の ctypes と生成した TypedDict で書き、名前を仮にして公開しない](0195-python-wrapper.md)（2026-10-31、採用）
+- [0196: .NET のラッパーは関数ポインターの委譲で C ABI を呼び、生成した record と netstandard2.0・net8.0 の 2 つのアセンブリで書き、名前を仮にして公開しない](0196-dotnet-wrapper.md)（2026-10-31、採用）
+- [0197: CLI と MCP のサーバーは依存を足さずに書き、MCP は 2026-07-28 と前のバージョンの両方に応える](0197-cli-and-mcp-server.md)（2026-10-31、採用）
+- [0198: C・C++ はヘッダーだけの RAII のラッパーとシーンのリーダーを足し、メッセージは JSON の文字列のまま渡す](0198-c-and-cpp-wrapper.md)（2026-10-31、採用）
+- [0199: TypeScript・JavaScript のラッパーの適合テストを、バージョンを固定した Playwright でブラウザーの中で流す](0199-browser-conformance-with-playwright.md)（2026-10-31、採用）
 - [0200: serve --http は標準ライブラリで書き、process は C ABI のライブラリが CLI を起こし、MCP にリソースと進み具合の通知を足す](0200-cli-http-process-engine-and-mcp-resources.md)（2026-10-31、採用）
 - [0201: 子プロセスのメモリの上限は Linux の setrlimit と Windows のジョブ・オブジェクトで付け、Windows でもライブラリの場所から CLI を探し、Node.js の process はまだ作らない](0201-process-engine-memory-limit-and-host-safety.md)（2026-10-31、採用）
 - [0202: AutoCAD の形のフォント（SHX）は読まず、代わりのフォントで置いて診断を返す](0202-do-not-read-shx-fonts.md)（2026-10-31、採用）
-- [0203: Rust の利用者向けの入口は、zumen-abi を包む `zumen` の crate にし、シーンの読み手を持たせる](0203-rust-user-crate.md)（2026-10-31、採用）
+- [0203: Rust の利用者向けの入口は、zumen-abi を包む `zumen` の crate にし、シーンのリーダーを持たせる](0203-rust-user-crate.md)（2026-10-31、採用）
 - [0204: プロファイルに、用紙の大きさごとの線幅とファイルの名前の照合を足し、mlit-cad に表の値を足す](0204-profile-sheet-line-widths-and-file-names.md)（2026-10-31、採用）
-- [0205: 版 0.2.0 から、タグを push してワークフローで crates.io・npm・PyPI・NuGet と GitHub の Release に出す](0205-release-and-publishing.md)（2026-10-31、採用）
+- [0205: バージョン 0.2.0 から、タグを push してワークフローで crates.io・npm・PyPI・NuGet と GitHub の Release に出す](0205-release-and-publishing.md)（2026-10-31、採用）
 - [0206: 別の形式への変換（convert）は、ひな形の DXF に apply で表の項目と要素を足して書く](0206-convert-to-new-dxf.md)（2026-10-31、採用）
-- [0207: 建物モデルは IFC を意味の基準にした成分のグラフにし、IFC の L1 はスキーマを知らないインスタンスのグラフにする](0207-building-model-components.md)（2026-10-31、採用）
-- [0208: 記号の反転した切り抜きは、SPATIAL_FILTER の拡張辞書の XRECORD にある元の境界から読む](0208-inverted-symbol-clips.md)（2026-10-31、採用）
+- [0207: 建物モデルは IFC を意味の基準にしたコンポーネントのグラフにし、IFC の L1 はスキーマを知らないインスタンスのグラフにする](0207-building-model-components.md)（2026-10-31、採用）
+- [0208: 記号の反転した切り抜きは、SPATIAL_FILTER の拡張辞書の XRECORD にある元の API から読む](0208-inverted-symbol-clips.md)（2026-10-31、採用）
 - [0209: XML の L0 は、依存を足さずに zumen-xml で読み、ルートの要素と名前空間で形式を判定する](0209-xml-l0-without-dependency.md)（2026-10-31、採用）
 - [0210: ZIP の L0 は、inflate を含めて依存を足さずに zumen-zip で読み、ZIP64 は読み、暗号化は読まない](0210-zip-l0-without-dependency.md)（2026-10-31、採用）
 - [0211: IFC の L1 は zumen-step の文に番号の表を置き、IFC と SXF は FILE_SCHEMA の名前の判定で分ける](0211-ifc-l1-instance-graph.md)（2026-10-31、採用）
-- [0212: 建物モデルは成分を要素の番号の列で持ち、ハッシュには持つ成分だけを種類の名前とともに入れ、層の向きを xtask で確かめる](0212-building-model-storage-and-hash.md)（2026-10-31、採用）
-- [0213: 3D のシーンは、2D と同じ入れ物の別の種類にし、形をインスタンスで使い回すメッシュの区画に並べ、`scene3d` の op で返す](0213-scene3d-sections-and-op.md)（2026-10-31、採用）
-- [0214: 赤入れと BIM の指摘は、指摘と図形と場所を持つ 1 つのレビューの文書にし、場所を ID とハッシュで新しい版へ移し、BCF とは指摘と 3D の場所を対応させる](0214-review-model-and-bcf.md)（2026-10-31、採用）
-- [0215: IFC から建物モデルへの変換は、意味を持つ実体の表で読み、材料と通り芯の軸を GlobalId のない要素にし、ほかの版は作らずに断る](0215-ifc-building-lift.md)（2026-10-31、採用）
+- [0212: 建物モデルはコンポーネントを要素の番号の列で持ち、ハッシュには持つコンポーネントだけを種類の名前とともに入れ、層の向きを xtask で確かめる](0212-building-model-storage-and-hash.md)（2026-10-31、採用）
+- [0213: 3D のシーンは、2D と同じコンテナーの別の種類にし、形をインスタンスで使い回すメッシュのセクションに並べ、`scene3d` の op で返す](0213-scene3d-sections-and-op.md)（2026-10-31、採用）
+- [0214: 赤入れと BIM の指摘は、指摘と図形と場所を持つ 1 つのレビューの文書にし、場所を ID とハッシュで新しいバージョンへ移し、BCF とは指摘と 3D の場所を対応させる](0214-review-model-and-bcf.md)（2026-10-31、採用）
+- [0215: IFC から建物モデルへの変換は、意味を持つ実体の表で読み、材料と通り芯の軸を GlobalId のない要素にし、ほかのバージョンは作らずに断る](0215-ifc-building-lift.md)（2026-10-31、採用）
 - [0216: IFC のスキーマでのチェックは、zm_push で渡した IFC と EXPRESS を `validate` の op で照らし、規則は評価せずに数を返す](0216-express-validate-op.md)（2026-10-31、採用）
-- [0217: IDS は照合の入力としてそのまま読み、建物モデルの成分で確かめ、確かめられない facet を指摘と分けて返す](0217-ids-check.md)（2026-10-31、採用）
-- [0218: レビューの文書の JSON のキーを決め、引き継ぐ op と照合の指摘を取り込む op を境界に足し、取り込んだ指摘の ID を入力から決める](0218-review-document-and-ops.md)（2026-10-31、採用）
-- [0219: 境界では IFC を open で建物モデルの文書として開き、要約・要素と成分・IDS の照合を別の op で返す](0219-ifc-at-the-boundary.md)（2026-10-31、採用）
+- [0217: IDS は照合の入力としてそのまま読み、建物モデルのコンポーネントで確かめ、確かめられない facet を指摘と分けて返す](0217-ids-check.md)（2026-10-31、採用）
+- [0218: レビューの文書の JSON のキーを決め、引き継ぐ op と照合の指摘を取り込む op を API に足し、取り込んだ指摘の ID を入力から決める](0218-review-document-and-ops.md)（2026-10-31、採用）
+- [0219: API では IFC を open で建物モデルの文書として開き、要約・要素とコンポーネント・IDS の照合を別の op で返す](0219-ifc-at-the-boundary.md)（2026-10-31、採用）
 - [0220: BCF 3.0 の bcfzip をレビューの文書に写して読み、元の bcfzip の知らない要素を保って書き戻す](0220-bcf-3-0.md)（2026-10-31、採用）
 - [0221: wasm のモジュールを、zumen-abi の feature で図面と BIM に分け、判定の規則とモジュールの表を schema/boundary.toml に置く](0221-wasm-modules.md)（2026-10-31、採用）
-- [0222: zumen-geom3d に 3D の型・カーネルと切断の trait・合成の形の組を置き、カーネルの候補は manifold-rust を第一にして試料で測る](0222-geom3d-types-and-kernel-trait.md)（2026-10-31、採用）
+- [0222: zumen-geom3d に 3D の型・カーネルと切断の trait・合成の形の組を置き、カーネルの候補は manifold-rust を第一にしてサンプルで測る](0222-geom3d-types-and-kernel-trait.md)（2026-10-31、採用）
 - [0223: 確認申請のプロファイルは BIM 図面審査の入出力基準（初版 令和 8 年 3 月 24 日版）を出典にし、IFC で確かめられる項目と面積の測り方を持つ](0223-building-permit-profile-items.md)（2026-10-31、採用）
-- [0224: Java・Kotlin の包みは JNA で C ABI を呼び、型は JSON の表を包む見方として生成し、毎晩 Java 8 と Android 7.0 のエミュレーターで流す](0224-java-kotlin-wrapper.md)（2026-10-31、採用）
-- [0225: Swift の包みは静的ライブラリの XCFramework を module map で呼び、型は JSON の表を包む構造体として生成し、毎晩 macOS と iOS のシミュレーターで流す](0225-swift-wrapper.md)（2026-10-31、採用）
-- [0226: Go の包みは wasm のモジュールを wazero で動かし、セッションごとにインスタンスを作り、取り消しはコンテキストで止め、process はまだ作らない](0226-go-wrapper.md)（2026-10-31、採用）
-- [0227: Dart の包みは dart:ffi で C ABI を呼び、型は JSON の表を包む見方として生成し、取り消しは別の isolate の呼び出しで行い、毎晩 Dart 3.0 と安定版で流す](0227-dart-wrapper.md)（2026-10-31、採用）
+- [0224: Java・Kotlin のラッパーは JNA で C ABI を呼び、型は JSON の表を包むビューとして生成し、毎晩 Java 8 と Android 7.0 のエミュレーターで流す](0224-java-kotlin-wrapper.md)（2026-10-31、採用）
+- [0225: Swift のラッパーは静的ライブラリの XCFramework を module map で呼び、型は JSON の表を包む構造体として生成し、毎晩 macOS と iOS のシミュレーターで流す](0225-swift-wrapper.md)（2026-10-31、採用）
+- [0226: Go のラッパーは wasm のモジュールを wazero で動かし、セッションごとにインスタンスを作り、取り消しはコンテキストで止め、process はまだ作らない](0226-go-wrapper.md)（2026-10-31、採用）
+- [0227: Dart のラッパーは dart:ffi で C ABI を呼び、型は JSON の表を包むビューとして生成し、取り消しは別の isolate の呼び出しで行い、毎晩 Dart 3.0 と安定版で流す](0227-dart-wrapper.md)（2026-10-31、採用）
 - [0228: 弧長寸法（ARC_DIMENSION）を、円弧の中心と両端と寸法の弧の点で弧長の寸法に移し、引出線は診断する](0228-arc-length-dimensions.md)（2026-11-01、採用）
 - [0229: レイアウトの用紙の 1 単位の mm は、LAYOUT の印刷の単位と尺度で決める](0229-paper-units-from-plot-settings.md)（2026-11-01、採用）
 - [0230: 土木の領域モデルは、線形を平面・縦断・片勾配の区間の並びで持ち、測点・横断・TIN を線形と同じ地図の空間に置く](0230-civil-model-alignments.md)（2026-11-01、採用）
 - [0231: 線形の平面図・縦断図・横断図は、新しい crate で図面モデルに出し、縦断図の文字は用紙に置く](0231-civil-drawings.md)（2026-11-01、採用）
-- [0232: 点群は、コアが要る範囲を応答で求めて読み、地図の空間の列の点を八分木の節で持ち、3D のシーンの点の区画で返す](0232-point-clouds.md)（2026-11-01、採用）
+- [0232: 点群は、コアが要る範囲を応答で求めて読み、地図の空間の列の点を八分木のノードで持ち、3D のシーンの点のセクションで返す](0232-point-clouds.md)（2026-11-01、採用）
 - [0233: 地理の領域モデルは、地物を元の型の名前と属性と LOD ごとの形で持ち、座標は元の座標系の空間のまま持つ](0233-geo-model-features.md)（2026-11-01、採用）
 - [0234: 出来形は、設計の TIN と点群の標高の差を、プロファイルの規格値の区分ごとに集計して返す](0234-as-built-deviation.md)（2026-11-01、採用）
 - [0235: IFC4.3 の線形は、入れ子の区間を書いた順に読み、配置と IfcMapConversion で地図の空間に直して土木の領域モデルに移す](0235-ifc-alignments.md)（2026-11-02、採用）
@@ -276,14 +276,15 @@
 - [0240: 相似のビューは DXF のビューポートで書き、モデル空間には書く用紙が焼き込まずに見せる空間だけを書く](0240-write-similar-views-as-viewports.md)（2026-11-02、採用）
 - [0241: 電子納品の成果品は、名前の集まりか ZIP で受け、delivery_check の op でプロファイルと照らす](0241-delivery-package-check.md)（2026-11-02、採用）
 - [0242: 地質・土質調査の成果は crate `zumen-geology` に置き、ボーリング交換用データを boring の op で読む](0242-geology-boring-data.md)（2026-11-02、採用）
-- [0243: プラグインはプロセスで 1 度 install して窓口に登録し、wasm ではコアの図面のモジュールに足した別のモジュールにする](0243-plugin-bundling.md)（2026-11-02、採用）
+- [0243: プラグインはプロセスで 1 度 install してレジストリに登録し、wasm ではコアの図面のモジュールに足した別のモジュールにする](0243-plugin-bundling.md)（2026-11-02、採用）
 - [0244: IFC のその場の編集は、L1 で触れたインスタンスだけを書き直し、building_apply の op で当てる](0244-ifc-in-place-edit.md)（2026-11-02、採用）
-- [0245: 建物の形式のプラグインを、図面の形式と同じ窓口に登録し、wasm ではコアの建物のモジュールに足す](0245-building-format-plugins.md)（2026-11-02、採用）
+- [0245: 建物の形式のプラグインを、図面の形式と同じレジストリに登録し、wasm ではコアの建物のモジュールに足す](0245-building-format-plugins.md)（2026-11-02、採用）
 - [0246: DXF の TEXT の高さは A の字形の上に当て、外形の中央は横を送りの半分にする](0246-dxf-text-height-and-alignment-against-autocad.md)（2026-11-02、採用）
 - [0247: 図面モデルのバイナリを型の契約から作り、図面のプラグインの wasm のモジュールをプラグインの形式だけにする](0247-drawing-model-binary.md)（2026-11-02、採用）
-- [0248: BCF 2.1 も 3.0 と同じ道で読み書きし、元の bcfzip と違う版では書き戻さない](0248-bcf-2-1.md)（2026-11-03、採用）
+- [0248: BCF 2.1 も 3.0 と同じ道で読み書きし、元の bcfzip と違うバージョンでは書き戻さない](0248-bcf-2-1.md)（2026-11-03、採用）
 - [0249: SXF の属性ファイル（SAF）を読み、属性ファイル用の属性付加機構の要素に属性ごとの拡張で結ぶ](0249-sxf-attribute-files.md)（2026-11-03、採用）
-- [0250: JavaScript の包みは、プラグインの図面を図面のモジュールに自動で渡し、図面モデルのバイナリを形式 drawing と判定する](0250-open-plugin-drawings-in-the-drawing-module.md)（2026-11-03、採用）
-- [0251: 基盤地図情報の配布の書庫は中の項目の名前で見分け、地物の ID を項目の名前と gml:id の組にする](0251-fgd-archives.md)（2026-11-03、採用）
-- [0252: 配る wasm のモジュールから名前の区画を除き、LTO と大きさ優先の最適化はまだ使わない](0252-strip-wasm-names.md)（2026-11-03、採用）
+- [0250: JavaScript のラッパーは、プラグインの図面を図面のモジュールに自動で渡し、図面モデルのバイナリを形式 drawing と判定する](0250-open-plugin-drawings-in-the-drawing-module.md)（2026-11-03、採用）
+- [0251: 基盤地図情報の配布のアーカイブは中の項目の名前で見分け、地物の ID を項目の名前と gml:id の組にする](0251-fgd-archives.md)（2026-11-03、採用）
+- [0252: 配る wasm のモジュールから名前のセクションを除き、LTO と大きさ優先の最適化はまだ使わない](0252-strip-wasm-names.md)（2026-11-03、採用）
 - [0253: 地理の地物と点群を wasm の civil・pointcloud のモジュールに分け、J-LandXML と civil の op は要るモジュールのそれぞれに置く](0253-wasm-civil-and-pointcloud-modules.md)（2026-11-03、採用）
+- [0257: 和語への言い換えをやめ、開発と実務で定着した語で書く](0257-established-terms-over-coined-words.md)（2026-11-03、採用）

@@ -18,18 +18,18 @@ import (
 	"testing"
 )
 
-// 適合試験を、Go の包みを通して流す（決定 0006・0226）。
+// 適合テストを、Go のラッパーを通して流す（決定 0006・0226）。
 //
-// bindings/conformance/cases/*.json を、包みのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの一覧が
-// hashes.txt と一致することを確かめる。シーンの blob は、包みの読み手で読み、応答の数と合うかを確かめる。手順の読み方と
+// bindings/conformance/cases/*.json を、ラッパーのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの一覧が
+// hashes.txt と一致することを確かめる。シーンの blob は、ラッパーのリーダーで読み、応答の数と合うかを確かめる。手順の読み方と
 // 応答の確かめ方は、Python・Java の側と同じ規則で書く。リポジトリの根は、ZUMEN_REPOSITORY か、今の場所から上にたどって探す。
 
-// actions は、手順の種類。手順は、どれか 1 つの欄を持つ。
+// actions は、手順の種類。手順は、どれか 1 つのフィールドを持つ。
 var actions = []string{"session", "push", "call", "call_text", "call_hex", "take"}
 
 var arrayIndex = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
 
-// missing は、JSON Pointer で引けなかった印。
+// missing は、JSON Pointer で引けなかったフラグ。
 type missing struct{}
 
 type conformance struct {
@@ -188,7 +188,7 @@ func requestOf(action string, input any) ([]byte, error) {
 	}
 }
 
-// attempt は、境界の関数の結果を、状態の名前と書かれたバイト列にする。
+// attempt は、API の関数の結果を、状態の名前と書かれたバイト列にする。
 func attempt(data []byte, err error) (string, []byte, error) {
 	if err == nil {
 		return "ok", data, nil
@@ -222,7 +222,7 @@ func (c *conformance) checkResponse(at string, step map[string]any, response any
 	}
 }
 
-// checkScene は、シーンの blob を読み手で読み、応答の数と合うかを確かめる。
+// checkScene は、シーンの blob をリーダーで読み、応答の数と合うかを確かめる。
 func (c *conformance) checkScene(at string, blob []byte, result map[string]any) {
 	scene, err := ReadScene(blob)
 	if err != nil {
@@ -242,8 +242,8 @@ func (c *conformance) checkScene(at string, blob []byte, result map[string]any) 
 		name          string
 		got, expected int64
 	}{
-		{"大版", int64(scene.Major), int64(SceneMajor)},
-		{"区画の数", int64(scene.Sections), int64(len(SceneSections))},
+		{"メジャーバージョン", int64(scene.Major), int64(SceneMajor)},
+		{"セクションの数", int64(scene.Sections), int64(len(SceneSections))},
 		{"塊の数", int64(scene.Chunks), chunks},
 		{"chunk_origins の行", rows("chunk_origins"), chunks},
 		{"text_xy の行", rows("text_xy"), integer(counts["texts"])},
@@ -251,7 +251,7 @@ func (c *conformance) checkScene(at string, blob []byte, result map[string]any) 
 		{"glyph_xy の行", rows("glyph_xy"), integer(counts["glyphs"])},
 		{"line_xy と face_xy の行", rows("line_xy") + rows("face_xy"), integer(counts["vertices"])},
 	}
-	// 文字の文字列は、strings の区画から引ける
+	// 文字の文字列は、strings のセクションから引ける
 	textStrings, err := scene.U32("text_strings")
 	if err != nil {
 		c.fail("%s: %v", at, err)
@@ -501,11 +501,11 @@ func TestConformance(t *testing.T) {
 	if err := c.compareHashes(); err != nil {
 		t.Fatal(err)
 	}
-	summary := fmt.Sprintf("包みを通した試験の組 %d 件、ハッシュ %d 件、読んだシーン %d 件", len(files), len(c.hashes), c.scenes)
+	summary := fmt.Sprintf("ラッパーを通したテストの組 %d 件、ハッシュ %d 件、読んだシーン %d 件", len(files), len(c.hashes), c.scenes)
 	t.Log(summary)
 	if path := os.Getenv("GITHUB_STEP_SUMMARY"); path != "" {
 		if file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-			_, _ = fmt.Fprintf(file, "### Go の包みの適合試験（%s）\n\n%s\n", strings.TrimPrefix(runtime.Version(), "go"), summary)
+			_, _ = fmt.Fprintf(file, "### Go のラッパーの適合テスト（%s）\n\n%s\n", strings.TrimPrefix(runtime.Version(), "go"), summary)
 			_ = file.Close()
 		}
 	}

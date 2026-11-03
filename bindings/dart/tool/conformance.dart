@@ -1,9 +1,9 @@
-// 適合試験を、Dart の包み（bindings/dart）を通して流す（決定 0006・0227）。
+// 適合テストを、Dart のラッパー（bindings/dart）を通して流す（決定 0006・0227）。
 //
 // 使い方: dart run tool/conformance.dart <ネイティブのライブラリ> [リポジトリの根]
 //
-// bindings/conformance/cases/*.json を、包みのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
-// 一覧が hashes.txt と一致することを確かめる。シーンの blob は、包みの読み手で読み、応答の数と合うかを確かめる。
+// bindings/conformance/cases/*.json を、ラッパーのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
+// 一覧が hashes.txt と一致することを確かめる。シーンの blob は、ラッパーのリーダーで読み、応答の数と合うかを確かめる。
 // 手順の読み方と応答の確かめ方は、Python・Java の側と同じ規則で書く。
 
 import 'dart:convert';
@@ -13,10 +13,10 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:zumen/zumen.dart';
 
-/// 手順の種類。手順は、どれか 1 つの欄を持つ
+/// 手順の種類。手順は、どれか 1 つのフィールドを持つ
 const actions = ['session', 'push', 'call', 'call_text', 'call_hex', 'take'];
 
-/// JSON Pointer で引けなかった印
+/// JSON Pointer で引けなかったフラグ
 const missing = Object();
 
 final failures = <String>[];
@@ -107,7 +107,7 @@ Uint8List requestOf(String action, Object? input) => switch (action) {
       _ => utf8Bytes(jsonEncode(input)),
     };
 
-/// 境界の関数を呼び、状態の名前と、書かれたバイト列を返す
+/// API の関数を呼び、状態の名前と、書かれたバイト列を返す
 (String, Uint8List?) attempt(Uint8List? Function() run) {
   try {
     return ('ok', run());
@@ -139,7 +139,7 @@ void checkResponse(String at, Map step, Object? response) {
   }
 }
 
-/// シーンの blob を読み手で読み、応答の数と合うかを確かめる
+/// シーンの blob をリーダーで読み、応答の数と合うかを確かめる
 void checkScene(String at, Uint8List blob, Map result) {
   final Scene scene;
   try {
@@ -151,8 +151,8 @@ void checkScene(String at, Uint8List blob, Map result) {
   final counts = result['counts'] as Map;
   final chunks = counts['chunks'];
   final checks = <(String, Object?, Object?)>[
-    ('大版', scene.major, Constants.sceneMajor),
-    ('区画の数', scene.sections, Constants.sceneSections.length),
+    ('メジャーバージョン', scene.major, Constants.sceneMajor),
+    ('セクションの数', scene.sections, Constants.sceneSections.length),
     ('塊の数', scene.chunks, chunks),
     ('chunk_origins の行', scene.rows('chunk_origins'), chunks),
     ('text_xy の行', scene.rows('text_xy'), counts['texts']),
@@ -160,7 +160,7 @@ void checkScene(String at, Uint8List blob, Map result) {
     ('glyph_xy の行', scene.rows('glyph_xy'), counts['glyphs']),
     ('line_xy と face_xy の行', scene.rows('line_xy') + scene.rows('face_xy'), counts['vertices']),
   ];
-  // 文字の文字列は、strings の区画から引ける
+  // 文字の文字列は、strings のセクションから引ける
   final strings = scene.u32('text_strings');
   for (var row = 0; row + 1 < strings.length; row += 2) {
     try {
@@ -205,7 +205,7 @@ void runCase(Zumen zumen, String repository, String name, List steps) {
           opened = zumen.sessionBytes(bytesOf(input, 'options', 'options_text'));
           return null;
         });
-        // 作れなかったら、閉じたセッションで続ける。境界は、空のセッションへの呼び出しを invalid にする
+        // 作れなかったら、閉じたセッションで続ける。API は、空のセッションへの呼び出しを invalid にする
         session = opened ?? (zumen.session()..close());
       case 'push':
         final push = input as Map;
@@ -363,12 +363,12 @@ Future<void> main(List<String> args) async {
   }
   compareHashes(conformance);
   await checkTypedCalls(zumen);
-  final summary = '包みを通した試験の組 ${files.length} 件、ハッシュ ${hashes.length} 件、読んだシーン $scenes 件';
+  final summary = 'ラッパーを通したテストの組 ${files.length} 件、ハッシュ ${hashes.length} 件、読んだシーン $scenes 件';
   stdout.writeln(summary);
   final stepSummary = Platform.environment['GITHUB_STEP_SUMMARY'];
   if (stepSummary != null && stepSummary.isNotEmpty) {
     File(stepSummary).writeAsStringSync(
-      '### Dart の包みの適合試験（Dart ${Platform.version.split(' ').first}、${Platform.operatingSystem}）\n\n$summary\n',
+      '### Dart のラッパーの適合テスト（Dart ${Platform.version.split(' ').first}、${Platform.operatingSystem}）\n\n$summary\n',
       mode: FileMode.append,
     );
   }

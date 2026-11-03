@@ -1,4 +1,4 @@
-//! レコードの欄の読み方と、見出しのレコードの後に続く実データのレコードの数（数値地形図データファイル仕様の
+//! レコードのフィールドの読み方と、ヘッダーのレコードの後に続く実データのレコードの数（数値地形図データファイル仕様の
 //! 「レコードの構成」と各レコードの書式）。
 
 use std::ops::Range;
@@ -12,7 +12,7 @@ pub(crate) const TRIPLES: usize = 4;
 /// グリッドレコードと不整三角網レコードの数値の数（(11)・(12)、I7 が 12 個）
 pub(crate) const VALUES: usize = 12;
 
-/// 見出しのレコードのレコードタイプ。実データのレコードなら `None`
+/// ヘッダーのレコードのレコードタイプ。実データのレコードなら `None`
 pub(crate) fn kind(record: &[u8]) -> Option<&'static [u8]> {
     Some(match record.get(..2)? {
         b"I " => b"I",
@@ -32,13 +32,13 @@ pub(crate) fn kind(record: &[u8]) -> Option<&'static [u8]> {
     })
 }
 
-/// カラムの `start` から `width` バイトの欄（1 カラム目は 0）。レコードが短ければ、ある所まで
+/// カラムの `start` から `width` バイトのフィールド（1 カラム目は 0）。レコードが短ければ、ある所まで
 pub(crate) fn field(record: &[u8], start: usize, width: usize) -> &[u8] {
     let end = start.saturating_add(width).min(record.len());
     record.get(start..end).unwrap_or_default()
 }
 
-/// 整数型（I）の欄。空白だけなら `Ok(None)`、整数でなければ `Err(())`
+/// 整数型（I）のフィールド。空白だけなら `Ok(None)`、整数でなければ `Err(())`
 pub(crate) fn int(record: &[u8], start: usize, width: usize) -> Result<Option<i64>, ()> {
     let text = field(record, start, width).trim_ascii();
     if text.is_empty() {
@@ -51,7 +51,7 @@ pub(crate) fn int(record: &[u8], start: usize, width: usize) -> Result<Option<i6
         .ok_or(())
 }
 
-/// 整数型の欄の数。空白か読めなければ 0（「入力値が無い場合 0」）
+/// 整数型のフィールドの数。空白か読めなければ 0（「入力値が無い場合 0」）
 fn count(record: &[u8], start: usize, width: usize) -> usize {
     int(record, start, width)
         .ok()
@@ -60,7 +60,7 @@ fn count(record: &[u8], start: usize, width: usize) -> usize {
         .unwrap_or(0)
 }
 
-/// レコードを、見出しのレコードと、その後に続く実データのレコードに分ける
+/// レコードを、ヘッダーのレコードと、その後に続く実データのレコードに分ける
 pub(crate) fn classify(src: &[u8], ranges: Vec<Range<usize>>) -> Vec<Line> {
     let records: Vec<&[u8]> = ranges
         .iter()
@@ -90,7 +90,7 @@ pub(crate) fn classify(src: &[u8], ranges: Vec<Range<usize>>) -> Vec<Line> {
     lines
 }
 
-/// 見出しのレコードの後に続く実データのレコードの数。`rest` は見出しの後のレコード
+/// ヘッダーのレコードの後に続く実データのレコードの数。`rest` はヘッダーの後のレコード
 pub(crate) fn follows(kind: &[u8], record: &[u8], rest: &[&[u8]]) -> usize {
     match kind {
         // インデックスレコード (b) は図郭識別番号レコード数、(c) は使用分類コード数だけ続く

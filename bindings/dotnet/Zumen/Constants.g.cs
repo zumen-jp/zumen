@@ -9,19 +9,19 @@ using System.Runtime.InteropServices;
 
 namespace Zumen
 {
-    /// <summary>版（決定 0015）</summary>
+    /// <summary>バージョン（決定 0015）</summary>
     public static class Versions
     {
-        /// <summary>パッケージの版</summary>
+        /// <summary>パッケージのバージョン</summary>
         public const string Package = "0.2.0";
 
-        /// <summary>ABI の大版</summary>
+        /// <summary>ABI のメジャーバージョン</summary>
         public const uint Abi = 1;
 
-        /// <summary>メッセージのスキーマの大版（要求と応答の v）</summary>
+        /// <summary>メッセージのスキーマのメジャーバージョン（要求と応答の v）</summary>
         public const uint SchemaMajor = 1;
 
-        /// <summary>メッセージのスキーマの小版</summary>
+        /// <summary>メッセージのスキーマのマイナーバージョン</summary>
         public const uint SchemaMinor = 63;
     }
 
@@ -80,7 +80,7 @@ namespace Zumen
     internal static unsafe class NativeFunctions
     {
         /// <summary>
-        /// ABI の大版を返す。この関数の形は変えない
+        /// ABI のメジャーバージョンを返す。この関数の形は変えない
         /// </summary>
         [UnmanagedFunctionPointer(CallingConvention.Winapi)]
         internal delegate uint ZmAbiVersion();
@@ -151,19 +151,19 @@ namespace Zumen
     /// <summary>シーンの blob の配置（決定 0137）</summary>
     public static class SceneLayout
     {
-        /// <summary>見出しの始まりの 4 バイト（ZMSC）</summary>
+        /// <summary>ヘッダーの始まりの 4 バイト（ZMSC）</summary>
         public const uint Magic = 0x4353_4D5A;
 
-        /// <summary>大版。区画の意味を変えるときに上げる</summary>
+        /// <summary>メジャーバージョン。セクションの意味を変えるときに上げる</summary>
         public const ushort Major = 1;
 
-        /// <summary>小版。区画か値を足すたびに上げる</summary>
+        /// <summary>マイナーバージョン。セクションか値を足すたびに上げる</summary>
         public const ushort Minor = 2;
 
         /// <summary>番号の「なし」</summary>
         public const uint None = uint.MaxValue;
 
-        /// <summary>区画の定義。番号の順</summary>
+        /// <summary>セクションの定義。番号の順</summary>
         public static readonly IReadOnlyList<SceneSection> Sections = new[]
         {
             // 塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値（f64 × 2）
@@ -212,7 +212,7 @@ namespace Zumen
             new SceneSection(21, "text_boxes", typeof(float), 1),
             // 位置合わせ。水平（horizontal の値）と垂直（vertical の値）（u8 × 2）
             new SceneSection(22, "text_aligns", typeof(byte), 2),
-            // 印（text_flag の値の和）（u8 × 1）
+            // フラグ（text_flag の値の和）（u8 × 1）
             new SceneSection(23, "text_flags", typeof(byte), 1),
             // 書式つきの文字の行の番号。0 から数える。1 行の文字は 0（u32 × 1）
             new SceneSection(24, "text_lines", typeof(uint), 1),
@@ -224,15 +224,15 @@ namespace Zumen
             new SceneSection(27, "point_xy", typeof(float), 2),
             // 点の回転（度、反時計回り）（f32 × 1）
             new SceneSection(28, "point_rotations", typeof(float), 1),
-            // 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
+            // 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
             new SceneSection(29, "point_markers", typeof(uint), 4),
-            // 既定義の印の尺度。文書の点の表し方に従う点は 1（f32 × 1）
+            // 既定義のマーカーの尺度。文書の点の表し方に従う点は 1（f32 × 1）
             new SceneSection(30, "point_scales", typeof(float), 1),
             // 点の描く単位（unit_entities の行）（u32 × 1）
             new SceneSection(31, "point_units", typeof(uint), 1),
             // 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない（f32 × 4）
             new SceneSection(32, "point_style", typeof(float), 4),
-            // 下敷きの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
+            // アンダーレイの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
             new SceneSection(33, "image_names", typeof(uint), 2),
             // 資源の中のページ（strings の始まりと長さ）。なければ長さが 0（u32 × 2）
             new SceneSection(34, "image_pages", typeof(uint), 2),
@@ -274,13 +274,13 @@ namespace Zumen
             new SceneSection(52, "color_files", typeof(byte), 4),
             // 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0（u8 × 4）
             new SceneSection(53, "color_rgba", typeof(byte), 4),
-            // 印（color_flag の値の和）（u8 × 1）
+            // フラグ（color_flag の値の和）（u8 × 1）
             new SceneSection(54, "color_flags", typeof(byte), 1),
             // 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く（u32 × 1）
             new SceneSection(55, "clip_polygons", typeof(uint), 1),
             // 多角形の頂点の始まり（clip_xy の行）（u32 × 1）
             new SceneSection(56, "polygon_vertices", typeof(uint), 1),
-            // 多角形の印。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
+            // 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
             new SceneSection(57, "polygon_flags", typeof(byte), 1),
             // 切り抜きの多角形の頂点。起点の座標の X・Y（f64 × 2）
             new SceneSection(58, "clip_xy", typeof(double), 2),
@@ -338,7 +338,7 @@ namespace Zumen
                     // 上
                     ["top"] = 3,
                 },
-                // 文字の印。和で持つ
+                // 文字のフラグ。和で持つ
                 ["text_flag"] = new Dictionary<string, uint>
                 {
                     // 左右に反転する
@@ -388,7 +388,7 @@ namespace Zumen
                     // 画面の高さに対する百分率
                     ["screen"] = 1,
                 },
-                // 下敷きの資源の種類
+                // アンダーレイの資源の種類
                 ["image_kind"] = new Dictionary<string, uint>
                 {
                     // 画素の画像
@@ -431,7 +431,7 @@ namespace Zumen
                     ["callout"] = 8,
                     // 表
                     ["table"] = 9,
-                    // 下敷き
+                    // アンダーレイ
                     ["underlay"] = 10,
                     // 記号
                     ["symbol"] = 11,
@@ -454,7 +454,7 @@ namespace Zumen
                     // Jw_cad のペンの番号
                     ["jww"] = 3,
                 },
-                // 色の印。和で持つ
+                // 色のフラグ。和で持つ
                 ["color_flag"] = new Dictionary<string, uint>
                 {
                     // 表示する RGBA が決まらない。表示する側が決める

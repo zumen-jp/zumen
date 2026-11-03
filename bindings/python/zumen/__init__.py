@@ -1,6 +1,6 @@
-"""zumen の C ABI を、標準ライブラリの ctypes で呼ぶ薄い包み（決定 0011・0195）。
+"""zumen の C ABI を、標準ライブラリの ctypes で呼ぶ薄いラッパー（決定 0011・0195）。
 
-ネイティブのライブラリ（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib）を読み込み、境界の関数
+ネイティブのライブラリ（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib）を読み込み、API の関数
 （schema/boundary.toml）を、セッションのメソッドにして出す。要求と応答の型は messages.py にある。
 ctypes は、ネイティブの関数を呼ぶ間 GIL を手放すので、ほかのスレッドから cancel を呼べる。
 """
@@ -51,11 +51,11 @@ BytesLike = Union[str, bytes, bytearray, memoryview, None]
 
 
 class ZumenError(Exception):
-    """境界の関数が ok でない状態を返した"""
+    """API の関数が ok でない状態を返した"""
 
     def __init__(self, operation: str, code: int, data: Optional[bytes]) -> None:
         self.operation = operation
-        """呼んだ境界の関数"""
+        """呼んだ API の関数"""
         self.code = code
         """状態コード"""
         self.status = STATUS.get(code, f"unknown({code})")
@@ -87,7 +87,7 @@ def _dumps(value: Any) -> bytes:
 
 
 class _Core:
-    """読み込んだライブラリと、境界の関数"""
+    """読み込んだライブラリと、API の関数"""
 
     def __init__(self, library: ctypes.CDLL) -> None:
         missing = []
@@ -103,7 +103,7 @@ class _Core:
             raise OSError(f"zumen のライブラリでない（ない関数: {', '.join(missing)}）")
         version = library.zm_abi_version()
         if version != ABI_VERSION:
-            raise OSError(f"ABI の大版が {version}（この包みは {ABI_VERSION}）")
+            raise OSError(f"ABI のメジャーバージョンが {version}（このラッパーは {ABI_VERSION}）")
         self.lib = library
 
     def with_buf(self, fn: Any) -> tuple:
@@ -196,7 +196,7 @@ class Zumen:
         self._core = _Core(library)
 
     def abi_version(self) -> int:
-        """ABI の大版"""
+        """ABI のメジャーバージョン"""
         return self._core.lib.zm_abi_version()
 
     def open(self, options: Union[Mapping[str, Any], BytesLike] = None) -> Session:
@@ -221,7 +221,7 @@ def _bundled() -> str:
 
 
 def load(path: Union[str, os.PathLike, None] = None) -> Zumen:
-    """ネイティブのライブラリを、ファイルの道筋から読み込み、ABI の大版を確かめる。
+    """ネイティブのライブラリを、ファイルの道筋から読み込み、ABI のメジャーバージョンを確かめる。
 
     道筋を渡さなければ、wheel に入れたライブラリ（zumen/_native）を読む（決定 0205）。
     32 bit の Windows では、関数を stdcall で呼ぶ（決定 0011）。

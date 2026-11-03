@@ -9,7 +9,7 @@
 
 - [0207](0207-building-model-components.md) は、IFC の L1 をスキーマを知らないインスタンスのグラフにし、スキーマでの検証は、利用者が渡す EXPRESS で行うとした。zumen は EXPRESS を同梱しない（#410）。
 - IFC を `open` で文書にする口は、まだない（#415）。`open` は、建物モデル（#409）と IDS（#411）を受けてから足す。
-- 境界の入力は `zm_push` で名前を付けて渡す（[0012](0012-boundary-functions-and-messages.md)）。
+- API の入力は `zm_push` で名前を付けて渡す（[0012](0012-boundary-functions-and-messages.md)）。
 
 ## 選択肢
 
@@ -21,10 +21,10 @@
 
 ## 決定
 
-- 選択肢 1 を採る。op を `validate` にし、`input`（IFC-SPF か ifcZIP）・`express`・`offset`・`limit` を受ける。スキーマの小版を 42 にする。
-  - ifcZIP は書庫の始まりの判定で見分ける。文書を開いた後の形は、#415 で `doc` を足して受ける。
+- 選択肢 1 を採る。op を `validate` にし、`input`（IFC-SPF か ifcZIP）・`express`・`offset`・`limit` を受ける。スキーマのマイナーバージョンを 42 にする。
+  - ifcZIP はアーカイブの始まりの判定で見分ける。文書を開いた後の形は、#415 で `doc` を足して受ける。
 - 結果は、EXPRESS のスキーマの名前・IFC の `FILE_SCHEMA`・EXPRESS のハッシュ（`v2:`、文書のハッシュと同じ求め方）・評価しなかった規則の数・指摘・数・`next_offset` にする。指摘は診断と同じ形で返し、`check` と同じく、書かなければ 1000 件ずつ区切る。
-- `FILE_SCHEMA` の名前がスキーマの名前と違えば `express.schema.mixed` を返し、そのままチェックする。版の違いを、利用者が承知のうえで照らせるようにする。
+- `FILE_SCHEMA` の名前がスキーマの名前と違えば `express.schema.mixed` を返し、そのままチェックする。バージョンの違いを、利用者が承知のうえで照らせるようにする。
 - EXPRESS から読むもの:
   - スキーマの名前、定義された型、列挙、選択（入れ子の選択もたどる）、集まり（`LIST`・`SET`・`BAG`・`ARRAY`、数で書いた上下の限り、`OPTIONAL` の項目）。
   - 実体の `ABSTRACT`、`SUBTYPE OF`、明示の属性と `OPTIONAL`、上位の属性の宣言し直し（`SELF\上位.属性`）、上位の属性を導く属性にしたもの。

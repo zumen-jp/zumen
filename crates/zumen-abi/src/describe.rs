@@ -1,6 +1,6 @@
 //! describe の op: 診断の文を、カタログから組み立てる（決定 0009）。
 //!
-//! 文は、Rust のこの 1 か所で組み立てる。どの言語の結合からも、同じ文になる。数の書き方は、カタログの規則に従い、
+//! 文は、Rust のこの 1 か所で組み立てる。どの言語のバインディングからも、同じ文になる。数の書き方は、カタログの規則に従い、
 //! OS のロケールは使わない。
 
 use std::collections::BTreeMap;
@@ -11,7 +11,7 @@ use zumen_json::{FromJson, Writer};
 use crate::messages::{self, Catalog, DescribeRequest, DescribeResult, NumberFormat, ParamValue};
 use crate::session::{Failed, fail, input_missing, invalid_value, stopped};
 
-/// カタログの形の大版
+/// カタログの形のメジャーバージョン
 const CATALOG_VERSION: u64 = 1;
 
 pub(crate) fn describe(
@@ -284,7 +284,7 @@ mod tests {
         }
     }
 
-    /// 試験で使う値。型は台帳に合わせる
+    /// テストで使う値。型は台帳に合わせる
     fn sample(ty: ParamType) -> ParamValue {
         match ty {
             ParamType::UInt => ParamValue::Number(1234.0),

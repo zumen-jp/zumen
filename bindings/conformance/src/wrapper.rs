@@ -1,4 +1,4 @@
-//! 利用者向けの `zumen` の crate を通す形（決定 0203）。シーンの blob は crate の読み手で読み、応答の数と比べる
+//! 利用者向けの `zumen` の crate を通す形（決定 0203）。シーンの blob は crate のリーダーで読み、応答の数と比べる
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,15 +9,15 @@ use zumen_json::Value;
 
 use crate::Engine;
 
-/// `zumen` の crate の [`Session`] を呼ぶ形。読み手で確かめた違いを `failures` に足す
+/// `zumen` の crate の [`Session`] を呼ぶ形。リーダーで確かめた違いを `failures` に足す
 #[derive(Debug, Default)]
 pub struct Wrapper {
     session: Option<Session>,
     /// 直前の応答が返したシーンの blob の番号と、結果の数（`counts`）
     last_scene: Option<(u32, Value)>,
-    /// 読み手で確かめたシーンの数
+    /// リーダーで確かめたシーンの数
     pub scenes: Rc<RefCell<usize>>,
-    /// 読み手で確かめて、期待と違ったこと
+    /// リーダーで確かめて、期待と違ったこと
     pub failures: Rc<RefCell<Vec<String>>>,
 }
 
@@ -28,7 +28,7 @@ fn code(result: Result<(), zumen::Error>) -> i32 {
     }
 }
 
-/// 結果の数の欄
+/// 結果の数のフィールド
 fn count(counts: &Value, key: &str) -> usize {
     match counts.pointer(&format!("/{key}")) {
         Some(Value::Number(number)) => number
@@ -49,7 +49,7 @@ impl Wrapper {
         }
     }
 
-    /// シーンの blob を読み手で読み、応答の数と合うかを確かめる
+    /// シーンの blob をリーダーで読み、応答の数と合うかを確かめる
     fn check_scene(&self, blob: &[u8], counts: &Value) {
         let mut failures = self.failures.borrow_mut();
         let scene = match read_scene(blob) {
@@ -61,9 +61,13 @@ impl Wrapper {
         };
         *self.scenes.borrow_mut() += 1;
         let checks = [
-            ("大版", usize::from(scene.major), usize::from(layout::MAJOR)),
             (
-                "区画の数",
+                "メジャーバージョン",
+                usize::from(scene.major),
+                usize::from(layout::MAJOR),
+            ),
+            (
+                "セクションの数",
                 usize::try_from(scene.sections).unwrap_or(usize::MAX),
                 layout::SECTIONS.len(),
             ),
@@ -103,7 +107,7 @@ impl Wrapper {
                 failures.push(format!("シーンの{label}が {actual}（期待は {expected}）"));
             }
         }
-        // 文字の文字列は、strings の区画から引ける
+        // 文字の文字列は、strings のセクションから引ける
         if let Some(Column::U32(strings)) = scene.column(layout::TEXT_STRINGS) {
             for (row, pair) in strings.as_chunks::<2>().0.iter().enumerate() {
                 if scene.text(pair[0], pair[1]).is_none() {

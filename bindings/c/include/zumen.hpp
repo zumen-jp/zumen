@@ -1,10 +1,10 @@
-﻿// zumen の C++ の包み（決定 0011・0198）。ヘッダーだけで、C++17 で使える。
+﻿// zumen の C++ のラッパー（決定 0011・0198）。ヘッダーだけで、C++17 で使える。
 //
-// - zumen.h の境界の関数（決定 0012）を、RAII のクラスで包む。セッションは Session、コアが返したバッファーは Bytes が持ち、
+// - zumen.h の API の関数（決定 0012）を、RAII のクラスで包む。セッションは Session、コアが返したバッファーは Bytes が持ち、
 //   壊すときに zm_session_close・zm_free で返す
 // - 要求と応答は JSON の文字列のまま渡す。形は schema/messages.json にある。JSON の読み書きには、好きなライブラリを使う
 // - 状態が ZM_OK でなければ、zumen::Error を投げる。投げない try_ の関数もある。failed の応答は、Error::response で読める
-// - シーンの blob は zumen::Scene で読む。区画の定義は zumen_scene.h に生成する
+// - シーンの blob は zumen::Scene で読む。セクションの定義は zumen_scene.h に生成する
 //
 // このファイルは手で書く。生成した定数は zumen.h と zumen_scene.h にある。
 
@@ -90,7 +90,7 @@ public:
 
     /// 状態コード
     zm_status status() const noexcept { return status_; }
-    /// 応答の JSON。境界が応答を書かなかった（invalid・busy）なら空
+    /// 応答の JSON。API が応答を書かなかった（invalid・busy）なら空
     const std::string &response() const noexcept { return response_; }
 
 private:
@@ -126,7 +126,7 @@ inline Bytes check(Reply reply) {
 /// セッション（決定 0012）。壊すときに閉じる。1 つのセッションは、一度に 1 つのスレッドだけが使う
 class Session {
 public:
-    /// 閉じたセッション。呼び出しは NULL のまま境界に渡り、invalid になる
+    /// 閉じたセッション。呼び出しは NULL のまま API に渡り、invalid になる
     Session() noexcept = default;
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
@@ -254,7 +254,7 @@ template <> struct SceneType<double> {
 
 } // namespace detail
 
-/// シーンの 1 つの区画（列）。blob を写さずに見て、値はリトルエンディアンから環境の並びに直して返す
+/// シーンの 1 つのセクション（列）。blob を写さずに見て、値はリトルエンディアンから環境の並びに直して返す
 template <class T> class Column {
 public:
     Column() noexcept = default;
@@ -270,7 +270,7 @@ public:
     /// i 番目の値。範囲の外なら投げる
     T at(std::size_t i) const {
         if (i >= values_) {
-            throw std::out_of_range("zumen: 区画の外を指す");
+            throw std::out_of_range("zumen: セクションの外を指す");
         }
         return (*this)[i];
     }
@@ -295,7 +295,7 @@ private:
 /// 読んだシーン（決定 0137・0178）。blob を写さずに見るので、blob を生かしておき、書き換えない
 class Scene {
 public:
-    /// シーンの blob を読む。知らない区画は読み飛ばし、ない区画は空の列にする。大版が違えば読まない
+    /// シーンの blob を読む。知らないセクションは読み飛ばし、ないセクションは空の列にする。メジャーバージョンが違えば読まない
     static Scene read(const std::uint8_t *data, std::size_t size) {
         constexpr std::size_t header = 16;
         if (data == nullptr || size < header || std::memcmp(data, ZM_SCENE_MAGIC, 4) != 0) {
@@ -307,10 +307,10 @@ public:
         scene.chunks_ = detail::u32_le(data + 8);
         scene.sections_ = detail::u32_le(data + 12);
         if (scene.major_ != ZM_SCENE_MAJOR) {
-            throw SceneError("zumen: シーンの大版が違う");
+            throw SceneError("zumen: シーンのメジャーバージョンが違う");
         }
         if (static_cast<std::uint64_t>(scene.sections_) * 8 > size - header) {
-            throw SceneError("zumen: 区画の表が blob に収まらない");
+            throw SceneError("zumen: セクションの表が blob に収まらない");
         }
         for (std::uint32_t index = 0; index < ZM_SCENE_SECTION_COUNT && index < scene.sections_; ++index) {
             const zm_scene_section *section = zm_scene_section_at(index);
@@ -318,7 +318,7 @@ public:
             std::uint32_t length = detail::u32_le(data + header + 8 * index + 4);
             std::uint64_t row = static_cast<std::uint64_t>(zm_scene_type_size(section->type)) * section->width;
             if (static_cast<std::uint64_t>(start) + length > size || row == 0 || length % row != 0) {
-                throw SceneError(std::string("zumen: 区画 ") + section->name + " の始まりか長さが合わない");
+                throw SceneError(std::string("zumen: セクション ") + section->name + " の始まりか長さが合わない");
             }
             scene.parts_[index] = Part{data + start, length};
         }
@@ -327,42 +327,42 @@ public:
     /// Bytes から読む。bytes を生かしておく
     static Scene read(const Bytes &bytes) { return read(bytes.data(), bytes.size()); }
 
-    /// 大版
+    /// メジャーバージョン
     std::uint16_t major() const noexcept { return major_; }
-    /// 小版
+    /// マイナーバージョン
     std::uint16_t minor() const noexcept { return minor_; }
     /// 塊の数
     std::uint32_t chunks() const noexcept { return chunks_; }
-    /// blob にある区画の数。この包みが知らない区画も数える
+    /// blob にあるセクションの数。このラッパーが知らないセクションも数える
     std::uint32_t sections() const noexcept { return sections_; }
 
-    /// 区画（ZM_SCENE_SECTION_*）の列。T は区画の型（std::uint8_t・std::uint32_t・float・double）にする
+    /// セクション（ZM_SCENE_SECTION_*）の列。T はセクションの型（std::uint8_t・std::uint32_t・float・double）にする
     template <class T> Column<T> column(std::uint32_t section) const {
         const zm_scene_section *definition = zm_scene_section_at(section);
         if (definition == nullptr) {
-            throw std::out_of_range("zumen: 知らない区画");
+            throw std::out_of_range("zumen: 知らないセクション");
         }
         if (definition->type != detail::SceneType<T>::code) {
-            throw std::invalid_argument(std::string("zumen: 区画 ") + definition->name + " の型と合わない");
+            throw std::invalid_argument(std::string("zumen: セクション ") + definition->name + " の型と合わない");
         }
         const Part &part = parts_[section];
         return Column<T>(part.data, part.length / sizeof(T), definition->width);
     }
 
-    /// 区画の行の数
+    /// セクションの行の数
     std::size_t rows(std::uint32_t section) const {
         const zm_scene_section *definition = zm_scene_section_at(section);
         if (definition == nullptr) {
-            throw std::out_of_range("zumen: 知らない区画");
+            throw std::out_of_range("zumen: 知らないセクション");
         }
         return parts_[section].length / (zm_scene_type_size(definition->type) * definition->width);
     }
 
-    /// strings の区画から、始まりと長さ（バイト）で文字列（UTF-8）を引く
+    /// strings のセクションから、始まりと長さ（バイト）で文字列（UTF-8）を引く
     std::string_view text(std::uint32_t start, std::uint32_t length) const {
         const Part &strings = parts_[ZM_SCENE_SECTION_STRINGS];
         if (static_cast<std::uint64_t>(start) + length > strings.length) {
-            throw std::out_of_range("zumen: strings の区画の外を指す");
+            throw std::out_of_range("zumen: strings のセクションの外を指す");
         }
         return std::string_view(reinterpret_cast<const char *>(strings.data) + start, length);
     }

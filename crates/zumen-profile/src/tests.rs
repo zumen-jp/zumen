@@ -1,4 +1,4 @@
-//! 試験の中で作った小さな図面を、`mlit-cad` の 2025-12 版と、それを `extends` で指すプロファイルで照合する。
+//! テストの中で作った小さな図面を、`mlit-cad` の 2025-12 版と、それを `extends` で指すプロファイルで照合する。
 
 use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 use zumen_drawing::{
@@ -608,7 +608,7 @@ fn civil_drawing_values_are_read_from_the_vocabularies() {
     assert_eq!(found.cross_section, Some(100.0));
     assert_eq!(found.station_pitch, Some(20.0));
     assert_eq!(found.text_heights.first(), Some(&1.8));
-    // 正の数でない値は、語彙と欄を診断にして失敗にする
+    // 正の数でない値は、語彙とフィールドを診断にして失敗にする
     let broken = r#"{"format":"0.1","id":"broken","edition":"1","revision":1,
         "vocabularies":{"civil-drawing":{"values":[{"vertical":0}]}},"rules":[]}"#;
     let error = civil_drawing(&[("b.json", broken.as_bytes())], "broken", "1", &mut cx);

@@ -412,7 +412,7 @@
 - 入手の条件: 無償公開
 - 入手先: [SXF Ver.3.1 仕様書](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)
 - 確認日: 2026-11-02
-- 補足: 本体は LZH の書庫（sxf\_v31\_r2.lzh）で、概要編・STEP AP202 サブセット編・フィーチャ仕様編・共通既定義要素編・附属書（SFC 編・共通属性セット編・属性付加機構編）・実装規約の PDF を収める。属性ファイル（SAF）は属性付加機構編が定める。サイトの規約は無断の転載と改変を禁じ、HTML 以外のファイルへの直接のリンクを控えるよう求めるが、実装を制限する記述はない
+- 補足: 本体は LZH のアーカイブ（sxf\_v31\_r2.lzh）で、概要編・STEP AP202 サブセット編・フィーチャ仕様編・共通既定義要素編・附属書（SFC 編・共通属性セット編・属性付加機構編）・実装規約の PDF を収める。属性ファイル（SAF）は属性付加機構編が定める。サイトの規約は無断の転載と改変を禁じ、HTML 以外のファイルへの直接のリンクを控えるよう求めるが、実装を制限する記述はない
 
 ### spec-sxf_display_r7_12
 
@@ -483,7 +483,7 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [PLATEAU のサイトポリシー](https://www.mlit.go.jp/plateau/site-policy/)（確認日: 2026-11-01）
 - 照合するソフト: PLATEAU VIEW・QGIS
-- サンプルの出どころ（Git に入れない）: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない
+- サンプルの出どころ（Git に入れない）: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式のサンプルは見つかっていない
 - 既知の crate: nusamai-citygml・ecitygml-io
 - issue: [zumen-jp/zumen#379](https://github.com/zumen-jp/zumen/issues/379)
 - 形式の文書: [docs/formats/citygml.md](../../docs/formats/citygml.md)
@@ -494,7 +494,7 @@
 - 権利の根拠: IETF の RFC で、誰でも読める。実装を制限する記述はない
 - 仕様: [rfc\_4180](#spec-rfc_4180)
 - 実装の根拠: spec
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- サンプルの出どころ（Git に入れない）: テストの中で作る
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
 - 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
 
@@ -506,7 +506,7 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土交通省 電子納品に関する要領・基準の「リンク・著作権」](https://www.cals-ed.go.jp/copyright/)（確認日: 2026-11-01）
 - 照合するソフト: 国土交通省の電子納品チェックシステム（手元でだけ使う）
-- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る
+- サンプルの出どころ（Git に入れない）: 再配布を認める公開のサンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、テストの中で作る
 - issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
 - issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
 - issue: [zumen-jp/zumen#388](https://github.com/zumen-jp/zumen/issues/388)
@@ -521,7 +521,7 @@
 - 参照した実装: [ACadSharp](https://github.com/DomCR/ACadSharp)（MIT）
 - 参照した実装: [ezdwg](https://github.com/monozukuri-ai/ezdwg)（MIT）
 - 照合するソフト: ODA File Converter・DWG TrueView
-- サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる・ezdwg の試験の図面（MIT）
+- サンプルの出どころ（Git に入れない）: ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる・ezdwg のテストの図面（MIT）
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 旧版の記録: 旧版の決定 0003（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 形式の文書: [docs/formats/dwg.md](../../docs/formats/dwg.md)
@@ -534,14 +534,14 @@
 - 実装の根拠: spec・inferred・reference
 - 参照した実装: [ezdxf](https://ezdxf.mozman.at/)（MIT）
 - 照合するソフト: ezdxf・ODA File Converter・DWG TrueView
-- サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）・ezdwg の試験の図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
+- サンプルの出どころ（Git に入れない）: ACadSharp のテストの図面（MIT）・ezdwg のテストの図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 形式の文書: [docs/formats/dxf.md](../../docs/formats/dxf.md)
 
 ### format-e57
 
 - 名前: E57（ASTM E2807）
-- 権利の根拠: 仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装と試料から読む
+- 権利の根拠: 仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装とサンプルから読む
 - 仕様: [e57\_astm\_e2807](#spec-e57_astm_e2807)
 - 実装の根拠: reference
 - 権利の根拠にした文書: [libE57Format-test-data の README（ライセンス）](https://github.com/asmaloney/libE57Format-test-data)（確認日: 2026-11-01）
@@ -561,7 +561,7 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土地理院の技術資料の利用規約](https://www.gsi.go.jp/REPORT/TECHNICAL/riyoukiyaku_gijutsushiryou.html)（確認日: 2026-11-01）
 - 照合するソフト: 基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）
-- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で作る
+- サンプルの出どころ（Git に入れない）: 再配布を認める公開のサンプルは見つかっていない。テストの中で作る
 - 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
 - 形式の文書: [docs/formats/extdm.md](../../docs/formats/extdm.md)
@@ -574,7 +574,7 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土地理院「測量成果の複製・使用承認の Q&amp;A」](https://www.gsi.go.jp/LAW/2930-qa.html)（確認日: 2026-11-01）
 - 照合するソフト: 基盤地図情報ビューアー・QGIS
-- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る
+- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したデータ。Git・パッケージ・テストに入れない。テストの中で小さな GML を作る
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - 記録: [決定 0251](../decisions/0251-fgd-archives.md)
@@ -595,7 +595,7 @@
 ### format-ifc
 
 - 名前: IFC
-- 権利の根拠: 文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標
+- 権利の根拠: 文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証のツールを MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標
 - 仕様: [ifc\_4\_3\_2](#spec-ifc_4_3_2)、[ifc\_2x3\_tc1](#spec-ifc_2x3_tc1)、[ifc\_4\_0\_2\_1](#spec-ifc_4_0_2_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）](https://github.com/buildingSMART/IFC4.x-development/blob/master/content/cover.md)（確認日: 2026-10-24）
@@ -603,7 +603,7 @@
 - 文書の補足: Internet Archive の写しで確かめた
 - 権利の根拠にした文書: [buildingSMART International の Intellectual Property Policy（2021-06）](https://www.buildingsmart.org/wp-content/uploads/2021/06/bSI-Intellectual-Property-Policy.pdf)（確認日: 2026-10-31）
 - 文書の補足: 実装の許諾の記述はない。Internet Archive の 2022-03-02 の写しで確かめた
-- 権利の根拠にした文書: [buildingSMART International の検証の道具（validate）](https://github.com/buildingSMART/validate)（確認日: 2026-10-24）
+- 権利の根拠にした文書: [buildingSMART International の検証のツール（validate）](https://github.com/buildingSMART/validate)（確認日: 2026-10-24）
 - 照合するソフト: IfcOpenShell（手元でだけ使う）
 - サンプルの出どころ（Git に入れない）: 日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
@@ -621,17 +621,17 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）](https://www.gsi.go.jp/common/000277542.pdf)（確認日: 2026-10-31）
 - 照合するソフト: 国土地理院の内挿計算プログラム（geoidcalc）
-- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・試験に入れない
+- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 
 ### format-jpeg
 
 - 名前: 工事写真（JPEG と Exif・XMP）
-- 権利の根拠: Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP の区画だけを読む
+- 権利の根拠: Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読む
 - 仕様: [jpeg\_t81](#spec-jpeg_t81)、[exif\_3\_1](#spec-exif_3_1)、[xmp\_2012](#spec-xmp_2012)
 - 実装の根拠: spec
-- サンプルの出どころ（Git に入れない）: 個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる
+- サンプルの出どころ（Git に入れない）: 個人情報（位置・機種の番号など）を含まないよう、テストの中で作るか、zumen-jp が作った写真を CC0 で入れる
 - issue: [zumen-jp/zumen#387](https://github.com/zumen-jp/zumen/issues/387)
 - 形式の文書: [docs/formats/jpeg.md](../../docs/formats/jpeg.md)
 
@@ -691,7 +691,7 @@
 - 仕様: [jlandxml\_1\_8](#spec-jlandxml_1_8)
 - 実装の根拠: spec
 - 照合するソフト: 国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）
-- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る
+- サンプルの出どころ（Git に入れない）: 再配布を認める公開のサンプルは見つかっていない。テストの中で小さな J-LandXML を作る
 - issue: [zumen-jp/zumen#366](https://github.com/zumen-jp/zumen/issues/366)
 - issue: [zumen-jp/zumen#368](https://github.com/zumen-jp/zumen/issues/368)
 - 形式の文書: [docs/formats/landxml.md](../../docs/formats/landxml.md)
@@ -731,7 +731,7 @@
 - 実装の根拠: inferred
 - 権利の根拠にした文書: [Paul Bourke「PLY - Polygon File Format」](https://paulbourke.net/dataformats/ply/)（確認日: 2026-11-01）
 - 照合するソフト: CloudCompare・MeshLab
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- サンプルの出どころ（Git に入れない）: テストの中で作る
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/ply.md](../../docs/formats/ply.md)
 
@@ -813,7 +813,7 @@
 - 権利の根拠: Ecma International が ECMA-376 を無償で公開している。実装を制限する記述はない
 - 仕様: [ecma\_376\_5](#spec-ecma_376_5)
 - 実装の根拠: spec
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- サンプルの出どころ（Git に入れない）: テストの中で作る
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
 - 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
 
@@ -824,6 +824,6 @@
 - 仕様: 登録なし
 - 実装の根拠: inferred
 - 照合するソフト: CloudCompare
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
+- サンプルの出どころ（Git に入れない）: テストの中で作る
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/xyz.md](../../docs/formats/xyz.md)

@@ -33,11 +33,11 @@ typedef _SessionF = void Function(Pointer<Void>);
 typedef _FreeC = Void Function(Pointer<_Buf>);
 typedef _Free = void Function(Pointer<_Buf>);
 
-/// 境界の関数の状態が ok でなかった（決定 0012）
+/// API の関数の状態が ok でなかった（決定 0012）
 final class ZumenException implements Exception {
   ZumenException(this.operation, this.code, this.data);
 
-  /// 呼んだ境界の関数の名前
+  /// 呼んだ API の関数の名前
   final String operation;
 
   /// 状態コード（[Status]）
@@ -142,7 +142,7 @@ final class Zumen {
   final String? _path;
   final _Functions _functions;
 
-  /// ライブラリを道筋から読み込み、ABI の大版を確かめる
+  /// ライブラリを道筋から読み込み、ABI のメジャーバージョンを確かめる
   factory Zumen.open(String path) => Zumen._checked(path);
 
   /// プロセスに静的にリンクしたライブラリを使う（iOS のアプリなど）
@@ -155,12 +155,12 @@ final class Zumen {
     final zumen = Zumen._(resolved, _Functions.load(resolved));
     final version = zumen.abiVersion;
     if (version != Constants.abiVersion) {
-      throw StateError('ABI の大版が $version（この包みは ${Constants.abiVersion}）');
+      throw StateError('ABI のメジャーバージョンが $version（このラッパーは ${Constants.abiVersion}）');
     }
     return zumen;
   }
 
-  /// ABI の大版（zm_abi_version）
+  /// ABI のメジャーバージョン（zm_abi_version）
   int get abiVersion => _functions.abiVersion();
 
   /// 設定（session_options）を値で渡して、セッションを作る。null なら既定の設定
@@ -182,7 +182,7 @@ final class Zumen {
   }
 }
 
-/// コアのセッション（zm_session）。境界の関数に 1 つずつ当たるメソッドを持つ（決定 0012・0227）。
+/// コアのセッション（zm_session）。API の関数に 1 つずつ当たるメソッドを持つ（決定 0012・0227）。
 ///
 /// dart:ffi の呼び出しは、終わるまで isolate を止める。取り消すときは [callBytesAsync] で別の isolate で呼び、
 /// 待っている間に [cancel] を呼ぶ。動いている呼び出しがある間は、[close] は呼び出しが終わるまで待ってから閉じる。
@@ -321,7 +321,7 @@ final class Session {
     _closePending = false;
   }
 
-  /// 閉じたセッションは NULL のまま境界に渡し、境界が invalid を返す
+  /// 閉じたセッションは NULL のまま API に渡し、API が invalid を返す
   Pointer<Void> get _live => _closePending ? nullptr : _handle;
 
   void _ensureAvailable(String operation) {

@@ -12,11 +12,11 @@ zumen は作り直しを始めたところです。設計は [#1](https://github
 
 - 機密の図面を issue・PR に添付したり、Git に入れたりしないでください。
 - 公開されている図面は、再配布を認めるライセンスのものだけを `samples/` に入れられます。出所とライセンスを `samples/ledger.toml` に書いてください（[決定 0171](docs/decisions/0171-public-samples-in-git.md)）。`samples/` のファイルは、リポジトリのライセンスではなく、台帳に書いたそれぞれのライセンスに従います。
-- 不具合を報告するときは、再現する最小の図面を作るか、形式・版・作成ソフトと、表示された診断を書いてください。
+- 不具合を報告するときは、再現する最小の図面を作るか、形式・バージョン・作成ソフトと、表示された診断を書いてください。
 
-## 寄稿のライセンス
+## 貢献のライセンス
 
-明示しない限り、寄稿は Apache License 2.0 の定める「寄稿」として、追加の条件なしに MIT と Apache-2.0 の 2 つのライセンスで提供されたものとします（[決定 0002](docs/decisions/0002-dual-license.md)）。
+明示しない限り、貢献は Apache License 2.0 の定める「貢献」として、追加の条件なしに MIT と Apache-2.0 の 2 つのライセンスで提供されたものとします（[決定 0002](docs/decisions/0002-dual-license.md)）。
 
 次のものは入れないでください。
 
@@ -26,7 +26,7 @@ zumen は作り直しを始めたところです。設計は [#1](https://github
 
 ## 開発の準備
 
-Rust は [rustup](https://rustup.rs/) で入れます。版は `rust-toolchain.toml` で決めてあり、リポジトリの中で `rustup toolchain install` を実行すると入ります。
+Rust は [rustup](https://rustup.rs/) で入れます。バージョンは `rust-toolchain.toml` で決めてあり、リポジトリの中で `rustup toolchain install` を実行すると入ります。
 
 PR を出す前に、CI と同じ検査を手元で通してください。
 
@@ -37,7 +37,7 @@ cargo test --workspace
 cargo xtask codegen --check
 ```
 
-境界の crate を変えたときは、wasm32 でも確かめてください。適合試験には Node.js 22 以降が要ります（[bindings/conformance/README.md](bindings/conformance/README.md)）。
+API の crate を変えたときは、wasm32 でも確かめてください。適合テストには Node.js 22 以降が要ります（[bindings/conformance/README.md](bindings/conformance/README.md)）。
 
 ```bash
 cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings
@@ -52,7 +52,7 @@ npm ci
 npm run lint:text
 ```
 
-診断の code を足すときは [catalog/README.md](catalog/README.md)、境界の関数・op・欄を変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
+診断の code を足すときは [catalog/README.md](catalog/README.md)、API の関数・op・フィールドを変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
 
 形式を足すときは、実装する前に [権利の台帳](formats/README.md)を更新してください。`cargo xtask codegen` は台帳と依存を検査し、形式の一覧も生成します。台帳と生成した文書を同じ PR に入れてください。
 

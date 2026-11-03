@@ -12,7 +12,7 @@ use zumen_sdk::Error;
 
 use crate::GeoPoint;
 
-/// 格子のモデル。見出しの `model name` と `model year`。翻訳しない
+/// 格子のモデル。ヘッダーの `model name` と `model year`。翻訳しない
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Model {
     /// モデルの名前（`model name`）
@@ -45,7 +45,7 @@ pub struct Grid {
     values: Vec<f64>,
 }
 
-/// 見出しの値の、読み終えたもの
+/// ヘッダーの値の、読み終えたもの
 #[derive(Default)]
 struct Header<'a> {
     entries: Vec<(&'a str, &'a str)>,
@@ -113,7 +113,7 @@ impl Grid {
     pub fn read(src: &[u8], cx: &mut Cx) -> Result<Grid, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
-        // 見出しの前の注記は、どの符号化でもよい。見出しと値は ASCII なので、行ごとに UTF-8 として読む
+        // ヘッダーの前の注記は、どの符号化でもよい。ヘッダーと値は ASCII なので、行ごとに UTF-8 として読む
         let mut lines = src.split(|b| *b == b'\n').map(|line| {
             let line = line.strip_suffix(b"\r").unwrap_or(line);
             core::str::from_utf8(line).ok()
@@ -217,7 +217,7 @@ impl Grid {
             None => f64::NAN,
         };
         let total = rows.checked_mul(cols).ok_or_else(|| invalid(cx, "nrows"))?;
-        // 見出しの数で場所を取らない。値は入力にあるだけ読む
+        // ヘッダーの数で場所を取らない。値は入力にあるだけ読む
         let mut values = Vec::new();
         for line in lines {
             let Some(line) = line else {

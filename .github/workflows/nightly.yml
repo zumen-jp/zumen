@@ -14,7 +14,7 @@ env:
 
 jobs:
   browser:
-    name: ブラウザーで適合試験（${{ matrix.browser }}）
+    name: ブラウザーで適合テスト（${{ matrix.browser }}）
     # PR ごとの Chromium は ci.yml の wasm の job で流す。毎晩は Firefox と WebKit（docs/support.md、決定 0199）
     strategy:
       fail-fast: false
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -38,22 +38,22 @@ jobs:
           done
       - name: ブラウザーに配るのと同じ形で作る（決定 0007）
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
-      - name: ブラウザーを動かす道具（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
+      - name: ブラウザーを動かすツール（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
         working-directory: bindings/js/test/browser
         run: npm ci --ignore-scripts
-      - name: Playwright の版に合うブラウザーと、それが使う OS のライブラリを入れる
+      - name: Playwright のバージョンに合うブラウザーと、それが使う OS のライブラリを入れる
         working-directory: bindings/js/test/browser
         run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
-      - name: ブラウザーの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
+      - name: ブラウザーの中でラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
 
   cli:
-    name: CLI・HTTP・WASI で適合試験
-    # 階層 3 の言語が使う形を、言語に依らない試験の道具（bindings/conformance/cli.mjs）で流す（決定 0006・0013・0200、#403）
+    name: CLI・HTTP・WASI で適合テスト
+    # Tier 3 の言語が使う形態を、言語に依らないテストのツール（bindings/conformance/cli.mjs）で流す（決定 0006・0013・0200、#403）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust と、wasm32-wasip1 の target を入れる
+      - name: rust-toolchain.toml のバージョンの Rust と、wasm32-wasip1 の target を入れる
         run: |
           rustup toolchain install
           rustup target add wasm32-wasip1
@@ -76,16 +76,16 @@ jobs:
   ifcopenshell:
     name: IFC を IfcOpenShell で開いて照らす
     # 書いたファイルと、公開サンプルの建物モデルへの写し方を、zumen でない IFC を読むソフトで確かめる
-    # （決定 0244、#482・#412）。IfcOpenShell は試験の道具で、依存にしない
+    # （決定 0244、#482・#412）。IfcOpenShell はテストのツールで、依存にしない
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: IfcOpenShell と、EXPRESS の規則の検査が使う pytest を、版を決めて入れる
+      - name: IfcOpenShell と、EXPRESS の規則の検査が使う pytest を、バージョンを決めて入れる
         run: python -m pip install ifcopenshell==0.9.0.post1 pytest==9.2.0
       - name: 変える前と後の IFC4・IFC2X3 を書く
         run: ZUMEN_IFC_EDITED="$RUNNER_TEMP/edited" cargo test --locked -p zumen-ifc --all-features --test edit writes_the_edited_files_for_other_readers
@@ -99,20 +99,20 @@ jobs:
   external:
     name: 書き戻し・変換した図面を外部の実装と照らし、確認の束を作る
     # 図面の形式を zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開く束を成果物に置く（決定 0254、#503）。
-    # ezdxf は試験の道具で、依存にしない（xtask/verify/README.md）
+    # ezdxf はテストのツールで、依存にしない（xtask/verify/README.md）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: ezdxf を、版を決めて入れる
+      - name: ezdxf を、バージョンを決めて入れる
         run: python -m pip install ezdxf==1.4.5
       - name: CLI を作る
         run: cargo build --release --locked -p zumen-cli
-      - name: 公開サンプルと適合試験の図面に書き戻しと変換を当て、確認の束を作る
+      - name: 公開サンプルと適合テストの図面に書き戻しと変換を当て、確認の束を作る
         id: make
         run: python -I xtask/verify/make.py target/release/zumen "$RUNNER_TEMP/verify"
       - name: 束の DXF を ezdxf で読み、zumen の読みと照らす
@@ -129,12 +129,12 @@ jobs:
           if-no-files-found: error
 
   tier3:
-    name: 階層 3 の言語のサンプル
+    name: Tier 3 の言語のサンプル
     # docs/tier3.md の 4 つの形のサンプルを、ランナーに入っている Ruby・PHP・PowerShell で流す（決定 0006・0013、#404）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust と、wasm32-wasip1 の target を入れる
+      - name: rust-toolchain.toml のバージョンの Rust と、wasm32-wasip1 の target を入れる
         run: |
           rustup toolchain install
           rustup target add wasm32-wasip1
@@ -156,8 +156,8 @@ jobs:
           pwsh examples/tier3/powershell/http.ps1 -Zumen target/release/zumen -Drawing $drawing | diff $expected -
 
   go:
-    name: Go の包みで適合試験（Go ${{ matrix.go }}）
-    # 階層 2 の Go は毎晩、サポート中の 2 つの大版で流す（docs/support.md、決定 0226）
+    name: Go のラッパーで適合テスト（Go ${{ matrix.go }}）
+    # Tier 2 の Go は毎晩、サポート中の 2 つのメジャーバージョンで流す（docs/support.md、決定 0226）
     strategy:
       fail-fast: false
       matrix:
@@ -165,7 +165,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust と、wasm32 の target を入れる
+      - name: rust-toolchain.toml のバージョンの Rust と、wasm32 の target を入れる
         run: |
           rustup toolchain install
           rustup target add wasm32-unknown-unknown
@@ -174,19 +174,19 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           cache-dependency-path: bindings/go/go.sum
-      - name: すべての形式を入れた wasm のモジュールを作り、包みに写す（決定 0221）
+      - name: すべての形式を入れた wasm のモジュールを作り、ラッパーに写す（決定 0221）
         run: |
           cargo build --release --locked --target wasm32-unknown-unknown -p zumen-abi
           cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm bindings/go/
-      - name: Go の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0226）
+      - name: Go のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0226）
         working-directory: bindings/go
         run: |
           test -z "$(gofmt -l .)"
           go vet ./...
           go test -count=1 -v ./...
   dart:
-    name: Dart の包みで適合試験（${{ matrix.name }}）
-    # 階層 2 の Dart は毎晩流す。下限の Dart 3.0 と、今の安定版で流す（docs/support.md、決定 0227）
+    name: Dart のラッパーで適合テスト（${{ matrix.name }}）
+    # Tier 2 の Dart は毎晩流す。下限の Dart 3.0 と、今の安定版で流す（docs/support.md、決定 0227）
     strategy:
       fail-fast: false
       matrix:
@@ -210,13 +210,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
       - name: Dart を入れる
         uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
         with:
           sdk: ${{ matrix.sdk }}
-      - name: Dart の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0227）
+      - name: Dart のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0227）
         shell: bash
         run: |
           cargo build --package zumen-abi --locked
@@ -228,8 +228,8 @@ jobs:
           dart run tool/conformance.dart "$GITHUB_WORKSPACE/target/debug/${{ matrix.library }}" "$GITHUB_WORKSPACE"
 
   java:
-    name: Java の包みで適合試験（${{ matrix.name }}）
-    # 階層 2 の Java は毎晩流す。下限の Java 8 で作り、流す（docs/support.md、決定 0224）
+    name: Java のラッパーで適合テスト（${{ matrix.name }}）
+    # Tier 2 の Java は毎晩流す。下限の Java 8 で作り、流す（docs/support.md、決定 0224）
     strategy:
       fail-fast: false
       matrix:
@@ -256,9 +256,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
-      - name: 試験する target を入れる
+      - name: テストする target を入れる
         if: matrix.target
         run: rustup target add ${{ matrix.target }}
       - name: Java 8 を入れる
@@ -270,7 +270,7 @@ jobs:
       - name: JNA を Maven Central から取り、SHA-256 を確かめる
         shell: bash
         run: sh bindings/java/fetch-jna.sh target/jna
-      - name: Java の包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
+      - name: Java のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
         shell: bash
         run: |
           cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
@@ -279,12 +279,12 @@ jobs:
           java -cp "target/java${{ matrix.separator }}target/jna/jna.jar" dev.zumen.Conformance "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
 
   android:
-    name: Java の包みで適合試験（Android のエミュレーター、API 24）
-    # Kotlin（Android）は、Java の包みを使う。下限の Android 7.0（API 24）で流す（docs/support.md、決定 0224）
+    name: Java のラッパーで適合テスト（Android のエミュレーター、API 24）
+    # Kotlin（Android）は、Java のラッパーを使う。下限の Android 7.0（API 24）で流す（docs/support.md、決定 0224）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust と、エミュレーターの target を入れる
+      - name: rust-toolchain.toml のバージョンの Rust と、エミュレーターの target を入れる
         run: |
           rustup toolchain install
           rustup target add x86_64-linux-android
@@ -302,7 +302,7 @@ jobs:
           cargo build --package zumen-abi --locked --release --target x86_64-linux-android
       - name: JNA を Maven Central から取り、SHA-256 を確かめる
         run: sh bindings/java/fetch-jna.sh target/jna
-      - name: 包みと試験を Java 8 のクラスにし、d8 で JNA の aar のクラスと一緒に dex にする
+      - name: ラッパーとテストを Java 8 のクラスにし、d8 で JNA の aar のクラスと一緒に dex にする
         run: |
           mkdir -p target/android target/java
           javac --release 8 -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
@@ -312,7 +312,7 @@ jobs:
           cp target/x86_64-linux-android/release/libzumen_abi1.so target/android/
           d8="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)d8"
           "$d8" --release --min-api 24 --output target/android/classes.zip target/zumen.jar target/jna/jna-android.jar
-      - name: エミュレーターの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
+      - name: エミュレーターの中でラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 24
@@ -322,18 +322,18 @@ jobs:
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
           script: sh bindings/java/android/run.sh target/android
   swift:
-    name: Swift の包みで適合試験（macOS と iOS のシミュレーター）
+    name: Swift のラッパーで適合テスト（macOS と iOS のシミュレーター）
     # 決定 0225。下限は iOS 15・macOS 12（docs/support.md）
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust と、Apple の対象を入れる
+      - name: rust-toolchain.toml のバージョンの Rust と、Apple の対象を入れる
         run: |
           rustup toolchain install
           rustup target add aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
       - name: 配るのと同じ対象で、XCFramework を作る
         run: sh bindings/swift/build-xcframework.sh debug
-      - name: macOS で、SwiftPM で作った包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる
+      - name: macOS で、SwiftPM で作ったラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる
         working-directory: bindings/swift
         run: swift run ZumenConformance "$GITHUB_WORKSPACE"
       - name: iOS のシミュレーターで、同じことを確かめる

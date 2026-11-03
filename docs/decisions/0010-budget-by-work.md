@@ -49,7 +49,7 @@
 
 - その所で止め、`budget.<種類>.exceeded` の診断（[0009](0009-diagnostics-and-catalog.md)）を返す。値には、種類・上限・止まった場所を入れる。
 - 読み取り（L1・L2・L3 を作る処理）は、既定では失敗として返す。呼び出し側が求めたときだけ、止まった所までの結果を返す。
-  - 結果には、欠けていることの印と、上の診断を付ける。
+  - 結果には、欠けていることのフラグと、上の診断を付ける。
   - 止まる所が決まっているので、この結果も環境によらない。
 - 書き出し（`apply`・`lower`・コーデックの書き出し）は、途中までの結果を返さず、何も書かない（[0008](0008-model-layers-and-codecs.md)）。
 
@@ -67,10 +67,10 @@
 
 ### パニックしない
 
-- コアの crate では、試験を除き、clippy で次を禁じる。どうしても要る所は、理由をコメントに書いて許す。
+- コアの crate では、テストを除き、clippy で次を禁じる。どうしても要る所は、理由をコメントに書いて許す。
   - `unwrap_used`・`expect_used`・`panic`・`todo`・`unimplemented`・`unreachable`
   - `indexing_slicing`・`string_slice`
-- ネイティブの境界では、`catch_unwind` で止め、`internal.panic.caught` の診断を返す。パニックは不具合なので、直す。
+- ネイティブの API では、`catch_unwind` で止め、`internal.panic.caught` の診断を返す。パニックは不具合なので、直す。
 - wasm では `catch_unwind` が効かない。パニックしないことを lint と fuzz で守り、trap したらホストがインスタンスを作り直す。
 - スタックのあふれは、どの環境でも捕まえられない。入力で深さが決まる処理は、`depth` で制限するか、明示的なスタックを使うループにする。
 
@@ -79,10 +79,10 @@
 - L0 の部品、コーデック、lift のそれぞれに、fuzz の対象を作る（cargo-fuzz）。
 - PR ごとに短く、定期的に長く回す。
 - 種には、テストキットで作る合成のファイルだけを使う。実図面は Git に入れない。
-- 見つけた入力は小さくして、試験に足す。
+- 見つけた入力は小さくして、テストに足す。
 - 確かめること: パニックしない、予算の中で止まる、2 回読んで同じ結果になる。
 
-### 入れ物と XML
+### コンテナーと XML
 
 - **ZIP**
   - 展開したバイト数・項目の数・入れ子の深さを、予算で数える。
@@ -98,7 +98,7 @@
 - 既定値を決めるには、実図面の目録（[0004](0004-repositories.md) の案の `corpus`）での計測が要る。
 - 旧版の `zumen_core::limits` は移さない。
 - 予算の設定を受け渡す形は、[#13](https://github.com/zumen-jp/zumen/issues/13) で決める。
-- [#8](https://github.com/zumen-jp/zumen/issues/8) の完了の条件のうち、試作と、ネイティブと wasm32 で同じ所で止まることの試験は、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）と一緒に入れる。
+- [#8](https://github.com/zumen-jp/zumen/issues/8) の完了の条件のうち、試作と、ネイティブと wasm32 で同じ所で止まることのテストは、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）と一緒に入れる。
 - AGENTS.md の「受け取ったファイルを信用しない」から、この記録を参照する。
 
 ## 参照

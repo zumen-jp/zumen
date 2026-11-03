@@ -12,7 +12,7 @@ use crate::{
 };
 
 impl Review {
-    /// 文書を読む。形が合わなければ `review.file.invalid`、ほかの形式か大きい版なら
+    /// 文書を読む。形が合わなければ `review.file.invalid`、ほかの形式か大きいバージョンなら
     /// `review.format.unsupported`・`review.version.unsupported` を出して失敗する。ID が重なるか、参照の先が
     /// なければ、`review.id.exists`・`review.reference.missing` を出して失敗する
     pub fn read(src: &[u8], cx: &mut Cx) -> Result<Self, Error> {

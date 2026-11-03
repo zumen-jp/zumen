@@ -1,4 +1,4 @@
-//! 試験の中で作った JPEG（個人情報のない合成のもの）の Exif と XMP を読む（#387）。画素のデータは持たない。
+//! テストの中で作った JPEG（個人情報のない合成のもの）の Exif と XMP を読む（#387）。画素のデータは持たない。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_photo::{Photo, read};
@@ -124,7 +124,7 @@ fn segment(marker: u8, body: &[u8]) -> Vec<u8> {
 }
 
 const XMP: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmp:CreatorTool="試験">
+<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmp:CreatorTool="テスト">
 <dc:title><rdf:Alt><rdf:li xml:lang="x-default">工事写真</rdf:li></rdf:Alt></dc:title>
 <xmp:Rating>3</xmp:Rating>
 </rdf:Description></rdf:RDF></x:xmpmeta>"#;
@@ -205,7 +205,7 @@ fn exif_and_xmp_are_read_in_both_byte_orders() {
         assert_eq!(
             xmp,
             [
-                ("CreatorTool", "試験"),
+                ("CreatorTool", "テスト"),
                 ("title", "工事写真"),
                 ("Rating", "3")
             ]

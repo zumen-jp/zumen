@@ -1,8 +1,8 @@
-// シーンの blob の読み手（決定 0137・0194）。配置は schema/scene.toml にあり、区画の定義は constants.js に生成する。
+// シーンの blob のリーダー（決定 0137・0194）。配置は schema/scene.toml にあり、セクションの定義は constants.js に生成する。
 //
-// 見出しは `ZMSC`、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）で、続けて区画ごとに始まりと長さ（u32、
-// バイト）を置く。数はリトルエンディアン。知らない区画（新しい小版で足したもの）は読み飛ばし、ない区画（古い小版）は
-// 空の列にする。大版が違えば読まない。
+// ヘッダーは `ZMSC`、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）で、続けてセクションごとに始まりと長さ（u32、
+// バイト）を置く。数はリトルエンディアン。知らないセクション（新しいマイナーバージョンで足したもの）は読み飛ばし、ないセクション（古いマイナーバージョン）は
+// 空の列にする。メジャーバージョンが違えば読まない。
 
 import { SCENE_MAGIC, SCENE_MAJOR, SCENE_SECTIONS } from "./constants.js";
 
@@ -27,33 +27,33 @@ const decoder = new TextDecoder();
 /** 読んだシーン */
 export class Scene {
   constructor(major, minor, chunks, sections, columns) {
-    /** 大版 */
+    /** メジャーバージョン */
     this.major = major;
-    /** 小版 */
+    /** マイナーバージョン */
     this.minor = minor;
     /** 塊の数 */
     this.chunks = chunks;
-    /** blob にある区画の数。この包みが知らない区画も数える */
+    /** blob にあるセクションの数。このラッパーが知らないセクションも数える */
     this.sections = sections;
-    /** 区画ごとの列（型付き配列） */
+    /** セクションごとの列（型付き配列） */
     this.columns = columns;
     Object.freeze(this);
   }
 
-  /** 区画の行の数 */
+  /** セクションの行の数 */
   rows(name) {
     const section = SCENE_SECTIONS.find((entry) => entry.name === name);
     if (!section) {
-      throw new RangeError(`知らない区画: ${name}`);
+      throw new RangeError(`知らないセクション: ${name}`);
     }
     return this.columns[name].length / section.width;
   }
 
-  /** strings の区画から、始まりと長さ（バイト）で文字列を引く */
+  /** strings のセクションから、始まりと長さ（バイト）で文字列を引く */
   text(start, length) {
     const strings = this.columns.strings;
     if (start + length > strings.length) {
-      throw new RangeError("strings の区画の外を指す");
+      throw new RangeError("strings のセクションの外を指す");
     }
     return decoder.decode(strings.subarray(start, start + length));
   }
@@ -98,12 +98,12 @@ export function readScene(input) {
   const major = view.getUint16(4, true);
   const minor = view.getUint16(6, true);
   if (major !== SCENE_MAJOR) {
-    throw new Error(`シーンの大版が ${major}（この包みは ${SCENE_MAJOR}）`);
+    throw new Error(`シーンのメジャーバージョンが ${major}（このラッパーは ${SCENE_MAJOR}）`);
   }
   const chunks = view.getUint32(8, true);
   const sections = view.getUint32(12, true);
   if (16 + 8 * sections > bytes.length) {
-    throw new Error("区画の表が blob に収まらない");
+    throw new Error("セクションの表が blob に収まらない");
   }
   const columns = {};
   SCENE_SECTIONS.forEach((section, index) => {
@@ -115,7 +115,7 @@ export function readScene(input) {
     const length = view.getUint32(20 + 8 * index, true);
     const row = ARRAYS[section.type].BYTES_PER_ELEMENT * section.width;
     if (start + length > bytes.length || length % row !== 0) {
-      throw new Error(`区画 ${section.name} の始まりか長さが合わない`);
+      throw new Error(`セクション ${section.name} の始まりか長さが合わない`);
     }
     columns[section.name] = column(bytes, view, section.type, start, length);
   });

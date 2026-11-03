@@ -24,7 +24,7 @@ use crate::{Mode, Quote, SfcRecord, SxfFile, Value, p21};
 
 mod apply;
 
-/// 形式固有の情報の値の型の契約の版。どの `sxf.*` の名前空間も同じ版にする（決定 0115・0156・0157）
+/// 形式固有の情報の値の型の契約のバージョン。どの `sxf.*` の名前空間も同じバージョンにする（決定 0115・0156・0157）
 const SCHEMA: u32 = 2;
 
 const SHEET: SheetId = SheetId(0);
@@ -209,7 +209,7 @@ impl Feature<'_> {
         self.name.as_bytes().eq_ignore_ascii_case(name)
     }
 
-    /// 出所。インスタンスの番号があれば、変わらない鍵として足す（決定 0156）
+    /// 出所。インスタンスの番号があれば、変わらないキーとして足す（決定 0156）
     fn source(&self) -> Ref {
         let at = Ref::at_record(self.record as u64);
         match self.instance {
@@ -243,7 +243,7 @@ struct Composite {
     feature: usize,
 }
 
-/// 展開している画像の作図グループ。範囲を示す折れ線を、画像の下敷きにする
+/// 展開している画像の作図グループ。範囲を示す折れ線を、画像のアンダーレイにする
 #[derive(Clone)]
 struct Raster {
     /// 範囲を示す折れ線のフィーチャの添字
@@ -1208,7 +1208,7 @@ impl<'f> Lifter<'f> {
     }
 
     /// 点マーカー。引数は、レイヤと色のコード、点、マーカーのコード、回転、尺度。名前空間 `sxf.marker` と
-    /// マーカーのコードの既定義の印の点にする（決定 0160）
+    /// マーカーのコードの既定義のマーカーの点にする（決定 0160）
     fn marker<C: Place>(
         &mut self,
         feature: Feature<'f>,
@@ -1294,7 +1294,7 @@ impl<'f> Lifter<'f> {
     }
 
     /// 文字。引数は、レイヤ・色・フォントのコード、文字列、基点、文字範囲の高さと幅、字の間隔、回転、斜体、
-    /// 9 点の配置、書く向き。範囲の幅と字の間隔は図面モデルの欄にないので、`sxf.text` の拡張に残す（決定 0122）
+    /// 9 点の配置、書く向き。範囲の幅と字の間隔は図面モデルのフィールドにないので、`sxf.text` の拡張に残す（決定 0122）
     fn text<C: Place>(
         &mut self,
         feature: Feature<'f>,
@@ -1343,7 +1343,7 @@ impl<'f> Lifter<'f> {
         Some(())
     }
 
-    /// 寸法（決定 0127）。定義点・寸法値の文字は図面モデルの欄に、寸法線と補助線の端・矢印・文字範囲の幅と字の間隔・
+    /// 寸法（決定 0127）。定義点・寸法値の文字は図面モデルのフィールドに、寸法線と補助線の端・矢印・文字範囲の幅と字の間隔・
     /// 書く向きは `sxf.dimension` の拡張に、要素と同じ座標で残す。SXF は測定値を持たないので、`measurement` は `None`
     fn dimension<C: Place>(
         &mut self,
@@ -2365,7 +2365,7 @@ impl Args<'_> {
     }
 }
 
-/// 3 次のベジェ曲線をつないだもの（制御点が 3n + 1 個）を、内側の節点を 3 重にした 3 次の B スプラインにする。
+/// 3 次のベジェ曲線をつないだもの（制御点が 3n + 1 個）を、内側のノットを 3 重にした 3 次の B スプラインにする。
 /// 形は変わらない
 fn bezier<C: Place>(xs: &[f64], ys: &[f64], closed: bool, at: &C) -> Option<Spline<C::P>> {
     let count = xs.len();

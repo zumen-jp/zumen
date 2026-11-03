@@ -1,8 +1,8 @@
 //! IFC から建物モデルを作る（決定 0207・0215）。
 //!
-//! 意味を持つ実体ごとに、版ごとの属性の位置を手で書いた表で読む。位置は、各版の仕様の実体の定義（IFC2X3 TC1・
+//! 意味を持つ実体ごとに、バージョンごとの属性の位置を手で書いた表で読む。位置は、各バージョンの仕様の実体の定義（IFC2X3 TC1・
 //! IFC4 ADD2 TC1・IFC 4.3 ADD2 の 5 章から 8 章の、実体ごとの「属性」の節）による。形状表現・表示の様式・階・区域・
-//! 分類は、まだ作らない（決定 0207 の「試料を得てから決めること」）。
+//! 分類は、まだ作らない（決定 0207 の「サンプルを得てから決めること」）。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,7 +18,7 @@ use zumen_sdk::{Cx, Error, Lift};
 
 use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
-/// 建物モデルを作る版
+/// 建物モデルを作るバージョン
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Version {
     Ifc2x3,
@@ -27,7 +27,7 @@ enum Version {
 }
 
 impl Version {
-    /// `FILE_SCHEMA` の名前から。IFC4X1・IFC4X2 は正式の版でないので読まない
+    /// `FILE_SCHEMA` の名前から。IFC4X1・IFC4X2 は正式のバージョンでないので読まない
     fn of(schema: &[u8]) -> Option<Self> {
         let upper = schema.to_ascii_uppercase();
         if upper.starts_with(b"IFC2X3") {
@@ -70,9 +70,9 @@ pub(crate) enum Category {
     Grid,
 }
 
-/// その版に実体がない
+/// そのバージョンに実体がない
 const ABSENT: u8 = u8::MAX;
-/// その版の実体は、定義された種類を持たない
+/// そのバージョンの実体は、定義された種類を持たない
 const NONE: u8 = 0;
 
 /// 意味を持つ実体。`predefined` は、IFC2X3・IFC4・IFC4X3 の順の、定義された種類の属性の位置（1 から）
@@ -330,7 +330,7 @@ const SPACE_BOUNDARIES: &[(&str, &str)] = &[
 ];
 
 impl Lift<Building> for IfcFile {
-    /// IFC2X3・IFC4・IFC4X3 から作る。ほかの版は、診断して作らない（決定 0215）
+    /// IFC2X3・IFC4・IFC4X3 から作る。ほかのバージョンは、診断して作らない（決定 0215）
     fn lift(&self, cx: &mut Cx) -> Result<Building, Error> {
         let Some(version) = Version::of(self.schema()) else {
             cx.report(Diagnostic::new(codes::IFC_VERSION_UNSUPPORTED).with(
@@ -344,7 +344,7 @@ impl Lift<Building> for IfcFile {
 }
 
 impl Lift<Building> for IfcZipFile {
-    /// 書庫の中の IFC-SPF から作る
+    /// アーカイブの中の IFC-SPF から作る
     fn lift(&self, cx: &mut Cx) -> Result<Building, Error> {
         self.ifc().lift(cx)
     }
@@ -379,7 +379,7 @@ struct Lifter<'f> {
     materials: BTreeMap<u64, Option<Material>>,
 }
 
-/// 実体の名前（大文字）の種類。その版にない実体と、表にない実体は `None`
+/// 実体の名前（大文字）の種類。そのバージョンにない実体と、表にない実体は `None`
 pub(crate) fn category(kind: &[u8], schema: &[u8]) -> Option<Category> {
     let version = Version::of(schema)?;
     ENTITIES
@@ -578,7 +578,7 @@ impl<'f> Lifter<'f> {
         );
     }
 
-    // 見出しと文書
+    // ヘッダーと文書
 
     /// `FILE_DESCRIPTION`・`FILE_NAME`・`FILE_SCHEMA` の値
     fn header(&self, cx: &mut Cx) -> Header {
@@ -897,7 +897,7 @@ impl<'f> Lifter<'f> {
         Ok(())
     }
 
-    /// `IfcObject` と `IfcTypeObject` の成分
+    /// `IfcObject` と `IfcTypeObject` のコンポーネント
     fn object(&mut self, element: ElementRef, record: &'f Record, entity: &Entity, cx: &mut Cx) {
         let tag = match entity.category {
             Category::Element | Category::Type | Category::Style => {
@@ -1016,7 +1016,7 @@ impl<'f> Lifter<'f> {
 
     // 関係
 
-    /// 関係を、成分と出所に写す。位置は `IfcRoot` の 1 から 4 に続く
+    /// 関係を、コンポーネントと出所に写す。位置は `IfcRoot` の 1 から 4 に続く
     fn relation(&mut self, id: u64, record: &'f Record, cx: &mut Cx) {
         let kind = self.file.kind(record).to_ascii_uppercase();
         let handled = match kind.as_slice() {
@@ -1244,7 +1244,7 @@ impl<'f> Lifter<'f> {
             .unwrap_or_default()
     }
 
-    /// 成分を付けた関係を、要素の出所に残す
+    /// コンポーネントを付けた関係を、要素の出所に残す
     fn source(
         &mut self,
         element: ElementRef,

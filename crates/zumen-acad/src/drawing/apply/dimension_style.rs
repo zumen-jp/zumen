@@ -1,10 +1,10 @@
 //! 寸法スタイルの置き換え・追加・除去を、寸法スタイルの表のレコード（DIMSTYLE）に書く（決定 0165）。
 //!
 //! 置き換えは、元のレコードの値のうち、名前（2）・倍率（40。DIMSCALE）・端部記号の大きさ（41。DIMASZ）・
-//! 斜線の大きさ（142。DIMTSZ）と、端部記号が変わったときだけ、両端を別にする印（173。DIMSAH）と端部記号の
+//! 斜線の大きさ（142。DIMTSZ）と、端部記号が変わったときだけ、両端を別にするフラグ（173。DIMSAH）と端部記号の
 //! ブロックのレコードのハンドル（341〜344）を書き直す。追加は、Standard（なければ表の初めの子でない寸法スタイル）のレコードを写し、ハンドル・拡張辞書・
-//! 拡張データを除いてから同じ欄を書く。名前を変えたら、DXF では、寸法・引出線・公差の寸法スタイルの名前（3）と、
-//! 見出しの変数の寸法スタイルの名前（2。`$DIMSTYLE`）も書き直す。DWG の図形は寸法スタイルをハンドルで指すので、
+//! 拡張データを除いてから同じフィールドを書く。名前を変えたら、DXF では、寸法・引出線・公差の寸法スタイルの名前（3）と、
+//! ヘッダーの変数の寸法スタイルの名前（2。`$DIMSTYLE`）も書き直す。DWG の図形は寸法スタイルをハンドルで指すので、
 //! 図形は書き直さない
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,7 +21,7 @@ use zumen_base::{Cx, Key, Ref};
 use zumen_drawing::{Arrowhead, DimensionStyle, Seen};
 use zumen_sdk::Error;
 
-/// 欄を書く順。ない欄は、この順で前にある欄の後に足す（DXF Reference「DIMSTYLE」の並び）
+/// フィールドを書く順。ないフィールドは、この順で前にあるフィールドの後に足す（DXF Reference「DIMSTYLE」の並び）
 const ORDER: [i16; 10] = [2, 70, 40, 41, 142, 173, 341, 342, 343, 344];
 
 /// 端部記号のブロックのレコードのハンドル（DIMLDRBLK・DIMBLK・DIMBLK1・DIMBLK2）
@@ -58,7 +58,7 @@ pub(super) fn has_children<'n>(
     names.any(|other| other.starts_with(&prefix))
 }
 
-/// 足すレコードの元にする値。Standard（なければ表の初めの子でない寸法スタイル）のレコードを写し、ハンドル（5・105）・区切り（100）・拡張辞書と反応子の組
+/// 足すレコードの元にする値。Standard（なければ表の初めの子でない寸法スタイル）のレコードを写し、ハンドル（5・105）・サブクラスマーカー（100）・拡張辞書とリアクターの組
 /// （102）・拡張データ（1000 から）を除く。端部記号は、書くときに決める
 pub(super) fn template(object: &Object) -> Vec<Value> {
     let mut values = Vec::new();
@@ -155,7 +155,7 @@ fn set(values: &mut Vec<Value>, code: i16, value: Option<Value>) {
     set_in(values, code, value, &ORDER);
 }
 
-/// 寸法スタイルを名前で指すか。寸法・引出線・公差は 3 で、見出しの変数は 2 で指す
+/// 寸法スタイルを名前で指すか。寸法・引出線・公差は 3 で、ヘッダーの変数は 2 で指す
 fn names(value: &Value, code: i16, name: &[u8], charset: Charset) -> bool {
     value.code == code && matches!(&value.data, Data::Text(text) if charset.same(text, name))
 }
@@ -172,7 +172,7 @@ fn may_name(object: &Object) -> bool {
     !is_dimension_style(object) && object.kind != b"DICTIONARY"
 }
 
-/// まだ表にない名前を図形や見出しが指しているか。新しい定義で既存の参照を変えないために調べる。
+/// まだ表にない名前を図形やヘッダーが指しているか。新しい定義で既存の参照を変えないために調べる。
 pub(super) fn name_in_use(db: &AcadDb, name: &[u8], cx: &mut Cx, at: &Ref) -> Result<bool, Error> {
     let charset = charset_of(db);
     for object in db.objects() {
@@ -231,7 +231,7 @@ pub(super) fn named_elsewhere(
 }
 
 /// 名前を変えた寸法スタイル `old` を、名前 `new` で指すように書き直す。DXF は、寸法・引出線・公差の寸法
-/// スタイル（3）と、見出しの変数の寸法スタイル（2）を書き直す。DWG は、図形がハンドルで指すので書き直さない。
+/// スタイル（3）と、ヘッダーの変数の寸法スタイル（2）を書き直す。DWG は、図形がハンドルで指すので書き直さない。
 /// ほかのオブジェクトが名前で指せば、呼ぶ側が先に拒む（[`named_elsewhere`]）
 pub(super) fn rename(
     db: &mut AcadDb,

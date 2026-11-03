@@ -1,11 +1,11 @@
-//! 境界の版・状態コード・関数（`schema/boundary.toml`）から、C のヘッダーと Rust の定数を作る（決定 0011・0012）。
+//! API のバージョン・状態コード・関数（`schema/boundary.toml`）から、C のヘッダーと Rust の定数を作る（決定 0011・0012）。
 
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use serde::Deserialize;
 
-/// 境界の定義（`schema/boundary.toml`）
+/// API の定義（`schema/boundary.toml`）
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Boundary {
@@ -39,7 +39,7 @@ pub struct Detection {
     pub rules: Vec<Rule>,
 }
 
-/// 判定の規則（zumen-sdk の `Signature`）。どれか 1 つの欄を書く
+/// 判定の規則（zumen-sdk の `Signature`）。どれか 1 つのフィールドを書く
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Rule {
@@ -55,7 +55,7 @@ pub struct Rule {
     pub xml_root: Option<String>,
     /// `xml-root` の要素の名前空間の名前（URI）。書かなければ問わない
     pub namespace: Option<String>,
-    /// ZIP の書庫の項目の名前の終わり
+    /// ZIP のアーカイブの項目の名前の終わり
     pub zip_entry: Option<Vec<String>>,
     /// `zip-entry` の項目の、フォルダーを除いた名前の始まり。書けば、始まりと終わりの両方で比べる
     pub zip_prefix: Option<Vec<String>>,
@@ -81,7 +81,7 @@ pub enum RuleKind<'a> {
 }
 
 impl Rule {
-    /// 規則の形。欄の組み合わせが合わなければ `None`
+    /// 規則の形。フィールドの組み合わせが合わなければ `None`
     pub fn kind(&self) -> Option<RuleKind<'_>> {
         if let Some(suffixes) = &self.zip_entry {
             let others = self.offset.is_some()
@@ -132,7 +132,7 @@ impl Rule {
     }
 }
 
-/// 版
+/// バージョン
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Versions {
@@ -218,7 +218,7 @@ fn is_snake(text: &str) -> bool {
 pub fn check(boundary: &Boundary) -> Vec<String> {
     let mut errors = Vec::new();
     if boundary.versions.abi == 0 || boundary.versions.schema_major == 0 {
-        errors.push("版は 1 から数える".to_string());
+        errors.push("バージョンは 1 から数える".to_string());
     }
 
     let mut names = BTreeSet::new();
@@ -419,7 +419,7 @@ pub fn render_header(boundary: &Boundary) -> String {
     );
     out.push_str(concat!(
         "/*\n",
-        " * zumen の境界（決定 0012）。\n",
+        " * zumen の API（決定 0012）。\n",
         " *\n",
         " * - 文字列は UTF-8。要求と応答は JSON で、形は schema/messages.json にある\n",
         " * - 入力のバッファーは呼び出しの間だけ借りる。コアが返したバッファーは zm_free で返す\n",
@@ -440,11 +440,11 @@ pub fn render_header(boundary: &Boundary) -> String {
         "#define ZM_CALL\n",
         "#endif\n\n",
     ));
-    let _ = writeln!(out, "/* ABI の大版。zm_abi_version が返す */");
+    let _ = writeln!(out, "/* ABI のメジャーバージョン。zm_abi_version が返す */");
     let _ = writeln!(out, "#define ZM_ABI_VERSION {}", versions.abi);
     let _ = writeln!(
         out,
-        "/* メッセージのスキーマの版。大版は要求と応答の v、小版は capabilities が返す */"
+        "/* メッセージのスキーマのバージョン。メジャーバージョンは要求と応答の v、マイナーバージョンは capabilities が返す */"
     );
     let _ = writeln!(
         out,
@@ -475,7 +475,7 @@ pub fn render_header(boundary: &Boundary) -> String {
         "    uint8_t *ptr;\n",
         "    size_t len;\n",
         "} zm_buf;\n\n",
-        "/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義と目印\n",
+        "/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義とタグ\n",
         " * https://arrow.apache.org/docs/format/CDataInterface.html\n",
         " * https://arrow.apache.org/docs/format/CStreamInterface.html */\n",
         "#ifndef ARROW_C_DATA_INTERFACE\n",
@@ -573,20 +573,20 @@ pub fn render_rust(boundary: &Boundary) -> String {
     let mut out = String::new();
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/boundary.toml で、`cargo xtask codegen` で作り直す。\n\n");
-    out.push_str("//! 境界の版・状態コード・関数の形（決定 0012・0015）。\n\n");
+    out.push_str("//! API のバージョン・状態コード・関数の形（決定 0012・0015）。\n\n");
     let _ = writeln!(
         out,
-        "/// ABI の大版。`zm_abi_version` が返す\npub const ABI_VERSION: u32 = {};",
+        "/// ABI のメジャーバージョン。`zm_abi_version` が返す\npub const ABI_VERSION: u32 = {};",
         versions.abi
     );
     let _ = writeln!(
         out,
-        "/// メッセージのスキーマの大版。要求と応答の `v`\npub const SCHEMA_MAJOR: u64 = {};",
+        "/// メッセージのスキーマのメジャーバージョン。要求と応答の `v`\npub const SCHEMA_MAJOR: u64 = {};",
         versions.schema_major
     );
     let _ = writeln!(
         out,
-        "/// メッセージのスキーマの小版。`capabilities` が返す\npub const SCHEMA_MINOR: u64 = {};\n",
+        "/// メッセージのスキーマのマイナーバージョン。`capabilities` が返す\npub const SCHEMA_MINOR: u64 = {};\n",
         versions.schema_minor
     );
 
@@ -841,7 +841,7 @@ mod tests {
         [[functions]]
         name = "zm_abi_version"
         returns = "u32"
-        description = "ABI の大版を返す"
+        description = "ABI のメジャーバージョンを返す"
 
         [[functions]]
         name = "zm_call"

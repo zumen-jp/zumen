@@ -131,7 +131,7 @@ fn decision_files(root: &Path) -> Result<Decisions, String> {
     Ok(decisions)
 }
 
-/// Cargo の全パッケージを読む。版を固定し、任意の機能や別環境向けの依存を省かない。
+/// Cargo の全パッケージを読む。バージョンを固定し、任意の機能や別環境向けの依存を省かない。
 /// https://doc.rust-lang.org/cargo/commands/cargo-metadata.html の Output・Feature Selection。
 fn metadata(root: &Path) -> Result<Value, String> {
     let output = Command::new(env!("CARGO"))
@@ -545,7 +545,7 @@ const LAYERS: &[(&str, &[&str])] = &[
 ];
 
 /// [`LAYERS`] の crate から依存をたどり、依存してはならない crate に届けば、その道筋を返す。左の crate では
-/// 試験だけの依存（dev）もたどる
+/// テストだけの依存（dev）もたどる
 fn check_layers(metadata: &Value) -> Vec<String> {
     let Some(Value::Array(packages)) = metadata.pointer("/packages") else {
         return vec!["cargo metadata: packages の配列がない".to_string()];

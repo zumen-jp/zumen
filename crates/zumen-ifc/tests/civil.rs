@@ -1,4 +1,4 @@
-//! IFC4.3 の線形を土木の領域モデルに移す（決定 0235、#375）。ファイルは、どれも試験の中で作る。
+//! IFC4.3 の線形を土木の領域モデルに移す（決定 0235、#375）。ファイルは、どれもテストの中で作る。
 #![cfg(feature = "civil")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
@@ -153,7 +153,7 @@ FILE_NAME('a.ifc','2026-11-01T00:00:00',(''),(''),'','','');
 FILE_SCHEMA(('IFC4X3_ADD2'));
 ENDSEC;
 DATA;
-#1=IFCPROJECT('0000000000000000000001',$,'試験',$,$,$,$,(#20),#10);
+#1=IFCPROJECT('0000000000000000000001',$,'テスト',$,$,$,$,(#20),#10);
 {units}
 #20=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#21,$);
 #21=IFCAXIS2PLACEMENT3D(#22,$,$);
@@ -414,7 +414,7 @@ FILE_NAME('t.ifc','2026-11-01T00:00:00',(''),(''),'','','');
 FILE_SCHEMA(('IFC4X3_ADD2'));
 ENDSEC;
 DATA;
-#1=IFCPROJECT('0000000000000000000001',$,'試験',$,$,$,$,(#20),#10);
+#1=IFCPROJECT('0000000000000000000001',$,'テスト',$,$,$,$,(#20),#10);
 {METRE}
 #20=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#21,$);
 #21=IFCAXIS2PLACEMENT3D(#22,$,$);

@@ -1,7 +1,7 @@
-// zumen の C ABI を呼ぶ薄い包み（決定 0011・0196）。
+// zumen の C ABI を呼ぶ薄いラッパー（決定 0011・0196）。
 //
 // ネイティブのライブラリ（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib）を利用者が渡した道筋から読み込み、
-// 境界の関数（schema/boundary.toml）を、セッションのメソッドにして出す。関数は、生成した委譲の型（Constants.g.cs）で
+// API の関数（schema/boundary.toml）を、セッションのメソッドにして出す。関数は、生成した委譲の型（Constants.g.cs）で
 // 呼ぶ。委譲は Winapi の呼び方なので、32 bit の Windows では stdcall、ほかでは cdecl になる。
 
 #nullable enable
@@ -17,7 +17,7 @@ using Zumen.Messages;
 
 namespace Zumen
 {
-    /// <summary>境界の関数が ok でない状態を返した</summary>
+    /// <summary>API の関数が ok でない状態を返した</summary>
     public sealed class ZumenException : Exception
     {
         internal ZumenException(string operation, int code, byte[]? data)
@@ -28,7 +28,7 @@ namespace Zumen
             ResponseBytes = data;
         }
 
-        /// <summary>呼んだ境界の関数</summary>
+        /// <summary>呼んだ API の関数</summary>
         public string Operation { get; }
 
         /// <summary>状態コード</summary>
@@ -73,7 +73,7 @@ namespace Zumen
         internal readonly NativeFunctions.ZmFree Free;
 
 #if NET
-        /// <summary>型つきの要求と応答を読み書きする設定。値のない欄は書かない</summary>
+        /// <summary>型つきの要求と応答を読み書きする設定。値のないフィールドは書かない</summary>
         public static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
         {
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -105,7 +105,7 @@ namespace Zumen
             var version = AbiVersionFn();
             if (version != Versions.Abi)
             {
-                throw new DllNotFoundException("ABI の大版が " + version + "（この包みは " + Versions.Abi + "）");
+                throw new DllNotFoundException("ABI のメジャーバージョンが " + version + "（このラッパーは " + Versions.Abi + "）");
             }
         }
 
@@ -114,7 +114,7 @@ namespace Zumen
             Marshal.GetDelegateForFunctionPointer<T>(Loader.Symbol(handle, name));
 
         /// <summary>
-        /// ネイティブのライブラリを、ファイルの道筋から読み込み、関数がそろうことと ABI の大版を確かめる。
+        /// ネイティブのライブラリを、ファイルの道筋から読み込み、関数がそろうことと ABI のメジャーバージョンを確かめる。
         /// 読み込んだライブラリは、プロセスが終わるまで外さない。
         /// </summary>
         public static ZumenLibrary Load(string path) =>
@@ -155,7 +155,7 @@ namespace Zumen
             throw new DllNotFoundException("zumen のネイティブのライブラリがない: " + string.Join("、", candidates));
         }
 
-        /// <summary>ABI の大版</summary>
+        /// <summary>ABI のメジャーバージョン</summary>
         public uint AbiVersion => AbiVersionFn();
 
         /// <summary>セッションを作る。設定（session_options）は JSON のバイト列で渡す。null か空なら既定の設定</summary>

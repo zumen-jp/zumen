@@ -1,11 +1,11 @@
 //! DWG のオブジェクトから、系統で共有するオブジェクトの表を作る（決定 0023）。
 //!
-//! どのオブジェクトにも、地図のハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
-//! 先頭から読む（空間の図形は、見出しの変数が指す空間のブロックのレコード）。図形は、画層の名前（8）と、共通の欄のうち既定の値でないものを置く。図形ごとの欄は、
+//! どのオブジェクトにも、マップのハンドル（5。DIMSTYLE は 105）を置く。所有者（330）は、ハンドルの並びの
+//! 先頭から読む（空間の図形は、ヘッダーの変数が指す空間のブロックのレコード）。図形は、画層の名前（8）と、共通のフィールドのうち既定の値でないものを置く。図形ごとのフィールドは、
 //! 今は TEXT・ATTRIB・ATTDEF・TOLERANCE・LEADER・MLINE・VIEWPORT・INSERT・LINE・ARC・CIRCLE・POINT・MTEXT・SOLID・TRACE・3DFACE・
-//! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、名前（2）と LAYER・STYLE・LTYPE・APPID・VIEW・UCS・VPORT・DIMSTYLE の欄を読む。
-//! オブジェクトは、今は MLINESTYLE・DICTIONARY・ACDBDICTIONARYWDFLT・XRECORD・GROUP・DICTIONARYVAR・SCALE・LAYOUT・SPATIAL_FILTER などの欄を読む。
-//! 図形が表のレコードをハンドルで指す欄（画層・線種・文字の体裁・ブロック・寸法の体裁）は、レコードの名前に直して置く。
+//! SHAPE・ELLIPSE・RAY・XLINE・LWPOLYLINE・SPLINE・HATCH・POLYLINE・VERTEX・DIMENSION を読む。表のレコードは、名前（2）と LAYER・STYLE・LTYPE・APPID・VIEW・UCS・VPORT・DIMSTYLE のフィールドを読む。
+//! オブジェクトは、今は MLINESTYLE・DICTIONARY・ACDBDICTIONARYWDFLT・XRECORD・GROUP・DICTIONARYVAR・SCALE・LAYOUT・SPATIAL_FILTER などのフィールドを読む。
+//! 図形が表のレコードをハンドルで指すフィールド（画層・線種・文字スタイル・ブロック・寸法スタイル）は、レコードの名前に直して置く。
 //! 型が 500 以上のオブジェクトは、番号が同じクラスで種類を決める。
 //! 読めないオブジェクトは、ハンドルだけを持たせて置き、診断を返す。
 
@@ -140,7 +140,7 @@ impl DwgFile {
                 .map_err(|stop| stopped_at(cx, stop, place))?;
             let kind = self.kind(entry.type_code);
             let fields = kind.as_ref().and_then(|(name, section)| {
-                // BLOCK と ENDBLK は、DXF では BLOCKS の節に属するが、DWG では図形として書かれる
+                // BLOCK と ENDBLK は、DXF では BLOCKS のセクションに属するが、DWG では図形として書かれる
                 let entity = matches!(section, Section::Entities | Section::Blocks);
                 read(self.data(entry), self.release, entry, name, entity, header)
             });
@@ -156,7 +156,7 @@ impl DwgFile {
                 .map(|(_, (_, fields))| fields.as_mut());
             number_anonymous(records);
         }
-        // 図形は表のレコードと多重線の体裁をハンドルで指すので、先にその型と名前を集める
+        // 図形は表のレコードと多重線スタイルをハンドルで指すので、先にその型と名前を集める
         let names: BTreeMap<u64, (u16, Vec<u8>)> = self
             .entries
             .iter()
@@ -235,7 +235,7 @@ impl DwgFile {
                     end: entry.span.end,
                 },
             };
-            // ビューポートの番号（69）は DWG に書かれない。所有者ごとにオブジェクトの地図の順（ハンドルの順）で
+            // ビューポートの番号（69）は DWG に書かれない。所有者ごとにオブジェクトのマップの順（ハンドルの順）で
             // 1 から振る。1 は用紙そのものを表すビューポート（推定。docs/formats/dwg.md）
             if let (b"VIEWPORT", Some(owner)) = (object.kind.as_slice(), object.owner()) {
                 let number = viewports.entry(owner).or_default();
@@ -275,8 +275,8 @@ impl DwgFile {
 
 /// DWG は、名前のないブロック（`*D`・`*U`・`*T` など）と、今の配置でない用紙空間（`*Paper_Space`）の
 /// 名前に番号を持たない。DXF と同じく、モデル空間と今の用紙空間を除いたブロックのレコードの、
-/// オブジェクトの地図の順（ハンドルの順）の位置を番号として名前の後ろに付ける（推定。試料の DWG と DXF の
-/// 比較で確かめた。docs/formats/dwg.md）。`records` は、その順のレコードの欄
+/// オブジェクトのマップの順（ハンドルの順）の位置を番号として名前の後ろに付ける（推定。サンプルの DWG と DXF の
+/// 比較で確かめた。docs/formats/dwg.md）。`records` は、その順のレコードのフィールド
 fn number_anonymous<'a>(records: impl Iterator<Item = Option<&'a mut Fields>>) {
     for (number, fields) in records.enumerate() {
         let Some(name) = fields.and_then(|fields| fields.values.iter_mut().find(|v| v.code == 2))
@@ -294,7 +294,7 @@ fn number_anonymous<'a>(records: impl Iterator<Item = Option<&'a mut Fields>>) {
     }
 }
 
-/// BLOCK_RECORD から読んだ印・基点などを、そのレコードを所有者に持つ BLOCK の名前の後ろへ移す
+/// BLOCK_RECORD から読んだフラグ・基点などを、そのレコードを所有者に持つ BLOCK の名前の後ろへ移す
 fn to_blocks(objects: &mut [Object]) {
     let mut moved: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
     for object in objects.iter_mut() {
@@ -304,7 +304,7 @@ fn to_blocks(objects: &mut [Object]) {
         let Some(handle) = object.handle() else {
             continue;
         };
-        // 70 は、最初のもの（印）だけを移す。後の 70 は挿入の単位で、BLOCK_RECORD に残す
+        // 70 は、最初のもの（フラグ）だけを移す。後の 70 は挿入の単位で、BLOCK_RECORD に残す
         let mut flags = false;
         let (block, own) = object.values.drain(..).partition(|value| {
             let first = value.code != 70 || !flags;
@@ -357,7 +357,7 @@ fn in_blocks(objects: &mut [Object], header: Header) {
     }
 }
 
-/// オブジェクトから読んだ欄
+/// オブジェクトから読んだフィールド
 struct Fields {
     /// 所有者（330）
     owner: Option<u64>,
@@ -388,7 +388,7 @@ struct RecordRef {
     handle: u64,
 }
 
-/// BLOCK_RECORD から読み、DXF と同じく BLOCK に置く欄
+/// BLOCK_RECORD から読み、DXF と同じく BLOCK に置くフィールド
 const BLOCK_FIELDS: &[i16] = &[70, 10, 20, 30, 1, 4];
 
 /// 名前（2）を持つ表のレコードの型か
@@ -452,7 +452,7 @@ impl Fields {
                 .get(&r.handle)
                 .filter(|(record, _)| *record == r.record)
             {
-                // 線種が ByLayer、文字の体裁が Standard の既定の値なら、DXF と同じく置かない
+                // 線種が ByLayer、文字スタイルが Standard の既定の値なら、DXF と同じく置かない
                 Some((_, name))
                     if (r.code == 6 && name.eq_ignore_ascii_case(b"ByLayer"))
                         || (r.code == 7 && name.eq_ignore_ascii_case(b"Standard")) => {}
@@ -524,11 +524,11 @@ impl Fields {
     }
 }
 
-/// 図形の共通の欄のうち、型ごとの欄とハンドルの並びを読むのに要るもの
+/// 図形の共通のフィールドのうち、型ごとのフィールドとハンドルの並びを読むのに要るもの
 struct Common {
     /// 所有者の決まり方。0 は所有者のハンドルを持ち、1 は用紙空間、2 はモデル空間の図形
     entmode: u8,
-    /// 反応子の数
+    /// リアクターの数
     reactors: u32,
     /// 拡張辞書のハンドルを持つか
     xdic: bool,
@@ -538,12 +538,12 @@ struct Common {
     color_handle: bool,
     /// 色（ENC）の始まりのビットの位置
     color_at: usize,
-    /// 印刷スタイルの後のハンドルの数。材質（R2007 から、印が 3 のとき）と、表示スタイル
+    /// 印刷スタイルの後のハンドルの数。材質（R2007 から、フラグが 3 のとき）と、表示スタイル
     /// （R2010 から、3 つの B のそれぞれが立つとき）
     styles: usize,
-    /// 線種の印。0 は ByLayer、1 は ByBlock、2 は Continuous、3 はハンドルで指す
+    /// 線種のフラグ。0 は ByLayer、1 は ByBlock、2 は Continuous、3 はハンドルで指す
     ltype_flags: u8,
-    /// 印刷スタイルのハンドルを持つか（印刷スタイルの印が 3）
+    /// 印刷スタイルのハンドルを持つか（印刷スタイルのフラグが 3）
     plotstyle_handle: bool,
     values: Vec<Value>,
 }
@@ -558,8 +558,8 @@ fn read(
     header: Option<Header>,
 ) -> Option<Fields> {
     let mut bits = Bits::with_release(data, release);
-    // R2010 からは、型は BOT で、ハンドルの流れの位置は区切りの大きさで決まる。文字列の流れは
-    // ハンドルの流れの前にある
+    // R2010 からは、型は BOT で、ハンドルのストリームの位置はセクションの大きさで決まる。文字列のストリームは
+    // ハンドルのストリームの前にある
     let handles_at = match entry.handles {
         Some(at) => {
             bits.bot()?;
@@ -579,7 +579,7 @@ fn read(
     if entity {
         let common = entity_data(&mut bits)?;
         let mut frozen = 0;
-        // データの中で、ハンドルの流れから読むハンドルの数（MULTILEADER）
+        // データの中で、ハンドルのストリームから読むハンドルの数（MULTILEADER）
         let mut slots = 0;
         let own = if bits.pos() <= handles_at {
             match entry.type_code {
@@ -633,8 +633,8 @@ fn read(
         } else {
             Vec::new()
         };
-        // 図形のハンドルの並び: 所有者（entmode が 0 のとき。1・2 のときは見出しの変数が指す空間）・反応子・拡張辞書・前後の図形
-        // （nolinks が 0 のとき）・色（R2004 で、ENC の 0x4000 が立つとき）・画層・線種と印刷スタイル（印が 3 のとき）・型ごとのハンドル
+        // 図形のハンドルの並び: 所有者（entmode が 0 のとき。1・2 のときはヘッダーの変数が指す空間）・リアクター・拡張辞書・前後の図形
+        // （nolinks が 0 のとき）・色（R2004 で、ENC の 0x4000 が立つとき）・画層・線種と印刷スタイル（フラグが 3 のとき）・型ごとのハンドル
         bits.seek(handles_at);
         let owner = match common.entmode {
             0 => Some(bits.handle()?.resolve(entry.handle)?),
@@ -683,7 +683,7 @@ fn read(
         for _ in 0..common.styles {
             bits.handle()?;
         }
-        // MULTILEADER は、データの中のハンドルを、データの順にハンドルの流れから読む。仮の値を読んだ値で
+        // MULTILEADER は、データの中のハンドルを、データの順にハンドルのストリームから読む。仮の値を読んだ値で
         // 置き換え、0 のハンドルと置かないハンドルは除く
         if slots > 0 {
             let mut read = Vec::with_capacity(usize::try_from(slots).ok()?.min(data.len()));
@@ -697,8 +697,8 @@ fn read(
                     *handle = *read.get(usize::try_from(slot).ok()?)?;
                 }
             }
-            // ACAD_TABLE の文字のセルの欄（344）は、0 のときだけ文字を持つ。文字を読んだので、0 でなければ
-            // 読めないとする。ブロック（2）と文字の体裁（7）は、名前に直す
+            // ACAD_TABLE の文字のセルのフィールド（344）は、0 のときだけ文字を持つ。文字を読んだので、0 でなければ
+            // 読めないとする。ブロック（2）と文字スタイル（7）は、名前に直す
             if kind == b"ACAD_TABLE" {
                 if values
                     .iter()
@@ -726,7 +726,7 @@ fn read(
             }
             values.retain(|v| !matches!(v.data, Data::Handle(0)));
         }
-        // IMAGE は、画像の定義（340）と、その反応子（360）のハンドルを持つ。DXF と同じく、表示の印（70）と
+        // IMAGE は、画像の定義（340）と、そのリアクター（360）のハンドルを持つ。DXF と同じく、表示のフラグ（70）と
         // 切り抜きの境界の種類（71）の前に置く
         if kind == b"IMAGE" {
             for (code, before) in [(340, 70), (360, 71)] {
@@ -766,7 +766,7 @@ fn read(
                 data: Data::Handle(bits.handle()?.resolve(entry.handle)?),
             });
         }
-        // 寸法は、寸法の体裁（3）とブロック（2）の順に指す
+        // 寸法は、寸法スタイル（3）とブロック（2）の順に指す
         let pointed: &[(i16, u16)] = match entry.type_code {
             TEXT | MTEXT | ATTRIB | ATTDEF => &[(7, STYLE)],
             INSERT | MINSERT => &[(2, BLOCK_RECORD)],
@@ -776,7 +776,7 @@ fn read(
             LEADER => &[(3, DIMSTYLE)],
             _ => &[],
         };
-        // LEADER は寸法の体裁の前に注釈のハンドルを、MLINE は多重線の体裁のハンドルを持つ（340）
+        // LEADER は寸法スタイルの前に注釈のハンドルを、MLINE は多重線スタイルのハンドルを持つ（340）
         if matches!(entry.type_code, LEADER | MLINE) {
             let annotation = bits.handle()?.resolve(entry.handle)?;
             if annotation != 0 {
@@ -785,7 +785,7 @@ fn read(
                     data: Data::Handle(annotation),
                 });
             }
-            // MLINE は、体裁の名前も 2 に置く
+            // MLINE は、スタイルの名前も 2 に置く
             if entry.type_code == MLINE {
                 records.push(RecordRef {
                     code: 2,
@@ -824,7 +824,7 @@ fn read(
         // 6 のハンドルは線種の名前に直す
         let mut handles = Vec::new();
         let mut records = Vec::new();
-        // SORTENTSTABLE の並べ替えのハンドル。データの流れにあり、図形のハンドルはハンドルの流れにある
+        // SORTENTSTABLE の並べ替えのハンドル。データのストリームにあり、図形のハンドルはハンドルのストリームにある
         let sortents = kind == b"SORTENTSTABLE";
         let mut sorts = Vec::new();
         let mut values = if is_table_record(entry.type_code) {
@@ -873,7 +873,7 @@ fn read(
         } else if kind == b"LAYOUT" {
             layout(&mut bits, release, &mut handles)?
         } else if kind == b"TABLESTYLE" && release < Release::R2010 {
-            // 行ごとの文字スタイル（7）のハンドルは、ハンドルの流れで仮の値を埋める
+            // 行ごとの文字スタイル（7）のハンドルは、ハンドルのストリームで仮の値を埋める
             handles.extend([7; 3]);
             tablestyle(&mut bits)?
         } else if sortents {
@@ -884,11 +884,11 @@ fn read(
         } else {
             Vec::new()
         };
-        // オブジェクトのハンドルの並び: 所有者・反応子・拡張辞書・型ごとのハンドル
+        // オブジェクトのハンドルの並び: 所有者・リアクター・拡張辞書・型ごとのハンドル
         bits.seek(handles_at);
         let owner = bits.handle()?.resolve(entry.handle)?;
         // 拡張辞書は、図形と同じく DXF の組で置く。0 のハンドルは、ないものとする。型ごとのハンドルを
-        // 持たないオブジェクトは、ハンドルの流れが反応子と拡張辞書を持たないことがあるので、読めなければ
+        // 持たないオブジェクトは、ハンドルのストリームがリアクターと拡張辞書を持たないことがあるので、読めなければ
         // 拡張辞書を持たないとする
         let xdic = (|| {
             for _ in 0..reactors {
@@ -939,7 +939,7 @@ fn read(
                     .find(|value| value.code == code && value.data == Data::Handle(SLOT));
                 match (code, slot) {
                     (0, _) => {}
-                    // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でも区切りとして残す
+                    // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でもセクションとして残す
                     (_, Some(slot)) => slot.data = Data::Handle(handle),
                     (6, None) if handle != 0 => records.push(RecordRef {
                         code,
@@ -966,8 +966,8 @@ fn read(
     }
 }
 
-/// 版 `release`（R2004 まで）の図形でないオブジェクトのデータの、ハンドルの流れの位置（RL）を書く所と、
-/// 型ごとの欄の始まりと、ハンドルの流れの始まりの、ビットの位置
+/// バージョン `release`（R2004 まで）の図形でないオブジェクトのデータの、ハンドルのストリームの位置（RL）を書く所と、
+/// 型ごとのフィールドの始まりと、ハンドルのストリームの始まりの、ビットの位置
 pub(super) fn object_fields(data: &[u8], release: Release) -> Option<[usize; 3]> {
     let mut bits = Bits::with_release(data, release);
     bits.bs()?;
@@ -976,7 +976,7 @@ pub(super) fn object_fields(data: &[u8], release: Release) -> Option<[usize; 3]>
     bits.handle()?;
     skip_extended_data(&mut bits)?;
     bits.bl()?;
-    // R2004 からは、反応子の数の後に、拡張辞書を持たない印（B）が続く
+    // R2004 からは、リアクターの数の後に、拡張辞書を持たないフラグ（B）が続く
     if release >= Release::R2004 {
         bits.bit()?;
     }
@@ -984,8 +984,8 @@ pub(super) fn object_fields(data: &[u8], release: Release) -> Option<[usize; 3]>
     (start <= handles_at).then_some([size_at, start, handles_at])
 }
 
-/// 版 `release`（R2010 から）の図形でないオブジェクトのデータ（ハンドルの流れの大きさ（MC）の後）の、型ごとの
-/// 欄の始まりと、主のデータの終わりの、ビットの位置。`handles_at` は、ハンドルの流れの始まり（決定 0089）
+/// バージョン `release`（R2010 から）の図形でないオブジェクトのデータ（ハンドルのストリームの大きさ（MC）の後）の、型ごとの
+/// フィールドの始まりと、主のデータの終わりの、ビットの位置。`handles_at` は、ハンドルのストリームの始まり（決定 0089）
 pub(super) fn r2010_object_fields(
     data: &[u8],
     handles_at: usize,
@@ -1006,9 +1006,9 @@ pub(super) fn r2010_object_fields(
     (start <= end).then_some([start, end])
 }
 
-/// 版 `release`（R2010 から）の図形のデータ（ハンドルの流れの大きさ（MC）の後）の、共通の欄の色の始まりと、
-/// 型ごとの欄の始まりと、主のデータの終わり（文字列の流れの始まりか、その有無の印）の、ビットの位置。
-/// `handles_at` は、ハンドルの流れの始まり（決定 0085）
+/// バージョン `release`（R2010 から）の図形のデータ（ハンドルのストリームの大きさ（MC）の後）の、共通のフィールドの色の始まりと、
+/// 型ごとのフィールドの始まりと、主のデータの終わり（文字列のストリームの始まりか、その有無のフラグ）の、ビットの位置。
+/// `handles_at` は、ハンドルのストリームの始まり（決定 0085）
 pub(super) fn r2010_entity_fields(
     data: &[u8],
     handles_at: usize,
@@ -1024,8 +1024,8 @@ pub(super) fn r2010_entity_fields(
     (start <= end).then_some([common.color_at, start, end])
 }
 
-/// 版 `release`（R2004 まで）の図形のデータの、ハンドルの流れの位置（RL）を書く所と、共通の欄の色の
-/// 始まりと、型ごとの欄の始まりと、ハンドルの流れの始まりの、ビットの位置
+/// バージョン `release`（R2004 まで）の図形のデータの、ハンドルのストリームの位置（RL）を書く所と、共通のフィールドの色の
+/// 始まりと、型ごとのフィールドの始まりと、ハンドルのストリームの始まりの、ビットの位置
 pub(super) fn entity_fields(data: &[u8], release: Release) -> Option<[usize; 4]> {
     let mut bits = Bits::with_release(data, release);
     bits.bs()?;
@@ -1042,7 +1042,7 @@ pub(super) fn entity_fields(data: &[u8], release: Release) -> Option<[usize; 4]>
 pub(super) struct Links {
     /// 前後の図形のハンドルを持たないことを表す B のビットの位置
     pub(super) no_links_at: usize,
-    /// 反応子の数
+    /// リアクターの数
     pub(super) reactors: u32,
     /// 拡張辞書のハンドル。なければ 0
     pub(super) xdic: u64,
@@ -1092,7 +1092,7 @@ pub(super) fn entity_links(data: &[u8], handle: u64) -> Option<Links> {
 }
 
 /// ハンドル `handle` の R2000 のブロックのレコードのデータの、最初と最後の図形のハンドルのビットの範囲と、
-/// その 2 つのハンドル（決定 0051）。ハンドルの並びは、所有者・反応子・拡張辞書・外部参照のブロック・
+/// その 2 つのハンドル（決定 0051）。ハンドルの並びは、所有者・リアクター・拡張辞書・外部参照のブロック・
 /// BLOCK・最初の図形・最後の図形・ENDBLK・配置（図面で確かめた）。図形がなければ、どちらも 0
 pub(super) fn block_links(data: &[u8], handle: u64) -> Option<(Range<usize>, u64, u64)> {
     let mut bits = Bits::with_release(data, Release::R2000);
@@ -1111,8 +1111,8 @@ pub(super) fn block_links(data: &[u8], handle: u64) -> Option<(Range<usize>, u64
     Some((start..bits.pos(), first, last))
 }
 
-/// 版 `release`（R2004 から）の図形のデータの、反応子の数と、拡張辞書のハンドルを持つか。R2010 からは、
-/// データはハンドルの流れの大きさ（MC）の後（決定 0091）
+/// バージョン `release`（R2004 から）の図形のデータの、リアクターの数と、拡張辞書のハンドルを持つか。R2010 からは、
+/// データはハンドルのストリームの大きさ（MC）の後（決定 0091）
 pub(super) fn entity_refs(data: &[u8], release: Release) -> Option<(u32, bool)> {
     let mut bits = Bits::with_release(data, release);
     if release >= Release::R2010 {
@@ -1129,11 +1129,11 @@ pub(super) fn entity_refs(data: &[u8], release: Release) -> Option<(u32, bool)> 
 
 /// R2004 から後のブロックのレコードが持つ図形（決定 0077・0091）
 pub(super) struct Owned {
-    /// ハンドルの流れの位置（RL）を書く所のビットの位置。R2010 からは使わない
+    /// ハンドルのストリームの位置（RL）を書く所のビットの位置。R2010 からは使わない
     pub(super) size_at: usize,
     /// 持つ図形の数（BL）のビットの範囲
     pub(super) count: Range<usize>,
-    /// ハンドルの流れの始まりのビットの位置
+    /// ハンドルのストリームの始まりのビットの位置
     pub(super) handles_at: usize,
     /// 持つ図形のハンドルの、ビットの範囲とハンドルの並び
     pub(super) handles: Vec<(Range<usize>, u64)>,
@@ -1141,10 +1141,10 @@ pub(super) struct Owned {
     pub(super) end: usize,
 }
 
-/// ハンドル `handle` の版 `release`（R2004 から）のブロックのレコードのデータの、持つ図形（決定 0077）。外部参照の
-/// ブロックは `None`。持つ図形の数は、読み込まれた印（B）の後に BL で置かれ、ハンドルは、所有者・反応子・拡張辞書・
-/// 外部参照のブロック・BLOCK の後に、その数だけ並ぶ（図面で確かめた）。R2010 からは、データはハンドルの流れの
-/// 大きさ（MC）の後で、ハンドルの流れの始まり `handles` を受け取る。外部参照の番号はない（決定 0091）
+/// ハンドル `handle` のバージョン `release`（R2004 から）のブロックのレコードのデータの、持つ図形（決定 0077）。外部参照の
+/// ブロックは `None`。持つ図形の数は、読み込まれたフラグ（B）の後に BL で置かれ、ハンドルは、所有者・リアクター・拡張辞書・
+/// 外部参照のブロック・BLOCK の後に、その数だけ並ぶ（図面で確かめた）。R2010 からは、データはハンドルのストリームの
+/// 大きさ（MC）の後で、ハンドルのストリームの始まり `handles` を受け取る。外部参照の番号はない（決定 0091）
 pub(super) fn owned(
     data: &[u8],
     handle: u64,
@@ -1171,14 +1171,14 @@ pub(super) fn owned(
     if release >= Release::R2013 {
         bits.bit()?;
     }
-    // 名前・参照される印・外部参照の番号・外部参照に依る印
+    // 名前・参照されるフラグ・外部参照の番号・外部参照に依るフラグ
     bits.text()?;
     bits.bit()?;
     if !r2010 {
         bits.bs()?;
     }
     bits.bit()?;
-    // 名前のない印・属性を持つ印・外部参照の印・重ねる外部参照の印・読み込まれた印
+    // 名前のないフラグ・属性を持つフラグ・外部参照のフラグ・重ねる外部参照のフラグ・読み込まれたフラグ
     let flags: Vec<bool> = (0..5).map(|_| bits.bit()).collect::<Option<_>>()?;
     if flags.get(2..4)?.contains(&true) {
         return None;
@@ -1220,7 +1220,7 @@ fn extended_data(bits: &mut Bits) -> Option<Vec<(u64, Vec<u8>)>> {
 }
 
 /// 拡張データのバイト列の値（ODS 5.4.1 の 28）。DXF と同じく、1 バイトの種類に 1000 を足したグループ・コードで
-/// 置く。文字列は、R2007 から（読める版では R2010 から）は RS の長さと UTF-16LE、それより前は RC の長さと RS のコード・ページと
+/// 置く。文字列は、R2007 から（読めるバージョンでは R2010 から）は RS の長さと UTF-16LE、それより前は RC の長さと RS のコード・ページと
 /// バイト列。画層と図形のハンドルは 8 バイト。知らない種類か、バイト列が足りなければ `None`
 fn xdata(bytes: &[u8], release: Release) -> Option<Vec<Xdata>> {
     let mut rest = bytes;
@@ -1236,7 +1236,7 @@ fn xdata(bytes: &[u8], release: Release) -> Option<Vec<Xdata>> {
         };
         let code = 1000 + i16::from(kind);
         let value = |data| Xdata::Value(Value { code, data });
-        // ハンドルは上位のバイトから並ぶ（試料の DWG と DXF で確かめた）
+        // ハンドルは上位のバイトから並ぶ（サンプルの DWG と DXF で確かめた）
         let handle = |bytes: &[u8]| {
             bytes
                 .iter()
@@ -1306,8 +1306,8 @@ pub(super) fn skip_extended_data(bits: &mut Bits) -> Option<()> {
     }
 }
 
-/// 図形の共通の欄（ODS 5.4.1 の 20.4.1）。既定の値でない色（62）・線種の尺度（48）・
-/// 非表示（60）・透過性（440）を値にする。R2004 からは、反応子の数の後に拡張辞書がないことを表す B があり、
+/// 図形の共通のフィールド（ODS 5.4.1 の 20.4.1）。既定の値でない色（62）・線種の尺度（48）・
+/// 非表示（60）・透過性（440）を値にする。R2004 からは、リアクターの数の後に拡張辞書がないことを表す B があり、
 /// 前後の図形のハンドルはない
 fn entity_data(bits: &mut Bits) -> Option<Common> {
     // 図形の絵の大きさは、R2010 からは BLL
@@ -1333,7 +1333,7 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     let ltype_scale = bits.bd()?;
     let ltype_flags = bits.bb()?;
     let plotstyle_flags = bits.bb()?;
-    // R2007 からは、材質の印（BB）と影の印（RC）、R2010 からは、表示スタイルを持つかの 3 つの B が続く（図面で確かめた）
+    // R2007 からは、材質のフラグ（BB）と影のフラグ（RC）、R2010 からは、表示スタイルを持つかの 3 つの B が続く（図面で確かめた）
     let mut styles = 0;
     if release >= Release::R2010 {
         if bits.bb()? == 3 {
@@ -1383,7 +1383,7 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     })
 }
 
-/// TEXT の欄（ODS 5.4.1 の 20.4.3、R2000）。DataFlags のビットが立つ欄は記録されず、既定の値なので
+/// TEXT のフィールド（ODS 5.4.1 の 20.4.3、R2000）。DataFlags のビットが立つフィールドは記録されず、既定の値なので
 /// 置かない。高さ（40）は DD で書かれないのでいつも置く
 fn text(bits: &mut Bits) -> Option<Vec<Value>> {
     let flags = bits.rc()?;
@@ -1428,9 +1428,9 @@ fn text(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// ATTRIB・ATTDEF の欄（ODS 5.4.1 の 20.4.4・20.4.5、R2000）。TEXT の欄に続けて、タグ（2）・欄の長さ
-/// （73）・印（70）を、ATTDEF は問い（3）も置く。DXF は縦の合わせを 74 に書くので、TEXT の 73 を 74 に
-/// 移す。欄の長さは 0 でなければ置く
+/// ATTRIB・ATTDEF のフィールド（ODS 5.4.1 の 20.4.4・20.4.5、R2000）。TEXT のフィールドに続けて、タグ（2）・フィールドの長さ
+/// （73）・フラグ（70）を、ATTDEF は問い（3）も置く。DXF は縦の合わせを 74 に書くので、TEXT の 73 を 74 に
+/// 移す。フィールドの長さは 0 でなければ置く
 fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
     let mut values = text(bits)?;
     for value in &mut values {
@@ -1438,16 +1438,16 @@ fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
             value.code = 74;
         }
     }
-    // R2010 からは、名前の前に属性の版（RC、DXF の 280）が、印の後に位置を固定するか（B、DXF の
-    // 2 つ目の 280）が、定義の問いの前にもう 1 つの版（RC）がある
+    // R2010 からは、名前の前に属性のバージョン（RC、DXF の 280）が、フラグの後に位置を固定するか（B、DXF の
+    // 2 つ目の 280）が、定義の問いの前にもう 1 つのバージョン（RC）がある
     let r2010 = bits.release() >= Release::R2010;
     if r2010 {
         values.push(int(280, i64::from(bits.rc()?)));
     }
-    // R2018 からは、版の後に属性の種類（RC、DXF の 71）が続く。1 は 1 行の属性で、2（ATTRIB）と
+    // R2018 からは、バージョンの後に属性の種類（RC、DXF の 71）が続く。1 は 1 行の属性で、2（ATTRIB）と
     // 4（ATTDEF）は複数行の属性。複数行の属性は、意味の分からない 37 ビット（図面の 2 つの属性で
-    // 同じ値）の後に、埋め込みの MTEXT の欄と、DXF の 72 にあたる BS を持つ（図面で確かめた）。
-    // DXF と同じく、属性の値の後に、種類（71）と 72 と、埋め込みのオブジェクトの印（101）と MTEXT の値を
+    // 同じ値）の後に、埋め込みの MTEXT のフィールドと、DXF の 72 にあたる BS を持つ（図面で確かめた）。
+    // DXF と同じく、属性の値の後に、種類（71）と 72 と、埋め込みのオブジェクトのマーカー（101）と MTEXT の値を
     // 置く（決定 0102）
     let mut embedded = Vec::new();
     if bits.release() >= Release::R2018 {
@@ -1481,7 +1481,7 @@ fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// TOLERANCE の欄（ODS 5.4.1 の 20.4.49、R2000）。挿入点（10）と文字（1）を置き、X 軸の向き（11）と
+/// TOLERANCE のフィールド（ODS 5.4.1 の 20.4.49、R2000）。挿入点（10）と文字（1）を置き、X 軸の向き（11）と
 /// 押し出しの向きは既定の値でなければ置く
 fn tolerance(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
@@ -1497,9 +1497,9 @@ fn tolerance(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// LEADER の欄（ODS 5.4.1 の 20.4.47、R2000）。注釈の種類（73）・注釈の高さと幅（40・41）・鉤の線の
-/// 向き（74）・矢印の印（71）・頂点の数（76）と頂点（10）を置き、押し出しの向き（210）と X 軸の向き（211）は既定の値で
-/// なければ置く。DXF は寸法の体裁から鉤の線の点を足して書くことがあり、そのときは頂点が 1 つ多い
+/// LEADER のフィールド（ODS 5.4.1 の 20.4.47、R2000）。注釈の種類（73）・注釈の高さと幅（40・41）・鉤の線の
+/// 向き（74）・矢印のフラグ（71）・頂点の数（76）と頂点（10）を置き、押し出しの向き（210）と X 軸の向き（211）は既定の値で
+/// なければ置く。DXF は寸法スタイルから鉤の線の点を足して書くことがあり、そのときは頂点が 1 つ多い
 pub(super) fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     bits.bit()?;
     let annotation = bits.bs()?;
@@ -1521,14 +1521,14 @@ pub(super) fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     // （決定 0191）
     let offsets = [point3(bits, 212)?, point3(bits, 213)?];
     // 注釈の枠の高さと幅。R2007 までだけが持つ（AutoCAD 2027 が書いた R2010・R2018 の
-    // DWG で、この欄がないことを確かめた、#345）
+    // DWG で、このフィールドがないことを確かめた、#345）
     if bits.release() < Release::R2010 {
         let (height, width) = (bits.bd()?, bits.bd()?);
         values.push(real(40, height));
         values.push(real(41, width));
     }
     values.push(int(74, i64::from(bits.bit()?)));
-    // 矢印の印。DWG の LEADER は必ず持つので、DXF と同じく 71 に置く（決定 0185）
+    // 矢印のフラグ。DWG の LEADER は必ず持つので、DXF と同じく 71 に置く（決定 0185）
     values.push(int(71, i64::from(bits.bit()?)));
     values.push(int(76, i64::from(count)));
     values.extend(vertices);
@@ -1546,7 +1546,7 @@ pub(super) fn leader(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// MLINE の欄（ODS 5.4.1 の 20.4.50、R2000）。尺度（40）・合わせ（70）・開閉の印（71）・頂点の数（72）・
+/// MLINE のフィールド（ODS 5.4.1 の 20.4.50、R2000）。尺度（40）・合わせ（70）・開閉のフラグ（71）・頂点の数（72）・
 /// 線の数（73）・基点（10）・押し出しの向き（210）を置き、頂点ごとに点（11）・向き（12）・留めの向き
 /// （13）と、線ごとの区切り（74・41）と塗りの区切り（75・42）を置く
 fn mline(bits: &mut Bits) -> Option<Vec<Value>> {
@@ -1582,7 +1582,7 @@ fn mline(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// VIEWPORT の欄（ODS 5.4.1 の 20.4.38、R2000）。仕様の欄を、DXF の並び（中心・大きさ・ビューの中心・
+/// VIEWPORT のフィールド（ODS 5.4.1 の 20.4.38、R2000）。仕様のフィールドを、DXF の並び（中心・大きさ・ビューの中心・
 /// スナップ・グリッド・ビューの向きと目標・ビュー・状態・UCS）で置く。角度は度に直す。ビューポートの
 /// 番号（69）と状態（68）は DWG に記録されていないので置かない。凍結した画層の数を `frozen` に返す
 fn viewport(bits: &mut Bits, frozen: &mut u32) -> Option<Vec<Value>> {
@@ -1635,12 +1635,12 @@ fn viewport(bits: &mut Bits, frozen: &mut u32) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// MLINESTYLE の欄（ODS 5.4.1 の 20.4.73、R2000）。名前（2）・印（70）・説明（3）・塗りの色（62）・
-/// 始めと終わりの角度（51・52、度に直す）・線の数（71）と、線ごとの位置（49）と色（62）を置く。印は、
+/// MLINESTYLE のフィールド（ODS 5.4.1 の 20.4.73、R2000）。名前（2）・フラグ（70）・説明（3）・塗りの色（62）・
+/// 始めと終わりの角度（51・52、度に直す）・線の数（71）と、線ごとの位置（49）と色（62）を置く。フラグは、
 /// DWG と DXF でビットの並びが違うので並べ直す。線種は番号で記録されているので、まだ置かない
-/// R2004 までの TABLESTYLE（試料の DWG の値と DXF で確かめた）。名前（3）・向き（70）・印（71）・余白（40・41）・
-/// 表題と見出しを出さない印（280・281）の後に、データ・表題・見出しの行ごとに、文字スタイル（7。ハンドルの
-/// 流れで埋める仮の値）・高さ（140）・位置合わせ（170）・文字の色（62）・背景の色（63）・背景を塗る印（283）と、
+/// R2004 までの TABLESTYLE（サンプルの DWG の値と DXF で確かめた）。名前（3）・向き（70）・フラグ（71）・余白（40・41）・
+/// 表題と見出しを出さないフラグ（280・281）の後に、データ・表題・見出しの行ごとに、文字スタイル（7。ハンドルの
+/// ストリームで埋める仮の値）・高さ（140）・位置合わせ（170）・文字の色（62）・背景の色（63）・背景を塗るフラグ（283）と、
 /// 6 つの枠の線幅（274〜279）・表示（284〜289）・色（64〜69）を、DXF と同じ
 /// 並びで置く。色は、ACAD_TABLE と同じく R2000 でも R2004 の形の CMC で持つ
 fn tablestyle(bits: &mut Bits) -> Option<Vec<Value>> {
@@ -1721,7 +1721,7 @@ fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// DICTIONARY の欄（ODS 5.4.1 の 20.4.44、R2000）。所有する印（280）は 1 なら、複製の扱い（281）は
+/// DICTIONARY のフィールド（ODS 5.4.1 の 20.4.44、R2000）。所有するフラグ（280）は 1 なら、複製の扱い（281）は
 /// いつも置く。項目の名前は `entries` に集め、ハンドルの並びの項目と組にして後で置く
 fn dictionary(bits: &mut Bits, entries: &mut Vec<Vec<u8>>) -> Option<Vec<Value>> {
     let count = bits.bl()?;
@@ -1738,7 +1738,7 @@ fn dictionary(bits: &mut Bits, entries: &mut Vec<Vec<u8>>) -> Option<Vec<Value>>
     Some(values)
 }
 
-/// XRECORD の欄（ODS 5.4.1 の 20.4.89、R2000。文字列は R2007 から UTF-16LE）。複製の扱い（280）を DXF と同じく先に置き、
+/// XRECORD のフィールド（ODS 5.4.1 の 20.4.89、R2000。文字列は R2007 から UTF-16LE）。複製の扱い（280）を DXF と同じく先に置き、
 /// 続けてデータの値を置く。データは、グループ・コード（RS）と、コードの型で決まる値の並びで、
 /// 記録されたバイト数をちょうど読み切らなければ読めないとする
 fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
@@ -1781,7 +1781,7 @@ fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
                     data: Data::Binary(raw_bytes(bits, len)?),
                 });
             }
-            // R2007 から（読める版では R2010 から）は、RS の文字の数と UTF-16LE。コード・ページを持たない
+            // R2007 から（読めるバージョンでは R2010 から）は、RS の文字の数と UTF-16LE。コード・ページを持たない
             DataType::Text if bits.release() >= Release::R2010 => {
                 let len = usize::try_from(bits.rs()?).ok()?;
                 let units: Vec<u16> = raw_bytes(bits, len.checked_mul(2)?)?
@@ -1811,12 +1811,12 @@ fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// 表のレコードの共通の欄（名前 2・参照される印・外部参照の番号・外部参照に依る印）と、
-/// LAYER・STYLE・LTYPE の欄（ODS 5.4.1、R2000）。外部参照に依る印は、DXF と同じく 70 の 16 とする。
+/// 表のレコードの共通のフィールド（名前 2・参照されるフラグ・外部参照の番号・外部参照に依るフラグ）と、
+/// LAYER・STYLE・LTYPE のフィールド（ODS 5.4.1、R2000）。外部参照に依るフラグは、DXF と同じく 70 の 16 とする。
 /// ハンドルの並びは、外部参照のブロックの後に型ごとのハンドルが続く
 fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     let name = bits.text()?;
-    // 参照される印（64）は、DXF に書かれないので置かない。外部参照の番号は、R2010 の図面には
+    // 参照されるフラグ（64）は、DXF に書かれないので置かない。外部参照の番号は、R2010 の図面には
     // ない（図面で確かめた）
     bits.bit()?;
     if bits.release() < Release::R2010 {
@@ -1868,7 +1868,7 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             }
         }
         STYLE => {
-            // 形のファイルの印（70 の 1）と、縦書きの印（70 の 4）
+            // 形のファイルのフラグ（70 の 1）と、縦書きのフラグ（70 の 4）
             let shape = bits.bit()?;
             let vertical = bits.bit()?;
             let flags = xdep | if shape { 1 } else { 0 } | if vertical { 4 } else { 0 };
@@ -1908,7 +1908,7 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             } else {
                 Vec::new()
             };
-            // DWG の 8 は文字の要素に付く印で、R2013 より前の DXF には書かれない
+            // DWG の 8 は文字の要素に付くフラグで、R2013 より前の DXF には書かれない
             let mask = if bits.release() >= Release::R2013 {
                 15
             } else {
@@ -1917,8 +1917,8 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             for (dash, shape, x, y, scale, rotation, flags) in dashes {
                 values.push(real(49, dash));
                 values.push(int(74, i64::from(flags & mask)));
-                // 要素ごとに、形のファイルの文字の体裁のハンドル（340）を持つ。形も文字もない要素の
-                // ハンドルは置かない。DXF と同じく形の番号（75）の後に置くので、ハンドルの流れを読むまで
+                // 要素ごとに、形のファイルの文字スタイルのハンドル（340）を持つ。形も文字もない要素の
+                // ハンドルは置かない。DXF と同じく形の番号（75）の後に置くので、ハンドルのストリームを読むまで
                 // 仮の値（`SLOT`）を置く
                 if flags & 6 == 0 {
                     handles.push(0);
@@ -1980,7 +1980,7 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 handles.extend([345, 346, 347]);
             }
         }
-        // BLOCK_RECORD の印・基点・外部参照のパス・説明は、DXF では BLOCK に書かれる。ここで読んで、
+        // BLOCK_RECORD のフラグ・基点・外部参照のパス・説明は、DXF では BLOCK に書かれる。ここで読んで、
         // 表を作るときに BLOCK へ移す（BLOCK_FIELDS）
         BLOCK_RECORD => {
             // 名前のない 1・属性の定義を持つ 2・外部参照 4・重ねる外部参照 8 と、読み込んだ外部参照（32）
@@ -2008,9 +2008,9 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             if !description.is_empty() {
                 values.push(text_value(4, &description));
             }
-            // R2000 からは、絵の大きさ（BL）と絵のバイト列が続き、R2007 から（読める版では R2010 から）は、挿入の単位（BS）・
+            // R2000 からは、絵の大きさ（BL）と絵のバイト列が続き、R2007 から（読めるバージョンでは R2010 から）は、挿入の単位（BS）・
             // 分解できるか（B）・縮尺を揃えるか（RC）が続く（ODS の BLOCK_HEADER の節）。挿入の単位は、
-            // DXF と同じく BLOCK_RECORD の 70 に置く。印の 70 より後に置くので、BLOCK へは移らない
+            // DXF と同じく BLOCK_RECORD の 70 に置く。フラグの 70 より後に置くので、BLOCK へは移らない
             if bits.release() >= Release::R2000 {
                 let size = usize::try_from(bits.bl()?).ok()?;
                 bits.skip_bytes(size)?;
@@ -2032,7 +2032,7 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
     Some(values)
 }
 
-/// VIEW・VPORT の見え方の印（71）。4 つのビットは、透視（1）・前の切り取り（2）・後ろの切り取り（4）・
+/// VIEW・VPORT の見え方のフラグ（71）。4 つのビットは、透視（1）・前の切り取り（2）・後ろの切り取り（4）・
 /// 前の切り取りが目の位置にあること（DXF の 16 の逆）の順
 fn view_mode(bits: &mut Bits) -> Option<i64> {
     let mut mode = 0;
@@ -2047,11 +2047,11 @@ fn view_mode(bits: &mut Bits) -> Option<i64> {
     Some(mode)
 }
 
-/// VIEW の欄（ODS 5.4.1 の VIEW の節、R2000）。高さ（40）・中心（10）・幅（41）・向き（11）・
-/// 注視点（12）・レンズ（42）・切り取り（43・44）・ねじれ（50、度に直す）・見え方の印（71）・
-/// 描き方（281）と、UCS を伴う印（72）を置く。UCS を伴うときは、UCS の原点と軸（110〜112）・
+/// VIEW のフィールド（ODS 5.4.1 の VIEW の節、R2000）。高さ（40）・中心（10）・幅（41）・向き（11）・
+/// 注視点（12）・レンズ（42）・切り取り（43・44）・ねじれ（50、度に直す）・見え方のフラグ（71）・
+/// 描き方（281）と、UCS を伴うフラグ（72）を置く。UCS を伴うときは、UCS の原点と軸（110〜112）・
 /// 正投影の種類（79）・高さ（146）も置き、ハンドルの並びでは基準の UCS（346）と名前の UCS（345）が続く。
-/// 紙空間の印は、70 の 1 とする
+/// 紙空間のフラグは、70 の 1 とする
 pub(super) fn view(bits: &mut Bits, xdep: i64, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     let height = bits.bd()?;
     let width = bits.bd()?;
@@ -2103,7 +2103,7 @@ pub(super) fn view(bits: &mut Bits, xdep: i64, handles: &mut Vec<i16>) -> Option
     Some(values)
 }
 
-/// UCS の欄（ODS 5.4.1 の UCS の節、R2000）。原点（10）・X 軸（11）・Y 軸（12）・正投影の種類（79）・
+/// UCS のフィールド（ODS 5.4.1 の UCS の節、R2000）。原点（10）・X 軸（11）・Y 軸（12）・正投影の種類（79）・
 /// 高さ（146）を置く。後に続く正投影の型（BS）は、DXF の 71 と 13 の組と並びが合わないので置かない
 fn ucs(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
@@ -2116,8 +2116,8 @@ fn ucs(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// VPORT の欄（ODS 5.4.1 の VPORT の節、R2000）。DWG は幅を高さとの積で持つので、DXF と同じく
-/// 高さとの比（41）に直す。UCS に従う印は、見え方の印（71）の 8 とする
+/// VPORT のフィールド（ODS 5.4.1 の VPORT の節、R2000）。DWG は幅を高さとの積で持つので、DXF と同じく
+/// 高さとの比（41）に直す。UCS に従うフラグは、見え方のフラグ（71）の 8 とする
 pub(super) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
     let height = bits.bd()?;
     let width = bits.bd()?;
@@ -2128,7 +2128,7 @@ pub(super) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
     let (lens, front, back) = (bits.bd()?, bits.bd()?, bits.bd()?);
     let mode = view_mode(bits)?;
     let render = bits.rc()?;
-    // R2010 からは、VIEW と同じく照明の欄が続く（図面で確かめた、決定 0096）
+    // R2010 からは、VIEW と同じく照明のフィールドが続く（図面で確かめた、決定 0096）
     if bits.release() >= Release::R2010 {
         bits.bit()?;
         bits.rc()?;
@@ -2172,7 +2172,7 @@ pub(super) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
         int(78, i64::from(isopair)),
         int(281, i64::from(render)),
     ]);
-    // 使い道の分からない B の後に、ビューポートごとの UCS の印が続く
+    // 使い道の分からない B の後に、ビューポートごとの UCS のフラグが続く
     bits.bit()?;
     values.push(int(65, i64::from(bits.bit()?)));
     for code in [110, 111, 112] {
@@ -2184,7 +2184,7 @@ pub(super) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// DIMSTYLE の欄の読み方
+/// DIMSTYLE のフィールドの読み方
 #[derive(Clone, Copy)]
 pub(super) enum Dim {
     Text,
@@ -2195,7 +2195,7 @@ pub(super) enum Dim {
     Color(i16),
 }
 
-/// DIMSTYLE の欄（ODS 5.4.1 の DIMSTYLE の節、R2000）の、DWG での並びと、グループ・コードと、
+/// DIMSTYLE のフィールド（ODS 5.4.1 の DIMSTYLE の節、R2000）の、DWG での並びと、グループ・コードと、
 /// DXF が書かない既定の値
 pub(super) const DIM_FIELDS: [(i16, Dim); 59] = {
     use Dim::{Bit, Color, Real, Short, Text};
@@ -2262,9 +2262,9 @@ pub(super) const DIM_FIELDS: [(i16, Dim); 59] = {
     ]
 };
 
-/// 版 `release` の DIMSTYLE の欄の並び。コードが 0 の欄は、DXF に書かれない
+/// バージョン `release` の DIMSTYLE のフィールドの並び。コードが 0 のフィールドは、DXF に書かれない
 pub(super) fn dim_fields(release: Release) -> Vec<(i16, Dim)> {
-    // R2010 からは、見出しの変数と同じく、DIMTM（48）の後に DIMFXL・DIMJOGANG・DIMTFILL・
+    // R2010 からは、ヘッダーの変数と同じく、DIMTM（48）の後に DIMFXL・DIMJOGANG・DIMTFILL・
     // DIMTFILLCLR、DIMAZIN（79）の後に DIMARCSYM、DIMATFIT（289）の後に DIMFXLON・
     // DIMTXTDIRECTION・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が入る（図面で確かめた）
     let added: &[(i16, &[(i16, Dim)])] = if release >= Release::R2010 {
@@ -2307,11 +2307,11 @@ pub(super) fn dim_fields(release: Release) -> Vec<(i16, Dim)> {
         .collect()
 }
 
-/// DIMSTYLE の欄。DXF と同じく、既定の値と同じ欄は置かない
+/// DIMSTYLE のフィールド。DXF と同じく、既定の値と同じフィールドは置かない
 fn dimstyle(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = Vec::new();
     for (code, field) in dim_fields(bits.release()) {
-        // コードが 0 の欄は、DXF に書かれないので読み飛ばす
+        // コードが 0 のフィールドは、DXF に書かれないので読み飛ばす
         if code == 0 {
             match field {
                 Dim::Text => bits.text().map(drop)?,
@@ -2369,7 +2369,7 @@ fn lineweight(index: u16) -> Option<i64> {
     }
 }
 
-/// GROUP の欄（ODS 5.4.1 の GROUP の節、R2000）。説明（300）・名前のない印（70）・選べる印（71）を置く。
+/// GROUP のフィールド（ODS 5.4.1 の GROUP の節、R2000）。説明（300）・名前のないフラグ（70）・選べるフラグ（71）を置く。
 /// 図形の数だけ、ハンドルの並びの図形（340）を後で置く
 fn group(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     let values = vec![
@@ -2384,7 +2384,7 @@ fn group(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// SCALE の欄（クラスで決まる型）。名前（300）・紙の単位（140）・図面の単位（141）・単位の尺度の印（290）
+/// SCALE のフィールド（クラスで決まる型）。名前（300）・紙の単位（140）・図面の単位（141）・単位の尺度のフラグ（290）
 fn scale(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(vec![
         int(70, i64::from(bits.bs()?)),
@@ -2398,8 +2398,8 @@ fn scale(bits: &mut Bits) -> Option<Vec<Value>> {
     ])
 }
 
-/// IMAGE の欄（ODS 5.4.1 の 20.4.80。クラスで決まる型）。DXF と同じく、切り抜きの境界が矩形（71 = 1）でも、
-/// 頂点の数（91 = 2）を置く。画像の定義と反応子のハンドルは、ハンドルの流れで読む
+/// IMAGE のフィールド（ODS 5.4.1 の 20.4.80。クラスで決まる型）。DXF と同じく、切り抜きの境界が矩形（71 = 1）でも、
+/// 頂点の数（91 = 2）を置く。画像の定義とリアクターのハンドルは、ハンドルのストリームで読む
 fn image(bits: &mut Bits, release: Release) -> Option<Vec<Value>> {
     let mut values = vec![int(90, i64::from(bits.bl()?))];
     values.extend(point3(bits, 10)?);
@@ -2430,7 +2430,7 @@ fn image(bits: &mut Bits, release: Release) -> Option<Vec<Value>> {
 /// データの中のハンドルの仮の値の始まり。`SLOT + n` は、データの n 番目のハンドル
 const SLOT: u64 = 1 << 63;
 
-/// データの中にハンドルを持つ型（MULTILEADER・ACAD_TABLE）の欄を読む助け。データの中のハンドルを数える
+/// データの中にハンドルを持つ型（MULTILEADER・ACAD_TABLE）のフィールドを読む助け。データの中のハンドルを数える
 struct Slotted<'b, 'a> {
     bits: &'b mut Bits<'a>,
     slots: &'b mut u64,
@@ -2448,7 +2448,7 @@ impl Slotted<'_, '_> {
 
     /// CMC の色を、DXF と同じく RGB の値（BL）で置く。番号だけを持つ R2000 は、DXF と同じく、ByLayer（256）を
     /// 0xC0000000、ByBlock（0）を 0xC1000000、ほかの番号を 0xC3000000 に番号を足した値に直す（ByLayer と
-    /// ByBlock は試料の DWG と DXF で確かめた）
+    /// ByBlock はサンプルの DWG と DXF で確かめた）
     fn color(&mut self, code: i16) -> Option<Value> {
         let index = self.bits.bs()?;
         if self.bits.release() < Release::R2004 {
@@ -2470,7 +2470,7 @@ impl Slotted<'_, '_> {
         Some(int(code, i64::from(rgb)))
     }
 
-    /// ACAD_TABLE の CMC の色を、DXF と同じく色の番号で置く。版に依らず R2004 からの形で読む
+    /// ACAD_TABLE の CMC の色を、DXF と同じく色の番号で置く。バージョンに依らず R2004 からの形で読む
     fn table_color(&mut self, code: i16) -> Option<Value> {
         Some(int(code, i64::from(self.bits.cmc_r2004()?.index)))
     }
@@ -2518,10 +2518,10 @@ impl Slotted<'_, '_> {
     }
 }
 
-/// MULTILEADER の欄（ODS 5.4.1 の 20.4.48 と、注記の文脈の 20.4.86。クラスで決まる型）。DXF と同じく、文脈を
-/// 300〜301 の区切りに置き、枝（302〜303）と線（304〜305）を、文脈の内容の後に置く（DWG では内容の前にある）。
-/// 文脈が文字を持つときも、DXF と同じく記号を持つ印（296）を偽で置く。線ごとの上書きの欄は、DXF と同じく上書きの
-/// 印（93）が立つものだけを置く。2 つの欄を持つ文脈と図形の上と下の寄せ方は、DWG では上・下の順だが、DXF の
+/// MULTILEADER のフィールド（ODS 5.4.1 の 20.4.48 と、注記の文脈の 20.4.86。クラスで決まる型）。DXF と同じく、文脈を
+/// 300〜301 のセクションに置き、枝（302〜303）と線（304〜305）を、文脈の内容の後に置く（DWG では内容の前にある）。
+/// 文脈が文字を持つときも、DXF と同じく記号を持つフラグ（296）を偽で置く。線ごとの上書きのフィールドは、DXF と同じく上書きの
+/// フラグ（93）が立つものだけを置く。2 つのフィールドを持つ文脈と図形の上と下の寄せ方は、DWG では上・下の順だが、DXF の
 /// 下（272）・上（273）の順に置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）。`reals` が
 /// あれば、実数のビットの範囲を足し、実数の値の代わりにその番号を置く（書き戻しが使う。決定 0191）
 pub(super) fn multileader(
@@ -2580,7 +2580,7 @@ pub(super) fn multileader(
                 ];
                 let flags = r.bits.bl()?;
                 for (bit, value) in overrides.into_iter().enumerate() {
-                    // 置かないハンドルも、仮の値を数えたので、ハンドルの流れからは読む
+                    // 置かないハンドルも、仮の値を数えたので、ハンドルのストリームからは読む
                     if (flags >> bit) & 1 != 0 {
                         leaders.push(value);
                     }
@@ -2662,7 +2662,7 @@ pub(super) fn multileader(
         values.extend([r.bs(272)?, top]);
     }
     values.push(text_value(301, b"}"));
-    // 図形の欄
+    // 図形のフィールド
     let style = r.handle();
     values.push(Value {
         code: 340,
@@ -2696,7 +2696,7 @@ pub(super) fn multileader(
     values.push(r.color(93)?);
     values.extend(r.point(10)?);
     values.extend([r.bd(43)?, r.bs(176)?, r.flag(293)?]);
-    // 矢印は R2007 までだけが持つ（R2010 からは線ごとに持つ。試料の DWG で、数が 1 つだけなことを確かめた）
+    // 矢印は R2007 までだけが持つ（R2010 からは線ごとに持つ。サンプルの DWG で、数が 1 つだけなことを確かめた）
     let arrows = if r2010 { 0 } else { r.count()? };
     for _ in 0..arrows {
         values.push(r.flag(94)?);
@@ -2727,16 +2727,16 @@ pub(super) fn multileader(
     Some(values)
 }
 
-/// ACAD_TABLE の欄（ODS 5.4.1 の 20.4.96.1。クラスで決まる型。R2004 まで）。INSERT の欄に続けて、表の欄を
-/// DXF と同じ並び（表のスタイル（342）・横の向き（11）・印（90）・行と列の数（91・92）・表の上書き・行の高さ
+/// ACAD_TABLE のフィールド（ODS 5.4.1 の 20.4.96.1。クラスで決まる型。R2004 まで）。INSERT のフィールドに続けて、表のフィールドを
+/// DXF と同じ並び（表のスタイル（342）・横の向き（11）・フラグ（90）・行と列の数（91・92）・表の上書き・行の高さ
 /// （141）・列の幅（142）・セル）で置く。ブロック（2）は、名前に直して値の終わりに置く。セルの文字は、DXF と
 /// 同じく 250 バイトずつの 2 と、残りの 1 に分ける。枠の線幅と表示の上書きは、DXF のグループ・コードが
-/// 分からないので、印（95・96）だけを置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）
+/// 分からないので、フラグ（95・96）だけを置く。データの中のハンドルは、仮の値で置く（`slots` にその数を足す）
 fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value>> {
     let mut values = insert(bits, false)?;
     let attribs = values.iter().any(|v| v.code == 66);
     values.retain(|v| v.code != 66);
-    // R2004 からは、属性を持つときだけ、持つオブジェクトの数（BL）が続く（試料の DWG で確かめた）
+    // R2004 からは、属性を持つときだけ、持つオブジェクトの数（BL）が続く（サンプルの DWG で確かめた）
     let owned = if attribs && release >= Release::R2004 {
         bits.bl()?
     } else {
@@ -2747,7 +2747,7 @@ fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value
         slots,
         reals: None,
     };
-    // ハンドルの流れ: ブロック・属性（R2000 は最初と最後、R2004 は持つ数だけ）・SEQEND・表のスタイル・セル
+    // ハンドルのストリーム: ブロック・属性（R2000 は最初と最後、R2004 は持つ数だけ）・SEQEND・表のスタイル・セル
     let block = r.handle();
     values.push(Value {
         code: 2,
@@ -2806,7 +2806,7 @@ fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value
             values.push(r.bd(41)?);
         }
         // 表題・見出し・データの行の上書き。DWG はこの順に持ち、DXF はデータ・表題・見出しの順に書く（推定。
-        // 試料では、見出しとデータの行の値が同じ）
+        // サンプルでは、ヘッダーとデータの行の値が同じ）
         let mut rows = |bits: [i32; 3], read: &mut dyn FnMut(&mut Slotted) -> Option<Value>| {
             let mut found: [Option<Value>; 3] = [None, None, None];
             for (slot, bit) in found.iter_mut().zip(bits) {
@@ -2860,7 +2860,7 @@ fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value
     Some(values)
 }
 
-/// R2010 からの ACAD_TABLE の欄（ODS 5.4.1 の 20.4.96.2 と、20.4.97 の TABLECONTENT）。
+/// R2010 からの ACAD_TABLE のフィールド（ODS 5.4.1 の 20.4.96.2 と、20.4.97 の TABLECONTENT）。
 fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value>> {
     let mut values = insert(bits, false)?;
     let attribs = values.iter().any(|v| v.code == 66);
@@ -2878,7 +2878,7 @@ fn table_content(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<V
     if attribs {
         r.handle();
     }
-    // 20.4.96.2 の意味の分からない欄
+    // 20.4.96.2 の意味の分からないフィールド
     r.bits.rc()?;
     r.handle();
     r.bits.bl()?;
@@ -3038,7 +3038,7 @@ fn custom_data(r: &mut Slotted) -> Option<()> {
 }
 
 /// 表の値（ODS 5.4.1 の 20.4.99、R2007 から）。DXF の 301 `CELL_VALUE` から 304 `ACVALUE_END` までの間と同じく、
-/// 印（93）・型（90）・値・単位（94）・書式（300）・表示する文字（302）を並べる。値は、整数（1）を 91、実数（2）を
+/// フラグ（93）・型（90）・値・単位（94）・書式（300）・表示する文字（302）を並べる。値は、整数（1）を 91、実数（2）を
 /// 140、文字列（4）を 1、日時（8）を大きさ（92）とバイト列（310）、点（16・32）を 11・21・31 に置く。ほかの型の値は
 /// 置かない
 fn table_value(r: &mut Slotted) -> Option<Vec<Value>> {
@@ -3052,7 +3052,7 @@ fn table_value(r: &mut Slotted) -> Option<Vec<Value>> {
             }
             1 => values.push(int(91, i64::from(r.bits.bl()?))),
             2 => values.push(real(140, r.bits.bd()?)),
-            // 文字列も、文字列の流れでなく、本体に大きさと UTF-16 の並びで持つ
+            // 文字列も、文字列のストリームでなく、本体に大きさと UTF-16 の並びで持つ
             4 | 8 | 16 | 32 | 512 => {
                 let size = usize::try_from(r.bits.bl()?).ok()?;
                 let bytes = raw_bytes(r.bits, size)?;
@@ -3142,9 +3142,9 @@ fn cell_style(r: &mut Slotted) -> Option<()> {
     Some(())
 }
 
-/// ACAD_TABLE のセルの欄（ODS 5.4.1 の 20.4.96.1）。種類（171）が 1 なら文字（2 と 1）、2 ならブロック（340）と、
-/// 属性の定義（331）と文字（300）を持つ。セルのハンドルは、セルの順に、内容・属性の定義・文字の体裁と読む
-/// （推定。試料にあるのは、文字の体裁を上書きしない文字のセルだけ）
+/// ACAD_TABLE のセルのフィールド（ODS 5.4.1 の 20.4.96.1）。種類（171）が 1 なら文字（2 と 1）、2 ならブロック（340）と、
+/// 属性の定義（331）と文字（300）を持つ。セルのハンドルは、セルの順に、内容・属性の定義・文字スタイルと読む
+/// （推定。サンプルにあるのは、文字スタイルを上書きしない文字のセルだけ）
 fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
     let kind = r.bits.bs()?;
     cells.push(int(171, i64::from(kind)));
@@ -3193,7 +3193,7 @@ fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
     }
     if r.bits.bit()? {
         let flags = r.bits.bl()?;
-        // DXF は、印の下位の 16 ビットを符号つきで書く
+        // DXF は、フラグの下位の 16 ビットを符号つきで書く
         cells.push(int(177, i64::from(flags as i16)));
         cells.push(int(178, i64::from(r.bits.rc()?)));
         let set = |bit: i32| flags & bit != 0;
@@ -3219,7 +3219,7 @@ fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
         if set(0x20) {
             cells.push(r.bd(140)?);
         }
-        // 枠の上・右・下・左の、色・線幅・表示。表示は、DXF が書かないので置かない（印が立っても、試料の DXF
+        // 枠の上・右・下・左の、色・線幅・表示。表示は、DXF が書かないので置かない（フラグが立っても、サンプルの DXF
         // にはない）
         for (color, weight, shift) in [(69, 279, 0), (65, 275, 1), (66, 276, 2), (68, 278, 3)] {
             if set(0x40 << shift) {
@@ -3239,8 +3239,8 @@ fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
     Some(())
 }
 
-/// IMAGEDEF の欄（ODS 5.4.1 の 20.4.81。クラスで決まる型）。DXF の順に、版（90）・ファイルの場所（1）・
-/// 画素の数（10）・1 画素の大きさ（11）・読み込んだ印（280）・解像度の単位（281）を置く
+/// IMAGEDEF のフィールド（ODS 5.4.1 の 20.4.81。クラスで決まる型）。DXF の順に、バージョン（90）・ファイルの場所（1）・
+/// 画素の数（10）・1 画素の大きさ（11）・読み込んだフラグ（280）・解像度の単位（281）を置く
 fn imagedef(bits: &mut Bits) -> Option<Vec<Value>> {
     let version = int(90, i64::from(bits.bl()?));
     let size = point2(bits, 10)?;
@@ -3255,7 +3255,7 @@ fn imagedef(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// SPATIAL_FILTER の欄（ODS 5.4.1 の SPATIAL_FILTER の節、決定 0149）。DXF と同じく、境界の点の数（70）・点（10・20）・
+/// SPATIAL_FILTER のフィールド（ODS 5.4.1 の SPATIAL_FILTER の節、決定 0149）。DXF と同じく、境界の点の数（70）・点（10・20）・
 /// 押し出しの向き（210〜230）・境界の原点（11〜31）・境界を表示するか（71）・前と後ろで切るか（72・73）と、
 /// 切るならその距離（40・41）、挿入の逆の変換と境界の変換の 12 ずつの値（40）の順に置く
 fn spatial_filter(bits: &mut Bits) -> Option<Vec<Value>> {
@@ -3280,8 +3280,8 @@ fn spatial_filter(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// LAYOUT の欄（ODS 5.4.1 の LAYOUT の節）。印刷の設定の欄に続けて、レイアウトの欄を置く。R2004 からは、
-/// 印刷の設定に陰影の印刷の欄（76〜78）が加わり、レイアウトの欄の後にビューポートの数が続く（決定 0082）
+/// LAYOUT のフィールド（ODS 5.4.1 の LAYOUT の節）。印刷の設定のフィールドに続けて、レイアウトのフィールドを置く。R2004 からは、
+/// 印刷の設定に陰影の印刷のフィールド（76〜78）が加わり、レイアウトのフィールドの後にビューポートの数が続く（決定 0082）
 fn layout(bits: &mut Bits, release: Release, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     let r2004 = release >= Release::R2004;
     // R2004 からは、印刷するビューの名前（6）の代わりに、そのハンドルを持つ。値には置かない
@@ -3325,7 +3325,7 @@ fn layout(bits: &mut Bits, release: Release, handles: &mut Vec<i16>) -> Option<V
             values.push(int(code, i64::from(bits.bs()?)));
         }
     }
-    // レイアウトの欄
+    // レイアウトのフィールド
     values.push(text_value(1, &bits.text()?));
     values.push(int(71, i64::from(bits.bs()?)));
     values.push(int(70, i64::from(bits.bs()?)));
@@ -3340,7 +3340,7 @@ fn layout(bits: &mut Bits, release: Release, handles: &mut Vec<i16>) -> Option<V
     values.extend(point3(bits, 14)?);
     values.extend(point3(bits, 15)?);
     if r2004 {
-        // ビューポートの数。ODS は RL とするが、試料の図面では BL だった。ビューポートのハンドルは置かない
+        // ビューポートの数。ODS は RL とするが、サンプルの図面では BL だった。ビューポートのハンドルは置かない
         for _ in 0..bits.bl()? {
             handles.push(0);
         }
@@ -3353,7 +3353,7 @@ fn raw_bytes(bits: &mut Bits, n: usize) -> Option<Vec<u8>> {
     (0..n).map(|_| bits.rc()).collect()
 }
 
-/// INSERT の欄（ODS 5.4.1 の 20.4.9、R2000）。挿入点はいつも置き、尺度（41・42・43）・回転（50）・
+/// INSERT のフィールド（ODS 5.4.1 の 20.4.9、R2000）。挿入点はいつも置き、尺度（41・42・43）・回転（50）・
 /// 押し出しの向き（210・220・230）は既定の値でなければ、属性が続くこと（66）は続くときだけ置く。
 /// MINSERT（`grid`）は、列と行の数（70・71）と間隔（44・45）も、既定の値（1・1・0・0）でなければ置く
 fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
@@ -3388,8 +3388,8 @@ fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
         values.push(int(66, 1));
     }
     if grid {
-        // R2004 からは、属性を持つときだけ、列と行の欄の前に持つオブジェクトの数（BL）が入る（ODS 5.4.1 の
-        // 20.4.9）。INSERT では欄の終わりに入るので読まない
+        // R2004 からは、属性を持つときだけ、列と行のフィールドの前に持つオブジェクトの数（BL）が入る（ODS 5.4.1 の
+        // 20.4.9）。INSERT ではフィールドの終わりに入るので読まない
         if attribs && bits.release() >= Release::R2004 {
             bits.bl()?;
         }
@@ -3409,7 +3409,7 @@ fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// MTEXT の欄（ODS 5.4.1 の 20.4.46、R2000）。文字列は DXF と同じく、250 バイトずつの 3 と、残りの 1 に
+/// MTEXT のフィールド（ODS 5.4.1 の 20.4.46、R2000）。文字列は DXF と同じく、250 バイトずつの 3 と、残りの 1 に
 /// 分けて置く。X 軸の向き（11・21・31）と押し出しの向きは既定の値でなければ置く。文字の範囲の大きさは
 /// DXF にないので置かない
 fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
@@ -3444,8 +3444,8 @@ fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     values.push(int(73, i64::from(bits.bs()?)));
     values.push(real(44, bits.bd()?));
     bits.bit()?;
-    // R2004 からは背景の欄が続く。印（90）の 1 は、背景の大きさの倍率（45）・色（63）・透明度（441）が
-    // 続くことを表す。DXF と同じく、印が 0 でなければ置く
+    // R2004 からは背景のフィールドが続く。フラグ（90）の 1 は、背景の大きさの倍率（45）・色（63）・透明度（441）が
+    // 続くことを表す。DXF と同じく、フラグが 0 でなければ置く
     if bits.release() >= Release::R2004 {
         let background = bits.bl()?;
         if background != 0 {
@@ -3471,9 +3471,9 @@ fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// R2018 からの MTEXT の、背景の欄の後の欄を読み飛ばす。注釈でないか（B）・版（BS）・既定か（B）・
+/// R2018 からの MTEXT の、背景のフィールドの後のフィールドを読み飛ばす。注釈でないか（B）・バージョン（BS）・既定か（B）・
 /// 寄せ方（BL）・X 軸の向き・挿入点・幅と高さと範囲の幅と高さ（BD）・段組みの種類（BL）の順（図面で
-/// 確かめた）。段組みのある欄は、まだ確かめていないので読まない
+/// 確かめた）。段組みのあるフィールドは、まだ確かめていないので読まない
 fn mtext_columns(bits: &mut Bits) -> Option<()> {
     bits.bit()?;
     bits.bs()?;
@@ -3487,11 +3487,11 @@ fn mtext_columns(bits: &mut Bits) -> Option<()> {
     (bits.bl()? == 0).then_some(())
 }
 
-/// R2018 からの MTEXT の、背景の欄の後の欄。並びは [`mtext_columns`] と同じで、寄せ方（BL）は DXF の 70、
+/// R2018 からの MTEXT の、背景のフィールドの後のフィールド。並びは [`mtext_columns`] と同じで、寄せ方（BL）は DXF の 70、
 /// 2 つの点は 10・11、4 つの BD は 40 から 43 にあたる。段組みの種類（BL、DXF の
 /// 71）が 0 でなければ、高さの数（BL、72）・段の幅（BD、44）・段の間隔（BD、45）・高さを自動で決めるか
 /// （B、73）・逆に流すか（B、74）と、自動でない手動の段組み（種類 2）なら段ごとの高さ（BD、46）が続く
-/// （図面で確かめた）。DXF と同じく、段組みがあれば埋め込みのオブジェクトの印（101）の後に置き、なければ
+/// （図面で確かめた）。DXF と同じく、段組みがあれば埋め込みのオブジェクトのマーカー（101）の後に置き、なければ
 /// 何も置かない。段ごとの高さは、同じ図面の DXF が 0.0 と書く所に負の値を持つことがあるが、DWG の値を
 /// そのまま置く（docs/formats/dwg.md）
 fn mtext_embedded(bits: &mut Bits) -> Option<Vec<Value>> {
@@ -3544,7 +3544,7 @@ fn reals(values: &[Value]) -> Vec<Option<f64>> {
         .collect()
 }
 
-/// LINE の欄（ODS 5.4.1 の 20.4.17）。端点はいつも置き、厚さと押し出しの向きは既定でなければ置く
+/// LINE のフィールド（ODS 5.4.1 の 20.4.17）。端点はいつも置き、厚さと押し出しの向きは既定でなければ置く
 fn line(bits: &mut Bits) -> Option<Vec<Value>> {
     let flat = bits.bit()?;
     let start_x = bits.rd()?;
@@ -3569,7 +3569,7 @@ fn line(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// CIRCLE の欄（ODS 5.4.1 の 20.4.20）。中心と半径
+/// CIRCLE のフィールド（ODS 5.4.1 の 20.4.20）。中心と半径
 fn circle(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     values.push(real(40, bits.bd()?));
@@ -3577,7 +3577,7 @@ fn circle(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// ARC の欄（ODS 5.4.1 の 20.4.18）。CIRCLE の欄と、始まりと終わりの角度。DWG はラジアン、
+/// ARC のフィールド（ODS 5.4.1 の 20.4.18）。CIRCLE のフィールドと、始まりと終わりの角度。DWG はラジアン、
 /// DXF は度で書くので、度に直す
 fn arc(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = circle(bits)?;
@@ -3586,7 +3586,7 @@ fn arc(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// POINT の欄（ODS 5.4.1 の 20.4.31）。X 軸の角度（50）は 0 でなければ度に直して置く
+/// POINT のフィールド（ODS 5.4.1 の 20.4.31）。X 軸の角度（50）は 0 でなければ度に直して置く
 fn point(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     thickness_and_extrusion(bits, &mut values)?;
@@ -3597,7 +3597,7 @@ fn point(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// SOLID・TRACE の欄（ODS 5.4.1 の 20.4.35・20.4.36）。4 つの角の Z（30〜33）は標高とする
+/// SOLID・TRACE のフィールド（ODS 5.4.1 の 20.4.35・20.4.36）。4 つの角の Z（30〜33）は標高とする
 fn solid(bits: &mut Bits) -> Option<Vec<Value>> {
     let thickness = if bits.bit()? { None } else { Some(bits.bd()?) };
     let elevation = bits.bd()?;
@@ -3616,8 +3616,8 @@ fn solid(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// 3DFACE の欄（ODS 5.4.1 の 20.4.32、R2000）。2 つ目からの角は、前の角を既定の値とする DD。
-/// 見えない辺の印（70）は、記録されていて 0 でなければ置く
+/// 3DFACE のフィールド（ODS 5.4.1 の 20.4.32、R2000）。2 つ目からの角は、前の角を既定の値とする DD。
+/// 見えない辺のフラグ（70）は、記録されていて 0 でなければ置く
 fn face3d(bits: &mut Bits) -> Option<Vec<Value>> {
     let no_flags = bits.bit()?;
     let z_is_zero = bits.bit()?;
@@ -3644,9 +3644,9 @@ fn face3d(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// SHAPE の欄（ODS 5.4.1 の 20.4.33）。挿入点（10）と大きさ（40）を置き、回転（50）・幅の係数（41）・
+/// SHAPE のフィールド（ODS 5.4.1 の 20.4.33）。挿入点（10）と大きさ（40）を置き、回転（50）・幅の係数（41）・
 /// 傾き（51）・厚さ（39）・押し出しの向きは既定の値でなければ置く。角度は度に直す。DXF の形の名前（2）は、
-/// DWG では形の番号と形のファイル（文字の体裁）で記録され、名前はファイルの中にあるので、まだ置かない
+/// DWG では形の番号と形のファイル（文字スタイル）で記録され、名前はファイルの中にあるので、まだ置かない
 fn shape(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     values.push(real(40, bits.bd()?));
@@ -3669,7 +3669,7 @@ fn shape(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// ELLIPSE の欄（ODS 5.4.1 の 20.4.39）。始まりと終わりの角度（41・42）は、DXF も
+/// ELLIPSE のフィールド（ODS 5.4.1 の 20.4.39）。始まりと終わりの角度（41・42）は、DXF も
 /// ラジアンで書くのでそのまま置く。押し出しの向きは既定の値でなければ置く
 fn ellipse(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
@@ -3684,15 +3684,15 @@ fn ellipse(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// RAY・XLINE の欄（ODS 5.4.1 の 20.4.42・20.4.43）。始まりの点と向き
+/// RAY・XLINE のフィールド（ODS 5.4.1 の 20.4.42・20.4.43）。始まりの点と向き
 fn ray(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     values.extend(point3(bits, 11)?);
     Some(values)
 }
 
-/// LWPOLYLINE の欄（ODS 5.4.1 の 20.4.85、R2000）。DWG の印のうち、閉じていること（0x200）を DXF の 70 の
-/// 1 に、線種の生成（0x100）を 128 に直す。ほかの印は、続く欄があるかを表す。DXF と同じく、頂点ごとの幅がなければ
+/// LWPOLYLINE のフィールド（ODS 5.4.1 の 20.4.85、R2000）。DWG のフラグのうち、閉じていること（0x200）を DXF の 70 の
+/// 1 に、線種の生成（0x100）を 128 に直す。ほかのフラグは、続くフィールドがあるかを表す。DXF と同じく、頂点ごとの幅がなければ
 /// 一定の幅（43）を置き、膨らみ（42）は 0 でなければ置く
 fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
     let flags = bits.bs()?;
@@ -3761,14 +3761,14 @@ fn lwpolyline(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// SPLINE の欄（ODS 5.4.1 の 20.4.40、R2000）。場合（scenario）が 1 なら節点と制御点、2 なら
-/// 当てはめる点を読む。DXF の印（70）の平らか（8）と法線（210）は、DXF を書くときに平らかどうかから
+/// SPLINE のフィールド（ODS 5.4.1 の 20.4.40、R2000）。場合（scenario）が 1 ならノットと制御点、2 なら
+/// フィット点を読む。DXF のフラグ（70）の平らか（8）と法線（210）は、DXF を書くときに平らかどうかから
 /// 決まるので置かない。始まりと終わりの接線（12・13）は、0 でなければ置く
 fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
     let scenario = bits.bl()?;
-    // R2013 からは、スプラインの印と、節点の取り方（どちらも BL）が続く。印の 1 が立つときは、
-    // 場合が 1 でも、当てはめる点の欄だけがあり、制御点の欄はない（図面で確かめた）。このときは
-    // DXF と同じく、70 に当てはめる点で決まること（1024）と節点の取り方のビットを置く（決定 0157）
+    // R2013 からは、スプラインのフラグと、ノットの取り方（どちらも BL）が続く。フラグの 1 が立つときは、
+    // 場合が 1 でも、フィット点のフィールドだけがあり、制御点のフィールドはない（図面で確かめた）。このときは
+    // DXF と同じく、70 にフィット点で決まること（1024）とノットの取り方のビットを置く（決定 0157）
     let mut fitted = scenario == 2;
     let mut fit_only = false;
     let mut method = 0;
@@ -3809,7 +3809,7 @@ fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
         }
     }
     if scenario == 1 && !fit_only {
-        // 印（70）の 4 は有理、1 は閉じている、2 は周期的。DXF の 70 は平らか（8）なども持つが、DWG に
+        // フラグ（70）の 4 は有理、1 は閉じている、2 は周期的。DXF の 70 は平らか（8）なども持つが、DWG に
         // 書かれないので置かない
         let mut flags = 0;
         for bit in [4, 1, 2] {
@@ -3843,10 +3843,10 @@ fn spline(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// R2013 からの、制御点を書かないスプライン（場合が 1 で、当てはめる点だけを持つ）。DXF は制御点で
-/// 書くので、3 次で当てはめる点が 2 つのときは、両端の点と接線から Bézier の制御点を求める（接線の
-/// 3 分の 1 だけ両端から離す。図面で確かめた）。節点と制御点の許容差は書かれないので、DXF が置く
-/// 値（1e-9 と 1e-10）を置く。それ以外は、当てはめる点の欄として置く
+/// R2013 からの、制御点を書かないスプライン（場合が 1 で、フィット点だけを持つ）。DXF は制御点で
+/// 書くので、3 次でフィット点が 2 つのときは、両端の点と接線から Bézier の制御点を求める（接線の
+/// 3 分の 1 だけ両端から離す。図面で確かめた）。ノットと制御点の許容差は書かれないので、DXF が置く
+/// 値（1e-9 と 1e-10）を置く。それ以外は、フィット点のフィールドとして置く
 fn spline_from_fit(
     bits: &mut Bits,
     degree: i32,
@@ -3899,7 +3899,7 @@ fn spline_from_fit(
     Some(values)
 }
 
-/// DWG の節点の取り方（0 は弦の長さ、1 は平方根、2 は一様、15 は指定）を、DXF の 70 のビット（32・64・
+/// DWG のノットの取り方（0 は弦の長さ、1 は平方根、2 は一様、15 は指定）を、DXF の 70 のビット（32・64・
 /// 128・256）にする。ほかの値はビットを立てない
 fn knot_bit(knot: i32) -> i64 {
     match knot {
@@ -3911,7 +3911,7 @@ fn knot_bit(knot: i32) -> i64 {
     }
 }
 
-/// 2D の VERTEX の欄（ODS 5.4.1 の 20.4.11、R2000）。始まりの幅が負なら、終わりの幅は書かれず、
+/// 2D の VERTEX のフィールド（ODS 5.4.1 の 20.4.11、R2000）。始まりの幅が負なら、終わりの幅は書かれず、
 /// 始まりと同じ絶対値とする。幅・膨らみ・接線の向きは 0 でなければ置き、接線の向きは度に直す
 fn vertex2d(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = vec![int(70, i64::from(bits.rc()?))];
@@ -3936,14 +3936,14 @@ fn vertex2d(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// 3D・網・多面の頂点の VERTEX の欄（ODS 5.4.1 の 20.4.12〜20.4.14）。印（70）と点
+/// 3D・網・多面の頂点の VERTEX のフィールド（ODS 5.4.1 の 20.4.12〜20.4.14）。フラグ（70）と点
 fn vertex3d(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = vec![int(70, i64::from(bits.rc()?))];
     values.extend(point3(bits, 10)?);
     Some(values)
 }
 
-/// 多面の面の VERTEX の欄（ODS 5.4.1 の 20.4.15）。DXF と同じく、点を 0、印（70）を 128 とする。
+/// 多面の面の VERTEX のフィールド（ODS 5.4.1 の 20.4.15）。DXF と同じく、点を 0、フラグ（70）を 128 とする。
 /// 頂点の番号（71〜74）は 0 でなければ置く。負の番号は、その辺が見えないこと
 fn face_record(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = vec![real(10, 0.0), real(20, 0.0), real(30, 0.0), int(70, 128)];
@@ -3956,7 +3956,7 @@ fn face_record(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// 2D の POLYLINE の欄（ODS 5.4.1 の 20.4.16、R2000）。POLYLINE には、DXF と同じく、頂点が続く印（66）を置く。DXF と同じく、標高を 30 に置き、10・20 は
+/// 2D の POLYLINE のフィールド（ODS 5.4.1 の 20.4.16、R2000）。POLYLINE には、DXF と同じく、頂点が続くフラグ（66）を置く。DXF と同じく、標高を 30 に置き、10・20 は
 /// 0 とする。曲線の種類（75）と既定の幅（40・41）は 0 でなければ置く
 fn polyline2d(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = vec![int(66, 1), int(70, i64::from(bits.bs()?))];
@@ -3982,7 +3982,7 @@ fn polyline2d(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// 3D の POLYLINE の欄（ODS 5.4.1 の 20.4.17）。2 つの印から、DXF の 70（3D の 8、閉じていれば
+/// 3D の POLYLINE のフィールド（ODS 5.4.1 の 20.4.17）。2 つのフラグから、DXF の 70（3D の 8、閉じていれば
 /// 1、曲線なら 4）と曲線の種類（75）を作る。点（10）は 0
 fn polyline3d(bits: &mut Bits) -> Option<Vec<Value>> {
     let curve = bits.rc()?;
@@ -4003,7 +4003,7 @@ fn polyline3d(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// 多面の POLYLINE の欄（ODS 5.4.1 の 20.4.33）。DXF と同じく、点（10）を 0、印（70）を 64 とし、
+/// 多面の POLYLINE のフィールド（ODS 5.4.1 の 20.4.33）。DXF と同じく、点（10）を 0、フラグ（70）を 64 とし、
 /// 頂点の数（71）と面の数（72）を置く
 fn polyface(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(vec![
@@ -4017,7 +4017,7 @@ fn polyface(bits: &mut Bits) -> Option<Vec<Value>> {
     ])
 }
 
-/// 網の POLYLINE の欄（ODS 5.4.1 の 20.4.34）。点（10）は 0。印（70）・曲面の種類（75）・頂点の数
+/// 網の POLYLINE のフィールド（ODS 5.4.1 の 20.4.34）。点（10）は 0。フラグ（70）・曲面の種類（75）・頂点の数
 /// （71・72）・密度（73・74）を置き、曲面の種類は 0 でなければ置く
 fn mesh(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = vec![
@@ -4040,12 +4040,12 @@ fn mesh(bits: &mut Bits) -> Option<Vec<Value>> {
 /// ARC_DIMENSION を、DIMENSION の型の番号と重ならない仮の番号で分ける
 const ARC_DIMENSION: u16 = u16::MAX;
 
-/// DIMENSION の欄（ODS 5.4.1 の 20.4.22〜20.4.29、R2000）と、それに続く ARC_DIMENSION の欄。DXF の 70 は、型で決まる寸法の種類に、
-/// 共通の印の 1 が 0 なら 128、2 なら 32、座標寸法の印の 1 なら 64 を足す。文字の中点（11）と
+/// DIMENSION のフィールド（ODS 5.4.1 の 20.4.22〜20.4.29、R2000）と、それに続く ARC_DIMENSION のフィールド。DXF の 70 は、型で決まる寸法の種類に、
+/// 共通のフラグの 1 が 0 なら 128、2 なら 32、座標寸法のフラグの 1 なら 64 を足す。文字の中点（11）と
 /// 12 の点の Z は標高とし、12 の点は 0 でなければ置く。ブロックの挿入の尺度と回転は、DXF の 41・42 が
-/// 別の欄に使われるので置かない
+/// 別のフィールドに使われるので置かない
 fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
-    // R2010 からは、寸法の版（RC、DXF の 280）が先にある
+    // R2010 からは、寸法のバージョン（RC、DXF の 280）が先にある
     let r2010 = bits.release() >= Release::R2010;
     let version = if r2010 { Some(bits.rc()?) } else { None };
     let extrusion = point3(bits, 210)?;
@@ -4118,8 +4118,8 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
             values.push(real(40, bits.bd()?));
             (4, values)
         }
-        // 弧長寸法の欄は、DXF の AcDbArcDimension と同じ順に並ぶ（推定。AutoCAD で作った試料の DWG と DXF の
-        // 組で確かめた）。70・71 が共通の欄と重なるので、共通の欄より後に、13 から置く。種類は DXF と同じく
+        // 弧長寸法のフィールドは、DXF の AcDbArcDimension と同じ順に並ぶ（推定。AutoCAD で作ったサンプルの DWG と DXF の
+        // 組で確かめた）。70・71 が共通のフィールドと重なるので、共通のフィールドより後に、13 から置く。種類は DXF と同じく
         // 3 点の角度の 5 とする
         ARC_DIMENSION => {
             let values = point3(bits, 10)?;
@@ -4187,10 +4187,10 @@ fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// HATCH の欄（ODS 5.4.1 の 20.4.75、R2000）。DXF と同じく、標高を 30 に置き、10・20 は 0 とする。
-/// 角度は度に直す。境界の図形のハンドル（330）は、ハンドルの流れから読んで輪ごとの数（97）の後に置く
+/// HATCH のフィールド（ODS 5.4.1 の 20.4.75、R2000）。DXF と同じく、標高を 30 に置き、10・20 は 0 とする。
+/// 角度は度に直す。境界の図形のハンドル（330）は、ハンドルのストリームから読んで輪ごとの数（97）の後に置く
 fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
-    // R2004 からは、先頭にグラデーションの欄が来る。DXF と同じく、グラデーションのときだけ置く
+    // R2004 からは、先頭にグラデーションのフィールドが来る。DXF と同じく、グラデーションのときだけ置く
     let gradient = if bits.release() >= Release::R2004 {
         hatch_gradient(bits)?
     } else {
@@ -4268,7 +4268,7 @@ fn hatch(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// HATCH のグラデーションの欄（ODS 5.4.1 の 20.4.75、R2004 から）。グラデーションでなければ空
+/// HATCH のグラデーションのフィールド（ODS 5.4.1 の 20.4.75、R2004 から）。グラデーションでなければ空
 pub(super) fn hatch_gradient(bits: &mut Bits) -> Option<Vec<Value>> {
     let kind = bits.bl()?;
     let reserved = bits.bl()?;
@@ -4395,8 +4395,8 @@ fn text_value(code: i16, text: &[u8]) -> Value {
     }
 }
 
-/// 見出しのコード・ページの番号（ODS 5.4.1 の 3）を、DXF の `$DWGCODEPAGE` の名前にする。番号の順は ODA の
-/// コード・ページの列挙による（推定。30 が ANSI_1252 であることを試料の DWG と DXF で確かめた。docs/formats/dwg.md）。
+/// ヘッダーのコード・ページの番号（ODS 5.4.1 の 3）を、DXF の `$DWGCODEPAGE` の名前にする。番号の順は ODA の
+/// コード・ページの列挙による（推定。30 が ANSI_1252 であることをサンプルの DWG と DXF で確かめた。docs/formats/dwg.md）。
 /// 0（未定義）と表にない番号は `None`
 fn code_page_name(number: u16) -> Option<&'static [u8]> {
     const NAMES: [&[u8]; 44] = [

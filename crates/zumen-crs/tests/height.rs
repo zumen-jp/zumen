@@ -133,7 +133,7 @@ fn map_conversions_scale_rotate_and_translate() {
     assert_eq!(negative.to_project(position), None);
 }
 
-/// 測量の向き（X が北）の点は、東・北の順に直すと成分が入れ替わる
+/// 測量の向き（X が北）の点は、東・北の順に直すとコンポーネントが入れ替わる
 #[test]
 fn surveying_axes_swap_into_east_and_north() {
     assert_eq!(Axes::NorthEast.east_north([3.0, 4.0]), [4.0, 3.0]);

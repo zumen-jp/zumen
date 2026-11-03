@@ -21,7 +21,7 @@ const MAX_FILE_BYTES: u64 = 5_000_000;
 /// `samples/` の全体の上限
 const MAX_TOTAL_BYTES: u64 = 100_000_000;
 /// 目的を問わず、再配布・改変・商用の利用を、条件なしか表示だけを条件に認めるライセンス。
-/// SPDX の識別子か、規約の名前と版で書く
+/// SPDX の識別子か、規約の名前とバージョンで書く
 const LICENSES: &[&str] = &[
     "パブリックドメイン",
     "CC0-1.0",
@@ -235,13 +235,13 @@ mod tests {
 path = "dxf/a.dxf"
 sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 bytes = 3
-title = "試験用の図面"
-publisher = "試験用の公開元"
+title = "テスト用の図面"
+publisher = "テスト用の公開元"
 url = "https://example.com/a.dxf"
 retrieved = "2026-10-30"
 license = "CC-BY-4.0"
 license-url = "https://creativecommons.org/licenses/by/4.0/"
-attribution = "試験用の公開元「試験用の図面」（CC BY 4.0）"
+attribution = "テスト用の公開元「テスト用の図面」（CC BY 4.0）"
 "#;
 
     fn ledger(text: &str) -> Ledger {
@@ -315,7 +315,7 @@ attribution = "試験用の公開元「試験用の図面」（CC BY 4.0）"
     #[test]
     fn rejects_missing_fields_and_bad_values() {
         let text = ENTRY
-            .replace("\"試験用の図面\"", "\" \"")
+            .replace("\"テスト用の図面\"", "\" \"")
             .replace("https://example.com/a.dxf", "example.com/a.dxf")
             .replace("2026-10-30", "2026-02-30")
             .replace("attribution", "changes = \"\"\nattribution");

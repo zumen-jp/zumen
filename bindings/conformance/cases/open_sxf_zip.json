@@ -1,5 +1,5 @@
 {
-  "description": "SXF を ZIP に入れた書庫（P2Z・SFZ、#385）を開く。最初の .p21・.sfc の項目を SXF として読み、ほかの項目は書庫の中の名前で返す。apply は SXF の項目だけを置き換え、ほかの項目を写した書庫（stored、日時を固定）を書く。",
+  "description": "SXF を ZIP に入れたアーカイブ（P2Z・SFZ、#385）を開く。最初の .p21・.sfc の項目を SXF として読み、ほかの項目はアーカイブの中の名前で返す。apply は SXF の項目だけを置き換え、ほかの項目を写したアーカイブ（stored、日時を固定）を書く。",
   "module": "drawing",
   "steps": [
     {

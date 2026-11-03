@@ -114,7 +114,7 @@ fn text(value: Option<&Value>) -> Option<&str> {
     }
 }
 
-/// `{ min, max }` の欄。書かなければ幅なし。数でない端があれば `None`
+/// `{ min, max }` のフィールド。書かなければ幅なし。数でない端があれば `None`
 fn range(value: Option<&Value>) -> Option<Range> {
     let Some(value) = value else {
         return Some(Range::default());

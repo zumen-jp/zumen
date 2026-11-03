@@ -1,4 +1,4 @@
-// netstandard2.0 にない型のうち、コンパイラーが使うものを包みの中に置く
+// netstandard2.0 にない型のうち、コンパイラーが使うものをラッパーの中に置く
 
 #if !NET
 namespace System.Runtime.CompilerServices
