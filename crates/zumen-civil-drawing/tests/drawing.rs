@@ -335,3 +335,19 @@ fn vertical_arcs_and_clothoids_are_drawn_at_the_computed_heights() {
         "{codes:?}"
     );
 }
+
+/// 測点の番号が 2^53 を超えて 1 を足しても変わらない線形でも、測点を数える繰り返しが終わる（#486）
+#[test]
+fn huge_station_numbers_end() {
+    let mut line = alignment();
+    line.stations.start = 1e18;
+    let model = CivilModel {
+        alignments: vec![line],
+        ..CivilModel::default()
+    };
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let _ = drawing(&model, &model.alignments[0], &Options::default(), &mut cx);
+}
