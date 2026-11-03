@@ -1,7 +1,7 @@
 name: fuzz
 
 # 登録したすべての形式と L0 の fuzz の target を流す（#501、決定 0010・0017・0258）。毎晩は target ごとに長く流し、
-# 育てた種を次の夜に引き継ぐ。crate・fuzz の target・この workflow を変えた PR では、短く流して確かめる。
+# 育てた種を次の夜に引き継ぐ。crate・種の元・fuzz の target・この workflow を変えた PR では、短く流して確かめる。
 # target の一覧と動かし方は fuzz/README.md。
 
 on:
@@ -19,6 +19,8 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'fuzz/**'
+      - 'samples/**'
+      - 'bindings/conformance/cases/**'
       - 'xtask/src/fuzz.rs'
       - '.github/workflows/fuzz.yml'
 
@@ -54,7 +56,7 @@ jobs:
           path: fuzz/corpus
           key: fuzz-corpus-${{ github.run_id }}
           restore-keys: fuzz-corpus-
-      - name: 公開サンプル・適合試験の組の合成の入力・L0 の攻撃の形を、種に足す
+      - name: 公開サンプル・適合試験の組の合成の入力・L0 の攻撃の形・合成の格子を、種に足す
         run: cargo xtask fuzz-seeds
       - name: 全 target を作る。依存はワークスペースと同じ版から解き、桁あふれも見つけるため debug の検査を入れる
         run: |
@@ -68,12 +70,13 @@ jobs:
           mkdir -p "$logs"
           targets=$(cargo "+$NIGHTLY" fuzz list)
           export logs
-          # 1 つの入力に 30 秒より長くかかれば、止まらない繰り返しとして見つける
+          # 1 つの入力に 30 秒より長くかかれば、止まらない繰り返しとして見つける。1 秒を超える入力は、落とさずに
+          # 記録する（libFuzzer の既定は 10 秒）
           printf '%s\n' $targets | xargs -P 4 -I '{}' sh -c '
             mkdir -p "fuzz/artifacts/$1"
             if "fuzz/target/x86_64-unknown-linux-gnu/release/$1" "fuzz/corpus/$1" \
-              -max_total_time="$SECONDS_PER_TARGET" -timeout=30 -rss_limit_mb=3072 -print_final_stats=1 \
-              -artifact_prefix="fuzz/artifacts/$1/" > "$logs/$1.log" 2>&1
+              -max_total_time="$SECONDS_PER_TARGET" -timeout=30 -report_slow_units=1 -rss_limit_mb=3072 \
+              -print_final_stats=1 -artifact_prefix="fuzz/artifacts/$1/" > "$logs/$1.log" 2>&1
             then echo 通過 > "$logs/$1.result"; else echo 失敗 > "$logs/$1.result"; fi
           ' sh '{}'
           # 結果の表を、summary と log の両方に書く。遅い入力と使ったメモリは、落とさずに夜ごとの傾きを見る
@@ -108,9 +111,23 @@ jobs:
         with:
           path: fuzz/corpus
           key: fuzz-corpus-${{ github.run_id }}
-      - name: 見つけた入力を残す
-        if: failure()
+      # 見つけた入力は種を変えたもので、表示を求めるライセンスの公開サンプルから来ることがある。公開サンプルの出所と
+      # ライセンス（samples/README.md・samples/ledger.toml・licenses/）を添えて残す（決定 0258）
+      - name: 見つけた入力と遅い入力に、公開サンプルの出所とライセンスを添える
+        id: found
+        if: always()
+        run: |
+          if find fuzz/artifacts -type f 2>/dev/null | grep -q .; then
+            mkdir -p fuzz/artifacts/samples
+            cp samples/README.md samples/ledger.toml fuzz/artifacts/samples/
+            cp -r licenses fuzz/artifacts/
+            echo 'ここの入力は、fuzz で種を変えたものです。種には samples/ledger.toml の公開サンプルを含みます。それぞれの出所とライセンスは、samples/ledger.toml と licenses/ にあります。' > fuzz/artifacts/NOTICE.txt
+            echo found=true >> "$GITHUB_OUTPUT"
+          fi
+      - name: 見つけた入力と遅い入力を残す
+        if: always() && steps.found.outputs.found == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts
+          retention-days: 14

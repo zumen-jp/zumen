@@ -8,9 +8,9 @@ use zumen_pointcloud::PointCloud;
 
 fuzz_target!(|data: &[u8]| {
     // LAZ は、展開を任せる laz 0.13.0 の中のパニックを直すまで飛ばす（#510）。LAZ かは、LAS 1.4 R15 の見出し
-    // （Public Header Block）の表の 104 バイト目、点のレコードの形式（Point Data Record Format）の上の 2 ビットで
-    // 決める。上の 2 ビットを LAZ の印にするのは LASzip の決まりで、読み取りと同じ（docs/formats/las.md の
-    // 「見出しと VLR」）
+    // （Public Header Block）の表の 104 バイト目、点のレコードの形式（Point Data Record Format）で決める。LAZ 1.4
+    // （OGC 24-070r1）の 6.2・6.3 は、LAZ ではこの値に 128 を足す（ビット 7 を立てる）とする。ビット 6 も見るのは、
+    // 読み取り（zumen-las の見出し）と同じ条件にするため
     if data.get(104).is_some_and(|id| id & 0xc0 != 0) {
         return;
     }

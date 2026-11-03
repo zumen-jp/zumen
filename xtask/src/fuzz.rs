@@ -30,7 +30,7 @@ const L0: &[&str] = &["zip", "xml", "step"];
 const TESTKIT: &str = "zumen_sdk::testkit::survives";
 /// 深い入れ子の種の段の数。fuzz の予算の深さ（既定の 256）を超える
 const DEEP: usize = 1000;
-/// 空の deflate のデータ。固定のハフマン符号の最後の区画で、区画の終わりの符号（256）だけを持つ（RFC 1951 の
+/// 空の deflate のデータ。固定のハフマン符号の最後のブロックで、ブロックの終わりの符号（256）だけを持つ（RFC 1951 の
 /// 3.2.3・3.2.6）
 const EMPTY_DEFLATE: &[u8] = &[0x03, 0x00];
 /// 膨らむ deflate の種の、長さ 258・距離 1 の参照の数。約 27 KB が約 4 MB の 0 に展開する
@@ -333,7 +333,7 @@ fn swelling() -> Result<Vec<u8>, String> {
     Ok(archive)
 }
 
-/// 0 のバイトに展開する deflate のデータ。固定のハフマン符号の最後の区画に、字の 0 を 1 つと、長さ 258・距離 1 の
+/// 0 のバイトに展開する deflate のデータ。固定のハフマン符号の最後のブロックに、字の 0 を 1 つと、長さ 258・距離 1 の
 /// 参照を `repeats` 個置く（RFC 1951 の 3.2.3・3.2.5・3.2.6）。展開すると `repeats * 258 + 1` バイトになる。
 /// ビットは下の桁から詰め、ハフマン符号だけは上の桁から詰める（3.1.1）
 fn zeros_deflated(repeats: usize) -> Vec<u8> {
@@ -349,7 +349,7 @@ fn zeros_deflated(repeats: usize) -> Vec<u8> {
         }
     };
     let code = |value: u32, len: u32| value.reverse_bits() >> (32 - len);
-    // 最後の区画（BFINAL が 1）で、固定のハフマン符号（BTYPE が 01）
+    // 最後のブロック（BFINAL が 1）で、固定のハフマン符号（BTYPE が 01）
     put(1, 1);
     put(1, 2);
     // 字の 0（8 ビットの 00110000）
@@ -359,7 +359,7 @@ fn zeros_deflated(repeats: usize) -> Vec<u8> {
         put(code(0b1100_0101, 8), 8);
         put(0, 5);
     }
-    // 区画の終わり（符号 256、7 ビットの 0）。残りのビットは 0 で埋める
+    // ブロックの終わり（符号 256、7 ビットの 0）。残りのビットは 0 で埋める
     put(0, 7);
     if count > 0 {
         out.push(pending.to_le_bytes()[0]);

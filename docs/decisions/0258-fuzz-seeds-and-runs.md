@@ -24,7 +24,7 @@
 ### PR で流す条件
 
 1. どの PR でも流す。
-2. crate・fuzz の target・fuzz の workflow を変えた PR で流す。
+2. crate・種の元・fuzz の target・fuzz の workflow を変えた PR で流す。
 3. fuzz の target と workflow を変えた PR でだけ流す。
 
 ## 決定
@@ -37,12 +37,14 @@
   - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・書庫の入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
   - 合成の格子（ISG・TKY2JGD・PatchJGD の形）。国土地理院のデータは使わない（[0019](0019-coordinate-systems-and-gsi-data.md)）
 - 受け取った図面と、`ZUMEN_SAMPLES` のファイルは種にしない。種と見つけた入力は、Git に入れない。
-- `crates/**`・`Cargo.toml`・`Cargo.lock`・`fuzz/**`・`xtask/src/fuzz.rs`・`.github/workflows/fuzz.yml` を変えた PR で、target ごとに 20 秒流す。毎晩は target ごとに 180 秒流し、育てた種を次の夜に引き継ぐ。
+- 見つけた入力は、種を変えたものなので、表示を求めるライセンス（CC BY・MIT・公共データ利用規約）の公開サンプルから来ることがある。artifact に残すときは、公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を変えたものだという断りを添える。issue などに貼るときは、最小にした入力に、元の公開サンプルの出所とライセンスを添える。
+- `crates/**`・`Cargo.toml`・`Cargo.lock`・種の元（`samples/**`・`bindings/conformance/cases/**`）・`fuzz/**`・`xtask/src/fuzz.rs`・`.github/workflows/fuzz.yml` を変えた PR で、target ごとに 20 秒流す。毎晩は target ごとに 180 秒流し、育てた種を次の夜に引き継ぐ。
 - fuzz の crate の依存は、ワークスペースの `Cargo.lock` の版から解く。
 
 ## 影響
 
-- 公開サンプルは実際のファイルの構造を持つので、合成の入力だけより深い所に届く。公開サンプルはもう Git にあるので、種にしても外に出るものは増えない。
+- 公開サンプルは実際のファイルの構造を持つので、合成の入力だけより深い所に届く。
+- 公開サンプルはもう Git にあり、出所とライセンスを `samples/ledger.toml` と `licenses/` で示している。見つけた入力を外に出すときも、同じ表示を添える。
 - 文書だけの PR では流さない。crate を変えた PR は、ほかの試験と並べて 6 分ほど流す。
 - 0010 の「fuzz」の節の 2 つの項目を、この記録で改める。
 
