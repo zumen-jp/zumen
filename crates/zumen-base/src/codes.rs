@@ -3637,6 +3637,53 @@ pub const SXF_RASTER_FRAME_MISSING: Code = Code::new(
 pub const SXF_RECORD_INVALID: Code =
     Code::new("sxf.record.invalid", Severity::Warning, None, &[], &[]);
 
+/// 属性ファイル（SAF）の知らない要素なので、読まなかった
+///
+/// `sxf.saf-element.unsupported`（0.2.0 から）
+pub const SXF_SAF_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "sxf.saf-element.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 属性ファイルの図形の図形識別番号を持つ要素が図面にないので、その属性を要素に結ばなかった
+///
+/// `sxf.saf-figure.dropped`（0.2.0 から）
+pub const SXF_SAF_FIGURE_DROPPED: Code = Code::new(
+    "sxf.saf-figure.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("figure", ParamType::Text)],
+    &[],
+);
+
+/// 図面の属性ファイル用の属性付加機構（$$ATRF$$）の図形識別番号の図形が、属性ファイルにない
+///
+/// `sxf.saf-figure.missing`（0.2.0 から）
+pub const SXF_SAF_FIGURE_MISSING: Code = Code::new(
+    "sxf.saf-figure.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("figure", ParamType::Text)],
+    &["figure"],
+);
+
+/// 属性ファイル（SAF）の要素の、省略できないタグ属性がないか、図形識別番号が重なるので、その値か図形を読まなかった
+///
+/// `sxf.saf-value.invalid`（0.2.0 から）
+pub const SXF_SAF_VALUE_INVALID: Code = Code::new(
+    "sxf.saf-value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("field", ParamType::Text),
+    ],
+    &["element", "field"],
+);
+
 /// FILE_SCHEMA が SXF の図面のスキーマ（ASSOCIATIVE_DRAUGHTING）でない
 ///
 /// `sxf.schema.unsupported`（0.0.0 から）
@@ -4211,6 +4258,10 @@ pub const ALL: &[Code] = &[
     SXF_P21_UNSUPPORTED,
     SXF_RASTER_FRAME_MISSING,
     SXF_RECORD_INVALID,
+    SXF_SAF_ELEMENT_UNSUPPORTED,
+    SXF_SAF_FIGURE_DROPPED,
+    SXF_SAF_FIGURE_MISSING,
+    SXF_SAF_VALUE_INVALID,
     SXF_SCHEMA_UNSUPPORTED,
     SXF_SFIG_CYCLE_INVALID,
     SXF_SFIG_MISSING,

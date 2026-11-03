@@ -86,6 +86,21 @@ impl Packed {
             .collect()
     }
 
+    /// SXF の項目と同じ名前の属性ファイル（SAF）の項目のバイト列。名前は、拡張子を `.SAF` にしたもの（CAD製図基準の
+    /// 図 1-7）か、SXF の項目の名前に `.SAF` を足したもの（附属書の属性付加機構編の 2-3）。大文字と小文字を区別しない
+    /// （決定 0249）
+    pub(crate) fn attribute_file(&self) -> Option<&[u8]> {
+        let (sxf, _) = self.entries.get(self.index)?;
+        let sxf = sxf.to_ascii_lowercase();
+        let stem = sxf.rsplit_once('.').map_or(sxf.as_str(), |(stem, _)| stem);
+        let names = [format!("{stem}.saf"), format!("{sxf}.saf")];
+        self.entries
+            .iter()
+            .enumerate()
+            .find(|(at, (name, _))| *at != self.index && names.contains(&name.to_ascii_lowercase()))
+            .map(|(_, (_, data))| data.as_slice())
+    }
+
     /// SXF の項目を `sxf` に置き換えた書庫を書く。ZIP64 が要る大きさなら `None`
     pub(crate) fn write(&self, sxf: &[u8]) -> Option<Vec<u8>> {
         let entries: Vec<(&str, &[u8])> = self

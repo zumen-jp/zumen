@@ -1,0 +1,107 @@
+{
+  "description": "open は、SXF の属性ファイル（SAF）を、saf に名指した入力か、P2Z・SFZ の中の図面と同じ名前の項目から読み、属性ファイル用の属性付加機構（$$ATRF$$）の要素に属性ごとの sxf.saf の拡張で結ぶ（決定 0249、#386）。結ぶのは図面モデルへの変換（lift・drawing）で、図面の図形識別番号の図形が属性ファイルになければ sxf.saf-figure.missing を、属性ファイルの図形の要素が図面になければ sxf.saf-figure.dropped を返す。SXF でない入力に saf を書くと断る。lift の図面モデルのバイナリが、ネイティブと wasm で同じバイト列になることを確かめる",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "D0PL001Z.SFC",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature('L','1')\nSXF3*/\n/*SXF3\n#20 = line_feature('1','1','1','1','0','0','1','0')\nSXF3*/\n/*SXF3\n#30 = sfig_org_feature('$$ATRF$$10$$D0PL001Z.SAF','3')\nSXF3*/\n/*SXF3\n#40 = line_feature('1','1','1','1','0','0','2','2')\nSXF3*/\n/*SXF3\n#50 = sfig_org_feature('$$ATRF$$30','3')\nSXF3*/\n/*SXF3\n#60 = sfig_locate_feature('1','$$ATRF$$10$$D0PL001Z.SAF','0','0','0','1','1')\nSXF3*/\n/*SXF3\n#70 = sfig_locate_feature('1','$$ATRF$$30','0','0','0','1','1')\nSXF3*/\n/*SXF3\n#80 = drawing_sheet_feature('S','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "D0PL001Z.SAF",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE SxfAttributeXML SYSTEM \"SXFV31.DTD\">\n<SxfAttributeXML version=\"3.1\" date=\"2026-11-03\" sxfFile=\"D0PL001Z.SFC\" application=\"XX-CAD\">\n  <AttributeSet name=\"計画設計\" version=\"1.0\" designedBy=\"○○協会\">1</AttributeSet>\n  <Figure id=\"10\" name=\"道路横断図形\">\n    <AttrSetRef id=\"1\">\n      <AttrGroup name=\"測点\">\n        <Attr name=\"測点名\" type=\"STR\">No.1</Attr>\n        <Attr name=\"現地盤高\" type=\"LEN\" unit=\"m\">102.0400</Attr>\n      </AttrGroup>\n    </AttrSetRef>\n  </Figure>\n  <Figure id=\"21\" name=\"切盛土エリア\">\n    <AttrSetRef id=\"1\">\n      <Attr name=\"切盛土区分\" type=\"STR\">切土</Attr>\n    </AttrSetRef>\n  </Figure>\n</SxfAttributeXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "D0PL001Z.SFC",
+        "saf": "none.saf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.input.missing"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "D0PL001Z.SFC",
+        "saf": "D0PL001Z.SAF"
+      },
+      "expect": {
+        "/result/format": "sxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "lift",
+        "doc": "D0PL001Z.SFC"
+      },
+      "expect": {
+        "/result/blob": 0,
+        "/blobs/0/kind": "drawing",
+        "/diagnostics/0/code": "sxf.saf-figure.missing",
+        "/diagnostics/0/params/figure": "30",
+        "/diagnostics/1/code": "sxf.saf-figure.dropped",
+        "/diagnostics/1/params/figure": "21"
+      }
+    },
+    {
+      "push": {
+        "name": "a.p2z",
+        "hex": "504b030414000000000000002100f07fc4afb3020000b30200000c0000004430504c3030315a2e53464349534f2d31303330332d32313b0a4845414445523b0a46494c455f4445534352495054494f4e282827534341444543206c6576656c3220666561747572655f6d6f646527292c27323b3127293b0a46494c455f534348454d412828274153534f434941544956455f44524155474854494e472729293b0a454e445345433b0a444154413b0a2f2a535846330a233130203d206c617965725f6665617475726528274c272c273127290a535846332a2f0a2f2a535846330a233230203d206c696e655f66656174757265282731272c2731272c2731272c2731272c2730272c2730272c2731272c273027290a535846332a2f0a2f2a535846330a233330203d20736669675f6f72675f6665617475726528272424415452462424313024244430504c3030315a2e534146272c273327290a535846332a2f0a2f2a535846330a233430203d206c696e655f66656174757265282731272c2731272c2731272c2731272c2730272c2730272c2732272c273227290a535846332a2f0a2f2a535846330a233530203d20736669675f6f72675f66656174757265282724244154524624243330272c273327290a535846332a2f0a2f2a535846330a233630203d20736669675f6c6f636174655f66656174757265282731272c272424415452462424313024244430504c3030315a2e534146272c2730272c2730272c2730272c2731272c273127290a535846332a2f0a2f2a535846330a233730203d20736669675f6c6f636174655f66656174757265282731272c2724244154524624243330272c2730272c2730272c2730272c2731272c273127290a535846332a2f0a2f2a535846330a233830203d2064726177696e675f73686565745f66656174757265282753272c2733272c2731272c2730272c273027290a535846332a2f0a454e445345433b0a454e442d49534f2d31303330332d32313b0a504b030414000000000000002100335500fbd5020000d50200000c0000004430504c3030315a2e5341463c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d225554462d38223f3e0a3c21444f435459504520537866417474726962757465584d4c2053595354454d20225358465633312e445444223e0a3c537866417474726962757465584d4c2076657273696f6e3d22332e312220646174653d22323032362d31312d3033222073786646696c653d224430504c3030315a2e53464322206170706c69636174696f6e3d2258582d434144223e0a20203c417474726962757465536574206e616d653d22e8a888e794bbe8a8ade8a888222076657273696f6e3d22312e30222064657369676e656442793d22e2978be2978be58d94e4bc9a223e313c2f4174747269627574655365743e0a20203c4669677572652069643d22313022206e616d653d22e98193e8b7afe6a8aae696ade59bb3e5bda2223e0a202020203c417474725365745265662069643d2231223e0a2020202020203c4174747247726f7570206e616d653d22e6b8ace782b9223e0a20202020202020203c41747472206e616d653d22e6b8ace782b9e5908d2220747970653d22535452223e4e6f2e313c2f417474723e0a20202020202020203c41747472206e616d653d22e78fbee59cb0e79ba4e9ab982220747970653d224c454e2220756e69743d226d223e3130322e303430303c2f417474723e0a2020202020203c2f4174747247726f75703e0a202020203c2f417474725365745265663e0a20203c2f4669677572653e0a20203c4669677572652069643d22323122206e616d653d22e58887e79b9be59c9fe382a8e383aae382a2223e0a202020203c417474725365745265662069643d2231223e0a2020202020203c41747472206e616d653d22e58887e79b9be59c9fe58cbae588862220747970653d22535452223ee58887e59c9f3c2f417474723e0a202020203c2f417474725365745265663e0a20203c2f4669677572653e0a3c2f537866417474726962757465584d4c3e0a504b0102140014000000000000002100f07fc4afb3020000b30200000c00000000000000000000008001000000004430504c3030315a2e534643504b0102140014000000000000002100335500fbd5020000d50200000c00000000000000000000008001dd0200004430504c3030315a2e534146504b0506000000000200020074000000dc0500000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.p2z"
+      },
+      "expect": {
+        "/result/format": "sxf",
+        "/result/entries": [
+          "D0PL001Z.SAF"
+        ],
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "a.p2z"
+      },
+      "expect": {
+        "/diagnostics/0/code": "sxf.saf-figure.missing",
+        "/diagnostics/1/code": "sxf.saf-figure.dropped"
+      }
+    },
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf",
+        "saf": "D0PL001Z.SAF"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/saf"
+      }
+    }
+  ]
+}

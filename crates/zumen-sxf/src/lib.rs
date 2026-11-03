@@ -10,6 +10,8 @@
 mod drawing;
 #[cfg(feature = "drawing")]
 mod p21;
+#[cfg(feature = "drawing")]
+pub mod saf;
 
 use core::ops::Range;
 

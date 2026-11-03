@@ -13,6 +13,7 @@ use zumen_drawing::{
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Apply, Codec, Lift, Registration};
+use zumen_sxf::saf::AttributeFile;
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
@@ -110,9 +111,9 @@ enum Doc {
     Dxf(DxfFile),
     #[cfg(feature = "drawing")]
     Dwg(DwgFile),
-    /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）
+    /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）。属性ファイル（SAF）があれば、読んだものを持つ（決定 0249）
     #[cfg(feature = "drawing")]
-    Sxf(SxfFile, Option<Box<Packed>>),
+    Sxf(SxfFile, Option<Box<Packed>>, Option<Box<AttributeFile>>),
     #[cfg(feature = "drawing")]
     Jww(JwwFile),
     /// プラグインの形式（決定 0243）。読むだけで、図面モデルを持つ
@@ -160,7 +161,9 @@ impl Doc {
             #[cfg(feature = "drawing")]
             Doc::Dwg(file) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
-            Doc::Sxf(file, _) => file.lift(cx).map(Cow::Owned),
+            Doc::Sxf(file, _, attributes) => {
+                file.lift_with(attributes.as_deref(), cx).map(Cow::Owned)
+            }
             #[cfg(feature = "drawing")]
             Doc::Jww(file) => file.lift(cx).map(Cow::Owned),
             Doc::Plugin(_, drawing) | Doc::Lifted(_, drawing) => Ok(Cow::Borrowed(drawing)),
@@ -201,6 +204,42 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 /// 文書の種類が op に合わない
 /// 図面の形式なら読む。どの図面の形式でもなければ `None`。形式は、コーデックが持つ判定の規則で決める
 /// （決定 0007・0008）。入力の大きさは、コーデックが確かめる
+/// SXF の文書に、属性ファイル（SAF）を読んで持たせる（決定 0249）。名指した入力がなければ、P2Z・SFZ の中の、図面と
+/// 同じ名前の SAF を使う。SAF が読めなければ、診断を返して、属性ファイルなしで開く。SXF でない文書に名指せば失敗する
+#[cfg(feature = "drawing")]
+fn with_attributes(
+    doc: Option<Doc>,
+    saf: Option<&str>,
+    inputs: &BTreeMap<String, Vec<u8>>,
+    cx: &mut Cx<'_>,
+) -> Result<Option<Doc>, Failed> {
+    let (file, archive) = match doc {
+        Some(Doc::Sxf(file, archive, _)) => (file, archive),
+        other if saf.is_none() => return Ok(other),
+        _ => return Err(fail(cx, invalid_value("/saf"))),
+    };
+    let bytes = match saf {
+        Some(name) => {
+            if !name::is_safe(name) {
+                return Err(fail(cx, invalid_value("/saf")));
+            }
+            let Some(bytes) = inputs.get(name) else {
+                return Err(fail(cx, input_missing(name)));
+            };
+            Some(bytes.as_slice())
+        }
+        None => archive.as_deref().and_then(Packed::attribute_file),
+    };
+    let attributes = match bytes.map(|bytes| zumen_sxf::saf::read(bytes, cx)) {
+        None => None,
+        Some(Ok(file)) => Some(Box::new(file)),
+        // 失敗の理由は、読み取りが診断として足してある
+        Some(Err(zumen_sdk::Error::Stopped(_))) => return Err(Failed),
+        Some(Err(_)) => None,
+    };
+    Ok(Some(Doc::Sxf(file, archive, attributes)))
+}
+
 #[cfg(feature = "drawing")]
 fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
     // 図面モデルのバイナリ（決定 0247）。始まりの 4 バイトは、コアのどの形式とも重ならない
@@ -217,13 +256,13 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
         Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
     } else if format == Some(Sxf::FORMAT) {
         // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
-        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None)
+        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None, None)
     } else if format == Some(Jww::FORMAT) {
         Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
     } else if let Some((sxf, archive)) = packed::read(bytes, cx)? {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
-        Doc::Sxf(file, Some(Box::new(archive)))
+        Doc::Sxf(file, Some(Box::new(archive)), None)
     } else if let Some(doc) = read_plugin(bytes, cx)? {
         // コアのどの形式でもなければ、登録した図面の形式のプラグインを順に試す（決定 0243）
         doc
@@ -583,6 +622,14 @@ impl Session {
         }) {
             return Err(fail(cx, invalid_value("/format")));
         }
+        // 属性ファイルは、SXF（P2Z・SFZ を含む）にだけ使う（決定 0249）
+        if request.saf.is_some()
+            && !(cfg!(feature = "drawing")
+                && (Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes))
+                    || bytes.starts_with(b"PK")))
+        {
+            return Err(fail(cx, invalid_value("/saf")));
+        }
         // 名指した拡張 DM（#378）
         #[cfg(feature = "drawing")]
         if request.format.as_deref() == Some(zumen_extdm::ExtDm::FORMAT) {
@@ -638,7 +685,12 @@ impl Session {
             });
         }
         #[cfg(feature = "drawing")]
-        let doc = read_drawing(bytes, cx)?;
+        let doc = with_attributes(
+            read_drawing(bytes, cx)?,
+            request.saf.as_deref(),
+            &self.inputs,
+            cx,
+        )?;
         // プラグインのモジュールは、プラグインの形式だけを読む（決定 0247）
         #[cfg(all(feature = "plugin", not(feature = "drawing")))]
         let doc = read_plugin(bytes, cx)?;
@@ -652,7 +704,7 @@ impl Session {
 
                 entries: match &doc {
                     #[cfg(feature = "drawing")]
-                    Doc::Sxf(_, Some(archive)) => Some(archive.names()),
+                    Doc::Sxf(_, Some(archive), _) => Some(archive.names()),
                     _ => None,
                 },
             };
@@ -996,7 +1048,7 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Sxf(file, archive) => {
+            Doc::Sxf(file, archive, _) => {
                 let mut updated = file.clone();
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
@@ -2634,7 +2686,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":62}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":63}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
