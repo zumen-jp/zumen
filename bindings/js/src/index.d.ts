@@ -15,7 +15,10 @@ export type ResultOf<R extends Request> = R extends { op: infer O extends keyof 
   ? Operations[O]["result"]
   : unknown;
 
-/** 境界の関数が ok でない状態を返した */
+/**
+ * 境界の関数が ok でない状態を返したか、wasm の中から例外が出た。wasm の中で trap などが起きたときは、状態が
+ * panicked になり、cause に元の例外（WebAssembly.RuntimeError など）を持つ
+ */
 export declare class ZumenError extends Error {
   /** 呼んだ境界の関数（zm_call など） */
   readonly operation: string;
@@ -44,20 +47,31 @@ export declare class Session {
   take(blob: number): Uint8Array;
   /** 動いている呼び出しを止める。動いている呼び出しがなければ、何もしない */
   cancel(): void;
-  /** セッションを閉じる。閉じたあとの呼び出しは、invalid の ZumenError になる */
+  /**
+   * セッションを閉じる。閉じたあとの呼び出しは、invalid の ZumenError になる。使えなくなったインスタンスでは何もせず、
+   * finally の中で呼んでも、先に出た例外を隠さない
+   */
   close(): void;
 }
 
 /** 読み込んだ wasm のモジュール */
 export declare class Zumen {
   private constructor();
+  /**
+   * wasm の中で trap などが起き、もう使えないか。使えなければ、それからの呼び出しは panicked の ZumenError になる。
+   * モジュールを読み込み直す
+   */
+  readonly broken: boolean;
   /** ABI の大版 */
   abiVersion(): number;
   /** セッションを作る。設定は、値か JSON の文字列かバイト列で渡す。渡さなければ既定の設定 */
   open(options?: SessionOptions | string | Bytes): Session;
 }
 
-/** モジュールを、コンパイルしたものかバイト列か fetch の応答から、非同期に読み込む */
+/**
+ * モジュールを、コンパイルしたものかバイト列か fetch の応答から、非同期に読み込む。別の realm（Next.js の Edge のランタイム
+ * など）で作ったものも受け取る
+ */
 export declare function load(
   source: WebAssembly.Module | Bytes | globalThis.Response | PromiseLike<WebAssembly.Module | Bytes | globalThis.Response>,
 ): Promise<Zumen>;

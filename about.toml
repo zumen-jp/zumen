@@ -1,0 +1,19 @@
+# 依存のライセンスの文（THIRD_PARTY_LICENSES）を cargo-about で作る設定（決定 0014・0259）。
+# 使い方は .github/workflows/release.yml にある。許すライセンスは deny.toml と合わせる。
+
+accepted = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "Unicode-3.0",
+]
+# 配る成果物に入るものだけを載せる
+ignore-build-dependencies = true
+ignore-dev-dependencies = true

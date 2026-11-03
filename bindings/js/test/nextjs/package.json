@@ -1,0 +1,18 @@
+{
+  "name": "zumen-js-nextjs-test",
+  "private": true,
+  "description": "TypeScript・JavaScript の包みを、Next.js のサーバー側で組んで使えることを確かめる道具（決定 0259）",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node run.mjs ../../../../target/wasm32-unknown-unknown/release/zumen_abi1.wasm"
+  },
+  "dependencies": {
+    "next": "16.4.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

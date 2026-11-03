@@ -2,6 +2,8 @@
 //
 // ブラウザーと Node.js の両方で、標準の WebAssembly の API だけを使う。wasm-bindgen は使わない。
 // 境界の関数（schema/boundary.toml）を、セッションのメソッドにして出す。要求と応答の型は messages.d.ts にある。
+// wasm の中のパニックとメモリ不足は trap になり、そのインスタンスはもう使えない。包みは、それからの呼び出しを
+// panicked にする。ホストは、モジュールを読み込み直す（決定 0010・0259）。
 
 import { ABI_VERSION, STATUS, WASM_EXPORTS } from "./constants.js";
 
@@ -14,16 +16,25 @@ import { Modules } from "./modules.js";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** 境界の関数が ok でない状態を返した */
+/** wasm の中から例外が出たときの状態コード */
+const PANICKED = Number(Object.keys(STATUS).find((code) => STATUS[code] === "panicked"));
+
+/** 値の型の名前（`[object …]` の中）。別の realm で作った値でも同じになる */
+function tagOf(value) {
+  return Object.prototype.toString.call(value).slice(8, -1);
+}
+
+/** 境界の関数が ok でない状態を返したか、wasm の中から例外が出た */
 export class ZumenError extends Error {
   /**
    * @param {string} operation 呼んだ境界の関数
    * @param {number} code 状態コード
    * @param {Uint8Array | null} bytes 応答の JSON。書かれなかったときは null
+   * @param {unknown} [cause] wasm の中から出た例外（trap など）
    */
-  constructor(operation, code, bytes) {
+  constructor(operation, code, bytes, cause) {
     const status = STATUS[code] ?? `unknown(${code})`;
-    super(`${operation} が ${status} を返した`);
+    super(`${operation} が ${status} を返した`, cause === undefined ? undefined : { cause });
     this.name = "ZumenError";
     this.operation = operation;
     this.code = code;
@@ -50,7 +61,7 @@ function toBytes(value) {
   if (ArrayBuffer.isView(value)) {
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   }
-  if (value instanceof ArrayBuffer) {
+  if (tagOf(value) === "ArrayBuffer") {
     return new Uint8Array(value);
   }
   throw new TypeError("バイト列か文字列を渡す");
@@ -61,7 +72,7 @@ class Core {
   constructor(instance) {
     const exports = instance.exports;
     const missing = WASM_EXPORTS.filter((name) => typeof exports[name] !== "function");
-    if (missing.length > 0 || !(exports.memory instanceof WebAssembly.Memory)) {
+    if (missing.length > 0 || tagOf(exports.memory) !== "WebAssembly.Memory") {
       throw new Error(`zumen の wasm のモジュールでない（ない関数: ${missing.join(", ") || "memory"}）`);
     }
     const version = exports.zm_abi_version();
@@ -69,9 +80,31 @@ class Core {
       throw new Error(`ABI の大版が ${version}（この包みは ${ABI_VERSION}）`);
     }
     this.e = exports;
+    // wasm の中から出た例外。出たら、インスタンスはもう使えない
+    this.failure = null;
     // プラグインを束ねたモジュール（決定 0243）は、使う前にプラグインを登録する
     if (typeof exports.zm_plugin_init === "function") {
       exports.zm_plugin_init();
+    }
+  }
+
+  /** wasm の関数を呼ぶ。中から例外が出たら（trap など）、インスタンスを使えないものにして、panicked の ZumenError を投げる */
+  invoke(name, ...args) {
+    if (this.failure !== null) {
+      throw new ZumenError(name, PANICKED, null, this.failure);
+    }
+    try {
+      return this.e[name](...args);
+    } catch (error) {
+      this.failure = error;
+      throw new ZumenError(name, PANICKED, null, error);
+    }
+  }
+
+  /** 後片付けの関数を呼ぶ。使えないインスタンスでは呼ばず、先に出た例外を隠さない */
+  tidy(name, ...args) {
+    if (this.failure === null) {
+      this.invoke(name, ...args);
     }
   }
 
@@ -86,7 +119,7 @@ class Core {
 
   /** バイト列をモジュールのメモリに写して fn に渡し、終わったら返す */
   withBytes(data, fn) {
-    const ptr = data.length === 0 ? 0 : this.e.zm_alloc(data.length) >>> 0;
+    const ptr = data.length === 0 ? 0 : this.invoke("zm_alloc", data.length) >>> 0;
     if (data.length > 0) {
       this.bytes().set(data, ptr);
     }
@@ -94,14 +127,14 @@ class Core {
       return fn(ptr, data.length);
     } finally {
       if (data.length > 0) {
-        this.e.zm_dealloc(ptr, data.length);
+        this.tidy("zm_dealloc", ptr, data.length);
       }
     }
   }
 
   /** zm_buf（wasm32 では ptr と len の 2 つの u32）を確保して fn に渡し、書かれたバイト列を写して返す */
   withBuf(fn) {
-    const buf = this.e.zm_alloc(8) >>> 0;
+    const buf = this.invoke("zm_alloc", 8) >>> 0;
     this.view().setUint32(buf, 0, true);
     this.view().setUint32(buf + 4, 0, true);
     try {
@@ -109,22 +142,22 @@ class Core {
       const ptr = this.view().getUint32(buf, true);
       const len = this.view().getUint32(buf + 4, true);
       const data = ptr === 0 ? (code === 0 ? new Uint8Array() : null) : this.bytes().slice(ptr, ptr + len);
-      this.e.zm_free(buf);
+      this.invoke("zm_free", buf);
       return [code, data];
     } finally {
-      this.e.zm_dealloc(buf, 8);
+      this.tidy("zm_dealloc", buf, 8);
     }
   }
 
   /** u32 を 1 つ書かせる所を確保して fn に渡し、書かれた値を返す */
   withOut(fn) {
-    const out = this.e.zm_alloc(4) >>> 0;
+    const out = this.invoke("zm_alloc", 4) >>> 0;
     this.view().setUint32(out, 0, true);
     try {
       const code = fn(out);
       return [code, this.view().getUint32(out, true)];
     } finally {
-      this.e.zm_dealloc(out, 4);
+      this.tidy("zm_dealloc", out, 4);
     }
   }
 }
@@ -149,7 +182,7 @@ export class Session {
     const core = this.#core;
     const code = core.withBytes(toBytes(name), (namePtr, nameLen) =>
       core.withBytes(toBytes(data), (dataPtr, dataLen) =>
-        core.e.zm_push(this.#handle, namePtr, nameLen, dataPtr, dataLen),
+        core.invoke("zm_push", this.#handle, namePtr, nameLen, dataPtr, dataLen),
       ),
     );
     if (code !== 0) {
@@ -161,7 +194,7 @@ export class Session {
   callBytes(request) {
     const core = this.#core;
     const [code, bytes] = core.withBytes(toBytes(request), (ptr, len) =>
-      core.withBuf((buf) => core.e.zm_call(this.#handle, ptr, len, buf)),
+      core.withBuf((buf) => core.invoke("zm_call", this.#handle, ptr, len, buf)),
     );
     if (code !== 0) {
       throw new ZumenError("zm_call", code, bytes);
@@ -177,7 +210,7 @@ export class Session {
   /** 直前の call が作ったバイナリの結果を、応答の blobs にある番号で取り出す */
   take(blob) {
     const core = this.#core;
-    const [code, bytes] = core.withBuf((buf) => core.e.zm_take(this.#handle, blob >>> 0, buf));
+    const [code, bytes] = core.withBuf((buf) => core.invoke("zm_take", this.#handle, blob >>> 0, buf));
     if (code !== 0) {
       throw new ZumenError("zm_take", code, null);
     }
@@ -186,12 +219,15 @@ export class Session {
 
   /** 動いている呼び出しを止める。動いている呼び出しがなければ、何もしない */
   cancel() {
-    this.#core.e.zm_cancel(this.#handle);
+    this.#core.tidy("zm_cancel", this.#handle);
   }
 
-  /** セッションを閉じる。閉じたあとの呼び出しは、invalid の ZumenError になる */
+  /**
+   * セッションを閉じる。閉じたあとの呼び出しは、invalid の ZumenError になる。使えなくなったインスタンスでは何もせず、
+   * finally の中で呼んでも、先に出た例外を隠さない
+   */
   close() {
-    this.#core.e.zm_session_close(this.#handle);
+    this.#core.tidy("zm_session_close", this.#handle);
     this.#handle = 0;
   }
 }
@@ -209,18 +245,24 @@ export class Zumen {
     this.#core = new Core(instance);
   }
 
+  /** wasm の中で trap などが起き、もう使えないか。使えなければ、モジュールを読み込み直す */
+  get broken() {
+    return this.#core.failure !== null;
+  }
+
   /** ABI の大版 */
   abiVersion() {
-    return this.#core.e.zm_abi_version();
+    return this.#core.invoke("zm_abi_version");
   }
 
   /** セッションを作る。設定（session_options）は、値か JSON の文字列かバイト列で渡す。渡さなければ既定の設定 */
   open(options) {
     const core = this.#core;
-    const raw = options === undefined || typeof options === "string" || ArrayBuffer.isView(options) || options instanceof ArrayBuffer;
+    const raw =
+      options === undefined || typeof options === "string" || ArrayBuffer.isView(options) || tagOf(options) === "ArrayBuffer";
     const data = raw ? toBytes(options) : encoder.encode(JSON.stringify(options));
     const [code, handle] = core.withBytes(data, (ptr, len) =>
-      core.withOut((out) => core.e.zm_session_new(ptr, len, out)),
+      core.withOut((out) => core.invoke("zm_session_new", ptr, len, out)),
     );
     if (code !== 0) {
       throw new ZumenError("zm_session_new", code, null);
@@ -229,22 +271,25 @@ export class Zumen {
   }
 }
 
-/** モジュールを、コンパイルしたものかバイト列か fetch の応答から、非同期に読み込む */
+/**
+ * モジュールを、コンパイルしたものかバイト列か fetch の応答から、非同期に読み込む。別の realm（Next.js の Edge のランタイム
+ * など）で作ったものも受け取る
+ */
 export async function load(source) {
   let input = await source;
-  if (typeof Response !== "undefined" && input instanceof Response) {
+  if (tagOf(input) === "Response") {
     if (!input.ok) {
       throw new Error(`wasm のモジュールを取得できない（${input.status}）`);
     }
     input = await input.arrayBuffer();
   }
-  const module = input instanceof WebAssembly.Module ? input : await WebAssembly.compile(toBytes(input));
+  const module = tagOf(input) === "WebAssembly.Module" ? input : await WebAssembly.compile(toBytes(input));
   return new Zumen(await WebAssembly.instantiate(module, {}));
 }
 
 /** モジュールを、コンパイルしたものかバイト列から、同期で読み込む。ブラウザーの主スレッドでは、大きなモジュールを同期でコンパイルできない */
 export function loadSync(source) {
-  const module = source instanceof WebAssembly.Module ? source : new WebAssembly.Module(toBytes(source));
+  const module = tagOf(source) === "WebAssembly.Module" ? source : new WebAssembly.Module(toBytes(source));
   return new Zumen(new WebAssembly.Instance(module, {}));
 }
 
