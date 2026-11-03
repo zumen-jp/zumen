@@ -24,7 +24,7 @@ use zumen_sdk::{Cx, Error, Lift};
 
 use crate::device::{Collector, DEVICE_PER_MM, PAGE_LAYER, Styles};
 use crate::page::{self, Geometry};
-use crate::walk::Walker;
+use crate::walk::{self, Walker};
 use crate::{MAGIC, PdfFile, RecordKind, strings};
 
 /// 形式固有の情報の値の型の契約の版（決定 0115）
@@ -127,6 +127,8 @@ struct Lifter<'d, 'o> {
 impl Lifter<'_, '_> {
     fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
         let document = self.document;
+        // 相互参照の表を作り直すなら、ページを読む前に作り直させる
+        walk::settle(document, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
         let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
         let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
@@ -198,6 +200,7 @@ impl Lifter<'_, '_> {
                     &ocgs,
                     self.objects,
                     xref,
+                    walker.owned(),
                     &mut self.styles,
                     survey.transfer,
                 );

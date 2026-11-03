@@ -609,6 +609,21 @@ fn names_sheets_by_page_labels() {
 }
 
 #[test]
+fn counts_memory_of_page_labels() {
+    use zumen_base::Kind;
+    // hayro-syntax は、読んだ辞書ごとに鍵の表を作る。ページラベルの木の、持っておく節と範囲の辞書は、1 つを
+    // 1,024 バイトと数える。直接書いた節を 1,000 並べると、節と範囲で 2,000 の辞書を持つ
+    let tree = format!(
+        "/PageLabels << /Kids [{}] >>",
+        "<< /Nums [0 << /S /D >>] >> ".repeat(1_000)
+    );
+    let mut document = Document::new(vec![Page::new("")]);
+    document.catalog = &tree;
+    let bytes = used(&document.bytes(), Kind::DecodedBytes);
+    assert!(bytes >= 2_000 * 1_024, "{bytes}");
+}
+
+#[test]
 fn moves_images_to_underlays() {
     let mut document = Document::new(vec![
         Page::new("q 72 0 0 36 100 200 cm /Im1 Do Q").resources("/XObject << /Im1 3 0 R >>"),
@@ -2066,6 +2081,26 @@ fn counts_work_that_grows_with_sizes() {
         let used = used(&src, Kind::DecodedBytes);
         assert!(used >= 1000 + bytes, "{mesh}: {used}");
     }
+    // 幅が欠けるか u8 に収まらないメッシュと、座標か旗の幅が 1〜32 でないメッシュは、hayro-interpret が三角形も
+    // パッチも作らないので、数えない
+    for mesh in [
+        "/ShadingType 5 /BitsPerComponent 8 /VerticesPerRow 2",
+        "/ShadingType 5 /BitsPerCoordinate 0 /BitsPerComponent 8 /VerticesPerRow 2",
+        "/ShadingType 5 /BitsPerCoordinate 8 /VerticesPerRow 2",
+        "/ShadingType 4 /BitsPerCoordinate 40 /BitsPerComponent 8 /BitsPerFlag 8",
+        "/ShadingType 6 /BitsPerCoordinate 1 /BitsPerComponent 8",
+        "/ShadingType 7 /BitsPerCoordinate 1 /BitsPerComponent 8 /BitsPerFlag 0",
+    ] {
+        let mut document = Document::new(vec![
+            Page::new("/Sh sh").resources("/Shading << /Sh 3 0 R >>"),
+        ]);
+        document.objects = vec![common::stream(
+            &format!("{mesh} /ColorSpace /DeviceGray /Decode [0 1 0 1]"),
+            vec![0u8; 100_000],
+        )];
+        let used = used(&document.bytes(), Kind::DecodedBytes);
+        assert!(used < 1_000_000, "{mesh}: {used}");
+    }
     // 経路を塗るか線を描く演算子は、装置の手間（経路の要素ごとに 1 と、経路ごとに 1）に 6 を足す。`B` は、塗りと
     // 線を別に描く
     let fills = "0 0 10 10 re f ".repeat(100);
@@ -2199,34 +2234,27 @@ fn direct_stream(dict: &str, data: &[u8]) -> String {
     )
 }
 
-/// 字形 1 に、`points` 個の点を同じ所に置いた輪郭を 1 つ持つ、最小の TrueType のフォント（glyf・head・hhea・
-/// hmtx・loca・maxp）。点は、旗の繰り返しと「前と同じ座標」で書くので、座標のバイトを持たない
-fn outline_font(points: u16) -> Vec<u8> {
-    fn be16(out: &mut Vec<u8>, value: u16) {
-        out.extend(value.to_be_bytes());
-    }
-    fn be32(out: &mut Vec<u8>, value: u32) {
-        out.extend(value.to_be_bytes());
-    }
-    let mut glyph = Vec::new();
-    // 輪郭の数・外接矩形・最後の点・命令の長さ
-    for value in [1, 0, 0, 100, 100, points - 1, 0] {
-        be16(&mut glyph, value);
-    }
-    // 曲線の上・x も y も前と同じ、を 256 点ずつ繰り返す
-    let mut left = usize::from(points);
-    while left > 0 {
-        let run = left.min(256);
-        glyph.extend([0x01 | 0x08 | 0x10 | 0x20, (run - 1) as u8]);
-        left -= run;
-    }
-    while glyph.len() % 4 != 0 {
-        glyph.push(0);
-    }
+fn be16(out: &mut Vec<u8>, value: u16) {
+    out.extend(value.to_be_bytes());
+}
+
+fn be32(out: &mut Vec<u8>, value: u32) {
+    out.extend(value.to_be_bytes());
+}
+
+/// `glyphs` を字形 0 から並べた、最小の TrueType のフォント（glyf・head・hhea・hmtx・loca・maxp）。loca は長い形
+fn truetype(glyphs: &[Vec<u8>]) -> Vec<u8> {
+    let mut glyf = Vec::new();
     let mut loca = Vec::new();
-    for offset in [0, 0, glyph.len() as u32] {
-        be32(&mut loca, offset);
+    for glyph in glyphs {
+        be32(&mut loca, glyf.len() as u32);
+        glyf.extend(glyph);
+        while glyf.len() % 4 != 0 {
+            glyf.push(0);
+        }
     }
+    be32(&mut loca, glyf.len() as u32);
+    let count = glyphs.len() as u16;
     let mut head = Vec::new();
     for value in [0x0001_0000, 0x0001_0000, 0, 0x5F0F_3CF5] {
         be32(&mut head, value);
@@ -2239,18 +2267,21 @@ fn outline_font(points: u16) -> Vec<u8> {
     }
     let mut maxp = Vec::new();
     be32(&mut maxp, 0x0000_5000);
-    be16(&mut maxp, 2);
+    be16(&mut maxp, count);
     let mut hhea = Vec::new();
     be32(&mut hhea, 0x0001_0000);
-    for value in [800, 0xFF38, 0, 1000, 0, 0, 100, 1, 0, 0, 0, 0, 0, 0, 0, 2] {
+    for value in [
+        800, 0xFF38, 0, 1000, 0, 0, 100, 1, 0, 0, 0, 0, 0, 0, 0, count,
+    ] {
         be16(&mut hhea, value);
     }
     let mut hmtx = Vec::new();
-    for value in [1000, 0, 1000, 0] {
-        be16(&mut hmtx, value);
+    for _ in 0..count {
+        be16(&mut hmtx, 1000);
+        be16(&mut hmtx, 0);
     }
     let tables = [
-        (b"glyf", glyph),
+        (b"glyf", glyf),
         (b"head", head),
         (b"hhea", hhea),
         (b"hmtx", hmtx),
@@ -2279,28 +2310,34 @@ fn outline_font(points: u16) -> Vec<u8> {
     font
 }
 
+/// 字形 1 に、`points` 個の点を同じ所に置いた輪郭を 1 つ持つ、最小の TrueType のフォント。点は、旗の繰り返しと
+/// 「前と同じ座標」で書くので、座標のバイトを持たない
+fn outline_font(points: u16) -> Vec<u8> {
+    let mut glyph = Vec::new();
+    // 輪郭の数・外接矩形・最後の点・命令の長さ
+    for value in [1, 0, 0, 100, 100, points - 1, 0] {
+        be16(&mut glyph, value);
+    }
+    // 曲線の上・x も y も前と同じ、を 256 点ずつ繰り返す
+    let mut left = usize::from(points);
+    while left > 0 {
+        let run = left.min(256);
+        glyph.extend([0x01 | 0x08 | 0x10 | 0x20, (run - 1) as u8]);
+        left -= run;
+    }
+    truetype(&[Vec::new(), glyph])
+}
+
 /// [`outline_font`] の字形 1 を `count` 字、描画モード `mode` で描くページ。フォントは Identity-H の Type0 の
 /// CIDFontType2 で、CID をそのまま字形の番号にする
 fn outline_document(points: u16, count: usize, mode: u32) -> Vec<u8> {
-    let text = format!(
-        "BT /F 12 Tf {mode} Tr 100 100 Td <{}> Tj ET",
-        "0001".repeat(count)
-    );
-    let mut document = Document::new(vec![Page::new(&text).resources("/Font << /F 3 0 R >>")]);
-    document.objects = vec![
-        b"<< /Type /Font /Subtype /Type0 /BaseFont /Outline /Encoding /Identity-H \
-          /DescendantFonts [4 0 R] >>"
-            .to_vec(),
-        b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Outline /CIDSystemInfo \
-          << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 5 0 R \
-          /CIDToGIDMap /Identity >>"
-            .to_vec(),
-        b"<< /Type /FontDescriptor /FontName /Outline /Flags 4 /FontBBox [0 0 100 100] \
-          /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile2 6 0 R >>"
-            .to_vec(),
-        common::stream("", outline_font(points)),
-    ];
-    document.bytes()
+    font_document(
+        "/CIDFontType2",
+        "/FontFile2",
+        outline_font(points),
+        count,
+        mode,
+    )
 }
 
 #[test]
@@ -2438,8 +2475,8 @@ fn walks_streams_written_in_dictionaries_each_time() {
 fn counts_memory_of_the_drawing_model() {
     use zumen_base::{Kind, Limit, Limits};
     // hayro-interpret は、フォームを呼ぶたびに中身を解釈し直すので、次の段を 2 回ずつ呼ぶフォームの鎖は、小さい
-    // ファイルから要素を指数的に増やす。図面モデルのメモリも、要素の 1 つを 2,048 バイト、経路の要素の 1 つを
-    // 64 バイト、字形の 1 つを 8 バイトと数える
+    // ファイルから要素を指数的に増やす。図面モデルのメモリも、要素の 1 つを 2,048 バイト、字形の Unicode の
+    // 1 バイトを 4 バイトと数える（形の配列は `counts_memory_of_curves`）
     let chain = |levels: usize, leaf: &str, resources: &str| {
         let mut document = Document::new(vec![
             Page::new("/N Do").resources("/XObject << /N 3 0 R >>"),
@@ -2466,11 +2503,11 @@ fn counts_memory_of_the_drawing_model() {
     };
     // 1,024 本の線
     let lines = chain(10, "0 0 m 10 10 l S", "");
-    assert!(used(&lines, Kind::DecodedBytes) >= 1_024 * (2_048 + 2 * 64));
+    assert!(used(&lines, Kind::DecodedBytes) >= 1_024 * 2_048);
     // 1,000 字の文字列の 64 回
     let text = format!("BT /F1 12 Tf 10 10 Td ({}) Tj ET", "A".repeat(1_000));
     let texts = chain(6, &text, HELVETICA);
-    assert!(used(&texts, Kind::DecodedBytes) >= 64 * 1_000 * 8);
+    assert!(used(&texts, Kind::DecodedBytes) >= 64 * (2_048 + 1_000 * 4));
     // 予算を超えたら、要素を足さずに止める
     let file = testkit::read::<Pdf>(&lines).0.unwrap();
     let mut budget =
@@ -2512,6 +2549,267 @@ fn counts_memory_of_long_paths_and_glyph_runs() {
         Kind::DecodedBytes,
     );
     assert!(run >= (100_000 - 65_536) * 512, "{run}");
+}
+
+#[test]
+fn counts_memory_of_curves() {
+    use zumen_base::Kind;
+    // 塗りはハッチングになり、曲線の区間はそれぞれ辺のスプライン（制御点 4 つと節点 8 つ）になる。線は 1 つの
+    // スプライン（区間ごとに制御点 3 つと節点 3 つ）になる。形の配列のメモリを、型の大きさの 2 倍と数える
+    let curves = format!("0 0 m {}", "10 10 20 10 30 0 c ".repeat(1_000));
+    let fill = used(
+        &one_page(Page::new(&format!("{curves}f"))),
+        Kind::DecodedBytes,
+    );
+    assert!(fill >= 2 * 1_000 * (168 + 4 * 24 + 8 * 8), "{fill}");
+    let stroke = used(
+        &one_page(Page::new(&format!("{curves}S"))),
+        Kind::DecodedBytes,
+    );
+    assert!(stroke >= 2 * 1_000 * (3 * 24 + 3 * 8), "{stroke}");
+    // 部分経路ごとの輪も数える
+    let loops = "0 0 m 10 10 20 10 30 0 c ".repeat(1_000);
+    let hatch = used(
+        &one_page(Page::new(&format!("{loops}f"))),
+        Kind::DecodedBytes,
+    );
+    assert!(
+        hatch >= 2 * 1_000 * (64 + 2 * 168 + 4 * 24 + 8 * 8),
+        "{hatch}"
+    );
+    // 線分の折れ線は、頂点の 1 つを 32 バイトの 2 倍と数える
+    let lines = format!("0 0 m {}S", "10 10 l 0 0 l ".repeat(500));
+    let polyline = used(&one_page(Page::new(&lines)), Kind::DecodedBytes);
+    assert!(polyline >= 2 * 1_001 * 32, "{polyline}");
+    assert!(polyline < fill, "{polyline} {fill}");
+}
+
+#[test]
+fn counts_memory_of_unicode_text() {
+    use zumen_base::Kind;
+    // ToUnicode の CMap の写す先は、長さが決まっていない。装置は、字形の Unicode を 3 つに写すので、1 バイトを
+    // 4 バイトと数える。<0001> を 1,000 字の A に戻す字形の 100 字は、10 万字の文字になる
+    let cmap = format!(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def \
+         /CMapName /Adobe-Identity-UCS def /CMapType 2 def \
+         1 begincodespacerange <0000> <FFFF> endcodespacerange \
+         1 beginbfchar <0001> <{}> endbfchar \
+         endcmap CMapName currentdict /CMap defineresource pop end end",
+        "0041".repeat(1_000)
+    );
+    let content = format!("BT /F2 10 Tf 100 100 Td <{}> Tj ET", "0001".repeat(100));
+    let mut document = Document::new(vec![Page::new(&content).resources("/Font << /F2 3 0 R >>")]);
+    document.objects = vec![
+        cid_font("MS-Gothic", "Identity-H", "").into_bytes(),
+        common::stream("", cmap),
+    ];
+    let src = document.bytes();
+    let (drawing, _) = lift(&src);
+    let Shape::Text(text) = &elements(&drawing)[0].shape else {
+        panic!("文字でない");
+    };
+    assert_eq!(text.content.len(), 100_000);
+    let bytes = used(&src, Kind::DecodedBytes);
+    assert!(bytes >= 100 * 1_000 * 4, "{bytes}");
+}
+
+/// TrueType のフォントの字形 1 が、空の字形 2 を `components` 回使う合成の字形のページ。`count` 字を描画モード
+/// `mode` で描く
+fn composite_document(components: u16, count: usize, mode: u32) -> Vec<u8> {
+    let mut glyph = Vec::new();
+    // 輪郭の数（負は合成の字形）・外接矩形
+    for value in [0xFFFF, 0, 0, 100, 100] {
+        be16(&mut glyph, value);
+    }
+    for index in 0..components {
+        // 引数は 1 バイトの x・y（ARGS_ARE_XY_VALUES）。最後のほかは、次の部品がある（MORE_COMPONENTS）
+        let more = if index + 1 < components { 0x0020 } else { 0 };
+        be16(&mut glyph, 0x0002 | more);
+        be16(&mut glyph, 2);
+        glyph.extend([0, 0]);
+    }
+    font_document(
+        "/CIDFontType2",
+        "/FontFile2",
+        truetype(&[Vec::new(), glyph, Vec::new()]),
+        count,
+        mode,
+    )
+}
+
+/// 字形を 1 つ（`endchar` だけ）持つ、最小の CFF のフォント（Adobe の Technical Note #5176）。名前・Top DICT・
+/// 文字列・Global Subr・CharStrings の INDEX と、空の Private DICT
+fn cff_font() -> Vec<u8> {
+    let mut font = vec![1, 0, 4, 1];
+    // Name INDEX（1 つ、「F」）
+    font.extend([0, 1, 1, 1, 2, b'F']);
+    // Top DICT INDEX。CharStrings は 30 バイト目、Private DICT は 38 バイト目の 0 バイト
+    font.extend([0, 1, 1, 1, 12]);
+    font.extend([28, 0, 30, 17, 28, 0, 0, 28, 0, 38, 18]);
+    // String INDEX と Global Subr INDEX は空
+    font.extend([0, 0, 0, 0]);
+    // CharStrings INDEX（.notdef と字形 1。どちらも endchar）
+    font.extend([0, 2, 1, 1, 2, 3, 14, 14]);
+    assert_eq!(font.len(), 38);
+    font
+}
+
+/// `font` を埋め込んだ Type0 のフォントで、CID 1 を `count` 字、描画モード `mode` で描くページ。`subtype` は
+/// 子孫の CID フォントの種類、`file` はプログラムを持つ記述子の鍵（9.9）
+fn font_document(subtype: &str, file: &str, font: Vec<u8>, count: usize, mode: u32) -> Vec<u8> {
+    let text = format!(
+        "BT /F 12 Tf {mode} Tr 100 100 Td <{}> Tj ET",
+        "0001".repeat(count)
+    );
+    let mut document = Document::new(vec![Page::new(&text).resources("/Font << /F 3 0 R >>")]);
+    let stream = if file == "/FontFile3" {
+        common::stream("/Subtype /CIDFontType0C", font)
+    } else {
+        common::stream("", font)
+    };
+    document.objects = vec![
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /Outline /Encoding /Identity-H \
+          /DescendantFonts [4 0 R] >>"
+            .to_vec(),
+        format!(
+            "<< /Type /Font /Subtype {subtype} /BaseFont /Outline /CIDSystemInfo \
+             << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 5 0 R \
+             /CIDToGIDMap /Identity >>"
+        )
+        .into_bytes(),
+        format!(
+            "<< /Type /FontDescriptor /FontName /Outline /Flags 4 /FontBBox [0 0 100 100] \
+             /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 {file} 6 0 R >>"
+        )
+        .into_bytes(),
+        stream,
+    ];
+    document.bytes()
+}
+
+#[test]
+fn counts_programs_of_clipping_text() {
+    use zumen_base::Kind;
+    // hayro-font は、切り抜きにする字の輪郭を覚えずに字ごとに作り直し、作る時間はフォントのプログラムで決まる。
+    // TrueType の合成の字形は、字形を 2,049 回までたどり、たどるたびに部品をすべて読むので、いちばん長い合成の
+    // 字形の部品の数（6 バイトを 1 つ）に比例して数える
+    let clip = used(&composite_document(1_000, 10, 7), Kind::Work);
+    assert!(clip >= 10 * 2_049 * 1_000, "{clip}");
+    let fill = used(&composite_document(1_000, 10, 0), Kind::Work);
+    assert!(fill < 1_000_000, "{fill}");
+    // CFF と Type 1 の字形は、1 字に 100 万の演算まで動くので、1 字を 65,536 と数える
+    let cff = |mode| {
+        used(
+            &font_document("/CIDFontType0", "/FontFile3", cff_font(), 10, mode),
+            Kind::Work,
+        )
+    };
+    assert!(cff(7) >= 10 * 65_536, "{}", cff(7));
+    assert!(cff(0) < 65_536, "{}", cff(0));
+    // 埋め込まないフォントは、hayro-font が持つ標準のフォントで描くので、数えない
+    let text = format!("BT /F1 12 Tf 7 Tr ({}) Tj ET", "A".repeat(100));
+    let standard = used(&one_page(Page::new(&text).resources(HELVETICA)), Kind::Work);
+    assert!(standard < 100 * 65_536, "{standard}");
+}
+
+/// 相互参照の表の 5 番の項目が 4 番の前の定義（線を描くフォーム）を指し、4 番の後ろの定義 `later` は表にないファイル。
+/// ページの資源は `/X 4 0 R /Y 5 0 R`、内容は `content`。`extra` は 7 番からのオブジェクトで、表に載せる
+fn repaired_document(content: &str, later: Vec<u8>, extra: &[Vec<u8>]) -> Vec<u8> {
+    let form = "/Type /XObject /Subtype /Form /BBox [0 0 100 100]";
+    let mut objects: Vec<(u32, Vec<u8>)> = vec![
+        (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+        (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
+        (
+            3,
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R \
+              /Resources << /XObject << /X 4 0 R /Y 5 0 R >> >> >>"
+                .to_vec(),
+        ),
+        (4, common::stream(form, "0 0 m 10 10 l S")),
+        (6, common::stream("", content)),
+    ];
+    for (number, body) in (7u32..).zip(extra) {
+        objects.push((number, body.clone()));
+    }
+    objects.push((4, later));
+    let mut src = b"%PDF-1.7\n".to_vec();
+    // 番号ごとに、はじめの定義の位置
+    let mut offsets = std::collections::BTreeMap::new();
+    for (number, body) in &objects {
+        offsets.entry(*number).or_insert(src.len());
+        src.extend(format!("{number} 0 obj\n").as_bytes());
+        src.extend(body);
+        src.extend(b"\nendobj\n");
+    }
+    let size = 7 + extra.len();
+    let xref = src.len();
+    src.extend(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+    for number in 1..size as u32 {
+        let offset = offsets[&if number == 5 { 4 } else { number }];
+        src.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    src.extend(
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    src
+}
+
+#[test]
+fn walks_objects_after_repairing_cross_references() {
+    use zumen_base::Kind;
+    // hayro-syntax は、相互参照の表の項目が別の番号のオブジェクトを指すと、表をファイルの全体から作り直し、同じ番号の
+    // 後ろの定義を使う。走査の前に作り直させるので、走査も hayro-interpret も、4 番の後ろの定義（10 万の `w` と
+    // 長方形）を使う
+    let form = "/Type /XObject /Subtype /Form /BBox [0 0 100 100]";
+    let later = common::stream(form, format!("{}0 0 10 10 re f", "1 w ".repeat(100_000)));
+    let src = repaired_document("/X Do /Y Do", later, &[]);
+    assert!(used(&src, Kind::Work) >= 100_000);
+    let (drawing, diag) = lift(&src);
+    let shapes: Vec<&Shape<PaperPoint>> = elements(&drawing).iter().map(|e| &e.shape).collect();
+    assert!(matches!(shapes.as_slice(), [Shape::Hatch(_)]), "{shapes:?}");
+    assert!(
+        diag.iter().any(|d| d.code() == codes::PDF_XOBJECT_MISSING),
+        "{diag:?}"
+    );
+    // 後ろの定義が、行の頂点の数が 0 の格子を塗るフォームなら、呼ぶ順によらず、解釈せずにシートだけを作る。走査の
+    // 途中で作り直すと、前の定義を数えた後に、hayro-interpret が後ろの定義を解釈して、メモリを使い切る
+    let later = common::stream(
+        &format!("{form} /Resources << /Shading << /Sh 7 0 R >> >>"),
+        "/Sh sh",
+    );
+    let mesh = common::stream(
+        "/ShadingType 5 /ColorSpace /DeviceGray /BitsPerCoordinate 8 /BitsPerComponent 8 \
+         /VerticesPerRow 0 /Decode [0 100 0 100 0 1]",
+        [0u8, 0, 0, 100, 0, 0],
+    );
+    for content in ["/X Do /Y Do", "/Y Do /X Do"] {
+        let (drawing, diag) = lift(&repaired_document(
+            content,
+            later.clone(),
+            std::slice::from_ref(&mesh),
+        ));
+        assert!(elements(&drawing).is_empty(), "{content}");
+        assert!(
+            diag.iter().any(|d| d.code() == codes::PDF_PAGE_DROPPED),
+            "{content}: {diag:?}"
+        );
+    }
+}
+
+#[test]
+fn counts_object_streams_before_walking() {
+    use zumen_base::Kind;
+    // 走査の前に、相互参照の表のすべての項目を引く。オブジェクトのストリームは、hayro-syntax が展開して文書の間
+    // 持つので、使われなくても、展開したバイト数を数える
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    let plain = used(&document.bytes(), Kind::DecodedBytes);
+    document.objects = vec![common::stream(
+        "/Type /ObjStm /N 1 /First 4",
+        format!("7 0 {}", " ".repeat(100_000)),
+    )];
+    let with = used(&document.bytes(), Kind::DecodedBytes);
+    assert!(with >= plain + 2 * 100_000, "{plain} {with}");
 }
 
 #[test]

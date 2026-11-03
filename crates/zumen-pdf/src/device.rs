@@ -29,7 +29,7 @@ use zumen_drawing::{
 use zumen_sdk::Cx;
 
 use crate::color::{self, Mapped};
-use crate::walk::own_stream;
+use crate::walk::{Owned, own_stream};
 
 /// 用紙の 1 mm の装置の単位の数。2 の累乗なので、装置の座標を mm に戻しても値は変わらない。面積のない塗りを
 /// hayro-interpret は 1 装置単位の幅の線にするので、その線は 1/1024 mm の細い線になる
@@ -39,13 +39,27 @@ pub(crate) const DEVICE_PER_MM: f64 = 1024.0;
 pub(crate) const PAGE_LAYER: LayerId = LayerId(0);
 
 // 図面モデルのメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret は、フォームを呼ぶたびに中身を解釈し
-// 直すので、小さいファイルからも要素が指数的に増える。測ったメモリを、多めにする（決定 0256）
+// 直すので、小さいファイルからも要素が指数的に増える。要素の形が持つ配列は、項目の数と、64 ビットの環境の型の
+// 大きさから求める（予算は、環境によらず同じに数える。決定 0256）
 /// 要素の 1 つ（要素の配列を伸ばす間の写しを含めて、測ったメモリはおよそ 1.3〜1.5 KB）
 const ELEMENT_BYTES: u64 = 2048;
-/// 装置に渡された経路の要素の 1 つ。要素の頂点と輪になる（測ったメモリは、頂点の 1 つでおよそ 32 バイト）
-const PATH_BYTES: u64 = 64;
-/// 字形の並びの字形の 1 つ。文字の中身になる
-const GLYPH_BYTES: u64 = 8;
+/// 頂点（`Vertex` は 32 バイト）
+const VERTEX_SIZE: u64 = 32;
+/// 制御点（`PaperPoint` は 24 バイト）
+const POINT_SIZE: u64 = 24;
+/// 節点（f64）
+const KNOT_SIZE: u64 = 8;
+/// ハッチングの輪の辺（`Edge` は 168 バイト）
+const EDGE_SIZE: u64 = 168;
+/// ハッチングの輪（`HatchLoop` は 64 バイト）
+const LOOP_SIZE: u64 = 64;
+/// 形の配列のメモリに掛ける数。作る間の写し（部分経路から作る頂点・辺・制御点の配列）と、配列の余りの分
+const MODEL_SLACK: u64 = 2;
+/// 字形の Unicode（ToUnicode の CMap の写す先、9.10.3）の 1 バイトのメモリ。装置は、字形ごとの Unicode の配列・
+/// 同じ並びかを見る鍵（次の字形の並びまで持つ）・文字の中身の 3 つに写すので、多めにして 4 倍にする
+const UNICODE_BYTES: u64 = 4;
+/// 字形の Unicode を写す手間の、1 とするバイト数
+const UNICODE_PER_WORK: u64 = 16;
 
 /// 破線の長さで、hayro-interpret が 0 の代わりに置く値（ユーザー空間）。これ以下は点（0）に戻す
 const DASH_ZERO: f32 = 0.01;
@@ -541,7 +555,7 @@ struct Group {
 }
 
 /// ページの内容を集める
-pub(crate) struct Collector<'c, 'x> {
+pub(crate) struct Collector<'c, 'x, 'd> {
     cx: &'c mut Cx<'x>,
     /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト）
     source: Ref,
@@ -550,8 +564,9 @@ pub(crate) struct Collector<'c, 'x> {
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
-    /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）
-    xref: &'c XRef,
+    /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）。引いた入れ物は、走査と同じ表に覚える
+    xref: &'d XRef,
+    owned: &'c mut Owned<'d>,
     styles: &'c mut Styles,
     pub(crate) elements: Vec<Element<PaperPoint>>,
     /// 切り抜きの外接矩形（用紙の mm）の重なり。最初はページ
@@ -572,7 +587,7 @@ pub(crate) struct Collector<'c, 'x> {
     pub(crate) stopped: Option<Stop>,
 }
 
-impl<'c, 'x> Collector<'c, 'x> {
+impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         cx: &'c mut Cx<'x>,
@@ -581,7 +596,8 @@ impl<'c, 'x> Collector<'c, 'x> {
         page: Rect,
         ocgs: &'c BTreeMap<(u32, i32), LayerId>,
         objects: &'c BTreeMap<(u32, i32), Ref>,
-        xref: &'c XRef,
+        xref: &'d XRef,
+        owned: &'c mut Owned<'d>,
         styles: &'c mut Styles,
         transfer: bool,
     ) -> Self {
@@ -592,6 +608,7 @@ impl<'c, 'x> Collector<'c, 'x> {
             ocgs,
             objects,
             xref,
+            owned,
             styles,
             elements: Vec::new(),
             clips: vec![page],
@@ -672,12 +689,16 @@ impl<'c, 'x> Collector<'c, 'x> {
         }
     }
 
-    /// 要素を足す。ソフトマスクと合成の方法は移さないので、かかっていれば診断する
+    /// 要素を足す。ソフトマスクと合成の方法は移さないので、かかっていれば診断する。要素と、形が持つ配列のメモリ
+    /// （[`shape_bytes`]）を数える
     fn add(&mut self, shape: Shape<PaperPoint>, style: Style) {
         if self.blended || self.groups.iter().any(|group| group.blended) {
             self.note_code(codes::PDF_TRANSPARENCY_APPROXIMATED);
         }
-        if !self.spend(Kind::Elements, 1) || !self.spend(Kind::DecodedBytes, ELEMENT_BYTES) {
+        let bytes = shape_bytes(&shape)
+            .saturating_mul(MODEL_SLACK)
+            .saturating_add(ELEMENT_BYTES);
+        if !self.spend(Kind::Elements, 1) || !self.spend(Kind::DecodedBytes, bytes) {
             return;
         }
         self.elements.push(Element {
@@ -827,7 +848,7 @@ impl<'c, 'x> Collector<'c, 'x> {
                 closed: true,
             };
         }
-        let mut edges = Vec::new();
+        let mut edges = Vec::with_capacity(subpath.segments.len() + 1);
         let mut from = subpath.start;
         for segment in &subpath.segments {
             edges.push(self.edge(from, *segment));
@@ -861,7 +882,8 @@ impl<'c, 'x> Collector<'c, 'x> {
     /// 3 次のベジェ曲線をつないだスプライン。`count` 個の曲線の制御点を、つなぎ目を共有して並べたもの
     /// （`3 count + 1` 個）。節点はつなぎ目で 3 重にし、形を変えない
     fn bezier(&self, control: &[Point], count: usize) -> Spline<PaperPoint> {
-        let mut knots = vec![0.0; 4];
+        let mut knots = Vec::with_capacity(3 * count + 5);
+        knots.extend([0.0; 4]);
         for index in 1..count {
             knots.extend([index as f64; 3]);
         }
@@ -953,12 +975,14 @@ impl<'c, 'x> Collector<'c, 'x> {
 
     fn stroke_shape(&self, subpath: &Subpath) -> Shape<PaperPoint> {
         if subpath.curved() {
-            let mut control = vec![subpath.start];
-            let mut from = subpath.start;
-            let mut segments = subpath.segments.clone();
+            let mut segments = Vec::with_capacity(subpath.segments.len() + 1);
+            segments.extend_from_slice(&subpath.segments);
             if subpath.closed && subpath.end() != subpath.start {
                 segments.push(Segment::Line(subpath.start));
             }
+            let mut control = Vec::with_capacity(3 * segments.len() + 1);
+            control.push(subpath.start);
+            let mut from = subpath.start;
             for segment in &segments {
                 match *segment {
                     // 線分は、同じ形の 3 次の曲線にする
@@ -1058,8 +1082,18 @@ impl<'c, 'x> Collector<'c, 'x> {
             return;
         };
         let device = to_mm() * props.transform;
-        let unicode: Vec<Option<BfString>> =
-            glyphs.iter().map(|glyph| glyph.as_unicode()).collect();
+        // hayro-cmap は、写す先の長さを決めず、引くたびに写す（9.10.3）。写す前に、1 つずつ数える
+        let mut unicode: Vec<Option<BfString>> = Vec::with_capacity(glyphs.len());
+        for glyph in glyphs {
+            let piece = glyph.as_unicode();
+            let bytes = unicode_bytes(piece.as_ref());
+            if !self.spend(Kind::Work, bytes.div_ceil(UNICODE_PER_WORK))
+                || !self.spend(Kind::DecodedBytes, bytes.saturating_mul(UNICODE_BYTES))
+            {
+                return;
+            }
+            unicode.push(piece);
+        }
         let key = RunKey {
             content: text_of(&unicode).0,
             first: (device * first.transform()).as_coeffs(),
@@ -1279,12 +1313,9 @@ impl<'c, 'x> Collector<'c, 'x> {
                 .is_some_and(|value| value != 0);
         // 画像の XObject は、間接オブジェクトの参照（`n g R`）を名前にする。内容の中に書いた画像（BI … EI）と、辞書の
         // 値に直接書いた画像（7.3.8.1 に反する）は、名前を持たない
-        let (path, definition) = match own_stream(self.xref, stream) {
-            Some(id) => match self.objects.get(&(id.obj_number, id.gen_number)) {
-                Some(record) => (
-                    format!("{} {} R", id.obj_number, id.gen_number),
-                    record.clone(),
-                ),
+        let (path, definition) = match own_stream(self.xref, self.owned, stream) {
+            Some(id) => match self.objects.get(&id) {
+                Some(record) => (format!("{} {} R", id.0, id.1), record.clone()),
                 None => (String::new(), self.source.clone()),
             },
             None => (String::new(), self.source.clone()),
@@ -1315,7 +1346,11 @@ impl<'c, 'x> Collector<'c, 'x> {
 
 /// 字形の Unicode をつないだ文字列と、Unicode に戻せない字形の数。戻せない字形は U+FFFD にする
 fn text_of(unicode: &[Option<BfString>]) -> (String, u64) {
-    let mut content = String::new();
+    let length = unicode
+        .iter()
+        .map(|piece| unicode_bytes(piece.as_ref()))
+        .fold(0u64, u64::saturating_add);
+    let mut content = String::with_capacity(usize::try_from(length).unwrap_or(0));
     let mut missing = 0u64;
     for piece in unicode {
         match piece {
@@ -1330,12 +1365,58 @@ fn text_of(unicode: &[Option<BfString>]) -> (String, u64) {
     (content, missing)
 }
 
-impl<'a> Device<'a> for Collector<'_, '_> {
+/// 字形の Unicode を UTF-8 にしたバイト数。戻せない字形は、U+FFFD の 3 バイト
+fn unicode_bytes(piece: Option<&BfString>) -> u64 {
+    let length = match piece {
+        Some(BfString::Char(character)) => character.len_utf8(),
+        Some(BfString::String(text)) => text.len(),
+        None => char::REPLACEMENT_CHARACTER.len_utf8(),
+    };
+    length as u64
+}
+
+/// 要素の形が持つ配列のメモリ（項目の数と、64 ビットの環境の型の大きさから求める）。文字の中身は、字形の並びを
+/// 読む所で数える（[`UNICODE_BYTES`]）ので、ここでは文字スタイルの名前だけを数える
+fn shape_bytes(shape: &Shape<PaperPoint>) -> u64 {
+    match shape {
+        Shape::Polyline(polyline) => (polyline.vertices.len() as u64).saturating_mul(VERTEX_SIZE),
+        Shape::Curve(edge) => edge_bytes(edge),
+        Shape::Hatch(hatch) => hatch
+            .loops
+            .iter()
+            .map(|item| {
+                let boundary = match &item.boundary {
+                    Boundary::Polyline { vertices, .. } => {
+                        (vertices.len() as u64).saturating_mul(VERTEX_SIZE)
+                    }
+                    Boundary::Edges(edges) => edges
+                        .iter()
+                        .map(|edge| edge_bytes(edge).saturating_add(EDGE_SIZE))
+                        .fold(0u64, u64::saturating_add),
+                };
+                boundary.saturating_add(LOOP_SIZE)
+            })
+            .fold(0u64, u64::saturating_add),
+        Shape::Text(text) => text.style.len() as u64,
+        Shape::Underlay(underlay) => underlay.resource.path.len() as u64,
+        _ => 0,
+    }
+}
+
+/// 辺が持つ配列のメモリ（スプラインの制御点と節点）
+fn edge_bytes(edge: &Edge<PaperPoint>) -> u64 {
+    match edge {
+        Edge::Spline(spline) => (spline.control.len() as u64)
+            .saturating_mul(POINT_SIZE)
+            .saturating_add((spline.knots.len() as u64).saturating_mul(KNOT_SIZE)),
+        _ => 0,
+    }
+}
+
+impl<'a> Device<'a> for Collector<'_, '_, '_> {
     fn draw_path(&mut self, path: &BezPath, props: DrawProps<'a>, draw_mode: &DrawMode) {
         let count = u64::try_from(path.elements().len()).unwrap_or(u64::MAX);
-        if !self.spend(Kind::Work, count.saturating_add(1))
-            || !self.spend(Kind::DecodedBytes, count.saturating_mul(PATH_BYTES))
-        {
+        if !self.spend(Kind::Work, count.saturating_add(1)) {
             return;
         }
         self.last_fill_run = None;
@@ -1404,9 +1485,7 @@ impl<'a> Device<'a> for Collector<'_, '_> {
         draw_mode: &DrawMode,
     ) {
         let count = u64::try_from(glyph_run.glyphs().len()).unwrap_or(u64::MAX);
-        if !self.spend(Kind::Work, count.saturating_add(1))
-            || !self.spend(Kind::DecodedBytes, count.saturating_mul(GLYPH_BYTES))
-        {
+        if !self.spend(Kind::Work, count.saturating_add(1)) {
             return;
         }
         self.blended = blended(props.soft_mask.is_some(), props.blend_mode);

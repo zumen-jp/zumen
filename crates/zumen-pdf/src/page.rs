@@ -10,7 +10,7 @@ use zumen_base::{Kind, Stop};
 use zumen_sdk::Cx;
 
 use crate::strings;
-use crate::walk::own_dict;
+use crate::walk::{Owned, own_dict};
 
 /// 1 pt（既定のユーザー空間の 1 単位）の mm
 pub(crate) const MM_PER_PT: f64 = 25.4 / 72.0;
@@ -23,6 +23,10 @@ const MAX_TREE_DEPTH: u32 = 32;
 
 /// 文字で数えるページラベル（A〜Z、AA〜ZZ …）で、同じ文字を並べる数の上限。超えたら数字で書く
 const MAX_LETTERS: u64 = 64;
+
+/// 持っておく辞書の 1 つのメモリ。hayro-syntax 0.9.0 は、読んだ辞書ごとに、8 項目の鍵の表（`FxHashMap`）を `Arc` に
+/// 入れて作る。64 ビットで測ると 1 つに 900 バイトほどで、空の辞書（`<<>>`、4 バイト）でも変わらない
+const DICT_BYTES: u64 = 1_024;
 
 /// ページの大きさと、既定のユーザー空間から用紙の mm への変換
 #[derive(Clone, Copy, Debug)]
@@ -84,8 +88,10 @@ impl Geometry {
 
 /// 各ページのページラベル（12.4.2）。カタログの `PageLabels` の数の木から、ページの番号（0 から）以下でいちばん
 /// 大きい開始ページの範囲の書き方で作る。ラベルのないページと、空のラベルは `None`。木の節と項目ごとに予算の
-/// `work` を 1 使い、深さは [`MAX_TREE_DEPTH`] まで、同じ節は 2 度たどらない。範囲は二分探索で引く。同じ節かは、
-/// それ自身の間接オブジェクトの節だけを番号で見分ける（[`own_dict`]。直接書いた節は、入れ物の番号を持つので）
+/// `work` を 1 使い、持っておく節と範囲の辞書ごとに `DecodedBytes` を [`DICT_BYTES`] 使う。深さは
+/// [`MAX_TREE_DEPTH`] まで、同じ節は 2 度たどらない。範囲は二分探索で引く。同じ節かは、
+/// それ自身の間接オブジェクトの節だけを番号で見分ける（[`own_dict`]。直接書いた節は、入れ物の番号を持つので）。
+/// 入れ物は、番号ごとに 1 度だけ引く
 pub(crate) fn labels(
     xref: &XRef,
     catalog: Option<&Dict<'_>>,
@@ -95,14 +101,15 @@ pub(crate) fn labels(
     let mut ranges: Vec<(i64, Dict<'_>)> = Vec::new();
     if let Some(tree) = catalog.and_then(|catalog| catalog.get::<Dict<'_>>(b"PageLabels")) {
         let mut seen = BTreeSet::new();
+        let mut known = Owned::new();
         let mut stack = vec![(tree, 0u32)];
         while let Some((node, depth)) = stack.pop() {
             cx.check(Kind::Work, 1)?;
             if depth > MAX_TREE_DEPTH {
                 continue;
             }
-            if let Some(id) = own_dict(xref, &node)
-                && !seen.insert((id.obj_number, id.gen_number))
+            if let Some(id) = own_dict(xref, &mut known, &node)
+                && !seen.insert(id)
             {
                 continue;
             }
@@ -111,17 +118,20 @@ pub(crate) fn labels(
                 while let (Some(key), Some(value)) = (items.next(), items.next()) {
                     cx.check(Kind::Work, 1)?;
                     if let (Object::Number(key), Object::Dict(range)) = (key, value) {
+                        cx.check(Kind::DecodedBytes, DICT_BYTES)?;
                         ranges.push((key.as_i64(), range));
                     }
                 }
             }
             if let Some(kids) = node.get::<Array<'_>>(b"Kids") {
-                let kids: Vec<Dict<'_>> = kids.iter::<Dict<'_>>().collect();
-                // 後ろから積むので、木の順にたどる
-                for kid in kids.into_iter().rev() {
+                let mut held = Vec::new();
+                for kid in kids.iter::<Dict<'_>>() {
                     cx.check(Kind::Work, 1)?;
-                    stack.push((kid, depth + 1));
+                    cx.check(Kind::DecodedBytes, DICT_BYTES)?;
+                    held.push((kid, depth + 1));
                 }
+                // 後ろから積むので、木の順にたどる
+                stack.extend(held.into_iter().rev());
             }
         }
     }
