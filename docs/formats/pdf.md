@@ -132,18 +132,20 @@ PDF を、ファイルモデル（L1）として読み書きし、図面モデ�
 - L1 の `write` は、レコードのバイト列と、その間のバイト列をそのまま並べ、読んだバイト列と同じものを返す。
 - 図面モデルの変更を PDF に書き戻す（apply・lower）ことは、しない。
 
-## 検証
+## 確かめた度合い
 
-### 確かめた度合い
-
-| 向き | 段 | 確かめたこと |
+| 形式 | 向き | 段 |
 | --- | --- | --- |
-| 読む | `synthetic` | 仕様と、試験の中で作ったファイルだけで確かめた（`crates/zumen-pdf/tests/pdf.rs`・`drawing.rs`）。シーンへの移しは、図面モデルから `zumen-scene` で作れることだけを確かめた |
-| 書く | `synthetic` | 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた |
+| `pdf` | 読み | `synthetic` |
+| `pdf` | 書き | `synthetic` |
 
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-pdf)にあります。この文書の規則は、外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+
+- 読み: 仕様と、試験の中で作ったファイルだけで確かめた（`crates/zumen-pdf/tests/pdf.rs`・`drawing.rs`）。図面モデルへの移しは、hayro-interpret 0.9.0 が解釈したページで確かめた。シーンへの移しは、図面モデルから `zumen-scene` で作れることだけを確かめた。
+- 書き: 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない。
 - 予算と ID の契約は、テストキットの `stops_at_same_place`・`survives`（どちらも L1 の読み）・`ids_match`（`crates/zumen-pdf/tests/ids/pdf.txt`）と、図面モデルへの移しが同じ所で止まることの試験（`crates/zumen-pdf/tests/drawing.rs`）で確かめる。fuzz の対象は `fuzz/fuzz_targets/pdf.rs` で、読んで移すまでをテストキットの `survives_lift` で確かめ、2 回移した図面を Debug の表記で比べる。
 - 外部の実装（pdf.js）との照合は、まだしていない（#519）。
 
-### 公開サンプル
+## 公開サンプル
 
 `samples/` に PDF はない。2026-11-03 に、CC0・パブリックドメインで、CAD が出力したベクターの図面の PDF を Web で探した（CC0 の CAD の図面の PDF、Wikimedia Commons の建築の図面の分類）。Commons の分類の PDF は主にスキャンした本で、ライセンスを書かない図面の配布と、素材の販売のサイトは、決定 0171 に合わない。`samples/dwg` の CC0 の図面を PDF に印刷したものを候補として、#519 で足す。

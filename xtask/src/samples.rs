@@ -74,10 +74,19 @@ struct Found {
     sha256: String,
 }
 
-pub fn check(root: &Path) -> Result<(), String> {
+fn read(root: &Path) -> Result<Ledger, String> {
     let text =
         fs::read_to_string(root.join(LEDGER)).map_err(|e| format!("{LEDGER} を読めない: {e}"))?;
-    let ledger: Ledger = toml::from_str(&text).map_err(|e| format!("{LEDGER}: {e}"))?;
+    toml::from_str(&text).map_err(|e| format!("{LEDGER}: {e}"))
+}
+
+/// 台帳にあるサンプルの、`samples/` からの道筋。形式の台帳の確かめた度合いが指す（決定 0254）
+pub(crate) fn paths(root: &Path) -> Result<BTreeSet<String>, String> {
+    Ok(read(root)?.samples.into_iter().map(|s| s.path).collect())
+}
+
+pub fn check(root: &Path) -> Result<(), String> {
+    let ledger = read(root)?;
     let mut found = BTreeMap::new();
     let mut errors = Vec::new();
     collect(&root.join(DIR), "", &mut found, &mut errors)?;

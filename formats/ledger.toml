@@ -372,6 +372,17 @@ decisions = ["0008", "0120", "0121", "0122", "0123", "0124", "0125", "0126", "01
 docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#385"]
 
+[formats.sxf.read]
+level = "synthetic"
+scope = "受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を外部の実装や SXF ブラウザの表示と照らしていないので、段は synthetic。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。公開サンプル・外部の実装・SXF ブラウザでの照合はまだ（#503）"
+received = [{ kind = "SFC", count = 1 }, { kind = "P21", count = 1 }]
+checked = "2026-10-30"
+
+[formats.sxf.write]
+level = "synthetic"
+scope = "試験の中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）"
+checked = "2026-11-03"
+
 [[formats.sxf.evidence]]
 title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"
 url = "https://www.cals-ed.go.jp/copyright/"
@@ -392,6 +403,17 @@ verify = ["Jw_cad"]
 samples = ["Jw_cad に付くサンプル", "ezjww のリポジトリにある図面"]
 decisions = ["0008", "0133", "0134", "0135", "0136"]
 docs = ["docs/formats/jww.md"]
+
+[formats.jww.read]
+level = "synthetic"
+scope = "受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。公開サンプル・外部の実装・Jw_cad での照合はまだ（#503）"
+received = [{ kind = "JWW", count = 10 }]
+checked = "2026-10-30"
+
+[formats.jww.write]
+level = "synthetic"
+scope = "試験の中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを Jw_cad で開いてはいない（#342・#503）"
+checked = "2026-11-03"
 
 [formats.jwc]
 name = "JWC（Jw_cad for DOS の図面）"
@@ -433,9 +455,24 @@ place = "core"
 basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezdxf", license = "MIT", url = "https://ezdxf.mozman.at/" }]
 verify = ["ezdxf", "ODA File Converter", "DWG TrueView"]
-samples = ["ACadSharp の試験の図面（MIT）", "ezdwg の試験の図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
+samples = ["公開サンプルの DXF（samples/dxf・samples/dwg）。ezdxf の例は MIT、zumen-jp が AutoCAD 2027 で作った図面は CC0 1.0。出所とライセンスは samples/ledger.toml", "ACadSharp の試験の図面（MIT）", "ezdwg の試験の図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
 decisions = ["0008"]
 docs = ["docs/formats/dxf.md"]
+
+[formats.dxf.read]
+level = "application"
+scope = "AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。ほかの規則は、AutoCAD では確かめていない（docs/formats/dxf.md）。毎晩の CI で、公開サンプルの DXF（samples/dxf・samples/dwg）を ezdxf でも読み、画層・図形の種類・モデル空間の形の値が zumen の読みと同じことと、図形を黙って捨てていないことを確かめる（xtask/verify、#511）"
+public-samples = ["samples/dxf/", "samples/dwg/"]
+implementations = [{ name = "ezdxf", version = "1.4.5" }]
+software = [{ name = "AutoCAD", version = "2027" }]
+checked = "2026-11-03"
+
+[formats.dxf.write]
+level = "application"
+scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF は、毎晩の CI で ezdxf で読み、監査の誤りが入力より増えないことと、変更で決めた形・画層・色が ezdxf の読んだ値と合うことを確かめる（xtask/verify、#511）。convert で書いた DXF は、ezdxf で読めないものと監査が誤りを直すものがある（#509）ので、根拠にしない"
+implementations = [{ name = "ezdxf", version = "1.4.5" }]
+software = [{ name = "AutoCAD", version = "2027" }]
+checked = "2026-11-03"
 
 [formats.dwg]
 name = "DWG"
@@ -451,10 +488,23 @@ references = [
   { name = "ezdwg", license = "MIT", url = "https://github.com/monozukuri-ai/ezdwg" },
 ]
 verify = ["ODA File Converter", "DWG TrueView"]
-samples = ["ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg の試験の図面（MIT）"]
+samples = ["公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml", "ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg の試験の図面（MIT）"]
 decisions = ["0008"]
 legacy-decisions = ["0003"]
 docs = ["docs/formats/dwg.md"]
+
+[formats.dwg.read]
+level = "application"
+scope = "AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことを試験で確かめる。ほかの図面で確かめた所と、確かめていない所は docs/formats/dwg.md にある"
+public-samples = ["samples/dwg/"]
+software = [{ name = "AutoCAD", version = "2027" }]
+checked = "2026-11-02"
+
+[formats.dwg.write]
+level = "application"
+scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）"
+software = [{ name = "AutoCAD", version = "2027" }]
+checked = "2026-11-02"
 
 [formats.pdf]
 name = "PDF"
@@ -472,6 +522,16 @@ legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
 notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、版を固定する（決定 0256）"
 
+[formats.pdf.read]
+level = "synthetic"
+scope = "仕様と、試験の中で作った PDF だけで確かめた（crates/zumen-pdf/tests/pdf.rs・drawing.rs）。図面モデルへの移しは、hayro-interpret 0.9.0 が解釈したページで確かめた。シーンへの移しは、図面モデルから zumen-scene で作れることだけを確かめた。公開サンプルと外部の実装（pdf.js）との照合はまだ（#519）"
+checked = "2026-11-03"
+
+[formats.pdf.write]
+level = "synthetic"
+scope = "読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない"
+checked = "2026-11-03"
+
 [[formats.pdf.evidence]]
 title = "PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）"
 url = "https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/"
@@ -487,11 +547,24 @@ rights = "public"
 rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標"
 place = "core"
 basis = ["spec"]
-verify = ["IfcOpenShell（手元でだけ使う）"]
-samples = ["日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）"]
+verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
+samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
 decisions = ["0008", "0207", "0211", "0244"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/ifc.md"]
+
+[formats.ifc.read]
+level = "external"
+scope = "公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。判定・インスタンスのグラフ・壊れた所の扱いと、写さない値は、外部の実装と照らしていない。公開サンプル 12 件は、自前の試験でも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様と試験の中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す"
+public-samples = ["samples/ifc/"]
+implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
+checked = "2026-11-03"
+
+[formats.ifc.write]
+level = "external"
+scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない（#526）"
+implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
+checked = "2026-11-02"
 
 [[formats.ifc.evidence]]
 title = "IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）"
@@ -529,6 +602,11 @@ samples = ["利用者が国土地理院から入手したジオイド・モデ�
 decisions = ["0019"]
 docs = ["docs/formats/crs.md"]
 
+[formats.isg.read]
+level = "synthetic"
+scope = "ISG format 2.0 の例と同じ形の合成の格子（crates/zumen-crs/tests/grid.rs）で確かめた。国土地理院のジオイド・モデルで、内挿計算プログラムと比べる照合は #438 で行う"
+checked = "2026-11-03"
+
 [[formats.isg.evidence]]
 title = "「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）"
 url = "https://www.gsi.go.jp/common/000277542.pdf"
@@ -544,7 +622,13 @@ rights-note = "文書と XSD は CC BY-ND 4.0 で、実装についての記述�
 place = "core"
 basis = ["spec"]
 decisions = ["0207", "0217"]
+docs = ["docs/formats/ids.md"]
 issues = ["zumen-jp/zumen#411"]
+
+[formats.ids.read]
+level = "synthetic"
+scope = "IDS 1.0 の文書と、試験の中で作った IDS（crates/zumen-ids/tests・crates/zumen-ifc/tests/ids.rs）で確かめた。公開サンプルと外部の実装との照合はまだ（#522）"
+checked = "2026-11-03"
 
 [[formats.ids.evidence]]
 title = "IDS のリポジトリのライセンス（LICENSE）"
@@ -560,7 +644,19 @@ rights = "public"
 rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がないが、3.0 と同じ扱いにする（zumen-jp/zumen#440）。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
 place = "core"
 basis = ["spec"]
+decisions = ["0214", "0220", "0248"]
+docs = ["docs/formats/bcf.md"]
 issues = ["zumen-jp/zumen#429", "zumen-jp/zumen#454"]
+
+[formats.bcf.read]
+level = "synthetic"
+scope = "BCF-XML 2.1・3.0 の文書と、試験の中で作った bcfzip（crates/zumen-bcf/tests）で確かめた。公開サンプル・外部の実装・BCF を読むソフトでの照合はまだ（#522）"
+checked = "2026-11-03"
+
+[formats.bcf.write]
+level = "synthetic"
+scope = "書いた bcfzip を読み直して確かめた。書いたファイルを、外部の実装や BCF を読むソフトで読ませてはいない（#522）"
+checked = "2026-11-03"
 
 [[formats.bcf.evidence]]
 title = "IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）"
@@ -642,9 +738,14 @@ rights-note = "OCF と国土交通省が仕様の PDF を誰でも無償で入�
 place = "core"
 basis = ["spec"]
 verify = ["国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る"]
+samples = ["再配布を認める公開サンプルは見つかっていない。試験の中で小さな J-LandXML を作る"]
 docs = ["docs/formats/landxml.md"]
 issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
+
+[formats.landxml.read]
+level = "synthetic"
+scope = "J-LandXML Ver.1.8 の文書と、試験の中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開サンプルは見つかっていない（#368・#504）"
+checked = "2026-11-03"
 
 [formats.sima]
 name = "SIMA 共通フォーマット"
@@ -676,10 +777,15 @@ rights-note = "国土地理院が実装規約を技術資料として無償で�
 place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。試験の中で作る"]
+samples = ["再配布を認める公開サンプルは見つかっていない。試験の中で作る"]
 decisions = ["0233"]
 docs = ["docs/formats/extdm.md"]
 issues = ["zumen-jp/zumen#378"]
+
+[formats.extdm.read]
+level = "synthetic"
+scope = "実装規約と、試験の中で組み立てたレコード（crates/zumen-extdm/tests）で確かめた。再配布できる公開サンプルは見つかっていない。基盤地図情報ビューアーが書き出した拡張 DM との照合はまだ（#504）"
+checked = "2026-11-03"
 
 [[formats.extdm.evidence]]
 title = "国土地理院の技術資料の利用規約"
@@ -701,6 +807,11 @@ decisions = ["0019", "0233", "0251"]
 docs = ["docs/formats/fgd.md"]
 issues = ["zumen-jp/zumen#378"]
 
+[formats.fgd.read]
+level = "synthetic"
+scope = "ファイル仕様書と、試験の中で作った小さな GML と書庫（crates/zumen-fgd/tests）で確かめた。データは Git に入れない。基盤地図情報ビューアーと QGIS での照合はまだ（#504）"
+checked = "2026-11-03"
+
 [[formats.fgd.evidence]]
 title = "国土地理院「測量成果の複製・使用承認の Q&A」"
 url = "https://www.gsi.go.jp/LAW/2930-qa.html"
@@ -721,6 +832,11 @@ samples = ["PLATEAU のデータ（G 空間情報センター。多くは政府�
 docs = ["docs/formats/citygml.md"]
 issues = ["zumen-jp/zumen#379"]
 
+[formats.citygml.read]
+level = "synthetic"
+scope = "CityGML 2.0 と PLATEAU の製品仕様書と、試験の中で作った CityGML（crates/zumen-citygml/tests）で確かめた。PLATEAU のデータでの照合はまだ（#379・#504）"
+checked = "2026-11-03"
+
 [[formats.citygml.evidence]]
 title = "PLATEAU のサイトポリシー"
 url = "https://www.mlit.go.jp/plateau/site-policy/"
@@ -740,6 +856,11 @@ verify = ["CloudCompare", "PDAL", "LAStools の lasinfo"]
 samples = ["laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）"]
 docs = ["docs/formats/las.md"]
 issues = ["zumen-jp/zumen#371"]
+
+[formats.las.read]
+level = "synthetic"
+scope = "LAS 1.4 R15・LAZ 1.4 の仕様と、試験の中で作った LAS・LAZ（crates/zumen-las/tests）で確かめた。LAZ の展開は laz の crate に任せる。公開サンプルと外部の実装との照合はまだ（#371・#504）"
+checked = "2026-11-03"
 
 [[formats.las.evidence]]
 title = "OGC の LAZ 1.4 コミュニティ標準の公表"
@@ -771,6 +892,11 @@ samples = ["libE57Format-test-data（reference は libe57 の Test Data License�
 docs = ["docs/formats/e57.md"]
 issues = ["zumen-jp/zumen#373"]
 
+[formats.e57.read]
+level = "synthetic"
+scope = "公開の実装の記述と、試験の中で作った E57（crates/zumen-e57/tests）で確かめた。ページ・XML・点の圧縮の読み取りは e57 の crate に任せる。公開サンプルと CloudCompare での照合はまだ（#504）"
+checked = "2026-11-03"
+
 [[formats.e57.evidence]]
 title = "libE57Format-test-data の README（ライセンス）"
 url = "https://github.com/asmaloney/libE57Format-test-data"
@@ -789,6 +915,11 @@ verify = ["CloudCompare", "MeshLab"]
 samples = ["試験の中で作る"]
 docs = ["docs/formats/ply.md"]
 issues = ["zumen-jp/zumen#373"]
+
+[formats.ply.read]
+level = "synthetic"
+scope = "公開の解説と、試験の中で作った PLY（crates/zumen-ply/tests）で確かめた。CloudCompare・MeshLab が書いた PLY との照合はまだ（#504）"
+checked = "2026-11-03"
 
 [[formats.ply.evidence]]
 title = "Paul Bourke「PLY - Polygon File Format」"
@@ -809,6 +940,11 @@ samples = ["試験の中で作る"]
 docs = ["docs/formats/xyz.md"]
 issues = ["zumen-jp/zumen#373"]
 
+[formats.xyz.read]
+level = "synthetic"
+scope = "試験の中で作った XYZ（crates/zumen-xyz/tests）で確かめた。決まった仕様はなく、列の読み方は推定。CloudCompare が書いた XYZ との照合はまだ（#504）"
+checked = "2026-11-03"
+
 [formats.delivery]
 name = "電子納品の管理ファイル（INDEX_C.XML・PHOTO.XML など）"
 family = "delivery"
@@ -819,9 +955,14 @@ rights-note = "国土交通省が要領・基準と DTD を誰でも無償で入
 place = "core"
 basis = ["spec"]
 verify = ["国土交通省の電子納品チェックシステム（手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る"]
+samples = ["再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る"]
 docs = ["docs/formats/delivery.md"]
 issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
+
+[formats.delivery.read]
+level = "synthetic"
+scope = "要領・基準と、試験の中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。DTD での検証と、公開サンプルとの照合はまだ（#505）"
+checked = "2026-11-03"
 
 [[formats.delivery.evidence]]
 title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"
@@ -838,7 +979,14 @@ rights-note = "SXF Ver.3.1 仕様書の附属書（属性付加機構）に含�
 place = "core"
 basis = ["spec"]
 verify = ["SXF ブラウザ"]
+decisions = ["0249"]
+docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#386"]
+
+[formats.saf.read]
+level = "synthetic"
+scope = "属性付加機構編と、試験の中で作った SAF と書庫（crates/zumen-sxf/tests/saf.rs）で確かめた。SXF ブラウザでの照合は #494・#505 で行う"
+checked = "2026-11-03"
 
 [formats.jpeg]
 name = "工事写真（JPEG と Exif・XMP）"
@@ -852,6 +1000,11 @@ basis = ["spec"]
 samples = ["個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる"]
 docs = ["docs/formats/jpeg.md"]
 issues = ["zumen-jp/zumen#387"]
+
+[formats.jpeg.read]
+level = "synthetic"
+scope = "Exif 3.1・XMP の仕様と、試験の中で作った JPEG（crates/zumen-photo/tests）で確かめた。外部の実装と公開サンプルとの照合はまだ（#505）"
+checked = "2026-11-03"
 
 [formats.kokuban]
 name = "電子小黒板の情報と信憑性確認（改ざん検知）"
@@ -883,9 +1036,14 @@ rights = "public"
 rights-note = "国土交通省が要領と DTD を無償で公開している。実装を制限する記述はない。DTD は転載が禁じられているので同梱しない"
 place = "core"
 basis = ["spec"]
-samples = ["国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる"]
+samples = ["国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #505 で確かめる"]
 docs = ["docs/formats/boring.md"]
 issues = ["zumen-jp/zumen#390"]
+
+[formats.boring.read]
+level = "synthetic"
+scope = "要領と、試験の中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。DTD での検証と、KuniJiban の柱状図との照合はまだ（#505）"
+checked = "2026-11-03"
 
 [[formats.boring.evidence]]
 title = "KuniJiban の利用規約"
@@ -905,6 +1063,11 @@ samples = ["試験の中で作る"]
 docs = ["docs/formats/sheet.md"]
 issues = ["zumen-jp/zumen#391"]
 
+[formats.xlsx.read]
+level = "synthetic"
+scope = "ECMA-376 と、試験の中で作った xlsx（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた xlsx と、外部の実装との照合はまだ（#505）"
+checked = "2026-11-03"
+
 [formats.csv]
 name = "CSV"
 family = "csv"
@@ -917,3 +1080,8 @@ basis = ["spec"]
 samples = ["試験の中で作る"]
 docs = ["docs/formats/sheet.md"]
 issues = ["zumen-jp/zumen#391"]
+
+[formats.csv.read]
+level = "synthetic"
+scope = "RFC 4180 と、試験の中で作った CSV（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた CSV との照合はまだ（#505）"
+checked = "2026-11-03"

@@ -63,7 +63,60 @@ struct Format {
     #[serde(default)]
     docs: Vec<String>,
     notes: Option<String>,
+    /// 読みの確かめた度合い（決定 0254・0255）。読まない形式は持たない
+    read: Option<Verification>,
+    /// 書きの確かめた度合い。書かない形式は持たない
+    write: Option<Verification>,
 }
+
+/// 読みか書きの確かめた度合いと、その根拠（決定 0254・0255）
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct Verification {
+    /// 段。根拠のうちもっとも強い種類で決まる
+    level: String,
+    /// 確かめた範囲と方法
+    scope: String,
+    checked: String,
+    /// 読んだ公開サンプル。`samples/` の中の道筋（`/` で終われば、そのフォルダー）か URL。読みだけ
+    #[serde(default)]
+    public_samples: Vec<String>,
+    /// 読んだ受け取った図面の種類と件数。読みだけ
+    #[serde(default)]
+    received: Vec<Received>,
+    /// 読んだ公開サンプルか受け取った図面に添えられていて、読んだ値と照らした値。読みだけ
+    #[serde(default)]
+    attached_values: Vec<String>,
+    /// 自前で作っていないファイルを読み、読んだ値を照らした外部の実装。書きでは、書いたファイルを読み、読んだ値が
+    /// 書いた値と合った実装。読んだファイルの出どころは確かめられないので、scope に書く
+    #[serde(default)]
+    implementations: Vec<Tool>,
+    /// 開いて確かめた、その形式の基準になるソフト
+    #[serde(default)]
+    software: Vec<Tool>,
+}
+
+/// 確かめるのに使った実装かソフトと、その版
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Tool {
+    name: String,
+    version: String,
+}
+
+/// 受け取った図面。ファイル名・顧客の名前・中身は書かず、種類と件数だけを書く（決定 0254）
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Received {
+    kind: String,
+    count: u64,
+}
+
+/// 確かめた度合いの段（決定 0254）。弱いものから並べる
+const LEVELS: &[&str] = &["synthetic", "external", "application"];
+
+/// 形式の文書の、確かめた度合いの節の見出し
+const SECTION: &str = "## 確かめた度合い";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,7 +147,8 @@ pub fn generate(root: &Path) -> Result<String, String> {
     let deny: toml::Value =
         toml::from_str(&read("deny.toml")?).map_err(|e| format!("deny.toml: {e}"))?;
     let decisions = decision_files(root)?;
-    let mut errors = check(&ledger, root, &decisions);
+    let samples = crate::samples::paths(root)?;
+    let mut errors = check(&ledger, root, &decisions, &samples);
     errors.extend(check_bans(&ledger, &deny));
     if errors.is_empty() {
         let metadata = metadata(root)?;
@@ -155,7 +209,13 @@ fn metadata(root: &Path) -> Result<Value, String> {
         .map_err(|e| format!("cargo metadata の JSON を読めない（位置 {}）", e.offset))
 }
 
-fn check(ledger: &Ledger, root: &Path, decisions: &Decisions) -> Vec<String> {
+/// `samples` は、公開サンプルの台帳にあるファイルの `samples/` からの道筋
+fn check(
+    ledger: &Ledger,
+    root: &Path,
+    decisions: &Decisions,
+    samples: &BTreeSet<String>,
+) -> Vec<String> {
     let mut errors = Vec::new();
     for (id, spec) in &ledger.specs {
         let at = format!("specs.{id}");
@@ -316,8 +376,208 @@ fn check(ledger: &Ledger, root: &Path, decisions: &Decisions) -> Vec<String> {
                 ));
             }
         }
+        for (direction, found) in [("read", &format.read), ("write", &format.write)] {
+            let Some(found) = found else {
+                continue;
+            };
+            let at = format!("{at}.{direction}");
+            if format.place != "core" {
+                errors.push(format!("{at}: 確かめた度合いは core の形式にだけ書く"));
+            }
+            verification(&mut errors, &at, direction == "write", found, samples);
+        }
+        if (format.read.is_some() || format.write.is_some()) && format.docs.is_empty() {
+            errors.push(format!(
+                "{at}: 確かめた度合いを持つ形式には、節を置く docs が要る"
+            ));
+        }
+    }
+    errors.extend(check_sections(ledger, root));
+    errors
+}
+
+/// 確かめた度合いの段と根拠。段は、根拠のうちもっとも強い種類で決まる（決定 0254・0255）。公開サンプルと
+/// 受け取った図面は、読んだだけでは段を上げない。書きの根拠は、書いたファイルを読ませた外部の実装か、開いたソフトだけ
+fn verification(
+    errors: &mut Vec<String>,
+    at: &str,
+    write: bool,
+    found: &Verification,
+    samples: &BTreeSet<String>,
+) {
+    choice(errors, at, "level", &found.level, LEVELS);
+    let read_files = !(found.public_samples.is_empty() && found.received.is_empty());
+    if write && (read_files || !found.attached_values.is_empty()) {
+        errors.push(format!(
+            "{at}: public-samples・received・attached-values は読みの根拠。書きには、書いたファイルを読ませた implementations か、開いた software を書く"
+        ));
+    }
+    for (i, received) in found.received.iter().enumerate() {
+        let at = format!("{at}.received[{i}]");
+        nonempty(errors, &at, "kind", &received.kind);
+        if received.count == 0 {
+            errors.push(format!("{at}: count は 1 以上にする"));
+        }
+    }
+    for value in &found.attached_values {
+        nonempty(errors, at, "attached-values", value);
+    }
+    if !write && !found.attached_values.is_empty() && !read_files {
+        errors.push(format!(
+            "{at}: attached-values は、読んだ public-samples か received に添えられた値。どちらかを書く"
+        ));
+    }
+    nonempty(errors, at, "scope", &found.scope);
+    if !is_date(&found.checked) {
+        errors.push(format!("{at}: checked は実在する日付 YYYY-MM-DD にする"));
+    }
+    let mut seen = BTreeSet::new();
+    for sample in &found.public_samples {
+        if !seen.insert(sample) {
+            errors.push(format!("{at}: public-samples の `{sample}` が重なっている"));
+        }
+        if let Some(path) = sample.strip_prefix("samples/") {
+            let listed = match path.strip_suffix('/') {
+                Some(dir) => {
+                    !dir.is_empty()
+                        && samples
+                            .iter()
+                            .any(|p| p.strip_prefix(dir).is_some_and(|r| r.starts_with('/')))
+                }
+                None => samples.contains(path),
+            };
+            if !listed {
+                errors.push(format!(
+                    "{at}: public-samples の `{sample}` が samples/ledger.toml にない"
+                ));
+            }
+        } else if !is_url(sample) {
+            errors.push(format!(
+                "{at}: public-samples の `{sample}` は samples/ の中の道筋か、HTTP または HTTPS の URL にする"
+            ));
+        }
+    }
+    for (key, tools) in [
+        ("implementations", &found.implementations),
+        ("software", &found.software),
+    ] {
+        for (i, tool) in tools.iter().enumerate() {
+            let at = format!("{at}.{key}[{i}]");
+            nonempty(errors, &at, "name", &tool.name);
+            nonempty(errors, &at, "version", &tool.version);
+        }
+    }
+    let expected = if !found.software.is_empty() {
+        "application"
+    } else if !found.implementations.is_empty() || (!write && !found.attached_values.is_empty()) {
+        "external"
+    } else {
+        "synthetic"
+    };
+    if LEVELS.contains(&found.level.as_str()) && found.level != expected {
+        errors.push(format!(
+            "{at}: level の `{}` が根拠と合わない。software があれば application、implementations（読みでは attached-values も）があれば external、どれもなければ synthetic にする",
+            found.level
+        ));
+    }
+}
+
+/// 形式の文書の、確かめた度合いの節の表を、台帳の段と照らす。表の行は `| \`キー\` | 読み | \`段\` |` の形で、
+/// 文書を docs に持つ形式の、段を持つ向きを過不足なく並べる。段を持たない形式の文書も、節があれば照らす
+fn check_sections(ledger: &Ledger, root: &Path) -> Vec<String> {
+    let mut expected: BTreeMap<&str, BTreeSet<Row>> = BTreeMap::new();
+    for (id, format) in &ledger.formats {
+        for doc in &format.docs {
+            let rows = expected.entry(doc).or_default();
+            for (direction, found) in [("読み", &format.read), ("書き", &format.write)] {
+                if let Some(found) = found {
+                    rows.insert((id.clone(), direction.to_string(), found.level.clone()));
+                }
+            }
+        }
+    }
+    let mut errors = Vec::new();
+    for (doc, rows) in expected {
+        let text = match fs::read_to_string(root.join(doc)) {
+            Ok(text) => text,
+            // 文書がないことは、docs の検査が報告する
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                errors.push(format!(
+                    "{doc}: 確かめた度合いの節を照らす文書を読めない: {e}"
+                ));
+                continue;
+            }
+        };
+        let Some((found, malformed)) = section_rows(&text) else {
+            if !rows.is_empty() {
+                errors.push(format!("{doc}: 確かめた度合いの節（`{SECTION}`）がない"));
+            }
+            continue;
+        };
+        for line in malformed {
+            errors.push(format!(
+                "{doc}: 確かめた度合いの表の行 `{line}` の形が違う。表の行は | `キー` | 読み | `段` | の形にする"
+            ));
+        }
+        for (id, direction, level) in rows.difference(&found) {
+            errors.push(format!(
+                "{doc}: 確かめた度合いの表に `{id}` の{direction}の `{level}` がない"
+            ));
+        }
+        for (id, direction, level) in found.difference(&rows) {
+            errors.push(format!(
+                "{doc}: 確かめた度合いの表の `{id}` の{direction}の `{level}` が台帳と合わない"
+            ));
+        }
     }
     errors
+}
+
+/// 確かめた度合いの表の行（形式のキー・向き・段）
+type Row = (String, String, String);
+
+/// 確かめた度合いの節の表の行と、見出しと区切りのほかで表の行の形に合わない行。節がなければ `None`
+fn section_rows(text: &str) -> Option<(BTreeSet<Row>, Vec<String>)> {
+    let mut lines = text.lines().skip_while(|line| line.trim_end() != SECTION);
+    lines.next()?;
+    let code = |cell: &str| {
+        cell.strip_prefix('`')
+            .and_then(|c| c.strip_suffix('`'))
+            .filter(|c| !c.is_empty())
+            .map(str::to_string)
+    };
+    let mut rows = BTreeSet::new();
+    let mut malformed = Vec::new();
+    for line in lines.take_while(|line| !line.starts_with("# ") && !line.starts_with("## ")) {
+        let line = line.trim();
+        let Some(inner) = line.strip_prefix('|') else {
+            continue;
+        };
+        let cells: Vec<_> = inner
+            .strip_suffix('|')
+            .unwrap_or(inner)
+            .split('|')
+            .map(str::trim)
+            .collect();
+        let rule = |cell: &&str| !cell.is_empty() && cell.chars().all(|c| matches!(c, '-' | ':'));
+        if cells == ["形式", "向き", "段"] || cells.iter().all(rule) {
+            continue;
+        }
+        let row = match cells.as_slice() {
+            [id, direction @ ("読み" | "書き"), level] => code(id)
+                .zip(code(level))
+                .map(|(id, level)| (id, direction.to_string(), level)),
+            _ => None,
+        };
+        match row {
+            Some(row) => {
+                rows.insert(row);
+            }
+            None => malformed.push(line.to_string()),
+        }
+    }
+    Some((rows, malformed))
 }
 
 fn nonempty(errors: &mut Vec<String>, at: &str, key: &str, value: &str) {
@@ -647,6 +907,11 @@ fn check_packages(ledger: &Ledger, metadata: &Value) -> Vec<String> {
                 Some(format) if format.place != "core" || format.rights != "public" => {
                     errors.push(format!(
                         "crate `{name}`: 形式 `{id}` は public の core ではない"
+                    ));
+                }
+                Some(format) if format.read.is_none() && format.write.is_none() => {
+                    errors.push(format!(
+                        "crate `{name}`: 実装する形式 `{id}` に、台帳の read か write の確かめた度合いがない（決定 0254）"
                     ));
                 }
                 _ => {}
