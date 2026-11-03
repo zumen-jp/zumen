@@ -1590,6 +1590,13 @@ fidelity = "dropped"
 since = "0.2.0"
 status = "active"
 
+[codes."pdf.page.dropped"]
+description = "hayro-interpret がスタックかメモリを使い切るおそれのある入れ子か範囲（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.xobject.missing"]
 description = "資源にない XObject を描いた（Do）。hayro-interpret は描かないので、移さなかった。循環する参照で引けない XObject を含む。ページと名前ごとに 1 件。name は資源の名前"
 severity = "warning"

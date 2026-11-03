@@ -165,6 +165,21 @@ impl Lifter<'_, '_> {
                 let survey = walker
                     .page(page, &content, cx)
                     .map_err(|stop| stopped(cx, stop, &content))?;
+                // hayro-interpret がスタックかメモリを使い切るおそれのあるページは、解釈しない
+                if let Some(place) = survey.refused {
+                    cx.report(Diagnostic::new(codes::PDF_PAGE_DROPPED).at(place));
+                    self.unread(page, &source, cx)?;
+                    sheets.push(Sheet {
+                        id: sheet,
+                        name: label,
+                        size: Some([PaperLength(geometry.width), PaperLength(geometry.height)]),
+                        elements: Vec::new(),
+                        views: Vec::new(),
+                        order: Vec::new(),
+                        source,
+                    });
+                    continue;
+                }
                 // 用紙の 1/1024 mm を、hayro-interpret の装置の単位にする
                 let device = Affine::scale(DEVICE_PER_MM) * geometry.user_space;
                 let paper = Rect::new(0.0, 0.0, geometry.width, geometry.height);

@@ -392,6 +392,16 @@ fn cid_with(base_font: &str, encoding: &str, content: &str) -> Vec<u8> {
 
 /// [`cid_document`] のフォントの子孫のフォントに `descendant` を足し、`content` を描く
 fn cid_font_with(base_font: &str, encoding: &str, descendant: &str, content: &str) -> Vec<u8> {
+    cid_font_document(base_font, encoding, descendant, content).bytes()
+}
+
+/// [`cid_font_with`] の文書。フォントは 3 番、ToUnicode は 4 番
+fn cid_font_document<'a>(
+    base_font: &str,
+    encoding: &str,
+    descendant: &str,
+    content: &'a str,
+) -> Document<'a> {
     let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
         /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def \
         /CMapName /Adobe-Identity-UCS def /CMapType 2 def \
@@ -408,7 +418,7 @@ fn cid_font_with(base_font: &str, encoding: &str, descendant: &str, content: &st
     );
     let mut document = Document::new(vec![Page::new(content).resources("/Font << /F2 3 0 R >>")]);
     document.objects = vec![font.into_bytes(), common::stream("", cmap)];
-    document.bytes()
+    document
 }
 
 #[test]
@@ -904,6 +914,23 @@ fn reads_missing_and_unreadable_fonts_with_helvetica() {
             ("pdf.font.missing", "F9".to_owned(), 1),
             ("pdf.font.unsupported", "Broken".to_owned(), 1),
             ("pdf.text.dropped", String::new(), 3),
+        ]
+    );
+    // 見えない所の文字で Helvetica を選んでも、見える所の文字で診断する
+    let mut document = Document::new(vec![
+        Page::new("BT 72 700 Td /OC /oc BDC (A) Tj EMC (B) Tj ET")
+            .resources("/Properties << /oc 3 0 R >>"),
+    ]);
+    document.objects = vec![b"<< /Type /OCG /Name (Hidden) >>".to_vec()];
+    document.catalog = "/OCProperties << /OCGs [3 0 R] /D << /OFF [3 0 R] >> >>";
+    let (drawing, diag) = lift(&document.bytes());
+    assert_eq!(contents(&drawing), ["B"]);
+    assert_eq!(
+        named(&diag),
+        [
+            ("pdf.font-name.dropped", String::new(), 1),
+            ("pdf.font.assumed", String::new(), 1),
+            ("pdf.optional-content.dropped", "Hidden".to_owned(), 1),
         ]
     );
 }
@@ -1472,8 +1499,13 @@ fn counts_diagnostics_in_each_call_of_a_form() {
 #[test]
 fn reports_vertical_fonts_with_other_origins() {
     let content = "BT /F2 10 Tf 100 100 Td <00010002> Tj ET";
-    // 字形の幅が 1,000 で、DW2 が既定なら、診断しない
-    for descendant in ["", "/W [1 [1000 1000] 3 4 1000]"] {
+    // 字形の幅が 1,000 で、位置のベクトルが既定（DW2 と W2）なら、診断しない
+    for descendant in [
+        "",
+        "/W [1 [1000 1000] 3 4 1000]",
+        "/W2 [1 [-1000 500 880]]",
+        "/W2 [1 2 -1000 500 880]",
+    ] {
         let (_, diag) = lift(&cid_font_with(
             "MS-Gothic",
             "Identity-V",
@@ -1483,7 +1515,8 @@ fn reports_vertical_fonts_with_other_origins() {
         assert!(diag.is_empty(), "{descendant}: {diag:?}");
     }
     for descendant in [
-        "/W2 [1 [-1000 500 880]]",
+        "/W2 [1 [-1000 400 880]]",
+        "/W2 [1 2 -1000 500 800]",
         "/DW2 [900 -1000]",
         "/W [1 [500 1000]]",
         "/W [1 2 500]",
@@ -1508,9 +1541,322 @@ fn reports_vertical_fonts_with_other_origins() {
     let src = cid_font_with(
         "MS-Gothic",
         "Identity-H",
-        "/W2 [1 [-1000 500 880]]",
+        "/W2 [1 [-1000 400 880]]",
         content,
     );
     let (_, diag) = lift(&src);
     assert!(diag.is_empty(), "{diag:?}");
+    // 見えない所で選んだフォントと、拡張グラフィックス状態の Font で選んだフォントも、見える所で描けば診断する
+    for (content, resources) in [
+        (
+            "/OC /oc BDC BT /F2 10 Tf ET EMC BT 100 100 Td <00010002> Tj ET",
+            "/Font << /F2 3 0 R >> /Properties << /oc 5 0 R >>",
+        ),
+        (
+            "BT /G gs 100 100 Td <00010002> Tj ET",
+            "/Font << /F2 3 0 R >> /ExtGState << /G << /Font [3 0 R 10] >> >>",
+        ),
+    ] {
+        let mut document = cid_font_document("MS-Gothic", "Identity-V", "/W [1 2 500]", content);
+        document.pages[0] = document.pages[0].resources(resources);
+        document
+            .objects
+            .push(b"<< /Type /OCG /Name (Hidden) >>".to_vec());
+        document.catalog = "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >>";
+        let (drawing, diag) = lift(&document.bytes());
+        assert_eq!(elements(&drawing).len(), 1, "{content}");
+        assert_eq!(
+            named(&diag),
+            [
+                ("pdf.optional-content.dropped", "Hidden".to_owned(), 1),
+                (
+                    "pdf.vertical-origin.approximated",
+                    "MS-Gothic".to_owned(),
+                    1
+                ),
+            ],
+            "{content}"
+        );
+    }
+}
+
+#[test]
+fn reports_letter_spacing() {
+    // すべての字形の間に同じだけ足した字間も、字形ごとの位置を移さなかったことを診断する。水平の伸縮は、幅の
+    // 倍率に移すので、診断しない
+    for (content, expected, approximated) in [
+        ("3 Tc (ABCD) Tj", vec!["ABCD"], true),
+        ("-3 Tc (ABCD) Tj", vec!["ABCD"], true),
+        ("[(A) 300 (B) 300 (C) 300 (D)] TJ", vec!["ABCD"], true),
+        ("[(A) -300 (B) -300 (C) -300 (D)] TJ", vec!["ABCD"], true),
+        ("50 Tz (ABCD) Tj", vec!["ABCD"], false),
+        // 大きく詰めた所が半分あっても、詰めていない所では分けない
+        ("[(A) 600 (BC)] TJ", vec!["A", "BC"], false),
+        ("[(A) 600 (B) 600 (CD)] TJ", vec!["ABC", "D"], true),
+    ] {
+        let content = format!("BT /F1 12 Tf 72 700 Td {content} ET");
+        let (drawing, diag) = lift(&one_page(Page::new(&content).resources(HELVETICA)));
+        assert_eq!(contents(&drawing), expected, "{content}");
+        let found = codes_of(&diag).contains(&(codes::PDF_GLYPH_POSITION_APPROXIMATED.name(), 1));
+        assert_eq!(found, approximated, "{content}: {diag:?}");
+    }
+}
+
+/// 3 番から、`levels` 個のオブジェクトの鎖と、最後のオブジェクト `leaf` を置く。`link(n)` は、n 番を指す
+/// オブジェクト
+fn chain(levels: usize, link: impl Fn(usize) -> Vec<u8>, leaf: &[u8]) -> Vec<Vec<u8>> {
+    (0..levels)
+        .map(|index| link(4 + index))
+        .chain([leaf.to_vec()])
+        .collect()
+}
+
+#[test]
+fn refuses_pages_nested_too_deep_for_the_stack() {
+    // hayro-interpret は、関数と色空間を深さの上限なしに再帰して作るので、16 段より深い入れ子を使うページは
+    // 解釈しない。そのページの走査の診断は返さず、ほかのページは移す
+    let function = |next: usize| {
+        format!(
+            "<< /FunctionType 3 /Domain [0 1] /Functions [{next} 0 R] /Bounds [] /Encode [0 1] >>"
+        )
+        .into_bytes()
+    };
+    let last_function = b"<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>";
+    let indexed = |next: usize| format!("[/Indexed {next} 0 R 0 <00>]").into_bytes();
+    let last_indexed = b"[/Indexed /DeviceGray 0 <00>]";
+    let icc = |next: usize| {
+        common::stream(
+            &format!("/N 1 /Alternate [/ICCBased {next} 0 R]"),
+            "not a profile",
+        )
+    };
+    let last_icc = common::stream("/N 1 /Alternate /DeviceGray", "not a profile");
+    for levels in [16, 17] {
+        let image = format!("/XObject << /Im {} 0 R >>", 4 + levels);
+        let mut images = chain(levels, indexed, last_indexed);
+        images.push(common::stream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 \
+             /ColorSpace 3 0 R",
+            [0u8],
+        ));
+        let cases = [
+            (
+                "/T gs 0 0 m 10 10 l S",
+                "/ExtGState << /T << /TR 3 0 R >> >>",
+                chain(levels, function, last_function),
+            ),
+            (
+                "0 0 m 10 10 l S /Sh sh",
+                "/Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] \
+                 /Function 3 0 R >> >>",
+                chain(levels, function, last_function),
+            ),
+            (
+                "/CS0 cs 0 sc 0 0 10 10 re f",
+                "/ColorSpace << /CS0 3 0 R >>",
+                chain(levels, indexed, last_indexed),
+            ),
+            (
+                "/CS0 cs 0 sc 0 0 10 10 re f",
+                "/ColorSpace << /CS0 [/ICCBased 3 0 R] >>",
+                chain(levels, icc, &last_icc),
+            ),
+            ("q 10 0 0 10 0 0 cm /Im Do Q", image.as_str(), images),
+        ];
+        for (content, resources, objects) in cases {
+            // 1 ページ目は、資源にないフォントでも文字を描く（走査が診断する）
+            let content = format!("{content} BT /F9 12 Tf (A) Tj ET");
+            let mut document = Document::new(vec![
+                Page::new(&content).resources(resources),
+                Page::new("0 0 m 10 10 l S"),
+            ]);
+            document.objects = objects;
+            let (drawing, diag) = lift(&document.bytes());
+            assert_eq!(drawing.sheets[1].elements.len(), 1, "{resources}");
+            if levels > 16 {
+                assert!(drawing.sheets[0].elements.is_empty(), "{resources}");
+                assert_eq!(
+                    codes_of(&diag),
+                    [(codes::PDF_PAGE_DROPPED.name(), 1)],
+                    "{resources}"
+                );
+            } else {
+                assert!(!drawing.sheets[0].elements.is_empty(), "{resources}");
+                assert!(
+                    diag.iter().all(|d| d.code() != codes::PDF_PAGE_DROPPED),
+                    "{resources}: {diag:?}"
+                );
+            }
+        }
+    }
+    // Type 4 の関数の手続きの入れ子は、64 段まで解釈する。注釈の中の括弧は数えない
+    for (depth, dropped) in [(64, false), (65, true)] {
+        let mut program = String::from("{ % {{{{ in a comment\n");
+        program.push_str(&"{".repeat(depth - 1));
+        program.push_str(&"}".repeat(depth - 1));
+        program.push('}');
+        let mut document = Document::new(vec![
+            Page::new("/T gs 0 0 m 10 10 l S").resources("/ExtGState << /T << /TR 3 0 R >> >>"),
+        ]);
+        document.objects = vec![common::stream(
+            "/FunctionType 4 /Domain [0 1] /Range [0 1]",
+            program,
+        )];
+        let (drawing, diag) = lift(&document.bytes());
+        assert_eq!(elements(&drawing).is_empty(), dropped, "{depth}");
+        let found = diag.iter().any(|d| d.code() == codes::PDF_PAGE_DROPPED);
+        assert_eq!(found, dropped, "{depth}: {diag:?}");
+    }
+}
+
+#[test]
+fn refuses_pages_with_too_many_widths() {
+    // hayro-font は、W・W2 の範囲の CID を 1 つずつ表に入れるので、項目が 2 の 18 乗より多いフォントを使う
+    // ページは、フォントを読む前に、解釈しないことにする
+    let content = "BT /F2 10 Tf 100 100 Td <00010002> Tj ET";
+    for descendant in [
+        "/W [0 262144 500]",
+        "/W [0 [500] 1 262144 500]",
+        "/W [0 4294967295 500]",
+        "/W2 [0 4294967295 -1000 500 880]",
+    ] {
+        let src = cid_font_with("MS-Gothic", "Identity-H", descendant, content);
+        let (drawing, diag) = lift(&src);
+        assert!(elements(&drawing).is_empty(), "{descendant}");
+        assert_eq!(
+            codes_of(&diag),
+            [(codes::PDF_PAGE_DROPPED.name(), 1)],
+            "{descendant}"
+        );
+    }
+    let src = cid_font_with("MS-Gothic", "Identity-H", "/W [0 262143 500]", content);
+    let (drawing, diag) = lift(&src);
+    assert_eq!(elements(&drawing).len(), 1);
+    assert!(diag.iter().all(|d| d.code() != codes::PDF_PAGE_DROPPED));
+}
+
+/// 既定の予算で移し、使った量を返す
+#[cfg(test)]
+fn used(src: &[u8], kind: zumen_base::Kind) -> u64 {
+    let file = testkit::read::<Pdf>(src).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+        .unwrap();
+    budget.used(kind)
+}
+
+#[test]
+fn counts_work_that_grows_with_sizes() {
+    use zumen_base::Kind;
+    // hayro-interpret は、線と文字を描くたびに破線の配列を写すので、描くたびに長さを数える
+    let dash = format!("[{}] 0 d ", "1 ".repeat(1_000));
+    let strokes = format!("{dash}{}", "0 0 m 10 10 l S ".repeat(100));
+    assert!(used(&one_page(Page::new(&strokes)), Kind::Work) >= 100 * 1_000);
+    let texts = format!("{dash}BT {} ET", "(A) Tj ".repeat(100));
+    assert!(used(&one_page(Page::new(&texts)), Kind::Work) >= 100 * 1_000);
+    // 1 回の線の部分経路では、線種を 1 度だけ作る
+    let subpaths = format!("{dash}{}S", "0 0 m 10 10 l ".repeat(100));
+    let work = used(&one_page(Page::new(&subpaths)), Kind::Work);
+    assert!(work < 10 * 1_000, "{work}");
+    // 切り抜きにする文字は、1 バイトを 40 と数える
+    let clip = format!("BT 7 Tr {} ET", "(AAAAAAAAAA) Tj ".repeat(10));
+    assert!(used(&one_page(Page::new(&clip)), Kind::Work) >= 40 * 100);
+
+    // hayro-syntax は、資源を引くたびに辞書を読み直すので、引いたオブジェクトの大きさ（4 バイトを 1）を数える
+    let pad = format!("/Pad [{}]", "0 ".repeat(400));
+    let lookups = [
+        (
+            "/G gs ",
+            "/ExtGState << /G 3 0 R >>",
+            format!("<< /LW 1 {pad} >>").into_bytes(),
+        ),
+        (
+            "/F Do ",
+            "/XObject << /F 3 0 R >>",
+            common::stream(
+                &format!("/Type /XObject /Subtype /Form /BBox [0 0 1 1] {pad}"),
+                "",
+            ),
+        ),
+        (
+            "/CS0 cs ",
+            "/ColorSpace << /CS0 3 0 R >>",
+            format!(
+                "[/Separation /Spot /DeviceGray \
+                 << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 {pad} >>]"
+            )
+            .into_bytes(),
+        ),
+        (
+            "BT /F1 10 Tf ET ",
+            "/Font << /F1 3 0 R >>",
+            format!("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica {pad} >>").into_bytes(),
+        ),
+        (
+            "/OC /oc BDC EMC ",
+            "/Properties << /oc 3 0 R >>",
+            format!("<< /Type /OCG /Name (Shown) {pad} >>").into_bytes(),
+        ),
+    ];
+    for (op, resources, object) in lookups {
+        let content = op.repeat(100);
+        let mut document = Document::new(vec![Page::new(&content).resources(resources)]);
+        document.objects = vec![object];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work >= 100 * 200, "{op}: {work}");
+    }
+
+    // メッシュのシェーディングは、三角形をすべて作るので、展開したバイト数の 128 倍を数える
+    let mesh = common::stream(
+        "/ShadingType 4 /ColorSpace /DeviceGray /BitsPerCoordinate 8 /BitsPerComponent 8 \
+         /BitsPerFlag 8 /Decode [0 1 0 1 0 1]",
+        vec![0u8; 1000],
+    );
+    let mut document = Document::new(vec![
+        Page::new("/Sh sh").resources("/Shading << /Sh 3 0 R >>"),
+    ]);
+    document.objects = vec![mesh];
+    assert!(used(&document.bytes(), Kind::DecodedBytes) >= 128 * 1000);
+
+    // TR と TR2 を両方持つ状態は、関数を 2 回作る
+    let mut program = String::from("{ ");
+    program.push_str(&" ".repeat(10_000));
+    program.push('}');
+    let function = common::stream("/FunctionType 4 /Domain [0 1] /Range [0 1]", program);
+    let states = "/T gs ".repeat(10);
+    let mut bytes = Vec::new();
+    for state in ["/TR 3 0 R", "/TR 3 0 R /TR2 3 0 R"] {
+        let resources = format!("/ExtGState << /T << {state} >> >>");
+        let mut document = Document::new(vec![Page::new(&states).resources(&resources)]);
+        document.objects = vec![function.clone()];
+        bytes.push(used(&document.bytes(), Kind::DecodedBytes));
+    }
+    assert!(bytes[1] >= bytes[0] + 10 * 10_000, "{bytes:?}");
+}
+
+#[test]
+fn reads_empty_flate_streams() {
+    // 空の Flate は、hayro-syntax が空のバイト列にするので、何も失わない（ページの内容・フォーム・配列の項目）
+    let empty = common::stream("/Filter /FlateDecode", "");
+    let form = common::stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Filter /FlateDecode",
+        "",
+    );
+    let line = common::stream("", "0 0 m 10 10 l S");
+    let mut document = Document::new(vec![
+        Page::new("").contents("3 0 R"),
+        Page::new("/F Do 0 0 m 10 10 l S").resources("/XObject << /F 4 0 R >>"),
+        Page::new("").contents("[3 0 R 5 0 R]"),
+    ]);
+    document.objects = vec![empty, form, line];
+    let (drawing, diag) = lift(&document.bytes());
+    assert!(diag.is_empty(), "{diag:?}");
+    let counts: Vec<usize> = drawing
+        .sheets
+        .iter()
+        .map(|sheet| sheet.elements.len())
+        .collect();
+    assert_eq!(counts, [0, 1, 1]);
 }

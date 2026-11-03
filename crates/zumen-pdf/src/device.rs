@@ -49,6 +49,10 @@ const SPLIT_EM: f64 = 0.5;
 /// ことを診断する（推定）
 const SHIFT_EM: f64 = 0.05;
 
+/// 字形の x 軸の長さが、これ（比）より違わなければ同じとみなす。同じ並びの字形の変換は、平行移動と、
+/// hayro-interpret が字形の幅を合わせる伸縮だけが違う
+const SAME_SCALE: f64 = 1e-9;
+
 /// 縦書きの字形の、横の原点から見た縦の原点（字形の空間の単位）。横の幅を 1,000、`DW2` を既定の [880 −1000] と
 /// みなす（9.7.4.3、推定）
 const VERTICAL_ORIGIN: Point = Point::new(500.0, 880.0);
@@ -385,11 +389,10 @@ fn advance(glyph: &Glyph<'_>) -> Option<f64> {
     }
 }
 
-/// 並べた値の中央の値（数が偶数なら、小さいほう）
+/// 並べた値の中央の値（数が偶数なら、大きいほう。詰めた所が半分あっても、詰めていない所で分けない）
 fn median(mut values: Vec<f64>) -> Option<f64> {
     values.sort_by(f64::total_cmp);
-    let middle = values.len().checked_sub(1)? / 2;
-    values.get(middle).copied()
+    values.get(values.len() / 2).copied()
 }
 
 /// 字形の並びを、字形の原点がフォントの送りから [`SPLIT_EM`] より大きくずれる所で分ける（`TJ` の数・`Tc`・`Tw`、
@@ -397,8 +400,11 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
 ///
 /// 横書きの送りの向きの長さは、hayro-interpret が字形の幅を合わせる伸縮に依らないよう、em の高さを単位にして
 /// 比べる。フォントの幅の 1 em あたりの長さ（水平の伸縮 `Tz` と、文字の行列の縦横の比）は、分けるときは、最初の
-/// 字形の x 軸と、送りの中央の値の小さいほうとし（隙間の多い並びでも、最初の字形の x 軸で分ける）、ずれを見る
-/// ときは、分けた範囲の送りの中央の値（字形の間が 1 つなら、最初の字形の x 軸）とする。縦書きは、縦の送りを
+/// 字形の x 軸と、送りの中央の値の小さいほうとする（隙間の多い並びでも、最初の字形の x 軸で分け、詰めた並びは
+/// 分けない）。ずれを見るときは、分けた範囲の字形の x 軸がすべて同じなら、その x 軸（文字の幅の倍率と同じ）とし、
+/// すべての字形の間に同じだけ足した字間（`Tc` など）も見る。字形の幅を合わせる伸縮は、埋め込みのないフォントの
+/// 字形にだけあり、字形ごとに違いうる。x 軸が違えば、分けた範囲の送りの中央の値（字形の間が 1 つなら、最初の
+/// 字形の x 軸）とし、すべての字形の間に同じだけ足した字間は、中央の値を動かすので見えない。縦書きは、縦の送りを
 /// 1 em（`DW2` の既定）とみなし、送りの向きだけを比べる
 fn split(
     glyphs: &[PositionedGlyph<'_>],
@@ -447,21 +453,40 @@ fn split(
     let ratio = |&(length, _, advance): &(f64, f64, f64)| {
         (advance > 0.0 && length > 0.0).then(|| length / advance)
     };
+    // 字形ごとの x 軸の長さ（em の高さを単位にする）
+    let fits: Vec<Option<f64>> = glyphs
+        .iter()
+        .map(|glyph| {
+            Frame::of(device * glyph.transform()).map(|frame| frame.width / frame.height())
+        })
+        .collect();
+    let fit = frame.width / height;
+    // 字形の範囲の x 軸が、すべて同じなら、その長さ
+    let common = |range: Range<usize>| {
+        let part = fits.get(range)?;
+        let first = part.first().copied().flatten()?;
+        part.iter()
+            .all(|width| width.is_some_and(|width| (width - first).abs() <= first * SAME_SCALE))
+            .then_some(first)
+    };
     let typical = median(steps.iter().filter_map(ratio).collect()).unwrap_or(f64::INFINITY);
-    let scale = (frame.width / height).min(typical);
+    let scale = fit.min(typical);
     let splits: Vec<f64> = steps
         .iter()
         .map(|&(length, across, advance)| (length - advance * scale).abs().max(across.abs()))
         .collect();
     segments(&splits, |range| {
-        let Some(part) = steps.get(range) else {
+        let Some(part) = steps.get(range.clone()) else {
             return false;
         };
-        // 字形の間が 1 つだけなら、最初の字形の x 軸で比べる（字形の幅を合わせる伸縮が 1 から遠いフォントでは、
-        // ずれを見誤りうる）
-        let scale = median(part.iter().filter_map(ratio).collect())
-            .filter(|_| part.len() > 1)
-            .unwrap_or(frame.width / height);
+        // 字形の x 軸が違えば、字形の間が 1 つだけのときは、最初の字形の x 軸で比べる（字形の幅を合わせる伸縮が
+        // 1 から遠いフォントでは、ずれを見誤りうる）
+        let scale = common(range.start..range.end + 1).unwrap_or_else(|| {
+            median(part.iter().filter_map(ratio).collect())
+                .filter(|_| part.len() > 1)
+                .or_else(|| fits.get(range.start).copied().flatten())
+                .unwrap_or(fit)
+        });
         part.iter().any(|&(length, across, advance)| {
             (length - advance * scale).abs() > SHIFT_EM || across.abs() > SHIFT_EM
         })
@@ -518,7 +543,7 @@ pub(crate) struct Collector<'c, 'x> {
     pub(crate) elements: Vec<Element<PaperPoint>>,
     /// 切り抜きの外接矩形（用紙の mm）の重なり。最初はページ
     clips: Vec<Rect>,
-    /// 印つきの内容の入れ子。表示グループなら、そのレイヤ
+    /// 印つきの内容の入れ子。それぞれ、その所でいちばん内側の表示グループのレイヤ
     marks: Vec<Option<LayerId>>,
     /// 透明のグループの重なり
     groups: Vec<Group>,
@@ -570,11 +595,7 @@ impl<'c, 'x> Collector<'c, 'x> {
     }
 
     fn layer(&self) -> LayerId {
-        self.marks
-            .iter()
-            .rev()
-            .find_map(|mark| *mark)
-            .unwrap_or(PAGE_LAYER)
+        self.marks.last().copied().flatten().unwrap_or(PAGE_LAYER)
     }
 
     fn opacity(&self) -> f32 {
@@ -850,6 +871,8 @@ impl<'c, 'x> Collector<'c, 'x> {
         // 変換では、向きで太さが変わる）
         let scale = libm::sqrt(transform.determinant().abs());
         let width = f64::from(stroke.line_width) * scale;
+        // 破線の線種は、経路ごとに 1 度だけ作る
+        let mut dashed: Option<(LineTypeId, bool)> = None;
         for subpath in subpaths(path) {
             if subpath.segments.is_empty() {
                 continue;
@@ -876,7 +899,21 @@ impl<'c, 'x> Collector<'c, 'x> {
             if capped || joined {
                 self.note_code(codes::PDF_STROKE_APPROXIMATED);
             }
-            let line_type = self.dash(stroke, scale);
+            let (line_type, phased) = match dashed {
+                Some(dashed) => dashed,
+                None => {
+                    // 線種を作る手間は、破線の配列の長さに比例する
+                    if !self.spend(Kind::Work, stroke.dash_array.len() as u64) {
+                        return;
+                    }
+                    let made = self.dash(stroke, scale);
+                    dashed = Some(made);
+                    made
+                }
+            };
+            if phased {
+                self.note_code(codes::PDF_DASH_APPROXIMATED);
+            }
             let style = Style {
                 color,
                 line_type: Inherit::Own(line_type),
@@ -943,17 +980,16 @@ impl<'c, 'x> Collector<'c, 'x> {
         })
     }
 
-    /// 破線（8.4.3.6）の線種。数が奇数の列は、2 回並べて線と間をそろえる。位相は持てないので、0 でなければ診断する
-    fn dash(&mut self, stroke: &StrokeProps, scale: f64) -> LineTypeId {
+    /// 破線（8.4.3.6）の線種と、位相を落とすか。数が奇数の列は、2 回並べて線と間をそろえる。位相は持てないので、
+    /// 0 でなければ、描く要素ごとに診断する
+    fn dash(&mut self, stroke: &StrokeProps, scale: f64) -> (LineTypeId, bool) {
         let lengths: &[f32] = &stroke.dash_array;
         let dash = |length: f32| length.is_finite() && length > DASH_ZERO;
         // 長さがすべて 0 の列は、実線とみなす（推定。仕様は、すべてが 0 の列を認めない）
         if !lengths.iter().any(|length| dash(*length)) {
-            return self.styles.line_type(Vec::new());
+            return (self.styles.line_type(Vec::new()), false);
         }
-        if stroke.dash_offset != 0.0 {
-            self.note_code(codes::PDF_DASH_APPROXIMATED);
-        }
+        let phased = stroke.dash_offset != 0.0;
         let repeat = if lengths.len() % 2 == 1 { 2 } else { 1 };
         let pattern: Vec<f64> = lengths
             .iter()
@@ -969,7 +1005,7 @@ impl<'c, 'x> Collector<'c, 'x> {
                 if index % 2 == 0 { mm } else { -mm }
             })
             .collect();
-        self.styles.line_type(pattern)
+        (self.styles.line_type(pattern), phased)
     }
 
     /// 表示グループの辞書のレイヤ。表示の規則の辞書（OCMD、8.11.2.2）は、最初の表示グループのレイヤにする
@@ -1365,7 +1401,9 @@ impl<'a> Device<'a> for Collector<'_, '_> {
             (b"OC", Some(properties)) => self.layer_of(properties),
             _ => None,
         };
-        self.marks.push(layer);
+        // 表示グループでない印は、外の入れ子のレイヤを受け継ぐ
+        let inner = layer.or_else(|| self.marks.last().copied().flatten());
+        self.marks.push(inner);
     }
 
     fn end_marked_content(&mut self) {
@@ -1434,7 +1472,7 @@ mod tests {
         assert_eq!(found, [(0..2, true), (2..4, true)]);
         let found = segments(&[], |_| false);
         assert_eq!(found, [(0..1, false)]);
-        assert_eq!(median(vec![3.0, 1.0, 2.0, 4.0]), Some(2.0));
+        assert_eq!(median(vec![3.0, 1.0, 2.0, 4.0]), Some(3.0));
         assert_eq!(median(Vec::new()), None);
     }
 }

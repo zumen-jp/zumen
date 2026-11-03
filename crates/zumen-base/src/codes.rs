@@ -2873,6 +2873,17 @@ pub const PDF_OPTIONAL_CONTENT_DROPPED: Code = Code::new(
     &["name"],
 );
 
+/// hayro-interpret がスタックかメモリを使い切るおそれのある入れ子か範囲（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード
+///
+/// `pdf.page.dropped`（0.2.0 から）
+pub const PDF_PAGE_DROPPED: Code = Code::new(
+    "pdf.page.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// タイルのパターンで塗った形を、移さなかった
 ///
 /// `pdf.pattern.dropped`（0.2.0 から）
@@ -4568,6 +4579,7 @@ pub const ALL: &[Code] = &[
     PDF_OBJECT_REPAIRED,
     PDF_OPTIONAL_CONTENT_APPROXIMATED,
     PDF_OPTIONAL_CONTENT_DROPPED,
+    PDF_PAGE_DROPPED,
     PDF_PATTERN_DROPPED,
     PDF_SHADING_DROPPED,
     PDF_STROKE_APPROXIMATED,
