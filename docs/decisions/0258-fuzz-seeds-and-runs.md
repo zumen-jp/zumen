@@ -27,9 +27,16 @@
 2. crate・種の元・fuzz の target・fuzz の workflow を変えた PR で流す。
 3. fuzz の target と workflow を変えた PR でだけ流す。
 
+### 見つけた入力を外に出すとき
+
+見つけた入力は、種か種を変えたものである。公開サンプルには、表示を求めるライセンス（CC BY・MIT・公共データ利用規約）のものがある。
+
+1. 公開サンプルの出所とライセンスを添えて出す。
+2. 表示の要らない種（CC0 の公開サンプルと合成の入力）だけを使う。
+
 ## 決定
 
-種は選択肢 2、PR で流す条件も選択肢 2 にする。
+種は選択肢 2、PR で流す条件も選択肢 2、見つけた入力を外に出すときは選択肢 1 にする。選択肢 2 にすると、IFC の公開サンプルの多くが CC BY なので、IFC の target の種が減る。
 
 - `cargo xtask fuzz-seeds` が、次の 4 つを、どの target にも種として書く。
   - `samples/ledger.toml` に載せた公開サンプル（0171）
@@ -37,7 +44,8 @@
   - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・書庫の入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
   - 合成の格子（ISG・TKY2JGD・PatchJGD の形）。国土地理院のデータは使わない（[0019](0019-coordinate-systems-and-gsi-data.md)）
 - 受け取った図面と、`ZUMEN_SAMPLES` のファイルは種にしない。種と見つけた入力は、Git に入れない。
-- 見つけた入力は、種を変えたものなので、表示を求めるライセンス（CC BY・MIT・公共データ利用規約）の公開サンプルから来ることがある。artifact に残すときは、公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を変えたものだという断りを添える。issue などに貼るときは、最小にした入力に、元の公開サンプルの出所とライセンスを添える。
+- 見つけた入力を artifact に残すときは、公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種か種を変えたものだという断りを添える。issue などに貼るときは、最小にした入力に、元の公開サンプルの出所とライセンスを添える。libFuzzer は元の種を記録しないので、元が分からなければ台帳の全体を指す。
+- 公開サンプルを台帳から外すときは、育てた種（actions/cache の `fuzz-corpus-`）も消す。消さないと、外したサンプルとそれを変えた入力が、種に残り続ける。
 - `crates/**`・`Cargo.toml`・`Cargo.lock`・種の元（`samples/**`・`bindings/conformance/cases/**`）・`fuzz/**`・`xtask/src/fuzz.rs`・`.github/workflows/fuzz.yml` を変えた PR で、target ごとに 20 秒流す。毎晩は target ごとに 180 秒流し、育てた種を次の夜に引き継ぐ。
 - fuzz の crate の依存は、ワークスペースの `Cargo.lock` の版から解く。
 
