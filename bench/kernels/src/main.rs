@@ -2,6 +2,9 @@
 //!
 //! 使い方: `compare [候補] [組]`。候補は own・manifold-rust・csgrs（省けばすべて）。
 
+// 速さを測る道具なので、時計を読む（コアの規則の外。clippy.toml）
+#![allow(clippy::disallowed_methods)]
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::Instant;
 

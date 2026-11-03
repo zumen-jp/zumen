@@ -287,3 +287,4 @@
 - [0251: 基盤地図情報の配布の書庫は中の項目の名前で見分け、地物の ID を項目の名前と gml:id の組にする](0251-fgd-archives.md)（2026-11-03、採用）
 - [0252: 配る wasm のモジュールから名前の区画を除き、LTO と大きさ優先の最適化はまだ使わない](0252-strip-wasm-names.md)（2026-11-03、採用）
 - [0253: 地理の地物と点群を wasm の civil・pointcloud のモジュールに分け、J-LandXML と civil の op は要るモジュールのそれぞれに置く](0253-wasm-civil-and-pointcloud-modules.md)（2026-11-03、採用）
+- [0257: 試料の IFC で測り、3D のカーネルを manifold-rust にして、建物モデルの残りの 7 項目を決める](0257-kernel-and-building-items-from-samples.md)（2026-11-03、採用）
