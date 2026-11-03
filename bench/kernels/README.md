@@ -2,7 +2,7 @@
 
 [#414](https://github.com/zumen-jp/zumen/issues/414) の試作です。`zumen-geom3d` の合成の形の組（`zumen_geom3d::cases`）を、カーネルの候補ごとに評価し、体積・囲む箱・閉じているか・平面での切り口・出力の指紋（座標のビット）を比べます。結果の判断は [決定 0222](../../docs/decisions/0222-geom3d-types-and-kernel-trait.md) にあります。
 
-[#5](https://github.com/zumen-jp/zumen/issues/5) では、公開サンプルの IFC（`samples/ifc`）で、速さと失敗の割合を測りました（[公開サンプルの IFC で測る](#公開サンプルの-ifc-で測る)）。結果の判断は [決定 0257](../../docs/decisions/0257-kernel-and-building-items-from-samples.md) にあります。
+[#5](https://github.com/zumen-jp/zumen/issues/5) では、公開サンプルの IFC（`samples/ifc`）で、速さと失敗の割合を測りました（[公開サンプルの IFC で測る](#公開サンプルの-ifc-で測る)）。結果の判断は [決定 0260](../../docs/decisions/0260-kernel-and-building-items-from-samples.md) にあります。
 
 コアのワークスペースには入れていません。候補は、選ぶまで workspace の依存に入れません（決定 0018）。
 
