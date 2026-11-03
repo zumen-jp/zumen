@@ -51,15 +51,18 @@ const modules = loadModules({
 });
 const zumen = await modules.forInput(bytes); // 形式を判定し（detect）、それを開けるモジュールを返す。判定できなければ undefined
 const viewer = await modules.forOp("scene"); // op を持つモジュール
+const opened = await modules.open("a.dxf", bytes); // 形式を持つモジュールの新しいセッションで開く。判定できなければ undefined
+opened.session.call({ v: 1, op: "drawing", doc: "a.dxf" });
+opened.session.close();
 ```
 
 | 名前 | 中身 |
 | --- | --- |
 | `detect` | 入力を、`open` と同じ順と規則で判定し、合った `DETECTION` の行（`format`・`module`）を返す（どれでもなければ `undefined`） |
 | `modulesWith` | op を持つモジュールの名前 |
-| `loadModules` | `Modules.get`・`forInput`・`forOp` で、モジュールを読み込んで覚えておく |
+| `loadModules` | `Modules.get`・`forInput`・`forOp` で、モジュールを読み込んで覚えておく。`Modules.open` で、形式を持つモジュールの新しいセッションで入力を開く（[決定 0250](../../docs/decisions/0250-open-plugin-drawings-in-the-drawing-module.md)） |
 
-外部のプラグインを束ねたモジュール（[決定 0243](../../docs/decisions/0243-plugin-bundling.md)）は、`loadModules` の 2 つ目の引数に、名前・形式ごとの判定の規則（`formats`）・持つ op（`ops`）・読み込む関数（`load`）を渡します。コアのどの形式でもない入力を、その規則で試します。図面の形式のプラグインのモジュールは、プラグインの形式だけを持ちます（[決定 0247](../../docs/decisions/0247-drawing-model-binary.md)）。開いた文書を `lift` の op で図面モデルのバイナリ（blob の種類は `drawing`）にし、図面のモジュールのセッションに `push` して `open` すると、図面を読む op を使えます。作り方は [templates/plugin](../../templates/plugin/README.md) にあります。
+外部のプラグインを束ねたモジュール（[決定 0243](../../docs/decisions/0243-plugin-bundling.md)）は、`loadModules` の 2 つ目の引数に、名前・形式ごとの判定の規則（`formats`）・持つ op（`ops`）・読み込む関数（`load`）を渡します。コアのどの形式でもない入力を、その規則で試します。図面の形式のプラグインのモジュールは、プラグインの形式だけを持ちます（[決定 0247](../../docs/decisions/0247-drawing-model-binary.md)）。開いた文書を `lift` の op で図面モデルのバイナリ（blob の種類は `drawing`）にし、図面のモジュールのセッションに `push` して `open` すると、図面を読む op を使えます。`Modules.open` は、この受け渡しをして、図面のモジュールのセッションを返します。`detect` は、図面モデルのバイナリを形式 `drawing` と判定します（`open` は元の文書の形式を返します）。作り方は [templates/plugin](../../templates/plugin/README.md) にあります。
 
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`call` の型は要求の `op` から結果の型を引きます。
 

@@ -9,8 +9,19 @@ import {
   type StatusName,
   ZumenError,
   load,
+  loadModules,
   readScene,
 } from "../src/index.js";
+
+export async function modules(bytes: Uint8Array): Promise<void> {
+  const loaded = loadModules({ drawing: () => fetch("zumen_abi1_drawing.wasm") });
+  const opened = await loaded.open("a.p2z", bytes, { doc: "a" }, { "a.saf": "<SxfAttributeXML/>" });
+  if (opened) {
+    const format: string | undefined = opened.response.result?.format;
+    console.log(format, opened.session.call({ v: SCHEMA_MAJOR, op: "drawing", doc: "a" }).result?.hash);
+    opened.session.close();
+  }
+}
 
 export async function sample(bytes: Uint8Array): Promise<void> {
   const zumen = await load(fetch("zumen_abi1.wasm"));

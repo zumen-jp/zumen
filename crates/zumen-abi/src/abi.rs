@@ -97,12 +97,12 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ
+    // 図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ
     Module {
         name: "drawing",
         formats: &[
             "dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz",
-            "e57",
+            "e57", "drawing",
         ],
         ops: &[
             "capabilities",
@@ -244,6 +244,14 @@ pub const DETECTION: &[Detection] = &[
         rules: &[zumen_sdk::Signature::Bytes {
             offset: 0,
             bytes: b"ASTM-E57",
+        }],
+    },
+    Detection {
+        format: "drawing",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::Bytes {
+            offset: 0,
+            bytes: b"ZMDR",
         }],
     },
     Detection {
