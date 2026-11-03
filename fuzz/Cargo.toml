@@ -1,5 +1,6 @@
-# fuzz の target（#398、決定 0017）。cargo-fuzz で動かす。動かし方は fuzz/README.md。
-# ワークスペースの外に置き、配る成果物には入れない。
+# fuzz の target（#398・#501、決定 0017）。cargo-fuzz で動かす。動かし方と名前の付け方は fuzz/README.md。
+# ワークスペースの外に置き、配る成果物には入れない。登録した形式と L0 に target がないと、
+# `cargo xtask codegen --check` が落ちる（xtask/src/fuzz.rs）。
 
 [package]
 name = "zumen-fuzz"
@@ -14,13 +15,62 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 zumen-acad = { path = "../crates/zumen-acad" }
+zumen-base = { path = "../crates/zumen-base" }
+zumen-bcf = { path = "../crates/zumen-bcf" }
+zumen-building = { path = "../crates/zumen-building" }
+zumen-citygml = { path = "../crates/zumen-citygml" }
+zumen-civil = { path = "../crates/zumen-civil" }
+zumen-crs = { path = "../crates/zumen-crs" }
+zumen-delivery = { path = "../crates/zumen-delivery" }
+# 図面モデルのバイナリ（決定 0247）を読む target のため
+zumen-drawing = { path = "../crates/zumen-drawing", features = ["binary"] }
+zumen-e57 = { path = "../crates/zumen-e57" }
+zumen-extdm = { path = "../crates/zumen-extdm" }
+zumen-fgd = { path = "../crates/zumen-fgd" }
+zumen-geo = { path = "../crates/zumen-geo" }
+zumen-geology = { path = "../crates/zumen-geology" }
+zumen-ids = { path = "../crates/zumen-ids" }
+zumen-ifc = { path = "../crates/zumen-ifc" }
 zumen-jww = { path = "../crates/zumen-jww" }
+zumen-landxml = { path = "../crates/zumen-landxml" }
+zumen-las = { path = "../crates/zumen-las" }
+zumen-photo = { path = "../crates/zumen-photo" }
+zumen-ply = { path = "../crates/zumen-ply" }
+zumen-pointcloud = { path = "../crates/zumen-pointcloud" }
 zumen-sdk = { path = "../crates/zumen-sdk" }
+zumen-sheet = { path = "../crates/zumen-sheet" }
+zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
+zumen-xml = { path = "../crates/zumen-xml" }
+zumen-xyz = { path = "../crates/zumen-xyz" }
+zumen-zip = { path = "../crates/zumen-zip" }
 
 [workspace]
 members = ["."]
 
+# L0
+[[bin]]
+name = "zip"
+path = "fuzz_targets/zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xml"
+path = "fuzz_targets/xml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "step"
+path = "fuzz_targets/step.rs"
+test = false
+doc = false
+bench = false
+
+# 図面
 [[bin]]
 name = "dxf"
 path = "fuzz_targets/dxf.rs"
@@ -43,8 +93,159 @@ doc = false
 bench = false
 
 [[bin]]
+name = "saf"
+path = "fuzz_targets/saf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "jww"
 path = "fuzz_targets/jww.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "drawing"
+path = "fuzz_targets/drawing.rs"
+test = false
+doc = false
+bench = false
+
+# BIM
+[[bin]]
+name = "ifc"
+path = "fuzz_targets/ifc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "express"
+path = "fuzz_targets/express.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ids"
+path = "fuzz_targets/ids.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bcf"
+path = "fuzz_targets/bcf.rs"
+test = false
+doc = false
+bench = false
+
+# 土木・地理
+[[bin]]
+name = "landxml"
+path = "fuzz_targets/landxml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "citygml"
+path = "fuzz_targets/citygml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fgd"
+path = "fuzz_targets/fgd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "extdm"
+path = "fuzz_targets/extdm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "isg"
+path = "fuzz_targets/isg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "par"
+path = "fuzz_targets/par.rs"
+test = false
+doc = false
+bench = false
+
+# 点群
+[[bin]]
+name = "las"
+path = "fuzz_targets/las.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "e57"
+path = "fuzz_targets/e57.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ply"
+path = "fuzz_targets/ply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xyz"
+path = "fuzz_targets/xyz.rs"
+test = false
+doc = false
+bench = false
+
+# 納品・写真・帳票
+[[bin]]
+name = "delivery"
+path = "fuzz_targets/delivery.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jpeg"
+path = "fuzz_targets/jpeg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "boring"
+path = "fuzz_targets/boring.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xlsx"
+path = "fuzz_targets/xlsx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "csv"
+path = "fuzz_targets/csv.rs"
 test = false
 doc = false
 bench = false

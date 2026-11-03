@@ -187,6 +187,11 @@ impl<'a> Bits<'a> {
         self.pos
     }
 
+    /// 読むバイト列のバイト数。ファイルにある数を、データで抑えるのに使う
+    pub(super) fn size(&self) -> usize {
+        self.src.len()
+    }
+
     /// 読む位置を `pos` ビット目に移す
     pub(super) fn seek(&mut self, pos: usize) {
         self.pos = pos;
