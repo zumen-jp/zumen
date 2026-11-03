@@ -38,8 +38,8 @@ pub(crate) const DEVICE_PER_MM: f64 = 1024.0;
 /// 表示グループ（optional content group）の外の内容を置くレイヤ
 pub(crate) const PAGE_LAYER: LayerId = LayerId(0);
 
-// 図面モデルのメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret は、フォームと Type 3 の字形を呼ぶたびに
-// 中身を解釈し直すので、小さいファイルからも要素が指数的に増える。測ったメモリを、多めにする（決定 0256）
+// 図面モデルのメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret は、フォームを呼ぶたびに中身を解釈し
+// 直すので、小さいファイルからも要素が指数的に増える。測ったメモリを、多めにする（決定 0256）
 /// 要素の 1 つ（要素の配列を伸ばす間の写しを含めて、測ったメモリはおよそ 1.3〜1.5 KB）
 const ELEMENT_BYTES: u64 = 2048;
 /// 装置に渡された経路の要素の 1 つ。要素の頂点と輪になる（測ったメモリは、頂点の 1 つでおよそ 32 バイト）

@@ -4,9 +4,9 @@
 //! 呼ぶと、解釈する演算子の数は段の数の冪で増える。そこで、ページを渡す前に、内容のストリームを hayro-interpret と
 //! 同じ読み手（hayro-syntax の `TypedIter`）でたどり、hayro-interpret が解釈する手間を `Work` に、展開する
 //! バイト数を `DecodedBytes` に、先に数える。同じフォームを同じ文脈で呼ぶ所は、1 度だけたどる。hayro-interpret が
-//! 作るものの大きさ（写すグラフィックス状態・メッシュ・関数の標本・CID フォントの幅の表・切り抜きにする文字の
-//! 輪郭）も、メモリの代わりに `DecodedBytes` に数え、メッシュと切り抜きの輪郭を作る手間と、色を RGB にするときに
-//! 関数を当てる手間も `Work` に数える。
+//! 作るものの大きさ（写すグラフィックス状態・メッシュ・関数の標本と手続き・CID フォントの幅の表・切り抜きにする
+//! 文字の輪郭・長い経路と字形の並び）も、メモリの代わりに `DecodedBytes` に数え、メッシュと切り抜きの輪郭を作る
+//! 手間と、色を RGB にするときに関数を当てる手間も `Work` に数える。
 //!
 //! hayro-interpret がスタックかメモリを使い切るおそれのあるページ（入れ子の深すぎる関数と色空間、範囲の広すぎる
 //! CID フォントの幅、行の頂点の数が 0 の格子のメッシュ）と、パニックするおそれのあるページ（大きさの大きすぎる
@@ -119,6 +119,14 @@ const TRIANGLE_BYTES: u64 = 1024;
 const VERTEX_BYTES: u64 = 256;
 /// パッチのメッシュ（型 6・7）のパッチの 1 つ（352 バイトまで。配列を伸ばす間は、およそ 1,060 バイト）
 const PATCH_BYTES: u64 = 2048;
+/// Type 4 の関数の手続きの 1 バイト。hayro-interpret は、作るたびに手続きを演算子の配列にして持つ（演算子の 1 つは
+/// 56 バイトで、2 バイトから書ける。配列を伸ばす間は 3 倍まで使うので、1 バイトにおよそ 84 バイト）
+const PROCEDURE_BYTES: u64 = 128;
+/// 経路と字形の並びの、一時のメモリを数えない要素の数（[`hold`]）
+const TRANSIENT_FREE: u64 = 1 << 16;
+/// 経路の要素か字形の並びの字形の 1 つの、一時のメモリ。hayro-interpret の配列と、装置が要素にする間の写しを
+/// 合わせて、配列を伸ばす間に測ったメモリは、経路の要素の 1 つでおよそ 340 バイト、字形の 1 つでおよそ 280 バイト
+const TRANSIENT_BYTES: u64 = 512;
 /// 色の表（Separation・1 成分の DeviceN・Indexed の色空間と、転送関数）の項目の数。hayro-interpret は、はじめて
 /// 使うときに、0〜255 の値のそれぞれに関数を当てて表を作る
 const TABLE: u64 = 256;
@@ -420,6 +428,17 @@ fn lookup_work(data: &[u8]) -> u64 {
     (data.len() as u64).div_ceil(LOOKUP_BYTES)
 }
 
+/// 経路か字形の並びが `length` 個の要素になったときの、一時のメモリを数える。hayro-interpret は、経路を塗る演算子
+/// まで配列に持ち、字形を文字列ごとに 1 つの並びの配列にして装置に渡す。どちらの配列も、空にしても容量を持った
+/// まま、ページの中で次の経路と並びで使い回し、ページごとに作り直す。そこで、文書の中でいちばん長いもの
+/// （`longest`）の、[`TRANSIENT_FREE`] を超える分だけを数える。ページの中で使い回すので、フォームの呼ばれ方の
+/// 手間（[`Cost`]）には入れない
+fn hold(longest: &mut u64, length: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    let counted = length.saturating_sub((*longest).max(TRANSIENT_FREE));
+    *longest = (*longest).max(length);
+    cx.check(Kind::DecodedBytes, counted.saturating_mul(TRANSIENT_BYTES))
+}
+
 /// 関数の辞書（7.10）の、数の配列の項目の数。hayro-interpret は、関数を作るたびに、`Domain`・`Range` と型ごとの
 /// 配列を読んで数にするので、項目の数に比例する手間がかかる（短い数の並びでは、バイト数で数える手間より重い）
 fn numbers(dict: &Dict<'_>) -> u64 {
@@ -634,6 +653,10 @@ pub(crate) struct Walker<'a, 'o> {
     helvetica: Option<Option<u32>>,
     /// フォントの表の番号と文字の符号 → 切り抜きにする字形の輪郭の、経路の要素の数（文書ごと）
     outlines: BTreeMap<(u32, u32), u64>,
+    /// いちばん長い経路の、要素の数（文書ごと、[`hold`]）
+    longest_path: u64,
+    /// いちばん長い字形の並びの、文字列のバイト数（文書ごと、[`hold`]）
+    longest_run: u64,
     /// ストリームの番号 → xref から引いたストリームの辞書のバイト列（文書ごと、[`own_stream`]）
     streams: BTreeMap<(u32, i32), Option<&'a [u8]>>,
     /// ページの最初の内容のストリーム。ほかに場所のない診断の場所
@@ -694,6 +717,8 @@ impl<'a, 'o> Walker<'a, 'o> {
             face_ids: BTreeMap::new(),
             helvetica: None,
             outlines: BTreeMap::new(),
+            longest_path: 0,
+            longest_run: 0,
             streams: BTreeMap::new(),
             place: Ref::default(),
             calls: BTreeMap::new(),
@@ -879,6 +904,9 @@ impl<'a, 'o> Walker<'a, 'o> {
         let start = self.visible.len();
         let outer = std::mem::replace(&mut self.closed, usize::MAX);
         let mut ended = false;
+        // hayro-interpret が塗る演算子まで持つ経路の、要素の数。hayro-interpret は、内容のストリームの始めと終わりで
+        // 経路を空にする
+        let mut path = 0u64;
         let mut ops = TypedIter::new(data);
         while let Some(op) = ops.next() {
             // ページを解釈しないと決めたら、たどるのをやめる
@@ -964,11 +992,27 @@ impl<'a, 'o> Walker<'a, 'o> {
                     let strings = [text.2.as_bytes()];
                     self.show(&mut states, false, &strings, &mut cost, place, cx)?;
                 }
+                // 経路を作る演算子。`re` は、5 つの要素（始点・3 本の線・閉じる）にする
+                TypedInstruction::MoveTo(_)
+                | TypedInstruction::LineTo(_)
+                | TypedInstruction::CubicTo(_)
+                | TypedInstruction::CubicStartTo(_)
+                | TypedInstruction::CubicEndTo(_)
+                | TypedInstruction::ClosePath(_) => {
+                    path = path.saturating_add(1);
+                    hold(&mut self.longest_path, path, cx)?;
+                }
+                TypedInstruction::RectPath(_) => {
+                    path = path.saturating_add(5);
+                    hold(&mut self.longest_path, path, cx)?;
+                }
+                TypedInstruction::EndPath(_) => path = 0,
                 // 装置は、塗るたびに塗りの色を RGB にする
                 TypedInstruction::FillPathNonZero(_)
                 | TypedInstruction::FillPathNonZeroCompatibility(_)
                 | TypedInstruction::FillPathEvenOdd(_) => {
                     spend(&mut cost, PAINT_WORK.saturating_add(current.fill), 0, cx)?;
+                    path = 0;
                 }
                 // hayro-interpret は、線を描くたびに破線の配列を写し、装置は、線の色を RGB にする
                 TypedInstruction::StrokePath(_) | TypedInstruction::CloseAndStrokePath(_) => {
@@ -976,6 +1020,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                         .saturating_add(current.dash)
                         .saturating_add(current.stroke);
                     spend(&mut cost, work, 0, cx)?;
+                    path = 0;
                 }
                 TypedInstruction::FillAndStrokeNonZero(_)
                 | TypedInstruction::FillAndStrokeEvenOdd(_)
@@ -988,6 +1033,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                         .saturating_add(current.fill)
                         .saturating_add(current.stroke);
                     spend(&mut cost, work, 0, cx)?;
+                    path = 0;
                 }
                 // 装置の色空間の色は、関数を当てずに RGB にする
                 TypedInstruction::NonStrokeColorDeviceGray(_)
@@ -1397,9 +1443,13 @@ impl<'a, 'o> Walker<'a, 'o> {
                     cost.add(made);
                     eval = each;
                 }
-                // hayro-interpret は、作るたびに手続きを読む。引いたオブジェクトと同じく、4 バイトを 1 と数える
+                // hayro-interpret は、作るたびに手続きを読んで演算子の配列にする。読む手間は、引いたオブジェクトと
+                // 同じく 4 バイトを 1 と数える
                 Some(4) => {
                     cost.ops = cost.ops.saturating_add(size.div_ceil(LOOKUP_BYTES));
+                    cost.bytes = cost
+                        .bytes
+                        .saturating_add(size.saturating_mul(PROCEDURE_BYTES));
                     eval = size.max(1);
                 }
                 _ => {}
@@ -1603,6 +1653,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         let colors = (strings.len() as u64).saturating_mul(state.fill.saturating_add(state.stroke));
         spend(cost, colors, 0, cx)?;
         let bytes = strings.iter().map(|bytes| bytes.len() as u64).sum::<u64>();
+        // hayro-interpret は、文字列の字形を 1 つの並びの配列にして装置に渡す。字は 1 バイトから書ける
+        hold(&mut self.longest_run, bytes, cx)?;
         if state.font == Selected::Type3 {
             let (work, copied) = copy(*state);
             spend(

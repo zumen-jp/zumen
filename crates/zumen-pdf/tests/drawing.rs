@@ -2124,14 +2124,17 @@ fn counts_work_that_grows_with_sizes() {
         bytes.push(used(&src, Kind::DecodedBytes));
     }
     assert!(bytes[1] >= bytes[0] + 10 * 10_000, "{bytes:?}");
-    // Type 4 の関数は、作るたびに手続きを読む（4 バイトを 1）。シェーディングの関数は、表を作らない
+    // Type 4 の関数は、作るたびに手続きを読み（4 バイトを 1）、演算子の配列にする（1 バイトを 128 バイト）。
+    // シェーディングの関数は、表を作らない
     let shadings = "/Sh sh ".repeat(10);
     let mut document = Document::new(vec![Page::new(&shadings).resources(
         "/Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] \
          /Function 3 0 R >> >>",
     )]);
     document.objects = vec![function];
-    assert!(used(&document.bytes(), Kind::Work) >= 10 * 10_000 / 4);
+    let src = document.bytes();
+    assert!(used(&src, Kind::Work) >= 10 * 10_000 / 4);
+    assert!(used(&src, Kind::DecodedBytes) >= 10 * 10_000 * 128);
 }
 
 #[test]
@@ -2481,6 +2484,34 @@ fn counts_memory_of_the_drawing_model() {
             .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED),
         "{diag:?}"
     );
+}
+
+#[test]
+fn counts_memory_of_long_paths_and_glyph_runs() {
+    use zumen_base::Kind;
+    // hayro-interpret は、経路を塗る演算子まで配列に持ち、字形を文字列ごとに 1 つの並びの配列にする。どちらの
+    // 配列も、ページの中で使い回すので、文書の中でいちばん長いものの、65,536 を超える要素を 1 つ 512 バイトと数える
+    let long = format!("0 0 m {}S ", "1 1 l 0 0 l ".repeat(50_000));
+    let once = used(&one_page(Page::new(&long)), Kind::DecodedBytes);
+    assert!(once >= (100_000 - 65_536) * 512, "{once}");
+    // 同じ長さの経路は、同じページでも別のページでも、もう 1 度は数えない
+    let repeated = long.repeat(2);
+    let twice = [
+        one_page(Page::new(&repeated)),
+        Document::new(vec![Page::new(&long), Page::new(&long)]).bytes(),
+    ];
+    for src in twice {
+        let total = used(&src, Kind::DecodedBytes);
+        assert!(total - once < (100_000 - 65_536) * 512, "{once} {total}");
+    }
+    // `TJ` は、すべての文字列を 1 つの並びの配列にする
+    let half = "A".repeat(50_000);
+    let text = format!("BT /F1 12 Tf [({half}) -10 ({half})] TJ ET");
+    let run = used(
+        &one_page(Page::new(&text).resources(HELVETICA)),
+        Kind::DecodedBytes,
+    );
+    assert!(run >= (100_000 - 65_536) * 512, "{run}");
 }
 
 #[test]
