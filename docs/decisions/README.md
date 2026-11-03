@@ -292,3 +292,4 @@
 - [0255: 形式の確かめた度合いは、もっとも強い方法の段と範囲を台帳と形式の文書に置き、境界の capabilities には出さない](0255-verification-levels-in-the-ledger.md)（2026-11-03、採用）
 - [0258: fuzz の種に公開サンプルと合成の入力を使い、crate を変えた PR で短く、毎晩長く流す](0258-fuzz-seeds-and-runs.md)（2026-11-03、採用）
 - [0259: npm の包みに Node.js の入口を足し、trap のあとのインスタンスを使えなくし、ライセンスの文を入れる](0259-javascript-on-node-servers.md)（2026-11-03、採用）
+- [0260: 試料の IFC で測り、3D のカーネルを manifold-rust にして、建物モデルの残りの 7 項目を決める](0260-kernel-and-building-items-from-samples.md)（2026-11-03、採用）
