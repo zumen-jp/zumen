@@ -62,4 +62,4 @@ npm run lint:text
 - 最新の `main` からブランチを作り、PR を出してください。
 - PR は、作った人と別の人か、作った側の会話を引き継がないエージェントが確かめてからマージします。確かめた結果は、PR のレビューのコメントに書きます（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
 - コミットと PR のタイトルは Conventional Commits にします（例: `feat(dxf): 外部参照を読む`）。種別とスコープは英語、説明は日本語です。
-- 設計の判断を含む変更は、[docs/decisions](docs/decisions/README.md) に記録してください。
+- 境界・ID・層とモデル・依存・権利・形式をまたぐ振る舞い・作業の進め方に関わる設計の判断は、[docs/decisions](docs/decisions/README.md) に記録してください。形式ごとの欄や符号化の細部は、[docs/formats](docs/formats/README.md) に書きます。
