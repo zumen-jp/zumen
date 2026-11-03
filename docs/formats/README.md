@@ -434,6 +434,7 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm)（確認日: 2026-10-31）
 - issue: [zumen-jp/zumen#429](https://github.com/zumen-jp/zumen/issues/429)
+- issue: [zumen-jp/zumen#454](https://github.com/zumen-jp/zumen/issues/454)
 
 ### format-bebridge
 

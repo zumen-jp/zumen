@@ -47,9 +47,9 @@ pub enum Request {
     IdsCheck(IdsCheckRequest),
     /// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
     ReviewAdoptIds(ReviewAdoptIdsRequest),
-    /// zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+    /// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
     BcfRead(BcfReadRequest),
-    /// zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+    /// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
     BcfWrite(BcfWriteRequest),
     /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
     Civil(CivilRequest),
@@ -10059,7 +10059,7 @@ impl ToJson for ReviewAdoptIdsRequest {
     }
 }
 
-/// zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+/// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BcfReadRequest {
     /// `request_common` の欄
@@ -10255,7 +10255,7 @@ impl ToJson for BcfReadResult {
     }
 }
 
-/// zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+/// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BcfWriteRequest {
     /// `request_common` の欄
@@ -10274,6 +10274,8 @@ pub struct BcfWriteRequest {
     pub author: Option<String>,
     /// 日時のない指摘とコメントに書く日時（RFC 3339）
     pub date: Option<String>,
+    /// 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から
+    pub version: Option<String>,
 }
 
 impl BcfWriteRequest {
@@ -10288,6 +10290,7 @@ impl BcfWriteRequest {
         let kind = object.optional("kind", json::string)?;
         let author = object.optional("author", json::string)?;
         let date = object.optional("date", json::string)?;
+        let version = object.optional("version", json::string)?;
         Ok(Self {
             request_common,
             review,
@@ -10297,6 +10300,7 @@ impl BcfWriteRequest {
             kind,
             author,
             date,
+            version,
         })
     }
 
@@ -10326,6 +10330,10 @@ impl BcfWriteRequest {
         }
         if let Some(value) = &self.date {
             out.key("date");
+            out.string(value);
+        }
+        if let Some(value) = &self.version {
+            out.key("version");
             out.string(value);
         }
     }

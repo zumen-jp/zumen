@@ -1,6 +1,6 @@
 [package]
 name = "zumen-bcf"
-description = "zumen の BCF: BCF 3.0 の bcfzip を読み書きし、レビューの文書の指摘と 3D の場所に写す（決定 0214・0220）"
+description = "zumen の BCF: BCF 2.1・3.0 の bcfzip を読み書きし、レビューの文書の指摘と 3D の場所に写す（決定 0214・0220・0248）"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

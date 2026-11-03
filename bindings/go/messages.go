@@ -3754,7 +3754,7 @@ func (m ReviewAdoptIdsRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BcfReadRequest: zm_push で渡した BCF 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+// BcfReadRequest: zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
 type BcfReadRequest struct {
 	// メッセージのスキーマの大版。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3826,7 +3826,7 @@ type BcfReadResult struct {
 	Topics *int64 `json:"topics,omitempty"`
 }
 
-// BcfWriteRequest: zm_push で渡したレビューの文書を、BCF 3.0 の bcfzip に書く（決定 0214・0220）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+// BcfWriteRequest: zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
 type BcfWriteRequest struct {
 	// メッセージのスキーマの大版。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3866,6 +3866,9 @@ type BcfWriteRequest struct {
 
 	// 日時のない指摘とコメントに書く日時（RFC 3339）
 	Date *string `json:"date,omitempty"`
+
+	// 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から
+	Version *string `json:"version,omitempty"`
 }
 
 // MarshalJSON は、目印の欄を入れて書く。

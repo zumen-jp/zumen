@@ -544,7 +544,7 @@ rights = "public"
 rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がないが、3.0 と同じ扱いにする（zumen-jp/zumen#440）。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
 place = "core"
 basis = ["spec"]
-issues = ["zumen-jp/zumen#429"]
+issues = ["zumen-jp/zumen#429", "zumen-jp/zumen#454"]
 
 [[formats.bcf.evidence]]
 title = "IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）"

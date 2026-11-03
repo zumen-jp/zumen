@@ -9,10 +9,7 @@ use zumen_sdk::{Cx, Error};
 use zumen_xml::Element;
 
 use crate::xml::Xml;
-use crate::{Bcf, Folder, Statuses};
-
-/// 読める版
-const VERSION: &str = "3.0";
+use crate::{Bcf, Edition, Folder, Statuses};
 
 pub(crate) fn invalid(cx: &mut Cx, name: &str, near: &str) -> Error {
     cx.report(
@@ -83,12 +80,12 @@ pub(crate) fn archive(src: &[u8], cx: &mut Cx) -> Result<Bcf, Error> {
             _ => return Err(invalid(cx, "bcf.version", "Version")),
         }
     };
-    if version != VERSION {
+    let Some(version) = Edition::from_id(&version) else {
         cx.report(
             Diagnostic::new(codes::BCF_VERSION_UNSUPPORTED).with("version", version.as_str()),
         );
         return Err(Error::Invalid);
-    }
+    };
     // markup.bcf のないフォルダー（Documents など）は、ほかの項目として保つ
     let mut topics = Vec::new();
     for folder in folders {
@@ -119,7 +116,14 @@ pub fn review(
 ) -> Result<Review, Error> {
     let mut topics = Vec::with_capacity(bcf.topics.len());
     for folder in &bcf.topics {
-        topics.push(topic(folder, &target.id, statuses, version, cx)?);
+        topics.push(topic(
+            folder,
+            bcf.version,
+            &target.id,
+            statuses,
+            version,
+            cx,
+        )?);
     }
     Ok(Review {
         targets: vec![target.clone()],
@@ -134,8 +138,78 @@ pub(crate) fn guid(text: &str) -> String {
     text.trim().to_ascii_lowercase()
 }
 
+/// `parent` の子の `item` のすべて。`wrapper` があれば、その子の中の `item`
+fn listed<'d>(
+    xml: &Xml<'d>,
+    parent: &Element,
+    wrapper: Option<&[u8]>,
+    item: &[u8],
+) -> Vec<&'d Element> {
+    match wrapper {
+        Some(wrapper) => xml
+            .child(parent, wrapper)
+            .map(|list| xml.all(list, item))
+            .unwrap_or_default(),
+        None => xml.all(parent, item),
+    }
+}
+
+/// 版ごとの、一覧の要素の置き場所。3.0 は一覧を包む要素の中に並べ、2.1 は包まずに並べる
+impl Edition {
+    /// コメント。3.0 は Topic の `Comments` の中、2.1 は Markup の直下の `Comment`
+    pub(crate) fn comments<'d>(
+        self,
+        xml: &Xml<'d>,
+        markup: &Element,
+        topic: &Element,
+    ) -> Vec<&'d Element> {
+        match self {
+            Self::V2_1 => listed(xml, markup, None, b"Comment"),
+            Self::V3_0 => listed(xml, topic, Some(b"Comments"), b"Comment"),
+        }
+    }
+
+    /// viewpoint の参照。3.0 は Topic の `Viewpoints` の中の `ViewPoint`、2.1 は Markup の直下の `Viewpoints`
+    pub(crate) fn viewpoints<'d>(
+        self,
+        xml: &Xml<'d>,
+        markup: &Element,
+        topic: &Element,
+    ) -> Vec<&'d Element> {
+        match self {
+            Self::V2_1 => listed(xml, markup, None, b"Viewpoints"),
+            Self::V3_0 => listed(xml, topic, Some(b"Viewpoints"), b"ViewPoint"),
+        }
+    }
+
+    /// ラベル。3.0 は `Labels` の中の `Label`、2.1 は 1 つずつの `Labels`
+    fn labels<'d>(self, xml: &Xml<'d>, topic: &Element) -> Vec<&'d Element> {
+        match self {
+            Self::V2_1 => listed(xml, topic, None, b"Labels"),
+            Self::V3_0 => listed(xml, topic, Some(b"Labels"), b"Label"),
+        }
+    }
+
+    /// 関連する topic。3.0 は `RelatedTopics` の中、2.1 は Topic の直下
+    fn related<'d>(self, xml: &Xml<'d>, topic: &Element) -> Vec<&'d Element> {
+        match self {
+            Self::V2_1 => listed(xml, topic, None, b"RelatedTopic"),
+            Self::V3_0 => listed(xml, topic, Some(b"RelatedTopics"), b"RelatedTopic"),
+        }
+    }
+
+    /// 色を付ける部品。3.0 は Color の `Components` の中、2.1 は Color の直下
+    fn colored<'d>(self, xml: &Xml<'d>, color: &Element) -> Vec<&'d Element> {
+        match self {
+            Self::V2_1 => listed(xml, color, None, b"Component"),
+            Self::V3_0 => listed(xml, color, Some(b"Components"), b"Component"),
+        }
+    }
+}
+
 pub(crate) fn topic(
     folder: &Folder,
+    edition: Edition,
     target: &str,
     statuses: &Statuses,
     version: Option<&dyn Version>,
@@ -162,71 +236,61 @@ pub(crate) fn topic(
         None if raw_status.is_empty() => (Status::Open, None),
         None => (Status::Open, Some(raw_status)),
     };
-    let labels = match xml.child(element, b"Labels") {
-        Some(labels) => xml
-            .all(labels, b"Label")
-            .into_iter()
-            .map(|label| xml.text(label))
-            .filter(|label| !label.is_empty())
-            .collect(),
-        None => Vec::new(),
-    };
-    let related = match xml.child(element, b"RelatedTopics") {
-        Some(related) => xml
-            .all(related, b"RelatedTopic")
-            .into_iter()
-            .filter_map(|r| xml.attribute(r, b"Guid"))
-            .map(|g| guid(&g))
-            .collect(),
-        None => Vec::new(),
-    };
+    let labels = edition
+        .labels(&xml, element)
+        .into_iter()
+        .map(|label| xml.text(label))
+        .filter(|label| !label.is_empty())
+        .collect();
+    let related = edition
+        .related(&xml, element)
+        .into_iter()
+        .filter_map(|r| xml.attribute(r, b"Guid"))
+        .map(|g| guid(&g))
+        .collect();
     let mut comments = Vec::new();
-    if let Some(list) = xml.child(element, b"Comments") {
-        for comment in xml.all(list, b"Comment") {
-            work(cx)?;
-            let Some(id) = xml.attribute(comment, b"Guid") else {
-                return Err(invalid(cx, &name, "Comment"));
-            };
-            comments.push(Comment {
-                id: guid(&id),
-                author: xml.child_text(comment, b"Author"),
-                date: xml.child_text(comment, b"Date"),
-                text: xml.child_text(comment, b"Comment").unwrap_or_default(),
-                location: xml
-                    .child(comment, b"Viewpoint")
-                    .and_then(|v| xml.attribute(v, b"Guid"))
-                    .map(|g| guid(&g)),
-                extra: Vec::new(),
-            });
-        }
+    for comment in edition.comments(&xml, markup, element) {
+        work(cx)?;
+        let Some(id) = xml.attribute(comment, b"Guid") else {
+            return Err(invalid(cx, &name, "Comment"));
+        };
+        comments.push(Comment {
+            id: guid(&id),
+            author: xml.child_text(comment, b"Author"),
+            date: xml.child_text(comment, b"Date"),
+            text: xml.child_text(comment, b"Comment").unwrap_or_default(),
+            location: xml
+                .child(comment, b"Viewpoint")
+                .and_then(|v| xml.attribute(v, b"Guid"))
+                .map(|g| guid(&g)),
+            extra: Vec::new(),
+        });
     }
     let mut locations = Vec::new();
-    if let Some(list) = xml.child(element, b"Viewpoints") {
-        for point in xml.all(list, b"ViewPoint") {
-            work(cx)?;
-            let Some(id) = xml.attribute(point, b"Guid") else {
-                return Err(invalid(cx, &name, "ViewPoint"));
-            };
-            let place = match xml.child_text(point, b"Viewpoint") {
-                Some(file) => match folder.files.iter().find(|(n, _)| *n == file) {
-                    Some((_, data)) => {
-                        let name = format!("{}/{file}", folder.name);
-                        space(data, &name, version, cx)?
-                    }
-                    None => {
-                        return Err(invalid(cx, &format!("{}/{file}", folder.name), "Viewpoint"));
-                    }
-                },
-                None => empty_space(),
-            };
-            locations.push(Location {
-                id: guid(&id),
-                target: target.to_string(),
-                place,
-                carried: None,
-                extra: Vec::new(),
-            });
-        }
+    for point in edition.viewpoints(&xml, markup, element) {
+        work(cx)?;
+        let Some(id) = xml.attribute(point, b"Guid") else {
+            return Err(invalid(cx, &name, "ViewPoint"));
+        };
+        let place = match xml.child_text(point, b"Viewpoint") {
+            Some(file) => match folder.files.iter().find(|(n, _)| *n == file) {
+                Some((_, data)) => {
+                    let name = format!("{}/{file}", folder.name);
+                    space(data, &name, edition, version, cx)?
+                }
+                None => {
+                    return Err(invalid(cx, &format!("{}/{file}", folder.name), "Viewpoint"));
+                }
+            },
+            None => empty_space(),
+        };
+        locations.push(Location {
+            id: guid(&id),
+            target: target.to_string(),
+            place,
+            carried: None,
+            extra: Vec::new(),
+        });
     }
     Ok(Topic {
         id: guid(&id),
@@ -268,6 +332,7 @@ fn empty_space() -> Place {
 pub(crate) fn space(
     data: &[u8],
     name: &str,
+    edition: Edition,
     version: Option<&dyn Version>,
     cx: &mut Cx,
 ) -> Result<Place, Error> {
@@ -288,9 +353,9 @@ pub(crate) fn space(
     else {
         return Ok(place);
     };
-    let components = |list: Option<&Element>, cx: &mut Cx| -> Result<Vec<Reference>, Error> {
+    let components = |list: &[&Element], cx: &mut Cx| -> Result<Vec<Reference>, Error> {
         let mut out = Vec::new();
-        for component in list.map(|l| xml.all(l, b"Component")).unwrap_or_default() {
+        for component in list {
             work(cx)?;
             // IfcGuid のない要素（AuthoringToolId だけのもの）は、建物モデルの ID で引けないので写さない
             if let Some(id) = xml
@@ -306,11 +371,14 @@ pub(crate) fn space(
         Ok(out)
     };
     if let Some(list) = xml.child(root, b"Components") {
-        *selected = components(xml.child(list, b"Selection"), cx)?;
+        *selected = components(&listed(&xml, list, Some(b"Selection"), b"Component"), cx)?;
         if let Some(visibility) = xml.child(list, b"Visibility") {
             *visible =
                 Some(xml.attribute(visibility, b"DefaultVisibility").as_deref() == Some("true"));
-            *exceptions = components(xml.child(visibility, b"Exceptions"), cx)?;
+            *exceptions = components(
+                &listed(&xml, visibility, Some(b"Exceptions"), b"Component"),
+                cx,
+            )?;
         }
         if let Some(coloring) = xml.child(list, b"Coloring") {
             for color in xml.all(coloring, b"Color") {
@@ -319,7 +387,7 @@ pub(crate) fn space(
                 };
                 colored.push(Colored {
                     color: format!("#{}", value.to_ascii_uppercase()),
-                    elements: components(xml.child(color, b"Components"), cx)?,
+                    elements: components(&edition.colored(&xml, color), cx)?,
                 });
             }
         }

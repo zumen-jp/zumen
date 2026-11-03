@@ -1,7 +1,7 @@
-//! BCF 3.0 の bcfzip を読み、レビューの文書に写して書き戻す（決定 0214・0220）。bcfzip は試験の中で作る
+//! BCF 2.1 と 3.0 の bcfzip を読み、レビューの文書に写して書き戻す（決定 0214・0220）。bcfzip は試験の中で作る
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
-use zumen_bcf::{Bcf, Options, Statuses};
+use zumen_bcf::{Bcf, Edition, Options, Statuses};
 use zumen_review::{
     Camera, Colored, Comment, Location, Place, Projection, Reference, Review, Status, Target,
     Topic, Version,
@@ -69,6 +69,74 @@ const VERSION_3: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?><Version Vers
 const EXTENSIONS: &[u8] = br#"<Extensions><TopicStatuses><TopicStatus>In Progress</TopicStatus></TopicStatuses></Extensions>"#;
 const SNAPSHOT: &[u8] = b"\x89PNG\r\n\x1a\nsnapshot";
 
+/// [`markup`] と同じ指摘を、BCF 2.1 の形で書いたもの。コメントと viewpoint は Markup の直下に並び、一覧を包まない
+fn markup_2_1() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Markup>
+  <Header><File IfcProject="0000000000000000000001" isExternal="true"><Filename>a.ifc</Filename></File></Header>
+  <Topic Guid="{TOPIC}" TopicType="Issue" TopicStatus="In Progress" Custom="x">
+    <ReferenceLink>https://example.com/1</ReferenceLink>
+    <ReferenceLink>https://example.com/2</ReferenceLink>
+    <Title>扉の幅がない</Title>
+    <Priority>High</Priority>
+    <Labels>Door</Labels>
+    <CreationDate>2026-10-01T09:00:00+09:00</CreationDate>
+    <CreationAuthor>a@example.com</CreationAuthor>
+    <AssignedTo>b@example.com</AssignedTo>
+    <Stage>Design</Stage>
+    <Description>OverallWidth がない</Description>
+    <BimSnippet SnippetType="IDS"><Reference>door.ids</Reference><ReferenceSchema>ids.xsd</ReferenceSchema></BimSnippet>
+    <DocumentReference Guid="5d1e2f3a-4444-4b5c-8d6e-7f8091a2b304" isExternal="true"><ReferencedDocument>../Documents/d.pdf</ReferencedDocument></DocumentReference>
+    <Vendor>keep</Vendor>
+  </Topic>
+  <Comment Guid="{COMMENT}"><Date>2026-10-02T10:00:00+09:00</Date><Author>b@example.com</Author><Comment>直します</Comment><Viewpoint Guid="{VIEW}"/><ModifiedDate>2026-10-03T10:00:00+09:00</ModifiedDate></Comment>
+  <Viewpoints Guid="{VIEW}"><Viewpoint>viewpoint.bcfv</Viewpoint><Snapshot>snapshot.png</Snapshot></Viewpoints>
+  <VendorMarkup>keep</VendorMarkup>
+</Markup>
+"#
+    )
+}
+
+/// [`visinfo`] と同じ場所を、BCF 2.1 の形で書いたもの。色の部品を包まず、カメラに縦横比がなく、Bitmap が直下にある
+fn visinfo_2_1() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<VisualizationInfo Guid="{VIEW}">
+  <Components>
+    <Selection><Component IfcGuid="{DOOR}"/><Component><AuthoringToolId>42</AuthoringToolId></Component></Selection>
+    <Visibility DefaultVisibility="true"><Exceptions><Component IfcGuid="0000000000000000000034"/></Exceptions></Visibility>
+    <Coloring><Color Color="ff0000"><Component IfcGuid="{DOOR}"/></Color></Coloring>
+  </Components>
+  <PerspectiveCamera>
+    <CameraViewPoint><X>1</X><Y>2</Y><Z>3</Z></CameraViewPoint>
+    <CameraDirection><X>0</X><Y>1</Y><Z>0</Z></CameraDirection>
+    <CameraUpVector><X>0</X><Y>0</Y><Z>1</Z></CameraUpVector>
+    <FieldOfView>60</FieldOfView>
+  </PerspectiveCamera>
+  <ClippingPlanes><ClippingPlane><Location><X>0</X><Y>0</Y><Z>1.5</Z></Location><Direction><X>0</X><Y>0</Y><Z>1</Z></Direction></ClippingPlane></ClippingPlanes>
+  <Bitmap><Bitmap>PNG</Bitmap><Reference>logo.png</Reference><Location><X>0</X><Y>0</Y><Z>0</Z></Location><Normal><X>0</X><Y>0</Y><Z>1</Z></Normal><Up><X>0</X><Y>1</Y><Z>0</Z></Up><Height>1</Height></Bitmap>
+</VisualizationInfo>
+"#
+    )
+}
+
+const VERSION_2_1: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?><Version VersionId="2.1"><DetailedVersion>2.1</DetailedVersion></Version>"#;
+const PROJECT: &[u8] = br#"<ProjectExtension><Project ProjectId="0000000000000000000001"><Name>a</Name></Project><ExtensionSchema>extensions.xsd</ExtensionSchema></ProjectExtension>"#;
+
+fn sample_2_1() -> Vec<u8> {
+    let markup = markup_2_1();
+    let visinfo = visinfo_2_1();
+    zip(&[
+        ("bcf.version", VERSION_2_1),
+        ("project.bcfp", PROJECT),
+        (&format!("{TOPIC}/"), b""),
+        (&format!("{TOPIC}/markup.bcf"), markup.as_bytes()),
+        (&format!("{TOPIC}/viewpoint.bcfv"), visinfo.as_bytes()),
+        (&format!("{TOPIC}/snapshot.png"), SNAPSHOT),
+    ])
+}
+
 fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     zumen_zip::write(entries).unwrap_or_default()
 }
@@ -116,6 +184,7 @@ fn options() -> Options {
         kind: None,
         author: None,
         date: None,
+        version: None,
     }
 }
 
@@ -166,7 +235,7 @@ fn entry(bytes: &[u8], name: &str) -> Option<Vec<u8>> {
 #[test]
 fn reads_topics_comments_and_viewpoints_into_the_review() {
     let (bcf, review) = read(&sample()).unwrap();
-    assert_eq!(bcf.version, "3.0");
+    assert_eq!(bcf.version, Edition::V3_0);
     assert_eq!(bcf.topics.len(), 1);
     // markup.bcf のないフォルダーは、ほかの項目として保つ
     let names: Vec<&str> = bcf.files.iter().map(|(n, _)| n.as_str()).collect();
@@ -463,7 +532,7 @@ fn rejects_broken_archives_and_other_versions() {
             codes::BCF_FILE_INVALID,
         ),
         (
-            zip(&[("bcf.version", br#"<Version VersionId="2.1"/>"#)]),
+            zip(&[("bcf.version", br#"<Version VersionId="1.0"/>"#)]),
             codes::BCF_VERSION_UNSUPPORTED,
         ),
         (
@@ -534,4 +603,133 @@ fn stops_at_the_budget() {
     });
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert!(found(&diag).contains(&codes::BUDGET_WORK_EXCEEDED));
+}
+
+#[test]
+fn reads_bcf_2_1_into_the_same_review_as_3_0() {
+    let (bcf, review) = read(&sample_2_1()).unwrap();
+    assert_eq!(bcf.version, Edition::V2_1);
+    let names: Vec<&str> = bcf.files.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["project.bcfp"]);
+    let (_, review_3) = read(&sample()).unwrap();
+    assert_eq!(review, review_3);
+}
+
+#[test]
+fn writes_bcf_2_1_back_with_its_unmapped_parts() {
+    let original = sample_2_1();
+    let (bcf, mut review) = read(&original).unwrap();
+    // 版を渡さなければ、元の版で書く
+    let (bytes, diag) = write(&review, Some(&bcf), &options()).unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    for name in [
+        "project.bcfp",
+        &format!("{TOPIC}/markup.bcf"),
+        &format!("{TOPIC}/viewpoint.bcfv"),
+        &format!("{TOPIC}/snapshot.png"),
+    ] {
+        assert_eq!(entry(&bytes, name), entry(&original, name), "{name}");
+    }
+    assert_eq!(
+        String::from_utf8(entry(&bytes, "bcf.version").unwrap()).unwrap(),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Version VersionId=\"2.1\">\n  <DetailedVersion>2.1</DetailedVersion>\n</Version>\n"
+    );
+
+    review.topics[0].title = "扉の幅を入れる".to_string();
+    review.topics[0].labels.push("Width".to_string());
+    review.topics[0].comments.push(Comment {
+        id: "9a8b7c6d-3333-4e5f-9071-82a3b4c5d604".to_string(),
+        author: Some("a@example.com".to_string()),
+        date: Some("2026-10-04T10:00:00+09:00".to_string()),
+        text: "確かめました".to_string(),
+        location: None,
+        extra: Vec::new(),
+    });
+    let options = Options {
+        version: Some(Edition::V2_1),
+        ..options()
+    };
+    let (bytes, diag) = write(&review, Some(&bcf), &options).unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    let markup = String::from_utf8(entry(&bytes, &format!("{TOPIC}/markup.bcf")).unwrap()).unwrap();
+    for kept in [
+        "<Header><File IfcProject",
+        "Custom=\"x\"",
+        "<ReferenceLink>https://example.com/1</ReferenceLink>",
+        "<ReferenceLink>https://example.com/2</ReferenceLink>",
+        "<Stage>Design</Stage>",
+        "<BimSnippet SnippetType=\"IDS\">",
+        "<DocumentReference Guid=",
+        "<Vendor>keep</Vendor>",
+        "<VendorMarkup>keep</VendorMarkup>",
+        "<Labels>Door</Labels>\n    <Labels>Width</Labels>",
+        // 変えていないコメントと viewpoint は、元の要素のまま Markup の直下に書く
+        "<ModifiedDate>2026-10-03T10:00:00+09:00</ModifiedDate>",
+        "</Topic>\n  <Comment Guid=",
+        "<Viewpoints Guid=",
+        "<Comment>確かめました</Comment>",
+    ] {
+        assert!(markup.contains(kept), "{kept}\n{markup}");
+    }
+    assert!(!markup.contains("<Comments>"), "{markup}");
+    assert_eq!(
+        entry(&bytes, &format!("{TOPIC}/viewpoint.bcfv")).unwrap(),
+        visinfo_2_1().as_bytes()
+    );
+    let (bcf_again, again) = read(&bytes).unwrap();
+    assert_eq!(bcf_again.version, Edition::V2_1);
+    assert_eq!(again.topics, review.topics);
+}
+
+#[test]
+fn writes_bcf_2_1_from_the_review_and_reads_it_back() {
+    let (_, review) = read(&sample()).unwrap();
+    let options = Options {
+        version: Some(Edition::V2_1),
+        ..options()
+    };
+    let (bytes, diag) = write(&review, None, &options).unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    // 2.1 の拡張は任意の XSD なので書かない
+    assert!(entry(&bytes, "extensions.xml").is_none());
+    let visinfo =
+        String::from_utf8(entry(&bytes, &format!("{TOPIC}/{VIEW}.bcfv")).unwrap()).unwrap();
+    assert!(!visinfo.contains("AspectRatio"), "{visinfo}");
+    assert!(
+        visinfo.contains("<Color Color=\"FF0000\">\n        <Component IfcGuid="),
+        "{visinfo}"
+    );
+    let (bcf, again) = read(&bytes).unwrap();
+    assert_eq!(bcf.version, Edition::V2_1);
+    assert_eq!(again, review);
+    // 同じ文書からは同じバイト列
+    assert_eq!(write(&review, None, &options).unwrap().0, bytes);
+    // 2.1 から読んだ文書を 3.0 で書いても、同じ指摘になる
+    let (bytes_3, _) = write(&again, None, &options_3()).unwrap();
+    let (bcf_3, again_3) = read(&bytes_3).unwrap();
+    assert_eq!(bcf_3.version, Edition::V3_0);
+    assert_eq!(again_3, review);
+}
+
+fn options_3() -> Options {
+    Options {
+        version: Some(Edition::V3_0),
+        ..options()
+    }
+}
+
+#[test]
+fn does_not_write_back_in_another_version() {
+    for (original, version) in [(sample(), Edition::V2_1), (sample_2_1(), Edition::V3_0)] {
+        let (bcf, review) = read(&original).unwrap();
+        let options = Options {
+            version: Some(version),
+            ..options()
+        };
+        let (result, diag) = with(Limits::default(), |cx| {
+            zumen_bcf::write(&review, Some(&bcf), &options, cx)
+        });
+        assert!(matches!(result, Err(Error::Invalid)));
+        assert_eq!(found(&diag), [codes::BCF_CONVERSION_UNSUPPORTED]);
+    }
 }

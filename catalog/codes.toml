@@ -1943,15 +1943,22 @@ status = "active"
 
 
 [codes."bcf.file.invalid"]
-description = "bcfzip の中の項目が、BCF 3.0 の形に合わない。name は項目の名前、near は合わなかった要素か属性"
+description = "bcfzip の中の項目が、その版の BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性"
 severity = "error"
 params = { name = "text", near = "text" }
 group-by = ["name"]
 since = "0.2.0"
 status = "active"
 
+[codes."bcf.conversion.unsupported"]
+description = "元の bcfzip と違う版では書き戻さない。版の間で、写さない要素の形が違うため（#454）。original は元の版、version は書く版"
+severity = "error"
+params = { original = "text", version = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."bcf.version.unsupported"]
-description = "読まない BCF の版。読むのは 3.0（決定 0220）"
+description = "読まない BCF の版。読むのは 2.1 と 3.0（決定 0214・0220）"
 severity = "error"
 params = { version = "text" }
 since = "0.2.0"
