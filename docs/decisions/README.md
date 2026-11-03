@@ -290,3 +290,4 @@
 - [0253: 地理の地物と点群を wasm の civil・pointcloud のモジュールに分け、J-LandXML と civil の op は要るモジュールのそれぞれに置く](0253-wasm-civil-and-pointcloud-modules.md)（2026-11-03、採用）
 - [0254: 複数のエージェントが並行して進め、互いに確かめ、人を待つのは人にしかできないことに限る](0254-parallel-agents-and-cross-review.md)（2026-11-03、採用）
 - [0255: 形式の確かめた度合いは、もっとも強い方法の段と範囲を台帳と形式の文書に置き、境界の capabilities には出さない](0255-verification-levels-in-the-ledger.md)（2026-11-03、採用）
+- [0258: fuzz の種に公開サンプルと合成の入力を使い、crate を変えた PR で短く、毎晩長く流す](0258-fuzz-seeds-and-runs.md)（2026-11-03、採用）
