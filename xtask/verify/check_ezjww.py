@@ -8,10 +8,10 @@ JWW のファイルごとに、次を確かめる。
 - 図形の一覧の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（compare.py の
   LIFTED_AWAY）がそのレコードを指す（黙って捨てない）。zumen のレコードの番号は、見出しを 0 とし、図形の
   一覧の i 番目（0 から）を i + 1 とする（決定 0133）。zumen が描かずに拡張に持つ文字（(0, -1000) の設定と、
-  `^@BM` でない `^@` で始まる文字。docs/formats/jww.md）は数えない。束の JWW には zumen が移さない図形がないので、
-  診断と結ぶ枝は、受け取った図面でだけ働く。
-- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。形の欄は両向きに比べ、線と点の要素は形を
-  持つ。ezjww の座標は用紙の mm なので、図形のレイヤグループの縮尺の分母を掛けて、zumen の実寸の座標と比べる
+  `^@BM` でない `^@` で始まる文字。docs/formats/jww.md）は数えず、要素の出所にあれば食い違いにする。束の JWW には
+  zumen が移さない図形も描かない文字もないので、診断と結ぶ枝と描かない文字の枝は、受け取った図面でだけ働く（#558）。
+- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ（形を返さない要素は、種類を比べない。#558）。
+  形の欄は両向きに比べ、線と点の要素は形を持つ。ezjww の座標は用紙の mm なので、図形のレイヤグループの縮尺の分母を掛けて、zumen の実寸の座標と比べる
   （docs/formats/jww.md）。
 - 書き戻したファイルでは、変更で決めた形・レイヤ・ペンの番号（manifest.json の expect）が、ezjww で読んだ図形と
   同じ。
@@ -37,6 +37,7 @@ TYPES = {
     "point": {"POINT"},
     "text": {"TEXT"},
     "symbol": {"BLOCK"},
+    "dimension": {"DIMENSION"},
 }
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
@@ -126,6 +127,10 @@ def check_file(folder, entry, reading, baseline, counts):
         seen.add(record)
         e = entities[record - 1]
         where = element["id"]
+        # 描かずに拡張に持つ文字は、要素にならない
+        if undrawn(e):
+            failures.append(f"{where}: 描かない文字（TEXT のレコード {record}）が要素になった")
+            continue
         shape = element.get("geometry", {}).get("shape")
         # 表にない形は、出所の種類を比べられないので知らせる（TYPES に足す）
         if shape is not None and shape not in TYPES:
