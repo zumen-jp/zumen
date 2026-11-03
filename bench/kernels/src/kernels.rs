@@ -63,6 +63,23 @@ impl Booleans for Nothing {
     }
 }
 
+/// 点を `length` の格子にそろえる。ほぼ同じ平面にある面を同じ平面にして、ブーリアンの結果が引く順で
+/// 変わらないようにする。公開サンプルの IFC の壁と開口は、面が 1.6e-13 mm ずれていて、3 つの開口を順に
+/// 引くと、manifold-rust が 1 つの開口の一部を引かなかった（#5）
+fn snapped(mesh: Mesh, length: f64) -> Mesh {
+    if length.is_nan() || length <= 0.0 {
+        return mesh;
+    }
+    Mesh {
+        positions: mesh
+            .positions
+            .iter()
+            .map(|p| p.map(|v| (v / length).round() * length))
+            .collect(),
+        ..mesh
+    }
+}
+
 /// 候補を、[`Kernel`] の形で使う
 pub struct Candidate<B>(pub B);
 
@@ -78,7 +95,7 @@ impl<B: Booleans> Kernel for Candidate<B> {
                 if let Some(result) = self.0.shaped(*op, first, second, tolerance) {
                     result?
                 } else {
-                    let a = self.evaluate(first, tolerance, cx)?;
+                    let a = snapped(self.evaluate(first, tolerance, cx)?, tolerance.length);
                     match (op, second.as_ref()) {
                         (BooleanOp::Difference, Shape::HalfSpace { plane }) => {
                             self.0.clip(&a, plane, true)?
@@ -90,7 +107,8 @@ impl<B: Booleans> Kernel for Candidate<B> {
                             return Err(Failure::Unsupported("half_space"));
                         }
                         _ => {
-                            let b = self.evaluate(second, tolerance, cx)?;
+                            let b =
+                                snapped(self.evaluate(second, tolerance, cx)?, tolerance.length);
                             self.0.boolean(*op, &a, &b)?
                         }
                     }
@@ -236,15 +254,17 @@ pub struct ManifoldRust;
 
 #[cfg(feature = "manifold")]
 fn to_manifold(mesh: &Mesh) -> manifold_rust::manifold::Manifold {
-    let mut gl = manifold_rust::types::MeshGL64::default();
-    gl.num_prop = 3;
-    gl.vert_properties = mesh.positions.iter().flatten().copied().collect();
-    gl.tri_verts = mesh
-        .triangles
-        .iter()
-        .flatten()
-        .map(|i| u64::from(*i))
-        .collect();
+    let gl = manifold_rust::types::MeshGL64 {
+        num_prop: 3,
+        vert_properties: mesh.positions.iter().flatten().copied().collect(),
+        tri_verts: mesh
+            .triangles
+            .iter()
+            .flatten()
+            .map(|i| u64::from(*i))
+            .collect(),
+        ..Default::default()
+    };
     manifold_rust::manifold::Manifold::from_mesh_gl64(&gl)
 }
 
@@ -263,8 +283,10 @@ fn from_manifold(m: &manifold_rust::manifold::Manifold) -> Result<Mesh, Failure>
             .collect(),
         triangles: gl
             .tri_verts
-            .chunks_exact(3)
-            .map(|t| [t[0] as u32, t[1] as u32, t[2] as u32])
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|t| t.map(|i| i as u32))
             .collect(),
         edges: Vec::new(),
     })
@@ -277,21 +299,29 @@ impl Booleans for ManifoldRust {
     }
 
     fn boolean(&self, op: BooleanOp, first: &Mesh, second: &Mesh) -> Result<Mesh, Failure> {
+        use manifold_rust::types::BooleanEngine::Exact;
         let (a, b) = (to_manifold(&first.welded()), to_manifold(&second.welded()));
         for m in [&a, &b] {
             if m.status() != manifold_rust::types::Error::NoError {
                 return Err(Failure::Failed(format!("input {:?}", m.status())));
             }
         }
+        // 既定のエンジンはプロセス全体の設定で、ほかから変えられる。Robust のエンジンは、ポインターの幅で反復の順が
+        // 変わる表（rustc-hash）を使うので、Exact を明示する（#5）
         let r = match op {
-            BooleanOp::Union => a.union(&b),
-            BooleanOp::Difference => a.difference(&b),
-            BooleanOp::Intersection => a.intersection(&b),
+            BooleanOp::Union => a.union_with_engine(&b, Exact),
+            BooleanOp::Difference => a.difference_with_engine(&b, Exact),
+            BooleanOp::Intersection => a.intersection_with_engine(&b, Exact),
         };
         from_manifold(&r)
     }
 
     fn clip(&self, first: &Mesh, plane: &Plane, keep_front: bool) -> Result<Mesh, Failure> {
+        use manifold_rust::types::{BooleanConfig, BooleanEngine};
+        // trim_by_plane は既定のエンジンで積を取る。エンジンを渡せないので、既定が Exact であることを確かめる
+        if BooleanConfig::default_engine() != BooleanEngine::Exact {
+            return Err(Failure::Failed("engine".into()));
+        }
         let n = normalize(plane.normal).ok_or(Failure::Invalid("plane"))?;
         let n = if keep_front {
             n
