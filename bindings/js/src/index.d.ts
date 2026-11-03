@@ -1,7 +1,7 @@
 // zumen の wasm のモジュールを呼ぶ薄い包みの型（決定 0011・0194）。要求と応答の型は messages.d.ts に生成する。
 
 import type { Detection, ModuleName, StatusName } from "./constants.js";
-import type { Operations, Request, Response, SessionOptions } from "./messages.js";
+import type { OpenRequest, Operations, Request, Response, SessionOptions } from "./messages.js";
 
 export * from "./constants.js";
 export type * from "./messages.js";
@@ -92,6 +92,17 @@ export declare class Modules {
   detect(bytes: Bytes): { format: string; module: string; rules: Detection["rules"] } | undefined;
   /** 入力の形式を判定し、その形式を持つモジュールを読み込む。どの形式でもなければ undefined */
   forInput(bytes: Bytes): Promise<Zumen | undefined>;
+  /**
+   * 入力を、その形式を持つモジュールの新しいセッションで開く（決定 0250）。図面の形式のプラグインの入力は、プラグインの
+   * モジュールで lift し、図面モデルのバイナリを図面のモジュールで開く。返すセッションは呼び出し側が閉じる。どの
+   * モジュールの形式でもなければ undefined
+   */
+  open(
+    name: string,
+    bytes: Bytes,
+    request?: Omit<OpenRequest, "v" | "op" | "input">,
+    inputs?: Record<string, string | Bytes>,
+  ): Promise<{ zumen: Zumen; session: Session; response: Response<ResultOf<OpenRequest>> } | undefined>;
   /** op を持つモジュールのうち、読み込めるものの最初を読み込む */
   forOp(op: string): Promise<Zumen>;
 }

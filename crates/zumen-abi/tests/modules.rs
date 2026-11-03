@@ -38,6 +38,14 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("las", <Las as Codec>::SIGNATURES),
         ("ply", Ply::SIGNATURES),
         ("e57", E57::SIGNATURES),
+        // 図面モデルのバイナリ（決定 0247・0250）
+        (
+            "drawing",
+            &[zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: &zumen_drawing::binary::MAGIC,
+            }],
+        ),
         ("dxf", Dxf::SIGNATURES),
         ("dwg", Dwg::SIGNATURES),
         ("sxf", Sxf::SIGNATURES),

@@ -149,8 +149,8 @@ params = [
 
 [[modules]]
 name = "drawing"
-description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ"
-formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57"]
+description = "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ"
+formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57", "drawing"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation",
@@ -201,6 +201,13 @@ rules = [{ lines = ["ply"] }]
 format = "e57"
 module = "drawing"
 rules = [{ offset = 0, bytes = "ASTM-E57" }]
+
+# 図面モデルのバイナリ（決定 0247）。open は元の文書の形式を返すので、判定の形式は blob の種類の名前 drawing にする
+# （決定 0250）。始まりの 4 バイトは、コアのどの形式とも重ならない
+[[detection]]
+format = "drawing"
+module = "drawing"
+rules = [{ offset = 0, bytes = "ZMDR" }]
 
 [[detection]]
 format = "dxf"

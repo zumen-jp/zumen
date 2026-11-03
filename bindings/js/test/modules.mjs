@@ -7,7 +7,9 @@
 // の同じ組の行と一致することを確かめる。あわせて、次を確かめる。
 //
 // - capabilities が、モジュールの持つ op だけを返し、持たない op には call.op.unsupported を返す
-// - 包みの detect が、組が足すどの入力でも、すべてを入れたコア（1 つ目の引数）の open と同じ形式を返す
+// - 包みの detect が、組が足すどの入力でも、すべてを入れたコア（1 つ目の引数）の open と同じ形式を返す。図面モデルの
+//   バイナリは、open が元の文書の形式を返すので、判定の形式 drawing を返す（決定 0250）
+// - 包みの Modules.open が、判定したモジュールのセッションで、すべてを入れたコアの open と同じ形式で開く
 
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
@@ -70,13 +72,22 @@ for (const { name, steps } of cases) {
         continue;
       }
     }
-    // 図面モデルのバイナリ（決定 0247）の open は、元の文書の形式を返す。包みの判定は、まだバイナリを読まない（#483）
-    if (String.fromCharCode(...data.subarray(0, 4)) === "ZMDR") {
-      continue;
-    }
+    // 図面モデルのバイナリ（決定 0247）の open は、元の文書の形式を返す。包みの判定は、形式 drawing にする（決定 0250）
+    const binary = String.fromCharCode(...data.subarray(0, 4)) === "ZMDR";
     const found = detect(data);
-    if (found?.format !== format) {
+    if ((binary ? found?.format !== "drawing" : found?.format !== format) || (binary && format === undefined)) {
       failures.push(`${name} の入力 ${step.push.name ?? ""}: detect が ${found?.format}（open は ${format}）`);
+    }
+    if (format !== undefined && found !== undefined) {
+      try {
+        const opened = await modules.open(input, data, { doc: input });
+        if (opened?.response.result?.format !== format || opened?.zumen !== loaded[found.module]) {
+          failures.push(`${name} の入力 ${step.push.name ?? ""}: Modules.open が ${opened?.response.result?.format} で開いた`);
+        }
+        opened?.session.close();
+      } catch (error) {
+        failures.push(`${name} の入力 ${step.push.name ?? ""}: Modules.open が失敗した（${error}）`);
+      }
     }
     if (format !== undefined && found !== undefined && (await modules.forInput(data)) !== loaded[found.module]) {
       failures.push(`${name} の入力 ${step.push.name ?? ""}: forInput が ${found.module} を返さない`);

@@ -445,6 +445,64 @@ export class Modules {
     return detection === undefined ? Promise.resolve(undefined) : this.get(detection.module);
   }
 
+  /**
+   * 入力を、その形式を持つモジュールの新しいセッションで開く（決定 0250）。`request` は open の要求の残りの欄（`doc`・
+   * `format` など）で、`format` を書けば、その形式を持つモジュールで開く。`inputs` は、open の前にセッションに足す
+   * ほかの入力（`saf` で名指す属性ファイルなど）。
+   *
+   * 図面の形式のプラグイン（op `lift` を持つもの）の入力は、プラグインのモジュールで開いて lift し、図面モデルの
+   * バイナリを図面のモジュールのセッションで開く（決定 0247）。図面のモジュールを読み込めなければ、プラグインの
+   * モジュールのセッションで開く。返すセッションは、呼び出し側が閉じる。どのモジュールの形式でもなければ undefined
+   */
+  async open(name, bytes, request = {}, inputs = {}) {
+    const data = view(bytes);
+    const target = this.#target(data, request.format);
+    if (target === undefined) {
+      return undefined;
+    }
+    const plugin = this.#plugin(target.module);
+    if (plugin !== undefined && plugin.ops.includes("lift") && typeof this.#loaders.drawing === "function") {
+      const source = (await this.get(plugin.name)).open();
+      let lifted;
+      try {
+        source.push(name, data);
+        source.call({ v: 1, op: "open", input: name });
+        const { result } = source.call({ v: 1, op: "lift", doc: name });
+        lifted = source.take(result.blob);
+      } finally {
+        source.close();
+      }
+      return this.#openIn("drawing", name, lifted, request, inputs);
+    }
+    return this.#openIn(target.module, name, data, request, inputs);
+  }
+
+  /** 名指した形式か、判定した形式の、形式とモジュール */
+  #target(data, format) {
+    if (format === undefined) {
+      return this.detect(data);
+    }
+    const module = Object.keys(MODULES).find((name) => MODULES[name].formats.includes(format));
+    return module === undefined ? undefined : { format, module };
+  }
+
+  /** モジュールの新しいセッションで開く。失敗したらセッションを閉じて、例外を投げ直す */
+  async #openIn(module, name, data, request, inputs) {
+    const zumen = await this.get(module);
+    const session = zumen.open();
+    try {
+      for (const [input, value] of Object.entries(inputs)) {
+        session.push(input, value);
+      }
+      session.push(name, data);
+      const response = session.call({ ...request, v: 1, op: "open", input: name });
+      return { zumen, session, response };
+    } catch (error) {
+      session.close();
+      throw error;
+    }
+  }
+
   /** op を持つモジュールのうち、読み込めるものの最初を読み込む。コアのモジュールの後に、プラグインのモジュールを試す */
   forOp(op) {
     const name =

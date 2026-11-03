@@ -36,8 +36,8 @@ export const WASM_EXPORTS = Object.freeze([
 /** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
-    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57"]),
+    description: "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ",
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57", "drawing"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation", "civil_drawing", "geo", "delivery_check", "photo", "sheet", "boring", "lift"]),
   }),
   bim: Object.freeze({
@@ -80,6 +80,13 @@ export const DETECTION = Object.freeze([
     module: "drawing",
     rules: Object.freeze([
       Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x53, 0x54, 0x4d, 0x2d, 0x45, 0x35, 0x37]) }),
+    ]),
+  }),
+  Object.freeze({
+    format: "drawing",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x5a, 0x4d, 0x44, 0x52]) }),
     ]),
   }),
   Object.freeze({
