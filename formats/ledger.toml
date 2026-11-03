@@ -461,16 +461,18 @@ docs = ["docs/formats/dxf.md"]
 
 [formats.dxf.read]
 level = "application"
-scope = "AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。ezdxf の例の DXF（samples/dxf）は、適合試験で要素の数を確かめる。ほかの規則は、この方法で確かめていない（docs/formats/dxf.md）"
-public-samples = ["samples/dxf/text_alignments.dxf", "samples/dwg/"]
+scope = "AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。ほかの規則は、AutoCAD では確かめていない（docs/formats/dxf.md）。毎晩の CI で、公開サンプルの DXF（samples/dxf・samples/dwg）を ezdxf でも読み、画層・図形の種類・モデル空間の形の値が zumen の読みと同じことと、図形を黙って捨てていないことを確かめる（xtask/verify、#511）。既知の食い違いは #509"
+public-samples = ["samples/dxf/", "samples/dwg/"]
+implementations = [{ name = "ezdxf", version = "1.4.5" }]
 software = [{ name = "AutoCAD", version = "2027" }]
-checked = "2026-11-02"
+checked = "2026-11-03"
 
 [formats.dxf.write]
 level = "application"
-scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は開いていない（#342・#314・#503）"
+scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF と convert で書いた DXF は、毎晩の CI で ezdxf で読み、監査の誤りが入力より増えないことと、変更で決めた形・画層・色が ezdxf の読んだ値と合うことを確かめる（xtask/verify、#511）。既知の食い違いは #509"
+implementations = [{ name = "ezdxf", version = "1.4.5" }]
 software = [{ name = "AutoCAD", version = "2027" }]
-checked = "2026-11-02"
+checked = "2026-11-03"
 
 [formats.dwg]
 name = "DWG"
@@ -529,14 +531,16 @@ rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方に
 place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
-samples = ["日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）"]
+samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
 decisions = ["0008", "0207", "0211", "0244"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/ifc.md"]
 
 [formats.ifc.read]
-level = "synthetic"
-scope = "仕様と、試験の中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）で確かめた。日本の BIM ソフトが書き出した公開サンプルは探している（#412）"
+level = "external"
+scope = "公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。判定・インスタンスのグラフ・壊れた所の扱いと、写さない値は、仕様と試験の中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す"
+public-samples = ["samples/ifc/"]
+implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
 checked = "2026-11-03"
 
 [formats.ifc.write]

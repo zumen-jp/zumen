@@ -195,9 +195,10 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 | `dxf` | 読み | `application` |
 | `dxf` | 書き | `application` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dxf)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dxf)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。ezdxf とは、毎晩の CI で照らします。
 
-- 読み: AutoCAD 2027 で作った R2000〜R2018 の DXF（`samples/dwg`）で、レイアウトの用紙（[決定 0229](../decisions/0229-paper-units-from-plot-settings.md)）・弧長寸法（[決定 0228](../decisions/0228-arc-length-dimensions.md)）・反転した切り抜き（[決定 0208](../decisions/0208-inverted-symbol-clips.md)）を、AutoCAD が書いた値と比べた。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（[決定 0246](../decisions/0246-dxf-text-height-and-alignment-against-autocad.md)）。ezdxf の例の DXF（`samples/dxf`）は、適合試験で要素の数を確かめる。
+- 読み: AutoCAD 2027 で作った R2000〜R2018 の DXF（`samples/dwg`）で、レイアウトの用紙（[決定 0229](../decisions/0229-paper-units-from-plot-settings.md)）・弧長寸法（[決定 0228](../decisions/0228-arc-length-dimensions.md)）・反転した切り抜き（[決定 0208](../decisions/0208-inverted-symbol-clips.md)）を、AutoCAD が書いた値と比べた。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（[決定 0246](../decisions/0246-dxf-text-height-and-alignment-against-autocad.md)）。
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った（#345）。
 - 「試料で確かめた」と書いた扱いには、`samples/` にない図面で確かめたものもある。「推定」と書いたものと、試料で確かめたと書いていないものは、仕様と試験の中で作ったファイルだけで確かめた。
-- 点・寸法・表を書き戻した DXF は、AutoCAD で開いていない（#342・#314）。ezdxf と照らす試験は #503 で足す。
+- 点・寸法・表と、引出線のほかの変更を書き戻した DXF と、convert（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。
+- ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しと convert を当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。既知の食い違いは #509 にある。

@@ -38,11 +38,11 @@ IFC-SPF と ifcZIP を、スキーマを知らないインスタンスのグラ�
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
-| `ifc` | 読み | `synthetic` |
+| `ifc` | 読み | `external` |
 | `ifc` | 書き | `external` |
 
 段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-ifc)にあります。
 
-- 読み: 仕様と、試験の中で作った IFC-SPF と ifcZIP（`crates/zumen-ifc/tests`）だけで確かめた。日本の BIM ソフトが書き出した公開サンプルは #412 で探している。
+- 読み: 公開サンプルの IFC 12 件（`samples/ifc`）を建物モデルに写し、毎晩の CI で、IfcOpenShell 0.9.0.post1 が同じファイルから読んだ値と照らす（`crates/zumen-ifc/tests/ifcopenshell/samples.py`、#412・#512）。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値。手元の照合では、12 件とも食い違いは 0。許諾の要る国内の BIM ソフトの書き出しは #513 で足す。
 - 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。BIM ソフトで開く確認は #526 で行う。
-- 判定・インスタンスのグラフ・壊れた所の扱いは、読みと同じく `synthetic` の段。
+- 判定・インスタンスのグラフ・壊れた所の扱いと、建物モデルに写さない値は、仕様と試験の中で作ったファイルだけで確かめた。IfcOpenShell と照らしたのは、上の値だけ。
