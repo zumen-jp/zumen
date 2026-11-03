@@ -1,0 +1,4 @@
+# プラグインの wasm のモジュールから、名前の区画（関数の名前）を除く（zumen の決定 0252）。このひな形を写した
+# リポジトリの根に置くと効く。関数の名前が要る調べものでは、環境変数 RUSTFLAGS を空の文字列にして作る
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "strip=symbols"]

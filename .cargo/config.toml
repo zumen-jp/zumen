@@ -1,2 +1,7 @@
 [alias]
 xtask = "run --quiet --package xtask --"
+
+# 配る wasm のモジュールから、名前の区画（関数の名前）を除く（決定 0252）。関数の名前が要る調べものでは、
+# 環境変数 RUSTFLAGS を空の文字列にして作る（RUSTFLAGS はこの設定より先に使われる）
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "strip=symbols"]
