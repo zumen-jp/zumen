@@ -10,9 +10,10 @@ DWG のファイルごとに、次を確かめる。
 - zumen の要素の出所のハンドルの図形が ACadSharp にあり、種類・画層と、モデル空間では形の種類と値（端点・中心・
   半径・角度・位置・文字・尺度・格子・属性など）が同じ。形の欄は両向きに比べる。比べられる種類のモデル空間の
   図形は、zumen の要素が形を持つ。
-- 要素にならないモデル空間の図形の数が、種類ごとに、移さなかったことを言う zumen の診断（dxf.lift.dropped・
-  dxf.lift.invalid。kind は図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲で、ACadSharp は図形の
-  バイトの位置を返さないので、図形ごとには結ばない。
+- 要素にならないモデル空間の図形の数が、種類ごとに、移さなかったことを言う zumen の診断（compare.py の
+  LIFTED_AWAY。kind は図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲で、ACadSharp は図形の
+  バイトの位置を返さないので、図形ごとには結ばない。そのため、ブロックの定義の中など、ほかの所の同じ種類の図形を
+  言う診断と区別しない。
 - 書き戻したファイルでは、変更で決めた形と画層（manifest.json の expect）と、足した画層の色・変えた色・点の
   表し方が、ACadSharp で読んだ値と同じ。
 """
@@ -24,7 +25,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import ATTACHMENTS, check_handles, lifted_away, run, usage  # noqa: E402
+from compare import ATTACHMENTS, KINDLESS, check_handles, lifted_away, run, usage  # noqa: E402
 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
@@ -149,11 +150,12 @@ def check_file(dumps, entry, reading, baseline, counts):
     found, seen = check_handles(entry, reading, counts, view(dump))
     failures += found
 
-    # 黙って捨てない: 要素にならないモデル空間の図形の数は、種類ごとに、移さなかったことを言う zumen の診断
-    # （dxf.lift.*。kind は図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲なので、図形ごとには結ばない
+    # 黙って捨てない: 要素にならないモデル空間の図形の数は、種類ごとに、移さなかったことを言う zumen の診断（kind は
+    # 図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲なので、図形ごとには結ばない
     away = Counter()
     for d in lifted_away(entry, reading):
-        away[d.get("params", {}).get("kind", "").upper()] += d.get("count", len(d.get("at", [])))
+        kind = d.get("params", {}).get("kind") or KINDLESS.get(d["code"], "")
+        away[kind.upper()] += d.get("count", len(d.get("at", [])))
     dropped = Counter(d["type"].upper() for handle, d in dump["entities"].items() if d["owner"].lower() == MODEL and handle not in seen)
     missing = {kind: n - away[kind] for kind, n in sorted(dropped.items()) if n > away[kind]}
     if missing:

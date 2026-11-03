@@ -3,6 +3,7 @@
 import json
 import math
 import sys
+import tomllib
 from collections import Counter
 from pathlib import Path
 
@@ -14,8 +15,48 @@ ANGLES = {"rotation", "start_angle", "end_angle"}
 LABELS = {"elements": "出所で結んだ要素", "shapes": "形を比べた要素", "expected": "変更で決めた形"}
 # 図形を図面モデルに移さなかったことを言う診断（catalog/codes.toml）。黙って捨てない照合は、これだけを数える。
 # params の kind は、DXF・DWG では図形の種類（DXF の名前）、JWW ではクラスの名前、SFC ではフィーチャの名前、P21
-# では形の種類
-LIFTED_AWAY = {"dxf.lift.dropped", "dxf.lift.invalid", "jww.lift.dropped", "jww.lift.invalid", "sxf.lift.dropped", "sxf.lift.invalid"}
+# では実体の名前（crates/zumen-sxf/src/drawing.rs の FeatureRecord）。kind を持たない code は、KINDLESS の種類か、
+# レコードだけで結ぶ
+LIFTED_AWAY = {
+    "dxf.lift.dropped",
+    "dxf.lift.invalid",
+    "dxf.non-planar.dropped",
+    "dxf.paper-space.dropped",
+    "dxf.code-page.unsupported",
+    "dxf.mtext-columns.unsupported",
+    "dxf.viewport.unsupported",
+    "jww.lift.dropped",
+    "jww.lift.invalid",
+    "sxf.lift.dropped",
+    "sxf.lift.invalid",
+    "sxf.sfig.missing",
+    "sxf.sfig-cycle.invalid",
+    "sxf.raster-frame.missing",
+    "sxf.p21-sheet.missing",
+}
+# kind を持たない code の、図形の種類（DXF の名前）
+KINDLESS = {"dxf.mtext-columns.unsupported": "MTEXT", "dxf.viewport.unsupported": "VIEWPORT"}
+# catalog/codes.toml の fidelity が dropped でも、図形は移し、その一部だけを落としたことを言う診断と、書き出すときの
+# 診断。黙って捨てない照合では数えない
+PARTLY = {
+    "dwg.table-format.unsupported",
+    "dxf.arc-dimension-leader.dropped",
+    "dxf.cell-value.dropped",
+    "dxf.clip.dropped",
+    "dxf.extension-dictionary.dropped",
+    "dxf.extension-dictionary.unsupported",
+    "dxf.leader-line-style.dropped",
+    "dxf.line-type-element.dropped",
+    "sxf.saf-figure.dropped",
+    # 書き出すとき
+    "dxf.entity.dropped",
+    "dxf.group-code.dropped",
+    "dxf.header-variable.dropped",
+    "dxf.section.dropped",
+    "dxf.table.dropped",
+}
+# 診断の code の台帳
+CATALOG = Path(__file__).resolve().parents[2] / "catalog" / "codes.toml"
 
 # DXF・DWG: 図面モデルの形 → 図形の種類（DXF の名前）
 TYPES = {
@@ -99,14 +140,38 @@ def differences(want, got, path="", both=False):
     return out
 
 
+def diagnostics(entry, reading):
+    """zumen が開いたときと読んだときの診断"""
+    return reading["diagnostics"] + entry.get("open", [])
+
+
 def lifted_away(entry, reading):
-    """zumen が開いたときと読んだときの診断のうち、図形を移さなかったことを言うもの（LIFTED_AWAY）"""
-    return [d for d in reading["diagnostics"] + entry.get("open", []) if d["code"] in LIFTED_AWAY]
+    """zumen の診断のうち、図形を移さなかったことを言うもの（LIFTED_AWAY）"""
+    return [d for d in diagnostics(entry, reading) if d["code"] in LIFTED_AWAY]
 
 
 def lifted_away_records(entry, reading):
-    """移さなかった図形のレコードの番号と、その kind の組 (kind, レコードの番号) の集まり"""
-    return {(d.get("params", {}).get("kind"), p.get("record")) for d in lifted_away(entry, reading) for p in d.get("at", [])}
+    """移さなかった図形の (kind, レコードの番号) の集まり。kind を持たない code は、KINDLESS の種類か None にする"""
+    return {
+        (d.get("params", {}).get("kind") or KINDLESS.get(d["code"]), p.get("record"))
+        for d in lifted_away(entry, reading)
+        for p in d.get("at", [])
+    }
+
+
+def told(away, kind, record):
+    """種類 kind・レコード record の図形を移さなかったことを、zumen が言ったか。種類のない診断は、レコードだけで結ぶ"""
+    return (kind, record) in away or (None, record) in away
+
+
+def dropped_codes():
+    """catalog/codes.toml で fidelity が dropped の、図面の形式（dxf・dwg・jww・sxf）の使っている code"""
+    codes = tomllib.loads(CATALOG.read_text(encoding="utf-8"))["codes"]
+    return {
+        code
+        for code, c in codes.items()
+        if c.get("fidelity") == "dropped" and c.get("status") == "active" and code.split(".")[0] in {"dxf", "dwg", "jww", "sxf"}
+    }
 
 
 def handle_of(element):
@@ -153,8 +218,9 @@ def check_handles(entry, reading, counts, view):
         if shape in TYPES and e["type"] not in TYPES[shape]:
             failures.append(f"{where}: 形 {shape} の出所が {e['type']}")
             continue
-        if element.get("layer") is not None and e["layer"] is not None and element["layer"].lower() != e["layer"].lower():
-            failures.append(f"{where}: 画層が {element['layer']!r}、{tool} は {e['layer']!r}")
+        # 外部の実装に画層があれば、zumen の要素も持つ
+        if e["layer"] is not None and (element.get("layer") or "").lower() != e["layer"].lower():
+            failures.append(f"{where}: 画層が {element.get('layer')!r}、{tool} は {e['layer']!r}")
         counts["elements"] += 1
         # 用紙の要素は mm に直しているので、形はモデル空間だけで比べる
         top = where.startswith("space/0/") and "/" not in where[len("space/0/") :]
@@ -219,6 +285,13 @@ def run(folder, tool, version, formats, check, known=()):
     （ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数）の一覧。当たる数が変わったら失敗にする
     （直ったものと、同じ形で新たに食い違うものを知らせる）"""
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    dropped = dropped_codes()
+    # 表の code を書き誤ったら、照らす前に止める
+    stray = sorted((LIFTED_AWAY | PARTLY) - dropped)
+    if stray:
+        print(f"compare.py の LIFTED_AWAY・PARTLY に、catalog/codes.toml で fidelity が dropped でない code がある: {stray}", file=sys.stderr)
+        return 1
+    unsorted = dropped - LIFTED_AWAY - PARTLY
     baselines = {}
     counts = Counter()
     report, failed, known_files, matched = [], 0, 0, Counter()
@@ -232,6 +305,12 @@ def run(folder, tool, version, formats, check, known=()):
             failures, audit = check(folder, entry, reading, baselines.get(entry.get("from")), counts)
         except Exception as error:  # noqa: BLE001 1 つのファイルで止まらず、ほかのファイルも照らす
             failures, audit = [f"台本が止まった: {type(error).__name__}: {error}"], None
+        # 落としたことを言う code で、図形ごとか一部だけかを分けていないものは、黙って捨てない照合で扱えない
+        if reading is not None:
+            failures += [
+                f"診断 {code} を、図形ごと移さなかったものか（compare.py の LIFTED_AWAY）、一部だけか（PARTLY）に分ける"
+                for code in sorted({d["code"] for d in diagnostics(entry, reading)} & unsorted)
+            ]
         if entry["role"] == "input":
             baselines[entry["path"]] = audit
         hits = [k for k in known if entry["path"].startswith(k[0]) and any(f.startswith(k[1]) for f in failures)]

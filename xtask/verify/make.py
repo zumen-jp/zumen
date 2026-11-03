@@ -29,6 +29,12 @@ FIELDS = ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
 MAX_PLACES = 100000
 # 作った DXF（input/made-dropped.dxf）の、zumen が要素にしない図形の数。既定の場所の数 16 より多くする
 DROPPED = 20
+# 作った入力が役目を果たすこと: 移さなかったことを言う診断の、code ごとの場所の数
+PLACES = {
+    "input/made-dropped.dxf": {"dxf.lift.dropped": DROPPED, "dxf.non-planar.dropped": 2},
+    "input/made-structure.sfc": {"sxf.lift.invalid": 1},
+    "input/made-structure.p21": {"sxf.lift.invalid": 1},
+}
 # 適合試験の図面と束の台本のライセンス（このリポジトリと同じ）
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
@@ -67,6 +73,185 @@ SXF*/
 ENDSEC;
 END-ISO-10303-21;
 """
+# 照らす台本の、置き方と黙って捨てない照合の枝を毎晩通す SFC と P21（決定 0121・0129・0130、docs/formats/sxf.md）。
+# 作図部品（P）と作図グループ（G）の定義と配置、表示する複合曲線と表示しない複合曲線、それを輪にするハッチング、
+# 文字、P21 ではバルーン、zumen が移さない半径 0 の円を持つ。書き戻しと変換は当てない（CHECKS）
+STRUCTURE_SFC = r"""ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
+FILE_NAME('made-structure.sfc','2026-11-03T00:00:00',(''),(''),'zumen$$3.1','zumen','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+/*SXF
+#10 = layer_feature(\'L\','1')
+SXF*/
+/*SXF
+#20 = pre_defined_font_feature(\'continuous\')
+SXF*/
+/*SXF
+#30 = pre_defined_colour_feature(\'black\')
+SXF*/
+/*SXF
+#40 = width_feature('0.13')
+SXF*/
+/*SXF
+#50 = text_font_feature(\'MS\')
+SXF*/
+/*SXF
+#60 = line_feature('1','1','1','1','0.0','0.0','5.0','5.0')
+SXF*/
+/*SXF
+#70 = sfig_org_feature(\'P\','4')
+SXF*/
+/*SXF
+#80 = line_feature('1','1','1','1','0.0','0.0','10.0','0.0')
+SXF*/
+/*SXF
+#90 = sfig_org_feature(\'G\','3')
+SXF*/
+/*SXF
+#100 = polyline_feature('1','1','1','1','5','(50.0,60.0,60.0,50.0,50.0)','(50.0,50.0,60.0,60.0,50.0)')
+SXF*/
+/*SXF
+#110 = composite_curve_org_feature('1','1','1','1')
+SXF*/
+/*SXF
+#120 = polyline_feature('1','1','1','1','5','(54.0,56.0,56.0,54.0,54.0)','(54.0,54.0,56.0,56.0,54.0)')
+SXF*/
+/*SXF
+#130 = composite_curve_org_feature('1','1','1','0')
+SXF*/
+/*SXF
+#140 = line_feature('1','1','1','1','0.0','0.0','100.0','0.0')
+SXF*/
+/*SXF
+#150 = circle_feature('1','1','1','1','10.0','10.0','0.0')
+SXF*/
+/*SXF
+#160 = sfig_locate_feature('1',\'P\','20.0','20.0','0.0','1.0','1.0')
+SXF*/
+/*SXF
+#170 = sfig_locate_feature('1',\'G\','0.0','0.0','0.0','1.0','1.0')
+SXF*/
+/*SXF
+#180 = fill_area_style_colour_feature('1','3','1','1','(2)')
+SXF*/
+/*SXF
+#190 = text_string_feature('1','1','1',\'TEXT\','0.0','20.0','3.5','20.0','0.0','0.0','0.0','1','1')
+SXF*/
+/*SXF
+#200 = drawing_sheet_feature(\'S\','3','1','420','297')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;
+"""
+STRUCTURE_P21 = """ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');
+FILE_NAME('made-structure.p21','2026-11-03T00:00:00',(''),(''),'zumen$$3.1','zumen','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+#1=DRAUGHTING_PRE_DEFINED_COLOUR('black');
+#2=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');
+#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));
+#4=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.13),#3);
+#5=CURVE_STYLE(' ',#2,#4,#1);
+#6=PRESENTATION_STYLE_ASSIGNMENT((#5));
+#7=PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)));
+#8=DIRECTION(' ',(1.,0.));
+#9=DIRECTION(' ',(0.,1.));
+#10=CARTESIAN_POINT(' ',(0.,0.));
+#11=AXIS2_PLACEMENT_2D(' ',#10,#8);
+#12=GEOMETRIC_REPRESENTATION_CONTEXT(' ',' ',2);
+#13=VECTOR(' ',#8,1.);
+#14=VECTOR(' ',#9,1.);
+#15=EXTERNALLY_DEFINED_TEXT_FONT('MS',$);
+#16=TEXT_STYLE_FOR_DEFINED_FONT(#1);
+#17=(TEXT_STYLE(' ',#16) TEXT_STYLE_WITH_BOX_CHARACTERISTICS((BOX_SLANT_ANGLE(0.))) TEXT_STYLE_WITH_SPACING(LENGTH_MEASURE(0.)));
+#18=PRESENTATION_STYLE_ASSIGNMENT((#17));
+#20=CARTESIAN_POINT(' ',(100.,0.));
+#21=LINE(' ',#10,#13);
+#22=TRIMMED_CURVE(' ',#21,(#10),(#20),.T.,.CARTESIAN.);
+#23=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#22);
+#24=CARTESIAN_POINT(' ',(10.,10.));
+#25=AXIS2_PLACEMENT_2D(' ',#24,$);
+#26=CIRCLE(' ',#25,0.);
+#27=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#26);
+#30=CARTESIAN_POINT(' ',(0.,20.));
+#31=AXIS2_PLACEMENT_2D(' ',#30,#8);
+#32=PLANAR_EXTENT(' ',20.,3.5);
+#33=TEXT_LITERAL_WITH_EXTENT('$$SXF_baseline left','TEXT',#31,'baseline left',.RIGHT.,#15,#32);
+#34=(ANNOTATION_OCCURRENCE() ANNOTATION_TEXT_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#18),#33));
+#40=CARTESIAN_POINT(' ',(0.,10.));
+#41=LINE(' ',#10,#14);
+#42=TRIMMED_CURVE(' ',#41,(#10),(#40),.T.,.CARTESIAN.);
+#43=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#42);
+#44=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_G_G',(#43,#11),#12);
+#45=SYMBOL_REPRESENTATION_MAP(#11,#44);
+#46=SYMBOL_TARGET(' ',#11,1.,1.);
+#47=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#45,#46) REPRESENTATION_ITEM(' '));
+#48=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#7),#47));
+#50=CARTESIAN_POINT(' ',(5.,5.));
+#51=DIRECTION(' ',(0.7071067811865475,0.7071067811865475));
+#52=VECTOR(' ',#51,1.);
+#53=LINE(' ',#10,#52);
+#54=TRIMMED_CURVE(' ',#53,(#10),(#50),.T.,.CARTESIAN.);
+#55=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#54);
+#56=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_P_P',(#55,#11),#12);
+#57=SYMBOL_REPRESENTATION_MAP(#11,#56);
+#58=CARTESIAN_POINT(' ',(20.,20.));
+#59=AXIS2_PLACEMENT_2D(' ',#58,#8);
+#60=SYMBOL_TARGET(' ',#59,1.,1.);
+#61=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#57,#60) REPRESENTATION_ITEM(' '));
+#62=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM('$$SXF_P_P') STYLED_ITEM((#7),#61));
+#70=CARTESIAN_POINT(' ',(50.,50.));
+#71=CARTESIAN_POINT(' ',(60.,50.));
+#72=LINE(' ',#70,#13);
+#73=TRIMMED_CURVE(' ',#72,(#70),(#71),.T.,.CARTESIAN.);
+#74=CARTESIAN_POINT(' ',(60.,60.));
+#75=CARTESIAN_POINT(' ',(50.,60.));
+#76=POLYLINE(' ',(#71,#74,#75,#70));
+#77=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#73);
+#78=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#76);
+#79=COMPOSITE_CURVE(' ',(#77,#78),.F.);
+#80=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#79);
+#81=CARTESIAN_POINT(' ',(55.,55.));
+#82=AXIS2_PLACEMENT_2D(' ',#81,#8);
+#83=CIRCLE(' ',#82,2.);
+#84=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#83);
+#85=COMPOSITE_CURVE(' ',(#84),.F.);
+#86=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#85);
+#87=INVISIBILITY((#86));
+#88=DRAUGHTING_PRE_DEFINED_COLOUR('green');
+#89=FILL_AREA_STYLE_COLOUR(' ',#88);
+#90=FILL_AREA_STYLE(' ',(#89));
+#91=PRESENTATION_STYLE_ASSIGNMENT((#90));
+#92=ANNOTATION_FILL_AREA(' ',(#79,#85));
+#93=ANNOTATION_FILL_AREA_OCCURRENCE(' ',(#91),#92,#70);
+#100=CARTESIAN_POINT(' ',(80.,10.));
+#101=CARTESIAN_POINT(' ',(90.,20.));
+#102=POLYLINE(' ',(#100,#101));
+#103=(ANNOTATION_CURVE_OCCURRENCE() ANNOTATION_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() LEADER_CURVE() REPRESENTATION_ITEM(' ') STYLED_ITEM((#6),#102));
+#104=CARTESIAN_POINT(' ',(95.,25.));
+#105=AXIS2_PLACEMENT_2D(' ',#104,#8);
+#106=CIRCLE(' ',#105,5.);
+#107=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#106);
+#108=CARTESIAN_POINT(' ',(95.,23.));
+#109=AXIS2_PLACEMENT_2D(' ',#108,#8);
+#110=PLANAR_EXTENT(' ',2.,4.);
+#111=TEXT_LITERAL_WITH_EXTENT('$$SXF_middleline centre','3',#109,'middleline centre',.RIGHT.,#15,#110);
+#112=ANNOTATION_TEXT_OCCURRENCE(' ',(#18),#111);
+#113=(DRAUGHTING_CALLOUT((#103,#107,#112)) DRAUGHTING_ELEMENTS() GEOMETRIC_REPRESENTATION_ITEM() LEADER_DIRECTED_CALLOUT() REPRESENTATION_ITEM(' '));
+#120=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#23,#27,#34,#43,#48,#55,#62,#80,#86,#93,#103,#107,#112));
+#121=DRAWING_SHEET_REVISION('A3_horizontal',(#23,#27,#34,#48,#62,#93,#113),$,'01');
+#122=DRAUGHTING_TITLE((),'JAPANESE','S');
+ENDSEC;
+END-ISO-10303-21;
+"""
+# 外部の実装と照らすためだけに作る入力。書き戻しと変換を当てない
+CHECKS = {"input/made-structure.sfc", "input/made-structure.p21"}
 
 
 class Zumen:
@@ -330,7 +515,8 @@ RECIPES = [
 
 def dropped_dxf():
     """zumen が要素にしない図形（3DFACE）を DROPPED 持つ DXF。黙って捨てない照合で、診断が図形のレコードを指すことを
-    確かめる（既定の場所の数 16 を超える）。図形はハンドルを持ち、ezdxf の図形と zumen の要素を結べる"""
+    確かめる（既定の場所の数 16 を超える）。平面の図面モデルに移さない図形（Z が 0 でない線分と、押し出しの向きが X の
+    円。dxf.non-planar.dropped）も持つ。図形はハンドルを持ち、ezdxf の図形と zumen の要素を結べる"""
 
     def tags(*pairs):
         return "".join(f"{code}\n{value}\n" for code, value in pairs)
@@ -344,6 +530,8 @@ def dropped_dxf():
         for k, (x, y) in enumerate([(0, 0), (5, 0), (5, 5), (0, 5)]):
             pairs += [(10 + k, float(i * 10 + x)), (20 + k, float(y)), (30 + k, 0.0)]
         out += tags(*pairs)
+    out += tags((0, "LINE"), (5, "200"), (8, "0"), (10, 0.0), (20, 20.0), (30, 5.0), (11, 50.0), (21, 20.0), (31, 5.0))
+    out += tags((0, "CIRCLE"), (5, "201"), (8, "0"), (10, 0.0), (20, 30.0), (30, 0.0), (40, 5.0), (210, 1.0), (220, 0.0), (230, 0.0))
     return out + tags((0, "ENDSEC"), (0, "EOF"))
 
 
@@ -528,7 +716,8 @@ def describe(g):
     if s == "ellipse":
         text = f"楕円 中心 {pt(g['center'])}・長軸の端 {pt(g['major'])}・比 {num(g['ratio'])}"
         if (g["start_angle"], g["end_angle"]) != (0, 360):
-            text += f"・{num(g['start_angle'])}° から {num(g['end_angle'])}°（長軸から反時計回り）"
+            # 図面モデルの楕円の角度は媒介変数の角度（DXF の 41・42）。AutoCAD のプロパティの角度とは違う
+            text += f"・媒介変数で {num(g['start_angle'])}° から {num(g['end_angle'])}°（楕円を円に引き延ばしたときの角度）"
         return text
     if s == "polyline":
         bulges = "・膨らみ " + "/".join(num(b) for b in g["bulges"]) if any(g.get("bulges", [])) else ""
@@ -719,6 +908,8 @@ def inputs(extra):
         found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
     found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-structure.sfc", STRUCTURE_SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-structure.p21", STRUCTURE_P21.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     if extra:
         # 受け取った図面の束は配らないので、ライセンスを書かない
         for path in sorted(Path(extra).rglob("*")):
@@ -758,11 +949,13 @@ def main():
         save_reading(out, path, reading)
         files.append(entry)
         baseline = codes(entry["open"], reading["diagnostics"])
-        # 作った DXF が役目を果たすこと: 要素にしない図形のどれもが、移さなかったことを言う診断の場所にある
-        if path == "input/made-dropped.dxf":
-            places = sum(len(d.get("at", [])) for d in entry["open"] + reading["diagnostics"] if d["code"] == "dxf.lift.dropped")
-            if places != DROPPED:
-                broken.append(f"{path}: dxf.lift.dropped の場所が {places}（期待は {DROPPED}）。黙って捨てない照合を確かめられない")
+        # 作った入力が役目を果たすこと: 要素にしない図形のどれもが、移さなかったことを言う診断の場所にある
+        for code, want in PLACES.get(path, {}).items():
+            places = sum(len(d.get("at", [])) for d in entry["open"] + reading["diagnostics"] if d["code"] == code)
+            if places != want:
+                broken.append(f"{path}: {code} の場所が {places}（期待は {want}）。黙って捨てない照合を確かめられない")
+        if path in CHECKS:
+            continue
         for recipe in RECIPES:
             if recipe[2](Path(path).name, fmt):
                 files.append(run_recipe(z, out, entry, data, recipe, baseline))

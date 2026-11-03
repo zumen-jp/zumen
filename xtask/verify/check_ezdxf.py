@@ -10,8 +10,8 @@
 - zumen の要素の出所のハンドルの図形が ezdxf にあり、種類・画層と、形の値（端点・中心・半径・角度・位置・
   文字・尺度・格子など）が同じ。形の欄は両向きに比べ、どちらかにだけある欄も食い違いにする。ezdxf で比べられる
   種類のモデル空間の図形は、zumen の要素が形を持つ。
-- モデル空間の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（dxf.lift.dropped・
-  dxf.lift.invalid）が、その図形の種類とレコードを指す（黙って捨てない）。
+- モデル空間の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（compare.py の
+  LIFTED_AWAY）が、その図形の種類とレコードを指す（黙って捨てない）。
 - 書き戻したファイルでは、変更で決めた形と画層（manifest.json の expect）と、足した画層の色・変えた色・点の
   表し方（$PDMODE・$PDSIZE）が、ezdxf で読んだ値と同じ。
 """
@@ -25,7 +25,7 @@ import ezdxf
 from ezdxf import recover
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import ATTACHMENTS, check_handles, lifted_away_records, run, usage  # noqa: E402
+from compare import ATTACHMENTS, check_handles, lifted_away_records, run, told, usage  # noqa: E402
 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す。当たる数が
 # 変わったら失敗にする（直ったものと、同じ形で新たに食い違うものを知らせる）
@@ -190,15 +190,14 @@ def check_file(folder, entry, reading, baseline, counts):
     found, seen = check_handles(entry, reading, counts, view(doc, raw))
     failures += found
 
-    # 黙って捨てない: モデル空間の図形は、要素になるか、移さなかったことを言う診断（dxf.lift.*）が、その図形の種類と
-    # レコードを指す
-    told = {((kind or "").upper(), record) for kind, record in lifted_away_records(entry, reading)}
+    # 黙って捨てない: モデル空間の図形は、要素になるか、移さなかったことを言う診断が、その図形の種類とレコードを指す
+    away = {(kind.upper() if kind else None, record) for kind, record in lifted_away_records(entry, reading)}
     dropped = Counter()
     for e in doc.modelspace():
         handle = e.dxf.handle.upper()
         if handle in seen:
             continue
-        if (e.dxftype().upper(), numbers.get(handle)) in told:
+        if told(away, e.dxftype().upper(), numbers.get(handle)):
             continue
         dropped[e.dxftype()] += 1
     if dropped:

@@ -5,11 +5,12 @@
 JWW のファイルごとに、次を確かめる。
 
 - ezjww が読める。ezjww の監査（ezjww.audit）と読みの診断で、書き戻したファイルに入力にない項目が出ない。
-- 図形の一覧の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（jww.lift.dropped・
-  jww.lift.invalid）がそのレコードを指す（黙って捨てない）。zumen のレコードの番号は、見出しを 0 とし、図形の
+- 図形の一覧の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（compare.py の
+  LIFTED_AWAY）がそのレコードを指す（黙って捨てない）。zumen のレコードの番号は、見出しを 0 とし、図形の
   一覧の i 番目（0 から）を i + 1 とする（決定 0133）。
-- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。形の欄は両向きに比べる。ezjww の座標は用紙の
-  mm なので、図形のレイヤグループの縮尺の分母を掛けて、zumen の実寸の座標と比べる（docs/formats/jww.md）。
+- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。形の欄は両向きに比べ、線と点の要素は形を
+  持つ。ezjww の座標は用紙の mm なので、図形のレイヤグループの縮尺の分母を掛けて、zumen の実寸の座標と比べる
+  （docs/formats/jww.md）。
 - 書き戻したファイルでは、変更で決めた形・レイヤ・ペンの番号（manifest.json の expect）が、ezjww で読んだ図形と
   同じ。
 """
@@ -115,17 +116,20 @@ def check_file(folder, entry, reading, baseline, counts):
         if shape in TYPES and e["type"] not in TYPES[shape]:
             failures.append(f"{where}: 形 {shape} の出所が {e['type']}")
             continue
-        if element.get("layer") is not None and element["layer"] != layer_name(header, e["base"]):
-            failures.append(f"{where}: レイヤが {element['layer']!r}、ezjww は {layer_name(header, e['base'])!r}")
+        if element.get("layer") != layer_name(header, e["base"]):
+            failures.append(f"{where}: レイヤが {element.get('layer')!r}、ezjww は {layer_name(header, e['base'])!r}")
         counts["elements"] += 1
         got = geometry(header, e)
+        # 形を比べる種類（線と点）の要素は、形を持つ
+        if shape is None and got is not None:
+            failures.append(f"{where}: {e['type']} のレコード {record} の要素が形を持たない")
         if shape in TYPES and got is not None:
             counts["shapes"] += 1
             for d in differences(element["geometry"], got, both=True):
                 failures.append(f"{where}（{e['type']} のレコード {record}）{d}")
 
-    # 黙って捨てない: 移さなかったことを言う診断（jww.lift.*）が、そのレコードを指す。kind はクラスの名前で、ezjww の
-    # 種類の名前と違うので、レコードだけで結ぶ
+    # 黙って捨てない: 移さなかったことを言う診断が、そのレコードを指す。kind はクラスの名前で、ezjww の種類の名前と
+    # 違うので、レコードだけで結ぶ
     told = {record for _, record in lifted_away_records(entry, reading)}
     dropped = Counter(e["type"] for i, e in enumerate(entities) if i + 1 not in seen and i + 1 not in told)
     if dropped:
