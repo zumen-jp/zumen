@@ -84,7 +84,10 @@ struct Verification {
     /// 読んだ受け取った図面の種類と件数。読みだけ
     #[serde(default)]
     received: Vec<Received>,
-    /// 結果を照らした外部の実装。書きでは、書いたファイルを読ませた実装
+    /// 読んだ公開サンプルか受け取った図面に添えられていて、読んだ値と照らした値。読みだけ
+    #[serde(default)]
+    attached_values: Vec<String>,
+    /// 読んだ値を照らした外部の実装。書きでは、書いたファイルを読み、読んだ値が書いた値と合った実装
     #[serde(default)]
     implementations: Vec<Tool>,
     /// 開いて確かめた、その形式の基準になるソフト
@@ -392,8 +395,8 @@ fn check(
     errors
 }
 
-/// 確かめた度合いの段と根拠。段は、根拠のうちもっとも強い種類で決まる（決定 0254・0255）。書きの根拠は、
-/// 書いたファイルを読ませた外部の実装か、開いたソフトだけ
+/// 確かめた度合いの段と根拠。段は、根拠のうちもっとも強い種類で決まる（決定 0254・0255）。公開サンプルと
+/// 受け取った図面は、読んだだけでは段を上げない。書きの根拠は、書いたファイルを読ませた外部の実装か、開いたソフトだけ
 fn verification(
     errors: &mut Vec<String>,
     at: &str,
@@ -402,9 +405,10 @@ fn verification(
     samples: &BTreeSet<String>,
 ) {
     choice(errors, at, "level", &found.level, LEVELS);
-    if write && !(found.public_samples.is_empty() && found.received.is_empty()) {
+    let read_files = !(found.public_samples.is_empty() && found.received.is_empty());
+    if write && (read_files || !found.attached_values.is_empty()) {
         errors.push(format!(
-            "{at}: public-samples と received は読みの根拠。書きには、書いたファイルを読ませた implementations か、開いた software を書く"
+            "{at}: public-samples・received・attached-values は読みの根拠。書きには、書いたファイルを読ませた implementations か、開いた software を書く"
         ));
     }
     for (i, received) in found.received.iter().enumerate() {
@@ -413,6 +417,14 @@ fn verification(
         if received.count == 0 {
             errors.push(format!("{at}: count は 1 以上にする"));
         }
+    }
+    for value in &found.attached_values {
+        nonempty(errors, at, "attached-values", value);
+    }
+    if !write && !found.attached_values.is_empty() && !read_files {
+        errors.push(format!(
+            "{at}: attached-values は、読んだ public-samples か received に添えられた値。どちらかを書く"
+        ));
     }
     nonempty(errors, at, "scope", &found.scope);
     if !is_date(&found.checked) {
@@ -456,36 +468,30 @@ fn verification(
     }
     let expected = if !found.software.is_empty() {
         "application"
-    } else if !found.implementations.is_empty()
-        || (!write && !(found.public_samples.is_empty() && found.received.is_empty()))
-    {
+    } else if !found.implementations.is_empty() || (!write && !found.attached_values.is_empty()) {
         "external"
     } else {
         "synthetic"
     };
     if LEVELS.contains(&found.level.as_str()) && found.level != expected {
         errors.push(format!(
-            "{at}: level の `{}` が根拠と合わない。software があれば application、implementations（読みでは public-samples・received も）があれば external、どれもなければ synthetic にする",
+            "{at}: level の `{}` が根拠と合わない。software があれば application、implementations（読みでは attached-values も）があれば external、どれもなければ synthetic にする",
             found.level
         ));
     }
 }
 
 /// 形式の文書の、確かめた度合いの節の表を、台帳の段と照らす。表の行は `| \`キー\` | 読み | \`段\` |` の形で、
-/// 文書を docs に持つ形式の、段を持つ向きを過不足なく並べる
+/// 文書を docs に持つ形式の、段を持つ向きを過不足なく並べる。段を持たない形式の文書も、節があれば照らす
 fn check_sections(ledger: &Ledger, root: &Path) -> Vec<String> {
     let mut expected: BTreeMap<&str, BTreeSet<Row>> = BTreeMap::new();
     for (id, format) in &ledger.formats {
-        for (direction, found) in [("読み", &format.read), ("書き", &format.write)] {
-            let Some(found) = found else {
-                continue;
-            };
-            for doc in &format.docs {
-                expected.entry(doc).or_default().insert((
-                    id.clone(),
-                    direction.to_string(),
-                    found.level.clone(),
-                ));
+        for doc in &format.docs {
+            let rows = expected.entry(doc).or_default();
+            for (direction, found) in [("読み", &format.read), ("書き", &format.write)] {
+                if let Some(found) = found {
+                    rows.insert((id.clone(), direction.to_string(), found.level.clone()));
+                }
             }
         }
     }
@@ -495,10 +501,17 @@ fn check_sections(ledger: &Ledger, root: &Path) -> Vec<String> {
         let Ok(text) = fs::read_to_string(root.join(doc)) else {
             continue;
         };
-        let Some(found) = section_rows(&text) else {
-            errors.push(format!("{doc}: 確かめた度合いの節（`{SECTION}`）がない"));
+        let Some((found, malformed)) = section_rows(&text) else {
+            if !rows.is_empty() {
+                errors.push(format!("{doc}: 確かめた度合いの節（`{SECTION}`）がない"));
+            }
             continue;
         };
+        for line in malformed {
+            errors.push(format!(
+                "{doc}: 確かめた度合いの表の行 `{line}` の形が違う。表の行は | `キー` | 読み | `段` | の形にする"
+            ));
+        }
         for (id, direction, level) in rows.difference(&found) {
             errors.push(format!(
                 "{doc}: 確かめた度合いの表に `{id}` の{direction}の `{level}` がない"
@@ -516,27 +529,47 @@ fn check_sections(ledger: &Ledger, root: &Path) -> Vec<String> {
 /// 確かめた度合いの表の行（形式のキー・向き・段）
 type Row = (String, String, String);
 
-/// 確かめた度合いの節の表の行。節がなければ `None`
-fn section_rows(text: &str) -> Option<BTreeSet<Row>> {
+/// 確かめた度合いの節の表の行と、見出しと区切りのほかで表の行の形に合わない行。節がなければ `None`
+fn section_rows(text: &str) -> Option<(BTreeSet<Row>, Vec<String>)> {
     let mut lines = text.lines().skip_while(|line| line.trim_end() != SECTION);
     lines.next()?;
     let code = |cell: &str| {
         cell.strip_prefix('`')
             .and_then(|c| c.strip_suffix('`'))
+            .filter(|c| !c.is_empty())
             .map(str::to_string)
     };
-    Some(
-        lines
-            .take_while(|line| !line.starts_with("# ") && !line.starts_with("## "))
-            .filter_map(|line| {
-                let mut cells = line.trim().strip_prefix('|')?.split('|').map(str::trim);
-                let id = code(cells.next()?)?;
-                let direction = cells.next()?.to_string();
-                let level = code(cells.next()?)?;
-                Some((id, direction, level))
-            })
-            .collect(),
-    )
+    let mut rows = BTreeSet::new();
+    let mut malformed = Vec::new();
+    for line in lines.take_while(|line| !line.starts_with("# ") && !line.starts_with("## ")) {
+        let line = line.trim();
+        let Some(inner) = line.strip_prefix('|') else {
+            continue;
+        };
+        let cells: Vec<_> = inner
+            .strip_suffix('|')
+            .unwrap_or(inner)
+            .split('|')
+            .map(str::trim)
+            .collect();
+        let rule = |cell: &&str| !cell.is_empty() && cell.chars().all(|c| matches!(c, '-' | ':'));
+        if cells == ["形式", "向き", "段"] || cells.iter().all(rule) {
+            continue;
+        }
+        let row = match cells.as_slice() {
+            [id, direction @ ("読み" | "書き"), level] => code(id)
+                .zip(code(level))
+                .map(|(id, level)| (id, direction.to_string(), level)),
+            _ => None,
+        };
+        match row {
+            Some(row) => {
+                rows.insert(row);
+            }
+            None => malformed.push(line.to_string()),
+        }
+    }
+    Some((rows, malformed))
 }
 
 fn nonempty(errors: &mut Vec<String>, at: &str, key: &str, value: &str) {

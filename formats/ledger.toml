@@ -373,8 +373,8 @@ docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#385"]
 
 [formats.sxf.read]
-level = "external"
-scope = "受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を SXF ブラウザの表示と照らしてはいない。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。公開サンプルと SXF ブラウザでの照合はまだ（#503）"
+level = "synthetic"
+scope = "受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を外部の実装や SXF ブラウザの表示と照らしていないので、段は synthetic。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。公開サンプル・外部の実装・SXF ブラウザでの照合はまだ（#503）"
 received = [{ kind = "SFC", count = 1 }, { kind = "P21", count = 1 }]
 checked = "2026-10-30"
 
@@ -405,8 +405,8 @@ decisions = ["0008", "0133", "0134", "0135", "0136"]
 docs = ["docs/formats/jww.md"]
 
 [formats.jww.read]
-level = "external"
-scope = "受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を Jw_cad の表示と照らしてはいない。ほかの規則は、Jw_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。公開サンプルと Jw_cad での照合はまだ（#503）"
+level = "synthetic"
+scope = "受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。公開サンプル・外部の実装・Jw_cad での照合はまだ（#503）"
 received = [{ kind = "JWW", count = 10 }]
 checked = "2026-10-30"
 
@@ -468,7 +468,7 @@ checked = "2026-11-02"
 
 [formats.dxf.write]
 level = "application"
-scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。点・寸法・表を書き戻したファイルは開いていない（#342・#314）"
+scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は開いていない（#342・#314・#503）"
 software = [{ name = "AutoCAD", version = "2027" }]
 checked = "2026-11-02"
 
@@ -500,7 +500,7 @@ checked = "2026-11-02"
 
 [formats.dwg.write]
 level = "application"
-scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。点・寸法・表を書き戻したファイルは開いていない（#342・#314）"
+scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）"
 software = [{ name = "AutoCAD", version = "2027" }]
 checked = "2026-11-02"
 
@@ -528,7 +528,7 @@ rights = "public"
 rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証の道具を MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標"
 place = "core"
 basis = ["spec"]
-verify = ["IfcOpenShell（手元でだけ使う）"]
+verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
 samples = ["日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）"]
 decisions = ["0008", "0207", "0211", "0244"]
 legacy-decisions = ["0028"]
@@ -606,7 +606,7 @@ issues = ["zumen-jp/zumen#411"]
 
 [formats.ids.read]
 level = "synthetic"
-scope = "IDS 1.0 の文書と、試験の中で作った IDS（crates/zumen-ids/tests・crates/zumen-ifc/tests/ids.rs）で確かめた。公開サンプルと外部の実装との照合はまだ"
+scope = "IDS 1.0 の文書と、試験の中で作った IDS（crates/zumen-ids/tests・crates/zumen-ifc/tests/ids.rs）で確かめた。公開サンプルと外部の実装との照合はまだ（#522）"
 checked = "2026-11-03"
 
 [[formats.ids.evidence]]
@@ -629,12 +629,12 @@ issues = ["zumen-jp/zumen#429", "zumen-jp/zumen#454"]
 
 [formats.bcf.read]
 level = "synthetic"
-scope = "BCF-XML 2.1・3.0 の文書と、試験の中で作った bcfzip（crates/zumen-bcf/tests）で確かめた。公開サンプルと、BCF を読むソフトでの照合はまだ"
+scope = "BCF-XML 2.1・3.0 の文書と、試験の中で作った bcfzip（crates/zumen-bcf/tests）で確かめた。公開サンプル・外部の実装・BCF を読むソフトでの照合はまだ（#522）"
 checked = "2026-11-03"
 
 [formats.bcf.write]
 level = "synthetic"
-scope = "書いた bcfzip を読み直して確かめた。書いたファイルを BCF を読むソフトで開いてはいない"
+scope = "書いた bcfzip を読み直して確かめた。書いたファイルを、外部の実装や BCF を読むソフトで読ませてはいない（#522）"
 checked = "2026-11-03"
 
 [[formats.bcf.evidence]]
@@ -717,7 +717,7 @@ rights-note = "OCF と国土交通省が仕様の PDF を誰でも無償で入�
 place = "core"
 basis = ["spec"]
 verify = ["国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る"]
+samples = ["再配布を認める公開サンプルは見つかっていない。試験の中で小さな J-LandXML を作る"]
 docs = ["docs/formats/landxml.md"]
 issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
 
@@ -756,7 +756,7 @@ rights-note = "国土地理院が実装規約を技術資料として無償で�
 place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。試験の中で作る"]
+samples = ["再配布を認める公開サンプルは見つかっていない。試験の中で作る"]
 decisions = ["0233"]
 docs = ["docs/formats/extdm.md"]
 issues = ["zumen-jp/zumen#378"]
@@ -934,7 +934,7 @@ rights-note = "国土交通省が要領・基準と DTD を誰でも無償で入
 place = "core"
 basis = ["spec"]
 verify = ["国土交通省の電子納品チェックシステム（手元でだけ使う）"]
-samples = ["再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る"]
+samples = ["再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る"]
 docs = ["docs/formats/delivery.md"]
 issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
 
@@ -964,7 +964,7 @@ issues = ["zumen-jp/zumen#386"]
 
 [formats.saf.read]
 level = "synthetic"
-scope = "属性付加機構編と、試験の中で作った SAF と書庫（crates/zumen-sxf/tests/saf.rs）で確かめた。SXF ブラウザでの照合は #494 で行う"
+scope = "属性付加機構編と、試験の中で作った SAF と書庫（crates/zumen-sxf/tests/saf.rs）で確かめた。SXF ブラウザでの照合は #494・#505 で行う"
 checked = "2026-11-03"
 
 [formats.jpeg]
@@ -1015,13 +1015,13 @@ rights = "public"
 rights-note = "国土交通省が要領と DTD を無償で公開している。実装を制限する記述はない。DTD は転載が禁じられているので同梱しない"
 place = "core"
 basis = ["spec"]
-samples = ["国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる"]
+samples = ["国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #505 で確かめる"]
 docs = ["docs/formats/boring.md"]
 issues = ["zumen-jp/zumen#390"]
 
 [formats.boring.read]
 level = "synthetic"
-scope = "要領と、試験の中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。DTD での検証と、KuniJiban の柱状図との照合はまだ（#390・#505）"
+scope = "要領と、試験の中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。DTD での検証と、KuniJiban の柱状図との照合はまだ（#505）"
 checked = "2026-11-03"
 
 [[formats.boring.evidence]]
