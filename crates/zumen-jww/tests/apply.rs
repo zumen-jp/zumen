@@ -257,6 +257,65 @@ fn added_entity_uses_the_schema_of_its_own_class() {
     assert_eq!(schemas, [2, 2]);
 }
 
+/// ブロックの定義がない図面の一覧を書き直しても、定義の件数を 1 度だけ書く（#503 の照合で見つけた）
+#[test]
+fn rewriting_lists_without_definitions_writes_their_count_once() {
+    let mut spec = Spec::new(700);
+    spec.groups[0] = (3, 100.0, [3; 16]);
+    let mut archive = Archive::new(700);
+    archive.group = 0;
+    archive.layer = 0;
+    archive.count(1);
+    archive.line();
+    archive.count(0);
+    archive.out.extend(0u32.to_le_bytes());
+    let mut src = spec.build();
+    src.extend(&archive.out);
+    let drawing = lift(&read(&src));
+    let (span, body) = {
+        let file = read(&src);
+        let line = &file.records()[1];
+        (line.span().len(), line.body().len())
+    };
+    // 線を足すと、番号の印（2 バイト）と中身が増える。除くと、クラスの名前ごと線のレコードが減る
+    let cases = [
+        (
+            Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(element(&drawing, 0).1.clone())),
+            },
+            2,
+            src.len() + 2 + body,
+        ),
+        (
+            Edit::Remove {
+                target: seen(&drawing, 0),
+            },
+            0,
+            src.len() - span,
+        ),
+    ];
+    for (edit, lines, len) in cases {
+        let mut file = read(&src);
+        let (result, diagnostics) = apply(&mut file, vec![edit], None);
+        assert!(result.is_ok(), "{result:?} {diagnostics:?}");
+        let out = write(&file);
+        assert_eq!(out.len(), len);
+        let (reread, diagnostics) = testkit::read::<Jww>(&out);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let reread = reread.unwrap();
+        let names: Vec<_> = reread
+            .records()
+            .iter()
+            .map(|record| String::from_utf8_lossy(reread.kind_name(record)).into_owned())
+            .collect();
+        let mut want = vec!["header"];
+        want.extend(vec!["CDataSen"; lines]);
+        want.push("image-count");
+        assert_eq!(names, want);
+    }
+}
+
 #[test]
 fn edits_are_written_into_the_entity_lists() {
     let src = src();

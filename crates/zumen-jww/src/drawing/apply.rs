@@ -1049,14 +1049,18 @@ impl Lists<'_> {
                 }
             }
         }
-        // 画像の一覧と、読めなかった残りは写す
+        // 画像の一覧と、読めなかった残りは写す。定義がなければ、書いた定義の件数の後から写す
         let rest = records
             .get(at..)
             .and_then(|rest| rest.first())
             .map_or(self.src.len(), |record| record.span().start);
-        let end = records
-            .get(at.wrapping_sub(1))
-            .map_or(header_end, |record| record.span().end);
+        let end = if blocks == 0 {
+            r.pos
+        } else {
+            records
+                .get(at.wrapping_sub(1))
+                .map_or(header_end, |record| record.span().end)
+        };
         if end > rest {
             return Ok(None);
         }
