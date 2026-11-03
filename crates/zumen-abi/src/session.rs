@@ -17,7 +17,7 @@ use zumen_sxf::saf::AttributeFile;
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
-#[cfg(feature = "drawing")]
+#[cfg(feature = "pointcloud")]
 use crate::asbuilt;
 use crate::bcf;
 #[cfg(feature = "drawing")]
@@ -26,14 +26,19 @@ use crate::bounds;
 use crate::building;
 use crate::changes::changes;
 use crate::check;
-#[cfg(feature = "drawing")]
+#[cfg(any(
+    feature = "drawing",
+    feature = "bim",
+    feature = "civil",
+    feature = "pointcloud"
+))]
 use crate::civil;
 use crate::convert;
 #[cfg(feature = "drawing")]
 use crate::delivery;
 use crate::describe;
 use crate::formats;
-#[cfg(feature = "drawing")]
+#[cfg(feature = "civil")]
 use crate::geo;
 use crate::geometry;
 use crate::messages::{
@@ -53,7 +58,7 @@ use crate::packed::Packed;
 #[cfg(feature = "drawing")]
 use crate::photo;
 use crate::plugin;
-#[cfg(feature = "drawing")]
+#[cfg(feature = "pointcloud")]
 use crate::pointcloud;
 use crate::review;
 use crate::scene;
@@ -539,13 +544,18 @@ impl Session {
             Request::BcfWrite(request) => {
                 self.bcf_write(request, &mut cx).map(|r| Box::new(r) as _)
             }
-            #[cfg(feature = "drawing")]
+            #[cfg(any(
+                feature = "drawing",
+                feature = "bim",
+                feature = "civil",
+                feature = "pointcloud"
+            ))]
             Request::Civil(request) => self.civil(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
+            #[cfg(feature = "pointcloud")]
             Request::Pointcloud(request) => {
                 self.pointcloud(request, &mut cx).map(|r| Box::new(r) as _)
             }
-            #[cfg(feature = "drawing")]
+            #[cfg(feature = "pointcloud")]
             Request::Deviation(request) => {
                 self.deviation(request, &mut cx).map(|r| Box::new(r) as _)
             }
@@ -553,7 +563,7 @@ impl Session {
             Request::CivilDrawing(request) => self
                 .civil_drawing(request, &mut cx)
                 .map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
+            #[cfg(feature = "civil")]
             Request::Geo(request) => self.geo(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::DeliveryCheck(request) => self
@@ -615,10 +625,11 @@ impl Session {
         if let Some(model) = building::read_spf(bytes, cx) {
             return self.open_model(name.clone(), model?, cx);
         }
-        // 名指せる形式は、見分ける印のない xyz と extdm だけ。ほかの形式は入力から判定する
+        // 名指せる形式は、見分ける印のない xyz（点群のモジュール）と extdm（土木・地理のモジュール）だけ。ほかの形式は
+        // 入力から判定する
         if request.format.as_deref().is_some_and(|format| {
-            (format != zumen_xyz::Xyz::FORMAT && format != zumen_extdm::ExtDm::FORMAT)
-                || cfg!(not(feature = "drawing"))
+            !((format == zumen_xyz::Xyz::FORMAT && cfg!(feature = "pointcloud"))
+                || (format == zumen_extdm::ExtDm::FORMAT && cfg!(feature = "civil")))
         }) {
             return Err(fail(cx, invalid_value("/format")));
         }
@@ -631,7 +642,7 @@ impl Session {
             return Err(fail(cx, invalid_value("/saf")));
         }
         // 名指した拡張 DM（#378）
-        #[cfg(feature = "drawing")]
+        #[cfg(feature = "civil")]
         if request.format.as_deref() == Some(zumen_extdm::ExtDm::FORMAT) {
             let model = geo::read_extdm(bytes, cx)?;
             self.geos.insert(name.clone(), model);
@@ -645,7 +656,7 @@ impl Session {
             });
         }
         // LAS・LAZ は範囲で読む（決定 0232）
-        #[cfg(feature = "drawing")]
+        #[cfg(feature = "pointcloud")]
         if let Some(opened) = pointcloud::read(&request.input, &self.inputs, request.size, cx) {
             let format = zumen_las::Las::FORMAT.to_string();
             return Ok(match opened? {
@@ -671,7 +682,7 @@ impl Session {
             });
         }
         // PLY・E57 と、名指した XYZ
-        #[cfg(feature = "drawing")]
+        #[cfg(feature = "pointcloud")]
         if let Some(opened) = pointcloud::read_whole(bytes, request.format.as_deref(), cx) {
             let (format, cloud) = opened?;
             self.clouds.insert(name.clone(), cloud);
@@ -717,8 +728,8 @@ impl Session {
             self.docs.insert(name.clone(), doc);
             return Ok(result);
         }
-        // J-LandXML は XML の根で見分ける（決定 0230）
-        #[cfg(feature = "drawing")]
+        // J-LandXML は XML の根で見分ける（決定 0230）。図面・土木地理・点群のどのモジュールも読む（決定 0253）
+        #[cfg(any(feature = "drawing", feature = "civil", feature = "pointcloud"))]
         if let Some(model) = civil::read(bytes, cx) {
             self.civils.insert(name.clone(), model?);
             return Ok(OpenResult {
@@ -731,7 +742,7 @@ impl Session {
             });
         }
         // CityGML と基盤地図情報も XML の根で見分ける（決定 0233）
-        #[cfg(feature = "drawing")]
+        #[cfg(feature = "civil")]
         if let Some((format, model)) = geo::read(bytes, cx) {
             self.geos.insert(name.clone(), model?);
             return Ok(OpenResult {
@@ -766,14 +777,14 @@ impl Session {
         model: building::Model,
         cx: &mut Cx<'_>,
     ) -> Result<OpenResult, Failed> {
-        // IFC4.3 の線形は、土木の領域モデルにもする（決定 0235）
-        #[cfg(all(feature = "drawing", feature = "bim"))]
+        // IFC4.3 の線形は、土木の領域モデルにもする（決定 0235）。BIM のモジュールも civil の op を持つ（決定 0253）
+        #[cfg(feature = "bim")]
         if let Some(file) = &model.file
             && let Some(civil) = civil::from_ifc(file, cx)?
         {
             self.civils.insert(name.clone(), civil);
         }
-        #[cfg(not(all(feature = "drawing", feature = "bim")))]
+        #[cfg(not(feature = "bim"))]
         let _ = cx;
         let format = model.format.to_string();
         self.models.insert(name.clone(), model);
@@ -1311,14 +1322,11 @@ impl Session {
         // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let (updated, result, bytes) = building::apply(model, request, cx)?;
         // IFC4.3 の線形の土木の領域モデルも、書き戻したものから作り直す（決定 0235）
-        #[cfg(feature = "drawing")]
+        self.civils.remove(&request.doc);
+        if let Some(file) = &updated.file
+            && let Some(civil) = civil::from_ifc(file, cx)?
         {
-            self.civils.remove(&request.doc);
-            if let Some(file) = &updated.file
-                && let Some(civil) = civil::from_ifc(file, cx)?
-            {
-                self.civils.insert(request.doc.clone(), civil);
-            }
+            self.civils.insert(request.doc.clone(), civil);
         }
         self.models.insert(request.doc.clone(), updated);
         self.blobs.push(Some(Blob {
@@ -1413,7 +1421,12 @@ impl Session {
     }
 
     /// 線形の上の所を求める。doc を渡せば、開いた土木の領域モデルの線形を使う（決定 0230）
-    #[cfg(feature = "drawing")]
+    #[cfg(any(
+        feature = "drawing",
+        feature = "bim",
+        feature = "civil",
+        feature = "pointcloud"
+    ))]
     fn civil(
         &self,
         request: &messages::CivilRequest,
@@ -1447,7 +1460,7 @@ impl Session {
     }
 
     /// 開いた CityGML の地理の領域モデルの要約と、地物の中身（決定 0233）
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "civil")]
     fn geo(
         &self,
         request: &messages::GeoRequest,
@@ -1595,7 +1608,7 @@ impl Session {
     }
 
     /// 点群と TIN の標高の差の、規則の区分ごとの集計（決定 0234）
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "pointcloud")]
     fn deviation(
         &self,
         request: &messages::DeviationRequest,
@@ -1695,7 +1708,7 @@ impl Session {
     }
 
     /// 開いた点群の文書。`pointer` は名前を書いた欄
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "pointcloud")]
     fn cloud(
         &self,
         doc: &str,
@@ -1722,7 +1735,7 @@ impl Session {
     }
 
     /// 開いた点群の要約と、条件に合う点（決定 0232）
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "pointcloud")]
     fn pointcloud(
         &self,
         request: &messages::PointcloudRequest,
@@ -1783,7 +1796,7 @@ fn capabilities() -> CapabilitiesResult {
         formats: formats::DRAWING
             .iter()
             .chain(formats::READ_ONLY)
-            .filter(|_| cfg!(feature = "drawing"))
+            .filter(|registration| crate::abi::has_format(registration.format))
             .chain(
                 plugin::installed()
                     .iter()

@@ -1,6 +1,7 @@
 // 分けた wasm のモジュールで、適合試験を流す（決定 0013・0221）。
 //
-// 使い方: node bindings/js/test/modules.mjs <zumen_abi1.wasm> <drawing.wasm> <bim.wasm>
+// 使い方: node bindings/js/test/modules.mjs <zumen_abi1.wasm> <drawing.wasm> <bim.wasm> <civil.wasm> <pointcloud.wasm>
+//   <plugin.wasm>
 //
 // 包みの loadModules でモジュールを読み込み、組ごとに、組が呼ぶ op を持つモジュール（steps.mjs の moduleOf）で流す
 // （本体は run.mjs）。すべてのモジュールを入れたコアでだけ流す組（module が all）を除き、ハッシュの一覧が hashes.txt

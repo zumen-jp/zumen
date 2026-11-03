@@ -97,13 +97,10 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ
+    // 図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・表・ボーリング交換用データ
     Module {
         name: "drawing",
-        formats: &[
-            "dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz",
-            "e57", "drawing",
-        ],
+        formats: &["dxf", "dwg", "sxf", "jww", "landxml", "drawing"],
         ops: &[
             "capabilities",
             "open",
@@ -119,10 +116,7 @@ pub const MODULES: &[Module] = &[
             "review_carry",
             "review_adopt",
             "civil",
-            "pointcloud",
-            "deviation",
             "civil_drawing",
-            "geo",
             "delivery_check",
             "photo",
             "sheet",
@@ -130,7 +124,7 @@ pub const MODULES: &[Module] = &[
             "lift",
         ],
     },
-    // IFC と建物モデル、EXPRESS・IDS の照合と BCF
+    // IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）
     Module {
         name: "bim",
         formats: &["ifc"],
@@ -148,6 +142,27 @@ pub const MODULES: &[Module] = &[
             "bcf_read",
             "bcf_write",
             "building_apply",
+            "civil",
+        ],
+    },
+    // 土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）
+    Module {
+        name: "civil",
+        formats: &["landxml", "citygml", "fgd", "extdm"],
+        ops: &["capabilities", "open", "close", "describe", "civil", "geo"],
+    },
+    // 点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差
+    Module {
+        name: "pointcloud",
+        formats: &["las", "ply", "xyz", "e57", "landxml"],
+        ops: &[
+            "capabilities",
+            "open",
+            "close",
+            "describe",
+            "civil",
+            "pointcloud",
+            "deviation",
         ],
     },
     // プラグインの図面の形式を読み、図面モデルのバイナリにする
@@ -177,10 +192,7 @@ pub fn has_op(op: &str) -> bool {
                 | "review_carry"
                 | "review_adopt"
                 | "civil"
-                | "pointcloud"
-                | "deviation"
                 | "civil_drawing"
-                | "geo"
                 | "delivery_check"
                 | "photo"
                 | "sheet"
@@ -203,9 +215,39 @@ pub fn has_op(op: &str) -> bool {
                     | "bcf_read"
                     | "bcf_write"
                     | "building_apply"
+                    | "civil"
+            ))
+        || (cfg!(feature = "civil")
+            && matches!(
+                op,
+                "capabilities" | "open" | "close" | "describe" | "civil" | "geo"
+            ))
+        || (cfg!(feature = "pointcloud")
+            && matches!(
+                op,
+                "capabilities"
+                    | "open"
+                    | "close"
+                    | "describe"
+                    | "civil"
+                    | "pointcloud"
+                    | "deviation"
             ))
         || (cfg!(feature = "plugin")
             && matches!(op, "capabilities" | "open" | "close" | "describe" | "lift"))
+}
+
+/// このビルドに入れたモジュールのどれかが、形式を持つか
+pub fn has_format(format: &str) -> bool {
+    (cfg!(feature = "drawing")
+        && matches!(
+            format,
+            "dxf" | "dwg" | "sxf" | "jww" | "landxml" | "drawing"
+        ))
+        || (cfg!(feature = "bim") && matches!(format, "ifc"))
+        || (cfg!(feature = "civil") && matches!(format, "landxml" | "citygml" | "fgd" | "extdm"))
+        || (cfg!(feature = "pointcloud")
+            && matches!(format, "las" | "ply" | "xyz" | "e57" | "landxml"))
 }
 
 /// 形式の判定。`rules` のどれかに合えば、`format` とする
@@ -227,7 +269,7 @@ pub const DETECTION: &[Detection] = &[
     },
     Detection {
         format: "las",
-        module: "drawing",
+        module: "pointcloud",
         rules: &[zumen_sdk::Signature::Bytes {
             offset: 0,
             bytes: b"LASF",
@@ -235,12 +277,12 @@ pub const DETECTION: &[Detection] = &[
     },
     Detection {
         format: "ply",
-        module: "drawing",
+        module: "pointcloud",
         rules: &[zumen_sdk::Signature::Lines { lines: &[b"ply"] }],
     },
     Detection {
         format: "e57",
-        module: "drawing",
+        module: "pointcloud",
         rules: &[zumen_sdk::Signature::Bytes {
             offset: 0,
             bytes: b"ASTM-E57",
@@ -330,7 +372,7 @@ pub const DETECTION: &[Detection] = &[
     },
     Detection {
         format: "citygml",
-        module: "drawing",
+        module: "civil",
         rules: &[zumen_sdk::Signature::XmlRoot {
             name: b"CityModel",
             namespace: Some(b"http://www.opengis.net/citygml/2.0"),
@@ -338,7 +380,7 @@ pub const DETECTION: &[Detection] = &[
     },
     Detection {
         format: "fgd",
-        module: "drawing",
+        module: "civil",
         rules: &[zumen_sdk::Signature::XmlRoot {
             name: b"Dataset",
             namespace: Some(b"http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema"),
@@ -353,7 +395,7 @@ pub const DETECTION: &[Detection] = &[
     },
     Detection {
         format: "fgd",
-        module: "drawing",
+        module: "civil",
         rules: &[zumen_sdk::Signature::ZipName {
             prefixes: &[b"FG-GML-"],
             suffixes: &[b".xml", b".zip"],
