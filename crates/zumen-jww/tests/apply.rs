@@ -5,7 +5,7 @@ mod common;
 use core::f64::consts::PI;
 
 use common::{Archive, Spec};
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Hash,
     Inherit, LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength,
@@ -255,6 +255,96 @@ fn added_entity_uses_the_schema_of_its_own_class() {
         .map(|record| file.classes()[record.tag().unwrap().1].schema())
         .collect();
     assert_eq!(schemas, [2, 2]);
+}
+
+/// ブロックの定義がない図面の一覧を書き直しても、定義の件数を 1 度だけ書き、後ろの画像の一覧と残りを写す（#503 の
+/// 照合で見つけた）
+#[test]
+fn rewriting_lists_without_definitions_writes_their_count_once() {
+    // 線 1 本と、空の定義の一覧の後に tail が続く図面
+    let source = |version: u32, tail: &[u8]| {
+        let mut spec = Spec::new(version);
+        spec.groups[0] = (3, 100.0, [3; 16]);
+        let mut archive = Archive::new(version);
+        archive.group = 0;
+        archive.layer = 0;
+        archive.count(1);
+        archive.line();
+        archive.count(0);
+        let mut src = spec.build();
+        src.extend(&archive.out);
+        src.extend(tail);
+        src
+    };
+    let mut image = 1u32.to_le_bytes().to_vec();
+    common::cstring(&mut image, "a.bmp");
+    image.extend(3u32.to_le_bytes());
+    image.extend(b"abc");
+    let tails: [(u32, Vec<u8>, &[&str]); 4] = [
+        // 版 700 からは、定義の一覧の後に画像の一覧が続く
+        (700, 0u32.to_le_bytes().to_vec(), &["image-count"]),
+        (700, image, &["image-count", "image"]),
+        // 版 700 より前は定義の件数で終わり、件数は残りのレコードに入る
+        (600, Vec::new(), &["trailer"]),
+        // 読めない残りは、定義の件数ごと残りのレコードになり、そのまま写す
+        (700, vec![0, 0, 0, 0, 0xEE], &["trailer"]),
+    ];
+    let list =
+        |diagnostics: &[Diagnostic]| diagnostics.iter().map(|d| d.code()).collect::<Vec<_>>();
+    for (version, tail, after) in tails {
+        let src = source(version, &tail);
+        let (input, before) = testkit::read::<Jww>(&src);
+        let input = input.unwrap();
+        let drawing = lift(&input);
+        let line = &input.records()[1];
+        let (span, body) = (line.span().len(), line.body().len());
+        // 線を足すと、番号の印（2 バイト）と中身が増える。除くと、クラスの名前ごと線のレコードが減る
+        let cases = [
+            (
+                Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(Placed::Model(element(&drawing, 0).1.clone())),
+                },
+                2,
+                src.len() + 2 + body,
+            ),
+            (
+                Edit::Remove {
+                    target: seen(&drawing, 0),
+                },
+                0,
+                src.len() - span,
+            ),
+        ];
+        for (edit, lines, len) in cases {
+            let mut file = read(&src);
+            let (result, diagnostics) = apply(&mut file, vec![edit], None);
+            assert!(
+                result.is_ok(),
+                "{version} {after:?}: {result:?} {diagnostics:?}"
+            );
+            let out = write(&file);
+            assert_eq!(out.len(), len, "{version} {after:?}");
+            // 読み直しの診断は、入力と同じ（読めない残りの診断だけ）
+            let (reread, diagnostics) = testkit::read::<Jww>(&out);
+            assert_eq!(list(&diagnostics), list(&before), "{version} {after:?}");
+            let reread = reread.unwrap();
+            let names: Vec<_> = reread
+                .records()
+                .iter()
+                .map(|record| String::from_utf8_lossy(reread.kind_name(record)).into_owned())
+                .collect();
+            let mut want = vec!["header"];
+            want.extend(vec!["CDataSen"; lines]);
+            want.extend(after);
+            assert_eq!(names, want, "{version}");
+            // 一覧の後ろは、定義の件数（0）と元のファイルの残り
+            assert!(
+                out.ends_with(&[&[0, 0][..], &tail].concat()),
+                "{version} {after:?}"
+            );
+        }
+    }
 }
 
 #[test]

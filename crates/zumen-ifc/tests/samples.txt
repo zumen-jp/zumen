@@ -1,0 +1,761 @@
+# samples/ifc の IFC を建物モデルに写した要約（crates/zumen-ifc/tests/samples.rs）。
+# 作り直すときは ZUMEN_IFC_SAMPLES_WRITE=1 を付けて流す。
+== ifc/bim-whale/LargeBuilding.ifc
+schema IFC2X3 records 20744 bytes 1292497
+application "Autodesk Revit 2021 (ENU)" "2021"
+document units 16 contexts 5 map false true-north true
+elements 228 global-ids 215 instance-ids 13
+class IfcBuilding 1
+class IfcBuildingElementProxy 13
+class IfcBuildingElementProxyType 3
+class IfcBuildingStorey 2
+class IfcCovering 5
+class IfcCoveringType 5
+class IfcDoor 18
+class IfcDoorStyle 3
+class IfcFurnishingElement 14
+class IfcFurnitureType 1
+class IfcMaterial 13
+class IfcOpeningElement 60
+class IfcProject 1
+class IfcRoof 1
+class IfcSite 1
+class IfcSlab 4
+class IfcSlabType 4
+class IfcSpace 8
+class IfcSpaceType 8
+class IfcWall (IfcWallStandardCase) 18
+class IfcWallType 2
+class IfcWindow 42
+class IfcWindowStyle 1
+storey "Level 1" 0
+storey "Level 2" 4000
+components identity 228 class 228 classification 0 spatial 12 parent 127 placement 187 representation 0 style 0 type 122 properties 146 quantities 155 material 111 opening 120 group 0 connection 18 grid 0 level 0 zone 0 extension 0
+world-placement 187 of 187
+lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 12
+lift ifc.entity.dropped IFCARBITRARYPROFILEDEFWITHVOIDS 17
+lift ifc.entity.dropped IFCAXIS2PLACEMENT2D 108
+lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 233
+lift ifc.entity.dropped IFCBOOLEANCLIPPINGRESULT 6
+lift ifc.entity.dropped IFCCARTESIANPOINT 4178
+lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
+lift ifc.entity.dropped IFCCLASSIFICATION 1
+lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 4
+lift ifc.entity.dropped IFCCLOSEDSHELL 57
+lift ifc.entity.dropped IFCCOLOURRGB 13
+lift ifc.entity.dropped IFCCONNECTEDFACESET 1
+lift ifc.entity.dropped IFCDERIVEDUNIT 9
+lift ifc.entity.dropped IFCDERIVEDUNITELEMENT 25
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCDIRECTION 14
+lift ifc.entity.dropped IFCDOORLININGPROPERTIES 3
+lift ifc.entity.dropped IFCDOORPANELPROPERTIES 3
+lift ifc.entity.dropped IFCEXTRUDEDAREASOLID 137
+lift ifc.entity.dropped IFCFACE 2624
+lift ifc.entity.dropped IFCFACEBASEDSURFACEMODEL 1
+lift ifc.entity.dropped IFCFACEBOUND 4
+lift ifc.entity.dropped IFCFACEOUTERBOUND 2624
+lift ifc.entity.dropped IFCFACETEDBREP 57
+lift ifc.entity.dropped IFCMAPPEDITEM 85
+lift ifc.entity.dropped IFCMATERIALDEFINITIONREPRESENTATION 13
+lift ifc.entity.dropped IFCORGANIZATION 2
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPLANE 6
+lift ifc.entity.dropped IFCPOLYGONALBOUNDEDHALFSPACE 6
+lift ifc.entity.dropped IFCPOLYLINE 71
+lift ifc.entity.dropped IFCPOLYLOOP 2628
+lift ifc.entity.dropped IFCPOSTALADDRESS 1
+lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 10
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 25
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 182
+lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 108
+lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 4
+lift ifc.entity.dropped IFCREPRESENTATIONMAP 6
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 206
+lift ifc.entity.dropped IFCSIUNIT 3
+lift ifc.entity.dropped IFCSTYLEDITEM 107
+lift ifc.entity.dropped IFCSTYLEDREPRESENTATION 13
+lift ifc.entity.dropped IFCSURFACESTYLE 13
+lift ifc.entity.dropped IFCSURFACESTYLERENDERING 13
+lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
+lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 61
+hashes elements v1:a1f1767e95251888092414cd7b37885d document-values v1:40c21fd51b8c4a01834ac478fdadc975
+== ifc/bim-whale/TallBuilding.ifc
+schema IFC2X3 records 9934 bytes 616411
+application "Autodesk Revit 2021 (ENU)" "2021"
+document units 16 contexts 5 map false true-north true
+elements 117 global-ids 108 instance-ids 9
+class IfcBuilding 1
+class IfcBuildingStorey 5
+class IfcDoor 5
+class IfcDoorStyle 4
+class IfcMaterial 9
+class IfcOpeningElement 26
+class IfcProject 1
+class IfcRoof 1
+class IfcSite 1
+class IfcSlab 5
+class IfcSlabType 5
+class IfcSpace 3
+class IfcSpaceType 3
+class IfcWall (IfcWallStandardCase) 24
+class IfcWallType 2
+class IfcWindow 21
+class IfcWindowStyle 1
+storey "Level 1" 0
+storey "Level 2" 4000
+storey "Level 4" 8000
+storey "Level 5" 12000
+storey "Level 6" 16000
+components identity 117 class 117 classification 0 spatial 10 parent 66 placement 92 representation 0 style 0 type 58 properties 78 quantities 84 material 66 opening 52 group 0 connection 24 grid 0 level 0 zone 0 extension 0
+world-placement 92 of 92
+lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 6
+lift ifc.entity.dropped IFCARBITRARYPROFILEDEFWITHVOIDS 3
+lift ifc.entity.dropped IFCAXIS2PLACEMENT2D 62
+lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 136
+lift ifc.entity.dropped IFCBOOLEANCLIPPINGRESULT 28
+lift ifc.entity.dropped IFCCARTESIANPOINT 1357
+lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
+lift ifc.entity.dropped IFCCLASSIFICATION 1
+lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 5
+lift ifc.entity.dropped IFCCLOSEDSHELL 39
+lift ifc.entity.dropped IFCCOLOURRGB 9
+lift ifc.entity.dropped IFCDERIVEDUNIT 9
+lift ifc.entity.dropped IFCDERIVEDUNITELEMENT 25
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCDIRECTION 6
+lift ifc.entity.dropped IFCDOORLININGPROPERTIES 4
+lift ifc.entity.dropped IFCDOORPANELPROPERTIES 4
+lift ifc.entity.dropped IFCEXTRUDEDAREASOLID 71
+lift ifc.entity.dropped IFCFACE 1102
+lift ifc.entity.dropped IFCFACEBOUND 4
+lift ifc.entity.dropped IFCFACEOUTERBOUND 1102
+lift ifc.entity.dropped IFCFACETEDBREP 39
+lift ifc.entity.dropped IFCHALFSPACESOLID 24
+lift ifc.entity.dropped IFCMAPPEDITEM 26
+lift ifc.entity.dropped IFCMATERIALDEFINITIONREPRESENTATION 9
+lift ifc.entity.dropped IFCORGANIZATION 2
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPLANE 28
+lift ifc.entity.dropped IFCPOLYGONALBOUNDEDHALFSPACE 4
+lift ifc.entity.dropped IFCPOLYLINE 40
+lift ifc.entity.dropped IFCPOLYLOOP 1106
+lift ifc.entity.dropped IFCPOSTALADDRESS 1
+lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 6
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 18
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 84
+lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 62
+lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 5
+lift ifc.entity.dropped IFCREPRESENTATIONMAP 5
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 113
+lift ifc.entity.dropped IFCSIUNIT 3
+lift ifc.entity.dropped IFCSTYLEDITEM 90
+lift ifc.entity.dropped IFCSTYLEDREPRESENTATION 9
+lift ifc.entity.dropped IFCSURFACESTYLE 9
+lift ifc.entity.dropped IFCSURFACESTYLERENDERING 9
+lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
+lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 29
+hashes elements v1:fd751e4a7eea940f4853b6751a2df5d4 document-values v1:cbb4aabf5d84764a311453a3ae24038b
+== ifc/gni/model_125.ifc
+schema IFC4 records 39824 bytes 3480656
+application "Archicad" "28.0.0"
+document units 10 contexts 3 map false true-north true
+elements 642 global-ids 633 instance-ids 9
+class IfcBuilding 1
+class IfcBuildingStorey 4
+class IfcColumn 6
+class IfcColumnType 1
+class IfcCurtainWall 2
+class IfcCurtainWallType 1
+class IfcDoor 45
+class IfcDoorType 4
+class IfcFurniture 125
+class IfcFurnitureType 3
+class IfcMaterial 9
+class IfcOpeningElement 195
+class IfcProject 1
+class IfcSite 1
+class IfcSlab 6
+class IfcSlabType 1
+class IfcStair 4
+class IfcStairType 1
+class IfcWall 78
+class IfcWallType 2
+class IfcWindow 150
+class IfcWindowType 2
+storey "Ground Floor" 0
+storey "2. Story" 6000
+storey "1. Story" 3000
+storey "Story" 9000
+components identity 642 class 642 classification 0 spatial 6 parent 422 placement 617 representation 0 style 0 type 416 properties 416 quantities 0 material 42 opening 390 group 0 connection 73 grid 0 level 0 zone 0 extension 0
+world-placement 617 of 617
+lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 36
+lift ifc.entity.dropped IFCCARTESIANPOINT 368
+lift ifc.entity.dropped IFCCARTESIANPOINTLIST2D 78
+lift ifc.entity.dropped IFCCARTESIANPOINTLIST3D 1872
+lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 332
+lift ifc.entity.dropped IFCCLASSIFICATION 1
+lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 9
+lift ifc.entity.dropped IFCCOLOURRGB 19
+lift ifc.entity.dropped IFCCOLOURRGBLIST 59
+lift ifc.entity.dropped IFCDERIVEDUNIT 3
+lift ifc.entity.dropped IFCDERIVEDUNITELEMENT 8
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 3
+lift ifc.entity.dropped IFCDIRECTION 72
+lift ifc.entity.dropped IFCDISTRIBUTIONFLOWELEMENT 18
+lift ifc.entity.dropped IFCDOORLININGPROPERTIES 3
+lift ifc.entity.dropped IFCDOORPANELPROPERTIES 5
+lift ifc.entity.dropped IFCINDEXEDCOLOURMAP 59
+lift ifc.entity.dropped IFCINDEXEDPOLYCURVE 78
+lift ifc.entity.dropped IFCINDEXEDPOLYGONALFACE 19306
+lift ifc.entity.dropped IFCINDEXEDPOLYGONALFACEWITHVOIDS 46
+lift ifc.entity.dropped IFCLOCALPLACEMENT 18
+lift ifc.entity.dropped IFCMAPPEDITEM 332
+lift ifc.entity.dropped IFCMATERIALCONSTITUENT 1016
+lift ifc.entity.dropped IFCMATERIALCONSTITUENTSET 54
+lift ifc.entity.dropped IFCMATERIALDEFINITIONREPRESENTATION 9
+lift ifc.entity.dropped IFCMONETARYUNIT 1
+lift ifc.entity.dropped IFCORGANIZATION 2
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYGONALFACESET 1872
+lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 11
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 629
+lift ifc.entity.dropped IFCPROPERTYENUMERATEDVALUE 291
+lift ifc.entity.dropped IFCPROPERTYENUMERATION 1
+lift ifc.entity.dropped IFCPROPERTYSET 54
+lift ifc.entity.dropped IFCPROPERTYSINGLEVALUE 90
+lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 9
+lift ifc.entity.dropped IFCRELASSOCIATESMATERIAL 54
+lift ifc.entity.dropped IFCRELDEFINESBYTYPE 2
+lift ifc.entity.dropped IFCREPRESENTATIONMAP 18
+lift ifc.entity.dropped IFCSHAPEASPECT 1082
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 1807
+lift ifc.entity.dropped IFCSIUNIT 8
+lift ifc.entity.dropped IFCSTYLEDITEM 1934
+lift ifc.entity.dropped IFCSTYLEDREPRESENTATION 9
+lift ifc.entity.dropped IFCSURFACESTYLE 19
+lift ifc.entity.dropped IFCSURFACESTYLERENDERING 19
+lift ifc.entity.dropped IFCVALVETYPE 2
+lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 2
+lift ifc.entity.dropped IFCWINDOWPANELPROPERTIES 3
+lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 195
+hashes elements v1:77eb55b1b39f9fc6fa1c2951f442beb7 document-values v1:3c6c5e8ba150005762a7c20e073efee8
+== ifc/gni/model_18.ifc
+schema IFC2X3 records 32101 bytes 1707831
+application "Autodesk Revit 2024 (ENU)" "2024"
+document units 3 contexts 5 map false true-north true
+elements 391 global-ids 330 instance-ids 61
+class IfcBeam 5
+class IfcBeamType 2
+class IfcBuilding 1
+class IfcBuildingStorey 7
+class IfcColumn 14
+class IfcColumnType 2
+class IfcCovering 2
+class IfcCoveringType 1
+class IfcDoor 17
+class IfcDoorStyle 2
+class IfcFurnishingElement 16
+class IfcFurnitureType 6
+class IfcGrid 2
+class IfcGridAxis 40
+class IfcMaterial 21
+class IfcMember 6
+class IfcMemberType 1
+class IfcOpeningElement 84
+class IfcProject 1
+class IfcRailing 6
+class IfcRailingType 1
+class IfcRoof 2
+class IfcSite 1
+class IfcSlab 23
+class IfcSlabType 2
+class IfcSpace 15
+class IfcSpaceType 15
+class IfcStair 3
+class IfcStairFlight 3
+class IfcStairFlightType 1
+class IfcWall 1
+class IfcWall (IfcWallStandardCase) 23
+class IfcWallType 1
+class IfcWindow 63
+class IfcWindowStyle 1
+storey "EG" 0
+storey "OG1" 4.6
+storey "OK OG2" 9.2
+storey "OK OG3" 13.8
+storey "OK OG4" 18.4
+storey "OK OG5" 23
+storey "OK OG6" 27.6
+components identity 351 class 391 classification 0 spatial 24 parent 210 placement 294 representation 0 style 0 type 186 properties 220 quantities 0 material 192 opening 164 group 0 connection 24 grid 42 level 0 zone 0 extension 0
+world-placement 294 of 294
+lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 34
+lift ifc.entity.dropped IFCAXIS2PLACEMENT2D 216
+lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 388
+lift ifc.entity.dropped IFCBOOLEANCLIPPINGRESULT 2
+lift ifc.entity.dropped IFCBOOLEANRESULT 1
+lift ifc.entity.dropped IFCCARTESIANPOINT 7395
+lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
+lift ifc.entity.dropped IFCCIRCLE 9
+lift ifc.entity.dropped IFCCIRCLEPROFILEDEF 4
+lift ifc.entity.dropped IFCCLASSIFICATION 1
+lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 1
+lift ifc.entity.dropped IFCCLOSEDSHELL 90
+lift ifc.entity.dropped IFCCOLOURRGB 62
+lift ifc.entity.dropped IFCCOMPOSITECURVE 6
+lift ifc.entity.dropped IFCCOMPOSITECURVESEGMENT 33
+lift ifc.entity.dropped IFCCONNECTEDFACESET 2
+lift ifc.entity.dropped IFCCURVESTYLE 40
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCDIRECTION 35
+lift ifc.entity.dropped IFCDOORLININGPROPERTIES 2
+lift ifc.entity.dropped IFCDOORPANELPROPERTIES 2
+lift ifc.entity.dropped IFCEXTRUDEDAREASOLID 241
+lift ifc.entity.dropped IFCFACE 6347
+lift ifc.entity.dropped IFCFACEBASEDSURFACEMODEL 2
+lift ifc.entity.dropped IFCFACEBOUND 10
+lift ifc.entity.dropped IFCFACEOUTERBOUND 6347
+lift ifc.entity.dropped IFCFACETEDBREP 90
+lift ifc.entity.dropped IFCGEOMETRICCURVESET 40
+lift ifc.entity.dropped IFCMAPPEDITEM 110
+lift ifc.entity.dropped IFCMATERIALDEFINITIONREPRESENTATION 21
+lift ifc.entity.dropped IFCORGANIZATION 2
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPLANE 2
+lift ifc.entity.dropped IFCPOLYGONALBOUNDEDHALFSPACE 2
+lift ifc.entity.dropped IFCPOLYLINE 123
+lift ifc.entity.dropped IFCPOLYLOOP 6357
+lift ifc.entity.dropped IFCPOSTALADDRESS 1
+lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 14
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 82
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 280
+lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 203
+lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 1
+lift ifc.entity.dropped IFCRELDEFINESBYTYPE 2
+lift ifc.entity.dropped IFCREPRESENTATIONMAP 11
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 320
+lift ifc.entity.dropped IFCSTYLEDITEM 294
+lift ifc.entity.dropped IFCSTYLEDREPRESENTATION 21
+lift ifc.entity.dropped IFCSURFACESTYLE 22
+lift ifc.entity.dropped IFCSURFACESTYLERENDERING 22
+lift ifc.entity.dropped IFCTRIMMEDCURVE 9
+lift ifc.entity.dropped IFCTYPEPRODUCT 2
+lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
+hashes elements v1:4bbab672c6b5c49c76ab22fb65ccb35c document-values v1:5c7391dd0f2f519ccd18cf133bd82338
+== ifc/gni/model_9.ifc
+schema IFC4 records 6569 bytes 601356
+application "Autodesk Revit 2025 (ENG)" "2025"
+document units 3 contexts 5 map false true-north true
+elements 320 global-ids 234 instance-ids 86
+class IfcBuilding 1
+class IfcBuildingStorey 5
+class IfcColumn 29
+class IfcColumnType 4
+class IfcDoor 8
+class IfcDoorType 2
+class IfcGrid 5
+class IfcGridAxis 75
+class IfcMaterial 11
+class IfcMember 20
+class IfcMemberType 1
+class IfcOpeningElement 52
+class IfcProject 1
+class IfcRailing 8
+class IfcRailingType 1
+class IfcSite 1
+class IfcSlab 13
+class IfcSlabType 1
+class IfcSpace 2
+class IfcSpaceType 2
+class IfcStair 4
+class IfcStairFlight 4
+class IfcStairFlightType 1
+class IfcStairType 1
+class IfcWall 20
+class IfcWallType 3
+class IfcWindow 44
+class IfcWindowType 1
+storey "UG" -4.4
+storey "EG" 0
+storey "1. OG" 4.4
+storey "2. OG" 8.8
+storey "3. OG" 13.2
+components identity 245 class 320 classification 0 spatial 9 parent 164 placement 216 representation 0 style 0 type 152 properties 168 quantities 0 material 96 opening 104 group 0 connection 0 grid 80 level 0 zone 0 extension 0
+world-placement 216 of 216
+lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 201
+lift ifc.entity.dropped IFCAXIS2PLACEMENT2D 6
+lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 282
+lift ifc.entity.dropped IFCCARTESIANPOINT 195
+lift ifc.entity.dropped IFCCARTESIANPOINTLIST2D 297
+lift ifc.entity.dropped IFCCARTESIANPOINTLIST3D 80
+lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
+lift ifc.entity.dropped IFCCLASSIFICATION 1
+lift ifc.entity.dropped IFCCOLOURRGB 12
+lift ifc.entity.dropped IFCCOLOURRGBLIST 60
+lift ifc.entity.dropped IFCDERIVEDUNIT 1
+lift ifc.entity.dropped IFCDERIVEDUNITELEMENT 3
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCDIRECTION 18
+lift ifc.entity.dropped IFCDOORLININGPROPERTIES 2
+lift ifc.entity.dropped IFCDOORPANELPROPERTIES 2
+lift ifc.entity.dropped IFCEXTRUDEDAREASOLID 207
+lift ifc.entity.dropped IFCGEOMETRICCURVESET 75
+lift ifc.entity.dropped IFCGEOMETRICSET 8
+lift ifc.entity.dropped IFCINDEXEDCOLOURMAP 60
+lift ifc.entity.dropped IFCINDEXEDPOLYCURVE 317
+lift ifc.entity.dropped IFCINDEXEDPOLYGONALFACE 1447
+lift ifc.entity.dropped IFCINDEXEDPOLYGONALFACEWITHVOIDS 24
+lift ifc.entity.dropped IFCMAPPEDITEM 81
+lift ifc.entity.dropped IFCMATERIALCONSTITUENT 211
+lift ifc.entity.dropped IFCMATERIALCONSTITUENTSET 55
+lift ifc.entity.dropped IFCORGANIZATION 2
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYGONALFACESET 60
+lift ifc.entity.dropped IFCPOSTALADDRESS 1
+lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 10
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 205
+lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 6
+lift ifc.entity.dropped IFCRELASSOCIATESMATERIAL 55
+lift ifc.entity.dropped IFCREPRESENTATIONMAP 7
+lift ifc.entity.dropped IFCSHAPEASPECT 11
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 264
+lift ifc.entity.dropped IFCSIUNIT 3
+lift ifc.entity.dropped IFCSTYLEDITEM 213
+lift ifc.entity.dropped IFCSURFACESTYLE 12
+lift ifc.entity.dropped IFCSURFACESTYLERENDERING 12
+lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
+lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 1
+hashes elements v1:5e404857ab3c3b91fdf80c0c5c67a89b document-values v1:861aeb29d88ec8fea42d6cb0a5977bf1
+== ifc/nakano/nakano_20F_Restaurant.ifc
+schema IFC2X3 records 7200 bytes 407149
+application "Autodesk Civil 3D 2024 - 日本語 (Japanese)" "13.6.342.0"
+document units 6 contexts 2 map false true-north false
+elements 64 global-ids 64 instance-ids 0
+class IfcBuilding 1
+class IfcBuildingElementProxy 62
+class IfcProject 1
+components identity 2 class 64 classification 0 spatial 1 parent 63 placement 63 representation 0 style 0 type 0 properties 2 quantities 0 material 0 opening 0 group 0 connection 0 grid 0 level 0 zone 0 extension 0
+world-placement 63 of 63
+lift ifc.entity.dropped IFCCARTESIANPOINT 2277
+lift ifc.entity.dropped IFCCLOSEDSHELL 62
+lift ifc.entity.dropped IFCCOLOURRGB 91
+lift ifc.entity.dropped IFCCURVESTYLE 29
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCFACE 1309
+lift ifc.entity.dropped IFCFACEBOUND 11
+lift ifc.entity.dropped IFCFACEOUTERBOUND 1309
+lift ifc.entity.dropped IFCFACETEDBREP 62
+lift ifc.entity.dropped IFCORGANIZATION 1
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYLOOP 1320
+lift ifc.entity.dropped IFCPRESENTATIONLAYERWITHSTYLE 29
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 62
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 62
+lift ifc.entity.dropped IFCPROPERTYBOUNDEDVALUE 2
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 62
+lift ifc.entity.dropped IFCSTYLEDITEM 62
+lift ifc.entity.dropped IFCSURFACESTYLE 62
+lift ifc.entity.dropped IFCSURFACESTYLESHADING 62
+hashes elements v1:3d38eb692f641b2ccd44ee825c81ae31 document-values v1:5d6a82e6271372acb43cc019fc1fcb85
+== ifc/nakano/nakano_6F_chapel.ifc
+schema IFC2X3 records 6895 bytes 349768
+application "Autodesk Civil 3D 2024 - 日本語 (Japanese)" "13.6.342.0"
+document units 6 contexts 2 map false true-north false
+elements 210 global-ids 210 instance-ids 0
+class IfcBuilding 1
+class IfcBuildingElementProxy 208
+class IfcProject 1
+components identity 2 class 210 classification 0 spatial 1 parent 209 placement 209 representation 0 style 0 type 0 properties 2 quantities 0 material 0 opening 0 group 0 connection 0 grid 0 level 0 zone 0 extension 0
+world-placement 209 of 209
+lift ifc.entity.dropped IFCCARTESIANPOINT 1182
+lift ifc.entity.dropped IFCCLOSEDSHELL 208
+lift ifc.entity.dropped IFCCOLOURRGB 215
+lift ifc.entity.dropped IFCCURVESTYLE 7
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCFACE 969
+lift ifc.entity.dropped IFCFACEOUTERBOUND 969
+lift ifc.entity.dropped IFCFACETEDBREP 3
+lift ifc.entity.dropped IFCORGANIZATION 1
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYLOOP 969
+lift ifc.entity.dropped IFCPRESENTATIONLAYERWITHSTYLE 7
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 208
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 208
+lift ifc.entity.dropped IFCPROPERTYBOUNDEDVALUE 2
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 208
+lift ifc.entity.dropped IFCSHELLBASEDSURFACEMODEL 205
+lift ifc.entity.dropped IFCSTYLEDITEM 208
+lift ifc.entity.dropped IFCSURFACESTYLE 208
+lift ifc.entity.dropped IFCSURFACESTYLESHADING 208
+hashes elements v1:afe5033d723979aaa26a47066b1a579a document-values v1:9f09813a9f448313bf2dbca0544c6ed3
+== ifc/nakano/nakano_ConcertHall.ifc
+schema IFC2X3 records 2527 bytes 128848
+application "Autodesk Civil 3D 2024 - 日本語 (Japanese)" "13.6.342.0"
+document units 6 contexts 2 map false true-north false
+elements 82 global-ids 82 instance-ids 0
+class IfcBuilding 1
+class IfcBuildingElementProxy 80
+class IfcProject 1
+components identity 2 class 82 classification 0 spatial 1 parent 81 placement 81 representation 0 style 0 type 0 properties 2 quantities 0 material 0 opening 0 group 0 connection 0 grid 0 level 0 zone 0 extension 0
+world-placement 81 of 81
+lift ifc.entity.dropped IFCCARTESIANPOINT 413
+lift ifc.entity.dropped IFCCLOSEDSHELL 80
+lift ifc.entity.dropped IFCCOLOURRGB 86
+lift ifc.entity.dropped IFCCURVESTYLE 6
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCFACE 325
+lift ifc.entity.dropped IFCFACEOUTERBOUND 325
+lift ifc.entity.dropped IFCFACETEDBREP 15
+lift ifc.entity.dropped IFCORGANIZATION 1
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYLOOP 325
+lift ifc.entity.dropped IFCPRESENTATIONLAYERWITHSTYLE 6
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 80
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 80
+lift ifc.entity.dropped IFCPROPERTYBOUNDEDVALUE 2
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 80
+lift ifc.entity.dropped IFCSHELLBASEDSURFACEMODEL 65
+lift ifc.entity.dropped IFCSTYLEDITEM 80
+lift ifc.entity.dropped IFCSURFACESTYLE 80
+lift ifc.entity.dropped IFCSURFACESTYLESHADING 80
+hashes elements v1:1447104e0ead6fd36747885809bfc37b document-values v1:9826063793301fe5fa91dda90fc47212
+== ifc/nakano/nakano_Outside.ifc
+schema IFC2X3 records 1840 bytes 94524
+application "Autodesk Civil 3D 2024 - 日本語 (Japanese)" "13.6.342.0"
+document units 6 contexts 2 map false true-north false
+elements 39 global-ids 39 instance-ids 0
+class IfcBuilding 1
+class IfcBuildingElementProxy 37
+class IfcProject 1
+components identity 2 class 39 classification 0 spatial 1 parent 38 placement 38 representation 0 style 0 type 0 properties 2 quantities 0 material 0 opening 0 group 0 connection 0 grid 0 level 0 zone 0 extension 0
+world-placement 38 of 38
+lift ifc.entity.dropped IFCCARTESIANPOINT 366
+lift ifc.entity.dropped IFCCLOSEDSHELL 37
+lift ifc.entity.dropped IFCCOLOURRGB 39
+lift ifc.entity.dropped IFCCURVESTYLE 2
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCFACE 302
+lift ifc.entity.dropped IFCFACEOUTERBOUND 302
+lift ifc.entity.dropped IFCFACETEDBREP 20
+lift ifc.entity.dropped IFCORGANIZATION 1
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYLOOP 302
+lift ifc.entity.dropped IFCPRESENTATIONLAYERWITHSTYLE 2
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 37
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 37
+lift ifc.entity.dropped IFCPROPERTYBOUNDEDVALUE 2
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 37
+lift ifc.entity.dropped IFCSHELLBASEDSURFACEMODEL 17
+lift ifc.entity.dropped IFCSTYLEDITEM 37
+lift ifc.entity.dropped IFCSURFACESTYLE 37
+lift ifc.entity.dropped IFCSURFACESTYLESHADING 37
+hashes elements v1:ee34b1b222caabbcd96bbdd5ab98d7b3 document-values v1:824d4327d247eb3d1b505c3ffe02b448
+== ifc/nakano/nakano_entrance.ifc
+schema IFC2X3 records 11283 bytes 584460
+application "Autodesk Civil 3D 2024 - 日本語 (Japanese)" "13.6.342.0"
+document units 6 contexts 2 map false true-north false
+elements 190 global-ids 190 instance-ids 0
+class IfcBuilding 1
+class IfcBuildingElementProxy 188
+class IfcProject 1
+components identity 2 class 190 classification 0 spatial 1 parent 189 placement 189 representation 0 style 0 type 0 properties 2 quantities 0 material 0 opening 0 group 0 connection 0 grid 0 level 0 zone 0 extension 0
+world-placement 189 of 189
+lift ifc.entity.dropped IFCCARTESIANPOINT 2365
+lift ifc.entity.dropped IFCCLOSEDSHELL 188
+lift ifc.entity.dropped IFCCOLOURRGB 196
+lift ifc.entity.dropped IFCCURVESTYLE 8
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCFACE 2123
+lift ifc.entity.dropped IFCFACEOUTERBOUND 2123
+lift ifc.entity.dropped IFCFACETEDBREP 121
+lift ifc.entity.dropped IFCORGANIZATION 1
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYLOOP 2123
+lift ifc.entity.dropped IFCPRESENTATIONLAYERWITHSTYLE 8
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 188
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 188
+lift ifc.entity.dropped IFCPROPERTYBOUNDEDVALUE 2
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 188
+lift ifc.entity.dropped IFCSHELLBASEDSURFACEMODEL 67
+lift ifc.entity.dropped IFCSTYLEDITEM 188
+lift ifc.entity.dropped IFCSURFACESTYLE 188
+lift ifc.entity.dropped IFCSURFACESTYLESHADING 188
+hashes elements v1:0c7fea15e216a58321921f7fbf51a802 document-values v1:8c56858356ff54cd6e2f227dad4f9673
+== ifc/rinya/wood-office-architecture.ifc
+schema IFC4X3 records 31403 bytes 1847319
+application "Autodesk Revit 2024 (JPN)" "2024"
+document units 17 contexts 5 map false true-north true
+elements 711 global-ids 612 instance-ids 99
+class IfcBuilding 1
+class IfcBuildingStorey 6
+class IfcCovering 38
+class IfcCoveringType 1
+class IfcDoor 45
+class IfcDoorType 14
+class IfcGrid 6
+class IfcGridAxis 84
+class IfcMaterial 15
+class IfcOpeningElement 178
+class IfcProject 1
+class IfcSite 1
+class IfcSlab 4
+class IfcSlabType 3
+class IfcSpace 31
+class IfcSpaceType 31
+class IfcWall 151
+class IfcWallType 11
+class IfcWindow 79
+class IfcWindowType 11
+storey "設計GL" -100
+storey "1FL" 0
+storey "2FL" 4300
+storey "3FL" 8000
+storey "RFL" 11470
+storey "最高高さ" 12320
+components identity 627 class 711 classification 0 spatial 39 parent 362 placement 540 representation 0 style 0 type 348 properties 438 quantities 0 material 212 opening 302 group 0 connection 176 grid 90 level 0 zone 0 extension 0
+world-placement 540 of 540
+lift ifc.entity.dropped IFCACTORROLE 1
+lift ifc.entity.dropped IFCAPPLICATION 1
+lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 57
+lift ifc.entity.dropped IFCARBITRARYOPENPROFILEDEF 360
+lift ifc.entity.dropped IFCARBITRARYPROFILEDEFWITHVOIDS 27
+lift ifc.entity.dropped IFCAXIS2PLACEMENT2D 369
+lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 1302
+lift ifc.entity.dropped IFCCARTESIANPOINT 8100
+lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
+lift ifc.entity.dropped IFCCLASSIFICATION 1
+lift ifc.entity.dropped IFCCLOSEDSHELL 188
+lift ifc.entity.dropped IFCCOLOURRGB 99
+lift ifc.entity.dropped IFCCONNECTIONSURFACEGEOMETRY 408
+lift ifc.entity.dropped IFCCURVEBOUNDEDPLANE 48
+lift ifc.entity.dropped IFCCURVESTYLE 90
+lift ifc.entity.dropped IFCCURVESTYLEFONT 6
+lift ifc.entity.dropped IFCCURVESTYLEFONTPATTERN 6
+lift ifc.entity.dropped IFCDERIVEDUNIT 34
+lift ifc.entity.dropped IFCDERIVEDUNITELEMENT 21
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCDIRECTION 14
+lift ifc.entity.dropped IFCDOORLININGPROPERTIES 14
+lift ifc.entity.dropped IFCDOORPANELPROPERTIES 14
+lift ifc.entity.dropped IFCEXTRUDEDAREASOLID 453
+lift ifc.entity.dropped IFCFACE 2801
+lift ifc.entity.dropped IFCFACEBOUND 104
+lift ifc.entity.dropped IFCFACEOUTERBOUND 2801
+lift ifc.entity.dropped IFCFACETEDBREP 188
+lift ifc.entity.dropped IFCFILLAREASTYLE 1
+lift ifc.entity.dropped IFCFILLAREASTYLEHATCHING 6
+lift ifc.entity.dropped IFCGEOMETRICCURVESET 84
+lift ifc.entity.dropped IFCMAPPEDITEM 118
+lift ifc.entity.dropped IFCMATERIALCONSTITUENT 414
+lift ifc.entity.dropped IFCMATERIALCONSTITUENTSET 137
+lift ifc.entity.dropped IFCMATERIALDEFINITIONREPRESENTATION 14
+lift ifc.entity.dropped IFCMATERIALPROPERTIES 58
+lift ifc.entity.dropped IFCORGANIZATION 3
+lift ifc.entity.dropped IFCOWNERHISTORY 9
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPLANE 48
+lift ifc.entity.dropped IFCPOLYLINE 763
+lift ifc.entity.dropped IFCPOLYLOOP 2905
+lift ifc.entity.dropped IFCPOSTALADDRESS 1
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 526
+lift ifc.entity.dropped IFCPROPERTYSINGLEVALUE 124
+lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 369
+lift ifc.entity.dropped IFCRELASSOCIATESMATERIAL 137
+lift ifc.entity.dropped IFCREPRESENTATIONMAP 23
+lift ifc.entity.dropped IFCSHAPEASPECT 73
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 773
+lift ifc.entity.dropped IFCSIUNIT 3
+lift ifc.entity.dropped IFCSTYLEDITEM 436
+lift ifc.entity.dropped IFCSTYLEDREPRESENTATION 14
+lift ifc.entity.dropped IFCSURFACEOFLINEAREXTRUSION 360
+lift ifc.entity.dropped IFCSURFACESTYLE 14
+lift ifc.entity.dropped IFCSURFACESTYLERENDERING 14
+lift ifc.entity.dropped IFCTELECOMADDRESS 1
+lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 11
+lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 9
+hashes elements v1:ed075bca0be0a7c63764fa9e7a8dc427 document-values v1:b27faef22e4099a2347d0641e4ca4f78
+== ifc/text2bim/sample_model.ifc
+schema IFC2X3 records 5780 bytes 258353
+application "Vectorworks Architect 2024 Update 4 (Build 750359) by Vectorworks, Inc." "29_0_4_1"
+document units 10 contexts 7 map false true-north true
+elements 82 global-ids 45 instance-ids 37
+class IfcBuilding 1
+class IfcBuildingStorey 2
+class IfcDoor 3
+class IfcDoorStyle 2
+class IfcMaterial 37
+class IfcOpeningElement 9
+class IfcProject 1
+class IfcRoof 1
+class IfcSite 1
+class IfcSlab 7
+class IfcSlabType 1
+class IfcWall 7
+class IfcWall (IfcWallStandardCase) 2
+class IfcWindow 6
+class IfcWindowStyle 2
+storey "Ground Floor-1" 0
+storey "First Floor-2" 3000
+components identity 68 class 82 classification 0 spatial 4 parent 30 placement 39 representation 0 style 0 type 10 properties 30 quantities 0 material 17 opening 18 group 0 connection 8 grid 0 level 0 zone 0 extension 0
+world-placement 39 of 39
+lift ifc.entity.dropped IFCACTOR 3
+lift ifc.entity.dropped IFCACTORROLE 2
+lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 6
+lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 4
+lift ifc.entity.dropped IFCBUILDINGELEMENTPART 6
+lift ifc.entity.dropped IFCCARTESIANPOINT 2348
+lift ifc.entity.dropped IFCCLASSIFICATION 4
+lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 9
+lift ifc.entity.dropped IFCCLOSEDSHELL 18
+lift ifc.entity.dropped IFCCOLOURRGB 103
+lift ifc.entity.dropped IFCCURVESTYLE 37
+lift ifc.entity.dropped IFCDERIVEDUNIT 1
+lift ifc.entity.dropped IFCDERIVEDUNITELEMENT 3
+lift ifc.entity.dropped IFCDIMENSIONALEXPONENTS 1
+lift ifc.entity.dropped IFCDIRECTION 16
+lift ifc.entity.dropped IFCDOORLININGPROPERTIES 2
+lift ifc.entity.dropped IFCDOORPANELPROPERTIES 2
+lift ifc.entity.dropped IFCEXTRUDEDAREASOLID 6
+lift ifc.entity.dropped IFCFACE 716
+lift ifc.entity.dropped IFCFACEOUTERBOUND 716
+lift ifc.entity.dropped IFCFACETEDBREP 18
+lift ifc.entity.dropped IFCLOCALPLACEMENT 6
+lift ifc.entity.dropped IFCMATERIALDEFINITIONREPRESENTATION 23
+lift ifc.entity.dropped IFCMATERIALLAYER 5
+lift ifc.entity.dropped IFCMATERIALLAYERSET 5
+lift ifc.entity.dropped IFCMATERIALLAYERSETUSAGE 5
+lift ifc.entity.dropped IFCMONETARYUNIT 1
+lift ifc.entity.dropped IFCOPENSHELL 28
+lift ifc.entity.dropped IFCORGANIZATION 1
+lift ifc.entity.dropped IFCPERSON 1
+lift ifc.entity.dropped IFCPERSONANDORGANIZATION 1
+lift ifc.entity.dropped IFCPOLYLINE 14
+lift ifc.entity.dropped IFCPOLYLOOP 716
+lift ifc.entity.dropped IFCPOSTALADDRESS 3
+lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 12
+lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 66
+lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 40
+lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 9
+lift ifc.entity.dropped IFCSHAPEREPRESENTATION 42
+lift ifc.entity.dropped IFCSHELLBASEDSURFACEMODEL 16
+lift ifc.entity.dropped IFCSIUNIT 1
+lift ifc.entity.dropped IFCSTYLEDITEM 66
+lift ifc.entity.dropped IFCSTYLEDREPRESENTATION 23
+lift ifc.entity.dropped IFCSURFACESTYLE 66
+lift ifc.entity.dropped IFCSURFACESTYLERENDERING 66
+lift ifc.entity.dropped IFCTELECOMADDRESS 2
+lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 2
+lift ifc.entity.dropped IFCWINDOWPANELPROPERTIES 2
+lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 11
+hashes elements v1:d648d6f6f00f84d50370e502b108a271 document-values v1:53eec7796ada344a8c0f56f4965d2b6e

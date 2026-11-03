@@ -1060,6 +1060,7 @@ dependencies = [
  "zumen-civil",
  "zumen-crs",
  "zumen-ids",
+ "zumen-json",
  "zumen-landxml",
  "zumen-sdk",
  "zumen-step",
