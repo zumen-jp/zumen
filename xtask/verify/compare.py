@@ -12,6 +12,10 @@ SKIP = {"style_id"}
 ANGLES = {"rotation", "start_angle", "end_angle"}
 # 比べた数の名前（結果の JSON のキー）→ 表示
 LABELS = {"elements": "出所で結んだ要素", "shapes": "形を比べた要素", "expected": "変更で決めた形"}
+# 図形を図面モデルに移さなかったことを言う診断（catalog/codes.toml）。黙って捨てない照合は、これだけを数える。
+# params の kind は、DXF・DWG では図形の種類（DXF の名前）、JWW ではクラスの名前、SFC ではフィーチャの名前、P21
+# では形の種類
+LIFTED_AWAY = {"dxf.lift.dropped", "dxf.lift.invalid", "jww.lift.dropped", "jww.lift.invalid", "sxf.lift.dropped", "sxf.lift.invalid"}
 
 # DXF・DWG: 図面モデルの形 → 図形の種類（DXF の名前）
 TYPES = {
@@ -56,12 +60,15 @@ def close_angle(a, b):
     return min(d, 360.0 - d) <= 1e-9 * max(1.0, abs(a), abs(b))
 
 
-def differences(want, got, path=""):
-    """want の欄が got と同じでない所。want にない欄は比べない"""
+def differences(want, got, path="", both=False):
+    """want の欄が got と同じでない所。both なら、got にだけある欄も食い違いにする（zumen の読みと外部の実装の読みを
+    比べるとき。zumen が欄を落としても見つける）。変更で決めた形は、既定の値の欄を書かないので both にしない"""
     out = []
     if isinstance(want, dict):
         if not isinstance(got, dict):
             return [f"{path}: {got!r}（期待は {want!r}）"]
+        if both:
+            out += [f"{path}/{key}: zumen の読みにない（外部の実装は {value!r}）" for key, value in got.items() if key not in want and key not in SKIP]
         for key, value in want.items():
             if key in SKIP:
                 continue
@@ -77,12 +84,12 @@ def differences(want, got, path=""):
                 if value.lower() != got[key].lower():
                     out.append(f"{path}/{key}: {got[key]!r}（期待は {value!r}）")
                 continue
-            out += differences(value, got[key], f"{path}/{key}")
+            out += differences(value, got[key], f"{path}/{key}", both)
     elif isinstance(want, list):
         if not isinstance(got, list) or len(want) != len(got):
             return [f"{path}: {got!r}（期待は {want!r}）"]
         for i, (a, b) in enumerate(zip(want, got)):
-            out += differences(a, b, f"{path}/{i}")
+            out += differences(a, b, f"{path}/{i}", both)
     elif isinstance(want, bool) or isinstance(want, str):
         if want != got:
             out.append(f"{path}: {got!r}（期待は {want!r}）")
@@ -90,6 +97,16 @@ def differences(want, got, path=""):
         if not isinstance(got, (int, float)) or not close(float(want), float(got)):
             out.append(f"{path}: {got!r}（期待は {want!r}）")
     return out
+
+
+def lifted_away(entry, reading):
+    """zumen が開いたときと読んだときの診断のうち、図形を移さなかったことを言うもの（LIFTED_AWAY）"""
+    return [d for d in reading["diagnostics"] + entry.get("open", []) if d["code"] in LIFTED_AWAY]
+
+
+def lifted_away_records(entry, reading):
+    """移さなかった図形のレコードの番号と、その kind の組 (kind, レコードの番号) の集まり"""
+    return {(d.get("params", {}).get("kind"), p.get("record")) for d in lifted_away(entry, reading) for p in d.get("at", [])}
 
 
 def handle_of(element):
@@ -129,6 +146,10 @@ def check_handles(entry, reading, counts, view):
             failures.append(f"{where}: {tool} にハンドル {handle} の図形がない")
             continue
         shape = element.get("geometry", {}).get("shape")
+        # 表にない形は、出所の種類を比べられないので知らせる（TYPES に足す）
+        if shape is not None and shape not in TYPES:
+            failures.append(f"{where}: 形 {shape} と図形の種類の対応がない（compare.py の TYPES に足す）")
+            continue
         if shape in TYPES and e["type"] not in TYPES[shape]:
             failures.append(f"{where}: 形 {shape} の出所が {e['type']}")
             continue
@@ -141,7 +162,7 @@ def check_handles(entry, reading, counts, view):
             failures.append(f"{where}: {e['type']} {handle} の要素が形を持たない")
         if top and shape in TYPES and e["geometry"] is not None:
             counts["shapes"] += 1
-            for d in differences(element["geometry"], e["geometry"]):
+            for d in differences(element["geometry"], e["geometry"], both=True):
                 failures.append(f"{where}（{e['type']} {handle}）{d}")
     if entry["role"] == "apply":
         failures += applied(entry, reading, counts, view)
@@ -207,7 +228,10 @@ def run(folder, tool, version, formats, check, known=()):
             continue
         reading_path = folder / "zumen" / (entry["path"] + ".json")
         reading = json.loads(reading_path.read_text(encoding="utf-8")) if reading_path.exists() else None
-        failures, audit = check(folder, entry, reading, baselines.get(entry.get("from")), counts)
+        try:
+            failures, audit = check(folder, entry, reading, baselines.get(entry.get("from")), counts)
+        except Exception as error:  # noqa: BLE001 1 つのファイルで止まらず、ほかのファイルも照らす
+            failures, audit = [f"台本が止まった: {type(error).__name__}: {error}"], None
         if entry["role"] == "input":
             baselines[entry["path"]] = audit
         hits = [k for k in known if entry["path"].startswith(k[0]) and any(f.startswith(k[1]) for f in failures)]

@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.IO;
@@ -34,7 +35,9 @@ foreach (var entry in manifest["files"]!.AsArray())
 }
 var version = typeof(CadDocument).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 var output = new JsonObject { ["acadsharp"] = version, ["files"] = files };
-File.WriteAllText(Path.Combine(folder, "acadsharp-dump.json"), output.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+// 受け取った図面の NaN・無限大は、文字列（"NaN" など）で書く。数でないので、照らすと食い違いになる
+var options = new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+File.WriteAllText(Path.Combine(folder, "acadsharp-dump.json"), output.ToJsonString(options) + "\n");
 Console.WriteLine($"ACadSharp {version} で {files.Count} の DWG を読んだ");
 return 0;
 
@@ -60,28 +63,36 @@ static class Dwg
             result["error"] = $"{error.GetType().Name}: {error.Message}";
             return result;
         }
-        result["version"] = doc.Header.Version.ToString();
-        result["header"] = new JsonObject
+        try
         {
-            ["PDMODE"] = (int)doc.Header.PointDisplayMode,
-            ["PDSIZE"] = doc.Header.PointDisplaySize,
-        };
-        var layers = new JsonObject();
-        foreach (var layer in doc.Layers)
-        {
-            layers[layer.Name] = Index(layer.Color);
-        }
-        // 画層の名前と色（ACI。真の色なら null）
-        result["layers"] = layers;
-        var entities = new JsonObject();
-        foreach (var record in doc.BlockRecords)
-        {
-            foreach (var entity in record.Entities)
+            result["version"] = doc.Header.Version.ToString();
+            result["header"] = new JsonObject
             {
-                Add(entities, entity, record.Name);
+                ["PDMODE"] = (int)doc.Header.PointDisplayMode,
+                ["PDSIZE"] = doc.Header.PointDisplaySize,
+            };
+            var layers = new JsonObject();
+            foreach (var layer in doc.Layers)
+            {
+                layers[layer.Name] = Index(layer.Color);
             }
+            // 画層の名前と色（ACI。真の色なら null）
+            result["layers"] = layers;
+            var entities = new JsonObject();
+            foreach (var record in doc.BlockRecords)
+            {
+                foreach (var entity in record.Entities)
+                {
+                    Add(entities, entity, record.Name);
+                }
+            }
+            result["entities"] = entities;
         }
-        result["entities"] = entities;
+        catch (Exception error)
+        {
+            // 読めた後の値の写しで止まっても、ほかのファイルは書く
+            result["error"] = $"{error.GetType().Name}: {error.Message}";
+        }
         return result;
     }
 

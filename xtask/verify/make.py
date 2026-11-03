@@ -27,6 +27,8 @@ ROOT = Path(__file__).resolve().parents[2]
 FIELDS = ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
 # 診断ごとに返す場所の数。既定の 16 では、黙って捨てない照合で、場所のない図形を誤って数える
 MAX_PLACES = 100000
+# 作った DXF（input/made-dropped.dxf）の、zumen が要素にしない図形の数。既定の場所の数 16 より多くする
+DROPPED = 20
 # 適合試験の図面と束の台本のライセンス（このリポジトリと同じ）
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
@@ -253,6 +255,19 @@ def basic_steps(_fmt):
             edits.append(replace(circles[0], {"shape": "circle", "center": [c["center"][0] + 10, c["center"][1]], "radius": c["radius"] * 1.5}))
         return edits
 
+    def angles(_reading):
+        # 角度と寄せ方を持つ形。外部の実装の、ラジアンから度への直しと、文字の寄せ方の読みを確かめる
+        aligned = math.degrees(math.atan2(30, 40))
+        return [
+            add("space/0", {"shape": "formatted_text", "content": "ZUMEN ROTATED", "position": [0, -200], "height": 5, "rotation": 30, "attachment": "middle_center", "width": 40}),
+            add("space/0", {"shape": "text", "content": "ALIGNED", "position": [100, -200], "end": [140, -170], "fit": "aligned", "height": 3, "rotation": aligned}),
+            add("space/0", {"shape": "text", "content": "FIT", "position": [200, -200], "end": [250, -200], "fit": "fit", "height": 4, "rotation": 0}),
+            add("space/0", {"shape": "text", "content": "R45", "position": [300, -200], "height": 2, "rotation": 45}),
+            add("space/0", {"shape": "ellipse", "center": [0, -260], "major": [20, -250], "ratio": 0.4, "start_angle": 30, "end_angle": 200}),
+            add("space/0", {"shape": "arc", "center": [100, -260], "radius": 7, "start_angle": 350, "end_angle": 10}),
+            add("space/0", {"shape": "point", "position": [200, -260], "rotation": 60}),
+        ]
+
     def moves(reading):
         edits = []
         lines = [e for e in model(reading, shape="polyline") if not any(e["geometry"].get("bulges", []))]
@@ -263,7 +278,7 @@ def basic_steps(_fmt):
             edits.append({"kind": "restyle", "id": circles[0]["id"], "hash": circles[0]["hash"], "color": {"aci": 1}})
         return edits
 
-    return [layer, shapes, moves]
+    return [layer, shapes, angles, moves]
 
 
 def minsert_steps(_fmt):
@@ -314,8 +329,8 @@ RECIPES = [
 
 
 def dropped_dxf():
-    """zumen が要素にしない図形（3DFACE）を 20 持つ DXF。黙って捨てない照合で、診断が図形のレコードを指すことを
-    確かめる（20 は、既定の場所の数 16 を超える）。図形はハンドルを持ち、ezdxf の図形と zumen の要素を結べる"""
+    """zumen が要素にしない図形（3DFACE）を DROPPED 持つ DXF。黙って捨てない照合で、診断が図形のレコードを指すことを
+    確かめる（既定の場所の数 16 を超える）。図形はハンドルを持ち、ezdxf の図形と zumen の要素を結べる"""
 
     def tags(*pairs):
         return "".join(f"{code}\n{value}\n" for code, value in pairs)
@@ -324,7 +339,7 @@ def dropped_dxf():
     out += tags((0, "LAYER"), (2, "0"), (70, 0), (62, 7), (6, "CONTINUOUS"), (0, "ENDTAB"), (0, "ENDSEC"))
     out += tags((0, "SECTION"), (2, "ENTITIES"))
     out += tags((0, "LINE"), (5, "100"), (8, "0"), (10, 0.0), (20, 0.0), (30, 0.0), (11, 100.0), (21, 50.0), (31, 0.0))
-    for i in range(20):
+    for i in range(DROPPED):
         pairs = [(0, "3DFACE"), (5, f"{0x101 + i:X}"), (8, "0")]
         for k, (x, y) in enumerate([(0, 0), (5, 0), (5, 5), (0, 5)]):
             pairs += [(10 + k, float(i * 10 + x)), (20 + k, float(y)), (30 + k, 0.0)]
@@ -333,15 +348,22 @@ def dropped_dxf():
 
 
 def codes(*lists):
-    return {d["code"] for diagnostics in lists for d in diagnostics}
+    """診断の (code, kind) ごとの件数"""
+    found = Counter()
+    for diagnostics in lists:
+        for d in diagnostics:
+            found[(d["code"], d.get("params", {}).get("kind"))] += d.get("count", 1)
+    return found
 
 
 def reopen(z, out, record, data, baseline):
-    """書いたファイルを zumen で読み直して読みを置く。baseline（入力の診断の code）にない診断が出たら、reread に残す"""
+    """書いたファイルを zumen で読み直して読みを置く。baseline（入力の診断の (code, kind) ごとの件数）より件数の
+    増えた診断があれば、reread に残す"""
     record["open"] = open_file(z, record["path"] + ".reopened", data)
     reading = read(z, record["path"] + ".reopened")
     save_reading(out, record["path"], reading)
-    new = sorted(codes(record["open"], reading["diagnostics"]) - baseline)
+    found = codes(record["open"], reading["diagnostics"])
+    new = sorted(f"{code}（{kind}）{n}" if kind else f"{code} {n}" for (code, kind), n in found.items() if n > baseline[(code, kind)])
     if new:
         record["reread"] = new
 
@@ -369,9 +391,9 @@ def run_recipe(z, out, entry, data, recipe, baseline):
             record["status"] = "failed"
             return record
         applied = response["result"]["applied"]
-        # 期待する形と、足した要素の画層
+        # 期待する形と、足した要素の画層と色
         step["expect"] = [
-            {"id": a.get("id"), "edit": i, "geometry": e["_expect"], **({"layer": e["layer"]} if "layer" in e else {})}
+            {"id": a.get("id"), "edit": i, "geometry": e["_expect"], **{k: e[k] for k in ("layer", "color") if k in e}}
             for i, (e, a) in enumerate(zip(edits, applied))
             if "_expect" in e and a.get("id")
         ]
@@ -504,13 +526,24 @@ def describe(g):
     if s == "arc":
         return f"円弧 中心 {pt(g['center'])}・半径 {num(g['radius'])}・{num(g['start_angle'])}° から {num(g['end_angle'])}°（反時計回り）"
     if s == "ellipse":
-        return f"楕円 中心 {pt(g['center'])}・長軸の端 {pt(g['major'])}・比 {num(g['ratio'])}"
+        text = f"楕円 中心 {pt(g['center'])}・長軸の端 {pt(g['major'])}・比 {num(g['ratio'])}"
+        if (g["start_angle"], g["end_angle"]) != (0, 360):
+            text += f"・{num(g['start_angle'])}° から {num(g['end_angle'])}°（長軸から反時計回り）"
+        return text
     if s == "polyline":
         bulges = "・膨らみ " + "/".join(num(b) for b in g["bulges"]) if any(g.get("bulges", [])) else ""
         return f"ポリライン {'閉じた' if g['closed'] else '開いた'} " + " ".join(pt(p) for p in g["points"]) + bulges
     if s in ("text", "formatted_text"):
         kind = "文字" if s == "text" else "書式つきの文字"
-        return f"{kind}「{g['content']}」・位置 {pt(g['position'])}・高さ {num(g['height'])}・角度 {num(g.get('rotation', 0))}°"
+        text = f"{kind}「{g['content']}」・位置 {pt(g['position'])}・高さ {num(g['height'])}・角度 {num(g.get('rotation', 0))}°"
+        if "end" in g:
+            # 2 点の間に置く文字（DXF の TEXT の 72 が 3 は両端揃え、5 はフィット）
+            text += f"・{pt(g['end'])} までの間に置く（{'両端揃え' if g.get('fit') == 'aligned' else 'フィット'}）"
+        if "attachment" in g:
+            text += f"・寄せ方 {g['attachment']}"
+        if "width" in g:
+            text += f"・枠の幅 {num(g['width'])}"
+        return text
     if s == "symbol":
         text = f"記号「{g['name']}」・位置 {pt(g['position'])}・尺度 {num(g['scale'][0])}×{num(g['scale'][1])}・角度 {num(g['rotation'])}°"
         if "grid" in g:
@@ -558,7 +591,7 @@ SECTIONS = {
     ),
     156: (
         "#156 書き戻した DWG を AutoCAD で開く",
-        """R2000・R2004・R2013・R2018 の DWG と、同じ変更を当てた DXF です。画層を足し、線分・円・円弧・楕円・ポリライン・文字・書式つきの文字（と記号）を足し、円を置き換えて赤（ACI 1）にし、長方形のポリラインを下へ 20 動かしました（決定 0079〜0104・0155・0162）。
+        """R2000・R2004・R2013・R2018 の DWG と、同じ変更を当てた DXF です。画層を足し、線分・円・円弧・楕円・ポリライン・文字・書式つきの文字（と記号）を足し、角度と寄せ方を持つ形（回した書式つきの文字・2 点の間に置く文字・回した文字・部分の楕円・0° をまたぐ円弧・回した点）を足し、円を置き換えて赤（ACI 1）にし、長方形のポリラインを下へ 20 動かしました（決定 0079〜0104・0155・0162）。
 
 - **AutoCAD。** 共通の手順で、開けること・監査の誤りが 0 であること・下の表の形を確かめる。足した線分は、足した画層 ZUMEN_ADDED（緑、ACI 3）にある。
 """,
@@ -655,7 +688,9 @@ def expectation(out, f):
         for want in step.get("expect", []):
             handle = handles.get(want["id"])
             layer = f"・{word} {want['layer']}" if "layer" in want else ""
-            items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}{layer}")
+            color = want.get("color", {})
+            pen = f"・ペン {color['jww']}" if "jww" in color else f"・既定義色 {color['sxf']}" if "sxf" in color else ""
+            items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}{layer}{pen}")
         for edit in step["edits"]:
             if edit["kind"] == "point_style":
                 items.append("点の表し方: $PDMODE 67・$PDSIZE 4")
@@ -711,7 +746,7 @@ def main():
     out.mkdir(parents=True)
     z = Zumen(args.zumen)
     _, capabilities = z.call({"op": "capabilities"})
-    files = []
+    files, broken = [], []
     for path, data, source, terms, attribution in inputs(args.inputs):
         fmt = SUFFIXES[Path(path).suffix.lower()]
         (out / path).parent.mkdir(parents=True, exist_ok=True)
@@ -723,6 +758,11 @@ def main():
         save_reading(out, path, reading)
         files.append(entry)
         baseline = codes(entry["open"], reading["diagnostics"])
+        # 作った DXF が役目を果たすこと: 要素にしない図形のどれもが、移さなかったことを言う診断の場所にある
+        if path == "input/made-dropped.dxf":
+            places = sum(len(d.get("at", [])) for d in entry["open"] + reading["diagnostics"] if d["code"] == "dxf.lift.dropped")
+            if places != DROPPED:
+                broken.append(f"{path}: dxf.lift.dropped の場所が {places}（期待は {DROPPED}）。黙って捨てない照合を確かめられない")
         for recipe in RECIPES:
             if recipe[2](Path(path).name, fmt):
                 files.append(run_recipe(z, out, entry, data, recipe, baseline))
@@ -746,9 +786,11 @@ def main():
         print(f"{f['path']}: {f.get('status')} {[d['code'] for s in f.get('steps', []) for d in s.get('diagnostics', [])] or f.get('diagnostics')}", file=sys.stderr)
     reread = [f for f in files if f.get("reread")]
     for f in reread:
-        print(f"{f['path']}: zumen が読み直すと、入力にない診断が出た: {f['reread']}", file=sys.stderr)
+        print(f"{f['path']}: zumen が読み直すと、入力より件数の増えた診断が出た: {f['reread']}", file=sys.stderr)
+    for message in broken:
+        print(message, file=sys.stderr)
     print(f"{len(files)} のファイル（当たらなかった組 {len(failed)}、読み直すと診断が増えた組 {len(reread)}）を {out} に置いた")
-    return 1 if failed or reread else 0
+    return 1 if failed or reread or broken else 0
 
 
 if __name__ == "__main__":

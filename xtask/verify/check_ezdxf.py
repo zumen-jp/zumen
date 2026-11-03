@@ -8,10 +8,12 @@
   ごとに入力より増えず、変換したファイルには誤りも直した誤りもない。
 - zumen が読んだ画層の名前が、ezdxf の画層の表と同じ。
 - zumen の要素の出所のハンドルの図形が ezdxf にあり、種類・画層と、形の値（端点・中心・半径・角度・位置・
-  文字・尺度・格子など）が同じ。ezdxf で比べられる種類のモデル空間の図形は、zumen の要素が形を持つ。
-- モデル空間の図形は、どれも zumen の要素になるか、zumen がそのレコードを指す診断を返している（黙って捨てない）。
-- 書き戻したファイルでは、変更で決めた形と画層（manifest.json の expect）と、足した画層の色・変えた色が、ezdxf
-  で読んだ値と同じ。
+  文字・尺度・格子など）が同じ。形の欄は両向きに比べ、どちらかにだけある欄も食い違いにする。ezdxf で比べられる
+  種類のモデル空間の図形は、zumen の要素が形を持つ。
+- モデル空間の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（dxf.lift.dropped・
+  dxf.lift.invalid）が、その図形の種類とレコードを指す（黙って捨てない）。
+- 書き戻したファイルでは、変更で決めた形と画層（manifest.json の expect）と、足した画層の色・変えた色・点の
+  表し方（$PDMODE・$PDSIZE）が、ezdxf で読んだ値と同じ。
 """
 
 import math
@@ -23,7 +25,7 @@ import ezdxf
 from ezdxf import recover
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import ATTACHMENTS, check_handles, run, usage  # noqa: E402
+from compare import ATTACHMENTS, check_handles, lifted_away_records, run, usage  # noqa: E402
 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す。当たる数が
 # 変わったら失敗にする（直ったものと、同じ形で新たに食い違うものを知らせる）
@@ -188,18 +190,19 @@ def check_file(folder, entry, reading, baseline, counts):
     found, seen = check_handles(entry, reading, counts, view(doc, raw))
     failures += found
 
-    # 黙って捨てない: モデル空間の図形は、要素になるか、診断がそのレコードを指す
-    told = {p.get("record") for d in reading["diagnostics"] + entry.get("open", []) for p in d.get("at", [])}
+    # 黙って捨てない: モデル空間の図形は、要素になるか、移さなかったことを言う診断（dxf.lift.*）が、その図形の種類と
+    # レコードを指す
+    told = {((kind or "").upper(), record) for kind, record in lifted_away_records(entry, reading)}
     dropped = Counter()
     for e in doc.modelspace():
         handle = e.dxf.handle.upper()
         if handle in seen:
             continue
-        if numbers.get(handle) in told:
+        if (e.dxftype().upper(), numbers.get(handle)) in told:
             continue
         dropped[e.dxftype()] += 1
     if dropped:
-        failures.append(f"要素にならず、診断もないモデル空間の図形: {dict(dropped)}")
+        failures.append(f"要素にならず、移さなかったことを言う診断もないモデル空間の図形: {dict(dropped)}")
     return failures, audit
 
 

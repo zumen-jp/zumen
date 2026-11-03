@@ -5,11 +5,13 @@
 JWW のファイルごとに、次を確かめる。
 
 - ezjww が読める。ezjww の監査（ezjww.audit）と読みの診断で、書き戻したファイルに入力にない項目が出ない。
-- 図形の一覧の図形は、どれも zumen の要素になるか、zumen がそのレコードを指す診断を返している（黙って捨てない）。
-  zumen のレコードの番号は、見出しを 0 とし、図形の一覧の i 番目（0 から）を i + 1 とする（決定 0133）。
-- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。ezjww の座標は用紙の mm なので、図形の
-  レイヤグループの縮尺の分母を掛けて、zumen の実寸の座標と比べる（docs/formats/jww.md）。
-- 書き戻したファイルでは、変更で決めた形とレイヤ（manifest.json の expect）が、ezjww で読んだ図形と同じ。
+- 図形の一覧の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（jww.lift.dropped・
+  jww.lift.invalid）がそのレコードを指す（黙って捨てない）。zumen のレコードの番号は、見出しを 0 とし、図形の
+  一覧の i 番目（0 から）を i + 1 とする（決定 0133）。
+- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。形の欄は両向きに比べる。ezjww の座標は用紙の
+  mm なので、図形のレイヤグループの縮尺の分母を掛けて、zumen の実寸の座標と比べる（docs/formats/jww.md）。
+- 書き戻したファイルでは、変更で決めた形・レイヤ・ペンの番号（manifest.json の expect）が、ezjww で読んだ図形と
+  同じ。
 """
 
 import sys
@@ -20,7 +22,7 @@ from pathlib import Path
 import ezjww
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import differences, run, usage  # noqa: E402
+from compare import differences, lifted_away_records, run, usage  # noqa: E402
 
 # 図面モデルの形 → ezjww の図形の種類
 TYPES = {
@@ -106,6 +108,10 @@ def check_file(folder, entry, reading, baseline, counts):
         e = entities[record - 1]
         where = element["id"]
         shape = element.get("geometry", {}).get("shape")
+        # 表にない形は、出所の種類を比べられないので知らせる（TYPES に足す）
+        if shape is not None and shape not in TYPES:
+            failures.append(f"{where}: 形 {shape} と図形の種類の対応がない（check_ezjww.py の TYPES に足す）")
+            continue
         if shape in TYPES and e["type"] not in TYPES[shape]:
             failures.append(f"{where}: 形 {shape} の出所が {e['type']}")
             continue
@@ -115,14 +121,15 @@ def check_file(folder, entry, reading, baseline, counts):
         got = geometry(header, e)
         if shape in TYPES and got is not None:
             counts["shapes"] += 1
-            for d in differences(element["geometry"], got):
+            for d in differences(element["geometry"], got, both=True):
                 failures.append(f"{where}（{e['type']} のレコード {record}）{d}")
 
-    # 黙って捨てない
-    told = {p.get("record") for d in reading["diagnostics"] + entry.get("open", []) for p in d.get("at", [])}
+    # 黙って捨てない: 移さなかったことを言う診断（jww.lift.*）が、そのレコードを指す。kind はクラスの名前で、ezjww の
+    # 種類の名前と違うので、レコードだけで結ぶ
+    told = {record for _, record in lifted_away_records(entry, reading)}
     dropped = Counter(e["type"] for i, e in enumerate(entities) if i + 1 not in seen and i + 1 not in told)
     if dropped:
-        failures.append(f"要素にならず、診断もない図形: {dict(dropped)}")
+        failures.append(f"要素にならず、移さなかったことを言う診断もない図形: {dict(dropped)}")
 
     # 書き戻した値
     if entry["role"] == "apply":
@@ -143,6 +150,10 @@ def check_file(folder, entry, reading, baseline, counts):
                     failures.append(f"変更 {want['edit']}（{want['id']}）{d}")
                 if "layer" in want and want["layer"] != layer_name(header, e["base"]):
                     failures.append(f"変更 {want['edit']}（{want['id']}）のレイヤが {layer_name(header, e['base'])!r}（期待は {want['layer']!r}）")
+                # 足した図形の色は、ペンの番号（docs/formats/jww.md）
+                pen = want.get("color", {}).get("jww")
+                if pen is not None and e["base"]["pen_color"] != pen:
+                    failures.append(f"変更 {want['edit']}（{want['id']}）のペンが {e['base']['pen_color']}（期待は {pen}）")
     return failures, found
 
 
