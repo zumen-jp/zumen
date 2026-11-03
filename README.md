@@ -2,7 +2,56 @@
 
 日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
 
-> 状態: 作り直しを始めたところで、まだ図面は読めません。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) にあり、決めることを子 issue に分けています。SXF・JWW・DXF・DWG・PDF を今すぐ読み書きしたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
+> 状態: 開発中で、パッケージはまだ公開していません（[#317](https://github.com/zumen-jp/zumen/issues/317)）。このリポジトリからビルドすると、CLI・各言語のバインディング・MCP のサーバーで試せます。パッケージで今すぐ使いたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
+
+## できること
+
+`main` で動くものです。確かめた度合いは形式ごとに違います。実物のファイルとほかの実装で照らしたものも、テストの中で作ったファイルだけで確かめたものもあります。
+
+| 領域 | 形式 | できること |
+| --- | --- | --- |
+| 図面 | SXF（SFC・P21・SFZ・P2Z）、JWW、DXF、DWG | 要素・レイヤ・線種・用紙を読む。変更を当てて、同じ形式に書き戻す。DXF に変換する。表示のための 2D のシーンを作る。CAD製図基準などのプロファイルの規則でチェックする |
+| BIM | IFC（IFC-SPF・ifcZIP）、IDS、BCF | IFC を建物モデルとして読み、変更を当てて書き戻す。IDS で照合する。BCF を読み書きする |
+| 土木・地理 | J-LandXML、CityGML（PLATEAU）、基盤地図情報、拡張 DM | 線形の上の座標・高さ・勾配を求める。平面図・縦断図・横断図を作る。地物を返す |
+| 点群 | LAS・LAZ、PLY、XYZ、E57 | 読む。設計の面との標高の差を、規格値と比べて集計する |
+| 納品 | 電子納品の成果品、工事写真（JPEG）、表（xlsx・CSV）、ボーリング交換用データ | 管理ファイルを読み、プロファイルの規則でチェックする。Exif と XMP、セルの値、地層と標準貫入試験の値を返す |
+
+- PDF・JWC・JWS は、まだ読めません。
+- 読めなかったもの・形を変えて書いたものは、診断（code・件数・場所）で返します。
+- 形式ごとの権利と、実装を置く場所の方針は [形式と権利の一覧](docs/formats/README.md) にあります。公開に第三者の許諾が要る形式（ST-Bridge など）は、外部のプラグインにします。
+
+## 試す
+
+Rust を [rustup](https://rustup.rs/) で入れ（バージョンは `rust-toolchain.toml` で決めてあります）、CLI をビルドして、公開サンプルを開きます。
+
+```bash
+cargo build -p zumen-cli
+target/debug/zumen capabilities
+target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
+```
+
+応答は JSON です。読めなかったものは `diagnostics` に入ります。要求と応答の形は [schema/messages.json](schema/messages.json) に、CLI の使い方は [bindings/cli](bindings/cli/README.md) にあります。
+
+## 使える言語
+
+どの言語も、同じ API（数個の関数と、[スキーマ](schema/README.md)で定めた JSON のメッセージ）を通ります。同じ入力から、ビット単位で同じ出力を返すことを、[適合テスト](bindings/conformance/README.md)で確かめます。
+
+| Tier | 言語 | 使い方 |
+| --- | --- | --- |
+| 1 | Rust | [crates/zumen](crates/zumen) |
+| 1 | TypeScript・JavaScript（ブラウザー・Node.js） | [bindings/js](bindings/js/README.md) |
+| 1 | Python | [bindings/python](bindings/python/README.md) |
+| 1 | .NET | [bindings/dotnet](bindings/dotnet/README.md) |
+| 1 | C・C++ | [bindings/c](bindings/c/README.md) |
+| 2 | Java・Kotlin | [bindings/java](bindings/java/README.md) |
+| 2 | Swift | [bindings/swift](bindings/swift/README.md) |
+| 2 | Go | [bindings/go](bindings/go/README.md) |
+| 2 | Dart | [bindings/dart](bindings/dart/README.md) |
+| 2 | VBA | C の DLL を `Declare` で呼ぶ（[bindings/c](bindings/c/README.md)） |
+| 3 | Ruby・PHP・PowerShell など | C ABI・CLI・HTTP で呼ぶ（[docs/tier3.md](docs/tier3.md)） |
+
+- Tier は、言語ごとの対応の約束です（[決定 0006](docs/decisions/0006-language-tiers.md)）。下限と、確かめる頻度は [docs/support.md](docs/support.md) にあります。
+- CLI の `zumen` は、同じ要求を標準入出力と HTTP で受け、MCP のサーバーにもなります。AI のアプリからも使えます。
 
 ## 方針
 
@@ -14,17 +63,20 @@
 
 ## 文書
 
-- 次の作業の選び方: [docs/work.md](docs/work.md)（計画は [#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue）
-- 設計: [#1](https://github.com/zumen-jp/zumen/issues/1)
-- 決定の記録: [docs/decisions](docs/decisions/README.md)
-- 形式と権利の一覧: [docs/formats](docs/formats/README.md)（台帳から生成）
-- 各言語への API のスキーマ: [schema](schema/README.md)（C のヘッダーと C++ のラッパーは [bindings/c](bindings/c/README.md)、TypeScript・JavaScript のラッパーは [bindings/js](bindings/js/README.md)、Python のラッパーは [bindings/python](bindings/python/README.md)、.NET のラッパーは [bindings/dotnet](bindings/dotnet/README.md)、Swift のラッパーは [bindings/swift](bindings/swift/README.md)、Dart のラッパーは [bindings/dart](bindings/dart/README.md)、Java・Kotlin のラッパーは [bindings/java](bindings/java/README.md)、Go のラッパーは [bindings/go](bindings/go/README.md)、CLI と MCP のサーバーは [bindings/cli](bindings/cli/README.md)、適合テストは [bindings/conformance](bindings/conformance/README.md)）
-- 対応する環境と下限: [docs/support.md](docs/support.md)
-- 公式のラッパーのない言語から使う手順: [docs/tier3.md](docs/tier3.md)
-- 表記と用語の基準: [docs/style.md](docs/style.md)
-- 開発への参加: [CONTRIBUTING.md](CONTRIBUTING.md)（エージェント向けの規則は [AGENTS.md](AGENTS.md)）
-- 旧版: [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy)
-- サイト: <https://zumen.dev>（準備中。元は [site](site/README.md)）
+| 文書 | 中身 |
+| --- | --- |
+| [docs/formats](docs/formats/README.md) | 形式と権利の一覧（台帳から生成）と、形式ごとの知見 |
+| [docs/support.md](docs/support.md) | 対応する環境と、言語の下限 |
+| [docs/tier3.md](docs/tier3.md) | 公式のラッパーのない言語から使う手順 |
+| [schema](schema/README.md) | API の関数とメッセージのスキーマ |
+| [catalog](catalog/README.md) | 診断の code と、日本語・英語の文 |
+| [docs/decisions](docs/decisions/README.md) | 決定の記録 |
+| [#1](https://github.com/zumen-jp/zumen/issues/1) | 設計と計画（子 issue に分けている） |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 開発への参加。エージェント向けの規則は [AGENTS.md](AGENTS.md) |
+| [docs/style.md](docs/style.md) | 表記と用語の基準 |
+| [SECURITY.md](SECURITY.md) | 脆弱性の知らせ方 |
+
+サイトは <https://zumen.dev> に置きます（準備中。元は [site](site/README.md)）。
 
 ## ライセンス
 
@@ -33,4 +85,6 @@
 - MIT License（[LICENSE-MIT](LICENSE-MIT)）
 - Apache License 2.0（[LICENSE-APACHE](LICENSE-APACHE)）
 
-明示しない限り、このリポジトリへの貢献は、Apache License 2.0 の定める「貢献」として、追加の条件なしに上の 2 つのライセンスで提供されたものとします。
+`samples/` の公開サンプルは、[samples/ledger.toml](samples/ledger.toml) に書いたそれぞれのライセンスに従います。
+
+明示しない限り、このリポジトリへの貢献は、Apache License 2.0 の定める「貢献」（Contribution）として、追加の条件なしに上の 2 つのライセンスで提供されたものとします。

@@ -1,6 +1,6 @@
 # 開発への参加
 
-zumen は作り直しを始めたところです。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) とその子 issue で進めています。
+zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue で進めています。決まったことは [docs/decisions](docs/decisions/README.md) に、リポジトリのどこに何があるかは [AGENTS.md](AGENTS.md) の「リポジトリの地図」にあります。
 
 - 大きな変更は、着手する前に issue で相談してください。
 - issue・PR・コメントは日本語を基本にします。
@@ -16,7 +16,7 @@ zumen は作り直しを始めたところです。設計は [#1](https://github
 
 ## 貢献のライセンス
 
-明示しない限り、貢献は Apache License 2.0 の定める「貢献」として、追加の条件なしに MIT と Apache-2.0 の 2 つのライセンスで提供されたものとします（[決定 0002](docs/decisions/0002-dual-license.md)）。
+明示しない限り、貢献は Apache License 2.0 の定める「貢献」（Contribution）として、追加の条件なしに MIT と Apache-2.0 の 2 つのライセンスで提供されたものとします（[決定 0002](docs/decisions/0002-dual-license.md)）。
 
 次のものは入れないでください。
 
@@ -51,6 +51,8 @@ node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_a
 npm ci
 npm run lint:text
 ```
+
+辞書（`prh.yml`）の指摘の多くは、`npm run fix:text` で直せます（Markdown・ソースコード・設定）。
 
 診断の code を足すときは [catalog/README.md](catalog/README.md)、API の関数・op・フィールドを変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
 

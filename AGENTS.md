@@ -1,6 +1,38 @@
 # 開発エージェント向けの規則
 
-このリポジトリは zumen の作り直しです。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) とその子 issue に、決まったことは `docs/decisions/` にあります。旧版は [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) にあります。形式の知見（`docs/formats/`）、検証の記録、テストファイルの作り方は旧版から移します。旧版のコードを移すときも、この規則と新しい層の構成（[決定 0008](docs/decisions/0008-model-layers-and-codecs.md)）に合わせて書き直します。
+zumen は、日本の建設のデータを読み書きする Rust のコアと、各言語のバインディングです。できることと使い方は [README.md](README.md) に、計画は [#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue に、決まったことは [docs/decisions](docs/decisions/README.md) にあります。旧版は [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) にあります。旧版から知見やコードを移すときも、この規則と層の構成（[決定 0008](docs/decisions/0008-model-layers-and-codecs.md)）に合わせて書き直します。
+
+## リポジトリの地図
+
+| 場所 | 中身 |
+| --- | --- |
+| `crates/` | コア。下の表 |
+| `bindings/` | 各言語のバインディング、CLI と MCP のサーバー（`cli`）、適合テスト（`conformance`） |
+| `schema/` | API の関数（`boundary.toml`）とメッセージ（`messages.json`）、シーンと図面モデルのバイナリの配置 |
+| `catalog/` | 診断の code の台帳（`codes.toml`）と、日本語・英語の文 |
+| `formats/` | 形式の権利の台帳（`ledger.toml`） |
+| `profiles/` | 要領・基準の規則と語彙（プロファイル） |
+| `samples/` | 再配布できる公開サンプルと、その台帳（`ledger.toml`） |
+| `xtask/` | 生成と検査（`cargo xtask codegen`）、外部の実装と照らす束（`verify/`）、AutoCAD でサンプルを作る手順（`autocad/`） |
+| `templates/plugin/` | 外部のプラグインのリポジトリのひな形 |
+| `examples/`・`bench/`・`site/` | Tier 3 の言語のサンプル、ベンチマーク、<https://zumen.dev> のサイト |
+| `docs/` | 決定の記録（`decisions/`）、形式の知見（`formats/`）、作業の選び方（`work.md`）、表記の基準（`style.md`）、対応する環境（`support.md`） |
+
+crate は、層の構成（[決定 0008](docs/decisions/0008-model-layers-and-codecs.md)）に沿って分けている。
+
+| 層 | crate |
+| --- | --- |
+| 横断の部品 | `zumen-base`（診断・予算・中断の合図）・`zumen-json`・`zumen-crs`（座標系と標高）・`zumen-geom2d`・`zumen-geom3d` |
+| L0（交換の構造） | `zumen-step`（ISO 10303-21）・`zumen-xml`・`zumen-zip` |
+| L1（ファイルモデルとコーデック） | `zumen-acad`（DXF・DWG）・`zumen-sxf`・`zumen-jww`・`zumen-ifc` |
+| L2（領域モデル） | `zumen-drawing`（図面）・`zumen-building`（建物）・`zumen-civil`（土木）・`zumen-geo`（地理）・`zumen-pointcloud`（点群） |
+| 領域モデルに読む形式 | `zumen-landxml`・`zumen-citygml`・`zumen-fgd`・`zumen-extdm`・`zumen-las`・`zumen-ply`・`zumen-xyz`・`zumen-e57` |
+| 納品の読み取り | `zumen-delivery`（成果品）・`zumen-photo`（工事写真）・`zumen-sheet`（表）・`zumen-geology`（ボーリング交換用データ） |
+| L3（派生）と照合 | `zumen-scene`（2D のシーン）・`zumen-civil-drawing`（土木の図面）・`zumen-profile`（プロファイルの照合）・`zumen-review`（レビューの文書）・`zumen-ids`・`zumen-bcf`・`zumen-asbuilt`（出来形） |
+| API と入口 | `zumen-abi`（C ABI と wasm の関数）・`zumen`（Rust の入口）・`zumen-sdk`（形式を書くための部品とプラグインの SDK） |
+
+- 生成したファイル（`messages.rs`・`zumen.h`・各言語のメッセージの型・`docs/formats/README.md` など）は手で直さない。元（`schema/`・`catalog/`・`formats/`）を直し、`cargo xtask codegen` で作り直す。
+- 決定の記録は 250 を超える。関わる決定は、[一覧](docs/decisions/README.md)と、op・形式・crate の名前で `rg` して探す。
 
 ## 最初に確認すること
 
@@ -13,7 +45,7 @@
 ## 日本語を正とする
 
 - README・文書・決定の記録・issue・PR・コミットの説明は、分かりやすく簡潔な日本語で書く。
-- 表記と用語は [docs/style.md](docs/style.md) に従う。辞書（`prh.yml`）にない揺れや、新しい言い換えを見つけたら、辞書と用語集に足す（[決定 0021](docs/decisions/0021-notation-and-terms.md)）。
+- 表記と用語は [docs/style.md](docs/style.md) に従う。語は和語に言い換えず、要領・基準・製品の語と、開発で定着した語で書く。辞書（`prh.yml`）にない揺れを見つけたら、辞書と用語集に足す（[決定 0021](docs/decisions/0021-notation-and-terms.md)・[決定 0257](docs/decisions/0257-established-terms-over-coined-words.md)）。
 - 識別子は英語にする。関数名・型名・パッケージ名・コマンド・JSON のキー・診断の code などが対象。Conventional Commits の種別とスコープも英語のままにする（例: `feat(dxf): 外部参照を読む`）。
 - 第三者のライセンスの本文と、仕様の引用は原文を保つ。図面に記録された名前・文字・単位は翻訳しない。
 - コア（Rust の crate）は人向けの文を返さない。日本語・英語の文言はカタログに置き、診断の code から引く。code は一度使ったら別の意味に使わない（[決定 0009](docs/decisions/0009-diagnostics-and-catalog.md)）。
