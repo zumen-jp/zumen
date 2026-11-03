@@ -293,3 +293,4 @@
 - [0258: fuzz の種に公開サンプルと合成の入力を使い、crate を変えた PR で短く、毎晩長く流す](0258-fuzz-seeds-and-runs.md)（2026-11-03、採用）
 - [0259: npm の包みに Node.js の入口を足し、trap のあとのインスタンスを使えなくし、ライセンスの文を入れる](0259-javascript-on-node-servers.md)（2026-11-03、採用）
 - [0260: 試料の IFC で測り、3D のカーネルを manifold-rust にして、建物モデルの残りの 7 項目を決める](0260-kernel-and-building-items-from-samples.md)（2026-11-03、採用）
+- [0261: fuzz の job を main の必須の検査にせず、PR と関係のない失敗ではマージを止めずに早めに直す](0261-fuzz-outside-required-checks.md)（2026-11-04、採用）
