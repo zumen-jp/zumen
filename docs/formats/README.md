@@ -560,12 +560,12 @@
 - 照合に使う候補: ezdxf・ODA File Converter・DWG TrueView
 - サンプルの出どころ: ACadSharp の試験の図面（MIT）・ezdwg の試験の図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
 - 読みの確かめた度合い: `application`（確認日: 2026-11-03）
-- 読みの確かめた範囲: AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。ほかの規則は、AutoCAD では確かめていない（docs/formats/dxf.md）。毎晩の CI で、公開サンプルの DXF（samples/dxf・samples/dwg）を ezdxf でも読み、画層・図形の種類・モデル空間の形の値が zumen の読みと同じことと、図形を黙って捨てていないことを確かめる（xtask/verify、#511）。既知の食い違いは #509
+- 読みの確かめた範囲: AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。ほかの規則は、AutoCAD では確かめていない（docs/formats/dxf.md）。毎晩の CI で、公開サンプルの DXF（samples/dxf・samples/dwg）を ezdxf でも読み、画層・図形の種類・モデル空間の形の値が zumen の読みと同じことと、図形を黙って捨てていないことを確かめる（xtask/verify、#511）
 - 読みで使った公開サンプル: [samples/dxf/](../../samples/dxf/)・[samples/dwg/](../../samples/dwg/)
 - 読みで照らした外部の実装: ezdxf 1.4.5
 - 読みで開いたソフト: AutoCAD 2027
 - 書きの確かめた度合い: `application`（確認日: 2026-11-03）
-- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF と convert で書いた DXF は、毎晩の CI で ezdxf で読み、監査の誤りが入力より増えないことと、変更で決めた形・画層・色が ezdxf の読んだ値と合うことを確かめる（xtask/verify、#511）。既知の食い違いは #509
+- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF は、毎晩の CI で ezdxf で読み、監査の誤りが入力より増えないことと、変更で決めた形・画層・色が ezdxf の読んだ値と合うことを確かめる（xtask/verify、#511）。convert で書いた DXF は、ezdxf で読めないものと監査が誤りを直すものがある（#509）ので、根拠にしない
 - 書きで照らした外部の実装: ezdxf 1.4.5
 - 書きで開いたソフト: AutoCAD 2027
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
