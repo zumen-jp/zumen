@@ -14,16 +14,20 @@
   比べ、ezsxf の読みにレイヤや形があれば、zumen の要素も持つ。用紙の要素は、ezsxf の用紙（drawing_sheet_feature）か、
   そこに置いた作図グループの中にあるか、ezsxf の読みで表示する複合曲線の曲線（ezsxf は複合曲線を置かず、ハッチングの
   境界の定義として持つ。sheet_members）。ezsxf がフィーチャを型で読まない SFC（印が `/*SXF3` など）は、種類
-  だけを比べ、結果の notes に書く。ezsxf が複合曲線を読めなかった SFC は、用紙の中にあることを比べず、notes に書く。
-  make.py が作った SFC（made-features）とその書き戻しを ezsxf が型で読まなければ、失敗にする。
+  だけを比べ、結果の notes に書く。ezsxf が複合曲線を読めなかったか飛ばした SFC と、ハッチングの指す複合曲線が
+  ないと言った SFC は、用紙の中にあることを比べず、notes に書く。make.py が作った SFC（made-features・
+  made-structure）とその書き戻しを ezsxf が型で読まなければ、失敗にする。
 - P21: 要素の出所のインスタンス（複合のインスタンスを含む）があり、レイヤ（PRESENTATION_LAYER_ASSIGNMENT）が同じ。
-  用紙の要素は、用紙（最初の DRAWING_SHEET_REVISION）の並びか、そこに置いた作図グループと複合曲線の中にある。参照を
-  たどって、点の位置・回転・倍率と、線分の端点を比べる。印の種類と色、寸法と引出線のレイヤは比べない。
+  複合曲線の曲線の要素は、複合曲線を指す曲線の表記の実体のレイヤと比べる。用紙の要素は、用紙（番号がもっとも小さい
+  DRAWING_SHEET_REVISION）の並びか、そこに置いた作図グループと表示する複合曲線の中にある。同じ番号の 2 つ目の
+  インスタンスは使わない（zumen と同じ）。画像の範囲の要素は、画像の作図グループの中の 4 点以上の折れ線から作る。
+  参照をたどって、点の位置・回転・倍率と、線分の端点（点か媒介変数のトリム）を比べる。端を点にできない線分は、形を
+  比べず notes に書く。印の種類と色、寸法と引出線のレイヤは比べない。
 - 黙って捨てない: 置く所（用紙と部分図）のフィーチャ（SFC）と、用紙の並びの要素（P21）は、どれも zumen の要素になる
   か、移さなかったことを言う zumen の診断（compare.py の LIFTED_AWAY）がそのレコードを指す。SFC は、診断の kind が
   フィーチャの名前と同じことも確かめる。置く所は、決定 0121・0129・0130 と docs/formats/sxf.md の「P21 の組み直し」の
   置き方でたどる。作図グループは置いた所に広げ、表示しない複合曲線の曲線と、作図部品の定義の中身は数えない（zumen の
-  要素の一覧にないため）。
+  要素の一覧にないため）。表示しない複合曲線がまとめた、曲線でないフィーチャ（文字・点マーカーなど）は数える。
 - 書き戻したファイルでは、変更で決めた形・レイヤ（manifest.json の expect）と、SFC では色（既定義色の番号）が、
   ezsxf で読んだ値と同じ。
 """
@@ -104,10 +108,25 @@ GENERIC = {"ANNOTATION_OCCURRENCE", "DRAUGHTING_ANNOTATION_OCCURRENCE"}
 SUBFIGURES = [("$$SXF_FM_", 1), ("$$SXF_FG_", 2), ("$$SXF_G_", 3), ("$$SXF_P_", 4)]
 # SFC のフィーチャの印と閉じ（docs/formats/sxf.md の「レコードの区切り」。長いものから比べる）
 MARKS = [("/*SXF3.1", "SXF3.1*/"), ("/*SXF3", "SXF3*/"), ("/*SXF", "SXF*/")]
-# ezsxf が複合曲線を読めなかったときの警告。ezsxf の用紙の中のフィーチャの一覧が欠ける
-BROKEN_SHEET = {"sfc-composite-curve-component"}
+# 複合曲線がまとめて曲線にするフィーチャ（決定 0129 の「背景」の曲線）。表示しない複合曲線も、ほかのフィーチャは
+# まとめても曲線にしないので、黙って捨てない照合で数える
+CURVES = {
+    "line_feature",
+    "polyline_feature",
+    "circle_feature",
+    "arc_feature",
+    "ellipse_feature",
+    "ellipse_arc_feature",
+    "spline_feature",
+    "clothoid_feature",
+}
+# ezsxf が複合曲線を読めなかったか、ハッチングの指す複合曲線がなかったときの警告。ezsxf の用紙の中のフィーチャの
+# 一覧が欠ける。SKIPPED（フィーチャを飛ばした警告）は、文に複合曲線のフィーチャの名前があるときだけ（ezsxf 0.3.7 の
+# 警告は、フィーチャの番号と名前を文にだけ書く）
+BROKEN_SHEET = {"sfc-composite-curve-component", "sfc-hatch-reference"}
+SKIPPED = {"sfc-incomplete-feature-skipped", "sfc-invalid-feature-skipped"}
 # make.py が、ezsxf がフィーチャを型で読むように作った SFC
-MADE = "input/made-features.sfc"
+MADE = {"input/made-features.sfc", "input/made-structure.sfc"}
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
 
@@ -115,8 +134,9 @@ KNOWN = []
 def records(text, skipped):
     """インスタンスの番号 → zumen のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
     データの節の `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
-    文字列に AP202 とあれば、データの節のフィーチャの印も、ただのコメントとする（「判定」）。skipped は、zumen が読めない
-    と言った範囲 (始め, 終わり) の一覧で、そこから始まる文とコメントは数えず、範囲の終わりから読む（「壊れた所」）"""
+    文字列に AP202 とあれば（大文字と小文字を問わない）、データの節のフィーチャの印も、ただのコメントとする（「判定」）。
+    skipped は、zumen が読めないと言った範囲 (始め, 終わり) の一覧で、そこから始まる文とコメントは数えず、範囲の終わりから
+    読む（「壊れた所」）。P21 の同じ番号の 2 つ目の文は、番号を数えない（zumen は 2 つ目を使わない）"""
     found, n, i, data, description = {}, 0, 0, False, ""
     end = len(text)
 
@@ -129,7 +149,7 @@ def records(text, skipped):
             continue
         start = i
         if text.startswith("/*", i):
-            marked = data and "AP202" not in description
+            marked = data and "AP202" not in description.upper()
             mark = next((m for m in MARKS if marked and text.startswith(m[0], i)), None)
             opening, closing = mark or ("/*", "*/")
             close = text.find(closing, i + len(opening))
@@ -161,7 +181,7 @@ def records(text, skipped):
             continue
         m = re.match(r"#(\d+)\s*=", statement)
         if m:
-            found[int(m.group(1))] = n
+            found.setdefault(int(m.group(1)), n)
         elif re.match(r"DATA\b", statement):
             data = True
         elif re.match(r"ENDSEC\b", statement):
@@ -244,9 +264,11 @@ def sfc_placed(raw):
     """zumen が要素にするか、移さなかったことを言うはずの SFC のフィーチャ（インスタンスの番号, 名前）の一覧。
 
     決定 0121・0129・0130 の置き方（crates/zumen-sxf/src/drawing.rs の Lifter::run と members）でたどる。前の定義の
-    後に書いたフィーチャは、次の複合図形の定義（sfig_org）か用紙のものになり、曲線は次の複合曲線（composite_curve_org）
-    のものになる。用紙と部分図（区分 1・2）のものを数え、作図グループ（区分 3）は置いた所に広げ、作図部品（区分 4）は
-    配置だけを数える。表示しない複合曲線の曲線と、作図部品の定義の中身は、zumen の要素の一覧にないので数えない"""
+    後に書いたフィーチャは、次の複合図形の定義（sfig_org）か用紙のものになる。次の複合曲線（composite_curve_org）は、
+    その前のフィーチャを、曲線でないものもまとめる（zumen の Lifter::run も同じ）。用紙と部分図（区分 1・2）のものを数え、
+    作図グループ（区分 3）は置いた所に広げ、作図部品（区分 4）は配置だけを数える。表示しない複合曲線の曲線（CURVES）と、
+    作図部品の定義の中身は、zumen の要素の一覧にないので数えない。表示しない複合曲線の、曲線でないフィーチャは数える
+    （zumen は、診断なしで落とす。#549）"""
     keyword = {i: k for i, k, _ in raw}
     params = {i: p for i, _, p in raw}
     pending, sheet, definitions, composites = [], [], {}, {}
@@ -275,8 +297,7 @@ def sfc_placed(raw):
         for i in members:
             k, p = keyword[i], params[i]
             if k == "composite_curve_org_feature":
-                if visible(p):
-                    out.extend((m, keyword[m]) for m in composites[i])
+                out.extend((m, keyword[m]) for m in composites[i] if visible(p) or keyword[m] not in CURVES)
             elif k == "sfig_locate_feature":
                 name = text_arg(p, 1)
                 flag, inner = definitions.get(name, (None, []))
@@ -336,11 +357,18 @@ def sfc_kind(where, element, keyword):
     return None
 
 
-def p21_kind(where, element, step, instance, curve):
-    """要素の種類と形が出所の実体に合わなければ、その食い違い。curve は、曲線の要素の出所の曲線の実体の番号"""
+def p21_kind(where, element, step, instance, curve, rasters):
+    """要素の種類と形が出所の実体に合わなければ、その食い違い。curve は、曲線の要素の出所の曲線の実体の番号。rasters は、
+    画像の作図グループの中のインスタンスの番号"""
     kind = element.get("kind")
     shape = element.get("geometry", {}).get("shape")
     source = step.type(instance)
+    if kind == "underlay":
+        # 画像の範囲は、画像の作図グループの中の、4 点以上の折れ線（docs/formats/sxf.md、決定 0125）
+        points = (step.part(curve, "POLYLINE") or [None, []])[1]
+        if instance not in rasters or len(step.refs(points)) < 4:
+            return f"{where}: 画像の範囲の出所が {source} #{instance}（画像の作図グループの中の、4 点以上の折れ線でない）"
+        return None
     if curve is not None:
         found = step.curve(curve)
         if found is None:
@@ -370,7 +398,11 @@ def check_sfc(parsed, entry, reading, counts, notes, at):
         notes.append("ezsxf がフィーチャを型で読まないので、要素の種類だけを比べる")
     model = parsed["model"]
     layers = {t["code"]: typed.get(t["entity_id"], {}).get("name") for t in model["code_tables"]["layers"]}
-    warned = BROKEN_SHEET & {w["code"] for w in parsed["warnings"]}
+    warned = {
+        w["code"]
+        for w in parsed["warnings"]
+        if w["code"] in BROKEN_SHEET or (w["code"] in SKIPPED and "composite_curve_org_feature" in str(w.get("message", "")))
+    }
     if reads and warned:
         notes.append(f"ezsxf が複合曲線を読めない（{', '.join(sorted(warned))}）ので、用紙の中にあることを比べない")
     sheet = sheet_members(model, typed)
@@ -428,7 +460,7 @@ class Step:
     引数の位置は、ISO 10303-42（幾何）・-46（表示）・-101（製図）の実体の定義の属性の順（下の各所に書く）"""
 
     def __init__(self, parsed):
-        self.parts, self.order = {}, []
+        self.parts = {}
         for e in parsed["entities"]:
             if e.get("body_type") == "simple":
                 parts = {e["record"]["keyword"]: e["record"]["parameters"]}
@@ -436,12 +468,16 @@ class Step:
                 parts = {r["keyword"]: r["parameters"] for r in e["records"]}
             else:
                 continue
-            self.parts[e["id"]] = parts
-            self.order.append(e["id"])
+            # 同じ番号の 2 つ目は使わない（zumen と同じ。crates/zumen-sxf/src/p21.rs）
+            self.parts.setdefault(e["id"], parts)
+        # zumen と同じく、インスタンスを番号の順に見る
+        self.order = sorted(self.parts)
+        # 端を点にできないトリムの線（shape）
+        self.unpointed = set()
         # 非表示の要素（invisibility (invisible_items)、ISO 10303-46）と、複合曲線を指す最初の曲線の表記の実体
         self.hidden = {i for j in self.order for i in self.refs((self.part(j, "INVISIBILITY") or [[]])[0])}
         self.styling = {}
-        for i in sorted(self.parts):
+        for i in self.order:
             if self.has(i, "ANNOTATION_CURVE_OCCURRENCE"):
                 self.styling.setdefault(self.ref(self.styled(i)[1]), i)
 
@@ -504,8 +540,8 @@ class Step:
         return out
 
     def sheet(self):
-        """最初の用紙の並び。drawing_sheet_revision は representation (name, items, context_of_items) の下位の型
-        （ISO 10303-101）"""
+        """番号がもっとも小さい用紙の並び（zumen と同じ。docs/formats/sxf.md の「最初の DRAWING_SHEET_REVISION」、#550）。
+        drawing_sheet_revision は representation (name, items, context_of_items) の下位の型（ISO 10303-101）"""
         first = next((i for i in self.order if self.has(i, "DRAWING_SHEET_REVISION")), None)
         return self.refs(self.part(first, "DRAWING_SHEET_REVISION")[1]) if first is not None else []
 
@@ -579,24 +615,53 @@ class Step:
         # 曲線の表記の実体か、複合曲線の曲線の実体
         curve = self.get(item, "TRIMMED_CURVE") if self.has(instance, "ANNOTATION_CURVE_OCCURRENCE") else self.part(instance, "TRIMMED_CURVE")
         # trimmed_curve (name, basis_curve, trim_1, trim_2, sense_agreement, master_representation)（ISO 10303-42）
-        if curve is None or self.get(curve[1], "LINE") is None:
+        line = curve and self.get(curve[1], "LINE")
+        if not line:
             return None
-        start, end = (self.point(trim[0]) if trim else None for trim in curve[2:4])
+        start, end = (self.trimmed(line, trim) for trim in curve[2:4])
+        # 端を点にできないトリムは、形を比べず、notes に書く
+        if start is None or end is None:
+            self.unpointed.add(instance)
+            return None
         return {"shape": "line", "start": start, "end": end}
+
+    def trimmed(self, line, trim):
+        """線のトリムの端の点。trimming_select は点か媒介変数（PARAMETER_VALUE）で、点があれば点を使う。媒介変数は、
+        line (name, pnt, dir)・vector (name, orientation, magnitude) の pnt + 媒介変数 × dir（ISO 10303-42）"""
+        for value in trim or []:
+            point = self.point(value)
+            if point is not None:
+                return point
+        for value in trim or []:
+            if isinstance(value, dict) and value.get("kind") == "typed" and value.get("keyword") == "PARAMETER_VALUE":
+                origin = self.point(line[1])
+                vector = self.get(line[2], "VECTOR")
+                direction = vector and self.get(vector[1], "DIRECTION")
+                if origin is None or not direction:
+                    return None
+                dx, dy = (float(c) for c in direction[1][:2])
+                length = math.hypot(dx, dy)
+                if length == 0:
+                    return None
+                t = float(value["parameters"][0]) * float(vector[2]) / length
+                return [origin[0] + t * dx, origin[1] + t * dy]
+        return None
 
 
 def p21_placed(step):
     """用紙の並びの要素で、zumen が要素にするか、移さなかったことを言うはずのもの（インスタンスの番号, 型）の一覧と、
-    用紙に置いたインスタンスの番号（表示する複合曲線の曲線を含む）と、複合曲線の曲線の実体の番号。
+    用紙に置いたインスタンスの番号（表示する複合曲線の曲線を含む）と、複合曲線の曲線の実体 → 複合曲線の番号と、
+    画像の作図グループの中のインスタンスの番号。
 
     docs/formats/sxf.md の「P21 の組み直し」（crates/zumen-sxf/src/p21.rs の item）の置き方でたどる。作図グループ
     （区分 3）は置いた所に広げ、部分図（区分 1・2）の中は部分図の要素として数え、作図部品（区分 4）は配置だけを数える。
     複合曲線は、表示するものの曲線を数える。見え方を持たない要素（用紙の枠など）は数えない"""
-    placed, sheet, curves, done = [], set(), set(), set()
+    placed, sheet, curves, rasters, done = [], set(), {}, set(), set()
 
     def composite(c, on_sheet):
         members = step.segments(c)
-        curves.update(members)
+        for curve in members:
+            curves.setdefault(curve, c)
         visible = step.visible(c)
         if on_sheet and visible:
             sheet.update(members)
@@ -623,8 +688,10 @@ def p21_placed(step):
                     definition, flag = found
                     if flag in (1, 2):
                         done.add(definition)
-                    members = step.refs(step.part(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")[1])
-                    items(members, on_sheet and flag == 3, stack + [definition])
+                    name, members = step.part(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")[:2]
+                    if flag == 3 and raster(str(name)):
+                        rasters.update(step.refs(members))
+                    items(step.refs(members), on_sheet and flag == 3, stack + [definition])
             elif step.has(i, "ANNOTATION_FILL_AREA_OCCURRENCE"):
                 placed.append((i, step.type(i)))
                 # annotation_fill_area (name, boundaries)（ISO 10303-46）。外形と中抜きの複合曲線を置く
@@ -644,13 +711,20 @@ def p21_placed(step):
                 placed.append((i, step.type(i)))
 
     items(step.sheet(), True, [])
-    return list(dict.fromkeys(placed)), sheet, curves
+    return list(dict.fromkeys(placed)), sheet, curves, rasters
+
+
+def raster(name):
+    """画像の作図グループの名前か。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$`（docs/formats/sxf.md、
+    決定 0125）"""
+    parts = name.split("$$")
+    return "RASTER" in parts or ("ATRU" in parts and "画像" in parts)
 
 
 def check_p21(parsed, entry, reading, counts, notes, at):
     step = Step(parsed)
     layers = step.layers()
-    placed, sheet, curves = p21_placed(step)
+    placed, sheet, curves, rasters = p21_placed(step)
     failures, matched = [], {}
     for element in reading["entities"]:
         instance = instance_of(element)
@@ -668,12 +742,13 @@ def check_p21(parsed, entry, reading, counts, notes, at):
             curve = step.ref(step.styled(instance)[1])
         else:
             curve = None
-        wrong = p21_kind(where, element, step, instance, curve)
+        wrong = p21_kind(where, element, step, instance, curve, rasters)
         if wrong:
             failures.append(wrong)
             continue
         counts["elements"] += 1
-        layer = layers.get(instance)
+        # 複合曲線の曲線の要素のレイヤは、複合曲線を指す曲線の表記の実体のもの（docs/formats/sxf.md の「P21 の組み直し」）
+        layer = layers.get(step.styling.get(curves[instance]) if instance in curves else instance)
         if layer is not None and element.get("layer") != layer:
             failures.append(f"{where}: レイヤが {element.get('layer')!r}、ezsxf は {layer!r}")
         if where.startswith("sheet/") and instance not in sheet:
@@ -695,6 +770,8 @@ def check_p21(parsed, entry, reading, counts, notes, at):
     # ことがあるので、レコードだけで結ぶ
     seen = {instance_of(e) for e in reading["entities"]}
     failures += unlifted(placed, seen, lifted_away_records(entry, reading), at, "用紙の要素", kinds=False)
+    if step.unpointed:
+        notes.append(f"端を点にできないトリムの線 {sorted(step.unpointed)} は、形を比べない")
     return failures, matched
 
 
@@ -723,7 +800,7 @@ def check_file(folder, entry, reading, baseline, counts):
     found_failures, matched = check(parsed, entry, reading, counts, notes, at)
     failures += found_failures
     # make.py の SFC は、ezsxf が型で読むように作った。読まなくなったら、SFC の形を照らせなくなる
-    if matched is None and MADE in (entry["path"], entry.get("from")):
+    if matched is None and MADE & {entry["path"], entry.get("from")}:
         failures.append("ezsxf が、型で読むように作った SFC のフィーチャを型で読まない")
 
     # 書き戻した値

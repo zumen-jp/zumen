@@ -396,13 +396,18 @@ def points_steps(fmt):
             edits.append({"kind": "point_style", "mark": "cross", "circle": False, "square": True, "size": 4, "size_kind": "length"})
         elif fmt == "jww":
             # 普通の点は角度 0 だけ。記号の点は jww.point の番号（決定 0183）。レイヤは線分と同じもので、JWW も
-            # レイヤに従う色を持たないので、ペンの番号を書く（2 は黒）
+            # レイヤに従う色を持たないので、ペンの番号を書く（2 は黒）。レイヤを取る要素がなければ、当てる候補のない段にする
+            if not model(reading):
+                return edits
             layer, color = model(reading)[0]["layer"], {"jww": 2}
             edits.append(add("space/0", {"shape": "point", "position": [1000, 2000], "rotation": 0}, layer=layer, color=color))
             point = {"shape": "point", "position": [3000, 2000], "rotation": 30, "marker": {"namespace": "jww.point", "code": "3", "scale": 2}}
             edits.append(add("space/0", point, layer=layer, color=color))
         else:
-            # SXF はレイヤに従う色を持たないので、色の番号を書く（2 は赤）
+            # SXF はレイヤに従う色を持たないので、色の番号を書く（2 は赤）。レイヤを取る要素がなければ、当てる候補のない
+            # 段にする
+            if not reading["entities"]:
+                return edits
             layer = reading["entities"][0]["layer"]
             marker = {"namespace": "sxf.marker", "code": "1", "scale": 1}
             color = {"sxf": 2}

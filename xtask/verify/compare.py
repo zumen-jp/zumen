@@ -107,9 +107,14 @@ def close_angle(a, b):
 
 def differences(want, got, path="", both=False):
     """want の欄が got と同じでない所。both なら、got にだけある欄も食い違いにする（zumen の読みと外部の実装の読みを
-    比べるとき。zumen が欄を落としても見つける）。変更で決めた形は、既定の値の欄を書かないので both にしない"""
+    比べるとき。zumen が欄を落としても見つける）。変更で決めた形は、既定の値の欄を書かないので both にしない。
+    want の null は、got も null のときだけ同じとする（zumen の JSON は NaN と無限大を書かず、null にする。決定 0012、
+    crates/zumen-json/src/write.rs）"""
     out = []
-    if isinstance(want, dict):
+    if want is None:
+        if got is not None:
+            out.append(f"{path}: {got!r}（期待は None）")
+    elif isinstance(want, dict):
         if not isinstance(got, dict):
             return [f"{path}: {got!r}（期待は {want!r}）"]
         if both:
@@ -121,7 +126,7 @@ def differences(want, got, path="", both=False):
                 out.append(f"{path}/{key}: ない（期待は {value!r}）")
                 continue
             if key in ANGLES and isinstance(value, (int, float)):
-                if not close_angle(float(value), float(got[key])):
+                if not isinstance(got[key], (int, float)) or not close_angle(float(value), float(got[key])):
                     out.append(f"{path}/{key}: {got[key]!r}（期待は {value!r}）")
                 continue
             # スタイルの名前は、大文字と小文字を区別しない（AutoCAD と同じ）
