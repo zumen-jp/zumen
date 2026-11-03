@@ -2377,11 +2377,20 @@ fn group(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
         int(70, i64::from(bits.bs()?)),
         int(71, i64::from(bits.bs()?)),
     ];
-    let count = bits.bl()?;
-    for _ in 0..count {
-        handles.push(340);
-    }
+    placeholders(bits, handles, 340)?;
     Some(values)
+}
+
+/// BL の数を読み、ハンドルの並びの終わりに、その数だけ `code` を積む。参照のハンドルは 1 つで 1 バイト以上
+/// （ODS 5.4.1 の 2.13）なので、データのバイト数を超える数は壊れているとして読まない（#501。数だけ積むと、
+/// 数 GB を取った）。負の数は 0 個とする
+fn placeholders(bits: &mut Bits, handles: &mut Vec<i16>, code: i16) -> Option<()> {
+    let count = usize::try_from(bits.bl()?).unwrap_or(0);
+    if count > bits.size() {
+        return None;
+    }
+    handles.extend(std::iter::repeat_n(code, count));
+    Some(())
 }
 
 /// SCALE の欄（クラスで決まる型）。名前（300）・紙の単位（140）・図面の単位（141）・単位の尺度の印（290）
@@ -3341,9 +3350,7 @@ fn layout(bits: &mut Bits, release: Release, handles: &mut Vec<i16>) -> Option<V
     values.extend(point3(bits, 15)?);
     if r2004 {
         // ビューポートの数。ODS は RL とするが、試料の図面では BL だった。ビューポートのハンドルは置かない
-        for _ in 0..bits.bl()? {
-            handles.push(0);
-        }
+        placeholders(bits, handles, 0)?;
     }
     Some(values)
 }
@@ -4452,5 +4459,108 @@ fn real(code: i16, value: f64) -> Value {
     Value {
         code,
         data: Data::Real(value),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dwg::bits::BitWriter;
+
+    /// R2004 の LAYOUT の欄。文字は空、数は 0 にし、終わりにビューポートの数を置く。並びは [`layout`] の読む順
+    fn layout_fields(viewports: i32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        // 印刷の設定: 名前（1）・プリンター（2）・印（70）・余白と紙（40〜45）・紙の名前（4）・原点（46・47）・
+        // 72〜74・窓（48・49・140・141）・尺度（142・143）・スタイルの表（7）・75・147〜149・陰影（76〜78）
+        w.text(b"").unwrap();
+        w.text(b"").unwrap();
+        w.bs(0);
+        (0..6).for_each(|_| w.bd(0.0));
+        w.text(b"").unwrap();
+        (0..2).for_each(|_| w.bd(0.0));
+        (0..3).for_each(|_| w.bs(0));
+        (0..6).for_each(|_| w.bd(0.0));
+        w.text(b"").unwrap();
+        w.bs(0);
+        (0..3).for_each(|_| w.bd(0.0));
+        (0..3).for_each(|_| w.bs(0));
+        // レイアウト: 名前（1）・タブ（71）・印（70）・13・10・11・12・16・17・146・76・14・15
+        w.text(b"").unwrap();
+        w.bs(0);
+        w.bs(0);
+        (0..3).for_each(|_| w.bd(0.0));
+        (0..4).for_each(|_| w.rd(0.0));
+        (0..10).for_each(|_| w.bd(0.0));
+        w.bs(0);
+        (0..6).for_each(|_| w.bd(0.0));
+        w.bl(viewports);
+        w.into_bytes()
+    }
+
+    fn read_layout(src: &[u8]) -> (Option<Vec<Value>>, Vec<i16>) {
+        let mut handles = Vec::new();
+        let values = layout(
+            &mut Bits::with_release(src, Release::R2004),
+            Release::R2004,
+            &mut handles,
+        );
+        (values, handles)
+    }
+
+    /// R2000 の GROUP の欄。説明は空、印は 0 にし、終わりに図形の数を置く。並びは [`group`] の読む順
+    fn group_fields(entities: i32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        w.text(b"").unwrap();
+        w.bs(0);
+        w.bs(0);
+        w.bl(entities);
+        w.into_bytes()
+    }
+
+    fn read_group(src: &[u8]) -> (Option<Vec<Value>>, Vec<i16>) {
+        let mut handles = Vec::new();
+        let values = group(&mut Bits::with_release(src, Release::R2000), &mut handles);
+        (values, handles)
+    }
+
+    /// 数がデータのバイト数と同じ欄。BL は 1〜255 なら同じ長さなので、1 で作った欄のバイト数を数にする
+    fn at_the_limit(fields: impl Fn(i32) -> Vec<u8>) -> (usize, i32) {
+        let size = fields(1).len();
+        let count = i32::try_from(size).unwrap();
+        assert!(count < 255);
+        assert_eq!(fields(count).len(), size);
+        (size, count)
+    }
+
+    /// fuzz で見つけた形（#501）。データにないビューポートの数だけ仮の値を積むと、数 GB を取った。上限は、
+    /// データのバイト数。超えれば読まず、収まる数ならその数の仮の値を置き、負の数はビューポートがないとする
+    #[test]
+    fn layout_viewports_beyond_the_data_are_invalid() {
+        let (size, count) = at_the_limit(layout_fields);
+        let (values, handles) = read_layout(&layout_fields(count + 1));
+        assert_eq!(values, None);
+        assert_eq!(handles, [0, 330, 331, 346, 345]);
+        let (values, handles) = read_layout(&layout_fields(count));
+        assert!(values.is_some());
+        assert_eq!(handles.len(), 5 + size);
+        assert!(handles[5..].iter().all(|code| *code == 0));
+        let (values, handles) = read_layout(&layout_fields(-1));
+        assert!(values.is_some());
+        assert_eq!(handles, [0, 330, 331, 346, 345]);
+    }
+
+    /// GROUP の図形の数も、LAYOUT と同じくデータのバイト数で抑える（#501）
+    #[test]
+    fn group_entities_beyond_the_data_are_invalid() {
+        let (size, count) = at_the_limit(group_fields);
+        let (values, handles) = read_group(&group_fields(count + 1));
+        assert_eq!(values, None);
+        assert_eq!(handles, []);
+        let (values, handles) = read_group(&group_fields(count));
+        assert!(values.is_some());
+        assert_eq!(handles, vec![340; size]);
+        let (values, handles) = read_group(&group_fields(-1));
+        assert!(values.is_some());
+        assert_eq!(handles, []);
     }
 }

@@ -289,4 +289,5 @@
 - [0252: 配る wasm のモジュールから名前の区画を除き、LTO と大きさ優先の最適化はまだ使わない](0252-strip-wasm-names.md)（2026-11-03、採用）
 - [0253: 地理の地物と点群を wasm の civil・pointcloud のモジュールに分け、J-LandXML と civil の op は要るモジュールのそれぞれに置く](0253-wasm-civil-and-pointcloud-modules.md)（2026-11-03、採用）
 - [0254: 複数のエージェントが並行して進め、互いに確かめ、人を待つのは人にしかできないことに限る](0254-parallel-agents-and-cross-review.md)（2026-11-03、採用）
+- [0258: fuzz の種に公開サンプルと合成の入力を使い、crate を変えた PR で短く、毎晩長く流す](0258-fuzz-seeds-and-runs.md)（2026-11-03、採用）
 - [0260: 試料の IFC で測り、3D のカーネルを manifold-rust にして、建物モデルの残りの 7 項目を決める](0260-kernel-and-building-items-from-samples.md)（2026-11-03、採用）

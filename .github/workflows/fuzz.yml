@@ -1,0 +1,193 @@
+name: fuzz
+
+# 登録したすべての形式と L0 の fuzz の target を流す（#501、決定 0010・0017・0258）。毎晩は target ごとに長く流し、
+# 育てた種を次の夜に引き継ぐ。crate・種の元・fuzz の target・この workflow を変えた PR では、短く流して確かめる。
+# target の一覧と動かし方は fuzz/README.md。
+
+on:
+  schedule:
+    # 毎日 4:00（日本時間）。nightly.yml の 1 時間後
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: target ごとに流す秒数
+        default: '180'
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'fuzz/**'
+      - 'samples/**'
+      - 'bindings/conformance/cases/**'
+      - 'xtask/src/fuzz.rs'
+      - '.github/workflows/fuzz.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # cargo-fuzz は nightly の Rust を使う。日付で固定し、上げるときは cargo-fuzz の版と一緒に確かめる
+  NIGHTLY: nightly-2026-10-30
+  CARGO_FUZZ_VERSION: 0.13.2
+
+jobs:
+  fuzz:
+    name: 全 target を流す
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust（種を書く xtask）と、日付で固定した nightly の Rust を入れる
+        run: |
+          rustup toolchain install
+          rustup toolchain install "$NIGHTLY" --profile minimal
+      - name: cargo-fuzz を版を決めて入れる
+        run: cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+      # 育てた種のキャッシュのキーに公開サンプルの台帳のハッシュを入れ、台帳が変わったら前の種を戻さない。外した
+      # サンプルとそれを変えた入力を、種と artifact に残さないため（決定 0258）
+      - name: 前の夜までに育てた種を戻す
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-
+      - name: 公開サンプル・適合試験の組の合成の入力・L0 の攻撃の形・合成の格子を、種に足す
+        run: cargo xtask fuzz-seeds
+      - name: 全 target を作る。依存はワークスペースと同じ版から解き、桁あふれも見つけるため debug の検査を入れる
+        run: |
+          cp Cargo.lock fuzz/Cargo.lock
+          cargo "+$NIGHTLY" fuzz build -O --debug-assertions
+      - name: target ごとに決まった時間だけ、4 つずつ並べて流す
+        env:
+          SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '20' || inputs.seconds || '180' }}
+        run: |
+          logs="$RUNNER_TEMP/fuzz"
+          mkdir -p "$logs"
+          targets=$(cargo "+$NIGHTLY" fuzz list)
+          export logs
+          # 1 つの入力に 30 秒より長くかかれば、止まらない繰り返しとして見つける。1 秒以上かかった入力のうち、
+          # target ごとにそれまでの最長を超えたものを、落とさずに記録する（libFuzzer の既定は 10 秒から）
+          printf '%s\n' $targets | xargs -P 4 -I '{}' sh -c '
+            mkdir -p "fuzz/artifacts/$1"
+            if "fuzz/target/x86_64-unknown-linux-gnu/release/$1" "fuzz/corpus/$1" \
+              -max_total_time="$SECONDS_PER_TARGET" -timeout=30 -report_slow_units=1 -rss_limit_mb=3072 \
+              -print_final_stats=1 -artifact_prefix="fuzz/artifacts/$1/" > "$logs/$1.log" 2>&1
+            then echo 通過 > "$logs/$1.result"; else echo 失敗 > "$logs/$1.result"; fi
+          ' sh '{}'
+          # 結果の表を、summary と log の両方に書く。遅い入力と使ったメモリは、落とさずに夜ごとの傾きを見る
+          final() { sed -n "s/^stat::$2: *//p" "$logs/$1.log"; }
+          {
+            echo "target ごとに ${SECONDS_PER_TARGET} 秒"
+            echo
+            echo '| target | 結果 | 試した入力 | 通った辺 | もっとも遅い入力（秒） | 使ったメモリ（MB） | 種 |'
+            echo '| --- | --- | ---: | ---: | ---: | ---: | ---: |'
+            for target in $targets; do
+              runs=$(final "$target" number_of_executed_units)
+              slowest=$(final "$target" slowest_unit_time_sec)
+              memory=$(final "$target" peak_rss_mb)
+              edges=$(grep -o 'cov: [0-9]*' "$logs/$target.log" | tail -n 1 | cut -d ' ' -f 2)
+              seeds=$(find "fuzz/corpus/$target" -type f | wc -l)
+              echo "| $target | $(cat "$logs/$target.result") | ${runs:--} | ${edges:--} | ${slowest:--} | ${memory:--} | $seeds |"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          failed=$(grep -l 失敗 "$logs"/*.result | xargs -r -n 1 basename | sed 's/\.result$//')
+          if [ -n "$failed" ]; then
+            for target in $failed; do
+              echo "::group::$target"
+              tail -n 80 "$logs/$target.log"
+              echo "::endgroup::"
+            done
+            echo "::error::パニック・止まらない繰り返し・メモリの使い過ぎを見つけた target: $(echo $failed)。入力は artifact の fuzz-artifacts にある"
+            exit 1
+          fi
+      # 縮めないと、育てた種は夜ごとに足した入力の和になり、減らない。libFuzzer は起動からの時間で止めるが、起動時に
+      # 種をすべて流し終えるまでは止まらないので、種が増えるほど新しい入力を試す時間が減る。残す前に、target ごとに
+      # 通る辺を変えずに縮める（決定 0258）
+      - name: 育てた種を、通る辺を変えずに縮める
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          logs="$RUNNER_TEMP/fuzz-merge"
+          results="$RUNNER_TEMP/fuzz"
+          mkdir -p "$logs"
+          export logs results
+          targets=$(cargo "+$NIGHTLY" fuzz list)
+          # 流す手順で通らなかった target は、見つけた入力の元を残すため、縮めない。縮める処理は、落ちる入力・止まらない
+          # 入力・メモリを使い過ぎる入力を artifact に書いて飛ばし、0 で終わる。内側を立て直した回数（attempt）か、そうした
+          # 入力が増えたとき、1 つの target を縮めるのに 20 分を超えたとき、0 で終わらなかったときは、縮める前の種を残して、
+          # この手順を失敗させる
+          printf '%s\n' $targets | xargs -P 4 -I '{}' sh -c '
+            bin="fuzz/target/x86_64-unknown-linux-gnu/release/$1"
+            [ -x "$bin" ] && [ -d "fuzz/corpus/$1" ] || exit 0
+            before=$(find "fuzz/corpus/$1" -type f | wc -l)
+            if [ "$(cat "$results/$1.result" 2>/dev/null)" != 通過 ]; then
+              echo "| $1 | $before | 縮めない（流す手順で通らなかった） |" > "$logs/$1.row"
+              exit 0
+            fi
+            mkdir -p "fuzz/merged/$1" "fuzz/artifacts/$1"
+            found() { find "fuzz/artifacts/$1" -type f \( -name "crash-*" -o -name "timeout-*" -o -name "oom-*" -o -name "leak-*" \) | wc -l; }
+            before_found=$(found "$1")
+            if timeout -k 10 1200 "$bin" -merge=1 -timeout=30 -rss_limit_mb=3072 -artifact_prefix="fuzz/artifacts/$1/" \
+                "fuzz/merged/$1" "fuzz/corpus/$1" > "$logs/$1.log" 2>&1 \
+              && [ "$(grep -c "MERGE-OUTER: attempt" "$logs/$1.log")" -le 1 ] \
+              && [ "$(found "$1")" -eq "$before_found" ]
+            then
+              rm -rf "fuzz/corpus/$1"
+              mv "fuzz/merged/$1" "fuzz/corpus/$1"
+              echo "| $1 | $before | $(find "fuzz/corpus/$1" -type f | wc -l) |" > "$logs/$1.row"
+            else
+              rm -rf "fuzz/merged/$1"
+              touch "$logs/$1.failed"
+              echo "| $1 | $before | 縮められなかった |" > "$logs/$1.row"
+            fi
+          ' sh '{}'
+          {
+            echo
+            echo '| target | 縮める前の種 | 縮めた後の種 |'
+            echo '| --- | ---: | ---: |'
+            for target in $targets; do cat "$logs/$target.row" 2>/dev/null || true; done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          failed=$(find "$logs" -name '*.failed' | xargs -r -n 1 basename | sed 's/\.failed$//')
+          if [ -n "$failed" ]; then
+            for target in $failed; do
+              echo "::group::$target を縮めた log"
+              tail -n 80 "$logs/$target.log"
+              echo "::endgroup::"
+            done
+            echo "::error::種を縮められなかった target: $(echo $failed)。落ちる入力・止まらない入力・メモリの使い過ぎを見つけたか、20 分で縮め終わらなかった。縮める前の種を残した。見つけた入力は artifact の fuzz-artifacts にある"
+            exit 1
+          fi
+      - name: 育てた種を、次の夜のために残す
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-${{ github.run_id }}
+      # 見つけた入力は種か種を変えたもので、表示を求めるライセンスの公開サンプルから来ることがある。公開サンプルの出所と
+      # ライセンス（samples/README.md・samples/ledger.toml・licenses/）と、種を作ったコミットを添えて残す（決定 0258）
+      - name: 見つけた入力と遅い入力に、公開サンプルの出所とライセンスを添える
+        id: found
+        if: always()
+        run: |
+          if find fuzz/artifacts -type f 2>/dev/null | grep -q .; then
+            mkdir -p fuzz/artifacts/samples
+            cp samples/README.md samples/ledger.toml fuzz/artifacts/samples/
+            cp -r licenses fuzz/artifacts/
+            echo 'ここの入力は、fuzz の種か、種を変えたものです。種には samples/ledger.toml の公開サンプルを含みます。それぞれの出所とライセンスは、samples/ledger.toml と licenses/ にあります。' > fuzz/artifacts/NOTICE.txt
+            # PR の実行では、PR と main を合わせた一時のコミットになる。件名に、PR の head と main のコミットが出る
+            echo "種を作ったコミット: $(git log -1 --format='%H %s')" >> fuzz/artifacts/NOTICE.txt
+            echo found=true >> "$GITHUB_OUTPUT"
+          fi
+      - name: 見つけた入力と遅い入力を残す
+        if: always() && steps.found.outputs.found == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
+          retention-days: 14

@@ -90,13 +90,19 @@ fn jww_keeps_its_budget_and_ids() {
     check::<Jww>(&pushed(OPEN_JWW, "a.jww"), include_str!("ids/jww.txt"));
 }
 
-/// 途中で切った入力も、fuzz の道具と同じく、小さい予算の中で止まり、2 回読んで同じになる
+/// 途中で切った入力も、fuzz の道具と同じく、小さい予算の中で止まり、2 回読んで同じになる。図面モデルに移すまでも
+/// 同じ
 #[cfg(test)]
-fn survives_cuts<C: Codec>(src: &[u8]) {
+fn survives_cuts<C: Codec>(src: &[u8])
+where
+    C::File: Lift<Drawing2D>,
+{
     let step = (src.len() / 64).max(1);
     for end in (0..src.len()).step_by(step) {
         let cut = src.get(..end).unwrap();
         testkit::survives::<C>(cut).unwrap_or_else(|message| panic!("{end} バイト: {message}"));
+        testkit::survives_lift::<C, Drawing2D>(cut)
+            .unwrap_or_else(|message| panic!("{end} バイト（図面モデル）: {message}"));
     }
 }
 
