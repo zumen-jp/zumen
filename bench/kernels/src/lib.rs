@@ -25,6 +25,12 @@ pub fn candidates() -> Vec<(&'static str, Box<dyn Kernel>)> {
     out
 }
 
+/// 時計の今。速さを測る道具なので、時計を読むのはここだけにする（コアの規則の外。clippy.toml）
+#[allow(clippy::disallowed_methods)]
+pub fn now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 /// 比べるときの許容差
 pub const TOLERANCE: Tolerance = Tolerance {
     chord: cases::CHORD,

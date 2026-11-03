@@ -299,21 +299,29 @@ impl Booleans for ManifoldRust {
     }
 
     fn boolean(&self, op: BooleanOp, first: &Mesh, second: &Mesh) -> Result<Mesh, Failure> {
+        use manifold_rust::types::BooleanEngine::Exact;
         let (a, b) = (to_manifold(&first.welded()), to_manifold(&second.welded()));
         for m in [&a, &b] {
             if m.status() != manifold_rust::types::Error::NoError {
                 return Err(Failure::Failed(format!("input {:?}", m.status())));
             }
         }
+        // 既定のエンジンはプロセス全体の設定で、ほかから変えられる。Robust のエンジンは、ポインターの幅で反復の順が
+        // 変わる表（rustc-hash）を使うので、Exact を明示する（#5）
         let r = match op {
-            BooleanOp::Union => a.union(&b),
-            BooleanOp::Difference => a.difference(&b),
-            BooleanOp::Intersection => a.intersection(&b),
+            BooleanOp::Union => a.union_with_engine(&b, Exact),
+            BooleanOp::Difference => a.difference_with_engine(&b, Exact),
+            BooleanOp::Intersection => a.intersection_with_engine(&b, Exact),
         };
         from_manifold(&r)
     }
 
     fn clip(&self, first: &Mesh, plane: &Plane, keep_front: bool) -> Result<Mesh, Failure> {
+        use manifold_rust::types::{BooleanConfig, BooleanEngine};
+        // trim_by_plane は既定のエンジンで積を取る。エンジンを渡せないので、既定が Exact であることを確かめる
+        if BooleanConfig::default_engine() != BooleanEngine::Exact {
+            return Err(Failure::Failed("engine".into()));
+        }
         let n = normalize(plane.normal).ok_or(Failure::Invalid("plane"))?;
         let n = if keep_front {
             n

@@ -822,10 +822,37 @@ impl<'f> Model<'f> {
         self.shape(product, &["Body"])
     }
 
-    /// 開口の形。`Body` がなければ `Reference`（Archicad 28 の書き出しは、開口の形を Body の文脈の `Reference` に
-    /// 書く）
+    /// 開口の形。`Body` がなければ `Reference`（GNI の Archicad 28 の試料は、開口の形を Body の文脈の `Reference`
+    /// に書く。公開元が保存し直したファイルで、Archicad がそう書くかは確かめていない）
     pub fn opening(&self, product: u64) -> Result<Option<Shape>> {
         self.shape(product, &["Body", "Reference"])
+    }
+
+    /// 製品の `Body` の形状表現の文脈（`IfcShapeRepresentation` の 1 ContextOfItems）が書いた精度（ファイルの長さの
+    /// 単位）。`IfcGeometricRepresentationContext` の 4 Precision で、2 点を同じとみなす距離。
+    /// `IfcGeometricRepresentationSubContext` の精度は導出の属性（`NVL(ParentContext.Precision, 1.E-5)`）なので、
+    /// 7 ParentContext の精度を使う。書いていなければ `None`（導出の既定値は、文書が書いた精度ではない。決定 0018）
+    pub fn precision(&self, product: u64) -> Option<f64> {
+        let definition = Self::reference(self.arg(product, 7).ok()?)?;
+        let body = Self::refs(self.arg(definition, 3).ok()?)
+            .into_iter()
+            .find(|r| self.arg(*r, 2).ok().and_then(|v| self.text(v)).as_deref() == Some("Body"))?;
+        let mut context = Self::reference(self.arg(body, 1).ok()?)?;
+        // 親の文脈は 1 段か 2 段。輪になった参照で止まらないよう、たどる回数に上限を付ける
+        for _ in 0..8 {
+            match self.kind(context).as_str() {
+                "IFCGEOMETRICREPRESENTATIONCONTEXT" => {
+                    return self
+                        .real(self.arg(context, 4).ok()?)
+                        .filter(|p| p.is_finite() && *p > 0.0);
+                }
+                "IFCGEOMETRICREPRESENTATIONSUBCONTEXT" => {
+                    context = Self::reference(self.arg(context, 7).ok()?)?;
+                }
+                _ => return None,
+            }
+        }
+        None
     }
 }
 

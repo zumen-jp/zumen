@@ -5,20 +5,18 @@
 //!
 //! 要素ごとに Body の形状表現を写し（[`zumen_bench_kernels::ifc`]）、開口（`IfcRelVoidsElement`）の Body を、
 //! なければ Reference を、要素の局所の座標に移して、順に引く。要素が部品の組なら、部品ごとに引く。開口の要素は、
-//! それだけでは評価しない。行は TSV。終わりに、`#` で始まる集計の行を書く。メモリは、確保したバイト数の山を数える。
-
-// 速さを測る道具なので、時計を読む（コアの規則の外。clippy.toml）
-#![allow(clippy::disallowed_methods)]
+//! それだけでは評価しない。許容差は、弦の誤差を 1 mm、同じ点とみなす距離（格子）を、要素の Body の文脈が書いた
+//! 精度（なければ 1e-9 m）にする（決定 0018）。閉じた結果は、箱の高さの中ほどを水平に切り、切断の時間と結果を
+//! 数える。行は TSV。終わりに、`#` で始まる集計の行を書く。メモリは、確保したバイト数の最大を数える。
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Limits};
 use zumen_bench_kernels::ifc::{Miss, Model, inverse, kinds};
-use zumen_bench_kernels::{candidates, evaluate_with, fingerprint};
+use zumen_bench_kernels::{candidates, evaluate_with, fingerprint, now};
 use zumen_building::{Building, ElementRef, Opening};
 use zumen_geom3d::{
     BooleanOp, Failure, Kernel, Mesh, MeshSection, Plane, Section, Shape, Tolerance, Transform,
@@ -26,7 +24,7 @@ use zumen_geom3d::{
 use zumen_ifc::Ifc;
 use zumen_sdk::{Codec, Lift};
 
-/// 確保しているバイト数と、その山を数える
+/// 確保しているバイト数と、その最大を数える
 struct Counting;
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
@@ -80,7 +78,7 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-/// 山を今の量に戻し、今の量を返す
+/// 最大を今の量に戻し、今の量を返す
 fn reset_peak() -> usize {
     let now = CURRENT.load(Ordering::Relaxed);
     PEAK.store(now, Ordering::Relaxed);
@@ -184,30 +182,48 @@ fn watertight(mesh: &Mesh) -> bool {
 }
 
 fn timed(f: impl FnOnce() -> Result<Mesh, Failure>) -> (Result<Result<Mesh, Failure>, ()>, u128) {
-    let start = Instant::now();
+    let start = now();
     let result = catch_unwind(AssertUnwindSafe(f)).map_err(|_| ());
     (result, start.elapsed().as_micros())
 }
 
-/// 箱の高さの中ほどを、局所の水平の平面で切る。輪の数と、開いた鎖の数
-fn section(mesh: &Mesh) -> String {
+/// 箱の高さの中ほどを、局所の水平の平面で切る（`MeshSection`。どの候補のメッシュにも同じ切断を使う）。結果は
+/// `輪の数/点が 3 つ未満の輪の数` か、`empty`（切り口がない）・`panic`・失敗の名前。時間はマイクロ秒
+fn section(mesh: &Mesh) -> (String, u128) {
     let Some([lo, hi]) = mesh.bounds() else {
-        return String::new();
+        return ("empty".into(), 0);
     };
     let plane = Plane {
         origin: [0.0, 0.0, (lo[2] + hi[2]) / 2.0],
         normal: [0.0, 0.0, 1.0],
     };
-    let mut budget = Budget::default();
-    let mut diag = Diagnostics::new();
-    let cancel = CancelToken::new();
-    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-    match MeshSection.section(mesh, &plane, &mut cx) {
-        Ok(rings) => {
-            let open = rings.iter().filter(|r| r.len() < 3).count();
-            format!("{}/{open}", rings.len())
+    let start = now();
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        MeshSection.section(mesh, &plane, &mut cx)
+    }));
+    let micros = start.elapsed().as_micros();
+    let text = match result {
+        Err(_) => "panic".into(),
+        Ok(Err(error)) => format!("{error:?}"),
+        Ok(Ok(rings)) if rings.is_empty() => "empty".into(),
+        Ok(Ok(rings)) => {
+            let short = rings.iter().filter(|r| r.len() < 3).count();
+            format!("{}/{short}", rings.len())
         }
-        Err(error) => format!("{error:?}"),
+    };
+    (text, micros)
+}
+
+/// 切断の結果の分け方。輪があって、点が 3 つ未満の輪がなければ `ok`、あれば `short`。ほかはそのまま
+fn section_status(text: &str) -> String {
+    match text.split_once('/') {
+        Some((_, "0")) => "ok".into(),
+        Some(_) => "short".into(),
+        None => text.split('(').next().unwrap_or(text).to_owned(),
     }
 }
 
@@ -225,8 +241,11 @@ struct Tally {
     body: BTreeMap<String, u64>,
     hosts: u64,
     full: BTreeMap<String, u64>,
+    section: BTreeMap<String, u64>,
     micros_body: u128,
     micros_full: u128,
+    micros_section: u128,
+    max_section: u128,
     peak: usize,
     fingerprint: u64,
 }
@@ -239,8 +258,11 @@ impl Tally {
             body: BTreeMap::new(),
             hosts: 0,
             full: BTreeMap::new(),
+            section: BTreeMap::new(),
             micros_body: 0,
             micros_full: 0,
+            micros_section: 0,
+            max_section: 0,
             peak: 0,
             fingerprint: 0xcbf2_9ce4_8422_2325,
         }
@@ -262,11 +284,12 @@ struct Target {
     openings: usize,
     body: Shape,
     full: Option<Shape>,
+    tolerance: Tolerance,
 }
 
 fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<String> {
     let base = reset_peak();
-    let start = Instant::now();
+    let start = now();
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let mut budget = Budget::new(Limits::default());
     let mut diag = Diagnostics::new();
@@ -274,7 +297,7 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
     let file = Ifc::read(&bytes, &mut cx).unwrap_or_else(|e| panic!("{path}: {e:?}"));
     let read_micros = start.elapsed().as_micros();
-    // 読んだバイト列と L1 の頂点。lift の頂点は、これに建物モデルを足したもの
+    // 読んだバイト列と L1 の最大。lift の最大は、これに建物モデルを足したもの
     let read_peak = peak_since(base);
     let building: Building =
         Lift::<Building>::lift(&file, &mut cx).unwrap_or_else(|e| panic!("{path}: {e:?}"));
@@ -283,10 +306,10 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
 
     let metre = metre(&building);
     let model = Model::new(&file, metre);
-    let tolerance = Tolerance {
-        chord: 0.001 * metre,
-        length: 1e-9 * metre,
-    };
+    let chord = 0.001 * metre;
+    // 文書が精度を書いていないときの、同じ点とみなす距離
+    let fallback = 1e-9 * metre;
+    let mut grids: BTreeMap<String, u64> = BTreeMap::new();
     let c = &building.components;
     let count = building.elements().len();
     let element = |at: usize| ElementRef(at as u32);
@@ -299,7 +322,7 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
 
     // 写す
     let before_convert = CURRENT.load(Ordering::Relaxed);
-    let convert_start = Instant::now();
+    let convert_start = now();
     let mut targets = Vec::new();
     let mut miss: BTreeMap<String, u64> = BTreeMap::new();
     let mut rows = Vec::new();
@@ -386,6 +409,13 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
                 Shape::Group(pieces)
             })
         };
+        let tolerance = Tolerance {
+            chord,
+            length: model.precision(instance).unwrap_or(fallback),
+        };
+        *grids
+            .entry(format!("{:.3e}", tolerance.length / metre))
+            .or_default() += 1;
         targets.push(Target {
             instance,
             class,
@@ -393,6 +423,7 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
             openings: openings.len(),
             body,
             full,
+            tolerance,
         });
     }
     let convert_micros = convert_start.elapsed().as_micros();
@@ -402,10 +433,11 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
         .saturating_sub(before_convert);
 
     let mut summary = vec![format!(
-        "{path}\tbytes={}\tread_micros={read_micros}\tlift_micros={lift_micros}\tread_peak={read_peak}\tlift_peak={lift_peak}\tconvert_micros={convert_micros}\tconvert_bytes={convert_bytes}\ttargets={}\tmiss={}",
+        "{path}\tbytes={}\tread_micros={read_micros}\tlift_micros={lift_micros}\tread_peak={read_peak}\tlift_peak={lift_peak}\tconvert_micros={convert_micros}\tconvert_bytes={convert_bytes}\ttargets={}\tmiss={}\tgrids={}",
         bytes.len(),
         targets.len(),
-        counts(&miss)
+        counts(&miss),
+        counts(&grids)
     )];
     for (key, kernel) in candidates {
         let mut tally = Tally::new();
@@ -413,6 +445,7 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
         tally.miss = miss.clone();
         let base = reset_peak();
         for target in &targets {
+            let tolerance = target.tolerance;
             let (body, micros_body) =
                 timed(|| evaluate_with(kernel.as_ref(), &target.body, tolerance));
             let body_status = status(&body, &target.body, kernel.as_ref(), tolerance);
@@ -429,36 +462,60 @@ fn measure(path: &str, candidates: &[(&'static str, Box<dyn Kernel>)]) -> Vec<St
                 }
                 None => ("-".to_owned(), 0, body),
             };
-            let (closed, volume, triangles, print, cut) = match &last {
+            // 閉じた結果（閉じたメッシュ・部品ごとに閉じた組・辺で接する閉じた部分）だけを切る
+            let last_status = if target.full.is_some() {
+                &full_status
+            } else {
+                &body_status
+            };
+            let solid = matches!(last_status.as_str(), "ok" | "parts" | "touching");
+            let (closed, volume, triangles, print, cut, micros_section) = match &last {
                 Ok(Ok(mesh)) => {
                     let welded = mesh.welded();
-                    let closed = welded.is_closed();
                     let print = fingerprint(mesh);
                     fnv(&mut tally.fingerprint, print);
+                    let (cut, micros) = if solid {
+                        section(mesh)
+                    } else {
+                        (String::new(), 0)
+                    };
+                    if solid {
+                        *tally.section.entry(section_status(&cut)).or_default() += 1;
+                        tally.micros_section += micros;
+                        tally.max_section = tally.max_section.max(micros);
+                    }
                     (
-                        closed.to_string(),
+                        welded.is_closed().to_string(),
                         format!("{:.6e}", welded.volume()),
                         mesh.triangles.len().to_string(),
                         format!("{print:016x}"),
-                        if closed { section(mesh) } else { String::new() },
+                        cut,
+                        micros,
                     )
                 }
                 _ => Default::default(),
             };
             rows.push(format!(
-                "{path}\t{}\t{}\t{}\t{}\t{key}\t{body_status}\t{full_status}\t{closed}\t{volume}\t{triangles}\t{micros_body}\t{micros_full}\t{print}\t{cut}",
-                target.instance, target.class, target.items, target.openings
+                "{path}\t{}\t{}\t{}\t{}\t{key}\t{body_status}\t{full_status}\t{closed}\t{volume}\t{triangles}\t{micros_body}\t{micros_full}\t{print}\t{cut}\t{micros_section}\t{:.3e}",
+                target.instance,
+                target.class,
+                target.items,
+                target.openings,
+                tolerance.length / metre
             ));
         }
         tally.peak = peak_since(base);
         summary.push(format!(
-            "{path}\t{key}\telements={}\tbody={}\thosts={}\tfull={}\tmicros_body={}\tmicros_full={}\tpeak={}\tfingerprint={:016x}",
+            "{path}\t{key}\telements={}\tbody={}\thosts={}\tfull={}\tsection={}\tmicros_body={}\tmicros_full={}\tmicros_section={}\tmax_section={}\tpeak={}\tfingerprint={:016x}",
             tally.elements,
             counts(&tally.body),
             tally.hosts,
             counts(&tally.full),
+            counts(&tally.section),
             tally.micros_body,
             tally.micros_full,
+            tally.micros_section,
+            tally.max_section,
             tally.peak,
             tally.fingerprint
         ));
@@ -487,7 +544,7 @@ fn main() {
     // パニックの文は、行の `panic` で足りるので書かない
     std::panic::set_hook(Box::new(|_| {}));
     println!(
-        "file\tinstance\tclass\titems\topenings\tcandidate\tbody\tfull\tclosed\tvolume\ttriangles\tmicros_body\tmicros_full\tfingerprint\tsection"
+        "file\tinstance\tclass\titems\topenings\tcandidate\tbody\tfull\tclosed\tvolume\ttriangles\tmicros_body\tmicros_full\tfingerprint\tsection\tmicros_section\tgrid"
     );
     let mut summary = Vec::new();
     for path in &args {

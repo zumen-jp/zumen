@@ -2,13 +2,9 @@
 //!
 //! 使い方: `compare [候補] [組]`。候補は own・manifold-rust・csgrs（省けばすべて）。
 
-// 速さを測る道具なので、時計を読む（コアの規則の外。clippy.toml）
-#![allow(clippy::disallowed_methods)]
-
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::time::Instant;
 
-use zumen_bench_kernels::{candidates, evaluate, fingerprint};
+use zumen_bench_kernels::{candidates, evaluate, fingerprint, now};
 use zumen_geom3d::Failure;
 use zumen_geom3d::cases::{self, Expect};
 
@@ -59,7 +55,7 @@ fn main() {
             if !want(2, case.name) {
                 continue;
             }
-            let start = Instant::now();
+            let start = now();
             let result = catch_unwind(AssertUnwindSafe(|| evaluate(kernel.as_ref(), &case.shape)));
             let micros = start.elapsed().as_micros();
             // 箱の高さの中ほどを、水平の平面で切る。輪の数（開いた鎖の数）と面積
