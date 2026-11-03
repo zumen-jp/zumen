@@ -1,4 +1,4 @@
-"""公開サンプルの IFC（samples/ifc）を、zumen の建物モデルと IfcOpenShell で読んだ値で照らす（#412、決定 0254）。
+"""公開サンプルの IFC（samples/ifc）を、zumen の建物モデルと IfcOpenShell で読んだ値で照らす（#412）。
 
 使い方: python samples.py <samples のフォルダー> <JSON のフォルダー>
 
@@ -14,13 +14,16 @@ JSON は、`samples.rs` の `writes_the_sample_models_for_other_readers` が、�
 IfcOpenShell が IfcObjectDefinition として読み、zumen が要素にしなかったものは、クラスごとに数えて書く。
 そこへの所属と型も数えるだけにする。どれも誤りとはしない（zumen が写さない実体は、lift の診断で数えている）。
 
-IfcOpenShell 0.9 は、スキーマの名前 IFC4X3 を読まない。IFC4X3 のファイルは、名前を IFC4X3_ADD2 にして読む
-（zumen も IFC4X3 を IFC 4.3 ADD2 の属性の位置で読む）。
+IfcOpenShell 0.9 は、スキーマの名前 IFC4X3 を読まない。IFC4X3 のファイルは、名前を IFC4X3_ADD2 にした写しを
+一時のフォルダーに書いて読む（zumen も IFC4X3 を IFC 4.3 ADD2 の属性の位置で読む）。
 """
 
+import atexit
 import json
 import math
+import shutil
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -39,7 +42,8 @@ def close(a, b):
 def same_value(ours, theirs):
     """zumen の値（JSON）と、IfcOpenShell の値が同じか"""
     if isinstance(ours, bool) or isinstance(theirs, bool):
-        return ours == theirs
+        # 1 と True を同じにしない
+        return isinstance(ours, bool) and isinstance(theirs, bool) and ours == theirs
     if isinstance(ours, (int, float)) and isinstance(theirs, (int, float)):
         return close(float(ours), float(theirs))
     if isinstance(ours, list) and isinstance(theirs, (list, tuple)):
@@ -71,12 +75,16 @@ def sets(entity, **kind):
 
 
 def open_model(path):
-    """IFC を開く。スキーマの名前が IFC4X3 なら、IFC4X3_ADD2 にして読む"""
+    """IFC を開く。スキーマの名前が IFC4X3 なら、IFC4X3_ADD2 にした写しを読む。文字列にすると生のバイトの
+    読み方が変わるので、バイト列のまま書く"""
     data = path.read_bytes()
-    if b"FILE_SCHEMA(('IFC4X3'))" in data:
-        text = data.decode("latin-1").replace("FILE_SCHEMA(('IFC4X3'))", "FILE_SCHEMA(('IFC4X3_ADD2'))", 1)
-        return ifcopenshell.file.from_string(text)
-    return ifcopenshell.open(str(path))
+    if b"FILE_SCHEMA(('IFC4X3'))" not in data:
+        return ifcopenshell.open(str(path))
+    folder = tempfile.mkdtemp()
+    atexit.register(shutil.rmtree, folder, ignore_errors=True)
+    copy = Path(folder) / path.name
+    copy.write_bytes(data.replace(b"FILE_SCHEMA(('IFC4X3'))", b"FILE_SCHEMA(('IFC4X3_ADD2'))", 1))
+    return ifcopenshell.open(str(copy))
 
 
 def check_element(model, element, ours, failures, missing):
@@ -112,11 +120,16 @@ def check_element(model, element, ours, failures, missing):
         theirs = theirs.id() if theirs is not None and theirs != entity else None
         if theirs is not None and theirs not in ours:
             missing["zumen が要素にしなかった型"] += 1
+            # zumen は要素にしなかった型を指せない
+            if element["type"] is not None:
+                failures.append(f"{at}: 型が {element['type']}（IfcOpenShell は zumen が要素にしなかった {theirs}）")
         elif theirs != element["type"]:
             failures.append(f"{at}: 型が {element['type']}（IfcOpenShell は {theirs}）")
 
     world = element["world"]
     placement = info.get("ObjectPlacement")
+    if world is None and placement is not None:
+        missing["zumen が解かなかった配置"] += 1
     if world is not None:
         if placement is None:
             failures.append(f"{at}: 配置がない（zumen は配置を解いた）")

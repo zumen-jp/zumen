@@ -76,7 +76,7 @@ jobs:
   ifcopenshell:
     name: IFC を IfcOpenShell で開いて照らす
     # 書いたファイルと、公開サンプルの建物モデルへの写し方を、zumen でない IFC を読むソフトで確かめる
-    # （決定 0244・0254、#482・#412）。IfcOpenShell は試験の道具で、依存にしない
+    # （決定 0244、#482・#412）。IfcOpenShell は試験の道具で、依存にしない
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

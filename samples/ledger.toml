@@ -404,7 +404,7 @@ changes = "見出しのコメントの Host と Database（作った人の手元
 path = "ifc/nakano/nakano_6F_chapel.ifc"
 sha256 = "713e4b7d05203684a6dbb425a7398179451df8e2888470f38935e2c61b926900"
 bytes = 349768
-title = "中野サンプラザ 3D モデルデータの6 階のチャペル（3Dmodel.zip の 02_BIM／CIMモデルデータ/03_チャペル/nakano_6F_chapel.ifc）"
+title = "中野サンプラザ 3D モデルデータの 6 階のチャペル（3Dmodel.zip の 02_BIM／CIMモデルデータ/03_チャペル/nakano_6F_chapel.ifc）"
 publisher = "中野区"
 url = "https://data.storage.data.metro.tokyo.lg.jp/nakano/3Dmodel.zip"
 retrieved = "2026-11-03"
@@ -417,7 +417,7 @@ changes = "見出しのコメントの Host と Database（作った人の手元
 path = "ifc/nakano/nakano_20F_Restaurant.ifc"
 sha256 = "69b5f89da0524ff8fe6aba91f1dff32e013d4d9df826d29492e964a280c439e3"
 bytes = 407149
-title = "中野サンプラザ 3D モデルデータの20 階のレストラン（3Dmodel.zip の 02_BIM／CIMモデルデータ/04_レストラン/nakano_20F_Restaurant.ifc）"
+title = "中野サンプラザ 3D モデルデータの 20 階のレストラン（3Dmodel.zip の 02_BIM／CIMモデルデータ/04_レストラン/nakano_20F_Restaurant.ifc）"
 publisher = "中野区"
 url = "https://data.storage.data.metro.tokyo.lg.jp/nakano/3Dmodel.zip"
 retrieved = "2026-11-03"
@@ -449,7 +449,7 @@ url = "https://zenodo.org/records/19722012/files/2025_BIMfundamentals.zip?downlo
 retrieved = "2026-11-03"
 license = "CC-BY-4.0"
 license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
-attribution = "Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
+attribution = "Copyright (c) 2026 Zijian Wang, Stefan Fuchs, Jiabin Wu, Sebastian Esser, Tamira Wrabel, André Borrmann (Technical University of Munich, Georg Nemetschek Institute). Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
 
 [[samples]]
 path = "ifc/gni/model_18.ifc"
@@ -461,7 +461,7 @@ url = "https://zenodo.org/records/19722012/files/2025_BIMfundamentals.zip?downlo
 retrieved = "2026-11-03"
 license = "CC-BY-4.0"
 license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
-attribution = "Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
+attribution = "Copyright (c) 2026 Zijian Wang, Stefan Fuchs, Jiabin Wu, Sebastian Esser, Tamira Wrabel, André Borrmann (Technical University of Munich, Georg Nemetschek Institute). Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
 
 [[samples]]
 path = "ifc/gni/model_125.ifc"
@@ -473,7 +473,7 @@ url = "https://zenodo.org/records/19722012/files/2025_BIMfundamentals.zip?downlo
 retrieved = "2026-11-03"
 license = "CC-BY-4.0"
 license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
-attribution = "Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
+attribution = "Copyright (c) 2026 Zijian Wang, Stefan Fuchs, Jiabin Wu, Sebastian Esser, Tamira Wrabel, André Borrmann (Technical University of Munich, Georg Nemetschek Institute). Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
 
 [[samples]]
 path = "ifc/bim-whale/TallBuilding.ifc"

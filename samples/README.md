@@ -71,6 +71,7 @@
 | `bim-whale/` | André Wisén（BIM Whale） | MIT | Autodesk Revit 2021 | IFC2X3 |
 | `text2bim/` | dcy0577（Text2BIM） | MIT | Vectorworks Architect 2024 | IFC2X3 |
 
-- 見出しに、作った人の名前や手元のフォルダーの道筋があるものは、その値だけを置き換えました。データの節は、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
+- 見出しに、作った人の名前・手元の機械の名前・手元のフォルダーの道筋があるものは、その値だけを置き換えました。データの節は、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
+- `text2bim/` の GlobalId は版 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく（決定 0171）、元のファイルも公開されているので、データの節を変えずに残しました。
 - `nakano/` の形は点群から作った Brep で、要素はすべて `IfcBuildingElementProxy` です。`rinya/` と `gni/` は、公開元が書き出した後に保存し直しています。どちらも、書き出したソフトがそのまま書いたファイルとしては扱いません。
 - `crates/zumen-ifc/tests/samples.rs` が、すべてを読み、建物モデルに写した要約を `samples.txt` と比べます。毎晩の CI は、写した値を IfcOpenShell で読んだ値と照らします（`crates/zumen-ifc/tests/ifcopenshell/samples.py`）。

@@ -6,7 +6,7 @@
 //!   変わった理由を PR に書く。CI はどの環境でも同じ要約を求めるので、ハッシュで環境ごとの一致も確かめる。
 //! - 受け取った IFC（`ZUMEN_SAMPLES` のフォルダー）は、読めて写せることだけを確かめる。
 //! - `ZUMEN_IFC_SAMPLES_OUT` にフォルダーを渡すと、要素の値を JSON に書く。毎晩、IfcOpenShell で読んだ値と
-//!   照らす（`ifcopenshell/samples.py`、決定 0254）。
+//!   照らす（`ifcopenshell/samples.py`）。
 #![cfg(feature = "building")]
 
 use std::collections::BTreeMap;
