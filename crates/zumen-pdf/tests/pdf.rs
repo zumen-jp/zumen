@@ -142,6 +142,28 @@ fn keeps_unknown_bytes_and_a_late_header() {
 }
 
 #[test]
+fn splits_bytes_before_a_header_on_the_same_line() {
+    // 見出しを読む前は、行の途中の `%PDF-` の前で切る。見出しの後ろでは、行の途中の `%PDF-` を探さない
+    let src = b"xx%PDF-1.7\n%c%PDF-2.0\n1 0 obj null endobj\n".to_vec();
+    let (file, diag) = read(&src);
+    assert!(diag.is_empty(), "{diag:?}");
+    assert_eq!(
+        kinds(&file),
+        [
+            RecordKind::Unknown,
+            RecordKind::Header,
+            RecordKind::Comment,
+            RecordKind::Object
+        ]
+    );
+    let first = &file.records()[0];
+    assert_eq!(file.bytes(first.start, first.end), b"xx");
+    let comment = &file.records()[2];
+    assert_eq!(file.bytes(comment.start, comment.end), b"%c%PDF-2.0");
+    testkit::roundtrip::<Pdf>(&src).unwrap();
+}
+
+#[test]
 fn rejects_files_without_a_header() {
     let (file, diag) = testkit::read::<Pdf>(b"1 0 obj null endobj");
     assert!(matches!(file, Err(Error::Invalid)));

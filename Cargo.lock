@@ -1109,7 +1109,12 @@ dependencies = [
 name = "zumen-pdf"
 version = "0.2.0"
 dependencies = [
+ "flate2",
+ "hayro-cmap",
+ "hayro-font",
  "hayro-interpret",
+ "hayro-syntax",
+ "kurbo",
  "libm",
  "zumen-base",
  "zumen-drawing",

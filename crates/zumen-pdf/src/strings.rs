@@ -1,6 +1,6 @@
 //! PDF のテキスト文字列と日付を、Unicode の文字列に戻す。
 
-use hayro_interpret::hayro_syntax::object::DateTime;
+use hayro_syntax::object::DateTime;
 
 /// テキスト文字列（7.9.2.2）。先頭が FE FF なら UTF-16BE、EF BB BF なら UTF-8（PDF 2.0）、それ以外は
 /// PDFDocEncoding（附属書 D の表 D.2）
@@ -42,7 +42,8 @@ fn pdf_doc_char(byte: u8) -> char {
     }
 }
 
-/// 日付（7.9.4）。`2026-10-23T09:30:00+09:00` の形（ISO 8601）
+/// 日付（7.9.4）。`2026-10-23T09:30:00+09:00` の形（ISO 8601）。時差を書かない日付（UT との関係が分からない）は、
+/// hayro-syntax が `Z`（UT）と見分けないので、`+00:00` にする（推定）
 pub(crate) fn date(date: &DateTime) -> String {
     let sign = if date.utc_offset_hour < 0 { '-' } else { '+' };
     format!(

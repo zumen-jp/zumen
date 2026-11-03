@@ -1,11 +1,13 @@
 //! L0: ファイルの構造（ISO 32000-2 の 7.5）を、元のバイト範囲のレコードに分ける。
 //!
-//! 見出し・間接オブジェクト・相互参照表・トレーラー・`startxref`・注記を、ファイルの順に並べる。どれにも当たらない
-//! 空白でないバイトは、未知のレコードにする。オブジェクトの中身は解釈せず、文字列・辞書・ストリームの区切りだけを
+//! 見出し・間接オブジェクト・相互参照表・トレーラー・`startxref`・コメントを、ファイルの順に並べる。どれにも当たらない
+//! 空白文字でないバイトは、未知のレコードにする。オブジェクトの中身は解釈せず、文字列・辞書・ストリームの区切りだけを
 //! たどって `endobj` を探す。繰り返しは入力の長さで終わり、入れ子は数えるだけで再帰しない。
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{Cx, Error};
+
+use crate::MAGIC;
 
 /// レコードの種類
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,7 +22,7 @@ pub enum RecordKind {
     Trailer,
     /// 相互参照の位置（`startxref` と数）
     StartXref,
-    /// 注記（`%` から行の終わりまで。`%%EOF` を含む、7.2.4）
+    /// コメント（`%` から行の終わりまで。`%%EOF` を含む、7.2.4）
     Comment,
     /// どの構造にも当たらないバイト
     Unknown,
@@ -54,7 +56,7 @@ pub struct Record {
     pub object: Option<(u32, u16)>,
 }
 
-/// 白空白（7.2.3 の表 1）
+/// 空白文字（7.2.3 の表 1）
 fn is_white(byte: u8) -> bool {
     matches!(byte, 0x00 | 0x09 | 0x0a | 0x0c | 0x0d | 0x20)
 }
@@ -104,7 +106,7 @@ struct Scanner<'s> {
 }
 
 impl Scanner<'_> {
-    /// 白空白を飛ばし、次のバイトの位置を返す。入力の終わりなら `None`
+    /// 空白文字を飛ばし、次のバイトの位置を返す。入力の終わりなら `None`
     fn skip_white(&mut self) -> Option<usize> {
         while let Some(&byte) = self.src.get(self.at) {
             if !is_white(byte) {
@@ -143,12 +145,13 @@ impl Scanner<'_> {
     fn next_record(&mut self, start: usize, cx: &mut Cx<'_>) -> Record {
         let rest = self.src.get(start..).unwrap_or_default();
         if rest.first() == Some(&b'%') {
-            self.at = line_end(self.src, start);
-            let header = !self.header && rest.starts_with(b"%PDF-");
-            if header {
+            let end = line_end(self.src, start);
+            if !self.header && rest.starts_with(MAGIC) {
+                self.at = end;
                 self.header = true;
                 return self.record(RecordKind::Header, start, None);
             }
+            self.at = self.before_header(start, end);
             return self.record(RecordKind::Comment, start, None);
         }
         if let Some((number, generation, body)) = object_start(self.src, start) {
@@ -176,8 +179,21 @@ impl Scanner<'_> {
             return self.record(RecordKind::StartXref, start, None);
         }
         // 知らないバイトは、行の終わりまでを未知のレコードにする
-        self.at = line_end(self.src, start).max(start + 1);
+        let end = line_end(self.src, start).max(start + 1);
+        self.at = self.before_header(start, end);
         self.record(RecordKind::Unknown, start, None)
+    }
+
+    /// 行の終わり `end` までのレコードの終わり。見出しを読む前は、行の途中の `%PDF-` の前で切る（`xx%PDF-1.7` の
+    /// ように、見出しの前に余計なバイトがある行）。探すのは行の中だけなので、全体の手間は入力の長さに比例する
+    fn before_header(&self, start: usize, end: usize) -> usize {
+        if self.header {
+            return end;
+        }
+        self.src
+            .get(start + 1..end)
+            .and_then(|line| line.windows(MAGIC.len()).position(|bytes| bytes == MAGIC))
+            .map_or(end, |at| start + 1 + at)
     }
 
     /// 相互参照表の行（`開始 個数` と `位置 世代 n|f`）を飛ばす。数と `n`・`f` のほかが来たら終わる
@@ -266,7 +282,7 @@ impl Scanner<'_> {
         }
     }
 
-    /// 終わりのないオブジェクトを、後ろの白空白を除いた所で終える
+    /// 終わりのないオブジェクトを、後ろの空白文字を除いた所で終える
     fn repaired(&mut self, start: usize, cx: &mut Cx<'_>) {
         while self.at > start && self.src.get(self.at - 1).is_some_and(|&b| is_white(b)) {
             self.at -= 1;
@@ -304,7 +320,7 @@ fn direct_length(lexer: &Lexer<'_>) -> Option<u64> {
     (!indirect).then_some(value)
 }
 
-/// オブジェクトの中身を区切る字句の読み手（7.2・7.3）。注記は飛ばす
+/// オブジェクトの中身を区切る字句の読み手（7.2・7.3）。コメントは飛ばす
 struct Lexer<'s> {
     src: &'s [u8],
     /// 次に読む位置

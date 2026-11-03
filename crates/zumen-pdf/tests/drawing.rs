@@ -319,7 +319,8 @@ fn moves_text_runs() {
         .resources(HELVETICA),
     );
     let (drawing, diag) = lift(&src);
-    assert!(diag.is_empty(), "{diag:?}");
+    // Helvetica（埋め込みのない Type 1）の名前は、hayro-interpret が渡さない
+    assert_eq!(codes_of(&diag), [(codes::PDF_FONT_NAME_DROPPED.name(), 5)]);
     let texts: Vec<_> = elements(&drawing)
         .iter()
         .map(|element| match &element.shape {
@@ -375,8 +376,17 @@ fn moves_text_runs() {
 }
 
 /// 部分集合の名前の前置きを持つ、埋め込みのない Type 0 のフォントと、`<0001>`・`<0002>` を「図」「面」に戻す
-/// ToUnicode
+/// ToUnicode。(100, 100) から「図面」を描く
 fn cid_document(base_font: &str, encoding: &str) -> Vec<u8> {
+    cid_with(
+        base_font,
+        encoding,
+        "BT /F2 10 Tf 100 100 Td <00010002> Tj ET",
+    )
+}
+
+/// [`cid_document`] のフォントで、`content` を描く
+fn cid_with(base_font: &str, encoding: &str, content: &str) -> Vec<u8> {
     let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
         /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def \
         /CMapName /Adobe-Identity-UCS def /CMapType 2 def \
@@ -391,9 +401,7 @@ fn cid_document(base_font: &str, encoding: &str) -> Vec<u8> {
          /FontBBox [0 -141 1000 859] /ItalicAngle 0 /Ascent 859 /Descent -141 /CapHeight 700 \
          /StemV 80 >> /DW 1000 >>] /ToUnicode 4 0 R >>"
     );
-    let mut document = Document::new(vec![
-        Page::new("BT /F2 10 Tf 100 100 Td <00010002> Tj ET").resources("/Font << /F2 3 0 R >>"),
-    ]);
+    let mut document = Document::new(vec![Page::new(content).resources("/Font << /F2 3 0 R >>")]);
     document.objects = vec![font.into_bytes(), common::stream("", cmap)];
     document.bytes()
 }
@@ -789,5 +797,405 @@ fn lifts_cut_files_without_panicking() {
             "{end} バイトで切ると、2 回の結果が違う"
         );
         assert_eq!(diag.into_vec(), again.into_vec());
+    }
+}
+
+#[test]
+fn reports_contents_that_cannot_be_read() {
+    // 内容のストリームの配列の、壊れた Flate（途中で切れたものと、Flate でないもの）と、ストリームでない項目
+    let good = common::stream("/Filter /FlateDecode", common::zlib(b"0 0 m 72 0 l S"));
+    let mut cut = common::zlib(b"0 0 m 72 0 l S 0 10 m 72 10 l S");
+    cut.truncate(20);
+    let cut = common::stream("/Filter /FlateDecode", cut);
+    let garbage = common::stream("/Filter /FlateDecode", "not flate at all");
+    let mut document = Document::new(vec![Page::new("").contents("[3 0 R 4 0 R 5 0 R 6 0 R]")]);
+    document.objects = vec![good, cut, garbage, b"(not a stream)".to_vec()];
+    let src = document.bytes();
+    let (drawing, diag) = lift(&src);
+    assert_eq!(elements(&drawing).len(), 1);
+    assert_eq!(codes_of(&diag), [(codes::PDF_CONTENT_INVALID.name(), 3)]);
+    // 場所は、読めない項目のレコード
+    let file = testkit::read::<Pdf>(&src).0.unwrap();
+    let objects: Vec<_> = diag[0]
+        .places()
+        .iter()
+        .filter_map(|place| place.record())
+        .map(|record| file.records()[record as usize].object)
+        .collect();
+    assert_eq!(objects, [Some((4, 0)), Some((5, 0)), Some((6, 0))]);
+
+    // 引数の足りない演算子から後ろは、hayro-interpret も読まない
+    let (drawing, diag) = lift(&one_page(Page::new("0 0 m 72 0 l S 1 m 0 10 m 72 10 l S")));
+    assert_eq!(elements(&drawing).len(), 1);
+    assert_eq!(codes_of(&diag), [(codes::PDF_CONTENT_INVALID.name(), 1)]);
+
+    // BBox のないフォームと、大きさのない画像は描かれない
+    let mut document = Document::new(vec![
+        Page::new("/Fm Do q 10 0 0 10 0 0 cm /Im Do Q")
+            .resources("/XObject << /Fm 3 0 R /Im 4 0 R >>"),
+    ]);
+    document.objects = vec![
+        common::stream("/Type /XObject /Subtype /Form", "0 0 m 10 10 l S"),
+        common::stream(
+            "/Type /XObject /Subtype /Image /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [0u8],
+        ),
+    ];
+    let (drawing, diag) = lift(&document.bytes());
+    assert!(elements(&drawing).is_empty());
+    assert_eq!(codes_of(&diag), [(codes::PDF_CONTENT_INVALID.name(), 2)]);
+}
+
+/// 文字の中身
+#[cfg(test)]
+fn contents(drawing: &Drawing2D) -> Vec<&str> {
+    drawing
+        .sheets
+        .iter()
+        .flat_map(|sheet| &sheet.elements)
+        .map(|element| match &element.shape {
+            Shape::Text(text) => text.content.as_str(),
+            other => panic!("文字でない: {other:?}"),
+        })
+        .collect()
+}
+
+/// 診断の code の名前と、値 `name` と、件数。並べたもの
+fn named(diag: &[zumen_base::Diagnostic]) -> Vec<(&'static str, String, u64)> {
+    let mut found: Vec<_> = diag
+        .iter()
+        .map(|d| {
+            let name = match d.param("name") {
+                Some(zumen_base::Value::Text(name)) => name.clone(),
+                _ => String::new(),
+            };
+            (d.code().name(), name, d.count())
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn reads_missing_and_unreadable_fonts_with_helvetica() {
+    let fonts = "/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> \
+        /F2 << /Type /Font /Subtype /Type0 /BaseFont /Broken /Encoding /Identity-H >> >>";
+    let src = Document::new(vec![
+        // フォントを選ばずに ' で描いた文字は描かれず、Tj で描いた文字は Helvetica で読まれる
+        Page::new("BT 72 700 Td (pq) ' (xyz) Tj ET").resources(fonts),
+        // 資源にないフォント。ASCII でないバイトを含む文字列は描かれない
+        Page::new("BT /F9 12 Tf 72 700 Td (abc) Tj <82A0> Tj ET").resources(fonts),
+        // 読めないフォント（DescendantFonts のない Type 0）。同じフォントは 1 件
+        Page::new("BT /F2 12 Tf 72 700 Td (AB) Tj <8140> Tj /F2 10 Tf (CD) Tj ET").resources(fonts),
+    ])
+    .bytes();
+    let (drawing, diag) = lift(&src);
+    assert_eq!(contents(&drawing), ["xyz", "abc", "AB", "CD"]);
+    assert_eq!(
+        named(&diag),
+        [
+            ("pdf.font-name.dropped", String::new(), 4),
+            ("pdf.font.missing", String::new(), 1),
+            ("pdf.font.missing", "F9".to_owned(), 1),
+            ("pdf.font.unsupported", "Broken".to_owned(), 1),
+            ("pdf.text.dropped", String::new(), 3),
+        ]
+    );
+}
+
+#[test]
+fn reports_soft_masks_and_blend_modes() {
+    let mut document = Document::new(vec![
+        Page::new(
+            "/Bm gs 0 0 50 50 re f /Sm gs 0 0 m 10 0 l S /N gs \
+             BT /F1 12 Tf /Bm gs 72 700 Td (A) Tj ET /N gs \
+             q 10 0 0 10 200 200 cm /Im Do Q 0 0 m 20 0 l S",
+        )
+        .resources(
+            "/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> \
+             /ExtGState << /Bm << /BM /Multiply >> \
+             /Sm << /SMask << /Type /Mask /S /Luminosity /G 3 0 R >> >> \
+             /N << /BM /Normal /SMask /None >> >> /XObject << /Im 4 0 R >>",
+        ),
+    ]);
+    document.objects = vec![
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 10 10] \
+             /Group << /S /Transparency /CS /DeviceGray >>",
+            "1 g 0 0 10 10 re f",
+        ),
+        common::stream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8 /SMask 5 0 R",
+            [128u8],
+        ),
+        common::stream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8",
+            [255u8],
+        ),
+    ];
+    let (drawing, diag) = lift(&document.bytes());
+    // 塗り・線・文字・画像のソフトマスクと合成の方法を診断し、通常に戻した後の線は診断しない
+    assert_eq!(elements(&drawing).len(), 5);
+    let mut found = codes_of(&diag);
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (codes::PDF_FONT_NAME_DROPPED.name(), 1),
+            (codes::PDF_TRANSPARENCY_APPROXIMATED.name(), 4),
+        ]
+    );
+}
+
+#[test]
+fn reports_patterns_and_glyphs_without_unicode() {
+    let mut document = Document::new(vec![
+        Page::new("/Pattern cs /P1 scn 0 0 10 10 re f").resources("/Pattern << /P1 3 0 R >>"),
+    ]);
+    document.objects = vec![common::stream(
+        "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 \
+         /Resources << >>",
+        "0 0 5 5 re f",
+    )];
+    let (drawing, diag) = lift(&document.bytes());
+    assert!(elements(&drawing).is_empty());
+    assert_eq!(codes_of(&diag), [(codes::PDF_PATTERN_DROPPED.name(), 1)]);
+
+    // ToUnicode にない字形は U+FFFD にする
+    let (drawing, diag) = lift(&cid_with(
+        "MS-Gothic",
+        "Identity-H",
+        "BT /F2 10 Tf 100 100 Td <00010003> Tj ET",
+    ));
+    assert_eq!(contents(&drawing), ["図\u{FFFD}"]);
+    assert_eq!(codes_of(&diag), [(codes::PDF_GLYPH_DROPPED.name(), 1)]);
+}
+
+#[test]
+fn places_vertical_and_mirrored_text() {
+    // 縦書きの文字の基点は、縦の原点（文字を描き始めた点）
+    let (drawing, _) = lift(&cid_document("MS-Gothic", "Identity-V"));
+    let Shape::Text(text) = &elements(&drawing)[0].shape else {
+        panic!("文字でない");
+    };
+    assert_eq!(text.content, "図面");
+    let Placement::Anchor {
+        point,
+        horizontal,
+        vertical,
+    } = &text.placement
+    else {
+        panic!("基点で置いていない");
+    };
+    assert_point(point, mm(100.0), mm(100.0));
+    assert_eq!(
+        (*horizontal, *vertical),
+        (Horizontal::Center, Vertical::Top)
+    );
+
+    // 裏返しの行列は、基準線の向きのまま、上下を裏返す
+    let src = one_page(
+        Page::new("BT /F1 10 Tf 1 0 0 -1 100 100 Tm (A) Tj -1 0 0 1 200 100 Tm (B) Tj ET")
+            .resources(HELVETICA),
+    );
+    let (drawing, _) = lift(&src);
+    let texts: Vec<_> = elements(&drawing)
+        .iter()
+        .map(|element| match &element.shape {
+            Shape::Text(text) => text,
+            other => panic!("文字でない: {other:?}"),
+        })
+        .collect();
+    assert!(near(texts[0].rotation, 0.0), "{}", texts[0].rotation);
+    assert!(texts[0].upside_down && !texts[0].backward);
+    assert!(
+        near(texts[1].rotation.abs(), 180.0),
+        "{}",
+        texts[1].rotation
+    );
+    assert!(texts[1].upside_down && !texts[1].backward);
+}
+
+#[test]
+fn reports_transfer_functions() {
+    let states = "/ExtGState << /Id << /TR /Identity >> \
+        /Tr << /TR << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 2.2 >> >> >>";
+    let src = Document::new(vec![
+        Page::new("/Id gs 0.5 g 0 0 10 10 re f").resources(states),
+        Page::new("0.5 g 0 0 10 10 re f /Tr gs 0 0 10 10 re f").resources(states),
+    ])
+    .bytes();
+    let (drawing, diag) = lift(&src);
+    // 関数を外す名前（Identity）は、色を変えない
+    assert_eq!(rgb(&drawing.sheets[0].elements[0]), Some([128, 128, 128]));
+    // 転送関数を使うページの色は、すべてレイヤに従う
+    assert!(
+        drawing.sheets[1]
+            .elements
+            .iter()
+            .all(|element| element.style.color == Inherit::Layer)
+    );
+    assert_eq!(codes_of(&diag), [(codes::PDF_TRANSFER_DROPPED.name(), 2)]);
+}
+
+#[test]
+fn drops_shapes_without_finite_coordinates() {
+    let big = "9".repeat(39);
+    let scale = format!("{big} 0 0 {big} 0 0 cm ").repeat(9);
+    let content = format!(
+        "q {scale} 0 0 m 10 10 l S 0 0 10 10 re f Q \
+         BT /F1 0 Tf 72 700 Td (A) Tj ET BT /F1 10 Tf 0 Tz 72 600 Td (B) Tj ET 0 0 m 10 0 l S"
+    );
+    let (drawing, diag) = lift(&one_page(Page::new(&content).resources(HELVETICA)));
+    assert_eq!(elements(&drawing).len(), 1);
+    assert_eq!(codes_of(&diag), [(codes::PDF_GEOMETRY_DROPPED.name(), 4)]);
+}
+
+#[test]
+fn reports_content_hidden_by_membership_dictionaries() {
+    let mut document = Document::new(vec![
+        Page::new("/OC /md BDC 0 0 m 10 10 l S EMC 0 0 m 20 20 l S")
+            .resources("/Properties << /md 4 0 R >>"),
+    ]);
+    document.objects = vec![
+        b"<< /Type /OCG /Name (Walls) >>".to_vec(),
+        b"<< /Type /OCMD /OCGs [3 0 R] /P /AllOff >>".to_vec(),
+    ];
+    document.catalog = "/OCProperties << /OCGs [3 0 R] /D << >> >>";
+    let (drawing, diag) = lift(&document.bytes());
+    assert_eq!(elements(&drawing).len(), 1);
+    assert_eq!(codes_of(&diag), [(codes::PDF_MEMBERSHIP_DROPPED.name(), 1)]);
+}
+
+/// 段ごとに次の段のフォームを 2 回呼ぶ、深さ `depth` のフォームの鎖。最後の段は `leaf` を描く
+fn doubling_forms(depth: usize, leaf: &str) -> Vec<u8> {
+    let mut document = Document::new(vec![
+        Page::new("/X Do").resources("/XObject << /X 3 0 R >>"),
+    ]);
+    document.objects = (0..=depth)
+        .map(|level| {
+            if level == depth {
+                common::stream("/Type /XObject /Subtype /Form /BBox [0 0 100 100]", leaf)
+            } else {
+                let dict = format!(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+                     /Resources << /XObject << /X {} 0 R >> >>",
+                    4 + level
+                );
+                common::stream(&dict, "/X Do /X Do")
+            }
+        })
+        .collect();
+    document.bytes()
+}
+
+#[test]
+fn counts_nested_forms_before_interpreting() {
+    use zumen_base::{Kind, Limit, Limits};
+    // 2 の 30 乗回の呼び出しを、解釈する前に数えて止める。末端が何も描かなくても止める
+    for leaf in ["0 0 m 1 1 l S", ""] {
+        let file = testkit::read::<Pdf>(&doubling_forms(30, leaf)).0.unwrap();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(100_000)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+        assert_eq!(
+            diag.iter().next().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+    }
+    // 中断の合図も、解釈する前に見る
+    let file = testkit::read::<Pdf>(&doubling_forms(30, "")).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    // 予算に収まる深さは、呼んだ数の要素を移す
+    let (drawing, _) = lift(&doubling_forms(4, "0 0 m 1 1 l S"));
+    assert_eq!(elements(&drawing).len(), 16);
+}
+
+#[test]
+fn splits_text_at_large_gaps() {
+    let src = one_page(
+        Page::new(
+            "BT /F1 12 Tf 72 700 Td [(A) -5000 (B) -9000 (C)] TJ ET \
+             BT /F1 12 Tf 72 600 Td [(A) -100 (B)] TJ ET \
+             BT /F1 12 Tf 72 500 Td [(A) -20 (B)] TJ ET",
+        )
+        .resources(HELVETICA),
+    );
+    let (drawing, diag) = lift(&src);
+    // 大きな隙間で分け、小さなずれは 1 つの文字にする
+    assert_eq!(contents(&drawing), ["A", "B", "C", "AB", "AB"]);
+    // B は、A の送り（Helvetica の 667）と、TJ の 5,000 の後ろ
+    let Shape::Text(text) = &elements(&drawing)[1].shape else {
+        panic!("文字でない");
+    };
+    let Placement::Anchor { point, .. } = &text.placement else {
+        panic!("基点で置いていない");
+    };
+    let x = mm(72.0 + 12.0 * 0.667 + 60.0);
+    assert!((point.x - x).abs() < 1e-3, "{} と {x} が違う", point.x);
+    let mut found = codes_of(&diag);
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (codes::PDF_FONT_NAME_DROPPED.name(), 5),
+            (codes::PDF_GLYPH_POSITION_APPROXIMATED.name(), 1),
+        ]
+    );
+}
+
+#[test]
+fn names_the_newer_version() {
+    for (catalog, version) in [
+        ("", "1.7"),
+        ("/Version /1.4", "1.7"),
+        ("/Version /2.0", "2.0"),
+    ] {
+        let mut document = Document::new(vec![Page::new("")]);
+        document.catalog = catalog;
+        let (drawing, _) = lift(&document.bytes());
+        let found = drawing
+            .extensions
+            .iter()
+            .find(|extension| extension.namespace == "pdf.document")
+            .unwrap();
+        assert_eq!(found.version.as_deref(), Some(version), "{catalog}");
+    }
+}
+
+#[test]
+fn stops_at_the_same_place_every_time() {
+    use zumen_base::{Kind, Limit, Limits};
+    let content: String = (0..50).map(|i| format!("0 {i} m 72 {i} l S ")).collect();
+    let src = one_page(Page::new(&content));
+    let file = testkit::read::<Pdf>(&src).0.unwrap();
+    for (kind, limit) in [
+        (Kind::Work, 20),
+        (Kind::Work, 200),
+        (Kind::Elements, 10),
+        (Kind::DecodedBytes, 100),
+    ] {
+        let run = || {
+            let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+            format!("{result:?} {:?}", diag.into_vec())
+        };
+        let first = run();
+        assert!(
+            first.starts_with("Err(Stopped"),
+            "{kind:?} {limit}: {first}"
+        );
+        assert_eq!(first, run(), "{kind:?} {limit}");
     }
 }

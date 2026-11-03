@@ -717,6 +717,8 @@
 - 権利の根拠: ISO の規格で、PDF Association が無償で配っている。実装を制限する記述はない
 - 仕様: [iso\_32000\_2\_2020](#spec-iso_32000_2_2020)
 - 実装の根拠: spec
+- 権利の根拠にした文書: [PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）](https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/)（確認日: 2026-11-03）
+- 文書の補足: Adobe・Apryse・Foxit の後援で、PDF Association が登録した人に無償で配る。ページは自動の取得では開けない（HTTP 403）ので、検索の結果の要約で確かめた。無償版の利用の条件までは確かめていない
 - 照合するソフト: pdf.js
 - サンプルの出どころ（Git に入れない）: CAD が出力した図面の PDF（手元で作る）
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)

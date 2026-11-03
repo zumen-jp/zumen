@@ -186,6 +186,27 @@ rules:
       - from: 言語の段に合わせて配る
         to: 言語の階層に合わせて配る
 
+  # PDF の用語（決定 0256）。soft mask は一般の言い方の「ソフトマスク」、white-space characters は「空白文字」、
+  # glyph は「字形」と書く
+  - expected: ソフトマスク
+    pattern: 柔らかいマスク
+    prh: PDF の soft mask は「ソフトマスク」と書きます
+    specs:
+      - from: 柔らかいマスクと合成の方法
+        to: ソフトマスクと合成の方法
+  - expected: 空白文字
+    pattern: 白空白
+    prh: PDF の white-space characters は「空白文字」と書きます
+    specs:
+      - from: レコードの間は白空白だけ
+        to: レコードの間は空白文字だけ
+  - expected: 字形
+    pattern: グリフ
+    prh: glyph は「字形」と書きます
+    specs:
+      - from: グリフごとの位置
+        to: 字形ごとの位置
+
   # ── 製品と技術の名前（原典の書き方）──
 
   - expected: GitHub

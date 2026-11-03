@@ -1,23 +1,20 @@
 //! PDF から図面モデル（L2）への移し（決定 0256）。
 //!
-//! ページを用紙に、表示グループ（optional content group、8.11）をレイヤにする。ページの内容は hayro-interpret で
-//! 解釈し、塗った経路・字形の並び・画像を要素にする（[`crate::device`]）。文書の情報と版は、図面の拡張
-//! `pdf.document` に持つ。注釈と縮尺の辞書は、まだ移さずに診断する。
+//! ページを用紙に、表示グループ（optional content group、8.11）をレイヤにする。ページの内容は、解釈する前に
+//! 走査して予算に数え（[`crate::walk`]）、hayro-interpret で解釈し、塗った経路・字形の並び・画像を要素にする
+//! （[`crate::device`]）。文書の情報と版は、図面の拡張 `pdf.document` に持つ。注釈と縮尺の辞書は、まだ移さずに
+//! 診断する。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use hayro_interpret::hayro_syntax::object::{
-    Array, Dict, Name, ObjectIdentifier, Stream, String as PdfString,
-};
-use hayro_interpret::hayro_syntax::page::Page;
-use hayro_interpret::hayro_syntax::{LoadPdfError, Pdf as Document, PdfData, PdfVersion};
-use hayro_interpret::kurbo::{Affine, Rect};
 use hayro_interpret::{
-    Context, InterpreterCache, InterpreterSettings, InterpreterWarning, RenderContent,
-    interpret_page,
+    Context, InterpreterCache, InterpreterSettings, RenderContent, interpret_page,
 };
+use hayro_syntax::object::{Array, Dict, Name, ObjectIdentifier, String as PdfString};
+use hayro_syntax::page::Page;
+use hayro_syntax::{LoadPdfError, Pdf as Document, PdfData, PdfVersion};
+use kurbo::{Affine, Rect};
 use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
 use zumen_drawing::{
     Draft, Drawing2D, Field, FieldValue, Layer, LayerId, LayerState, PaperLength, Position, Sheet,
@@ -27,7 +24,8 @@ use zumen_sdk::{Cx, Error, Lift};
 
 use crate::device::{Collector, DEVICE_PER_MM, PAGE_LAYER, Styles};
 use crate::page::{self, Geometry};
-use crate::{PdfFile, RecordKind, strings};
+use crate::walk::Walker;
+use crate::{MAGIC, PdfFile, RecordKind, strings};
 
 /// 形式固有の情報の値の型の契約の版（決定 0115）
 const SCHEMA: u32 = 1;
@@ -37,11 +35,20 @@ const PAGE_LAYER_NAME: &str = "0";
 
 impl Lift<Drawing2D> for PdfFile {
     fn lift(&self, cx: &mut Cx) -> Result<Drawing2D, Error> {
-        let header = self
+        let position = self
             .records
             .iter()
-            .position(|record| record.kind == RecordKind::Header)
-            .map_or_else(Ref::default, |index| record_ref(self, index));
+            .position(|record| record.kind == RecordKind::Header);
+        let header = position.map_or_else(Ref::default, |index| record_ref(self, index));
+        // 見出しの版（7.5.2）。`%PDF-` の後ろ
+        let header_version =
+            position
+                .and_then(|index| self.records.get(index))
+                .and_then(|record| {
+                    self.bytes(record.start, record.end)
+                        .strip_prefix(MAGIC)
+                        .and_then(parse_version)
+                });
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
         let document = Document::new(PdfData::from(Arc::clone(&self.src))).map_err(|error| {
             let (code, error) = match error {
@@ -58,6 +65,7 @@ impl Lift<Drawing2D> for PdfFile {
             document: &document,
             objects: &objects,
             header,
+            header_version,
             styles: Styles::default(),
             drafts: Vec::new(),
         }
@@ -90,6 +98,9 @@ fn objects(file: &PdfFile) -> BTreeMap<(u32, i32), Ref> {
 /// 表示グループのオブジェクト → レイヤ
 type Groups = BTreeMap<(u32, i32), LayerId>;
 
+/// 既定の設定で隠れる表示グループのオブジェクト
+type Inactive = BTreeSet<(u32, i32)>;
+
 fn key(id: impl Into<ObjectIdentifier>) -> (u32, i32) {
     let id = id.into();
     (id.obj_number, id.gen_number)
@@ -106,6 +117,8 @@ struct Lifter<'d, 'o> {
     objects: &'o BTreeMap<(u32, i32), Ref>,
     /// 見出しのレコード
     header: Ref,
+    /// 見出しの版
+    header_version: Option<PdfVersion>,
     styles: Styles,
     /// 付く先を位置で指す拡張。要素がそろってから ID とハッシュにする（決定 0156）
     drafts: Vec<Draft>,
@@ -116,25 +129,21 @@ impl Lifter<'_, '_> {
         let document = self.document;
         let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
-        let (layers, ocgs) = self.layers(catalog.as_ref(), cx)?;
+        let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
         let pages = document.pages();
         let labels = page::labels(catalog.as_ref(), pages.len(), cx)
             .map_err(|stop| stopped(cx, stop, &self.header))?;
+        let reread = catalog_work(catalog.as_ref());
+        let version = self.version(catalog.as_ref());
 
-        // hayro-interpret が読めなかったフォントの数。警告は解釈の途中に届くので、数えてから診断にする
-        let unsupported_fonts = Arc::new(AtomicU64::new(0));
-        let counter = Arc::clone(&unsupported_fonts);
+        // hayro-interpret の警告（読めないフォントなど）は、解釈の前の走査で場所を添えて診断にするので、受けない
         let settings = InterpreterSettings {
-            warning_sink: Arc::new(move |warning| {
-                if matches!(warning, InterpreterWarning::UnsupportedFont) {
-                    counter.fetch_add(1, Ordering::Relaxed);
-                }
-            }),
             // 注釈の見た目は描かない（数を診断する）
             render_content: RenderContent::PAGE,
             ..InterpreterSettings::default()
         };
         let cache = InterpreterCache::new();
+        let mut walker = Walker::new(xref, self.objects, &inactive, &settings);
         let mut sheets = Vec::with_capacity(pages.len());
         for (index, page) in pages.iter().enumerate() {
             let label = labels.get(index).cloned().flatten();
@@ -149,12 +158,13 @@ impl Lifter<'_, '_> {
             let geometry = Geometry::of(page);
             let elements = {
                 let content = self.content_source(page).unwrap_or_else(|| source.clone());
-                if let Some(stream) = page.page_stream() {
-                    cx.check(Kind::DecodedBytes, stream.len() as u64)
-                        .map_err(|stop| stopped(cx, stop, &content))?;
-                } else if page.raw().contains_key(b"Contents") {
-                    cx.report(Diagnostic::new(codes::PDF_CONTENT_INVALID).at(content.clone()));
-                }
+                // hayro-interpret は、ページごとにカタログと表示の設定を読み直す
+                cx.check(Kind::Work, reread)
+                    .map_err(|stop| stopped(cx, stop, &content))?;
+                // hayro-interpret は予算でも中断でも止まらないので、する作業を先に数える
+                let survey = walker
+                    .page(page, &content, cx)
+                    .map_err(|stop| stopped(cx, stop, &content))?;
                 // 用紙の 1/1024 mm を、hayro-interpret の装置の単位にする
                 let device = Affine::scale(DEVICE_PER_MM) * geometry.user_space;
                 let paper = Rect::new(0.0, 0.0, geometry.width, geometry.height);
@@ -173,6 +183,7 @@ impl Lifter<'_, '_> {
                     &ocgs,
                     self.objects,
                     &mut self.styles,
+                    survey.transfer,
                 );
                 interpret_page(page, &mut context, &mut collector);
                 if let Some(stop) = collector.stopped {
@@ -192,10 +203,7 @@ impl Lifter<'_, '_> {
                 source,
             });
         }
-        for _ in 0..unsupported_fonts.load(Ordering::Relaxed) {
-            cx.report(Diagnostic::new(codes::PDF_FONT_UNSUPPORTED));
-        }
-        self.document_draft(pages.len());
+        self.document_draft(pages.len(), version);
 
         let drafts = core::mem::take(&mut self.drafts);
         let mut drawing = Drawing2D {
@@ -221,13 +229,14 @@ impl Lifter<'_, '_> {
         first.and_then(|id| self.objects.get(&key(id)).cloned())
     }
 
-    /// 表示グループ（8.11.2）のレイヤ。表示の状態は既定の設定（`OCProperties` の `D`、8.11.4.3）から決める。
-    /// hayro-interpret は既定で隠れる表示グループの内容を塗らないので、その内容は読まずに診断する
+    /// 表示グループ（8.11.2）のレイヤと、既定で隠れる表示グループ。表示の状態は既定の設定（`OCProperties` の
+    /// `D`、8.11.4.3）から決める。hayro-interpret は既定で隠れる表示グループの内容を塗らないので、その内容は
+    /// 読まずに診断する
     fn layers(
         &mut self,
         catalog: Option<&Dict<'_>>,
         cx: &mut Cx,
-    ) -> Result<(Vec<Layer>, Groups), Error> {
+    ) -> Result<(Vec<Layer>, Groups, Inactive), Error> {
         let mut layers = vec![Layer {
             id: PAGE_LAYER,
             name: PAGE_LAYER_NAME.to_owned(),
@@ -240,7 +249,7 @@ impl Lifter<'_, '_> {
         let mut ocgs = BTreeMap::new();
         let Some(properties) = catalog.and_then(|catalog| catalog.get::<Dict<'_>>(b"OCProperties"))
         else {
-            return Ok((layers, ocgs));
+            return Ok((layers, ocgs, BTreeSet::new()));
         };
         let config = properties.get::<Dict<'_>>(b"D").unwrap_or_default();
         let groups = |name: &[u8]| -> BTreeSet<(u32, i32)> {
@@ -267,6 +276,15 @@ impl Lifter<'_, '_> {
                     .collect()
             })
             .unwrap_or_else(Vec::new);
+        // hayro-interpret（`OcgState::from_catalog`）と同じ順に決める: BaseState が OFF ならすべて隠し、ON で見せ、
+        // OFF で隠す。`OCGs` にない表示グループも、OFF にあれば隠れる
+        let mut inactive: Inactive = if base_off {
+            items.iter().copied().map(key).collect()
+        } else {
+            BTreeSet::new()
+        };
+        inactive.retain(|group| !on.contains(group));
+        inactive.extend(off.iter().copied());
         for id in items {
             let source = self.objects.get(&key(id)).cloned().unwrap_or_default();
             cx.check(Kind::Work, 1)
@@ -280,8 +298,7 @@ impl Lifter<'_, '_> {
                 .and_then(|dict| dict.get::<PdfString<'_>>(b"Name"))
                 .map(|name| strings::text(name.as_bytes()))
                 .unwrap_or_default();
-            // hayro-interpret と同じ順に決める: BaseState が OFF ならすべて隠し、ON で見せ、OFF で隠す
-            let hidden = off.contains(&group) || (base_off && !on.contains(&group));
+            let hidden = inactive.contains(&group);
             if hidden {
                 cx.report(
                     Diagnostic::new(codes::PDF_OPTIONAL_CONTENT_DROPPED)
@@ -307,11 +324,11 @@ impl Lifter<'_, '_> {
             });
             ocgs.insert(group, layer);
         }
-        Ok((layers, ocgs))
+        Ok((layers, ocgs, inactive))
     }
 
-    /// まだ移さないものを診断する: 注釈（12.5）、縮尺の辞書を持つビューポート（12.9）、表示グループを持つ
-    /// XObject（8.11.3.3。中の要素はレイヤに分けない）
+    /// まだ移さないものを診断する: 注釈（12.5）と、縮尺の辞書を持つビューポート（12.9）。注釈の診断は、注釈の
+    /// 辞書のレコードを場所にする（間接オブジェクトでなければ、ページ）
     fn unread(&self, page: &Page<'_>, source: &Ref, cx: &mut Cx) -> Result<(), Error> {
         let raw = page.raw();
         if let Some(annotations) = raw.get::<Array<'_>>(b"Annots") {
@@ -322,10 +339,14 @@ impl Lifter<'_, '_> {
                     .get::<Name<'_>>(b"Subtype")
                     .map(|name| String::from_utf8_lossy(name.as_ref()).into_owned())
                     .unwrap_or_default();
+                let place = annotation
+                    .obj_id()
+                    .and_then(|id| self.objects.get(&key(id)).cloned())
+                    .unwrap_or_else(|| source.clone());
                 cx.report(
                     Diagnostic::new(codes::PDF_ANNOTATION_UNSUPPORTED)
                         .with("kind", kind)
-                        .at(source.clone()),
+                        .at(place),
                 );
             }
         }
@@ -340,23 +361,24 @@ impl Lifter<'_, '_> {
                 cx.report(Diagnostic::new(codes::PDF_MEASURE_UNSUPPORTED).at(source.clone()));
             }
         }
-        let x_objects = &page.resources().x_objects;
-        let mut grouped = false;
-        for name in x_objects.keys() {
-            cx.check(Kind::Work, 1)
-                .map_err(|stop| stopped(cx, stop, source))?;
-            grouped |= x_objects
-                .get::<Stream<'_>>(name.as_ref())
-                .is_some_and(|stream| stream.dict().contains_key(b"OC"));
-        }
-        if grouped {
-            cx.report(Diagnostic::new(codes::PDF_OPTIONAL_CONTENT_APPROXIMATED).at(source.clone()));
-        }
         Ok(())
     }
 
+    /// 文書の版。見出し（7.5.2）と、カタログの `Version`（7.7.2）の新しいほう。hayro-syntax の `Pdf::version` は、
+    /// カタログの版が古くてもそれを返すので、どちらも読めないときだけ使う
+    fn version(&self, catalog: Option<&Dict<'_>>) -> PdfVersion {
+        let declared = catalog
+            .and_then(|catalog| catalog.get::<Name<'_>>(b"Version"))
+            .and_then(|name| parse_version(name.as_ref()));
+        match (self.header_version, declared) {
+            (Some(header), Some(declared)) => header.max(declared),
+            (Some(version), None) | (None, Some(version)) => version,
+            (None, None) => self.document.version(),
+        }
+    }
+
     /// 文書の情報の辞書（14.3.3）とページの数を、図面の拡張 `pdf.document` にする。版は拡張の版に持つ
-    fn document_draft(&mut self, pages: usize) {
+    fn document_draft(&mut self, pages: usize, version: PdfVersion) {
         let info = self.document.metadata();
         let mut fields = Vec::new();
         let texts = [
@@ -397,7 +419,7 @@ impl Lifter<'_, '_> {
         self.drafts.push(Draft {
             namespace: "pdf.document".into(),
             name: String::new(),
-            version: Some(version_name(self.document.version()).to_owned()),
+            version: Some(version_name(version).to_owned()),
             schema: SCHEMA,
             at: Position::Document,
             fields,
@@ -406,7 +428,47 @@ impl Lifter<'_, '_> {
     }
 }
 
-/// 版の名前（見出しの `%PDF-` の後ろ。カタログの `Version` が新しければ、そちら。7.2.2）
+/// hayro-interpret がページごとにカタログを読み直す作業の量（`Context::new` が表示の設定を読む）。カタログと、
+/// 表示の設定の辞書・配列のバイト数で数える
+fn catalog_work(catalog: Option<&Dict<'_>>) -> u64 {
+    let Some(catalog) = catalog else {
+        return 1;
+    };
+    let mut bytes = catalog.data().len();
+    if let Some(properties) = catalog.get::<Dict<'_>>(b"OCProperties") {
+        bytes = bytes.saturating_add(properties.data().len());
+        if let Some(groups) = properties.get::<Array<'_>>(b"OCGs") {
+            bytes = bytes.saturating_add(groups.data().len());
+        }
+        if let Some(config) = properties.get::<Dict<'_>>(b"D") {
+            bytes = bytes.saturating_add(config.data().len());
+            for name in [b"ON".as_slice(), b"OFF"] {
+                if let Some(groups) = config.get::<Array<'_>>(name) {
+                    bytes = bytes.saturating_add(groups.data().len());
+                }
+            }
+        }
+    }
+    u64::try_from(bytes).unwrap_or(u64::MAX).saturating_add(1)
+}
+
+/// 版の書き方（`1.7` など）。hayro-syntax の `PdfVersion` と同じく、知っている版の最初の 3 バイトだけを読む
+fn parse_version(bytes: &[u8]) -> Option<PdfVersion> {
+    Some(match bytes.get(..3)? {
+        b"1.0" => PdfVersion::Pdf10,
+        b"1.1" => PdfVersion::Pdf11,
+        b"1.2" => PdfVersion::Pdf12,
+        b"1.3" => PdfVersion::Pdf13,
+        b"1.4" => PdfVersion::Pdf14,
+        b"1.5" => PdfVersion::Pdf15,
+        b"1.6" => PdfVersion::Pdf16,
+        b"1.7" => PdfVersion::Pdf17,
+        b"2.0" => PdfVersion::Pdf20,
+        _ => return None,
+    })
+}
+
+/// 版の名前
 fn version_name(version: PdfVersion) -> &'static str {
     match version {
         PdfVersion::Pdf10 => "1.0",

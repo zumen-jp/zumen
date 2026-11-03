@@ -2,9 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use hayro_interpret::hayro_syntax::object::{Array, Dict, Name, Object, String as PdfString};
-use hayro_interpret::hayro_syntax::page::{Page, Rotation};
-use hayro_interpret::kurbo::Affine;
+use hayro_syntax::object::{Array, Dict, Name, Object, String as PdfString};
+use hayro_syntax::page::{A4, Page, Rotation};
+use kurbo::Affine;
 use zumen_base::{Kind, Stop};
 use zumen_sdk::Cx;
 
@@ -13,8 +13,8 @@ use crate::strings;
 /// 1 pt（既定のユーザー空間の 1 単位）の mm
 pub(crate) const MM_PER_PT: f64 = 25.4 / 72.0;
 
-/// 大きさのないページの大きさ（A4、pt）。hayro と同じ
-const A4: (f64, f64) = (595.0, 842.0);
+/// これより短い辺（pt、単精度で比べる）は、大きさがないとみなす。hayro-syntax の `SCALAR_NEARLY_ZERO` と同じ
+const NEARLY_ZERO: f32 = 1.0 / 4096.0;
 
 /// ページラベルの数の木（7.9.7）をたどる深さの上限
 const MAX_TREE_DEPTH: u32 = 32;
@@ -35,15 +35,18 @@ pub(crate) struct Geometry {
 
 impl Geometry {
     /// 見える範囲はクロップボックスとメディアボックスの重なり（7.7.3.3、14.11.2）、向きは `Rotate`（時計回りに
-    /// 90 度ずつ）、単位の大きさは `UserUnit`（7.7.3.3 の表）。大きさのない範囲は A4、1 pt より短い辺は 1 pt
-    /// とみなす（hayro と同じ、推定）
+    /// 90 度ずつ）、単位の大きさは `UserUnit`（7.7.3.3 の表）。メディアボックスのないページと、大きさのない範囲は
+    /// A4（210 × 297 mm）、1 pt より短い辺は 1 pt とみなす（推定。hayro-syntax の `Page::base_dimensions` と同じ
+    /// 決め方で、値は単精度に丸めずに使う）
     pub(crate) fn of(page: &Page<'_>) -> Self {
         let crop = page.intersected_crop_box();
-        let (mut width, mut height) = (crop.x1 - crop.x0, crop.y1 - crop.y0);
-        if !(width.abs() >= 1e-6 && height.abs() >= 1e-6) {
-            (width, height) = A4;
-        }
-        let (width, height) = (width.max(1.0), height.max(1.0));
+        let (width, height) = (crop.width(), crop.height());
+        let empty = |length: f64| (length as f32).abs() <= NEARLY_ZERO;
+        let (width, height) = if empty(width) || empty(height) {
+            (A4.width(), A4.height())
+        } else {
+            (width.max(1.0), height.max(1.0))
+        };
         let user_unit = page
             .raw()
             .get::<f64>(b"UserUnit")
@@ -78,8 +81,8 @@ impl Geometry {
 }
 
 /// 各ページのページラベル（12.4.2）。カタログの `PageLabels` の数の木から、ページの番号（0 から）以下でいちばん
-/// 大きい開始ページの範囲の書き方で作る。ラベルのないページと、空のラベルは `None`。木の節ごとに予算の `work` を
-/// 1 使い、深さは [`MAX_TREE_DEPTH`] まで、同じ節は 2 度たどらない
+/// 大きい開始ページの範囲の書き方で作る。ラベルのないページと、空のラベルは `None`。木の節と項目ごとに予算の
+/// `work` を 1 使い、深さは [`MAX_TREE_DEPTH`] まで、同じ節は 2 度たどらない。範囲は二分探索で引く
 pub(crate) fn labels(
     catalog: Option<&Dict<'_>>,
     count: usize,
@@ -124,10 +127,11 @@ pub(crate) fn labels(
     for index in 0..count {
         cx.check(Kind::Work, 1)?;
         let index = i64::try_from(index).unwrap_or(i64::MAX);
+        // 開始ページが `index` 以下の範囲のうち、最後のもの
         let found = ranges
-            .iter()
-            .rev()
-            .find(|(start, _)| *start <= index)
+            .partition_point(|(start, _)| *start <= index)
+            .checked_sub(1)
+            .and_then(|at| ranges.get(at))
             .map(|(start, range)| label(range, index.saturating_sub(*start)))
             .filter(|label| !label.is_empty());
         out.push(found);

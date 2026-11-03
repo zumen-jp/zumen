@@ -1,6 +1,6 @@
 //! PDF（ISO 32000-2）のファイルモデル（L1）と、そのコーデック（決定 0008・0256）。
 //!
-//! ファイルの構造（7.5）を、見出し・間接オブジェクト・相互参照表・トレーラー・`startxref`・注記のレコードに、元の
+//! ファイルの構造（7.5）を、見出し・間接オブジェクト・相互参照表・トレーラー・`startxref`・コメントのレコードに、元の
 //! バイト範囲のまま分ける。オブジェクトの中身は解釈しない。図面モデル（L2）への移しは、ページの内容を
 //! hayro-interpret で解釈して行う（機能 `drawing`）。節の番号は ISO 32000-2:2020。
 
@@ -15,6 +15,8 @@ mod lift;
 mod page;
 #[cfg(feature = "drawing")]
 mod strings;
+#[cfg(feature = "drawing")]
+mod walk;
 
 use std::sync::Arc;
 
@@ -103,7 +105,7 @@ impl Codec for Pdf {
         for record in &file.records {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record)))?;
-            // レコードの間は白空白だけ
+            // レコードの間は空白文字だけ
             out.extend_from_slice(file.bytes(end, record.start));
             out.extend_from_slice(file.bytes(record.start, record.end));
             end = record.end;

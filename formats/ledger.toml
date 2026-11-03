@@ -472,6 +472,12 @@ legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
 notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、版を固定する（決定 0256）"
 
+[[formats.pdf.evidence]]
+title = "PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）"
+url = "https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/"
+checked = "2026-11-03"
+note = "Adobe・Apryse・Foxit の後援で、PDF Association が登録した人に無償で配る。ページは自動の取得では開けない（HTTP 403）ので、検索の結果の要約で確かめた。無償版の利用の条件までは確かめていない"
+
 [formats.ifc]
 name = "IFC"
 family = "ifc"

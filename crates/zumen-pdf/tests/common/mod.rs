@@ -59,6 +59,23 @@ impl Builder {
     }
 }
 
+/// 圧縮しない区画（RFC 1951 の 3.2.4）だけの zlib のデータ（RFC 1950）。`FlateDecode` で展開できる
+#[cfg(test)]
+pub fn zlib(data: &[u8]) -> Vec<u8> {
+    let length = u16::try_from(data.len()).unwrap();
+    let mut out = vec![0x78, 0x01, 0x01];
+    out.extend(length.to_le_bytes());
+    out.extend((!length).to_le_bytes());
+    out.extend(data);
+    let (mut a, mut b) = (1u32, 0u32);
+    for &byte in data {
+        a = (a + u32::from(byte)) % 65521;
+        b = (b + a) % 65521;
+    }
+    out.extend(((b << 16) | a).to_be_bytes());
+    out
+}
+
 /// ストリームのオブジェクトの中身
 pub fn stream(dict: &str, data: impl AsRef<[u8]>) -> Vec<u8> {
     let data = data.as_ref();
@@ -77,6 +94,8 @@ pub struct Page<'a> {
     pub resources: &'a str,
     /// ページの辞書に足す項目。`MediaBox` がなければ、US レター（612 × 792 pt）にする
     pub extra: &'a str,
+    /// `Contents` の値。空なら、`content` のストリーム
+    pub contents: &'a str,
 }
 
 impl<'a> Page<'a> {
@@ -85,6 +104,7 @@ impl<'a> Page<'a> {
             content,
             resources: "",
             extra: "",
+            contents: "",
         }
     }
 
@@ -94,6 +114,10 @@ impl<'a> Page<'a> {
 
     pub fn extra(self, extra: &'a str) -> Self {
         Self { extra, ..self }
+    }
+
+    pub fn contents(self, contents: &'a str) -> Self {
+        Self { contents, ..self }
     }
 }
 
@@ -147,11 +171,14 @@ impl<'a> Document<'a> {
             } else {
                 "/MediaBox [0 0 612 792]"
             };
+            let contents = if page.contents.is_empty() {
+                format!("{} 0 R", number + 1)
+            } else {
+                page.contents.to_owned()
+            };
             builder.object(format!(
-                "<< /Type /Page /Parent 2 0 R {media} /Contents {} 0 R /Resources << {} >> {} >>",
-                number + 1,
-                page.resources,
-                page.extra
+                "<< /Type /Page /Parent 2 0 R {media} /Contents {contents} /Resources << {} >> {} >>",
+                page.resources, page.extra
             ));
             builder.stream("", page.content);
         }
