@@ -67,18 +67,19 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 - 見つけた入力は `fuzz/artifacts/` に出ます。直したら、その入力を最小にして、合成の試験に移します。`corpus` と `artifacts` はリポジトリに入れません。
 - 見つけた入力は種か種を変えたもので、表示を求めるライセンス（CC BY・MIT・公共データ利用規約）の公開サンプルから来ることがあります。issue などに貼るときは、最小にした入力にし、元の公開サンプルの出所とライセンス（`samples/ledger.toml`）を添えます。元が分からなければ、種を作ったコミットに固定した URL（`https://github.com/zumen-jp/zumen/blob/<コミット>/samples/ledger.toml`）で、台帳の全体を指します。サンプルを外した後も、指す先から表示が消えないようにするためです（決定 0258）。種を作ったコミットは、artifact の `NOTICE.txt` と、log の checkout に出ます。
   - 毎晩の実行なら、その夜の main のコミットです。
-  - PR の実行なら、PR と main を合わせた一時のコミットです。このコミットは残らないので、件名の「Merge <PR の head> into <main のコミット>」の 2 つのコミットの台帳を、並べて指します。
+  - PR の実行なら、PR と main を合わせた一時のコミットです。このコミットは、後でどの ref からも指されなくなり、残るとは限らないので、件名の「Merge <PR の head> into <main のコミット>」の 2 つのコミットの台帳を、並べて指します。
 
 ## CI
 
 `.github/workflows/fuzz.yml` が、毎晩すべての target を 1 つ 180 秒ずつ、4 つずつ並べて流します（決定 0258）。
 
 - 前の夜までに育てた種を actions/cache で引き継ぎます。キャッシュのキーに公開サンプルの台帳（`samples/ledger.toml`）のハッシュを入れ、台帳が変わったら引き継ぎません。
+- 残す前に、target ごとに、通る辺を変えずに種を縮めます（libFuzzer の `-merge=1`）。libFuzzer は起動時に種をすべて流してから時間を数えるので、縮めないと、種が増えるほど新しい入力を試す時間が減ります。縮める前と後の種の数も、summary と log に書きます。
 - target ごとの結果の表を、実行の summary と log に書きます。表には、試した入力・通った辺・もっとも遅い入力（1 秒から）・使ったメモリ・流した後の種の数を出します。
 - パニック、30 秒を超える入力、3 GB を超えるメモリを見つけたら失敗します。
 - 見つけた入力と、1 秒以上かかった入力のうち target ごとにそれまでの最長を超えたものを、artifact の `fuzz-artifacts` に 14 日残します。公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を作ったコミット（`NOTICE.txt`）を添えます。
 - 公開サンプルを台帳から外すと、台帳のハッシュが変わるので、外したサンプルとそれを変えた入力を含む前の種は戻りません。前の種のキャッシュを早く消す手順は、[`samples/README.md`](../samples/README.md) の「外し方」にあります。
-- crate・種の元（`samples/`・`bindings/conformance/cases/`）・fuzz の target・この workflow を変えた PR では、1 つ 20 秒ずつ流します。fuzz の crate はワークスペースの外にあるので、ここで組み立てを確かめます。
+- crate・種の元（`samples/`・`bindings/conformance/cases/`）・fuzz の target・この workflow を変えた PR では、1 つ 20 秒ずつ流します。fuzz の crate はワークスペースの外にあるので、ここで組み立てを確かめます。台帳が同じなら main の育てた種も戻すので、種を流す時間の分、20 秒より長くかかります。
 - fuzz の job は、main の必須の検査ではありません。PR で流れたら、通ったことを確かめてからマージします。PR の変更と関係のない失敗（同じ入力が main でも落ちるもの）は、見つけた入力を最小にして issue にしてから、マージしてよいです。必須にするかは、#545 で決めます。
 
 ## ライセンス

@@ -107,6 +107,38 @@ jobs:
             echo "::error::パニック・止まらない繰り返し・メモリの使い過ぎを見つけた target: $(echo $failed)。入力は artifact の fuzz-artifacts にある"
             exit 1
           fi
+      # 育てた種は、夜ごとに足した入力の和になり、減らない。libFuzzer は起動時に種をすべて流してから時間を数えるので、
+      # 種が増えるほど新しい入力を試す時間が減る。残す前に、target ごとに通る辺を変えずに縮める（決定 0258）
+      - name: 育てた種を、通る辺を変えずに縮める
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          logs="$RUNNER_TEMP/fuzz-merge"
+          mkdir -p "$logs"
+          export logs
+          targets=$(cargo "+$NIGHTLY" fuzz list)
+          # 縮められなかった target は、縮める前の種をそのまま残す
+          printf '%s\n' $targets | xargs -P 4 -I '{}' sh -c '
+            bin="fuzz/target/x86_64-unknown-linux-gnu/release/$1"
+            [ -x "$bin" ] && [ -d "fuzz/corpus/$1" ] || exit 0
+            before=$(find "fuzz/corpus/$1" -type f | wc -l)
+            mkdir -p "fuzz/merged/$1" "fuzz/artifacts/$1"
+            if "$bin" -merge=1 -timeout=30 -rss_limit_mb=3072 -artifact_prefix="fuzz/artifacts/$1/" \
+              "fuzz/merged/$1" "fuzz/corpus/$1" > "$logs/$1.log" 2>&1
+            then
+              rm -rf "fuzz/corpus/$1"
+              mv "fuzz/merged/$1" "fuzz/corpus/$1"
+              after=$(find "fuzz/corpus/$1" -type f | wc -l)
+            else
+              after=縮められなかった
+            fi
+            echo "| $1 | $before | $after |" > "$logs/$1.row"
+          ' sh '{}'
+          {
+            echo
+            echo '| target | 縮める前の種 | 縮めた後の種 |'
+            echo '| --- | ---: | ---: |'
+            for target in $targets; do cat "$logs/$target.row" 2>/dev/null || true; done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: 育てた種を、次の夜のために残す
         if: always() && github.event_name != 'pull_request'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
