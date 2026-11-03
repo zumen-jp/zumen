@@ -2295,6 +2295,14 @@ group-by = ["href"]
 since = "0.2.0"
 status = "active"
 
+[codes."fgd.entry.unsupported"]
+description = "基盤地図情報の配布の書庫の、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
 [codes."fgd.point-kind.dropped"]
 description = "DEM 区画の構成点の種別（地表面・表層面など）を点ごとには移さず、種別ごとの点の数だけを属性にした"
 severity = "info"

@@ -352,6 +352,14 @@ pub const DETECTION: &[Detection] = &[
         }],
     },
     Detection {
+        format: "fgd",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::ZipName {
+            prefixes: &[b"FG-GML-"],
+            suffixes: &[b".xml", b".zip"],
+        }],
+    },
+    Detection {
         format: "ifc",
         module: "bim",
         rules: &[zumen_sdk::Signature::Bytes {

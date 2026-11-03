@@ -177,7 +177,8 @@ ops = ["capabilities", "open", "close", "describe", "lift"]
 # open が入力の形式を判定する順と規則（決定 0007・0219）。規則は、形式のコーデックの SIGNATURES と同じにする
 # （zumen-abi の試験が確かめる）。JavaScript の包みは、この順で判定し、形式を持つモジュールを読み込む。
 # 規則の形: bytes（offset の位置から続くバイト列）・lines（先頭の行）・step-schema（ISO 10303-21 の FILE_SCHEMA の始まり）・
-# xml-root（XML の最初の要素の名前。namespace で名前空間を添える）
+# xml-root（XML の最初の要素の名前。namespace で名前空間を添える）・zip-entry（ZIP の項目の名前の終わり。zip-prefix で
+# フォルダーを除いた名前の始まりを添える、決定 0251）
 
 [[detection]]
 format = "ifc"
@@ -259,6 +260,13 @@ rules = [{ xml-root = "Dataset", namespace = "http://fgd.gsi.go.jp/spec/2008/FGD
 format = "sxf"
 module = "drawing"
 rules = [{ zip-entry = [".p21", ".sfc"] }]
+
+# 基盤地図情報の配布の書庫（ZIP、#493）。中の項目の名前（FG-GML- で始まる .xml と、全項目の書庫の中の .zip）で、
+# ほかの ZIP の形式と分ける（決定 0251）。open は SFZ・P2Z の後、ifcZIP の前に試す
+[[detection]]
+format = "fgd"
+module = "drawing"
+rules = [{ zip-entry = [".xml", ".zip"], zip-prefix = ["FG-GML-"] }]
 
 # ifcZIP。ZIP の署名はほかの形式とも重なるので、最後に試す
 [[detection]]

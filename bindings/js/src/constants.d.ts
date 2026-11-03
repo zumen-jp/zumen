@@ -54,7 +54,8 @@ export type DetectionRule =
   | { readonly kind: "lines"; readonly lines: readonly string[] }
   | { readonly kind: "step_schema"; readonly prefix: string }
   | { readonly kind: "xml_root"; readonly name: string; readonly namespace: string | null }
-  | { readonly kind: "zip_entry"; readonly suffixes: readonly string[] };
+  | { readonly kind: "zip_entry"; readonly suffixes: readonly string[] }
+  | { readonly kind: "zip_name"; readonly prefixes: readonly string[]; readonly suffixes: readonly string[] };
 
 /** 形式の判定。rules のどれかに合えば format とする */
 export interface Detection {

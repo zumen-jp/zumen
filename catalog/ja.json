@@ -173,6 +173,7 @@
     "extdm.version.unsupported": "バージョン {version} のファイルを、バージョン 2 の書式として読みました。",
     "fgd.crs.unsupported": "座標系「{name}」を扱えないか、文書の座標系と違うので、その形を移しませんでした。",
     "fgd.element.unsupported": "要素「{element}」は地理のモデルに移さないので、読みませんでした。",
+    "fgd.entry.unsupported": "書庫の項目「{name}」は基盤地図情報の GML でないので、読みませんでした。",
     "fgd.point-kind.dropped": "「{element}」の構成点の種別を点ごとには移さず、種別ごとの点の数を属性にしました。",
     "fgd.reference.unsupported": "参照「{href}」の先が同じ文書にないので、参照した形を移しませんでした。",
     "fgd.value.invalid": "要素「{element}」の「{field}」が読めないので、移しませんでした。",

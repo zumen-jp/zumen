@@ -60,6 +60,8 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
                 suffixes: &[b".p21", b".sfc"],
             }],
         ),
+        // 基盤地図情報の配布の書庫（決定 0251）
+        ("fgd", zumen_fgd::ARCHIVE),
         ("ifc", IfcZip::SIGNATURES),
     ];
     assert_eq!(DETECTION.len(), expected.len());

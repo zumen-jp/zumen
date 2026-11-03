@@ -690,7 +690,7 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー", "QGIS"]
 samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る"]
-decisions = ["0019", "0233"]
+decisions = ["0019", "0233", "0251"]
 docs = ["docs/formats/fgd.md"]
 issues = ["zumen-jp/zumen#378"]
 

@@ -17,6 +17,7 @@ zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
 zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [lints]
 workspace = true

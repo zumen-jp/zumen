@@ -173,6 +173,7 @@
     "extdm.version.unsupported": "The file of version {version} was read in the format of version 2.",
     "fgd.crs.unsupported": "The coordinate system \"{name}\" is not supported or differs from the document's, so the shape was not moved.",
     "fgd.element.unsupported": "The element \"{element}\" is not moved to the geographic model, so it was not read.",
+    "fgd.entry.unsupported": "The archive entry \"{name}\" is not a Fundamental Geospatial Data GML file, so it was not read.",
     "fgd.point-kind.dropped": "The kinds of the points of \"{element}\" were not moved point by point; the number of points of each kind was kept as attributes.",
     "fgd.reference.unsupported": "The reference \"{href}\" does not point into the same document, so the referenced shape was not moved.",
     "fgd.value.invalid": "The field \"{field}\" of the element \"{element}\" cannot be read, so it was not moved.",
