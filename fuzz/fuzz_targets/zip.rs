@@ -9,10 +9,10 @@ use zumen_sdk::{Cx, Error};
 use zumen_zip::Archive;
 
 /// 展開先のフォルダーの外を指さない名前か。`/` と `\` のどちらで区切っても `..` の部分がなく、根やドライブから
-/// 始まらない
+/// 始まらず、NUL を含まない（決定 0010 の「入れ物と XML」）
 fn stays_inside(name: &str) -> bool {
     !name.starts_with(['/', '\\'])
-        && !name.contains(':')
+        && !name.contains([':', '\0'])
         && name.split(['/', '\\']).all(|part| part != "..")
 }
 

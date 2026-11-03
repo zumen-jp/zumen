@@ -5,8 +5,9 @@
 //! `[[detection]]` と `[[modules]]` の形式。target は `fuzz/Cargo.toml` の `[[bin]]` で、`fuzz/fuzz_targets/<名前>.rs`
 //! に置き、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`）を呼ぶ。
 //!
-//! `cargo xtask fuzz-seeds` は、公開サンプル、適合試験の組の合成の入力、L0 の攻撃の形（ZIP 爆弾・書庫の入れ子・
-//! パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）を、どの target にも種として書く。
+//! `cargo xtask fuzz-seeds` は、公開サンプル、適合試験の組の合成の入力、L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・
+//! 書庫の入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、合成の格子（ISG・
+//! TKY2JGD・PatchJGD の形）を、どの target にも種として書く（決定 0258）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -15,6 +16,7 @@ use std::path::Path;
 use std::process::Command;
 
 use serde::Deserialize;
+use zumen_base::crc::crc32;
 use zumen_json::Value;
 
 use crate::boundary::Boundary;
@@ -28,8 +30,11 @@ const L0: &[&str] = &["zip", "xml", "step"];
 const TESTKIT: &str = "zumen_sdk::testkit::survives";
 /// 深い入れ子の種の段の数。fuzz の予算の深さ（既定の 256）を超える
 const DEEP: usize = 1000;
-/// 空の deflate のデータ（固定のハフマン符号の、終わりの印だけの区画）
+/// 空の deflate のデータ。固定のハフマン符号の最後の区画で、区画の終わりの符号（256）だけを持つ（RFC 1951 の
+/// 3.2.3・3.2.6）
 const EMPTY_DEFLATE: &[u8] = &[0x03, 0x00];
+/// 膨らむ deflate の種の、長さ 258・距離 1 の参照の数。約 27 KB が約 4 MB の 0 に展開する
+const REPEATS: usize = 16_384;
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -168,14 +173,15 @@ fn check_targets(
     errors
 }
 
-/// 公開サンプル、適合試験の組の合成の入力、L0 の攻撃の形を、どの target にも `fuzz/corpus/<target>/` の種として
-/// 書く。ファイルの名前は、中身の SHA-256 にする
+/// 公開サンプル、適合試験の組の合成の入力、L0 の攻撃の形、合成の格子を、どの target にも
+/// `fuzz/corpus/<target>/` の種として書く。ファイルの名前は、中身の SHA-256 にする
 pub fn seeds(root: &Path) -> Result<(), String> {
     let mut seeds = BTreeMap::new();
     for data in samples(root)?
         .into_iter()
         .chain(cases(root)?)
         .chain(attacks()?)
+        .chain(grids())
     {
         seeds.insert(sha256::hex(&data), data);
     }
@@ -280,9 +286,12 @@ fn attacks() -> Result<Vec<Vec<u8>>, String> {
     let inner = zip(&[("leaf.txt", b"leaf".as_slice())])?;
     let middle = zip(&[("inner.zip", inner.as_slice())])?;
     let nested = zip(&[("middle.zip", middle.as_slice())])?;
-    // ZIP 爆弾。展開すると 4 GiB 近くになると記録した deflate の項目
+    // ZIP 爆弾。展開すると 4 GiB 近くになると記録した deflate の項目。記録で予算を超えるので、展開しない
     let mut bomb = zip(&[("bomb.txt", EMPTY_DEFLATE)])?;
-    claim(&mut bomb, 0xFFFF_FFF0).ok_or_else(|| "種の ZIP 爆弾を作れない".to_string())?;
+    claim(&mut bomb, 0xFFFF_FFF0, None).ok_or_else(|| "種の ZIP 爆弾を作れない".to_string())?;
+    // 実際に膨らむ deflate の項目。記録した大きさと CRC-32 は正しく、展開して確かめる。fuzz で記録の大きさが
+    // 変われば、記録より多く膨らむデータを記録の所で止めることになる
+    let swelling = swelling()?;
 
     let mut laughs = String::from(r#"<?xml version="1.0"?><!DOCTYPE a [<!ENTITY l0 "lol">"#);
     for level in 1..10 {
@@ -294,6 +303,7 @@ fn attacks() -> Result<Vec<Vec<u8>>, String> {
         traversal,
         nested,
         bomb,
+        swelling,
         // 外部の実体と外部の DTD
         br#"<?xml version="1.0"?><!DOCTYPE a [<!ENTITY x SYSTEM "file:///etc/passwd">]><a>&x;</a>"#
             .to_vec(),
@@ -311,33 +321,153 @@ fn attacks() -> Result<Vec<Vec<u8>>, String> {
     ])
 }
 
-/// 書庫の最初の項目を、deflate で展開すると `size` バイトになると記録したものにする。見出しの欄の位置は、APPNOTE
-/// 6.3.10 の 4.3.7（ローカルの見出し）と 4.3.12（中央ディレクトリの見出し）
-fn claim(archive: &mut [u8], size: u32) -> Option<()> {
-    let local = find(archive, b"PK\x03\x04")?;
-    let central = find(archive, b"PK\x01\x02")?;
-    for (at, bytes) in [
-        (local + 8, 8u16.to_le_bytes().as_slice()),
-        (local + 22, size.to_le_bytes().as_slice()),
-        (central + 10, 8u16.to_le_bytes().as_slice()),
-        (central + 24, size.to_le_bytes().as_slice()),
-    ] {
+/// 1 つの項目に、0 に展開する deflate のデータ（[`zeros_deflated`]）を入れた書庫。大きさと CRC-32 は、展開した
+/// データのものを記録する
+fn swelling() -> Result<Vec<u8>, String> {
+    let fail = || "種の膨らむ deflate の書庫を作れない".to_string();
+    let zeros = vec![0; REPEATS * 258 + 1];
+    let mut archive =
+        zumen_zip::write(&[("zeros.bin", &zeros_deflated(REPEATS))]).ok_or_else(fail)?;
+    let size = u32::try_from(zeros.len()).map_err(|_| fail())?;
+    claim(&mut archive, size, Some(crc32(&zeros))).ok_or_else(fail)?;
+    Ok(archive)
+}
+
+/// 0 のバイトに展開する deflate のデータ。固定のハフマン符号の最後の区画に、字の 0 を 1 つと、長さ 258・距離 1 の
+/// 参照を `repeats` 個置く（RFC 1951 の 3.2.3・3.2.5・3.2.6）。展開すると `repeats * 258 + 1` バイトになる。
+/// ビットは下の桁から詰め、ハフマン符号だけは上の桁から詰める（3.1.1）
+fn zeros_deflated(repeats: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    let (mut pending, mut count) = (0u32, 0u32);
+    let mut put = |value: u32, len: u32| {
+        pending |= value << count;
+        count += len;
+        while count >= 8 {
+            out.push(pending.to_le_bytes()[0]);
+            pending >>= 8;
+            count -= 8;
+        }
+    };
+    let code = |value: u32, len: u32| value.reverse_bits() >> (32 - len);
+    // 最後の区画（BFINAL が 1）で、固定のハフマン符号（BTYPE が 01）
+    put(1, 1);
+    put(1, 2);
+    // 字の 0（8 ビットの 00110000）
+    put(code(0b0011_0000, 8), 8);
+    for _ in 0..repeats {
+        // 長さ 258（符号 285、8 ビットの 11000101。追加のビットはない）と、距離 1（符号 0、5 ビット）
+        put(code(0b1100_0101, 8), 8);
+        put(0, 5);
+    }
+    // 区画の終わり（符号 256、7 ビットの 0）。残りのビットは 0 で埋める
+    put(0, 7);
+    if count > 0 {
+        out.push(pending.to_le_bytes()[0]);
+    }
+    out
+}
+
+/// 書庫の最初の項目を、deflate で展開すると `size` バイトになると記録したものにする。`crc` があれば、CRC-32 も
+/// 書き換える。見出しの欄の位置は、APPNOTE 6.3.10 の 4.3.7（ローカルの見出し）と 4.3.12（中央ディレクトリの
+/// 見出し）
+fn claim(archive: &mut [u8], size: u32, crc: Option<u32>) -> Option<()> {
+    let (local, central) = headers(archive)?;
+    let mut fields = vec![
+        (local + 8, 8u16.to_le_bytes().to_vec()),
+        (local + 22, size.to_le_bytes().to_vec()),
+        (central + 10, 8u16.to_le_bytes().to_vec()),
+        (central + 24, size.to_le_bytes().to_vec()),
+    ];
+    if let Some(crc) = crc {
+        fields.push((local + 14, crc.to_le_bytes().to_vec()));
+        fields.push((central + 16, crc.to_le_bytes().to_vec()));
+    }
+    for (at, bytes) in fields {
         archive
             .get_mut(at..at + bytes.len())?
-            .copy_from_slice(bytes);
+            .copy_from_slice(&bytes);
     }
     Some(())
 }
 
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+/// 書庫の最初の項目の、ローカルの見出しと中央ディレクトリの見出しの位置。中央ディレクトリは、注釈のない終わりの
+/// 記録から引く（APPNOTE 6.3.10 の 4.3.16）。項目のデータに見出しと同じバイトがあっても、取り違えない
+fn headers(archive: &[u8]) -> Option<(usize, usize)> {
+    let end = archive.len().checked_sub(22)?;
+    let central = archive
+        .get(end + 16..end + 20)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u32::from_le_bytes)
+        .and_then(|offset| usize::try_from(offset).ok())?;
+    (archive.get(..4)? == b"PK\x03\x04"
+        && archive.get(end..end + 4)? == b"PK\x05\x06"
+        && archive.get(central..central + 4)? == b"PK\x01\x02")
+        .then_some((0, central))
+}
+
+/// 合成の格子。国土地理院のジオイド・モデルと座標の補正量は使わない（決定 0019）。形は `crates/zumen-crs/tests`
+/// の合成の格子に合わせる
+fn grids() -> Vec<Vec<u8>> {
+    // ISG format 2.0 の、4 行 6 列のジオイド高の格子。南の 2 行の東の 2 つは無効
+    let isg = "These data are synthetic.\n\
+begin_of_head ================================================\n\
+model name     : SYNTHETIC\n\
+model year     : 2026\n\
+model type     : gravimetric\n\
+data type      : geoid\n\
+data units     : meters\n\
+data format    : grid\n\
+data ordering  : N-to-S, W-to-E\n\
+ref ellipsoid  : GRS80\n\
+coord type     : geodetic\n\
+coord units    : deg\n\
+map projection : ---\n\
+lat min        = 40.000000\n\
+lat max        = 41.000000\n\
+lon min        = 120.000000\n\
+lon max        = 121.666667\n\
+delta lat      = 0.333333\n\
+delta lon      = 0.333333\n\
+nrows          =            4\n\
+ncols          =            6\n\
+nodata         = -9999.0000\n\
+ISG format     =          2.0\n\
+end_of_head ==================================================\n\
+   30.0000    31.0000    32.0000    33.0000    34.0000    35.0000\n\
+   40.0000    41.0000    42.0000    43.0000    44.0000    45.0000\n\
+   50.0000    51.0000    52.0000    53.0000 -9999.0000 -9999.0000\n\
+   60.0000    61.0000    62.0000    63.0000 -9999.0000 -9999.0000\n";
+    // TKY2JGD・PatchJGD の形の補正量の格子。3 次メッシュのコードと、緯度・経度の補正量（秒）。PatchJGD の形は、
+    // 高さの補正量の列も持つ
+    let mut tky2jgd = String::from("synthetic\nMeshCode   dB(sec)   dL(sec)\n");
+    let mut patchjgd = String::from("synthetic\nMeshCode   dB(sec)   dL(sec)   dH(m)\n");
+    for i in 4280..4283_u32 {
+        for j in 3180..3183_u32 {
+            let code = format!(
+                "{:02}{:02}{}{}{}{}",
+                i / 80,
+                j / 80,
+                (i % 80) / 10,
+                (j % 80) / 10,
+                i % 10,
+                j % 10
+            );
+            let (b, l) = (f64::from(i - 4280) * 0.01, f64::from(j - 3180) * 0.01);
+            let _ = writeln!(tky2jgd, "{code} {:.6} {:.6}", 10.0 + b, -10.0 + l);
+            let _ = writeln!(patchjgd, "{code} {b:.6} {l:.6} 0.000000");
+        }
+    }
+    vec![
+        isg.as_bytes().to_vec(),
+        tky2jgd.into_bytes(),
+        patchjgd.into_bytes(),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 
     fn bin(name: &str) -> Bin {
         Bin {
@@ -414,16 +544,76 @@ mod tests {
     #[test]
     fn the_bomb_claims_its_size_in_both_headers() {
         let mut bomb = zumen_zip::write(&[("bomb.txt", EMPTY_DEFLATE)]).unwrap();
-        claim(&mut bomb, 0x0102_0304).unwrap();
-        let local = find(&bomb, b"PK\x03\x04").unwrap();
-        let central = find(&bomb, b"PK\x01\x02").unwrap();
+        claim(&mut bomb, 0x0102_0304, Some(0x0a0b_0c0d)).unwrap();
+        let (local, central) = headers(&bomb).unwrap();
         assert_eq!(bomb[local + 8..local + 10], [8, 0]);
+        assert_eq!(bomb[local + 14..local + 18], [0x0d, 0x0c, 0x0b, 0x0a]);
         assert_eq!(bomb[local + 22..local + 26], [4, 3, 2, 1]);
         assert_eq!(bomb[central + 10..central + 12], [8, 0]);
+        assert_eq!(bomb[central + 16..central + 20], [0x0d, 0x0c, 0x0b, 0x0a]);
         assert_eq!(bomb[central + 24..central + 28], [4, 3, 2, 1]);
         assert_eq!(unhex("0aFf"), Some(vec![0x0a, 0xff]));
         assert_eq!(unhex("00 ff\n1"), None);
         assert_eq!(unhex("00 ff\n10"), Some(vec![0, 0xff, 0x10]));
         assert_eq!(unhex("0g"), None);
+    }
+
+    /// `f` を、上限 `limits` の文脈で呼ぶ。結果が `Ok` かと、出た診断の code を返す
+    fn run<T, E>(
+        limits: Limits,
+        f: impl FnOnce(&mut Cx) -> Result<T, E>,
+    ) -> (Option<T>, Vec<Code>) {
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = f(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)).ok();
+        (result, diagnostics.iter().map(|d| d.code()).collect())
+    }
+
+    fn extract(archive: &[u8], limits: Limits) -> (Option<Vec<u8>>, Vec<Code>) {
+        run(limits, |cx| {
+            zumen_zip::read(archive, cx)
+                .and_then(|archive| archive.extract(&archive.entries()[0], cx))
+        })
+    }
+
+    /// 膨らむ deflate の書庫は、記録した大きさと CRC-32 のとおりに 0 へ展開する。記録を小さくすれば記録の所で、
+    /// 記録が予算を超えれば展開する前に止まる
+    #[test]
+    fn the_swelling_archive_inflates_to_what_it_records() {
+        let archive = swelling().unwrap();
+        assert!(archive.len() < 30_000, "{}", archive.len());
+        let (data, found) = extract(&archive, Limits::default());
+        let data = data.unwrap();
+        assert_eq!(data.len(), REPEATS * 258 + 1);
+        assert!(data.iter().all(|byte| *byte == 0));
+        assert_eq!(found, []);
+
+        let mut smaller = archive.clone();
+        claim(&mut smaller, 1 << 20, None).unwrap();
+        let (data, found) = extract(&smaller, Limits::default());
+        assert_eq!(data, None);
+        assert_eq!(found, [codes::ZIP_DATA_INVALID]);
+
+        let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(1 << 20));
+        let (data, found) = extract(&archive, limits);
+        assert_eq!(data, None);
+        assert_eq!(found, [codes::BUDGET_DECODED_BYTES_EXCEEDED]);
+    }
+
+    /// 合成の格子は、ジオイド高と補正量の格子の読み取りで、診断なしに読める
+    #[test]
+    fn the_grids_are_read_without_diagnostics() {
+        let grids = grids();
+        let (grid, found) = run(Limits::default(), |cx| zumen_crs::Grid::read(&grids[0], cx));
+        assert!(grid.is_some());
+        assert_eq!(found, []);
+        for shifts in &grids[1..] {
+            let (grid, found) = run(Limits::default(), |cx| {
+                zumen_crs::ShiftGrid::read(shifts, cx)
+            });
+            assert!(grid.is_some());
+            assert_eq!(found, []);
+        }
     }
 }

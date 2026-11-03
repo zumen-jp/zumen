@@ -12,10 +12,16 @@ serde = { version = "1.0.229", features = ["derive"] }
 # 図面モデルの型の定義を読み、バイナリの読み書きを作る（決定 0247）。MIT OR Apache-2.0。serde の derive がもう使っている
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing"] }
 toml = "1.1.8"
+# fuzz の種の ZIP に、展開したデータの CRC-32 を書く（#501）
+zumen-base = { path = "../crates/zumen-base" }
 zumen-json = { path = "../crates/zumen-json" }
 zumen-profile = { path = "../crates/zumen-profile" }
 # fuzz の種の ZIP を書く（#501）
 zumen-zip = { path = "../crates/zumen-zip" }
+
+[dev-dependencies]
+# fuzz の合成の格子の種が読めることを確かめる（#501）
+zumen-crs = { path = "../crates/zumen-crs" }
 
 [lints.rust]
 unsafe_code = "forbid"

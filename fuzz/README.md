@@ -1,6 +1,6 @@
 # fuzz
 
-受け取ったバイト列を読む所を、cargo-fuzz で試します（#398・#501、[決定 0010](../docs/decisions/0010-budget-by-work.md)・[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)）。登録したすべての形式と、L0 の ZIP・XML・ISO 10303-21 に target があります。どの target も、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`）を呼びます。小さい予算の中で止まり、2 回で同じ結果（読めたか・止まった理由・診断・使った量）になることを確かめます。パニック・止まらない繰り返し・メモリの使い過ぎは、libFuzzer が見つけます。
+受け取ったバイト列を読む所を、cargo-fuzz で試します（#398・#501、[決定 0010](../docs/decisions/0010-budget-by-work.md)・[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0258](../docs/decisions/0258-fuzz-seeds-and-runs.md)）。登録したすべての形式と、L0 の ZIP・XML・ISO 10303-21 に target があります。どの target も、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`）を呼びます。小さい予算の中で止まり、2 回で同じ結果（読めたか・止まった理由・診断・使った量）になることを確かめます。パニック・止まらない繰り返し・メモリの使い過ぎは、libFuzzer が見つけます。
 
 ## target
 
@@ -20,14 +20,29 @@
 | `delivery` | 電子納品の成果品の書庫を読み、照合する |
 | `jpeg`・`boring`・`xlsx`・`csv` | 工事写真・ボーリング交換用データ・Excel の表・CSV を読む |
 
-target の名前は、形式の台帳（`formats/ledger.toml`）のキーか、L0 の名前にします。crate が `[package.metadata.zumen]` で名乗る形式と、`schema/boundary.toml` の `[[detection]]`・`[[modules]]` の形式に target がないと、`cargo xtask codegen --check` が落ちます（`xtask/src/fuzz.rs`）。形式を足したら、`fuzz/fuzz_targets/<キー>.rs` を作り、`fuzz/Cargo.toml` の `[[bin]]` に足してください。
+フォント・プロファイル・レビューの文書・要求の JSON と、領域モデルから図や応答を作る所は、境界を通して試します（#517）。
+
+## 名前の付け方
+
+target の名前は、`xtask/src/fuzz.rs` の検査が求める名前にします。crate が `[package.metadata.zumen]` の `formats` で名乗る形式、`schema/boundary.toml` の `[[detection]]` と `[[modules]]` の形式、L0 の `zip`・`xml`・`step` です。どれかに target がないと、`cargo xtask codegen --check` が落ちます。形式を足したら、`fuzz/fuzz_targets/<名前>.rs` を作り、`fuzz/Cargo.toml` の `[[bin]]` に足してください。
+
+検査が求めない読み取りにも、target を置けます。名前は、読むものの短い英語にします（EXPRESS のスキーマの `express`、補正量の格子の `par`）。
 
 ## 動かし方
 
-cargo-fuzz は nightly の Rust を使います。CI と同じ版は、`.github/workflows/fuzz.yml` の `NIGHTLY` と `CARGO_FUZZ_VERSION` にあります。Linux か macOS で動かします。Windows の MSVC では、libFuzzer が使う計測の記号がリンクで見つからず、作れません。
+cargo-fuzz は nightly の Rust を使います。Linux か macOS で動かします。Windows の MSVC では、libFuzzer が使う計測の記号がリンクで見つからず、作れません。CI と同じ版は、`.github/workflows/fuzz.yml` の `NIGHTLY` と `CARGO_FUZZ_VERSION` から読みます。
 
 ```bash
-cargo install cargo-fuzz --version 0.13.2 --locked
+NIGHTLY=$(sed -n 's/^  NIGHTLY: //p' .github/workflows/fuzz.yml)
+CARGO_FUZZ_VERSION=$(sed -n 's/^  CARGO_FUZZ_VERSION: //p' .github/workflows/fuzz.yml)
+```
+
+```bash
+rustup toolchain install "$NIGHTLY" --profile minimal
+```
+
+```bash
+cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
 ```
 
 ```bash
@@ -35,16 +50,30 @@ cargo xtask fuzz-seeds
 ```
 
 ```bash
-cargo +nightly-2026-10-30 fuzz run -O --debug-assertions zip
+cp Cargo.lock fuzz/Cargo.lock
 ```
 
-- `cargo xtask fuzz-seeds` は、公開サンプル（`samples/`）、適合試験の組の合成の入力、L0 の攻撃の形（ZIP 爆弾・書庫の入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）を、どの target にも `fuzz/corpus/<target>/` の種として書きます。受け取った図面は置きません（AGENTS.md）。
-- `cargo +nightly-2026-10-30 fuzz list` で、target の一覧を出せます。
+```bash
+cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
+```
+
+- `cargo xtask fuzz-seeds` は、どの target にも `fuzz/corpus/<target>/` に種を書きます。種にするのは、次の 4 つです（決定 0258）。受け取った図面と、国土地理院のデータは置きません（AGENTS.md、決定 0019）。
+  - 公開サンプル（`samples/`）
+  - 適合試験の組の合成の入力
+  - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・書庫の入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
+  - 合成の格子（ISG・TKY2JGD・PatchJGD の形）
+- `cp Cargo.lock fuzz/Cargo.lock` で、fuzz の crate の依存を、ワークスペースと同じ版から解きます。`fuzz/Cargo.lock` はリポジトリに入れません。
+- `cargo "+$NIGHTLY" fuzz list` で、target の一覧を出せます。
 - 見つけた入力は `fuzz/artifacts/` に出ます。直したら、その入力を最小にして、合成の試験に移します。`corpus` と `artifacts` はリポジトリに入れません。
 
 ## CI
 
-`.github/workflows/fuzz.yml` が、毎晩すべての target を 1 つ 180 秒ずつ、4 つずつ並べて流します。前の夜までに育てた種を actions/cache で引き継ぎ、target ごとの結果の表を実行の summary に書きます。パニック、30 秒を超える入力、3 GB を超えるメモリを見つけたら失敗し、入力を artifact の `fuzz-artifacts` に残します。fuzz の target・テストキット・この workflow を変えた PR では、1 つ 20 秒ずつ流します。
+`.github/workflows/fuzz.yml` が、毎晩すべての target を 1 つ 180 秒ずつ、4 つずつ並べて流します（決定 0258）。
+
+- 前の夜までに育てた種を actions/cache で引き継ぎます。
+- target ごとの結果の表を、実行の summary と log に書きます。表には、試した入力・通った辺・もっとも遅い入力・使ったメモリ・種の数を出します。
+- パニック、30 秒を超える入力、3 GB を超えるメモリを見つけたら失敗し、入力を artifact の `fuzz-artifacts` に残します。
+- crate・fuzz の target・この workflow を変えた PR では、1 つ 20 秒ずつ流します。fuzz の crate はワークスペースの外にあるので、ここで組み立てを確かめます。
 
 ## ライセンス
 
@@ -52,4 +81,4 @@ libfuzzer-sys は LLVM の libFuzzer を同梱し、そのライセンスは NCS
 
 ## 普段の試験
 
-fuzz の道具なしでも、`crates/zumen-abi/tests/contracts.rs` が、試料と合成の入力を途中で切ったものに `survives` を流します。
+fuzz の道具なしでも、`crates/zumen-abi/tests/contracts.rs` が、試料と合成の入力を途中で切ったものに `survives` と `survives_lift`（図面モデルまで）を流します。

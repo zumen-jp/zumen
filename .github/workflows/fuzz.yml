@@ -1,7 +1,7 @@
 name: fuzz
 
-# 登録したすべての形式と L0 の fuzz の target を流す（#501、決定 0010・0017・0254）。毎晩は target ごとに長く流し、
-# 育てた種を次の夜に引き継ぐ。fuzz の target・テストキット・この workflow を変えた PR では、短く流して確かめる。
+# 登録したすべての形式と L0 の fuzz の target を流す（#501、決定 0010・0017・0258）。毎晩は target ごとに長く流し、
+# 育てた種を次の夜に引き継ぐ。crate・fuzz の target・この workflow を変えた PR では、短く流して確かめる。
 # target の一覧と動かし方は fuzz/README.md。
 
 on:
@@ -15,8 +15,10 @@ on:
         default: '180'
   pull_request:
     paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'fuzz/**'
-      - 'crates/zumen-sdk/src/testkit.rs'
       - 'xtask/src/fuzz.rs'
       - '.github/workflows/fuzz.yml'
 
@@ -54,8 +56,10 @@ jobs:
           restore-keys: fuzz-corpus-
       - name: 公開サンプル・適合試験の組の合成の入力・L0 の攻撃の形を、種に足す
         run: cargo xtask fuzz-seeds
-      - name: 全 target を作る。桁あふれも見つけるため、debug の検査を入れる
-        run: cargo "+$NIGHTLY" fuzz build -O --debug-assertions
+      - name: 全 target を作る。依存はワークスペースと同じ版から解き、桁あふれも見つけるため debug の検査を入れる
+        run: |
+          cp Cargo.lock fuzz/Cargo.lock
+          cargo "+$NIGHTLY" fuzz build -O --debug-assertions
       - name: target ごとに決まった時間だけ、4 つずつ並べて流す
         env:
           SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '20' || inputs.seconds || '180' }}
@@ -72,18 +76,22 @@ jobs:
               -artifact_prefix="fuzz/artifacts/$1/" > "$logs/$1.log" 2>&1
             then echo 通過 > "$logs/$1.result"; else echo 失敗 > "$logs/$1.result"; fi
           ' sh '{}'
+          # 結果の表を、summary と log の両方に書く。遅い入力と使ったメモリは、落とさずに夜ごとの傾きを見る
+          final() { sed -n "s/^stat::$2: *//p" "$logs/$1.log"; }
           {
             echo "target ごとに ${SECONDS_PER_TARGET} 秒"
             echo
-            echo '| target | 結果 | 試した入力 | 通った辺 | 種 |'
-            echo '| --- | --- | ---: | ---: | ---: |'
+            echo '| target | 結果 | 試した入力 | 通った辺 | もっとも遅い入力（秒） | 使ったメモリ（MB） | 種 |'
+            echo '| --- | --- | ---: | ---: | ---: | ---: | ---: |'
             for target in $targets; do
-              runs=$(sed -n 's/^stat::number_of_executed_units: *//p' "$logs/$target.log")
+              runs=$(final "$target" number_of_executed_units)
+              slowest=$(final "$target" slowest_unit_time_sec)
+              memory=$(final "$target" peak_rss_mb)
               edges=$(grep -o 'cov: [0-9]*' "$logs/$target.log" | tail -n 1 | cut -d ' ' -f 2)
               seeds=$(find "fuzz/corpus/$target" -type f | wc -l)
-              echo "| $target | $(cat "$logs/$target.result") | ${runs:--} | ${edges:--} | $seeds |"
+              echo "| $target | $(cat "$logs/$target.result") | ${runs:--} | ${edges:--} | ${slowest:--} | ${memory:--} | $seeds |"
             done
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
           failed=$(grep -l 失敗 "$logs"/*.result | xargs -r -n 1 basename | sed 's/\.result$//')
           if [ -n "$failed" ]; then
             for target in $failed; do

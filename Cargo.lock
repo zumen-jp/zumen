@@ -323,6 +323,8 @@ dependencies = [
  "serde",
  "syn",
  "toml",
+ "zumen-base",
+ "zumen-crs",
  "zumen-json",
  "zumen-profile",
  "zumen-zip",
