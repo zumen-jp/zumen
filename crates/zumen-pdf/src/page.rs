@@ -4,11 +4,13 @@ use std::collections::BTreeSet;
 
 use hayro_syntax::object::{Array, Dict, Name, Object, String as PdfString};
 use hayro_syntax::page::{A4, Page, Rotation};
+use hayro_syntax::xref::XRef;
 use kurbo::Affine;
 use zumen_base::{Kind, Stop};
 use zumen_sdk::Cx;
 
 use crate::strings;
+use crate::walk::own_dict;
 
 /// 1 pt（既定のユーザー空間の 1 単位）の mm
 pub(crate) const MM_PER_PT: f64 = 25.4 / 72.0;
@@ -82,8 +84,10 @@ impl Geometry {
 
 /// 各ページのページラベル（12.4.2）。カタログの `PageLabels` の数の木から、ページの番号（0 から）以下でいちばん
 /// 大きい開始ページの範囲の書き方で作る。ラベルのないページと、空のラベルは `None`。木の節と項目ごとに予算の
-/// `work` を 1 使い、深さは [`MAX_TREE_DEPTH`] まで、同じ節は 2 度たどらない。範囲は二分探索で引く
+/// `work` を 1 使い、深さは [`MAX_TREE_DEPTH`] まで、同じ節は 2 度たどらない。範囲は二分探索で引く。同じ節かは、
+/// それ自身の間接オブジェクトの節だけを番号で見分ける（[`own_dict`]。直接書いた節は、入れ物の番号を持つので）
 pub(crate) fn labels(
+    xref: &XRef,
     catalog: Option<&Dict<'_>>,
     count: usize,
     cx: &mut Cx<'_>,
@@ -97,7 +101,7 @@ pub(crate) fn labels(
             if depth > MAX_TREE_DEPTH {
                 continue;
             }
-            if let Some(id) = node.obj_id()
+            if let Some(id) = own_dict(xref, &node)
                 && !seen.insert((id.obj_number, id.gen_number))
             {
                 continue;

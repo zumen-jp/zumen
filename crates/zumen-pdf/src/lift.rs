@@ -131,7 +131,7 @@ impl Lifter<'_, '_> {
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
         let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
         let pages = document.pages();
-        let labels = page::labels(catalog.as_ref(), pages.len(), cx)
+        let labels = page::labels(xref, catalog.as_ref(), pages.len(), cx)
             .map_err(|stop| stopped(cx, stop, &self.header))?;
         let reread = catalog_work(catalog.as_ref());
         let version = self.version(catalog.as_ref());
@@ -197,6 +197,7 @@ impl Lifter<'_, '_> {
                     paper,
                     &ocgs,
                     self.objects,
+                    xref,
                     &mut self.styles,
                     survey.transfer,
                 );

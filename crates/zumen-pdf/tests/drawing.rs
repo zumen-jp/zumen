@@ -288,6 +288,35 @@ fn maps_colours_by_the_space_family() {
 }
 
 #[test]
+fn reports_colours_for_each_element() {
+    // 装置は、色を演算子ごとに 1 度だけ RGB にして（多成分の DeviceN の色は、換算のたびに色変換の関数を当てる）、
+    // 部分経路と、字形の並びを分けた文字のそれぞれに使う。移さない色の診断は、要素ごとに数える
+    let mut document = Document::new(vec![
+        Page::new(
+            "/N CS 0.5 0.5 SCN 0 0 m 10 0 l 20 0 m 30 0 l 40 0 m 50 0 l S \
+             BT /F1 12 Tf /N cs 0.5 0.5 sc 100 Tc 100 100 Td (ABC) Tj ET",
+        )
+        .resources(
+            "/ColorSpace << /N [/DeviceN [/A /B] /DeviceRGB 3 0 R] >> \
+             /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>",
+        ),
+    ]);
+    document.objects = vec![common::stream(
+        "/FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1]",
+        "{ pop pop 0 0 0 }",
+    )];
+    let (drawing, diag) = lift(&document.bytes());
+    let count = elements(&drawing).len() as u64;
+    assert!(count >= 3 + 2, "{count}");
+    let dropped: u64 = diag
+        .iter()
+        .filter(|d| d.code() == codes::PDF_COLOR_DROPPED)
+        .map(|d| d.count())
+        .sum();
+    assert_eq!(dropped, count, "{diag:?}");
+}
+
+#[test]
 fn moves_opacity_to_transparency() {
     let src = one_page(
         Page::new("/Half gs 0 0 10 10 re f /Clear gs 0 0 m 10 0 l S")
@@ -566,6 +595,17 @@ fn names_sheets_by_page_labels() {
             Some("A-5".to_owned())
         ]
     );
+    // 数の木の節は間接参照で書く（7.9.7）が、直接書いた節も、根と同じ節として飛ばさずにたどる
+    let mut document = Document::new(vec![Page::new(""), Page::new("")]);
+    document.catalog =
+        "/PageLabels << /Kids [<< /Nums [0 << /S /r >>] >> << /Nums [1 << /S /D /St 5 >>] >>] >>";
+    let (drawing, _) = lift(&document.bytes());
+    let names: Vec<_> = drawing
+        .sheets
+        .iter()
+        .map(|sheet| sheet.name.clone())
+        .collect();
+    assert_eq!(names, [Some("i".to_owned()), Some("5".to_owned())]);
 }
 
 #[test]
@@ -599,6 +639,23 @@ fn moves_images_to_underlays() {
     assert_point(origin, mm(100.0), mm(200.0));
     assert_point(right, mm(172.0), mm(200.0));
     assert_point(top, mm(100.0), mm(236.0));
+
+    // 資源の辞書に直接書いた画像（7.3.8.1 に反する）は、入れ物のページの番号を名前にしない
+    let image = direct_stream(
+        "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
+         /BitsPerComponent 8",
+        &[0],
+    );
+    let resources = format!("/XObject << /A {image} /B {image} >>");
+    let (drawing, _) = lift(&one_page(Page::new("/A Do /B Do").resources(&resources)));
+    let paths: Vec<_> = elements(&drawing)
+        .iter()
+        .map(|element| match &element.shape {
+            Shape::Underlay(underlay) => underlay.resource.path.clone(),
+            _ => panic!("下敷きでない"),
+        })
+        .collect();
+    assert_eq!(paths, ["", ""]);
 }
 
 #[test]
@@ -1950,27 +2007,57 @@ fn counts_work_that_grows_with_sizes() {
         format!("<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 {pad} >>").into_bytes(),
     ];
     assert!(used(&document.bytes(), Kind::Work) >= 100 * 200);
+    // 関数の辞書の数の配列（`C0` など）は、作るたびに項目ごとに数にするので、項目の数も数える（2 バイトの `0 ` の
+    // 並びは、バイト数で数える手間より重い）
+    let shadings = "/Sh sh ".repeat(10);
+    let mut document = Document::new(vec![
+        Page::new(&shadings).resources("/Shading << /Sh 3 0 R >>"),
+    ]);
+    document.objects = vec![
+        b"<< /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] /Function 4 0 R >>".to_vec(),
+        format!(
+            "<< /FunctionType 2 /Domain [0 1] /C0 [{}] /C1 [1] /N 1 >>",
+            "0 ".repeat(100_000)
+        )
+        .into_bytes(),
+    ];
+    assert!(used(&document.bytes(), Kind::Work) >= 10 * 100_000 * 3 / 2);
 
     // メッシュのシェーディングは、三角形とパッチをすべて作るので、頂点のビット数から数の上限を求め、頂点か
-    // パッチの 1 つを 4 と、三角形の 1 つを 512 バイトと数える。型 4 の 8 ビットの頂点は 4 バイトで、型 5 の頂点は
-    // バイトの境から読み、三角形を 2 つまで作る
+    // パッチの 1 つを 4 と、三角形の 1 つを 1,024 バイトと数える。型 4 の 8 ビットの頂点は 4 バイトで、型 5 の頂点は
+    // バイトの境から読み、三角形を 2 つまで作る。`Function` がなく、`Decode` が座標の分だけのメッシュは、色を
+    // 読まないので、成分のビット数によらず同じ数を数える
     for (mesh, count, bytes) in [
         (
-            "/ShadingType 4 /BitsPerCoordinate 8 /BitsPerComponent 8 /BitsPerFlag 8",
+            "/ShadingType 4 /BitsPerCoordinate 8 /BitsPerComponent 8 /BitsPerFlag 8 \
+             /Decode [0 1 0 1 0 1]",
             1000 / 4,
-            1000 / 4 * 512,
+            1000 / 4 * 1024,
         ),
         (
-            "/ShadingType 5 /BitsPerCoordinate 1 /BitsPerComponent 1 /VerticesPerRow 2",
+            "/ShadingType 5 /BitsPerCoordinate 1 /BitsPerComponent 1 /VerticesPerRow 2 \
+             /Decode [0 1 0 1 0 1]",
             1000,
-            1000 * (2 * 512 + 96),
+            1000 * (2 * 1024 + 256),
+        ),
+        (
+            "/ShadingType 5 /BitsPerCoordinate 1 /BitsPerComponent 255 /VerticesPerRow 2 \
+             /Decode [0 1 0 1]",
+            1000,
+            1000 * (2 * 1024 + 256),
+        ),
+        (
+            "/ShadingType 6 /BitsPerCoordinate 1 /BitsPerComponent 255 /BitsPerFlag 2 \
+             /Decode [0 1 0 1]",
+            1000 * 8 / 18,
+            1000 * 8 / 18 * 2048,
         ),
     ] {
         let mut document = Document::new(vec![
             Page::new("/Sh sh").resources("/Shading << /Sh 3 0 R >>"),
         ]);
         document.objects = vec![common::stream(
-            &format!("{mesh} /ColorSpace /DeviceGray /Decode [0 1 0 1 0 1]"),
+            &format!("{mesh} /ColorSpace /DeviceGray"),
             vec![0u8; 1000],
         )];
         let src = document.bytes();
@@ -1987,7 +2074,7 @@ fn counts_work_that_grows_with_sizes() {
     assert!(used(&one_page(Page::new(&both)), Kind::Work) >= 100 * (2 + 2 * 6 + 2 * 6));
 
     // Type 0 の関数は、作るたびに標本をすべて読んで f32 にして持つ。1 ビットの標本 8 万個を、読む手間を 8 個で 1、
-    // メモリを配列を伸ばす余りを含めて 64 万バイトと数える
+    // メモリを配列を伸ばす間の写しを含めて 128 万バイトと数える
     let mut document = Document::new(vec![
         Page::new("/T gs").resources("/ExtGState << /T << /TR 3 0 R >> >>"),
     ]);
@@ -1997,7 +2084,7 @@ fn counts_work_that_grows_with_sizes() {
     )];
     let src = document.bytes();
     assert!(used(&src, Kind::Work) >= 80_000 / 8);
-    assert!(used(&src, Kind::DecodedBytes) >= 10_000 + 80_000 * 8);
+    assert!(used(&src, Kind::DecodedBytes) >= 10_000 + 80_000 * 16);
 
     // 多成分の DeviceN の色は、塗るたびに色変換の関数を当てる。8 入力の Type 0 の関数は、出力ごとに、端の標本
     // 2 の 8 乗個を足す
@@ -2057,14 +2144,22 @@ fn counts_copies_of_the_graphics_state() {
     let src = one_page(Page::new(&saves));
     assert!(used(&src, Kind::Work) >= 100 * 1_000);
     assert!(used(&src, Kind::DecodedBytes) >= 100 * 1_000 * 8);
-    // 切り抜きに貯めた 1,000 字の輪郭（1 字を 3,072 バイト）を、`q` のたびに写す
-    let clip = format!(
-        "BT /F1 12 Tf 7 Tr ({}) Tj {}ET",
-        "A".repeat(1_000),
-        "q 0 Tr Q ".repeat(10)
-    );
-    let src = one_page(Page::new(&clip).resources(HELVETICA));
-    assert!(used(&src, Kind::DecodedBytes) >= 10 * 1_000 * 3072);
+    // 切り抜きに貯めた 1,000 字の輪郭を、`q` のたびに写す（Helvetica の A の輪郭は、経路の要素が 4 つより多く、
+    // 写すときは要素の 1 つを 128 バイトと数える）
+    let clip = |saves: usize| {
+        format!(
+            "BT /F1 12 Tf 7 Tr ({}) Tj {}ET",
+            "A".repeat(1_000),
+            "q 0 Tr Q ".repeat(saves)
+        )
+    };
+    let copied = |saves: usize| {
+        used(
+            &one_page(Page::new(&clip(saves)).resources(HELVETICA)),
+            Kind::DecodedBytes,
+        )
+    };
+    assert!(copied(10) >= copied(0) + 10 * 1_000 * 4 * 128);
 
     let calls = format!("{dash}{}", "/X Do ".repeat(100));
     let mut document = Document::new(vec![Page::new(&calls).resources("/XObject << /X 3 0 R >>")]);
@@ -2084,6 +2179,308 @@ fn counts_copies_of_the_graphics_state() {
         common::stream("", "1000 0 0 0 1000 1000 d1 0 0 1000 1000 re f"),
     ];
     assert!(used(&document.bytes(), Kind::Work) >= 100 * 1_000);
+}
+
+/// 辞書の値に直接書くストリーム（7.3.8.1 に反するが、hayro-syntax は読む）。hayro-syntax は、入れ物の辞書を
+/// 読むとき、ストリームの中身も字句として読み飛ばすので、区切りの文字（`>`・`{` など）と、数字の後に文字が続く
+/// 字句を書けない。中身は ASCIIHexDecode の 16 進の数字を 1 つずつ空白で分けて書き、終わりの `>` は省く
+/// （hayro-syntax は、なくても読む）
+fn direct_stream(dict: &str, data: &[u8]) -> String {
+    let digits: String = data
+        .iter()
+        .map(|byte| format!("{:X} {:X} ", byte >> 4, byte & 0xF))
+        .collect();
+    format!(
+        "<< /Length {} /Filter /ASCIIHexDecode {dict} >>\nstream\n{digits}\nendstream",
+        digits.len()
+    )
+}
+
+/// 字形 1 に、`points` 個の点を同じ所に置いた輪郭を 1 つ持つ、最小の TrueType のフォント（glyf・head・hhea・
+/// hmtx・loca・maxp）。点は、旗の繰り返しと「前と同じ座標」で書くので、座標のバイトを持たない
+fn outline_font(points: u16) -> Vec<u8> {
+    fn be16(out: &mut Vec<u8>, value: u16) {
+        out.extend(value.to_be_bytes());
+    }
+    fn be32(out: &mut Vec<u8>, value: u32) {
+        out.extend(value.to_be_bytes());
+    }
+    let mut glyph = Vec::new();
+    // 輪郭の数・外接矩形・最後の点・命令の長さ
+    for value in [1, 0, 0, 100, 100, points - 1, 0] {
+        be16(&mut glyph, value);
+    }
+    // 曲線の上・x も y も前と同じ、を 256 点ずつ繰り返す
+    let mut left = usize::from(points);
+    while left > 0 {
+        let run = left.min(256);
+        glyph.extend([0x01 | 0x08 | 0x10 | 0x20, (run - 1) as u8]);
+        left -= run;
+    }
+    while glyph.len() % 4 != 0 {
+        glyph.push(0);
+    }
+    let mut loca = Vec::new();
+    for offset in [0, 0, glyph.len() as u32] {
+        be32(&mut loca, offset);
+    }
+    let mut head = Vec::new();
+    for value in [0x0001_0000, 0x0001_0000, 0, 0x5F0F_3CF5] {
+        be32(&mut head, value);
+    }
+    // 旗・em の大きさ・作った日と変えた日・外接矩形・様式・最小の大きさ・向き・loca の形（長い）・字形の形
+    for value in [
+        0, 1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 100, 0, 8, 2, 1, 0,
+    ] {
+        be16(&mut head, value);
+    }
+    let mut maxp = Vec::new();
+    be32(&mut maxp, 0x0000_5000);
+    be16(&mut maxp, 2);
+    let mut hhea = Vec::new();
+    be32(&mut hhea, 0x0001_0000);
+    for value in [800, 0xFF38, 0, 1000, 0, 0, 100, 1, 0, 0, 0, 0, 0, 0, 0, 2] {
+        be16(&mut hhea, value);
+    }
+    let mut hmtx = Vec::new();
+    for value in [1000, 0, 1000, 0] {
+        be16(&mut hmtx, value);
+    }
+    let tables = [
+        (b"glyf", glyph),
+        (b"head", head),
+        (b"hhea", hhea),
+        (b"hmtx", hmtx),
+        (b"loca", loca),
+        (b"maxp", maxp),
+    ];
+    let mut font = Vec::new();
+    be32(&mut font, 0x0001_0000);
+    for value in [tables.len() as u16, 64, 2, 32] {
+        be16(&mut font, value);
+    }
+    let mut offset = 12 + 16 * tables.len();
+    let mut body = Vec::new();
+    for (tag, mut data) in tables {
+        font.extend(tag);
+        be32(&mut font, 0);
+        be32(&mut font, offset as u32);
+        be32(&mut font, data.len() as u32);
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+        offset += data.len();
+        body.extend(data);
+    }
+    font.extend(body);
+    font
+}
+
+/// [`outline_font`] の字形 1 を `count` 字、描画モード `mode` で描くページ。フォントは Identity-H の Type0 の
+/// CIDFontType2 で、CID をそのまま字形の番号にする
+fn outline_document(points: u16, count: usize, mode: u32) -> Vec<u8> {
+    let text = format!(
+        "BT /F 12 Tf {mode} Tr 100 100 Td <{}> Tj ET",
+        "0001".repeat(count)
+    );
+    let mut document = Document::new(vec![Page::new(&text).resources("/Font << /F 3 0 R >>")]);
+    document.objects = vec![
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /Outline /Encoding /Identity-H \
+          /DescendantFonts [4 0 R] >>"
+            .to_vec(),
+        b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Outline /CIDSystemInfo \
+          << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 5 0 R \
+          /CIDToGIDMap /Identity >>"
+            .to_vec(),
+        b"<< /Type /FontDescriptor /FontName /Outline /Flags 4 /FontBBox [0 0 100 100] \
+          /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile2 6 0 R >>"
+            .to_vec(),
+        common::stream("", outline_font(points)),
+    ];
+    document.bytes()
+}
+
+#[test]
+fn counts_outlines_of_clipping_text() {
+    use zumen_base::Kind;
+    // hayro-interpret は、切り抜きにする文字（描画モード 4〜7）の字ごとに、フォントのプログラムから輪郭を作り、
+    // `ET` まで貯める。輪郭の大きさは字形で決まるので、走査も輪郭を作り、経路の要素の 1 つを、作る手間 3 と
+    // 512 バイトと数える。Helvetica の A の輪郭は、要素が 4 つより多い
+    let text = |mode: u32| format!("BT /F1 12 Tf {mode} Tr ({}) Tj ET", "A".repeat(1_000));
+    let bytes = |mode: u32| {
+        used(
+            &one_page(Page::new(&text(mode)).resources(HELVETICA)),
+            Kind::DecodedBytes,
+        )
+    };
+    assert!(bytes(7) >= bytes(0) + 1_000 * 4 * 512);
+    // 埋め込んだ TrueType の字形は、65,536 点まで持てる。6 万点の字形も、数百バイトのフォントで書ける
+    let src = outline_document(60_000, 10, 7);
+    assert!(used(&src, Kind::DecodedBytes) >= 10 * 60_000 * 512);
+    assert!(used(&src, Kind::Work) >= 10 * 60_000 * 3);
+    // 塗るだけの文字は、輪郭を作らない
+    assert!(used(&outline_document(60_000, 10, 0), Kind::DecodedBytes) < 1_000_000);
+    // 100 字は、解釈の前に予算で止める（hayro-interpret は、およそ 1.3 GB を使う）
+    let file = testkit::read::<Pdf>(&outline_document(60_000, 100, 7))
+        .0
+        .unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    assert!(
+        diag.iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED),
+        "{diag:?}"
+    );
+}
+
+#[test]
+fn walks_streams_written_in_dictionaries_each_time() {
+    use zumen_base::Kind;
+    // hayro-syntax は、辞書の値や配列の項目に直接書いたストリームにも、入れ物の間接オブジェクトの番号を返す。
+    // 走査は、それ自身の間接オブジェクトのストリームだけを覚え、直接書いたストリームは使うたびにたどる。1 つ目の
+    // 手間と中身を 2 つ目に使うと、2 つ目の中の、ページを解釈しない理由を見落とす
+    let lattice = |rows: u32| {
+        direct_stream(
+            &format!(
+                "/ShadingType 5 /ColorSpace /DeviceGray /BitsPerCoordinate 8 /BitsPerComponent 8 \
+                 /VerticesPerRow {rows} /Decode [0 100 0 100 0 1]"
+            ),
+            &[0, 0, 0, 100, 0, 0],
+        )
+    };
+    let shadings = format!("/Shading << /A {} /B {} >>", lattice(1), lattice(0));
+    let program = |code: &str| {
+        direct_stream(
+            "/FunctionType 4 /Domain [0 1] /Range [0 1]",
+            code.as_bytes(),
+        )
+    };
+    let deep = format!("{}{}", "{ ".repeat(65), "} ".repeat(65));
+    let functions = format!(
+        "/Shading << /S << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] \
+         /Function [{} {}] >> >>",
+        program("{ }"),
+        program(&deep)
+    );
+    // 18 重の Indexed の色空間（いちばん内の Indexed の深さは 17）
+    let mut space = String::from("/DeviceGray");
+    for _ in 0..18 {
+        space = format!("[/Indexed {space} 0 <00>]");
+    }
+    let image = |space: &str| {
+        direct_stream(
+            &format!(
+                "/Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 \
+                 /ColorSpace {space}"
+            ),
+            &[0],
+        )
+    };
+    let images = format!(
+        "/XObject << /A {} /B {} >>",
+        image("/DeviceGray"),
+        image(&space)
+    );
+    // 2 つ目のフォームは、行の頂点の数が 0 の格子（3 0 R）を塗る
+    let form = |content: &str| {
+        direct_stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 10 10] \
+             /Resources << /Shading << /Sh 3 0 R >> >>",
+            content.as_bytes(),
+        )
+    };
+    let forms = format!(
+        "/XObject << /A {} /B {} >>",
+        form("0 0 m 1 1 l S"),
+        form("/Sh sh")
+    );
+    let empty = common::stream(
+        "/ShadingType 5 /ColorSpace /DeviceGray /BitsPerCoordinate 8 /BitsPerComponent 8 \
+         /VerticesPerRow 0 /Decode [0 100 0 100 0 1]",
+        [0u8, 0, 0, 100, 0, 0],
+    );
+    for (content, resources) in [
+        ("0 0 m 10 10 l S /A sh /B sh", shadings.as_str()),
+        ("0 0 m 10 10 l S /S sh", functions.as_str()),
+        ("0 0 m 10 10 l S /A Do /B Do", images.as_str()),
+        ("0 0 m 10 10 l S /A Do /B Do", forms.as_str()),
+    ] {
+        let mut document = Document::new(vec![Page::new(content).resources(resources)]);
+        document.objects = vec![empty.clone()];
+        let (drawing, diag) = lift(&document.bytes());
+        assert!(elements(&drawing).is_empty(), "{resources}");
+        assert!(
+            diag.iter().any(|d| d.code() == codes::PDF_PAGE_DROPPED),
+            "{resources}: {diag:?}"
+        );
+    }
+    // 直接書いたメッシュは、使うたびに三角形を作る手間を数える（3 頂点の後の 2 万頂点）
+    let mesh = |vertices: usize| {
+        direct_stream(
+            "/ShadingType 4 /ColorSpace /DeviceGray /BitsPerCoordinate 8 /BitsPerComponent 8 \
+             /BitsPerFlag 8 /Decode [0 100 0 100 0 1]",
+            &vec![0; 4 * vertices],
+        )
+    };
+    let meshes = format!("/Shading << /A {} /B {} >>", mesh(3), mesh(20_000));
+    let paints = format!("/A sh {}", "/B sh ".repeat(20));
+    let src = one_page(Page::new(&paints).resources(&meshes));
+    assert!(used(&src, Kind::Work) >= 20 * 20_000 * 4);
+}
+
+#[test]
+fn counts_memory_of_the_drawing_model() {
+    use zumen_base::{Kind, Limit, Limits};
+    // hayro-interpret は、フォームを呼ぶたびに中身を解釈し直すので、次の段を 2 回ずつ呼ぶフォームの鎖は、小さい
+    // ファイルから要素を指数的に増やす。図面モデルのメモリも、要素の 1 つを 2,048 バイト、経路の要素の 1 つを
+    // 64 バイト、字形の 1 つを 8 バイトと数える
+    let chain = |levels: usize, leaf: &str, resources: &str| {
+        let mut document = Document::new(vec![
+            Page::new("/N Do").resources("/XObject << /N 3 0 R >>"),
+        ]);
+        document.objects = (0..levels)
+            .map(|index| {
+                common::stream(
+                    &format!(
+                        "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+                         /Resources << /XObject << /N {} 0 R >> >>",
+                        4 + index
+                    ),
+                    "/N Do /N Do",
+                )
+            })
+            .chain([common::stream(
+                &format!(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << {resources} >>"
+                ),
+                leaf,
+            )])
+            .collect();
+        document.bytes()
+    };
+    // 1,024 本の線
+    let lines = chain(10, "0 0 m 10 10 l S", "");
+    assert!(used(&lines, Kind::DecodedBytes) >= 1_024 * (2_048 + 2 * 64));
+    // 1,000 字の文字列の 64 回
+    let text = format!("BT /F1 12 Tf 10 10 Td ({}) Tj ET", "A".repeat(1_000));
+    let texts = chain(6, &text, HELVETICA);
+    assert!(used(&texts, Kind::DecodedBytes) >= 64 * 1_000 * 8);
+    // 予算を超えたら、要素を足さずに止める
+    let file = testkit::read::<Pdf>(&lines).0.unwrap();
+    let mut budget =
+        Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(1 << 20)));
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    assert!(
+        diag.iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED),
+        "{diag:?}"
+    );
 }
 
 #[test]

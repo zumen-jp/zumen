@@ -16,6 +16,7 @@ use hayro_interpret::{
     SoftMask, StrokeProps,
 };
 use hayro_syntax::object::{Array, Dict, ObjectIdentifier};
+use hayro_syntax::xref::XRef;
 use kurbo::{Affine, BezPath, Cap, Join, PathEl, Point, Rect, Vec2};
 use zumen_base::{Code, Diagnostic, Kind, Ref, Stop, codes};
 use zumen_drawing::{
@@ -28,6 +29,7 @@ use zumen_drawing::{
 use zumen_sdk::Cx;
 
 use crate::color::{self, Mapped};
+use crate::walk::own_stream;
 
 /// 用紙の 1 mm の装置の単位の数。2 の累乗なので、装置の座標を mm に戻しても値は変わらない。面積のない塗りを
 /// hayro-interpret は 1 装置単位の幅の線にするので、その線は 1/1024 mm の細い線になる
@@ -35,6 +37,15 @@ pub(crate) const DEVICE_PER_MM: f64 = 1024.0;
 
 /// 表示グループ（optional content group）の外の内容を置くレイヤ
 pub(crate) const PAGE_LAYER: LayerId = LayerId(0);
+
+// 図面モデルのメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret は、フォームと Type 3 の字形を呼ぶたびに
+// 中身を解釈し直すので、小さいファイルからも要素が指数的に増える。測ったメモリを、多めにする（決定 0256）
+/// 要素の 1 つ（要素の配列を伸ばす間の写しを含めて、測ったメモリはおよそ 1.3〜1.5 KB）
+const ELEMENT_BYTES: u64 = 2048;
+/// 装置に渡された経路の要素の 1 つ。要素の頂点と輪になる（測ったメモリは、頂点の 1 つでおよそ 32 バイト）
+const PATH_BYTES: u64 = 64;
+/// 字形の並びの字形の 1 つ。文字の中身になる
+const GLYPH_BYTES: u64 = 8;
 
 /// 破線の長さで、hayro-interpret が 0 の代わりに置く値（ユーザー空間）。これ以下は点（0）に戻す
 const DASH_ZERO: f32 = 0.01;
@@ -539,6 +550,8 @@ pub(crate) struct Collector<'c, 'x> {
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
+    /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）
+    xref: &'c XRef,
     styles: &'c mut Styles,
     pub(crate) elements: Vec<Element<PaperPoint>>,
     /// 切り抜きの外接矩形（用紙の mm）の重なり。最初はページ
@@ -568,6 +581,7 @@ impl<'c, 'x> Collector<'c, 'x> {
         page: Rect,
         ocgs: &'c BTreeMap<(u32, i32), LayerId>,
         objects: &'c BTreeMap<(u32, i32), Ref>,
+        xref: &'c XRef,
         styles: &'c mut Styles,
         transfer: bool,
     ) -> Self {
@@ -577,6 +591,7 @@ impl<'c, 'x> Collector<'c, 'x> {
             sheet,
             ocgs,
             objects,
+            xref,
             styles,
             elements: Vec::new(),
             clips: vec![page],
@@ -662,7 +677,7 @@ impl<'c, 'x> Collector<'c, 'x> {
         if self.blended || self.groups.iter().any(|group| group.blended) {
             self.note_code(codes::PDF_TRANSPARENCY_APPROXIMATED);
         }
-        if !self.spend(Kind::Elements, 1) {
+        if !self.spend(Kind::Elements, 1) || !self.spend(Kind::DecodedBytes, ELEMENT_BYTES) {
             return;
         }
         self.elements.push(Element {
@@ -673,10 +688,19 @@ impl<'c, 'x> Collector<'c, 'x> {
         });
     }
 
-    /// 塗りの色と不透明度。シェーディングとパターンは移さない
-    fn paint(&mut self, paint: &Paint<'_>) -> Option<(Inherit<Color>, Inherit<Transparency>)> {
+    /// 塗りの色と不透明度。シェーディングとパターンは移さない。`mapped` は、同じ塗りの色を写した結果
+    /// （[`color::map`]）を、1 つの経路の部分経路と、1 つの字形の並びの文字で使い回す所。hayro-interpret の RGB への
+    /// 換算は、多成分の DeviceN の色では換算のたびに色変換の関数を当てるので、演算子ごとに 1 度だけ換算する
+    fn paint(
+        &mut self,
+        paint: &Paint<'_>,
+        mapped: &mut Option<(Mapped, u8)>,
+    ) -> Option<(Inherit<Color>, Inherit<Transparency>)> {
         match paint {
-            Paint::Color(color) => Some(self.color(color)),
+            Paint::Color(color) => {
+                let (value, alpha) = *mapped.get_or_insert_with(|| color::map(color));
+                Some(self.color(value, alpha))
+            }
             Paint::Pattern(pattern) => {
                 let code = match **pattern {
                     Pattern::Shading(_) => codes::PDF_SHADING_DROPPED,
@@ -688,11 +712,8 @@ impl<'c, 'x> Collector<'c, 'x> {
         }
     }
 
-    fn color(
-        &mut self,
-        color: &hayro_interpret::color::Color,
-    ) -> (Inherit<Color>, Inherit<Transparency>) {
-        let (mapped, alpha) = color::map(color);
+    /// 写した色（[`color::map`]）の、図面モデルの色と不透明度。近似した色と移さない色は、要素ごとに診断する
+    fn color(&mut self, mapped: Mapped, alpha: u8) -> (Inherit<Color>, Inherit<Transparency>) {
         // 転送関数（10.4）を使うページでは、hayro-interpret が関数を当てた RGB を渡す。その値は、版と環境で
         // 変わりうるので使わない（決定 0256）。どの要素に効くかは渡されないので、ページの色をすべてレイヤに従わせる
         if self.transfer {
@@ -752,7 +773,7 @@ impl<'c, 'x> Collector<'c, 'x> {
         if !self.visible(bounds) {
             return;
         }
-        let Some((color, transparency)) = self.paint(paint) else {
+        let Some((color, transparency)) = self.paint(paint, &mut None) else {
             return;
         };
         // 偶奇の規則は、輪の中の輪を交互に埋めるのと同じ。非ゼロ回転数の規則は、自分と交わらない輪が 1 つなら
@@ -871,8 +892,9 @@ impl<'c, 'x> Collector<'c, 'x> {
         // 変換では、向きで太さが変わる）
         let scale = libm::sqrt(transform.determinant().abs());
         let width = f64::from(stroke.line_width) * scale;
-        // 破線の線種は、経路ごとに 1 度だけ作る
+        // 破線の線種と色は、経路ごとに 1 度だけ作る
         let mut dashed: Option<(LineTypeId, bool)> = None;
+        let mut mapped = None;
         for subpath in subpaths(path) {
             if subpath.segments.is_empty() {
                 continue;
@@ -888,7 +910,7 @@ impl<'c, 'x> Collector<'c, 'x> {
             if !self.visible(bounds) {
                 continue;
             }
-            let Some((color, transparency)) = self.paint(paint) else {
+            let Some((color, transparency)) = self.paint(paint, &mut mapped) else {
                 continue;
             };
             // 線の端（開いた部分経路）とつなぎ（線分が 2 つ以上か、閉じた部分経路）の形は、図面モデルが持たない
@@ -1053,19 +1075,31 @@ impl<'c, 'x> Collector<'c, 'x> {
             _ => self.last_fill_run = None,
         }
         let vertical = run.writing_mode() == WritingMode::Vertical;
+        // 色は、字形の並びごとに 1 度だけ写す
+        let mut mapped = None;
         for (range, shifted) in split(glyphs, device, vertical) {
             let (Some(part), Some(unicode)) = (glyphs.get(range.clone()), unicode.get(range))
             else {
                 continue;
             };
-            self.text(part, unicode, device, vertical, props, mode, shifted);
+            self.text(
+                part,
+                unicode,
+                device,
+                vertical,
+                props,
+                mode,
+                shifted,
+                &mut mapped,
+            );
             if self.stopped.is_some() {
                 return;
             }
         }
     }
 
-    /// 字形の並びの一部を、1 つの文字にする。最初の字形の基準線が文字の基点と向きで、em の大きさが高さ
+    /// 字形の並びの一部を、1 つの文字にする。最初の字形の基準線が文字の基点と向きで、em の大きさが高さ。`mapped` は、
+    /// 字形の並びの色を写した結果（[`Collector::paint`]）
     #[allow(clippy::too_many_arguments)]
     fn text(
         &mut self,
@@ -1076,6 +1110,7 @@ impl<'c, 'x> Collector<'c, 'x> {
         props: &DrawProps<'_>,
         mode: &DrawMode,
         shifted: bool,
+        mapped: &mut Option<(Mapped, u8)>,
     ) {
         let Some(first) = glyphs.first() else {
             return;
@@ -1114,7 +1149,7 @@ impl<'c, 'x> Collector<'c, 'x> {
         if shifted {
             self.note_code(codes::PDF_GLYPH_POSITION_APPROXIMATED);
         }
-        let Some((color, transparency)) = self.paint(&props.paint) else {
+        let Some((color, transparency)) = self.paint(&props.paint, mapped) else {
             return;
         };
         // 見えない文字（描画モード 3。スキャンした画像に重ねた文字など）は、透明な文字にする
@@ -1242,9 +1277,9 @@ impl<'c, 'x> Collector<'c, 'x> {
             || dict
                 .get::<i64>(b"SMaskInData")
                 .is_some_and(|value| value != 0);
-        // 画像の XObject は、間接オブジェクトの参照（`n g R`）を名前にする。内容の中に書いた画像（BI … EI）は、
-        // 名前を持たない
-        let (path, definition) = match dict.obj_id() {
+        // 画像の XObject は、間接オブジェクトの参照（`n g R`）を名前にする。内容の中に書いた画像（BI … EI）と、辞書の
+        // 値に直接書いた画像（7.3.8.1 に反する）は、名前を持たない
+        let (path, definition) = match own_stream(self.xref, stream) {
             Some(id) => match self.objects.get(&(id.obj_number, id.gen_number)) {
                 Some(record) => (
                     format!("{} {} R", id.obj_number, id.gen_number),
@@ -1298,7 +1333,9 @@ fn text_of(unicode: &[Option<BfString>]) -> (String, u64) {
 impl<'a> Device<'a> for Collector<'_, '_> {
     fn draw_path(&mut self, path: &BezPath, props: DrawProps<'a>, draw_mode: &DrawMode) {
         let count = u64::try_from(path.elements().len()).unwrap_or(u64::MAX);
-        if !self.spend(Kind::Work, count.saturating_add(1)) {
+        if !self.spend(Kind::Work, count.saturating_add(1))
+            || !self.spend(Kind::DecodedBytes, count.saturating_mul(PATH_BYTES))
+        {
             return;
         }
         self.last_fill_run = None;
@@ -1367,7 +1404,9 @@ impl<'a> Device<'a> for Collector<'_, '_> {
         draw_mode: &DrawMode,
     ) {
         let count = u64::try_from(glyph_run.glyphs().len()).unwrap_or(u64::MAX);
-        if !self.spend(Kind::Work, count.saturating_add(1)) {
+        if !self.spend(Kind::Work, count.saturating_add(1))
+            || !self.spend(Kind::DecodedBytes, count.saturating_mul(GLYPH_BYTES))
+        {
             return;
         }
         self.blended = blended(props.soft_mask.is_some(), props.blend_mode);

@@ -4,8 +4,9 @@
 //! 呼ぶと、解釈する演算子の数は段の数の冪で増える。そこで、ページを渡す前に、内容のストリームを hayro-interpret と
 //! 同じ読み手（hayro-syntax の `TypedIter`）でたどり、hayro-interpret が解釈する手間を `Work` に、展開する
 //! バイト数を `DecodedBytes` に、先に数える。同じフォームを同じ文脈で呼ぶ所は、1 度だけたどる。hayro-interpret が
-//! 作るものの大きさ（写すグラフィックス状態・メッシュ・関数の標本・CID フォントの幅の表）も、メモリの代わりに
-//! `DecodedBytes` に数え、メッシュを作る手間と、色を RGB にするときに関数を当てる手間も `Work` に数える。
+//! 作るものの大きさ（写すグラフィックス状態・メッシュ・関数の標本・CID フォントの幅の表・切り抜きにする文字の
+//! 輪郭）も、メモリの代わりに `DecodedBytes` に数え、メッシュと切り抜きの輪郭を作る手間と、色を RGB にするときに
+//! 関数を当てる手間も `Work` に数える。
 //!
 //! hayro-interpret がスタックかメモリを使い切るおそれのあるページ（入れ子の深すぎる関数と色空間、範囲の広すぎる
 //! CID フォントの幅、行の頂点の数が 0 の格子のメッシュ）と、パニックするおそれのあるページ（大きさの大きすぎる
@@ -20,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use flate2::{Decompress, FlushDecompress, Status};
-use hayro_font::FontCache;
+use hayro_font::{Font, FontCache, FontGlyph, StandardFont};
 use hayro_interpret::InterpreterSettings;
 use hayro_syntax::Filter;
 use hayro_syntax::content::TypedIter;
@@ -59,9 +60,13 @@ const LOOKUP_BYTES: u64 = 4;
 const WIDTH_WORK: u64 = 2;
 /// 内容の印（`BDC`、14.6）を始める手間。hayro-interpret は、見えるかの重なりを積み、装置に印と性質の辞書を渡す
 const MARKED_WORK: u64 = 4;
-/// 切り抜きにする文字（描画モード 4〜7、9.3.6）の 1 字の輪郭を写す手間。hayro-interpret は、輪郭を `ET` まで
-/// 貯め、グラフィックス状態を写すたびに一緒に写す
-const CLIP_COPY_WORK: u64 = 16;
+/// 切り抜きにする文字（描画モード 4〜7、9.3.6）の輪郭の経路の要素の 1 つを作る手間。hayro-interpret は、字ごとに
+/// フォントのプログラムから輪郭を作り、写して切り抜きの経路に足す（65,000 点の字形で、要素の 1 つにおよそ
+/// 0.45 µs）
+const OUTLINE_WORK: u64 = 3;
+/// 切り抜きにする文字の輪郭の経路の要素の 1 つを写す手間。hayro-interpret は、輪郭を `ET` まで貯め、`ET` と、
+/// グラフィックス状態を写すときに写す
+const CLIP_COPY_WORK: u64 = 1;
 /// 経路を塗るか線を描く手間（`f`・`S`・`B` など、8.5.3）。hayro-interpret が経路を装置に渡し、装置が色を RGB に
 /// し（DeviceCMYK と ICC の色は、hayro-interpret が moxcms で換算する）、経路を mm に写して要素にする。装置が
 /// 経路の要素ごとに数える手間に足す（`0 0 0 1 k 0 0 10 10 re f` で、合わせておよそ 33 倍）
@@ -92,23 +97,28 @@ const MAX_WIDTHS: u64 = 1 << 18;
 const MAX_SAMPLE_SIZE: u32 = 1 << 24;
 
 // hayro-interpret が作るもののメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret 0.9.0 の型の大きさか、
-// 測ったメモリを、配列を伸ばすときの余りを含めて倍にする（決定 0256）
-/// Type 0 の関数の標本の 1 つ。hayro-interpret は、関数を作るたびに、標本をすべて f32 にして持つ。数の分からない
-/// 並びから集めるので、配列を伸ばす余りで倍まで使う
-const SAMPLE_BYTES: u64 = 8;
+// 測ったメモリを、配列を伸ばすときの余りと写しを含めて倍にする。1 つずつ足して伸ばす配列は、伸ばす間に前と
+// 後の配列が同時にあるので、要素の型の大きさの 3 倍まで使う（決定 0256）
+/// Type 0 の関数の標本の 1 つ（f32）。hayro-interpret は、関数を作るたびに、標本をすべて f32 にして持つ。数の
+/// 分からない並びから集めるので、配列を伸ばす間は 3 倍まで使う（測ったメモリは、標本の 1 つでおよそ 12 バイト）
+const SAMPLE_BYTES: u64 = 16;
 /// 破線の配列の 1 項目（f32。測ったメモリは、写した 1 項目でおよそ 5 バイト）
 const DASH_BYTES: u64 = 8;
-/// 切り抜きにする文字の 1 字の輪郭（Helvetica の 1 字で、およそ 1.5 KB）
-const CLIP_GLYPH_BYTES: u64 = 3072;
+/// 切り抜きにする文字の輪郭の経路の要素の 1 つ（kurbo の `PathEl` は 56 バイト）。hayro-interpret は、字の並びの
+/// 経路と文字の状態の経路の両方に、配列を伸ばしながら足す（測ったメモリは、要素の 1 つでおよそ 224 バイト）
+const OUTLINE_BYTES: u64 = 512;
+/// 切り抜きに貯めた輪郭を写すときの、経路の要素の 1 つ
+const OUTLINE_COPY_BYTES: u64 = 128;
 /// CID フォントの幅の表の 1 項目。走査と hayro-interpret が、文書の間、それぞれ表を持つ（`W2` の 1 項目で、2 つの
 /// 表を合わせておよそ 76 バイト）
 const WIDTH_BYTES: u64 = 160;
-/// メッシュのシェーディング（型 4・5）の三角形の 1 つ（216 バイト）
-const TRIANGLE_BYTES: u64 = 512;
-/// 格子のメッシュ（型 5）の頂点の 1 つ（48 バイト）
-const VERTEX_BYTES: u64 = 96;
-/// パッチのメッシュ（型 6・7）のパッチの 1 つ（352 バイトまで）
-const PATCH_BYTES: u64 = 1024;
+/// メッシュのシェーディング（型 4・5）の三角形の 1 つ（216 バイト。配列を伸ばす間は、およそ 650 バイト）
+const TRIANGLE_BYTES: u64 = 1024;
+/// 格子のメッシュ（型 5）の頂点の 1 つ（48 バイト）。hayro-interpret は、頂点を行ごとの配列に足すので、頂点が
+/// 2 つの行では、行の配列の余りを含めておよそ 130 バイト使う
+const VERTEX_BYTES: u64 = 256;
+/// パッチのメッシュ（型 6・7）のパッチの 1 つ（352 バイトまで。配列を伸ばす間は、およそ 1,060 バイト）
+const PATCH_BYTES: u64 = 2048;
 /// 色の表（Separation・1 成分の DeviceN・Indexed の色空間と、転送関数）の項目の数。hayro-interpret は、はじめて
 /// 使うときに、0〜255 の値のそれぞれに関数を当てて表を作る
 const TABLE: u64 = 256;
@@ -123,8 +133,8 @@ pub(crate) struct Survey {
     pub(crate) transfer: bool,
     /// hayro-interpret がスタックかメモリを使い切るか、パニックするおそれがあるので、ページを解釈しない。値は、理由の
     /// オブジェクト（入れ子の深すぎる関数か色空間、範囲の広すぎる幅を持つフォント、大きさの大きすぎる Type 0 の
-    /// 関数、行の頂点の数が 0 の格子のメッシュ）の場所。直接書いたオブジェクトは、それを含む間接オブジェクトの場所（hayro-syntax の `obj_id`）。色空間の
-    /// 入れ子は、ページの内容のストリーム
+    /// 関数、行の頂点の数が 0 の格子のメッシュ）の場所。直接書いたオブジェクトは、それを含む間接オブジェクトの場所
+    /// （hayro-syntax の `obj_id`）。色空間の入れ子は、ページの内容のストリーム
     pub(crate) refused: Option<Ref>,
 }
 
@@ -162,10 +172,10 @@ enum Selected {
     Assumed,
     /// hayro-interpret が Helvetica で読む（資源にないフォントと、読めないフォント）
     Fallback,
-    /// 読めるフォント
-    Loaded,
-    /// 読めるフォントのうち、原点の移動が既定と違いうる縦書きのフォント（間接オブジェクト）
-    Shifted((u32, i32)),
+    /// 読めるフォント。値は、走査が読んだフォントの表（[`Walker::faces`]）の番号
+    Loaded(u32),
+    /// 読めるフォントのうち、原点の移動が既定と違いうる縦書きのフォント（間接オブジェクト）と、表の番号
+    Shifted((u32, i32), u32),
     /// 読める Type 3 のフォント（9.6.4）。hayro-interpret は、字形ごとにグラフィックス状態を写す
     Type3,
 }
@@ -178,7 +188,7 @@ struct Graphics {
     dash: u64,
     /// 文字を切り抜きにする（描画モード 4〜7、9.3.6）
     clip: bool,
-    /// 切り抜きに貯めた文字のバイト数（`ET` で空にする）
+    /// 切り抜きに貯めた文字の輪郭の、経路の要素の数（`ET` で空にする）
     clipped: u64,
     /// 塗りの色を 1 度 RGB にする手間（[`Conversion::each`]）。装置は、塗るたびに色を RGB にする
     fill: u64,
@@ -223,7 +233,7 @@ enum Owner {
     Page,
     /// 間接オブジェクトのフォーム
     Form((u32, i32)),
-    /// 間接オブジェクトでないフォーム。呼ばれ方を覚えない
+    /// 間接オブジェクトでないフォーム（直接書いたストリーム、[`own_stream`]）。呼ばれ方を覚えない
     Direct,
 }
 
@@ -272,6 +282,23 @@ fn key(id: impl Into<ObjectIdentifier>) -> (u32, i32) {
 
 fn name_text(name: &[u8]) -> String {
     String::from_utf8_lossy(name).into_owned()
+}
+
+/// ストリームが、それ自身の間接オブジェクトなら、その番号。hayro-syntax 0.9.0 は、辞書の値や配列の項目に直接書いた
+/// ストリーム（7.3.8.1 に反する）も読み、その `obj_id` には、直接書いた辞書と同じく、それを含む間接オブジェクトの
+/// 番号を返す。そこで、その番号で xref から引いたストリームの辞書が、同じバイト列かを確かめる。入れ物のストリームの
+/// 辞書は、直接書いたストリームの辞書を真に含むので、同じバイト列にならない
+pub(crate) fn own_stream(xref: &XRef, stream: &Stream<'_>) -> Option<ObjectIdentifier> {
+    let id = stream.dict().obj_id()?;
+    let own = xref.get::<Stream<'_>>(id)?;
+    (own.dict().data() == stream.dict().data()).then_some(id)
+}
+
+/// 辞書が、それ自身の間接オブジェクトなら、その番号。見分け方は [`own_stream`] と同じ
+pub(crate) fn own_dict(xref: &XRef, dict: &Dict<'_>) -> Option<ObjectIdentifier> {
+    let id = dict.obj_id()?;
+    let own = xref.get::<Dict<'_>>(id)?;
+    (own.data() == dict.data()).then_some(id)
 }
 
 /// 内容のストリームのバイト列に、終わりの印を足したもの。最後の行のコメント（7.2.4）に入らないよう、改行を挟む
@@ -393,6 +420,25 @@ fn lookup_work(data: &[u8]) -> u64 {
     (data.len() as u64).div_ceil(LOOKUP_BYTES)
 }
 
+/// 関数の辞書（7.10）の、数の配列の項目の数。hayro-interpret は、関数を作るたびに、`Domain`・`Range` と型ごとの
+/// 配列を読んで数にするので、項目の数に比例する手間がかかる（短い数の並びでは、バイト数で数える手間より重い）
+fn numbers(dict: &Dict<'_>) -> u64 {
+    [
+        b"Domain".as_slice(),
+        b"Range",
+        b"Size",
+        b"Encode",
+        b"Decode",
+        b"C0",
+        b"C1",
+        b"Bounds",
+    ]
+    .iter()
+    .filter_map(|key| dict.get::<Array<'_>>(key))
+    .map(|array| array.raw_iter().count() as u64)
+    .sum()
+}
+
 /// オブジェクトの、辞書か配列のバイト列。ストリームは辞書だけ
 fn object_data<'x>(object: &Object<'x>) -> &'x [u8] {
     match object {
@@ -434,31 +480,28 @@ fn copy(state: Graphics) -> (u64, u64) {
     let bytes = state
         .dash
         .saturating_mul(DASH_BYTES)
-        .saturating_add(state.clipped.saturating_mul(CLIP_GLYPH_BYTES));
+        .saturating_add(state.clipped.saturating_mul(OUTLINE_COPY_BYTES));
     (work, bytes)
 }
 
 /// メッシュのシェーディング（型 4〜7、8.7.4.5.5〜8.7.4.5.8）で、hayro-interpret が三角形とパッチを作る手間
 /// （[`MESH_WORK`]）とメモリ（バイト数）の上限。`size` は、展開したバイト数。hayro-interpret は、使うたびに、
 /// 型 4・5 では頂点をバイトの境から読んで三角形をすべて作り（型 4 は頂点ごとに 1 つ、型 5 は 2 つまで）、型 6・7
-/// ではパッチをすべて作る（前のパッチと辺を分けるものは、点を 8 つか 12 と、色を 2 つ読む）。頂点とパッチの数の
-/// 上限は、色の成分を 1 つとした最小のビット数で求める
+/// ではパッチをすべて作る（前のパッチと辺を分けるものは、点を 8 つか 12 読む）。頂点とパッチの数の上限は、色を
+/// 読まないとした最小のビット数で求める。hayro-interpret は、`Function` がなければ、色の成分の数を `Decode` の
+/// 座標より後ろの項目の数の半分とするので、`Decode` が座標の分だけなら、色を読まない（`read_colors`）
 fn mesh_cost(dict: &Dict<'_>, kind: u8, size: u64) -> Cost {
     let bits = |key: &[u8]| u64::from(dict.get::<u8>(key).unwrap_or(0));
     let coordinate = bits(b"BitsPerCoordinate");
-    let component = bits(b"BitsPerComponent");
     let flag = bits(b"BitsPerFlag");
     let (unit, memory) = match kind {
-        4 => (
-            (flag + 2 * coordinate + component).div_ceil(8) * 8,
-            TRIANGLE_BYTES,
-        ),
+        4 => ((flag + 2 * coordinate).div_ceil(8) * 8, TRIANGLE_BYTES),
         5 => (
-            (2 * coordinate + component).div_ceil(8) * 8,
+            (2 * coordinate).div_ceil(8) * 8,
             2 * TRIANGLE_BYTES + VERTEX_BYTES,
         ),
-        6 => (flag + 16 * coordinate + 2 * component, PATCH_BYTES),
-        7 => (flag + 24 * coordinate + 2 * component, PATCH_BYTES),
+        6 => (flag + 16 * coordinate, PATCH_BYTES),
+        7 => (flag + 24 * coordinate, PATCH_BYTES),
         _ => return Cost::default(),
     };
     let count = size.saturating_mul(8) / unit.max(1);
@@ -581,15 +624,26 @@ pub(crate) struct Walker<'a, 'o> {
     /// 既定の設定で隠れる表示グループ（hayro-interpret の `OcgState` と同じ決め方）
     inactive: &'o BTreeSet<(u32, i32)>,
     settings: &'o InterpreterSettings,
-    /// hayro-interpret と同じ読み方でフォントを読む。読めるかを見るだけに使う
+    /// hayro-interpret と同じ読み方でフォントを読む。読めるかを見て、切り抜きにする文字の輪郭を作る
     fonts: FontCache<'a>,
+    /// 読めたフォントの表（文書ごと）。[`Selected::Loaded`] の番号で引く
+    faces: Vec<Font<'a>>,
+    /// フォントの辞書のバイト列 → 表の番号（文書ごと）。hayro-interpret も、辞書のバイト列でフォントを見分ける
+    face_ids: BTreeMap<Vec<u8>, u32>,
+    /// hayro-interpret が代わりに使う Helvetica の、表の番号（文書ごと。読めなければ `None`）
+    helvetica: Option<Option<u32>>,
+    /// フォントの表の番号と文字の符号 → 切り抜きにする字形の輪郭の、経路の要素の数（文書ごと）
+    outlines: BTreeMap<(u32, u32), u64>,
+    /// ストリームの番号 → xref から引いたストリームの辞書のバイト列（文書ごと、[`own_stream`]）
+    streams: BTreeMap<(u32, i32), Option<&'a [u8]>>,
     /// ページの最初の内容のストリーム。ほかに場所のない診断の場所
     place: Ref,
     /// フォームの呼ばれ方 → hayro-interpret がする作業と、走査が返した診断（ページごと）
     calls: BTreeMap<Call, Known>,
     /// 拡張グラフィックス状態・シェーディング・画像 → hayro-interpret が使うたびにする作業（ページごと）。間接
-    /// オブジェクトだけを覚える。hayro-syntax の `obj_id` は、直接書いた辞書には、それを含む間接オブジェクトの番号を
-    /// 返すので、鍵には、資源の辞書の項目が指す参照か、ストリームの番号を使う
+    /// オブジェクトだけを覚える。hayro-syntax の `obj_id` は、直接書いた辞書とストリームには、それを含む間接
+    /// オブジェクトの番号を返すので、鍵には、資源の辞書の項目が指す参照か、それ自身の間接オブジェクトのストリームの
+    /// 番号（[`own_stream`]）を使う
     costs: BTreeMap<(Role, (u32, i32)), Cost>,
     /// 縦書きのフォント（間接オブジェクト）→ 原点の移動が既定と違いうるか（ページごと）
     vertical: BTreeMap<(u32, i32), bool>,
@@ -606,9 +660,11 @@ pub(crate) struct Walker<'a, 'o> {
     refused: Option<Ref>,
     /// 呼ばれ方を覚えるフォームの中で返した診断。たどっているフォームごとに 1 つ
     recording: Vec<Diagnostics>,
-    /// 展開したフォーム。展開できなければ `None`（ページごと）
+    /// 展開したフォーム。展開できなければ `None`（ページごと）。鍵は、それ自身の間接オブジェクトのストリームの番号
+    /// （[`own_stream`]）
     forms: BTreeMap<(u32, i32), Option<Form>>,
-    /// ソフトマスクのグループとシェーディングのストリームの、展開したバイト数（ページごと）
+    /// ストリーム（ソフトマスクのグループ・シェーディング・関数・Indexed の表）の、展開したバイト数（ページごと）。
+    /// 鍵は、フォームと同じ
     sizes: BTreeMap<(u32, i32), u64>,
     /// 印つきの内容の入れ子の、見えるか。hayro-interpret の `OcgState` の重なりと同じく、ページの中で 1 つだけ持ち、
     /// フォームの中と外で分けない
@@ -634,6 +690,11 @@ impl<'a, 'o> Walker<'a, 'o> {
             inactive,
             settings,
             fonts: FontCache::new(),
+            faces: Vec::new(),
+            face_ids: BTreeMap::new(),
+            helvetica: None,
+            outlines: BTreeMap::new(),
+            streams: BTreeMap::new(),
             place: Ref::default(),
             calls: BTreeMap::new(),
             costs: BTreeMap::new(),
@@ -750,6 +811,18 @@ impl<'a, 'o> Walker<'a, 'o> {
             .unwrap_or_else(|| self.place.clone())
     }
 
+    /// ストリームが、それ自身の間接オブジェクトなら、その番号（[`own_stream`]）。番号ごとに、xref から引いた
+    /// ストリームの辞書のバイト列を覚える。直接書いたストリームは、手間と展開した中身を覚えず、使うたびにたどる
+    fn own(&mut self, stream: &Stream<'_>) -> Option<(u32, i32)> {
+        let id = stream.dict().obj_id()?;
+        let xref = self.xref;
+        let own = *self
+            .streams
+            .entry(key(id))
+            .or_insert_with(|| xref.get::<Stream<'a>>(id).map(|own| own.dict().data()));
+        (own == Some(stream.dict().data())).then(|| key(id))
+    }
+
     fn report(&mut self, code: Code, place: Ref, cx: &mut Cx<'_>) {
         self.emit(Diagnostic::new(code).at(place), cx);
     }
@@ -843,7 +916,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                     spend(
                         &mut cost,
                         current.clipped.saturating_mul(CLIP_COPY_WORK),
-                        current.clipped.saturating_mul(CLIP_GLYPH_BYTES),
+                        current.clipped.saturating_mul(OUTLINE_COPY_BYTES),
                         cx,
                     )?;
                     if let Some(last) = states.last_mut() {
@@ -1146,7 +1219,8 @@ impl<'a, 'o> Walker<'a, 'o> {
 
     /// シェーディング（8.7.4.3）を作る手間。hayro-interpret は、使うたびに作り直し、ストリームと関数を展開し、
     /// 色空間を作る。メッシュ（型 4〜7）は、三角形とパッチをすべて作るので、その手間とメモリ（[`mesh_cost`]）も
-    /// 数える。`reference` は、資源の辞書かパターンの項目が指す参照（直接書いた辞書なら `None` で、手間を覚えない）
+    /// 数える。`reference` は、資源の辞書かパターンの項目が指す参照（直接書いた辞書なら `None` で、手間を覚えない）。
+    /// ストリームは、それ自身の間接オブジェクトのときだけ覚える
     fn shading(
         &mut self,
         shading: &Object<'_>,
@@ -1157,7 +1231,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             return Ok(Cost::default());
         };
         let id = match stream {
-            Some(stream) => Some(key(stream.obj_id())),
+            Some(stream) => self.own(stream),
             None => reference,
         };
         if let Some(cost) = id.and_then(|id| self.costs.get(&(Role::Shading, id))) {
@@ -1191,22 +1265,22 @@ impl<'a, 'o> Walker<'a, 'o> {
     }
 
     /// 画像の XObject を描く手間。hayro-interpret は、描くたびに画像の色空間を作る。名前の色空間は、呼ぶ所の資源で
-    /// 引く。画素は、描くときまで展開しない
+    /// 引く。画素は、描くときまで展開しない。手間は、それ自身の間接オブジェクトの画像だけ覚える
     fn image(
         &mut self,
-        dict: &Dict<'_>,
+        stream: &Stream<'_>,
         resources: &Resources<'a>,
         owner: Owner,
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
+        let dict = stream.dict();
         let space = dict
             .get::<Object<'_>>(b"CS")
             .or_else(|| dict.get::<Object<'_>>(b"ColorSpace"));
         if let Some(Object::Name(name)) = &space {
             return Ok(self.named_space(resources, owner, name, cx)?.0);
         }
-        // 画像の XObject はストリームなので、辞書の番号は、そのストリームの番号
-        let id = dict.obj_id().map(key);
+        let id = self.own(stream);
         if let Some(cost) = id.and_then(|id| self.costs.get(&(Role::Image, id))) {
             return Ok(*cost);
         }
@@ -1312,6 +1386,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 None => return Ok((cost, 1)),
             },
         };
+        cost.ops = cost.ops.saturating_add(numbers(dict));
         let mut eval = 1u64;
         if let Some(stream) = stream {
             let size = self.size(stream, cx)?;
@@ -1480,11 +1555,11 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok((cost, conversion))
     }
 
-    /// ストリームを展開したバイト数。ページの中では 1 度だけ展開する。hayro-interpret と同じく、画像のフィルター
-    /// （DCT など）は展開しない。手続きの入れ子が [`PROCEDURE_DEPTH`] 段より深い Type 4 の関数（7.10.5）は、ページを
-    /// 解釈しないことにする
+    /// ストリームを展開したバイト数。それ自身の間接オブジェクトのストリームは、ページの中で 1 度だけ展開し、直接
+    /// 書いたストリームは、使うたびに展開する。hayro-interpret と同じく、画像のフィルター（DCT など）は展開しない。
+    /// 手続きの入れ子が [`PROCEDURE_DEPTH`] 段より深い Type 4 の関数（7.10.5）は、ページを解釈しないことにする
     fn size(&mut self, stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<u64, Stop> {
-        let id = stream.dict().obj_id().map(key);
+        let id = self.own(stream);
         if let Some(size) = id.and_then(|id| self.sizes.get(&id)) {
             return Ok(*size);
         }
@@ -1506,7 +1581,8 @@ impl<'a, 'o> Walker<'a, 'o> {
     /// Helvetica で読み、`'`・`"` なら描かない。Helvetica で読む文字列は、ASCII のバイトだけのものしか描かない。
     /// `fallback` は、フォントを選んでいなければ Helvetica を選ぶ演算子か。フォントの診断は、見える所で文字を
     /// 描くときに返す。装置は、文字列ごとに塗りと線の色を RGB にする。Type 3 のフォントでは、hayro-interpret が字形
-    /// ごとにグラフィックス状態を写し（[`copy`]）、切り抜きにする文字では、輪郭を `ET` まで貯める
+    /// ごとにグラフィックス状態を写し（[`copy`]）、切り抜きにする文字では、見える字の輪郭を作って `ET` まで貯める
+    /// （[`Walker::outlines_of`]）
     fn show(
         &mut self,
         states: &mut [Graphics],
@@ -1519,6 +1595,10 @@ impl<'a, 'o> Walker<'a, 'o> {
         let Some(state) = states.last_mut() else {
             return Ok(());
         };
+        // hayro-interpret は、見えるかによらず Helvetica を選ぶ
+        if state.font == Selected::Nothing && fallback {
+            state.font = Selected::Assumed;
+        }
         spend(cost, glyph_work(strings, *state), 0, cx)?;
         let colors = (strings.len() as u64).saturating_mul(state.fill.saturating_add(state.stroke));
         spend(cost, colors, 0, cx)?;
@@ -1532,13 +1612,9 @@ impl<'a, 'o> Walker<'a, 'o> {
                 cx,
             )?;
         }
-        if state.clip {
-            spend(cost, 0, bytes.saturating_mul(CLIP_GLYPH_BYTES), cx)?;
-            state.clipped = state.clipped.saturating_add(bytes);
-        }
-        // hayro-interpret は、見えるかによらず Helvetica を選ぶ
-        if state.font == Selected::Nothing && fallback {
-            state.font = Selected::Assumed;
+        if state.clip && self.is_visible() {
+            let elements = self.outlines_of(state.font, strings, cost, cx)?;
+            state.clipped = state.clipped.saturating_add(elements);
         }
         let font = state.font;
         if !self.is_visible() || strings.iter().all(|bytes| bytes.is_empty()) {
@@ -1550,7 +1626,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 String::new(),
                 cx,
             ),
-            Selected::Shifted(id) => {
+            Selected::Shifted(id, _) => {
                 if let Some((name, at)) = self.origins.get(&id).cloned() {
                     self.report_once(
                         Diagnostic::new(codes::PDF_VERTICAL_ORIGIN_APPROXIMATED)
@@ -1564,7 +1640,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             _ => {}
         }
         let dropped = match font {
-            Selected::Loaded | Selected::Shifted(_) | Selected::Type3 => 0,
+            Selected::Loaded(_) | Selected::Shifted(..) | Selected::Type3 => 0,
             Selected::Assumed | Selected::Fallback => {
                 strings.iter().filter(|bytes| !bytes.is_ascii()).count()
             }
@@ -1574,6 +1650,90 @@ impl<'a, 'o> Walker<'a, 'o> {
             self.report(codes::PDF_TEXT_DROPPED, place.clone(), cx);
         }
         Ok(())
+    }
+
+    /// 切り抜きにする文字（描画モード 4〜7、9.3.6）の輪郭を作る手間（[`OUTLINE_WORK`]）とメモリ（[`OUTLINE_BYTES`]）を
+    /// 字ごとに数え、輪郭の経路の要素の数を返す。hayro-interpret は、選んだフォントで文字列から符号を読み
+    /// （`read_code`）、字形を引き（`map_code`・`glyph`）、見える字ごとにフォントのプログラムから輪郭を作る
+    /// （`clip_glyph`）。輪郭の大きさは、フォントのプログラムで決まり、上限は hayro-font が使う skrifa と read-fonts の
+    /// 制限（TrueType は 65,536 点、CFF と Type 1 は 100 万の演算）だけなので、走査も同じ API で輪郭を作って数える。
+    /// 要素の数は、フォントと符号ごとに 1 度だけ作って覚える。Helvetica で読む文字列は、ASCII のバイトだけのものしか
+    /// 描かない。Type 3 の字形は、輪郭を足さない
+    fn outlines_of(
+        &mut self,
+        font: Selected,
+        strings: &[&[u8]],
+        cost: &mut Cost,
+        cx: &mut Cx<'_>,
+    ) -> Result<u64, Stop> {
+        let (face, fallback) = match font {
+            Selected::Loaded(face) | Selected::Shifted(_, face) => (Some(face), false),
+            Selected::Assumed | Selected::Fallback => (self.helvetica(), true),
+            Selected::Nothing | Selected::Type3 => (None, false),
+        };
+        let Some(font) = face.and_then(|face| self.faces.get(face as usize).cloned()) else {
+            return Ok(0);
+        };
+        let face = face.unwrap_or_default();
+        let mut total = 0u64;
+        for bytes in strings {
+            if fallback && !bytes.is_ascii() {
+                continue;
+            }
+            let mut at = 0;
+            while at < bytes.len() {
+                let (code, advance) = font.read_code(bytes, at);
+                at = at.saturating_add(advance.max(1));
+                let elements = match self.outlines.get(&(face, code)) {
+                    Some(elements) => *elements,
+                    None => {
+                        let elements = match font.glyph(font.map_code(code), code) {
+                            FontGlyph::Outline(glyph) => glyph.outline().elements().len() as u64,
+                            FontGlyph::Type3(_) => 0,
+                        };
+                        self.outlines.insert((face, code), elements);
+                        elements
+                    }
+                };
+                spend(
+                    cost,
+                    elements.saturating_mul(OUTLINE_WORK),
+                    elements.saturating_mul(OUTLINE_BYTES),
+                    cx,
+                )?;
+                total = total.saturating_add(elements);
+            }
+        }
+        Ok(total)
+    }
+
+    /// 読めたフォントの、表（[`Walker::faces`]）の番号。辞書のバイト列が同じフォントは、同じ番号にする
+    fn face(&mut self, dict: &Dict<'_>, font: &Font<'a>) -> u32 {
+        if let Some(face) = self.face_ids.get(dict.data()) {
+            return *face;
+        }
+        let face = u32::try_from(self.faces.len()).unwrap_or(u32::MAX);
+        self.faces.push(font.clone());
+        self.face_ids.insert(dict.data().to_vec(), face);
+        face
+    }
+
+    /// hayro-interpret が代わりに使う Helvetica（`fallback_font`）の、表の番号。読めなければ `None`
+    fn helvetica(&mut self) -> Option<u32> {
+        if let Some(face) = self.helvetica {
+            return face;
+        }
+        let settings = self.settings;
+        let font = self
+            .fonts
+            .standard_font(StandardFont::Helvetica, &settings.font_resolver);
+        let face = font.map(|font| {
+            let face = u32::try_from(self.faces.len()).unwrap_or(u32::MAX);
+            self.faces.push(font);
+            face
+        });
+        self.helvetica = Some(face);
+        face
     }
 
     /// フォントを選ぶ（`Tf`、9.3.1）。資源にないフォントと、hayro-interpret が読めないフォントは、Helvetica で読む
@@ -1643,14 +1803,15 @@ impl<'a, 'o> Walker<'a, 'o> {
         if dict.get::<Name<'_>>(b"Subtype").as_deref() == Some(b"Type3".as_slice()) {
             return Ok(Selected::Type3);
         }
+        let face = self.face(dict, &font);
         if font.is_horizontal() || !self.shifted(dict, reference, cx)? {
-            return Ok(Selected::Loaded);
+            return Ok(Selected::Loaded(face));
         }
         let place = self.record(id);
         match reference {
             Some(reference) => {
                 self.origins.insert(reference, (base, place));
-                Ok(Selected::Shifted(reference))
+                Ok(Selected::Shifted(reference, face))
             }
             // 間接オブジェクトでないフォントは、選ぶ所で診断する
             None => {
@@ -1663,7 +1824,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                         cx,
                     );
                 }
-                Ok(Selected::Loaded)
+                Ok(Selected::Loaded(face))
             }
         }
     }
@@ -1871,8 +2032,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
         let dict = stream.dict();
-        let id = dict.obj_id();
-        let place = self.record(id);
+        let place = self.record(dict.obj_id());
+        let id = self.own(stream);
         let visible = self.is_visible();
         let mut cost = Cost::default();
         spend(&mut cost, lookup_work(dict.data()), 0, cx)?;
@@ -1902,7 +2063,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                         self.report(codes::PDF_CONTENT_INVALID, place, cx);
                     }
                 }
-                let extra = self.image(dict, resources, owner, cx)?;
+                let extra = self.image(stream, resources, owner, cx)?;
                 spend(
                     &mut cost,
                     IMAGE_WORK.saturating_add(extra.ops),
@@ -1922,12 +2083,14 @@ impl<'a, 'o> Walker<'a, 'o> {
     }
 
     /// フォームの XObject（8.10）。hayro-interpret は、呼ぶたびに展開し、資源の辞書を読み直し、見えれば中身を
-    /// 解釈する。`BBox` のないフォームと、展開できないフォームと、入れ子が [`MAX_DEPTH`] 段より深いフォームは描かない
+    /// 解釈する。`BBox` のないフォームと、展開できないフォームと、入れ子が [`MAX_DEPTH`] 段より深いフォームは描かない。
+    /// `id` は、それ自身の間接オブジェクトのフォームの番号（[`own_stream`]。直接書いたフォームなら `None` で、展開した
+    /// 中身と呼ばれ方を覚えない）
     #[allow(clippy::too_many_arguments)]
     fn form(
         &mut self,
         stream: &Stream<'a>,
-        id: Option<ObjectIdentifier>,
+        id: Option<(u32, i32)>,
         place: &Ref,
         resources: &Resources<'a>,
         owner: Owner,
@@ -1979,12 +2142,12 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
         let owner = match (&own, id) {
             (None, _) => owner,
-            (Some(_), Some(id)) => Owner::Form(key(id)),
+            (Some(_), Some(id)) => Owner::Form(id),
             (Some(_), None) => Owner::Direct,
         };
         let call = match (id, owner) {
             (Some(id), Owner::Page | Owner::Form(_)) => Some(Call {
-                form: key(id),
+                form: id,
                 owner,
                 depth: depth + 1,
                 state,
@@ -2031,14 +2194,13 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok(cost)
     }
 
-    /// 展開したフォーム。ページの中では 1 度だけ展開する
+    /// 展開したフォーム。それ自身の間接オブジェクトのフォーム（番号 `id`）は、ページの中で 1 度だけ展開する
     fn form_data(
         &mut self,
         stream: &Stream<'a>,
-        id: Option<ObjectIdentifier>,
+        id: Option<(u32, i32)>,
         cx: &mut Cx<'_>,
     ) -> Result<Option<Form>, Stop> {
-        let id = id.map(key);
         if let Some(data) = id.and_then(|id| self.forms.get(&id)) {
             return Ok(data.clone());
         }
