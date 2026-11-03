@@ -521,6 +521,8 @@ def describe(g):
 
 
 VIEWERS = {"dxf": "AutoCAD", "dwg": "AutoCAD", "jww": "Jw_cad", "sfc": "SXF ブラウザ", "p21": "SXF ブラウザ"}
+# 形式の用語。AutoCAD の「画層」と、CAD製図基準・SXF・Jw_cad の「レイヤ」（docs/style.md）
+LAYER_WORDS = {"dxf": "画層", "dwg": "画層"}
 
 INTRO = """# 確認の束
 
@@ -528,7 +530,7 @@ zumen の CLI で、公開サンプル（`samples/`）と適合試験の中で�
 
 - `manifest.json`: ファイルごとの出所・当てた変更・期待する形・診断
 - `zumen/`: zumen が読んだ値（`drawing`・`tables`・`entities` の応答）。入力と書いたファイルのそれぞれ
-- `ezdxf.json`: DXF を ezdxf で読んで照らした結果（`check_ezdxf.py`）
+- `ezdxf.json`・`acadsharp.json`・`ezjww.json`・`ezsxf.json`: DXF・DWG・JWW・SFC と P21 を、外部の実装で読んで照らした結果（`check_ezdxf.py` など）。`acadsharp-dump.json` は、ACadSharp で読んだ DWG の値
 - `input/`: 入力の図面。書いたファイルを開く前に、同じソフトで入力も開き、入力から変わった所だけを比べる
 - `licenses/`: 入力のライセンスの本文。入力ごとのライセンスと表示は、下の「出所とライセンス」と `manifest.json` にある
 
@@ -588,7 +590,7 @@ SECTIONS = {
     ),
     174: (
         "#174 DXF から図面モデルへ移す値",
-        """入力の DXF と DWG（AutoCAD で作った試料）を zumen が読んだ値は `zumen/input/` に、ezdxf と照らした結果は `ezdxf.json` にあります。
+        """入力の DXF と DWG（AutoCAD で作った試料）を zumen が読んだ値は `zumen/input/` に、ezdxf・ACadSharp と照らした結果は `ezdxf.json`・`acadsharp.json` にあります。
 
 - **AutoCAD。** 共通の手順の 3 で書き出した値を、`zumen/input/<ファイル>.json` の `entities` の `geometry` と比べる。違えば、ハンドル・欄・2 つの値を issue に書く。
 - **まだ試料のない推定。** MULTILEADER の色の値（AcCmColor）、HATCH の SPLINE の辺の当てはめる点（R2010 から）、表のセルの 2007 からの値、下敷きの切り抜きの頂点、R2018 の 101 を持つ MTEXT は、AutoCAD で作った試料が要る。作り方は `xtask/autocad/samples.lsp` に主題を足して、`make.sh` で作る。
@@ -645,13 +647,14 @@ def expectation(out, f):
         return text
     reading = json.loads((out / "zumen" / (f["path"] + ".json")).read_text(encoding="utf-8"))
     handles = {e["id"]: e.get("source", {}).get("handle") for e in reading["entities"]}
+    word = LAYER_WORDS.get(f["format"], "レイヤ")
     items = []
     for step in f["steps"]:
         if step.get("skipped"):
             items.append(f"段 {step['step']} は当てる候補がなく、当てていない")
         for want in step.get("expect", []):
             handle = handles.get(want["id"])
-            layer = f"・画層 {want['layer']}" if "layer" in want else ""
+            layer = f"・{word} {want['layer']}" if "layer" in want else ""
             items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}{layer}")
         for edit in step["edits"]:
             if edit["kind"] == "point_style":
@@ -660,7 +663,9 @@ def expectation(out, f):
                 items.append(f"画層 {edit['name']}（ACI {edit['color']['aci']}）")
             if edit["kind"] == "restyle":
                 items.append(f"ハンドル {handles.get(edit['id'])} の色が ACI {edit['color']['aci']}")
-    return "開けて、監査の誤りが 0。" + "<br>".join(items)
+    # 監査（AUDIT）は AutoCAD の手順にだけある
+    opened = "開けて、監査の誤りが 0。" if VIEWERS.get(f["format"]) == "AutoCAD" else "開ける。"
+    return opened + "<br>".join(items)
 
 
 def inputs(extra):
