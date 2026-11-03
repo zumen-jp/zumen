@@ -93,7 +93,7 @@ jobs:
 
   external:
     name: 書き戻し・変換した図面を外部の実装と照らし、確認の束を作る
-    # 図面の形式を zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開く束を成果物に置く（決定 0253、#503）。
+    # 図面の形式を zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開く束を成果物に置く（決定 0254、#503）。
     # ezdxf は試験の道具で、依存にしない（xtask/verify/README.md）
     runs-on: ubuntu-latest
     steps:

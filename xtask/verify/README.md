@@ -1,6 +1,6 @@
 # 外部の実装との照合と確認の束
 
-zumen が書き戻した（apply）・変換した（convert）図面を、zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開いて確かめるファイルの束を作ります（[決定 0253](../../docs/decisions/0253-parallel-agents-and-cross-review.md)、#503）。自前の往復の試験は、書く側と同じ読みで確かめるので、仕様の読み違いを見つけません（#345）。
+zumen が書き戻した（apply）・変換した（convert）図面を、zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開いて確かめるファイルの束を作ります（[決定 0254](../../docs/decisions/0254-parallel-agents-and-cross-review.md)、#503）。自前の往復の試験は、書く側と同じ読みで確かめるので、仕様の読み違いを見つけません（#345）。
 
 | ファイル | 中身 |
 | --- | --- |
@@ -47,4 +47,4 @@ python -I xtask/verify/check_ezdxf.py verify-out
 次のものは使いません。
 
 - LibreDWG などの GPL の実装。ソースも読みません（`AGENTS.md`）。
-- ODA File Converter。使うには利用の条件への同意が要るため（決定 0253 の人を待つもの）。
+- ODA File Converter。使うには利用の条件への同意が要るため（決定 0254 の人を待つもの）。

@@ -1,4 +1,4 @@
-"""確認の束を作る（#503、決定 0253）。
+"""確認の束を作る（#503、決定 0254）。
 
 zumen の CLI（`zumen serve --stdio`）で、公開サンプル（samples/）と適合試験の中で作った図面を開き、書き戻し
 （apply）と変換（convert）を当てて、書いたファイルを束のフォルダーに置く。zumen が読んだ値（drawing・tables・
@@ -436,7 +436,7 @@ VIEWERS = {"dxf": "AutoCAD", "dwg": "AutoCAD", "jww": "Jw_cad", "sfc": "SXF ブ�
 
 INTRO = """# 確認の束
 
-zumen の CLI で、公開サンプル（`samples/`）と適合試験の中で作った図面に、書き戻し（apply）と変換（convert）を当てて書いたファイルです（#503、決定 0253）。`xtask/verify/make.py` が作りました。
+zumen の CLI で、公開サンプル（`samples/`）と適合試験の中で作った図面に、書き戻し（apply）と変換（convert）を当てて書いたファイルです（#503、決定 0254）。`xtask/verify/make.py` が作りました。
 
 - `manifest.json`: ファイルごとの出所・当てた変更・期待する形・診断
 - `zumen/`: zumen が読んだ値（`drawing`・`tables`・`entities` の応答）。入力と書いたファイルのそれぞれ

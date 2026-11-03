@@ -1,4 +1,4 @@
-"""確認の束の DXF を ezdxf で読み、zumen が読んだ値と照らす（#503、決定 0253）。
+"""確認の束の DXF を ezdxf で読み、zumen が読んだ値と照らす（#503、決定 0254）。
 
 使い方: python check_ezdxf.py <束のフォルダー>
 
