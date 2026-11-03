@@ -50,8 +50,8 @@ jobs:
           rustup toolchain install "$NIGHTLY" --profile minimal
       - name: cargo-fuzz を版を決めて入れる
         run: cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
-      # 育てた種のキーに公開サンプルの台帳のハッシュを入れ、台帳が変わったら前の種を戻さない。外したサンプルとそれを
-      # 変えた入力を、種と artifact に残さないため（決定 0258）
+      # 育てた種のキャッシュのキーに公開サンプルの台帳のハッシュを入れ、台帳が変わったら前の種を戻さない。外した
+      # サンプルとそれを変えた入力を、種と artifact に残さないため（決定 0258）
       - name: 前の夜までに育てた種を戻す
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -114,7 +114,7 @@ jobs:
           path: fuzz/corpus
           key: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-${{ github.run_id }}
       # 見つけた入力は種か種を変えたもので、表示を求めるライセンスの公開サンプルから来ることがある。公開サンプルの出所と
-      # ライセンス（samples/README.md・samples/ledger.toml・licenses/）を添えて残す（決定 0258）
+      # ライセンス（samples/README.md・samples/ledger.toml・licenses/）と、種を作ったコミットを添えて残す（決定 0258）
       - name: 見つけた入力と遅い入力に、公開サンプルの出所とライセンスを添える
         id: found
         if: always()
@@ -124,6 +124,8 @@ jobs:
             cp samples/README.md samples/ledger.toml fuzz/artifacts/samples/
             cp -r licenses fuzz/artifacts/
             echo 'ここの入力は、fuzz の種か、種を変えたものです。種には samples/ledger.toml の公開サンプルを含みます。それぞれの出所とライセンスは、samples/ledger.toml と licenses/ にあります。' > fuzz/artifacts/NOTICE.txt
+            # PR の実行では、PR と main を合わせた一時のコミットになる。件名に、PR の head と main のコミットが出る
+            echo "種を作ったコミット: $(git log -1 --format='%H %s')" >> fuzz/artifacts/NOTICE.txt
             echo found=true >> "$GITHUB_OUTPUT"
           fi
       - name: 見つけた入力と遅い入力を残す
