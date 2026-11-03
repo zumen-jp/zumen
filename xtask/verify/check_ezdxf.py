@@ -4,13 +4,14 @@
 
 束は make.py が作る。DXF のファイルごとに、次を確かめる。
 
-- ezdxf が読める（ezdxf.recover）。ezdxf の監査（Drawing.audit）で、書き戻したファイルに入力にない誤りが出ず、
-  変換したファイルに誤りが出ない。
+- ezdxf が読める（ezdxf.recover）。読む中で流れる ezdxf の監査で、書き戻したファイルの誤りと直した誤りが、code
+  ごとに入力より増えず、変換したファイルには誤りも直した誤りもない。
 - zumen が読んだ画層の名前が、ezdxf の画層の表と同じ。
 - zumen の要素の出所のハンドルの図形が ezdxf にあり、種類・画層と、形の値（端点・中心・半径・角度・位置・
-  文字・尺度・格子など）が同じ。
+  文字・尺度・格子など）が同じ。ezdxf で比べられる種類のモデル空間の図形は、zumen の要素が形を持つ。
 - モデル空間の図形は、どれも zumen の要素になるか、zumen がそのレコードを指す診断を返している（黙って捨てない）。
-- 書き戻したファイルでは、変更で決めた形（manifest.json の expect）が、ezdxf で読んだ図形と同じ。
+- 書き戻したファイルでは、変更で決めた形と画層（manifest.json の expect）と、足した画層の色・変えた色が、ezdxf
+  で読んだ値と同じ。
 """
 
 import json
@@ -54,9 +55,13 @@ ATTACHMENTS = [
 ]
 # zumen の中の ID で、ezdxf と比べない欄
 SKIP = {"style_id"}
-# 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue)。直ったら消す。出なくなった項目は失敗にする
+# ezdxf で形を比べる種類。モデル空間のこの種類の図形には、zumen の要素の形がある
+COMPARABLE = {"LINE", "CIRCLE", "ARC", "ELLIPSE", "LWPOLYLINE", "POINT", "TEXT", "MTEXT", "INSERT"}
+# 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す。当たる数が
+# 変わったら失敗にする（直ったものと、同じ形で新たに食い違うものを知らせる）
 KNOWN = [
-    ("convert/", "ezdxf が読めない: AttributeError", 509),
+    ("convert/", "ezdxf が読めない: AttributeError: 'NoneType' object has no attribute 'get_xlist'", 509, 15),
+    ("convert/", "ezdxf の監査で直した誤り: {'INVALID_TABLE_HANDLE': 5}", 509, 17),
 ]
 
 
@@ -84,7 +89,8 @@ def geometry(e):
     if t == "ARC":
         return {"shape": "arc", "center": xy(d.center), "radius": d.radius, "start_angle": d.start_angle, "end_angle": d.end_angle}
     if t == "ELLIPSE":
-        # 11 は中心からの向き。図面モデルの major は長軸の端の点
+        # DXF Reference の ELLIPSE: 11 は中心から長軸の端への向き、41・42 は媒介変数（ラジアン）。図面モデルの
+        # major は長軸の端の点
         return {
             "shape": "ellipse",
             "center": xy(d.center),
@@ -100,9 +106,12 @@ def geometry(e):
             g["bulges"] = [p[2] for p in points]
         return g
     if t == "POINT":
+        # DXF Reference の POINT: 50 は点を描いたときの X 軸の角度（度）
         return {"shape": "point", "position": xy(d.location), "rotation": d.get("angle", 0.0)}
     if t == "TEXT":
         g = {"shape": "text", "content": d.text, "height": d.height, "rotation": d.get("rotation", 0.0), "style": d.get("style", "Standard")}
+        # DXF Reference の TEXT: 72 は横、73 は縦の寄せ方。72 が 3（aligned）・5（fit）なら 10 と 11 の 2 点の間に
+        # 置き、ほかで 0・0 でなければ 11 に寄せる
         h, v = d.get("halign", 0), d.get("valign", 0)
         if h in (3, 5):
             # 2 点の間に置く文字の向きは、2 点が決める（50 は使わない）
@@ -115,7 +124,8 @@ def geometry(e):
             g["position"] = xy(d.align_point)
         return g
     if t == "MTEXT":
-        return {
+        # DXF Reference の MTEXT: 71 は寄せ方、41 は枠の幅（0 なら枠なし）
+        g = {
             "shape": "formatted_text",
             "content": e.text,
             "position": xy(d.insert),
@@ -124,7 +134,11 @@ def geometry(e):
             "attachment": ATTACHMENTS[d.get("attachment_point", 1) - 1],
             "style": d.get("style", "Standard"),
         }
+        if d.get("width", 0.0) > 0:
+            g["width"] = d.width
+        return g
     if t == "INSERT":
+        # DXF Reference の INSERT: 41・42 は尺度、70・71 は列と行の数、44・45 は列と行の間隔（MINSERT）
         g = {
             "shape": "symbol",
             "name": d.name,
@@ -152,7 +166,7 @@ def differences(want, got, path=""):
         if not isinstance(got, dict):
             return [f"{path}: {got!r}（期待は {want!r}）"]
         for key, value in want.items():
-            if key == "shape" or key in SKIP:
+            if key in SKIP:
                 continue
             if key not in got:
                 out.append(f"{path}/{key}: ない（期待は {value!r}）")
@@ -211,20 +225,27 @@ def check_file(folder, entry, reading, baseline, counts):
     """1 つの DXF のファイルの食い違い。比べた数を counts に足す"""
     path = folder / entry["path"]
     try:
-        doc, recovered = recover.readfile(str(path))
+        doc, auditor = recover.readfile(str(path))
     except Exception as error:  # noqa: BLE001 ezdxf が読めないことそのものを結果にする
         return [f"ezdxf が読めない: {type(error).__name__}: {error}"], None
     failures = []
-    audit = doc.audit()
-    errors = sorted({f"{e.code}" for e in audit.errors} | {f"recover {e.code}" for e in recovered.errors})
-    if entry["role"] == "convert" and errors:
-        failures.append(f"ezdxf の監査の誤り: {errors} {[e.message for e in audit.errors][:3]}")
+    # recover.readfile は読む中で監査を流し、直せない誤り（errors）と直した誤り（fixes）を残す。直した後の文書に
+    # もう一度監査を流しても、直した誤りは出ない
+    audit = {
+        kind: dict(sorted(Counter(getattr(e.code, "name", str(e.code)) for e in found).items()))
+        for kind, found in (("errors", auditor.errors), ("fixes", auditor.fixes))
+    }
+    if entry["role"] == "convert":
+        if audit["errors"]:
+            failures.append(f"ezdxf の監査の誤り: {audit['errors']} {[e.message for e in auditor.errors][:3]}")
+        if audit["fixes"]:
+            failures.append(f"ezdxf の監査で直した誤り: {audit['fixes']}")
     if entry["role"] == "apply" and baseline is not None:
-        added = sorted(set(errors) - set(baseline))
+        added = {f"{kind} {code}": n for kind in audit for code, n in audit[kind].items() if n > baseline[kind].get(code, 0)}
         if added:
-            failures.append(f"ezdxf の監査で、入力にない誤りが出た: {added} {[e.message for e in audit.errors][:3]}")
+            failures.append(f"ezdxf の監査で、入力より誤りが増えた: {added} {[e.message for e in auditor.errors + auditor.fixes][:3]}")
     if reading is None:
-        return failures, errors
+        return failures, audit
 
     # 画層の名前
     numbers, raw = scan(path)
@@ -254,7 +275,10 @@ def check_file(folder, entry, reading, baseline, counts):
             failures.append(f"{where}: 画層が {element['layer']!r}、ezdxf は {e.dxf.layer!r}")
         # 用紙の要素は mm に直しているので、形はモデル空間だけで比べる
         counts["elements"] += 1
-        if where.startswith("space/0/") and shape in TYPES and "/" not in where[len("space/0/") :]:
+        top = where.startswith("space/0/") and "/" not in where[len("space/0/") :]
+        if top and shape is None and e.dxftype() in COMPARABLE:
+            failures.append(f"{where}: {e.dxftype()} {handle} の要素が形を持たない")
+        if top and shape in TYPES:
             got = geometry(e)
             if got is not None:
                 counts["shapes"] += 1
@@ -291,13 +315,29 @@ def check_file(folder, entry, reading, baseline, counts):
                 counts["expected"] += 1
                 for d in differences(want["geometry"], got):
                     failures.append(f"変更 {want['edit']}（{want['id']}）{d}")
+                if "layer" in want and e.dxf.layer.lower() != want["layer"].lower():
+                    failures.append(f"変更 {want['edit']}（{want['id']}）の画層が {e.dxf.layer!r}（期待は {want['layer']!r}）")
             for edit in step["edits"]:
+                aci = edit.get("color", {}).get("aci")
+                if edit["kind"] == "add_layer":
+                    layer = doc.layers.get(edit["name"]) if doc.layers.has_entry(edit["name"]) else None
+                    if layer is None:
+                        failures.append(f"足した画層 {edit['name']!r} が ezdxf にない")
+                    elif aci is not None and abs(layer.dxf.color) != aci:
+                        failures.append(f"足した画層 {edit['name']!r} の色が ACI {layer.dxf.color}（期待は {aci}）")
+                if edit["kind"] == "restyle" and aci is not None:
+                    e = db.get(handle_of(by_id.get(edit["id"], {})) or "")
+                    if e is None:
+                        failures.append(f"色を変えた {edit['id']} が ezdxf にない")
+                    elif e.dxf.get("color", 256) != aci:
+                        failures.append(f"色を変えた {edit['id']} の色が ACI {e.dxf.get('color', 256)}（期待は {aci}）")
                 if edit["kind"] == "point_style":
+                    # HEADER の $PDMODE・$PDSIZE（DXF Reference の HEADER Section Group Codes）
                     mode = MARKS[edit["mark"]] + (32 if edit.get("circle") else 0) + (64 if edit.get("square") else 0)
                     size = edit["size"] if edit["size_kind"] == "length" else -edit["size"]
                     if doc.header.get("$PDMODE") != mode or not close(doc.header.get("$PDSIZE", 0.0), size):
                         failures.append(f"点の表し方が $PDMODE {doc.header.get('$PDMODE')}・$PDSIZE {doc.header.get('$PDSIZE')}（期待は {mode}・{size}）")
-    return failures, errors
+    return failures, audit
 
 
 def main():
@@ -308,24 +348,21 @@ def main():
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     baselines = {}
     counts = Counter()
-    report, failed, known, matched = [], 0, 0, set()
+    report, failed, known, matched = [], 0, 0, Counter()
     for entry in manifest["files"]:
         # probe は apply の応答だけを残し、ファイルを持たない
         if entry["format"] != "dxf" or entry["role"] == "probe" or entry.get("status") not in (None, "ok"):
             continue
         reading_path = folder / "zumen" / (entry["path"] + ".json")
         reading = json.loads(reading_path.read_text(encoding="utf-8")) if reading_path.exists() else None
-        failures, errors = check_file(folder, entry, reading, baselines.get(entry.get("from")), counts)
+        failures, audit = check_file(folder, entry, reading, baselines.get(entry.get("from")), counts)
         if entry["role"] == "input":
-            baselines[entry["path"]] = errors or []
-        issues = []
-        for f in failures:
-            hit = next((k for k in KNOWN if entry["path"].startswith(k[0]) and f.startswith(k[1])), None)
-            if hit:
-                matched.add(hit)
-                issues.append(hit[2])
+            baselines[entry["path"]] = audit
+        hits = [k for k in KNOWN if entry["path"].startswith(k[0]) and any(f.startswith(k[1]) for f in failures)]
+        matched.update(hits)
+        issues = [k[2] for k in hits]
         new = [f for f in failures if not any(entry["path"].startswith(k[0]) and f.startswith(k[1]) for k in KNOWN)]
-        report.append({"path": entry["path"], "role": entry["role"], "audit": errors, "failures": failures, "known": sorted(set(issues))})
+        report.append({"path": entry["path"], "role": entry["role"], "audit": audit, "failures": failures, "known": sorted(set(issues))})
         if new:
             failed += 1
             print(f"{entry['path']}:", file=sys.stderr)
@@ -335,9 +372,9 @@ def main():
             known += 1
             print(f"{entry['path']}: 既知の食い違い（{', '.join(f'#{n}' for n in sorted(set(issues)))}）", file=sys.stderr)
     for k in KNOWN:
-        if k not in matched:
+        if matched[k] != k[3]:
             failed += 1
-            print(f"既知の食い違い「{k[1]}」（#{k[2]}）が出なくなった。直ったなら KNOWN から消す", file=sys.stderr)
+            print(f"既知の食い違い「{k[1]}」（#{k[2]}）が {matched[k]} のファイルに出た（期待は {k[3]}）。直ったなら KNOWN を直す", file=sys.stderr)
     (folder / "ezdxf.json").write_text(json.dumps({"ezdxf": ezdxf.__version__, "counts": counts, "files": report}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(
         f"ezdxf {ezdxf.__version__} で {len(report)} の DXF を照らした。ハンドルで結んだ要素 {counts['elements']}・形を比べた要素 "

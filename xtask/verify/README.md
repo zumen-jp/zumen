@@ -1,10 +1,10 @@
 # 外部の実装との照合と確認の束
 
-zumen が書き戻した（apply）・変換した（convert）図面を、zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開いて確かめるファイルの束を作ります（[決定 0254](../../docs/decisions/0254-parallel-agents-and-cross-review.md)、#503）。自前の往復の試験は、書く側と同じ読みで確かめるので、仕様の読み違いを見つけません（#345）。
+zumen が書き戻した（apply）・変換した（convert）図面を、zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開いて確かめるファイルの束を作ります（決定 0254（PR #500）、#503）。自前の往復の試験は、書く側と同じ読みで確かめるので、仕様の読み違いを見つけません（#345）。
 
 | ファイル | 中身 |
 | --- | --- |
-| `make.py` | zumen の CLI（`zumen serve --stdio`）で、公開サンプル（`samples/`）と適合試験の中で作った図面を開き、書き戻しと変換を当てて、束のフォルダーに書く。zumen が読んだ値・当てた変更・期待する形を `manifest.json` に、issue ごとの手順と期待する結果を `README.md` に書く |
+| `make.py` | zumen の CLI（`zumen serve --stdio`）で、公開サンプル（`samples/`）と適合試験の中で作った図面を開き、書き戻しと変換を当てて、束のフォルダーに書く。zumen が読んだ値・入力の出所とライセンス・当てた変更・期待する形を `manifest.json` に、issue ごとの手順と期待する結果を `README.md` に、ライセンスの本文を `licenses/` に書く |
 | `check_ezdxf.py` | 束の DXF を ezdxf で読み、zumen の読みと照らす。ezdxf の監査の誤りと、書き戻しで決めた形も確かめる |
 | `dump.lsp` | AutoCAD で開いた図面の図形を、ハンドルごとに 1 行で書き出す。束の README の手順で使う |
 
@@ -13,25 +13,27 @@ zumen が書き戻した（apply）・変換した（convert）図面を、zumen
 ```bash
 cargo build --release -p zumen-cli
 python -m pip install ezdxf==1.4.5
-python -I xtask/verify/make.py target/release/zumen verify-out
-python -I xtask/verify/check_ezdxf.py verify-out
+python -I xtask/verify/make.py target/release/zumen ../zumen-verify
+python -I xtask/verify/check_ezdxf.py ../zumen-verify
 ```
+
+束のフォルダーは、リポジトリの外に作ります。`make.py` は、前の束（`manifest.json` がある）か空のフォルダーだけを消して作り直し、ほかのフォルダーは消さずに止まります。
 
 毎晩の CI（`.github/workflows/nightly.yml` の `external`）が同じことを流し、束を成果物の `verify-bundle` に置きます。確認の束の手順と期待する結果は、束の `README.md` にあります。
 
-受け取った図面で確かめるときは、`make.py` に `--inputs <フォルダー>` を足します。その束は、Git にも CI の成果物にも入れません。
+受け取った図面で確かめるときは、`make.py` に `--inputs <フォルダー>` を足します。束をリポジトリの中に作ろうとすると止まります。その束は、Git にも CI の成果物にも入れず、issue には件数と種類だけを書き、ファイルの名前と中身を書きません（決定 0254）。
 
 ## 照らすこと
 
 `check_ezdxf.py` は、DXF のファイルごとに次を確かめます。
 
-- ezdxf が読める。ezdxf の監査で、書き戻したファイルに入力にない誤りが出ず、変換したファイルに誤りが出ない。
+- ezdxf が読める。読む中で流れる ezdxf の監査（`recover.readfile`）で、書き戻したファイルの誤りと直した誤りが、code ごとの件数で入力より増えない。変換したファイルには、誤りも直した誤りもない。
 - zumen が読んだ画層の名前が、ファイルの画層の表と同じ。ezdxf が読むときに足す Defpoints は除く。
-- zumen の要素の出所のハンドルの図形があり、種類と画層が同じ。モデル空間の要素は、形の値（端点・中心・半径・角度・位置・文字・尺度・格子・属性など）も同じ。数は相対の誤差 1e-9 まで同じとみなす。
-- モデル空間の図形は、どれも zumen の要素になるか、zumen がそのレコードを指す診断を返している（黙って捨てない）。
-- 書き戻したファイルで、変更で決めた形（`manifest.json` の `expect`）が、ezdxf で読んだ図形と同じ。期待する形は、zumen の読みでなく、変更そのものと変換の行列から決める。
+- zumen の要素の出所のハンドルの図形があり、種類と画層が同じ。モデル空間の要素は、形の種類と値（端点・中心・半径・角度・位置・文字・尺度・格子・属性など）も同じ。ezdxf で比べられる種類（LINE・CIRCLE・ARC・ELLIPSE・LWPOLYLINE・POINT・TEXT・MTEXT・INSERT）の要素は、形を持つ。数は、相対と絶対の誤差 1e-9 まで同じとみなす。角度は、360° の違いを同じとみなす。
+- モデル空間の図形は、どれも zumen の要素になるか、zumen がそのレコードを指す診断を返している（黙って捨てない）。診断の場所は、数を限らずに求める。
+- 書き戻したファイルで、変更で決めた形と画層（`manifest.json` の `expect`）、足した画層の色、色を変えた図形の色が、ezdxf で読んだ値と同じ。期待する値は、zumen の読みでなく、変更そのものと変換の行列から決める。当てる候補のない段は、`skipped` として束に残す。
 
-既知の食い違いは、`check_ezdxf.py` の `KNOWN` に issue と一緒に置き、失敗にしません。食い違いが出なくなったら失敗にして、`KNOWN` から消すことを知らせます。
+既知の食い違いは、`check_ezdxf.py` の `KNOWN` に、issue と当たるファイルの数と一緒に置き、失敗にしません。当たるファイルの数が変わったら（直ったか、同じ形の食い違いが増えた）失敗にして、`KNOWN` を直すことを知らせます。
 
 ## 外部の実装
 

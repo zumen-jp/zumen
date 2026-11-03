@@ -2,13 +2,14 @@
 
 zumen の CLI（`zumen serve --stdio`）で、公開サンプル（samples/）と適合試験の中で作った図面を開き、書き戻し
 （apply）と変換（convert）を当てて、書いたファイルを束のフォルダーに置く。zumen が読んだ値（drawing・tables・
-entities の応答）を、入力と書いたファイルのそれぞれについて置き、ファイルごとの出所・変更・期待する値を
-manifest.json に書く。外部の実装（check_ezdxf.py など）と、AutoCAD・Jw_cad・SXF のビューアーで開く人が、
+entities の応答）を、入力と書いたファイルのそれぞれについて置き、ファイルごとの出所・ライセンス・変更・期待する
+値を manifest.json に書く。外部の実装（check_ezdxf.py など）と、AutoCAD・Jw_cad・SXF のビューアーで開く人が、
 これを照らす。手順と期待する結果は README.md に書く。
 
 使い方: python make.py <zumen の実行ファイル> <束のフォルダー> [--inputs フォルダー]
 
---inputs のフォルダーの図面も入力にする（受け取った図面を使うとき）。その束は、Git にも CI の成果物にも入れない。
+束のフォルダーがあれば、前の束（manifest.json がある）か空のときだけ消して作り直す。--inputs のフォルダーの
+図面も入力にする（受け取った図面を使うとき）。その束は、リポジトリの外に作り、Git にも CI の成果物にも入れない。
 """
 
 import argparse
@@ -18,11 +19,16 @@ import math
 import shutil
 import subprocess
 import sys
+import tomllib
 from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FIELDS = ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
+# 診断ごとに返す場所の数。既定の 16 では、黙って捨てない照合で、場所のない図形を誤って数える
+MAX_PLACES = 100000
+# 適合試験の図面と束の台本のライセンス（このリポジトリと同じ）
+REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
 # 適合試験の中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
 CASES = [("open_jww.json", "a.jww"), ("open_sxf.json", "a.sfc"), ("open_sxf.json", "c.p21")]
@@ -52,7 +58,7 @@ class Zumen:
             raise RuntimeError(f"push {name}: {status}")
 
     def call(self, request):
-        result = self.rpc("call", {"request": {"v": 1, **request}})
+        result = self.rpc("call", {"request": {"v": 1, "max_places": MAX_PLACES, **request}})
         return result["status"], json.loads(result["response"]) if result.get("response") else None
 
     def take(self, blob):
@@ -119,23 +125,37 @@ def mapped(m, p):
 
 
 def transformed(geometry, m):
-    """相似の変換で写した形。回転と尺度は行列から読む"""
+    """相似の変換（鏡に映さない）で写した形。回転と尺度は行列から読む。写し方を決めていない形は例外にする"""
     turn = math.degrees(math.atan2(m[3], m[0]))
     scale = math.hypot(m[0], m[3])
     g = dict(geometry)
-    if g["shape"] in ("point", "symbol", "text", "formatted_text"):
+    shape = g["shape"]
+    if shape in ("point", "symbol", "text", "formatted_text"):
         g["position"] = mapped(m, g["position"])
         g["rotation"] = g.get("rotation", 0) + turn
-    if g["shape"] == "symbol":
+    if shape in ("text", "formatted_text"):
+        g["height"] = g["height"] * scale
+        if "end" in g:
+            g["end"] = mapped(m, g["end"])
+        if "width" in g:
+            g["width"] = g["width"] * scale
+    if shape == "symbol":
         g["scale"] = [v * scale for v in g["scale"]]
         if "grid" in g:
             g["grid"] = {**g["grid"], "column_spacing": g["grid"]["column_spacing"] * scale, "row_spacing": g["grid"]["row_spacing"] * scale}
-    if g["shape"] == "line":
+    if shape == "line":
         g["start"], g["end"] = mapped(m, g["start"]), mapped(m, g["end"])
-    if g["shape"] == "polyline":
+    if shape == "polyline":
         g["points"] = [mapped(m, p) for p in g["points"]]
-    if g["shape"] == "circle":
+    if shape in ("circle", "arc"):
         g["center"], g["radius"] = mapped(m, g["center"]), g["radius"] * scale
+    if shape == "arc":
+        g["start_angle"], g["end_angle"] = g["start_angle"] + turn, g["end_angle"] + turn
+    if shape == "ellipse":
+        # 角度は長軸から測るので変わらない
+        g["center"], g["major"] = mapped(m, g["center"]), mapped(m, g["major"])
+    if shape not in ("point", "symbol", "text", "formatted_text", "line", "polyline", "circle", "arc", "ellipse"):
+        raise ValueError(f"形 {shape} の変換の写し方を決めていない")
     return g
 
 
@@ -272,17 +292,20 @@ def run_recipe(z, out, entry, data, recipe):
         reading = read(z, doc)
         edits = make(reading)
         if not edits:
+            # 当てる候補がない段（例: 膨らみのないポリラインがない図面の移動）も、束に残して見えるようにする
+            record["steps"].append({"step": make.__name__, "edits": [], "skipped": True})
             continue
         request = [{k: v for k, v in e.items() if not k.startswith("_")} for e in edits]
         status, response = z.call({"op": "apply", "doc": doc, "edits": request})
-        step = {"edits": request, "status": status, "diagnostics": response["diagnostics"]}
+        step = {"step": make.__name__, "edits": request, "status": status, "diagnostics": response["diagnostics"]}
         record["steps"].append(step)
         if status != "ok":
             record["status"] = "failed"
             return record
         applied = response["result"]["applied"]
+        # 期待する形と、足した要素の画層
         step["expect"] = [
-            {"id": a.get("id"), "edit": i, "geometry": e["_expect"]}
+            {"id": a.get("id"), "edit": i, "geometry": e["_expect"], **({"layer": e["layer"]} if "layer" in e else {})}
             for i, (e, a) in enumerate(zip(edits, applied))
             if "_expect" in e and a.get("id")
         ]
@@ -442,6 +465,7 @@ zumen の CLI で、公開サンプル（`samples/`）と適合試験の中で�
 - `zumen/`: zumen が読んだ値（`drawing`・`tables`・`entities` の応答）。入力と書いたファイルのそれぞれ
 - `ezdxf.json`: DXF を ezdxf で読んで照らした結果（`check_ezdxf.py`）
 - `input/`: 入力の図面。書いたファイルを開く前に、同じソフトで入力も開き、入力から変わった所だけを比べる
+- `licenses/`: 入力のライセンスの本文。入力ごとのライセンスと表示は、下の「出所とライセンス」と `manifest.json` にある
 
 結果は、対象の issue に、ソフトと版・開けたか・監査の誤りの数・期待と違った所を書きます。確かめたことと、確かめられなかったことを分けて書きます。
 
@@ -449,7 +473,7 @@ zumen の CLI で、公開サンプル（`samples/`）と適合試験の中で�
 
 1. ファイルを開く（DXF は「開く」でファイルの種類を DXF にする）。開けなければ、出た文を記録して次へ進む。
 2. `AUDIT` を「いいえ」（直さない）で流し、見つかった誤りの数を記録する。期待は 0。
-3. `(load "dump.lsp")` と `(zv-dump "C:/zumen-verify/<ファイルの名前>.txt")` で、図形をハンドルごとに書き出す（`dump.lsp` は束にある）。下の表のハンドルの行を、期待する値と比べる。角度は度で書かれる。
+3. フォルダー `C:/zumen-verify/` を作り、`(load "dump.lsp")` と `(zv-dump "C:/zumen-verify/<ファイルの名前>.txt")` で、図形をハンドルごとに書き出す（`dump.lsp` は束にある）。下の表のハンドルの行を、期待する値と比べる。角度（50・51）は度に直して書く。楕円の 11（中心から長軸の端への向き）と 41・42（ラジアン）は、ファイルの値のまま書くので、表の「長軸の端」は中心に 11 を足して比べる。
 4. 画面でも、下の表の形が見えることを確かめる。
 
 画面なしで流すときは、`accoreconsole.exe /i <ファイル> /s <台本>` に、`(load …)`・`_.AUDIT _N`・`(zv-dump …)`・`_.QUIT _Y` の台本を渡す（`xtask/autocad/run.ps1` と同じ）。
@@ -511,6 +535,16 @@ SECTIONS = {
 def readme(out, manifest):
     files = manifest["files"]
     lines = [INTRO]
+    lines += [
+        "## 出所とライセンス",
+        "",
+        "`input/` の外の図面は、どれも下の入力を変えたものです（書き戻しと変換は zumen が、#314 の実験は `make.py` が変えた）。ライセンスの本文は `licenses/` にあります。",
+        "",
+        "| 入力 | ライセンス | 表示 |",
+        "| --- | --- | --- |",
+    ]
+    lines += [f"| `{f['path']}` | {f['license']} | {f['attribution']} |" for f in files if f["role"] == "input" and "license" in f]
+    lines.append("")
     for issue, (title, body) in SECTIONS.items():
         lines += [f"## {title}", "", body]
         chosen = [f for f in files if f.get("issue") == issue]
@@ -534,7 +568,7 @@ def expectation(out, f):
     if f["role"] == "probe":
         return "（ファイルなし）apply の応答: " + ", ".join(d["code"] for d in f["diagnostics"])
     if f.get("status") != "ok":
-        return "（書けなかった）" + ", ".join(d["code"] for s in f.get("steps", []) for d in s["diagnostics"])
+        return "（書けなかった）" + ", ".join(d["code"] for s in f.get("steps", []) for d in s.get("diagnostics", []))
     if f["role"] == "convert":
         dropped = Counter()
         for d in f["diagnostics"]:
@@ -548,9 +582,12 @@ def expectation(out, f):
     handles = {e["id"]: e.get("source", {}).get("handle") for e in reading["entities"]}
     items = []
     for step in f["steps"]:
+        if step.get("skipped"):
+            items.append(f"段 {step['step']} は当てる候補がなく、当てていない")
         for want in step.get("expect", []):
             handle = handles.get(want["id"])
-            items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}")
+            layer = f"・画層 {want['layer']}" if "layer" in want else ""
+            items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}{layer}")
         for edit in step["edits"]:
             if edit["kind"] == "point_style":
                 items.append("点の表し方: $PDMODE 67・$PDSIZE 4")
@@ -562,20 +599,24 @@ def expectation(out, f):
 
 
 def inputs(extra):
-    """入力の図面: 公開サンプル、適合試験の中で作った図面、--inputs のフォルダー"""
+    """入力の図面: 公開サンプル、適合試験の中で作った図面、--inputs のフォルダー。(道筋, 中身, 出所, ライセンス, 表示)"""
+    ledger = tomllib.loads((ROOT / "samples" / "ledger.toml").read_text(encoding="utf-8"))["samples"]
+    ledger = {item["path"]: item for item in ledger}
     found = []
     for path in sorted((ROOT / "samples").rglob("*")):
         if path.suffix.lower() in SUFFIXES:
-            found.append((f"input/{path.name}", path.read_bytes(), str(path.relative_to(ROOT).as_posix())))
+            item = ledger[path.relative_to(ROOT / "samples").as_posix()]
+            found.append((f"input/{path.name}", path.read_bytes(), path.relative_to(ROOT).as_posix(), item["license"], item["attribution"]))
     for case, name in CASES:
         steps = json.loads((ROOT / "bindings/conformance/cases" / case).read_text(encoding="utf-8"))["steps"]
         push = next(s["push"] for s in steps if s.get("push", {}).get("name") == name)
         data = bytes.fromhex(push["hex"]) if "hex" in push else push["text"].encode("utf-8")
-        found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}"))
+        found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
     if extra:
+        # 受け取った図面の束は配らないので、ライセンスを書かない
         for path in sorted(Path(extra).rglob("*")):
             if path.suffix.lower() in SUFFIXES:
-                found.append((f"input/local-{path.name}", path.read_bytes(), "--inputs"))
+                found.append((f"input/local-{path.name}", path.read_bytes(), "--inputs", None, None))
     return found
 
 
@@ -586,17 +627,26 @@ def main():
     parser.add_argument("--inputs")
     args = parser.parse_args()
     out = Path(args.out)
+    if args.inputs and out.resolve().is_relative_to(ROOT):
+        print("受け取った図面の束は、リポジトリの外に作る", file=sys.stderr)
+        return 2
     if out.exists():
+        # 誤って作業ツリーを指しても消さないよう、前の束か空のフォルダーだけを消す
+        if any(out.iterdir()) and not (out / "manifest.json").exists():
+            print(f"{out} は前の束でも空でもないので、消さない", file=sys.stderr)
+            return 2
         shutil.rmtree(out)
     out.mkdir(parents=True)
     z = Zumen(args.zumen)
     _, capabilities = z.call({"op": "capabilities"})
     files = []
-    for path, data, source in inputs(args.inputs):
+    for path, data, source, terms, attribution in inputs(args.inputs):
         fmt = SUFFIXES[Path(path).suffix.lower()]
         (out / path).parent.mkdir(parents=True, exist_ok=True)
         (out / path).write_bytes(data)
         entry = {"path": path, "role": "input", "format": fmt, "source": source, "open": open_file(z, path, data)}
+        if terms:
+            entry["license"], entry["attribution"] = terms, attribution
         save_reading(out, path, read(z, path))
         files.append(entry)
         for recipe in RECIPES:
@@ -612,10 +662,14 @@ def main():
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     readme(out, manifest)
     shutil.copy(Path(__file__).with_name("dump.lsp"), out / "dump.lsp")
+    # 束は公開サンプルと適合試験の図面の写しと、それを変えたファイルを配るので、ライセンスの本文を写す
+    (out / "licenses").mkdir()
+    for path in [*sorted((ROOT / "licenses").iterdir()), ROOT / "LICENSE-MIT", ROOT / "LICENSE-APACHE"]:
+        shutil.copy(path, out / "licenses" / path.name)
     # 当たらなかった変更と変換は、束を書き終えてから失敗にする（前は当たっていたものが当たらなくなったら知らせる）
     failed = [f for f in files if f.get("status") not in (None, "ok")]
     for f in failed:
-        print(f"{f['path']}: {f.get('status')} {[d['code'] for s in f.get('steps', []) for d in s['diagnostics']] or f.get('diagnostics')}", file=sys.stderr)
+        print(f"{f['path']}: {f.get('status')} {[d['code'] for s in f.get('steps', []) for d in s.get('diagnostics', [])] or f.get('diagnostics')}", file=sys.stderr)
     print(f"{len(files)} のファイル（当たらなかった組 {len(failed)}）を {out} に置いた")
     return 1 if failed else 0
 

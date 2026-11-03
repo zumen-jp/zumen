@@ -108,10 +108,11 @@ jobs:
       - name: CLI を作る
         run: cargo build --release --locked -p zumen-cli
       - name: 公開サンプルと適合試験の図面に書き戻しと変換を当て、確認の束を作る
+        id: make
         run: python -I xtask/verify/make.py target/release/zumen "$RUNNER_TEMP/verify"
       - name: 束の DXF を ezdxf で読み、zumen の読みと照らす
-        # 当たらなかった変更があっても、書いたファイルは照らす
-        if: ${{ !cancelled() }}
+        # 当たらなかった変更があっても、書いたファイルは照らす。CLI を作れず束がないときは流さない
+        if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
         run: python -I xtask/verify/check_ezdxf.py "$RUNNER_TEMP/verify"
       - name: 確認の束を成果物に置く
         if: always()
