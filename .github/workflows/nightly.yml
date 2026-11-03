@@ -47,6 +47,27 @@ jobs:
       - name: ブラウザーの中で包みを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
 
+  nextjs:
+    name: Next.js のサーバー側で包みを使う
+    # npm pack した包みを、Turbopack（設定なし）と webpack（serverExternalPackages）で standalone に組み、API ルートで
+    # 図面を開く（決定 0259）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の版の Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # docs/support.md の Node.js の下限
+          node-version: 22
+      - name: npm で配るのと同じ形で作る（決定 0205）
+        run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
+      - name: Next.js と React を、インストールのスクリプトを走らせずに入れる
+        working-directory: bindings/js/test/nextjs
+        run: npm ci --ignore-scripts
+      - name: Turbopack と webpack で組み、組んだサーバーの API ルートで公開サンプルの DXF を開く
+        run: node bindings/js/test/nextjs/run.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+
   cli:
     name: CLI・HTTP・WASI で適合試験
     # 階層 3 の言語が使う形を、言語に依らない試験の道具（bindings/conformance/cli.mjs）で流す（決定 0006・0013・0200、#403）
