@@ -36,14 +36,24 @@ export const WASM_EXPORTS = Object.freeze([
 /** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
-    description: "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57", "drawing"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation", "civil_drawing", "geo", "delivery_check", "photo", "sheet", "boring", "lift"]),
+    description: "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・表・ボーリング交換用データ",
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "drawing"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "sheet", "boring", "lift"]),
   }),
   bim: Object.freeze({
-    description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF",
+    description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）",
     formats: Object.freeze(["ifc"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "civil"]),
+  }),
+  civil: Object.freeze({
+    description: "土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）",
+    formats: Object.freeze(["landxml", "citygml", "fgd", "extdm"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "civil", "geo"]),
+  }),
+  pointcloud: Object.freeze({
+    description: "点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差",
+    formats: Object.freeze(["las", "ply", "xyz", "e57", "landxml"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]),
   }),
   plugin: Object.freeze({
     description: "プラグインの図面の形式を読み、図面モデルのバイナリにする",
@@ -63,21 +73,21 @@ export const DETECTION = Object.freeze([
   }),
   Object.freeze({
     format: "las",
-    module: "drawing",
+    module: "pointcloud",
     rules: Object.freeze([
       Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x4c, 0x41, 0x53, 0x46]) }),
     ]),
   }),
   Object.freeze({
     format: "ply",
-    module: "drawing",
+    module: "pointcloud",
     rules: Object.freeze([
       Object.freeze({ kind: "lines", lines: Object.freeze(["ply"]) }),
     ]),
   }),
   Object.freeze({
     format: "e57",
-    module: "drawing",
+    module: "pointcloud",
     rules: Object.freeze([
       Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x41, 0x53, 0x54, 0x4d, 0x2d, 0x45, 0x35, 0x37]) }),
     ]),
@@ -134,14 +144,14 @@ export const DETECTION = Object.freeze([
   }),
   Object.freeze({
     format: "citygml",
-    module: "drawing",
+    module: "civil",
     rules: Object.freeze([
       Object.freeze({ kind: "xml_root", name: "CityModel", namespace: "http://www.opengis.net/citygml/2.0" }),
     ]),
   }),
   Object.freeze({
     format: "fgd",
-    module: "drawing",
+    module: "civil",
     rules: Object.freeze([
       Object.freeze({ kind: "xml_root", name: "Dataset", namespace: "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema" }),
     ]),
@@ -155,7 +165,7 @@ export const DETECTION = Object.freeze([
   }),
   Object.freeze({
     format: "fgd",
-    module: "drawing",
+    module: "civil",
     rules: Object.freeze([
       Object.freeze({ kind: "zip_name", prefixes: Object.freeze(["FG-GML-"]), suffixes: Object.freeze([".xml", ".zip"]) }),
     ]),

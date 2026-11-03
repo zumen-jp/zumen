@@ -1,6 +1,6 @@
 {
   "description": "open は、CityGML 2.0 の根 CityModel で CityGML を見分け、地理の領域モデル（決定 0233、#379）に移す。geo は、座標系（PLATEAU の EPSG:6697 は、JGD2011 の経緯度 6668 と標高 6695）と地物の型ごとの数を返し、id で指した地物の分類コード・属性・形の要約を返す。建築物の LOD2 の立体は、壁の面を xlink:href で引き、同じ文書にない参照は診断する。",
-  "module": "drawing",
+  "module": "civil",
   "steps": [
     {
       "push": {

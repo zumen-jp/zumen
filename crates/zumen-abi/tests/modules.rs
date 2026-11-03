@@ -1,10 +1,11 @@
 //! wasm のモジュールを分けて作る（決定 0013・0221）。表は schema/boundary.toml から生成する。
 //!
 //! モジュールの試験は、そのモジュールの feature だけを入れて流す:
-//! `cargo test -p zumen-abi --no-default-features --features drawing --test modules`（bim も同じ）。
+//! `cargo test -p zumen-abi --no-default-features --features drawing --test modules`（bim・civil・pointcloud・plugin も
+//! 同じ）。
 
 use zumen_abi1::Session;
-use zumen_abi1::abi::{DETECTION, MODULES, Status, has_op};
+use zumen_abi1::abi::{DETECTION, MODULES, Status, has_format, has_op};
 use zumen_acad::{Dwg, Dxf};
 use zumen_base::CancelToken;
 use zumen_citygml::CityGml;
@@ -22,6 +23,18 @@ const DXF: &[u8] = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
 const IFC: &[u8] = b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n\
 FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
 #1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,$);\nENDSEC;\nEND-ISO-10303-21;\n";
+
+#[cfg(test)]
+fn enabled(name: &str) -> bool {
+    match name {
+        "drawing" => cfg!(feature = "drawing"),
+        "bim" => cfg!(feature = "bim"),
+        "civil" => cfg!(feature = "civil"),
+        "pointcloud" => cfg!(feature = "pointcloud"),
+        "plugin" => cfg!(feature = "plugin"),
+        other => panic!("知らないモジュール {other}"),
+    }
+}
 
 fn call(session: &mut Session, request: &str) -> (Status, String) {
     let reply = session.call(request.as_bytes(), &CancelToken::new());
@@ -75,12 +88,6 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
 
 #[test]
 fn answers_only_the_ops_of_the_modules_it_has() {
-    let enabled = |name: &str| match name {
-        "drawing" => cfg!(feature = "drawing"),
-        "bim" => cfg!(feature = "bim"),
-        "plugin" => cfg!(feature = "plugin"),
-        other => panic!("知らないモジュール {other}"),
-    };
     let mut session = Session::new(b"").unwrap();
     let (status, capabilities) = call(&mut session, r#"{"v":1,"op":"capabilities"}"#);
     assert_eq!(status, Status::Ok);
@@ -129,5 +136,53 @@ fn opens_only_the_formats_of_the_modules_it_has() {
     } else {
         // 図面のモジュールでは、同じ始まりの SXF として読み、スキーマが合わずに失敗する
         assert_eq!(status, Status::Failed, "{response}");
+    }
+}
+
+#[test]
+fn lists_only_the_formats_of_the_modules_it_has() {
+    let mut session = Session::new(b"").unwrap();
+    let (status, capabilities) = call(&mut session, r#"{"v":1,"op":"capabilities"}"#);
+    assert_eq!(status, Status::Ok);
+    for module in MODULES {
+        for format in module.formats {
+            let expected = MODULES
+                .iter()
+                .any(|m| enabled(m.name) && m.formats.contains(format));
+            assert_eq!(has_format(format), expected, "{format}");
+        }
+    }
+    // 図面・土木地理・点群の形式（決定 0253）。J-LandXML は 3 つのモジュールが持つ
+    for format in [
+        "dxf", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57",
+    ] {
+        assert_eq!(
+            capabilities.contains(&format!(r#""id":"{format}""#)),
+            has_format(format),
+            "{format}"
+        );
+    }
+    assert_eq!(
+        has_format("landxml"),
+        enabled("drawing") || enabled("civil") || enabled("pointcloud")
+    );
+}
+
+#[test]
+fn names_extended_dm_and_xyz_only_in_their_modules() {
+    for (format, module) in [("extdm", "civil"), ("xyz", "pointcloud")] {
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dat", b"").unwrap();
+        let (_, response) = call(
+            &mut session,
+            &format!(r#"{{"v":1,"op":"open","input":"a.dat","format":"{format}"}}"#),
+        );
+        // 持たないモジュールでは、名指した形式を値の誤りとして断る
+        assert_eq!(
+            response.contains(r#""code":"call.value.invalid""#)
+                && response.contains(r#""/format""#),
+            !enabled(module),
+            "{format}: {response}"
+        );
     }
 }

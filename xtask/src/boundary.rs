@@ -680,6 +680,31 @@ pub fn render_rust(boundary: &Boundary) -> String {
             .collect();
         out.push_str(&terms.join(" || "));
         out.push_str("\n}\n\n");
+        out.push_str("/// このビルドに入れたモジュールのどれかが、形式を持つか\npub fn has_format(format: &str) -> bool {\n    ");
+        // 形式を持たないモジュール（plugin）は飛ばす
+        let terms: Vec<String> = boundary
+            .modules
+            .iter()
+            .filter(|module| !module.formats.is_empty())
+            .map(|module| {
+                let formats: Vec<String> = module
+                    .formats
+                    .iter()
+                    .map(|format| format!("\"{format}\""))
+                    .collect();
+                format!(
+                    "(cfg!(feature = \"{}\") && matches!(format, {}))",
+                    module.name,
+                    formats.join(" | ")
+                )
+            })
+            .collect();
+        if terms.is_empty() {
+            out.push_str("let _ = format;\n    false");
+        } else {
+            out.push_str(&terms.join(" || "));
+        }
+        out.push_str("\n}\n\n");
     }
     if !boundary.detection.is_empty() {
         out.push_str("/// 形式の判定。`rules` のどれかに合えば、`format` とする\npub struct Detection {\n    /// 形式\n    pub format: &'static str,\n    /// 形式を持つモジュール\n    pub module: &'static str,\n    /// 規則\n    pub rules: &'static [zumen_sdk::Signature],\n}\n\n");

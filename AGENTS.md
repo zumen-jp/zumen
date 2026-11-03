@@ -4,7 +4,7 @@
 
 ## 最初に確認すること
 
-- 作業を選ぶときは、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の段階の issue を開き、子 issue を上から見る。閉じていない葉の issue のうち、「待ち: 利用者」と「作業中」のラベルがなく、依存で止められていないものを選ぶ。「待ち: 試料」「待ち: 検証環境」の issue では、まず待ちを減らす。手順は [作業の選び方](docs/work.md) にある（[決定 0174](docs/decisions/0174-plan-in-issues.md)・[0253](docs/decisions/0253-parallel-agents-and-cross-review.md)）。利用者が対象を指定したときは、その依頼を優先する。
+- 作業を選ぶときは、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の段階の issue を開き、子 issue を上から見る。閉じていない葉の issue のうち、「待ち: 利用者」と「作業中」のラベルがなく、依存で止められていないものを選ぶ。「待ち: 試料」「待ち: 検証環境」の issue では、まず待ちを減らす。手順は [作業の選び方](docs/work.md) にある（[決定 0174](docs/decisions/0174-plan-in-issues.md)・[0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。利用者が対象を指定したときは、その依頼を優先する。
 - 対象 issue の本文・コメント、関連する開いた PR、手元の変更と worktree を確認する。issue が開いているだけで、未着手とは判断しない。
 - issue の完了条件と、採用済みの決定・main の実装を照らす。設計済みのことを決め直さず、残っている成果物を特定する。
 - 着手時に「対象 issue・今回作るもの・完了を確かめる方法」を短く示す。着手は issue のコメントで名乗り、名乗りが通ったらラベル「作業中」を付ける（下の「並行して進める」）。条件がそろわない場合の扱いと、引き継ぎの手順は [作業の選び方](docs/work.md) に従う。
@@ -12,7 +12,7 @@
 
 ## 並行して進める
 
-複数のエージェントが同時に進める。人を待つのは、人にしかできないことだけにする。全体は [決定 0253](docs/decisions/0253-parallel-agents-and-cross-review.md) にある。
+複数のエージェントが同時に進める。人を待つのは、人にしかできないことだけにする。全体は [決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md) にある。
 
 - **人を待つもの。** 次のことだけ。ほかの判断は、選択肢と理由を書いて決める。
   - 権利者への問い合わせ、契約・規約への同意（同意の要る道具を入れることを含む）、費用のかかること
@@ -41,7 +41,7 @@
 - 公開仕様に従って実装し、コメントに仕様の節を書く。推定した挙動は `docs/formats/` に記録する。
 - 公開に第三者の許諾が要る形式（ST-Bridge など）は、このリポジトリに入れない。外部のプラグインとして作る（旧版の決定 0013）。
 - 形式を足す前に、`formats/ledger.toml` に仕様の入手先と権利を記録する。権利が `public` でない形式は、コアに入れない（[決定 0017](docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)、`formats/README.md`）。
-- 形式・版・向き（読む・書く）を足す issue は、次をそろえて閉じる。外部の実装があれば、照らす試験。決定 0171 の条件に合う公開サンプルがあれば、読む試験（なければ、探した所を形式の文書に書く）。fuzz の対象とテストキットの契約試験。確かめた度合い（`synthetic`・`external`・`application`）の節。ほかの変更は、変えた所の試験を足し、度合いの節を直す（[決定 0253](docs/decisions/0253-parallel-agents-and-cross-review.md)）。
+- 形式・版・向き（読む・書く）を足す issue は、次をそろえて閉じる。外部の実装があれば、照らす試験。決定 0171 の条件に合う公開サンプルがあれば、読む試験（なければ、探した所を形式の文書に書く）。fuzz の対象とテストキットの契約試験。確かめた度合い（`synthetic`・`external`・`application`）の節。ほかの変更は、変えた所の試験を足し、度合いの節を直す（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
 - 照合に使う外部の実装は、Cargo の依存（dev を含む）にせず、ソースもバイナリもリポジトリに入れず、別に入れたプログラムとして呼ぶ（[決定 0011](docs/decisions/0011-bindings-through-ffi.md) の道具の表）。入っていない環境では試験を飛ばす。食い違いは、仕様と出力・診断を比べて調べ、外部の実装のソースは寛容なライセンスのものだけを読む。
 - 国土地理院のジオイド・モデルや座標変換のパラメーターを、Git・パッケージ・試験に入れない。利用者が入手して渡す（[決定 0019](docs/decisions/0019-coordinate-systems-and-gsi-data.md)）。
 - 実行時の依存とリンクする依存は、寛容なライセンス（MIT・Apache-2.0・BSD・ISC・Zlib など）に限る。GPL・AGPL・LGPL・MPL は入れない。Cargo の依存（build・dev を含む）と、生成したコードを成果物に入れる道具も、寛容なライセンスに限る（[決定 0011](docs/decisions/0011-bindings-through-ffi.md)）。
@@ -51,7 +51,7 @@
 ## 図面と秘密
 
 - 受け取った図面を Git に入れない。リポジトリの外のフォルダーを `ZUMEN_SAMPLES` に指定して開く。`ZUMEN_SAMPLES` が指定されていれば、試験で読んでよい。結果（issue・PR・ログ）に、ファイル名・顧客の名前・図面の中身を書かない。
-- 公開サンプルは、再配布を認めるライセンスのものだけを `samples/` に入れ、出所とライセンスを `samples/ledger.toml` に書く。ライセンスがはっきりしなければ入れず、理由を issue に書く。どうしても入れたいときは、権利者への問い合わせとして利用者に頼む（[決定 0171](docs/decisions/0171-public-samples-in-git.md)・[0253](docs/decisions/0253-parallel-agents-and-cross-review.md)）。
+- 公開サンプルは、再配布を認めるライセンスのものだけを `samples/` に入れ、出所とライセンスを `samples/ledger.toml` に書く。ライセンスがはっきりしなければ入れず、理由を issue に書く。どうしても入れたいときは、権利者への問い合わせとして利用者に頼む（[決定 0171](docs/decisions/0171-public-samples-in-git.md)・[0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
 - 試験は、規則を確かめる最小のファイルを、試験の中で作る。
 - 顧客の名前・図面と、非公開のリポジトリの情報を書かない。
 
@@ -61,7 +61,7 @@
 - **黙って捨てない。** 描かないもの・形を変えて書いたものは、診断として種類・件数・場所を返す。
 - **ID は契約。** 同じバイト列は、どの版でも同じ ID を返す。ID を変える変更には、先に決定の記録が要る。
 - **受け取ったファイルを信用しない。** パニックしない。再帰とループには上限を付ける。繰り返しは回数で数え、浮動小数の足し算で終わりを決めない（#486）。予算は、明示的な文脈で渡し、時間ではなく決まった作業量で数える（[決定 0010](docs/decisions/0010-budget-by-work.md)）。
-- **境界は足すだけ。** 各言語へは、数個の関数と、スキーマで定めたメッセージだけで届ける（[決定 0012](docs/decisions/0012-boundary-functions-and-messages.md)）。関数・op・欄・列挙の値は足すだけにし、消さず、名前と意味を変えない（[決定 0015](docs/decisions/0015-add-only-boundary-and-version-floors.md)）。ただし 1.0 より前は、整理のために壊してよい。壊す判断は決定の記録にし、PR のタイトルの種別に `!` を付けて（`feat(abi)!: …`）、本文に移り方を書く。ID の規則は、この例外に入らない。形式や用途ごとの op を足す前に、領域の op（`drawing`・`building`・`civil`・`geo`・`pointcloud` など）で表せないかを確かめる（[決定 0253](docs/decisions/0253-parallel-agents-and-cross-review.md)）。
+- **境界は足すだけ。** 各言語へは、数個の関数と、スキーマで定めたメッセージだけで届ける（[決定 0012](docs/decisions/0012-boundary-functions-and-messages.md)）。関数・op・欄・列挙の値は足すだけにし、消さず、名前と意味を変えない（[決定 0015](docs/decisions/0015-add-only-boundary-and-version-floors.md)）。ただし 1.0 より前は、整理のために壊してよい。壊す判断は決定の記録にし、PR のタイトルの種別に `!` を付けて（`feat(abi)!: …`）、本文に移り方を書く。ID の規則は、この例外に入らない。形式や用途ごとの op を足す前に、領域の op（`drawing`・`building`・`civil`・`geo`・`pointcloud` など）で表せないかを確かめる（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
 
 ## 開発の手順
 
@@ -76,7 +76,7 @@
 - 応答が変わったら、適合試験のハッシュの一覧を `cargo run -p zumen-conformance -- --write` で作り直し、変わった理由を PR に書く（`bindings/conformance/README.md`）。
 - コミットと PR のタイトルは Conventional Commits にする。
 - 選択肢と理由のある設計判断は、`docs/decisions/README.md` の形で記録する。
-  - 記録にするのは、境界・ID・層とモデル・依存・権利・形式をまたぐ振る舞い・作業の進め方に関わる判断に限る。形式ごとの欄や符号化の細部は、決定にせず `docs/formats/` に書く（[決定 0253](docs/decisions/0253-parallel-agents-and-cross-review.md)）。
+  - 記録にするのは、境界・ID・層とモデル・依存・権利・形式をまたぐ振る舞い・作業の進め方に関わる判断に限る。形式ごとの欄や符号化の細部は、決定にせず `docs/formats/` に書く（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
   - 番号は 0001 から振る。番号を振る前に、開いている PR が同じ番号を使っていないか確かめる。
   - 旧版の記録は「旧版の決定 0013」と書いて、リンクする。
 - issue で旧版の issue を指すときは、`zumen-jp/zumen-legacy#番号` と書く。

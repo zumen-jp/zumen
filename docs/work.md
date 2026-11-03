@@ -1,6 +1,6 @@
 # 次の作業を選ぶ
 
-利用者から作業を任されたエージェントと開発者の入口です。計画は [全体計画 #1](https://github.com/zumen-jp/zumen/issues/1) の下の issue で持ちます（[決定 0174](decisions/0174-plan-in-issues.md)）。複数のエージェントが同時に進め、人を待つのは人にしかできないことだけにします（[決定 0253](decisions/0253-parallel-agents-and-cross-review.md)）。この文書は、その読み方と手順だけを書きます。
+利用者から作業を任されたエージェントと開発者の入口です。計画は [全体計画 #1](https://github.com/zumen-jp/zumen/issues/1) の下の issue で持ちます（[決定 0174](decisions/0174-plan-in-issues.md)）。複数のエージェントが同時に進め、人を待つのは人にしかできないことだけにします（[決定 0254](decisions/0254-parallel-agents-and-cross-review.md)）。この文書は、その読み方と手順だけを書きます。
 
 ## 何を確認するか
 

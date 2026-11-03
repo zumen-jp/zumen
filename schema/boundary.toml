@@ -149,22 +149,36 @@ params = [
 
 [[modules]]
 name = "drawing"
-description = "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ"
-formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57", "drawing"]
+description = "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・表・ボーリング交換用データ"
+formats = ["dxf", "dwg", "sxf", "jww", "landxml", "drawing"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
-    "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation",
-    "civil_drawing", "geo", "delivery_check", "photo", "sheet", "boring", "lift",
+    "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "sheet", "boring",
+    "lift",
 ]
 
 [[modules]]
 name = "bim"
-description = "IFC と建物モデル、EXPRESS・IDS の照合と BCF"
+description = "IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）"
 formats = ["ifc"]
 ops = [
     "capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements",
-    "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply",
+    "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "civil",
 ]
+
+# 土木・地理のモジュール（決定 0253）。J-LandXML は図面のモジュールにも置く
+[[modules]]
+name = "civil"
+description = "土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）"
+formats = ["landxml", "citygml", "fgd", "extdm"]
+ops = ["capabilities", "open", "close", "describe", "civil", "geo"]
+
+# 点群のモジュール（決定 0232・0253）。設計の TIN との差のために、J-LandXML も読む
+[[modules]]
+name = "pointcloud"
+description = "点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差"
+formats = ["las", "ply", "xyz", "e57", "landxml"]
+ops = ["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]
 
 # プラグインのモジュールの土台（決定 0247）。プラグインの crate と一緒に作り、コアの形式は持たない。読んだ図面は、
 # lift で図面モデルのバイナリにして、図面のモジュールの open に渡す
@@ -188,19 +202,19 @@ rules = [{ step-schema = "IFC" }]
 # LAS・LAZ。範囲で読むので、入力の初めの部分だけで見分ける（決定 0232）
 [[detection]]
 format = "las"
-module = "drawing"
+module = "pointcloud"
 rules = [{ offset = 0, bytes = "LASF" }]
 
 # PLY。XYZ は見分ける印がないので、判定に入れない（決定 0232）
 [[detection]]
 format = "ply"
-module = "drawing"
+module = "pointcloud"
 rules = [{ lines = ["ply"] }]
 
 # E57。全体を渡す
 [[detection]]
 format = "e57"
-module = "drawing"
+module = "pointcloud"
 rules = [{ offset = 0, bytes = "ASTM-E57" }]
 
 # 図面モデルのバイナリ（決定 0247）。open は元の文書の形式を返すので、判定の形式は blob の種類の名前 drawing にする
@@ -246,13 +260,13 @@ rules = [{ xml-root = "LandXML", namespace = "http://www.landxml.org/schema/Land
 
 [[detection]]
 format = "citygml"
-module = "drawing"
+module = "civil"
 rules = [{ xml-root = "CityModel", namespace = "http://www.opengis.net/citygml/2.0" }]
 
 # 基盤地図情報（GML）。根の Dataset と名前空間で見分ける（#378）
 [[detection]]
 format = "fgd"
-module = "drawing"
+module = "civil"
 rules = [{ xml-root = "Dataset", namespace = "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema" }]
 
 # ZIP に入れた SXF（SFZ・P2Z）。ifcZIP より前に、書庫の項目の名前で分ける
@@ -265,7 +279,7 @@ rules = [{ zip-entry = [".p21", ".sfc"] }]
 # ほかの ZIP の形式と分ける（決定 0251）。open は SFZ・P2Z の後、ifcZIP の前に試す
 [[detection]]
 format = "fgd"
-module = "drawing"
+module = "civil"
 rules = [{ zip-entry = [".xml", ".zip"], zip-prefix = ["FG-GML-"] }]
 
 # ifcZIP。ZIP の署名はほかの形式とも重なるので、最後に試す
