@@ -120,7 +120,8 @@ jobs:
           targets=$(cargo "+$NIGHTLY" fuzz list)
           # 流す手順で通らなかった target は、見つけた入力の元を残すため、縮めない。縮める処理は、落ちる入力・止まらない
           # 入力・メモリを使い過ぎる入力を artifact に書いて飛ばし、0 で終わる。内側を立て直した回数（attempt）か、そうした
-          # 入力が増えたら、縮める前の種を残して、この手順を失敗させる
+          # 入力が増えたとき、1 つの target を縮めるのに 20 分を超えたとき、0 で終わらなかったときは、縮める前の種を残して、
+          # この手順を失敗させる
           printf '%s\n' $targets | xargs -P 4 -I '{}' sh -c '
             bin="fuzz/target/x86_64-unknown-linux-gnu/release/$1"
             [ -x "$bin" ] && [ -d "fuzz/corpus/$1" ] || exit 0
@@ -159,7 +160,7 @@ jobs:
               tail -n 80 "$logs/$target.log"
               echo "::endgroup::"
             done
-            echo "::error::種を縮めるときに、落ちる入力・止まらない入力・メモリの使い過ぎを見つけた target: $(echo $failed)。縮める前の種を残した。入力は artifact の fuzz-artifacts にある"
+            echo "::error::種を縮められなかった target: $(echo $failed)。落ちる入力・止まらない入力・メモリの使い過ぎを見つけたか、20 分で縮め終わらなかった。縮める前の種を残した。見つけた入力は artifact の fuzz-artifacts にある"
             exit 1
           fi
       - name: 育てた種を、次の夜のために残す
